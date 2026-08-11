@@ -37,7 +37,7 @@ there for a specific game if that's wanted later — see the Extensibility secti
 `agent_docs/contract.md` and the matching ADR in `agent_docs/architecture.md` for the
 mechanism (an opaque, per-adapter event plane; nothing built yet, just reserved).
 
-Depth ladder, for calibrating what's cheap vs. what's a different project:
+Depth ladder — what MeshGhost can support, per game:
 
 | Tier | What | Game writes? | Cost |
 |---|---|---|---|
@@ -45,7 +45,6 @@ Depth ladder, for calibrating what's cheap vs. what's a different project:
 | 1 — cosmetic+ | nameplates, emotes, text chat, "friend entered Route 103" pings, shared timers | none | cheap; possible, deliberately not scheduled |
 | 2 — read-only shared context | see a friend's party/badges/progress in an overlay | none | moderate; still no risk |
 | 3 — consensual interaction | trading, battling | yes | the cliff — a category jump, not a bigger Tier 2. Needs its own ADR, per-game, opt-in. |
-| 4 — authoritative shared world | genuinely shared game state | yes | out of scope, permanently |
 
 Tier 1 items are recorded here as things that are possible and cheap (they need no game
 writes), specifically **not scheduled** — phase discipline means finishing the two-player
@@ -55,6 +54,40 @@ Tier 3 (Emerald trading/battling, concretely) is gated on two things, neither se
 that accepts the save-corruption risk memory writes carry, and the Archipelago-coexistence
 test below, since Archipelago already patches the Emerald ROM and writes memory via its own
 BizHawk Lua connector.
+
+### Below the line: full co-op is a different project, not a Tier 4
+
+"Everything in the game synced, full online co-op" is not the next rung on this ladder, and
+not because of effort. Tier 3 works because a trade or a battle is a **bounded, consensual,
+episodic session**: it starts, both sides explicitly agree, authority is handed over for its
+duration, it ends, both games resume independently. Full co-op is **continuous and needs a
+permanent arbiter** — no start/end/consent moment, and something has to resolve every
+conflict forever: who picked up the item, whose RNG applies, what happens when one player is
+in a menu and the other isn't.
+
+Three concrete blockers, none of them about how much time it would take:
+
+- **No authority model, by design.** The relay is a dumb forwarder; each client is
+  authoritative over only itself. Continuous co-op needs an arbiter MeshGhost deliberately
+  doesn't have.
+- **Any arbiter would have to be game-aware** — items, combat, RNG — which breaks the single
+  most important invariant in this project: `internal/core` and `internal/relay` never know
+  game specifics.
+- **Two independent simulations is the founding premise** (the brief accepts desync as
+  correct behavior). Full co-op needs the simulations to agree, which means either lockstep
+  determinism (not viable with two save files and independent menus/RNG) or authoritative
+  state replication — i.e. rewriting the target game's netcode. For Emerald that's the
+  brief's own "decomp ROM hack, heaviest" tier, applied to the whole game instead of one
+  sprite.
+
+The brief's own numbers make this concrete: relay, interpolation, and schema are ~100%
+reusable across games; reading position and rendering a ghost are ~0% reusable. A full-co-op
+project is *nothing but* the ~0%-reusable kind of work — there is no shared abstraction left
+for MeshGhost to contribute beyond raw transport. So: **full co-op for a specific game is a
+separate, per-game project** (effectively netcode grafted onto that game) that could reuse
+MeshGhost's relay/transport as a building block, but not its core, and would need its own ADR
+before any work started. This is not a future phase of MeshGhost; it doesn't get a tier
+number here on purpose.
 
 ## Current status
 

@@ -36,6 +36,39 @@ calls into the core — never the reverse — means there's one calling conventi
 adapter, checked for real at Phase 5 rather than discovered as a mismatch then. See
 `agent_docs/contract.md`'s tick model section for the reasoning that produced this.
 
+## Package boundaries
+
+Enforced dependency graph for the Go module, added as a compiling type skeleton (zero logic,
+`go build ./...` and `go vet ./...` both pass clean) on 2026-08-11:
+
+```text
+internal/protocol   — message types + JSON shapes. No internal deps. Lowest layer.
+internal/transport  — generic NDJSON/TCP framing. Defines its own Transport interface;
+                       no internal deps (byte-level only, doesn't know message shapes).
+internal/bridge     — adapter<->core message shapes (LocalState/RenderRemote/DespawnRemote).
+                       Imports protocol only.
+internal/core       — snapshot buffer, interpolation, remote-player tracking. Imports
+                       protocol, transport (bridge import arrives with the Phase 3 listener).
+internal/relay      — room membership, forwarding, limits. Imports protocol, transport.
+                       Never imports core or bridge — the relay stays ignorant of
+                       adapter-side concerns, same as it's ignorant of games.
+cmd/meshghost       — desktop app entry point. Imports core (transport/bridge arrive with
+                       real wiring in Phase 3).
+cmd/meshghost-relay — standalone relay entry point. Imports relay.
+```
+
+**Hard rule:** `internal/core` and `internal/relay` may never import anything under
+`adapters/`. There's no Go code under `adapters/` today (BizHawk is Lua), but the rule holds
+regardless — it's the Go-level enforcement of "the core never touches the game," parallel to
+the existing "no `if game == \"emerald\"`" rule. Checked manually at time of writing; a
+`go vet` or import-graph lint enforcing it automatically is worth adding once there's a
+second package under `adapters/` to violate it.
+
+The one Go interface in the skeleton, `core.Adapter`, is deliberately scoped in its doc
+comment to the Phase 5 in-process fake/test adapter only — real adapters (BizHawk Lua, any
+future host) speak the `internal/bridge` wire protocol and never implement it. Conflating the
+two would wrongly suggest Lua adapters need Go bindings.
+
 ## Decision log (ADRs)
 
 Format: Date / Decision / Status / Context / Options considered / Resolution / Consequences.
@@ -176,3 +209,15 @@ Format: Date / Decision / Status / Context / Options considered / Resolution / C
   handles game-memory writes and save-corruption risk, since that is a different risk
   category than anything reading-only work carries. See the depth ladder in
   `agent_docs/plans.md` for the tiers this opens up and where the real cliff is.
+
+  This reservation has a ceiling, and the two reasons something sits above it are different in
+  kind, not just degree — a future session must not conflate them. **Tier 3** (trading,
+  battling — bounded, consensual, episodic sessions) is *unapproved but architecturally
+  possible*: the event plane above is exactly the mechanism it would use, and building it only
+  needs its own per-feature ADR. **Full continuous co-op** ("everything synced") is
+  *architecturally excluded*, not merely unapproved: the relay has no authority model and
+  deliberately never will, since giving it one would require the relay to understand the game,
+  which is the one thing this whole architecture exists to prevent. No ADR can lift that one
+  the way an ADR can lift the Tier 3 non-goal — it would require a different relay design, at
+  which point it is a different project. See `agent_docs/plans.md`'s depth ladder for the full
+  reasoning.

@@ -133,6 +133,13 @@ wanted. This section reserves the extension point; it does not build the extensi
 **Envelope addition (reserved):** a `to` field — a `player_id`, or absent for room broadcast.
 Not implemented at the relay yet; see the Phase 3 note below.
 
+**Scope limit:** the event plane is for *bounded, consensual* interactions between two
+specific players — a trade offer, a battle turn — not a path to continuous authoritative
+sync. It carries the same shape either way, so this has to be stated rather than inferred:
+see the depth ladder in `agent_docs/plans.md` for why "everything in the game synced" is a
+different, per-game project that could reuse the relay/transport but not `internal/core`,
+rather than something this event plane grows into.
+
 **Why this is documented now and built later, specifically:** building `event` routing before
 any adapter sends an event would add code with no consumer — nothing to watch happening on
 screen, which is exactly what this project's verification standard exists to prevent. The
