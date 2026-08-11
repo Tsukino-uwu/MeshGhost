@@ -1,0 +1,23 @@
+# Build output
+/dist/
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Go
+/vendor/
+
+# OS cruft
+.DS_Store
+Thumbs.db
+
+# Editor/tooling local settings
+.claude/settings.local.json
+
+# Emulator saves/states (never commit ROMs or save data)
+*.sav
+*.state
+*.srm
+*.rom
+*.gba
