@@ -52,6 +52,24 @@ but JSON was the user's explicit preference and the downside is mitigated by shi
 not structure) and by `cmd/meshghost`/`cmd/meshghost-relay` logging a clear parse-error
 warning rather than failing silently.
 
+## Known issue: asset naming isn't obvious to a non-technical downloader
+
+Raised by the user after the actual `v0.1.0` release, looking at the real GitHub Releases
+page: `meshghost-relay-...zip` doesn't read as "this is the server, host this" and
+`meshghost-emerald-player-...zip` doesn't read as "this is the client/mod you need to join" to
+someone with low/no coding experience just trying to figure out which file to click. The
+current names are accurate to the project's own internal terminology (`agent_docs/contract.md`
+calls it "the relay") but that's exactly the problem — a downloader doesn't know or care about
+this project's internal vocabulary, they want to know "am I hosting or joining."
+
+Not fixed yet — logged for later. Direction discussed: rename around what a downloader is
+actually trying to do rather than what the component is architecturally called, e.g.
+`meshghost-server-...zip` / `meshghost-emerald-client-...zip` (or `-host-`/`-client-`). Cheap
+change when it happens: the zip-naming lines in `.github/workflows/release.yml`, the
+`packaging/relay/` and `packaging/emerald-player/` folder names themselves, and every
+cross-reference to those folder names in this file and the two package `README.txt`s. Purely a
+renaming exercise — no functional change.
+
 ## Cutting a release
 
 Manual only, deliberately — nothing publishes on its own just from pushing a commit or tag.

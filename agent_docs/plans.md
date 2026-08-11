@@ -227,7 +227,15 @@ someone actually clicking the button) so a non-technical friend doesn't need to 
 source — see `packaging/README.md` for the full design (why two zips, why JSON config, why no
 password yet, why manual). Confirmed working via a local dry run (real relay + real client
 processes, config-only, no flags) before being committed — not just "should work." `README.md`
-points to the Releases page.
+points to the Releases page. `v0.1.0` cut successfully 2026-08-11 (first real release,
+verified end-to-end, not just the local dry run).
+
+**Deferred, logged in `packaging/README.md`:** the `meshghost-relay-...`/
+`meshghost-emerald-player-...` zip names don't read as "server"/"client" to a non-technical
+downloader — raised by the user after seeing the real `v0.1.0` release page. Direction: rename
+around what a downloader is trying to do (`-server-`/`-client-` or `-host-`/`-client-`) rather
+than the project's internal terminology. Not fixed yet; see that file for the full note and
+exactly what would need to change.
 
 ## Links
 
