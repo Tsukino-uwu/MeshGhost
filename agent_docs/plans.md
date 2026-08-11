@@ -40,7 +40,7 @@ mechanism (an opaque, per-adapter event plane; nothing built yet, just reserved)
 Depth ladder — what MeshGhost can support, per game:
 
 | Tier | What | Game writes? | Cost |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | 0 — cosmetic ghost (today) | position, area, anim | none | the current project |
 | 1 — cosmetic+ | nameplates, emotes, text chat, "friend entered Route 103" pings, shared timers | none | cheap; possible, deliberately not scheduled |
 | 2 — read-only shared context | see a friend's party/badges/progress in an overlay | none | moderate; still no risk |

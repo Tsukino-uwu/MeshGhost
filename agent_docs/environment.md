@@ -7,8 +7,8 @@ Phase 1 actually sets up BizHawk — do not pre-fill version numbers from memory
 
 - OS: Windows 11 Pro (dev machine). Cross-platform build targets: Windows, Linux, macOS —
   not yet built or tested on the latter two.
-- Go toolchain: not yet confirmed installed. Needed before any `cmd/` or `internal/`
-  package gets real logic (currently skeleton-only, per Phase 0).
+- Go toolchain: **confirmed installed**, `go1.26.5 windows/amd64` (`go version`, 2026-08-11).
+  `go build ./...` and `go vet ./...` both pass clean on the current type skeleton.
 
 ## BizHawk / Emerald (to fill during Phase 1)
 
