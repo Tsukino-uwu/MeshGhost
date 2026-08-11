@@ -208,15 +208,24 @@ the contract holds up outside Emerald. First task is verifying TEVI's IL2CPP vs 
 
 Not a numbered phase because it doesn't gate the games-side milestones. Add shared-secret
 room codes to the relay so a session isn't just a bare IP:port. Scheduled after Phase 4
-proves the two-player path works at all.
+proves the two-player path works at all. **Still not built** — the relay remains no-auth
+(`agent_docs/architecture.md`'s ADR); `room` today is a plain label, not a secret.
 
-Whatever config mechanism ends up carrying a room code to a non-technical friend (config
-file, simple launcher, join-link) is also the natural place to bundle other
-currently-CLI-flag-only, friend-facing settings — raised during Phase 4 testing: interpolation
-delay (`-interp`, `internal/core`'s `DefaultInterpolationDelay` / per-`Core` override, currently
-100ms default / 200ms in this project's own launch scripts). Keep `200ms` as the shipped
-default; let it be overridden through whatever this config mechanism turns out to be. Not
-designed yet — don't build it speculatively before room codes work actually starts.
+The config-file mechanism this section anticipated now exists (2026-08-11, alongside the
+release-packaging work below), ahead of room codes themselves: `cmd/meshghost`/
+`cmd/meshghost-relay` both load an optional `-config=config.json` (defaults to `config.json`
+next to the exe; explicit CLI flags still override individual fields). `interp` is not yet one
+of the loadable fields — cheap to add whenever it's actually wanted; not done speculatively.
+When room codes are actually designed, this is where the secret goes.
+
+### Release packaging (not a phase, tooling)
+
+Added 2026-08-11. `packaging/relay/` and `packaging/emerald-player/` are the source templates
+for two downloadable zips (built by `.github/workflows/release.yml` on a `v*` tag push) so a
+non-technical friend doesn't need to build from source — see `packaging/README.md` for the
+full design (why two zips, why JSON config, why no password yet). Confirmed working via a
+local dry run (real relay + real client processes, config-only, no flags) before being
+committed — not just "should work." `README.md` points to the Releases page.
 
 ## Links
 

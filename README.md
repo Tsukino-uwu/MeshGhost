@@ -11,6 +11,14 @@ ghosts — position, facing, walking, and running all tracked live, no shared wo
 `agent_docs/status.md` for exactly where things stand and `agent_docs/plans.md` for the
 phase-by-phase roadmap.
 
+## Playing right now (Emerald)
+
+No need to build anything: grab the latest release from the
+[Releases page](../../releases) — one person hosting needs the `meshghost-relay` zip, every
+player needs the `meshghost-emerald-player` zip. Each unpacks to a `config.json` (the one file
+you actually need to edit — relay address, room name, your display name) and a `README.txt`
+with the full walkthrough. See `packaging/README.md` if you're curious how these are built.
+
 ## The shape
 
 - **Relay** — a small, game-agnostic server that forwards position/area/animation snapshots

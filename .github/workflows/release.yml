@@ -1,0 +1,50 @@
+name: Release
+
+# Builds Windows binaries and packages them into the two zips a non-dev friend
+# actually needs -- see packaging/README.md for why it's split this way.
+# Triggered by pushing a tag like v0.1.0.
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-package:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+
+      - name: Build meshghost-relay.exe
+        run: go build -o meshghost-relay.exe ./cmd/meshghost-relay
+
+      - name: Build meshghost.exe
+        run: go build -o meshghost.exe ./cmd/meshghost
+
+      - name: Assemble relay package
+        run: |
+          Copy-Item meshghost-relay.exe packaging\relay\
+          Compress-Archive -Path packaging\relay\* -DestinationPath meshghost-relay-${{ github.ref_name }}-windows-amd64.zip
+        shell: pwsh
+
+      - name: Assemble Emerald player package
+        run: |
+          Copy-Item meshghost.exe packaging\emerald-player\
+          Copy-Item adapters\emerald\phase5_5_sprite.lua packaging\emerald-player\meshghost_emerald.lua
+          Copy-Item -Recurse adapters\emerald\lib packaging\emerald-player\lib
+          Compress-Archive -Path packaging\emerald-player\* -DestinationPath meshghost-emerald-player-${{ github.ref_name }}-windows-amd64.zip
+        shell: pwsh
+
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            meshghost-relay-${{ github.ref_name }}-windows-amd64.zip
+            meshghost-emerald-player-${{ github.ref_name }}-windows-amd64.zip
+          generate_release_notes: true

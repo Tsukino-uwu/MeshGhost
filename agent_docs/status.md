@@ -79,8 +79,17 @@
   choppy/wobbly remote-ghost movement bug (real measured constants: 16 frames/tile walking, 8
   running, locked in per-step to avoid mid-glide snapping) and a stale-remotes-on-core-restart
   bug. Ledge jumps/Mach Bike/Acro Bike/Surfing confirmed out of scope, added to the existing
-  bike/surf deferred item. No open next task right now — next real milestone is Phase 6 (TEVI)
-  or the post-Phase-4 room-codes work, whichever gets picked up first.
+  bike/surf deferred item.
+- `Current focus:` The repo is now public on GitHub — a cleanup pass fixed the stale README,
+  removed hardcoded personal paths, and added a `CLAUDE.md` rule against that recurring. Since
+  then, a real release pipeline was added (2026-08-11, not a numbered phase — see
+  `agent_docs/plans.md`'s "Release packaging" entry): `cmd/meshghost`/`cmd/meshghost-relay`
+  both load an optional `config.json`, and `.github/workflows/release.yml` builds/zips two
+  downloadable packages (`packaging/relay/`, `packaging/emerald-player/`) on a `v*` tag —
+  confirmed working via a real local dry run (actual relay + client processes, config-only, no
+  flags) before committing. No open next task right now — next real milestone is Phase 6
+  (TEVI), the post-Phase-4 room-codes work, or actually cutting the first tagged release,
+  whichever gets picked up first.
 
 ## Go networking layer (2026-08-11)
 
