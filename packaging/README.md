@@ -62,7 +62,9 @@ current names are accurate to the project's own internal terminology (`agent_doc
 calls it "the relay") but that's exactly the problem — a downloader doesn't know or care about
 this project's internal vocabulary, they want to know "am I hosting or joining."
 
-Not fixed yet — logged for later. Direction discussed: rename around what a downloader is
+**Not fixed yet — fix before cutting the next release** (not urgent enough to touch `v0.1.0`
+after the fact, but the naming shouldn't ship again as-is). Direction discussed: rename around
+what a downloader is
 actually trying to do rather than what the component is architecturally called, e.g.
 `meshghost-server-...zip` / `meshghost-emerald-client-...zip` (or `-host-`/`-client-`). Cheap
 change when it happens: the zip-naming lines in `.github/workflows/release.yml`, the

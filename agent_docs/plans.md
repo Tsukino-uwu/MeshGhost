@@ -234,8 +234,9 @@ verified end-to-end, not just the local dry run).
 `meshghost-emerald-player-...` zip names don't read as "server"/"client" to a non-technical
 downloader — raised by the user after seeing the real `v0.1.0` release page. Direction: rename
 around what a downloader is trying to do (`-server-`/`-client-` or `-host-`/`-client-`) rather
-than the project's internal terminology. Not fixed yet; see that file for the full note and
-exactly what would need to change.
+than the project's internal terminology. **Fix before cutting the next release** — not urgent
+enough to touch `v0.1.0` after the fact, but shouldn't ship again as-is; see
+`packaging/README.md` for the full note and exactly what would need to change.
 
 ## Links
 
