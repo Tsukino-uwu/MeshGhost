@@ -1,58 +1,35 @@
 # agent_docs — internal project documentation
 
-This folder contains internal documentation for MeshGhost. It is intended for developers and collaborators who are working on architecture, planning, testing, and implementation details.
+Internal documentation for MeshGhost: architecture, planning, licensing, and verification.
 
 ## Files
 
-- `architecture.md` — system architecture and non-obvious design rules.
-- `plans.md` — live roadmap, planning notes, and feature backlog.
-- `bug.md` — bug-tracking notes and investigation history.
-- `bug-fixes.md` — resolved bug notes and corrective actions.
-- `environment.md` — environment, toolchain, and workspace setup notes.
-- `testing.md` — testing strategy, validation criteria, and test cases.
-- `non-goals.md` — explicit scope boundaries and intentional exclusions.
-- `review-checklist.md` — prompts and review guidance for model-validated docs.
-- `risks.md` — project assumptions and risk register.
-- `architecture-decisions.md` — recorded rationale for major architecture choices.
-- `status.md` — the active phase and current project focus.
-- `glossary.md` — definitions of project-specific terms.
-- `phases/` — phase-based planning documents for incremental work.
+- `brief.md` — the original design brief: vision, non-goals, prior art, rationale.
+- `contract.md` — **the durable artifact.** Packet schema, message types, adapter interface,
+  transport, tick model, limits. Changes here are contract revisions, not routine edits —
+  record the "why" in `architecture.md`'s decision log.
+- `architecture.md` — system shape and the architecture decision log (ADRs).
+- `plans.md` — live roadmap, phase status, non-goals.
+- `status.md` — one-screen summary of the active phase and current focus.
+- `risks.md` — assumptions and risk register.
+- `licensing.md` — third-party license audit. Check before referencing any outside project.
+- `environment.md` — toolchain and environment notes, filled in as phases actually run.
+- `verified.md` — append-only, human-gated log of confirmed runtime facts.
+- `phases/` — a file per phase, but **only for the phase currently being executed.** Fold a
+  phase's content back into `plans.md` once it's done rather than leaving a stale file.
 
 ## How to use this folder
 
-- Keep high-level decision rationale in `architecture.md`.
-- Keep active work plans and milestones in `plans.md`.
-- Keep confirmed implementation facts in `agent_docs/verified.md`.
-- Create phase-specific planning docs inside `phases/` when a phase has enough content to justify its own file.
-- Use `phases/README.md` as the launch point for phase documents.
-
-## Document categories
-
-- `README.md` (repo root) is the public landing page.
-- `agent_docs/README.md` is the internal docs index and guide.
-- `architecture.md` is for non-obvious design decisions and system rules.
-- `plans.md` is for current priorities, roadmaps, and live planning.
-- `phases/` is for phase-specific execution and checkpoint documentation.
-- `agent_docs/verified.md` is for confirmed runtime facts and references.
-- `testing.md` is for validation, test plans, and acceptance criteria.
-- `non-goals.md` is for explicit scope boundaries and intentional exclusions.
-- `review-checklist.md` is for model review prompts and doc validation.
-- `risks.md` is for project assumptions and risk tracking.
-- `architecture-decisions.md` is for major architectural rationale.
-- `status.md` is for the current active work state.
-- `bug.md` and `bug-fixes.md` are for tracking investigations and closures.
+- `contract.md` is the first thing to read before touching `internal/core`, `internal/relay`,
+  or any adapter.
+- Keep confirmed implementation facts in `verified.md` — nowhere else, and never before the
+  user has watched them work.
+- Create `phases/phaseN.md` when phase N starts; fold it into `plans.md` when phase N ends.
 
 ## Document structure and style
 
 - Use clear headings and short sections.
-- Include "why", "what", and "how" for any implementation-oriented notes.
-- Keep each file focused on one audience: public readers, planners, implementers, or verifiers.
-- Prefer links over repetition: cross-reference related docs instead of copying large content.
-- Use append-only files for verified facts and confirmed decisions.
-- Add a small index or summary when a folder contains more than one doc.
-
-## When to create a new file
-
-- Create a new file when the content is phase-specific, long, or likely to change independently.
-- Keep short notes in the existing file when they are directly related to the current roadmap.
-- Use `phases/` for multi-step plans that deserve their own lifecycle history.
+- Prefer links over repetition — cross-reference instead of copying content between files.
+- Keep each file focused on one audience: public readers (`README.md` at repo root),
+  planners (`plans.md`, `status.md`), implementers (`contract.md`, `architecture.md`), or
+  verifiers (`verified.md`, `licensing.md`).

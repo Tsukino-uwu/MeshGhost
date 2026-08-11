@@ -1,20 +1,17 @@
 # Current status
 
-This file captures the active phase and current project focus for MeshGhost.
+## Active status
 
-## Purpose
-
-Use this file to document what the project is actively working on, what is blocked, and what is next. This should be kept short and updated as the project moves between phases.
-
-## Current active status
-
-- `Active phase:` Phase 0 complete, transitioning to Phase 1 verification.
-- `Current focus:` document the Emerald adapter mapping and confirm BizHawk state values.
-- `Blocked by:` waiting for a stable emulator/toolchain setup and a verified data source.
-- `Next step:` verify local player X/Y/map values in Pokémon Emerald and record them in `agent_docs/verified.md`.
+- `Active phase:` Phase 0 mostly done (contract structure written), Phase 1 not started.
+- `Current focus:` set up a verified BizHawk/Lua environment (`agent_docs/environment.md`
+  is unfilled — do that first), then start `agent_docs/phases/phase1.md`.
+- `Blocked by:` no BizHawk build, Emerald ROM, or Lua environment confirmed yet. No Go
+  toolchain confirmed installed on the dev machine either — needed before any `cmd/` or
+  `internal/` package gets real code, even though nothing there needs it yet (skeleton only).
+- `Next step:` fill `agent_docs/environment.md` with the actual BizHawk/Lua versions in use,
+  then begin Phase 1's task list.
 
 ## Update guidance
 
 - Update this file whenever the active phase changes.
-- Keep entries short and clearly state the current focus.
-- Use this file as the single source of truth for what is currently being worked on.
+- Keep entries short; this is a one-screen summary, not a log.

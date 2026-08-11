@@ -1,59 +1,55 @@
 # MeshGhost
 
-MeshGhost is a visual-only multiplayer layer for single-player games. Each player runs a fully independent copy of the game, and remote players are rendered as cosmetic ghosts with no shared world state.
+MeshGhost is a visual-only multiplayer layer for single-player games. Each player runs a
+fully independent copy of the game; remote players are rendered as cosmetic "ghosts" with no
+shared world state — no synced items, enemies, health, or progression, and no attempt to
+keep worlds consistent. Desync between players is expected and fine.
 
-Key ideas:
+Status: **pre-code.** The contract is designed; nothing has been implemented yet. See
+`agent_docs/status.md` for exactly where things stand.
 
-- Relay server is game-agnostic
-- Core client is game-agnostic
-- Adapter contract is intentionally thin
-- Game-specific adapters are rewritten per game
+## The shape
 
-See `Ghostsync brief.md` for the design vision and `agent_docs/plans.md` for the current roadmap.
+- **Relay** — a small, game-agnostic server that forwards position/area/animation snapshots
+  between clients. Never runs or touches the game.
+- **Core client** — game-agnostic logic: talks to the relay, buffers and interpolates remote
+  player state. Never touches game memory or rendering.
+- **Adapter** — the game-specific layer. Reads the local game's position/area/animation and
+  draws the ghost. Never touches the network directly.
 
-tl;dr
+Full detail: `agent_docs/contract.md` (the schema and interfaces) and
+`agent_docs/architecture.md` (system shape and design rationale).
 
-Server/relay:
-just passes messages between players
-does not run the game
+## Goals for the shipped app
 
-Client:
-the part that connects to the relay and handles the network side
-sends your state, receives the other player’s state
+The end target is a normal desktop program — no Python, no separate runtime install — that
+works on Windows, Linux, and macOS. The core and relay are written in Go specifically so
+they can ship as a single dependency-free binary per platform (see the ADR in
+`agent_docs/architecture.md`). Game-specific adapters stay lightweight and easy to drop in
+next to the game (a Lua script for BizHawk, a mod DLL for Unity, and so on).
 
-Adapter:
-the game-specific layer
-this is the “mod” or integration layer that talks to the actual game
-it reads the game’s state and draws the ghost
+## Target games
 
-//
+1. **Pokémon Emerald** (GBA, via BizHawk) — first. Reading state is trivial thanks to the
+   [`pokeemerald`](https://github.com/pret/pokeemerald) decompilation.
+2. **TEVI** (Unity) — second.
+3. **Pseudoregalia** (Unreal Engine 5) — third.
 
-I want the project to feel simple and easy for end users. The goal is that someone can download the mod/adapter for their game, run the server and client, and start playing without needing to install Python, runtime tools, or other dependencies. The main application should be packaged as a normal desktop program that works on Windows, Linux, and macOS, while the game-specific adapter/mod remains lightweight and easy to drop in.
+## Repo layout
 
-project structure ideas, to seperate unpacked dev files from packaged/intended for the user
-
+```text
 MeshGhost/
-├── README.md
-├── LICENSE
-├── releases/
-│   ├── windows/
-│   ├── linux/
-│   └── mac/
-├── adapters/
-│   └── emerald/
-│       └── ...
-├── dev/
-│   ├── client/
-│   ├── server/
-│   ├── core/
-│   ├── docs/
-│   └── tests/
-└── docs/
+├── cmd/                  # entry points: the desktop app, the standalone relay
+├── internal/             # core, relay, protocol, transport, adapter bridge
+├── adapters/             # one folder per game; _template/ is the frozen stub (post-Phase 5)
+├── agent_docs/           # design brief, contract, architecture, roadmap, verified facts
+├── go.mod
+└── README.md
+```
 
--
+## Read next
 
-MeshGhost/
-├── README.md
-├── releases/
-├── adapters/
-└── dev/
+- `agent_docs/brief.md` — the full design brief and reasoning.
+- `agent_docs/contract.md` — packet schema, adapter interface, transport, and tick model.
+- `agent_docs/plans.md` — the phase-by-phase roadmap.
+- `agent_docs/licensing.md` — what prior-art projects were checked and how they may be used.

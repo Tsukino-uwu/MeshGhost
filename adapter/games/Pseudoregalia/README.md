@@ -1,3 +1,0 @@
-# Pseudoregalia
-
-Uses Unreal Engine

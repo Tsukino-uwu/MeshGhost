@@ -1,165 +1,99 @@
 # MeshGhost roadmap
 
-## INDEX
-
-Deliberately indexed by HEADING TEXT rather than line number, since line numbers rot on
-
-every edit. To find any entry below, grep for its text. To regenerate a numbered list:
-
-  grep -n "^- \[ \]" plans.md
-
 ## Overview
 
-MeshGhost is a visual-only multiplayer layer for single-player games. Each player runs an independent copy of the game, and the only networked state is enough information to render a cosmetic ghost: location, area, and animation state.
+MeshGhost is a visual-only multiplayer layer for single-player games. Each player runs an
+independent copy of the game, and the only networked state is enough information to render
+a cosmetic ghost: location, area, and animation state. Full rationale in `agent_docs/brief.md`.
 
-The architecture is intentionally split into:
+The architecture is split into: relay server (game-agnostic), core client (game-agnostic),
+adapter contract (thin boundary), per-game adapters (game-specific rewrite). Full contract
+detail lives in `agent_docs/contract.md`.
 
-- relay server (game-agnostic)
-- core client (game-agnostic)
-- adapter contract (thin boundary)
-- per-game adapters (game-specific)
+Target games: **Pokémon Emerald** (BizHawk, first) → **TEVI** (Unity, second) →
+**Pseudoregalia** (UE5, third). See `agent_docs/architecture.md`'s decision log for why
+TEVI replaced the brief's original Ori: Will of the Wisps pick.
 
-The first target game is Pokémon Emerald via BizHawk. The second target is Ori and the Will of the Wisps, and the third is Pseudoregalia.
+## Non-goals for early work
 
-## What Copilot can do now
-
-These planning tasks are safe and useful even before code-heavy work begins:
-
-- document the packet schema and adapter contract clearly
-- define transport APIs and abstraction boundaries
-- write the phase-based roadmap for implementation
-- enumerate acceptance criteria for each milestone
-- draft `agent_docs/verified.md`, `README.md`, and project notes
-- create a task backlog for first game adapter work
-- identify risks, non-goals, and the exact scope of each phase
-
-## What should wait for a stronger model or a coding session
-
-Do not start heavy source changes, emulator hooks, or network plumbing until Claude Pro is available or a stronger coding session is offered. The following should wait:
-
-- large refactors or architecture rewrites in code
-- risky emulator memory or hook changes without verification
-- implementation of interpolation and transport before the contract is stable
-- adapter code for a second game until Emerald is proven
-
-## Acceptance criteria and non-goals
-
-### Acceptance criteria
-
-- Phase 1 produces confirmed Emerald memory values for local player `position`, `area_id`, and an initial `anim` tag set.
-- Verification steps are documented in `agent_docs/verified.md` with source details.
-- Phase 2 produces a visible overlay ghost in Emerald with hardcoded state.
-- The adapter contract, transport abstraction, and invariants are documented and agreed before implementation begins.
-
-### Non-goals for early work
-
-- No shared game world state, physics, or collision synchronization.
+- No shared gameplay state, physics, or collision synchronization.
 - No game-specific rendering logic inside the core.
-- No adapter transport or socket handling.
+- No adapter transport or socket handling — adapters speak only to the local bridge.
 - No production binary encoding or performance optimization before the contract is stable.
 - No second-game adapter until Phase 5 validates the template.
+- No relay authentication work before Phase 4 ships on no-auth (see `architecture.md` ADR);
+  don't build room codes early just because they're the eventual goal.
+
+## Current status
+
+Phase 0 is **not** complete — the packet schema and adapter interface are documented in
+`agent_docs/contract.md`, but several of its open questions (Emerald's exact `area_id`
+encoding, the first `anim` tag set, snapshot rate) are unanswered until Phase 1 runs against
+a real emulator. See `agent_docs/status.md` for the current one-line focus.
 
 ## Roadmap
 
 ### Phase 0 — Contract on paper
 
 Visible outcome: documented schema and interface, plus an empty `agent_docs/verified.md`.
-
-Tasks:
-
-- define the packet schema for `player_id`, `seq`, `timestamp`, `area_id`, `position`, `orientation`, `anim`, `extras`
-- specify the adapter interface: `get_local_state()`, `render_remote(id, state)`, `despawn_remote(id)`
-- document transport abstraction: `send(bytes)` and `on_receive(cb)`
-- record invariants: core never touches game, adapters never touch sockets, no game-specific branching in core
-- create `agent_docs/verified.md` as an append-only fact log
+**Status: mostly done, not complete.** The contract structure (schema, message types,
+adapter interface, transport, tick model) is written in `agent_docs/contract.md`. What
+remains is genuinely Emerald-specific and can only be closed by Phase 1 work — see that
+file's "Open questions" section.
 
 ### Phase 1 — Emerald read-only verification
 
-Visible outcome: BizHawk Lua prints local player state from actual game memory.
-
-Tasks:
-
-- read player X/Y/map from Pokémon Emerald
-- print values in BizHawk Lua and confirm motion by moving in known directions
-- record confirmed addresses and sources in `agent_docs/verified.md`
+Visible outcome: BizHawk Lua prints local player state from actual game memory, and it
+tracks known-direction motion. Live task list: `agent_docs/phases/phase1.md`.
 
 ### Phase 2 — Fake ghost, no network
 
-Visible outcome: a rendered ghost in Emerald following a hardcoded offset.
-
-Tasks:
-
-- compute screen position from map coords plus camera scroll
-- render a ghost overlay in BizHawk from hardcoded state
-- verify the overlay moves correctly with the local player
+Visible outcome: a rendered ghost overlay in Emerald following a hardcoded offset, using
+`gui.drawImage`. Proves the screen-position math (map coords + camera scroll) before network
+code is in the picture. Gets its own `phases/phase2.md` when Phase 1 closes.
 
 ### Phase 3 — Loopback
 
-Visible outcome: one client sends its own state to the local relay and renders its ghost with latency.
-
-Tasks:
-
-- implement local relay server and transport loopback
-- send local snapshots through the schema
-- receive and render the same state via the relay
-- confirm ghost appears with ~200ms delay
+Visible outcome: one client sends its own state through a local relay and renders its ghost
+trailing itself by ~200ms. Exercises the bridge, the relay protocol, the schema, and the
+interpolation buffer on one machine before a second machine is involved. Implements the
+payload/rate limits from `agent_docs/contract.md` even though no-auth means nothing else
+guards the relay yet.
 
 ### Phase 4 — Two players
 
 Visible outcome: two BizHawk clients render each other's ghosts and handle joins/drops.
-
-Tasks:
-
-- run a second BizHawk instance and connect both clients
-- support remote state from another player
-- handle `area_id` mismatch by not drawing ghosts in other maps
-- confirm joins, drops, and remote motion visually
+First real multiplayer milestone. No-auth per the current ADR — treat the relay address as
+something only shared directly with a friend, not something safe to post publicly, until
+room codes ship (see below).
 
 ### Phase 5 — Extract the template
 
-Visible outcome: the core runs independently of the Emerald adapter with a fake adapter stub.
+Visible outcome: the core runs independently of the Emerald adapter against a fake adapter
+that moves a ghost in a circle, with no game attached. If it doesn't run cleanly, something
+leaked — check for `if game ==`-style branches in `internal/core` and `internal/relay`.
+Freeze `adapters/_template/` as the reusable adapter stub — this is the real deliverable of
+this phase, not the Emerald adapter itself.
 
-Tasks:
+### Phase 6 — Second game (TEVI)
 
-- separate core logic from Emerald-specific code
-- build a fake adapter that moves a ghost in a circle
-- verify the core works with the fake adapter and no game attached
-- freeze the adapter contract as the reusable template
+Visible outcome: repeat phases 1–4 for TEVI using the frozen template, and find out whether
+the contract holds up outside Emerald. First task is verifying TEVI's IL2CPP vs Mono status
+— unconfirmed, do not assume.
 
-### Phase 6 — Second game
+### Post-Phase-4 — Room codes
 
-Visible outcome: repeat the prior sequence for Ori (or another second game) and validate the contract.
-
-Tasks:
-
-- implement the second adapter using the same contract
-- run phases 3–4 for the second game
-- evaluate contract quality and adjust if needed
-
-## Recommended immediate action
-
-Start by locking down Phase 0:
-
-1. finalize the packet schema and adapter interface in docs,
-2. confirm the transport abstraction,
-3. create `agent_docs/verified.md`,
-4. write the first task backlog for Emerald.
-
-This keeps the repo moving without touching implementation details or risking code quality.
+Not a numbered phase because it doesn't gate the games-side milestones. Add shared-secret
+room codes to the relay so a session isn't just a bare IP:port. Scheduled after Phase 4
+proves the two-player path works at all.
 
 ## Links
 
-- `agent_docs/README.md` — internal documentation index.
-- `agent_docs/glossary.md` — project terminology.
-- `agent_docs/phases/README.md` — phase-based documentation index.
-- `agent_docs/phases/phase0.md` — Phase 0 contract, checklist, and Emerald backlog.
-- `agent_docs/phases/phase1.md` — Phase 1 Emerald read-only verification.
-- `agent_docs/phases/phase2.md` — Phase 2 fake ghost, no network.
-- `agent_docs/phases/phase3.md` — Phase 3 loopback network validation.
-- `agent_docs/phases/phase4.md` — Phase 4 two-player multiplayer validation.
-- `agent_docs/phases/phase5.md` — Phase 5 reusable core template extraction.
-- `agent_docs/phases/phase6.md` — Phase 6 second game adapter validation.
-- `agent_docs/risks.md` — project assumptions and risk register.
-- `agent_docs/architecture-decisions.md` — recorded rationale for major architecture choices.
-- `agent_docs/status.md` — the current active phase and project focus.
+- `agent_docs/contract.md` — packet schema, adapter interface, transport, tick model.
+- `agent_docs/brief.md` — original design brief and rationale.
+- `agent_docs/architecture.md` — system shape and the decision log (ADRs).
+- `agent_docs/phases/phase1.md` — the only currently-live phase file.
+- `agent_docs/risks.md` — assumptions and risk register.
+- `agent_docs/status.md` — current active phase and focus.
 - `agent_docs/verified.md` — append-only verification log.
+- `agent_docs/licensing.md` — third-party license audit.
