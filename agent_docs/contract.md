@@ -61,11 +61,11 @@ Unchanged from the brief, restated exactly:
   "player_id": "p1",
   "seq": 123,
   "timestamp": 1690000000000,
-  "area_id": "emerald-0001",
+  "area_id": "0:9",
   "position": [123.0, 45.0],
-  "orientation": null,
+  "orientation": "west",
   "anim": "walking",
-  "extras": { "facing": "left" }
+  "extras": {}
 }
 ```
 
@@ -191,11 +191,22 @@ have caused a flickering ghost in Phase 2 and an argument in Phase 5 if left unr
   adapter means Phase 5's fake-adapter test isn't discovering an asymmetry for the first
   time; there isn't one.
 - **`render_remote(id, state)` is an upsert into a set the adapter owns, not a draw call.**
-  BizHawk's `gui.*` overlay is cleared every frame. If `render_remote` drew once per network
-  update (10Hz) while the emulator redraws at 60fps, the ghost would flicker 5 frames out of
-  6. Instead: the adapter keeps a live map of `id -> state` for every known remote; every
-  frame, regardless of whether new network data arrived, it redraws the whole map.
-  `render_remote` updates an entry; `despawn_remote` removes one.
+  If `render_remote` drew once per network update (10Hz) while the emulator redraws at 60fps,
+  the ghost would flicker 5 frames out of 6. Instead: the adapter keeps a live map of
+  `id -> state` for every known remote; every frame, regardless of whether new network data
+  arrived, it redraws the whole map. `render_remote` updates an entry; `despawn_remote` removes
+  one. **Correction (Phase 3, 2026-08-11):** this section originally claimed "BizHawk's `gui.*`
+  overlay is cleared every frame" as the reason redrawing-every-frame avoids flicker. That's
+  wrong — confirmed live, and against BizHawk's own `gui.d.lua` doc for `gui.clearGraphics`
+  ("clears all lua drawn graphics from the screen", which would be meaningless if the overlay
+  already auto-cleared): drawn images persist across frames until something clears or
+  overwrites them. A ghost that stops being redrawn (e.g. all remotes despawned, or the bridge
+  connection dies) doesn't disappear — it freezes in its last position forever. The adapter
+  must call `gui.clearGraphics()` itself, every frame, unconditionally (not gated behind "is
+  there anything to draw"), before redrawing the current remote set — matching real precedent
+  in BizHawk's own bundled scripts (`Gargoyles.lua`, `Earthworm Jim 2.lua`,
+  `Super Mario World.lua`) that manage moving overlays. The redraw-every-frame requirement
+  itself was already correct; only the stated reason, and the missing clear step, were wrong.
 - **The core interpolates and pushes at frame rate, not the adapter.** With an out-of-process
   core, it's tempting to have the adapter interpolate between the last two snapshots it
   received. Don't — that duplicates the one genuinely hard, genuinely reusable piece of this
@@ -231,13 +242,27 @@ or non-renderable state — see Open questions).
 ## Limits (defined now, enforced starting Phase 3)
 
 Untrusted peers are on the wire the moment Phase 4 happens, so these are specified at the
-same time as the schema rather than bolted on later:
+same time as the schema rather than bolted on later. Values chosen and enforced at the relay
+(`internal/relay/limits.go`) as of Phase 3 — generous rather than tight, since the relay is
+no-auth through Phase 4 (see the architecture.md ADR) and these defend against a malformed or
+careless peer, not a determined attacker:
 
-- Max line length per NDJSON message.
-- Max serialized size of `extras`.
-- Max length of `position`.
-- Per-client rate limit (messages/second) at the relay.
-- Max clients per room.
+- Max line length per NDJSON message: **4096 bytes** (`MaxLineBytes`). A connection sending a
+  longer line is closed outright, not truncated.
+- Max serialized size of `extras`: **1024 bytes** (`MaxExtrasBytes`).
+- Max length of `position`: **8** (`MaxPositionLen`) — headroom above the largest known real
+  use (3, for a 3D game); the schema still never fixes this at 2 or 3.
+- Per-client rate limit: **120 messages/second** (`MaxMessagesPerSecond`) — set above the
+  core's current unthrottled send rate (up to ~60Hz, one per adapter frame; the brief's 10Hz
+  hypothesis is not yet enforced client-side, see the open question below) rather than at that
+  hypothesis, so correct clients aren't punished for behavior the core itself doesn't limit
+  yet.
+- Max clients per room: **8** (`MaxClientsPerRoom`) — Phase 4's target is two; this leaves
+  room for later multi-peer testing without letting a room grow unbounded. A room already at
+  capacity refuses an additional join the same way a `game_id` mismatch is refused.
+- The relay stamps `player_id` on every `state` message from the connection's own
+  relay-assigned id, server-side — never trusted from the client's payload, since a peer could
+  otherwise claim someone else's id.
 - Remote strings (`area_id`, `anim`, `extras` values, display name) are never interpolated
   into a file path, shell command, or format string by an adapter. They are opaque data,
   not code, even though they're only ever compared by equality within the same game.
@@ -245,21 +270,48 @@ same time as the schema rather than bolted on later:
 - An unknown message `type` is ignored, not treated as an error — same forward-compatibility
   posture as the existing unknown-*field* rule above.
 
+Not yet enforced: `MaxLineBytes` is checked only after a full NDJSON line has been buffered
+(`internal/transport`'s `bufio.Reader.ReadBytes('\n')` has no size cap of its own), so a peer
+that sends unbounded bytes with no newline can still grow memory before the check runs. Real
+risk only once Phase 4 puts untrusted peers on the wire; tracked as a known gap, not fixed in
+Phase 3.
+
 ## Open questions carried from the original Phase 0 backlog
 
 Not yet closed — genuinely open until Phase 1/2 answers them against a running game, per the
 verification standard in `CLAUDE.md`. Do not answer these from memory.
 
-- [ ] Exact Emerald `area_id` encoding: map bank + map number, concatenated how?
-- [ ] First Emerald `anim` tag set: `idle`, `walking`, `running` — is that sufficient for a
-      visible Phase 2 ghost, or is facing needed as its own tag?
-- [ ] Is `orientation` used for Emerald, or is facing carried in `extras` instead?
+- [x] Exact Emerald `area_id` encoding: map bank + map number, concatenated how? **Decided:**
+      `"{mapGroup}:{mapNum}"`, e.g. `"0:9"`, `"1:4"` — plain decimal pair joined by `:`.
+      `mapGroup`/`mapNum` alone are sufficient: confirmed stable within a map and confirmed
+      changing correctly on every real map transition tested. See `agent_docs/verified.md`
+      (`gSaveBlock1Ptr`/map-transition entries).
+- [x] First Emerald `anim` tag set: `idle`, `walking`, `running` — is that sufficient for a
+      visible Phase 2 ghost, or is facing needed as its own tag? **Decided:** those three are
+      sufficient, carried by `runningState`/`dash`: `runningState=0` → `idle`,
+      `runningState=2 & !dash` → `walking`, `runningState=2 & dash` → `running`.
+      `runningState=1` (turning) does not need its own tag — it's a facing change with no
+      position change, already carried by `orientation`. See `agent_docs/verified.md`
+      (`gPlayerAvatar`/dash entries).
+- [x] Is `orientation` used for Emerald, or is facing carried in `extras` instead? **Decided:**
+      `orientation` carries facing direction as `"south"`/`"north"`/`"west"`/`"east"` (matching
+      `pokeemerald`'s own `DIR_*` naming for direct traceability), read from
+      `gObjectEvents[gPlayerAvatar.objectEventId].facingDirection`. See `agent_docs/
+      verified.md` (`gObjectEvents`/facing-direction entry).
 - [ ] Local snapshot frequency: the brief's "10Hz sync looks fine" is a hypothesis for
       tile-grid movement, not yet confirmed against a running emulator.
 - [ ] `seq`/`timestamp` semantics: does `seq` reset on reconnect? Is `timestamp` wall-clock
       or client-relative?
-- [ ] What does `get_local_state()` return when the player is in a menu, cutscene, or other
-      non-renderable state — `nil`, or a state with a sentinel `anim`?
+- [x] What does `get_local_state()` return when the player is in a menu, cutscene, or other
+      non-renderable state — `nil`, or a state with a sentinel `anim`? **Decided:** position
+      stayed valid through every pause menu, dialogue, forced-movement cutscene, warp, and
+      battle tested — none of those warrant `nil`. `nil` is only warranted when
+      `gSaveBlock1Ptr` reads as null (title screen / no save loaded yet). Separately, the
+      adapter should debounce one frame around any `mapGroup`/`mapNum` change: a transient
+      placeholder read was observed exactly at the moment the save block's pointer relocates
+      during some (not all) transitions — see `agent_docs/verified.md`'s "placeholder-glitch"
+      entries. This is an adapter-side guard, not a reason to return `nil` from the core's
+      perspective.
 
 ## Links
 

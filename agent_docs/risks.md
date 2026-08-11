@@ -13,6 +13,16 @@
 - TEVI's engine tooling (BepInEx/Harmony) will apply the way it does for other Unity
   games — **unconfirmed**, and TEVI's IL2CPP-vs-Mono status specifically is unknown. Do not
   assume either from memory or by analogy to the brief's Ori reasoning; verify at Phase 6.
+- **Closed 2026-08-11 (Phase 5.5):** every Emerald finding through Phase 2 had only been tested
+  on a male save. Re-verified live on a real female-character save (`gSaveBlock1Ptr`,
+  `gPlayerAvatar`, `gObjectEvents`, `gSprites`, `gSpriteCoordOffsetX/Y` all confirmed correct —
+  see `agent_docs/verified.md`'s Phase 5.5 Step 4 entry) — no longer an open risk. Running
+  specifically wasn't exercised on that save (no Running Shoes yet, a save-progression limit,
+  not an address concern).
+- **Closed 2026-08-11 (Phase 5.5):** player appearance (gender) is now in the schema, as
+  `extras.gender`, read from `gSaveBlock2Ptr->playerGender` and confirmed live rendering the
+  correct Brendan/May sprite for a remote on both a male-save and a female-save client. See
+  `agent_docs/phases/phase5_5.md` and `agent_docs/verified.md`.
 
 ## Known risks
 
@@ -36,15 +46,31 @@
 - **No-auth relay window**: Phases 3–4 run without authentication (see the relay-auth ADR).
   Anyone with the address can join during that window. Acceptable for a friend-shared
   IP:port, not for anything posted publicly, until room codes ship.
-- **Archipelago coexistence, unconfirmed**: the Archipelago Emerald randomizer runs its own
-  BizHawk Lua connector (`connector_bizhawk_generic.lua`) against a ROM it has already
-  patched. A MeshGhost Emerald adapter would be a second Lua script in the same Lua Console.
-  Two read-only scripts shouldn't conflict, but three things are unverified: whether BizHawk
-  can run two scripts concurrently at all, whether Archipelago's ROM patch shifts the RAM
-  addresses MeshGhost reads, and whether running both costs noticeable performance. Test
-  plan is in `agent_docs/phases/phase1.md`. This is also the concrete argument for keeping
-  the read-only default (see the depth ladder in `plans.md`): two readers never race, but a
-  future memory-*writing* feature could race Archipelago's own writes.
+- **Archipelago coexistence, confirmed with a real gap**: tested 2026-08-11 with the real
+  `connector_bizhawk_generic.lua` against a real `.apemerald`-patched ROM (see
+  `agent_docs/verified.md`). Two scripts coexist fine, no performance difference, and
+  position/map (`gSaveBlock1Ptr`-relative) reads are unaffected. But `gPlayerAvatar`/
+  `gObjectEvents` (fixed EWRAM addresses) read as invalidated garbage under the patch — the
+  patch's own code/data insertion shifts what's at those addresses, unlike the pointer-based
+  SaveBlock1 fields. Concretely: `flags`, `runningState`, and `facingDirection` cannot be
+  trusted when Archipelago is present. Planned mitigation (not yet built, deferred until after
+  Phases 2–4 prove the vanilla path, since position/map already syncs correctly regardless of
+  the patch and the ghost isn't blocked by this):
+  - **Facing**: derive it from the delta between consecutive position reads (`dx`/`dy`,
+    tile-grid, no diagonals) instead of reading `facingDirection`. Hold the last known facing
+    while stationary. Make this the *only* code path (not a conditional fallback triggered by
+    detecting "weird" values) — garbage-detection is itself fragile against a different patch
+    returning plausible-but-wrong data, and there's no accuracy lost by not reading the raw
+    field even when it would be valid.
+  - **Walk/run/idle**: no good proxy identified yet. Candidate: infer from tiles-per-second
+    (frames between position changes), since Emerald's walk and run speeds are different fixed
+    frame-counts-per-tile — but this is an unverified hypothesis, not a known fact, and needs
+    its own on-screen verification pass (vanilla first, then patched) before it can be trusted
+    or written into `verified.md`, per the same "no addresses/facts from memory" standard as
+    everything else in this project.
+  This is also the concrete argument for keeping the read-only default (see the depth ladder
+  in `plans.md`): two readers never race, but a future memory-*writing* feature could race
+  Archipelago's own writes.
 - **Reserved-but-unbuilt contract fields going stale**: the `features` field and the `event`
   message type (`agent_docs/contract.md`, Extensibility section) are documented now and
   implemented never, until something needs them. The risk is a future session building

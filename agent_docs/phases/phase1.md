@@ -1,8 +1,9 @@
 # Phase 1 — Emerald read-only verification
 
-The only phase with its own file right now, because it's the one being executed. Per
-`agent_docs/README.md`'s rule: a phase earns a file when it's live, and gets folded back into
-`agent_docs/plans.md` once it's done.
+Folded back into `agent_docs/plans.md` as complete (2026-08-11); kept here for the detailed
+task-by-task record. Per `agent_docs/README.md`'s rule: a phase earns a file when it's live,
+and gets folded back once it's done. Phase 2 is now the live phase — see
+`agent_docs/phases/phase2.md`.
 
 ## Purpose
 
@@ -12,27 +13,48 @@ motion. This closes the open questions left in `agent_docs/contract.md`.
 
 ## Status
 
-Not started. Nothing in this phase is checked off, and nothing should be until it's been
-watched happening on screen — no self-certifying "planning complete" ticks. See the
-verification standard in `CLAUDE.md`.
+Core task list complete (2026-08-11) — every item watched happening on screen per
+`CLAUDE.md`'s verification standard, all recorded in `agent_docs/verified.md`, and both
+`contract.md` decisions made from that evidence. The optional Archipelago-coexistence
+checklist is also complete (2026-08-11, with the real `connector_bizhawk_generic.lua`) — see
+`agent_docs/verified.md`; it surfaced a real finding (the AP patch invalidates the fixed
+`gPlayerAvatar`/`gObjectEvents` addresses, though not the `gSaveBlock1Ptr`-relative
+position/map reads) that any future adapter work targeting Archipelago coexistence needs to
+account for. Only remaining: bike/surf flags (deferred, far into the game, not blocking).
 
 ## Tasks
 
-- [ ] Identify the local player X/Y address(es) in Pokémon Emerald, sourced from the
+- [x] Identify the local player X/Y address(es) in Pokémon Emerald, sourced from the
       `pokeemerald` decompilation (cite the exact file/symbol — see `agent_docs/licensing.md`
-      for what "consulting" the decomp does and doesn't permit).
-- [ ] Identify the current map bank/number address(es), same sourcing rule.
-- [ ] Print those values in the BizHawk Lua console.
-- [ ] Walk in each cardinal direction; confirm the values change in the expected direction
+      for what "consulting" the decomp does and doesn't permit). See `agent_docs/verified.md`.
+- [x] Identify the current map bank/number address(es), same sourcing rule. See
+      `agent_docs/verified.md`.
+- [x] Print those values in the BizHawk Lua console. `adapters/emerald/phase1_probe.lua`.
+- [x] Walk in each cardinal direction; confirm the values change in the expected direction
       (not just "a number changed" — the brief's "test against known-direction motion" rule).
-- [ ] Check idle/walking/running if a distinct value is available for them.
-- [ ] Check the same values in a second map to confirm `area_id` stability across areas.
-- [ ] Note any state where these values are invalid or meaningless (menus, cutscenes, debug
-      screens) — this feeds `get_local_state()`'s "return `nil`" case.
-- [ ] Decide the Emerald `area_id` encoding (bank+number, concatenated how) and record the
+      Confirmed and reproduced twice; see `agent_docs/verified.md`.
+- [x] Check idle/walking/running if a distinct value is available for them. `runningState`
+      confirmed: 0=idle, 1=turning, 2=moving (walk or run). Dash flag (`flags` bit 7,
+      running shoes) confirmed: set while running, clear while walking/idle. Bike/surf flags
+      not tested — far into the game, deferred. See `agent_docs/verified.md`.
+- [x] Check the same values in a second map to confirm `area_id` stability across areas.
+      Confirmed on transition outdoors→indoors: mapGroup/mapNum changed 0,9 → 1,0 and held
+      steady after. See `agent_docs/verified.md`.
+- [x] Note any state where these values are invalid or meaningless (menus, cutscenes, debug
+      screens) — this feeds `get_local_state()`'s "return `nil`" case. Confirmed NOT invalid
+      during: pause menu, bag, options, player profile, NPC dialogue, forced-movement
+      cutscenes, cutscene-driven warps/teleports, wild battle, and trainer battle (see
+      `agent_docs/verified.md`). A single-frame transient placeholder read WAS observed on
+      some (not all) transitions, right when `gSaveBlock1Ptr` relocates — decided in
+      `agent_docs/contract.md`: this warrants an adapter-side one-frame debounce around a
+      `mapGroup`/`mapNum` change, not a `nil` return. `nil` itself is only warranted when
+      `gSaveBlock1Ptr` is null (no save loaded).
+- [x] Decide the Emerald `area_id` encoding (bank+number, concatenated how) and record the
       decision in `agent_docs/contract.md`'s open-questions list, closing that item.
-- [ ] Decide the first Emerald `anim` tag set and record it the same way.
-- [ ] Record every confirmed address, with its `pokeemerald` source file, in
+      `"{mapGroup}:{mapNum}"`, e.g. `"0:9"`.
+- [x] Decide the first Emerald `anim` tag set and record it the same way. `idle`/`walking`/
+      `running`, driven by `runningState`/`dash`; facing carried separately via `orientation`.
+- [x] Record every confirmed address, with its `pokeemerald` source file, in
       `agent_docs/verified.md` — only after the user has watched it work.
 
 ### Archipelago coexistence
@@ -40,15 +62,19 @@ verification standard in `CLAUDE.md`.
 Optional, but same setup effort as the tasks above — see the depth ladder in
 `agent_docs/plans.md` and `agent_docs/risks.md` for why this matters before any Tier 3 work.
 
-- [ ] Confirm whether BizHawk can run two Lua scripts at once — Archipelago's
+- [x] Confirm whether BizHawk can run two Lua scripts at once — Archipelago's
       `connector_bizhawk_generic.lua` and a MeshGhost read-only script loaded together in the
-      same Lua Console. This is the single biggest coexistence risk; check it first.
-- [ ] Re-check the confirmed player X/Y and map addresses above against an
+      same Lua Console. This is the single biggest coexistence risk; check it first. Confirmed
+      with the real connector (not just placeholder scripts) — see `agent_docs/verified.md`.
+- [x] Re-check the confirmed player X/Y and map addresses above against an
       Archipelago-patched `.gba` (produced by the ArchipelagoLauncher from an `.apemerald`
-      patch file), not just a vanilla ROM — confirm whether the patch shifts them.
-- [ ] Note any visible performance difference running both scripts at once vs. MeshGhost
-      alone.
-- [ ] Record results in `agent_docs/verified.md` regardless of outcome — "the patch does not
+      patch file), not just a vanilla ROM — confirm whether the patch shifts them. Position/map
+      (`gSaveBlock1Ptr`-relative) confirmed NOT shifted. `gPlayerAvatar`/`gObjectEvents` (fixed
+      addresses) confirmed shifted or invalidated — read all-ones garbage that didn't track
+      real dash/runningState/facing changes. See `agent_docs/verified.md`.
+- [x] Note any visible performance difference running both scripts at once vs. MeshGhost
+      alone. User reported 0 noticeable difference. See `agent_docs/verified.md`.
+- [x] Record results in `agent_docs/verified.md` regardless of outcome — "the patch does not
       move these addresses" is as much a confirmed fact as "the patch moves them by N bytes."
 
 ## Success criteria

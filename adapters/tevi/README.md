@@ -9,5 +9,5 @@
 - IL2CPP vs Mono build status is **not yet verified** — do not assume either from memory.
   Confirm at the start of Phase 6, since it materially changes whether BepInEx/Harmony
   tooling applies directly.
-- Not started. Work here waits until Phase 5 has frozen the adapter template against
-  Emerald.
+- Not started. Phase 5 has frozen the adapter template (`adapters/_template/`) — see
+  `agent_docs/phases/phase5.md`. Work here is Phase 6.

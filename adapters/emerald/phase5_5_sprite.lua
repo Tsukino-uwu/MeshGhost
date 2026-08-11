@@ -1,0 +1,769 @@
+-- Phase 5.5: real Brendan/May ghost sprite instead of the magenta placeholder box. Same
+-- adapter <-> bridge <-> core round trip as adapters/emerald/phase4_multiplayer.lua (state
+-- reading, screen-position anchor, JSON, bridge protocol, remote-ghost set, tick model,
+-- overworld gate, LuaSocket loading -- all unchanged, see that script's header for the full
+-- derivation and citations, not re-derived here). Never writes memory.
+--
+-- What's different from phase4_multiplayer.lua: drawRemotes() decodes and draws the real
+-- Brendan/May overworld sprite (gender, facing direction, and walk/run animation, including a
+-- genuinely separate running pose -- see below) via gui.drawPixel, instead of
+-- gui.drawImage-ing a flat placeholder box. Local gender is read once at script start from
+-- gSaveBlock2Ptr->playerGender and sent in extras.gender (agent_docs/contract.md's extras
+-- field is already free-form/opaque, no core/relay change needed); a remote's advertised
+-- gender picks which pic table its ghost is drawn from.
+--
+-- Sprite decode: see adapters/emerald/sprite_probe.lua (Step 1, confirmed 2026-08-11) and
+-- sprite_ghost_test.lua (Step 2, confirmed 2026-08-11) for the 4bpp-tile/BGR555-palette decode
+-- math and the gui.drawPixel color-format fix (0xAARRGGBB, not 0xRRGGBBAA), both cited in
+-- agent_docs/verified.md. Addresses (pokeemerald.sym, same make-compare-verified build as
+-- every other address in this project):
+--   gObjectEventPic_BrendanNormal = 0x084975F8, size 0x900 (9 frames x 256 bytes, 2x4 tiles)
+--   gObjectEventPal_Brendan       = 0x084987F8, size 0x20 (16 colors, BGR555)
+--
+-- Facing direction and walk/run animation frame indices + durations (in real game frames, at
+-- the same ~60fps this script's own emu.frameadvance() loop runs at, so tracking them with a
+-- local frame counter matches the real game's own animation speed exactly): from
+-- src/data/object_events/object_event_anims.h's sAnim_FaceSouth/FaceNorth/FaceWest/FaceEast
+-- (idle) and sAnim_GoSouth/GoNorth/GoWest/GoEast (walk, 4-step cycle {3,0,4,0}-shaped per
+-- direction, uniform 8 frames/pose). Running is a GENUINELY SEPARATE pic table
+-- (gObjectEventPic_BrendanRunning/_MayRunning, not a faster walk cycle) -- found live
+-- 2026-08-11 after an earlier version of this script wrongly reused the ANIM_STD_GO_FAST_*
+-- tier (which turned out to be unrelated to on-foot Running Shoes dashing -- all four GO_FAST/
+-- FASTER/FASTEST tiers share the walk table's frame indices, only duration changes, so that
+-- was a red herring): the real running pose comes from sAnim_RunSouth/RunNorth/RunWest/RunEast,
+-- which reference combined pic-table indices 9-17 in sPicTable_BrendanNormal
+-- (object_event_pic_tables.h) -- i.e. gObjectEventPic_BrendanNormal's frames 0-8 for walking,
+-- gObjectEventPic_BrendanRunning's frames 0-8 (combined index minus 9) for running, sharing one
+-- ObjectEventGraphicsInfo/palette. The running frame SEQUENCE per direction is the same
+-- relative shape as walking ({3,0,4,0} etc., just from the other pic table), but NOT the same
+-- durations -- sAnim_RunSouth is ANIMCMD_FRAME(12,5),(9,3),(13,5),(9,3), i.e. 5,3,5,3 frames
+-- per pose, a real asymmetric cadence, not a flat quarter of the walk speed. East reuses West's
+-- frames with hFlip=true (sAnim_FaceEast/GoEast/RunEast's ANIMCMD_FRAME(..., .hFlip = TRUE)) --
+-- there is no separate mirrored bitmap in ROM, so drawing mirrors the frame's x-coordinate
+-- instead. sAnimTable_BrendanMayNormal confirms these frame tables (both walk and run) are
+-- shared between Brendan and May -- only the pixel/palette source differs, per gender.
+--
+-- Ghost placement, changed from phase4_multiplayer.lua: that script's GHOST_Y_CORRECTION
+-- existed because the 16x16 placeholder box was one tile shorter than a real 16x32 overworld
+-- sprite, so it needed shifting down to align with the character's feet. This script draws a
+-- real 16x32 sprite (same dimensions as the local player's own, which playerScreenPos()'s
+-- formula already correctly anchors by top-left corner) -- so no analogous correction should
+-- be needed here. NOT YET CONFIRMED ON SCREEN -- this is exactly what the Step 3 live test
+-- checks (does the ghost's feet land on the right tile with no offset hack).
+
+local GSAVEBLOCK1PTR_ADDR = 0x03005d8c
+-- gSaveBlock2Ptr = 0x03005D90 (pointer, right next to gSaveBlock1Ptr at 0x03005D8C --
+-- pokeemerald.sym, same make-compare-verified build as every other address in this project).
+-- playerGender is struct SaveBlock2 offset +0x08 (include/global.h L511, "u8 playerGender").
+-- MALE=0, FEMALE=1 (include/constants/global.h). Read once at script start, not every frame --
+-- gender doesn't change mid-session, unlike everything else this script reads from memory.
+local GSAVEBLOCK2PTR_ADDR = 0x03005d90
+local GPLAYERAVATAR_ADDR = 0x02037590
+local GOBJECTEVENTS_ADDR = 0x02037350
+local OBJECTEVENT_SIZE = 0x24
+local GSPRITES_ADDR = 0x02020630
+local SPRITE_SIZE = 0x44
+local GSPRITECOORDOFFSETX_ADDR = 0x02021bbc
+local GSPRITECOORDOFFSETY_ADDR = 0x02021bbe
+
+local GMAIN_CALLBACK2_ADDR = 0x030022c4
+local CB2_OVERWORLD_ADDR = 0x08085e5c
+
+local function inOverworld()
+    local callback2 = memory.read_u32_le(GMAIN_CALLBACK2_ADDR)
+    return callback2 == CB2_OVERWORLD_ADDR or callback2 == CB2_OVERWORLD_ADDR + 1
+end
+
+local TILE = 16 -- confirmed on screen in Phase 3, see phase4_multiplayer.lua's header.
+
+local BRIDGE_HOST = "127.0.0.1"
+local BRIDGE_PORT = tonumber(os.getenv("MESHGHOST_BRIDGE_PORT") or "") or 7778
+
+local FACING = { [1] = "south", [2] = "north", [3] = "west", [4] = "east" }
+
+----------------------------------------------------------------------------
+-- Sprite decode, both genders (Phase 5.5 Step 4). Decoded once at script
+-- start into resolved-color pixel lists per frame index (0-8), since the
+-- ROM data never changes at runtime.
+----------------------------------------------------------------------------
+
+local GOBJECTEVENTPIC_BRENDANNORMAL_ADDR = 0x084975f8
+local GOBJECTEVENTPAL_BRENDAN_ADDR = 0x084987f8
+-- gObjectEventPic_MayNormal / gObjectEventPal_May, same pokeemerald.sym build as every other
+-- address in this project (see agent_docs/phases/phase5_5.md's research summary):
+-- 0x084A3078 (size 0x900, same 9-frame layout as Brendan's) and 0x084A4278 (size 0x20).
+local GOBJECTEVENTPIC_MAYNORMAL_ADDR = 0x084a3078
+local GOBJECTEVENTPAL_MAY_ADDR = 0x084a4278
+-- Real, separate running-pose pic tables -- confirmed via object_event_anims.h's
+-- sAnim_RunSouth/RunNorth/RunWest/RunEast, which reference combined pic-table indices 9-17
+-- (i.e. this table's own local frames 0-8), distinct from the plain walk cycle (indices 0-8,
+-- gObjectEventPic_*Normal). Same palette as each gender's Normal table -- the running frames
+-- are a separate SpriteFrameImage entry in the SAME sPicTable_BrendanNormal array
+-- (object_event_pic_tables.h), sharing one ObjectEventGraphicsInfo (and therefore one
+-- paletteTag) with the walk frames, not a second palette.
+local GOBJECTEVENTPIC_BRENDANRUNNING_ADDR = 0x08497ef8
+local GOBJECTEVENTPIC_MAYRUNNING_ADDR = 0x084a3978
+local FRAME_WIDTH_TILES = 2
+local FRAME_HEIGHT_TILES = 4
+local FRAME_WIDTH_PX = FRAME_WIDTH_TILES * 8
+local FRAME_HEIGHT_PX = FRAME_HEIGHT_TILES * 8
+local FRAMES_PER_PIC_TABLE = 9
+
+-- Direction -> {idle frame index, {4-step frame sequence}, hFlip}. Confirmed from
+-- object_event_anims.h: sAnim_RunSouth/etc's combined-table indices (12,9,13,9 for south),
+-- minus the running table's +9 offset, are {3,0,4,0} -- the SAME relative sequence as walking
+-- (sAnim_GoSouth), just read from the running pic table instead of the walk one. So one
+-- direction/frame-sequence table serves both -- only which pic table (walk vs run) and the
+-- per-pose hold durations differ. South/North/West are drawn as-is; East reuses West's frames
+-- mirrored.
+local DIRECTION_ANIM = {
+    south = { idle = 0, steps = { 3, 0, 4, 0 }, hFlip = false },
+    north = { idle = 1, steps = { 5, 1, 6, 1 }, hFlip = false },
+    west  = { idle = 2, steps = { 7, 2, 8, 2 }, hFlip = false },
+    east  = { idle = 2, steps = { 7, 2, 8, 2 }, hFlip = true },
+}
+-- Per-pose hold durations (frames), indexed the same as DIRECTION_ANIM's steps array. Walking
+-- (sAnim_GoSouth/etc) holds each of the 4 poses for a uniform 8 frames. Running (sAnim_RunSouth
+-- /etc) does NOT hold uniformly -- ANIMCMD_FRAME(12,5),(9,3),(13,5),(9,3) -- 5,3,5,3, a real,
+-- asymmetric cadence, not a flat quarter of the walk speed.
+local WALK_POSE_DURATIONS = { 8, 8, 8, 8 }
+local RUN_POSE_DURATIONS = { 5, 3, 5, 3 }
+
+local function expand5to8(v5) return (v5 << 3) | (v5 >> 2) end
+
+local function decodePalette(addr)
+    local pal = {}
+    for i = 0, 15 do
+        local c = memory.read_u16_le(addr + i * 2)
+        local r5 = c & 0x1F
+        local g5 = (c >> 5) & 0x1F
+        local b5 = (c >> 10) & 0x1F
+        pal[i] = { r = expand5to8(r5), g = expand5to8(g5), b = expand5to8(b5) }
+    end
+    return pal
+end
+
+-- decodeFramePixels decodes one frame at picAddr + frameIndex*256 bytes, returning a flat
+-- list of {x, y, color} (0xAARRGGBB, see phase5.5 Step 2's verified.md entry for why),
+-- skipping palette index 0 (transparent).
+local function decodeFramePixels(picAddr, frameIndex, palette)
+    local frameAddr = picAddr + frameIndex * (FRAME_WIDTH_TILES * FRAME_HEIGHT_TILES * 32)
+    local pixels = {}
+    for py = 0, FRAME_HEIGHT_PX - 1 do
+        local tileRow = py // 8
+        local localY = py % 8
+        for px = 0, FRAME_WIDTH_PX - 1 do
+            local tileCol = px // 8
+            local localX = px % 8
+            local tileIndex = tileRow * FRAME_WIDTH_TILES + tileCol
+            local tileByteOffset = tileIndex * 32 + localY * 4 + (localX // 2)
+            local b = memory.read_u8(frameAddr + tileByteOffset)
+            local index
+            if localX % 2 == 0 then
+                index = b & 0x0F
+            else
+                index = (b >> 4) & 0x0F
+            end
+            if index ~= 0 then
+                local c = palette[index]
+                local color = (0xFF << 24) | (c.r << 16) | (c.g << 8) | c.b
+                pixels[#pixels + 1] = { x = px, y = py, color = color }
+            end
+        end
+    end
+    return pixels
+end
+
+-- genderFrames[gender][pose][i] (i = 0..8) = decoded pixel list for that gender/pose-set's
+-- pic table, frame i. pose is "walk" (used for idle too -- idle frames 0-2 only exist in the
+-- walk/Normal pic table) or "run" (the separate table above). All four combinations decoded
+-- once at startup -- a remote's gender and current anim pick which table drawSpriteFrame reads
+-- from, never which tables exist (all always loaded, since any combination could show up).
+local genderFrames = { male = { walk = {}, run = {} }, female = { walk = {}, run = {} } }
+local function loadGenderFrames()
+    local malePalette = decodePalette(GOBJECTEVENTPAL_BRENDAN_ADDR)
+    local femalePalette = decodePalette(GOBJECTEVENTPAL_MAY_ADDR)
+    for i = 0, FRAMES_PER_PIC_TABLE - 1 do
+        genderFrames.male.walk[i] = decodeFramePixels(GOBJECTEVENTPIC_BRENDANNORMAL_ADDR, i, malePalette)
+        genderFrames.male.run[i] = decodeFramePixels(GOBJECTEVENTPIC_BRENDANRUNNING_ADDR, i, malePalette)
+        genderFrames.female.walk[i] = decodeFramePixels(GOBJECTEVENTPIC_MAYNORMAL_ADDR, i, femalePalette)
+        genderFrames.female.run[i] = decodeFramePixels(GOBJECTEVENTPIC_MAYRUNNING_ADDR, i, femalePalette)
+    end
+end
+
+----------------------------------------------------------------------------
+-- Paths, resolved relative to this script's own location -- same
+-- io.popen("cd") approach as phase4_multiplayer.lua, see its header for why
+-- debug.getinfo does NOT work here (BizHawk loads scripts as in-memory
+-- string chunks, not files).
+----------------------------------------------------------------------------
+
+local function scriptDir()
+    local pwd = io.popen and io.popen("cd"):read("*l")
+    if not pwd or pwd == "" then
+        error("MeshGhost Phase 5.5: could not determine the script's own directory (io.popen \"cd\" unavailable or returned nothing).")
+    end
+    return pwd .. "\\"
+end
+
+local SCRIPT_DIR = scriptDir()
+
+----------------------------------------------------------------------------
+-- LuaSocket: identical to phase4_multiplayer.lua, see its header for the
+-- full derivation of why lua54.dll must be pre-loaded by full path first.
+----------------------------------------------------------------------------
+
+local function preloadLua54()
+    pcall(function()
+        package.loadlib(SCRIPT_DIR .. "lib/x64/lua54.dll", "meshghost_force_preload")
+    end)
+end
+
+local function loadSocketCore()
+    if package.config:sub(1, 1) ~= "\\" then
+        error("MeshGhost Phase 5.5: only Windows is supported by the vendored LuaSocket binary so far.")
+    end
+    local luaMajor, luaMinor = _VERSION:match("Lua (%d+)%.(%d+)")
+    if luaMajor ~= "5" or luaMinor ~= "4" then
+        error("MeshGhost Phase 5.5: only Lua 5.4 is supported by the vendored LuaSocket binary so far (got " .. _VERSION .. ").")
+    end
+    local arch = os.getenv("PROCESSOR_ARCHITECTURE") or ""
+    if not arch:find("64") then
+        error("MeshGhost Phase 5.5: only x64 is supported by the vendored LuaSocket binary so far.")
+    end
+    preloadLua54()
+    local dllPath = SCRIPT_DIR .. "lib/x64/socket-windows-5-4.dll"
+    return assert(package.loadlib(dllPath, "luaopen_socket_core"))()
+end
+
+local socketCore = loadSocketCore()
+
+----------------------------------------------------------------------------
+-- Minimal JSON -- identical to phase4_multiplayer.lua, see its header.
+----------------------------------------------------------------------------
+
+local function jsonString(s)
+    s = s:gsub("\\", "\\\\"):gsub('"', '\\"')
+    return '"' .. s .. '"'
+end
+
+-- gender is sent in extras -- agent_docs/contract.md's packet schema already has extras as a
+-- free-form, core/relay-opaque dict for exactly this kind of adapter-specific data; no
+-- core/relay change needed. "male"/"female" matches pokeemerald's own MALE/FEMALE naming
+-- (include/constants/global.h) for direct traceability, same pattern orientation's
+-- "south"/"north"/"west"/"east" already follows against DIR_* naming.
+local function encodeLocalState(areaId, x, y, orientation, anim, gender)
+    return string.format(
+        '{"type":"local_state","payload":{"state":{"area_id":%s,"position":[%s,%s],"orientation":%s,"anim":%s,"extras":{"gender":%s}}}}',
+        jsonString(areaId), tostring(x), tostring(y), jsonString(orientation), jsonString(anim), jsonString(gender))
+end
+
+local ENCODED_NO_SEND = '{"type":"local_state","payload":{"state":null}}'
+
+local decodeValue -- forward declaration
+
+local function skipWs(s, i)
+    local _, j = s:find("^[ \t\r\n]*", i)
+    return j + 1
+end
+
+local function decodeString(s, i)
+    local j = i + 1
+    local out = {}
+    while true do
+        local c = s:sub(j, j)
+        if c == "" then
+            error("json: unterminated string")
+        elseif c == '"' then
+            return table.concat(out), j + 1
+        elseif c == "\\" then
+            local e = s:sub(j + 1, j + 1)
+            if e == "n" then table.insert(out, "\n")
+            elseif e == "t" then table.insert(out, "\t")
+            elseif e == "r" then table.insert(out, "\r")
+            elseif e == "u" then
+                local hex = s:sub(j + 2, j + 5)
+                table.insert(out, string.char(tonumber(hex, 16) % 256))
+                j = j + 4
+            else
+                table.insert(out, e)
+            end
+            j = j + 2
+        else
+            table.insert(out, c)
+            j = j + 1
+        end
+    end
+end
+
+local function decodeNumber(s, i)
+    local _, j, num = s:find("^(-?%d+%.?%d*[eE]?[%+%-]?%d*)", i)
+    if not num then error("json: expected number") end
+    return tonumber(num), j + 1
+end
+
+local function decodeObject(s, i)
+    local obj = {}
+    i = skipWs(s, i + 1)
+    if s:sub(i, i) == "}" then return obj, i + 1 end
+    while true do
+        local key
+        key, i = decodeString(s, i)
+        i = skipWs(s, i)
+        if s:sub(i, i) ~= ":" then error("json: expected ':'") end
+        i = skipWs(s, i + 1)
+        local val
+        val, i = decodeValue(s, i)
+        obj[key] = val
+        i = skipWs(s, i)
+        local c = s:sub(i, i)
+        if c == "," then
+            i = skipWs(s, i + 1)
+        elseif c == "}" then
+            return obj, i + 1
+        else
+            error("json: expected ',' or '}'")
+        end
+    end
+end
+
+local function decodeArray(s, i)
+    local arr = {}
+    i = skipWs(s, i + 1)
+    if s:sub(i, i) == "]" then return arr, i + 1 end
+    while true do
+        local val
+        val, i = decodeValue(s, i)
+        table.insert(arr, val)
+        i = skipWs(s, i)
+        local c = s:sub(i, i)
+        if c == "," then
+            i = skipWs(s, i + 1)
+        elseif c == "]" then
+            return arr, i + 1
+        else
+            error("json: expected ',' or ']'")
+        end
+    end
+end
+
+decodeValue = function(s, i)
+    i = skipWs(s, i)
+    local c = s:sub(i, i)
+    if c == "{" then return decodeObject(s, i)
+    elseif c == "[" then return decodeArray(s, i)
+    elseif c == '"' then return decodeString(s, i)
+    elseif c == "t" then
+        if s:sub(i, i + 3) ~= "true" then error("json: bad literal") end
+        return true, i + 4
+    elseif c == "f" then
+        if s:sub(i, i + 4) ~= "false" then error("json: bad literal") end
+        return false, i + 5
+    elseif c == "n" then
+        if s:sub(i, i + 3) ~= "null" then error("json: bad literal") end
+        return nil, i + 4
+    else
+        return decodeNumber(s, i)
+    end
+end
+
+local function jsonDecode(line)
+    local ok, val = pcall(function()
+        local v = decodeValue(line, 1)
+        return v
+    end)
+    if not ok then return nil end
+    return val
+end
+
+----------------------------------------------------------------------------
+-- Bridge connection -- identical to phase4_multiplayer.lua, see its header.
+----------------------------------------------------------------------------
+
+local sock = nil
+local connected = false
+
+local function connectBridge()
+    if not sock then
+        sock = socketCore.tcp()
+        sock:settimeout(0)
+    end
+    local ok, err = sock:connect(BRIDGE_HOST, BRIDGE_PORT)
+    if ok == 1 or err == "already connected" then
+        connected = true
+    end
+end
+
+local function resetBridge()
+    if connected then
+        console.log("MeshGhost Phase 5.5: bridge connection lost, will retry connecting.")
+    end
+    if sock then pcall(function() sock:close() end) end
+    sock = nil
+    connected = false
+end
+
+local function sendLine(line)
+    local ok, err = sock:send(line .. "\n")
+    if not ok and err ~= "timeout" then
+        resetBridge()
+    end
+end
+
+----------------------------------------------------------------------------
+-- Local state reading -- identical to phase4_multiplayer.lua, see its header.
+----------------------------------------------------------------------------
+
+local lastMapGroup, lastMapNum = nil, nil
+
+local function mapJustChanged(mapGroup, mapNum)
+    local changed = lastMapGroup ~= nil and (mapGroup ~= lastMapGroup or mapNum ~= lastMapNum)
+    lastMapGroup, lastMapNum = mapGroup, mapNum
+    return changed
+end
+
+local function getLocalState()
+    local base = memory.read_u32_le(GSAVEBLOCK1PTR_ADDR)
+    if base == 0 then return nil end
+
+    local x = memory.read_s16_le(base + 0x00)
+    local y = memory.read_s16_le(base + 0x02)
+    local mapGroup = memory.read_s8(base + 0x04)
+    local mapNum = memory.read_s8(base + 0x05)
+
+    if mapJustChanged(mapGroup, mapNum) then return nil end
+
+    local flags = memory.read_u8(GPLAYERAVATAR_ADDR + 0x00)
+    local runningState = memory.read_u8(GPLAYERAVATAR_ADDR + 0x02)
+    local objectEventId = memory.read_u8(GPLAYERAVATAR_ADDR + 0x05)
+    local dashing = (flags & 0x80) ~= 0
+
+    local objEventAddr = GOBJECTEVENTS_ADDR + (objectEventId * OBJECTEVENT_SIZE)
+    local facingRaw = memory.read_u16_le(objEventAddr + 0x18) & 0xF
+    local orientation = FACING[facingRaw] or "south"
+
+    local anim
+    if runningState == 2 and dashing then
+        anim = "running"
+    elseif runningState == 2 then
+        anim = "walking"
+    else
+        anim = "idle"
+    end
+
+    return {
+        areaId = mapGroup .. ":" .. mapNum,
+        x = x,
+        y = y,
+        orientation = orientation,
+        anim = anim,
+    }
+end
+
+-- readLocalGender returns "male"/"female", or nil if no save is loaded yet (mirrors
+-- getLocalState's own base==0 gate). Called once the first time getLocalState succeeds, not
+-- every frame -- gender doesn't change mid-session.
+local function readLocalGender()
+    local base = memory.read_u32_le(GSAVEBLOCK2PTR_ADDR)
+    if base == 0 then return nil end
+    local gender = memory.read_u8(base + 0x08)
+    return (gender == 1) and "female" or "male"
+end
+
+----------------------------------------------------------------------------
+-- Sub-tile position smoothing. getLocalState() above returns pos.x/y as
+-- read straight from gSaveBlock1Ptr -- a whole-tile coordinate that only
+-- changes once per completed tile-step, not a continuous pixel position.
+-- Found live 2026-08-11: sending that raw value made a remote's ghost look
+-- choppy/teleport-y on the other client's screen, and didn't improve at a
+-- shorter -interp -- the interpolation buffer isn't the bottleneck, the
+-- source data's own update granularity is (confirmed by the fact that a
+-- shorter buffer didn't help; if the buffer were the cause, shortening it
+-- would have).
+--
+-- Fix: track locally, in the adapter, when pos.x/y last changed and
+-- linearly blend from the previous committed tile to the new one. The
+-- blend window is MEASURED, not a hardcoded guess: found live 2026-08-11
+-- that assuming a fixed 8-frame tile duration (borrowed from a single
+-- ANIMCMD_FRAME's hold time in sAnim_GoSouth -- the duration of one pose
+-- within the walk cycle, not necessarily how long a whole tile of
+-- *movement* takes) made the ghost visibly pause after each step instead
+-- of moving continuously -- the real per-tile duration is evidently
+-- longer. Rather than guess a second specific number and risk being wrong
+-- again, the adapter measures the real gap between the last two committed
+-- tile-changes and uses that as the estimate for the current step -- this
+-- self-corrects to whatever the real cadence is (walk/run/bike, all
+-- different speeds) without needing a cited frame-count constant at all.
+-- One-step-stale by construction (a speed change is only fully reflected
+-- starting the step after it changes), which is an acceptable tradeoff
+-- for a cosmetic ghost. No new memory address needed either way.
+----------------------------------------------------------------------------
+
+-- Real per-tile frame counts, measured live 2026-08-11 via a temporary diagnostic that printed
+-- every real gap between consecutive tile commits: a clean, repeated, stable 16 frames/tile
+-- walking and 8 frames/tile running (occasional outliers at genuine transitions -- direction
+-- changes, a step right after unblocking from a wall -- are a property of those specific
+-- moments, not evidence the steady-state number is wrong). See agent_docs/verified.md.
+local STEP_DURATION_FRAMES = { walking = 16, running = 8 }
+
+local frameCounter = 0
+local prevTileX, prevTileY = nil, nil
+local committedTileX, committedTileY = nil, nil
+local committedAreaId = nil
+local tileChangeFrame = 0
+-- The duration used to glide the CURRENT step, locked in once when that step commits rather
+-- than re-derived from anim on every frame of the glide. Found live 2026-08-11: re-deriving it
+-- live let the denominator itself change mid-glide whenever anim changed before the glide
+-- finished (e.g. running -> idle the instant you stop, or a step right after unblocking from a
+-- wall), which made the fraction jump backward or lurch -- exactly the "snaps when I suddenly
+-- stop running" and "wall bump then running" reports. Locking it to whatever anim was active
+-- at the moment the step STARTED fixes that: the rest of that one glide always finishes at the
+-- pace it began at, regardless of what anim does before it completes.
+local activeStepDuration = STEP_DURATION_FRAMES.walking
+
+local function smoothPosition(rawX, rawY, areaId, anim)
+    if committedTileX == nil or areaId ~= committedAreaId then
+        -- First sample, or a map transition -- nothing to interpolate from,
+        -- snap instead of gliding across a map boundary or from nothing.
+        prevTileX, prevTileY = rawX, rawY
+        committedTileX, committedTileY = rawX, rawY
+        committedAreaId = areaId
+        tileChangeFrame = frameCounter
+        activeStepDuration = STEP_DURATION_FRAMES[anim] or STEP_DURATION_FRAMES.walking
+    elseif rawX ~= committedTileX or rawY ~= committedTileY then
+        prevTileX, prevTileY = committedTileX, committedTileY
+        committedTileX, committedTileY = rawX, rawY
+        tileChangeFrame = frameCounter
+        activeStepDuration = STEP_DURATION_FRAMES[anim] or STEP_DURATION_FRAMES.walking
+    end
+
+    local fraction = (frameCounter - tileChangeFrame) / activeStepDuration
+    if fraction > 1 then fraction = 1 end
+    if fraction < 0 then fraction = 0 end
+
+    return prevTileX + (committedTileX - prevTileX) * fraction,
+           prevTileY + (committedTileY - prevTileY) * fraction
+end
+
+local function playerScreenPos()
+    local spriteId = memory.read_u8(GPLAYERAVATAR_ADDR + 0x04)
+    local spriteAddr = GSPRITES_ADDR + (spriteId * SPRITE_SIZE)
+
+    local sx = memory.read_s16_le(spriteAddr + 0x20)
+    local sy = memory.read_s16_le(spriteAddr + 0x22)
+    local sx2 = memory.read_s16_le(spriteAddr + 0x24)
+    local sy2 = memory.read_s16_le(spriteAddr + 0x26)
+    local cx = memory.read_s8(spriteAddr + 0x28)
+    local cy = memory.read_s8(spriteAddr + 0x29)
+
+    local coordOffsetX = memory.read_s16_le(GSPRITECOORDOFFSETX_ADDR)
+    local coordOffsetY = memory.read_s16_le(GSPRITECOORDOFFSETY_ADDR)
+
+    return sx + sx2 + cx + coordOffsetX, sy + sy2 + cy + coordOffsetY
+end
+
+----------------------------------------------------------------------------
+-- Remote ghost set. Per the tick model (agent_docs/contract.md): an
+-- adapter-owned map the core upserts into via render_remote and removes
+-- from via despawn_remote, redrawn every frame regardless of when new
+-- network data last arrived. Extended from phase4_multiplayer.lua with
+-- per-remote animation state (animTimer/animStepIndex), which must survive
+-- across render_remote updates (a new position update every ~1/10s must
+-- NOT reset which walk-cycle frame is currently showing) -- so updates
+-- merge into the existing entry instead of replacing it wholesale.
+----------------------------------------------------------------------------
+
+local remotes = {}
+
+local function handleBridgeLine(line)
+    local env = jsonDecode(line)
+    if not env or type(env) ~= "table" then return end
+
+    if env.type == "render_remote" then
+        local payload = env.payload
+        if type(payload) == "table" and type(payload.state) == "table" and payload.player_id then
+            local st = payload.state
+            local pos = st.position
+            if type(pos) == "table" and pos[1] and pos[2] then
+                local r = remotes[payload.player_id]
+                if not r then
+                    r = { animTimer = 0, animStepIndex = 0 }
+                    remotes[payload.player_id] = r
+                end
+                r.areaId = st.area_id
+                r.x = pos[1]
+                r.y = pos[2]
+                r.orientation = st.orientation
+                r.anim = st.anim
+                -- extras is free-form/opaque per agent_docs/contract.md; default to "male" if
+                -- absent (e.g. an older client without this field) rather than erroring, same
+                -- forward-compatibility posture the relay/core already apply.
+                r.gender = (type(st.extras) == "table" and st.extras.gender) or "male"
+            end
+        end
+    elseif env.type == "despawn_remote" then
+        local payload = env.payload
+        if type(payload) == "table" and payload.player_id then
+            remotes[payload.player_id] = nil
+        end
+    end
+end
+
+local function drainBridge()
+    while true do
+        local line, err = sock:receive()
+        if line then
+            handleBridgeLine(line)
+        elseif err == "timeout" then
+            return
+        else
+            resetBridge()
+            remotes = {}
+            return
+        end
+    end
+end
+
+----------------------------------------------------------------------------
+-- Drawing. See the header for the placement-formula change from
+-- phase4_multiplayer.lua (no GHOST_Y_CORRECTION -- not yet confirmed).
+----------------------------------------------------------------------------
+
+-- advanceAnim steps a remote's walk/run animation forward by one frame (called once per emu
+-- frame, only while the remote is walking/running) and returns the frame index to draw for its
+-- current direction. Resets to step 0 whenever the direction or anim tag changes, so a fresh
+-- movement always starts from a consistent pose rather than resuming wherever a previous,
+-- different-direction cycle left off.
+local function advanceAnim(remote, dirInfo)
+    if remote.lastAnim ~= remote.anim or remote.lastOrientation ~= remote.orientation then
+        remote.animTimer = 0
+        remote.animStepIndex = 1
+        remote.lastAnim = remote.anim
+        remote.lastOrientation = remote.orientation
+    end
+
+    local durations = (remote.anim == "running") and RUN_POSE_DURATIONS or WALK_POSE_DURATIONS
+    local framesPerStep = durations[remote.animStepIndex]
+    remote.animTimer = remote.animTimer + 1
+    if remote.animTimer >= framesPerStep then
+        remote.animTimer = 0
+        remote.animStepIndex = (remote.animStepIndex % #dirInfo.steps) + 1
+    end
+    return dirInfo.steps[remote.animStepIndex]
+end
+
+local function drawSpriteFrame(gender, pose, frameIndex, hFlip, screenX, screenY)
+    local genderSet = genderFrames[gender] or genderFrames.male
+    local pixels = (genderSet[pose] or genderSet.walk)[frameIndex]
+    for i = 1, #pixels do
+        local p = pixels[i]
+        local px = hFlip and (FRAME_WIDTH_PX - 1 - p.x) or p.x
+        gui.drawPixel(screenX + px, screenY + p.y, p.color)
+    end
+end
+
+local function drawRemotes(localAreaId, playerMapX, playerMapY)
+    local playerScreenX, playerScreenY = playerScreenPos()
+    for _, remote in pairs(remotes) do
+        if remote.areaId == localAreaId then
+            local screenX = playerScreenX + (remote.x - playerMapX) * TILE
+            local screenY = playerScreenY + (remote.y - playerMapY) * TILE
+
+            local dirInfo = DIRECTION_ANIM[remote.orientation] or DIRECTION_ANIM.south
+            local frameIndex, pose
+            if remote.anim == "walking" or remote.anim == "running" then
+                pose = (remote.anim == "running") and "run" or "walk"
+                frameIndex = advanceAnim(remote, dirInfo)
+            else
+                remote.animTimer = 0
+                remote.animStepIndex = 1
+                remote.lastAnim = remote.anim
+                remote.lastOrientation = remote.orientation
+                pose = "walk" -- idle frames (0-2) only exist in the walk/Normal pic table
+                frameIndex = dirInfo.idle
+            end
+
+            drawSpriteFrame(remote.gender, pose, frameIndex, dirInfo.hFlip, screenX, screenY)
+        end
+        -- A remote in a different area is deliberately not drawn at all --
+        -- area_id is opaque and compared by equality only
+        -- (agent_docs/contract.md); this is not the same as despawning it.
+    end
+end
+
+----------------------------------------------------------------------------
+-- Main loop. The adapter always drives (agent_docs/contract.md's tick
+-- model): once per emu frame, try to connect if needed, send local state,
+-- drain and apply whatever the core pushed back, then redraw every known
+-- remote unconditionally.
+----------------------------------------------------------------------------
+
+if not memory.usememorydomain("System Bus") then
+    console.log("ERROR: 'System Bus' memory domain not found on this core.")
+    console.log("Domains available: " .. memory.getmemorydomainlist())
+    return
+end
+
+console.log("MeshGhost Phase 5.5 sprite adapter running.")
+console.log("Decoding Brendan/May sprite frames...")
+loadGenderFrames()
+console.log("Connecting to bridge at " .. BRIDGE_HOST .. ":" .. BRIDGE_PORT .. " ...")
+
+local localGender = nil -- resolved lazily, first frame a save is loaded (see readLocalGender)
+
+while true do
+    frameCounter = frameCounter + 1
+    gui.clearGraphics()
+
+    if not connected then
+        connectBridge()
+        if connected then
+            console.log("MeshGhost Phase 5.5: connected to bridge.")
+            -- A fresh bridge connection means a fresh core process on the other end (the
+            -- previous one either restarted or its own connection died) -- any remote it had
+            -- previously told us about is stale, since the despawn_remote for it (if any was
+            -- ever sent) may have been lost during the outage, same failure shape as the
+            -- already-known "gui.* overlay doesn't auto-clear" class of bug: nothing else
+            -- would ever notice and clear a stale entry on its own. Found live 2026-08-11: a
+            -- restarted core process without restarting this script left an old peer's ghost
+            -- on screen alongside the new one.
+            remotes = {}
+        end
+    end
+
+    if connected then
+        local state = getLocalState()
+        local smoothX, smoothY, smoothAreaId
+        if state then
+            if not localGender then
+                localGender = readLocalGender()
+                if localGender then
+                    console.log("MeshGhost Phase 5.5: local gender = " .. localGender)
+                end
+            end
+            smoothX, smoothY = smoothPosition(state.x, state.y, state.areaId, state.anim)
+            smoothAreaId = state.areaId
+            sendLine(encodeLocalState(state.areaId, smoothX, smoothY, state.orientation, state.anim, localGender or "male"))
+        else
+            sendLine(ENCODED_NO_SEND)
+        end
+
+        if connected then
+            drainBridge()
+        end
+
+        -- Reuses the SAME smoothed self-position just computed above (not a fresh raw
+        -- integer re-read) as the anchor for placing remotes -- found live 2026-08-11 that
+        -- anchoring on the raw integer tile position while playerScreenPos() (used inside
+        -- drawRemotes) is a smooth, continuously-updating pixel position made even a
+        -- perfectly stationary remote's ghost visibly wobble on this client's own screen
+        -- whenever the local player was mid-step. Skips drawing for the rare single frame
+        -- where state is nil (the map-transition debounce) rather than falling back to a
+        -- raw read that wouldn't be consistent with what was just sent to the network.
+        if connected and inOverworld() and smoothX then
+            drawRemotes(smoothAreaId, smoothX, smoothY)
+        end
+    end
+
+    emu.frameadvance()
+end

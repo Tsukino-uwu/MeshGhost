@@ -91,10 +91,23 @@ number here on purpose.
 
 ## Current status
 
-Phase 0 is **not** complete — the packet schema and adapter interface are documented in
-`agent_docs/contract.md`, but several of its open questions (Emerald's exact `area_id`
-encoding, the first `anim` tag set, snapshot rate) are unanswered until Phase 1 runs against
-a real emulator. See `agent_docs/status.md` for the current one-line focus.
+Phases 0–2 are complete — see `agent_docs/verified.md` for every confirmed address, the
+`area_id`/`anim`/`orientation` decisions closed in `agent_docs/contract.md`, and the Phase 2
+ghost-overlay/screen-position findings (including the battle-drawing-skip design decision and
+several transient rendering glitches traced back to already-known causes). Only bike/surf
+flags remain deferred (far into the game, not blocking) and the `coordOffsetEnabled`
+assumption remains unverified but low-risk. Phase 3 (loopback) is also complete (2026-08-11) —
+a real relay/core round trip confirmed trailing a ghost on screen, after finding and fixing
+three real bugs along the way (see `agent_docs/phases/phase3.md`). Phase 4 (two players) is
+also complete (2026-08-11) — two real BizHawk/Emerald instances confirmed rendering each
+other's ghosts, joining, and despawning correctly on both clean and unclean disconnects (see
+`agent_docs/phases/phase4.md`). One follow-up carried forward, not a Phase 4 blocker:
+battle-skip gating needs a verified `pokeemerald` battle-state address. Phase 5 (extract the
+template) is also complete (2026-08-11) — the core was confirmed running standalone against an
+in-process fake adapter (a ghost walking in a circle, no game attached), and
+`adapters/_template/` is now frozen with a language-agnostic protocol stub for Phase 6 to build
+from (see `agent_docs/phases/phase5.md`). See `agent_docs/status.md` for the current one-line
+focus.
 
 ## Roadmap
 
@@ -109,13 +122,18 @@ file's "Open questions" section.
 ### Phase 1 — Emerald read-only verification
 
 Visible outcome: BizHawk Lua prints local player state from actual game memory, and it
-tracks known-direction motion. Live task list: `agent_docs/phases/phase1.md`.
+tracks known-direction motion. **Status: complete** (2026-08-11), bike/surf flags deferred.
+See `agent_docs/verified.md`.
 
 ### Phase 2 — Fake ghost, no network
 
 Visible outcome: a rendered ghost overlay in Emerald following a hardcoded offset, using
 `gui.drawImage`. Proves the screen-position math (map coords + camera scroll) before network
-code is in the picture. Gets its own `phases/phase2.md` when Phase 1 closes.
+code is in the picture. **Status: complete** (2026-08-11) — confirmed tracking the player
+including at a real camera-pinned map edge, plus three transient-rendering findings (battle
+sprite-slot reuse, route-crossing jitter, door-warp jitter) all traced to already-understood
+causes rather than new bugs. See `agent_docs/verified.md`. Detailed record:
+`agent_docs/phases/phase2.md`.
 
 ### Phase 3 — Loopback
 
@@ -123,14 +141,34 @@ Visible outcome: one client sends its own state through a local relay and render
 trailing itself by ~200ms. Exercises the bridge, the relay protocol, the schema, and the
 interpolation buffer on one machine before a second machine is involved. Implements the
 payload/rate limits from `agent_docs/contract.md` even though no-auth means nothing else
-guards the relay yet.
+guards the relay yet. **Status: complete** (2026-08-11) — confirmed on screen: a ghost trails
+the player by ~200ms with `TILE = 16` correct, holding steady across walking/running and
+route/house transitions, with no flicker, over the real relay/core/bridge round trip
+(loopback flag on, not a same-process shortcut). Three real bugs were found via live testing
+and fixed: `internal/core` didn't despawn remotes when its own relay connection dropped, the
+Lua adapter didn't detect its own bridge connection dying, and — the one that made both of
+those look worse than they were — BizHawk's `gui.*` overlay does not auto-clear between
+frames (corrected a wrong assumption stated in `contract.md`'s tick model since Phase 2). See
+`agent_docs/phases/phase3.md` for the full task-by-task record and `agent_docs/verified.md`
+for every confirmed fact.
 
 ### Phase 4 — Two players
 
 Visible outcome: two BizHawk clients render each other's ghosts and handle joins/drops.
 First real multiplayer milestone. No-auth per the current ADR — treat the relay address as
 something only shared directly with a friend, not something safe to post publicly, until
-room codes ship (see below).
+room codes ship (see below). **Status: complete** (2026-08-11) — see
+`agent_docs/phases/phase4.md` for the full task-by-task record and `agent_docs/verified.md`
+for every confirmed fact.
+
+Deferred idea, raised during Phase 4 testing, not scheduled: a ghost in a map connected to the
+local player's current map (an adjacent route/town, seamlessly scrolled between rather than
+warped) currently just doesn't render at all, same as any other different `area_id`, even
+though the two areas are visually contiguous at the shared edge. Rendering it correctly across
+that seam would mean reading and verifying `pokeemerald`'s own map-connection offset data
+(new, unverified addresses) and extending the screen-position formula to place a ghost from a
+different map at the right spot near the boundary — real new work, adapter-side only (does not
+touch the core's `area_id`-is-opaque rule), not attempted.
 
 ### Phase 5 — Extract the template
 
@@ -138,7 +176,27 @@ Visible outcome: the core runs independently of the Emerald adapter against a fa
 that moves a ghost in a circle, with no game attached. If it doesn't run cleanly, something
 leaked — check for `if game ==`-style branches in `internal/core` and `internal/relay`.
 Freeze `adapters/_template/` as the reusable adapter stub — this is the real deliverable of
-this phase, not the Emerald adapter itself.
+this phase, not the Emerald adapter itself. **Status: complete** (2026-08-11) — see
+`agent_docs/phases/phase5.md` for the full task-by-task record and `agent_docs/verified.md`
+for the confirmed fact. No `internal/core`/`internal/relay` changes were needed beyond adding
+`Core.RunAdapter`, an in-process driver alongside the existing bridge-wire path — both share
+one diff implementation, so there's no game-specific or protocol-specific branching in either.
+
+### Phase 5.5 — Real Emerald ghost sprite (gender-correct)
+
+Not a numbered milestone in the original game-count sense (doesn't gate Phase 6), but the user
+wants Emerald's ghost rendering "finished" — a real Brendan/May sprite instead of the magenta
+placeholder box, gender advertised in the schema so a remote renders correctly, and every
+Phase 1/2 address re-verified on a female save (previously male-only). **Status: complete**,
+2026-08-11 — see `agent_docs/phases/phase5_5.md` for the full research citations, task list,
+and `agent_docs/verified.md` for every confirmed fact. Real sprite art, gender-correct
+rendering (including a genuinely separate running pose, found live — not a faster walk cycle),
+and female-save re-verification all confirmed live with two real peers. Along the way, also
+fixed real sub-tile position-smoothing and stale-remotes bugs surfaced by testing with a real
+detailed sprite instead of the old placeholder box. Deliberately does not touch bike/surf
+flags, ledge jumps (surfaced during testing, added to the same deferred item), seamless
+route/town rendering, the `coordOffsetEnabled` assumption, the relay-disconnect log spam, or
+the two open contract questions — those stay exactly as already documented, deferred.
 
 ### Phase 6 — Second game (TEVI)
 
@@ -151,6 +209,14 @@ the contract holds up outside Emerald. First task is verifying TEVI's IL2CPP vs 
 Not a numbered phase because it doesn't gate the games-side milestones. Add shared-secret
 room codes to the relay so a session isn't just a bare IP:port. Scheduled after Phase 4
 proves the two-player path works at all.
+
+Whatever config mechanism ends up carrying a room code to a non-technical friend (config
+file, simple launcher, join-link) is also the natural place to bundle other
+currently-CLI-flag-only, friend-facing settings — raised during Phase 4 testing: interpolation
+delay (`-interp`, `internal/core`'s `DefaultInterpolationDelay` / per-`Core` override, currently
+100ms default / 200ms in this project's own launch scripts). Keep `200ms` as the shipped
+default; let it be overridden through whatever this config mechanism turns out to be. Not
+designed yet — don't build it speculatively before room codes work actually starts.
 
 ## Links
 

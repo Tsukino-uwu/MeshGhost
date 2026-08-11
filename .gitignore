@@ -5,6 +5,11 @@
 *.so
 *.dylib
 
+# Exception: LuaSocket is a real vendored dependency for the Emerald BizHawk
+# adapter (agent_docs/licensing.md, agent_docs/architecture.md's Phase 3
+# ADR), not Go build output -- must actually be committed.
+!/adapters/emerald/lib/**/*.dll
+
 # Go
 /vendor/
 

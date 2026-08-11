@@ -3,8 +3,9 @@
 // to the relay via internal/transport.Transport and to a real adapter via
 // internal/bridge — never to game memory or a rendering primitive directly.
 // See agent_docs/contract.md's tick model: the adapter always drives (calls
-// in once per frame); the core interpolates and pushes already-interpolated
-// state back out.
+// in once per frame, over the bridge, by sending a LocalState message); the
+// core responds to that same call with already-interpolated RenderRemote /
+// DespawnRemote pushes for every currently known remote.
 //
 // Hard rule (agent_docs/architecture.md, CLAUDE.md): this package must never
 // import anything under adapters/, and must never branch on game_id or any
@@ -12,13 +13,27 @@
 package core
 
 import (
+	"encoding/json"
+	"fmt"
+	"log"
+	"net"
+	"sync"
+	"sync/atomic"
+	"time"
+
+	"meshghost/internal/bridge"
 	"meshghost/internal/protocol"
 	"meshghost/internal/transport"
 )
 
-// internal/bridge is not imported yet — nothing here uses it until Phase 3
-// adds the bridge listener. Per the dependency graph in
-// agent_docs/architecture.md, Core is expected to depend on it then.
+// DefaultInterpolationDelay is how far behind the most recent samples the
+// core renders remotes by default, to smooth over network jitter. The
+// brief's "10Hz sync looks fine" is a hypothesis, not yet confirmed against
+// a running game — see the open question in agent_docs/contract.md. 100ms
+// is a starting guess for tile-grid movement, not a measured value.
+// Overridable per-Core (see Core.InterpolationDelay) — Phase 3's loopback
+// test runs ~200ms so the trailing ghost is plainly visible on screen.
+const DefaultInterpolationDelay = 100 * time.Millisecond
 
 // Adapter is an in-process Go interface used only by the Phase 5 fake/test
 // adapter (one that moves a ghost in a circle, per agent_docs/phases —
@@ -42,19 +57,315 @@ type Adapter interface {
 	DespawnRemote(playerID string)
 }
 
-// Core is the game-agnostic client. No behavior yet — the relay connection,
-// interpolation buffer, and bridge listener are Phase 3+ work.
+// Core is the game-agnostic client: one relay connection, a bridge
+// listener accepting adapter connections, and a per-remote-player
+// interpolation buffer.
 type Core struct {
-	// TODO(Phase 3): relay transport.Transport — the relay-protocol
-	// connection this Core drives.
-	// TODO(Phase 3): bridge listener accepting adapter connections and
-	// speaking internal/bridge's message shapes.
-	// TODO(Phase 3): per-remote-player interpolation buffer, keyed by
-	// player_id, fed by protocol.State messages and drained via
-	// bridge.RenderRemote / bridge.DespawnRemote each frame tick.
+	relay    transport.Transport
+	playerID string
+	seq      uint64
+
+	// InterpolationDelay overrides DefaultInterpolationDelay for this Core.
+	// Exported so cmd/meshghost can set it from a flag; adapters never see
+	// or set this — it's a core-internal render-timing knob, not part of
+	// the bridge wire protocol.
+	InterpolationDelay time.Duration
+
+	mu      sync.Mutex
+	remotes map[string]*remoteBuffer
 }
 
-// New wires a Core to a relay transport. No behavior yet.
-func New(relay transport.Transport) *Core {
-	return &Core{}
+// New creates an empty Core with no relay connection yet — call
+// ConnectRelay before ServeBridge. InterpolationDelay defaults to
+// DefaultInterpolationDelay; set the field directly to override it.
+func New() *Core {
+	return &Core{remotes: make(map[string]*remoteBuffer), InterpolationDelay: DefaultInterpolationDelay}
+}
+
+// ConnectRelay dials addr, performs the hello/welcome handshake, and wires
+// up handling of join/leave/state messages from the relay for the rest of
+// this Core's life. It blocks until Welcome arrives or timeout elapses.
+func (c *Core) ConnectRelay(addr, gameID, room, displayName string, timeout time.Duration) error {
+	conn, err := transport.Dial(addr)
+	if err != nil {
+		return fmt.Errorf("core: dial relay: %w", err)
+	}
+	c.relay = conn
+
+	welcome := make(chan protocol.Welcome, 1)
+	conn.OnError(func(err error) { log.Printf("core: relay connection error: %v", err) })
+	conn.OnDisconnect(func(err error) {
+		log.Printf("core: relay disconnected: %v", err)
+		// Without this, a remote's last known snapshot sits in c.remotes
+		// forever: remoteBuffer.at() holds the newest sample with no
+		// extrapolation once renderTime passes it, so nothing about the
+		// existing per-frame tick logic would ever notice the relay is
+		// gone and there's nothing to despawn. Clearing here means the
+		// very next adapter frame sees every remote vanish from
+		// remoteStatesAt's result at once, which onAdapterFrame already
+		// turns into a despawn_remote per id via its existing
+		// rendered-vs-current diff — no new wire message, no bridge
+		// change, just making sure this path actually fires.
+		c.dropAllRemotes()
+	})
+	conn.OnReceive(func(payload []byte) { c.handleRelayMessage(payload, welcome) })
+
+	hello, err := json.Marshal(protocol.Hello{
+		ProtocolVersion: protocol.Version,
+		GameID:          gameID,
+		Room:            room,
+		DisplayName:     displayName,
+	})
+	if err != nil {
+		return err
+	}
+	env, err := json.Marshal(protocol.Envelope{Type: protocol.TypeHello, Payload: hello})
+	if err != nil {
+		return err
+	}
+	if err := conn.Send(env); err != nil {
+		return fmt.Errorf("core: send hello: %w", err)
+	}
+
+	select {
+	case w := <-welcome:
+		c.playerID = w.PlayerID
+		return nil
+	case <-time.After(timeout):
+		return fmt.Errorf("core: timed out waiting for welcome from relay")
+	}
+}
+
+// PlayerID returns the id assigned by the relay at Welcome. Empty until
+// ConnectRelay succeeds.
+func (c *Core) PlayerID() string {
+	return c.playerID
+}
+
+func (c *Core) handleRelayMessage(payload []byte, welcome chan<- protocol.Welcome) {
+	var env protocol.Envelope
+	if err := json.Unmarshal(payload, &env); err != nil {
+		return
+	}
+
+	switch env.Type {
+	case protocol.TypeWelcome:
+		var w protocol.Welcome
+		if err := json.Unmarshal(env.Payload, &w); err == nil {
+			select {
+			case welcome <- w:
+			default:
+			}
+		}
+	case protocol.TypeJoin:
+		var j protocol.Join
+		if err := json.Unmarshal(env.Payload, &j); err == nil && j.State != nil {
+			c.storeRemoteState(*j.State)
+		}
+	case protocol.TypeLeave:
+		var l protocol.Leave
+		if err := json.Unmarshal(env.Payload, &l); err == nil {
+			c.dropRemote(l.PlayerID)
+		}
+	case protocol.TypeState:
+		var st protocol.State
+		if err := json.Unmarshal(env.Payload, &st); err == nil {
+			c.storeRemoteState(st)
+		}
+	default:
+		// Unknown or not-yet-implemented types (event, ping/pong) are
+		// ignored — same forward-compatibility posture as unknown fields.
+	}
+}
+
+func (c *Core) storeRemoteState(st protocol.State) {
+	if st.PlayerID == "" || st.PlayerID == c.playerID {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	b, ok := c.remotes[st.PlayerID]
+	if !ok {
+		b = &remoteBuffer{}
+		c.remotes[st.PlayerID] = b
+	}
+	b.add(st)
+}
+
+func (c *Core) dropRemote(playerID string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	delete(c.remotes, playerID)
+}
+
+// dropAllRemotes clears every tracked remote at once — used when the relay
+// connection itself is lost, since there's no longer any source for
+// updates or an explicit Leave to drive individual despawns.
+func (c *Core) dropAllRemotes() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.remotes = make(map[string]*remoteBuffer)
+}
+
+// remoteStatesAt returns the interpolated state of every currently known
+// remote at renderTime.
+func (c *Core) remoteStatesAt(renderTime int64) map[string]protocol.State {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	out := make(map[string]protocol.State, len(c.remotes))
+	for id, buf := range c.remotes {
+		if st, ok := buf.at(renderTime); ok {
+			out[id] = st
+		}
+	}
+	return out
+}
+
+// ServeBridge accepts adapter connections on ln, handling each on its own
+// goroutine, until Accept returns an error (typically because ln was
+// closed). The bridge is localhost-only and, per agent_docs/contract.md,
+// carries only the adapter <-> core traffic — never relay protocol bytes.
+func (c *Core) ServeBridge(ln net.Listener) error {
+	for {
+		conn, err := ln.Accept()
+		if err != nil {
+			return err
+		}
+		go c.handleBridgeConn(conn)
+	}
+}
+
+func (c *Core) handleBridgeConn(netConn net.Conn) {
+	nd := transport.FromConn(netConn)
+	rendered := make(map[string]bool)
+
+	nd.OnError(func(err error) { log.Printf("core: bridge connection error: %v", err) })
+	nd.OnReceive(func(payload []byte) {
+		var env bridge.Envelope
+		if err := json.Unmarshal(payload, &env); err != nil {
+			return
+		}
+		if env.Type != bridge.TypeLocalState {
+			return
+		}
+		var msg bridge.LocalState
+		if err := json.Unmarshal(env.Payload, &msg); err != nil {
+			return
+		}
+		c.onAdapterFrame(msg, nd, rendered)
+	})
+}
+
+// onAdapterFrame is the one entry point a wire-speaking adapter drives, per
+// frame: it forwards the adapter's local state to the relay (if any), then
+// responds on the same call with an upsert/despawn for every remote's
+// currently-interpolated state — the tick model in agent_docs/contract.md.
+func (c *Core) onAdapterFrame(msg bridge.LocalState, nd transport.Transport, rendered map[string]bool) {
+	c.forwardLocalState(msg.State)
+	c.tickRenders(rendered,
+		func(id string, st protocol.State) { c.sendRenderRemote(nd, id, st) },
+		func(id string) { c.sendDespawnRemote(nd, id) },
+	)
+}
+
+// RunAdapter drives Core in-process against adapter — calling
+// GetLocalState/RenderRemote/DespawnRemote directly as Go method calls,
+// with no bridge socket in between. This is the Phase 5 proof that the core
+// has no game-specific leaks: the only thing wired up here is the
+// core.Adapter interface, never anything under adapters/. Ticks at
+// tickInterval until stop is closed.
+func (c *Core) RunAdapter(adapter Adapter, tickInterval time.Duration, stop <-chan struct{}) {
+	rendered := make(map[string]bool)
+	ticker := time.NewTicker(tickInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-stop:
+			return
+		case <-ticker.C:
+			c.onAdapterFrameInProcess(adapter, rendered)
+		}
+	}
+}
+
+func (c *Core) onAdapterFrameInProcess(adapter Adapter, rendered map[string]bool) {
+	if state, ok := adapter.GetLocalState(); ok {
+		c.forwardLocalState(&state)
+	}
+	c.tickRenders(rendered, adapter.RenderRemote, adapter.DespawnRemote)
+}
+
+// forwardLocalState stamps and sends state to the relay, if there is one.
+// state == nil means "don't send this frame" (get_local_state()'s nil
+// case).
+func (c *Core) forwardLocalState(state *protocol.State) {
+	if state == nil || c.relay == nil {
+		return
+	}
+	st := *state
+	st.PlayerID = c.playerID
+	st.Seq = atomic.AddUint64(&c.seq, 1)
+	st.Timestamp = time.Now().UnixMilli()
+	c.sendState(st)
+}
+
+// tickRenders diffs the currently-interpolated remote set against what was
+// rendered last tick, calling render for every current remote and despawn
+// for every remote that dropped out — shared by both the bridge-wire path
+// (onAdapterFrame) and the in-process path (onAdapterFrameInProcess) so the
+// tick-model diff logic exists exactly once.
+func (c *Core) tickRenders(rendered map[string]bool, render func(id string, st protocol.State), despawn func(id string)) {
+	renderTime := time.Now().Add(-c.InterpolationDelay).UnixMilli()
+	current := c.remoteStatesAt(renderTime)
+
+	for id, st := range current {
+		render(id, st)
+		rendered[id] = true
+	}
+	for id := range rendered {
+		if _, stillKnown := current[id]; !stillKnown {
+			despawn(id)
+			delete(rendered, id)
+		}
+	}
+}
+
+func (c *Core) sendState(st protocol.State) {
+	payload, err := json.Marshal(st)
+	if err != nil {
+		log.Printf("core: BUG: state failed to marshal: %v", err)
+		return
+	}
+	env, err := json.Marshal(protocol.Envelope{Type: protocol.TypeState, Payload: payload})
+	if err != nil {
+		log.Printf("core: BUG: state envelope failed to marshal: %v", err)
+		return
+	}
+	if err := c.relay.Send(env); err != nil {
+		log.Printf("core: send state to relay failed: %v", err)
+	}
+}
+
+func (c *Core) sendRenderRemote(nd transport.Transport, playerID string, st protocol.State) {
+	sendBridgeEnvelope(nd, bridge.TypeRenderRemote, bridge.RenderRemote{PlayerID: playerID, State: st})
+}
+
+func (c *Core) sendDespawnRemote(nd transport.Transport, playerID string) {
+	sendBridgeEnvelope(nd, bridge.TypeDespawnRemote, bridge.DespawnRemote{PlayerID: playerID})
+}
+
+func sendBridgeEnvelope(nd transport.Transport, t bridge.MessageType, payload any) {
+	b, err := json.Marshal(payload)
+	if err != nil {
+		log.Printf("core: BUG: %s payload failed to marshal: %v", t, err)
+		return
+	}
+	env, err := json.Marshal(bridge.Envelope{Type: t, Payload: b})
+	if err != nil {
+		log.Printf("core: BUG: %s envelope failed to marshal: %v", t, err)
+		return
+	}
+	if err := nd.Send(env); err != nil {
+		log.Printf("core: send %s to adapter failed: %v", t, err)
+	}
 }

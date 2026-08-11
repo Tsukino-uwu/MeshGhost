@@ -13,7 +13,32 @@
 // scoped to the Phase 5 in-process test adapter only, not to real adapters.
 package bridge
 
-import "meshghost/internal/protocol"
+import (
+	"encoding/json"
+
+	"meshghost/internal/protocol"
+)
+
+// MessageType identifies which of the three bridge message shapes an
+// Envelope carries. Deliberately distinct from protocol.MessageType: the
+// bridge is a separate, private channel per agent_docs/contract.md's "two
+// protocols" section, not a reuse of the relay's message vocabulary, even
+// though both use the same {type, payload} envelope shape.
+type MessageType string
+
+const (
+	TypeLocalState    MessageType = "local_state"
+	TypeRenderRemote  MessageType = "render_remote"
+	TypeDespawnRemote MessageType = "despawn_remote"
+)
+
+// Envelope is the outer shape of every bridge message, one per NDJSON
+// line. Kept as its own type (rather than reusing protocol.Envelope) so
+// the two channels never share a Go type by accident.
+type Envelope struct {
+	Type    MessageType     `json:"type"`
+	Payload json.RawMessage `json:"payload"`
+}
 
 // LocalState is sent adapter -> core once per adapter frame tick, the wire
 // form of get_local_state(). State == nil means "don't send this frame"

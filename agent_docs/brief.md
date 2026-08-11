@@ -99,7 +99,7 @@ transport framing, limits) see `agent_docs/contract.md`.
 ### Packet schema
 
 | Field | Notes |
-|---|---|
+| --- | --- |
 | `player_id` | assigned by server |
 | `seq` | monotonic, for ordering |
 | `timestamp` | for interpolation |
