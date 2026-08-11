@@ -1,12 +1,16 @@
 name: Release
 
-# Builds Windows binaries and packages them into the two zips a non-dev friend
-# actually needs -- see packaging/README.md for why it's split this way.
-# Triggered by pushing a tag like v0.1.0.
+# Builds Windows binaries and packages them into the two zips a non-dev friend actually needs
+# -- see packaging/README.md for why it's split this way. Manual trigger only (Actions tab ->
+# this workflow -> "Run workflow") -- deliberately not tied to a tag push, so nothing publishes
+# without someone actually clicking the button and typing a version.
 on:
-  push:
-    tags:
-      - "v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version, e.g. v0.1.0 (creates this tag if it does not exist)'
+        required: true
+        type: string
 
 permissions:
   contents: write
@@ -30,7 +34,7 @@ jobs:
       - name: Assemble relay package
         run: |
           Copy-Item meshghost-relay.exe packaging\relay\
-          Compress-Archive -Path packaging\relay\* -DestinationPath meshghost-relay-${{ github.ref_name }}-windows-amd64.zip
+          Compress-Archive -Path packaging\relay\* -DestinationPath meshghost-relay-${{ inputs.version }}-windows-amd64.zip
         shell: pwsh
 
       - name: Assemble Emerald player package
@@ -38,13 +42,14 @@ jobs:
           Copy-Item meshghost.exe packaging\emerald-player\
           Copy-Item adapters\emerald\phase5_5_sprite.lua packaging\emerald-player\meshghost_emerald.lua
           Copy-Item -Recurse adapters\emerald\lib packaging\emerald-player\lib
-          Compress-Archive -Path packaging\emerald-player\* -DestinationPath meshghost-emerald-player-${{ github.ref_name }}-windows-amd64.zip
+          Compress-Archive -Path packaging\emerald-player\* -DestinationPath meshghost-emerald-player-${{ inputs.version }}-windows-amd64.zip
         shell: pwsh
 
       - name: Create release
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ inputs.version }}
           files: |
-            meshghost-relay-${{ github.ref_name }}-windows-amd64.zip
-            meshghost-emerald-player-${{ github.ref_name }}-windows-amd64.zip
+            meshghost-relay-${{ inputs.version }}-windows-amd64.zip
+            meshghost-emerald-player-${{ inputs.version }}-windows-amd64.zip
           generate_release_notes: true

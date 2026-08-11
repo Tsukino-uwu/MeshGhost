@@ -37,7 +37,10 @@ in-process path at all.
       only the demo's logging is throttled.
 - [x] `run-fakeadapter1.bat` / `run-fakeadapter2.bat` — added alongside the project's existing
       `run-*.bat` convention (root-level launchers next to root-level built `.exe`s, not a
-      `bin/` subfolder).
+      `bin/` subfolder). Later moved into `dev-scripts/` alongside every other dev-testing
+      launcher (2026-08-11, ahead of publishing the repo publicly — see
+      `dev-scripts/README.md`); still reference the same root-level built `.exe`s, just via
+      `..\`.
 - [x] Run two instances against a real relay, confirm on screen: continuously changing
       positions tracing a circle (correct radius held steady, angle advancing sample to
       sample), not frozen, not garbage. User watched both console windows directly and

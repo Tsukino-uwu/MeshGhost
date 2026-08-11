@@ -54,7 +54,8 @@ warning rather than failing silently.
 
 ## Cutting a release
 
-Push a tag matching `v*` (e.g. `git tag v0.1.0 && git push origin v0.1.0`) — the workflow
-builds both `.exe`s for Windows/amd64 (the only platform BizHawk's LuaSocket vendoring
-currently supports, per `agent_docs/licensing.md`), assembles both zips, and attaches them to
-a new GitHub Release automatically. Nothing to do by hand beyond pushing the tag.
+Manual only, deliberately — nothing publishes on its own just from pushing a commit or tag.
+On GitHub: repo → **Actions** tab → **Release** workflow → **Run workflow** → type a version
+(e.g. `v0.1.0`) → run. It builds both `.exe`s for Windows/amd64 (the only platform BizHawk's
+LuaSocket vendoring currently supports, per `agent_docs/licensing.md`), assembles both zips,
+creates the tag if it doesn't already exist, and attaches the zips to a new GitHub Release.

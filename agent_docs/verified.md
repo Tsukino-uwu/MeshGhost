@@ -846,7 +846,9 @@ Copy this block per fact:
 ### Phase 5: Core runs standalone against an in-process fake adapter, no game attached
 
 - Date: 2026-08-11
-- Observed: `run-relay.bat` plus two `run-fakeadapter{1,2}.bat` (`meshghost-fakeadapter.exe
+- Observed: `run-relay.bat` plus two `run-fakeadapter{1,2}.bat` (these three scripts were at
+  the repo root at the time; moved to `dev-scripts/` 2026-08-11, same content, see
+  `agent_docs/phases/phase5.md`) (`meshghost-fakeadapter.exe
   -name=alice -radius=10 -period=4` and `-name=bob -radius=6 -period=6`) run in separate
   console windows. Each window's `render_remote` lines showed the *other* client's position
   continuously changing — radius holding steady (~10 and ~6 respectively) while the angle kept

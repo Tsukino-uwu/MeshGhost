@@ -221,11 +221,13 @@ When room codes are actually designed, this is where the secret goes.
 ### Release packaging (not a phase, tooling)
 
 Added 2026-08-11. `packaging/relay/` and `packaging/emerald-player/` are the source templates
-for two downloadable zips (built by `.github/workflows/release.yml` on a `v*` tag push) so a
-non-technical friend doesn't need to build from source — see `packaging/README.md` for the
-full design (why two zips, why JSON config, why no password yet). Confirmed working via a
-local dry run (real relay + real client processes, config-only, no flags) before being
-committed — not just "should work." `README.md` points to the Releases page.
+for two downloadable zips (built by `.github/workflows/release.yml`, manually triggered from
+the Actions tab — deliberately not automatic on every tag push, so nothing publishes without
+someone actually clicking the button) so a non-technical friend doesn't need to build from
+source — see `packaging/README.md` for the full design (why two zips, why JSON config, why no
+password yet, why manual). Confirmed working via a local dry run (real relay + real client
+processes, config-only, no flags) before being committed — not just "should work." `README.md`
+points to the Releases page.
 
 ## Links
 

@@ -57,7 +57,8 @@
   `agent_docs/phases/phase5.md`. Added `Core.RunAdapter`, an in-process driver for the
   already-existing (but previously unused) `core.Adapter` Go interface, sharing its tick-model
   diff logic with the existing bridge-wire path rather than duplicating it. Confirmed live:
-  `cmd/meshghost-fakeadapter` (two instances, `run-fakeadapter1.bat`/`run-fakeadapter2.bat`),
+  `cmd/meshghost-fakeadapter` (two instances, `dev-scripts/run-fakeadapter1.bat`/
+  `run-fakeadapter2.bat`),
   each driving a circle-motion fake ghost with no game and no `adapters/` import, correctly
   exchanged and rendered each other's continuously-moving position over a real relay — user
   watched both console windows directly. `adapters/_template/` is now frozen
@@ -85,11 +86,15 @@
   then, a real release pipeline was added (2026-08-11, not a numbered phase — see
   `agent_docs/plans.md`'s "Release packaging" entry): `cmd/meshghost`/`cmd/meshghost-relay`
   both load an optional `config.json`, and `.github/workflows/release.yml` builds/zips two
-  downloadable packages (`packaging/relay/`, `packaging/emerald-player/`) on a `v*` tag —
-  confirmed working via a real local dry run (actual relay + client processes, config-only, no
-  flags) before committing. No open next task right now — next real milestone is Phase 6
-  (TEVI), the post-Phase-4 room-codes work, or actually cutting the first tagged release,
-  whichever gets picked up first.
+  downloadable packages (`packaging/relay/`, `packaging/emerald-player/`), triggered manually
+  from the Actions tab (deliberately not automatic on a tag push) — confirmed working via a
+  real local dry run (actual relay + client processes, config-only, no flags) before
+  committing, though the GitHub Actions workflow itself is still untested end-to-end (the dry
+  run proved the packaging logic, not the CI YAML). All 8 dev/testing `.bat` launchers also
+  moved from the repo root into `dev-scripts/` for a cleaner public root, alongside
+  `packaging/`'s end-user-facing scripts. No open next task right now — next real milestone is
+  Phase 6 (TEVI), the post-Phase-4 room-codes work, or actually running the release workflow
+  for the first time, whichever gets picked up first.
 
 ## Go networking layer (2026-08-11)
 
