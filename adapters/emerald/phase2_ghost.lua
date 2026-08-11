@@ -58,7 +58,22 @@ local GSPRITECOORDOFFSETY_ADDR = 0x02021bbe
 local GHOST_OFFSET_X = 16
 local GHOST_OFFSET_Y = -16
 
-local GHOST_IMAGE_PATH = "C:/dev/MeshGhost/adapters/emerald/assets/ghost_placeholder.bmp"
+-- Path made relative to this script's own location -- a portability fix (2026-08-11, ahead of
+-- publishing this repo publicly) to a hardcoded absolute path from Phase 2's original session
+-- that only ever worked on that one machine. Uses the same io.popen("cd") approach
+-- phase3_loopback.lua's scriptDir() later established (see that script's header for why
+-- debug.getinfo does NOT work here); this is the one deviation from this file's otherwise
+-- frozen-historical-record status, since a hardcoded personal path is a real bug for anyone
+-- else running this script, not just a stylistic inconsistency.
+local function scriptDir()
+    local pwd = io.popen and io.popen("cd"):read("*l")
+    if not pwd or pwd == "" then
+        error("MeshGhost Phase 2: could not determine the script's own directory (io.popen \"cd\" unavailable or returned nothing).")
+    end
+    return pwd .. "\\"
+end
+
+local GHOST_IMAGE_PATH = scriptDir() .. "assets/ghost_placeholder.bmp"
 local GHOST_IMAGE_SIZE = 16
 
 if not memory.usememorydomain("System Bus") then

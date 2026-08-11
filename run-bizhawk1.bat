@@ -1,3 +1,9 @@
 @echo off
+rem Edit these two paths for your own machine: your BizHawk install's EmuHawk.exe, and your
+rem own legally-obtained Emerald ROM (never shipped with this repo -- see
+rem agent_docs/licensing.md). This is instance 1 -- pair with run-core1.bat.
+set EMUHAWK_EXE=C:\path\to\BizHawk\EmuHawk.exe
+set EMERALD_ROM=C:\path\to\roms\Pokemon - Emerald Version (USA, Europe).gba
+
 set MESHGHOST_BRIDGE_PORT=7778
-"C:\ProgramData\Archipelago\Bizhawk\EmuHawk.exe" "C:\ProgramData\Archipelago\bizhawk roms\Roms\gba\Pokemon - Emerald Version (USA, Europe).gba"
+"%EMUHAWK_EXE%" "%EMERALD_ROM%"

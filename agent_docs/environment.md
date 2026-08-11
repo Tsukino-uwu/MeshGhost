@@ -9,8 +9,8 @@ Phase 1 actually sets up BizHawk — do not pre-fill version numbers from memory
   not yet built or tested on the latter two.
 - Go toolchain: **confirmed installed**, `go1.26.5 windows/amd64` (`go version`, 2026-08-11).
   `go build ./...` and `go vet ./...` both pass clean on the current type skeleton.
-- Python: **confirmed installed**, 3.12.10, at
-  `C:\Users\nyden\AppData\Local\Programs\Python\Python312\python.exe` (2026-08-11). Invoke as
+- Python: **confirmed installed**, 3.12.10 (`python --version`, 2026-08-11), at the standard
+  per-user install location (`%LOCALAPPDATA%\Programs\Python\Python312\python.exe`). Invoke as
   `python`, not `python3` — only `python` is on `PATH` (both in a normal shell and in the
   agent's Bash tool, which runs Git Bash and has its own `PATH`).
 

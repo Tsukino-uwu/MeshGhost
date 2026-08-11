@@ -5,8 +5,11 @@ fully independent copy of the game; remote players are rendered as cosmetic "gho
 shared world state — no synced items, enemies, health, or progression, and no attempt to
 keep worlds consistent. Desync between players is expected and fine.
 
-Status: **pre-code.** The contract is designed; nothing has been implemented yet. See
-`agent_docs/status.md` for exactly where things stand.
+Status: **working, single-game.** Two independent Pokémon Emerald players (via BizHawk) can
+join the same relay and see each other as real, animated, correctly-gendered Brendan/May
+ghosts — position, facing, walking, and running all tracked live, no shared world state. See
+`agent_docs/status.md` for exactly where things stand and `agent_docs/plans.md` for the
+phase-by-phase roadmap.
 
 ## The shape
 
@@ -30,10 +33,12 @@ next to the game (a Lua script for BizHawk, a mod DLL for Unity, and so on).
 
 ## Target games
 
-1. **Pokémon Emerald** (GBA, via BizHawk) — first. Reading state is trivial thanks to the
-   [`pokeemerald`](https://github.com/pret/pokeemerald) decompilation.
-2. **TEVI** (Unity) — second.
-3. **Pseudoregalia** (Unreal Engine 5) — third.
+1. **Pokémon Emerald** (GBA, via BizHawk) — first, **working**. Reading state is trivial
+   thanks to the [`pokeemerald`](https://github.com/pret/pokeemerald) decompilation (consulted
+   for facts only — addresses and struct layouts, cited by file/line — never for source or
+   assets; see `agent_docs/licensing.md`).
+2. **TEVI** (Unity) — second, not yet started.
+3. **Pseudoregalia** (Unreal Engine 5) — third, not yet started.
 
 ## Repo layout
 

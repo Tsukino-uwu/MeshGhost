@@ -33,6 +33,16 @@ proposing a plan that touches the core, an adapter, or the relay.
   "Implement the network layer" is not testable; "connect and heartbeat," "echo to self,"
   "see on second client" are.
 - **Ask before touching anything outside `C:\dev\MeshGhost`.**
+- **This is a public repo — never hardcode a personal username, absolute personal file path,
+  or other machine-identifying detail into a tracked file or script.** Genericize it (a
+  placeholder a new user edits, an environment variable) or make it relative instead (e.g.
+  scripts under `adapters/` resolve their own directory rather than assuming one). Found live
+  2026-08-11: a Phase 2 script had a hardcoded personal path that only ever worked on the
+  machine it was written on — a real portability bug, not just a style nit.
+  `agent_docs/environment.md` is the one deliberate exception (it's a factual environment
+  record, not a template) — but even there, prefer the fact that actually matters (a version
+  number) over an incidental personal detail (a full path containing a username) when either
+  would do.
 
 ## This file is capped at 300 lines
 
