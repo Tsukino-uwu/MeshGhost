@@ -35,6 +35,22 @@ verification standard in `CLAUDE.md`.
 - [ ] Record every confirmed address, with its `pokeemerald` source file, in
       `agent_docs/verified.md` — only after the user has watched it work.
 
+### Archipelago coexistence
+
+Optional, but same setup effort as the tasks above — see the depth ladder in
+`agent_docs/plans.md` and `agent_docs/risks.md` for why this matters before any Tier 3 work.
+
+- [ ] Confirm whether BizHawk can run two Lua scripts at once — Archipelago's
+      `connector_bizhawk_generic.lua` and a MeshGhost read-only script loaded together in the
+      same Lua Console. This is the single biggest coexistence risk; check it first.
+- [ ] Re-check the confirmed player X/Y and map addresses above against an
+      Archipelago-patched `.gba` (produced by the ArchipelagoLauncher from an `.apemerald`
+      patch file), not just a vanilla ROM — confirm whether the patch shifts them.
+- [ ] Note any visible performance difference running both scripts at once vs. MeshGhost
+      alone.
+- [ ] Record results in `agent_docs/verified.md` regardless of outcome — "the patch does not
+      move these addresses" is as much a confirmed fact as "the patch moves them by N bytes."
+
 ## Success criteria
 
 - Local player position is confirmed from real Emerald runtime memory, not inferred.

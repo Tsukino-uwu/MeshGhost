@@ -36,6 +36,23 @@
 - **No-auth relay window**: Phases 3–4 run without authentication (see the relay-auth ADR).
   Anyone with the address can join during that window. Acceptable for a friend-shared
   IP:port, not for anything posted publicly, until room codes ship.
+- **Archipelago coexistence, unconfirmed**: the Archipelago Emerald randomizer runs its own
+  BizHawk Lua connector (`connector_bizhawk_generic.lua`) against a ROM it has already
+  patched. A MeshGhost Emerald adapter would be a second Lua script in the same Lua Console.
+  Two read-only scripts shouldn't conflict, but three things are unverified: whether BizHawk
+  can run two scripts concurrently at all, whether Archipelago's ROM patch shifts the RAM
+  addresses MeshGhost reads, and whether running both costs noticeable performance. Test
+  plan is in `agent_docs/phases/phase1.md`. This is also the concrete argument for keeping
+  the read-only default (see the depth ladder in `plans.md`): two readers never race, but a
+  future memory-*writing* feature could race Archipelago's own writes.
+- **Reserved-but-unbuilt contract fields going stale**: the `features` field and the `event`
+  message type (`agent_docs/contract.md`, Extensibility section) are documented now and
+  implemented never, until something needs them. The risk is a future session building
+  routing for them speculatively, before any adapter actually sends an event — that produces
+  code with no on-screen consumer, which this project's own verification standard treats as
+  unproven. The mitigation is procedural: don't implement the event plane until a specific
+  Tier 3 feature (see `plans.md`) is approved via its own ADR and has a concrete adapter
+  ready to use it.
 
 ## Mitigations
 

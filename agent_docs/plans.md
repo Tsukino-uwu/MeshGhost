@@ -23,6 +23,38 @@ TEVI replaced the brief's original Ori: Will of the Wisps pick.
 - No second-game adapter until Phase 5 validates the template.
 - No relay authentication work before Phase 4 ships on no-auth (see `architecture.md` ADR);
   don't build room codes early just because they're the eventual goal.
+- No emulator memory *writes* or save-state editing — MeshGhost reads game memory and does
+  not write it, today. This is the current posture, not a permanent philosophical stance:
+  whether it ever changes (see "Depth beyond the cosmetic ghost" below) is pending an actual
+  Archipelago-coexistence test, not decided in the abstract. Until that test happens and a
+  specific feature is deliberately approved via an ADR in `architecture.md`, this rule holds
+  without exception.
+
+## Depth beyond the cosmetic ghost (reserved, not scheduled)
+
+MeshGhost's default is and stays a visual-only mod. But the architecture doesn't trap it
+there for a specific game if that's wanted later — see the Extensibility section of
+`agent_docs/contract.md` and the matching ADR in `agent_docs/architecture.md` for the
+mechanism (an opaque, per-adapter event plane; nothing built yet, just reserved).
+
+Depth ladder, for calibrating what's cheap vs. what's a different project:
+
+| Tier | What | Game writes? | Cost |
+|---|---|---|---|
+| 0 — cosmetic ghost (today) | position, area, anim | none | the current project |
+| 1 — cosmetic+ | nameplates, emotes, text chat, "friend entered Route 103" pings, shared timers | none | cheap; possible, deliberately not scheduled |
+| 2 — read-only shared context | see a friend's party/badges/progress in an overlay | none | moderate; still no risk |
+| 3 — consensual interaction | trading, battling | yes | the cliff — a category jump, not a bigger Tier 2. Needs its own ADR, per-game, opt-in. |
+| 4 — authoritative shared world | genuinely shared game state | yes | out of scope, permanently |
+
+Tier 1 items are recorded here as things that are possible and cheap (they need no game
+writes), specifically **not scheduled** — phase discipline means finishing the two-player
+milestone (Phase 4) before adding anything else, cosmetic or not.
+
+Tier 3 (Emerald trading/battling, concretely) is gated on two things, neither settled: an ADR
+that accepts the save-corruption risk memory writes carry, and the Archipelago-coexistence
+test below, since Archipelago already patches the Emerald ROM and writes memory via its own
+BizHawk Lua connector.
 
 ## Current status
 

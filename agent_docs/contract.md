@@ -85,12 +85,23 @@ signal joins/leaves — `despawn_remote(id)` has nothing to trigger it without a
 
 | Message | Direction | Carries |
 |---|---|---|
-| `hello` | client → relay | protocol version, `game_id`, room name, display name |
+| `hello` | client → relay | protocol version, `game_id`, room name, display name, `features` |
 | `welcome` | relay → client | assigned `player_id`, current room roster |
 | `join` | relay → client | a peer's `player_id` (and initial `state`, if available) |
 | `leave` | relay → client | a peer's `player_id` — this is what drives `despawn_remote` |
 | `state` | both directions | the packet schema above |
+| `event` | both directions | **reserved, not implemented.** See Extensibility below. |
 | `ping` / `pong` | both directions | liveness check; RTT feeds the interpolation delay |
+
+### `features`
+
+New field on `hello`, added 2026-08-11, not yet consumed by anything. An array of opaque
+capability strings a client advertises (e.g. `["battle.v1"]`). A relay or peer that doesn't
+recognize a capability simply ignores it — this is the one piece of the contract that cannot
+be added after clients exist in the wild: a client built before `features` existed has no way
+to say what it supports, so the first feature addition would silently break every already-
+deployed client. Reserving the field now costs nothing; it is not populated with real values
+until something actually needs one.
 
 ### `game_id`
 
@@ -99,6 +110,47 @@ between two clients running the same game" but nothing enforced that two differe
 couldn't end up in the same room. `game_id` is sent once, at `hello` (e.g. `"emerald"`,
 `"tevi"`). The relay rejects a `hello` whose `game_id` doesn't match the room's existing
 `game_id`, rather than silently mixing clients that would draw garbage at each other.
+
+## Extensibility — the event plane (reserved, not implemented)
+
+MeshGhost's default is, and stays, a visual-only mod: cosmetic position/area/anim, no shared
+world state, no game writes. But nothing about the architecture should trap a specific game's
+adapter from going deeper later — trading or battling in Emerald, say — if that's ever
+wanted. This section reserves the extension point; it does not build the extension.
+
+**Two planes, kept structurally separate:**
+
+- **State plane** (exists today, `state` messages) — lossy, latest-wins, ~10Hz, cosmetic,
+  interpolated by the core. This plane does not grow new fields for deeper features; it stays
+  exactly what it is now.
+- **Event plane** (reserved, `event` messages, not yet implemented) — reliable, ordered,
+  addressed. Its payload is **fully opaque to the core and relay**, exactly like `area_id` and
+  `anim` are opaque today — they route it by `to`, they never parse its contents. The same
+  rule that keeps the core game-agnostic for cosmetic fields is what would keep it
+  game-agnostic for a battle protocol: an Emerald-specific event schema would live entirely
+  inside the Emerald adapter, never in `internal/core` or `internal/relay`.
+
+**Envelope addition (reserved):** a `to` field — a `player_id`, or absent for room broadcast.
+Not implemented at the relay yet; see the Phase 3 note below.
+
+**Why this is documented now and built later, specifically:** building `event` routing before
+any adapter sends an event would add code with no consumer — nothing to watch happening on
+screen, which is exactly what this project's verification standard exists to prevent. The
+`features` field is the one piece that must be reserved now, because it can't be added
+retroactively once clients exist. The rest is easy to add on top of the relay's existing
+forward path once there's an actual feature that needs it.
+
+**Phase 3 guidance:** when the relay's message-forwarding path is built, shape it to take a
+recipient set from the start (even though that set is always "everyone in the room" until the
+event plane is implemented) rather than hardcoding room-wide broadcast. This is a shape
+decision, not a feature — it costs nothing today and avoids a rewrite of the forwarding path
+later.
+
+**What would gate ever actually building this:** see the memory-write non-goal in
+`agent_docs/plans.md` and the new ADR in `agent_docs/architecture.md`. Anything past Tier 2 on
+the depth ladder there requires writing game memory, which is a deliberate, per-game, opt-in
+departure from the current read-only default — not something this reservation authorizes on
+its own.
 
 ## Transport (relay protocol wire format)
 
@@ -182,6 +234,9 @@ same time as the schema rather than bolted on later:
 - Remote strings (`area_id`, `anim`, `extras` values, display name) are never interpolated
   into a file path, shell command, or format string by an adapter. They are opaque data,
   not code, even though they're only ever compared by equality within the same game.
+- Max event payload size (reserved, applies once the event plane is implemented).
+- An unknown message `type` is ignored, not treated as an error — same forward-compatibility
+  posture as the existing unknown-*field* rule above.
 
 ## Open questions carried from the original Phase 0 backlog
 
