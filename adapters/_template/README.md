@@ -18,8 +18,18 @@ a reusable starting point for the next game's adapter, not code to run as-is.
   in-process shortcut used only by `cmd/meshghost-fakeadapter` and Go tests
   (`internal/core/core_test.go`'s `TestRunAdapterInProcess`) to drive the core without a socket
   at all. A real adapter — including TEVI's — never implements it; it dials the bridge and
-  speaks NDJSON, exactly like `adapters/emerald/phase4_multiplayer.lua` does. See
+  speaks NDJSON, exactly like `adapters/pokemon/emerald/phase4_multiplayer.lua` does. See
   `PROTOCOL.md` for why this distinction matters and where to look for a worked example of each.
+
+## Folder convention
+
+One folder per game, named after the game itself (`emerald`, `tevi`, `pseudoregalia`). Games
+in the same franchise are grouped under a shared subfolder — `adapters/pokemon/emerald/`, and
+a future `adapters/pokemon/platinum/` would go alongside it — purely for browsability as more
+games get added; it's not a code-sharing boundary. A hypothetical Platinum adapter (NDS, a
+different console/engine than Emerald's GBA) would share essentially no code with Emerald's,
+same as any two unrelated games — grouping by franchise just keeps the top level of
+`adapters/` from getting crowded by one series' many entries.
 
 ## Starting a new game's adapter
 
@@ -29,7 +39,7 @@ a reusable starting point for the next game's adapter, not code to run as-is.
    redraw-every-frame) independent of any particular language.
 3. For a worked, complete reference of a real adapter speaking this protocol end-to-end
    (connection retry, NDJSON framing, the remote-ghost set, the tick loop), read
-   `adapters/emerald/phase4_multiplayer.lua`. Its game-reading parts (`getLocalState`,
+   `adapters/pokemon/emerald/phase4_multiplayer.lua`. Its game-reading parts (`getLocalState`,
    `playerScreenPos`) are Emerald-specific and won't transfer; its bridge-connection and
    tick-loop shape will.
 4. Figure out, for the new game: what counts as `area_id` (a scene/level identifier), what

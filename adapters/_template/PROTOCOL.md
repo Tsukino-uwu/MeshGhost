@@ -66,12 +66,12 @@ loop, once per real game frame:
 
 The "redraw every frame regardless of new data" rule is the one that produces flicker if
 skipped — see `agent_docs/contract.md`'s tick model section for the full reasoning, and
-`adapters/emerald/phase3_loopback.lua`'s header for the specific bug this project hit live
+`adapters/pokemon/emerald/phase3_loopback.lua`'s header for the specific bug this project hit live
 before that rule was written down.
 
 ## Reference implementations
 
-- `adapters/emerald/phase4_multiplayer.lua` — a complete, real adapter speaking exactly this
+- `adapters/pokemon/emerald/phase4_multiplayer.lua` — a complete, real adapter speaking exactly this
   protocol (BizHawk Lua, NDJSON over LuaSocket). Its connection/tick-loop shape transfers to a
   new game; its `getLocalState`/`playerScreenPos` game-memory reads do not.
 - `cmd/meshghost-fakeadapter/main.go` — not a template for a real adapter (it uses the

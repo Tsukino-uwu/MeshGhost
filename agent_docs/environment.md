@@ -42,7 +42,7 @@ Phase 1 actually sets up BizHawk — do not pre-fill version numbers from memory
 - Lua socket support (Phase 3): BizHawk's own `comm.*` (`CommLuaLibrary`) is present in this
   2.11 build but uses length-prefixed framing, not NDJSON — inspected directly via
   `BizHawk.Client.Common.dll`'s embedded doc strings (2026-08-11), not used. LuaSocket
-  (vendored, `adapters/emerald/lib/x64/socket-windows-5-4.dll`) is used instead — see
+  (vendored, `adapters/pokemon/emerald/lib/x64/socket-windows-5-4.dll`) is used instead — see
   `agent_docs/licensing.md` and the Phase 3 ADR in `architecture.md`.
 - BizHawk's Lua host (`LuaLibraries.cs`, confirmed by reading source 2026-08-11) is a plain
   `new Lua()` (NLua) with no standard library removed afterward — `debug`, `os`, `package`,

@@ -10,7 +10,7 @@ and confirmed live — see `agent_docs/verified.md`.
 ## Purpose
 
 Every ghost so far renders as a flat magenta placeholder box
-(`adapters/emerald/assets/ghost_placeholder.bmp`) — deliberate, not a bug
+(`adapters/pokemon/emerald/assets/ghost_placeholder.bmp`) — deliberate, not a bug
 (`agent_docs/risks.md`). This phase replaces it with the actual Brendan/May overworld sprite,
 adds gender to the packet schema so a remote's ghost uses the right sprite, and re-verifies
 every Phase 1/2 address on a female-character save (previously only tested on male).

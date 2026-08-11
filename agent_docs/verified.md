@@ -80,7 +80,7 @@ Copy this block per fact:
 - Date: 2026-08-11
 - Observed: in BizHawk (2.11, mGBA core, "System Bus" memory domain), reading
   `u32 @ 0x03005D8C` as `base`, then `s16 @ base+0x00` (x) and `s16 @ base+0x02` (y), printed
-  live via `adapters/emerald/phase1_probe.lua`. User pressed d-pad left, up, right, down (one
+  live via `adapters/pokemon/emerald/phase1_probe.lua`. User pressed d-pad left, up, right, down (one
   tap each) starting from x=5,y=4 and observed: left → x=4,y=4; up → x=4,y=3; right → x=5,y=3;
   down → x=5,y=4 (back to start). Reproduced identically on a second run. So: right/left move
   x +1/-1, down/up move y +1/-1.
@@ -113,7 +113,7 @@ Copy this block per fact:
   in EWRAM during this transition.
 - Source: same address/offsets as the two entries above.
 - Notes: confirms both that `mapGroup`/`mapNum` are the right fields to key `area_id` on, and
-  that `adapters/emerald/phase1_probe.lua`'s decision to re-read `gSaveBlock1Ptr` every frame
+  that `adapters/pokemon/emerald/phase1_probe.lua`'s decision to re-read `gSaveBlock1Ptr` every frame
   (never cache it) is not just defensive — the pointer was observed moving in this exact test.
 
 ### Emerald pause-menu submenus (bag, options, player profile) do not invalidate x/y/map
@@ -169,7 +169,7 @@ Copy this block per fact:
   up=−y mapping, with `mapGroup`/`mapNum` steady at `0,16` throughout.
 - Source: same address/offsets as the entries above.
 - Notes: still untested: battle, and the mid-fade moment of a warp transition. This run was
-  on an outdated copy of `adapters/emerald/phase1_probe.lua` (no flags/dash/runningState in
+  on an outdated copy of `adapters/pokemon/emerald/phase1_probe.lua` (no flags/dash/runningState in
   the output) — script needs a fresh reload next session to get those fields.
 
 ### Emerald runningState and flags behavior confirmed
@@ -356,7 +356,7 @@ Copy this block per fact:
 - Date: 2026-08-11
 - Observed: user ran `connector_bizhawk_generic.lua` (from
   `C:\dev\Archipelago\data\lua\connector_bizhawk_generic.lua`) and
-  `adapters/emerald/phase1_probe.lua` together in the same BizHawk Lua Console, against an
+  `adapters/pokemon/emerald/phase1_probe.lua` together in the same BizHawk Lua Console, against an
   Archipelago-patched Emerald ROM (`.apemerald` patch generated from the user's own
   `Pokemon Emerald.yaml`, applied via `ArchipelagoLauncher.exe`), on a save already past
   getting the running shoes. Both scripts loaded and ran without conflict; the connector
@@ -396,9 +396,9 @@ Copy this block per fact:
 ### Emerald Phase 2 ghost overlay renders and tracks the player near screen center
 
 - Date: 2026-08-11
-- Observed: `adapters/emerald/phase2_ghost.lua` loaded in BizHawk's Lua Console against the
+- Observed: `adapters/pokemon/emerald/phase2_ghost.lua` loaded in BizHawk's Lua Console against the
   same Emerald ROM/save used for Phase 1, standing outside in Littleroot Town. The 16x16
-  magenta placeholder image (`adapters/emerald/assets/ghost_placeholder.bmp`) rendered on
+  magenta placeholder image (`adapters/pokemon/emerald/assets/ghost_placeholder.bmp`) rendered on
   screen at the expected position — up and to the right of the player sprite, consistent with
   the script's hardcoded `(+16,-16)` offset — and moved together with the player while
   walking, holding that same relative offset rather than staying fixed on screen or lagging.
@@ -602,7 +602,7 @@ Copy this block per fact:
 - Source: `socket-windows-5-4.dll`'s own PE import table (read directly via a PowerShell byte
   scan, not assumed); `lua/lua` `loadlib.c` (`lsys_load` calls `LoadLibraryExA` with
   `LUA_LLE_FLAGS`, default `0`); confirmed empirically against the real vendored files at
-  their real paths (`adapters/emerald/lib/x64/`) with a direct PowerShell `LoadLibraryW` test
+  their real paths (`adapters/pokemon/emerald/lib/x64/`) with a direct PowerShell `LoadLibraryW` test
   before asking for a live retry.
 - Notes: the vendored `lua54.dll` is a byte-for-byte copy of the one already running inside the
   user's BizHawk install (`C:\ProgramData\Archipelago\Bizhawk\dll\lua54.dll`, matching hash),
@@ -652,7 +652,7 @@ Copy this block per fact:
   covers a *peer* disconnecting (driven by a real `Leave` message) — this is the core's *own*
   relay connection dying, which has no `Leave` to drive it.
 
-### adapters/emerald/phase3_loopback.lua did not detect its own bridge connection dying
+### adapters/pokemon/emerald/phase3_loopback.lua did not detect its own bridge connection dying
 
 - Date: 2026-08-11
 - Observed: after the `internal/core` fix above, killing the *core* process (as opposed to the
@@ -664,7 +664,7 @@ Copy this block per fact:
   now the only value treated as harmless, everything else triggers `resetBridge()` and clears
   the local `remotes` table — confirmed live: killing the core now makes the ghost disappear
   immediately and logs "MeshGhost Phase 3: bridge connection lost, will retry connecting."
-- Source: `adapters/emerald/phase3_loopback.lua` (`drainBridge`).
+- Source: `adapters/pokemon/emerald/phase3_loopback.lua` (`drainBridge`).
 - Notes: `sendLine`'s equivalent check (`if not ok and err ~= "timeout"`) was already written
   the safe way round; only `drainBridge`'s was inverted.
 
@@ -685,7 +685,7 @@ Copy this block per fact:
   player-relative, which stands as evidence the tile-delta placement formula holds even where
   the player's on-screen anchor position isn't centered (the risk Phase 2's own map-edge test
   targeted for the player's own anchor).
-- Source: `adapters/emerald/phase3_loopback.lua` (`drawRemotes`, the
+- Source: `adapters/pokemon/emerald/phase3_loopback.lua` (`drawRemotes`, the
   `playerScreenPos() + (remote - player) * TILE` formula); `internal/relay`'s `-loopback` flag;
   `internal/core`'s interpolation buffer.
 - Notes: this is the Phase 3 milestone from `agent_docs/plans.md` — a client sending its own
@@ -699,11 +699,11 @@ Copy this block per fact:
 - Date: 2026-08-11
 - Observed: one `meshghost-relay` (no `-loopback`), two `meshghost.exe` cores
   (`-bridge=127.0.0.1:7778 -name=player1`, `-bridge=127.0.0.1:7779 -name=player2`), two
-  `EmuHawk.exe` instances each running `adapters/emerald/phase4_multiplayer.lua` with
+  `EmuHawk.exe` instances each running `adapters/pokemon/emerald/phase4_multiplayer.lua` with
   `MESHGHOST_BRIDGE_PORT` set to the matching port. Each client showed a ghost tracking the
   other's real, independent movement — the first time this project has exercised a real second
   physical peer rather than the relay's synthetic `-loopback` echo.
-- Source: `adapters/emerald/phase4_multiplayer.lua`; `internal/relay`, `internal/core`
+- Source: `adapters/pokemon/emerald/phase4_multiplayer.lua`; `internal/relay`, `internal/core`
   (unmodified from Phase 3).
 - Notes: no drift or flicker reported during normal movement, though the placeholder
   magenta-box art makes subtle stutter hard to judge by eye — a real sprite would give a more
@@ -736,7 +736,7 @@ Copy this block per fact:
   forcibly closed by the remote host` at the same moment. `p3`'s own BizHawk console also
   logged `MeshGhost Phase 4: bridge connection lost, will retry connecting.`, confirming its
   adapter independently detected its own core dying.
-- Source: same as the two entries above; `adapters/emerald/phase4_multiplayer.lua`
+- Source: same as the two entries above; `adapters/pokemon/emerald/phase4_multiplayer.lua`
   (`drainBridge`'s error handling, carried over unchanged from the Phase 3 fix).
 - Notes: this is the real-second-peer generalization of two things Phase 3 only tested against
   the loopback synthetic peer or self-inflicted disconnects: (1) the relay correctly detects an
@@ -754,7 +754,7 @@ Copy this block per fact:
   also moved up/down in sync with the battle's HP/EXP bar sliding into view.
 - Source: same root cause as the Phase 2 entry "Emerald Phase 2 ghost tracks the wrong thing
   during battle — sprite slot reuse, not a math bug" — `playerScreenPos()` in
-  `adapters/emerald/phase4_multiplayer.lua` reads the same `gSprites[gPlayerAvatar.spriteId]`
+  `adapters/pokemon/emerald/phase4_multiplayer.lua` reads the same `gSprites[gPlayerAvatar.spriteId]`
   anchor, now shown corrupting *remote* ghost placement on the affected client's own screen, not
   just a local hardcoded-offset ghost.
 - Notes: confirms Phase 2's design conclusion still holds and is now demonstrated with a real
@@ -766,7 +766,7 @@ Copy this block per fact:
 ### Emerald gMain.callback2 / CB2_Overworld confirmed as a general "not showing the overworld" signal
 
 - Date: 2026-08-11
-- Observed: with `adapters/emerald/battle_probe.lua` printing `gMain.callback2` on change,
+- Observed: with `adapters/pokemon/emerald/battle_probe.lua` printing `gMain.callback2` on change,
   standing in the overworld read a constant `0x08085E5D`. Starting a wild battle produced a
   sequence of different values (`0x08085E51`, `0x08036761`, `0x08036FAD`, `0x08038421`, ...)
   through the battle, returning to `0x08085E5D` after running away. Opening each pause-menu
@@ -801,7 +801,7 @@ Copy this block per fact:
   player's ghost the entire time (correctly held at its last position, same "holds still, not
   despawned" behavior as any other stationary remote) — a remote's own menu/battle state never
   affects whether the local client draws it.
-- Source: `adapters/emerald/phase4_multiplayer.lua` (`inOverworld`, gating the `drawRemotes`
+- Source: `adapters/pokemon/emerald/phase4_multiplayer.lua` (`inOverworld`, gating the `drawRemotes`
   call in the main loop).
 - Notes: closes the deferred battle-skip-gating item from Phase 2/3/4 for real. NPC dialogue
   was not independently re-tested with the gate wired in (only with the standalone probe above)
@@ -816,7 +816,7 @@ Copy this block per fact:
   placement already correct. Added `GHOST_Y_CORRECTION = TILE` (16px) to `drawRemotes`'s
   `screenY` calculation; confirmed live afterward the ghost renders directly on the correct
   tile.
-- Source: `adapters/emerald/phase4_multiplayer.lua` (`drawRemotes`); root cause per
+- Source: `adapters/pokemon/emerald/phase4_multiplayer.lua` (`drawRemotes`); root cause per
   `phase2_ghost.lua`'s header citation of `pokeemerald`'s `event_object_movement.c`
   (`UpdateObjectEventOffscreen`) — `playerScreenPos()` returns the sprite's top-left bounding-box
   corner, not the tile the player stands on, and overworld character sprites are taller than one
@@ -870,7 +870,7 @@ Copy this block per fact:
 ### gObjectEventPic_BrendanNormal / gObjectEventPal_Brendan decode to a real Brendan sprite
 
 - Date: 2026-08-11
-- Observed: `adapters/emerald/sprite_probe.lua` read `gObjectEventPic_BrendanNormal`
+- Observed: `adapters/pokemon/emerald/sprite_probe.lua` read `gObjectEventPic_BrendanNormal`
   (`0x084975F8`) and `gObjectEventPal_Brendan` (`0x084987F8`), decoded frame 0 (4bpp, 2x4
   tiles) and the 16-color BGR555 palette, and printed both. The palette resolved to a coherent
   light/mid/dark trainer palette (skin tones at indices 1-3, blue shading at 5-8, greens at
@@ -893,7 +893,7 @@ Copy this block per fact:
 ### gui.drawPixel color format is 0xAARRGGBB, not 0xRRGGBBAA — and the decoded sprite renders correctly on screen
 
 - Date: 2026-08-11
-- Observed: `adapters/emerald/sprite_ghost_test.lua`, drawing the same decoded frame from the
+- Observed: `adapters/pokemon/emerald/sprite_ghost_test.lua`, drawing the same decoded frame from the
   entry above via `gui.drawPixel` (214 opaque pixels/frame) at a fixed offset from the local
   player, produced a correctly-colored, recognizable Brendan sprite on screen (cap, hair,
   jacket colors all correct) — confirmed by the user via screenshot, tracking the player as
@@ -939,7 +939,7 @@ Copy this block per fact:
 ### Phase 5.5 Step 3: remote ghost facing and walk/run animation confirmed live with two real peers
 
 - Date: 2026-08-11
-- Observed: `adapters/emerald/phase5_5_sprite.lua` run on two real BizHawk/Emerald instances
+- Observed: `adapters/pokemon/emerald/phase5_5_sprite.lua` run on two real BizHawk/Emerald instances
   (same two-core/two-relay-client setup as Phase 4). User confirmed: a remote's ghost faces
   all four directions correctly without needing to move a tile first, walking one tile or
   walking around continuously looks correct, and — after the sub-tile position-smoothing fixes
@@ -948,7 +948,7 @@ Copy this block per fact:
   stopping while running. Ledge jumps, Mach Bike, Acro Bike, and Surfing are explicitly not
   covered (see `agent_docs/phases/phase5_5.md`'s deferred-scope note) and still look rough —
   expected, not a regression.
-- Source: `adapters/emerald/phase5_5_sprite.lua` (`advanceAnim`, `drawSpriteFrame`,
+- Source: `adapters/pokemon/emerald/phase5_5_sprite.lua` (`advanceAnim`, `drawSpriteFrame`,
   `smoothPosition`); frame-index/duration citations from `object_event_anims.h` as in the
   Phase 5.5 Step 1/2 entries above.
 - Notes: this is the Phase 5.5 Step 3 milestone. Two real bugs were found and fixed live
@@ -1005,7 +1005,7 @@ Copy this block per fact:
   (no Running Shoes yet on that save, a game-progression limit, not a code gap — the read
   itself, `GPLAYERAVATAR_ADDR`'s flags byte, is identical regardless of which character owns
   the item).
-- Source: `adapters/emerald/phase5_5_sprite.lua` (`readLocalGender`, `loadGenderFrames`,
+- Source: `adapters/pokemon/emerald/phase5_5_sprite.lua` (`readLocalGender`, `loadGenderFrames`,
   `drawSpriteFrame`'s gender parameter); `gSaveBlock2Ptr` = `0x03005D90`, `playerGender` at
   `+0x08` (`include/global.h` L511, `pret/pokeemerald`, same `make compare`-verified build as
   every other address in this file).

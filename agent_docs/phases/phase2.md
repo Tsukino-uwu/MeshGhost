@@ -14,7 +14,7 @@ matters here already, even with no remote player yet.
 
 ## Approach
 
-`adapters/emerald/phase2_ghost.lua` reads the local player's own on-screen sprite position
+`adapters/pokemon/emerald/phase2_ghost.lua` reads the local player's own on-screen sprite position
 (`gSprites[gPlayerAvatar.spriteId]`, combined with `gSpriteCoordOffsetX/Y` the same way the
 game itself does for its object event sprites — see the script's header comment for the exact
 addresses and their `pokeemerald` source citations) and draws a placeholder image at that
@@ -23,7 +23,7 @@ output (rather than reimplementing camera-scroll math independently from map coo
 a deliberate scope cut: it isolates "can we read and reproduce screen placement" from "can we
 independently derive it," which is the part that actually blocks Phase 3+.
 
-Placeholder art: `adapters/emerald/assets/ghost_placeholder.bmp`, a flat 16x16 magenta box
+Placeholder art: `adapters/pokemon/emerald/assets/ghost_placeholder.bmp`, a flat 16x16 magenta box
 generated for this project, not ripped from any game — see `agent_docs/licensing.md`.
 
 ## Tasks

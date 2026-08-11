@@ -4,7 +4,7 @@
 
 - `Active phase:` Phases 1 and 2 are both complete (2026-08-11, folded into
   `agent_docs/plans.md`) — see `agent_docs/verified.md`. Phase 2 confirmed
-  `adapters/emerald/phase2_ghost.lua` renders and tracks the local player correctly, including
+  `adapters/pokemon/emerald/phase2_ghost.lua` renders and tracks the local player correctly, including
   at a real camera-pinned map edge, with no unexplained flicker. Three transient-rendering
   quirks were found and traced to already-understood causes rather than new bugs: (1) the
   sprite-slot-based screen-position read breaks during battle — resolved as a design decision

@@ -20,7 +20,7 @@ trip Lua → bridge → core → relay → core → bridge → Lua. This is also
   installed BizHawk 2.11 build before choosing. `comm.*` uses length-prefixed framing and a
   blocking request/response model; adopting it would have pushed a second framing mode into
   the Go bridge that every future adapter (Unity, UE5) would then have to speak. LuaSocket
-  keeps the bridge as plain NDJSON. Vendored: `adapters/emerald/lib/x64/socket-windows-5-4.dll`
+  keeps the bridge as plain NDJSON. Vendored: `adapters/pokemon/emerald/lib/x64/socket-windows-5-4.dll`
   (MIT, see `agent_docs/licensing.md`) — the same binary already proven working against this
   exact BizHawk/Lua-5.4 build by the unrelated Archipelago project, reused rather than
   independently rebuilt from source to avoid a silent Lua-ABI mismatch with no error to catch
@@ -39,7 +39,7 @@ trip Lua → bridge → core → relay → core → bridge → Lua. This is also
       `LuaLibraries.cs` source to confirm `debug.getinfo` is available (no library stripped),
       rather than assuming BizHawk's Lua sandbox from memory.
 - [x] Vendor the LuaSocket binary + MIT license notice.
-      `adapters/emerald/lib/x64/socket-windows-5-4.dll` + `luasocket.LICENSE.txt`.
+      `adapters/pokemon/emerald/lib/x64/socket-windows-5-4.dll` + `luasocket.LICENSE.txt`.
 - [x] `internal/relay`: add the `-loopback` echo, enforce the contract's Limits (line length,
       `extras` size, `position` length, per-client rate limit, room capacity), and stamp
       `player_id` server-side rather than trusting the client's payload. New tests:
@@ -48,7 +48,7 @@ trip Lua → bridge → core → relay → core → bridge → Lua. This is also
       `TestRoomFullRejectsExtraClient`. `go build`/`go vet`/`go test ./...` all clean.
 - [x] `internal/core`: make `InterpolationDelay` a per-`Core` field (was a package const),
       settable via a new `-interp` flag on `cmd/meshghost`, defaulting unchanged.
-- [x] Write `adapters/emerald/phase3_loopback.lua`: real state reading (same addresses as
+- [x] Write `adapters/pokemon/emerald/phase3_loopback.lua`: real state reading (same addresses as
       `phase1_probe.lua`), a hand-written minimal JSON encoder/decoder (no vendored JSON lib —
       the wire is either our own construction or our own Go's canonical output, not untrusted
       input), a non-blocking LuaSocket connection to the bridge, the adapter-owned
@@ -74,7 +74,7 @@ trip Lua → bridge → core → relay → core → bridge → Lua. This is also
       `architecture.md`: the DLL depends on `lua54.dll`, which Windows' plain `LoadLibrary`
       cannot find via the standard search order (confirmed by reproducing the exact failure
       outside BizHawk). Fix: vendor a byte-identical copy of the `lua54.dll` already running
-      inside the user's BizHawk (`adapters/emerald/lib/x64/lua54.dll`) and pre-load it by full
+      inside the user's BizHawk (`adapters/pokemon/emerald/lib/x64/lua54.dll`) and pre-load it by full
       path before loading the socket core. Confirmed against the real vendored files with a
       direct `LoadLibrary` test (PowerShell) before asking for a second live retry.
 - [x] **Second live attempt also failed**, same symptom, now at the `socket-windows-5-4.dll`

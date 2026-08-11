@@ -40,8 +40,8 @@ jobs:
       - name: Assemble Emerald player package
         run: |
           Copy-Item meshghost.exe packaging\emerald-player\
-          Copy-Item adapters\emerald\phase5_5_sprite.lua packaging\emerald-player\meshghost_emerald.lua
-          Copy-Item -Recurse adapters\emerald\lib packaging\emerald-player\lib
+          Copy-Item adapters\pokemon\emerald\phase5_5_sprite.lua packaging\emerald-player\meshghost_emerald.lua
+          Copy-Item -Recurse adapters\pokemon\emerald\lib packaging\emerald-player\lib
           Compress-Archive -Path packaging\emerald-player\* -DestinationPath meshghost-emerald-player-${{ inputs.version }}-windows-amd64.zip
         shell: pwsh
 
