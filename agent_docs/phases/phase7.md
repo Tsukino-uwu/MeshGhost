@@ -265,7 +265,48 @@ GBA memory). Started early relative to Phase 6's own two-player milestone (6.6) 
       independent UE-Lua-modding projects (172/138 hits) — names only, no project's source read.
       Explicitly **not a guaranteed fix** — disabling actor tick may not stop a
       CharacterMovementComponent that ticks independently — still needs re-enabling
-      `MeshGhostGhostProbe` in `mods.txt` and a live retest to know. Not yet re-enabled/run.
+      `MeshGhostGhostProbe` in `mods.txt` and a live retest to know.
+
+      **Drag bug fully diagnosed and fixed** after two more live runs (full detail in
+      `agent_docs/verified.md`, `agent_docs/risks.md`, and this file's own earlier text below
+      before this edit — see git history if the fuller blow-by-blow is needed): the real cause
+      was `BP_PlayerGoatMain_C` auto-possessing on spawn, confirmed via a read-only
+      `diagnose.lua` script that proved `controller.Pawn == ghost: true` with zero repositioning
+      code running. Fixed by capturing the original pawn/controller and calling
+      `controller:Possess(pawn)` right after spawn — confirmed live, an 82-second clean run with
+      no dragging (versus ~13s to death on every dragged run). A `MAX_TICK_DELTA` backstop and a
+      main-menu-reentry respawn fix were added along the way.
+
+      **Camera bug: five straight fixes, all failed or made it worse — pivoted the whole design
+      instead of a sixth guess.** `Possess()` restores control but not the camera's view target,
+      a separate UE concept. In order: (1) `SetViewTargetWithBlend` with 2 args → hard error
+      ("UFunction expected 5 parameters"); (2) fixed to all 5 args → succeeded, camera still on
+      ghost; (3) called every follow tick instead → succeeded every tick, but visibly broke the
+      camera differently (stuck low near the floor, fighting the engine's own camera
+      interpolation); (4) bounded to two corrections (immediate + delayed) → both succeeded, but
+      the *delayed* one turned out to be actively harmful — its ~1s timing matched exactly when
+      the user reported the camera snapping to the floor, so removed; (5) theorized competing
+      `CameraComponent` active state (both pawn's and ghost's cameras were simultaneously active
+      — confirmed via diagnostic log) and added `ghostCamera:Deactivate()`/
+      `pawnCamera:Activate()` → logged the correct resulting state (`pawn=true ghost=false`) yet
+      the camera was **still** observed on the ghost. A follow-up diagnostic run that skipped
+      applying that fix entirely produced an *identical* result, proving the fix was never the
+      actual mechanism. The user separately recalled that the much earlier `diagnose.lua` run
+      (no camera/possession calls at all) kept the camera correctly on the player despite the
+      same auto-possession swap being real — doesn't fit any theory tried so far, an open
+      question never resolved.
+
+      **Pivoted the design entirely rather than a sixth guess** (commit `9c186f9`): `main.lua`
+      now spawns a plain, non-Pawn `StaticMeshActor` (a basic cube) instead of a second instance
+      of `BP_PlayerGoatMain_C`. This sidesteps the whole bug class structurally — a
+      `StaticMeshActor` can never be auto-possessed and never has a `CameraComponent`, so there
+      is nothing left for a camera or possession bug to attach to. Matches `risks.md`'s own
+      recorded mitigation and TEVI's 6.3 precedent. Carries over every proven-safe piece from the
+      old design (`MIN_PLAUSIBLE_DISTANCE`, the spawning-race guard, `MAX_TICK_DELTA`, the
+      never-mutate-the-pawn's-vector rule, the menu-reentry respawn fix). New ungrounded piece:
+      `StaticLoadObject` to force-load the engine's default cube mesh if not already resident —
+      no confident `gh api` hit count for this exact call shape, tried defensively with a
+      fallback to an unmeshed actor, logged either way. **Not yet deployed/tested live.**
 
       **Third live run, with the collision/tick mitigation in place: still dragged, ruling that
       theory out.** Same symptom, this time described more precisely — a smooth, straight-line
