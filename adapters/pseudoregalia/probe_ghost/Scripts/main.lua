@@ -29,33 +29,38 @@
 --       every actor-affecting call in that mod; mirrored here for SpawnActor/positioning too.
 --
 -- NOT grounded, tried defensively: no bundled doc or example anywhere in this install
--- constructs or mutates an FVector's X/Y/Z fields directly (searched both docs/lua-api and
--- every assets/Mods script). The fixed offset below tries "loc.X = loc.X + OFFSET_X" and logs
--- once whether it actually took effect (by reading the field back), falling back to spawning
--- with zero offset -- stacked on the player -- if it silently didn't.
+-- constructs an FVector from scratch (searched both docs/lua-api and every assets/Mods
+-- script). Never a problem in practice: every FVector this script uses comes from an actor's
+-- own K2_GetActorLocation() call, never freshly constructed.
 --
 -- Known limitation, not solved here: no despawn/cleanup logic. Restart the game between runs
 -- rather than reloading this mod repeatedly, or ghosts will accumulate.
 --
--- First live run (2026-08-12) found two real bugs, both fixed here, neither a socket/spawn-API
--- problem: (1) spawning on the very first tick the pawn becomes non-nil read
--- K2_GetActorLocation() back as (0,0,0) -- the pawn object existing doesn't mean its transform
--- has been placed yet during the level-load sequence, so the ghost spawned near world origin
--- instead of next to the player and was never actually visible on screen. Now guarded by
--- MIN_PLAUSIBLE_DISTANCE below. (2) ExecuteInGameThread queues its callback for a later
--- game-thread tick, so checking `ghost == nil` on the very next LoopAsync tick (100ms later)
--- could still see nil and fire a second, redundant spawn before the first callback had run --
--- now guarded by the `spawning` flag.
+-- Three real bugs found across three live runs, 2026-08-12, all fixed here:
 --
--- Second live run, after both fixes above: spawn was correct this time (real position, single
--- spawn), but the user was physically dragged/pulled toward another location at high speed
--- until dying -- a real safety issue, not a script bug the log caught. Working theory: the
--- spawned instance is a fully physically-simulated copy of the player's gameplay Blueprint
--- (collision, gravity, movement), and its capsule pushing against the real player's every
--- physics tick produced this. Now calls SetActorEnableCollision(false)/SetActorTickEnabled(false)
--- on the ghost right after spawning -- see the comment at that call site for how those two
--- functions were grounded. Not a guaranteed fix (movement-component-driven physics might not
--- fully respect actor tick being disabled), tried and observed, not assumed.
+-- (1) Spawning on the very first tick the pawn becomes non-nil read K2_GetActorLocation() back
+-- as (0,0,0) -- the pawn object existing doesn't mean its transform has been placed yet during
+-- the level-load sequence, so the ghost spawned near world origin instead of next to the
+-- player and was never visible. Guarded by MIN_PLAUSIBLE_DISTANCE below.
+--
+-- (2) ExecuteInGameThread queues its callback for a later game-thread tick, so checking
+-- `ghost == nil` on the very next LoopAsync tick (100ms later) could still see nil and fire a
+-- second, redundant spawn before the first callback had run. Guarded by the `spawning` flag.
+--
+-- (3) The real one: after fixing (1) and (2), the user was physically dragged/pulled toward
+-- another location at high speed on two separate runs, in a straight line, until dying. First
+-- suspected collision/physics from the unstripped Blueprint clone -- SetActorEnableCollision(false)
+-- and SetActorTickEnabled(false) were added, and made ZERO difference on the second dragged
+-- run, ruling that theory out. Actual cause, found by re-reading the code rather than guessing
+-- again: the old follow loop read `pawn:K2_GetActorLocation()` fresh each tick and mutated its
+-- X field in place before handing that same object to the ghost's position setter.
+-- K2_GetActorLocation() appears to return a *live reference* into the actor's own transform,
+-- not a detached copy -- so that mutation was writing directly into the REAL PLAYER's position,
+-- +150 units roughly every 100ms, compounding forever. A smooth, straight-line, never-ending
+-- drift is exactly what a runaway position write looks like. Fixed by never mutating anything
+-- read from the pawn -- offsetGhostToward below only ever writes into a vector owned by the
+-- ghost itself. Left the collision/tick calls in place since they're still a reasonable safety
+-- measure even though they weren't the actual fix.
 
 local UEHelpers = require("UEHelpers")
 
@@ -68,7 +73,6 @@ local spawning = false -- guards against a second spawn firing while the first's
                         -- ExecuteInGameThread queues work for a later game-thread tick, so the
                         -- next LoopAsync tick can see ghost == nil and fire a second spawn
                         -- before the first one's callback has actually run and assigned it)
-local offsetConfirmed = nil -- nil = not tried yet, true/false once known
 local lastLoggedState = nil
 
 -- MIN_PLAUSIBLE_DISTANCE: found live 2026-08-12 -- spawning on the very first tick a pawn
@@ -93,24 +97,19 @@ local function safeGetPawn()
     return pawn, nil
 end
 
--- offsetLocation tries to nudge loc.X by OFFSET_X in place and reports whether the field
--- mutation actually stuck (read back afterward) -- see the "NOT grounded" note above.
-local function offsetLocation(loc)
-    if offsetConfirmed ~= nil then
-        if offsetConfirmed then
-            pcall(function() loc.X = loc.X + OFFSET_X end)
-        end
-        return loc
-    end
-    local before = loc.X
-    local ok = pcall(function() loc.X = loc.X + OFFSET_X end)
-    local after = loc.X
-    offsetConfirmed = ok and math.abs(after - (before + OFFSET_X)) < 0.01
-    print(string.format(
-        "[MeshGhostGhostProbe] FVector field mutation %s (before=%.2f, after=%.2f, wanted=%.2f)\n",
-        offsetConfirmed and "CONFIRMED working" or "did NOT take effect -- spawning with zero offset instead",
-        before, after, before + OFFSET_X))
-    return loc
+-- offsetGhostToward writes the player's (px, py, pz) plus a fixed X offset into ghostLoc --
+-- which MUST be a vector owned by the ghost (e.g. ghost:K2_GetActorLocation()), never one read
+-- from the player pawn. Found live 2026-08-12, the hard way: K2_GetActorLocation() appears to
+-- return a *live reference* into the actor's own transform, not a detached copy -- mutating a
+-- vector read from the pawn writes directly into the real player's position. The follow loop
+-- used to do exactly that every 100ms, compounding into a smooth, straight-line, never-ending
+-- drift -- not a physics/collision effect at all, which is why disabling collision/tick on the
+-- ghost (the previous "fix") had zero effect. Reading fields off the pawn's vector is fine and
+-- unchanged elsewhere in this file; only ever writing into it is the danger.
+local function offsetGhostToward(ghostLoc, px, py, pz)
+    ghostLoc.X = px + OFFSET_X
+    ghostLoc.Y = py
+    ghostLoc.Z = pz
 end
 
 local function trySpawnGhost(pawn)
@@ -133,7 +132,10 @@ local function trySpawnGhost(pawn)
             return
         end
 
-        loc = offsetLocation(loc)
+        -- Spawn AT the player's exact position, unmodified -- no mutation here, matching
+        -- SplitScreenMod's confirmed safe pattern of reusing a struct read from one actor
+        -- directly on another with no in-place writes. The fixed offset is applied afterward,
+        -- once the ghost exists and has its own vector to mutate (see followTick).
         ExecuteInGameThread(function()
             ghost = world:SpawnActor(class, loc, rot)
             spawning = false
@@ -191,11 +193,19 @@ local function followTick()
     end
 
     local ok, followErr = pcall(function()
-        local loc = pawn:K2_GetActorLocation()
+        -- Read-only on the pawn's own vectors: px/py/pz/rot are plain values or a struct we
+        -- never write back into. The only mutation happens below, on ghostLoc -- a vector
+        -- owned by the ghost itself, fetched fresh each tick.
+        local pawnLoc = pawn:K2_GetActorLocation()
+        local px, py, pz = pawnLoc.X, pawnLoc.Y, pawnLoc.Z
         local rot = pawn:K2_GetActorRotation()
-        loc = offsetLocation(loc)
         ExecuteInGameThread(function()
-            ghost:K2_SetActorLocationAndRotation(loc, rot, false, {}, false)
+            if not ghost:IsValid() then
+                return
+            end
+            local ghostLoc = ghost:K2_GetActorLocation()
+            offsetGhostToward(ghostLoc, px, py, pz)
+            ghost:K2_SetActorLocationAndRotation(ghostLoc, rot, false, {}, false)
         end)
     end)
     if not ok and lastLoggedState ~= "follow_error" then
