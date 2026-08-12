@@ -48,6 +48,12 @@ GBA memory). Started early relative to Phase 6's own two-player milestone (6.6) 
       game/UE4SS build. So: use a build-free Lua script only for 7.1's discovery probe (fast
       iteration, no CMake loop), then write the real adapter as a UE4SS C++ mod targeting
       **v3.0.1** (not the earlier-read v2.5.2 — see the correction above).
+      **Superseded 2026-08-12, same day, once 7.2's C++ path hit the UEPseudo blocker below:**
+      the "no socket support" premise only held for a first-party library shipping with
+      RE-UE4SS, not for `package.loadlib` itself — see the Stage 2 result under 7.2. With the
+      vendored LuaSocket core confirmed loadable, the shipping adapter can plausibly stay
+      **Lua**, no CMake/UEPseudo build required at all. Keep this line for the record of what
+      was believed and why; treat the Stage 2 finding under 7.2 as the current decision.
 - [x] 7.1 — Lua probe. Deployed `adapters/pseudoregalia/probe/Scripts/main.lua` as the
       `MeshGhostProbe` UE4SS Lua mod (`ue4ss\Mods\MeshGhostProbe\`, added to `mods.txt`); also
       flipped `UE4SS-settings.ini`'s `[Debug] ConsoleEnabled` `0`→`1` (was off by default,
@@ -124,10 +130,21 @@ GBA memory). Started early relative to Phase 6's own two-player milestone (6.6) 
       immediately closes a `socket.tcp()` object only (no bind/connect/send). It is **not**
       wired in as the mod's entry point (UE4SS Lua mods always load `Scripts/main.lua`);
       running it means deliberately swapping it in over the currently-deployed Stage 1
-      `main.lua`, per the deploy note at the top of the file. **Not yet run** — user chose
-      2026-08-12 to proceed with this path over chasing UEPseudo access, but the actual in-game
-      deploy-and-watch step is still outstanding, and needs its own go-ahead given the crash
-      risk, not just proceeding once Stage 1 looked promising.
+      `main.lua`, per the deploy note at the top of the file.
+
+      **Run and confirmed 2026-08-12.** Deployed over the Stage 1 `main.lua` (backed up as
+      `main.lua.stage1.bak` in the mod's `Scripts\` folder, restored afterward), user launched
+      the game and played an extended session — no crashes or instability reported. `UE4SS.log`
+      shows every Stage 2 step completing without error: `lua54.dll` preload, `package.loadlib`
+      on `socket-windows-5-4.dll`, `luaopen_socket_core()` returning a table with a callable
+      `.tcp`, `socket.tcp()` returning a `userdata` object, and a clean close. `AP_Randomizer`
+      kept running normally throughout (hooks, overlay, item messages all logged as usual) —
+      the coexistence check passes for this path too. This resolves the reopened question: the
+      vendored LuaSocket core loads and creates objects cleanly inside UE4SS's statically-embedded
+      Lua, despite the two builds being independent binaries. **Not yet tested:** an actual
+      `bind`/`connect`/send-receive round trip (this stage deliberately stopped at object
+      creation) — that's the next, still-untested step before trusting this for the real bridge
+      connection in 7.5.
 - [ ] 7.3 — Port 7.1's findings into the C++ mod's per-frame local-state read. Decide
       adapter-side (never in the core, per `contract.md`): position units (raw UE
       centimetres vs. normalised), orientation shape (yaw float vs. full rotator/quaternion —

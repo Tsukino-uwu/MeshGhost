@@ -1295,3 +1295,25 @@ Copy this block per fact:
   so a `lua_State` ABI mismatch here is a real crash risk, not just a load failure. A Stage 2
   script exists but was deliberately not run this session.
   free-form and opaque to both per `agent_docs/contract.md`.
+
+### Phase 7.2: vendored LuaSocket core loads and creates a socket inside UE4SS's embedded Lua
+
+- Date: 2026-08-12
+- Observed: `adapters/pseudoregalia/probe_socket/Scripts/stage2_loadlib.lua`
+  (`MeshGhostSocketProbe`, Stage 2) deployed over the Stage 1 script and run live. User played
+  an extended session — moving around, testing multiple things — with no crashes or
+  instability. `UE4SS.log` shows every step completing without error, in order: `lua54.dll`
+  preload (`pcall` returned `ok=true`), `package.loadlib` on `socket-windows-5-4.dll` returning
+  an opener function, `luaopen_socket_core()` returning without erroring, `type(socketCore) =
+  table` with `type(socketCore.tcp) = function`, `socket.tcp()` returning a `userdata` object,
+  and a clean `:close()`. `AP_Randomizer` continued running normally throughout (hooks,
+  overlay, item messages all logged as usual) — no load-order or coexistence conflict.
+- Source: `UE4SS.log` lines around `12:35:30` (this session, 2026-08-12), `[MeshGhostSocketProbe]`
+  prefix; `adapters/pseudoregalia/probe_socket/Scripts/stage2_loadlib.lua`.
+- Notes: resolves the risk flagged in the entry above — a `lua_State` ABI mismatch between the
+  vendored `lua54.dll` and UE4SS's own statically-embedded Lua 5.4 build does not appear to
+  corrupt memory, at least through object creation. **Not yet tested**: a real
+  `bind`/`connect`/send/receive round trip — Stage 2 deliberately stopped at creating and
+  immediately closing the socket object. This reopens the Phase 7 adapter-language decision in
+  `agent_docs/phases/phase7.md`: a Lua-only shipping adapter (no C++/UEPseudo build) is now
+  plausible, pending that network round-trip test.

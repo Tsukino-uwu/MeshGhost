@@ -145,9 +145,14 @@
   embedded in `UE4SS.dll`, not a separate `lua54.dll` the way BizHawk's NLua host is — loading
   MeshGhost's already-vetted `lua54.dll`/`socket-windows-5-4.dll` pair here could crash the
   game rather than fail cleanly if the two compiled Lua runtimes' `lua_State` layouts don't
-  match, unlike BizHawk where there was only ever one real Lua runtime involved. A Stage 2
-  script exists (`adapters/pseudoregalia/probe_socket/`) but has deliberately not been run
-  yet — needs explicit go-ahead given the crash risk, not just proceeding on Stage 1 optimism.
+  match, unlike BizHawk where there was only ever one real Lua runtime involved.
+  **Downgraded 2026-08-12**: Stage 2 (`adapters/pseudoregalia/probe_socket/Scripts/stage2_loadlib.lua`)
+  ran live — preload, `loadlib`, `luaopen_socket_core()`, and `socket.tcp()` create/close all
+  succeeded with no crash, `AP_Randomizer` unaffected, extended play session stable (see
+  `agent_docs/verified.md`). The `lua_State`-mismatch risk hasn't corrupted anything through
+  object creation. Still open: a real `bind`/`connect`/send/receive round trip is untested and
+  is where an ABI mismatch would most plausibly surface (e.g. buffer/struct handling under
+  actual I/O, not just table construction) — treat as unresolved until that's tried.
 
 ## Mitigations
 
