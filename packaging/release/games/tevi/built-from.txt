@@ -1,6 +1,6 @@
 # Written by dev-scripts\build-tevi.bat -- read by .github\workflows\release.yml's
 # staleness gate. Do not hand-edit.
-commit: 9e4bdfcb4db48b4e6e191c824a818f9200fb4f18
+commit: 2f95a83fc477be93c6281303566a6da7e4b9c70b
 Plugin.cs: 5709c1d15082918237db5befd3fb4fded7dd983b142f57a34c94029efb1bd1bb
 BridgeClient.cs: f7dd5da3a72d88c32b5c591265f47a9ab56f748bf872464b630811aea91645c2
 MeshGhostTevi.csproj: 6528cd74c2533a0b16eb7e7669f463500fc5cb8397db1f1cc6e181950811abba
