@@ -1376,3 +1376,26 @@ Copy this block per fact:
   call while disabling it, caught and fixed immediately by rewriting the whole file with a
   known-good line structure — no confirmation the corrupted version was ever read by anything,
   fixed before any further game launch.
+
+### Phase 7.4: the collision theory was wrong — dragging was the script mutating the player's own live position
+
+- Date: 2026-08-12
+- Observed: the collision-theory mitigation (`SetActorEnableCollision(false)`/
+  `SetActorTickEnabled(false)` on the ghost) was deployed and run live as a third test. The
+  user was dragged again — this time described more precisely as a smooth, straight-line drift
+  to the side into the void, not a sudden pull — ruling out collision/physics as the cause,
+  since both were disabled on the ghost and it happened anyway. Re-reading
+  `adapters/pseudoregalia/probe_ghost/Scripts/main.lua` (not guessing again) found the real
+  cause: the follow loop read `pawn:K2_GetActorLocation()` fresh every tick and mutated its `X`
+  field in place before handing that same object to the ghost's position setter.
+  `K2_GetActorLocation()` appears to return a live reference into the actor's own transform,
+  not a detached copy, so the "offset" was writing +150 units directly into the real player's
+  position roughly every 100ms, compounding forever — exactly the smooth, never-ending
+  straight-line drift both drag incidents showed.
+- Source: user's live report (this session, 2026-08-12, both the second and third runs);
+  `adapters/pseudoregalia/probe_ghost/Scripts/main.lua` (commit `c5a4c7d`, the fix).
+- Notes: this also explains why no separate ghost model was ever visible in either drag
+  incident — it was likely always co-located with wherever the corrupted player position ended
+  up. Fixed by never mutating anything read from the pawn; the offset is now only ever applied
+  to a vector owned by the ghost itself. **Not yet retested live** — the collision/tick disable
+  calls stay in place as a reasonable safety measure, but the actual fix is this one.

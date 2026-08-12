@@ -266,6 +266,26 @@ GBA memory). Started early relative to Phase 6's own two-player milestone (6.6) 
       Explicitly **not a guaranteed fix** — disabling actor tick may not stop a
       CharacterMovementComponent that ticks independently — still needs re-enabling
       `MeshGhostGhostProbe` in `mods.txt` and a live retest to know. Not yet re-enabled/run.
+
+      **Third live run, with the collision/tick mitigation in place: still dragged, ruling that
+      theory out.** Same symptom, this time described more precisely — a smooth, straight-line
+      drift to the side into the void, not a sudden pull. Disabled the mod again immediately.
+      Re-reading the code (not guessing again) found the actual cause: the follow loop read
+      `pawn:K2_GetActorLocation()` fresh every tick and mutated its `X` field in place before
+      handing that same object to the ghost's position setter.
+      `K2_GetActorLocation()` appears to return a **live reference** into the actor's own
+      transform, not a detached copy — so every tick's "offset" was actually writing +150
+      units directly into the **real player's** position, roughly 10 times a second,
+      compounding forever. That's exactly a smooth, never-ending straight-line drift — not
+      physics, not collision, just the script silently overwriting the player's real position
+      every tick. This also explains why no separate ghost was ever visible in either drag
+      incident: it was likely always co-located with wherever the corrupted player position
+      ended up. **Fixed**: `offsetGhostToward` now only ever mutates a vector owned by the
+      ghost itself (`ghost:K2_GetActorLocation()`, fetched fresh each tick), never anything
+      read from the pawn; the initial spawn happens at the player's exact, unmodified position
+      (no mutation at that point at all). Collision/tick disable calls left in place as a
+      reasonable safety measure even though they turned out not to be the actual fix. Not yet
+      retested live.
 - [ ] 7.5 — Port 7.1's real local-state read (not just Stage 3's hardcoded dummy frame) and
       7.3's field decisions into a persistent, per-frame Lua bridge client — a `RegisterHook`-
       or engine-tick-driven loop, not a one-shot script like Stages 1-3, non-blocking connect

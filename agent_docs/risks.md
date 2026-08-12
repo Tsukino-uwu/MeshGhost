@@ -166,15 +166,17 @@
   player, found 2026-08-12**: `adapters/pseudoregalia/probe_ghost/Scripts/main.lua` spawned a
   second instance of `BP_PlayerGoatMain_C` 150 units from the player. The user was physically
   dragged/pulled toward another location at high speed immediately on spawning in, until dying.
-  Working theory (not confirmed): the spawned instance is fully physically simulated —
-  collision, gravity, movement — and its capsule pushing against the real player's every physics
-  tick as it fell/slid could produce this. This is the exact risk 7.6's design already named
-  ("collision/input/gameplay stripped"), but it showed up as a real safety issue (forced
-  movement, death) earlier than planned, at 7.4, before anything had been stripped. See
-  `agent_docs/verified.md` and `agent_docs/phases/phase7.md`. Mitigation going forward: don't
-  spawn the real gameplay Blueprint as a placeholder at all — follow TEVI's own 6.3 precedent
-  (a simple, harmless placeholder shape, not a player clone) until collision/physics/input are
-  deliberately and verifiably stripped.
+  **Root cause found, not the initial collision theory**: disabling
+  `SetActorEnableCollision`/`SetActorTickEnabled` on the ghost made no difference on a third
+  run — the actual cause was the script itself mutating a *live reference* returned by
+  `pawn:K2_GetActorLocation()` every tick, writing +150 units directly into the real player's
+  position roughly 10 times a second, compounding into exactly the observed straight-line
+  drift. Not a UE5/engine risk at all — a Lua scripting mistake (mutating a struct read from an
+  object you don't own). See `agent_docs/verified.md` and `agent_docs/phases/phase7.md`.
+  **General lesson for any future UE4SS Lua script in this repo**: never write into a
+  vector/rotator struct read via `K2_GetActorLocation()`/`K2_GetActorRotation()` (or similar)
+  unless it was read from the actor you intend to move — treat every such read as a live
+  reference, not a safe-to-mutate copy, until proven otherwise for that specific actor.
 
 ## Mitigations
 
