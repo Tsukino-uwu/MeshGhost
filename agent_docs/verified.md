@@ -1438,3 +1438,50 @@ Copy this block per fact:
   possessed, camera-attached character the entire time. Fixed in `main.lua` (commit `67a499f`)
   by calling `controller:Possess(pawn)` immediately after spawn to hand control back. **Not yet
   retested live** with the offset re-enabled — this run was diagnostic-only.
+
+### Phase 7.4: placeholder ghost confirmed visible on screen — via a hijacked existing actor, not a spawned one
+
+- Date: 2026-08-12
+- Observed: `DIAGNOSTIC_HIJACK_EXISTING_PROP` mode (`adapters/pseudoregalia/probe_ghost/Scripts/main.lua`)
+  repositioned a real, already-in-the-level `StaticMeshActor` (found via `FindAllOf`) to follow
+  the player at the intended 150-unit offset, instead of spawning a new actor. User provided
+  screenshots from a live run: a statue in area 1 and a cage in area 2 both visibly followed the
+  player correctly, matching `UE4SS.log`'s `intended=`/`actual=` agreement on every logged tick.
+- Source: user screenshots (this session, 2026-08-12); `UE4SS.log` lines around `17:16:26`–
+  `17:17:04`, `[MeshGhostGhostProbe]` prefix, `DIAGNOSTIC: hijacking existing level prop:` and the
+  `pawn=.../intended=.../actual=...` lines that follow.
+- Notes: this is the phase's first confirmed-visible placeholder result. It also settles the
+  investigation into five prior failed live runs where a freshly `SpawnActor`'d `StaticMeshActor`
+  never appeared on screen despite every individual API call (spawn, collision, mesh assignment,
+  mobility, position writes) reporting success: **actors spawned at runtime via UE4SS's
+  `UWorld:SpawnActor` do not render in this game/build**, while actors that already existed in
+  the level before the script touched them render and reposition correctly. Not yet explained —
+  leading theory is Blueprint-reflection stripping in this Shipping build (see
+  `agent_docs/phases/phase7.md`'s Phase 7.4 entry for the reasoning) — but the symptom itself is
+  now directly observed, not inferred.
+
+### Phase 7.4: placeholder ghost confirmed done — spawns, follows, survives level transitions, camera stays correct
+
+- Date: 2026-08-12
+- Observed: `adapters/pseudoregalia/probe_ghost/Scripts/main.lua` (cleaned-up final design) spawns
+  a second instance of the player's own Pawn class after a short delay, re-possesses the real
+  player immediately, and follows at a fixed 150-unit offset. User confirmed live, repeatedly,
+  across multiple runs and two level transitions (`ZONE_LowerCastle` <-> `ZONE_Dungeon`): a
+  second goat model visibly follows the player, and — critically — the camera correctly stays on
+  the real player throughout, including immediately after the ghost spawns and after each level
+  transition. `UE4SS.log` shows the underlying mechanism firing and succeeding: this game's own
+  `MainPlayerController_C` repeatedly tries to re-target the camera to a different
+  `BP_PlayerCam_C` rig in reaction to the ghost spawning (an overlap/proximity trigger), and a
+  `RegisterHook`-based post-callback fights back every time, forcing it back to the correct rig
+  (`HOOK: FIGHTING BACK ... SetViewTargetWithBlend override: ok`, three separate times across the
+  final confirmation run).
+- Source: user reports (this session, 2026-08-12, multiple runs); `UE4SS.log` lines around
+  `18:21:26`–`18:21:56`, `[MeshGhostGhostProbe]` prefix, `HOOK: FIGHTING BACK` /
+  `SetViewTargetWithBlend override: ok`; `adapters/pseudoregalia/probe_ghost/Scripts/main.lua`.
+- Notes: this closes a long investigation (full detail in `agent_docs/phases/phase7.md`'s Phase
+  7.4 entries) — the eventual fix was not a pawn-side camera/possession fix (five pre-pivot
+  attempts and six more this session all failed or had zero visible effect) but intercepting and
+  overriding the *game's own* camera-retargeting call in real time. One small accepted visual
+  side effect: a brief black flash each time the camera gets forced back, most likely the
+  `SetViewTargetWithBlend` cut/blend transition itself being visible for a frame — not
+  investigated further, a reasonable tradeoff.
