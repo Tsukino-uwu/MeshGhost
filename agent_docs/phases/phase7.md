@@ -255,6 +255,17 @@ GBA memory). Started early relative to Phase 6's own two-player milestone (6.6) 
       magenta square, not a full player clone) instead of spawning the real gameplay Blueprint,
       rather than trying to strip collision/physics off a class never designed to have a second
       instance in the world.
+
+      **Attempted mitigation, same session**: rather than switching designs immediately (a full
+      `StaticMeshActor` placeholder needs mesh-asset APIs not confirmed anywhere in this
+      install's bundled docs), tried the smaller fix first — call
+      `SetActorEnableCollision(false)`/`SetActorTickEnabled(false)` on the ghost right after
+      spawn. Neither is in the bundled RE-UE4SS docs (confirmed incomplete already), so grounded
+      via `gh api search/code` confirming both as real, commonly-used `AActor` functions across
+      independent UE-Lua-modding projects (172/138 hits) — names only, no project's source read.
+      Explicitly **not a guaranteed fix** — disabling actor tick may not stop a
+      CharacterMovementComponent that ticks independently — still needs re-enabling
+      `MeshGhostGhostProbe` in `mods.txt` and a live retest to know. Not yet re-enabled/run.
 - [ ] 7.5 — Port 7.1's real local-state read (not just Stage 3's hardcoded dummy frame) and
       7.3's field decisions into a persistent, per-frame Lua bridge client — a `RegisterHook`-
       or engine-tick-driven loop, not a one-shot script like Stages 1-3, non-blocking connect
