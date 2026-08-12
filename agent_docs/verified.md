@@ -1347,3 +1347,32 @@ Copy this block per fact:
   investigated**: three further receive attempts in the same run returned empty strings rather
   than `"timeout"` or a real line — logged as observed, not yet explained; worth understanding
   before trusting this probe's read loop as a model for the real adapter's per-frame loop.
+
+### Phase 7.4: spawning the player's own Blueprint as a placeholder ghost physically dragged the player
+
+- Date: 2026-08-12
+- Observed: `adapters/pseudoregalia/probe_ghost/Scripts/main.lua` (`MeshGhostGhostProbe`)
+  deployed and run live, twice. First run (before two bugs were fixed — see
+  `agent_docs/phases/phase7.md`): no ghost visible on screen; `UE4SS.log` explained why —
+  `K2_GetActorLocation()` read `(0,0,0)` at spawn time (the pawn existing doesn't mean its
+  transform is placed yet during level load), so the ghost spawned near world origin instead of
+  next to the player. Second run, after fixing that and a related double-spawn race: the log
+  shows a clean single spawn at the player's real position (`before=4900.00`, matching 7.1's
+  confirmed values) plus "ghost is following" for ~14.5s. But the user reported being
+  **physically dragged/pulled toward another location at high speed** immediately after
+  spawning in — sustained forced movement, not a teleport — until dying, after which respawning
+  was normal with no further dragging.
+- Source: user's live report (this session, 2026-08-12); `UE4SS.log` lines around `13:06:28`–
+  `13:06:45`, `[MeshGhostGhostProbe]` prefix; `adapters/pseudoregalia/probe_ghost/Scripts/main.lua`.
+- Notes: the log confirms the *spawn* itself was correct on this run (real position, single
+  spawn, no error) — the dragging is a *gameplay* effect, not a script bug caught in the log.
+  **Working theory, not confirmed**: the ghost is a full, physically-simulated copy of the
+  player's gameplay Blueprint (collision, gravity, movement) spawned only 150 units away; if it
+  fell/slid under its own physics, its collision capsule pushing against the real player's every
+  tick could produce exactly this. Not proven — no direct evidence isolates collision as the
+  mechanism versus some other interaction (e.g. a shared component/singleton the Blueprint
+  assumes is unique). `MeshGhostGhostProbe` disabled in `mods.txt` pending a redesign;
+  `mods.txt` itself was accidentally corrupted (stripped newlines) by a `Set-Content -NoNewline`
+  call while disabling it, caught and fixed immediately by rewriting the whole file with a
+  known-good line structure — no confirmation the corrupted version was ever read by anything,
+  fixed before any further game launch.

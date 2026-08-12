@@ -225,6 +225,36 @@ GBA memory). Started early relative to Phase 6's own two-player milestone (6.6) 
       socket probes: spawns a real gameplay Blueprint instance, not just a background
       connection — possible physics/collision oddities with two pawns of the same class in the
       world weren't ruled out in advance. Not yet deployed/run — needs its own go-ahead.
+
+      **First live run found a real bug**: the spawn fired on the very first tick the pawn
+      became non-nil, before the level-load sequence had actually placed its transform —
+      `UE4SS.log` showed `K2_GetActorLocation()` reading back `(0,0,0)`, even though 7.1 already
+      confirmed real positions here are in the thousands. The ghost spawned near world origin,
+      nowhere near the player, so nothing was visible on screen. A second bug in the same log:
+      `ExecuteInGameThread` queues its callback for a later tick, so the next `LoopAsync` tick
+      could still see `ghost == nil` and fire a redundant second spawn before the first one's
+      callback had run. **Both fixed** the same session: a `MIN_PLAUSIBLE_DISTANCE` guard skips
+      spawning until the read position isn't suspiciously close to the origin, and a `spawning`
+      flag prevents the double-fire.
+
+      **Second live run, after both fixes, found something more serious.** The spawn itself was
+      correct this time (`before=4900.00`, matching the player's real position) and the log
+      shows a clean single spawn + "ghost is following" for ~14.5s. But the user reported being
+      physically dragged/pulled toward another location at high speed immediately on spawning
+      in — not a teleport, a sustained forced movement — until dying, after which respawning
+      was normal with no more dragging. **Working theory, not yet confirmed**: the ghost is a
+      full, physically-simulated copy of the player's own gameplay Blueprint (collision,
+      gravity, movement component) spawned only 150 units away — if it started falling/sliding
+      under its own physics, its collision capsule shoving against the real player's every tick
+      could produce exactly this. This is the exact risk `7.6`'s design already named
+      ("collision/input/gameplay stripped") — it surfaced earlier than planned, as a real
+      safety issue (forced movement, death) rather than just a visual one, because 7.4 hadn't
+      stripped anything yet. **`MeshGhostGhostProbe` disabled in `mods.txt` (set to `0`)
+      pending a redesign** — not safe to re-enable as-is. Next step should follow TEVI's own
+      6.3 precedent more closely: a simple, harmless placeholder (TEVI used a translucent
+      magenta square, not a full player clone) instead of spawning the real gameplay Blueprint,
+      rather than trying to strip collision/physics off a class never designed to have a second
+      instance in the world.
 - [ ] 7.5 — Port 7.1's real local-state read (not just Stage 3's hardcoded dummy frame) and
       7.3's field decisions into a persistent, per-frame Lua bridge client — a `RegisterHook`-
       or engine-tick-driven loop, not a one-shot script like Stages 1-3, non-blocking connect
