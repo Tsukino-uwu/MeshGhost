@@ -70,12 +70,15 @@
 -- Confirmed live: this fix works -- an 82-second run with no dragging or forced death (versus
 -- ~13s to death on every prior run). One smaller, separate issue found the same run: `Possess`
 -- correctly returns input control but doesn't necessarily move the active camera view target,
--- which stayed on the ghost. Added `SetViewTargetWithBlend(pawn, 0)` right after `Possess`,
--- grounded the same way (`gh api search/code`, 218 hits) -- but the 2-arg call failed outright
--- ("UFunction expected 5 parameters, received 2"): this UFunction's UE4SS Lua binding needs
--- the full UE signature explicitly, no Lua-side defaults. Fixed to
--- `SetViewTargetWithBlend(pawn, 0.0, 0, 0.0, false)` -- see the call site for what each
--- parameter is. Not yet retested live.
+-- which stayed on the ghost. First attempt: a one-time `SetViewTargetWithBlend(pawn, 0)` right
+-- after `Possess`, grounded the same way (`gh api search/code`, 218 hits) -- the 2-arg call
+-- failed outright ("UFunction expected 5 parameters, received 2"; fixed to pass all 5), then
+-- on retest the corrected call succeeded ("ok" logged) but the camera was STILL observed on
+-- the ghost -- something keeps re-asserting it afterward (most likely the ghost's own briefly-
+-- auto-possessed "on possessed" Blueprint logic doing its own camera setup on a delay). Rather
+-- than chase the exact re-triggering mechanism, moved the call from a one-time spawn-time fix
+-- to every follow tick (see followTick) -- cheap, and wins regardless of what else fights it
+-- afterward. Not yet retested live.
 
 local UEHelpers = require("UEHelpers")
 
@@ -175,22 +178,6 @@ local function trySpawnGhost(pawn, controller)
                 "[MeshGhostGhostProbe] re-possess original pawn after spawn: %s\n",
                 possessOk and "ok" or ("FAILED: " .. tostring(possessErr))))
 
-            -- Found live 2026-08-12: Possess() correctly reassigns control (confirmed -- no
-            -- more drag, an 82s run with no forced movement) but doesn't necessarily move the
-            -- active camera view target back -- a real, separate concept in UE (the camera
-            -- stayed on the ghost even though input control had already returned to the real
-            -- pawn). SetViewTargetWithBlend grounded via `gh api search/code` (218 hits, a
-            -- standard AController/PlayerController method); not in the bundled docs.
-            -- First attempt (2 args) failed outright: "UFunction expected 5 parameters,
-            -- received 2" -- this UFunction's UE4SS Lua binding requires the full UE signature
-            -- explicitly, (NewViewTarget, BlendTime, BlendFunc, BlendExp, bLockOutgoing), no
-            -- defaults applied from Lua. 0 for BlendFunc is VTBlend_Linear (the standard,
-            -- zero-valued enum member); BlendTime 0.0 means an instant cut.
-            local viewTargetOk, viewTargetErr = pcall(function() controller:SetViewTargetWithBlend(pawn, 0.0, 0, 0.0, false) end)
-            print(string.format(
-                "[MeshGhostGhostProbe] re-point camera view target to original pawn: %s\n",
-                viewTargetOk and "ok" or ("FAILED: " .. tostring(viewTargetErr))))
-
             -- Kept as a reasonable secondary safety measure even though bug 5, not
             -- collision/physics, was the actual cause of the drag -- see agent_docs/risks.md.
             local collisionOk = pcall(function() ghost:SetActorEnableCollision(false) end)
@@ -234,6 +221,22 @@ local function followTick()
             lastLoggedState = "ghost_invalid"
         end
         return false
+    end
+
+    -- Found live 2026-08-12: a one-time SetViewTargetWithBlend right after spawn (see
+    -- trySpawnGhost's history in the header comment) succeeded ("ok" logged) but the camera
+    -- was still observed on the ghost afterward -- something keeps re-asserting it as the view
+    -- target after our one-time fix, most likely the ghost's own "on possessed" Blueprint
+    -- logic (it was briefly auto-possessed before we took control back) doing its own camera
+    -- setup, possibly on a delay that lands after ours. Rather than chase the exact
+    -- re-triggering mechanism, re-assert every follow tick instead of once at spawn -- cheap,
+    -- and it wins regardless of what else might be fighting it afterward.
+    local viewTargetOk, viewTargetErr = pcall(function()
+        controller:SetViewTargetWithBlend(pawn, 0.0, 0, 0.0, false)
+    end)
+    if not viewTargetOk and lastLoggedState ~= "view_target_error" then
+        print(string.format("[MeshGhostGhostProbe] per-tick view target reassert FAILED: %s\n", tostring(viewTargetErr)))
+        lastLoggedState = "view_target_error"
     end
 
     local ok, followErr = pcall(function()
