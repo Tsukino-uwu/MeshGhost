@@ -201,12 +201,39 @@ the two open contract questions — those stay exactly as already documented, de
 ### Phase 6 — Second game (TEVI)
 
 Visible outcome: repeat phases 1–4 for TEVI using the frozen template, and find out whether
-the contract holds up outside Emerald. **Status: in progress**, started 2026-08-11. First
-task — verifying TEVI's IL2CPP vs Mono status — is done: **confirmed Mono**, so BepInEx/Harmony
-tooling applies directly. See `agent_docs/environment.md`'s Unity/TEVI section and
-`adapters/tevi/README.md` for the file evidence. BepInEx 5.4.23.3 is already installed on this
-machine's TEVI copy from prior use and confirmed loading a plugin, which unblocks setting up a
-MeshGhost plugin next without a fresh BepInEx install being its own task.
+the contract holds up outside Emerald. **Status: everything solo-testable is done and
+confirmed (2026-08-12); 6.6 (two real players, needs a second machine) is not** — see
+`agent_docs/phases/phase6.md` for the full record. Confirmed live: Mono (not IL2CPP), real
+player position/facing/anim/area reading, a real bridge→relay→core round trip via the relay's
+`-loopback` flag, and a real character-visual ghost (correct anchor, facing, animation) that
+doesn't intrude on TEVI's menus. One real bug found and fixed in `internal/core`
+(`Core.MinSendInterval`, see the 2026-08-12 ADR in `architecture.md`) — TEVI's uncapped
+`Update()` tripped the relay's 120 msg/sec limit, fixed game-agnostically so every adapter
+benefits.
+
+**Deliberately not blocking a third game on 6.6** (decided 2026-08-12): adapters are
+structurally isolated (`contract.md`'s hard rules — an adapter only ever talks to its own local
+core, `internal/core`/`internal/relay` never branch on game), so there's no technical coupling
+that makes starting Pseudoregalia risky to TEVI. The honest tradeoff, recorded rather than
+ignored: 6.6 specifically tests things solo-testing can't (real join/leave, cross-area
+filtering — the latter genuinely unbuilt, not just untested, since `internal/core` currently
+sends every known remote regardless of area). Emerald's own Phase 4 caught two real bugs
+Phase 3's solo loopback hadn't surfaced, so something similar in TEVI once a second machine is
+available is a real possibility, not just a formality — accepted as a small risk of later
+rework rather than sitting idle on a blocker with no ETA. Revisit 6.6 whenever a second machine
+(a friend, or another PC) is available; not scheduled.
+
+### Phase 7 — Third game (Pseudoregalia)
+
+Visible outcome: repeat phases 1–4 for Pseudoregalia (UE5) using the frozen template. **Status:
+not started.** Started early relative to Phase 6's own two-player milestone (6.6) — see Phase
+6's status note above for why that's a deliberate, recorded tradeoff rather than an oversight.
+First task, mirroring Phase 6's own first task: confirm what modding tooling actually applies
+(UE4SS version, whether the target uses Blueprints/C++ in a way that changes what's readable)
+before assuming anything — `agent_docs/environment.md`'s "UE4SS version for Pseudoregalia:
+unfilled" line is the open item to close first. Do not assume UE5 tooling parallels BepInEx/
+Harmony just because both are "the second/third game's toolchain" — verify fresh, the same
+"no addresses or APIs from memory" standard TEVI's Mono-vs-IL2CPP check followed.
 
 ### Post-Phase-4 — Room codes
 

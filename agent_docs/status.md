@@ -108,6 +108,13 @@
   solo-testable is done; what's left (cross-area filtering, real join/leave) genuinely needs a
   second peer. Also carried forward, not blocking: testing the position read with the TEVI
   Randomizer mod disabled (coexistence risk).
+- `Current focus:` **Decided 2026-08-12: not blocking Phase 7 (Pseudoregalia) on TEVI's 6.6.**
+  Adapters are structurally isolated, so no technical reason blocks starting a third game while
+  6.6 waits on a second machine with no ETA — see `plans.md`'s Phase 6 status note for the full
+  reasoning and the accepted tradeoff (a real, not hypothetical, chance 6.6 later surfaces a bug
+  the same way Emerald's Phase 4 did). Phase 7 not started yet; its first task is confirming
+  Pseudoregalia's actual UE5 modding tooling (UE4SS version, Blueprints vs. C++) fresh, the same
+  standard TEVI's Mono-vs-IL2CPP check followed — not assumed from TEVI's toolchain by analogy.
 
 ## Go networking layer (2026-08-11)
 
