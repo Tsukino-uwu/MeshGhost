@@ -153,6 +153,15 @@
   object creation. Still open: a real `bind`/`connect`/send/receive round trip is untested and
   is where an ABI mismatch would most plausibly surface (e.g. buffer/struct handling under
   actual I/O, not just table construction) — treat as unresolved until that's tried.
+  **Resolved 2026-08-12**: Stage 3
+  (`adapters/pseudoregalia/probe_socket/Scripts/stage3_roundtrip.lua`) did a real
+  connect/send/receive round trip against the actual bridge protocol — a real
+  `meshghost.exe` core, a real relay loopback echo, and a real `render_remote` frame read back
+  successfully inside UE4SS's embedded Lua. Extended play session stable, no crash/lag/
+  weirdness (user-confirmed, see `agent_docs/verified.md`). The `lua_State`-mismatch risk is
+  now considered closed for this specific vendored `lua54.dll`/`socket-windows-5-4.dll` pair
+  against this UE4SS build (`v3.0.1 Beta`/SHA `733e5969`) — a **Lua-only shipping adapter** is
+  viable, no C++/UEPseudo build required.
 
 ## Mitigations
 

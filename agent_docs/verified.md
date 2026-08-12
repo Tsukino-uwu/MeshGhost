@@ -1317,3 +1317,33 @@ Copy this block per fact:
   immediately closing the socket object. This reopens the Phase 7 adapter-language decision in
   `agent_docs/phases/phase7.md`: a Lua-only shipping adapter (no C++/UEPseudo build) is now
   plausible, pending that network round-trip test.
+
+### Phase 7.2: real bridge-protocol round trip works over UE4SS's embedded Lua
+
+- Date: 2026-08-12
+- Observed: `adapters/pseudoregalia/probe_socket/Scripts/stage3_roundtrip.lua`
+  (`MeshGhostSocketProbe`, Stage 3) deployed over the Stage 1 script and run live against a
+  real `meshghost.exe` core (`dev-scripts/run-core-pseudoregalia.bat`) with
+  `dev-scripts/run-relay-loopback.bat` running behind it. User launched the game: booted fine,
+  no lag, freeze, or other weirdness noticed in the menu or in-game, "worked just as usual."
+  `UE4SS.log` shows the script connecting, sending a `hello` and a `local_state` frame, then
+  receiving a real `render_remote` back on its second attempt:
+  `{"type":"render_remote","payload":{"player_id":"p1-ghost","state":{"player_id":"p1-ghost","seq":1,...}` —
+  the relay loopback's own-state echo, read back successfully inside UE4SS's statically-embedded
+  Lua via the vendored LuaSocket core. A first attempt at this same test surfaced a real core
+  bug (`Core.ConnectRelay`'s direct startup path never recorded `c.relayGame`, so the adapter's
+  own matching `hello` got refused as a false "second game" conflict) — fixed in
+  `internal/core/core.go`, with a regression test (`TestAdapterHelloAfterStartupConnectIsNoOp`,
+  `internal/core/core_test.go`) confirmed to reproduce the exact failure before the fix and
+  pass after.
+- Source: `UE4SS.log` lines around `12:50:08`–`12:50:11` (this session, 2026-08-12),
+  `[MeshGhostSocketProbe]` prefix; `adapters/pseudoregalia/probe_socket/Scripts/stage3_roundtrip.lua`;
+  `internal/core/core.go` and `internal/core/core_test.go` (commit `8a2228c`).
+- Notes: this is the full bridge protocol — connect, send, and receive — working end to end
+  through the vendored LuaSocket core inside UE4SS's embedded Lua, with no C++/UEPseudo build
+  involved. Closes the `lua_State` ABI-mismatch risk in `agent_docs/risks.md` for this specific
+  vendored DLL pair against UE4SS `v3.0.1 Beta`/SHA `733e5969`. A Lua-only shipping adapter is
+  now the working plan for the rest of Phase 7, not just a plausible fallback. **Open, not
+  investigated**: three further receive attempts in the same run returned empty strings rather
+  than `"timeout"` or a real line — logged as observed, not yet explained; worth understanding
+  before trusting this probe's read loop as a model for the real adapter's per-frame loop.

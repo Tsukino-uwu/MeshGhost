@@ -54,6 +54,11 @@ GBA memory). Started early relative to Phase 6's own two-player milestone (6.6) 
       vendored LuaSocket core confirmed loadable, the shipping adapter can plausibly stay
       **Lua**, no CMake/UEPseudo build required at all. Keep this line for the record of what
       was believed and why; treat the Stage 2 finding under 7.2 as the current decision.
+      **Confirmed, not just plausible, 2026-08-12**: Stage 3 did a real connect/send/receive
+      round trip over the full bridge protocol from inside UE4SS's embedded Lua — see 7.2's
+      Stage 3 entry and `agent_docs/verified.md`. **The adapter-language decision for
+      Pseudoregalia is now Lua**, for both discovery and the shipping adapter; the C++/UEPseudo
+      path is no longer being pursued unless something in 7.3+ forces a return to it.
 - [x] 7.1 — Lua probe. Deployed `adapters/pseudoregalia/probe/Scripts/main.lua` as the
       `MeshGhostProbe` UE4SS Lua mod (`ue4ss\Mods\MeshGhostProbe\`, added to `mods.txt`); also
       flipped `UE4SS-settings.ini`'s `[Debug] ConsoleEnabled` `0`→`1` (was off by default,
@@ -149,11 +154,41 @@ GBA memory). Started early relative to Phase 6's own two-player milestone (6.6) 
       **Stage 3 script written 2026-08-12**
       (`adapters/pseudoregalia/probe_socket/Scripts/stage3_roundtrip.lua`): a real
       connect/send/receive round trip against the actual bridge protocol, not a synthetic
-      test — sends one hardcoded dummy `local_state` frame to a real `meshghost.exe` core
+      test — sends hardcoded dummy `local_state` frames to a real `meshghost.exe` core
       (`dev-scripts/run-core-pseudoregalia.bat`, new) with `dev-scripts/run-relay-loopback.bat`
       running behind it, and expects to read back the loopback relay's own-state echo as a
-      `render_remote` frame. A successful round trip here would exercise send AND receive, not
-      just connect. Not yet deployed/run — needs its own go-ahead, same as Stage 2.
+      `render_remote` frame.
+
+      **First run found a real core bug, not a socket bug**: `run-core-pseudoregalia.bat`
+      passes `-game` explicitly, which connects to the relay via `Core.ConnectRelay`'s direct
+      startup path — but that path never recorded which `game_id` it connected as
+      (`c.relayGame` stayed `""`). When the probe's own `hello` arrived for `"pseudoregalia"`,
+      `ConnectRelayOnAdapterHello` compared it against `""`, treated it as a second conflicting
+      game, and closed the bridge connection — `core: already connected to the relay as game
+      "", cannot also serve "pseudoregalia"`. This would have hit Emerald and TEVI identically,
+      since both send `hello` too (`2f95a83`). **Fixed** in `internal/core/core.go` (set
+      `c.relayGame` on the direct path too) with a new regression test,
+      `TestAdapterHelloAfterStartupConnectIsNoOp` (`internal/core/core_test.go`), confirmed to
+      fail with the exact same log line before the fix and pass after.
+
+      **Second attempt, after the core fix, connected and sent cleanly but received nothing**:
+      not a bug either — `onAdapterFrame`/`tickRenders` (`internal/core/core.go`) only pushes
+      `render_remote` as a side effect of processing a *new* `local_state` frame from the same
+      adapter; the core never pushes proactively. The script's original one-frame-then-wait
+      shape could never see anything come back regardless of whether the socket worked.
+      Rewrote it to resend a fresh dummy frame before each receive attempt, the way a real
+      per-frame adapter naturally does.
+
+      **Run and confirmed 2026-08-12.** User launched the game (booted fine, no lag/freeze/
+      weirdness in the menu or in-game, "worked just as usual"). `UE4SS.log` shows a real
+      `render_remote` received back on the second attempt:
+      `{"type":"render_remote","payload":{"player_id":"p1-ghost","state":{"player_id":"p1-ghost","seq":1,...`
+      — the relay's own-state loopback echo, read back successfully inside UE4SS's embedded
+      Lua. This is the full bridge protocol working end to end through the vendored LuaSocket
+      core, with no C++/UEPseudo build involved at all. **Open, not yet explained**: three
+      further receive attempts in the same run returned empty strings instead of `"timeout"` or
+      a real line — logged as-is, not investigated; worth understanding before trusting this
+      probe's read loop as a model for the real adapter's.
 - [ ] 7.3 — Port 7.1's findings into the C++ mod's per-frame local-state read. Decide
       adapter-side (never in the core, per `contract.md`): position units (raw UE
       centimetres vs. normalised), orientation shape (yaw float vs. full rotator/quaternion —
