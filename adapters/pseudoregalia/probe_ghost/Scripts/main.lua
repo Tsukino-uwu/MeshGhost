@@ -66,6 +66,12 @@
 -- (confirmed incomplete already), grounded via `gh api search/code` (470 hits, a completely
 -- standard AController method). Also adds a defensive distance-based safety clamp
 -- (MAX_TICK_DELTA) as a backstop against any future bug of this shape, per the plan above.
+--
+-- Confirmed live: this fix works -- an 82-second run with no dragging or forced death (versus
+-- ~13s to death on every prior run). One smaller, separate issue found the same run: `Possess`
+-- correctly returns input control but doesn't necessarily move the active camera view target,
+-- which stayed on the ghost. Added `SetViewTargetWithBlend(pawn, 0)` right after `Possess`,
+-- grounded the same way (`gh api search/code`, 218 hits). Not yet retested live.
 
 local UEHelpers = require("UEHelpers")
 
@@ -164,6 +170,17 @@ local function trySpawnGhost(pawn, controller)
             print(string.format(
                 "[MeshGhostGhostProbe] re-possess original pawn after spawn: %s\n",
                 possessOk and "ok" or ("FAILED: " .. tostring(possessErr))))
+
+            -- Found live 2026-08-12: Possess() correctly reassigns control (confirmed -- no
+            -- more drag, an 82s run with no forced movement) but doesn't necessarily move the
+            -- active camera view target back -- a real, separate concept in UE (the camera
+            -- stayed on the ghost even though input control had already returned to the real
+            -- pawn). SetViewTargetWithBlend grounded via `gh api search/code` (218 hits, a
+            -- standard AController/PlayerController method); not in the bundled docs.
+            local viewTargetOk, viewTargetErr = pcall(function() controller:SetViewTargetWithBlend(pawn, 0) end)
+            print(string.format(
+                "[MeshGhostGhostProbe] re-point camera view target to original pawn: %s\n",
+                viewTargetOk and "ok" or ("FAILED: " .. tostring(viewTargetErr))))
 
             -- Kept as a reasonable secondary safety measure even though bug 5, not
             -- collision/physics, was the actual cause of the drag -- see agent_docs/risks.md.
