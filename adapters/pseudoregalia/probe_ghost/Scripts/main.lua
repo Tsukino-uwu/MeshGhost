@@ -36,6 +36,16 @@
 --
 -- Known limitation, not solved here: no despawn/cleanup logic. Restart the game between runs
 -- rather than reloading this mod repeatedly, or ghosts will accumulate.
+--
+-- First live run (2026-08-12) found two real bugs, both fixed here, neither a socket/spawn-API
+-- problem: (1) spawning on the very first tick the pawn becomes non-nil read
+-- K2_GetActorLocation() back as (0,0,0) -- the pawn object existing doesn't mean its transform
+-- has been placed yet during the level-load sequence, so the ghost spawned near world origin
+-- instead of next to the player and was never actually visible on screen. Now guarded by
+-- MIN_PLAUSIBLE_DISTANCE below. (2) ExecuteInGameThread queues its callback for a later
+-- game-thread tick, so checking `ghost == nil` on the very next LoopAsync tick (100ms later)
+-- could still see nil and fire a second, redundant spawn before the first callback had run --
+-- now guarded by the `spawning` flag.
 
 local UEHelpers = require("UEHelpers")
 
@@ -43,8 +53,23 @@ local OFFSET_X = 150.0
 local FOLLOW_INTERVAL_MS = 100
 
 local ghost = nil
+local spawning = false -- guards against a second spawn firing while the first's
+                        -- ExecuteInGameThread callback is still pending (found live 2026-08-12:
+                        -- ExecuteInGameThread queues work for a later game-thread tick, so the
+                        -- next LoopAsync tick can see ghost == nil and fire a second spawn
+                        -- before the first one's callback has actually run and assigned it)
 local offsetConfirmed = nil -- nil = not tried yet, true/false once known
 local lastLoggedState = nil
+
+-- MIN_PLAUSIBLE_DISTANCE: found live 2026-08-12 -- spawning on the very first tick a pawn
+-- becomes non-nil read back K2_GetActorLocation() as (0,0,0), even though 7.1 already
+-- confirmed real positions here are in the thousands (e.g. 4900.00, 8450.00, -732.85). The
+-- pawn object existing doesn't mean its transform has been placed yet during the level-load
+-- sequence -- 7.1 never caught this because it only logs on value *change*, so its own
+-- first-ever zero reading (if there was one) was silently overwritten before being printed.
+-- Guard against spawning at a bogus near-origin location by waiting for a position that isn't
+-- suspiciously close to (0,0,0).
+local MIN_PLAUSIBLE_DISTANCE = 100.0
 
 local function safeGetPawn()
     local ok, controller = pcall(UEHelpers.GetPlayerController)
@@ -79,6 +104,7 @@ local function offsetLocation(loc)
 end
 
 local function trySpawnGhost(pawn)
+    spawning = true
     local ok, err = pcall(function()
         local world = UEHelpers.GetWorld()
         if world == nil or not world:IsValid() then
@@ -87,12 +113,24 @@ local function trySpawnGhost(pawn)
         local class = pawn:GetClass()
         local loc = pawn:K2_GetActorLocation()
         local rot = pawn:K2_GetActorRotation()
+
+        local dist = math.sqrt(loc.X * loc.X + loc.Y * loc.Y + loc.Z * loc.Z)
+        if dist < MIN_PLAUSIBLE_DISTANCE then
+            print(string.format(
+                "[MeshGhostGhostProbe] pawn location looks implausible (%.2f, %.2f, %.2f), distance %.2f from origin -- transform likely not placed yet, skipping this tick.\n",
+                loc.X, loc.Y, loc.Z, dist))
+            spawning = false
+            return
+        end
+
         loc = offsetLocation(loc)
         ExecuteInGameThread(function()
             ghost = world:SpawnActor(class, loc, rot)
+            spawning = false
         end)
     end)
     if not ok then
+        spawning = false
         print(string.format("[MeshGhostGhostProbe] spawn FAILED: %s\n", tostring(err)))
     end
 end
@@ -108,9 +146,11 @@ local function followTick()
     end
 
     if ghost == nil then
-        print("[MeshGhostGhostProbe] valid pawn found, spawning ghost...\n")
-        trySpawnGhost(pawn)
-        lastLoggedState = "spawning"
+        if not spawning then
+            print("[MeshGhostGhostProbe] valid pawn found, spawning ghost...\n")
+            trySpawnGhost(pawn)
+            lastLoggedState = "spawning"
+        end
         return false
     end
 
