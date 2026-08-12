@@ -30,6 +30,16 @@ jobs:
         with:
           go-version: "1.22"
 
+      - name: Validate version input
+        shell: pwsh
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          if ($env:VERSION -match '\s') {
+            Write-Host "::error::version input must not contain whitespace (got '$env:VERSION') -- it becomes a git tag name and a filename."
+            exit 1
+          }
+
       - name: Build meshghost.exe
         run: go build -o meshghost.exe ./cmd/meshghost
 
@@ -69,13 +79,15 @@ jobs:
 
       - name: Assemble release package
         shell: pwsh
+        env:
+          VERSION: ${{ inputs.version }}
         run: |
           Copy-Item meshghost.exe packaging\release\
           Copy-Item meshghost-server.exe packaging\release\
           New-Item -ItemType Directory -Force packaging\release\games\pokemon\emerald | Out-Null
           Copy-Item adapters\pokemon\emerald\phase5_5_sprite.lua packaging\release\games\pokemon\emerald\meshghost_emerald.lua
           Copy-Item -Recurse adapters\pokemon\emerald\lib packaging\release\games\pokemon\emerald\lib
-          Compress-Archive -Path packaging\release\* -DestinationPath meshghost-${{ inputs.version }}-windows-amd64.zip
+          Compress-Archive -Path packaging\release\* -DestinationPath "meshghost-$env:VERSION-windows-amd64.zip"
 
       - name: Create release
         uses: softprops/action-gh-release@v2
