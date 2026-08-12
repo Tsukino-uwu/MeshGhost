@@ -36,31 +36,36 @@
 -- Known limitation, not solved here: no despawn/cleanup logic. Restart the game between runs
 -- rather than reloading this mod repeatedly, or ghosts will accumulate.
 --
--- Three real bugs found across three live runs, 2026-08-12, all fixed here:
+-- Five real bugs found across five live runs, 2026-08-12, all fixed here. The first four are
+-- kept for the record (see git history for the full comments that used to be here); summary:
+-- (1) spawning before the pawn's transform was placed, read back as (0,0,0) -- guarded by
+-- MIN_PLAUSIBLE_DISTANCE. (2) a double-spawn race from ExecuteInGameThread's async callback --
+-- guarded by the `spawning` flag. (3) suspected ghost collision/physics dragging the player --
+-- disabled collision/tick on the ghost, made zero difference. (4) suspected the follow loop
+-- mutating a live reference into the pawn's own transform -- rewrote it to only ever mutate a
+-- vector owned by the ghost. Neither (3) nor (4) actually fixed the drag; the user was dragged
+-- identically on the very next run with (4)'s fix in place, which is what triggered stopping
+-- to actually diagnose instead of guessing a fifth time (see
+-- agent_docs/phases/phase7.md/agent_docs/verified.md for the full history and the plan at
+-- C:\Users\nyden\.claude\plans\nope-i-was-still-cryptic-horizon.md).
 --
--- (1) Spawning on the very first tick the pawn becomes non-nil read K2_GetActorLocation() back
--- as (0,0,0) -- the pawn object existing doesn't mean its transform has been placed yet during
--- the level-load sequence, so the ghost spawned near world origin instead of next to the
--- player and was never visible. Guarded by MIN_PLAUSIBLE_DISTANCE below.
+-- (5) THE REAL BUG, confirmed by a read-only diagnostic script
+-- (probe_ghost/Scripts/diagnose.lua) that spawned the ghost but never called any
+-- position-setting function at all: `BP_PlayerGoatMain_C` auto-possesses on spawn.
+-- `UE4SS.log` showed `controller.Pawn == ghost: true` on every tick immediately after
+-- spawning, with the position never moving (confirming the diagnostic itself caused zero
+-- drag). Every previous "fix" moved `ghost` believing it was a separate, uncontrolled
+-- placeholder -- but `ghost` WAS the actual possessed, camera-attached character the whole
+-- time, because SpawnActor silently swapped `PlayerController.Pawn` to it. Moving "the ghost"
+-- was always moving the real player. This also explains why no second model was ever visible
+-- during a drag: there was only ever one controlled body in the world.
 --
--- (2) ExecuteInGameThread queues its callback for a later game-thread tick, so checking
--- `ghost == nil` on the very next LoopAsync tick (100ms later) could still see nil and fire a
--- second, redundant spawn before the first callback had run. Guarded by the `spawning` flag.
---
--- (3) The real one: after fixing (1) and (2), the user was physically dragged/pulled toward
--- another location at high speed on two separate runs, in a straight line, until dying. First
--- suspected collision/physics from the unstripped Blueprint clone -- SetActorEnableCollision(false)
--- and SetActorTickEnabled(false) were added, and made ZERO difference on the second dragged
--- run, ruling that theory out. Actual cause, found by re-reading the code rather than guessing
--- again: the old follow loop read `pawn:K2_GetActorLocation()` fresh each tick and mutated its
--- X field in place before handing that same object to the ghost's position setter.
--- K2_GetActorLocation() appears to return a *live reference* into the actor's own transform,
--- not a detached copy -- so that mutation was writing directly into the REAL PLAYER's position,
--- +150 units roughly every 100ms, compounding forever. A smooth, straight-line, never-ending
--- drift is exactly what a runaway position write looks like. Fixed by never mutating anything
--- read from the pawn -- offsetGhostToward below only ever writes into a vector owned by the
--- ghost itself. Left the collision/tick calls in place since they're still a reasonable safety
--- measure even though they weren't the actual fix.
+-- Fixed by capturing the original pawn and controller before spawning, then immediately
+-- calling `controller:Possess(originalPawn)` after spawn to hand control back -- leaving the
+-- ghost genuinely uncontrolled, as intended. `Possess` isn't in the bundled RE-UE4SS docs
+-- (confirmed incomplete already), grounded via `gh api search/code` (470 hits, a completely
+-- standard AController method). Also adds a defensive distance-based safety clamp
+-- (MAX_TICK_DELTA) as a backstop against any future bug of this shape, per the plan above.
 
 local UEHelpers = require("UEHelpers")
 
@@ -85,16 +90,23 @@ local lastLoggedState = nil
 -- suspiciously close to (0,0,0).
 local MIN_PLAUSIBLE_DISTANCE = 100.0
 
+-- MAX_TICK_DELTA: defensive backstop, not the actual fix for bug (5). Refuses to move the
+-- ghost further than this in a single tick, logging instead of applying it. Normal player
+-- movement between 100ms ticks is nowhere near this; a jump this large almost certainly means
+-- something is wrong again (e.g. the position source is no longer what this script thinks it
+-- is), and it's better to freeze the ghost in place and log loudly than repeat a runaway drag.
+local MAX_TICK_DELTA = 500.0
+
 local function safeGetPawn()
     local ok, controller = pcall(UEHelpers.GetPlayerController)
     if not ok or controller == nil or not controller:IsValid() then
-        return nil, "no valid PlayerController yet"
+        return nil, nil, "no valid PlayerController yet"
     end
     local pawn = controller.Pawn
     if pawn == nil or not pawn:IsValid() then
-        return nil, "PlayerController has no valid Pawn yet"
+        return nil, controller, "PlayerController has no valid Pawn yet"
     end
-    return pawn, nil
+    return pawn, controller, nil
 end
 
 -- offsetGhostToward writes the player's (px, py, pz) plus a fixed X offset into ghostLoc --
@@ -112,7 +124,7 @@ local function offsetGhostToward(ghostLoc, px, py, pz)
     ghostLoc.Z = pz
 end
 
-local function trySpawnGhost(pawn)
+local function trySpawnGhost(pawn, controller)
     spawning = true
     local ok, err = pcall(function()
         local world = UEHelpers.GetWorld()
@@ -142,16 +154,19 @@ local function trySpawnGhost(pawn)
             if ghost == nil or not ghost:IsValid() then
                 return
             end
-            -- Found live 2026-08-12: an unstripped spawned copy of the player's own gameplay
-            -- Blueprint physically dragged the real player around via what's suspected to be
-            -- collision -- see agent_docs/risks.md and agent_docs/verified.md. Neither call
-            -- below is documented in this install's bundled RE-UE4SS docs (that doc set is
-            -- confirmed incomplete -- K2_SetActorLocationAndRotation isn't there either, yet
-            -- works), so grounded instead via `gh api search/code` confirming both as real,
-            -- commonly-used AActor functions across independent UE-Lua-modding projects
-            -- (SetActorEnableCollision: 172 hits, SetActorTickEnabled: 138 hits) -- not read
-            -- from any single project's source, just confirmed the names are real. Tried
-            -- defensively, each logged, not assumed to work.
+
+            -- THE REAL FIX (bug 5, see header comment): BP_PlayerGoatMain_C auto-possesses on
+            -- spawn, silently swapping PlayerController.Pawn to the ghost. Hand control back to
+            -- the real pawn immediately. `Possess` grounded via `gh api search/code` (470
+            -- hits) -- not in the bundled docs, same as several other AActor/AController calls
+            -- in this file.
+            local possessOk, possessErr = pcall(function() controller:Possess(pawn) end)
+            print(string.format(
+                "[MeshGhostGhostProbe] re-possess original pawn after spawn: %s\n",
+                possessOk and "ok" or ("FAILED: " .. tostring(possessErr))))
+
+            -- Kept as a reasonable secondary safety measure even though bug 5, not
+            -- collision/physics, was the actual cause of the drag -- see agent_docs/risks.md.
             local collisionOk = pcall(function() ghost:SetActorEnableCollision(false) end)
             local tickOk = pcall(function() ghost:SetActorTickEnabled(false) end)
             print(string.format(
@@ -165,11 +180,14 @@ local function trySpawnGhost(pawn)
     end
 end
 
+local lastGhostTarget = nil -- {x, y, z} of the last position actually applied to the ghost,
+                             -- for the MAX_TICK_DELTA backstop
+
 local function followTick()
-    local pawn, err = safeGetPawn()
+    local pawn, controller, err = safeGetPawn()
     if pawn == nil then
         if lastLoggedState ~= "waiting" then
-            print("[MeshGhostGhostProbe] " .. err .. "\n")
+            print("[MeshGhostGhostProbe] " .. tostring(err) .. "\n")
             lastLoggedState = "waiting"
         end
         return false
@@ -178,7 +196,7 @@ local function followTick()
     if ghost == nil then
         if not spawning then
             print("[MeshGhostGhostProbe] valid pawn found, spawning ghost...\n")
-            trySpawnGhost(pawn)
+            trySpawnGhost(pawn, controller)
             lastLoggedState = "spawning"
         end
         return false
@@ -199,6 +217,22 @@ local function followTick()
         local pawnLoc = pawn:K2_GetActorLocation()
         local px, py, pz = pawnLoc.X, pawnLoc.Y, pawnLoc.Z
         local rot = pawn:K2_GetActorRotation()
+        local targetX, targetY, targetZ = px + OFFSET_X, py, pz
+
+        if lastGhostTarget ~= nil then
+            local dx = targetX - lastGhostTarget.x
+            local dy = targetY - lastGhostTarget.y
+            local dz = targetZ - lastGhostTarget.z
+            local tickDist = math.sqrt(dx * dx + dy * dy + dz * dz)
+            if tickDist > MAX_TICK_DELTA then
+                print(string.format(
+                    "[MeshGhostGhostProbe] refusing implausible single-tick move of %.2f units (max %.2f) -- freezing ghost in place, not applying.\n",
+                    tickDist, MAX_TICK_DELTA))
+                return
+            end
+        end
+        lastGhostTarget = { x = targetX, y = targetY, z = targetZ }
+
         ExecuteInGameThread(function()
             if not ghost:IsValid() then
                 return
