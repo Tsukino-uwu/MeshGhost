@@ -189,23 +189,37 @@ GBA memory). Started early relative to Phase 6's own two-player milestone (6.6) 
       further receive attempts in the same run returned empty strings instead of `"timeout"` or
       a real line — logged as-is, not investigated; worth understanding before trusting this
       probe's read loop as a model for the real adapter's.
-- [ ] 7.3 — Port 7.1's findings into the C++ mod's per-frame local-state read. Decide
-      adapter-side (never in the core, per `contract.md`): position units (raw UE
-      centimetres vs. normalised), orientation shape (yaw float vs. full rotator/quaternion —
-      the schema allows any JSON shape), `area_id` (level/world name string), and an
-      adapter-defined `anim` tag set. Decide the menu/loading-screen "don't send this frame"
-      case.
+- [x] 7.3 — Decide the real local-state field shapes, adapter-side (never in the core, per
+      `contract.md`), from 7.1's confirmed findings. **Decided 2026-08-12** (now a Lua decision,
+      not the C++ mod's — see 7.2's language decision above):
+      - `position`: raw UE units (cm), `[X, Y, Z]` — matches Emerald/TEVI precedent of sending
+        native values as-is; the core never interprets it, and the eventual receiving adapter
+        is the same game, so units always match by construction.
+      - `orientation`: full `[pitch, yaw, roll]`, not yaw-only. 7.1 found pitch/roll pinned at
+        zero for normal ground movement, but Pseudoregalia is a movement-platformer with
+        wall-running/backflips/ledge-hangs — locking the schema to yaw-only now is a real risk
+        if those states turn out to move pitch/roll, and it's cheap to send all three now
+        versus expensive to widen the schema later.
+      - `area_id`: the level name string 7.1 already read live
+        (`.../ZONE_LowerCastle:PersistentLevel` etc., via `world.PersistentLevel:GetFullName()`)
+        — already confirmed working, no further decision needed.
+      - "don't send this frame": reuse 7.1's already-confirmed nil-equivalent (no valid
+        `PlayerController`) as the gate — fires correctly at the title screen and mid-transition.
+      - `anim`: **placeholder only**, not a final vocabulary — a cheap movement-state tag
+        (idle/running/falling/etc., inferred from velocity) for 7.4/7.5's wiring. Real animation
+        playback is 7.6's problem, flagged in `risks.md` as likely the hardest task in the
+        phase (no `Animator.Play(clipName)` equivalent in UE5 the way TEVI had in Unity).
 - [ ] 7.4 — Placeholder ghost spawned in-engine, fixed offset from the local player, no
       networking yet — proves spawn + per-frame positioning before adding the bridge. TEVI's
       6.3 analogue.
-- [ ] 7.5 — Port `adapters/tevi/MeshGhostTevi/BridgeClient.cs`'s design to
-      `BridgeClient.cpp/.h`: non-blocking connect with 2s retry, NDJSON framing on a background
-      `std::thread` + main-thread drain with cross-thread log queuing, envelope shapes exactly
-      per `adapters/_template/PROTOCOL.md`, send `local_state` every frame including `null`.
-      Add `dev-scripts/run-core-pseudoregalia.bat` (clone of `run-core-tevi.bat`, new
-      `-game=pseudoregalia` and bridge port); reuse `run-relay-loopback.bat` as-is. Visible
-      outcome: a ghost trailing the local player over a real relay/core/bridge loopback round
-      trip.
+- [ ] 7.5 — Port 7.1's real local-state read (not just Stage 3's hardcoded dummy frame) and
+      7.3's field decisions into a persistent, per-frame Lua bridge client — a `RegisterHook`-
+      or engine-tick-driven loop, not a one-shot script like Stages 1-3, non-blocking connect
+      with retry (Stage 3 used a blocking connect+timeout, fine for a one-shot probe, not for
+      a real per-frame adapter), envelope shapes exactly per `adapters/_template/PROTOCOL.md`,
+      send `local_state` every frame including `null`. `dev-scripts/run-core-pseudoregalia.bat`
+      and reused `run-relay-loopback.bat` already exist (written for Stage 3). Visible outcome:
+      a ghost trailing the local player over a real relay/core/bridge loopback round trip.
 - [ ] 7.6 — Real character-visual ghost: duplicate the player's skeletal mesh actor with
       collision/input/gameplay stripped, driven by the wire `anim` tag. Flagged in `risks.md`
       as likely the hardest task in the phase — UE5 has no direct equivalent of Unity's
