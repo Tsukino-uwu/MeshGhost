@@ -46,6 +46,16 @@
 -- game-thread tick, so checking `ghost == nil` on the very next LoopAsync tick (100ms later)
 -- could still see nil and fire a second, redundant spawn before the first callback had run --
 -- now guarded by the `spawning` flag.
+--
+-- Second live run, after both fixes above: spawn was correct this time (real position, single
+-- spawn), but the user was physically dragged/pulled toward another location at high speed
+-- until dying -- a real safety issue, not a script bug the log caught. Working theory: the
+-- spawned instance is a fully physically-simulated copy of the player's gameplay Blueprint
+-- (collision, gravity, movement), and its capsule pushing against the real player's every
+-- physics tick produced this. Now calls SetActorEnableCollision(false)/SetActorTickEnabled(false)
+-- on the ghost right after spawning -- see the comment at that call site for how those two
+-- functions were grounded. Not a guaranteed fix (movement-component-driven physics might not
+-- fully respect actor tick being disabled), tried and observed, not assumed.
 
 local UEHelpers = require("UEHelpers")
 
@@ -127,6 +137,24 @@ local function trySpawnGhost(pawn)
         ExecuteInGameThread(function()
             ghost = world:SpawnActor(class, loc, rot)
             spawning = false
+            if ghost == nil or not ghost:IsValid() then
+                return
+            end
+            -- Found live 2026-08-12: an unstripped spawned copy of the player's own gameplay
+            -- Blueprint physically dragged the real player around via what's suspected to be
+            -- collision -- see agent_docs/risks.md and agent_docs/verified.md. Neither call
+            -- below is documented in this install's bundled RE-UE4SS docs (that doc set is
+            -- confirmed incomplete -- K2_SetActorLocationAndRotation isn't there either, yet
+            -- works), so grounded instead via `gh api search/code` confirming both as real,
+            -- commonly-used AActor functions across independent UE-Lua-modding projects
+            -- (SetActorEnableCollision: 172 hits, SetActorTickEnabled: 138 hits) -- not read
+            -- from any single project's source, just confirmed the names are real. Tried
+            -- defensively, each logged, not assumed to work.
+            local collisionOk = pcall(function() ghost:SetActorEnableCollision(false) end)
+            local tickOk = pcall(function() ghost:SetActorTickEnabled(false) end)
+            print(string.format(
+                "[MeshGhostGhostProbe] post-spawn safety calls: SetActorEnableCollision(false) %s, SetActorTickEnabled(false) %s\n",
+                collisionOk and "ok" or "FAILED", tickOk and "ok" or "FAILED"))
         end)
     end)
     if not ok then
