@@ -104,7 +104,26 @@
 -- `StaticFindObject` doc example finds `/Script/Engine.Character` --
 -- `StaticFindObject("/Script/Engine.CameraComponent")`, a standard engine class path. Logs
 -- both components' `IsActive()` state (confirms or denies the theory directly) before trying
--- `ghostCamera:Deactivate()`/`pawnCamera:Activate()`. Not yet retested live.
+-- `ghostCamera:Deactivate()`/`pawnCamera:Activate()`.
+--
+-- Confirmed live: the diagnostic logged real evidence -- BEFORE the fix, BOTH pawn's and
+-- ghost's camera components were simultaneously active (`pawn=true ghost=true`); AFTER,
+-- correctly `pawn=true ghost=false`. User described the camera as starting out normally
+-- framed. It then snapped to the floor roughly a second later -- exactly matching
+-- DELAYED_VIEW_TARGET_TICKS's timing. Calling SetViewTargetWithBlend a second time on an
+-- already-correct, already-current view target appears to be actively harmful (resetting the
+-- camera's cached rotation/pitch), not a harmless extra safety net -- removed, see followTick.
+--
+-- OPEN QUESTION, not resolved: the user separately recalled that during the much earlier
+-- diagnose.lua run (Possess/SetViewTargetWithBlend/camera-component calls: none at all --
+-- diagnose.lua only ever spawned and read state, never touched the camera or repositioned
+-- anything), the camera stayed correctly on the player the whole time, despite that run's own
+-- log proving the auto-possession swap was real (`controller.Pawn == ghost: true`). If true,
+-- that doesn't fit "whichever camera component is active wins" as the sole mechanism -- it
+-- suggests something this file's per-tick repositioning does (K2_SetActorLocationAndRotation
+-- on the ghost, every ~100ms) might matter too, not just possession/camera-component state.
+-- Not chased further yet -- removing the harmful delayed call is independently justified by
+-- its own timing evidence regardless of how this open question resolves.
 
 local UEHelpers = require("UEHelpers")
 
@@ -332,21 +351,18 @@ local function followTick()
         return false
     end
 
-    -- Second, delayed view-target correction -- see DELAYED_VIEW_TARGET_TICKS above. Fires
-    -- exactly once, DELAYED_VIEW_TARGET_TICKS after spawn, then never again (calling this
-    -- every tick visibly broke the camera differently -- see that comment).
-    if not delayedViewTargetDone then
-        ticksSinceGhostSpawned = ticksSinceGhostSpawned + 1
-        if ticksSinceGhostSpawned >= DELAYED_VIEW_TARGET_TICKS then
-            delayedViewTargetDone = true
-            local viewTargetOk, viewTargetErr = pcall(function()
-                controller:SetViewTargetWithBlend(pawn, 0.0, 0, 0.0, false)
-            end)
-            print(string.format(
-                "[MeshGhostGhostProbe] re-point camera view target to original pawn (delayed, %d ticks): %s\n",
-                DELAYED_VIEW_TARGET_TICKS, viewTargetOk and "ok" or ("FAILED: " .. tostring(viewTargetErr))))
-        end
-    end
+    -- Delayed second view-target correction REMOVED -- found live 2026-08-12 to be actively
+    -- harmful, not a harmless extra safety net. Log evidence from the run that removed it:
+    -- the immediate fix (Possess + SetViewTargetWithBlend + the camera-component active-state
+    -- fix below) left the camera correctly framed -- "camera component active state AFTER fix:
+    -- pawn=true ghost=false" -- and the user described the camera as starting out normal. The
+    -- delayed call then fired ~1s later (matching DELAYED_VIEW_TARGET_TICKS's timing exactly)
+    -- and the camera snapped to the floor at that same moment. Calling
+    -- SetViewTargetWithBlend again on an already-correct, already-current view target seems to
+    -- reset something (most likely the camera's cached rotation/pitch) rather than being a
+    -- harmless no-op. DELAYED_VIEW_TARGET_TICKS/ticksSinceGhostSpawned/delayedViewTargetDone
+    -- are kept as dead state for now rather than ripped out mid-investigation -- see
+    -- trySpawnGhost, which still sets them but nothing reads them anymore.
 
     local ok, followErr = pcall(function()
         -- Read-only on the pawn's own vectors: px/py/pz/rot are plain values or a struct we
