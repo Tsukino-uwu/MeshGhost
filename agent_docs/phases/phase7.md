@@ -118,9 +118,16 @@ GBA memory). Started early relative to Phase 6's own two-player milestone (6.6) 
       loaded and used without crashing — a real risk, since UE4SS's Lua is statically
       embedded in `UE4SS.dll` (not a separate `lua54.dll` the way BizHawk's NLua host is), so
       a mismatched `lua_State` ABI between our vendored binary and UE4SS's own build could
-      corrupt memory rather than fail cleanly. A Stage 2 script exists to test this but has
-      **not been run** — needs an explicit go-ahead given the crash risk, not just proceeding
-      once Stage 1 looked promising.
+      corrupt memory rather than fail cleanly. A Stage 2 script now exists
+      (`adapters/pseudoregalia/probe_socket/Scripts/stage2_loadlib.lua`, written 2026-08-12) —
+      preloads the vendored `lua54.dll`, calls `luaopen_socket_core`, then creates and
+      immediately closes a `socket.tcp()` object only (no bind/connect/send). It is **not**
+      wired in as the mod's entry point (UE4SS Lua mods always load `Scripts/main.lua`);
+      running it means deliberately swapping it in over the currently-deployed Stage 1
+      `main.lua`, per the deploy note at the top of the file. **Not yet run** — user chose
+      2026-08-12 to proceed with this path over chasing UEPseudo access, but the actual in-game
+      deploy-and-watch step is still outstanding, and needs its own go-ahead given the crash
+      risk, not just proceeding once Stage 1 looked promising.
 - [ ] 7.3 — Port 7.1's findings into the C++ mod's per-frame local-state read. Decide
       adapter-side (never in the core, per `contract.md`): position units (raw UE
       centimetres vs. normalised), orientation shape (yaw float vs. full rotator/quaternion —
