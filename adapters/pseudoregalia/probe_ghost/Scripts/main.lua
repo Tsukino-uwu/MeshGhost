@@ -255,11 +255,14 @@ local function trySpawnGhost(pawn, controller)
             ticksSinceGhostSpawned = 0
             delayedViewTargetDone = false
 
-            -- New theory (see header comment): SetViewTargetWithBlend controls which ACTOR the
-            -- camera manager looks at, not which COMPONENT inside it supplies the view --
-            -- CameraComponent has its own independent IsActive() state. Diagnostic + fix
-            -- combined: log both components' active state (confirms or denies the theory
-            -- directly), then try correcting it.
+            -- Diagnostic check requested by the user 2026-08-12: the previous run confirmed the
+            -- component active-state fix applied correctly (pawn=true ghost=false after) yet
+            -- the camera was STILL observed on the ghost -- so the fix demonstrably isn't the
+            -- mechanism, whether or not it's harmless. This run intentionally SKIPS applying
+            -- the Deactivate/Activate calls (commented out below, not deleted) and only logs
+            -- the natural active state, to isolate whether our "fix" was ever doing anything
+            -- perceptible at all. If the camera looks identical either way, that's further
+            -- confirmation the real mechanism is elsewhere entirely.
             local camOk, camErr = pcall(function()
                 if cameraComponentClass == nil then
                     cameraComponentClass = StaticFindObject(CAMERA_COMPONENT_CLASS_PATH)
@@ -280,18 +283,11 @@ local function trySpawnGhost(pawn, controller)
                 local pawnActiveBefore = pawnCamera:IsActive()
                 local ghostActiveBefore = ghostCamera:IsActive()
                 print(string.format(
-                    "[MeshGhostGhostProbe] camera component active state BEFORE fix: pawn=%s ghost=%s\n",
+                    "[MeshGhostGhostProbe] camera component active state (fix NOT applied this run): pawn=%s ghost=%s\n",
                     tostring(pawnActiveBefore), tostring(ghostActiveBefore)))
 
-                local deactivateOk = pcall(function() ghostCamera:Deactivate() end)
-                local activateOk = pcall(function() pawnCamera:Activate(false) end)
-                print(string.format(
-                    "[MeshGhostGhostProbe] ghostCamera:Deactivate() %s, pawnCamera:Activate() %s\n",
-                    deactivateOk and "ok" or "FAILED", activateOk and "ok" or "FAILED"))
-
-                print(string.format(
-                    "[MeshGhostGhostProbe] camera component active state AFTER fix: pawn=%s ghost=%s\n",
-                    tostring(pawnCamera:IsActive()), tostring(ghostCamera:IsActive())))
+                -- Intentionally not calling ghostCamera:Deactivate()/pawnCamera:Activate() this
+                -- run -- see the comment above this block.
             end)
             if not camOk then
                 print(string.format("[MeshGhostGhostProbe] camera component diagnostic/fix FAILED: %s\n", tostring(camErr)))
