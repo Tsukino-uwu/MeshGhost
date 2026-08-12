@@ -1,0 +1,159 @@
+# Phase 7 — Third game (Pseudoregalia)
+
+**Status: in progress**, started 2026-08-12. Per `agent_docs/README.md`'s convention: a phase
+earns a file when it's live, folded back into `agent_docs/plans.md` once done. Kept here for
+the task-by-task record.
+
+## Purpose
+
+Repeat phases 1–4 for Pseudoregalia (UE5, small movement-focused 3D platformer) using the
+frozen `adapters/_template/`, and find out whether the contract holds up for a third,
+structurally different engine (Blueprint-heavy UE5 vs. TEVI's Mono/Unity and Emerald's raw
+GBA memory). Started early relative to Phase 6's own two-player milestone (6.6) — see
+`plans.md`'s Phase 6 status note for why that's a deliberate, recorded tradeoff.
+
+## Tasks
+
+- [x] Confirm Pseudoregalia's actual modding tooling before assuming anything — the literal
+      first task per `plans.md`/`adapters/pseudoregalia/README.md`, previously unconfirmed
+      (`environment.md`'s "UE4SS version for Pseudoregalia: unfilled" line). **Confirmed
+      2026-08-12** via direct filesystem inspection of this machine's install
+      (`C:\Program Files (x86)\Steam\steamapps\common\Pseudoregalia`): engine is **UE 5.1**
+      (`++UE5+Release-5.1-CL-23901901`, read from `pseudoregalia-Win64-Shipping.exe`); UE4SS is
+      **v3.0.1 Beta, Git SHA `733e5969`**, installed under the newer `Binaries\Win64\ue4ss\`
+      layout. A C++ UE4SS mod (`AP_Randomizer`, the Archipelago integration) is already
+      installed and running, and its `dlls/` folder proves a UE4SS C++ mod can hold a real
+      TLS/websocket socket in this exact game — the load-bearing fact for the language
+      decision below. See `agent_docs/environment.md`'s Unity/TEVI, UE5/Pseudoregalia section
+      for the full evidence.
+- [x] **Mid-task correction, same day:** the user updated their local UE4SS install from an
+      older `v2.5.2 Beta` / SHA `a267c64` (read earlier in the same session) to
+      `v3.0.1 Beta` / SHA `733e5969`, following a Mar 2026 update to the
+      `pseudoregalia-archipelago` repo's own `RE-UE4SS` submodule pin (its `.gitmodules` pins
+      exactly `733e596`, confirmed matching). Re-scanned the install and corrected
+      `environment.md`, `licensing.md`, and this file to the new version and folder layout —
+      a real example of "verify fresh, don't trust an earlier reading in the same session."
+- [x] 7.0 — Licensing gate: added **RE-UE4SS** (MIT, `Copyright (c) 2022 Narknon`, read from
+      the local `ue4ss\LICENSE` file) and **pseudoregalia-archipelago** (no LICENSE file, `gh
+      api` reports `license: null` → all rights reserved, facts-only per the standing rule) to
+      `agent_docs/licensing.md`. Added four new UE5-specific risks to `agent_docs/risks.md`:
+      Blueprint-vs-C++ readability, no clip-name animation playback equivalent in UE5, UE4SS
+      version drift (observed live this session), and mod-load-order coexistence with
+      `AP_Randomizer`.
+- [x] **Adapter-language decision (2026-08-12):** Lua for discovery, C++ for the shipping
+      adapter. UE4SS's Lua API has **no socket support** — zero `luasocket` references
+      anywhere in the RE-UE4SS repo (`gh api search/code`) and no networking/`io`/binary-module
+      capability documented at docs.ue4ss.com — but the bridge protocol requires a real TCP
+      socket. `AP_Randomizer` proves a UE4SS **C++** mod can hold one in this exact
+      game/UE4SS build. So: use a build-free Lua script only for 7.1's discovery probe (fast
+      iteration, no CMake loop), then write the real adapter as a UE4SS C++ mod targeting
+      **v3.0.1** (not the earlier-read v2.5.2 — see the correction above).
+- [x] 7.1 — Lua probe. Deployed `adapters/pseudoregalia/probe/Scripts/main.lua` as the
+      `MeshGhostProbe` UE4SS Lua mod (`ue4ss\Mods\MeshGhostProbe\`, added to `mods.txt`); also
+      flipped `UE4SS-settings.ini`'s `[Debug] ConsoleEnabled` `0`→`1` (was off by default,
+      same dev-only-toggle shape as TEVI's BepInEx console flag — remember to revert later).
+      **Confirmed live** (2026-08-12): the user moved around a real castle area — running,
+      crouching, backflipping, ledge-hanging, dying a few times, and transitioning into a
+      second area — and `UE4SS.log` shows the pawn (`BP_PlayerGoatMain_C`, a Blueprint class,
+      resolved via `UEHelpers.GetPlayerController().Pawn`), position, yaw, and level name all
+      tracking correctly, plus the `nil`-equivalent firing exactly at the title screen and
+      real level transitions. Closes the Blueprint-readability risk's core uncertainty — the
+      pawn and its transform *are* reachable via plain UE4SS Lua reflection, no C++/decompiled
+      field name needed for this part. See `agent_docs/verified.md`'s Phase 7.1 entry for full
+      detail, including the pitch/roll-always-zero finding relevant to 7.6.
+- [ ] 7.2 — C++ hello-world mod (`adapters/pseudoregalia/MeshGhostPseudo/`), built against
+      UE4SS v3.0.1, deployed to `ue4ss\Mods\`. Visible outcome: `ue4ss\UE4SS.log` shows the new
+      mod starting *and* `AP_Randomizer` still starting and working — the TEVI coexistence
+      check, repeated for UE4SS mod load order.
+      **Toolchain gap closed 2026-08-12**: user installed CMake 4.4.2 and VS 2022 Build Tools
+      (C++ workload) via winget, both confirmed present afterward (`cmake --version`, `vswhere`
+      reporting the BuildTools install path). Source/CMake scaffolding was written against
+      RE-UE4SS's own official C++ mod guide (`adapters/pseudoregalia/MeshGhostPseudo/`,
+      `CppUserModBase`/`Output::send` usage confirmed by reading RE-UE4SS's own headers and two
+      of its bundled example mods, `EventViewerMod`/`KismetDebuggerMod` — MIT, see
+      `agent_docs/licensing.md`; OUTPUT_NAME forced to `main` per both RE-UE4SS's loader source
+      (`CppMod.cpp`: "dlls folder must contain either main.dll or {ModName}.dll") and the
+      real, already-installed `AP_Randomizer/dlls/main.dll`).
+
+      **New, harder blocker found next: building UE4SS from source requires a private
+      submodule.** `git submodule add`'d RE-UE4SS, pinned to this machine's exact SHA
+      (`733e5969`) — succeeded. But `deps/first/Unreal` (its own submodule, `Re-UE4SS/UEPseudo`)
+      failed to clone: SSH `Host key verification failed`, and after rewriting to HTTPS
+      (editing `RE-UE4SS/.gitmodules` locally, not global git config), `gh api
+      repos/Re-UE4SS/UEPseudo` confirmed **404 — private, no access**. Confirmed this is a
+      hard dependency, not optional: `UE4SS/CMakeLists.txt` links `Unreal` into the core
+      `UE4SS` target directly. Checked for a prebuilt workaround — neither the plain runtime
+      zip nor the "zDEV" package (`experimental-latest` release assets) ships an import
+      library (`.lib`) anywhere, only `UE4SS.dll` (+ a `.pdb` in zDEV). So there is currently
+      **no way to build or link a C++ UE4SS mod on this machine without UEPseudo access** —
+      recorded in `agent_docs/risks.md`, not routed around silently.
+
+      **Side effect, found and reverted the same session:** to get an exact-SHA match for
+      the zDEV headers (commit `1c1a1497`, 83 commits ahead of the installed `733e5969` —
+      no release exists for the exact installed SHA), updated the game's `UE4SS.dll` +
+      `dwmapi.dll` to the matching build (after backing up the original `ue4ss\` folder to
+      the session scratchpad, since a full-repo build attempt turned out to be moot anyway).
+      This **broke `AP_Randomizer`**: `Failed to load dll ... main.dll ... error: 0x7f The
+      specified procedure could not be found` — a real ABI break in those 83 commits that a
+      commit-message keyword scan (checked for "abi/breaking/cppmod" — found only two benign
+      hits) did not catch. **User confirmed on screen** (an in-game "ERROR: Incompatible
+      APWorld version" message, actually a downstream symptom of `AP_Randomizer` failing to
+      load at all). Rolled `UE4SS.dll` back to the `733e5969` backup immediately; user
+      relaunched and confirmed `AP_Randomizer` loads cleanly again (`UE4SS.log`: hooks
+      installed, `BPModLoaderMod` loading it normally). `dwmapi.dll` was left at the newer
+      build (no backup was taken of the original, an oversight) — empirically fine paired with
+      the reverted `UE4SS.dll`, confirmed by the same successful relaunch, but flagged here
+      since it wasn't a deliberate, verified-in-advance choice.
+
+      **Reopened question found in the same investigation:** while probing this,
+      `adapters/pseudoregalia/probe_socket/Scripts/main.lua` (`MeshGhostSocketProbe`, Stage 1,
+      capability-check only, no DLL loaded) confirmed live that UE4SS's embedded Lua 5.4 **does**
+      expose `package.loadlib` as a real callable function, and `package.cpath` already
+      includes each mod's own `Scripts\` folder — contradicting the earlier "Lua has no
+      socket path" conclusion, which was based on the *absence of a first-party socket
+      library* (zero `luasocket` references in RE-UE4SS, no networking in the Lua API docs),
+      not on `loadlib` actually being disabled. See `agent_docs/verified.md`. **Not yet
+      tested:** whether the already-vetted `lua54.dll`/`socket-windows-5-4.dll` pair (copied
+      into `adapters/pseudoregalia/probe_socket/Scripts/lib/x64/` for this) can actually be
+      loaded and used without crashing — a real risk, since UE4SS's Lua is statically
+      embedded in `UE4SS.dll` (not a separate `lua54.dll` the way BizHawk's NLua host is), so
+      a mismatched `lua_State` ABI between our vendored binary and UE4SS's own build could
+      corrupt memory rather than fail cleanly. A Stage 2 script exists to test this but has
+      **not been run** — needs an explicit go-ahead given the crash risk, not just proceeding
+      once Stage 1 looked promising.
+- [ ] 7.3 — Port 7.1's findings into the C++ mod's per-frame local-state read. Decide
+      adapter-side (never in the core, per `contract.md`): position units (raw UE
+      centimetres vs. normalised), orientation shape (yaw float vs. full rotator/quaternion —
+      the schema allows any JSON shape), `area_id` (level/world name string), and an
+      adapter-defined `anim` tag set. Decide the menu/loading-screen "don't send this frame"
+      case.
+- [ ] 7.4 — Placeholder ghost spawned in-engine, fixed offset from the local player, no
+      networking yet — proves spawn + per-frame positioning before adding the bridge. TEVI's
+      6.3 analogue.
+- [ ] 7.5 — Port `adapters/tevi/MeshGhostTevi/BridgeClient.cs`'s design to
+      `BridgeClient.cpp/.h`: non-blocking connect with 2s retry, NDJSON framing on a background
+      `std::thread` + main-thread drain with cross-thread log queuing, envelope shapes exactly
+      per `adapters/_template/PROTOCOL.md`, send `local_state` every frame including `null`.
+      Add `dev-scripts/run-core-pseudoregalia.bat` (clone of `run-core-tevi.bat`, new
+      `-game=pseudoregalia` and bridge port); reuse `run-relay-loopback.bat` as-is. Visible
+      outcome: a ghost trailing the local player over a real relay/core/bridge loopback round
+      trip.
+- [ ] 7.6 — Real character-visual ghost: duplicate the player's skeletal mesh actor with
+      collision/input/gameplay stripped, driven by the wire `anim` tag. Flagged in `risks.md`
+      as likely the hardest task in the phase — UE5 has no direct equivalent of Unity's
+      `Animator.Play(clipName)` on a cloned actor.
+- [ ] 7.7 — Two real players. Test explicitly and early rather than assuming Pseudoregalia
+      behaves like TEVI's Steam single-instance restriction (or doesn't) — record the result
+      either way, blocked or not.
+
+## Notes
+
+- `adapters/pseudoregalia/README.md` updated 2026-08-12 with the confirmed tooling facts and
+  the Lua-probe/C++-adapter decision.
+- Inherited, not fixed in this phase: cross-area filtering is genuinely unbuilt in
+  `internal/core` (sends every known remote regardless of `area_id`), and there's no
+  peer game-version check in `hello` — both apply to Pseudoregalia the same way they already
+  apply to TEVI (`agent_docs/risks.md`).
+- Environment drift is now a live, observed risk for this phase specifically (see the
+  mid-task UE4SS version correction above) — re-check `environment.md`'s UE4SS version at the
+  start of any future session before resuming, rather than trusting the last recorded value.

@@ -112,9 +112,36 @@
   Adapters are structurally isolated, so no technical reason blocks starting a third game while
   6.6 waits on a second machine with no ETA — see `plans.md`'s Phase 6 status note for the full
   reasoning and the accepted tradeoff (a real, not hypothetical, chance 6.6 later surfaces a bug
-  the same way Emerald's Phase 4 did). Phase 7 not started yet; its first task is confirming
-  Pseudoregalia's actual UE5 modding tooling (UE4SS version, Blueprints vs. C++) fresh, the same
-  standard TEVI's Mono-vs-IL2CPP check followed — not assumed from TEVI's toolchain by analogy.
+  the same way Emerald's Phase 4 did).
+- `Current focus:` **Phase 7 (Pseudoregalia) started 2026-08-12, paused mid-7.2** — see
+  `agent_docs/phases/phase7.md` for the full task-by-task record; this entry is the short
+  version for picking the session back up.
+  - **7.1 is done and confirmed live**: a Lua discovery probe
+    (`adapters/pseudoregalia/probe/Scripts/main.lua`) showed the user's real pawn
+    (`BP_PlayerGoatMain_C`, a Blueprint class reachable via plain `UEHelpers` reflection),
+    position, yaw, and level name all tracking correctly through real movement (running,
+    crouching, backflips, ledge-hang, deaths, a real level transition). See `verified.md`.
+  - **7.2's original plan — a C++ UE4SS mod as the shipping adapter — is blocked**, and not
+    on a local setup gap: CMake + VS Build Tools are now installed (confirmed), but building
+    UE4SS itself requires a private submodule (`Re-UE4SS/UEPseudo`, confirmed 404/no access)
+    that no official release provides a prebuilt substitute for (no `.lib` ships anywhere).
+    **Do not re-attempt building RE-UE4SS from source next session without first checking
+    whether UEPseudo access was granted** — see `agent_docs/risks.md`.
+  - **While investigating that, two real things happened, both recorded in `verified.md`**:
+    (1) a same-day UE4SS runtime update (to get header/binary version parity) broke
+    `AP_Randomizer` for real (`0x7f`, missing exported procedure) — caught via the user
+    seeing an in-game error, rolled back, re-confirmed working. `UE4SS.dll` is back at the
+    original `733e5969`; `dwmapi.dll` was left at the newer build with no original backup,
+    empirically fine but not a deliberately verified pairing.
+    (2) UE4SS's embedded Lua 5.4 **does** expose `package.loadlib` as a real function
+    (`MeshGhostSocketProbe` Stage 1, confirmed live) — this reopens, not resolves, the
+    adapter-language question, since the earlier "Lua has no sockets" reasoning was about a
+    missing first-party library, not `loadlib` being disabled.
+  - **Next step, not yet started**: a Stage 2 script exists
+    (`adapters/pseudoregalia/probe_socket/`) to actually try loading the vetted
+    `lua54.dll`/`socket-windows-5-4.dll` pair — genuinely risky (could crash the game, not
+    just error) since UE4SS's Lua is statically embedded, unlike BizHawk's separate-DLL host.
+    Needs an explicit decision with the user before running, not just picking it up and going.
 
 ## Go networking layer (2026-08-11)
 

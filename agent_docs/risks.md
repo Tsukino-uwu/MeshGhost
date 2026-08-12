@@ -99,6 +99,56 @@
   Tier 3 feature (see `plans.md`) is approved via its own ADR and has a concrete adapter
   ready to use it.
 
+- **Blueprint-vs-C++ readability, surfaced at Phase 7 start**: Pseudoregalia is largely
+  Blueprint-driven (per `adapters/pseudoregalia/README.md`'s brief note and no `.pdb`/managed
+  assembly equivalent to decompile the way TEVI's `Assembly-CSharp.dll` was). Player state may
+  only be reachable by reflection/property-name lookup through UE4SS rather than a fixed,
+  named field the way `pokeemerald`'s C structs or TEVI's decompiled C# fields were. Highest
+  single source of uncertainty in Phase 7; the 7.1 Lua probe exists specifically to resolve
+  this empirically before committing to the C++ adapter's design.
+- **No clip-name animation playback in UE5, surfaced at Phase 7 start**: TEVI's remote ghost
+  works by calling `Animator.Play(clipName)` on a cloned GameObject using the real Animator
+  clip name sent over the wire. UE5 has no direct equivalent for a cloned actor driven by an
+  AnimBP/Blueprint-based character — likely needs either a montage-based approach or a
+  simplified driven AnimBP. Unresolved design question, not just an implementation detail;
+  expect this to be the hardest single task in Phase 7, not the local-state read.
+- **UE4SS version drift already observed mid-Phase-7 (2026-08-12)**: the user updated their
+  local UE4SS from v2.5.2 Beta to v3.0.1 Beta mid-session, following a Mar 2026 update to
+  `pseudoregalia-archipelago`'s own `RE-UE4SS` submodule pin. Confirms the environment can
+  drift out from under an in-progress phase without warning — re-check `environment.md`'s
+  UE4SS version before resuming any Pseudoregalia work in a new session, the same standard
+  applied to TEVI's Steam updates.
+- **UE4SS mod-load-order coexistence with `AP_Randomizer`, surfaced at Phase 7 start**: same
+  shape as TEVI's BepInEx/Harmony-vs-`Tevi_Randomizer` risk below — confirm the adapter's
+  reads/hooks work with `AP_Randomizer` both enabled and disabled, record which was tested.
+  **Confirmed live, both directions, 2026-08-12**: a mismatched `UE4SS.dll` build (83 commits
+  ahead of the installed one) broke `AP_Randomizer` outright (`0x7f`, a missing exported
+  procedure) — not a theoretical risk, an actual observed break, immediately rolled back and
+  re-confirmed working. Any future UE4SS runtime change on this machine needs the same
+  before/after check, not just "it built."
+- **Building a UE4SS C++ mod requires a private submodule this project has no access to,
+  found 2026-08-12**: RE-UE4SS's own C++ mod guide builds the engine from source via CMake,
+  and its core `UE4SS` target hard-depends on `deps/first/Unreal` (`Re-UE4SS/UEPseudo`),
+  confirmed private (`gh api` 404, SSH host-key-verification failure). No prebuilt import
+  library ships in any official release asset (checked both the plain runtime zip and the
+  "zDEV" package — DLL and PDB only, no `.lib`). This blocks the "C++ for the shipping
+  adapter" decision from earlier in Phase 7 unless UEPseudo access is granted — see
+  `agent_docs/phases/phase7.md` for the full investigation. Likely explanation: this is
+  probably the same Epic-Games-account-linked-to-GitHub gate Epic uses for Unreal Engine's
+  own source access on GitHub, applied to RE-UE4SS's own reflected-headers submodule — not
+  independently confirmed, a plausible inference from a web search, not a fact to build on.
+- **UE4SS Lua *does* expose `package.loadlib`, reopening the socket question, found
+  2026-08-12**: contradicts the earlier "Lua has no socket path" reasoning (Phase 7's
+  adapter-language decision), which was based only on the *absence* of a first-party socket
+  library, not on `loadlib` being disabled. `MeshGhostSocketProbe` Stage 1 confirmed
+  `type(package.loadlib) == "function"` live. Untested and risky: UE4SS's Lua is statically
+  embedded in `UE4SS.dll`, not a separate `lua54.dll` the way BizHawk's NLua host is — loading
+  MeshGhost's already-vetted `lua54.dll`/`socket-windows-5-4.dll` pair here could crash the
+  game rather than fail cleanly if the two compiled Lua runtimes' `lua_State` layouts don't
+  match, unlike BizHawk where there was only ever one real Lua runtime involved. A Stage 2
+  script exists (`adapters/pseudoregalia/probe_socket/`) but has deliberately not been run
+  yet — needs explicit go-ahead given the crash risk, not just proceeding on Stage 1 optimism.
+
 ## Mitigations
 
 - Keep the contract minimal, and validate it early with a fake adapter (Phase 5).

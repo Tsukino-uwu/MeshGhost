@@ -226,14 +226,31 @@ rework rather than sitting idle on a blocker with no ETA. Revisit 6.6 whenever a
 ### Phase 7 — Third game (Pseudoregalia)
 
 Visible outcome: repeat phases 1–4 for Pseudoregalia (UE5) using the frozen template. **Status:
-not started.** Started early relative to Phase 6's own two-player milestone (6.6) — see Phase
-6's status note above for why that's a deliberate, recorded tradeoff rather than an oversight.
-First task, mirroring Phase 6's own first task: confirm what modding tooling actually applies
-(UE4SS version, whether the target uses Blueprints/C++ in a way that changes what's readable)
-before assuming anything — `agent_docs/environment.md`'s "UE4SS version for Pseudoregalia:
-unfilled" line is the open item to close first. Do not assume UE5 tooling parallels BepInEx/
-Harmony just because both are "the second/third game's toolchain" — verify fresh, the same
-"no addresses or APIs from memory" standard TEVI's Mono-vs-IL2CPP check followed.
+in progress**, started 2026-08-12 — see `agent_docs/phases/phase7.md` for the full task record.
+Started early relative to Phase 6's own two-player milestone (6.6) — see Phase 6's status note
+above for why that's a deliberate, recorded tradeoff rather than an oversight.
+
+The first task — confirm what modding tooling actually applies before assuming anything, the
+same standard TEVI's Mono-vs-IL2CPP check followed — is **done**. Confirmed live via direct
+filesystem inspection of this machine's install: engine is **UE 5.1**; UE4SS is **v3.0.1 Beta,
+Git SHA `733e5969`**, under the newer `Binaries\Win64\ue4ss\` layout; a UE4SS **C++** mod
+(`AP_Randomizer`, the Archipelago integration) is already installed, running, and proven to
+hold a real TLS/websocket socket in this exact game — closing `environment.md`'s previously
+open "UE4SS version for Pseudoregalia: unfilled" line. Mid-session correction, recorded rather
+than silently fixed: an initial reading found an older `v2.5.2`/SHA `a267c64`; the user then
+updated their local UE4SS to match a Mar 2026 update to `pseudoregalia-archipelago`'s own
+`RE-UE4SS` submodule pin, and all docs were re-checked and corrected to `v3.0.1`.
+
+Licensing gate done: `RE-UE4SS` (MIT) and `pseudoregalia-archipelago` (**no LICENSE file — all
+rights reserved**, facts-only per the standing rule) added to `agent_docs/licensing.md`. Four
+new UE5-specific risks registered in `agent_docs/risks.md` (Blueprint-vs-C++ readability, no
+clip-name-animation equivalent in UE5, UE4SS version drift, `AP_Randomizer` coexistence).
+
+**Adapter-language decision:** Lua for discovery, C++ for the shipping adapter. UE4SS's Lua API
+has no socket support (confirmed via `gh api` code search and docs.ue4ss.com — zero
+`luasocket` references, no networking capability), but `AP_Randomizer` proves a UE4SS C++ mod
+can hold a real socket here. Next: 7.1, a throwaway Lua probe to confirm the player-state read
+empirically before writing the C++ adapter.
 
 ### Post-Phase-4 — Room codes
 

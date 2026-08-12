@@ -1208,4 +1208,90 @@ Copy this block per fact:
   every other address in this file).
 - Notes: this is the Phase 5.5 Step 4 milestone and closes the female-save-untested gap in
   `agent_docs/risks.md`. `extras.gender` required no core/relay change — `extras` was already
+
+### Phase 7.1: Pseudoregalia local player pawn/position/rotation/level read confirmed live via UE4SS Lua probe
+
+- Date: 2026-08-12
+- Observed: the user launched Pseudoregalia with `adapters/pseudoregalia/probe/Scripts/main.lua`
+  deployed as the `MeshGhostProbe` UE4SS Lua mod, then moved around a real castle area for
+  roughly a minute — running, crouching, backflipping, hanging on a ledge, jumping off and
+  dying a few times, and finally running into a second area (the `ZONE_Dungeon` transition
+  below) — and confirmed on screen (`UE4SS.log`, ~190 change-triggered probe lines) that values
+  tracked this real movement, not plausible-looking noise. Independently cross-checked by
+  reading `UE4SS.log` directly rather than relying on the user's own description alone.
+  Specifics:
+  - Pawn resolves via `UEHelpers.GetPlayerController().Pawn` to a real Blueprint class,
+    `BP_PlayerGoatMain_C` (Pseudoregalia's playable character), confirming a Blueprint-only
+    player pawn is reachable through UE4SS's Lua reflection without needing a C++/decompiled
+    field name — the open question flagged in `agent_docs/risks.md`'s Blueprint-readability
+    risk.
+  - `K2_GetActorLocation()` X/Y/Z changed smoothly and continuously across ~180 consecutive
+    samples while the user ran around (e.g. `pos=(4900.00, 8450.00, -732.85)` through many
+    intermediate points to `pos=(-501.55, 10797.85, -1832.85)`), consistent with real
+    continuous movement, not a static or garbage read.
+  - `K2_GetActorRotation()`'s yaw changed correctly and continuously while turning (observed
+    the full range, e.g. swinging through `-174.30` to `178.46` and back, including correct
+    wraparound near ±180°). Pitch and roll stayed exactly `0.00` throughout every sample in
+    both levels observed — including through the backflips and ledge-hang the user performed —
+    consistent with a standard UE character movement component that only yaws the capsule
+    root, with backflip/crouch/hang posing done entirely in the skeletal animation, not the
+    actor's root transform. Relevant to 7.6: a wire `orientation` built only from this actor
+    rotation will carry facing correctly but no pitch/lean, so a visually convincing ghost
+    still needs the `anim` tag to carry pose, not rotation.
+  - `level` (read via `world.PersistentLevel:GetFullName()`) changed correctly on a real level
+    transition: `.../ZONE_LowerCastle:PersistentLevel` → `.../ZONE_Dungeon:PersistentLevel`
+    (`UE4SS.log` 03:01:43–03:01:44) and later back to a *new* `ZONE_LowerCastle` pawn instance
+    (`BP_PlayerGoatMain_C_2147473294`, a different object id than the original
+    `..._2147480153` — consistent with a fresh pawn spawned on the transition back, not a
+    stale/incorrect read).
+  - `get_local_state()`-returning-nil equivalent (`"waiting: no valid PlayerController yet"`)
+    fired at exactly the moments a real adapter needs to treat as "don't send this frame": the
+    title screen before a save is loaded, and during both observed level transitions — never
+    spuriously while a valid pawn existed.
+  - In `ZONE_Dungeon` specifically, position moved (falling motion, `Y` pinned at `50.00`,
+    `X`/`Z` decreasing smoothly) while rotation stayed frozen at exactly `(0,0,0)` for all 5
+    samples in that level — likely an intro/fall sequence with rotation not player-driven yet;
+    noted, not yet explained.
+- Source: `adapters/pseudoregalia/probe/Scripts/main.lua` (this session, 2026-08-12); raw
+  values read from `...\Pseudoregalia\pseudoregalia\Binaries\Win64\ue4ss\UE4SS.log` lines
+  containing `[MeshGhostProbe]`, 2026-08-12 03:00–03:02. UE4SS `v3.0.1 Beta`/SHA `733e5969`
+  (see `agent_docs/environment.md`).
+- Notes: this is a 7.1 discovery-probe result, not the real adapter — confirms the *read* is
+  possible and the values are trustworthy, not any bridge/rendering behavior (7.2 onward,
+  not started). `UEHelpers`/`GetPlayerController`/`.Pawn` usage pattern was cross-checked
+  against this same install's own bundled `LineTraceMod` example before writing the probe, per
+  `agent_docs/licensing.md` — no `pseudoregalia-archipelago` source was read to produce this
+  script or these findings.
+
+### Phase 7.2 investigation: UE4SS runtime mismatch breaks AP_Randomizer; UE4SS Lua exposes package.loadlib
+
+- Date: 2026-08-12
+- Observed, two separate confirmed facts from the same investigation:
+  1. **A mismatched UE4SS.dll build breaks AP_Randomizer, confirmed both ways.** After
+     updating the installed `UE4SS.dll`/`dwmapi.dll` from the running `733e5969` build to a
+     newer `1c1a1497` build (83 commits ahead, used to match a downloaded zDEV headers
+     package), the user launched the game and saw an in-game `ERROR: Incompatible APWorld
+     version` screen. `UE4SS.log` showed the real cause: `Failed to load dll
+     ...AP_Randomizer\dlls\main.dll..., error: [0x7f] The specified procedure could not be
+     found` — a real exported-symbol ABI break, not the in-game message's apparent cause.
+     After restoring the original `733e5969` `UE4SS.dll` from a pre-change backup, the user
+     relaunched and confirmed getting back in-game normally; `UE4SS.log` independently
+     confirmed `AP_Randomizer`'s hooks (`ProcessEvent`, `BeginPlay`, `StaticConstructObject`)
+     installing cleanly again.
+  2. **UE4SS's embedded Lua 5.4 exposes `package.loadlib` as a real, callable function.**
+     `adapters/pseudoregalia/probe_socket/Scripts/main.lua` (`MeshGhostSocketProbe`, Stage 1,
+     capability-check only — no DLL loaded), deployed and run live, printed
+     `_VERSION = Lua 5.4`, `type(package) = table`, `type(package.loadlib) = function`, and a
+     `package.cpath` that already includes each mod's own `Scripts\` folder for `require()`.
+- Source: `UE4SS.log` lines around `03:24:11`–`03:26:20` (`.../ue4ss/UE4SS.log`, this
+  session); `adapters/pseudoregalia/probe_socket/Scripts/main.lua`.
+- Notes: (1) contradicts nothing already recorded but is a real, live-observed instance of
+  the "environment drift" risk, now with actual consequences instead of just a version-number
+  mismatch. (2) reopens (does not resolve) the earlier Phase 7 adapter-language reasoning —
+  that conclusion was based on the *absence* of a first-party socket library, not on
+  `loadlib` being disabled. **Not yet tested**: whether MeshGhost's vetted
+  `lua54.dll`/`socket-windows-5-4.dll` pair can actually be loaded and used without crashing —
+  UE4SS's Lua is statically embedded in `UE4SS.dll`, unlike BizHawk's separate-DLL NLua host,
+  so a `lua_State` ABI mismatch here is a real crash risk, not just a load failure. A Stage 2
+  script exists but was deliberately not run this session.
   free-form and opaque to both per `agent_docs/contract.md`.
