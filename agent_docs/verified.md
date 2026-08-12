@@ -1399,3 +1399,20 @@ Copy this block per fact:
   up. Fixed by never mutating anything read from the pawn; the offset is now only ever applied
   to a vector owned by the ghost itself. **Not yet retested live** — the collision/tick disable
   calls stay in place as a reasonable safety measure, but the actual fix is this one.
+
+### Phase 7.4: fourth live run, live-reference fix in place, dragged identically
+
+- Date: 2026-08-12
+- Observed: the live-reference fix above was deployed and run live as a fourth test. User
+  reported being dragged again, same symptom, still no separate ghost model seen — this time
+  with a fix in place that addressed a mechanism (mutating a vector read from the pawn) which
+  no longer existed anywhere in the code. Two different mutation-target fixes in a row failing
+  identically.
+- Source: user's live report (this session, 2026-08-12, fourth run).
+- Notes: this rules out both the collision theory and the live-reference-mutation theory as
+  complete explanations — something else is going on, most plausibly something that makes the
+  distinction between "the pawn" and "the ghost" meaningless (e.g. an auto-possession swap; see
+  the plan at `C:\Users\nyden\.claude\plans\nope-i-was-still-cryptic-horizon.md` and
+  `agent_docs/phases/phase7.md`). Not yet investigated further live — a diagnostic-only script
+  (`adapters/pseudoregalia/probe_ghost/Scripts/diagnose.lua`) was written to gather evidence
+  before attempting a fifth fix.

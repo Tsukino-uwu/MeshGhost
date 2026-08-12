@@ -284,8 +284,26 @@ GBA memory). Started early relative to Phase 6's own two-player milestone (6.6) 
       ghost itself (`ghost:K2_GetActorLocation()`, fetched fresh each tick), never anything
       read from the pawn; the initial spawn happens at the player's exact, unmodified position
       (no mutation at that point at all). Collision/tick disable calls left in place as a
-      reasonable safety measure even though they turned out not to be the actual fix. Not yet
-      retested live.
+      reasonable safety measure even though they turned out not to be the actual fix.
+
+      **Fourth live run, with the live-reference fix in place: still dragged, identically.**
+      Same ~13s-to-death symptom, still no separate ghost ever seen, despite this run's fix
+      addressing a mechanism (mutating the pawn's live vector) that no longer existed in the
+      code at all. Two guess-based fixes in a row failing identically is a signal the guesses
+      were both wrong in the same way — assuming the *positioning math* was the problem. Went
+      to plan mode rather than trying a fifth guess; new leading theory recorded in
+      `C:\Users\nyden\.claude\plans\nope-i-was-still-cryptic-horizon.md`: `BP_PlayerGoatMain_C`
+      may have "Auto Possess Player" set to Player 0 (a common pawn-Blueprint default), meaning
+      `SpawnActor` may silently swap `PlayerController.Pawn` to the new ghost — which would
+      explain both the identical-looking drag regardless of which mutation-target fix was
+      applied (if `pawn` and `ghost` became the same object, the distinction was meaningless)
+      and why no second model was ever visible (only ever one body in the world). **Not yet
+      confirmed.** Wrote `adapters/pseudoregalia/probe_ghost/Scripts/diagnose.lua` — spawns the
+      ghost with the same guards but performs zero repositioning, only logs
+      `UObject:GetAddress()` for the original pawn / ghost / controller's current Pawn
+      (re-fetched fresh every tick) to directly test whether they converge, plus a one-time
+      read of `ghost.AutoPossessPlayer` (grounded via `gh api search/code`, 10 hits). Not yet
+      deployed/run.
 - [ ] 7.5 — Port 7.1's real local-state read (not just Stage 3's hardcoded dummy frame) and
       7.3's field decisions into a persistent, per-frame Lua bridge client — a `RegisterHook`-
       or engine-tick-driven loop, not a one-shot script like Stages 1-3, non-blocking connect
