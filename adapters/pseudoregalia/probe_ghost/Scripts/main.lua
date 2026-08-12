@@ -85,12 +85,37 @@
 -- -- one immediately after `Possess`, one more `DELAYED_VIEW_TARGET_TICKS` later -- aimed at
 -- the theorized real cause (the ghost's own briefly-auto-possessed "on possessed" Blueprint
 -- logic doing its own camera setup on a delay) without fighting the camera indefinitely.
--- Not yet retested live.
+-- Confirmed live again: both view-target calls (immediate + delayed) succeeded ("ok" logged)
+-- and the camera was STILL observed stuck on the ghost. Three straight camera fixes now
+-- succeeding at the API level without fixing the visual symptom is the same shape of signal as
+-- the drag bug's two failed fixes -- continuing to tweak `SetViewTargetWithBlend` call sites is
+-- unlikely to be it, since the calls demonstrably work. New theory: `SetViewTargetWithBlend`
+-- controls which ACTOR the camera manager looks at, not which COMPONENT inside that actor
+-- supplies the view -- `UCameraComponent` has its own independent `IsActive()` state. The
+-- ghost's own camera component very likely activated during its own real (if brief)
+-- auto-possession at spawn; if the pawn's camera component's active state didn't get restored
+-- by a forced re-`Possess()` (e.g. the Blueprint's "on possessed -> activate camera" logic is
+-- gated by a one-time flag that doesn't refire for a forced re-possession), the camera manager
+-- could keep rendering through the ghost's still-active camera regardless of `ViewTarget`.
+-- Neither `GetComponentByClass` nor `CameraComponent`/`IsActive()` appears in this install's
+-- bundled docs or examples (searched both) -- grounded via `gh api search/code`
+-- (`GetComponentByClass`: 339 hits, standard `AActor` function; `CameraComponent:IsActive()`:
+-- 37 hits). The `CameraComponent` UClass itself is found the same way RE-UE4SS's own
+-- `StaticFindObject` doc example finds `/Script/Engine.Character` --
+-- `StaticFindObject("/Script/Engine.CameraComponent")`, a standard engine class path. Logs
+-- both components' `IsActive()` state (confirms or denies the theory directly) before trying
+-- `ghostCamera:Deactivate()`/`pawnCamera:Activate()`. Not yet retested live.
 
 local UEHelpers = require("UEHelpers")
 
 local OFFSET_X = 150.0
 local FOLLOW_INTERVAL_MS = 100
+
+-- CAMERA_COMPONENT_CLASS_PATH: standard engine class path, same StaticFindObject pattern
+-- RE-UE4SS's own docs example uses for /Script/Engine.Character. Found once, cached, used to
+-- look up each actor's own CameraComponent for the active-component diagnostic/fix below.
+local CAMERA_COMPONENT_CLASS_PATH = "/Script/Engine.CameraComponent"
+local cameraComponentClass = nil -- resolved lazily on first use, cached after
 
 local ghost = nil
 local spawning = false -- guards against a second spawn firing while the first's
@@ -211,6 +236,48 @@ local function trySpawnGhost(pawn, controller)
             ticksSinceGhostSpawned = 0
             delayedViewTargetDone = false
 
+            -- New theory (see header comment): SetViewTargetWithBlend controls which ACTOR the
+            -- camera manager looks at, not which COMPONENT inside it supplies the view --
+            -- CameraComponent has its own independent IsActive() state. Diagnostic + fix
+            -- combined: log both components' active state (confirms or denies the theory
+            -- directly), then try correcting it.
+            local camOk, camErr = pcall(function()
+                if cameraComponentClass == nil then
+                    cameraComponentClass = StaticFindObject(CAMERA_COMPONENT_CLASS_PATH)
+                end
+                if cameraComponentClass == nil or not cameraComponentClass:IsValid() then
+                    error("CameraComponent class not found via StaticFindObject")
+                end
+
+                local pawnCamera = pawn:GetComponentByClass(cameraComponentClass)
+                local ghostCamera = ghost:GetComponentByClass(cameraComponentClass)
+                if pawnCamera == nil or not pawnCamera:IsValid() then
+                    error("pawn has no CameraComponent")
+                end
+                if ghostCamera == nil or not ghostCamera:IsValid() then
+                    error("ghost has no CameraComponent")
+                end
+
+                local pawnActiveBefore = pawnCamera:IsActive()
+                local ghostActiveBefore = ghostCamera:IsActive()
+                print(string.format(
+                    "[MeshGhostGhostProbe] camera component active state BEFORE fix: pawn=%s ghost=%s\n",
+                    tostring(pawnActiveBefore), tostring(ghostActiveBefore)))
+
+                local deactivateOk = pcall(function() ghostCamera:Deactivate() end)
+                local activateOk = pcall(function() pawnCamera:Activate(false) end)
+                print(string.format(
+                    "[MeshGhostGhostProbe] ghostCamera:Deactivate() %s, pawnCamera:Activate() %s\n",
+                    deactivateOk and "ok" or "FAILED", activateOk and "ok" or "FAILED"))
+
+                print(string.format(
+                    "[MeshGhostGhostProbe] camera component active state AFTER fix: pawn=%s ghost=%s\n",
+                    tostring(pawnCamera:IsActive()), tostring(ghostCamera:IsActive())))
+            end)
+            if not camOk then
+                print(string.format("[MeshGhostGhostProbe] camera component diagnostic/fix FAILED: %s\n", tostring(camErr)))
+            end
+
             -- Kept as a reasonable secondary safety measure even though bug 5, not
             -- collision/physics, was the actual cause of the drag -- see agent_docs/risks.md.
             local collisionOk = pcall(function() ghost:SetActorEnableCollision(false) end)
@@ -249,10 +316,19 @@ local function followTick()
     end
 
     if not ghost:IsValid() then
-        if lastLoggedState ~= "ghost_invalid" then
-            print("[MeshGhostGhostProbe] ghost became invalid (level transition?), will not respawn automatically.\n")
-            lastLoggedState = "ghost_invalid"
-        end
+        -- Found live 2026-08-12: exiting to the main menu and re-entering never spawned a new
+        -- ghost. This used to just log and stop forever -- ghost stayed a non-nil reference to
+        -- the now-invalid object, so the `ghost == nil` branch above never fired again for the
+        -- rest of the game process. That was written as a guard against respawn-loop churn
+        -- during a real level transition, but a main-menu round-trip is a legitimate case where
+        -- a fresh spawn attempt should happen again. Reset all ghost-scoped state so the next
+        -- tick naturally attempts a fresh spawn once a valid pawn exists again -- covers both
+        -- a real level transition and a main-menu round-trip the same way.
+        print("[MeshGhostGhostProbe] ghost became invalid (level transition or main menu?), will attempt to respawn.\n")
+        ghost = nil
+        lastGhostTarget = nil
+        delayedViewTargetDone = true
+        lastLoggedState = nil
         return false
     end
 
