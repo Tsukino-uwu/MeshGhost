@@ -145,6 +145,15 @@ GBA memory). Started early relative to Phase 6's own two-player milestone (6.6) 
       `bind`/`connect`/send-receive round trip (this stage deliberately stopped at object
       creation) — that's the next, still-untested step before trusting this for the real bridge
       connection in 7.5.
+
+      **Stage 3 script written 2026-08-12**
+      (`adapters/pseudoregalia/probe_socket/Scripts/stage3_roundtrip.lua`): a real
+      connect/send/receive round trip against the actual bridge protocol, not a synthetic
+      test — sends one hardcoded dummy `local_state` frame to a real `meshghost.exe` core
+      (`dev-scripts/run-core-pseudoregalia.bat`, new) with `dev-scripts/run-relay-loopback.bat`
+      running behind it, and expects to read back the loopback relay's own-state echo as a
+      `render_remote` frame. A successful round trip here would exercise send AND receive, not
+      just connect. Not yet deployed/run — needs its own go-ahead, same as Stage 2.
 - [ ] 7.3 — Port 7.1's findings into the C++ mod's per-frame local-state read. Decide
       adapter-side (never in the core, per `contract.md`): position units (raw UE
       centimetres vs. normalised), orientation shape (yaw float vs. full rotator/quaternion —
