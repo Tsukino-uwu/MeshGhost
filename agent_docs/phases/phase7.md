@@ -211,7 +211,20 @@ GBA memory). Started early relative to Phase 6's own two-player milestone (6.6) 
         phase (no `Animator.Play(clipName)` equivalent in UE5 the way TEVI had in Unity).
 - [ ] 7.4 — Placeholder ghost spawned in-engine, fixed offset from the local player, no
       networking yet — proves spawn + per-frame positioning before adding the bridge. TEVI's
-      6.3 analogue.
+      6.3 analogue. **Script written 2026-08-12**
+      (`adapters/pseudoregalia/probe_ghost/Scripts/main.lua`, new mod `MeshGhostGhostProbe`):
+      spawns a second instance of the player's own pawn class (`pawn:GetClass()`) via
+      `world:SpawnActor`, then repositions it every 100ms via `K2_SetActorLocationAndRotation`
+      to trail the real player. Every API used is grounded against this install's own bundled
+      `RE-UE4SS/docs/lua-api` and bundled example mods (`SplitScreenMod` in particular, for
+      `K2_SetActorLocationAndRotation` and the `ExecuteInGameThread` wrapper) — no addresses/
+      APIs from memory, per CLAUDE.md. One real gap found: no bundled doc or example anywhere
+      constructs or mutates an `FVector`'s fields, so the fixed X offset is attempted
+      defensively (`pcall`, read back to confirm it stuck) with a zero-offset fallback if it
+      silently doesn't — the script logs which happened rather than assuming. Riskier than the
+      socket probes: spawns a real gameplay Blueprint instance, not just a background
+      connection — possible physics/collision oddities with two pawns of the same class in the
+      world weren't ruled out in advance. Not yet deployed/run — needs its own go-ahead.
 - [ ] 7.5 — Port 7.1's real local-state read (not just Stage 3's hardcoded dummy frame) and
       7.3's field decisions into a persistent, per-frame Lua bridge client — a `RegisterHook`-
       or engine-tick-driven loop, not a one-shot script like Stages 1-3, non-blocking connect
