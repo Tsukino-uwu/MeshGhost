@@ -297,13 +297,30 @@ GBA memory). Started early relative to Phase 6's own two-player milestone (6.6) 
       `SpawnActor` may silently swap `PlayerController.Pawn` to the new ghost — which would
       explain both the identical-looking drag regardless of which mutation-target fix was
       applied (if `pawn` and `ghost` became the same object, the distinction was meaningless)
-      and why no second model was ever visible (only ever one body in the world). **Not yet
-      confirmed.** Wrote `adapters/pseudoregalia/probe_ghost/Scripts/diagnose.lua` — spawns the
-      ghost with the same guards but performs zero repositioning, only logs
-      `UObject:GetAddress()` for the original pawn / ghost / controller's current Pawn
-      (re-fetched fresh every tick) to directly test whether they converge, plus a one-time
-      read of `ghost.AutoPossessPlayer` (grounded via `gh api search/code`, 10 hits). Not yet
-      deployed/run.
+      and why no second model was ever visible (only ever one body in the world). Wrote
+      `adapters/pseudoregalia/probe_ghost/Scripts/diagnose.lua` — spawns the ghost with the
+      same guards but performs zero repositioning, only logs `UObject:GetAddress()` for the
+      original pawn / ghost / controller's current Pawn (re-fetched fresh every tick) to
+      directly test whether they converge, plus a one-time read of `ghost.AutoPossessPlayer`
+      (grounded via `gh api search/code`, 10 hits).
+
+      **Confirmed live, fifth run (diagnostic-only, zero repositioning code).** `UE4SS.log`
+      showed `controller.Pawn == ghost: true` on every single tick immediately after spawning,
+      and the logged position never changed across the whole run (`(4469.77, 8279.23,
+      -732.85)`, unchanged) — direct proof both that the auto-possession swap is real and that
+      the diagnostic itself, with no position-setting call anywhere in it, caused zero drag on
+      its own. `BP_PlayerGoatMain_C` does auto-possess on spawn. User also reported seeing a
+      second model on screen this run — almost certainly an orphaned ghost left over from an
+      earlier spawn attempt earlier in the same session (no despawn/cleanup logic exists yet,
+      a known limitation), not evidence against the theory.
+
+      **Fixed** in `main.lua` (bug 5 of 5): captures the original pawn and controller before
+      spawning, then calls `controller:Possess(pawn)` immediately after spawn to hand control
+      back — leaving the ghost genuinely uncontrolled. `Possess` grounded via `gh api
+      search/code` (470 hits). Also added a `MAX_TICK_DELTA` defensive backstop: refuses and
+      logs any single-tick ghost move larger than 500 units rather than applying it, so a
+      future bug of this shape freezes the ghost instead of dragging the player again. Not yet
+      retested live with the offset re-enabled.
 - [ ] 7.5 — Port 7.1's real local-state read (not just Stage 3's hardcoded dummy frame) and
       7.3's field decisions into a persistent, per-frame Lua bridge client — a `RegisterHook`-
       or engine-tick-driven loop, not a one-shot script like Stages 1-3, non-blocking connect

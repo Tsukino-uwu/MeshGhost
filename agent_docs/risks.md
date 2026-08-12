@@ -163,20 +163,29 @@
   against this UE4SS build (`v3.0.1 Beta`/SHA `733e5969`) — a **Lua-only shipping adapter** is
   viable, no C++/UEPseudo build required.
 - **Spawning the player's own gameplay Blueprint as a placeholder ghost physically dragged the
-  player, found 2026-08-12**: `adapters/pseudoregalia/probe_ghost/Scripts/main.lua` spawned a
-  second instance of `BP_PlayerGoatMain_C` 150 units from the player. The user was physically
-  dragged/pulled toward another location at high speed immediately on spawning in, until dying.
-  **Root cause found, not the initial collision theory**: disabling
-  `SetActorEnableCollision`/`SetActorTickEnabled` on the ghost made no difference on a third
-  run — the actual cause was the script itself mutating a *live reference* returned by
-  `pawn:K2_GetActorLocation()` every tick, writing +150 units directly into the real player's
-  position roughly 10 times a second, compounding into exactly the observed straight-line
-  drift. Not a UE5/engine risk at all — a Lua scripting mistake (mutating a struct read from an
-  object you don't own). See `agent_docs/verified.md` and `agent_docs/phases/phase7.md`.
-  **General lesson for any future UE4SS Lua script in this repo**: never write into a
-  vector/rotator struct read via `K2_GetActorLocation()`/`K2_GetActorRotation()` (or similar)
-  unless it was read from the actor you intend to move — treat every such read as a live
-  reference, not a safe-to-mutate copy, until proven otherwise for that specific actor.
+  player, found 2026-08-12, root cause confirmed the same day**:
+  `adapters/pseudoregalia/probe_ghost/Scripts/main.lua` spawned a second instance of
+  `BP_PlayerGoatMain_C` 150 units from the player. The user was physically dragged/pulled
+  toward another location at high speed on three separate runs, until dying each time. Two
+  wrong theories tried and ruled out in turn — disabling `SetActorEnableCollision`/
+  `SetActorTickEnabled` on the ghost made no difference, then a rewrite to stop mutating a
+  suspected live-reference FVector read from the pawn *also* made no difference (still dragged,
+  identically, on the very next run). **Confirmed root cause, via a read-only diagnostic
+  script that performed zero repositioning and still let the address logging speak for
+  itself**: `BP_PlayerGoatMain_C` auto-possesses on spawn, silently swapping
+  `PlayerController.Pawn` to the newly-spawned ghost — every "fix" was moving what it believed
+  was a separate, uncontrolled placeholder, but the ghost *was* the actual possessed,
+  camera-attached character the whole time. Fixed by calling `controller:Possess(pawn)`
+  immediately after spawn to hand control back to the original pawn. See
+  `agent_docs/verified.md` and `agent_docs/phases/phase7.md` for the full five-bug history.
+  **General lesson for any future UE4SS Lua script in this repo that spawns another instance of
+  a controllable pawn Blueprint**: assume it may auto-possess on spawn until proven otherwise
+  for that specific class, and re-possess the original pawn defensively right after spawning —
+  don't assume a spawned actor is inert just because nothing told it to take control. (A weaker,
+  now-superseded version of this lesson — about never writing into a vector/rotator struct read
+  from an actor you don't intend to move — turned out not to be the actual mechanism here, but
+  is still reasonable defensive practice and is enforced by `main.lua`'s current design either
+  way.)
 
 ## Mitigations
 

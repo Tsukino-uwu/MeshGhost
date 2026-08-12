@@ -1416,3 +1416,25 @@ Copy this block per fact:
   `agent_docs/phases/phase7.md`). Not yet investigated further live — a diagnostic-only script
   (`adapters/pseudoregalia/probe_ghost/Scripts/diagnose.lua`) was written to gather evidence
   before attempting a fifth fix.
+
+### Phase 7.4: root cause confirmed — BP_PlayerGoatMain_C auto-possesses on spawn
+
+- Date: 2026-08-12
+- Observed: `diagnose.lua` — deliberately containing zero position-setting calls anywhere —
+  deployed and run live as a fifth test. `UE4SS.log` shows `controller.Pawn == ghost: true` on
+  every single logged tick immediately after spawning, and the logged player position never
+  changed across the entire run (`(4469.77, 8279.23, -732.85)`, identical on every line). User
+  reported no dragging this run, and also reported seeing a second model on screen (most likely
+  an orphaned ghost left over from an earlier spawn attempt in the same session, since no
+  despawn logic exists).
+- Source: `UE4SS.log` lines around `13:27:49`–`13:27:52` (this session, 2026-08-12),
+  `[MeshGhostDiagnose]` prefix; `adapters/pseudoregalia/probe_ghost/Scripts/diagnose.lua`.
+- Notes: direct, conclusive confirmation of the auto-possession theory — `SpawnActor` on
+  `BP_PlayerGoatMain_C` really does swap `PlayerController.Pawn` to the newly-spawned instance.
+  This also directly confirms the diagnostic itself, with no repositioning code, could not have
+  caused a drag — the zero position change over the whole run is positive evidence, not just an
+  absence of a negative one. Every previous fix (three of them, across runs 2–4) was moving
+  what it believed was a separate, uncontrolled placeholder, but "the ghost" was the actual
+  possessed, camera-attached character the entire time. Fixed in `main.lua` (commit `67a499f`)
+  by calling `controller:Possess(pawn)` immediately after spawn to hand control back. **Not yet
+  retested live** with the offset re-enabled — this run was diagnostic-only.
