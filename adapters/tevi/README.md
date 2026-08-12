@@ -6,8 +6,10 @@
   visually satisfying, and the reason it was picked over Pseudoregalia for the second slot.
 - Owned by the project author, unlike the Ori titles (see `adapters/oribf/README.md`),
   which was the deciding factor.
-- IL2CPP vs Mono build status is **not yet verified** — do not assume either from memory.
-  Confirm at the start of Phase 6, since it materially changes whether BepInEx/Harmony
-  tooling applies directly.
-- Not started. Phase 5 has frozen the adapter template (`adapters/_template/`) — see
-  `agent_docs/phases/phase5.md`. Work here is Phase 6.
+- IL2CPP vs Mono build status: **confirmed Mono** (2026-08-11) — see
+  `agent_docs/environment.md`'s Unity/TEVI section for the file evidence (`Assembly-CSharp.dll`
+  present, no `GameAssembly.dll`, `doorstop_config.ini` has `[UnityMono]`). BepInEx/Harmony
+  tooling applies directly; no IL2CPP interop/unhollowing step needed. BepInEx 5.4.23.3 is
+  already installed on this machine's TEVI copy and confirmed loading a third-party plugin.
+- Phase 6 in progress. Phase 5 froze the adapter template (`adapters/_template/`) — see
+  `agent_docs/phases/phase5.md`.

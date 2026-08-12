@@ -10,9 +10,12 @@
 - Lua overlay rendering (`gui.drawImage`) is the fastest practical approach for Emerald ghost
   drawing, and won't visibly flicker once the tick model in `contract.md` is implemented
   correctly (redraw the whole remote-ghost set every frame, not on receipt).
-- TEVI's engine tooling (BepInEx/Harmony) will apply the way it does for other Unity
-  games — **unconfirmed**, and TEVI's IL2CPP-vs-Mono status specifically is unknown. Do not
-  assume either from memory or by analogy to the brief's Ori reasoning; verify at Phase 6.
+- **Closed 2026-08-12 (Phase 6 start):** TEVI's engine tooling assumption is confirmed, not
+  analogized. TEVI is Mono, not IL2CPP — `TEVI_Data\Managed\Assembly-CSharp.dll` present, no
+  `GameAssembly.dll` anywhere in the install, `doorstop_config.ini` has a `[UnityMono]` section.
+  Re-confirmed against the current on-disk build (`TEVI.exe` 2026-07-16) after updating, not just
+  the original April-2025 check. BepInEx/Harmony tooling applies directly; see
+  `agent_docs/environment.md`'s Unity/TEVI section and `agent_docs/licensing.md`.
 - **Closed 2026-08-11 (Phase 5.5):** every Emerald finding through Phase 2 had only been tested
   on a male save. Re-verified live on a real female-character save (`gSaveBlock1Ptr`,
   `gPlayerAvatar`, `gObjectEvents`, `gSprites`, `gSpriteCoordOffsetX/Y` all confirmed correct —
@@ -71,6 +74,22 @@
   This is also the concrete argument for keeping the read-only default (see the depth ladder
   in `plans.md`): two readers never race, but a future memory-*writing* feature could race
   Archipelago's own writes.
+- **No game-version check between peers, surfaced by TEVI (Phase 6)**: `hello` carries `game_id`
+  (e.g. `"tevi"`) but nothing identifying the game's *version* or installed DLC. Emerald sidesteps
+  this because the ROM is a fixed artifact players share by hash; TEVI updates via Steam and has
+  active DLC (the randomizer author was still adding DLC support as of June 2026). Two peers on
+  different TEVI versions, or one with DLC and one without, will connect and exchange state
+  happily but may disagree about what a given `area_id` (scene name) means, or one may reference a
+  scene the other doesn't have. Not yet designed: whether this needs a version field in `hello`
+  (a contract revision) or is left as a "both players should be on the same version" operational
+  note. Surface this at Phase 6 rather than silently designing around it.
+- **BepInEx/Harmony coexistence with an already-installed mod, surfaced by TEVI (Phase 6)**: this
+  machine's TEVI already runs `Tevi_Randomizer` (the Archipelago integration mod) under the same
+  BepInEx. Same shape as the Emerald/Archipelago coexistence risk below: if the randomizer
+  Harmony-patches the same methods MeshGhost's adapter wants to read, the two could conflict.
+  Mitigation planned the same way — confirm the position read works both with the randomizer
+  enabled and disabled, prefer reads that survive patching, record which was tested in
+  `verified.md`.
 - **Reserved-but-unbuilt contract fields going stale**: the `features` field and the `event`
   message type (`agent_docs/contract.md`, Extensibility section) are documented now and
   implemented never, until something needs them. The risk is a future session building

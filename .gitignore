@@ -13,6 +13,12 @@
 # Go
 /vendor/
 
+# .NET/C# adapter build output (e.g. adapters/tevi) -- generated files under obj/ embed
+# absolute machine-specific paths (NuGet cache location under the building user's home
+# directory), the exact kind of machine-identifying detail CLAUDE.md says never to commit.
+bin/
+obj/
+
 # OS cruft
 .DS_Store
 Thumbs.db

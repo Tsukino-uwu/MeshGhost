@@ -13,6 +13,9 @@ Phase 1 actually sets up BizHawk — do not pre-fill version numbers from memory
   per-user install location (`%LOCALAPPDATA%\Programs\Python\Python312\python.exe`). Invoke as
   `python`, not `python3` — only `python` is on `PATH` (both in a normal shell and in the
   agent's Bash tool, which runs Git Bash and has its own `PATH`).
+- .NET SDK: **confirmed installed**, `10.0.302` (`dotnet --version`, 2026-08-12), at
+  `C:\Program Files\dotnet\sdk`. Used for the TEVI adapter (Phase 6) — a `netstandard2.0` class
+  library targeting BepInEx 5.4, which the modern SDK builds fine via `dotnet build`.
 
 ## BizHawk / Emerald (to fill during Phase 1)
 
@@ -71,9 +74,40 @@ Built once to extract real RAM addresses via a `make compare`-verified build —
   must hold for any address pulled from this build to be trustworthy; a `make modern`
   (devkitARM-only, no agbcc) build would NOT match and must not be used for addresses.
 
-## Unity / TEVI, UE5 / Pseudoregalia (to fill at Phase 6 and beyond)
+## Unity / TEVI, UE5 / Pseudoregalia (Phase 6 onward)
 
-- TEVI IL2CPP vs Mono: unconfirmed. Verify before assuming BepInEx/Harmony tooling applies.
+- TEVI IL2CPP vs Mono: **confirmed Mono**, originally 2026-08-11, **re-confirmed 2026-08-12
+  against the current on-disk build** (see version stamp below — the install had updated between
+  checks). Install at `C:\Program Files (x86)\Steam\steamapps\common\TEVI`.
+  `TEVI_Data\Managed\Assembly-CSharp.dll` is present (IL2CPP builds strip managed assemblies and
+  ship `GameAssembly.dll` instead, which is absent here); `doorstop_config.ini` has a
+  `[UnityMono]` section, not `[UnityIL2CPP]`. So BepInEx/Harmony tooling applies directly — no
+  `Il2CppInterop`/unhollowed-assembly step needed.
+- **Game version stamp (2026-08-12):** `TEVI.exe` and `UnityPlayer.dll` dated 2026-07-16,
+  `Assembly-CSharp.dll` dated 2026-07-09. Any fact read from `Assembly-CSharp.dll` (Phase 6.2
+  onward) should cite this stamp, the same way Emerald facts cite the ROM hash — a future game
+  update makes it obvious what needs re-checking. BepInEx's own log conveniently carries this
+  stamp too: its header line's timestamp (`BepInEx 5.4.23.3 - TEVI (7/16/2026 3:00:23 AM)`)
+  matches `TEVI.exe`'s file date exactly.
+- **Unity version: confirmed `2021.3.25f1` (build `68ef2c4f8861`)**, read directly from
+  `UnityPlayer.dll`'s own file-version metadata (`Get-Item ... | .VersionInfo`), not from a
+  modding tool's reference-package choice. Use `2021.3.25` for `UnityEngine.Modules` when
+  building a plugin against this install.
+- BepInEx installed on this TEVI copy because of the **`Tevi Randomizer` mod — the Archipelago
+  integration for TEVI, `BlackSoulKnight/Tevi_Randomizer`** — not something MeshGhost set up.
+  Confirmed working, not just present: after updating both the game and the randomizer
+  (2026-08-12) and launching TEVI once to the main menu, `BepInEx/LogOutput.log` reads cleanly —
+  BepInEx 5.4.23.3, `Running under Unity v2021.3.25.6876972`, CLR `4.0.30319.42000`, `Supports
+  SRE: True`, `Loading [Randomizer 1.6.1]` → `Chainloader startup complete`, no errors or
+  warnings. This is the known-good "before MeshGhost touched anything" baseline log, and proves
+  Harmony-based patching works against this exact install rather than just being theoretically
+  compatible. See `agent_docs/licensing.md` for the randomizer's own (separate, MIT) license.
+- Assembly inspector for reading `Assembly-CSharp.dll` facts (Phase 6.2): **`ilspycmd`**
+  (ILSpy's CLI decompiler), installed 2026-08-12 via `dotnet tool install -g ilspycmd`
+  (v10.1.1.8388). Chosen over a GUI tool (dnSpy/ILSpy GUI/dotPeek) specifically so the agent can
+  read decompiled source directly via the CLI rather than relaying findings through the user —
+  same role `pokeemerald.map`/`.sym` play for Emerald. MIT-licensed, see
+  `agent_docs/licensing.md`; not a MeshGhost dependency, a local dev tool only.
 - UE4SS version for Pseudoregalia: unfilled.
 
 ## Onboarding checklist

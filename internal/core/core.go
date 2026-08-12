@@ -35,6 +35,17 @@ import (
 // test runs ~200ms so the trailing ghost is plainly visible on screen.
 const DefaultInterpolationDelay = 100 * time.Millisecond
 
+// DefaultMinSendInterval caps how often forwardLocalState actually sends to
+// the relay, independent of how often the adapter calls in. Added in Phase 6
+// (TEVI) after hitting this for real: relay.MaxMessagesPerSecond is 120, but
+// a Unity adapter's Update() runs uncapped well above that, so every-frame
+// forwarding got the connection closed by the relay after ~2 minutes
+// (agent_docs/verified.md's Phase 6.4/6.5 entry). 50ms (20Hz) leaves
+// comfortable headroom under the relay's cap regardless of adapter frame
+// rate, and is well above the brief's own 10Hz sync hypothesis. Overridable
+// per-Core, same pattern as InterpolationDelay.
+const DefaultMinSendInterval = 50 * time.Millisecond
+
 // Adapter is an in-process Go interface used only by the Phase 5 fake/test
 // adapter (one that moves a ghost in a circle, per agent_docs/phases —
 // created when that phase starts) and any future in-process host. Real
@@ -71,15 +82,26 @@ type Core struct {
 	// the bridge wire protocol.
 	InterpolationDelay time.Duration
 
+	// MinSendInterval overrides DefaultMinSendInterval for this Core — the
+	// minimum time between relay sends, regardless of adapter call rate.
+	// See DefaultMinSendInterval's comment for why this exists.
+	MinSendInterval time.Duration
+	lastSendAt      time.Time
+
 	mu      sync.Mutex
 	remotes map[string]*remoteBuffer
 }
 
 // New creates an empty Core with no relay connection yet — call
-// ConnectRelay before ServeBridge. InterpolationDelay defaults to
-// DefaultInterpolationDelay; set the field directly to override it.
+// ConnectRelay before ServeBridge. InterpolationDelay and MinSendInterval
+// default to DefaultInterpolationDelay/DefaultMinSendInterval; set the
+// fields directly to override them.
 func New() *Core {
-	return &Core{remotes: make(map[string]*remoteBuffer), InterpolationDelay: DefaultInterpolationDelay}
+	return &Core{
+		remotes:            make(map[string]*remoteBuffer),
+		InterpolationDelay: DefaultInterpolationDelay,
+		MinSendInterval:    DefaultMinSendInterval,
+	}
 }
 
 // ConnectRelay dials addr, performs the hello/welcome handshake, and wires
@@ -297,11 +319,27 @@ func (c *Core) onAdapterFrameInProcess(adapter Adapter, rendered map[string]bool
 
 // forwardLocalState stamps and sends state to the relay, if there is one.
 // state == nil means "don't send this frame" (get_local_state()'s nil
-// case).
+// case). Actual sends are capped to MinSendInterval regardless of how often
+// the adapter calls in — see DefaultMinSendInterval's comment. A dropped
+// frame here is not stamped with seq/timestamp at all, so it never reaches
+// the relay and never affects Core.seq's monotonic count.
 func (c *Core) forwardLocalState(state *protocol.State) {
 	if state == nil || c.relay == nil {
 		return
 	}
+
+	c.mu.Lock()
+	elapsed := time.Since(c.lastSendAt)
+	if c.lastSendAt.IsZero() {
+		elapsed = c.MinSendInterval // always allow the first send
+	}
+	if elapsed < c.MinSendInterval {
+		c.mu.Unlock()
+		return
+	}
+	c.lastSendAt = time.Now()
+	c.mu.Unlock()
+
 	st := *state
 	st.PlayerID = c.playerID
 	st.Seq = atomic.AddUint64(&c.seq, 1)

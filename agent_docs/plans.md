@@ -201,8 +201,12 @@ the two open contract questions — those stay exactly as already documented, de
 ### Phase 6 — Second game (TEVI)
 
 Visible outcome: repeat phases 1–4 for TEVI using the frozen template, and find out whether
-the contract holds up outside Emerald. First task is verifying TEVI's IL2CPP vs Mono status
-— unconfirmed, do not assume.
+the contract holds up outside Emerald. **Status: in progress**, started 2026-08-11. First
+task — verifying TEVI's IL2CPP vs Mono status — is done: **confirmed Mono**, so BepInEx/Harmony
+tooling applies directly. See `agent_docs/environment.md`'s Unity/TEVI section and
+`adapters/tevi/README.md` for the file evidence. BepInEx 5.4.23.3 is already installed on this
+machine's TEVI copy from prior use and confirmed loading a plugin, which unblocks setting up a
+MeshGhost plugin next without a fresh BepInEx install being its own task.
 
 ### Post-Phase-4 — Room codes
 

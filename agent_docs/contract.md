@@ -252,11 +252,16 @@ careless peer, not a determined attacker:
 - Max serialized size of `extras`: **1024 bytes** (`MaxExtrasBytes`).
 - Max length of `position`: **8** (`MaxPositionLen`) — headroom above the largest known real
   use (3, for a 3D game); the schema still never fixes this at 2 or 3.
-- Per-client rate limit: **120 messages/second** (`MaxMessagesPerSecond`) — set above the
-  core's current unthrottled send rate (up to ~60Hz, one per adapter frame; the brief's 10Hz
-  hypothesis is not yet enforced client-side, see the open question below) rather than at that
-  hypothesis, so correct clients aren't punished for behavior the core itself doesn't limit
-  yet.
+- Per-client rate limit: **120 messages/second** (`MaxMessagesPerSecond`) — the relay closes,
+  rather than throttles, a connection that exceeds it. **Client-side enforced since Phase 6**
+  (TEVI): `internal/core.Core.MinSendInterval` (default 50ms / 20Hz, `DefaultMinSendInterval`)
+  caps how often `forwardLocalState` actually sends to the relay, independent of how often the
+  adapter calls in. Found live: a Unity adapter's `Update()` runs uncapped well above 120Hz, so
+  the original "up to ~60Hz, one per adapter frame" assumption was already wrong for a frame-
+  driven game with no engine-level cap, and the connection was closed by the relay after about
+  two minutes of real play (see `agent_docs/verified.md`'s Phase 6.4/6.5 entry and the ADR in
+  `architecture.md`). The brief's 10Hz hypothesis is still not what's enforced — 20Hz was chosen
+  for headroom under the relay's cap, not as a claim that 20Hz is the "right" sync rate.
 - Max clients per room: **8** (`MaxClientsPerRoom`) — Phase 4's target is two; this leaves
   room for later multi-peer testing without letting a room grow unbounded. A room already at
   capacity refuses an additional join the same way a `game_id` mismatch is refused.

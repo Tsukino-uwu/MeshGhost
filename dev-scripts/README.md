@@ -17,3 +17,8 @@ root) — each script references them as `..\<name>.exe`.
 - `run-fakeadapter1.bat` / `run-fakeadapter2.bat` — two headless `cmd/meshghost-fakeadapter`
   instances (circle-motion fake ghosts, no game) for testing the core/relay without BizHawk at
   all — see `agent_docs/phases/phase5.md`.
+- `run-relay-loopback.bat` / `run-core-tevi.bat` — TEVI's Phase 6.4/6.5 loopback test: a relay
+  that echoes a lone client's own state back as `<id>-ghost`, and a core started with
+  `-game=tevi`. Pair with TEVI itself (via `adapters/tevi/MeshGhostTevi`, deployed into
+  `BepInEx/plugins/`) to see a real network round trip without needing two TEVI instances —
+  see `agent_docs/phases/phase6.md`.

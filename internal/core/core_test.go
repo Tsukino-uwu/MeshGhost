@@ -376,3 +376,71 @@ func TestRunAdapterInProcess(t *testing.T) {
 		t.Fatalf("rendered state = %+v, want area_id=%s anim=%s", got, adapter1.localState.AreaID, adapter1.localState.Anim)
 	}
 }
+
+// countingTransport is a minimal transport.Transport stand-in that just
+// counts Send calls, for testing forwardLocalState's rate cap without a
+// real relay in the loop.
+type countingTransport struct {
+	mu    sync.Mutex
+	sends int
+}
+
+func (ct *countingTransport) Send(payload []byte) error {
+	ct.mu.Lock()
+	ct.sends++
+	ct.mu.Unlock()
+	return nil
+}
+func (ct *countingTransport) OnReceive(func([]byte))   {}
+func (ct *countingTransport) OnConnect(func())         {}
+func (ct *countingTransport) OnDisconnect(func(error)) {}
+func (ct *countingTransport) OnError(func(error))      {}
+func (ct *countingTransport) Close() error             { return nil }
+
+func (ct *countingTransport) count() int {
+	ct.mu.Lock()
+	defer ct.mu.Unlock()
+	return ct.sends
+}
+
+// TestForwardLocalStateRespectsMinSendInterval is a regression test for the
+// Phase 6 (TEVI) bug found live: a Unity adapter's Update() calls in well
+// above the relay's 120 messages/second limit, and forwardLocalState used to
+// send to the relay on every single call, getting the connection closed by
+// the relay after a couple of minutes (agent_docs/verified.md's Phase
+// 6.4/6.5 entry). This drives forwardLocalState far faster than
+// MinSendInterval and checks the actual send count stays capped rather than
+// tracking the call count 1:1.
+func TestForwardLocalStateRespectsMinSendInterval(t *testing.T) {
+	c := New()
+	c.MinSendInterval = 20 * time.Millisecond
+	ct := &countingTransport{}
+	c.relay = ct
+	c.playerID = "p1"
+
+	state := protocol.State{AreaID: "a", Position: []float64{1, 2}, Anim: "idle"}
+
+	const callCount = 1000
+	start := time.Now()
+	for i := 0; i < callCount; i++ {
+		c.forwardLocalState(&state)
+	}
+	elapsed := time.Since(start)
+
+	// A tight loop of 1000 calls with no sleep should complete in well under
+	// one MinSendInterval, so this is really checking "far fewer sends than
+	// calls", not timing precision -- generous upper bound (10) so this
+	// isn't flaky on a slow CI machine, while still failing hard against the
+	// original 1:1 bug (which would report sends == 1000).
+	maxExpectedSends := int(elapsed/c.MinSendInterval) + 10
+	got := ct.count()
+	if got >= callCount {
+		t.Fatalf("forwardLocalState sent on every call (%d sends for %d calls) -- MinSendInterval cap is not working", got, callCount)
+	}
+	if got > maxExpectedSends {
+		t.Fatalf("sends = %d, want at most ~%d for %v elapsed at a %v interval", got, maxExpectedSends, elapsed, c.MinSendInterval)
+	}
+	if got < 1 {
+		t.Fatalf("expected at least the first call to send, got 0 sends")
+	}
+}

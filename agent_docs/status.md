@@ -92,9 +92,22 @@
   committing, though the GitHub Actions workflow itself is still untested end-to-end (the dry
   run proved the packaging logic, not the CI YAML). All 8 dev/testing `.bat` launchers also
   moved from the repo root into `dev-scripts/` for a cleaner public root, alongside
-  `packaging/`'s end-user-facing scripts. No open next task right now — next real milestone is
-  Phase 6 (TEVI), the post-Phase-4 room-codes work, or actually running the release workflow
-  for the first time, whichever gets picked up first.
+  `packaging/`'s end-user-facing scripts.
+- `Current focus:` **Phase 6 (TEVI) has gone about as far as it can go solo** (started
+  2026-08-11) — see `agent_docs/phases/phase6.md`. Confirmed live through 6.5 and beyond
+  (2026-08-12): Mono (not IL2CPP), a BepInEx plugin (`adapters/tevi/MeshGhostTevi`) reading real
+  player position/facing/anim/area, a full bridge→relay→core round trip via the relay's
+  `-loopback` flag, and — going beyond the original 6.1-6.6 outline, since it's fully
+  solo-testable — a real character-visual ghost clone (not a placeholder box): correctly
+  anchored, correctly facing, and playing real animations including full combat moves, driven by
+  the actual Animator clip name over the wire rather than an invented mapping. Two real bugs
+  fixed in `internal/core` and adapter code along the way, including the relay's 120 msg/sec
+  limit (`Core.MinSendInterval`, ADR in `architecture.md`, regression-tested) since TEVI's
+  `Update()` runs uncapped. Next: **6.6 (two real players) is blocked** — Steam won't run two
+  TEVI instances at once, confirmed by the user; needs a second machine. Everything else
+  solo-testable is done; what's left (cross-area filtering, real join/leave) genuinely needs a
+  second peer. Also carried forward, not blocking: testing the position read with the TEVI
+  Randomizer mod disabled (coexistence risk).
 
 ## Go networking layer (2026-08-11)
 

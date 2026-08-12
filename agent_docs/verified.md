@@ -58,7 +58,204 @@ Copy this block per fact:
 - Notes: this is a pointer, not a fixed struct address — the save block can relocate, so it
   must be re-read every frame rather than cached.
 
-### Emerald gPlayerAvatar address
+### TEVI Phase 6.1 — BepInEx plugin loads and coexists with the Randomizer
+
+- Date: 2026-08-12
+- Observed: `adapters/tevi/MeshGhostTevi` built via `dotnet build -c Release`, deployed to
+  `BepInEx/plugins/MeshGhostTevi/MeshGhostTevi.dll`, TEVI launched to the main menu.
+  `BepInEx/LogOutput.log` shows `2 plugins to load`, `Loading [MeshGhost 0.1.0]` immediately
+  followed by `[Info : MeshGhost] MeshGhost v0.1.0 loaded (Phase 6 step 6.1 hello-world).`, then
+  `Loading [Randomizer 1.6.1]` / `Plugin Randomizer is loaded!`, ending in
+  `Chainloader startup complete` with no errors. User confirmed the Randomizer's own in-game menu
+  entry still renders normally alongside ours loading — no conflict at load time.
+- Source: `adapters/tevi/MeshGhostTevi/Plugin.cs` (this repo); confirmed against
+  `BepInEx/LogOutput.log` on this machine's TEVI install (`Assembly-CSharp.dll` dated
+  2026-07-09, see `agent_docs/environment.md`).
+- Notes: per user guidance, an agent-read log line is treated as sufficient confirmation for
+  this file (distinct from genuinely visual/gameplay claims, which still require the user to
+  watch on screen). Toolchain (netstandard2.0 + BepInEx.Core/UnityEngine.Modules via NuGet)
+  confirmed working end to end for TEVI. Coexistence with the Randomizer confirmed at load time
+  only — the read-vs-patch conflict risk from `risks.md` isn't tested until 6.2 actually reads
+  game memory.
+
+### TEVI Phase 6.2 — real local player position/facing/anim/area tracked correctly
+
+- Date: 2026-08-12
+- Observed: `BepInEx/LogOutput.log` (2026-08-12 play session, TEVI + Randomizer 1.6.1 both
+  loaded) shows correct "no local player yet" while at the main menu, then live
+  `area=… pos=(x,y) dir=… anim=…` lines once in a real play session. Direction correlates
+  exactly with position delta over consecutive log lines — e.g. `pos.x` increases only while
+  `dir=RIGHT` and decreases only while `dir=LEFT` across a run of 4 consecutive lines — and
+  `anim` transitions correctly through `IDLE`/`RUNNING`/`FALLING`/`JUMPING` matching what the
+  user was doing. `area` changed `48` → `1` when the user used an in-game teleport-back item
+  (a recall/fast-travel mechanic, also used to prevent randomizer softlocks) — the one
+  large-coordinate-jump line at the exact transition is the new position read one frame before
+  `WorldManager.Instance.Area` itself updated, not a bug (confirmed by the user's explanation of
+  what they'd actually done, not guessed at).
+- Source: `adapters/tevi/MeshGhostTevi/Plugin.cs`, reading `EventManager.Instance.mainCharacter`
+  (type `CharacterBase`) → `.t.position` (`Transform.position`), `.direction`
+  (`Character.Direction` enum: `LEFT`/`RIGHT`/`TOPLAYER`/`NOTTOPLAYER`), `.aniStatus`
+  (`Character.PlayerAniState` enum: `IDLE`/`JUMPING`/`DJUMPING`/`FALLING`/`FALLING2`/`RUNNING`/
+  `DAMAGE`/`BREAKING`/`SLOPED`); and `WorldManager.Instance.Area` (`byte`). All four names and
+  types read directly from decompiling this machine's own `Assembly-CSharp.dll` (dated
+  2026-07-09, see `agent_docs/environment.md`) with `ilspycmd` — not from memory or guessing,
+  same standard as the `pokeemerald` addresses. Decompiled output kept only in the scratch
+  directory, never committed; see `agent_docs/licensing.md`.
+- Notes: per the same agent-read-log-is-sufficient guidance as the 6.1 entry. **Not yet tested
+  with the Randomizer disabled** (the coexistence risk in `risks.md`) — this session only ran
+  with it enabled. `PlayerAniState` (9 values, player-scoped) was deliberately chosen over the
+  much larger `PlayerLogicState` (~100 values, combat-move-scoped) as the `anim` tag source —
+  a smaller, ghost-relevant vocabulary, matching the contract's "each adapter defines its own
+  tag set" guidance rather than exposing every internal combat state. `area` is a `byte` — will
+  be stringified for the schema's `area_id`, same shape as Emerald's `"{mapGroup}:{mapNum}"`
+  string. Not yet decided: what `get_local_state()` should treat as "don't send this frame"
+  (menus, cutscenes) — TEVI's equivalent of Emerald's `inOverworld()` gate, deferred to when
+  ghost rendering (6.3) makes it concretely necessary.
+
+### TEVI Phase 6.3 — placeholder ghost tracks the local player in-engine
+
+- Date: 2026-08-12
+- Observed: user watched a translucent magenta square appear next to their character in a real
+  play session, correctly offset, and confirmed it stayed "tied/glued to the player when
+  moving/jumping" and did **not** disappear or fail to reappear when changing rooms/areas
+  (screenshot: "Oasis Cove" area, ghost visible beside the player character). This is a
+  genuinely visual/gameplay claim, confirmed by the user watching it directly, not from an
+  agent-read log.
+- Source: `adapters/tevi/MeshGhostTevi/Plugin.cs`, `CreateGhost()`/`Update()`. Ghost is a plain
+  `SpriteRenderer` on a runtime-generated flat-color texture, positioned every frame at
+  `player.t.position + GhostOffset` (no network, fixed local offset only, per the step's scope).
+  Recreated lazily (`if (ghost == null) CreateGhost();`) since a scene unload on an area
+  transition destroys it along with the rest of that scene's objects — this is what the
+  "persisted across a room transition" observation actually confirms, not the same instance
+  surviving.
+- Notes: this took two real, on-screen-confirmed bugs to get right, both found by the user
+  actually testing rather than assumed correct off a clean build (per `CLAUDE.md`'s standing
+  rule):
+  1. **First attempt was invisible.** `Sprite.Create`'s `pixelsPerUnit=100` shrank a 32px
+     texture to 0.32 world units — about 1/200th of `CharacterBase.charHeight = 65f` (a real
+     field read from `Assembly-CSharp.dll`). Fixed by setting `pixelsPerUnit=1` and scaling the
+     transform to a `GhostSizeUnits = 48` (~0.7x `charHeight`) calibrated against that cited
+     fact, not a guess.
+  2. **First attempt spammed the console** (7324 lines in one play session). The
+     change-triggered logging from 6.2 used a `0.5`-unit position-change epsilon, but real
+     per-frame movement in TEVI is itself only ~0.5–0.7 units — confirmed from that very run's
+     own log lines (e.g. consecutive `pos.x` values `7403.64` → `7402.85` → `7402.06`) — so the
+     epsilon sat at the noise floor and fired almost every frame. This is the same "guessed
+     constant instead of measured" mistake already flagged once in Emerald's Phase 5.5 history
+     (`STEP_DURATION_FRAMES`). Fixed by capping continuous-position-change logging to a fixed
+     `MinLogIntervalSeconds = 0.5` cadence while still logging discrete changes (direction/anim/
+     area) immediately.
+
+### TEVI Phase 6.4/6.5 — real bridge→relay→core round trip, loopback ghost confirmed on screen
+
+- Date: 2026-08-12
+- Observed: after the `MinSendInterval` fix below, user re-ran a real `cmd/meshghost -game=tevi`
+  core and `cmd/meshghost-relay -loopback`, and watched the loopback-echoed cyan remote ghost
+  render in TEVI and track their own character (screenshot: cyan ghost overlapping/beside the
+  player near a beach umbrella). User confirmed it "follows me really well, even if i move
+  around and jump. and also across different rooms" — smooth tracking through movement,
+  jumping, and area transitions, no disconnect this time. This is the real Phase 6 analogue of
+  Emerald's Phase 3 loopback milestone: a full adapter→bridge→core→relay→core→bridge→adapter
+  round trip through real processes, not a same-process shortcut.
+- Source: `adapters/tevi/MeshGhostTevi/BridgeClient.cs` (bridge NDJSON client) and `Plugin.cs`
+  (`UpsertRemoteGhost`/`DespawnRemoteGhost`, cyan `RemoteGhostColor`, distinct from 6.3's
+  magenta local-diagnostic ghost). Core/relay: `internal/core`, `internal/relay` with
+  `-loopback` (unmodified relay-side logic from Phase 3, `internal/relay/relay.go`).
+- Notes: getting here required first hitting and fixing a real bug (see the next entry below)
+  — the first attempt's connection was closed by the relay before the ghost could be clearly
+  observed. This confirms the fix actually worked, not just that it compiled and passed a unit
+  test. Also investigated and ruled out during this session, not a bug: the magenta ghost
+  staying visible after closing the core and relay processes — expected, since it's a fixed
+  local-offset diagnostic with no dependency on network state at all (only the cyan remote
+  ghost should react to connection state). A one-time crash on moving the TEVI window was also
+  reported; not reproduced or diagnosed, though a related-but-unconfirmed background-thread
+  BepInEx-logging thread-safety risk was found and fixed defensively regardless (see below).
+
+### TEVI Phase 6.4/6.5 — relay rate-limit disconnect, found live and fixed in `internal/core`
+
+- Date: 2026-08-12
+- Observed: relay log showed `client exceeded 120 messages/second, closing connection` roughly
+  2m17s after the relay started (01:45:47 → 01:48:04), and the core log showed the matching
+  cascade of `send state to relay failed: ... connection was aborted` once the relay side
+  closed — TEVI's `Update()` runs uncapped well above the relay's `MaxMessagesPerSecond = 120`,
+  and `forwardLocalState` previously sent to the relay on every single call.
+- Source: `internal/core/core.go` (`Core.MinSendInterval`, `DefaultMinSendInterval = 50ms` /
+  20Hz), gating `forwardLocalState` independent of adapter call rate. Full reasoning in the
+  2026-08-12 ADR in `architecture.md`. `agent_docs/contract.md`'s Limits section updated to
+  match (the old "up to ~60Hz, one per adapter frame" assumption was itself wrong for a
+  frame-driven engine adapter with no fixed cap).
+- Notes: this is the exact issue predicted (not guessed at the time, but not yet observed
+  either) during Phase 6 planning — see `phase6.md`'s carried-over plan notes. Fixed in
+  `internal/core`, not the TEVI adapter specifically, so every current and future adapter
+  benefits. Regression-tested (`TestForwardLocalStateRespectsMinSendInterval`,
+  `internal/core/core_test.go`, drives 1000 calls in a tight loop and asserts the send count
+  stays capped) and the full `go test ./...` suite stays green. While in this code, also fixed
+  a real (but not confirmed as the cause of the window-move crash above) thread-safety risk:
+  `BridgeClient`'s background connect/read thread now queues log lines
+  (`BridgeClient.DrainLogsInto`) instead of calling BepInEx's logger directly from a non-main
+  thread.
+
+### TEVI Phase 6 — real character-visual ghost rendering, confirmed correct via loopback
+
+- Date: 2026-08-12
+- Observed: entirely solo-testable via loopback (see Part 4 of the planning session's original
+  reasoning — a remote's *rendering* doesn't require a second real player, only real remote
+  data, which `-loopback` already provides). User confirmed, across two rounds of real bugs
+  found and fixed live: the remote ghost is a real clone of the player's own character (not a
+  flat placeholder), anchored at the correct body position (not floating near the head),
+  offset to the side for solo-testing visibility (not overlapping the real player), facing the
+  correct direction when turning, with **no outline-seam glitch**, and "all combat animations &
+  everything" playing correctly — confirmed explicitly, not just idle/run/jump.
+- Source: `adapters/tevi/MeshGhostTevi/Plugin.cs` (`CreateRealGhostVisual`, `UpsertRemoteGhost`).
+  The ghost is `Instantiate(player.spranim_prefer.pixel.gameObject)` — cloning
+  `CharacterBase.spranim_prefer.pixel` (`PixelCharacter`, confirmed via decompiling
+  `PixelCharacter.cs` to have no `Update`/`Awake`/`Start` of its own, i.e. no gameplay logic to
+  strip beyond defensively removing any `Collider2D`/`Rigidbody2D`) rather than the
+  gameplay-carrying `CharacterBase`/`playerController` hierarchy. Animation is driven by
+  `Animator.Play()` with the *real* currently-playing clip name
+  (`SpriteAnimation.GetAnimationTrueName()`, sent as the network `anim` field instead of the
+  `PlayerAniState` enum) — chosen specifically to avoid inventing an enum-to-animation-name
+  mapping table; confirmed correct on the first real test.
+- Notes: three real bugs found and fixed live, each with a concrete, cited cause rather than a
+  patched-over symptom:
+  1. **Ghost rendered near the head, not the body.** The clone's world position was set
+     directly from network position, discarding the local offset between
+     `spranim_prefer.pixel.transform.position` and `t.position` that existed in the original
+     hierarchy. Fixed by measuring that real offset (`RemoteGhostVisual.AnchorOffset`) at clone
+     time and re-applying it every frame — the same class of fix as Emerald's
+     `GHOST_Y_CORRECTION`, but derived from a live-read value instead of a hand-tuned constant.
+  2. **Facing was inverted**, and caused a visible outline seam. `flipX = (Orientation ==
+     "LEFT")` was backwards (fixed to `"RIGHT"`), and only `basesprite.flipX` was being set —
+     the outline/effect/flash/support sprite layers are normally kept in sync by
+     `SpriteAnimation`'s own per-frame logic, which this clone deliberately doesn't carry (see
+     the class comment above `RemoteGhostVisual`), so the outline sprite was stuck at a stale
+     flip state whenever facing didn't match it. Fixed by flipping all five sprite layers
+     together explicitly.
+  3. (Carried from the prior entry) the relay rate-limit disconnect, without which none of this
+     could have been observed at all.
+
+### TEVI Phase 6 — ghost does not visually intrude on full-screen menus (unlike Emerald)
+
+- Date: 2026-08-12
+- Observed: user opened TEVI's full-screen Characters page and Map page with the plugin active
+  and both rendered cleanly — no ghost sprite drawn over the UI. On the Map screen specifically
+  the blurred game world is visibly still rendering behind the semi-transparent panel, meaning
+  the world (ghost included) keeps existing and rendering underneath the menu rather than being
+  hidden or occluding it.
+- Source: `adapters/tevi/MeshGhostTevi/Plugin.cs` — the ghost is an ordinary world-space
+  `GameObject`/`SpriteRenderer`, rendered by the game's own camera through its normal pipeline,
+  not an out-of-band overlay.
+- Notes: this is a structurally different situation from Emerald, not just a lucky outcome.
+  Emerald's ghost was drawn via BizHawk's `gui.drawImage`, an emulator-level overlay entirely
+  outside the game's own rendering — it had no notion of "behind the menu" and needed an
+  explicit `inOverworld()` gate to avoid drawing over battle/menu screens. TEVI's menus are a UI
+  layer (almost certainly a `Canvas` in a separate overlay render pass) drawn on top of the
+  world scene, so a world-space object naturally ends up underneath it with no adapter-side
+  gating required. **This resolves the visual-intrusion half of the still-open "don't send this
+  frame" question, but not the other half**: state is still being sent to the network the whole
+  time a menu is open, and whether that's the *semantically* right behavior (e.g. should a
+  remote's ghost visibly freeze while a peer is in a menu) is undecided and untested — a
+  separate question from whether the ghost looks broken locally.
 
 - Date: 2026-08-11
 - Observed: `grep -i gPlayerAvatar pokeemerald.map` and `grep -i gPlayerAvatar pokeemerald.sym`

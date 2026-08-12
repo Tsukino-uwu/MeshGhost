@@ -1,0 +1,50 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Phase 6 (TEVI) BepInEx plugin. netstandard2.0 plus BepInEx/Unity via NuGet is the same
+    approach read from BlackSoulKnight/Tevi_Randomizer's own .csproj (MIT-licensed, see
+    agent_docs/licensing.md), confirmed working against this exact game.
+
+    lib/Assembly-CSharp.dll is a local copy of the user's own TEVI install (gitignored by the
+    repo's blanket *.dll rule, never committed), referenced only to compile against TEVI's
+    real class/field names (agent_docs/licensing.md's "facts, never code" posture, same as
+    pokeemerald). Dated 2026-07-09; see agent_docs/environment.md for the version stamp.
+  -->
+
+  <PropertyGroup>
+    <TargetFramework>netstandard2.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>disable</Nullable>
+    <AssemblyName>MeshGhostTevi</AssemblyName>
+    <RootNamespace>MeshGhostTevi</RootNamespace>
+    <!-- BepInEx plugins are loaded straight from a DLL, not published/run as an app. -->
+    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- BepInEx 5.4.x, matching this machine's confirmed-working TEVI install
+         (agent_docs/environment.md). -->
+    <PackageReference Include="BepInEx.Core" Version="5.*" />
+    <!-- Unity API surface pinned to TEVI's actual confirmed Unity version (2021.3.25f1, read
+         directly from UnityPlayer.dll, see agent_docs/environment.md), not the 2021.3.33 the
+         randomizer's own project happens to reference. -->
+    <PackageReference Include="UnityEngine.Modules" Version="2021.3.25" IncludeAssets="compile" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Reference Include="Assembly-CSharp">
+      <HintPath>lib\Assembly-CSharp.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <!-- Newtonsoft.Json.dll: the game's own copy (Managed\Newtonsoft.Json.dll), not a fresh
+         NuGet pull. Private=false so we don't ship a second copy alongside the one Unity/TEVI
+         already loads: two different assemblies both named Newtonsoft.Json in the same
+         AppDomain is a real, avoidable duplicate-type conflict. -->
+    <Reference Include="Newtonsoft.Json">
+      <HintPath>lib\Newtonsoft.Json.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+
+</Project>
