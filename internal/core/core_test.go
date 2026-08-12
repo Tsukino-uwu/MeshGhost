@@ -239,6 +239,43 @@ func TestSecondHelloWithDifferentGameIsRefused(t *testing.T) {
 	}
 }
 
+// TestAdapterHelloAfterStartupConnectIsNoOp confirms the *other* -game/config
+// startup path (startCore, direct ConnectRelay -- used by every dev-scripts
+// run-core*.bat that passes -game explicitly) also records which game_id it
+// connected as, so a real adapter's hello for that same game_id arriving
+// afterward is a no-op, not treated as a second, conflicting game. Found
+// live 2026-08-12 testing Phase 7's Pseudoregalia probe: ConnectRelay never
+// set relayGame, so ConnectRelayOnAdapterHello always compared the real
+// hello's game_id against "", refused it as a mismatch, and closed the
+// bridge connection -- a regression hitting any adapter sending hello
+// (Emerald and TEVI both do, per agent_docs/architecture.md's 2026-08-12
+// ADR) against a core started with an explicit -game.
+func TestAdapterHelloAfterStartupConnectIsNoOp(t *testing.T) {
+	relayAddr := startRelay(t)
+	c, bridgeAddr := startCore(t, relayAddr, "pseudoregalia", "room1", "alice")
+	firstPlayerID := c.PlayerID()
+
+	adapter := dialFakeAdapter(t, bridgeAddr)
+	var disconnected bool
+	adapter.conn.OnDisconnect(func(err error) { disconnected = true })
+	adapter.hello("pseudoregalia")
+	time.Sleep(50 * time.Millisecond)
+
+	if disconnected {
+		t.Fatal("bridge connection was closed after a same-game hello -- the real symptom of the mismatch bug")
+	}
+	if c.PlayerID() != firstPlayerID {
+		t.Fatalf("core's relay connection changed after a same-game hello: got player id %q, want unchanged %q", c.PlayerID(), firstPlayerID)
+	}
+
+	// The connection must still be usable afterward, not just left open.
+	adapter.frame(&protocol.State{AreaID: "a", Position: []float64{1, 2}, Anim: "idle"})
+	time.Sleep(50 * time.Millisecond)
+	if disconnected {
+		t.Fatal("bridge connection was closed after a post-hello local_state frame")
+	}
+}
+
 // TestTwoCoresExchangeStateOverRealRelay is the Phase 3/4 milestone in
 // miniature: two Core instances, each driven by a fake adapter standing in
 // for a real one, connect to one real relay and a state sent by one

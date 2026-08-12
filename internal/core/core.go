@@ -178,6 +178,7 @@ func (c *Core) ConnectRelay(addr, gameID, room, displayName string, timeout time
 	case w := <-welcome:
 		c.mu.Lock()
 		c.playerID = w.PlayerID
+		c.relayGame = gameID
 		c.mu.Unlock()
 		return nil
 	case <-time.After(timeout):
