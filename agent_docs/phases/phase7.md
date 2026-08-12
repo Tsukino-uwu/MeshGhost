@@ -319,8 +319,17 @@ GBA memory). Started early relative to Phase 6's own two-player milestone (6.6) 
       back — leaving the ghost genuinely uncontrolled. `Possess` grounded via `gh api
       search/code` (470 hits). Also added a `MAX_TICK_DELTA` defensive backstop: refuses and
       logs any single-tick ghost move larger than 500 units rather than applying it, so a
-      future bug of this shape freezes the ghost instead of dragging the player again. Not yet
-      retested live with the offset re-enabled.
+      future bug of this shape freezes the ghost instead of dragging the player again.
+
+      **Confirmed live, sixth run: the drag is genuinely fixed.** `re-possess original pawn
+      after spawn: ok`, `ghost is following`, and the run lasted **82 seconds** with no
+      dragging and no forced death — versus ~13s to death on every one of the prior three
+      dragged runs. The ghost visibly moved around following the player. One smaller, separate
+      issue found the same run: the camera stayed pointed at the ghost even though input
+      control had correctly returned to the real pawn — `Possess()` reassigns control but not
+      necessarily the active camera view target, a distinct concept in UE. **Fixed**: added
+      `controller:SetViewTargetWithBlend(pawn, 0)` right after `Possess()`, grounded via `gh
+      api search/code` (218 hits). Not yet retested live.
 - [ ] 7.5 — Port 7.1's real local-state read (not just Stage 3's hardcoded dummy frame) and
       7.3's field decisions into a persistent, per-frame Lua bridge client — a `RegisterHook`-
       or engine-tick-driven loop, not a one-shot script like Stages 1-3, non-blocking connect
