@@ -84,6 +84,23 @@ func dialFakeAdapter(t *testing.T, bridgeAddr string) *fakeAdapter {
 	return fa
 }
 
+// hello sends a bridge.Hello declaring gameID -- must be the first message
+// on a fresh connection per agent_docs/contract.md, same as a real adapter.
+func (fa *fakeAdapter) hello(gameID string) {
+	fa.t.Helper()
+	payload, err := json.Marshal(bridge.Hello{GameID: gameID})
+	if err != nil {
+		fa.t.Fatalf("marshal hello: %v", err)
+	}
+	env, err := json.Marshal(bridge.Envelope{Type: bridge.TypeHello, Payload: payload})
+	if err != nil {
+		fa.t.Fatalf("marshal envelope: %v", err)
+	}
+	if err := fa.conn.Send(env); err != nil {
+		fa.t.Fatalf("send hello: %v", err)
+	}
+}
+
 // frame simulates one adapter frame tick: sends the given local state (or
 // none, for state == nil) to the core.
 func (fa *fakeAdapter) frame(state *protocol.State) {
@@ -123,6 +140,103 @@ func startCore(t *testing.T, relayAddr, gameID, room, name string) (*Core, strin
 	go c.ServeBridge(ln)
 
 	return c, ln.Addr().String()
+}
+
+// startCoreLazy starts a Core the way cmd/meshghost does with no -game set:
+// no relay connection yet, only the fields ConnectRelayOnAdapterHello needs
+// to dial once a bridge.Hello actually arrives.
+func startCoreLazy(t *testing.T, relayAddr, room, name string) (*Core, string) {
+	t.Helper()
+	c := New()
+	c.RelayAddr = relayAddr
+	c.Room = room
+	c.DisplayName = name
+	c.DialTimeout = testTimeout
+
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen bridge: %v", err)
+	}
+	t.Cleanup(func() { ln.Close() })
+	go c.ServeBridge(ln)
+
+	return c, ln.Addr().String()
+}
+
+// waitForPlayerID polls until Core.PlayerID() is non-empty (i.e. ConnectRelay
+// has completed) or testTimeout elapses.
+func waitForPlayerID(t *testing.T, c *Core) {
+	t.Helper()
+	deadline := time.Now().Add(testTimeout)
+	for time.Now().Before(deadline) {
+		if c.PlayerID() != "" {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatal("timed out waiting for core to connect to the relay")
+}
+
+// TestBridgeHelloConnectsToRelay confirms Core.ConnectRelayOnAdapterHello --
+// the deferred-connect path used when -game/the config file didn't already
+// supply one (agent_docs/architecture.md's 2026-08-12 ADR) -- actually
+// connects once a real bridge.Hello arrives.
+func TestBridgeHelloConnectsToRelay(t *testing.T) {
+	relayAddr := startRelay(t)
+	c, bridgeAddr := startCoreLazy(t, relayAddr, "room1", "alice")
+
+	adapter := dialFakeAdapter(t, bridgeAddr)
+	adapter.hello("emerald")
+
+	waitForPlayerID(t, c)
+}
+
+// TestLocalStateBeforeHelloDoesNotSendOrCrash confirms local_state frames
+// arriving before any hello (or with no hello at all) are harmless no-ops --
+// forwardLocalState's nil-relay check -- and that a late hello still works
+// normally afterward, i.e. the earlier frames didn't leave the core wedged.
+func TestLocalStateBeforeHelloDoesNotSendOrCrash(t *testing.T) {
+	relayAddr := startRelay(t)
+	c, bridgeAddr := startCoreLazy(t, relayAddr, "room1", "alice")
+
+	adapter := dialFakeAdapter(t, bridgeAddr)
+	sent := protocol.State{AreaID: "a", Position: []float64{1, 2}, Anim: "idle"}
+	for i := 0; i < 5; i++ {
+		adapter.frame(&sent)
+	}
+	time.Sleep(50 * time.Millisecond)
+	if c.PlayerID() != "" {
+		t.Fatalf("core connected to the relay without ever receiving a hello (player id = %q)", c.PlayerID())
+	}
+
+	adapter.hello("emerald")
+	waitForPlayerID(t, c)
+}
+
+// TestSecondHelloWithDifferentGameIsRefused confirms a single Core serves
+// exactly one game per process: once connected to the relay for one
+// game_id, ConnectRelayOnAdapterHello for a different game_id is refused
+// rather than silently switching (agent_docs/architecture.md's ADR).
+func TestSecondHelloWithDifferentGameIsRefused(t *testing.T) {
+	relayAddr := startRelay(t)
+	c, bridgeAddr := startCoreLazy(t, relayAddr, "room1", "alice")
+
+	adapter := dialFakeAdapter(t, bridgeAddr)
+	adapter.hello("emerald")
+	waitForPlayerID(t, c)
+	firstPlayerID := c.PlayerID()
+
+	if err := c.ConnectRelayOnAdapterHello("tevi"); err == nil {
+		t.Fatal("expected an error connecting a second, different game_id to an already-connected core, got nil")
+	}
+	if c.PlayerID() != firstPlayerID {
+		t.Fatalf("core's relay connection changed after a refused second hello: got player id %q, want unchanged %q", c.PlayerID(), firstPlayerID)
+	}
+
+	// The original game_id must still be a no-op, not also refused.
+	if err := c.ConnectRelayOnAdapterHello("emerald"); err != nil {
+		t.Fatalf("re-hello for the same game_id should be a no-op, got error: %v", err)
+	}
 }
 
 // TestTwoCoresExchangeStateOverRealRelay is the Phase 3/4 milestone in

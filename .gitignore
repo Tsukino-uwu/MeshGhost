@@ -10,6 +10,18 @@
 # ADR), not Go build output -- must actually be committed.
 !/adapters/pokemon/emerald/lib/**/*.dll
 
+# packaging/release/games/pokemon/ is assembled by .github/workflows/release.yml
+# (copied fresh from adapters/pokemon/emerald/ each run) or by a local dry run --
+# never hand-edited, never committed.
+/packaging/release/games/pokemon/
+
+# Exception: the TEVI mod DLL is committed on purpose -- CI cannot build it (the
+# .csproj needs the user's own proprietary game DLLs, which are never committed,
+# per agent_docs/licensing.md), so this is our own compiled output, checked in
+# deliberately. dev-scripts/build-tevi.bat produces it; release.yml's staleness
+# gate fails the build if it's older than the source that produced it.
+!/packaging/release/games/tevi/MeshGhostTevi.dll
+
 # Go
 /vendor/
 

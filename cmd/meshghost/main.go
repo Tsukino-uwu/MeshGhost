@@ -14,25 +14,37 @@ import (
 	"meshghost/internal/core"
 )
 
-// fileConfig is the shape of an optional JSON config file (see -config) --
-// a friendlier alternative to CLI flags for a non-developer player, per
-// packaging/README.md. Pointer fields distinguish "absent from the file"
-// from "present with a zero value", so a config file only ever overrides
-// what it actually mentions.
+// fileConfig is the shape of the "client" section of an optional JSON config
+// file (see -config) -- a friendlier alternative to CLI flags for a
+// non-developer player, per packaging/README.md. Pointer fields distinguish
+// "absent from the file" from "present with a zero value", so a config file
+// only ever overrides what it actually mentions. The JSON field names are
+// deliberately end-user-facing and differ from the flag names below:
+// "connect_to" (not "relay") is the address you connect out to, and
+// "local_game_bridge" (not "bridge") makes clear that socket never leaves
+// the machine -- see packaging/release/config.json and its README.txt.
 type fileConfig struct {
-	Relay  *string `json:"relay"`
-	Bridge *string `json:"bridge"`
+	Relay  *string `json:"connect_to"`
+	Bridge *string `json:"local_game_bridge"`
 	Game   *string `json:"game"`
 	Room   *string `json:"room"`
 	Name   *string `json:"name"`
 	Interp *string `json:"interp"`
 }
 
+// rootConfig is the top-level shape of the config file: a "client" section
+// read by this binary, sitting alongside a "server" section (meaningless
+// here) read by cmd/meshghost-relay from the same file in the shipped
+// package -- see packaging/release/config.json.
+type rootConfig struct {
+	Client *fileConfig `json:"client"`
+}
+
 // applyFileConfig loads path (if it exists -- silently doing nothing if not,
 // so existing flag-only usage is unaffected) and overwrites any flag that
-// was NOT explicitly passed on the command line with the file's value.
-// CLI flags always win over the file, matching normal config-layering
-// convention (most-specific/most-explicit source wins).
+// was NOT explicitly passed on the command line with the file's "client"
+// section. CLI flags always win over the file, matching normal
+// config-layering convention (most-specific/most-explicit source wins).
 func applyFileConfig(path string, explicit map[string]bool, relayAddr, bridgeAddr, gameID, room, name *string, interp *time.Duration) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -41,11 +53,16 @@ func applyFileConfig(path string, explicit map[string]bool, relayAddr, bridgeAdd
 		}
 		return
 	}
-	var fc fileConfig
-	if err := json.Unmarshal(data, &fc); err != nil {
+	var rc rootConfig
+	if err := json.Unmarshal(data, &rc); err != nil {
 		log.Printf("meshghost: warning: could not parse config file %s: %v", path, err)
 		return
 	}
+	if rc.Client == nil {
+		log.Printf("meshghost: warning: config file %s has no \"client\" section", path)
+		return
+	}
+	fc := *rc.Client
 	if fc.Relay != nil && !explicit["relay"] {
 		*relayAddr = *fc.Relay
 	}
@@ -74,32 +91,43 @@ func applyFileConfig(path string, explicit map[string]bool, relayAddr, bridgeAdd
 func main() {
 	relayAddr := flag.String("relay", "127.0.0.1:7777", "relay address to connect to")
 	bridgeAddr := flag.String("bridge", "127.0.0.1:7778", "address to listen on for the adapter bridge")
-	gameID := flag.String("game", "", "game_id to advertise to the relay (required)")
+	gameID := flag.String("game", "", "game_id to advertise to the relay -- optional now that a "+
+		"real adapter's own Hello declares it (internal/bridge.Hello); set this to connect at "+
+		"startup instead of waiting for one, e.g. for dev/testing scripts with no adapter attached")
 	room := flag.String("room", "default", "room name to join")
 	name := flag.String("name", "player", "display name to advertise to the relay")
 	interp := flag.Duration("interp", core.DefaultInterpolationDelay,
 		"interpolation delay for remote ghosts (e.g. 200ms) — how far behind the most recent "+
 			"samples remotes are rendered, to smooth over network jitter")
 	configPath := flag.String("config", "config.json",
-		"path to an optional JSON config file (relay/bridge/game/room/name/interp) -- a friendlier "+
-			"alternative to flags for non-developer use; silently ignored if it doesn't exist; any "+
-			"flag explicitly passed on the command line overrides the same field from this file")
+		"path to an optional JSON config file with a \"client\" section "+
+			"(connect_to/local_game_bridge/game/room/name/interp) -- a friendlier alternative to "+
+			"flags for non-developer use; silently ignored if it doesn't exist; any flag explicitly "+
+			"passed on the command line overrides the same field from this file")
 	flag.Parse()
 
 	explicit := map[string]bool{}
 	flag.Visit(func(f *flag.Flag) { explicit[f.Name] = true })
 	applyFileConfig(*configPath, explicit, relayAddr, bridgeAddr, gameID, room, name, interp)
 
-	if *gameID == "" {
-		log.Fatal("meshghost: -game is required (e.g. -game=emerald), or set \"game\" in the config file")
-	}
-
 	c := core.New()
 	c.InterpolationDelay = *interp
-	if err := c.ConnectRelay(*relayAddr, *gameID, *room, *name, 5*time.Second); err != nil {
-		log.Fatalf("meshghost: %v", err)
+	c.RelayAddr = *relayAddr
+	c.Room = *room
+	c.DisplayName = *name
+	c.DialTimeout = 5 * time.Second
+
+	if *gameID != "" {
+		if err := c.ConnectRelay(*relayAddr, *gameID, *room, *name, c.DialTimeout); err != nil {
+			log.Fatalf("meshghost: %v", err)
+		}
+		log.Printf("meshghost: connected to relay %s as %s in room %q", *relayAddr, c.PlayerID(), *room)
+	} else {
+		log.Printf("meshghost: no game set -- waiting for a game to connect and say hello...")
+		c.OnRelayConnected = func(gameID string) {
+			log.Printf("meshghost: connected to relay %s as %s in room %q (game %q)", *relayAddr, c.PlayerID(), *room, gameID)
+		}
 	}
-	log.Printf("meshghost: connected to relay %s as %s in room %q", *relayAddr, c.PlayerID(), *room)
 
 	ln, err := net.Listen("tcp", *bridgeAddr)
 	if err != nil {

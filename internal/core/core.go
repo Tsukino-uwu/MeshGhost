@@ -72,9 +72,32 @@ type Adapter interface {
 // listener accepting adapter connections, and a per-remote-player
 // interpolation buffer.
 type Core struct {
-	relay    transport.Transport
-	playerID string
-	seq      uint64
+	relay     transport.Transport
+	playerID  string
+	relayGame string // game_id this Core is connected to the relay as, once connected
+	seq       uint64
+
+	// RelayAddr, Room, DisplayName, and DialTimeout are used by
+	// ConnectRelayOnAdapterHello to dial the relay lazily, the first time an
+	// adapter's bridge.Hello arrives with a game_id, for callers that don't
+	// already know the game at startup (e.g. cmd/meshghost with no -game
+	// flag/config value) — see agent_docs/architecture.md's ADR. Unused by
+	// the direct ConnectRelay path. Set these before ServeBridge if
+	// ConnectRelayOnAdapterHello will be relied on.
+	RelayAddr   string
+	Room        string
+	DisplayName string
+	DialTimeout time.Duration
+
+	// OnRelayConnected, if set, is called once after
+	// ConnectRelayOnAdapterHello successfully connects — lets a caller like
+	// cmd/meshghost log its usual "connected to relay" line even though the
+	// connection now happens off the initial startup path. Not called by
+	// the direct ConnectRelay path, whose caller already knows synchronously
+	// when it returns.
+	OnRelayConnected func(gameID string)
+
+	relayConnectMu sync.Mutex // serializes ConnectRelayOnAdapterHello dials
 
 	// InterpolationDelay overrides DefaultInterpolationDelay for this Core.
 	// Exported so cmd/meshghost can set it from a flag; adapters never see
@@ -112,7 +135,9 @@ func (c *Core) ConnectRelay(addr, gameID, room, displayName string, timeout time
 	if err != nil {
 		return fmt.Errorf("core: dial relay: %w", err)
 	}
+	c.mu.Lock()
 	c.relay = conn
+	c.mu.Unlock()
 
 	welcome := make(chan protocol.Welcome, 1)
 	conn.OnError(func(err error) { log.Printf("core: relay connection error: %v", err) })
@@ -151,16 +176,61 @@ func (c *Core) ConnectRelay(addr, gameID, room, displayName string, timeout time
 
 	select {
 	case w := <-welcome:
+		c.mu.Lock()
 		c.playerID = w.PlayerID
+		c.mu.Unlock()
 		return nil
 	case <-time.After(timeout):
 		return fmt.Errorf("core: timed out waiting for welcome from relay")
 	}
 }
 
+// ConnectRelayOnAdapterHello lazily connects Core to the relay the first
+// time an adapter declares its game via a bridge.Hello, instead of
+// requiring the caller to already know the game_id at startup — see
+// agent_docs/architecture.md's ADR. Uses RelayAddr/Room/DisplayName/
+// DialTimeout, which must be set (directly on the Core) before any bridge
+// connection can send a Hello.
+//
+// No-op if this Core is already connected to the relay for the same
+// gameID. If it's already connected for a *different* gameID, returns an
+// error rather than reconnecting: the earlier connection's relay Hello
+// already committed this Core to that game and can't be retracted, so a
+// second game can't share the same Core/process.
+func (c *Core) ConnectRelayOnAdapterHello(gameID string) error {
+	c.relayConnectMu.Lock()
+	defer c.relayConnectMu.Unlock()
+
+	c.mu.Lock()
+	alreadyConnected := c.relay != nil
+	connectedGame := c.relayGame
+	c.mu.Unlock()
+
+	if alreadyConnected {
+		if connectedGame == gameID {
+			return nil
+		}
+		return fmt.Errorf("core: already connected to the relay as game %q, cannot also serve %q on the same process", connectedGame, gameID)
+	}
+
+	if err := c.ConnectRelay(c.RelayAddr, gameID, c.Room, c.DisplayName, c.DialTimeout); err != nil {
+		return err
+	}
+	c.mu.Lock()
+	c.relayGame = gameID
+	c.mu.Unlock()
+
+	if c.OnRelayConnected != nil {
+		c.OnRelayConnected(gameID)
+	}
+	return nil
+}
+
 // PlayerID returns the id assigned by the relay at Welcome. Empty until
 // ConnectRelay succeeds.
 func (c *Core) PlayerID() string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	return c.playerID
 }
 
@@ -267,14 +337,23 @@ func (c *Core) handleBridgeConn(netConn net.Conn) {
 		if err := json.Unmarshal(payload, &env); err != nil {
 			return
 		}
-		if env.Type != bridge.TypeLocalState {
-			return
+		switch env.Type {
+		case bridge.TypeHello:
+			var h bridge.Hello
+			if err := json.Unmarshal(env.Payload, &h); err != nil {
+				return
+			}
+			if err := c.ConnectRelayOnAdapterHello(h.GameID); err != nil {
+				log.Printf("core: %v", err)
+				nd.Close()
+			}
+		case bridge.TypeLocalState:
+			var msg bridge.LocalState
+			if err := json.Unmarshal(env.Payload, &msg); err != nil {
+				return
+			}
+			c.onAdapterFrame(msg, nd, rendered)
 		}
-		var msg bridge.LocalState
-		if err := json.Unmarshal(env.Payload, &msg); err != nil {
-			return
-		}
-		c.onAdapterFrame(msg, nd, rendered)
 	})
 }
 
@@ -324,11 +403,19 @@ func (c *Core) onAdapterFrameInProcess(adapter Adapter, rendered map[string]bool
 // frame here is not stamped with seq/timestamp at all, so it never reaches
 // the relay and never affects Core.seq's monotonic count.
 func (c *Core) forwardLocalState(state *protocol.State) {
-	if state == nil || c.relay == nil {
+	if state == nil {
 		return
 	}
 
 	c.mu.Lock()
+	relay := c.relay
+	if relay == nil {
+		// No adapter has sent a Hello yet (or -game/config never set one) --
+		// nothing to forward to. Not an error: this is the normal state
+		// while ConnectRelayOnAdapterHello is waiting for one.
+		c.mu.Unlock()
+		return
+	}
 	elapsed := time.Since(c.lastSendAt)
 	if c.lastSendAt.IsZero() {
 		elapsed = c.MinSendInterval // always allow the first send
@@ -338,13 +425,14 @@ func (c *Core) forwardLocalState(state *protocol.State) {
 		return
 	}
 	c.lastSendAt = time.Now()
+	playerID := c.playerID
 	c.mu.Unlock()
 
 	st := *state
-	st.PlayerID = c.playerID
+	st.PlayerID = playerID
 	st.Seq = atomic.AddUint64(&c.seq, 1)
 	st.Timestamp = time.Now().UnixMilli()
-	c.sendState(st)
+	c.sendState(relay, st)
 }
 
 // tickRenders diffs the currently-interpolated remote set against what was
@@ -368,7 +456,7 @@ func (c *Core) tickRenders(rendered map[string]bool, render func(id string, st p
 	}
 }
 
-func (c *Core) sendState(st protocol.State) {
+func (c *Core) sendState(relay transport.Transport, st protocol.State) {
 	payload, err := json.Marshal(st)
 	if err != nil {
 		log.Printf("core: BUG: state failed to marshal: %v", err)
@@ -379,7 +467,7 @@ func (c *Core) sendState(st protocol.State) {
 		log.Printf("core: BUG: state envelope failed to marshal: %v", err)
 		return
 	}
-	if err := c.relay.Send(env); err != nil {
+	if err := relay.Send(env); err != nil {
 		log.Printf("core: send state to relay failed: %v", err)
 	}
 }

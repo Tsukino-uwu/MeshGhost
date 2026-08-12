@@ -229,6 +229,32 @@ despawn_remote(id)         -> void                # remove from that set
 `get_local_state()` returning `nil` means "don't send this frame" (e.g. player is in a menu
 or non-renderable state — see Open questions).
 
+## Connecting: the bridge `hello`
+
+Added 2026-08-12 (ADR in `architecture.md`), a fourth bridge message alongside the three
+above. The very first message an adapter sends on a fresh bridge connection, before any
+`local_state`:
+
+```json
+{"type":"hello","payload":{"game_id":"emerald"}}
+```
+
+`game_id` is opaque to the core — the same equality-only rule as `area_id`/`anim` — and is
+forwarded verbatim into the relay's own `hello.game_id` (the packet-schema table above). This
+is what lets the core defer connecting to the relay until an adapter actually shows up and
+says which game it is, instead of requiring the user to also type `"game"` into a config file
+(`internal/core.Core.ConnectRelayOnAdapterHello`). A caller that already knows the game
+upfront (dev/testing scripts with no adapter attached, e.g. `dev-scripts/run-core.bat`'s
+`-game` flag) can still connect immediately at startup instead — both paths are supported,
+and are mutually exclusive per process: once a Core is connected to the relay for one
+`game_id`, a bridge `hello` for a *different* `game_id` on the same process is refused.
+
+Ordering guarantee: within one bridge connection, `hello` is always processed before any
+`local_state` sent after it — a bridge connection is a single ordered stream, per the "Two
+protocols" section above. `local_state` sent before any `hello` (or when the process was
+started with an explicit game already) is accepted but not forwarded to the relay until a
+relay connection actually exists.
+
 ## Hard rules (unchanged from the brief, still binding)
 
 - Adapters never speak the relay protocol or open a socket to anything but the bridge.

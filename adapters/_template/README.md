@@ -38,10 +38,9 @@ same as any two unrelated games — grouping by franchise just keeps the top lev
 2. Read `PROTOCOL.md` in this folder for the wire-level shape (connect, per-frame send/receive,
    redraw-every-frame) independent of any particular language.
 3. For a worked, complete reference of a real adapter speaking this protocol end-to-end
-   (connection retry, NDJSON framing, the remote-ghost set, the tick loop), read
-   `adapters/pokemon/emerald/phase4_multiplayer.lua`. Its game-reading parts (`getLocalState`,
-   `playerScreenPos`) are Emerald-specific and won't transfer; its bridge-connection and
-   tick-loop shape will.
+   (connection retry, the hello handshake, NDJSON framing, the remote-ghost set, the tick
+   loop), read `adapters/pokemon/emerald/phase5_5_sprite.lua`. Its game-reading parts are
+   Emerald-specific and won't transfer; its bridge-connection, hello, and tick-loop shape will.
 4. Figure out, for the new game: what counts as `area_id` (a scene/level identifier), what
    `position` looks like (2D or 3D — the schema doesn't fix this), what `anim` tags are
    meaningful, and whether `get_local_state()` should ever return "don't send this frame" (a
@@ -53,6 +52,11 @@ same as any two unrelated games — grouping by franchise just keeps the top lev
    about the new game seems to require that, stop — it means either the contract needs a real,
    ADR'd revision (rare), or the adapter is trying to do something the boundary doesn't allow
    (much more likely).
+7. When the adapter is actually ready to ship, add it to the release: give it its own step in
+   `.github/workflows/release.yml`'s assemble job, under `games/<publisher>/<game>/` — nothing
+   under `adapters/` is picked up automatically. See `packaging/README.md`'s "Adding a game to
+   the release" for the pattern (and its TEVI section if the adapter needs a build step, not
+   just a file copy, before it's shippable).
 
 ## Hard rules, restated (unchanged from `agent_docs/contract.md`)
 

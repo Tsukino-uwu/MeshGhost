@@ -1,8 +1,8 @@
 # Dev scripts
 
 Developer/testing launchers used while building MeshGhost itself — not what an end user
-wanting to play needs. If you just want to play Emerald with friends, use the pre-built
-packages instead: see `packaging/README.md` and the repo's Releases page.
+wanting to play needs. If you just want to play with friends, use the pre-built release
+instead: see `packaging/README.md` and the repo's Releases page.
 
 These assume `meshghost.exe`, `meshghost-relay.exe`, and `meshghost-fakeadapter.exe` are
 built at the repo root (e.g. `go build -o meshghost.exe ./cmd/meshghost`, run from the repo
@@ -22,3 +22,7 @@ root) — each script references them as `..\<name>.exe`.
   `-game=tevi`. Pair with TEVI itself (via `adapters/tevi/MeshGhostTevi`, deployed into
   `BepInEx/plugins/`) to see a real network round trip without needing two TEVI instances —
   see `agent_docs/phases/phase6.md`.
+- `build-tevi.bat` — not a launcher, a build step: compiles the TEVI BepInEx plugin and stages
+  the result into `packaging/release/games/tevi/` for the release zip. Re-run and commit the
+  result whenever `adapters/tevi/MeshGhostTevi/{Plugin.cs,BridgeClient.cs,*.csproj}` change —
+  see `packaging/README.md`'s TEVI section for why this one output is committed at all.

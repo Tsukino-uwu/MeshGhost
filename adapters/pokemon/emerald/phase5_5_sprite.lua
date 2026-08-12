@@ -79,6 +79,12 @@ local TILE = 16 -- confirmed on screen in Phase 3, see phase4_multiplayer.lua's 
 local BRIDGE_HOST = "127.0.0.1"
 local BRIDGE_PORT = tonumber(os.getenv("MESHGHOST_BRIDGE_PORT") or "") or 7778
 
+-- Sent as this adapter's bridge Hello (internal/bridge.Hello) so the core can connect to the
+-- relay without the user needing to type "game" into config.json themselves -- see
+-- agent_docs/architecture.md's ADR. Opaque to the core; matches the folder name under
+-- games/pokemon/emerald/ in the shipped release, per packaging/README.md's convention.
+local GAME_ID = "emerald"
+
 local FACING = { [1] = "south", [2] = "north", [3] = "west", [4] = "east" }
 
 ----------------------------------------------------------------------------
@@ -719,6 +725,10 @@ while true do
         connectBridge()
         if connected then
             console.log("MeshGhost Phase 5.5: connected to bridge.")
+            -- Must be the first message on a fresh connection, before any local_state --
+            -- see internal/bridge.Hello. Declares the game so the core can connect to the
+            -- relay without the user typing "game" into config.json themselves.
+            sendLine(string.format('{"type":"hello","payload":{"game_id":%s}}', jsonString(GAME_ID)))
             -- A fresh bridge connection means a fresh core process on the other end (the
             -- previous one either restarted or its own connection died) -- any remote it had
             -- previously told us about is stale, since the despawn_remote for it (if any was

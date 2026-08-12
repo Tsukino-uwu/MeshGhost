@@ -268,23 +268,43 @@ When room codes are actually designed, this is where the secret goes.
 
 ### Release packaging (not a phase, tooling)
 
-Added 2026-08-11. `packaging/relay/` and `packaging/emerald-player/` are the source templates
-for two downloadable zips (built by `.github/workflows/release.yml`, manually triggered from
-the Actions tab — deliberately not automatic on every tag push, so nothing publishes without
-someone actually clicking the button) so a non-technical friend doesn't need to build from
-source — see `packaging/README.md` for the full design (why two zips, why JSON config, why no
-password yet, why manual). Confirmed working via a local dry run (real relay + real client
-processes, config-only, no flags) before being committed — not just "should work." `README.md`
-points to the Releases page. `v0.1.0` cut successfully 2026-08-11 (first real release,
-verified end-to-end, not just the local dry run).
+Added 2026-08-11 (`v0.1.0`, two zips: `meshghost-relay-...` / `meshghost-emerald-player-...`).
+Reworked 2026-08-12: **one zip**, not two. The two-zip split's naming (`relay`/`player`) was
+flagged right after `v0.1.0` shipped as not reading as "server, host this" / "client, join
+with this" to a non-technical downloader. Rather than just rename the two zips, the fix went
+further — `packaging/release/` now holds everything (client + server exes, one `config.json`
+with `client`/`server` sections, one `README.txt`, and `games/<publisher>/<game>/` mirroring
+`adapters/`), so there's no second file to pick wrong in the first place. See
+`packaging/README.md` for the full design (why one zip, the config field names, why JSON, why
+no password yet, why manual). `.github/workflows/release.yml` builds `meshghost.exe` and
+`meshghost-server.exe` (renamed from `meshghost-relay.exe`; the internal package/binary source
+at `cmd/meshghost-relay/` did not move — end-user-facing rename only) and zips the whole
+`packaging/release/` folder.
 
-**Deferred, logged in `packaging/README.md`:** the `meshghost-relay-...`/
-`meshghost-emerald-player-...` zip names don't read as "server"/"client" to a non-technical
-downloader — raised by the user after seeing the real `v0.1.0` release page. Direction: rename
-around what a downloader is trying to do (`-server-`/`-client-` or `-host-`/`-client-`) rather
-than the project's internal terminology. **Fix before cutting the next release** — not urgent
-enough to touch `v0.1.0` after the fact, but shouldn't ship again as-is; see
-`packaging/README.md` for the full note and exactly what would need to change.
+Adding a game to a release is a deliberate step, not automatic — see "Adding a game to the
+release" in `packaging/README.md`. **TEVI shipped in the same reworked release (2026-08-12)**,
+ahead of its own phase finishing (Phase 6.6 is still open) — the only thing 6.6 needs is a
+real second player, and putting the mod in a friend's hands is how that finally gets tested.
+TEVI's packaging is unusual: `MeshGhostTevi.dll` is committed to the repo (CI cannot build it —
+see `packaging/README.md`'s TEVI section for why) via `dev-scripts/build-tevi.bat`, guarded by
+a staleness check in `release.yml` that fails the build if the committed DLL predates its
+source. The release is cut with `prerelease` ticked and both `README.txt`s mark TEVI
+experimental.
+
+**Follow-up, same day (2026-08-12): `"game"` dropped from the shipped `config.json`.** While
+reviewing the config fields above, the user pointed out that the adapter already knows which
+game it's running (it's the script/mod the user loaded) — typing it a second time into
+`config.json` was a redundant, typo-prone step. Real contract revision, ADR'd in
+`architecture.md`: `internal/bridge.Hello` (a new bridge message, `{"type":"hello","payload":
+{"game_id":"..."}}`) is now sent by the adapter as the first message on a fresh bridge
+connection; `internal/core.Core.ConnectRelayOnAdapterHello` connects to the relay lazily on
+that first hello instead of requiring `-game`/`config.json`'s `"game"` up front. Both shipped
+adapters updated (`adapters/pokemon/emerald/phase5_5_sprite.lua`,
+`adapters/tevi/MeshGhostTevi/BridgeClient.cs` + `Plugin.cs`, TEVI's DLL rebuilt and
+recommitted). `-game`/`"game"` still work as an explicit override — needed by
+`dev-scripts/run-core.bat` and `cmd/meshghost-fakeadapter`, which have no real adapter to send
+a hello. See `agent_docs/contract.md`'s "Connecting: the bridge hello" section for the wire
+detail.
 
 ## Links
 

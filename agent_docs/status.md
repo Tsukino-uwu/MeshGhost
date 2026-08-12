@@ -142,6 +142,28 @@
     `lua54.dll`/`socket-windows-5-4.dll` pair — genuinely risky (could crash the game, not
     just error) since UE4SS's Lua is statically embedded, unlike BizHawk's separate-DLL host.
     Needs an explicit decision with the user before running, not just picking it up and going.
+- `Current focus:` **Release packaging reworked 2026-08-12, TEVI added to the release** — see
+  `plans.md`'s "Release packaging" entry and `packaging/README.md`. The two-zip
+  `meshghost-relay-.../meshghost-emerald-player-...` split (from the `v0.1.0` cut, flagged
+  right after as confusing to a non-technical downloader) is replaced by one zip:
+  `packaging/release/` holds `meshghost.exe`/`meshghost-server.exe`, one `config.json` with
+  `client`/`server` sections, `run-client.bat`/`run-server.bat`, and `games/<publisher>/<game>/`
+  mirroring `adapters/`. TEVI now ships in that same zip, marked experimental — its
+  `MeshGhostTevi.dll` is a committed build output (`dev-scripts/build-tevi.bat`), since CI can't
+  build it itself (needs the developer's own proprietary TEVI install), guarded by a staleness
+  check in `.github/workflows/release.yml` that fails the release if the DLL predates its
+  source. This is how Phase 6.6 (two real players) is meant to finally get tested — not a claim
+  that it has been; nothing here has been watched running by the user yet, so nothing moves to
+  `verified.md` on the strength of this work alone.
+- `Current focus:` **Same day, follow-up: adapter declares `game_id` (ADR in
+  `architecture.md`), `"game"` dropped from the shipped `config.json`.** A new bridge message,
+  `internal/bridge.Hello`, is sent by the adapter as the first thing on a fresh bridge
+  connection; `internal/core.Core.ConnectRelayOnAdapterHello` connects to the relay lazily on
+  that hello instead of requiring `-game`/`"game"` up front. Both shipped adapters updated and
+  TEVI's committed DLL rebuilt to match. `-game`/`"game"` still work as an explicit override,
+  needed by `dev-scripts/run-core.bat` and `cmd/meshghost-fakeadapter` (no real adapter to send
+  a hello). `go build`/`vet`/`test` clean; not yet watched running against a real game by the
+  user, so — same as the packaging entry above — nothing here moves to `verified.md` yet.
 
 ## Go networking layer (2026-08-11)
 

@@ -11,13 +11,13 @@ ghosts — position, facing, walking, and running all tracked live, no shared wo
 `agent_docs/status.md` for exactly where things stand and `agent_docs/plans.md` for the
 phase-by-phase roadmap.
 
-## Playing right now (Emerald)
+## Playing right now (Emerald, plus experimental TEVI)
 
-No need to build anything: grab the latest release from the
-[Releases page](../../releases) — one person hosting needs the `meshghost-relay` zip, every
-player needs the `meshghost-emerald-player` zip. Each unpacks to a `config.json` (the one file
-you actually need to edit — relay address, room name, your display name) and a `README.txt`
-with the full walkthrough. See `packaging/README.md` if you're curious how these are built.
+No need to build anything: grab the latest release from the [Releases page](../../releases) —
+one zip for everyone. Unpack it, run `run-client.bat` to play; whoever's hosting also runs
+`run-server.bat`. The one file you actually need to edit is `config.json` (server address,
+room name, your display name), and `README.txt` has the full walkthrough. See
+`packaging/README.md` if you're curious how it's built.
 
 ## The shape
 
@@ -45,7 +45,8 @@ next to the game (a Lua script for BizHawk, a mod DLL for Unity, and so on).
    thanks to the [`pokeemerald`](https://github.com/pret/pokeemerald) decompilation (consulted
    for facts only — addresses and struct layouts, cited by file/line — never for source or
    assets; see `agent_docs/licensing.md`).
-2. **TEVI** (Unity) — second, not yet started.
+2. **TEVI** (Unity) — second, code-complete but not yet confirmed with two real players; see
+   `agent_docs/phases/phase6.md`.
 3. **Pseudoregalia** (Unreal Engine 5) — third, not yet started.
 
 ## Repo layout

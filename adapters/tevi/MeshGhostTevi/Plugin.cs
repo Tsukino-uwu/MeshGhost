@@ -69,6 +69,12 @@ namespace MeshGhostTevi
         private const string BridgeHost = "127.0.0.1";
         private const int BridgePort = 7778;
 
+        // Sent as this adapter's bridge Hello (internal/bridge.Hello) so the core can connect
+        // to the relay without the user typing "game" into config.json themselves -- see
+        // agent_docs/architecture.md's ADR. Opaque to the core; matches the folder name under
+        // games/tevi/ in the shipped release, per packaging/README.md's convention.
+        private const string GameId = "tevi";
+
         // Step 6.6-prep (real ghost visuals, done solo via loopback -- see phase6.md): a remote
         // ghost is a real clone of the local player's own visual object
         // (CharacterBase.spranim_prefer.pixel.gameObject), not a flat placeholder square.
@@ -244,6 +250,7 @@ namespace MeshGhostTevi
 
             bridge.DrainLogsInto(msg => Logger.LogInfo(msg));
             bridge.TryConnect();
+            bridge.SendHelloIfNeeded(GameId);
             bridge.DrainInto(UpsertRemoteGhost, DespawnRemoteGhost);
 
             if (player == null || player.t == null)

@@ -1,7 +1,7 @@
 name: Release
 
-# Builds Windows binaries and packages them into the two zips a non-dev friend actually needs
-# -- see packaging/README.md for why it's split this way. Manual trigger only (Actions tab ->
+# Builds Windows binaries and packages them into the one zip a non-dev friend actually needs
+# -- see packaging/README.md for why it's laid out this way. Manual trigger only (Actions tab ->
 # this workflow -> "Run workflow") -- deliberately not tied to a tag push, so nothing publishes
 # without someone actually clicking the button and typing a version.
 on:
@@ -11,6 +11,11 @@ on:
         description: 'Release version, e.g. v0.1.0 (creates this tag if it does not exist)'
         required: true
         type: string
+      prerelease:
+        description: 'Mark as a pre-release (e.g. TEVI support is still experimental)'
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -25,31 +30,58 @@ jobs:
         with:
           go-version: "1.22"
 
-      - name: Build meshghost-relay.exe
-        run: go build -o meshghost-relay.exe ./cmd/meshghost-relay
-
       - name: Build meshghost.exe
         run: go build -o meshghost.exe ./cmd/meshghost
 
-      - name: Assemble relay package
-        run: |
-          Copy-Item meshghost-relay.exe packaging\relay\
-          Compress-Archive -Path packaging\relay\* -DestinationPath meshghost-relay-${{ inputs.version }}-windows-amd64.zip
-        shell: pwsh
+      - name: Build meshghost-server.exe
+        run: go build -o meshghost-server.exe ./cmd/meshghost-relay
 
-      - name: Assemble Emerald player package
-        run: |
-          Copy-Item meshghost.exe packaging\emerald-player\
-          Copy-Item adapters\pokemon\emerald\phase5_5_sprite.lua packaging\emerald-player\meshghost_emerald.lua
-          Copy-Item -Recurse adapters\pokemon\emerald\lib packaging\emerald-player\lib
-          Compress-Archive -Path packaging\emerald-player\* -DestinationPath meshghost-emerald-player-${{ inputs.version }}-windows-amd64.zip
+      - name: Verify the committed TEVI plugin isn't stale
+        # MeshGhostTevi.dll is checked into packaging/release/games/tevi/ because CI can't
+        # build it itself (the .csproj needs the developer's own proprietary TEVI install --
+        # see packaging/README.md and dev-scripts/build-tevi.bat). This is the guard that
+        # stops a release shipping a DLL older than the source that's supposed to have
+        # produced it: rehash the same three files build-tevi.bat hashed, and compare against
+        # what it recorded in built-from.txt.
         shell: pwsh
+        run: |
+          $destDir = "packaging\release\games\tevi"
+          $builtFrom = Get-Content "$destDir\built-from.txt" -Raw
+
+          $files = @{
+            "Plugin.cs"              = "adapters\tevi\MeshGhostTevi\Plugin.cs"
+            "BridgeClient.cs"        = "adapters\tevi\MeshGhostTevi\BridgeClient.cs"
+            "MeshGhostTevi.csproj"   = "adapters\tevi\MeshGhostTevi\MeshGhostTevi.csproj"
+          }
+          $stale = $false
+          foreach ($name in $files.Keys) {
+            $actual = (Get-FileHash $files[$name] -Algorithm SHA256).Hash
+            if ($builtFrom -notmatch "(?im)^$([regex]::Escape($name)):\s*$actual\s*$") {
+              Write-Host "::error::$name has changed since packaging/release/games/tevi/MeshGhostTevi.dll was built (expected hash $actual not found in built-from.txt)"
+              $stale = $true
+            }
+          }
+          if ($stale) {
+            Write-Host "::error::TEVI DLL was built from older sources - run dev-scripts\build-tevi.bat and commit the result"
+            exit 1
+          }
+          Write-Host "TEVI DLL is up to date with its source."
+
+      - name: Assemble release package
+        shell: pwsh
+        run: |
+          Copy-Item meshghost.exe packaging\release\
+          Copy-Item meshghost-server.exe packaging\release\
+          New-Item -ItemType Directory -Force packaging\release\games\pokemon\emerald | Out-Null
+          Copy-Item adapters\pokemon\emerald\phase5_5_sprite.lua packaging\release\games\pokemon\emerald\meshghost_emerald.lua
+          Copy-Item -Recurse adapters\pokemon\emerald\lib packaging\release\games\pokemon\emerald\lib
+          Compress-Archive -Path packaging\release\* -DestinationPath meshghost-${{ inputs.version }}-windows-amd64.zip
 
       - name: Create release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ inputs.version }}
+          prerelease: ${{ inputs.prerelease }}
           files: |
-            meshghost-relay-${{ inputs.version }}-windows-amd64.zip
-            meshghost-emerald-player-${{ inputs.version }}-windows-amd64.zip
+            meshghost-${{ inputs.version }}-windows-amd64.zip
           generate_release_notes: true

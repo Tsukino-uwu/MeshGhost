@@ -1,10 +1,26 @@
 # Adapter protocol stub
 
-Language-agnostic. Every real adapter (BizHawk Lua today, whatever TEVI needs later) implements
-this same shape by dialing the local core's bridge port and speaking NDJSON — see
+Language-agnostic. Every real adapter (BizHawk Lua, TEVI's BepInEx plugin) implements this same
+shape by dialing the local core's bridge port and speaking NDJSON — see
 `agent_docs/contract.md`'s "Adapter bridge" and "Adapter interface" sections for the full,
 authoritative spec. This file is a condensed, copy-from starting point, not a replacement for
 reading that file first.
+
+## Connecting: send hello first
+
+The very first message on a fresh bridge connection, before any `local_state`:
+
+```json
+{"type":"hello","payload":{"game_id":"emerald"}}
+```
+
+`game_id` is opaque to the core — same rule as `area_id`/`anim`, per `CLAUDE.md`: compare by
+equality only, never build a cross-game vocabulary. It's what lets the core connect to the
+relay without the user having to type "game" into a config file themselves (the core defers
+connecting until an adapter actually shows up and says which game it is — see
+`agent_docs/architecture.md`'s ADR). If the core is already connected to the relay under a
+*different* `game_id` from an earlier connection, it will refuse this one — a single core
+process serves one game at a time.
 
 ## The three functions
 
@@ -53,6 +69,8 @@ loop, once per real game frame:
         try to connect (non-blocking, retry next frame on failure)
 
     if connected:
+        if hello not yet sent on this connection:
+            send hello(game_id)                # must be the very first message
         state = get_local_state()
         send local_state(state)               # state may be nil — send it anyway
         drain all buffered render_remote / despawn_remote messages, updating the
@@ -71,9 +89,13 @@ before that rule was written down.
 
 ## Reference implementations
 
-- `adapters/pokemon/emerald/phase4_multiplayer.lua` — a complete, real adapter speaking exactly this
-  protocol (BizHawk Lua, NDJSON over LuaSocket). Its connection/tick-loop shape transfers to a
-  new game; its `getLocalState`/`playerScreenPos` game-memory reads do not.
+- `adapters/pokemon/emerald/phase5_5_sprite.lua` — the shipped Emerald adapter, including the
+  hello send right after connecting (search for `GAME_ID`). Its connection/tick-loop shape
+  transfers to a new game; its game-memory reads do not.
+- `adapters/tevi/MeshGhostTevi/BridgeClient.cs` / `Plugin.cs` — the same shape in C#/BepInEx.
+  Notably, its hello is sent from the main-thread `Update()` loop (`SendHelloIfNeeded`), not
+  from the background connect thread that establishes the socket — worth reading if your
+  adapter also does networking off the main thread.
 - `cmd/meshghost-fakeadapter/main.go` — not a template for a real adapter (it uses the
   in-process `core.Adapter` Go interface, not this wire protocol, since it has no separate
   process to bridge to). Useful only as a minimal example of the same three-function contract

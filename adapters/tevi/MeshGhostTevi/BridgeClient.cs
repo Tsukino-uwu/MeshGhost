@@ -40,6 +40,12 @@ namespace MeshGhostTevi
         private readonly ConcurrentQueue<string> pendingLogs = new ConcurrentQueue<string>();
 
         private volatile bool connected;
+        // Set true whenever ConnectAndReadLoop establishes a fresh connection, cleared once
+        // SendHelloIfNeeded actually sends -- a Hello is per-connection, not per-process, since
+        // TryConnect/ConnectAndReadLoop can reconnect after a dropped bridge (see the "fresh
+        // bridge connection means a fresh core process" reasoning the Lua adapter documents for
+        // the same situation).
+        private volatile bool needsHello;
         private TcpClient client;
         private NetworkStream stream;
         private DateTime lastConnectAttempt = DateTime.MinValue;
@@ -96,6 +102,11 @@ namespace MeshGhostTevi
                 client = c;
                 stream = c.GetStream();
                 connected = true;
+                // Not written here: NetworkStream isn't safe for concurrent writes from this
+                // background thread and the main thread's SendLocalState, so the actual send is
+                // deferred to SendHelloIfNeeded, called from Update() on the main thread, same
+                // as every other outbound message.
+                needsHello = true;
                 Log($"MeshGhost: connected to bridge at {host}:{port}.");
 
                 var buffer = new StringBuilder();
@@ -138,6 +149,37 @@ namespace MeshGhostTevi
                 }
             }
             return -1;
+        }
+
+        // Call once per frame from the main thread, before SendLocalState. Must be the first
+        // message on a fresh connection -- see internal/bridge.Hello -- so it's sent from here
+        // rather than the background connect thread, ahead of any local_state Update() sends
+        // this same frame. No-op once already sent for the current connection, or before one
+        // exists.
+        public void SendHelloIfNeeded(string gameId)
+        {
+            if (!needsHello || !connected || stream == null)
+            {
+                return;
+            }
+            needsHello = false;
+
+            string json = JsonConvert.SerializeObject(new
+            {
+                type = "hello",
+                payload = new { game_id = gameId },
+            });
+
+            try
+            {
+                byte[] bytes = Encoding.UTF8.GetBytes(json + "\n");
+                stream.Write(bytes, 0, bytes.Length);
+            }
+            catch (Exception e)
+            {
+                Log($"MeshGhost: bridge send failed: {e.Message}");
+                connected = false;
+            }
         }
 
         // "state" is null when the local player isn't in a renderable state (matches

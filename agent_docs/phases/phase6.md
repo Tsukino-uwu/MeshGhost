@@ -109,7 +109,10 @@ point of picking a second, structurally different game.
       now done; what's left genuinely needs a second real peer: cross-area filtering (loopback
       always echoes your own area — `internal/core` currently sends every known remote
       regardless of area, and the TEVI adapter doesn't filter either, a real unaddressed gap,
-      not just untested) and the real join/leave/disconnect flow.
+      not just untested) and the real join/leave/disconnect flow. **No longer blocked on
+      distribution** (2026-08-12): TEVI now ships in the single release zip (see
+      `packaging/README.md`'s TEVI section), marked experimental/prerelease — the remaining
+      blocker is purely "find a second real player," not "no way to hand them a build."
 
 ## Notes
 
@@ -128,7 +131,9 @@ point of picking a second, structurally different game.
   future session doesn't mistake it for a MeshGhost-caused change, and so it gets turned back off
   once Phase 6 dev work settles down (not urgent, not user-facing, just noise otherwise).
 
-- Packaging-naming fix (`relay`/`player` → `server`/`client` in zip names, logged in
-  `plans.md`'s "Release packaging" section and `packaging/README.md`) is unrelated to Phase 6
-  itself and not urgent for it, but worth remembering if TEVI's own player-zip packaging work
-  starts touching `packaging/` before that fix lands.
+- **Packaging landed (2026-08-12):** the one-zip rework (`plans.md`'s "Release packaging",
+  `packaging/README.md`) shipped with TEVI support built in from the start —
+  `packaging/release/games/tevi/MeshGhostTevi.dll` is a committed build output (CI can't build
+  it, see `packaging/README.md`), produced by `dev-scripts/build-tevi.bat` and guarded by a
+  staleness check in `release.yml`. Anyone editing `Plugin.cs`/`BridgeClient.cs`/the `.csproj`
+  must re-run that script and commit the result, or the release workflow fails on purpose.

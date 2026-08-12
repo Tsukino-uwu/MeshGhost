@@ -1,7 +1,0 @@
-{
-  "game": "emerald",
-  "relay": "127.0.0.1:7777",
-  "room": "default",
-  "name": "player",
-  "bridge": "127.0.0.1:7778"
-}
