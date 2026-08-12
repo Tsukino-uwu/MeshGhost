@@ -71,7 +71,11 @@
 -- ~13s to death on every prior run). One smaller, separate issue found the same run: `Possess`
 -- correctly returns input control but doesn't necessarily move the active camera view target,
 -- which stayed on the ghost. Added `SetViewTargetWithBlend(pawn, 0)` right after `Possess`,
--- grounded the same way (`gh api search/code`, 218 hits). Not yet retested live.
+-- grounded the same way (`gh api search/code`, 218 hits) -- but the 2-arg call failed outright
+-- ("UFunction expected 5 parameters, received 2"): this UFunction's UE4SS Lua binding needs
+-- the full UE signature explicitly, no Lua-side defaults. Fixed to
+-- `SetViewTargetWithBlend(pawn, 0.0, 0, 0.0, false)` -- see the call site for what each
+-- parameter is. Not yet retested live.
 
 local UEHelpers = require("UEHelpers")
 
@@ -177,7 +181,12 @@ local function trySpawnGhost(pawn, controller)
             -- stayed on the ghost even though input control had already returned to the real
             -- pawn). SetViewTargetWithBlend grounded via `gh api search/code` (218 hits, a
             -- standard AController/PlayerController method); not in the bundled docs.
-            local viewTargetOk, viewTargetErr = pcall(function() controller:SetViewTargetWithBlend(pawn, 0) end)
+            -- First attempt (2 args) failed outright: "UFunction expected 5 parameters,
+            -- received 2" -- this UFunction's UE4SS Lua binding requires the full UE signature
+            -- explicitly, (NewViewTarget, BlendTime, BlendFunc, BlendExp, bLockOutgoing), no
+            -- defaults applied from Lua. 0 for BlendFunc is VTBlend_Linear (the standard,
+            -- zero-valued enum member); BlendTime 0.0 means an instant cut.
+            local viewTargetOk, viewTargetErr = pcall(function() controller:SetViewTargetWithBlend(pawn, 0.0, 0, 0.0, false) end)
             print(string.format(
                 "[MeshGhostGhostProbe] re-point camera view target to original pawn: %s\n",
                 viewTargetOk and "ok" or ("FAILED: " .. tostring(viewTargetErr))))
