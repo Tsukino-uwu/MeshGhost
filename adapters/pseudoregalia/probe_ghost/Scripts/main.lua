@@ -68,17 +68,24 @@
 -- (MAX_TICK_DELTA) as a backstop against any future bug of this shape, per the plan above.
 --
 -- Confirmed live: this fix works -- an 82-second run with no dragging or forced death (versus
--- ~13s to death on every prior run). One smaller, separate issue found the same run: `Possess`
--- correctly returns input control but doesn't necessarily move the active camera view target,
--- which stayed on the ghost. First attempt: a one-time `SetViewTargetWithBlend(pawn, 0)` right
--- after `Possess`, grounded the same way (`gh api search/code`, 218 hits) -- the 2-arg call
--- failed outright ("UFunction expected 5 parameters, received 2"; fixed to pass all 5), then
--- on retest the corrected call succeeded ("ok" logged) but the camera was STILL observed on
--- the ghost -- something keeps re-asserting it afterward (most likely the ghost's own briefly-
--- auto-possessed "on possessed" Blueprint logic doing its own camera setup on a delay). Rather
--- than chase the exact re-triggering mechanism, moved the call from a one-time spawn-time fix
--- to every follow tick (see followTick) -- cheap, and wins regardless of what else fights it
--- afterward. Not yet retested live.
+-- ~13s to death on every prior run). Camera view target has been a separate, smaller side
+-- quest since: `Possess` correctly returns input control but doesn't necessarily move the
+-- active camera view target, and three attempts have been needed so far --
+--   1. `SetViewTargetWithBlend(pawn, 0)` (2 args) right after `Possess` -- failed outright,
+--      "UFunction expected 5 parameters, received 2": this UFunction's UE4SS Lua binding needs
+--      the full UE signature explicitly, no Lua-side defaults.
+--   2. Fixed to all 5 args, `SetViewTargetWithBlend(pawn, 0.0, 0, 0.0, false)` -- succeeded
+--      ("ok" logged) but the camera was STILL observed on the ghost afterward, meaning
+--      something re-asserts it after this one-time spawn-time call.
+--   3. Tried calling it every follow tick instead, to just keep winning regardless of what
+--      fights it -- this visibly broke the camera a different way, stuck low near the floor,
+--      almost certainly from fighting the game's own camera/spring-arm interpolation and
+--      collision-avoidance logic every ~100ms and never letting it settle.
+-- Current approach (see DELAYED_VIEW_TARGET_TICKS below): bounded to exactly two corrections
+-- -- one immediately after `Possess`, one more `DELAYED_VIEW_TARGET_TICKS` later -- aimed at
+-- the theorized real cause (the ghost's own briefly-auto-possessed "on possessed" Blueprint
+-- logic doing its own camera setup on a delay) without fighting the camera indefinitely.
+-- Not yet retested live.
 
 local UEHelpers = require("UEHelpers")
 
@@ -109,6 +116,21 @@ local MIN_PLAUSIBLE_DISTANCE = 100.0
 -- something is wrong again (e.g. the position source is no longer what this script thinks it
 -- is), and it's better to freeze the ghost in place and log loudly than repeat a runaway drag.
 local MAX_TICK_DELTA = 500.0
+
+-- DELAYED_VIEW_TARGET_TICKS: found live 2026-08-12 -- calling SetViewTargetWithBlend every
+-- single follow tick (fighting whatever re-asserts the ghost as view target) visibly broke the
+-- camera in a different way: it got stuck low, near the floor, in a fixed position -- almost
+-- certainly from repeatedly force-resetting the view target fighting the game's own camera/
+-- spring-arm interpolation and collision-avoidance logic every ~100ms, never letting it
+-- settle. Reverted to a bounded fix instead: one immediate correction right after Possess (in
+-- trySpawnGhost) plus exactly one more, this many ticks later, aimed at the theorized real
+-- cause -- the ghost's own briefly-auto-possessed "on possessed" Blueprint logic doing its own
+-- camera setup on a delay. No reassertion after that; if two corrections aren't enough, that
+-- theory is wrong and needs live evidence, not a third blind retry.
+local DELAYED_VIEW_TARGET_TICKS = 10 -- ~1s at FOLLOW_INTERVAL_MS's 100ms
+local ticksSinceGhostSpawned = 0
+local delayedViewTargetDone = true -- true until a spawn sets it false; starts true so no-op
+                                    -- before any ghost exists
 
 local function safeGetPawn()
     local ok, controller = pcall(UEHelpers.GetPlayerController)
@@ -178,6 +200,17 @@ local function trySpawnGhost(pawn, controller)
                 "[MeshGhostGhostProbe] re-possess original pawn after spawn: %s\n",
                 possessOk and "ok" or ("FAILED: " .. tostring(possessErr))))
 
+            -- First of two view-target corrections -- see DELAYED_VIEW_TARGET_TICKS below for
+            -- why there's a second one instead of reasserting every tick forever.
+            local viewTargetOk, viewTargetErr = pcall(function()
+                controller:SetViewTargetWithBlend(pawn, 0.0, 0, 0.0, false)
+            end)
+            print(string.format(
+                "[MeshGhostGhostProbe] re-point camera view target to original pawn (immediate): %s\n",
+                viewTargetOk and "ok" or ("FAILED: " .. tostring(viewTargetErr))))
+            ticksSinceGhostSpawned = 0
+            delayedViewTargetDone = false
+
             -- Kept as a reasonable secondary safety measure even though bug 5, not
             -- collision/physics, was the actual cause of the drag -- see agent_docs/risks.md.
             local collisionOk = pcall(function() ghost:SetActorEnableCollision(false) end)
@@ -223,20 +256,20 @@ local function followTick()
         return false
     end
 
-    -- Found live 2026-08-12: a one-time SetViewTargetWithBlend right after spawn (see
-    -- trySpawnGhost's history in the header comment) succeeded ("ok" logged) but the camera
-    -- was still observed on the ghost afterward -- something keeps re-asserting it as the view
-    -- target after our one-time fix, most likely the ghost's own "on possessed" Blueprint
-    -- logic (it was briefly auto-possessed before we took control back) doing its own camera
-    -- setup, possibly on a delay that lands after ours. Rather than chase the exact
-    -- re-triggering mechanism, re-assert every follow tick instead of once at spawn -- cheap,
-    -- and it wins regardless of what else might be fighting it afterward.
-    local viewTargetOk, viewTargetErr = pcall(function()
-        controller:SetViewTargetWithBlend(pawn, 0.0, 0, 0.0, false)
-    end)
-    if not viewTargetOk and lastLoggedState ~= "view_target_error" then
-        print(string.format("[MeshGhostGhostProbe] per-tick view target reassert FAILED: %s\n", tostring(viewTargetErr)))
-        lastLoggedState = "view_target_error"
+    -- Second, delayed view-target correction -- see DELAYED_VIEW_TARGET_TICKS above. Fires
+    -- exactly once, DELAYED_VIEW_TARGET_TICKS after spawn, then never again (calling this
+    -- every tick visibly broke the camera differently -- see that comment).
+    if not delayedViewTargetDone then
+        ticksSinceGhostSpawned = ticksSinceGhostSpawned + 1
+        if ticksSinceGhostSpawned >= DELAYED_VIEW_TARGET_TICKS then
+            delayedViewTargetDone = true
+            local viewTargetOk, viewTargetErr = pcall(function()
+                controller:SetViewTargetWithBlend(pawn, 0.0, 0, 0.0, false)
+            end)
+            print(string.format(
+                "[MeshGhostGhostProbe] re-point camera view target to original pawn (delayed, %d ticks): %s\n",
+                DELAYED_VIEW_TARGET_TICKS, viewTargetOk and "ok" or ("FAILED: " .. tostring(viewTargetErr))))
+        end
     end
 
     local ok, followErr = pcall(function()
