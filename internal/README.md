@@ -112,3 +112,38 @@ writing any of this — findings below are cited to real files, not memory.
 secret checked once at handshake, reject outright on mismatch, before any state is exchanged)
 for room codes — not their full public-server account/ban/fingerprinting stack, which solves a
 problem MeshGhost doesn't have.
+
+## Why TCP, not UDP (recorded 2026-08-13 — no prior ADR existed for this)
+
+`internal/transport` is TCP-only (NDJSON framing, `contract.md`'s Transport section). This was
+never actually written down as a deliberate choice against UDP until now — it fell out of
+"stdlib TCP/JSON, debuggability beats bandwidth" (`architecture.md`'s Go-decision ADR) rather
+than a head-to-head comparison. Recording the comparison here since it came up directly while
+scoping the relay-safety work.
+
+Real-time games often prefer UDP because TCP's reliable/ordered delivery means one lost packet
+stalls everything queued behind it ("head-of-line blocking") until it's retransmitted — bad
+when a newer position update already superseded the lost one and you just want to render the
+latest state, now. That tradeoff doesn't bite the way it would in a competitive shooter:
+
+- **Send rate is capped at 20Hz** (`Core.DefaultMinSendInterval`, `core.go`), and rendering
+  already runs `InterpolationDelay` (100ms default) behind the newest sample specifically to
+  smooth network jitter. A TCP stall is at most ~50ms at this rate — invisible against delay
+  we already absorb by design, not a new cost UDP would meaningfully remove.
+- **Debuggability**: NDJSON-over-TCP is exactly why the relay protocol can be read with
+  `netcat` and a human eye (`contract.md`'s framing rationale). UDP has no equivalent
+  "greppable stream" property — each datagram would need its own framing, and there's no
+  continuous stream to tap into the same way.
+- **Security**: a real TCP handshake makes connection spoofing/hijacking hard by construction.
+  This is *why* CelesteNet needs its own unpredictable-token generator for its UDP leg (see
+  above) — a problem TCP doesn't have, and one we'd have to solve ourselves if we switched.
+  Given relay safety is the current priority, this is a real point in TCP's favor right now,
+  not just a wash.
+- **NAT/reachability is identical either way**: MeshGhost is relay/star-topology, not P2P — no
+  client ever connects directly to another client, only to the relay. UDP's actual advantage
+  for reachability (hole-punching to skip port-forwarding for direct peer connections) doesn't
+  apply, because there's no direct peer connection to punch a hole for.
+
+**Conclusion: TCP remains the right choice.** Worth revisiting only if MeshGhost's update rate
+or player count ever grows enough that head-of-line stalls become perceptible against
+`InterpolationDelay` — not the case today, and not close to it.
