@@ -48,7 +48,12 @@
   Not a blocker for early phases, but worth planning for before a public release.
 - **No-auth relay window**: Phases 3–4 run without authentication (see the relay-auth ADR).
   Anyone with the address can join during that window. Acceptable for a friend-shared
-  IP:port, not for anything posted publicly, until room codes ship.
+  IP:port, not for anything posted publicly, until room codes ship. **User priority, stated
+  2026-08-13**: wants to actually start closing this — the goal is being safe to use with
+  unknown people, not just friends, including against someone actively trying to be malicious
+  with the server/client, not just an uninvited but harmless join. Paired with the no-version-
+  check gap below as the two concrete known items; see `plans.md`'s "Room codes / relay
+  safety" section for the tracked intent (not yet designed/scoped).
 - **Archipelago coexistence, confirmed with a real gap**: tested 2026-08-11 with the real
   `connector_bizhawk_generic.lua` against a real `.apemerald`-patched ROM (see
   `agent_docs/verified.md`). Two scripts coexist fine, no performance difference, and

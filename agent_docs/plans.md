@@ -21,8 +21,11 @@ TEVI replaced the brief's original Ori: Will of the Wisps pick.
 - No adapter transport or socket handling — adapters speak only to the local bridge.
 - No production binary encoding or performance optimization before the contract is stable.
 - No second-game adapter until Phase 5 validates the template.
-- No relay authentication work before Phase 4 ships on no-auth (see `architecture.md` ADR);
-  don't build room codes early just because they're the eventual goal.
+- ~~No relay authentication work before Phase 4 ships on no-auth~~ — **superseded 2026-08-13**:
+  Phase 4 shipped long ago and relay/core safety is now the explicit next priority, see "Next
+  priority — Room codes / relay safety" below. Kept struck through, not deleted, so the
+  original reasoning (don't build room codes early just because they're the eventual goal)
+  stays legible as a past decision, not silently erased.
 - No emulator memory *writes* or save-state editing — MeshGhost reads game memory and does
   not write it, today. This is the current posture, not a permanent philosophical stance:
   whether it ever changes (see "Depth beyond the cosmetic ghost" below) is pending an actual
@@ -276,12 +279,30 @@ the same way, or was that specific to melee's collision-based hit detection? Not
 yet. This is a materially harder and riskier feature than it looked at first — treat as genuinely
 deferred, not a quick follow-up.
 
-### Post-Phase-4 — Room codes
+### Next priority — Room codes / relay safety
 
-Not a numbered phase because it doesn't gate the games-side milestones. Add shared-secret
-room codes to the relay so a session isn't just a bare IP:port. Scheduled after Phase 4
-proves the two-player path works at all. **Still not built** — the relay remains no-auth
-(`agent_docs/architecture.md`'s ADR); `room` today is a plain label, not a secret.
+**Set as the current/next priority, 2026-08-13** (was previously an unscheduled "Post-Phase-4"
+idea — elevated explicitly by the user, not something to defer again). Add shared-secret room
+codes to the relay so a session isn't just a bare IP:port. **Still not built** — the relay
+remains no-auth (`agent_docs/architecture.md`'s ADR); `room` today is a plain label, not a
+secret.
+
+The goal, in the user's own framing: right now the relay/core is "direct/unsafe," fine for a
+friend you hand an address to, not something meant to be used with people you don't
+personally know, or safe against someone actively trying to be malicious with the
+server/client. Two concrete pieces identified as the real pre-"can we call this safe"
+checkpoint (not the only possible security work, but the two known, already-recorded gaps):
+
+- **No auth** — anyone with the address can join (`risks.md`'s "No-auth relay window").
+  Needs a real wire/core change: room codes or a shared secret in `hello`.
+- **No peer game-version check** — `hello` carries `game_id` but nothing about version/DLC
+  (`risks.md`, surfaced by TEVI in Phase 6). Two peers on different game versions can silently
+  desync.
+
+Not yet designed or scoped — this is a statement of intent/priority, not a plan. Should also
+fold in a broader look at malicious-peer hardening generally (malformed/oversized messages,
+spoofed `player_id`, flooding) while in this area, beyond just the two items above, per the
+user's framing ("someone would want to be malicious with the server/client things").
 
 The config-file mechanism this section anticipated now exists (2026-08-11, alongside the
 release-packaging work below), ahead of room codes themselves: `cmd/meshghost`/

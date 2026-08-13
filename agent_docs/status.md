@@ -322,6 +322,17 @@
     rotation-test flags.
   - **Remaining open Phase 7 item, unaffected by this session's work**: the not-yet-root-caused
     `Fatal Error!` exit crash noted earlier in this phase.
+- `Current focus:` **2026-08-13, later same session — TEVI 6.6/6.7 wrapped up, next priority
+  set: relay safety.** TEVI's real two-player test (6.6) fully closed — cross-area filtering,
+  ghost cleanup on disconnect (menu return + game close, pause confirmed unaffected), and a
+  new 6.7 feature (a peer's real room shown on TEVI's map, fog-of-war respected) all built and
+  confirmed live. See `phase6.md`. **User has now named the next thing to actually work on**:
+  the relay/core is currently no-auth and safe only for a friend you hand an address to — the
+  goal is being safe to use with people you don't personally know, including against someone
+  actively trying to be malicious with the server/client. Two known concrete gaps (no auth, no
+  peer game-version check) plus a broader look at malicious-peer hardening generally. Not yet
+  designed or scoped — see `risks.md`'s "No-auth relay window" entry and `plans.md`'s "Room
+  codes / relay safety" section for what's recorded so far. Start here next session.
 
 ## Go networking layer (2026-08-11)
 
