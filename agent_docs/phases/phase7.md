@@ -1296,6 +1296,185 @@ GBA memory). Started early relative to Phase 6's own two-player milestone (6.6) 
       collision/input/gameplay stripped, driven by the wire `anim` tag. Flagged in `risks.md`
       as likely the hardest task in the phase — UE5 has no direct equivalent of Unity's
       `Animator.Play(clipName)` on a cloned actor.
+      **2026-08-13, retest started**: user asked directly how the Lua adapter handled despawn
+      across area/menu transitions, since the C++ port can't despawn and that blocks anything
+      but rigid hijacked-prop ghosts. Answer, from re-reading both adapters: **Lua never
+      despawned either** — its `K2_DestroyActor()` fallback path is dead code (the call
+      silently no-ops on this build rather than throwing, so `pcall` reports success and the
+      "hide far away" fallback never runs). What actually worked was a lazy per-world respawn:
+      poll `remote.ghost:IsValid()` every tick, nil the reference once a level transition
+      invalidates it, respawn fresh in the new world (`main.lua:787-794`). Critically, every
+      call in that path ran inside `ExecuteInGameThread` — and the original C++ spawn attempt's
+      "Fatal world leaks detected" crash and "`K2_DestroyActor` never works on this build"
+      verdict (see the "Root cause found by adding a readback" entry above) were both produced
+      entirely from `on_update()`, discovered only afterwards to be UE4SS's own polling thread,
+      not the game thread. That thread bug wasn't found/fixed (`RegisterEngineTickPostCallback`)
+      until later the same session, so the spawn path was never retried on the game thread.
+      **Implemented, not yet live-tested**: `SPAWN_BASED_GHOSTS` in `Plugin.cpp` retests exactly
+      this — `ensure_ghost_spawned` ports `trySpawnRemoteGhost` field-for-field (spawn a clone of
+      the local pawn's class, immediately `Possess` the real player back via
+      `GetFunctionByNameInChain("Possess")` + `ProcessEvent`, matching the pattern already
+      confirmed live for this exact call before the original crash), called only from
+      `game_thread_tick` so every call is on the real game thread. Ported Lua's staleness poll
+      (`actor_is_alive`, using `UObject::IsUnreachable()` — read directly from UE4SS's own Lua
+      `IsValid()` binding, `LuaUObject.hpp:721-733`, not guessed) as the primary per-tick check,
+      replacing the old world-pointer-only comparison. Added a guard the Lua adapter didn't need
+      (it never spawned before reaching a real level): refuse to spawn unless the local pawn's
+      class name contains "PlayerGoat", so no ghost is ever cloned from the title screen's
+      transient `DefaultPawn` — the actual origin of the original crash's leaked world. The old
+      hijack-a-StaticMeshActor path is kept intact, selected by flipping `SPAWN_BASED_GHOSTS` to
+      `false`, as an instant revert if the leak reproduces even on the game thread. Deployed to
+      `ue4ss\Mods\MeshGhostPseudo\dlls\main.dll`, diff-confirmed identical to the build output.
+
+      **Confirmed live 2026-08-13**: user, verbatim — "the game worked fine, no crash" and "i saw
+      the ghost/player model". The "Fatal world leaks detected" crash does NOT reproduce once
+      spawn/reposition/Possess calls run from `game_thread_tick` (the real game thread) instead of
+      `on_update()` — the original spawn-crash verdict was a thread-context artifact, not a fact
+      about this build's spawn API. Note this does not touch the separate `K2_DestroyActor`
+      no-op finding — this design still never calls it, so that claim remains untested, not
+      disproven.
+
+      **New symptom, expected**: the camera stayed locked on the ghost instead of the player —
+      exactly Phase 7.4's camera bug, re-opened because a spawned pawn clone (unlike the hijacked
+      StaticMeshActor) again shares proximity with the player and triggers the game's own
+      view-target re-pick. User couldn't test an area transition yet because the stuck camera
+      made movement impractical. **Fix applied, not yet tested**: ported the confirmed Lua
+      `SetViewTargetWithBlend` fight-back hook (`main.lua:520-581`) to C++ via
+      `RegisterProcessEventPostCallback` filtered to that one UFunction (C++ has no per-function
+      `RegisterHook` like Lua's — a cached UFunction pointer comparison inside the generic
+      ProcessEvent hook is the same mechanism Lua's own `RegisterHook` is built on). The actual
+      override call is deferred to `game_thread_tick` rather than invoked from inside the hook,
+      matching Lua's own `ExecuteInGameThread` deferral of the identical call. Deployed,
+      diff-confirmed.
+
+      **First camera-fix run: made things worse, not just ineffective.** User: camera still
+      stuck/centered on the ghost, and now camera control (look-around) was broken entirely —
+      a real regression, not just a failed fix. This is a stronger signal than an ordinary
+      failed attempt (`pitfalls.md`'s "two guessed fixes failing identically" rule doesn't even
+      apply here; a single attempt made the game less controllable than before it ran).
+      **Root cause found by inspection, not a second guess**: the restore call built its own
+      hand-guessed 5-field `SetViewTargetWithBlendParams` struct as the `ProcessEvent` Parms
+      buffer, sized by assumption rather than read from the engine. If the function's real
+      reflected parameter block (`UFunction::GetPropertiesSize()`) is larger than that guess, the
+      engine writes past the end of a local stack struct during the call — plausible stack
+      corruption, which would explain a control-breaking side effect far better than a plain
+      logic bug would. The read side (extracting `NewViewTarget` from the *engine's own*,
+      correctly-sized incoming Parms buffer) was never at risk — only the write/call side, where
+      *we* pick the buffer's size. **Fix**: added `call_ufunction_with_leading_actor_arg`, which
+      always sizes the Parms buffer from the function's own `GetPropertiesSize()`, zero-fills it
+      (matching every default argument value both this call and the `Possess` call need), and
+      writes only the one pointer argument at offset 0 — the same thing UE4SS's own Lua binding
+      does under the hood, just without Lua's marshalling layer doing it automatically. Applied to
+      both the camera restore call and the earlier `Possess` call (lower risk there, a single-
+      pointer-argument function, but fixed for the same reason). Rebuilt (0 errors), deployed,
+      diff-confirmed.
+
+      **Second camera-fix run: identical symptom, unchanged.** Camera still stuck on the ghost,
+      still couldn't look around — no different from before the buffer-size fix. This ruled out
+      the buffer-size theory as the (or at least the only) cause.
+
+      **Went further and made the hook itself purely read-only** (no `ProcessEvent` call
+      anywhere, just logging) to isolate whether the override call was the problem at all.
+      **Third run: identical symptom again, with zero override calls being made.** This is
+      stronger than an ordinary failed-fix signal — `pitfalls.md`'s "two guessed fixes failing
+      identically" rule doesn't even fully cover it, since a *read-only* hook shouldn't be able to
+      break camera control at all if the only thing wrong were the fight-back logic. Real,
+      unresolved candidates going into the next round: (a) this game may call
+      `SetViewTargetWithBlend` through a path `RegisterProcessEventPostCallback` never sees at all
+      (UE4SS's Lua `RegisterHook`, which the original Phase 7.4 fix used, may hook at a different,
+      lower layer than a generic ProcessEvent filter — untested assumption); (b) registering a
+      global post-hook on literally every reflected call in the game may itself have a cost or
+      side effect distinct from anything the hook's own logic does.
+
+      **User-requested pivot, 2026-08-13: stop guessing a fourth camera-hook variant.** Removed
+      `register_camera_fightback_hook()`'s call site entirely (function kept, not deleted, for
+      when this resumes) and re-added Lua's original `SPAWN_DELAY_TICKS` mechanism
+      (`ticks_since_pawn_valid`, gates `ensure_ghost_spawned`, ~300 ticks/~5s at 60fps) — this is
+      the exact setup (player spawns and gets a settled camera first, ghost spawns after a real
+      delay and the swap is a clean, isolated, observable event) that originally broke this bug
+      open in Phase 7.4 (`agent_docs/phases/phase7.md`'s "Twenty-fourth live run" entry above).
+      Rebuilt (0 errors), deployed, diff-confirmed, `UE4SS.log` cleared for a clean capture.
+
+      **User asked directly whether the deploy was even taking effect.** Verified properly rather
+      than asserted: confirmed the game wasn't running (no stale locked DLL), the deployed
+      `main.dll` was byte-identical to the fresh build, `UE4SS.log` was freshly regenerated by the
+      run in question, and no duplicate/stale copy of the mod existed anywhere else on the
+      machine. All clean — the deploy was real.
+
+      **Reading the log instead of guessing found a real, separate bug.** `ticks_since_pawn_valid`
+      was incrementing from the moment *any* pawn+controller pair existed -- including the title
+      screen's own `DefaultPawn`, which sits valid for several real seconds before "Start" -- so
+      by the time the real player pawn spawned, the counter had already blown past
+      `SPAWN_DELAY_TICKS`. Log proof: `local world changed: pawn=BP_PlayerGoatMain_C ...` and
+      `spawned ghost for remote p1-ghost` fired at the **same timestamp**, not ~5s apart. Fixed:
+      only count ticks while `class_looks_like_player(pawn_obj)` is true; reset to 0 otherwise.
+      Rebuilt, deployed, diff-confirmed.
+
+      **Confirmed live, delay now working correctly**: user had full camera control on spawn-in,
+      then once the (correctly-delayed) ghost spawned, the camera both centered on the ghost AND
+      lost the ability to look around at all — the exact same combined symptom as before, now
+      confirmed against the *correct* scenario rather than a delay-bug-contaminated one. This
+      reproduces Phase 7.4's original camera re-pick cleanly, plus the new-to-this-build control
+      freeze on top of it.
+
+      **Re-enabled the read-only-only diagnostic hook** (no `ProcessEvent` call anywhere in its
+      body) now that the scenario it's observing is the real one, not the delay-bug-contaminated
+      one from the previous read-only attempt. Rebuilt, deployed, diff-confirmed, log cleared.
+
+      **Live run: user reproduced the bug again (had camera, lost it and froze the instant the
+      ghost spawned) — and this time the log answered the real question.** Read `UE4SS.log`
+      directly rather than asking the user to describe it: `grep -c "SetViewTargetWithBlend"`
+      across the entire session returned **zero** real hits (the one case-insensitive match was
+      an unrelated hook name, `DiagnosticLoadMapPost`). The read-only hook registered successfully
+      (confirmed by its own "Added posthook" log line) but never fired once, despite the camera
+      visibly locking onto the ghost during that exact run. **Confirms hypothesis (a) from the
+      previous entry**: `RegisterProcessEventPostCallback` genuinely does not see this call on
+      this build.
+
+      **Root cause found by reading UE4SS's own `RegisterHook` implementation directly**
+      (`RE-UE4SS/UE4SS/src/Mod/LuaMod.cpp:3907-3921`), not inferred: for a **native** UFunction
+      (`FUNC_Native` — which `SetViewTargetWithBlend` is), Lua's `RegisterHook` does NOT install a
+      ProcessEvent filter at all. It calls `UFunction::RegisterPreHook`/`RegisterPostHook` directly
+      on the function object, which patches the function's own native entry point and catches
+      every call regardless of dispatch path. `RegisterProcessEventPostCallback` only sees calls
+      dispatched *through* `ProcessEvent` (the Blueprint VM path) — a real, narrower, and
+      previously undocumented-in-this-project distinction. This game evidently calls
+      `SetViewTargetWithBlend` as a direct native call, bypassing `ProcessEvent` entirely, which is
+      exactly why two attempts built on the wrong hook layer never had a chance regardless of what
+      logic was inside them.
+
+      **Rewrote the hook using `UFunction::RegisterPreHook`** (confirmed present and public in
+      UEPseudo, `Class.hpp:421-422`) — and this also enables a strictly safer design than either
+      previous attempt: a pre-hook fires *before* the engine's own native call runs, and
+      `UnrealScriptFunctionCallableContext::GetParams<T>()` gives direct access to the engine's
+      own, already-correctly-sized argument buffer (`TheStack.Locals()`). The fix rewrites
+      `NewViewTarget` (the first argument, offset 0) in place when it needs to fight back, so the
+      engine's own call simply proceeds with the corrected target — no second call anywhere, no
+      guessed buffer size (the whole class of bug from the first attempt), no reentrancy, no
+      defer-to-next-tick machinery. Removed the now-fully-dead `pending_camera_restore_*`
+      deferral fields. Rebuilt (0 errors), deployed, diff-confirmed, log cleared.
+
+      **CONFIRMED WORKING, live, on screen.** User: camera stayed on the player at spawn-in,
+      stayed on the player once the ghost spawned in (previously locked to the ghost and froze
+      camera control entirely), and "the ghost is also following the player perfectly without
+      stopping or teleporting." Logged to `agent_docs/verified.md`. This closes both of Phase
+      7.6's headline questions from the top of this entry: the game-thread spawn retest survives,
+      and the camera bug (re-opened by returning to spawn-based ghosts) has a real, working fix.
+
+      **New crash found immediately after, entering a second area**: `EXCEPTION_ACCESS_VIOLATION
+      reading address 0x000000000000001c`, crash stack shows the fault inside
+      `register_camera_fightback_hook`'s own lambda, called from the game's native code via
+      `UFunction::RegisterPreHook`'s dispatch (`UE4SS.dll` frames), during what the user describes
+      as entering another area. Leading theory, not yet confirmed: `last_known_good_view_target`
+      is a raw `AActor*` cached across calls, and calling `->IsUnreachable()` on it (the existing
+      staleness check) requires dereferencing the object's own memory -- safe if the object is
+      merely GC-unreachable-but-still-allocated, but not safe if a level transition has fully
+      freed it, unlike Lua's `IsValid()` which checks a separate live-object registry first and
+      never touches the object's own memory for an already-freed pointer. This is the same
+      "level transition invalidates cached references" failure class documented in
+      `pitfalls.md`, just now crashing instead of silently reading garbage because we're calling a
+      real member function, not a Lua-marshalled property read. Not yet fixed at the time of this
+      entry -- see the next entry for the fix once tested.
 - [ ] 7.7 — Two real players. Test explicitly and early rather than assuming Pseudoregalia
       behaves like TEVI's Steam single-instance restriction (or doesn't) — record the result
       either way, blocked or not.

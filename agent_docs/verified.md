@@ -1579,3 +1579,29 @@ Copy this block per fact:
   likely had that wrapping around its position-setting calls, while this C++ port never did until
   now. See `agent_docs/pitfalls.md`'s "Host-embedded scripting runtimes" section for the
   transferable lesson.
+
+### C++ mod: spawn-based ghosts survive the game thread, and the camera fight-back fix works
+
+- Date: 2026-08-13
+- Observed: (1) spawning a clone of the local player's pawn class from `game_thread_tick` (the
+  real game thread), with the auto-possess safety fix, no longer reproduces the earlier "Fatal
+  world leaks detected" crash — user, verbatim: "the game worked fine, no crash" and "i saw the
+  ghost/player model". (2) Once `UFunction::RegisterPreHook`-based camera fight-back was added
+  (rewriting `SetViewTargetWithBlend`'s `NewViewTarget` argument in place before the engine's own
+  native call runs), user confirmed: camera stayed on the player at spawn-in, stayed on the player
+  when the ghost spawned in (previously it locked onto the ghost and froze camera control
+  entirely), and "the ghost is also following the player perfectly without stopping or
+  teleporting."
+- Source: `adapters/pseudoregalia/MeshGhostPseudo/Mod/src/Plugin.cpp`,
+  `Plugin::ensure_ghost_spawned` and `Plugin::register_camera_fightback_hook`. The
+  `RegisterPreHook`/`RegisterPostHook` mechanism itself confirmed against
+  `RE-UE4SS/UE4SS/src/Mod/LuaMod.cpp:3907-3921` (Lua's own `RegisterHook` implementation) and
+  `RE-UE4SS/deps/first/Unreal/include/Unreal/CoreUObject/UObject/Class.hpp:421-422` (the public
+  `UFunction` API).
+- Notes: two earlier `RegisterProcessEventPostCallback`-based camera-hook attempts never fired at
+  all for this call (confirmed via `UE4SS.log`: zero matching log lines across a live run that
+  visibly hit the bug) because this game calls `SetViewTargetWithBlend` as a native function call,
+  which does not dispatch through `ProcessEvent`. A separate crash (`EXCEPTION_ACCESS_VIOLATION`)
+  was found immediately after this confirmation, when entering a new area — see `pitfalls.md`/the
+  next phase7.md entry for the fix; this entry covers only the two behaviors explicitly confirmed
+  live above, not area-transition safety.
