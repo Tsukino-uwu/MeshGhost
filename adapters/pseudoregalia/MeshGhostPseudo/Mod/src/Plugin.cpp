@@ -120,6 +120,24 @@ namespace MeshGhostPseudo
     // modify the real player's own collision setup as its own separate, carefully-scoped decision.
     constexpr bool GHOST_COLLISION_ENABLED = false;
 
+    // Redone landed?/jumped? pulse mirror, 2026-08-13 (follow-up session) -- see
+    // RemoteGhost::target_land_count's comment in Plugin.hpp for the full root-cause story (the
+    // first attempt read/wrote the wrong object, animBPref->landed?/jumped? rather than the pawn,
+    // and was a silent no-op on both ends). Ticks to hold landed?/jumped? true on the ghost's own
+    // AnimBP once a rising edge is observed on the wire, since the AnimBP's own update graph may
+    // re-evaluate and stomp a single-tick write before its state machine transition sees it.
+    constexpr uint32_t PULSE_HOLD_TICKS = 3;
+
+    // Read-only diagnostic, 2026-08-13: an every-tick trace (gated on "state looks interesting",
+    // not the usual ~2s LOG_INTERVAL_TICKS cadence, since a one-frame AnimBP pulse can't be seen
+    // at 2s resolution) of every field plausibly gating the stuck-falling/stuck-ledge-hang
+    // transitions, both local and on the ghost, plus a readback of the ghost's own animBPref-
+    // >landed?/jumped? right after we write it -- per CLAUDE.md, a write that "ran without errors"
+    // is not evidence it actually stuck. Confirmed live 2026-08-13 (both the falling-pose fix and,
+    // after adding Montage_Stop, the ledge-hang-stuck-forever fix) -- flipped back to false, same
+    // as LOCAL_OFFSET_TEST_MODE/FORCE_ROTATION_CYCLE_TEST after their own investigations concluded.
+    constexpr bool ANIM_PULSE_TRACE = false;
+
     namespace
     {
         // StringType is std::wstring on this build (confirmed: RE-UE4SS/deps/first/String/
@@ -276,6 +294,51 @@ namespace MeshGhostPseudo
             return actor != nullptr && !actor->IsUnreachable();
         }
 
+        // 'landed?'/'jumped?' (and every other per-frame anim local: 'Move State', 'landed?', etc.)
+        // live on animBPref -- the AnimBP instance -- not on the pawn itself, confirmed via the
+        // real reflection dump (see PULSE_HOLD_TICKS's comment above). One hop through
+        // GetValuePtrByPropertyNameInChain<UObject*>(STR("animBPref")) reaches it, same pattern
+        // already used elsewhere in this file for CharacterMovement/CapsuleComponent/VisualMesh.
+        // Returns false (not found treated the same as "not currently true") if animBPref, or the
+        // named bool on it, doesn't resolve -- e.g. a hijacked StaticMeshActor ghost has neither.
+        auto read_animbp_bool(UObject* actor, const wchar_t* name) -> bool
+        {
+            if (!actor)
+            {
+                return false;
+            }
+            UObject** abp = actor->GetValuePtrByPropertyNameInChain<UObject*>(STR("animBPref"));
+            if (!abp || !*abp)
+            {
+                return false;
+            }
+            bool* value = (*abp)->GetValuePtrByPropertyNameInChain<bool>(name);
+            return value && *value;
+        }
+
+        // Write counterpart of read_animbp_bool -- used to drive the ghost's own AnimBP directly,
+        // since (unlike moveState/actionState/etc.) landed?/jumped? are set by the AnimBP's own
+        // event graph in response to a delegate (LandedDelegate/playerLanded?) the ghost's
+        // collision-disabled CharacterMovementComponent can never fire, so mirroring the pawn side
+        // alone (the pattern used for every other animation field in this file) cannot work here.
+        // No-op, safely, if animBPref or the named bool doesn't resolve (e.g. hijack-mode ghost).
+        auto write_animbp_bool(UObject* actor, const wchar_t* name, bool value) -> void
+        {
+            if (!actor)
+            {
+                return;
+            }
+            UObject** abp = actor->GetValuePtrByPropertyNameInChain<UObject*>(STR("animBPref"));
+            if (!abp || !*abp)
+            {
+                return;
+            }
+            if (bool* ptr = (*abp)->GetValuePtrByPropertyNameInChain<bool>(name))
+            {
+                *ptr = value;
+            }
+        }
+
         // Phase 7.6 spawn-safety guard, new (not in the Lua adapter, which never spawned from the
         // title screen because it happened to only reach a real level by the time it first ran):
         // the original C++ spawn crash's ghost was a clone of the title screen's own transient
@@ -380,6 +443,61 @@ namespace MeshGhostPseudo
                 return;
             }
             target->ProcessEvent(function, params_buffer.data());
+        }
+
+        // Ledge-hang-stuck-forever fix, 2026-08-13: the landed?/jumped? pulse mirror (see
+        // PULSE_HOLD_TICKS's comment) provably resets the ghost's moveState/actionState/
+        // movementMode correctly on every real landing, yet the user confirmed live the ghost
+        // stays frozen in the ledge-hang POSE regardless of any later jump/slide/land -- a pose
+        // that outlives every state-machine byte resetting is the signature of an Anim Montage
+        // (started once via a "Play Anim Montage" node, independent of the state machine), not a
+        // state-machine transition. Confirmed real, not guessed: log_pawn_reflection_once's
+        // UFunction enumeration found 'Montage_Stop' on animBPref's class chain, and a follow-up
+        // read-only FProperty dump of that exact function (not assumed from general Unreal Engine
+        // knowledge, per CLAUDE.md) confirmed its real parameters: 'InBlendOutTime' (FloatProperty,
+        // offset 0) and 'Montage' (ObjectProperty, offset 8, left null in the zeroed buffer below --
+        // UAnimInstance::Montage_Stop's own documented behavior for a null Montage argument is to
+        // stop whatever is currently playing, which is exactly what's wanted here since which
+        // specific UAnimMontage asset played the hang pose was never determined and doesn't need to
+        // be). Matched by property NAME here, not just assumed position, in case a future engine
+        // update on this SDK ever reorders them.
+        auto call_montage_stop(UObject* anim_instance, float blend_out_time) -> void
+        {
+            if (!anim_instance)
+            {
+                return;
+            }
+            UFunction* function = anim_instance->GetFunctionByNameInChain(STR("Montage_Stop"));
+            if (!function)
+            {
+                return;
+            }
+            int32_t parms_size = function->GetPropertiesSize();
+            if (parms_size < static_cast<int32_t>(sizeof(float)))
+            {
+                Output::send(STR("[MeshGhostPseudo] WARNING: Montage_Stop has an implausibly small PropertiesSize ({}) -- refusing to call it.\n"),
+                             parms_size);
+                return;
+            }
+            std::vector<uint8_t> params_buffer(static_cast<size_t>(parms_size), 0);
+            bool found_blend_out = false;
+            for (FProperty* property : TFieldRange<FProperty>(function, EFieldIterationFlags::None))
+            {
+                if (property && property->GetName() == STR("InBlendOutTime"))
+                {
+                    *std::bit_cast<float*>(params_buffer.data() + property->GetOffset_Internal()) = blend_out_time;
+                    found_blend_out = true;
+                }
+                // 'Montage' (the UAnimMontage* to stop) is deliberately left null -- see this
+                // function's own comment above for why that's the correct value here, not a
+                // shortcut.
+            }
+            if (!found_blend_out)
+            {
+                Output::send(STR("[MeshGhostPseudo] WARNING: Montage_Stop's 'InBlendOutTime' parameter was not found by name -- refusing to call it.\n"));
+                return;
+            }
+            anim_instance->ProcessEvent(function, params_buffer.data());
         }
 
         // Facing-direction root cause, found 2026-08-13: the vendored RE-UE4SS SDK's own
@@ -1023,9 +1141,9 @@ namespace MeshGhostPseudo
             json_number_field(line, "v_speed", v_speed);
             json_number_field(line, "anim_jump_type", anim_jump_type);
             json_number_field(line, "movement_mode", movement_mode);
-            double landed = 0, jumped = 0;
-            json_number_field(line, "landed", landed);
-            json_number_field(line, "jumped", jumped);
+            double land_count = 0, jump_count = 0;
+            json_number_field(line, "land_count", land_count);
+            json_number_field(line, "jump_count", jump_count);
 
             if constexpr (SPAWN_BASED_GHOSTS)
             {
@@ -1050,8 +1168,8 @@ namespace MeshGhostPseudo
                 it->second.target_v_speed = v_speed;
                 it->second.target_anim_jump_type = anim_jump_type;
                 it->second.target_movement_mode = movement_mode;
-                it->second.target_landed = landed != 0;
-                it->second.target_jumped = jumped != 0;
+                it->second.target_land_count = land_count;
+                it->second.target_jump_count = jump_count;
             }
         }
         else if (type == "despawn_remote")
@@ -1289,6 +1407,59 @@ namespace MeshGhostPseudo
         }
         Output::send(STR("[MeshGhostPseudo] DIAG: end of animBPref reflection dump.\n"));
 
+        // Follow-up, 2026-08-13 (ledge-hang-stuck-forever investigation): the landed?/jumped?
+        // pulse fix (see PULSE_HOLD_TICKS's comment) provably resets moveState/actionState/
+        // movementMode correctly on the ghost within ~1s of a real landing -- confirmed via a live
+        // TRACE remote readback -- yet the user reports the ghost stays frozen in the ledge-hang
+        // POSE indefinitely regardless of any later jump/slide/land on the real player's side. A
+        // pose that survives every state-machine byte resetting correctly is the signature of an
+        // Anim Montage (played once via a "Play Anim Montage" node and independent of the state
+        // machine's own Move State variable) rather than a state-machine transition -- consistent
+        // with OnMontageStarted/OnMontageEnded/ActiveAnimNotifyState already showing up in the
+        // animBPref property dump above. Per CLAUDE.md, no UFunction name gets called here on a
+        // guess -- enumerating every real UFunction on animBPref's class chain (the same
+        // TFieldRange pattern already used for FProperty above, just over UFunction instead) so
+        // whatever the real montage-stop entry point is called on THIS build gets read off the
+        // engine, not assumed from general Unreal Engine knowledge.
+        Output::send(STR("[MeshGhostPseudo] DIAG: enumerating animBPref UFunctions...\n"));
+        for (UFunction* function : TFieldRange<UFunction>(anim_bp_class, EFieldIterationFlags::Default))
+        {
+            if (!function)
+            {
+                continue;
+            }
+            Output::send(STR("[MeshGhostPseudo] DIAG: animBPref function '{}' PropertiesSize={}\n"),
+                         function->GetName(),
+                         function->GetPropertiesSize());
+        }
+        Output::send(STR("[MeshGhostPseudo] DIAG: end of animBPref UFunction dump.\n"));
+
+        // Follow-up, same investigation: Montage_Stop's real parameter NAMES, not assumed from
+        // general Unreal Engine knowledge -- PropertiesSize=16 is consistent with a (float, object
+        // pointer) pair, but per CLAUDE.md that consistency is not confirmation. Same FProperty/
+        // GetOffset_Internal pattern already used to safely call
+        // call_set_actor_location_and_rotation/call_set_collision_response_to_channel -- read-only
+        // here, no call made yet.
+        if (UFunction* montage_stop_fn = anim_bp->GetFunctionByNameInChain(STR("Montage_Stop")))
+        {
+            Output::send(STR("[MeshGhostPseudo] DIAG: Montage_Stop real signature (PropertiesSize={}):\n"), montage_stop_fn->GetPropertiesSize());
+            for (FProperty* property : TFieldRange<FProperty>(montage_stop_fn, EFieldIterationFlags::None))
+            {
+                if (!property)
+                {
+                    continue;
+                }
+                Output::send(STR("[MeshGhostPseudo] DIAG: Montage_Stop param '{}' ({}) offset={}\n"),
+                             property->GetName(),
+                             property->GetClass().GetName(),
+                             property->GetOffset_Internal());
+            }
+        }
+        else
+        {
+            Output::send(STR("[MeshGhostPseudo] DIAG: Montage_Stop not found via GetFunctionByNameInChain (unexpected -- was listed in the UFunction enumeration above).\n"));
+        }
+
         // Follow-up, 2026-08-13: user reports the spawned ghost gets stuck in a "flying"/airborne
         // idle pose after jumping (a slide forcibly resets it back to grounded). Leading theory:
         // the ghost's SetActorEnableCollision(false) (ensure_ghost_spawned, added deliberately so
@@ -1504,11 +1675,51 @@ namespace MeshGhostPseudo
                 }
             }
 
-            // Untested landed?/jumped? pulse theory -- see RemoteGhost::target_landed's comment.
-            bool* landed_ptr = pawn->GetValuePtrByPropertyNameInChain<bool>(STR("landed?"));
-            bool* jumped_ptr = pawn->GetValuePtrByPropertyNameInChain<bool>(STR("jumped?"));
-            bool landed_now = landed_ptr && *landed_ptr;
-            bool jumped_now = jumped_ptr && *jumped_ptr;
+            // Redone landed?/jumped? pulse mirror (see PULSE_HOLD_TICKS's comment): these live on
+            // animBPref, not the pawn -- read_animbp_bool does the extra hop. Edge-detected against
+            // the previous tick's raw value so a pulse held true for more than one tick (plausible
+            // at 60Hz) is still counted once per real landing/jump, not once per tick it reads true.
+            bool landed_now = read_animbp_bool(pawn, STR("landed?"));
+            bool jumped_now = read_animbp_bool(pawn, STR("jumped?"));
+            if (landed_now && !prev_landed_raw)
+            {
+                ++landed_count;
+            }
+            if (jumped_now && !prev_jumped_raw)
+            {
+                ++jumped_count;
+            }
+            prev_landed_raw = landed_now;
+            prev_jumped_raw = jumped_now;
+
+            // Dense every-tick trace for this investigation -- LOG_INTERVAL_TICKS (~2s) cannot see
+            // a one-frame AnimBP pulse. Gated on "airborne or a pulse fired this tick" so a full
+            // jump/land or grab/release cycle is readable without flooding the log at 60Hz while
+            // grounded and idle. See ANIM_PULSE_TRACE's own comment.
+            if constexpr (ANIM_PULSE_TRACE)
+            {
+                if (movement_mode != 1 || landed_now || jumped_now)
+                {
+                    uint8_t* prev_move_state_ptr = pawn->GetValuePtrByPropertyNameInChain<uint8_t>(STR("previousMoveState"));
+                    uint8_t* prev_action_state_ptr = pawn->GetValuePtrByPropertyNameInChain<uint8_t>(STR("previousActionState"));
+                    double* move_uptime_ptr = pawn->GetValuePtrByPropertyNameInChain<double>(STR("moveStateUptime"));
+                    double* action_uptime_ptr = pawn->GetValuePtrByPropertyNameInChain<double>(STR("actionStateUptime"));
+                    uint8_t* control_state_ptr = pawn->GetValuePtrByPropertyNameInChain<uint8_t>(STR("controlState"));
+                    Output::send(STR("[MeshGhostPseudo] PULSE local: moveState={} prevMoveState={} actionState={} prevActionState={} moveUptime={} actionUptime={} controlState={} movementMode={} landed={} jumped={} landed_count={} jumped_count={}\n"),
+                                 move_state_ptr ? static_cast<int>(*move_state_ptr) : -1,
+                                 prev_move_state_ptr ? static_cast<int>(*prev_move_state_ptr) : -1,
+                                 action_state_ptr ? static_cast<int>(*action_state_ptr) : -1,
+                                 prev_action_state_ptr ? static_cast<int>(*prev_action_state_ptr) : -1,
+                                 move_uptime_ptr ? *move_uptime_ptr : -1.0,
+                                 action_uptime_ptr ? *action_uptime_ptr : -1.0,
+                                 control_state_ptr ? static_cast<int>(*control_state_ptr) : -1,
+                                 static_cast<int>(movement_mode),
+                                 landed_now,
+                                 jumped_now,
+                                 landed_count,
+                                 jumped_count);
+                }
+            }
 
             // Live trace for the "stuck flying after jump, slide resets it" investigation --
             // reusing the existing ~2s log cadence (LOG_INTERVAL_TICKS) so this can run through a
@@ -1564,22 +1775,17 @@ namespace MeshGhostPseudo
                 }
             }
 
-            // Latch update + JSON build happen inside one critical section so the "landed"/
-            // "jumped" values baked into local_state always match exactly what the latch held at
-            // that instant -- on_update clears these same members (under the same mutex) only
-            // after it has actually copied cached_local_state_json out, so a "true" latch value is
-            // guaranteed to survive into at least one string on_update sends, even if this
-            // specific tick's pulse would otherwise have been overwritten by the next tick's
-            // build before on_update (a separate thread, different poll rate) ever read it.
+            // landed_count/jumped_count are monotonic (see Plugin.hpp's comment on them), so unlike
+            // the old bool latch, no clear-after-send handoff step is needed -- whatever value is
+            // baked into this tick's JSON is simply the count as of this tick; on_update no longer
+            // needs to touch these members at all.
             std::lock_guard<std::mutex> lock(state_mutex);
-            pending_landed_pulse = pending_landed_pulse || landed_now;
-            pending_jumped_pulse = pending_jumped_pulse || jumped_now;
 
             std::string local_state = std::format(
                 "{{\"type\":\"local_state\",\"payload\":{{\"state\":{{\"area_id\":\"{}\",\"position\":[{},{},{}],"
                 "\"orientation\":[{},{},{}],\"anim\":\"idle\","
                 "\"extras\":{{\"move_state\":{},\"action_state\":{},\"h_speed\":{},\"v_speed\":{},\"anim_jump_type\":{},\"movement_mode\":{},"
-                "\"landed\":{},\"jumped\":{}}}"
+                "\"land_count\":{},\"jump_count\":{}}}"
                 "}}}}}}",
                 json_escape(area_id),
                 location.X(),
@@ -1594,8 +1800,8 @@ namespace MeshGhostPseudo
                 v_speed_ptr ? *v_speed_ptr : 0.0,
                 anim_jump_type_ptr ? static_cast<int>(*anim_jump_type_ptr) : 0,
                 static_cast<int>(movement_mode),
-                pending_landed_pulse ? 1 : 0,
-                pending_jumped_pulse ? 1 : 0);
+                landed_count,
+                jumped_count);
             cached_local_state_json = local_state;
         }
         else
@@ -1697,14 +1903,82 @@ namespace MeshGhostPseudo
                     *g_movement_mode = static_cast<uint8_t>(remote.target_movement_mode);
                 }
             }
-            // Untested landed?/jumped? pulse theory -- see RemoteGhost::target_landed's comment.
-            if (bool* g_landed = remote.ghost->GetValuePtrByPropertyNameInChain<bool>(STR("landed?")))
+            // Redone landed?/jumped? pulse mirror (see PULSE_HOLD_TICKS's comment): a rising edge
+            // in the received counter arms a hold window, decremented every tick regardless of
+            // whether a new render_remote line arrived this tick (this loop runs unconditionally
+            // per PROTOCOL.md), and write_animbp_bool targets the ghost's own animBPref -- the
+            // object these fields actually live on, unlike every other field mirrored above.
+            bool land_edge = remote.target_land_count > remote.last_seen_land_count;
+            bool jump_edge = remote.target_jump_count > remote.last_seen_jump_count;
+            if (land_edge)
             {
-                *g_landed = remote.target_landed;
+                remote.last_seen_land_count = remote.target_land_count;
+                remote.landed_hold_ticks = PULSE_HOLD_TICKS;
             }
-            if (bool* g_jumped = remote.ghost->GetValuePtrByPropertyNameInChain<bool>(STR("jumped?")))
+            if (jump_edge)
             {
-                *g_jumped = remote.target_jumped;
+                remote.last_seen_jump_count = remote.target_jump_count;
+                remote.jumped_hold_ticks = PULSE_HOLD_TICKS;
+            }
+            bool write_landed = remote.landed_hold_ticks > 0;
+            bool write_jumped = remote.jumped_hold_ticks > 0;
+            write_animbp_bool(remote.ghost, STR("landed?"), write_landed);
+            write_animbp_bool(remote.ghost, STR("jumped?"), write_jumped);
+            if (remote.landed_hold_ticks > 0)
+            {
+                --remote.landed_hold_ticks;
+            }
+            if (remote.jumped_hold_ticks > 0)
+            {
+                --remote.jumped_hold_ticks;
+            }
+
+            // Ledge-hang-stuck-forever fix (see call_montage_stop's own comment for the full
+            // theory and how Montage_Stop's real signature was confirmed): a land_edge or
+            // jump_edge is exactly the moment the real player left whatever held pose they were
+            // in (dropping off a ledge and touching ground fires a landed pulse; jumping off fires
+            // a jumped pulse -- confirmed via the live trace of a real hang->release->land cycle),
+            // so this is the right moment to force-stop any lingering montage on the ghost too,
+            // not merely mirror the continuous state that a montage doesn't listen to anyway.
+            if (land_edge || jump_edge)
+            {
+                if (UObject** g_abp_for_montage = remote.ghost->GetValuePtrByPropertyNameInChain<UObject*>(STR("animBPref")); g_abp_for_montage && *g_abp_for_montage)
+                {
+                    // Blend-out tightened 2026-08-13 (user-confirmed live: the fix worked but the
+                    // ghost held the hang pose a bit longer than the real player, on top of the
+                    // ~100ms interpolation delay already inherent to the pipeline) -- 0.0s cuts
+                    // instead of blending, closing the rest of the gap.
+                    call_montage_stop(*g_abp_for_montage, 0.0f);
+                    if constexpr (ANIM_PULSE_TRACE)
+                    {
+                        Output::send(STR("[MeshGhostPseudo] PULSE remote {}: called Montage_Stop (land_edge={} jump_edge={})\n"),
+                                     to_wide_ascii(id),
+                                     land_edge,
+                                     jump_edge);
+                    }
+                }
+            }
+
+            if constexpr (ANIM_PULSE_TRACE)
+            {
+                if (write_landed || write_jumped || land_edge || jump_edge)
+                {
+                    // Readback immediately after the write above -- per CLAUDE.md, "it ran without
+                    // errors" is not evidence the AnimBP's own update graph didn't immediately
+                    // overwrite it before the next frame renders.
+                    bool rb_landed = read_animbp_bool(remote.ghost, STR("landed?"));
+                    bool rb_jumped = read_animbp_bool(remote.ghost, STR("jumped?"));
+                    Output::send(STR("[MeshGhostPseudo] PULSE remote {}: land_count={} jump_count={} landed_hold={} jumped_hold={} wrote_landed={} wrote_jumped={} readback_landed={} readback_jumped={}\n"),
+                                 to_wide_ascii(id),
+                                 remote.target_land_count,
+                                 remote.target_jump_count,
+                                 remote.landed_hold_ticks,
+                                 remote.jumped_hold_ticks,
+                                 write_landed,
+                                 write_jumped,
+                                 rb_landed,
+                                 rb_jumped);
+                }
             }
 
             if (tick_count % LOG_INTERVAL_TICKS == 0)
@@ -1823,12 +2097,6 @@ namespace MeshGhostPseudo
             {
                 std::lock_guard<std::mutex> lock(state_mutex);
                 local_state_to_send = cached_local_state_json;
-                // Clear the landed?/jumped? latches now that this snapshot -- which already has
-                // whatever value they held baked into it -- is about to actually be sent. See
-                // pending_landed_pulse's own comment in Plugin.hpp for why this can't just happen
-                // in game_thread_tick.
-                pending_landed_pulse = false;
-                pending_jumped_pulse = false;
             }
             if (!local_state_to_send.empty())
             {

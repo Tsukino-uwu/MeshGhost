@@ -1711,3 +1711,68 @@ Copy this block per fact:
   mirroring: a one-shot state transition on the real player's side (landing, or releasing a
   ledge) that isn't being mirrored onto the ghost, so the ghost's AnimBP never receives the event
   that would move it out of the sustained pose. Not yet investigated further.
+
+### C++ mod: stuck-falling-pose fix — the earlier `landed?`/`jumped?` pulse attempt was never actually tested
+
+- Date: 2026-08-13
+- Observed: the prior "failed live" pulse attempt (previous entry's notes) turned out to be a
+  silent no-op, not a disproven theory — a real reflection dump grep confirmed `landed?`/
+  `jumped?` exist only on `animBPref` (the AnimBP instance), never on the pawn the old code
+  actually read/wrote. Redone to hop through `animBPref` on both ends, with the wire field
+  changed from a single-tick bool to a monotonic `land_count`/`jump_count` counter (a bool pulse
+  can't survive `Core.DefaultMinSendInterval`'s 50ms send-rate cap against a ~60Hz game thread,
+  or `remoteBuffer.lerp` holding `extras` from the older bracketing snapshot) and a 3-tick hold
+  window on the ghost's write side. User confirmed live after a real jump→land cycle: "not stuck
+  in a 'falling' animation anymore after jumping." Trace log cross-check (`UE4SS.log`) for the
+  same session shows `land_count`/`jump_count` incrementing once per real edge, the ghost's
+  `animBPref->landed?`/`jumped?` write readback confirmed `true` during the hold window, and
+  `moveState`/`actionState`/`movementMode` all resetting on the ghost within ~1s of a real
+  landing.
+- Source: `adapters/pseudoregalia/MeshGhostPseudo/Mod/src/Plugin.cpp` —
+  `read_animbp_bool`/`write_animbp_bool` helpers, the edge-detection block in `game_thread_tick`,
+  and the hold-window block in the redraw loop. Reflection dump confirming `landed?`/`jumped?`
+  live only on `animBPref`: `UE4SS.log` DIAG lines from `log_pawn_reflection_once`, lines 1774-
+  1775 in the 2026-08-13 12:25 capture (`animBPref property 'landed?' (BoolProperty)` /
+  `'jumped?' (BoolProperty)`), absent from the pawn's own property list earlier in the same dump.
+- Notes: the ledge-hang-stuck-forever bug (next entry) was still open at this point in the
+  session — this entry is the falling-pose fix specifically.
+
+### C++ mod: ledge-hang-stuck-forever fix — the pose was an Anim Montage, not a state-machine transition
+
+- Date: 2026-08-13
+- Observed: even with the falling-pose fix above confirmed working, user reported the ghost
+  stayed frozen in the ledge-hang pose indefinitely after releasing a ledge, and that jumping,
+  sliding, or "doing anything else" on the real player's side never reset it. A live trace
+  capture of one real hang→release→land cycle proved `moveState`/`actionState`/`movementMode`
+  all reset correctly on the ghost within ~1s (readback-confirmed) — meaning the pose was
+  provably outliving every state-machine byte resetting, the signature of an Anim Montage played
+  independently of those bytes. A read-only `UFunction` enumeration of `animBPref`'s class chain
+  (not a guessed name) found a real `Montage_Stop` function on this build; a follow-up read-only
+  `FProperty` dump of that exact function confirmed its real parameters — `InBlendOutTime`
+  (`FloatProperty`, offset 0) and `Montage` (`ObjectProperty`, offset 8, left null to stop
+  whatever is currently playing). Wired to call on the ghost's `animBPref` on the same
+  land/jump-edge rising-edge logic as the falling-pose fix. User confirmed live: "its working,
+  ... now its actually going back to normal/other animations." A residual ~150-200ms lag behind
+  the real player was also reported and traced to the existing, already-accepted
+  `DefaultInterpolationDelay`/send-rate-cap trailing delay (the same one Phase 3 confirmed for
+  ghost position), not the fix itself — reducing `Montage_Stop`'s blend-out from 0.15s to 0.0s
+  made no observable difference, consistent with that lag living elsewhere in the pipeline.
+- Source: `adapters/pseudoregalia/MeshGhostPseudo/Mod/src/Plugin.cpp` — `call_montage_stop`
+  (helper, confirmed-parameter-name pattern matching `call_set_actor_location_and_rotation`/
+  `call_set_collision_response_to_channel`) and its call site in the redraw loop's land/jump-edge
+  block. `UE4SS.log` DIAG lines from the 2026-08-13 16:25 and 16:28 captures: UFunction
+  enumeration listing `Montage_Stop` (`PropertiesSize=16`) among many other real
+  `UAnimInstance` montage functions, and the follow-up dump `Montage_Stop param
+  'InBlendOutTime' (FloatProperty) offset=0` / `param 'Montage' (ObjectProperty) offset=8`.
+- Notes: both animation-stuck bugs found in the "facing-direction fix" entry above are now
+  closed. `ANIM_PULSE_TRACE`, the dense every-tick diagnostic added for this investigation, has
+  been flipped back to `false` and the shipping `main.dll` rebuilt/redeployed/hash-diff-confirmed
+  without it. Not yet investigated: whether `Montage_Stop` should also fire at other transition
+  points (e.g. an area change) as a defensive measure — not needed for anything reproduced so
+  far. **Same-day follow-up, user tested further traversal mechanics with no code changes**: wall
+  gliding (cling gem) and multiple wall kicks in a row both "worked perfectly"/"just fine" on the
+  ghost, confirming the existing continuous-state mirroring
+  (`moveState`/`actionState`/`horizontalSpeed`/`verticalSpeed`/`movementMode`, from the original
+  "ghost animation state" entry) generalizes to these mechanics without needing any
+  mechanic-specific handling — only the one-shot pose transitions (falling recovery, ledge-hang
+  exit) needed the `landed?`/`jumped?`/`Montage_Stop` work above.

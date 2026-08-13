@@ -271,6 +271,55 @@
       crash noted above. Both this and the new stuck-hanging bug are plausibly the same root-cause
       class as the already-tried-and-failed `landed?`/`jumped?` pulse mirroring: a one-shot state
       transition on the real player's side not being mirrored onto the ghost's AnimBP.
+  - **Follow-up session, same day: the `landed?`/`jumped?` pulse attempt above never actually
+    ran — root-caused and redone, built, deployed, not yet tested live.** A real reflection-dump
+    grep (`UE4SS.log`, `log_pawn_reflection_once`'s output) confirmed `landed?`/`jumped?` exist
+    only as `BoolProperty`s on `ABP_PlayerGoat_C` (the AnimBP instance, reached via the pawn's
+    `animBPref`), never on `BP_PlayerGoatMain_C` itself — the prior code read/wrote both names
+    straight off the pawn on both ends, so every access silently resolved to `nullptr` and the
+    "failed live" verdict was actually an untested no-op, not a disproven theory. Fix in
+    `Plugin.cpp`/`Plugin.hpp`: new `read_animbp_bool`/`write_animbp_bool` helpers take the extra
+    `animBPref` hop; the wire field changed from a single-tick bool to monotonic
+    `extras.land_count`/`extras.jump_count` (a bool pulse can't survive
+    `Core.DefaultMinSendInterval`'s 50ms send-rate cap against a ~60Hz game thread, or
+    `remoteBuffer.lerp` holding `extras` from the older bracketing snapshot — a counter is
+    drop-safe and repeat-safe); on the ghost side a rising edge in the received counter arms a
+    3-tick (`PULSE_HOLD_TICKS`) hold window writing `landed?`/`jumped?` = true onto the ghost's own
+    `animBPref`. Added a new dense every-tick `ANIM_PULSE_TRACE` (gated on airborne-or-pulsing, not
+    the usual ~2s cadence) logging both sides plus a same-tick readback after the ghost write, per
+    `CLAUDE.md`'s "ran without errors is not evidence" rule — if this doesn't fix it, the log
+    should show exactly where (e.g. the AnimBP's own graph stomping the write back to false)
+    instead of another silent failure. Built (0 errors), deployed to
+    `ue4ss\Mods\MeshGhostPseudo\dlls\main.dll`, hash-diff-confirmed, old `UE4SS.log` archived
+    (not deleted) for a clean capture.
+  - **Confirmed live 2026-08-13: the falling-pose fix above works.** User, after a real jump→land
+    cycle: "not stuck in a 'falling' animation anymore after jumping." See `verified.md`.
+  - **Ledge-hang-stuck-forever: found, fixed, and confirmed live the same day — both animation
+    bugs from the "facing-direction fix" entry are now closed.** With the falling-pose fix
+    confirmed, the user reported the ledge-hang pose stayed frozen forever regardless of any
+    later jump/slide/land. A live trace of one real hang→release→land cycle proved
+    `moveState`/`actionState`/`movementMode` all reset correctly on the ghost (readback-confirmed)
+    within ~1s — meaning the pose outlives every state-machine byte resetting, the signature of an
+    Anim Montage playing independently rather than a state-machine transition. Per `CLAUDE.md`, no
+    function name was guessed: a read-only `UFunction` enumeration of `animBPref`'s class chain
+    found a real `Montage_Stop` on this build, and a follow-up read-only `FProperty` dump of that
+    exact function confirmed its real parameters (`InBlendOutTime` float at offset 0, `Montage`
+    pointer at offset 8, left null to stop whatever's currently playing) before any call was made.
+    New `call_montage_stop` helper (same confirmed-offset pattern as
+    `call_set_actor_location_and_rotation`) fires on the same land/jump-edge rising-edge logic the
+    pulse fix already computes. **User confirmed live: "its working, ... now its actually going
+    back to normal/other animations."** A residual ~150-200ms lag behind the real player was also
+    reported and traced to the existing, already-accepted `DefaultInterpolationDelay`/send-rate-cap
+    trailing delay (the same one Phase 3 confirmed for ghost position) — reducing the blend-out
+    from 0.15s to 0.0s made no observable difference, confirming the lag lives elsewhere in the
+    pipeline, not in this fix. Left as-is; tightening it further would mean lowering
+    `InterpolationDelay` globally, trading smoothness for every ghost movement, a separate decision
+    not made as a side effect of this bug fix. See `verified.md` for both entries.
+  - **`ANIM_PULSE_TRACE` flipped back to `false`, rebuilt, redeployed, hash-diff-confirmed** —
+    current deployed `main.dll` is the normal shipping configuration, same pattern as the earlier
+    rotation-test flags.
+  - **Remaining open Phase 7 item, unaffected by this session's work**: the not-yet-root-caused
+    `Fatal Error!` exit crash noted earlier in this phase.
 
 ## Go networking layer (2026-08-11)
 
