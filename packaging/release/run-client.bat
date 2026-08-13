@@ -6,5 +6,9 @@ rem
 rem After this window says "connected to relay", separately open your game
 rem (see the game's own folder under games\ and README.txt for the full
 rem walkthrough).
+rem
+rem meshghost.exe also writes everything it prints here to meshghost.log in
+rem this same folder -- if something goes wrong, that file has the same
+rem information even after this window closes.
 meshghost.exe
 pause

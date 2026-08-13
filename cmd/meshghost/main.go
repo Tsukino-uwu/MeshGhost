@@ -6,6 +6,7 @@ package main
 import (
 	"encoding/json"
 	"flag"
+	"io"
 	"log"
 	"net"
 	"os"
@@ -13,6 +14,22 @@ import (
 
 	"meshghost/internal/core"
 )
+
+// openLogFile creates (truncating any previous run's contents) meshghost.log next to
+// wherever the process's working directory is -- the same cwd config.json is read from,
+// so it lands beside the exe in the normal double-click-from-the-package-folder case. This
+// exists so a crash is still readable after the console window itself is gone (e.g. if
+// someone runs meshghost.exe directly instead of through run-client.bat's trailing
+// `pause`) -- see packaging/release/README.txt. Falls back to stderr-only, with a warning,
+// if the file can't be created (e.g. read-only folder).
+func openLogFile(name string) io.Writer {
+	f, err := os.Create(name)
+	if err != nil {
+		log.Printf("meshghost: warning: could not create log file %s: %v (log output will only appear in this window)", name, err)
+		return os.Stderr
+	}
+	return io.MultiWriter(os.Stderr, f)
+}
 
 // fileConfig is the shape of the "client" section of an optional JSON config
 // file (see -config) -- a friendlier alternative to CLI flags for a
@@ -105,6 +122,8 @@ func main() {
 			"flags for non-developer use; silently ignored if it doesn't exist; any flag explicitly "+
 			"passed on the command line overrides the same field from this file")
 	flag.Parse()
+
+	log.SetOutput(openLogFile("meshghost.log"))
 
 	explicit := map[string]bool{}
 	flag.Visit(func(f *flag.Flag) { explicit[f.Name] = true })
