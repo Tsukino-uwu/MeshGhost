@@ -1797,3 +1797,43 @@ Copy this block per fact:
   variable. Unblocks Phase 6.6 (two real players) for local testing without needing a second
   machine — still needs the actual gameplay/multiplayer test (both ghosts visible, moving,
   cross-area filtering), not just "both processes launch."
+
+### v0.2.1 release: TEVI loopback ghost renders on the real, current TEVI build
+
+- Date: 2026-08-13
+- Observed: user reinstalled TEVI clean via Steam (fresh game files, fresh BepInEx, no
+  Tevi Randomizer or other leftover mods), deployed `MeshGhostTevi.dll` from the v0.2.1
+  release, ran it against the dev-only relay `-loopback` flag plus the release's own
+  `meshghost.exe`. `meshghost.log` showed `connected to relay 127.0.0.1:7777 as p1 in room
+  "default" (game "tevi")`; the BepInEx console showed `MeshGhost: connected to bridge at
+  127.0.0.1:7778.`, `real remote ghost visual created for p1-ghost`, and continuous
+  `local state: area=... pos=... anim=...` lines while playing. User confirmed watching the
+  ghost render, animate, and follow the local player's movement correctly in-game on both the
+  old test build and the current/Steam build, not just reading the logs.
+- Source: `meshghost.log` / BepInEx `LogOutput.log`, this session's own transcript.
+- Notes: this is the loopback **self**-ghost path (echoes the one real player's own state
+  back as a ghost), not yet two distinct real players — TEVI's README EXPERIMENTAL status for
+  real two-player testing stands until that's separately confirmed.
+
+### MeshGhostTevi: EventManager.mainCharacter access must go through reflection, not a direct property read
+
+- Date: 2026-08-13
+- Observed: an older TEVI build (SteamDB build `14778703`, 2024-06-20, kept for local
+  dual-instance testing) crashed every frame with `MissingMethodException: Method not found:
+  CharacterBase .EventManager.get_mainCharacter()` when running a `MeshGhostTevi.dll` built
+  against the current TEVI build. Decompiling both builds' `Assembly-CSharp.dll` with
+  `ilspycmd` showed `EventManager.mainCharacter` is a plain public field on the old build but
+  a property (backed by a private `_mainCharacter` field) on the current build — confirmed
+  independently by the TEVI/`Tevi_Randomizer` developer, who has the actual source. After
+  changing `Plugin.cs` to resolve `mainCharacter` via `System.Reflection`
+  (`GetProperty`/`GetField` fallback) instead of a direct `.mainCharacter` read, user retested
+  both the old build and the current/Steam build: both connected, both rendered a real ghost,
+  no crash on either.
+- Source: `adapters/tevi/MeshGhostTevi/Plugin.cs` (`GetMainCharacter`, added this session);
+  old-build crash trace from `%LOCALAPPDATA%Low\CreSpirit\TEVI\Player.log`; current-build
+  member shapes read directly via `ilspycmd -t EventManager` on each build's own
+  `Assembly-CSharp.dll`.
+- Notes: only `mainCharacter` was confirmed to differ between these two builds — other
+  members the plugin touches haven't been individually checked against the old build, so
+  the old build still isn't a guaranteed-compatible target beyond what's actually been
+  exercised live.

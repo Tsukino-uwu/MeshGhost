@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Reflection;
 using BepInEx;
 using UnityEngine;
 
@@ -237,6 +238,32 @@ namespace MeshGhostTevi
             bridge = new BridgeClient(BridgeHost, BridgePort);
         }
 
+        // EventManager.mainCharacter is a property on the current game build (backed by a
+        // private _mainCharacter field, confirmed by decompiling this machine's current
+        // Assembly-CSharp.dll with ilspycmd) but a plain public field on at least one older
+        // build (SteamDB build 14778703, 2024-06-20 -- same tool, same class, different shape).
+        // A direct `.mainCharacter` read compiles to a get_mainCharacter() call, which doesn't
+        // exist on the older field-shaped build and throws MissingMethodException every frame.
+        // Reflection resolves whichever shape is actually present at runtime instead of
+        // hard-linking one of them; the lookup itself only runs once per game build (JIT caches
+        // per closed generic/reflection call site is not relied on here -- these fields are the
+        // cache).
+        private static readonly PropertyInfo MainCharacterProperty = typeof(EventManager).GetProperty("mainCharacter");
+        private static readonly FieldInfo MainCharacterField = typeof(EventManager).GetField("mainCharacter");
+
+        private static CharacterBase GetMainCharacter(EventManager eventManager)
+        {
+            if (MainCharacterProperty != null)
+            {
+                return (CharacterBase)MainCharacterProperty.GetValue(eventManager);
+            }
+            if (MainCharacterField != null)
+            {
+                return (CharacterBase)MainCharacterField.GetValue(eventManager);
+            }
+            return null;
+        }
+
         private void Update()
         {
             timeSinceLastLog += Time.deltaTime;
@@ -245,7 +272,7 @@ namespace MeshGhostTevi
             // outside a real play session (main menu, loading) -- a null read must not crash
             // the plugin, per CLAUDE.md's "a wrong read returns a plausible number instead of
             // crashing" standard applied to a missing reference instead of a bad address.
-            CharacterBase player = EventManager.Instance != null ? EventManager.Instance.mainCharacter : null;
+            CharacterBase player = EventManager.Instance != null ? GetMainCharacter(EventManager.Instance) : null;
             cloneTemplate = (player != null && player.t != null) ? player : cloneTemplate;
 
             bridge.DrainLogsInto(msg => Logger.LogInfo(msg));
