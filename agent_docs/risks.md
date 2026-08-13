@@ -53,7 +53,9 @@
   unknown people, not just friends, including against someone actively trying to be malicious
   with the server/client, not just an uninvited but harmless join. Paired with the no-version-
   check gap below as the two concrete known items; see `plans.md`'s "Room codes / relay
-  safety" section for the tracked intent (not yet designed/scoped).
+  safety" section for the tracked intent (not yet designed/scoped), and `internal/README.md`
+  for the fuller current security/privacy posture — what's already checked-safe (e.g. no
+  client ever learns a peer's IP) versus this gap and the others still open.
 - **Archipelago coexistence, confirmed with a real gap**: tested 2026-08-11 with the real
   `connector_bizhawk_generic.lua` against a real `.apemerald`-patched ROM (see
   `agent_docs/verified.md`). Two scripts coexist fine, no performance difference, and

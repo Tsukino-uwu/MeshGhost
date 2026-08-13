@@ -21,6 +21,9 @@ Internal documentation for MeshGhost: architecture, planning, licensing, and ver
   root cause, fix. Not design decisions (`risks.md`) or confirmed facts (`verified.md`).
 - `phases/` — a file per phase. Kept around after the phase ends as a work log/archive
   rather than folded away — `status.md` and `plans.md` stay the current-state summary.
+- `../internal/README.md` — lives with the code, not here on purpose (see that file). Security
+  and privacy posture of the Go networking layer: what's already checked-safe (e.g. no client
+  ever learns a peer's IP) versus the known open gaps (no auth, no version check).
 
 ## How to use this folder
 

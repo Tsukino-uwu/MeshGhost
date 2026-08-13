@@ -285,7 +285,8 @@ deferred, not a quick follow-up.
 idea — elevated explicitly by the user, not something to defer again). Add shared-secret room
 codes to the relay so a session isn't just a bare IP:port. **Still not built** — the relay
 remains no-auth (`agent_docs/architecture.md`'s ADR); `room` today is a plain label, not a
-secret.
+secret. See `internal/README.md` for the full current security/privacy posture — what's
+already checked-safe versus what isn't yet — before starting design work here.
 
 The goal, in the user's own framing: right now the relay/core is "direct/unsafe," fine for a
 friend you hand an address to, not something meant to be used with people you don't
