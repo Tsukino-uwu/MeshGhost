@@ -19,6 +19,12 @@ double-clicks `meshghost-server.exe`. The one file you actually need to edit is 
 (server address, room name, your display name), and `README.txt` has the full walkthrough. See
 [packaging/README.md](packaging/README.md) if you're curious how it's built.
 
+## Archipelago compatability (Also other mods/patches)
+
+Pokemon emerald specifically should for example work with both with a vanilla rom and/or a patched rom just fine, its just using a lua script and not changing/editing or patching the rom itself.
+And both TEVI & Pseudoregalia's game adapaters have been developed/tested alongside their AP mods so that hopefully nothing should clash or cause issues if/when this project is used together with them.
+^NOT TESTED/CONFIRED, just assumed due to how this project in general work/do things
+
 ## The shape
 
 - **Relay** — a small, game-agnostic server that forwards position/area/animation snapshots
