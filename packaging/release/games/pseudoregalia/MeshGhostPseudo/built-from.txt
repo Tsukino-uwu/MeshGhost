@@ -1,6 +1,6 @@
 # Written by dev-scripts\build-pseudoregalia.bat -- read by .github\workflows\release.yml's
 # staleness gate. Do not hand-edit.
-commit: a1e155772454bad8eeeac73c54e6921c4d74d45d
+commit: 51c96f0c54ae8429f42c75088cbc1899d1ceb895
 Plugin.cpp: b6f6b190de69f0b83f7c16609f81c89c54e2e8bc161b10e22eaf8c62b58dce5f
 Plugin.hpp: 83a50b2a3fc242799afd9e5c18a90a1b9751bd44e7cecc3a3d89b896fffe3a60
 BridgeClient.cpp: 24cd7dc99d7da452ddc5d627de425a86460e9ab3d10400637194da30656dbbb2

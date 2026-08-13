@@ -1,7 +1,11 @@
-# .github/workflows/release.yml's TEVI staleness gate hashes these files with PowerShell's
-# Get-FileHash on a windows-latest runner, and compares against hashes dev-scripts/build-tevi.bat
-# computed locally. GitHub's windows-latest runners default to core.autocrlf=true, so without
-# this, actions/checkout silently rewrites these LF-committed files to CRLF, changing their
-# hash and permanently failing the gate regardless of whether the DLL is actually stale.
+# .github/workflows/release.yml's TEVI and Pseudoregalia staleness gates hash these files with
+# PowerShell's Get-FileHash on a windows-latest runner, and compare against hashes
+# dev-scripts/build-tevi.bat / build-pseudoregalia.bat computed locally. GitHub's windows-latest
+# runners default to core.autocrlf=true, so without this, actions/checkout silently rewrites
+# these LF-committed files to CRLF, changing their hash and permanently failing the gate
+# regardless of whether the DLL is actually stale.
 adapters/tevi/MeshGhostTevi/*.cs text eol=lf
 adapters/tevi/MeshGhostTevi/*.csproj text eol=lf
+adapters/pseudoregalia/MeshGhostPseudo/Mod/src/*.cpp text eol=lf
+adapters/pseudoregalia/MeshGhostPseudo/Mod/src/*.hpp text eol=lf
+adapters/pseudoregalia/MeshGhostPseudo/Mod/CMakeLists.txt text eol=lf
