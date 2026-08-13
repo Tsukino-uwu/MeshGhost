@@ -1837,3 +1837,24 @@ Copy this block per fact:
   members the plugin touches haven't been individually checked against the old build, so
   the old build still isn't a guaranteed-compatible target beyond what's actually been
   exercised live.
+
+### v0.2.1 release: bundled UE4SS runtime works clean, ghost renders on Pseudoregalia
+
+- Date: 2026-08-13
+- Observed: user fully uninstalled Pseudoregalia, manually deleted the leftover install
+  folder (Steam's uninstall alone left `ue4ss\`/`dwmapi.dll`/old mods behind from prior dev
+  work), reinstalled via Steam, then copied only the v0.2.1 release's `ue4ss-runtime\`
+  (bundled UE4SS, no separate download) and `MeshGhostPseudo\` into the fresh install. First
+  attempt showed no ghost because `meshghost.exe` was still locked to `game_id="tevi"` from
+  the earlier TEVI test on the same process (see `contract.md`'s one-`game_id`-per-process
+  rule); after restarting `meshghost.exe`, `meshghost.log` showed `connected to relay
+  127.0.0.1:7777 as p2 in room "default" (game "pseudoregalia")` and the user confirmed
+  watching the ghost render correctly in-game. Also confirmed: after disabling
+  `ConsoleEnabled`/`GuiConsoleEnabled`/`GuiConsoleVisible` in the shipped
+  `UE4SS-settings.ini` (previously left at RE-UE4SS's own stock defaults of `1`, which had
+  popped an unwanted cmd window and debug overlay on the first test), a repeat run showed
+  neither window.
+- Source: `meshghost.log`, this session's own transcript.
+- Notes: completes this session's clean-slate release validation for both shipped games
+  (TEVI's own clean-slate entry is above). Same loopback self-ghost caveat as TEVI's entry —
+  not yet two distinct real players.

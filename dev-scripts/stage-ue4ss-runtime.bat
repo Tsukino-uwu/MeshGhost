@@ -40,6 +40,14 @@ copy /y "%SUB%\assets\UE4SS-settings.ini" "%DEST%\ue4ss\UE4SS-settings.ini" >nul
 copy /y "%SUB%\LICENSE" "%DEST%\ue4ss\LICENSE" >nul
 xcopy /y /e /i "%SUB%\assets\Mods" "%DEST%\ue4ss\Mods" >nul
 
+rem RE-UE4SS's own stock UE4SS-settings.ini ships with its debug console/overlay enabled by
+rem default (ConsoleEnabled/GuiConsoleEnabled/GuiConsoleVisible all = 1) -- fine for a UE4SS
+rem developer, bad default UX for a MeshGhost player who just wants the game to launch
+rem normally. Force these off in the shipped copy; a user who wants to debug can flip them
+rem back on themselves in the ini.
+echo Disabling UE4SS debug console/overlay defaults for the shipped copy...
+powershell -NoProfile -Command "(Get-Content '%DEST%\ue4ss\UE4SS-settings.ini') -replace '^(ConsoleEnabled\s*=\s*)1', '${1}0' -replace '^(GuiConsoleEnabled\s*=\s*)1', '${1}0' -replace '^(GuiConsoleVisible\s*=\s*)1', '${1}0' | Set-Content '%DEST%\ue4ss\UE4SS-settings.ini'"
+
 echo Recording provenance to built-from.txt...
 for /f "usebackq tokens=1" %%h in (`certutil -hashfile "%DEST%\ue4ss\UE4SS.dll" SHA256 ^| findstr /v "hash CertUtil"`) do if not defined UE4SS_HASH set UE4SS_HASH=%%h
 for /f "usebackq tokens=1" %%h in (`certutil -hashfile "%DEST%\dwmapi.dll" SHA256 ^| findstr /v "hash CertUtil"`) do if not defined DWMAPI_HASH set DWMAPI_HASH=%%h
