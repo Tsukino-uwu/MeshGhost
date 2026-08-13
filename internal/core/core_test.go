@@ -351,6 +351,7 @@ func TestDisconnectDespawnsRemote(t *testing.T) {
 	if _, ok := adapter2.rendersOf(core1.PlayerID()); !ok {
 		t.Fatal("setup failed: adapter2 never saw core1 rendered before disconnect test")
 	}
+	firstPlayerID := core1.PlayerID() // captured before disconnect clears it
 
 	// Closing core1's relay connection (not the bridge) is what makes the
 	// relay observe a disconnect and broadcast a Leave — that's the signal
@@ -368,8 +369,8 @@ func TestDisconnectDespawnsRemote(t *testing.T) {
 	for {
 		select {
 		case id := <-adapter2.despawns:
-			if id != core1.PlayerID() {
-				t.Fatalf("despawned id = %q, want %q", id, core1.PlayerID())
+			if id != firstPlayerID {
+				t.Fatalf("despawned id = %q, want %q", id, firstPlayerID)
 			}
 			return
 		case <-ticker.C:
@@ -436,6 +437,179 @@ func TestOwnRelayDisconnectDespawnsRemotes(t *testing.T) {
 			t.Fatal("timed out waiting for despawn_remote after own relay disconnect")
 		}
 	}
+}
+
+// TestBridgeDisconnectDespawnsForPeer covers a third disconnect shape, found
+// live 2026-08-13 during the first real two-player TEVI test: a player
+// backing out to the main menu (or closing the game) left their ghost frozen
+// in the other player's world forever, because nothing told the relay this
+// player was gone. Closing the *bridge* connection (the adapter/game side,
+// not the relay side covered by the two tests above) must now cascade into
+// closing this Core's relay connection, which the relay turns into a real
+// Leave for the peer.
+func TestBridgeDisconnectDespawnsForPeer(t *testing.T) {
+	relayAddr := startRelay(t)
+
+	core1, bridge1Addr := startCore(t, relayAddr, "emerald", "room1", "alice")
+	_, bridge2Addr := startCore(t, relayAddr, "emerald", "room1", "bob")
+
+	adapter1 := dialFakeAdapter(t, bridge1Addr)
+	adapter2 := dialFakeAdapter(t, bridge2Addr)
+
+	sent := protocol.State{AreaID: "a", Position: []float64{1, 1}, Anim: "idle"}
+	adapter1.frame(&sent)
+
+	deadline := time.Now().Add(testTimeout)
+	for time.Now().Before(deadline) {
+		adapter2.frame(nil)
+		if _, ok := adapter2.rendersOf(core1.PlayerID()); ok {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if _, ok := adapter2.rendersOf(core1.PlayerID()); !ok {
+		t.Fatal("setup failed: adapter2 never saw core1 rendered before disconnect test")
+	}
+	firstPlayerID := core1.PlayerID() // captured before disconnect clears it
+
+	// Close adapter1's BRIDGE connection -- the adapter/game side, simulating
+	// the game exiting or its BridgeClient socket dropping. Not core1.relay
+	// directly, which is what the two tests above already cover.
+	if err := adapter1.conn.Close(); err != nil {
+		t.Fatalf("close adapter1 bridge connection: %v", err)
+	}
+
+	ticker := time.NewTicker(10 * time.Millisecond)
+	defer ticker.Stop()
+	deadline2 := time.After(testTimeout)
+	for {
+		select {
+		case id := <-adapter2.despawns:
+			if id != firstPlayerID {
+				t.Fatalf("despawned id = %q, want %q", id, firstPlayerID)
+			}
+			return
+		case <-ticker.C:
+			adapter2.frame(nil)
+		case <-deadline2:
+			t.Fatal("timed out waiting for despawn_remote after bridge disconnect")
+		}
+	}
+}
+
+// TestReconnectAfterBridgeDisconnectGetsFreshPlayerID confirms the other
+// half of the same fix: a bridge disconnect must not leave the Core wedged.
+// After the adapter/game reconnects (a fresh bridge connection sending a new
+// hello), the Core must redial the relay and be assigned a new player_id --
+// one live ghost on reconnect, not a stale one plus a new one.
+func TestReconnectAfterBridgeDisconnectGetsFreshPlayerID(t *testing.T) {
+	relayAddr := startRelay(t)
+
+	// startCoreLazy, not startCore: reconnecting via ConnectRelayOnAdapterHello
+	// needs RelayAddr/Room/DisplayName/DialTimeout set on the Core, which only
+	// the lazy path populates (see cmd/meshghost/main.go -- both -game and
+	// no-game startup set these fields before ServeBridge either way).
+	c, bridgeAddr := startCoreLazy(t, relayAddr, "room1", "alice")
+
+	adapter := dialFakeAdapter(t, bridgeAddr)
+	adapter.hello("emerald")
+	waitForPlayerID(t, c)
+	firstPlayerID := c.PlayerID()
+
+	if err := adapter.conn.Close(); err != nil {
+		t.Fatalf("close bridge connection: %v", err)
+	}
+
+	deadline := time.Now().Add(testTimeout)
+	for time.Now().Before(deadline) && c.PlayerID() != "" {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if c.PlayerID() != "" {
+		t.Fatalf("core did not clear its player id after bridge disconnect, still %q", c.PlayerID())
+	}
+
+	adapter2 := dialFakeAdapter(t, bridgeAddr)
+	adapter2.hello("emerald")
+	waitForPlayerID(t, c)
+
+	if c.PlayerID() == "" || c.PlayerID() == firstPlayerID {
+		t.Fatalf("core did not get a fresh player id on reconnect: first = %q, second = %q", firstPlayerID, c.PlayerID())
+	}
+}
+
+// TestCrossAreaFiltersRemote confirms the 2026-08-13 cross-area filtering
+// fix: a remote whose area_id differs from this Core's own current area is
+// excluded from rendering, and reappears once areas match again. Found live
+// during a real two-player TEVI test: without this, a remote's ghost kept
+// rendering at its own zone's raw world coordinates regardless of which zone
+// the local player was actually in -- invisible only by coincidence when the
+// two zones' coordinate ranges didn't happen to overlap on screen.
+func TestCrossAreaFiltersRemote(t *testing.T) {
+	relayAddr := startRelay(t)
+
+	core1, bridge1Addr := startCore(t, relayAddr, "emerald", "room1", "alice")
+	core1.MinSendInterval = time.Millisecond // several real state changes must land quickly, not just one
+	_, bridge2Addr := startCore(t, relayAddr, "emerald", "room1", "bob")
+
+	adapter1 := dialFakeAdapter(t, bridge1Addr)
+	adapter2 := dialFakeAdapter(t, bridge2Addr)
+
+	// adapter2 must establish its own core's local area before filtering
+	// engages at all -- see remoteStatesAt's comment on the empty-
+	// localAreaID passthrough case.
+	self := protocol.State{AreaID: "zone-a", Position: []float64{0, 0}, Anim: "idle"}
+	adapter2.frame(&self)
+
+	adapter1.frame(&protocol.State{AreaID: "zone-a", Position: []float64{1, 1}, Anim: "idle"})
+
+	deadline := time.Now().Add(testTimeout)
+	for time.Now().Before(deadline) {
+		adapter2.frame(&self)
+		if _, ok := adapter2.rendersOf(core1.PlayerID()); ok {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if _, ok := adapter2.rendersOf(core1.PlayerID()); !ok {
+		t.Fatal("setup failed: adapter2 never saw core1 rendered while in the same area")
+	}
+
+	// core1 moves to a different area -- adapter2 must despawn it.
+	adapter1.frame(&protocol.State{AreaID: "zone-b", Position: []float64{1, 1}, Anim: "idle"})
+
+	deadline2 := time.Now().Add(testTimeout)
+	despawned := false
+	for !despawned && time.Now().Before(deadline2) {
+		adapter2.frame(&self)
+		select {
+		case id := <-adapter2.despawns:
+			if id != core1.PlayerID() {
+				t.Fatalf("despawned id = %q, want %q", id, core1.PlayerID())
+			}
+			despawned = true
+		default:
+			time.Sleep(10 * time.Millisecond)
+		}
+	}
+	if !despawned {
+		t.Fatal("timed out waiting for despawn_remote after core1 left adapter2's area")
+	}
+	if _, ok := adapter2.rendersOf(core1.PlayerID()); ok {
+		t.Fatal("core1 still rendered for adapter2 after moving to a different area")
+	}
+
+	// core1 returns to adapter2's area -- must reappear.
+	adapter1.frame(&protocol.State{AreaID: "zone-a", Position: []float64{2, 2}, Anim: "idle"})
+
+	deadline3 := time.Now().Add(testTimeout)
+	for time.Now().Before(deadline3) {
+		adapter2.frame(&self)
+		if _, ok := adapter2.rendersOf(core1.PlayerID()); ok {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatal("core1 did not reappear for adapter2 after returning to the same area")
 }
 
 // inProcessAdapter is Phase 5's proof shape: a type satisfying core.Adapter

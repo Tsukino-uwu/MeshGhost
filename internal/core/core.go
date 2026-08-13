@@ -111,8 +111,9 @@ type Core struct {
 	MinSendInterval time.Duration
 	lastSendAt      time.Time
 
-	mu      sync.Mutex
-	remotes map[string]*remoteBuffer
+	mu          sync.Mutex
+	remotes     map[string]*remoteBuffer
+	localAreaID string // this Core's own most recently known area_id, for cross-area filtering
 }
 
 // New creates an empty Core with no relay connection yet — call
@@ -154,6 +155,20 @@ func (c *Core) ConnectRelay(addr, gameID, room, displayName string, timeout time
 		// rendered-vs-current diff — no new wire message, no bridge
 		// change, just making sure this path actually fires.
 		c.dropAllRemotes()
+
+		// Clear relay identity so a later bridge Hello (the adapter
+		// reconnecting, e.g. relaunching the game) can redial via
+		// ConnectRelayOnAdapterHello instead of finding c.relay non-nil and
+		// treating this Core as still connected forever. Guarded against a
+		// stale callback firing after a newer connection has already
+		// replaced this one.
+		c.mu.Lock()
+		if c.relay == conn {
+			c.relay = nil
+			c.playerID = ""
+			c.relayGame = ""
+		}
+		c.mu.Unlock()
 	})
 	conn.OnReceive(func(payload []byte) { c.handleRelayMessage(payload, welcome) })
 
@@ -301,15 +316,27 @@ func (c *Core) dropAllRemotes() {
 }
 
 // remoteStatesAt returns the interpolated state of every currently known
-// remote at renderTime.
+// remote at renderTime that is also in this Core's own current area --
+// cross-area filtering, added 2026-08-13 after a real two-player TEVI test
+// showed a remote's ghost rendering at another zone's raw world coordinates,
+// invisible only by coincidence (see the ADR in architecture.md). Equality
+// comparison only, per contract.md's area_id rule -- never branches on
+// contents. If localAreaID is still empty (no real local frame has arrived
+// yet), every remote passes through unfiltered rather than hiding
+// everything on an unknown local area.
 func (c *Core) remoteStatesAt(renderTime int64) map[string]protocol.State {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	out := make(map[string]protocol.State, len(c.remotes))
 	for id, buf := range c.remotes {
-		if st, ok := buf.at(renderTime); ok {
-			out[id] = st
+		st, ok := buf.at(renderTime)
+		if !ok {
+			continue
 		}
+		if c.localAreaID != "" && st.AreaID != c.localAreaID {
+			continue
+		}
+		out[id] = st
 	}
 	return out
 }
@@ -333,6 +360,20 @@ func (c *Core) handleBridgeConn(netConn net.Conn) {
 	rendered := make(map[string]bool)
 
 	nd.OnError(func(err error) { log.Printf("core: bridge connection error: %v", err) })
+	nd.OnDisconnect(func(err error) {
+		// The adapter (game) is gone -- closing the relay connection turns
+		// this into a real disconnect the relay can broadcast as a Leave,
+		// so this player's ghost actually disappears for everyone else
+		// instead of freezing in place forever. See the OnDisconnect
+		// handler in ConnectRelay for the other half: it clears c.relay so
+		// a future bridge Hello (the adapter reconnecting) can redial.
+		c.mu.Lock()
+		relay := c.relay
+		c.mu.Unlock()
+		if relay != nil {
+			relay.Close()
+		}
+	})
 	nd.OnReceive(func(payload []byte) {
 		var env bridge.Envelope
 		if err := json.Unmarshal(payload, &env); err != nil {
@@ -409,6 +450,12 @@ func (c *Core) forwardLocalState(state *protocol.State) {
 	}
 
 	c.mu.Lock()
+	// Recorded on every real local frame, independent of MinSendInterval
+	// throttling below and of whether a relay connection exists yet --
+	// remoteStatesAt's cross-area filter needs this to always reflect the
+	// adapter's actual current area, not just what was last sent over the
+	// network. See the 2026-08-13 ADR in architecture.md.
+	c.localAreaID = state.AreaID
 	relay := c.relay
 	if relay == nil {
 		// No adapter has sent a Hello yet (or -game/config never set one) --

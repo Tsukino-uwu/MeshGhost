@@ -201,15 +201,21 @@ the two open contract questions — those stay exactly as already documented, de
 ### Phase 6 — Second game (TEVI)
 
 Visible outcome: repeat phases 1–4 for TEVI using the frozen template, and find out whether
-the contract holds up outside Emerald. **Status: everything solo-testable is done and
-confirmed (2026-08-12); 6.6 (two real players, needs a second machine) is not** — see
-`agent_docs/phases/phase6.md` for the full record. Confirmed live: Mono (not IL2CPP), real
-player position/facing/anim/area reading, a real bridge→relay→core round trip via the relay's
-`-loopback` flag, and a real character-visual ghost (correct anchor, facing, animation) that
-doesn't intrude on TEVI's menus. One real bug found and fixed in `internal/core`
-(`Core.MinSendInterval`, see the 2026-08-12 ADR in `architecture.md`) — TEVI's uncapped
-`Update()` tripped the relay's 120 msg/sec limit, fixed game-agnostically so every adapter
-benefits.
+the contract holds up outside Emerald. **Status: fully done, including 6.6 (two real players),
+confirmed 2026-08-13** — see `agent_docs/phases/phase6.md` for the full record. Confirmed live:
+Mono (not IL2CPP), real player position/facing/anim/area reading, a real bridge→relay→core
+round trip through both the relay's `-loopback` flag and a real non-loopback relay with two
+distinct local players, and a real character-visual ghost (correct anchor, facing, animation)
+that doesn't intrude on TEVI's menus. Three real bugs found and fixed in `internal/core`
+(game-agnostic, benefiting every adapter): `Core.MinSendInterval` (2026-08-12 ADR — TEVI's
+uncapped `Update()` tripped the relay's 120 msg/sec limit); closing a bridge connection now
+disconnects the relay too (2026-08-13 ADR — a player's ghost was staying frozen in a peer's
+world after returning to the main menu or closing the game, confirmed live — both the
+main-menu-return and game-close cases now despawn correctly, pause menu confirmed unaffected);
+and cross-area filtering (2026-08-13 ADR — a remote's ghost rendered at another zone's raw
+coordinates regardless of which zone the local player was actually in, invisible only by
+coincidence when two real zones' coordinate ranges didn't overlap on screen — built and
+regression-tested, **not yet watched live**).
 
 **Deliberately not blocking a third game on 6.6** (decided 2026-08-12): adapters are
 structurally isolated (`contract.md`'s hard rules — an adapter only ever talks to its own local

@@ -12,17 +12,18 @@ namespace MeshGhostTevi
     // facts from decompiling this machine's own Assembly-CSharp.dll (2026-07-09) with ilspycmd
     // -- see agent_docs/verified.md's Phase 6.2 entry once confirmed, and
     // agent_docs/licensing.md for the "facts, never code" posture this follows.
-    // Step 6.3: a placeholder ghost at a fixed offset from the local player, no network yet --
-    // TEVI's analogue of Emerald's Phase 2 magenta-box ghost. Proves screen/world placement
-    // before tackling a real character-visual clone (TEVI's characters are plain SpriteRenderer
-    // + Animator, not Spine -- confirmed by decompiling PixelCharacter.cs, zero Spine
-    // references, unlike the ~14 boss/environment files that do use it).
+    // Step 6.3: proved screen/world ghost placement with a placeholder box before tackling a
+    // real character-visual clone (TEVI's characters are plain SpriteRenderer + Animator, not
+    // Spine -- confirmed by decompiling PixelCharacter.cs, zero Spine references, unlike the
+    // ~14 boss/environment files that do use it). Superseded by the real remote-ghost visual
+    // (see UpsertRemoteGhost) and removed once 6.6 confirmed it live.
     // Step 6.4/6.5: a real bridge connection (see BridgeClient.cs) to the local core process,
     // sending local_state every frame and rendering whatever render_remote/despawn_remote comes
-    // back -- proven with the relay's dev-only -loopback flag so a single real TEVI instance can
-    // see a real network round trip (Steam blocks running TEVI twice, confirmed by the user
-    // 2026-08-12, so two-real-players testing (6.6) is deferred until a second machine is
-    // available -- see agent_docs/phases/phase6.md).
+    // back.
+    // Step 6.6: two real players, confirmed live 2026-08-13 -- a second TEVI copy running from
+    // a standalone build folder (see agent_docs/phases/phase6.md's dual-instance notes) pointed
+    // at its own local core process via BridgePort's config override below, both connected
+    // through one real (non-loopback) relay.
     [BepInPlugin(PluginGuid, PluginName, PluginVersion)]
     public class Plugin : BaseUnityPlugin
     {
@@ -49,26 +50,16 @@ namespace MeshGhostTevi
         private Character.PlayerAniState lastLoggedAnim;
         private byte lastLoggedArea;
 
-        // Step 6.3: a simple translucent placeholder square, offset from the local player.
-        // Fixed offset (no network) is deliberate -- this step only proves the ghost can be
-        // created and kept positioned correctly every frame, the same scope Emerald's Phase 2
-        // had before any networking existed.
-        private static readonly Vector3 GhostOffset = new Vector3(80f, 0f, 0f);
-
-        // World-scale calibration: CharacterBase.charHeight = 65f (a real, cited field read
-        // from Assembly-CSharp.dll) means TEVI's characters are ~65 world units tall. The first
-        // attempt used Sprite.Create's default-ish pixelsPerUnit of 100, which shrank a 32px
-        // texture down to 0.32 world units -- about 1/200th the player's height, invisible in
-        // practice even though it was genuinely created with no exception (confirmed in the
-        // log). pixelsPerUnit=1 makes GhostSizeUnits below the sprite's actual world size.
-        private const float GhostSizeUnits = 48f; // roughly 0.7x charHeight -- clearly visible, not oversized
-        private const float GhostPixelsPerUnit = 1f;
-        private static readonly Color LocalGhostColor = new Color(1f, 0f, 1f, 0.5f); // translucent magenta, matches Emerald's Phase 2 placeholder
-        private GameObject ghost;
-
         private BridgeClient bridge;
         private const string BridgeHost = "127.0.0.1";
-        private const int BridgePort = 7778;
+
+        // Configurable (not a const) so two local TEVI instances -- e.g. testing Phase 6.6's
+        // real two-player flow with the Steam copy and a second standalone build side by side
+        // (see agent_docs/phases/phase6.md) -- can each point at their own local core process
+        // instead of racing to connect to the same one. Default matches the single-instance
+        // release behavior (dev-scripts/run-core-tevi.bat's -bridge=127.0.0.1:7778); a second
+        // instance overrides this in its own BepInEx/config/dev.meshghost.tevi.cfg.
+        private const int DefaultBridgePort = 7778;
 
         // Sent as this adapter's bridge Hello (internal/bridge.Hello) so the core can connect
         // to the relay without the user typing "game" into config.json themselves -- see
@@ -101,13 +92,6 @@ namespace MeshGhostTevi
         }
 
         private readonly Dictionary<string, RemoteGhostVisual> remoteVisuals = new Dictionary<string, RemoteGhostVisual>();
-
-        // Diagnostic-only, for solo loopback testing: renders the remote ghost offset to one
-        // side rather than exactly on top of the real player, so "is it actually tracking me"
-        // is easy to see at a glance (same reasoning as 6.3's GhostOffset, opposite direction so
-        // the two ghosts don't overlap). Must NOT ship for a real 6.6 two-player test -- a real
-        // remote's position should render exactly where it is, not offset.
-        private static readonly Vector3 RemoteVisualTestOffset = new Vector3(-80f, 0f, 0f);
 
         // Set once per Update from EventManager.Instance.mainCharacter, before bridge.DrainInto
         // runs, so UpsertRemoteGhost has a live template to clone from the first time a remote
@@ -143,36 +127,6 @@ namespace MeshGhostTevi
             return clone;
         }
 
-        private GameObject CreatePlaceholderGhost(string name, Color color)
-        {
-            var go = new GameObject(name);
-            var sr = go.AddComponent<SpriteRenderer>();
-
-            // A flat-color texture is enough to prove placement; real character-visual
-            // rendering is a later step (Emerald's equivalent didn't get a real sprite until
-            // Phase 5.5, well after basic placement was proven).
-            const int texturePixels = 32;
-            var tex = new Texture2D(texturePixels, texturePixels);
-            var pixels = new Color[texturePixels * texturePixels];
-            for (int i = 0; i < pixels.Length; i++)
-            {
-                pixels[i] = color;
-            }
-            tex.SetPixels(pixels);
-            tex.Apply();
-
-            // pixelsPerUnit=1 with a 32px texture gives a 32x32-unit sprite; scale the transform
-            // up to GhostSizeUnits so its on-screen size is calibrated against the real
-            // charHeight fact (CharacterBase.charHeight = 65f) rather than the arbitrary
-            // texture resolution -- see the step 6.3 note in verified.md for why this matters.
-            sr.sprite = Sprite.Create(
-                tex, new Rect(0, 0, texturePixels, texturePixels), new Vector2(0.5f, 0.5f), GhostPixelsPerUnit);
-            go.transform.localScale = Vector3.one * (GhostSizeUnits / texturePixels);
-            sr.sortingOrder = 1000; // draw on top rather than guessing this scene's layer setup
-
-            return go;
-        }
-
         private void UpsertRemoteGhost(string playerId, BridgeClient.RemoteState state)
         {
             if (state.Position == null || state.Position.Length < 2)
@@ -194,7 +148,7 @@ namespace MeshGhostTevi
 
             visual.Go.SetActive(true);
             visual.Go.transform.position = new Vector3(state.Position[0], state.Position[1], 0f)
-                + visual.AnchorOffset + RemoteVisualTestOffset;
+                + visual.AnchorOffset;
 
             // Facing: confirmed live 2026-08-12 that flipX=true means "facing LEFT" is the
             // wrong way around -- inverted from the first guess. All five sprite layers are
@@ -229,13 +183,29 @@ namespace MeshGhostTevi
             if (remoteVisuals.TryGetValue(playerId, out RemoteGhostVisual visual) && visual.Go != null)
             {
                 visual.Go.SetActive(false);
+                // Found live 2026-08-13 (cross-area filtering test): reactivating a
+                // deactivated GameObject doesn't resume its Animator's own playback, and
+                // UpsertRemoteGhost only calls Play() on an actual anim-string change --
+                // if the remote's anim hadn't changed while hidden (e.g. still "idle"),
+                // reactivation left the ghost visually frozen until the remote's anim next
+                // changed for an unrelated reason. Clearing LastAnim forces the next
+                // UpsertRemoteGhost call to treat any anim as a "change" and Play() it,
+                // regardless of whether the string itself actually differs.
+                visual.LastAnim = null;
             }
         }
 
         private void Awake()
         {
             Logger.LogInfo($"{PluginName} v{PluginVersion} loaded (Phase 6 step 6.1 hello-world).");
-            bridge = new BridgeClient(BridgeHost, BridgePort);
+            int bridgePort = Config.Bind(
+                "Network",
+                "BridgePort",
+                DefaultBridgePort,
+                "Local core process bridge port. Only change this if running a second TEVI " +
+                "instance on the same machine for local two-player testing -- each instance " +
+                "needs its own core process on its own port.").Value;
+            bridge = new BridgeClient(BridgeHost, bridgePort);
         }
 
         // EventManager.mainCharacter is a property on the current game build (backed by a
@@ -284,28 +254,17 @@ namespace MeshGhostTevi
             {
                 if (hadPlayerLastFrame)
                 {
-                    Logger.LogInfo("MeshGhost: no local player yet (not in a play session).");
+                    Logger.LogInfo("MeshGhost: no local player yet (not in a play session) -- disconnecting bridge so this player's ghost despawns for any peer.");
                     hadPlayerLastFrame = false;
                     timeSinceLastLog = 0f;
-                }
-                if (ghost != null)
-                {
-                    ghost.SetActive(false);
+                    // Reconnects automatically next frame via TryConnect() once back in a real
+                    // play session -- see BridgeClient.Disconnect's comment for why this exists.
+                    bridge.Disconnect();
                 }
                 // PROTOCOL.md: send local_state every frame even when there's nothing to send.
                 bridge.SendLocalState(null);
                 return;
             }
-
-            // A scene unload (area transition) can destroy the ghost GameObject along with
-            // everything else in that scene -- recreate lazily rather than assuming it survives.
-            if (ghost == null)
-            {
-                ghost = CreatePlaceholderGhost("MeshGhostPlaceholder", LocalGhostColor);
-                Logger.LogInfo("MeshGhost: placeholder ghost created (step 6.3).");
-            }
-            ghost.SetActive(true);
-            ghost.transform.position = player.t.position + GhostOffset;
 
             Vector3 pos = player.t.position;
             byte area = WorldManager.Instance != null ? WorldManager.Instance.Area : (byte)255;

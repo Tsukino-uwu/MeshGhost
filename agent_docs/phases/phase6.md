@@ -102,16 +102,62 @@ point of picking a second, structurally different game.
       oversight — it can't be meaningfully evaluated without a second real peer to watch react
       to it, so revisit only if real 6.6 testing shows it's actually a problem, rather than
       guessing at a fix for something not yet observed to need one. See `agent_docs/verified.md`.
-- [ ] 6.6 — Next: two real players. **Unblocked for local testing, 2026-08-13**: build
-      `14778703` runs alongside the normal Steam-launched copy — see the Notes section below.
-      Everything solo-testable via loopback (bridge, rendering, animation, facing, menu
-      non-intrusion) is now done; what's left is the real join/leave/disconnect flow and
-      cross-area filtering (loopback always echoes your own area — `internal/core` currently
-      sends every known remote regardless of area, and the TEVI adapter doesn't filter either, a
-      real unaddressed gap, not just untested), now testable locally with two windows instead of
-      needing a second machine. **No longer blocked on distribution** (2026-08-12): TEVI now
-      ships in the single release zip (see `packaging/README.md`'s TEVI section), marked
-      experimental/prerelease.
+- [x] 6.6 — Two real players, confirmed live 2026-08-13. `BridgePort` (`Plugin.cs`) is now a
+      BepInEx config value (default 7778, unchanged) instead of a hardcoded const, so a second
+      local TEVI instance (build `14778703`, see Notes below) can run its own core process on
+      its own port (7779) without colliding with the Steam copy. Two real core processes, one
+      real (non-loopback) relay, both connected as distinct room members (`p3`/`p4`) — user
+      watched both windows and confirmed a correctly-positioned, correctly-animated ghost in
+      each. Along the way, removed two leftover diagnostics that were never cleaned up after
+      being superseded: the Step 6.3 magenta placeholder box (still being created next to the
+      real ghost every frame) and `RemoteVisualTestOffset` (an artificial -80-unit offset on the
+      remote ghost's position, explicitly commented "must NOT ship for a real 6.6 test" — this
+      *is* that test).
+      - Cross-area filtering was a real, unaddressed gap (loopback always echoed your own area,
+        so this was never exercised before): `internal/core` sent every known remote regardless
+        of `area_id`. **Tested for real, same session**: user moved between genuinely different
+        zones (not just rooms within one always-loaded zone) via a portal. The remote's ghost
+        wasn't actually despawning on a zone change — confirmed by reading both BepInEx
+        `LogOutput.log`s directly: `area=` changed `1→4→1→13→1` across five real transitions,
+        but `"real remote ghost visual created"` logged exactly once, never again — the ghost
+        object was never destroyed, just silently repositioned to another zone's raw
+        coordinates every frame, invisible only because those coordinates didn't happen to land
+        on screen. **Fixed same session**, game-agnostically in `internal/core`
+        (`Core.remoteStatesAt` now filters by `area_id` equality against the local player's own
+        current area) — see the 2026-08-13 ADR in `architecture.md`. Regression-tested
+        (`TestCrossAreaFiltersRemote`) and **confirmed live, same session**: user redid the
+        same zone-transition test and confirmed the peer's ghost properly despawns while in a
+        different zone and reappears on return, both directions. Found and fixed one more
+        minor cosmetic bug along the way: an idle peer's ghost reappeared at the correct
+        position but stayed frozen (not animating) until they moved, because
+        `DespawnRemoteGhost` never reset `LastAnim`, so reactivation with an unchanged anim
+        string never re-triggered `Animator.Play()`. Fixed (`visual.LastAnim = null` on
+        despawn), built and deployed, and **confirmed live, same session**: an idle peer's
+        ghost now shows its default idle animation immediately on zone-reentry instead of
+        staying stuck. See `verified.md`. TEVI's cross-area behavior is now fully confirmed,
+        both the filtering itself and this cosmetic follow-on.
+      - **New gap found and fixed live**: a player returning to the main menu (or the game
+        closing) left their ghost frozen in the other player's world forever — no staleness
+        timeout exists by design, and only a real relay disconnect despawns a remote. Fixed
+        game-agnostically in `internal/core` (bridge disconnect now closes the relay
+        connection) — see the 2026-08-13 ADR in `architecture.md`. Confirmed live (user watched
+        both windows): closing the game entirely despawned the ghost for the peer; returning to
+        the main menu did NOT (as scoped — the bridge socket was still open, so nothing told
+        the core anything changed).
+        **Extended, same session**: user also confirmed TEVI's Characters/pause overlay does
+        NOT null `mainCharacter` (local-state logging kept flowing the whole time it was open,
+        ghost stayed visible/moving for the other player — see `verified.md`), so the existing
+        `player == null` check safely distinguishes a real menu return from a pause overlay.
+        Added `BridgeClient.Disconnect()`, called from `Plugin.cs`'s existing
+        `hadPlayerLastFrame` transition (fires once, on the real menu-return edge, not every
+        frame at the menu) — reuses the same bridge-disconnect despawn path, `TryConnect()`
+        redials automatically once back in a real play session. **Confirmed live, same
+        session**: user retested both real instances — pausing still leaves the peer's ghost
+        untouched, and both a main-menu return and a full game close now properly despawn it.
+        See `verified.md`. 6.6's disconnect/reconnect behavior is gap-free; cross-area
+        filtering above is built but still needs a live in-game check.
+      **No longer blocked on distribution** (2026-08-12): TEVI now ships in the single release
+      zip (see `packaging/README.md`'s TEVI section), marked experimental/prerelease.
 
 ## Notes
 

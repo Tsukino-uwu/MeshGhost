@@ -1,11 +1,12 @@
 MeshGhost -- TEVI setup
 ========================
 
-STATUS: EXPERIMENTAL. This mod is code-complete but has not yet been confirmed working
-over a real network with a second player (Steam won't run two TEVI instances on one
-machine, so this couldn't be tested locally -- see the main project's
-agent_docs/phases/phase6.md if you're curious). If something doesn't work, that's useful
-information -- there's nowhere to report it yet, but don't assume it's your setup.
+STATUS: EXPERIMENTAL. This mod is code-complete and has been confirmed working with two
+real local instances on one machine, including cross-area filtering and ghost cleanup on
+disconnect -- see the main project's agent_docs/phases/phase6.md if you're curious. It has
+not yet been confirmed over a real network between two separate machines. If something
+doesn't work, that's useful information -- there's nowhere to report it yet, but don't
+assume it's your setup.
 
 What you need, once:
 - Your own legally-obtained copy of TEVI.
@@ -34,11 +35,9 @@ Setup, every time you play:
 3. Walk around. Once a friend joins the same server in the same room, you should see
    their character as a ghost.
 
-Two important notes specific to TEVI:
-- The mod always uses local bridge port 7778 and does not read config.json's
-  "local_game_bridge" setting (it's hardcoded in the mod itself right now). If you're
-  trying to run two copies of MeshGhost on the same machine (see the main README.txt),
-  that trick does not currently work for TEVI.
-- No cross-area filtering yet: if you and a friend are in different areas of the game,
-  you may still see each other's ghost as if you were in the same place. This is a known
-  gap, not a bug you're causing.
+One note specific to TEVI:
+- The mod's local bridge port defaults to 7778 and does not read config.json's
+  "local_game_bridge" setting. It can be changed in BepInEx's own per-install config file
+  (BepInEx\config\dev.meshghost.tevi.cfg, [Network] BridgePort) if you need to run two
+  copies of MeshGhost against two TEVI instances on the same machine -- each instance
+  needs its own core process on its own port.

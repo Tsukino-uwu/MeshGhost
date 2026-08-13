@@ -364,3 +364,91 @@ Format: Date / Decision / Status / Context / Options considered / Resolution / C
   about — documented in `contract.md` and `adapters/_template/PROTOCOL.md`, and demonstrated in
   both shipped adapters (`adapters/pokemon/emerald/phase5_5_sprite.lua`,
   `adapters/tevi/MeshGhostTevi/BridgeClient.cs`).
+
+---
+
+- **Date:** 2026-08-13
+- **Decision:** A bridge (adapter↔core) disconnect now closes the Core's relay connection too,
+  and a relay disconnect (any cause) clears the Core's relay identity (`c.relay`, `playerID`,
+  `relayGame`) so a later bridge `hello` can redial.
+- **Status:** accepted
+- **Context:** Found live during the first real TEVI two-player test (two local instances
+  through one real, non-loopback relay): a player backing out to the main menu stopped sending
+  `local_state` (per `forwardLocalState`'s existing nil-means-"don't send this frame"
+  contract), but nothing told the *relay* this player was gone. The remote's ghost stayed
+  frozen in the other player's world indefinitely — there is no staleness timeout
+  (`remoteBuffer.at()` holds the newest sample forever, by design, per its own comment) and the
+  only thing that despawns a remote is a real relay `Leave`. Reconnecting made it worse: a
+  second, correctly-positioned ghost appeared alongside the frozen one, because the Core never
+  actually left the room in the relay's eyes, so there was nothing to distinguish "same player
+  resuming" from "a new join."
+- **Options considered:** (1) an idle/staleness timeout in `remoteBuffer` — a magic-number
+  interval with no non-arbitrary value, and doesn't fix the "reconnect leaves both" half at
+  all; (2) an explicit "despawn self" bridge/relay message — a new wire message type for
+  something the existing disconnect machinery already does for every other disconnect cause;
+  (3) tie the Core's relay connection lifecycle to its bridge connection lifecycle, so an
+  adapter going away for any reason (game closes, bridge socket drops) reads as a real
+  disconnect to the relay, the same as a network blip already does.
+- **Resolution:** Option 3. `handleBridgeConn` (`internal/core/core.go`) now closes `c.relay`
+  when the bridge connection ends. `ConnectRelay`'s existing relay-`OnDisconnect` handler
+  (previously only `dropAllRemotes()`, added for the unrelated "own relay died" case — see the
+  ADR below) now also clears `c.relay`/`c.playerID`/`c.relayGame`, guarded by comparing against
+  the specific connection that disconnected so a stale callback can't clobber a newer
+  connection. This reuses the relay/core despawn path that was already built and tested
+  (`TestDisconnectDespawnsRemote`, `TestOwnRelayDisconnectDespawnsRemotes`) rather than adding
+  a third despawn mechanism. Regression-tested: `TestBridgeDisconnectDespawnsForPeer` (the bug
+  as reported — closing the bridge, not the relay, must still despawn for the peer) and
+  `TestReconnectAfterBridgeDisconnectGetsFreshPlayerID` (a disconnected Core must be able to
+  redial and get a new `player_id`, not stay wedged) in `internal/core/core_test.go`.
+- **Consequences:** Game-agnostic — every adapter's game-close/reconnect now cleans up for
+  free, no per-adapter change. Deliberately scoped to the bridge socket's actual lifecycle:
+  TEVI's `Plugin.cs` keeps its bridge connection open across a return to the main menu (it only
+  stops sending state), so main-menu cleanup is **not** covered by this change — see the open
+  follow-up in `plans.md`/`risks.md` about verifying whether TEVI's `mainCharacter` reads null
+  during a pause menu too before wiring an adapter-side disconnect into that transition. A real
+  behavior change worth knowing: reconnecting after any disconnect now always gets a fresh
+  `player_id` — there is no session resumption under the old identity.
+
+---
+
+- **Date:** 2026-08-13
+- **Decision:** `Core.remoteStatesAt` now excludes any remote whose `area_id` doesn't match
+  this Core's own most recently known `area_id`, unless the Core's own area is still unknown
+  (never received a real local frame), in which case every remote passes through unfiltered.
+- **Status:** accepted
+- **Context:** Found live in the same real two-player TEVI test session as the bridge-
+  disconnect fix above, once the two players moved through genuinely different zones (not just
+  different rooms within one always-loaded zone). `internal/core` sends every known remote
+  regardless of `area_id` — a documented, previously-untested gap (`plans.md`). The remote's
+  ghost kept rendering the whole time, using the peer's raw world coordinates from their own
+  zone, with no relationship to the local zone's coordinate space. It only looked correct
+  because the two test zones' coordinate ranges didn't happen to overlap anywhere visible on
+  screen — confirmed by reading both BepInEx `LogOutput.log`s directly: `area=` changed
+  `1→4→1→13→1` across five real zone transitions, but `"real remote ghost visual created"`
+  logged exactly once, at initial connect, never again — the remote `GameObject` was never
+  destroyed or recreated, just silently repositioned to nonsense coordinates every frame.
+  Two zones whose coordinate ranges did overlap on screen would have produced a visible
+  phantom ghost instead of a coincidentally-invisible one.
+- **Options considered:** (1) leave it — rejected, this session's own log evidence shows it's
+  not actually benign, only luck-dependent; (2) filter in each adapter individually — repeats
+  per-adapter logic for something `area_id` equality already makes trivial to do once,
+  centrally; (3) filter once in `internal/core`, at the same point `remoteStatesAt` already
+  builds the per-tick render set.
+- **Resolution:** Option 3. Added `Core.localAreaID`, updated in `forwardLocalState` on every
+  real local frame (`state != nil`) regardless of `MinSendInterval` throttling or whether a
+  relay connection exists yet — filtering needs the adapter's true current area, not just what
+  was last actually sent over the network. `remoteStatesAt` skips any remote whose `AreaID`
+  doesn't equal `c.localAreaID`, unless `c.localAreaID` is still `""` (no real local frame yet),
+  which passes everything through unfiltered rather than hiding all remotes on an unknown local
+  area — this keeps every pre-existing test that never sends a local area (most of the
+  `fakeAdapter`-driven suite) passing unchanged. Equality-only comparison, per `contract.md`'s
+  `area_id` rule — never branches on contents. Reuses the existing render/despawn diff in
+  `tickRenders` for free: a remote dropping out of `remoteStatesAt`'s filtered result is
+  indistinguishable from one that actually left, so it already gets a real `despawn_remote`,
+  and reappears via the normal render path once areas match again. Regression-tested:
+  `TestCrossAreaFiltersRemote` in `internal/core/core_test.go` drives a remote through
+  same-area → different-area (must despawn) → same-area-again (must reappear).
+- **Consequences:** Game-agnostic, benefits every adapter with no per-adapter change — closes
+  the `plans.md`/`phase6.md` "genuinely unbuilt" gap. Not yet watched live in-game; next TEVI
+  session should confirm a remote in a different zone is no longer rendered at all (not just
+  coincidentally off-screen), and reappears cleanly on returning to the same zone.

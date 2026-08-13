@@ -41,6 +41,12 @@ touches the relay. A future in-process adapter (e.g. a C# host embedding the cor
 library) replaces the bridge socket with direct function calls — same invariant, no socket
 needed at all.
 
+**Bridge lifecycle is tied to the relay connection:** if the bridge connection ends (the
+adapter/game closes, or its socket otherwise drops), the core closes its relay connection too,
+which the relay reports to the rest of the room as a real `leave` — see the 2026-08-13 ADR in
+`architecture.md`. A later bridge `hello` on that same core process reconnects to the relay and
+is assigned a new `player_id`; there is no session resumption under the old identity.
+
 ## Packet schema (the `state` message payload)
 
 Unchanged from the brief, restated exactly:
@@ -72,6 +78,10 @@ Unchanged from the brief, restated exactly:
 Rules, unchanged from the brief:
 
 - The core compares `area_id` and `anim` for equality only. It never branches on contents.
+  Since 2026-08-13, the core also *uses* that equality check to filter rendering: a remote
+  whose `area_id` doesn't match the local player's own most recently known `area_id` is not
+  rendered (and despawns if it was previously visible), unless the local player's own area is
+  still unknown, in which case nothing is filtered. See the ADR in `architecture.md`.
 - Do not fix `position` at 2 or 3 components.
 - Do not invent a universal `anim` vocabulary. Each adapter defines its own tag set.
 - JSON until it hurts. Debuggability beats bandwidth at this project's scale.

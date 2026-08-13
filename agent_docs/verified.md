@@ -1858,3 +1858,88 @@ Copy this block per fact:
 - Notes: completes this session's clean-slate release validation for both shipped games
   (TEVI's own clean-slate entry is above). Same loopback self-ghost caveat as TEVI's entry —
   not yet two distinct real players.
+
+### MeshGhostPseudo survives an AP_Randomizer reinstall that silently swaps the shared UE4SS runtime
+
+- Date: 2026-08-13
+- Observed: user reinstalled the Archipelago mod (`AP_Randomizer`) on top of an existing
+  MeshGhostPseudo install. Filesystem inspection showed the reinstall rewrote not just its own
+  `ue4ss\Mods\AP_Randomizer\` folder but also the *shared* runtime files `dwmapi.dll`,
+  `ue4ss\UE4SS.dll`, and `ue4ss\UE4SS-settings.ini` (all rewritten at the same instant,
+  08/13 19:14:52) — `MeshGhostPseudo\`'s own files were untouched (still 18:21:01). The
+  resulting installed `UE4SS.dll` is a different build than the one MeshGhost bundles in
+  `packaging/release/games/pseudoregalia/ue4ss-runtime/`: different size (16,240,640 vs.
+  16,248,832 bytes) and different SHA-256 (`B379...79FB1` vs. `B36F...53F2F89`), confirmed via
+  `Get-FileHash`. Despite the mismatch, user launched Pseudoregalia after the swap and
+  confirmed watching the loopback ghost render and follow correctly in-game — "everything
+  seemed to just work."
+- Source: `Get-FileHash`/`Get-ChildItem` on this machine's real
+  `...\Pseudoregalia\...\Binaries\Win64\` install; user's own in-game observation.
+  `ue4ss\UE4SS.log`'s startup banner (`v3.0.1 Beta #0`, SHA `733e5969`) was read from a session
+  that predates the 19:14:52 runtime swap, so it does NOT identify the swapped-in build — the
+  live in-game test is what actually confirms the new runtime, not that log line.
+- Notes: contradicts the 2026-08-12 `risks.md` finding that a mismatched `UE4SS.dll` (there,
+  83 commits ahead) broke `AP_Randomizer` outright — this mismatch, whatever exact build it
+  is, did not break either mod. Exact SHA/commit of the swapped-in build was not identified
+  (would need a fresh `UE4SS.log` startup banner captured after 19:14:52, not done this
+  session) — treat as "a nearby build works," not as validating any specific commit.
+
+### TEVI real two-player test: ghosts render correctly, pause menu behaves as intended
+
+- Date: 2026-08-13
+- Observed: two real TEVI instances (Steam copy + the standalone `14778703` build), each its
+  own core process (bridge ports 7778/7779) connected through one real, non-loopback relay as
+  distinct room members. User watched both windows: each showed the other player's ghost at the
+  correct position (no offset, no leftover placeholder box — both removed this session) with
+  correct animation. Also opened TEVI's Characters/pause overlay in one instance and confirmed
+  the other player's ghost kept moving, visible through the semi-transparent background —
+  `Update()`'s log lines (`local state: area=... pos=...`) kept flowing continuously the whole
+  time the overlay was open.
+- Source: user's own in-game observation, this session's transcript; the BepInEx console log
+  visible in the screenshot.
+- Notes: this closes `phase6.md`'s open follow-up question. The continuous local-state logging
+  during the pause overlay proves `EventManager.mainCharacter` does NOT read null during TEVI's
+  pause menu (only at the real title screen) — so the existing `player == null` check in
+  `Update()` already safely distinguishes the two, and the 2026-08-13 bridge-disconnect-cleanup
+  fix (`architecture.md`'s ADR) could safely be extended to trigger off that same null check for
+  a real main-menu return, without a separate pause-vs-menu signal.
+
+### TEVI ghost cleanup: main-menu return and game close both despawn correctly; pause does not
+
+- Date: 2026-08-13
+- Observed: with `BridgeClient.Disconnect()` wired into `Plugin.cs`'s `hadPlayerLastFrame`
+  transition (closes the bridge connection when returning to the real main menu, not on pause),
+  user retested live across both real TEVI instances. Pausing one instance: the peer's ghost
+  stayed visible, unchanged — confirmed still working correctly, not broken by this change.
+  Returning one instance to the main menu: the peer's ghost was properly removed. Closing the
+  game entirely: also properly removed.
+- Source: user's own in-game observation, this session's transcript.
+- Notes: closes the "not yet covered" gap left open by the same-day bridge-disconnect ADR in
+  `architecture.md` — both disconnect paths (explicit menu-return `Disconnect()` call, and a
+  bridge socket dying because the game process exited) now correctly despawn a remote for
+  peers, and pause is confirmed still excluded. Reconnect behavior (does exactly one clean
+  ghost come back after returning to a play session, per `TryConnect()`'s automatic redial) was
+  not explicitly re-verified this round — implied by the mechanism but worth a direct look next
+  time it comes up.
+
+### TEVI cross-area filtering confirmed live; found and fixed a reactivation animation freeze
+
+- Date: 2026-08-13
+- Observed: with `Core.remoteStatesAt`'s area-equality filter built (see the same-day ADR in
+  `architecture.md`), user retested a real zone-to-zone transition via portal (the same route
+  that exposed the original gap). The peer's ghost properly disappeared while in a different
+  zone and reappeared correctly on returning to the shared zone — both directions confirmed
+  live, not just by log inspection this time.
+- Also observed, same test: the peer's ghost (idle the whole time) reappeared at the correct
+  position immediately, but visually "stuck" — not animating — until the peer actually moved.
+  Root-caused by reading `Plugin.cs` directly, not guessed: `DespawnRemoteGhost` only calls
+  `SetActive(false)`, never resets `LastAnim`, and `UpsertRemoteGhost` only calls
+  `Animator.Play()` on an actual anim-string change. Reactivating with the same anim string
+  ("idle") as before never re-triggers `Play()`, so the Animator stays wherever it was left
+  when deactivated. Fixed by clearing `visual.LastAnim = null` in `DespawnRemoteGhost`, forcing
+  a fresh `Play()` on the next reactivation regardless of whether the anim actually changed.
+  **Confirmed live, same session**: user retested the same zone-reentry case — an idle peer's
+  ghost now shows its default idle animation immediately on reappearing, instead of staying
+  stuck on whatever frame it was left on before despawning.
+- Source: user's own in-game observation; `adapters/tevi/MeshGhostTevi/Plugin.cs` read directly
+  to find the mechanism.

@@ -151,6 +151,30 @@ namespace MeshGhostTevi
             return -1;
         }
 
+        // Actively drops the bridge connection -- distinct from a connection failure or the
+        // core going away, this is the adapter choosing to leave (returning to TEVI's main
+        // menu, confirmed live 2026-08-13 to be a real, detectable transition, unlike the
+        // pause menu -- see agent_docs/phases/phase6.md). The core observes this as a bridge
+        // disconnect and closes its own relay connection in response (2026-08-13 ADR in
+        // architecture.md), which the relay turns into a real Leave for any peer -- the same
+        // despawn path a real game-close already took. TryConnect() redials automatically on a
+        // later frame once IsConnected is false, the same as any other dropped connection.
+        public void Disconnect()
+        {
+            TcpClient c = client;
+            connected = false;
+            client = null;
+            stream = null;
+            try
+            {
+                c?.Close();
+            }
+            catch (Exception e)
+            {
+                Log($"MeshGhost: error closing bridge connection: {e.Message}");
+            }
+        }
+
         // Call once per frame from the main thread, before SendLocalState. Must be the first
         // message on a fresh connection -- see internal/bridge.Hello -- so it's sent from here
         // rather than the background connect thread, ahead of any local_state Update() sends
