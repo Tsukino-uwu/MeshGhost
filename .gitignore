@@ -52,9 +52,13 @@ obj/
 # files, none of it source. Rebuilt locally via cmake --build; never committed.
 /adapters/pseudoregalia/MeshGhostPseudo/build/
 
-# Dev-run logs
+# Dev-run logs (core.log/relay.log are stale names; meshghost.log/meshghost-server.log are
+# what cmd/meshghost and cmd/meshghost-relay actually write today -- see main.go's
+# openLogFile, one next to the exe wherever it's run from)
 core.log
 relay.log
+meshghost.log
+meshghost-server.log
 
 # OS cruft
 .DS_Store
