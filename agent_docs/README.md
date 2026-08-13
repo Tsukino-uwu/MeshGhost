@@ -5,6 +5,8 @@ Internal documentation for MeshGhost: architecture, planning, licensing, and ver
 ## Files
 
 - `brief.md` — the original design brief: vision, non-goals, prior art, rationale.
+- `project-history.md` — retrospective on the pre-planning phase before any adapter existed.
+  Per-adapter build stories live in each game's own `README.md` instead.
 - `contract.md` — **the durable artifact.** Packet schema, message types, adapter interface,
   transport, tick model, limits. Changes here are contract revisions, not routine edits —
   record the "why" in `architecture.md`'s decision log.

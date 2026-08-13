@@ -16,3 +16,43 @@
 
 See `agent_docs/contract.md` for the adapter interface and tick model this adapter must
 implement, and `agent_docs/phases/phase1.md` for the current verification task list.
+
+## How this adapter was built
+
+First game targeted, so the server and client didn't exist yet either — this build included
+making those, not just the adapter. Getting from nothing to "good enough" (the end of
+Phase 5.5) took about 10 hours.
+
+Roughly in order, with the phase file that covers each part in more depth:
+
+1. Drew a static purple box on screen as proof the overlay-rendering path worked at all.
+   (`agent_docs/phases/phase2.md`)
+2. Probed memory while walking in each direction, recording what changed, to find the
+   position-related addresses. (`agent_docs/phases/phase1.md`)
+3. Probed again while facing each direction without moving a tile, to separate "facing" from
+   "position" in what had been found. (`agent_docs/phases/phase1.md`)
+4. Made the box follow the player, still drawn at a fixed point on screen.
+   (`agent_docs/phases/phase2.md`)
+5. Made the box track world position instead of screen position, so it stayed correct whether
+   the player was on- or off-screen. (`agent_docs/phases/phase2.md`)
+6. Tested going in and out of buildings and between routes, to check position tracking
+   survived map/warp transitions. (`agent_docs/phases/phase1.md`, `phase2.md`)
+7. Replaced the static box with an idle sprite that moves around.
+   (`agent_docs/phases/phase5_5.md`)
+8. Added a walking animation. (`agent_docs/phases/phase5_5.md`)
+9. Added a running animation. (`agent_docs/phases/phase5_5.md`)
+
+The real networking — the relay, the core, and the bridge protocol connecting an adapter to
+both — got built alongside this adapter rather than before it, since Emerald was also the
+first game to need it. `phase3.md` (loopback: one real client, a synthetic echoed "ghost")
+and `phase4.md` (two real players, join/leave, despawn on disconnect) cover that side.
+`phase5.md` is not Emerald-specific — it's where the core got proven game-agnostic by running
+it against a fake, non-Emerald adapter, which is what let TEVI (Phase 6) reuse it directly.
+
+See `agent_docs/phases/phase1.md` through `phase5_5.md` for the detailed, dated log of this
+work, and `agent_docs/pitfalls.md` for the transferable lessons pulled out of it (memory
+probing methodology, overlay rendering gotchas, map-transition read glitches).
+
+### Further work past "good enough"
+
+None logged yet — add entries here if work on this adapter resumes past Phase 5.5.

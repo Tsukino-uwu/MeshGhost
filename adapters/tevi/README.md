@@ -13,3 +13,23 @@
   already installed on this machine's TEVI copy and confirmed loading a third-party plugin.
 - Phase 6 in progress. Phase 5 froze the adapter template (`adapters/_template/`) — see
   `agent_docs/phases/phase5.md`.
+
+## How this adapter was built
+
+Second game, and by far the fastest: about 1 hour from start to a ghost following the player
+with all animations working. Server/client and the general approach were already proven by
+the `pokemon/emerald` adapter, so this was adapter-only work. BepInEx plus being able to
+decompile the game made this easier and faster than Emerald, even though Emerald had a full
+source decompilation available to reference — a lot of things (notably the animations) just
+worked as soon as they were wired up, with no equivalent of Emerald's memory-probing phase.
+
+Roughly in order (all of it is `agent_docs/phases/phase6.md`):
+
+1. Purple box as proof of concept (same first step as Emerald).
+2. Cyan box following the player.
+3. Replaced the box with the actual sprite.
+4. Added animations.
+
+### Further work past "good enough"
+
+None logged yet — add entries here if work on this adapter resumes past Phase 6.

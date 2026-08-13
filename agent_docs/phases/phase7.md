@@ -1601,6 +1601,23 @@ GBA memory). Started early relative to Phase 6's own two-player milestone (6.6) 
       term versus UE's real formula — harmless here because pitch and roll are confirmed always
       zero for this pawn (Phase 7.1), so not worth patching a submodule over; revisit only if a
       future game with non-zero pawn pitch is targeted through this same SDK.
+
+      **Both open animation gaps closed, same day, follow-up session (full detail in
+      `agent_docs/status.md`/`agent_docs/verified.md`, condensed here for this file's own
+      record):** the earlier `landed?`/`jumped?` pulse-mirroring attempt (above) turned out to
+      have been a silent no-op, not a disproven theory — a reflection dump confirmed those
+      fields live only on `animBPref` (the AnimBP instance), never on the pawn the old code
+      actually read/wrote. Redone hopping through `animBPref` on both ends, with the wire field
+      changed from a single-tick bool to a monotonic `land_count`/`jump_count` counter (a bool
+      pulse can't survive the send-rate cap or the interpolation buffer holding an older
+      snapshot). **Confirmed live**: no longer stuck in a falling pose after landing. The
+      separate ledge-hang-stuck-forever bug turned out to be an Anim Montage playing
+      independently of the state-machine bytes (which all provably reset correctly) — found and
+      called the real `Montage_Stop` UFunction (name and parameter offsets confirmed via
+      read-only reflection, not assumed) on the same land/jump-edge transition. **Confirmed
+      live.** Both fixes are in `adapters/pseudoregalia/MeshGhostPseudo/Mod/src/Plugin.cpp`
+      (`read_animbp_bool`/`write_animbp_bool`, `call_montage_stop`). **7.6 is now fully closed**,
+      including both animation gaps this entry originally left open.
 - [x] Release packaging (2026-08-13, ahead of 7.7): rebuilt `main.dll` fresh from the current
       `a1e1557` sources (`cmake --build`, 0 errors) and staged it under
       `packaging/release/games/pseudoregalia/MeshGhostPseudo/` (`dlls/main.dll` + empty
