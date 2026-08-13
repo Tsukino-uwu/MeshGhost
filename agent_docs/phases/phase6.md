@@ -226,10 +226,12 @@ point of picking a second, structurally different game.
         4. `DespawnRemoteGhost` also deactivates the matching map marker now.
         Builds clean (0 errors against the real `Assembly-CSharp.dll` reference), deployed to
         both local installs. **Confirmed live, same session**: user opened the map and
-        confirmed a marker shows at the other player's actual room. See `verified.md`. Not yet
-        separately re-checked: fog-of-war (no marker in an undiscovered room), cross-area
-        hiding of the marker specifically (distinct from the world ghost's own cross-area
-        test), and whether the marker's size actually tracks map zoom correctly.
+        confirmed a marker shows at the other player's actual room. **Fog-of-war confirmed
+        live too**: the marker shows for a discovered room and hides for one the local player
+        hasn't seen yet — `SaveManager.GetRoomWalkedBool` gating works exactly as designed.
+        See `verified.md`. Not yet separately re-checked: cross-area hiding of the marker
+        specifically (distinct from the world ghost's own cross-area test), and whether the
+        marker's size actually tracks map zoom correctly.
 
 ## Notes
 

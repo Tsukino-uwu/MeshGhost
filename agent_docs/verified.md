@@ -1952,9 +1952,13 @@ Copy this block per fact:
   `MoveMapToCurrentRoom` uses, user opened TEVI's pause-menu map screen and confirmed a small
   marker appears at the other player's actual room.
 - Source: user's own in-game observation.
+- Also observed, same session: user specifically tested the fog-of-war guard by checking a
+  room they had and hadn't discovered — the marker shows for a discovered room and hides for
+  an undiscovered one, confirming `SaveManager.GetRoomWalkedBool`'s gating works exactly as
+  designed, not just present in code.
 - Notes: confirms the core mechanism (extras plumbing, marker cloning/positioning, the
-  `isFullMap`/same-area gating) works end to end. Not separately re-verified yet: the
-  fog-of-war guard (`SaveManager.GetRoomWalkedBool`) specifically withholding a marker in an
-  undiscovered room, the marker disappearing when the peer leaves the area, and whether the
-  marker's size tracks map zoom correctly (reasoned from `GemaFixedSizeMapIcon`'s own
+  `isFullMap`/same-area gating, and now fog-of-war) works end to end. Not separately
+  re-verified yet: the marker disappearing when the peer leaves the area specifically
+  (distinct from the world ghost's own cross-area test), and whether the marker's size tracks
+  map zoom correctly (reasoned from `GemaFixedSizeMapIcon`'s own
   rescaling code, not directly observed).
