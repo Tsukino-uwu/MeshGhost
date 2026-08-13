@@ -11,7 +11,7 @@ ghosts — position, facing, walking, and running all tracked live, no shared wo
 [agent_docs/status.md](agent_docs/status.md) for exactly where things stand and
 [agent_docs/plans.md](agent_docs/plans.md) for the phase-by-phase roadmap.
 
-## Playing right now (Emerald, plus experimental TEVI)
+## Playing right now (Emerald, plus experimental TEVI and Pseudoregalia)
 
 No need to build anything: grab the latest release from the [Releases page](../../releases) —
 one zip for everyone. Unpack it, double-click `meshghost.exe` to play; whoever's hosting also
@@ -48,7 +48,9 @@ Unity, and so on).
    assets; see [agent_docs/licensing.md](agent_docs/licensing.md)).
 2. **TEVI** (Unity) — second, code-complete but not yet confirmed with two real players; see
    [agent_docs/phases/phase6.md](agent_docs/phases/phase6.md).
-3. **Pseudoregalia** (Unreal Engine 5) — third, not yet started.
+3. **Pseudoregalia** (Unreal Engine 5) — third, code-complete (a real character-visual ghost
+   with correct anchor, facing, and animation) but not yet confirmed with two real players; see
+   [agent_docs/phases/phase7.md](agent_docs/phases/phase7.md).
 
 ## Repo layout
 
