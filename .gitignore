@@ -31,6 +31,15 @@
 bin/
 obj/
 
+# CMake build tree (e.g. adapters/pseudoregalia/MeshGhostPseudo/build/) -- generated
+# .vcxproj/.cmake files plus every third-party dependency's own build output, thousands of
+# files, none of it source. Rebuilt locally via cmake --build; never committed.
+/adapters/pseudoregalia/MeshGhostPseudo/build/
+
+# Dev-run logs
+core.log
+relay.log
+
 # OS cruft
 .DS_Store
 Thumbs.db
