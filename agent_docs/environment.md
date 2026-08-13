@@ -122,6 +122,21 @@ Built once to extract real RAM addresses via a `make compare`-verified build —
   `agent_docs/licensing.md`; not a MeshGhost dependency, a local dev tool only.
 - Pseudoregalia install: `C:\Program Files (x86)\Steam\steamapps\common\Pseudoregalia`
   (confirmed 2026-08-12 via a Steam-library directory scan).
+- **SteamCMD**: `C:\dev\steamcmd\steamcmd.exe`, outside `C:\dev\MeshGhost` on purpose (a
+  standalone tool, not repo content). `+download_depot` ignores `+force_install_dir` — it always
+  lands under `steamcmd`'s own `steamapps\content\app_<id>\depot_<id>\` and has to be copied out
+  manually. Logging into it with a real account signs that account's normal Steam client offline
+  (Steam allows one online session per account) — expect the regular Steam client to need
+  reconnecting afterward. No login is cached between sessions on this machine by choice (the
+  folder gets wiped after use rather than storing credentials).
+- **Standalone TEVI build for local dual-instance testing**: `C:\dev\tevi-14778703` (SteamDB
+  build `14778703`, 2024-06-20, depot `2230651`, manifest `7992513181981867642`), plus an earlier
+  superseded `C:\dev\tevi-v1.01-test` (buildid `12996163`) — both outside `C:\dev\MeshGhost` for
+  the same reason as the SteamCMD tool. Needs a `steam_appid.txt` (containing `2230650`) at its
+  root for `steam_api64.dll` to initialize when launched outside Steam. See
+  `agent_docs/verified.md`'s "TEVI build 14778703 allows two simultaneous local instances" entry
+  and `agent_docs/phases/phase6.md`'s Notes for how this enables 6.6 (two real players) without a
+  second machine.
 - **Engine: confirmed UE 5.1** (`++UE5+Release-5.1-CL-23901901`), read directly as a UTF-16
   string embedded in `pseudoregalia\Binaries\Win64\pseudoregalia-Win64-Shipping.exe`
   (2026-08-12) — not assumed from UE4SS's stated 4.12–5.7 support range. Shipping exe/game

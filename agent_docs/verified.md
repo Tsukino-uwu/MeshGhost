@@ -1776,3 +1776,24 @@ Copy this block per fact:
   "ghost animation state" entry) generalizes to these mechanics without needing any
   mechanic-specific handling — only the one-shot pose transitions (falling recovery, ledge-hang
   exit) needed the `landed?`/`jumped?`/`Montage_Stop` work above.
+
+### TEVI build 14778703 allows two simultaneous local instances
+
+- Date: 2026-08-13
+- Observed: user launched their normal Steam-library TEVI copy first (confirmed running), then
+  launched `TEVI.exe` directly from a standalone `steamcmd +download_depot` copy of build
+  `14778703` (2024-06-20) in a separate folder. Both windows were open at the same time, each
+  showing the TEVI title screen, screenshotted side by side.
+- Source: SteamDB `https://steamdb.info/patchnotes/14778703/`, depot `2230651`, manifest
+  `7992513181981867642` — downloaded via `steamcmd +login <user> +download_depot 2230650
+  2230651 7992513181981867642`. `steam_appid.txt` (containing `2230650`) added to the standalone
+  folder so the exe's `steam_api64.dll` would initialize without being launched by Steam.
+- Notes: **supersedes the "confirmed not to work" v1.01-branch entry in
+  `agent_docs/phases/phase6.md`'s Notes section** — that earlier attempt's "Unable to Sync"
+  dialog is now understood to have been caused by the `steamcmd` login itself signing the user's
+  normal Steam session offline (Steam only allows one online session per account), not by a
+  genuine single-instance-per-app block. This time the normal Steam client was confirmed online
+  and TEVI running through it *before* launching the standalone copy, isolating the actual
+  variable. Unblocks Phase 6.6 (two real players) for local testing without needing a second
+  machine — still needs the actual gameplay/multiplayer test (both ghosts visible, moving,
+  cross-area filtering), not just "both processes launch."

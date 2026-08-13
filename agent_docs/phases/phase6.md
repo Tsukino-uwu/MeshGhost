@@ -102,51 +102,55 @@ point of picking a second, structurally different game.
       oversight — it can't be meaningfully evaluated without a second real peer to watch react
       to it, so revisit only if real 6.6 testing shows it's actually a problem, rather than
       guessing at a fix for something not yet observed to need one. See `agent_docs/verified.md`.
-- [ ] 6.6 — Next: two real players. **Blocked, confirmed 2026-08-12 by the user attempting it:
-      Steam will not run two simultaneous TEVI instances.** Needs a second machine (a friend, or
-      another PC) rather than two local instances — see the Notes section below. Everything
-      solo-testable via loopback (bridge, rendering, animation, facing, menu non-intrusion) is
-      now done; what's left genuinely needs a second real peer: cross-area filtering (loopback
-      always echoes your own area — `internal/core` currently sends every known remote
-      regardless of area, and the TEVI adapter doesn't filter either, a real unaddressed gap,
-      not just untested) and the real join/leave/disconnect flow. **No longer blocked on
-      distribution** (2026-08-12): TEVI now ships in the single release zip (see
-      `packaging/README.md`'s TEVI section), marked experimental/prerelease — the remaining
-      blocker is purely "find a second real player," not "no way to hand them a build."
+- [ ] 6.6 — Next: two real players. **Unblocked for local testing, 2026-08-13**: build
+      `14778703` runs alongside the normal Steam-launched copy — see the Notes section below.
+      Everything solo-testable via loopback (bridge, rendering, animation, facing, menu
+      non-intrusion) is now done; what's left is the real join/leave/disconnect flow and
+      cross-area filtering (loopback always echoes your own area — `internal/core` currently
+      sends every known remote regardless of area, and the TEVI adapter doesn't filter either, a
+      real unaddressed gap, not just untested), now testable locally with two windows instead of
+      needing a second machine. **No longer blocked on distribution** (2026-08-12): TEVI now
+      ships in the single release zip (see `packaging/README.md`'s TEVI section), marked
+      experimental/prerelease.
 
 ## Notes
 
-- **TEVI cannot run two simultaneous instances via Steam** — confirmed by the user attempting it
-  directly (2026-08-12), not assumed. Steam blocks the second launch. This doesn't block 6.4
-  (bridge) or 6.5 (loopback, which proves ghost rendering using the relay's `-loopback` echo
-  against a single real client — no second instance needed, same approach as Emerald's Phase 3).
-  It does block 6.6 (two real players) until a workaround is found — likely a second machine
-  (a friend, or another PC on this network) rather than two local instances. Not solved yet;
-  revisit when 6.6 is actually reached.
+- **TEVI build 14778703 runs two simultaneous local instances — confirmed 2026-08-13.** SteamDB
+  build `14778703` (2024-06-20, <https://steamdb.info/patchnotes/14778703/>), depot `2230651`,
+  manifest `7992513181981867642`, downloaded standalone via `steamcmd +login <user>
+  +download_depot 2230650 2230651 7992513181981867642` (raw `download_depot` ignores
+  `+force_install_dir` — it lands under `steamcmd`'s own `steamapps\content\app_2230650\
+  depot_2230651\` and has to be copied out manually). A `steam_appid.txt` containing `2230650`
+  was added to the standalone folder so `steam_api64.dll` initializes when launched outside
+  Steam. With the normal Steam-launched TEVI copy confirmed running first, launching this
+  standalone copy's `TEVI.exe` opened a second window at the title screen alongside it — user
+  watched both windows side by side. See `agent_docs/verified.md` for the full entry.
 
-  **Workaround attempted and confirmed not to work, 2026-08-12.** `steamcmd` downloaded the
-  `v1.01` branch (app `2230650`, depot `2230651`, buildid `12996163`, manifest gid
-  `5205106925268362993`, confirmed via `steamcmd +login anonymous +app_info_print 2230650`)
-  into a standalone folder outside the normal Steam library. With the real Steam-launched copy
-  already running, launching the standalone `v1.01` exe directly hit Steam's own "Unable to
-  Sync" cloud-save dialog before it would even start — meaning the exe still calls into the
-  locally running Steam client on launch (consistent with `steam_api64.dll` +
-  `SteamAPI_RestartAppIfNecessary`, which re-routes a direct exe launch through Steam whenever
-  a `steam_appid.txt` is present). After clicking through, **the second instance did not
-  start** — Steam's single-instance block is tied to the Steam client's enforcement per app ID,
-  not to the launch path or which build is being run, so a separately-downloaded older build
-  doesn't sidestep it. 6.6 (two real players) still needs a second machine (a friend, or
-  another PC on this network) rather than two local instances.
+  **This corrects the 2026-08-12 "confirmed not to work" v1.01-branch attempt below**: that
+  attempt's "Unable to Sync" dialog is now understood to have been caused by the `steamcmd`
+  login itself signing the user's normal Steam session offline (Steam allows only one online
+  session per account), not by a genuine single-instance-per-app block. The "second instance did
+  not start" conclusion from that attempt was never actually isolated from that confound — kept
+  below for the record, but treat its conclusion as superseded, not as an independently-confirmed
+  mechanism.
 
-  **New lead, not yet tried, 2026-08-13**: user found a specific older TEVI build --
-  SteamDB build `14778703`, dated 2024-06-20 (<https://steamdb.info/patchnotes/14778703/>) --
-  reported to allow multiple clients open simultaneously. The prior workaround attempt above used
-  buildid `12996163` (an even older `v1.01` branch) and failed because Steam's single-instance
-  block is enforced by the Steam client per app ID regardless of which build runs -- unclear yet
-  whether build `14778703` is somehow different (e.g. a build from before TEVI enabled Steam's
-  single-instance flag at all, rather than a build that disables it some other way). Worth
-  testing via `steamcmd +download_depot` at this specific buildid before assuming it changes
-  anything, given the already-confirmed mechanism above.
+  6.6 (two real players) can now proceed with local dual-instance testing instead of needing a
+  second machine. Still only proves "both processes launch" — the actual gameplay/multiplayer
+  test (both ghosts visible, moving, cross-area filtering, join/leave) is still open.
+
+  **Original (2026-08-12) v1.01-branch attempt, superseded, kept for the record:**
+  `steamcmd` downloaded the `v1.01` branch (app `2230650`, depot `2230651`, buildid `12996163`,
+  manifest gid `5205106925268362993`, confirmed via `steamcmd +login anonymous
+  +app_info_print 2230650`) into a standalone folder outside the normal Steam library. With the
+  real Steam-launched copy already running, launching the standalone `v1.01` exe directly hit
+  Steam's own "Unable to Sync" cloud-save dialog before it would even start — meaning the exe
+  still calls into the locally running Steam client on launch (consistent with
+  `steam_api64.dll` + `SteamAPI_RestartAppIfNecessary`, which re-routes a direct exe launch
+  through Steam whenever a `steam_appid.txt` is present). After clicking through, the second
+  instance did not start. At the time this was attributed to Steam's single-instance block being
+  tied to the Steam client's enforcement per app ID regardless of build — see the correction
+  above for why that attribution wasn't actually isolated from the steamcmd-login-kicks-Steam-
+  offline confound.
 
 - **Dev-only toggle, remember to revert:** `BepInEx/config/BepInEx.cfg`'s
   `[Logging.Console] Enabled` was flipped `false` → `true` on this machine (2026-08-12) so a
