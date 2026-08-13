@@ -65,3 +65,50 @@ client to learn another client's IP or other real identity through the relay pro
 Server-side logging of IPs (for the relay operator's own moderation/debugging) is a different
 and acceptable thing; anything that *echoes* connection info back to clients — e.g. a "room
 member list" feature built naively — would break an invariant that currently holds for free.
+
+## Prior art: how CelesteNet handles this (researched 2026-08-13)
+
+CelesteNet is already an approved read-only design reference (`agent_docs/licensing.md`, MIT).
+Read its actual server source (not assumed) via `gh api` against `0x0ade/CelesteNet` before
+writing any of this — findings below are cited to real files, not memory.
+
+- **Self-hosted CelesteNet is open by default too.**
+  `CelesteNetServerSettings.AuthOnly` defaults to `false`
+  (`CelesteNet.Server/CelesteNetServerSettings.cs`) — a self-hosted server accepts any client
+  with just a display name, no key required
+  (`CelesteNet.Server/ConPlus/HandshakerRole.cs`'s `AuthenticatePlayerNameKey`, the
+  `else if (!Server.Settings.AuthOnly)` branch). Their baseline posture is the same as ours
+  today — no-auth isn't a MeshGhost-specific shortcut, it's the normal default for a
+  friend-hosted relay in this genre.
+- **Key-based auth exists, but it's scoped to their one large public server, not the
+  baseline.** A `#<key>` prefix on the player name maps to a persistent account UID
+  (`Server.UserData.GetUID`), checked against a stored ban list on connect. This solves a
+  different problem than ours: an always-on server open to the whole internet needs a
+  persistent identity for a ban to mean anything. A friend-hosted session with a shared
+  address/room code doesn't have that problem — mirroring their full account+ban system would
+  be over-engineering for MeshGhost's actual model, unless an always-on public relay ever
+  becomes a real goal (it isn't one today).
+- **Version check at connection time, before any data flows**: a
+  `CelesteNet-TeapotVersion` header, server responds `409 Version Mismatch` on anything but an
+  exact match (`HandshakerRole.cs`'s `TeapotHandshake`). We already do the direct equivalent
+  for our own wire protocol (`protocol.Version`, checked in `hello` at
+  [relay.go:304](relay/relay.go#L304)) — but that only covers *our* protocol version, not each
+  adapter's underlying game version/DLC, which is the still-open "no peer game-version check"
+  gap above. Worth copying the *pattern* (reject outright at handshake, before any state
+  exchange) for that gap too, once it's designed.
+- **Unpredictable per-connection tokens** (`CelesteNet.Shared/TokenGenerator.cs`, a Galois
+  LFSR) specifically prevent a third party from hijacking someone else's *UDP* connection by
+  guessing or spamming its token. This defends against a UDP-specific weakness (UDP is
+  connectionless and trivially spoofable) that doesn't apply to us — `internal/transport` is
+  TCP-only, which already closes this class of attack by requiring a real handshake per
+  connection. Not something to port.
+- **Deliberately not a model to copy**: `CelesteNet.Server/ConPlus/ExtendedHandshake.cs`
+  collects machine GUID / registry paths / MAC-derived identifiers as a hardware-fingerprint
+  anti-ban-evasion check for their public server. That's real, invasive identity collection,
+  and it directly conflicts with the "constraint to protect" above and this project's own
+  privacy posture. Explicitly out of scope here regardless of what CelesteNet does.
+
+**Takeaway for our own design**: aim for the *shape* of their version-check pattern (a shared
+secret checked once at handshake, reject outright on mismatch, before any state is exchanged)
+for room codes — not their full public-server account/ban/fingerprinting stack, which solves a
+problem MeshGhost doesn't have.
