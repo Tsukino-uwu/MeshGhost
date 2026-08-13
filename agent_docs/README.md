@@ -15,8 +15,10 @@ Internal documentation for MeshGhost: architecture, planning, licensing, and ver
 - `licensing.md` — third-party license audit. Check before referencing any outside project.
 - `environment.md` — toolchain and environment notes, filled in as phases actually run.
 - `verified.md` — append-only, human-gated log of confirmed runtime facts.
-- `phases/` — a file per phase, but **only for the phase currently being executed.** Fold a
-  phase's content back into `plans.md` once it's done rather than leaving a stale file.
+- `pitfalls.md` — adapter-specific issues across all games: symptom, how it was diagnosed,
+  root cause, fix. Not design decisions (`risks.md`) or confirmed facts (`verified.md`).
+- `phases/` — a file per phase. Kept around after the phase ends as a work log/archive
+  rather than folded away — `status.md` and `plans.md` stay the current-state summary.
 
 ## How to use this folder
 
@@ -24,7 +26,8 @@ Internal documentation for MeshGhost: architecture, planning, licensing, and ver
   or any adapter.
 - Keep confirmed implementation facts in `verified.md` — nowhere else, and never before the
   user has watched them work.
-- Create `phases/phaseN.md` when phase N starts; fold it into `plans.md` when phase N ends.
+- Create `phases/phaseN.md` when phase N starts; leave it in place as a historical record
+  once phase N ends (update `plans.md`/`status.md` to reflect current state, don't delete it).
 
 ## Document structure and style
 

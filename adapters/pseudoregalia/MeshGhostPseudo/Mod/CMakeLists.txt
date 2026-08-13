@@ -11,9 +11,10 @@ set(TARGET MeshGhostPseudo)
 add_library(${TARGET} SHARED
     src/dllmain.cpp
     src/Plugin.cpp
+    src/BridgeClient.cpp
 )
 
 target_include_directories(${TARGET} PRIVATE src)
-target_link_libraries(${TARGET} PUBLIC UE4SS)
+target_link_libraries(${TARGET} PUBLIC UE4SS ws2_32)
 
 set_target_properties(${TARGET} PROPERTIES OUTPUT_NAME "main")

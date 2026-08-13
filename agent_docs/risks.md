@@ -133,10 +133,25 @@
   library ships in any official release asset (checked both the plain runtime zip and the
   "zDEV" package — DLL and PDB only, no `.lib`). This blocks the "C++ for the shipping
   adapter" decision from earlier in Phase 7 unless UEPseudo access is granted — see
-  `agent_docs/phases/phase7.md` for the full investigation. Likely explanation: this is
-  probably the same Epic-Games-account-linked-to-GitHub gate Epic uses for Unreal Engine's
-  own source access on GitHub, applied to RE-UE4SS's own reflected-headers submodule — not
-  independently confirmed, a plausible inference from a web search, not a fact to build on.
+  `agent_docs/phases/phase7.md` for the full investigation.
+  **Mechanism confirmed 2026-08-12**, not just inferred: read the actual maintainer/reporter
+  thread on `UE4SS-RE/RE-UE4SS` issue #577 (`gh issue view 577 --repo UE4SS-RE/RE-UE4SS
+  --comments`). The gate is exactly the Epic-Games-account-linked-to-GitHub mechanism guessed
+  earlier — linking a GitHub account to an Epic Games account (epicgames.com account settings)
+  sends an invite to the `github.com/EpicGames` org; **accepting that invite** is the fix, per
+  a RE-UE4SS collaborator (`Buckminsterfullerene02`) and confirmed working immediately after by
+  another reporter (`Jenspi`). One documented wrinkle: a June 2024 Epic bug briefly routed new
+  links to a separate "mirror" GitHub org without the same fork access — watch for an invite
+  that isn't from the org named plain `EpicGames` if this doesn't work on the first try. No
+  other steps reported in the thread (no NDA, no manual approval queue).
+  **Resolved 2026-08-12**: user linked their GitHub account to their Epic Games account
+  (Connections → Accounts → GitHub, OAuth authorize, propagation took a few minutes as
+  expected) and accepted the resulting `EpicGames` org invite. `git submodule update --init
+  deps/first/Unreal` in the local `RE-UE4SS` checkout then succeeded — 2498 real files (headers,
+  source, `CMakeLists.txt`), not an empty stub. **The C++/UEPseudo path is unblocked.** This
+  reopens the Phase 7.2 "C++ for the shipping adapter" option, no longer forced into Lua-only —
+  still needs a real build attempt before trusting it (submodule clone success only proves
+  access, not that the build itself succeeds).
 - **UE4SS Lua *does* expose `package.loadlib`, reopening the socket question, found
   2026-08-12**: contradicts the earlier "Lua has no socket path" reasoning (Phase 7's
   adapter-language decision), which was based only on the *absence* of a first-party socket
@@ -162,6 +177,30 @@
   now considered closed for this specific vendored `lua54.dll`/`socket-windows-5-4.dll` pair
   against this UE4SS build (`v3.0.1 Beta`/SHA `733e5969`) — a **Lua-only shipping adapter** is
   viable, no C++/UEPseudo build required.
+  **Reopened 2026-08-12, same day, once 7.5 exercised this under real sustained traffic**: Stage
+  3's one-shot probe (a handful of hardcoded dummy frames) never hit this; the real adapter
+  running at 10Hz two-way for tens of seconds hits it constantly. Confirmed via layered
+  diagnostics in `main.lua` (send counters 100% ok; raw receive-line counters showing 83-98% of
+  lines failing to decode; a hex dump of the actual bytes showing well-formed JSON up to an
+  inconsistent cutoff point, then unreadable data for the rest of a line `#line` still reports the
+  full length of) that this is genuine data corruption on receive, not a JSON-format or
+  application-logic bug. Neither message size (area_id shortened ~325→~274 bytes, no change in
+  failure rate) nor send frequency (100ms→250ms tick, no change) is the trigger; the failure rate
+  does drop from ~98% early in a connection to ~83% by 30-45s in, in every test, independent of
+  both — consistent with a timing/reentrancy bug in the vendored DLL pair, not a fixed size limit.
+  **The `lua_State`-mismatch risk this entry originally raised is not closed after all** — it was
+  only ever exercised lightly before. See `agent_docs/phases/phase7.md`'s 7.5 entry for the full
+  diagnostic trail. Next steps, neither tried: an alternate vendored LuaSocket build, or the
+  C++/UEPseudo path (still blocked on private submodule access, above).
+  **Resolved by side-by-side comparison, 2026-08-13**: with UEPseudo unblocked (above), a native
+  C++ bridge client (`adapters/pseudoregalia/MeshGhostPseudo`) was run *simultaneously* with the
+  still-enabled Lua `MeshGhostGhostProbe`, both connected to the same bridge port at the same
+  real time, against identical live traffic. `UE4SS.log` shows the Lua side still corrupting
+  ~98% of received lines (386 received, 379 malformed) while the C++ side received 6058+ lines
+  with **zero** malformed. This isn't a difference in load or timing (same session, same
+  wall-clock window) -- it isolates the vendored `lua54.dll`/`socket-windows-5-4.dll` pair itself
+  as the cause, not the core, the relay, or the wire format. The C++ rewrite is the resolution;
+  no alternate LuaSocket build was ever needed.
 - **Spawning the player's own gameplay Blueprint as a placeholder ghost physically dragged the
   player, found 2026-08-12, root cause confirmed the same day**:
   `adapters/pseudoregalia/probe_ghost/Scripts/main.lua` spawned a second instance of

@@ -164,6 +164,42 @@
   needed by `dev-scripts/run-core.bat` and `cmd/meshghost-fakeadapter` (no real adapter to send
   a hello). `go build`/`vet`/`test` clean; not yet watched running against a real game by the
   user, so — same as the packaging entry above — nothing here moves to `verified.md` yet.
+- `Current focus:` **Phase 7 progressed through 7.1–7.5 across several sessions; as of
+  2026-08-13 the C++ rewrite has a working hijack-based ghost that follows the player smoothly
+  and survives real level transitions, confirmed live.** Full record in
+  `agent_docs/phases/phase7.md`; short version:
+  - **The old Lua-path blocker is gone.** The private `Re-UE4SS/UEPseudo` submodule access
+    (`agent_docs/phases/phase7.md`'s 7.2) turned out to be gated by linking a GitHub account to
+    an Epic Games account (confirmed via `UE4SS-RE/RE-UE4SS` issue #577) — the user did that
+    2026-08-13 and the submodule cloned immediately after. The C++ mod
+    (`adapters/pseudoregalia/MeshGhostPseudo`) now builds and runs.
+  - **7.5's original blocker (the vendored LuaSocket receive-corruption bug) is resolved by
+    switching to real C++ networking** (`Mod/src/BridgeClient.cpp`, plain Winsock2) — confirmed
+    live side-by-side against the still-corrupting Lua path: 0 malformed lines out of 6000+ vs.
+    ~98% corruption on the identical connection at the identical moment.
+  - **Ghost spawning hit a second, harder wall: no working way was ever found to destroy an
+    actor spawned at runtime on this build** (`K2_DestroyActor()` silently no-ops — confirmed via
+    a `GetWorld()` readback showing the "destroyed" actor still fully alive). Every spawned ghost
+    left behind a real `LowLevelFatalError: Fatal world leaks detected` crash on the next level
+    transition. **Fixed by redesigning to hijack an already-existing level prop
+    (`StaticMeshActor`) instead of spawning anything** — since nothing new is ever created,
+    nothing ever needs destroying.
+  - **A second, subtler bug then surfaced: the hijacked ghost followed correctly for a while,
+    then visually froze, every run, despite position data staying provably correct on every
+    logged tick.** Root cause, found by reading UE4SS's own source rather than guessing further:
+    `CppUserModBase::on_update()` runs on UE4SS's own internal ~5ms polling thread
+    (`UE4SSProgram.cpp`: `ProfilerSetThreadName("UE4SS-UpdateThread")`), never the real Unreal
+    game thread — every actor write was landing in memory but never reaching the renderer. Fixed
+    by moving all actor reads/writes into a `RegisterEngineTickPostCallback` hook instead (the
+    real game thread). **Confirmed live 2026-08-13**: sustained, uninterrupted following. See
+    `agent_docs/pitfalls.md`'s new "UE4SS C++ mod threading" section for the transferable lesson.
+  - **Not yet done**: the camera fight-back hook (Phase 7.4's other proven fix, not yet ported to
+    C++); a real animated player-model ghost (a `StaticMeshActor` can only ever be a rigid,
+    non-animated stand-in — needs either hijacking an existing skeletal/animated actor, if a safe
+    one exists, or returning to spawn-based ghosts with a real fix for the destroy problem, e.g.
+    the `Engine.VerifyLoadMapWorldCleanup.Severity.Shipping 0` console-command suppression
+    explored but not completed this session); a separate, not-yet-root-caused `Fatal Error!`
+    crash (crashdump, not `LowLevelFatalError`) observed once on game exit.
 
 ## Go networking layer (2026-08-11)
 

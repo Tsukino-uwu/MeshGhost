@@ -124,6 +124,30 @@ point of picking a second, structurally different game.
   (a friend, or another PC on this network) rather than two local instances. Not solved yet;
   revisit when 6.6 is actually reached.
 
+  **Workaround attempted and confirmed not to work, 2026-08-12.** `steamcmd` downloaded the
+  `v1.01` branch (app `2230650`, depot `2230651`, buildid `12996163`, manifest gid
+  `5205106925268362993`, confirmed via `steamcmd +login anonymous +app_info_print 2230650`)
+  into a standalone folder outside the normal Steam library. With the real Steam-launched copy
+  already running, launching the standalone `v1.01` exe directly hit Steam's own "Unable to
+  Sync" cloud-save dialog before it would even start — meaning the exe still calls into the
+  locally running Steam client on launch (consistent with `steam_api64.dll` +
+  `SteamAPI_RestartAppIfNecessary`, which re-routes a direct exe launch through Steam whenever
+  a `steam_appid.txt` is present). After clicking through, **the second instance did not
+  start** — Steam's single-instance block is tied to the Steam client's enforcement per app ID,
+  not to the launch path or which build is being run, so a separately-downloaded older build
+  doesn't sidestep it. 6.6 (two real players) still needs a second machine (a friend, or
+  another PC on this network) rather than two local instances.
+
+  **New lead, not yet tried, 2026-08-13**: user found a specific older TEVI build --
+  SteamDB build `14778703`, dated 2024-06-20 (<https://steamdb.info/patchnotes/14778703/>) --
+  reported to allow multiple clients open simultaneously. The prior workaround attempt above used
+  buildid `12996163` (an even older `v1.01` branch) and failed because Steam's single-instance
+  block is enforced by the Steam client per app ID regardless of which build runs -- unclear yet
+  whether build `14778703` is somehow different (e.g. a build from before TEVI enabled Steam's
+  single-instance flag at all, rather than a build that disables it some other way). Worth
+  testing via `steamcmd +download_depot` at this specific buildid before assuming it changes
+  anything, given the already-confirmed mechanism above.
+
 - **Dev-only toggle, remember to revert:** `BepInEx/config/BepInEx.cfg`'s
   `[Logging.Console] Enabled` was flipped `false` → `true` on this machine (2026-08-12) so a
   console window shows live log output while building/testing the TEVI adapter. This is a local

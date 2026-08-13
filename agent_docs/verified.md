@@ -1485,3 +1485,97 @@ Copy this block per fact:
   side effect: a brief black flash each time the camera gets forced back, most likely the
   `SetViewTargetWithBlend` cut/blend transition itself being visible for a frame — not
   investigated further, a reasonable tradeoff.
+
+### Pseudoregalia UEPseudo access unblocked, and the C++ hello-world mod builds and coexists with AP_Randomizer
+
+- Date: 2026-08-12
+- Observed: the private `deps/first/Unreal` (UEPseudo) submodule, previously confirmed
+  inaccessible (`gh api` 404), cloned successfully (2498 real files) after the user linked their
+  GitHub account to their Epic Games account and accepted the resulting `EpicGames` GitHub org
+  invite. `cmake --build . --config Game__Shipping__Win64` then completed with exit code 0 and
+  produced `MeshGhostPseudo.vcxproj -> .../Mod/Game__Shipping__Win64/main.dll` (16.9KB), built
+  against a UE4SS configure step that printed `UE4SS Version: 3.0.1.0.0 (733e5969)` — an exact
+  match to this machine's installed build. Deployed to `ue4ss\Mods\MeshGhostPseudo\dlls\main.dll`
+  and `enabled.txt` (deploy confirmed via `diff`). User launched the game and closed it after it
+  loaded; `UE4SS.log` shows `Mod 'MeshGhostPseudo' has enabled.txt, starting mod.` and
+  `[MeshGhostPseudo] Phase 7.2 hello-world mod loaded, on_unreal_init reached.` at
+  `23:53:48.77`/`23:53:50.08`, essentially simultaneous with `AP_Randomizer`'s own
+  `has enabled.txt, starting mod.` line — and `AP_Randomizer` continued working normally
+  afterward (hooks installed, its own Archipelago connect/disconnect cycling with no server
+  configured, expected and unrelated).
+- Source: `gh issue view 577 --repo UE4SS-RE/RE-UE4SS --comments` (the Epic-account-link
+  mechanism); local build output
+  (`adapters/pseudoregalia/MeshGhostPseudo/build/Mod/Game__Shipping__Win64/main.dll`);
+  `UE4SS.log` lines at `23:53:48`–`23:53:50`, `[MeshGhostPseudo]` prefix.
+- Notes: closes the Phase 7.2 blocker that had been open since early in this phase (private
+  submodule, no prebuilt import library). Reopens the C++/UEPseudo path as viable for 7.5's
+  actual open blocker (the vendored-LuaSocket receive-corruption bug under sustained traffic) —
+  see `agent_docs/phases/phase7.md`'s 7.2 entry for the full build-toolchain detail (Rust/
+  `patternsleuth`, the `Game__Shipping__Win64` config-triplet naming).
+
+### Pseudoregalia C++ mod reads real local-player position natively, tracking through a level transition
+
+- Date: 2026-08-13
+- Observed: `UE4SS.log` shows `[MeshGhostPseudo] pawn position: (X, Y, Z)` lines with real,
+  changing coordinates every ~2s, correctly re-acquiring the controller/pawn after a
+  `ZONE_LowerCastle` -> `ZONE_Dungeon` transition (briefly logging "no PlayerController with a
+  valid Pawn yet" mid-transition, then resuming with the new level's controller instance name).
+  Two real bugs were found and fixed first via this same log, not guessed: `FindFirstOf` was
+  returning the class CDO (fixed with `FindAllOf` + an `RF_ClassDefaultObject` flag check), and
+  `GetValuePtrByPropertyName` was reading the inherited `Pawn` property as null (fixed by
+  switching to `GetValuePtrByPropertyNameInChain`).
+- Source: `UE4SS.log` lines at `00:07:35`-`00:07:42`, `[MeshGhostPseudo]` prefix;
+  `adapters/pseudoregalia/MeshGhostPseudo/Mod/src/Plugin.cpp`.
+- Notes: this is the C++ equivalent of the Phase 7.1 Lua finding (already verified above),
+  redone natively as step 1 of rebuilding the shipping adapter in C++ per the LuaSocket
+  receive-corruption blocker — see `agent_docs/phases/phase7.md`'s 7.2 entry and
+  `agent_docs/pitfalls.md`'s "Engine reflection / API availability" section for the two bugs'
+  full detail.
+
+### Native C++ bridge networking has zero receive corruption, side by side against the Lua version's 98%
+
+- Date: 2026-08-13
+- Observed: the still-enabled Lua `MeshGhostGhostProbe` mod and the new C++ `MeshGhostPseudo`
+  mod were both connected to the same core bridge port at the same real time, against identical
+  live traffic (user playing normally). `UE4SS.log` shows the Lua side's already-known bug
+  reproducing exactly: `sends(calls=400 ok=400 timeout=0 error=0) recv(lines=386 decodeFail=379
+  unknownType=0)` (~98% corrupted). The C++ side, same window: `bridge: connected=true
+  connect_attempts=1 send_ok=6241 send_fail=0 lines_received=6058 lines_malformed=0` -- zero
+  corrupted lines. User separately confirmed on screen that the Lua-spawned ghost was visibly
+  teleporting (the known bug's visual symptom); the C++ mod does not spawn anything yet, so
+  nothing was expected or seen from it.
+- Source: `UE4SS.log` lines at `00:14:47`-`00:15:06`, `[MeshGhostGhostProbe]` and
+  `[MeshGhostPseudo]` prefixes.
+- Notes: isolates the vendored `lua54.dll`/`socket-windows-5-4.dll` pair itself as the cause of
+  7.5's original blocker (not the core, relay, or wire format) -- see
+  `agent_docs/risks.md`'s LuaSocket ABI entry for the resolution and
+  `agent_docs/phases/phase7.md`'s 7.5-in-C++ step 2 entry for full detail.
+
+### C++ mod ghost render-freeze fixed: on_update() runs off the game thread, EngineTick hook doesn't
+
+- Date: 2026-08-13
+- Observed: a hijacked level actor repositioned from `Plugin::on_update()` visually froze after
+  following correctly for a while, on every test run, regardless of which object was hijacked, in
+  both `ZONE_LowerCastle` and `ZONE_Dungeon`, even though every logged position readback
+  (`K2_GetActorLocation()` called independently after each write) matched the intended target on
+  every single tick with no divergence. After moving all actor reads/writes into a
+  `Hook::RegisterEngineTickPostCallback` callback instead (`Plugin::game_thread_tick()`,
+  `on_unreal_init()`) and leaving `on_update()` as pure bridge networking, the user confirmed live:
+  "yes it works, everything was following me constantly now" -- no freeze, sustained following.
+- Source: `UE4SS/src/UE4SSProgram.cpp`'s own `UE4SSProgram::update()` (the function that calls
+  every C++ mod's `on_update()`): `ProfilerSetThreadName("UE4SS-UpdateThread")` followed by a loop
+  with `std::this_thread::sleep_for(std::chrono::milliseconds(5))` -- a dedicated UE4SS-internal
+  polling thread, not the real Unreal game thread.
+  `UE4SS/include/Mod/CppUserModBase.hpp`'s `on_update()` declaration (no threading guarantee
+  documented). `UE4SS/include/Unreal/Hooks/Hooks.hpp`'s `RegisterEngineTickPostCallback`, which
+  hooks the real `UEngine::Tick`.
+- Notes: explains the entire render-freeze investigation this session -- direct property writes
+  (Mobility, position, `bHidden`) all "succeeded" and read back correctly because the readback was
+  same-thread relative to the write, but never reached the renderer, which expects transform
+  changes to flow through the real game thread's tick and component-update pipeline. This is the
+  same reason Lua code in this project has needed `ExecuteInGameThread()` wrapping for anything
+  touching game state -- Lua's `LoopAsync`/callbacks aren't guaranteed to run on the game thread
+  either, and the earlier-working Lua hijack script (Phase 7.4, confirmed via screenshots) very
+  likely had that wrapping around its position-setting calls, while this C++ port never did until
+  now. See `agent_docs/pitfalls.md`'s "Host-embedded scripting runtimes" section for the
+  transferable lesson.

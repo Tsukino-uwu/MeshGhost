@@ -72,7 +72,7 @@ GBA memory). Started early relative to Phase 6's own two-player milestone (6.6) 
       pawn and its transform *are* reachable via plain UE4SS Lua reflection, no C++/decompiled
       field name needed for this part. See `agent_docs/verified.md`'s Phase 7.1 entry for full
       detail, including the pitch/roll-always-zero finding relevant to 7.6.
-- [ ] 7.2 — C++ hello-world mod (`adapters/pseudoregalia/MeshGhostPseudo/`), built against
+- [x] 7.2 — C++ hello-world mod (`adapters/pseudoregalia/MeshGhostPseudo/`), built against
       UE4SS v3.0.1, deployed to `ue4ss\Mods\`. Visible outcome: `ue4ss\UE4SS.log` shows the new
       mod starting *and* `AP_Randomizer` still starting and working — the TEVI coexistence
       check, repeated for UE4SS mod load order.
@@ -961,6 +961,241 @@ GBA memory). Started early relative to Phase 6's own two-player milestone (6.6) 
       logs any single-tick ghost move larger than 500 units rather than applying it, so a
       future bug of this shape freezes the ghost instead of dragging the player again.
 
+      **C++/UEPseudo path reopened and unblocked, 2026-08-12 (later session)**: the private
+      `deps/first/Unreal` (UEPseudo) submodule that blocked the C++ mod build in the earlier 7.2
+      entry above is now accessible — the user linked their GitHub account to their Epic Games
+      account (Connections → Accounts → GitHub, OAuth authorize) and accepted the resulting
+      `EpicGames` GitHub org invite, confirmed via `UE4SS-RE/RE-UE4SS` issue #577's own
+      maintainer/reporter thread (`gh issue view 577 --repo UE4SS-RE/RE-UE4SS --comments`), not
+      guessed. `git submodule update --init deps/first/Unreal` then succeeded (2498 real files).
+      A second, previously-unhit toolchain gap surfaced immediately after: `patternsleuth` (a
+      RE-UE4SS first-party dep) is written in Rust, and this machine had no `rustc`/`cargo` —
+      installed via `winget install Rustlang.Rustup` (confirmed: `rustc 1.97.1`). CMake configure
+      then succeeded end to end and printed `UE4SS Version: 3.0.1.0.0 (733e5969)` — an exact
+      match to this machine's installed build, not just "close enough." One non-obvious build
+      detail: the CMake project defines configs as `<TargetType>__<Configuration>__<Platform>`
+      triplets (e.g. `Game__Shipping__Win64`), not plain `Debug`/`Release` — `cmake --build
+      . --config Release` fails with `MSB8013` since that combination doesn't exist; the correct
+      config for a Shipping-build game is `Game__Shipping__Win64`. The full build (`cmake --build
+      . --config Game__Shipping__Win64`) then completed with exit code 0 — warnings only (mostly
+      pre-existing deprecation warnings in RE-UE4SS's own upstream code, not ours), no errors —
+      and produced `MeshGhostPseudo.vcxproj -> .../Mod/Game__Shipping__Win64/main.dll` (16.9KB),
+      linked against the real, version-matched UE4SS build. **This closes 7.2's original
+      C++-hello-world blocker.** Not yet deployed to `ue4ss\Mods\` or run live — that's the next
+      step, per 7.2's original visible-outcome bar (log shows the new mod starting *and*
+      `AP_Randomizer` still starting normally).
+
+      **7.5-in-C++, step 1 (position reflection), 2026-08-13**: with the C++ path unblocked and
+      7.5's LuaSocket receive-corruption bug having no known fix, decided to rebuild the shipping
+      adapter in C++ rather than keep chasing an alternate DLL -- reusing the Lua version's
+      already-proven designs (field shapes, spawn/possession/camera-fix mechanisms), not its
+      implementation. Following this whole phase's own methodology: one small step at a time,
+      confirmed live before adding the next. Step 1: read the real local pawn's position natively
+      in `on_update()`, throttled to ~2s intervals, grounded against this build's own UEPseudo
+      headers (`UObjectGlobals::FindFirstOf`/`FindAllOf`, `UObject::GetValuePtrByPropertyName{,InChain}`,
+      `AActor::K2_GetActorLocation`, `FVector::X()/Y()/Z()` -- confirmed as accessor methods, not
+      plain fields, by reading `UnrealCoreStructs.hpp` directly rather than assuming the Lua
+      binding's plain-field presentation carried over). Two real bugs found and fixed via live
+      runs, not guesses:
+      1. `FindFirstOf("PlayerController")` returned the class's CDO (Class Default Object),
+         which never has a real Pawn -- found by comparing against the sibling Lua probe
+         (`MeshGhostProbe`, still running in the same session), which read a real pawn/position at
+         the exact same tick our C++ code logged "no valid PlayerController yet." Root cause
+         confirmed by reading `UEHelpers.lua`'s own `GetPlayerController()` (the reference this
+         whole phase's Lua probes relied on) -- it filters via `FindAllOf` plus a validity check,
+         not a raw `FindFirstOf`. Fixed with `FindAllOf` + an `RF_ClassDefaultObject` flag check
+         (a real, standard UE object flag, confirmed present in this exact build's own
+         `UnrealFlags.hpp`).
+      2. After that fix, the one correctly-found `MainPlayerController_C` instance (level-matching,
+         confirmed via diagnostic logging of every candidate) still read `Pawn` as null every
+         tick, while the sibling Lua probe read a real pawn at the same moment. Cause: `Pawn` is
+         declared on the base `AController` class, several levels above `MainPlayerController_C`
+         in the inheritance chain, and `GetValuePtrByPropertyName` only searches the object's own
+         most-derived class's declared properties, not inherited ones --
+         `GetValuePtrByPropertyNameInChain` (both declared side by side in `UObject.hpp`) walks the
+         superclass chain instead. Switched to the chain-walking variant.
+      **Confirmed live, 2026-08-13**, after both fixes: `UE4SS.log` shows correct real-time
+      pawn positions tracking cleanly through a `ZONE_LowerCastle` -> `ZONE_Dungeon` level
+      transition (the controller/pawn re-acquired correctly on the far side, matching the
+      already-known "cached references go stale across transitions" lesson from `pitfalls.md`).
+      This closes step 1. Next: real networking (the actual point of moving to C++), then port
+      the spawn/possession/camera-fix design.
+
+      **7.5-in-C++, step 2 (real networking), 2026-08-13**: added `BridgeClient` (plain Winsock2
+      TCP, non-blocking connect via `ioctlsocket`/`select`, line-buffered receive) and wired hello/
+      local_state sends + render_remote/despawn_remote receive-counting into `on_update()`. Wire
+      format ported field-for-field from the proven Lua adapter and `PROTOCOL.md` -- no JSON
+      library needed for this step since only fixed-shape envelopes are built/parsed (raw string
+      construction for sends, count-only for receives; real parsing deferred to the spawn step).
+      **Confirmed live and decisive, 2026-08-13**: user launched the game with the still-enabled
+      Lua `MeshGhostGhostProbe` running at the same time (unintentionally, left over from earlier
+      7.5 testing) -- and its already-known teleporting bug reproduced identically
+      (`UE4SS.log`: `sends(calls=400 ok=400 ...) recv(lines=386 decodeFail=379 ...)`, ~98%
+      corruption). The C++ mod, connected to the same bridge at the same real time, logged
+      `lines_received=6058 lines_malformed=0` -- zero corruption across 6000+ lines under
+      identical live conditions. This is the decisive comparison the phase needed: same core,
+      same relay, same wall-clock window, only the client implementation differs. **7.5's
+      original blocker is resolved.** Next: parse `render_remote` for real and port the
+      spawn/possession/camera-fix design from the Lua version.
+
+      **7.5-in-C++, step 3 (ghost spawn), 2026-08-13**: added JSON field extraction (minimal, not
+      a general parser -- fixed-shape server-generated envelopes only), a `remotes` map driven by
+      `render_remote`/`despawn_remote`, and real spawn logic porting the Lua version's already-
+      proven design from the start rather than rediscovering it: spawn a clone of the local pawn's
+      class via `UWorld::SpawnActor`, immediately re-possess the real local player via
+      `GetFunctionByNameInChain("Possess")` + raw `ProcessEvent` (the already-confirmed
+      auto-possess safety fix from Phase 7.4 -- skipping it risks repeating the known drag/death
+      incident), disable collision, redraw every remote unconditionally every tick per
+      `PROTOCOL.md`. Deliberately did NOT yet port the camera fight-back hook, to test spawn+follow
+      in isolation first.
+
+      **First live run: a real engine crash, not a soft bug.** `LowLevelFatalError
+      [UnrealEngine.cpp:15915] Fatal world leaks detected.` -- the game force-closed. `UE4SS.log`
+      shows the ghost spawned successfully (`spawned ghost for remote p1-ghost`, ~3s after
+      connecting) and everything else (send/receive counters, zero corruption) stayed clean right
+      up to the log's abrupt end -- no final line explains what leaked. User reported this
+      happened before even reaching the main menu, meaning the ghost was very likely cloned from
+      whatever transient pawn exists during the game's earliest boot/title-screen world, and never
+      cleaned up before that world was torn down for the next one.
+
+      **Two mitigations attempted, both still crashed.** (1) A reactive per-tick check comparing
+      each ghost's `spawn_world` to the local player's current world, destroying and clearing any
+      ghost whose world no longer matches -- still crashed (~15s run). (2) Added
+      `SPAWN_DELAY_TICKS` (300) to avoid ever spawning against the transient boot-time pawn in the
+      first place -- ran much longer this time (~35s, well past the delay window, matching normal
+      boot-to-gameplay timing) but still crashed the same way, meaning the cause isn't specific to
+      the earliest boot transition and both mitigations are addressing symptoms, not the mechanism.
+
+      **Leading theory investigated directly against source and disproven, not just dropped.**
+      Suspected the C++ mod's `UWorld::SpawnActor` wrapper might take a different, riskier path
+      than the Lua binding's `SpawnActor` -- checked both real implementations, now readable since
+      UEPseudo access was unblocked this session: `deps/first/Unreal/src/World.cpp`'s
+      `UWorld::SpawnActor(UClass*, FVector const*, FRotator const*)` calls
+      `BeginDeferredActorSpawnFromClass`/`FinishSpawningActor` internally, and
+      `UE4SS/src/LuaType/LuaUWorld.cpp` (line 139) shows the Lua binding calls that exact same C++
+      method, not a different raw engine call. **Both spawn paths are identical.** Whatever's
+      different is elsewhere -- most likely candidate not yet tested: the `Possess` call itself
+      (Lua's `controller:Possess(pawn)` goes through UE4SS's Lua argument-marshalling layer; the
+      C++ mod calls raw `ProcessEvent` with a hand-built params struct, which could skip
+      bookkeeping a "proper" call path performs).
+
+      **Went to plan mode rather than a third blind guess** -- two guessed fixes failing
+      identically is the exact "signal, not bad luck" pattern already in `agent_docs/pitfalls.md`.
+      Recorded plan: `C:\Users\nyden\.claude\plans\lowlevelfatalerror-file-d-build-ue5-sync-zazzy-star.md`
+      -- diagnostic-first (granular logging + a `LoadMapPreCallback`/`PostCallback` hook to confirm
+      whether a real `LoadMap` call correlates with the crash, plus an isolate-by-subtraction
+      fallback test disabling the `Possess` call entirely) before attempting a targeted fix.
+
+      **Diagnostic hook confirmed the mechanism directly.** A `LoadMap PRE` hook logged a live
+      ghost still referencing the old world at the exact moment `LoadMap` fired, and no `POST`
+      ever followed -- the engine's own fatal-world-leak check kills the process synchronously
+      inside that call. Fix applied: `destroy_all_ghosts()` called synchronously from the
+      `LoadMapPreCallback` itself. **Still crashed, identically**, on the very next run.
+
+      **Root cause found by adding a readback instead of trusting the destroy call.** Logged
+      `ghost->GetWorld()` immediately after `K2_DestroyActor()` and again ~2s later: both times it
+      still returned the *same, un-nulled* world pointer -- `K2_DestroyActor()` never actually
+      detached the actor at all. Read the actual C++ implementation
+      (`deps/first/Unreal/src/AActor.cpp`): `K2_DestroyActor()` is `UE_BEGIN_NATIVE_FUNCTION_BODY(
+      "/Script/Engine.Actor:K2_DestroyActor") UE_CALL_FUNCTION()` -- the same reflected-UFunction-
+      lookup mechanism already confirmed broken for `SetVisibility`/`MarkRenderStateDirty`/
+      `DestroyComponent` earlier this phase, just via a different-looking C++ wrapper. **There is
+      no working way to destroy a runtime-spawned actor on this build, full stop** -- confirmed,
+      not assumed.
+
+      **Redesigned from spawn-based to hijack-based ghosts** (matching the plan's fallback
+      option): stop spawning entirely, find and repurpose an already-existing, already-registered
+      `StaticMeshActor` in the local player's current world instead. Since nothing new is ever
+      created, there's nothing that ever needs destroying -- the level's own normal teardown
+      (which has always worked correctly for its own real props) handles cleanup transparently.
+      This also removed the whole auto-possess safety-fix machinery: a `StaticMeshActor` can never
+      auto-possess. **Confirmed live**: a real statue (`SkeletalMeshActor_1`, the same
+      misleadingly-named prop the Lua saga found in this exact spot) followed the player through a
+      full `ZONE_LowerCastle` → `ZONE_Dungeon` transition, no crash. User flagged a real safety
+      concern mid-test: interactive objects (chairs, notes) must never get hijacked, since
+      Archipelago hooks into them -- added a best-effort keyword exclusion list
+      (`HIJACK_EXCLUDE_KEYWORDS`) as a belt-and-suspenders check on top of the structural argument
+      that `StaticMeshActor` has no interaction support, so genuinely interactive objects are very
+      unlikely to be that class at all.
+
+      **New symptom surfaced once the crash was fixed: a hijacked ghost followed correctly for a
+      while, then visually froze in place, every single run, regardless of which object was
+      grabbed.** A `intended=`/`actual=` readback (same technique that caught two real bugs
+      earlier this phase) showed something new: unlike every previous "silent failure" pattern in
+      this file, the position data was **always** correct -- `intended` and `actual` matched on
+      literally every logged tick, across entire sessions, through real transitions, with zero
+      exceptions. The disconnect was between the (provably correct) data and the (visibly frozen)
+      screen. Two guessed fixes tried and both failed to change the outcome: a periodic `bHidden`
+      off/on toggle nudge (a working mechanism grounded via `gh api search/code`, 65 hits), and
+      preferring hijack candidates that were already Mobility=Movable by default over ones needing
+      a forced Mobility write (a real, single-variable test that **disproved** the Mobility theory
+      outright -- both a statue and a "wall structure" confirmed already-Movable still froze
+      identically, and the already-Movable heuristic had the further problem of preferring
+      gameplay-relevant moving objects like walls/platforms over safe decoration, backwards from
+      what a safety heuristic should want).
+
+      **Found by isolating the variable, not guessing a third fix.** User suggested testing with
+      "just the loopback thing, mimicking my own movement" -- built `LOCAL_OFFSET_TEST_MODE`, a
+      mode that skips the bridge/core/relay entirely and repositions a hijacked object to
+      (local pawn position + a fixed offset) every tick, driven purely by local reflection reads.
+      This isolated the render-freeze from networking entirely -- and it froze identically,
+      confirming the bug was never about the network layer, the JSON, or the core/relay, only
+      about repositioning an actor from this specific code path. That redirected the investigation
+      to *how* the position-setting code runs, not *what* data drives it.
+
+      **Root cause, read directly from UE4SS's own source, not inferred:**
+      `UE4SSProgram::update()` (`UE4SS/src/UE4SSProgram.cpp`) -- the function that calls every C++
+      mod's `on_update()` -- runs `ProfilerSetThreadName("UE4SS-UpdateThread")` and its own loop
+      with `std::this_thread::sleep_for(std::chrono::milliseconds(5))`. **`on_update()` has never
+      run on the real Unreal game thread** -- it's a dedicated UE4SS-internal polling thread.
+      Every actor write this mod ever made was landing in memory (hence the always-correct
+      same-thread readback) but never reaching the renderer, which expects transform changes to
+      flow through the real game thread's tick pipeline. This is the exact same reason Lua code
+      throughout this project has needed `ExecuteInGameThread()` wrapping -- Lua callbacks aren't
+      guaranteed to run on the game thread either, and the earlier-working Lua hijack script
+      (Phase 7.4, confirmed via screenshots) almost certainly had that wrapping around its own
+      position-setting calls, while this C++ port never did until now.
+
+      **Fix**: registered `Hook::RegisterEngineTickPostCallback` (hooks the real `UEngine::Tick`)
+      in `on_unreal_init()`, moved all actor reads/writes into that callback (`game_thread_tick()`)
+      instead of `on_update()`, and added a mutex to hand data between the two threads (cached
+      outgoing `local_state` JSON, a queue of incoming bridge lines). `on_update()` is now pure
+      networking. **Confirmed live, 2026-08-13**: user, verbatim -- "yes it works, everything was
+      following me constantly now." No freeze. See `agent_docs/verified.md` and
+      `agent_docs/pitfalls.md`'s new "UE4SS C++ mod threading" section for the full transferable
+      lesson. Reverted the now-unnecessary already-Movable-preference heuristic back to simple
+      first-eligible-candidate selection + an always-applied Mobility force-write, since the real
+      fix makes that force-write actually take visible effect, and the heuristic's side effect
+      (preferring walls/platforms) was undesirable on its own merits.
+
+      **Also found, not yet fixed**: a separate `Fatal Error!` crash (different signature, a
+      `.dmp` crashdump, not `LowLevelFatalError`) on game *exit* while this mod was active --
+      surfaced once during the hijack-crash investigation. Not yet root-caused; flagged here so a
+      future session doesn't rediscover it from scratch. Possibly related to the `LoadMap` hook or
+      a hijacked actor being touched during final shutdown teardown.
+
+      **Confirmed live, 2026-08-12.** Deployed to `ue4ss\Mods\MeshGhostPseudo\dlls\main.dll` +
+      empty `enabled.txt` (the documented alternative to a `mods.txt` line, per RE-UE4SS's own
+      `installing-a-c++-mod.md` and matching the already-installed `AP_Randomizer`'s exact same
+      setup) — deploy confirmed via `diff` against the build output. User launched the game and
+      closed it after it loaded. `UE4SS.log` shows both mods starting within the same
+      millisecond and `on_unreal_init` reached cleanly:
+      ```
+      [23:53:48.77] Mod 'MeshGhostPseudo' has enabled.txt, starting mod.
+      [23:53:48.77] Mod 'AP_Randomizer' has enabled.txt, starting mod.
+      [23:53:50.08] [MeshGhostPseudo] Phase 7.2 hello-world mod loaded, on_unreal_init reached.
+      [23:53:50.08] AP_Randomizer hooks installed (ProcessEvent/ProcessConsoleExec/BeginPlay/
+      StaticConstructObject), then its own normal Archipelago connect/disconnect cycling (no
+      server configured -- expected, unrelated to this mod).
+      ```
+      **7.2 is now genuinely complete.** The C++/UEPseudo path -- blocked for the entire rest of
+      this phase after the initial "no submodule access" finding -- is confirmed working end to
+      end: real access, real build against the exact matching UE4SS version, real deploy, real
+      coexistence with `AP_Randomizer`. This reopens the C++ path as viable for 7.5's actual
+      blocker (the LuaSocket receive-corruption bug) -- next step is porting the bridge client to
+      real C++ networking, sidestepping the vendored-Lua-runtime ABI issue entirely rather than
+      hunting for an alternate DLL pair.
+
       **Confirmed live, sixth run: the drag is genuinely fixed.** `re-possess original pawn
       after spawn: ok`, `ghost is following`, and the run lasted **82 seconds** with no
       dragging and no forced death — versus ~13s to death on every one of the prior three
@@ -978,6 +1213,85 @@ GBA memory). Started early relative to Phase 6's own two-player milestone (6.6) 
       send `local_state` every frame including `null`. `dev-scripts/run-core-pseudoregalia.bat`
       and reused `run-relay-loopback.bat` already exist (written for Stage 3). Visible outcome:
       a ghost trailing the local player over a real relay/core/bridge loopback round trip.
+      **Written 2026-08-12**: `adapters/pseudoregalia/probe_ghost/Scripts/main.lua` rewritten
+      from the 7.4 local-offset design into the real adapter. Reuses everything already confirmed
+      live in 7.4 as-is (spawn `pawn:GetClass()`, re-possess, the `SetViewTargetWithBlend`
+      camera-fight-back hook now gated on `anyGhostSpawned` instead of a single `ghost` var, the
+      `MAX_TICK_DELTA`/`REFUSAL_RESYNC_LIMIT` backstop, the never-mutate-a-vector-read-from-
+      elsewhere rule). New: vendored LuaSocket loading and a non-blocking
+      connect/hello/send/receive loop (`settimeout(0)`, the same shape
+      `adapters/pokemon/emerald/phase5_5_sprite.lua` already uses, not Stage 3's blocking
+      one-shot version); a real `getLocalState()` per 7.1's confirmed reads and 7.3's decided
+      field shapes (`position` cm `[X,Y,Z]`, `orientation` full `[pitch,yaw,roll]`, `area_id` the
+      level name, `anim` a placeholder inferred from position-delta speed rather than an
+      unverified `CharacterMovement.Velocity` property read); a `remotes` table (`player_id` ->
+      state + lazily-spawned ghost actor) driven entirely by `render_remote`/`despawn_remote`,
+      redrawn unconditionally every tick per `PROTOCOL.md`'s rule, instead of the old single
+      local-offset `ghost`. JSON encode/decode ported directly from
+      `adapters/pokemon/emerald/phase5_5_sprite.lua`'s own minimal implementation (plain Lua,
+      already proven against the real wire format). `despawn_remote` and connection-loss cleanup
+      both try `K2_DestroyActor()` (grounded, 710 hits, not yet confirmed live on this build)
+      with a hide-far-away fallback, given this build's UFunction reflection has repeatedly
+      turned out narrower than expected this phase. LuaSocket DLLs copied from
+      `probe_socket/Scripts/lib/x64/` into this mod's own `lib/x64/`. Deployed, and
+      `dev-scripts/run-relay-loopback.bat`/`run-core-pseudoregalia.bat`'s underlying processes
+      started for testing (relay listening on 7777, core connected to it and bridge listening on
+      7778, both confirmed via their own console output) — not yet tested live in-game.
+
+      **First live test, next session (2026-08-12), found two real bugs, both fixed and
+      confirmed.** (1) A crash: `redrawRemote`'s deferred `ExecuteInGameThread` callback checked
+      `not remote.ghost:IsValid()`, but a level transition can nil `remote.ghost` out from under
+      it before the callback runs — `nil:IsValid()` is a hard Lua error
+      (`attempt to index a nil value (field 'ghost')`), not "invalid", confirmed live in
+      `UE4SS.log` right at a `ZONE_LowerCastle` → `ZONE_Dungeon` transition. Fixed with an explicit
+      `remote.ghost == nil` check. (2) The camera stuck on the ghost after any area change: the
+      `SetViewTargetWithBlend` fight-back hook (7.4) caches `lastKnownGoodViewTarget`, which a
+      transition invalidates (the old rig is destroyed) — the hook's old behavior was to give up
+      forever once that reference went bad, rather than re-baselining on the next legitimate call.
+      Fixed by treating a stale/invalid cached target the same as "never learned yet." **Confirmed
+      live, camera correct through a transition.**
+
+      **The "teleporting instead of following" symptom took much longer to explain, and is now a
+      genuine open blocker, not a bug in this script.** Progressively narrower diagnostics (each
+      added only after the previous one gave a clean, unambiguous answer, per this phase's
+      standing rule against guessed fixes):
+      - A `target=`/`actual=` redraw log (same technique that caught two real bugs in 7.4) showed
+        every write landing exactly as intended — ruling out the apply/positioning side entirely.
+        But the *target* value itself sat frozen for 6-20+ seconds at a stretch before jumping.
+      - Outgoing send counters showed **100% success, 0 timeouts, 0 errors** across every test —
+        ruling out the adapter's own socket writes.
+      - Raw receive-side counters (before any JSON parsing) showed **83-98% of received lines
+        failing to decode** — lines were arriving at the expected volume, but the content was bad.
+      - A hex dump of the actual failing bytes (plain-text logging first hit UE4SS's console
+        truncating hard on unprintable bytes, itself informative) showed well-formed JSON up to an
+        inconsistent cutoff point, then unreadable garbage for the rest of the line —
+        `string.byte` itself failing partway through a string `#line` correctly reports as, e.g.,
+        325 bytes long. The cutoff point moves between messages (sometimes covering the whole
+        line, sometimes none of it), not tied to any specific byte value in the data.
+      - Two mitigation hypotheses were tested and both came back null: shrinking `area_id` from
+        the full `GetFullName()` path to just the short level name (~325 → ~274 bytes) produced
+        statistically identical failure rates at matching tick counts (98/96/89/86% vs.
+        98/99/88/88%); halving the tick rate (100ms → 250ms) also produced the same ~84% failure
+        rate at the same real-elapsed-time mark. Neither message size nor send frequency is the
+        trigger.
+      - One consistent pattern across every run: the failure rate drops from ~98% early in a
+        session to ~83% by 30-45 seconds in, regardless of size or rate — something about
+        sustained connection time changes the failure probability, without ever approaching 0%.
+
+      **Conclusion: this is a genuine binary-compatibility bug in the vendored
+      `socket-windows-5-4.dll`/`lua54.dll` pair against UE4SS's own independently-built, statically
+      embedded Lua 5.4 — not a JSON-format bug, not a core/relay bug, not an adapter logic bug.**
+      This connects to an already-flagged, previously unresolved risk from 7.2 Stage 3: "three
+      further receive attempts in the same run returned empty strings instead of `timeout`", noted
+      then as worth understanding before trusting this exact library pairing for the real adapter.
+      Under a one-shot probe's light traffic that mystery never recurred visibly; under 7.5's real
+      sustained 10Hz two-way traffic it's the dominant behavior. **7.5 is not complete** — the
+      bridge round trip works (confirmed: hello, spawn, camera fix all correct), but reliable data
+      delivery does not, so a ghost cannot smoothly follow. Reverted the tick-rate experiment back
+      to 100ms (250ms tested no better, only choppier). Options for a future session, neither
+      attempted yet: hunt for an alternate prebuilt `socket-windows-5-4.dll`/`lua54.dll` build that
+      might not hit this exact ABI mismatch; or the C++/UEPseudo path from 7.2, still blocked on
+      the same private-submodule access. See `agent_docs/risks.md`.
 - [ ] 7.6 — Real character-visual ghost: duplicate the player's skeletal mesh actor with
       collision/input/gameplay stripped, driven by the wire `anim` tag. Flagged in `risks.md`
       as likely the hardest task in the phase — UE5 has no direct equivalent of Unity's

@@ -71,7 +71,8 @@ reasoning, the rule stays here and the reasoning goes to a `.md` file in `agent_
 - `agent_docs/licensing.md` is the third-party license audit — check before referencing any
   outside project.
 - `agent_docs/risks.md` is the assumptions and risk register.
-- `agent_docs/phases/` holds a file only for the phase currently being executed.
+- `agent_docs/pitfalls.md` is the adapter-specific issues log — symptom, diagnosis, fix.
+- `agent_docs/phases/` holds a file per phase, kept as an archive after the phase ends.
 - `agent_docs/verified.md` is the append-only log for confirmed runtime facts.
 
 Use this file only for working notes and rules that must be immediately visible to the
