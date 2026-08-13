@@ -214,8 +214,12 @@ world after returning to the main menu or closing the game, confirmed live — b
 main-menu-return and game-close cases now despawn correctly, pause menu confirmed unaffected);
 and cross-area filtering (2026-08-13 ADR — a remote's ghost rendered at another zone's raw
 coordinates regardless of which zone the local player was actually in, invisible only by
-coincidence when two real zones' coordinate ranges didn't overlap on screen — built and
-regression-tested, **not yet watched live**).
+coincidence when two real zones' coordinate ranges didn't overlap on screen — built,
+regression-tested, and confirmed live). **In progress, started 2026-08-13**: 6.7, showing
+remote players' room locations on TEVI's map screens (not just the world-space ghost) — see
+`phase6.md` for the investigation so far (TEVI's map is room-grid based, not continuous
+position; `FullMap.playerPos`/`GetRoomCode`/`roomtilelist` are the relevant real facts found).
+Nothing built yet.
 
 **Deliberately not blocking a third game on 6.6** (decided 2026-08-12): adapters are
 structurally isolated (`contract.md`'s hard rules — an adapter only ever talks to its own local

@@ -158,6 +158,78 @@ point of picking a second, structurally different game.
         filtering above is built but still needs a live in-game check.
       **No longer blocked on distribution** (2026-08-12): TEVI now ships in the single release
       zip (see `packaging/README.md`'s TEVI section), marked experimental/prerelease.
+- [ ] 6.7 — In progress, started 2026-08-13: show remote players' locations on TEVI's map
+      screens (not just the world-space ghost, which only helps when a peer is on-screen with
+      you). Investigation only so far, nothing built. Decompiled `Assembly-CSharp.dll` with
+      `ilspycmd` to scope feasibility before assuming an approach:
+      - TEVI's map (`FullMap`, the pause-menu screen, and `MiniMapDisp`, the HUD corner one) is
+        **room-grid based, not continuous-world-position based**. The relevant local-player
+        facts are `WorldManager.Instance.Area` (byte, already sent today) plus
+        `CurrentRoomX`/`CurrentRoomY` (`short`, **not currently sent** — the wire protocol only
+        carries continuous world `position`, not room-grid coordinates).
+      - `FullMap.GetRoomCode(area, x, y, from)` combines those three into one lookup key
+        (`1000000*area + (x+y)*100` when `from: true`, `area*10000 + (x+y)` otherwise) matched
+        against `FullMap.roomtilelist` (`FullMapTile[]`) to find that room's actual UI tile.
+      - The local player's own position on the map is exactly one `SpriteRenderer` field,
+        `FullMap.playerPos`, positioned via `EnablePlayerPos()` at
+        `flashingTile.transform.position` (`flashingTile` being the `FullMapTile` for the
+        player's current room). No existing multi-player marker system — but the mechanism is
+        simple and clonable, the same "clone the real visual object" pattern already used for
+        the world-space ghost (`CreateRealGhostVisual`).
+      - **What this means for scope**: the wire protocol already carries `area_id`; showing a
+        peer's room needs `CurrentRoomX`/`CurrentRoomY` added too — fits in the existing
+        `extras` free-form dict (`contract.md`), no schema change needed. Adapter work would be:
+        read the local player's `CurrentRoomX`/`CurrentRoomY` each frame (same place `Area` is
+        already read), send them in `extras`, and on the receiving side clone `playerPos` per
+        remote and reposition it via the same `GetRoomCode`/`roomtilelist` lookup `EnablePlayerPos`
+        already uses.
+      - **`roomtilelist` lookup mechanism confirmed** (read `MoveMapToCurrentRoom` directly, not
+        inferred): `roomtilelist` is a flat array sized `MAXAREA * maxroom`, indexed as
+        `area * maxroom + <slot>` — not a code-keyed lookup despite `GetRoomCode`'s existence.
+        Finding a room's tile is a linear scan of that area's slice comparing
+        `roomtilelist[i].GetX()/.GetY()` against the target room coordinates (exactly what
+        `MoveMapToCurrentRoom` does for the local player's current room, and the same pattern
+        repeated at every other `roomtilelist[i].GetX() ==`/`GetY() ==` site in the class) —
+        the same scan, generalized to any remote's `(area, x, y)` instead of always "current,"
+        is the real reusable mechanism for a remote marker.
+      - Not yet done: whether `MiniMapDisp`'s HUD-corner display would need the same treatment
+        separately from `FullMap`'s pause-screen version (`MiniMapDisp` looked more like a
+        per-room grid-highlight tile than a marker-based system when read earlier — worth a
+        closer look before assuming it needs its own remote-marker logic, or can be skipped
+        in favor of `FullMap` alone for a first version).
+      - **`SaveManager.Instance.GetRoomWalkedBool(area, x, y)` found**: a real, existing
+        fog-of-war query — whether the local player has personally ever walked a given room.
+        This is the answer to "how to avoid a peer's marker leaking map layout the local
+        player hasn't discovered themselves": gate every remote marker on this being true for
+        the local save, not just on the remote's own state.
+      - **Design decided, logged 2026-08-13 (not yet built)**: the wire protocol needs zero
+        core/Go changes — `protocol.State.Extras` is already embedded in both
+        `bridge.LocalState`/`bridge.RenderRemote`; the gap is purely that
+        `BridgeClient.cs`'s hand-rolled JSON in `SendLocalState`/`DrainInto` doesn't touch
+        `extras` at all yet. Plan:
+        1. `BridgeClient.cs`: add `RoomX`/`RoomY` fields to `RemoteState`, wire them through
+           `SendLocalState`'s outgoing JSON and `DrainInto`'s parsing of `render_remote`.
+        2. `Plugin.cs`: read `WorldManager.Instance.CurrentRoomX/CurrentRoomY` alongside the
+           existing `Area` read, send in `extras`. Track per-remote map markers the same shape
+           as `remoteVisuals`, cloned from `FullMap.Instance.playerPos.gameObject` (reusing the
+           game's own marker sprite, not inventing an icon) and tinted the same cyan already
+           used for the remote character ghost — one consistent "this is a MeshGhost marker"
+           visual language, instantly distinguishable from the player's own default-colored
+           marker, no text/nameplate labels (fastest way a small map gets cluttered with only
+           1-2 peers realistically shown).
+        3. Render gating (all must hold, or the marker deactivates): `FullMap.Instance.isFullMap`
+           (map actually open), remote's `area_id` equals the local player's own current area
+           (v1 scope — mirrors the world-ghost's same-area filtering decision, skips a harder
+           multi-area map-browsing question for later), and
+           `SaveManager.Instance.GetRoomWalkedBool(area, room_x, room_y)` true for the local
+           save (fog-of-war respected).
+        4. Marker position: the same `roomtilelist` linear scan `MoveMapToCurrentRoom` already
+           does, generalized to the remote's `(area, room_x, room_y)` instead of always
+           "current."
+        Full design writeup and file-by-file plan: see this session's plan file (title
+        "TEVI: show remote players' room locations on the map") if still available, or redo
+        the `ilspycmd` decompile pass above — nothing here is guessed, all traceable to real
+        `Assembly-CSharp.dll` source read this session.
 
 ## Notes
 
