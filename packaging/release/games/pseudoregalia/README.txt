@@ -15,19 +15,20 @@ What you need, once:
   redistributed with its own LICENSE included) when other games' mod loaders aren't.
 
 What's in this folder:
-- ue4ss-runtime\ -- the UE4SS mod loader itself (dwmapi.dll + a ue4ss\ folder), built from
-  the exact RE-UE4SS commit this project targets. Copy its contents directly into your
-  Pseudoregalia install.
-- MeshGhostPseudo\ -- the mod itself, laid out exactly as UE4SS expects a mod folder
-  (dlls\main.dll + enabled.txt). Copy the whole MeshGhostPseudo folder, not just the DLL.
+- pseudoregalia\ -- a single folder that mirrors your actual Pseudoregalia install's own
+  layout (pseudoregalia\Binaries\Win64\...), the same way the Archipelago randomizer's own
+  download works. It has everything: the UE4SS mod loader (built from the exact RE-UE4SS
+  commit this project targets) and the MeshGhostPseudo mod itself, already in the right
+  places inside it.
 
 Setup, once:
-1. Copy `dwmapi.dll` and the `ue4ss` folder from `ue4ss-runtime\` (in this folder) directly
-   into your Pseudoregalia folder -- the one containing `pseudoregalia-Win64-Shipping.exe`
-   (typically `...\Pseudoregalia\pseudoregalia\Binaries\Win64\`). This merges in, it won't
-   remove anything else already there.
-2. Copy the MeshGhostPseudo folder from here into `ue4ss\Mods\MeshGhostPseudo\` (that
-   folder now exists from step 1, no need to run the game first).
+1. Drag the `pseudoregalia` folder from this folder directly into your Steam install's
+   Pseudoregalia folder -- the one Steam created, typically
+   `...\Steam\steamapps\common\Pseudoregalia\` (NOT the `pseudoregalia` subfolder already
+   inside it -- drop this one ON TOP of that outer folder so the two merge).
+2. Windows will ask about merging folders and replacing files -- say yes to all of it. This
+   only adds/updates UE4SS and MeshGhostPseudo; it won't touch or remove anything else
+   already in your install (including Archipelago's own files, if installed).
 
 Setup, every time you play:
 1. Double-click meshghost.exe (one folder up). Leave the window open.
@@ -42,6 +43,7 @@ Two important notes specific to Pseudoregalia:
   "local_game_bridge" setting (it's hardcoded in the mod itself right now). If you're
   trying to run two copies of MeshGhost on the same machine (see the main README.txt),
   that trick does not currently work for Pseudoregalia.
-- No cross-area filtering yet: if you and a friend are in different areas of the castle,
-  you may still see each other's ghost as if you were in the same place. This is a known
-  gap, not a bug you're causing.
+- Cross-area filtering (not seeing a friend's ghost when you're in different areas of the
+  castle) was fixed game-wide on 2026-08-13, but that fix hasn't specifically been watched
+  live in Pseudoregalia yet (only in TEVI). If you do see a ghost across areas, that's
+  useful to know -- there's nowhere to report it yet, but don't assume it's your setup.

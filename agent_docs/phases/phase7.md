@@ -1630,6 +1630,15 @@ GBA memory). Started early relative to Phase 6's own two-player milestone (6.6) 
 - [ ] 7.7 — Two real players. Test explicitly and early rather than assuming Pseudoregalia
       behaves like TEVI's Steam single-instance restriction (or doesn't) — record the result
       either way, blocked or not.
+- [x] Release packaging restructured (2026-08-13): both this entry's `MeshGhostPseudo/` path
+      and `ue4ss-runtime/` (from the earlier UE4SS-bundling ADR) moved to
+      `packaging/release/games/pseudoregalia/pseudoregalia/Binaries/Win64/...`, mirroring the
+      real Steam install's own folder layout so the whole `pseudoregalia/` folder is a single
+      drag-and-drop, matching how the Archipelago randomizer's own download works — see
+      `agent_docs/licensing.md`'s RE-UE4SS entry and `packaging/release/games/pseudoregalia/README.txt`.
+      `dev-scripts/build-pseudoregalia.bat`/`stage-ue4ss-runtime.bat` and `release.yml`'s
+      staleness gates updated to match; `built-from.txt` files kept outside the drag-and-drop
+      tree so they never land in a user's game folder.
 
 ## Notes
 

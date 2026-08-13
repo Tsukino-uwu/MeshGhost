@@ -80,14 +80,19 @@ jobs:
           Write-Host "TEVI DLL is up to date with its source."
 
       - name: Verify the committed Pseudoregalia plugin isn't stale
-        # main.dll is checked into packaging/release/games/pseudoregalia/MeshGhostPseudo/ because
-        # CI can't build it itself (the CMake tree needs the private UEPseudo submodule and a
-        # locally installed UE4SS -- see agent_docs/phases/phase7.md's 7.2 entry and
-        # dev-scripts/build-pseudoregalia.bat). Same staleness gate shape as TEVI's above.
+        # main.dll is checked into
+        # packaging/release/games/pseudoregalia/pseudoregalia/Binaries/Win64/ue4ss/Mods/MeshGhostPseudo/
+        # (mirroring the real Steam install's own folder layout, so the whole "pseudoregalia"
+        # folder is a single drag-and-drop for the user) because CI can't build it itself (the
+        # CMake tree needs the private UEPseudo submodule and a locally installed UE4SS -- see
+        # agent_docs/phases/phase7.md's 7.2 entry and dev-scripts/build-pseudoregalia.bat).
+        # Same staleness gate shape as TEVI's above. built-from.txt itself is kept outside the
+        # drag-and-drop tree (packaging/release/games/pseudoregalia/MeshGhostPseudo-built-from.txt)
+        # so it never ends up in a user's game folder.
         shell: pwsh
         run: |
-          $destDir = "packaging\release\games\pseudoregalia\MeshGhostPseudo"
-          $builtFrom = Get-Content "$destDir\built-from.txt" -Raw
+          $gameDir = "packaging\release\games\pseudoregalia"
+          $builtFrom = Get-Content "$gameDir\MeshGhostPseudo-built-from.txt" -Raw
 
           $files = @{
             "Plugin.cpp"       = "adapters\pseudoregalia\MeshGhostPseudo\Mod\src\Plugin.cpp"
@@ -101,7 +106,7 @@ jobs:
           foreach ($name in $files.Keys) {
             $actual = (Get-FileHash $files[$name] -Algorithm SHA256).Hash
             if ($builtFrom -notmatch "(?im)^$([regex]::Escape($name)):\s*$actual\s*$") {
-              Write-Host "::error::$name has changed since packaging/release/games/pseudoregalia/MeshGhostPseudo/dlls/main.dll was built (expected hash $actual not found in built-from.txt)"
+              Write-Host "::error::$name has changed since MeshGhostPseudo\dlls\main.dll was built (expected hash $actual not found in MeshGhostPseudo-built-from.txt)"
               $stale = $true
             }
           }
@@ -112,24 +117,28 @@ jobs:
           Write-Host "Pseudoregalia DLL is up to date with its source."
 
       - name: Verify the committed UE4SS runtime isn't stale
-        # UE4SS.dll/dwmapi.dll are checked into packaging/release/games/pseudoregalia/ue4ss-runtime/
-        # so users get a one-step drop-in (no separate UE4SS download) -- a deliberate exception
-        # to the project's normal "user installs the modding tool themselves" posture, see
+        # UE4SS.dll/dwmapi.dll are checked into
+        # packaging/release/games/pseudoregalia/pseudoregalia/Binaries/Win64/ (mirroring the
+        # real Steam install layout, see the Pseudoregalia plugin step above) so users get a
+        # one-step drag-and-drop (no separate UE4SS download) -- a deliberate exception to the
+        # project's normal "user installs the modding tool themselves" posture, see
         # agent_docs/licensing.md's RE-UE4SS entry. CI can't build these itself (see
         # dev-scripts/stage-ue4ss-runtime.bat), so this only checks the committed binaries still
         # match both their own recorded hashes and the RE-UE4SS submodule pin they were built
         # from -- catching the case where the submodule pin moved but nobody re-staged.
+        # built-from.txt is kept outside the drag-and-drop tree, same reasoning as above.
         shell: pwsh
         run: |
-          $destDir = "packaging\release\games\pseudoregalia\ue4ss-runtime"
-          $builtFrom = Get-Content "$destDir\built-from.txt" -Raw
+          $gameDir = "packaging\release\games\pseudoregalia"
+          $destDir = "$gameDir\pseudoregalia\Binaries\Win64"
+          $builtFrom = Get-Content "$gameDir\ue4ss-runtime-built-from.txt" -Raw
 
           $stale = $false
           foreach ($name in @("ue4ss\UE4SS.dll", "dwmapi.dll")) {
             $actual = (Get-FileHash "$destDir\$name" -Algorithm SHA256).Hash
             $label = Split-Path $name -Leaf
             if ($builtFrom -notmatch "(?im)^$([regex]::Escape($label)):\s*$actual\s*$") {
-              Write-Host "::error::$label has changed since it was staged (expected hash $actual not found in built-from.txt)"
+              Write-Host "::error::$label has changed since it was staged (expected hash $actual not found in ue4ss-runtime-built-from.txt)"
               $stale = $true
             }
           }

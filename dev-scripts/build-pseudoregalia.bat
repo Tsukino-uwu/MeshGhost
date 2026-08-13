@@ -1,6 +1,8 @@
 @echo off
 rem MeshGhost -- builds the Pseudoregalia UE4SS C++ mod (main.dll) and stages it under
-rem packaging\release\games\pseudoregalia\MeshGhostPseudo\dlls\, ready to be zipped by
+rem packaging\release\games\pseudoregalia\pseudoregalia\Binaries\Win64\ue4ss\Mods\MeshGhostPseudo\,
+rem mirroring the real Steam install's own folder layout (see stage-ue4ss-runtime.bat's
+rem comment) so the whole "pseudoregalia" folder is one drag-and-drop, ready to be zipped by
 rem .github\workflows\release.yml.
 rem
 rem CI cannot do this build itself: it needs a locally configured CMake build tree against
@@ -19,7 +21,8 @@ setlocal enabledelayedexpansion
 
 set ROOT=%~dp0..
 set SRC=%ROOT%\adapters\pseudoregalia\MeshGhostPseudo
-set DEST=%ROOT%\packaging\release\games\pseudoregalia\MeshGhostPseudo
+set GAMEDIR=%ROOT%\packaging\release\games\pseudoregalia
+set DEST=%GAMEDIR%\pseudoregalia\Binaries\Win64\ue4ss\Mods\MeshGhostPseudo
 
 echo Building MeshGhostPseudo main.dll (Game__Shipping__Win64)...
 cmake --build "%SRC%\build" --config Game__Shipping__Win64 --target MeshGhostPseudo
@@ -43,7 +46,8 @@ for /f %%c in ('git -C "%ROOT%" rev-parse HEAD') do set COMMIT=%%c
 
 (
   echo # Written by dev-scripts\build-pseudoregalia.bat -- read by .github\workflows\release.yml's
-  echo # staleness gate. Do not hand-edit.
+  echo # staleness gate. Do not hand-edit. Kept outside the pseudoregalia\ drag-and-drop tree
+  echo # on purpose so it never lands in a user's game folder.
   echo commit: %COMMIT%
   echo Plugin.cpp: %PLUGIN_CPP_HASH%
   echo Plugin.hpp: %PLUGIN_HPP_HASH%
@@ -51,6 +55,7 @@ for /f %%c in ('git -C "%ROOT%" rev-parse HEAD') do set COMMIT=%%c
   echo BridgeClient.hpp: %BRIDGE_HPP_HASH%
   echo dllmain.cpp: %DLLMAIN_HASH%
   echo CMakeLists.txt: %CMAKELISTS_HASH%
-) > "%DEST%\built-from.txt"
+) > "%GAMEDIR%\MeshGhostPseudo-built-from.txt"
 
-echo Done. Commit packaging\release\games\pseudoregalia\MeshGhostPseudo\dlls\main.dll and built-from.txt.
+echo Done. Commit packaging\release\games\pseudoregalia\pseudoregalia\Binaries\Win64\ue4ss\Mods\MeshGhostPseudo\dlls\main.dll
+echo and MeshGhostPseudo-built-from.txt.
