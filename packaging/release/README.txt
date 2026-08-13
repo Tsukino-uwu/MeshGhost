@@ -14,9 +14,10 @@ What's in this folder:
 - games\                -- one folder per supported game. Only the folder
                             for the game you're playing matters to you.
 
-Status: Pokemon Emerald is tested and working. TEVI is EXPERIMENTAL --
-included so it can finally be tested with a real second player, but it has
-not been confirmed working over a real network yet. See games\tevi\README.txt.
+Status: Pokemon Emerald is tested and working. TEVI and Pseudoregalia are
+EXPERIMENTAL -- included so they can finally be tested with a real second
+player, but neither has been confirmed working over a real network yet. See
+games\tevi\README.txt and games\pseudoregalia\README.txt.
 
 Setup, once:
 1. Open config.json in a text editor (Notepad is fine).
@@ -62,7 +63,7 @@ Playing, every session (everyone, including the host):
    syntax above -- the warning will say what's wrong.
 2. Open your game and load its MeshGhost mod/script -- see games\<your
    game>\README.txt for exactly how (BizHawk Lua Console for Emerald,
-   BepInEx plugin for TEVI). Once it connects, the run-client.bat window
+   BepInEx plugin for TEVI, UE4SS mod for Pseudoregalia). Once it connects, the run-client.bat window
    should change to say "connected to relay ... in room ..." -- that's your
    "it worked" signal.
 3. Walk around. Once a friend joins the same server in the same room,

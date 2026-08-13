@@ -77,6 +77,38 @@ jobs:
           }
           Write-Host "TEVI DLL is up to date with its source."
 
+      - name: Verify the committed Pseudoregalia plugin isn't stale
+        # main.dll is checked into packaging/release/games/pseudoregalia/MeshGhostPseudo/ because
+        # CI can't build it itself (the CMake tree needs the private UEPseudo submodule and a
+        # locally installed UE4SS -- see agent_docs/phases/phase7.md's 7.2 entry and
+        # dev-scripts/build-pseudoregalia.bat). Same staleness gate shape as TEVI's above.
+        shell: pwsh
+        run: |
+          $destDir = "packaging\release\games\pseudoregalia\MeshGhostPseudo"
+          $builtFrom = Get-Content "$destDir\built-from.txt" -Raw
+
+          $files = @{
+            "Plugin.cpp"       = "adapters\pseudoregalia\MeshGhostPseudo\Mod\src\Plugin.cpp"
+            "Plugin.hpp"       = "adapters\pseudoregalia\MeshGhostPseudo\Mod\src\Plugin.hpp"
+            "BridgeClient.cpp" = "adapters\pseudoregalia\MeshGhostPseudo\Mod\src\BridgeClient.cpp"
+            "BridgeClient.hpp" = "adapters\pseudoregalia\MeshGhostPseudo\Mod\src\BridgeClient.hpp"
+            "dllmain.cpp"      = "adapters\pseudoregalia\MeshGhostPseudo\Mod\src\dllmain.cpp"
+            "CMakeLists.txt"   = "adapters\pseudoregalia\MeshGhostPseudo\Mod\CMakeLists.txt"
+          }
+          $stale = $false
+          foreach ($name in $files.Keys) {
+            $actual = (Get-FileHash $files[$name] -Algorithm SHA256).Hash
+            if ($builtFrom -notmatch "(?im)^$([regex]::Escape($name)):\s*$actual\s*$") {
+              Write-Host "::error::$name has changed since packaging/release/games/pseudoregalia/MeshGhostPseudo/dlls/main.dll was built (expected hash $actual not found in built-from.txt)"
+              $stale = $true
+            }
+          }
+          if ($stale) {
+            Write-Host "::error::Pseudoregalia DLL was built from older sources - run dev-scripts\build-pseudoregalia.bat and commit the result"
+            exit 1
+          }
+          Write-Host "Pseudoregalia DLL is up to date with its source."
+
       - name: Assemble release package
         shell: pwsh
         env:

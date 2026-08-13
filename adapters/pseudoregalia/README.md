@@ -1,6 +1,8 @@
 # Pseudoregalia
 
-**Status: Phase 7, in progress (started 2026-08-12).** See `agent_docs/phases/phase7.md`.
+**Status: Phase 7, 7.0–7.6 done, 7.7 (real two-player test) not started.** First release
+package cut 2026-08-13, marked experimental/pre-release pending 7.7. See
+`agent_docs/phases/phase7.md` and `packaging/release/games/pseudoregalia/README.txt`.
 
 - Unreal Engine 5, small movement-focused 3D platformer. Worst starting point (no source, no
   BepInEx) but best genre fit for ghost co-op, per the brief.

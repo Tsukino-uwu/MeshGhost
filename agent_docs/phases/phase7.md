@@ -1601,6 +1601,15 @@ GBA memory). Started early relative to Phase 6's own two-player milestone (6.6) 
       term versus UE's real formula — harmless here because pitch and roll are confirmed always
       zero for this pawn (Phase 7.1), so not worth patching a submodule over; revisit only if a
       future game with non-zero pawn pitch is targeted through this same SDK.
+- [x] Release packaging (2026-08-13, ahead of 7.7): rebuilt `main.dll` fresh from the current
+      `a1e1557` sources (`cmake --build`, 0 errors) and staged it under
+      `packaging/release/games/pseudoregalia/MeshGhostPseudo/` (`dlls/main.dll` + empty
+      `enabled.txt`, the UE4SS mod-folder layout confirmed live earlier in this phase), with
+      `built-from.txt` recording source hashes and a new `dev-scripts/build-pseudoregalia.bat`
+      mirroring TEVI's staleness-gate pattern. `.github/workflows/release.yml` got a matching
+      staleness-check step. Cut as **EXPERIMENTAL / pre-release**, the same status TEVI shipped
+      at before its own untested-with-a-second-player release — this is packaging, not a claim
+      that two-player works; that's still 7.7 below, unstarted.
 - [ ] 7.7 — Two real players. Test explicitly and early rather than assuming Pseudoregalia
       behaves like TEVI's Steam single-instance restriction (or doesn't) — record the result
       either way, blocked or not.

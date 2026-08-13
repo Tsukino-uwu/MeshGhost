@@ -22,6 +22,13 @@
 # gate fails the build if it's older than the source that produced it.
 !/packaging/release/games/tevi/MeshGhostTevi.dll
 
+# Exception: the Pseudoregalia mod DLL is committed on purpose -- CI cannot build it (the
+# CMake tree needs the private UEPseudo submodule and a locally installed UE4SS, see
+# agent_docs/phases/phase7.md's 7.2 entry), so this is our own compiled output, checked in
+# deliberately. dev-scripts/build-pseudoregalia.bat produces it; release.yml's staleness
+# gate fails the build if it's older than the source that produced it.
+!/packaging/release/games/pseudoregalia/MeshGhostPseudo/dlls/main.dll
+
 # Go
 /vendor/
 

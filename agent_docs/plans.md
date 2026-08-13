@@ -226,31 +226,22 @@ rework rather than sitting idle on a blocker with no ETA. Revisit 6.6 whenever a
 ### Phase 7 — Third game (Pseudoregalia)
 
 Visible outcome: repeat phases 1–4 for Pseudoregalia (UE5) using the frozen template. **Status:
-in progress**, started 2026-08-12 — see `agent_docs/phases/phase7.md` for the full task record.
-Started early relative to Phase 6's own two-player milestone (6.6) — see Phase 6's status note
-above for why that's a deliberate, recorded tradeoff rather than an oversight.
+7.0–7.6 done, 7.7 (real two-player test) not started** — see `agent_docs/phases/phase7.md` for
+the full task record. Started early relative to Phase 6's own two-player milestone (6.6) — see
+Phase 6's status note above for why that's a deliberate, recorded tradeoff rather than an
+oversight.
 
-The first task — confirm what modding tooling actually applies before assuming anything, the
-same standard TEVI's Mono-vs-IL2CPP check followed — is **done**. Confirmed live via direct
-filesystem inspection of this machine's install: engine is **UE 5.1**; UE4SS is **v3.0.1 Beta,
-Git SHA `733e5969`**, under the newer `Binaries\Win64\ue4ss\` layout; a UE4SS **C++** mod
-(`AP_Randomizer`, the Archipelago integration) is already installed, running, and proven to
-hold a real TLS/websocket socket in this exact game — closing `environment.md`'s previously
-open "UE4SS version for Pseudoregalia: unfilled" line. Mid-session correction, recorded rather
-than silently fixed: an initial reading found an older `v2.5.2`/SHA `a267c64`; the user then
-updated their local UE4SS to match a Mar 2026 update to `pseudoregalia-archipelago`'s own
-`RE-UE4SS` submodule pin, and all docs were re-checked and corrected to `v3.0.1`.
-
-Licensing gate done: `RE-UE4SS` (MIT) and `pseudoregalia-archipelago` (**no LICENSE file — all
-rights reserved**, facts-only per the standing rule) added to `agent_docs/licensing.md`. Four
-new UE5-specific risks registered in `agent_docs/risks.md` (Blueprint-vs-C++ readability, no
-clip-name-animation equivalent in UE5, UE4SS version drift, `AP_Randomizer` coexistence).
-
-**Adapter-language decision:** Lua for discovery, C++ for the shipping adapter. UE4SS's Lua API
-has no socket support (confirmed via `gh api` code search and docs.ue4ss.com — zero
-`luasocket` references, no networking capability), but `AP_Randomizer` proves a UE4SS C++ mod
-can hold a real socket here. Next: 7.1, a throwaway Lua probe to confirm the player-state read
-empirically before writing the C++ adapter.
+Tooling confirmed (engine UE 5.1; UE4SS v3.0.1 Beta, Git SHA `733e5969`), licensing gate done
+(`RE-UE4SS` MIT, `pseudoregalia-archipelago` all-rights-reserved/facts-only), and the shipping
+adapter is a UE4SS **C++** mod (`adapters/pseudoregalia/MeshGhostPseudo/`) — the earlier
+Lua-only plan was superseded once the private `UEPseudo` submodule blocker (7.2) was worked
+around locally. 7.1–7.6 each hit and fixed real bugs live (spawn timing, drag-on-possession,
+camera-locked-to-ghost, invisible `SpawnActor`'d meshes, stuck falling/ledge-hang animation) —
+full blow-by-blow in `phase7.md`, since each is a transferable UE4SS-reflection lesson, not
+just a fixed bug. **First release package cut 2026-08-13** as EXPERIMENTAL/pre-release, same
+status TEVI shipped at before its own two-player test — see
+`packaging/release/games/pseudoregalia/README.txt`. 7.7 (real second player over a real
+network) is the one remaining gate before this can be called confirmed-working.
 
 Deferred idea, raised by the user during Phase 7.6 animation testing (2026-08-13), not
 scheduled: make ghost collision (currently always off, `ensure_ghost_spawned`'s
