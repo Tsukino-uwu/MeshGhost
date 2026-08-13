@@ -46,6 +46,41 @@ namespace MeshGhostPseudo
         double target_x{}, target_y{}, target_z{};
         double target_pitch{}, target_yaw{}, target_roll{};
 
+        // Facing-direction bisection, 2026-08-13: rotation reads correct immediately after
+        // SpawnActor and immediately after Possess() (same tick as spawn), but garbage by the
+        // time the ~2s-interval TRACE log next reads it -- up to ~120 ticks of blind spot. Counts
+        // redraw-loop ticks since this ghost was created so the first several can be logged
+        // unconditionally, to find out whether corruption happens on the very next tick or later.
+        uint32_t ticks_since_spawn{0};
+
+        // Mirrors of the real player's own animation-driving state (see verified.md's "ghost
+        // animation" entry) -- BP_PlayerGoatMain_C's ABP_PlayerGoat_C anim instance reads these
+        // same fields (moveState/actionState/horizontalSpeed/verticalSpeed/animJumpType) off its
+        // owning pawn every tick and mirrors them into its own locals, so writing them onto the
+        // ghost's pawn each tick (game_thread_tick) should make the ghost's own already-attached
+        // anim instance animate itself the same way, no direct AnimBP poking needed.
+        double target_move_state{}, target_action_state{}, target_h_speed{}, target_v_speed{}, target_anim_jump_type{};
+
+        // Found live 2026-08-13: without this, the ghost gets stuck in an airborne/"flying" pose
+        // after a jump (a slide forces a reset, since that's a different, non-grounded-gated
+        // transition). Leading theory: the ghost's own real CharacterMovementComponent can never
+        // detect ground contact (SetActorEnableCollision(false) in ensure_ghost_spawned, kept
+        // deliberately so the ghost never physically pushes the real player), and at least one
+        // AnimBP transition reads that component's real MovementMode directly rather than only
+        // the moveState byte mirrored above. Confirmed via reflection dump that MovementMode is a
+        // real, plain ByteProperty on the stock engine CharacterMovementComponent here (not a
+        // custom subclass) -- mirrored the same opaque-copy way as moveState/actionState.
+        double target_movement_mode{};
+
+        // Untested theory, 2026-08-13: 'landed?'/'jumped?' (found in the original reflection
+        // dump, both on the pawn and mirrored on the AnimBP) look like one-shot "this just
+        // happened" pulse flags, not continuous state -- unlike moveState/movementMode, which are
+        // continuous and confirmed (via live readback) to transition and mirror correctly without
+        // fixing the stuck-landing pose. If the landing transition is actually gated on one of
+        // these pulses rather than on continuous state, that would explain why the ghost stays
+        // stuck despite moveState/movementMode both reading "grounded" correctly.
+        bool target_landed{false}, target_jumped{false};
+
         // Lua's trySpawnRemoteGhost guards spawning with a `remote.spawning` re-entrancy flag
         // because its spawn call is deferred through ExecuteInGameThread -- a gap exists between
         // "decided to spawn" and "the ghost field is actually set" where a re-check could fire
@@ -127,11 +162,30 @@ namespace MeshGhostPseudo
         // see its body for the full design and why this needs no second call/deferral at all.
         auto register_camera_fightback_hook() -> void;
 
+        // Read-only investigation for the "ghost doesn't animate" report: logs every reflected
+        // property (name + FField class) on the local player pawn's full class chain, once, via
+        // the real native TFieldRange<FProperty> reflection walk (not the Lua-exposed
+        // UStruct:ForEachProperty binding, which is confirmed missing on this exact installed
+        // UE4SS build -- see phase7.md's BP_PlayerCam_C investigation). Ground truth for whether
+        // a CharacterMovementComponent (or equivalent) exists and what it's actually named on
+        // this class, before writing any code that assumes it. No gameplay side effects.
+        auto log_pawn_reflection_once(RC::Unreal::AActor* pawn) -> void;
+
         // Bridge networking (on_update, UE4SS's own thread) and actor work (game_thread_tick,
         // the real game thread) now run concurrently -- this guards the state both sides touch.
         std::mutex state_mutex;
         std::vector<std::string> pending_incoming_lines; // filled by on_update, drained by game_thread_tick
         std::string cached_local_state_json;             // built by game_thread_tick, sent by on_update
+
+        // Latches for the untested landed?/jumped? pulse theory (see RemoteGhost::target_landed's
+        // comment). game_thread_tick ORs the real pawn's raw value in (never clears it there,
+        // since a real 1-tick pulse could otherwise be overwritten by the next tick's build before
+        // on_update ever reads it -- game_thread_tick and on_update run on different threads at
+        // different rates). on_update clears them right after copying cached_local_state_json
+        // under the same state_mutex critical section, guaranteeing a "true" latch value survives
+        // in at least one sent snapshot, mirroring the existing pending_incoming_lines swap
+        // pattern's own thread-handoff-safety reasoning above.
+        bool pending_landed_pulse{false}, pending_jumped_pulse{false};
 
         bool unreal_ready{false};
         uint64_t tick_count{0};
@@ -154,5 +208,6 @@ namespace MeshGhostPseudo
         RC::Unreal::UFunction* svtwb_function{nullptr}; // cached "SetViewTargetWithBlend", found once
         RC::Unreal::AActor* last_known_good_view_target{nullptr};
         bool any_ghost_ever_spawned{false};
+        bool pawn_reflection_logged{false}; // set once log_pawn_reflection_once has run
     };
 } // namespace MeshGhostPseudo

@@ -1475,6 +1475,132 @@ GBA memory). Started early relative to Phase 6's own two-player milestone (6.6) 
       `pitfalls.md`, just now crashing instead of silently reading garbage because we're calling a
       real member function, not a Lua-marshalled property read. Not yet fixed at the time of this
       entry -- see the next entry for the fix once tested.
+
+      **Fixed and confirmed live, 2026-08-13**: added `last_known_good_view_target = nullptr;` to
+      the existing `LoadMap PRE` hook (the same hook `release_all_ghosts` already runs from),
+      clearing the cached pointer proactively before a transition has a chance to free the object
+      it points to, rather than trying to detect staleness after the fact. Rebuild hit one
+      unrelated snag first: `cmake --build . --config Game__Shipping__Win64` failed with
+      `could not create CMAKE_GENERATOR "Visual Studio 17 2022"` -- traced to the agent's Bash
+      tool `PATH` resolving `cmake` to msys2's bundled copy (`C:\devkitPro\msys2\...`, version
+      4.0.2, no VS generator support) ahead of the real confirmed install
+      (`C:\Program Files\CMake\bin`, 4.4.2, see `environment.md`); invoking the full path fixed
+      it, 0 build errors. Deployed to `ue4ss\Mods\MeshGhostPseudo\dlls\main.dll`,
+      hash-diff-confirmed identical to the build output (`Get-FileHash`), `UE4SS.log` cleared for
+      a clean capture, no stale game process holding a lock. User then ran a full transition
+      sweep in one session: entering the second area, returning to the first area, exiting to the
+      main menu and pressing "play" again, and a normal game exit at the end -- no crashes at any
+      point. **7.6 is now fully closed**, including the item that paused it mid-session. See
+      `agent_docs/verified.md`.
+
+      **7.6 reopened same day: ghost animation, collision, and facing-direction, once the spawn
+      mechanism itself was solid.** With spawn/possess/camera/area-transition all confirmed
+      working, the ghost was still stiff-gliding with no animation at all — 7.3's `anim` field had
+      only ever been a hardcoded `"idle"` placeholder, never revisited once real spawn-based
+      ghosts existed to drive. Fixed by reflecting the real pawn's
+      `moveState`/`actionState`/`horizontalSpeed`/`verticalSpeed`/`animJumpType`/
+      `CharacterMovement->MovementMode` (field names confirmed via a read-only native reflection
+      dump, `log_pawn_reflection_once`, not guessed) and mirroring them onto the ghost's own pawn
+      instance each tick via `extras` — since the ghost is a full spawned clone of the same
+      Blueprint class, its own already-attached `ABP_PlayerGoat_C` AnimBP instance then drives
+      itself the same way it does for the real player. **Confirmed live**: real walk/run/idle
+      animation. See `agent_docs/verified.md`'s "ghost animation state" entry. Two follow-on gaps
+      were tried and not solved: a stuck falling/airborne pose after landing (two attempts,
+      mirroring `MovementMode` then latched `landed?`/`jumped?` pulses, both failed live), and no
+      ledge-grab. A `GHOST_COLLISION_ENABLED` attempt at fixing both (the theory being both need a
+      real physics trace) was tried twice and reverted twice — the first attempt
+      (`SetActorEnableCollision(true)` alone) made the ghost killable, which killed the *real
+      player's own character* too, without ever making the ghost solid; the second attempt (adding
+      `SetCollisionResponseToChannel(Pawn, Block)` on the ghost's capsule, confirmed via log to
+      have genuinely fired) still produced no solidity, since UE's dynamic-vs-dynamic blocking
+      needs both actors' collision response to agree, and only the ghost's side was ever changed —
+      fixing the real player's side was judged too large a risk to take without a separate,
+      explicit decision. See `agent_docs/risks.md`'s ghost-collision entry.
+
+      **Facing direction: the ghost never turned to face a different direction, and this took the
+      rest of the session to actually solve.** Established early: the real player's own
+      `CapsuleComponent` rotation genuinely tracks turning, so capsule rotation is this game's real
+      facing mechanism (not some other, undiscovered one). But the *ghost's* rotation read back as
+      implausible garbage (`~5.5e-315`) through every read path tried —
+      `K2_GetActorRotation()` and a direct `RelativeRotation` property read alike — confirmed
+      already-garbage by the very first tick after spawn via a tick-by-tick trace. A forced
+      0/90/180/270 yaw-cycle test produced zero visible change, which looked at the time like
+      proof the write mechanism itself wasn't reaching the renderer. Several fix attempts failed
+      live and in this order: `bTeleport=true` on `K2_SetActorLocationAndRotation`; forcing the
+      ghost's own `bOrientRotationToMovement` to `false`; calling the separate native
+      `K2_SetActorRotation` function instead; and — the one real partial finding along the way —
+      writing `CapsuleComponent.RelativeRotation` as a **direct property** (bypassing every native
+      call) stopped the garbage readback and held the written value stably, but still had zero
+      visual effect, even after a `bHiddenInGame` render-nudge toggle (the same trick already
+      proven for the actor-level `bHidden` elsewhere in this file). This cleanly separated the
+      problem into two: the property write itself worked; something in render-transform
+      propagation (normally handled by UE's own `SetRelativeRotation()`, which a raw property poke
+      skips) did not.
+
+      **Root cause found by reading the vendored SDK's own source, not by further guessing at the
+      ghost/engine side**, in a follow-up session on 2026-08-13: `RE-UE4SS/deps/first/Unreal/src/
+      AActor.cpp`'s `K2_SetActorLocationAndRotation` and `K2_SetActorRotation` marshal `FRotator`'s
+      `Pitch`/`Yaw`/`Roll` as hardcoded `float` into the reflected native-call parameter buffer.
+      `FVector`'s `X`/`Y`/`Z`, by contrast, correctly branch on engine version via `UE_COPY_VECTOR`
+      (`include/Unreal/BPMacros.hpp:120-132`) — `float` below UE 5.0, `double` on 5.0+. There is no
+      equivalent version branch for `FRotator`. Pseudoregalia is UE 5.1 (confirmed in 7.0 above),
+      so the real engine fields are `double`; writing 4 bytes of float into an 8-byte slot of a
+      zeroed buffer leaves the upper 4 bytes zero, and the engine reads back a denormal near zero.
+      Confirmed arithmetically, not just plausibly: `90.0f`'s bit pattern placed in the low half of
+      a zeroed double slot is exactly `5.529052754e-315` — matching the logged `~5.5e-315` garbage
+      to three significant figures. This explained every earlier symptom at once: position (marshaled
+      correctly by the version-aware `UE_COPY_VECTOR`) always stuck while rotation (marshaled by the
+      broken hardcoded-float path) never did, in the very same call; the forced yaw cycle produced
+      no visible change because every value became ≈0, not because the write mechanism was dead;
+      and the direct property write was the one path in the file that bypassed the bug entirely,
+      which is exactly why it was the only one that ever held a correct value in memory.
+
+      **Fix**: a new local, version-aware helper, `call_set_actor_location_and_rotation` (added
+      beside the file's existing `call_set_collision_response_to_channel`, same "read real
+      `FProperty::GetOffset_Internal()` offsets, don't guess a struct layout" pattern), replacing
+      the stacked three-writes-fighting-each-other block at both call sites
+      (`run_local_offset_test_tick` and `game_thread_tick`) with one correct call. Deliberately
+      *not* a patch to the SDK itself — `RE-UE4SS` is a git submodule, so this repo tracks only its
+      pinned commit (`733e5969`), never its file contents; an edit to `BPMacros.hpp` could not be
+      committed to this repo at all, would be invisible to anyone cloning it fresh, and would be
+      silently wiped by any `git submodule update`. See `agent_docs/pitfalls.md`'s new SDK-marshaling
+      entry for the full transferable lesson (it will recur on any UE5 game targeted via this SDK).
+
+      Rebuilt (0 errors, `cmake --build . --config Game__Shipping__Win64` via the full path per the
+      earlier `CMAKE_GENERATOR` PATH note above), deployed, hash-diff-confirmed. Tested with
+      `LOCAL_OFFSET_TEST_MODE` and `FORCE_ROTATION_CYCLE_TEST` both `true` (no relay/core/bridge
+      needed) — **CONFIRMED WORKING, live, on screen.** User, verbatim: "it works!, the ghost is
+      turning around." `UE4SS.log` cross-check from the same run: the one-time diagnostic line
+      confirms the helper resolved real offsets and chose the `double` path
+      (`NewLocation@0 NewRotation@24 inner_type=double parms_size=296`), and every subsequent
+      `TRACE` line shows `sent`/`K2_actual`/`reflected_actual` in exact agreement (e.g.
+      `sent=180 K2_actual=180 reflected_actual=180`; `sent=270` normalizing to `K2_actual=-90...`,
+      the same angle, not an error) — replacing the earlier `~5.5e-315` garbage entirely. See
+      `agent_docs/verified.md`.
+
+      Both diagnostic flags were then flipped back to `false` (restoring the real networked path
+      and real yaw-mirroring as the normal shipping behavior), rebuilt, redeployed, and
+      hash-diff-confirmed again. **Real-networked-path facing confirmed live the same day**: user,
+      verbatim, "its following properly now" — the ghost mirrors the real player's own turning,
+      not just the forced test cycle. **Facing direction is now fully closed end-to-end.**
+
+      **Unexpected side effect**: with facing now correct, ledge-grab — one of the two animation
+      gaps left open by the earlier "ghost animation state" work — started working. It was never
+      a separate bug; it plausibly depended on the ghost's rotation actually reaching the
+      renderer (e.g. ledge-grab detection needing a geometrically correct facing to trace
+      against). This also surfaced a **new** bug, only reachable now that ledge-grab works at
+      all: the ghost gets stuck in the ledge-hang animation after the real player has already
+      released the ledge and moved away. Not yet investigated. The other open animation bug (a
+      stuck falling/airborne pose after landing) is unaffected by this fix and still reproduces
+      exactly as before — both are plausibly the same root-cause class as the already-tried-and-
+      failed `landed?`/`jumped?` pulse mirroring: a one-shot state transition on the real
+      player's side not being mirrored onto the ghost's AnimBP. See `agent_docs/verified.md`.
+
+      A secondary, unrelated bug found in the same investigation and deliberately left unfixed:
+      `FRotator::Quaternion()` (`include/Unreal/Rotator.hpp:158`) is missing a negation on its `Y`
+      term versus UE's real formula — harmless here because pitch and roll are confirmed always
+      zero for this pawn (Phase 7.1), so not worth patching a submodule over; revisit only if a
+      future game with non-zero pawn pitch is targeted through this same SDK.
 - [ ] 7.7 — Two real players. Test explicitly and early rather than assuming Pseudoregalia
       behaves like TEVI's Steam single-instance restriction (or doesn't) — record the result
       either way, blocked or not.

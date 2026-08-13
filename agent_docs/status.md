@@ -164,42 +164,113 @@
   needed by `dev-scripts/run-core.bat` and `cmd/meshghost-fakeadapter` (no real adapter to send
   a hello). `go build`/`vet`/`test` clean; not yet watched running against a real game by the
   user, so — same as the packaging entry above — nothing here moves to `verified.md` yet.
-- `Current focus:` **Phase 7 progressed through 7.1–7.5 across several sessions; as of
-  2026-08-13 the C++ rewrite has a working hijack-based ghost that follows the player smoothly
-  and survives real level transitions, confirmed live.** Full record in
-  `agent_docs/phases/phase7.md`; short version:
-  - **The old Lua-path blocker is gone.** The private `Re-UE4SS/UEPseudo` submodule access
-    (`agent_docs/phases/phase7.md`'s 7.2) turned out to be gated by linking a GitHub account to
-    an Epic Games account (confirmed via `UE4SS-RE/RE-UE4SS` issue #577) — the user did that
-    2026-08-13 and the submodule cloned immediately after. The C++ mod
-    (`adapters/pseudoregalia/MeshGhostPseudo`) now builds and runs.
-  - **7.5's original blocker (the vendored LuaSocket receive-corruption bug) is resolved by
-    switching to real C++ networking** (`Mod/src/BridgeClient.cpp`, plain Winsock2) — confirmed
-    live side-by-side against the still-corrupting Lua path: 0 malformed lines out of 6000+ vs.
-    ~98% corruption on the identical connection at the identical moment.
-  - **Ghost spawning hit a second, harder wall: no working way was ever found to destroy an
-    actor spawned at runtime on this build** (`K2_DestroyActor()` silently no-ops — confirmed via
-    a `GetWorld()` readback showing the "destroyed" actor still fully alive). Every spawned ghost
-    left behind a real `LowLevelFatalError: Fatal world leaks detected` crash on the next level
-    transition. **Fixed by redesigning to hijack an already-existing level prop
-    (`StaticMeshActor`) instead of spawning anything** — since nothing new is ever created,
-    nothing ever needs destroying.
-  - **A second, subtler bug then surfaced: the hijacked ghost followed correctly for a while,
-    then visually froze, every run, despite position data staying provably correct on every
-    logged tick.** Root cause, found by reading UE4SS's own source rather than guessing further:
-    `CppUserModBase::on_update()` runs on UE4SS's own internal ~5ms polling thread
-    (`UE4SSProgram.cpp`: `ProfilerSetThreadName("UE4SS-UpdateThread")`), never the real Unreal
-    game thread — every actor write was landing in memory but never reaching the renderer. Fixed
-    by moving all actor reads/writes into a `RegisterEngineTickPostCallback` hook instead (the
-    real game thread). **Confirmed live 2026-08-13**: sustained, uninterrupted following. See
-    `agent_docs/pitfalls.md`'s new "UE4SS C++ mod threading" section for the transferable lesson.
-  - **Not yet done**: the camera fight-back hook (Phase 7.4's other proven fix, not yet ported to
-    C++); a real animated player-model ghost (a `StaticMeshActor` can only ever be a rigid,
-    non-animated stand-in — needs either hijacking an existing skeletal/animated actor, if a safe
-    one exists, or returning to spawn-based ghosts with a real fix for the destroy problem, e.g.
-    the `Engine.VerifyLoadMapWorldCleanup.Severity.Shipping 0` console-command suppression
-    explored but not completed this session); a separate, not-yet-root-caused `Fatal Error!`
-    crash (crashdump, not `LowLevelFatalError`) observed once on game exit.
+- `Current focus:` **Phase 7.6 (2026-08-13): C++ adapter switched back to spawn-based ghosts (a
+  real player-model clone, not a rigid hijacked prop) and confirmed live, camera bug and all.**
+  Full record in `agent_docs/phases/phase7.md`; short version:
+  - **Earlier sessions' "no working destroy mechanism, must hijack instead" verdict was a
+    thread-context artifact, not a fact about this build.** That verdict came from spawn/destroy
+    calls made off the game thread (`on_update()`, since fixed — see the entry below this one).
+    Retested on the game thread (`ensure_ghost_spawned`, called from `game_thread_tick`): no
+    crash, real player-model ghost, **confirmed live 2026-08-13.** `K2_DestroyActor()`'s own
+    no-op status was never re-tested (this design still never calls it) — still an open, separate
+    claim.
+  - **Camera fight-back (Phase 7.4's other proven fix) took three attempts to port to C++, and
+    the reason the first two failed is a real, transferable finding.** This game calls
+    `SetViewTargetWithBlend` as a **native** function, which bypasses `ProcessEvent` entirely — a
+    `RegisterProcessEventPostCallback`-based hook (attempts 1 and 2) never fires for it at all,
+    confirmed via `UE4SS.log` showing zero hits across a live run that visibly hit the bug.
+    Root cause read directly from UE4SS's own `RegisterHook` implementation
+    (`LuaMod.cpp:3907-3921`): native UFunctions need `UFunction::RegisterPreHook` instead, which
+    patches the function's native entry point directly. Attempt 3, built on that, **confirmed
+    live 2026-08-13**: camera stays on the player through ghost spawn, ghost follows without
+    stopping or teleporting. See `agent_docs/verified.md`.
+  - **Area-transition crash found and fixed, confirmed live 2026-08-13**: `EXCEPTION_ACCESS_VIOLATION`
+    inside the camera hook, root-caused to `last_known_good_view_target` (a raw `AActor*` cached
+    across calls) being dereferenced via `->IsUnreachable()` after a level transition had already
+    freed it. Fix: clear the cached pointer proactively in the existing `LoadMap PRE` hook, before
+    a transition can free it. Rebuilt (0 errors — the earlier `could not create CMAKE_GENERATOR`
+    failure was a `PATH` issue, msys2's bundled cmake 4.0.2 shadowing the real install at
+    `C:\Program Files\CMake\bin` 4.4.2, not a toolchain regression), deployed, hash-diff-confirmed.
+    User ran a full session: second area, back to first area, main-menu-and-replay, and normal
+    exit all worked with no crashes. See `agent_docs/verified.md`.
+  - **Ghost animation: confirmed working for basic locomotion, 2026-08-13** (same day, later
+    session) — see `agent_docs/verified.md`'s "ghost animation state" entry. The ghost was
+    stiff-gliding with no animation; root cause was that the wire's `anim` field had only ever
+    been a hardcoded `"idle"` placeholder (7.3's decision, never revisited) and the ghost was
+    teleported via direct position writes with no animation-state driving it at all. Fixed by
+    reflecting the real pawn's `moveState`/`actionState`/`horizontalSpeed`/`verticalSpeed`/
+    `animJumpType`/`CharacterMovement->MovementMode` (confirmed field names via a read-only
+    native reflection dump, not guessed) and mirroring them onto the ghost's own pawn instance
+    each tick via `extras` (the same opaque field Emerald's `extras.gender` already uses) — the
+    ghost's own already-attached `ABP_PlayerGoat_C` AnimBP instance then drives itself the same
+    way it does for the real player. User confirmed real walk/run/idle animation live.
+    **Still broken, not solved**: the ghost gets stuck in a falling/airborne pose after landing
+    (two fix attempts — mirroring `MovementMode`, then latched `landed?`/`jumped?` pulses — both
+    failed live); can't grab ledges; doesn't turn to face different directions (a separate,
+    previously-unnoticed gap). Legs/animation itself is no longer a gap — the `bHidden`
+    render-nudge revisit is now moot.
+  - **Ghost collision: tried, reverted — real danger found, 2026-08-13.** Tried enabling ghost
+    collision (`GHOST_COLLISION_ENABLED`, was permanently off) as a real fix attempt for the
+    stuck-landing/ledge-grab issues. Confirmed live: it did **not** make the ghost physically
+    solid (the real player could still walk straight through it), but the real player could
+    attack and kill it, which killed the **real player's own character** too — not a cosmetic
+    bug, a real progress-loss risk, and the worst of both worlds (no solidity, new death risk).
+    Reverted same-day. **Second attempt same day, also reverted**: added a real
+    `SetCollisionResponseToChannel(Pawn, Block)` UFunction call on the ghost's capsule (confirmed
+    via log that the call genuinely fired, not a reflection failure) — still no solidity, since
+    UE's actor-vs-actor blocking needs both sides to agree, and only the ghost's side was
+    changed. Fixing that would mean touching the real player's own collision component, a bigger
+    risk than anything tried so far, on top of the still-unresolved melee-death danger. See
+    `agent_docs/risks.md`'s ghost-collision entry — do not re-enable without explicit go-ahead.
+  - **Still not done**: a separate, not-yet-root-caused `Fatal Error!` crash (crashdump, not
+    `LowLevelFatalError`) observed once on game exit in an earlier session.
+  - **Facing-direction bug: root cause found and fix confirmed live, 2026-08-13 (follow-up
+    session).** Full record in `agent_docs/phases/phase7.md`'s 7.6 entry; short version:
+    - **Root cause**: not a game-side or adapter-logic bug at all — the vendored `RE-UE4SS` SDK's
+      `K2_SetActorLocationAndRotation`/`K2_SetActorRotation` (`RE-UE4SS/deps/first/Unreal/src/
+      AActor.cpp`) marshal `FRotator`'s Pitch/Yaw/Roll as hardcoded `float`, unlike `FVector`'s
+      X/Y/Z, which correctly branch on engine version (`UE_COPY_VECTOR`,
+      `include/Unreal/BPMacros.hpp`). Pseudoregalia is UE 5.1, where the real `FRotator` fields
+      are `double` — every rotation write put 4 bytes of float into an 8-byte slot, leaving a
+      denormal near zero. Confirmed arithmetically, not just plausibly: `90.0f`'s bit pattern in
+      a zeroed double slot is exactly `5.529052754e-315`, matching the previously-logged
+      `~5.5e-315` "garbage" readback to three significant figures. This explains every earlier
+      symptom: position (marshaled correctly) always stuck while rotation never did, in the same
+      call; the forced yaw-cycle test showed no visual change because every value became ≈0, not
+      because the write mechanism was dead; and the direct `RelativeRotation` property write held
+      correctly in memory precisely because it was the one path that bypassed the broken macro.
+    - **Fix**: `call_set_actor_location_and_rotation`, a new local, version-aware helper in
+      `Plugin.cpp` (same "real `FProperty::GetOffset_Internal()` offsets, no guessed struct
+      layout" pattern the file already used for
+      `call_set_collision_response_to_channel`), replacing the three-writes-stacked-together
+      block at both call sites. Deliberately not a submodule patch — `RE-UE4SS` is a git
+      submodule, so this repo tracks only its pinned commit (`733e5969`), never its file
+      contents; an SDK edit couldn't be committed here, would be invisible to a fresh clone, and
+      would be silently wiped by `git submodule update`. See `agent_docs/pitfalls.md`'s new
+      entry — this will recur on any future UE5 game targeted through this SDK, not just here.
+    - **Confirmed live**, with `LOCAL_OFFSET_TEST_MODE`/`FORCE_ROTATION_CYCLE_TEST` both `true`:
+      user, verbatim, "it works!, the ghost is turning around." `UE4SS.log` cross-check: the
+      one-time diagnostic line confirms the `double` path was chosen, and every `TRACE` line
+      shows `sent`/`K2_actual`/`reflected_actual` in exact agreement. See `agent_docs/verified.md`.
+    - **Both diagnostic flags flipped back to `false`, rebuilt, redeployed, hash-diff-confirmed.**
+      Current deployed `main.dll` is the normal shipping configuration.
+      `GHOST_COLLISION_ENABLED` remains `false` (unchanged, safe).
+    - **Real networked path also confirmed live, same day, follow-up**: user, verbatim, "its
+      following properly now" — the ghost mirrors the real player's own turning correctly, not
+      just the forced test cycle. **Facing direction is now fully closed end-to-end.** See
+      `agent_docs/verified.md`.
+    - **Unexpected side effect of the fix**: ledge-grab — one of the two animation gaps left open
+      by the "ghost animation state" work earlier the same day — now works. It was never a
+      separate bug; it plausibly depended on the ghost's rotation actually reaching the renderer
+      (e.g. ledge-grab detection needing a geometrically correct facing to trace against).
+    - **New bug surfaced by ledge-grab now working**: the ghost gets stuck in the ledge-hang
+      animation after the real player has already released the ledge and moved away. Not yet
+      investigated.
+    - **Still open, unaffected by this fix**: the stuck falling/airborne pose after landing
+      (unchanged — reproduces exactly as before), and the not-yet-root-caused `Fatal Error!` exit
+      crash noted above. Both this and the new stuck-hanging bug are plausibly the same root-cause
+      class as the already-tried-and-failed `landed?`/`jumped?` pulse mirroring: a one-shot state
+      transition on the real player's side not being mirrored onto the ghost's AnimBP.
 
 ## Go networking layer (2026-08-11)
 

@@ -1,6 +1,7 @@
 #include <Plugin.hpp>
 
 #include <algorithm>
+#include <bit>
 #include <cmath>
 #include <cstdio>
 #include <cwctype>
@@ -12,10 +13,12 @@
 #include <DynamicOutput/DynamicOutput.hpp>
 #include <Unreal/AActor.hpp>
 #include <Unreal/CoreUObject/UObject/Class.hpp>
+#include <Unreal/CoreUObject/UObject/UnrealType.hpp>
 #include <Unreal/FFrame.hpp>
 #include <Unreal/FHitResult.hpp>
 #include <Unreal/Hooks.hpp>
 #include <Unreal/UFunctionStructs.hpp>
+#include <Unreal/UnrealVersion.hpp>
 #include <Unreal/UObject.hpp>
 #include <Unreal/UObjectGlobals.hpp>
 #include <Unreal/World.hpp>
@@ -44,11 +47,25 @@ namespace MeshGhostPseudo
     // from local reflection reads -- isolates the render-freeze investigation from networking.
     // Flip back to false to return to the real networked adapter.
     // Phase 7.6, 2026-08-13: flipped back to false -- the render-freeze this mode was built to
-    // isolate is fixed (RegisterEngineTickPostCallback); this diagnostic is done with, not needed
-    // for the spawn-vs-hijack retest below.
+    // isolate is fixed (RegisterEngineTickPostCallback); this diagnostic was done with then.
+    // Flipped true again same day (user-requested), repurposed for the facing-direction
+    // investigation: run_local_offset_test_tick now uses the same spawn-based ghost mechanism as
+    // the real networked path (see its own comment), so this mode gives a true no-networking
+    // repro of the rotation bug -- one game instance, no relay.exe/meshghost.exe needed at all.
+    // Facing-direction fix confirmed live 2026-08-13 (see verified.md) -- flipped back to false
+    // to restore the real networked adapter as the normal shipping path.
     constexpr bool LOCAL_OFFSET_TEST_MODE = false;
     constexpr double LOCAL_OFFSET_TEST_X = 150.0;
     constexpr auto LOCAL_OFFSET_TEST_ID = "local-test";
+
+    // User-requested, 2026-08-13: rather than mirroring the real player's own yaw (which requires
+    // walking around to see change), force-cycle the ghost's target yaw through four fixed
+    // directions on a timer, so it's immediately obvious on screen whether the ghost can turn at
+    // all, independent of whether it's matching the real player correctly.
+    // Facing-direction fix confirmed live 2026-08-13 -- flipped back to false to restore real
+    // yaw-mirroring as the normal shipping behavior.
+    constexpr bool FORCE_ROTATION_CYCLE_TEST = false;
+    constexpr uint64_t ROTATION_CYCLE_TICKS = 180; // ~3s at a typical 60fps game thread
 
     // Phase 7.6: one-constant control between the two ghost designs. true = spawn a clone of the
     // player's own pawn class (real player model, can animate -- what Phase 7.6 is actually for),
@@ -74,6 +91,34 @@ namespace MeshGhostPseudo
     // (agent_docs/phases/phase7.md's Phase 7.4 saga) instead of it being tangled up with level-
     // entry camera setup. ~300 ticks at a typical 60fps game thread ~= 5s.
     constexpr uint64_t SPAWN_DELAY_TICKS = 300;
+
+    // User-requested toggle, 2026-08-13: try re-enabling ghost collision as a real fix for the
+    // stuck-falling-pose and can't-grab-ledges bugs (both plausibly need a real physics trace to
+    // detect ground/ledge contact, which an ActorEnableCollision(false) ghost can never provide),
+    // rather than continuing to guess at state-mirroring workarounds. Re-reading phase7.md's own
+    // history first: collision-disable was never actually proven necessary -- it was added
+    // defensively during the Phase 7.4 drag-bug investigation, but the real causes found later (a
+    // live-reference position-mutation bug, then a separate auto-possess bug) were both unrelated
+    // to collision; the disable call was "left in place as a reasonable safety measure even though
+    // they turned out not to be the actual fix" (phase7.md). Lower risk than it first looked, but
+    // still a real behavior change (the ghost can now physically push the real player, get stuck
+    // in world geometry on a teleport that lands inside a wall, etc.) -- a named toggle here rather
+    // than a silent hardcode, per the user's own "maybe a feature/toggle later" framing.
+    // Reverted 2026-08-13 -- tried twice now, both real risk with no solidity gained:
+    // (1) blanket SetActorEnableCollision(true) alone: did NOT make the ghost solid (real player
+    // walked straight through it), but let melee attack and kill it, which killed the REAL
+    // player's own character too. (2) Added SetCollisionResponseToChannel(Pawn, Block) on the
+    // ghost's own capsule on top (call_set_collision_response_to_channel): confirmed via log that
+    // the function was genuinely found and called (no reflection failure) -- still no solidity.
+    // Leading theory: UE's dynamic-vs-dynamic actor blocking needs BOTH sides' collision response
+    // to agree on Block, and only the ghost's side was ever changed; the real player's own
+    // capsule was very likely never configured to Block the Pawn channel at all, since two-pawn
+    // contact was never a real case in this single-player game. Fixing that would mean touching
+    // the REAL PLAYER's own live collision component, not just the ghost's -- a materially bigger
+    // risk than anything tried so far, on top of an already-demonstrated melee-death danger that
+    // is STILL UNRESOLVED. Do not re-enable without explicit go-ahead, and treat any attempt to
+    // modify the real player's own collision setup as its own separate, carefully-scoped decision.
+    constexpr bool GHOST_COLLISION_ENABLED = false;
 
     namespace
     {
@@ -166,6 +211,22 @@ namespace MeshGhostPseudo
             }
             pos += needle.size();
             return std::sscanf(s.c_str() + pos, "%lf,%lf,%lf", &a, &b, &c) == 3;
+        }
+
+        // Same minimal-parser philosophy as json_string_field/json_vec3_field above. Used for the
+        // animation-state fields nested under "extras" -- key names (move_state, h_speed, etc.)
+        // are distinct enough that a whole-string search is safe without properly scoping to the
+        // "extras" object, same tradeoff already made for every other field here.
+        auto json_number_field(const std::string& s, const std::string& key, double& out) -> bool
+        {
+            std::string needle = "\"" + key + "\":";
+            size_t pos = s.find(needle);
+            if (pos == std::string::npos)
+            {
+                return false;
+            }
+            pos += needle.size();
+            return std::sscanf(s.c_str() + pos, "%lf", &out) == 1;
         }
 
         // JSON player_id values in this wire format are always plain ASCII ids (e.g. "p1-ghost",
@@ -271,6 +332,168 @@ namespace MeshGhostPseudo
             *reinterpret_cast<AActor**>(params_buffer.data()) = actor_arg;
             target->ProcessEvent(function, params_buffer.data());
         }
+
+        // User-requested, 2026-08-13: an attempt at real physical solidity, since the earlier
+        // SetActorEnableCollision(true) test made the ghost killable but never blocking (see
+        // agent_docs/risks.md's ghost-collision entry). This game was single-player -- pawn-vs-
+        // pawn blocking is a case that plausibly never needed to exist, so the fix is likely a
+        // per-channel *collision response* change (Block, not Overlap/Ignore), which is separate
+        // from SetActorEnableCollision and not reachable via the plain property reflection used
+        // everywhere else in this file (that data lives inside BodyInstance, a UE-internal struct
+        // this SDK doesn't expose the layout of -- reading/writing it via a guessed offset would
+        // be exactly the "address from memory" CLAUDE.md forbids). The safe path is the real
+        // UFunction, UPrimitiveComponent::SetCollisionResponseToChannel(ECollisionChannel Channel,
+        // ECollisionResponse NewResponse) -- unlike call_ufunction_with_leading_actor_arg's single
+        // pointer argument at a known offset-0, this has two small (byte-sized) parameters whose
+        // offsets aren't assumed here -- each parameter's own real FProperty::GetOffset_Internal()
+        // is used, the same general technique UE4SS's own Lua ProcessEvent marshalling uses
+        // (confirmed via dump_object.lua's Property:GetOffset_Internal() calls) and consistent
+        // with this file's existing "don't guess a struct layout" standard.
+        auto call_set_collision_response_to_channel(UObject* target, UFunction* function, uint8_t channel, uint8_t response) -> void
+        {
+            if (!target || !function)
+            {
+                return;
+            }
+            int32_t parms_size = function->GetPropertiesSize();
+            if (parms_size < 2)
+            {
+                Output::send(STR("[MeshGhostPseudo] WARNING: SetCollisionResponseToChannel has an implausibly small PropertiesSize ({}) -- refusing to call it.\n"),
+                             parms_size);
+                return;
+            }
+            std::vector<uint8_t> params_buffer(static_cast<size_t>(parms_size), 0);
+            int params_written = 0;
+            for (FProperty* property : TFieldRange<FProperty>(function, EFieldIterationFlags::None))
+            {
+                if (!property || params_written >= 2)
+                {
+                    continue;
+                }
+                params_buffer[static_cast<size_t>(property->GetOffset_Internal())] = (params_written == 0) ? channel : response;
+                ++params_written;
+            }
+            if (params_written < 2)
+            {
+                Output::send(STR("[MeshGhostPseudo] WARNING: SetCollisionResponseToChannel reflected {} parameter(s), expected 2 -- refusing to call it.\n"),
+                             params_written);
+                return;
+            }
+            target->ProcessEvent(function, params_buffer.data());
+        }
+
+        // Facing-direction root cause, found 2026-08-13: the vendored RE-UE4SS SDK's own
+        // K2_SetActorLocationAndRotation/K2_SetActorRotation (RE-UE4SS/deps/first/Unreal/src/
+        // AActor.cpp) marshal FRotator's Pitch/Yaw/Roll as hardcoded `float` into the reflected
+        // parameter buffer, unlike FVector's X/Y/Z, which correctly branch on engine version via
+        // UE_COPY_VECTOR (BPMacros.hpp). Pseudoregalia is UE 5.1, where the real FRotator fields
+        // are `double` -- so every rotation write above put 4 bytes of float into an 8-byte slot
+        // of a zeroed buffer, leaving the upper 4 bytes zero. The engine then read back a denormal
+        // near zero (confirmed: 90.0f's bit pattern in a zeroed double slot is exactly
+        // 5.529052754e-315, matching the ~5.5e-315 "garbage" logged during the investigation) --
+        // this is why position (written in the very same call) always stuck while rotation never
+        // did, and why a forced 0/90/180/270 yaw cycle produced no visible change: every value
+        // became ~0.
+        //
+        // Fix: a local, version-aware replacement for just this one function, following the same
+        // "don't guess a struct layout, read real FProperty offsets" pattern as
+        // call_set_collision_response_to_channel above. This can't be fixed by patching the SDK
+        // itself -- RE-UE4SS is a git submodule, so this repo tracks only its pinned commit, never
+        // its file contents; an edit to BPMacros.hpp would be invisible to anyone cloning this
+        // repo and wiped by any `git submodule update`. See agent_docs/pitfalls.md.
+        //
+        // NOTE: this only covers K2_SetActorLocationAndRotation, the one rotation-writing function
+        // this file actually calls. The same float/double bug affects K2_SetActorRotation and
+        // presumably every other native FRotator-taking function in this SDK -- do not assume any
+        // of those are safe to call directly; route any future rotation write through a helper
+        // like this one instead.
+        auto call_set_actor_location_and_rotation(AActor* actor, const FVector& new_location, const FRotator& new_rotation) -> void
+        {
+            if (!actor)
+            {
+                return;
+            }
+
+            static UFunction* function = UObjectGlobals::StaticFindObject<UFunction*>(
+                nullptr, nullptr, STR("/Script/Engine.Actor:K2_SetActorLocationAndRotation"));
+            if (!function)
+            {
+                Output::send(STR("[MeshGhostPseudo] WARNING: could not find K2_SetActorLocationAndRotation -- ghost rotation will not be set.\n"));
+                return;
+            }
+
+            FProperty* location_property = function->FindProperty(FName(STR("NewLocation"), FNAME_Find));
+            FProperty* rotation_property = function->FindProperty(FName(STR("NewRotation"), FNAME_Find));
+            FProperty* sweep_property = function->FindProperty(FName(STR("bSweep"), FNAME_Find));
+            FProperty* teleport_property = function->FindProperty(FName(STR("bTeleport"), FNAME_Find));
+            if (!location_property || !rotation_property || !sweep_property || !teleport_property)
+            {
+                Output::send(STR("[MeshGhostPseudo] WARNING: K2_SetActorLocationAndRotation is missing an expected top-level parameter -- refusing to call it.\n"));
+                return;
+            }
+
+            UScriptStruct* location_struct = static_cast<FStructProperty*>(location_property)->GetStruct();
+            UScriptStruct* rotation_struct = static_cast<FStructProperty*>(rotation_property)->GetStruct();
+            FProperty* x_property = location_struct ? location_struct->FindProperty(FName(STR("X"), FNAME_Find)) : nullptr;
+            FProperty* y_property = location_struct ? location_struct->FindProperty(FName(STR("Y"), FNAME_Find)) : nullptr;
+            FProperty* z_property = location_struct ? location_struct->FindProperty(FName(STR("Z"), FNAME_Find)) : nullptr;
+            FProperty* pitch_property = rotation_struct ? rotation_struct->FindProperty(FName(STR("Pitch"), FNAME_Find)) : nullptr;
+            FProperty* yaw_property = rotation_struct ? rotation_struct->FindProperty(FName(STR("Yaw"), FNAME_Find)) : nullptr;
+            FProperty* roll_property = rotation_struct ? rotation_struct->FindProperty(FName(STR("Roll"), FNAME_Find)) : nullptr;
+            if (!x_property || !y_property || !z_property || !pitch_property || !yaw_property || !roll_property)
+            {
+                Output::send(STR("[MeshGhostPseudo] WARNING: K2_SetActorLocationAndRotation's NewLocation/NewRotation struct is missing an expected inner field -- refusing to call it.\n"));
+                return;
+            }
+
+            int32_t parms_size = function->GetPropertiesSize();
+            if (parms_size < static_cast<int32_t>(location_property->GetOffset_Internal() + location_property->GetSize())
+                || parms_size < static_cast<int32_t>(rotation_property->GetOffset_Internal() + rotation_property->GetSize()))
+            {
+                Output::send(STR("[MeshGhostPseudo] WARNING: K2_SetActorLocationAndRotation has an implausibly small PropertiesSize ({}) -- refusing to call it.\n"), parms_size);
+                return;
+            }
+
+            std::vector<uint8_t> params_buffer(static_cast<size_t>(parms_size), 0);
+            uint8_t* base = params_buffer.data();
+            int32_t loc_base = location_property->GetOffset_Internal();
+            int32_t rot_base = rotation_property->GetOffset_Internal();
+
+            // Mirrors UE_COPY_VECTOR (BPMacros.hpp): double on UE 5.0+, float below -- this is the
+            // branch the rotation path was missing.
+            static const bool use_float = Version::IsBelow(5, 0);
+            static bool logged_once = false;
+            if (!logged_once)
+            {
+                Output::send(STR("[MeshGhostPseudo] call_set_actor_location_and_rotation: NewLocation@{} NewRotation@{} inner_type={} parms_size={}\n"),
+                             loc_base, rot_base, use_float ? STR("float") : STR("double"), parms_size);
+                logged_once = true;
+            }
+
+            if (use_float)
+            {
+                *std::bit_cast<float*>(base + loc_base + x_property->GetOffset_Internal()) = static_cast<float>(new_location.X());
+                *std::bit_cast<float*>(base + loc_base + y_property->GetOffset_Internal()) = static_cast<float>(new_location.Y());
+                *std::bit_cast<float*>(base + loc_base + z_property->GetOffset_Internal()) = static_cast<float>(new_location.Z());
+                *std::bit_cast<float*>(base + rot_base + pitch_property->GetOffset_Internal()) = static_cast<float>(new_rotation.GetPitch());
+                *std::bit_cast<float*>(base + rot_base + yaw_property->GetOffset_Internal()) = static_cast<float>(new_rotation.GetYaw());
+                *std::bit_cast<float*>(base + rot_base + roll_property->GetOffset_Internal()) = static_cast<float>(new_rotation.GetRoll());
+            }
+            else
+            {
+                *std::bit_cast<double*>(base + loc_base + x_property->GetOffset_Internal()) = new_location.X();
+                *std::bit_cast<double*>(base + loc_base + y_property->GetOffset_Internal()) = new_location.Y();
+                *std::bit_cast<double*>(base + loc_base + z_property->GetOffset_Internal()) = new_location.Z();
+                *std::bit_cast<double*>(base + rot_base + pitch_property->GetOffset_Internal()) = new_rotation.GetPitch();
+                *std::bit_cast<double*>(base + rot_base + yaw_property->GetOffset_Internal()) = new_rotation.GetYaw();
+                *std::bit_cast<double*>(base + rot_base + roll_property->GetOffset_Internal()) = new_rotation.GetRoll();
+            }
+
+            *std::bit_cast<bool*>(base + sweep_property->GetOffset_Internal()) = false;
+            *std::bit_cast<bool*>(base + teleport_property->GetOffset_Internal()) = true;
+
+            actor->ProcessEvent(function, params_buffer.data());
+        }
     } // namespace
 
     Plugin::Plugin() : CppUserModBase()
@@ -362,6 +585,19 @@ namespace MeshGhostPseudo
                 Output::send(STR("[MeshGhostPseudo] HOOK: LoadMap PRE fired.\n"));
                 log_remote_state(STR("LoadMap PRE, before release"));
                 release_all_ghosts(STR("LoadMap PRE"));
+
+                // Crash fix, found live 2026-08-13: entering a new area crashed with
+                // EXCEPTION_ACCESS_VIOLATION inside the camera fight-back hook. last_known_good_
+                // view_target is a raw AActor* cached across calls -- calling ->IsUnreachable() on
+                // it (the existing staleness check) dereferences the object's own memory, which is
+                // only safe if the object is merely GC-unreachable-but-still-allocated, not if a
+                // level transition has actually freed it. Unlike Lua's IsValid() (which checks a
+                // separate live-object registry before ever touching the object's own memory,
+                // see actor_is_alive's comment), there is no safe way to test a raw AActor* for
+                // "has this been fully freed" here -- so never let the pointer survive into a
+                // transition in the first place. Same reasoning as release_all_ghosts above, just
+                // for the camera's cached reference instead of the ghosts' own.
+                last_known_good_view_target = nullptr;
             },
             Hook::FCallbackOptions{.OwnerModName = STR("MeshGhostPseudo"), .HookName = STR("ReleaseGhostsBeforeLoadMap")});
         Hook::RegisterLoadMapPostCallback(
@@ -629,6 +865,53 @@ namespace MeshGhostPseudo
             return;
         }
 
+        // Facing-direction investigation, 2026-08-13: bisecting whether the ghost's
+        // CapsuleComponent RelativeRotation is already garbage right at spawn (before Possess,
+        // collision, or any redraw-loop write ever touches it) or develops later. Read-only,
+        // fires once per spawn. Also checking the ghost's own bOrientRotationToMovement here since
+        // it's nearly free once this block exists -- confirmed true on the real player already,
+        // never checked on the ghost.
+        {
+            Output::send(STR("[MeshGhostPseudo] DIAG: spawn_rot passed to SpawnActor = (pitch={}, yaw={}, roll={})\n"),
+                         spawn_rot.GetPitch(), spawn_rot.GetYaw(), spawn_rot.GetRoll());
+            if (UObject** spawn_capsule_ptr = ghost->GetValuePtrByPropertyNameInChain<UObject*>(STR("CapsuleComponent")); spawn_capsule_ptr && *spawn_capsule_ptr)
+            {
+                if (FRotator* spawn_capsule_rot = (*spawn_capsule_ptr)->GetValuePtrByPropertyNameInChain<FRotator>(STR("RelativeRotation")))
+                {
+                    Output::send(STR("[MeshGhostPseudo] DIAG: ghost CapsuleComponent RelativeRotation immediately after SpawnActor = (pitch={}, yaw={}, roll={})\n"),
+                                 spawn_capsule_rot->GetPitch(), spawn_capsule_rot->GetYaw(), spawn_capsule_rot->GetRoll());
+                }
+                else
+                {
+                    Output::send(STR("[MeshGhostPseudo] DIAG: ghost CapsuleComponent has no reflected RelativeRotation property.\n"));
+                }
+            }
+            else
+            {
+                Output::send(STR("[MeshGhostPseudo] DIAG: ghost has no reflected CapsuleComponent immediately after SpawnActor.\n"));
+            }
+            if (UObject** spawn_movement_ptr = ghost->GetValuePtrByPropertyNameInChain<UObject*>(STR("CharacterMovement")); spawn_movement_ptr && *spawn_movement_ptr)
+            {
+                if (bool* spawn_orient_ptr = (*spawn_movement_ptr)->GetValuePtrByPropertyNameInChain<bool>(STR("bOrientRotationToMovement")))
+                {
+                    Output::send(STR("[MeshGhostPseudo] DIAG: ghost CharacterMovement bOrientRotationToMovement = {} -- forcing to false\n"), *spawn_orient_ptr);
+                    // Facing-direction fix attempt, 2026-08-13: confirmed via the spawn-time DIAG
+                    // above that CapsuleComponent RelativeRotation is CORRECT immediately after
+                    // SpawnActor (matches spawn_rot exactly) and only goes garbage sometime after
+                    // -- ruling out spawn-time corruption. bOrientRotationToMovement=true (real
+                    // player has this too) is the leading remaining candidate: the ghost is
+                    // teleported, not driven by real movement input, so its
+                    // CharacterMovementComponent's own internal velocity tracking is presumably
+                    // near-zero/bogus -- if the component re-derives rotation from that every
+                    // tick, it would explain rotation starting correct then being overwritten with
+                    // garbage shortly after, independent of our own explicit rotation writes.
+                    // Forcing this false leaves K2_SetActorLocationAndRotation as the sole source
+                    // of truth for the ghost's rotation.
+                    *spawn_orient_ptr = false;
+                }
+            }
+        }
+
         // Auto-possess safety fix (Phase 7.4, agent_docs/pitfalls.md's "Spawned actors
         // auto-possessing" -- BP_PlayerGoatMain_C auto-possesses on spawn and will otherwise steal
         // control from the real player). GetFunctionByNameInChain matches Lua's
@@ -648,7 +931,52 @@ namespace MeshGhostPseudo
             Output::send(STR("[MeshGhostPseudo] WARNING: Controller has no reflected Possess function -- the real player may lose control.\n"));
         }
 
-        ghost->SetActorEnableCollision(false);
+        // Facing-direction bisection, 2026-08-13: rotation is confirmed correct immediately after
+        // SpawnActor (the DIAG block above) but garbage by the time the redraw loop reads it.
+        // bOrientRotationToMovement=false didn't change that. Next candidate: the ghost briefly
+        // auto-possesses itself on spawn (this whole Possess() call above exists specifically to
+        // hand control back), so this checks whether the corruption happens during/because of
+        // that possess/un-possess cycle -- reading right after it, before anything else
+        // (collision, animation writes) touches the ghost.
+        if (UObject** post_possess_capsule_ptr = ghost->GetValuePtrByPropertyNameInChain<UObject*>(STR("CapsuleComponent")); post_possess_capsule_ptr && *post_possess_capsule_ptr)
+        {
+            if (FRotator* post_possess_rot = (*post_possess_capsule_ptr)->GetValuePtrByPropertyNameInChain<FRotator>(STR("RelativeRotation")))
+            {
+                Output::send(STR("[MeshGhostPseudo] DIAG: ghost CapsuleComponent RelativeRotation immediately after Possess() = (pitch={}, yaw={}, roll={})\n"),
+                             post_possess_rot->GetPitch(), post_possess_rot->GetYaw(), post_possess_rot->GetRoll());
+            }
+        }
+
+        ghost->SetActorEnableCollision(GHOST_COLLISION_ENABLED);
+
+        // Physical-solidity attempt -- see call_set_collision_response_to_channel's own comment.
+        // STILL DOES NOT ADDRESS THE MELEE-DAMAGE RISK from the earlier collision test (see
+        // agent_docs/risks.md) -- this only adds a Block response on the standard Pawn channel on
+        // top of whatever collision was already enabled; it does not touch whatever channel the
+        // real player's melee hit-detection actually queries, which is still unidentified. Only
+        // meaningful while GHOST_COLLISION_ENABLED is true.
+        if constexpr (GHOST_COLLISION_ENABLED)
+        {
+            // ECollisionChannel::ECC_Pawn = 2, ECollisionResponse::ECR_Block = 2 -- stable public
+            // UE engine constants (Engine/EngineTypes.h), not this game's own data, unchanged
+            // since UE4's initial public release.
+            constexpr uint8_t ECC_PAWN = 2;
+            constexpr uint8_t ECR_BLOCK = 2;
+            if (UObject** ghost_capsule_ptr = ghost->GetValuePtrByPropertyNameInChain<UObject*>(STR("CapsuleComponent")); ghost_capsule_ptr && *ghost_capsule_ptr)
+            {
+                UObject* ghost_capsule = *ghost_capsule_ptr;
+                UFunction* set_response_fn = ghost_capsule->GetFunctionByNameInChain(STR("SetCollisionResponseToChannel"));
+                if (set_response_fn)
+                {
+                    call_set_collision_response_to_channel(ghost_capsule, set_response_fn, ECC_PAWN, ECR_BLOCK);
+                    Output::send(STR("[MeshGhostPseudo] attempted SetCollisionResponseToChannel(Pawn, Block) on ghost capsule for remote {}.\n"), to_wide_ascii(player_id));
+                }
+                else
+                {
+                    Output::send(STR("[MeshGhostPseudo] WARNING: ghost CapsuleComponent has no reflected SetCollisionResponseToChannel function.\n"));
+                }
+            }
+        }
 
         any_ghost_ever_spawned = true; // gates the camera fight-back hook -- see its own comment
 
@@ -686,6 +1014,19 @@ namespace MeshGhostPseudo
             double pitch = 0, yaw = 0, roll = 0;
             json_vec3_field(line, "orientation", pitch, yaw, roll); // best-effort, defaults to 0
 
+            // Animation-state mirror (see verified.md's "ghost animation" entry) -- best-effort,
+            // each defaults to 0 if missing (e.g. an older peer build without this field yet).
+            double move_state = 0, action_state = 0, h_speed = 0, v_speed = 0, anim_jump_type = 0, movement_mode = 0;
+            json_number_field(line, "move_state", move_state);
+            json_number_field(line, "action_state", action_state);
+            json_number_field(line, "h_speed", h_speed);
+            json_number_field(line, "v_speed", v_speed);
+            json_number_field(line, "anim_jump_type", anim_jump_type);
+            json_number_field(line, "movement_mode", movement_mode);
+            double landed = 0, jumped = 0;
+            json_number_field(line, "landed", landed);
+            json_number_field(line, "jumped", jumped);
+
             if constexpr (SPAWN_BASED_GHOSTS)
             {
                 ensure_ghost_spawned(player_id, local_pawn, local_controller);
@@ -703,6 +1044,14 @@ namespace MeshGhostPseudo
                 it->second.target_pitch = pitch;
                 it->second.target_yaw = yaw;
                 it->second.target_roll = roll;
+                it->second.target_move_state = move_state;
+                it->second.target_action_state = action_state;
+                it->second.target_h_speed = h_speed;
+                it->second.target_v_speed = v_speed;
+                it->second.target_anim_jump_type = anim_jump_type;
+                it->second.target_movement_mode = movement_mode;
+                it->second.target_landed = landed != 0;
+                it->second.target_jumped = jumped != 0;
             }
         }
         else if (type == "despawn_remote")
@@ -730,19 +1079,67 @@ namespace MeshGhostPseudo
         {
             auto* pawn = static_cast<AActor*>(pawn_obj);
             FVector pawn_loc = pawn->K2_GetActorLocation();
+            FRotator pawn_rot = pawn->K2_GetActorRotation();
             current_world = static_cast<UWorld*>(pawn->GetWorld());
 
-            ensure_ghost_hijacked(LOCAL_OFFSET_TEST_ID, pawn_obj);
+            // Bug found immediately, 2026-08-13: this path bypasses game_thread_tick's normal
+            // body entirely (LOCAL_OFFSET_TEST_MODE's own early return), which is the only place
+            // ticks_since_pawn_valid is normally incremented -- ensure_ghost_spawned's
+            // SPAWN_DELAY_TICKS gate never passed, so no ghost was ever spawning in this mode.
+            // Mirrors the same class_looks_like_player-gated increment used there.
+            if (class_looks_like_player(pawn_obj))
+            {
+                ++ticks_since_pawn_valid;
+            }
+            else
+            {
+                ticks_since_pawn_valid = 0;
+            }
+
+            // User-requested 2026-08-13: wired to the same spawn-based ghost mechanism as the
+            // real networked path (handle_bridge_line's identical if constexpr), so the
+            // facing-direction bug can be reproduced with a single game instance and no relay/
+            // core/bridge processes running, ruling networking out as a variable entirely. Before
+            // this change, LOCAL_OFFSET_TEST_MODE always hijacked an existing level actor instead
+            // -- a structurally different ghost that never exercised SpawnActor at all, so it
+            // couldn't have reproduced this bug regardless of networking.
+            if constexpr (SPAWN_BASED_GHOSTS)
+            {
+                ensure_ghost_spawned(LOCAL_OFFSET_TEST_ID, pawn_obj, controller);
+            }
+            else
+            {
+                ensure_ghost_hijacked(LOCAL_OFFSET_TEST_ID, pawn_obj);
+            }
             auto it = remotes.find(LOCAL_OFFSET_TEST_ID);
             if (it != remotes.end())
             {
                 it->second.target_x = pawn_loc.X() + LOCAL_OFFSET_TEST_X;
                 it->second.target_y = pawn_loc.Y();
                 it->second.target_z = pawn_loc.Z();
+                it->second.target_pitch = pawn_rot.GetPitch();
+                if constexpr (FORCE_ROTATION_CYCLE_TEST)
+                {
+                    // Cycles 0 -> 90 -> 180 -> 270 -> 0 ... on a fixed timer, independent of the
+                    // real player's own facing -- see the constant's own comment.
+                    constexpr double CYCLE_YAWS[] = {0.0, 90.0, 180.0, 270.0};
+                    size_t cycle_index = (tick_count / ROTATION_CYCLE_TICKS) % 4;
+                    if (tick_count % ROTATION_CYCLE_TICKS == 0)
+                    {
+                        Output::send(STR("[MeshGhostPseudo] (local-test) forcing ghost yaw to {}\n"), CYCLE_YAWS[cycle_index]);
+                    }
+                    it->second.target_yaw = CYCLE_YAWS[cycle_index];
+                }
+                else
+                {
+                    // Mirror real rotation -- the original offset-only test never set this at all
+                    // (didn't need to, before facing was in scope).
+                    it->second.target_yaw = pawn_rot.GetYaw();
+                }
+                it->second.target_roll = pawn_rot.GetRoll();
             }
         }
 
-        FHitResult unused_hit_result;
         for (auto& [id, remote] : remotes)
         {
             if (!remote.ghost)
@@ -759,7 +1156,34 @@ namespace MeshGhostPseudo
             }
             FVector target_loc(remote.target_x, remote.target_y, remote.target_z);
             FRotator target_rot(remote.target_pitch, remote.target_yaw, remote.target_roll);
-            remote.ghost->K2_SetActorLocationAndRotation(target_loc, target_rot, false, unused_hit_result, false);
+            // Facing-direction root cause fix, 2026-08-13: the three writes this used to stack
+            // (K2_SetActorLocationAndRotation, K2_SetActorRotation, a direct RelativeRotation
+            // property poke plus a bHiddenInGame render-nudge) were all working around the same
+            // single bug -- the vendored SDK's native rotator marshaling truncates to float on a
+            // double-FRotator (UE5) engine. See call_set_actor_location_and_rotation's own comment
+            // for the full root cause. One correct call replaces all of that.
+            call_set_actor_location_and_rotation(remote.ghost, target_loc, target_rot);
+
+            // Fine-grained bisection for the first 15 ticks after spawn -- see
+            // RemoteGhost::ticks_since_spawn's comment. Logs every tick instead of only every
+            // LOG_INTERVAL_TICKS (~2s), to find out exactly when (if at all, this early)
+            // rotation readback goes from correct to garbage.
+            ++remote.ticks_since_spawn;
+            if (remote.ticks_since_spawn <= 15)
+            {
+                double reflected_yaw_early = -9999.0;
+                if (UObject** early_capsule_ptr = remote.ghost->GetValuePtrByPropertyNameInChain<UObject*>(STR("CapsuleComponent")); early_capsule_ptr && *early_capsule_ptr)
+                {
+                    if (FRotator* early_rot = (*early_capsule_ptr)->GetValuePtrByPropertyNameInChain<FRotator>(STR("RelativeRotation")))
+                    {
+                        reflected_yaw_early = early_rot->GetYaw();
+                    }
+                }
+                Output::send(STR("[MeshGhostPseudo] (local-test) EARLY remote {} tick {} since spawn: reflected_yaw={}\n"),
+                             to_wide_ascii(id),
+                             remote.ticks_since_spawn,
+                             reflected_yaw_early);
+            }
 
             if (tick_count % LOG_INTERVAL_TICKS == 0)
             {
@@ -773,6 +1197,23 @@ namespace MeshGhostPseudo
                              actual_loc.Y(),
                              actual_loc.Z());
 
+                // Same rotation trace as game_thread_tick's real networked path, for a true
+                // no-networking repro of the facing-direction investigation.
+                FRotator actual_rot = remote.ghost->K2_GetActorRotation();
+                double reflected_yaw = -9999.0;
+                if (UObject** g_capsule_ptr = remote.ghost->GetValuePtrByPropertyNameInChain<UObject*>(STR("CapsuleComponent")); g_capsule_ptr && *g_capsule_ptr)
+                {
+                    if (FRotator* g_relative_rot = (*g_capsule_ptr)->GetValuePtrByPropertyNameInChain<FRotator>(STR("RelativeRotation")))
+                    {
+                        reflected_yaw = g_relative_rot->GetYaw();
+                    }
+                }
+                Output::send(STR("[MeshGhostPseudo] (local-test) TRACE remote {} yaw: sent={} K2_actual={} reflected_actual={}\n"),
+                             to_wide_ascii(id),
+                             target_rot.GetYaw(),
+                             actual_rot.GetYaw(),
+                             reflected_yaw);
+
                 bool* hidden_ptr = remote.ghost->GetValuePtrByPropertyNameInChain<bool>(STR("bHidden"));
                 if (hidden_ptr)
                 {
@@ -781,6 +1222,188 @@ namespace MeshGhostPseudo
                 }
             }
         }
+    }
+
+    // See declaration comment in Plugin.hpp. Uses the real native reflection API
+    // (TFieldRange<FProperty>, RE-UE4SS/deps/first/Unreal/include/.../UnrealType.hpp:3117 defines
+    // the template; usage grounded against RE-UE4SS/UE4SS/src/GUI/Dumpers.cpp:412, which iterates
+    // a live UObject's class the same way for its own property-value dumper), not the Lua-exposed
+    // UStruct:ForEachProperty binding -- that binding is confirmed missing on this exact installed
+    // build (v3.0.1 Beta, SHA 733e5969; see phase7.md's BP_PlayerCam_C investigation, "attempt to
+    // call a nil value" on every call). This walks real UStruct::ChildProperties memory directly,
+    // via our own statically-linked, version-matched copy of the reflection code, so it isn't
+    // subject to that gap.
+    auto Plugin::log_pawn_reflection_once(AActor* pawn) -> void
+    {
+        if (pawn_reflection_logged || !pawn)
+        {
+            return;
+        }
+        pawn_reflection_logged = true;
+
+        UClass* pawn_class = pawn->GetClassPrivate();
+        if (!pawn_class)
+        {
+            Output::send(STR("[MeshGhostPseudo] DIAG: local pawn has no class, cannot reflect.\n"));
+            return;
+        }
+
+        Output::send(STR("[MeshGhostPseudo] DIAG: reflecting local pawn class {}\n"), pawn_class->GetFullName());
+        for (FProperty* property : TFieldRange<FProperty>(pawn_class, EFieldIterationFlags::Default))
+        {
+            if (!property)
+            {
+                continue;
+            }
+            Output::send(STR("[MeshGhostPseudo] DIAG: property '{}' ({})\n"), property->GetName(), property->GetClass().GetName());
+        }
+        Output::send(STR("[MeshGhostPseudo] DIAG: end of pawn reflection dump.\n"));
+
+        // Follow-up per user request: animBPref looked like the pawn's reference to its own anim
+        // Blueprint instance -- confirm what class it actually points to (and what fields THAT
+        // class exposes) before assuming moveState/actionState/horizontalSpeed/verticalSpeed on
+        // the pawn are really what drives it, rather than something else entirely.
+        UObject** anim_bp_ptr = pawn->GetValuePtrByPropertyNameInChain<UObject*>(STR("animBPref"));
+        if (!anim_bp_ptr || !*anim_bp_ptr)
+        {
+            Output::send(STR("[MeshGhostPseudo] DIAG: animBPref is null or property not found on the pawn instance.\n"));
+            return;
+        }
+        UObject* anim_bp = *anim_bp_ptr;
+        UClass* anim_bp_class = anim_bp->GetClassPrivate();
+        if (!anim_bp_class)
+        {
+            Output::send(STR("[MeshGhostPseudo] DIAG: animBPref value has no class.\n"));
+            return;
+        }
+        Output::send(STR("[MeshGhostPseudo] DIAG: animBPref points to instance '{}' of class {}\n"),
+                     anim_bp->GetFullName(),
+                     anim_bp_class->GetFullName());
+        for (FProperty* property : TFieldRange<FProperty>(anim_bp_class, EFieldIterationFlags::Default))
+        {
+            if (!property)
+            {
+                continue;
+            }
+            Output::send(STR("[MeshGhostPseudo] DIAG: animBPref property '{}' ({})\n"), property->GetName(), property->GetClass().GetName());
+        }
+        Output::send(STR("[MeshGhostPseudo] DIAG: end of animBPref reflection dump.\n"));
+
+        // Follow-up, 2026-08-13: user reports the spawned ghost gets stuck in a "flying"/airborne
+        // idle pose after jumping (a slide forcibly resets it back to grounded). Leading theory:
+        // the ghost's SetActorEnableCollision(false) (ensure_ghost_spawned, added deliberately so
+        // the ghost never physically pushes/blocks the real player) means its own real
+        // CharacterMovementComponent can never detect ground contact -- if the AnimBP's
+        // fall-to-land transition reads that component's real grounded state directly (separate
+        // from the moveState byte we already mirror), it would get stuck exactly this way. Confirm
+        // the component and its real property names before assuming this rather than guessing at
+        // a property name to poke.
+        UObject** movement_ptr = pawn->GetValuePtrByPropertyNameInChain<UObject*>(STR("CharacterMovement"));
+        if (!movement_ptr || !*movement_ptr)
+        {
+            Output::send(STR("[MeshGhostPseudo] DIAG: CharacterMovement is null or property not found on the pawn instance.\n"));
+            return;
+        }
+        UObject* movement = *movement_ptr;
+        UClass* movement_class = movement->GetClassPrivate();
+        if (!movement_class)
+        {
+            Output::send(STR("[MeshGhostPseudo] DIAG: CharacterMovement value has no class.\n"));
+            return;
+        }
+        Output::send(STR("[MeshGhostPseudo] DIAG: CharacterMovement points to instance '{}' of class {}\n"),
+                     movement->GetFullName(),
+                     movement_class->GetFullName());
+        for (FProperty* property : TFieldRange<FProperty>(movement_class, EFieldIterationFlags::Default))
+        {
+            if (!property)
+            {
+                continue;
+            }
+            Output::send(STR("[MeshGhostPseudo] DIAG: CharacterMovement property '{}' ({})\n"), property->GetName(), property->GetClass().GetName());
+        }
+        Output::send(STR("[MeshGhostPseudo] DIAG: end of CharacterMovement reflection dump.\n"));
+
+        // Follow-up, 2026-08-13: user asked how to make the ghost physically solid after the
+        // collision test showed SetActorEnableCollision(true) let the ghost be hit/killed but did
+        // NOT make it block the real player's movement. Standard UE mechanism: collision
+        // enable/disable is separate from per-channel collision RESPONSE (Block/Overlap/Ignore) --
+        // likely this class's capsule responds to the Pawn channel with Overlap, not Block, which
+        // is why melee could hit it (an overlap query) but walking into it did nothing. Dumping
+        // CapsuleComponent's own top-level properties to see what's actually configured before
+        // guessing at a channel/response to change -- the detailed per-channel response data lives
+        // inside BodyInstance (a UE-internal struct not exposed in this SDK's minimal headers), so
+        // this may only get us part of the way; logged either way rather than assumed.
+        UObject** capsule_ptr = pawn->GetValuePtrByPropertyNameInChain<UObject*>(STR("CapsuleComponent"));
+        if (!capsule_ptr || !*capsule_ptr)
+        {
+            Output::send(STR("[MeshGhostPseudo] DIAG: CapsuleComponent is null or property not found on the pawn instance.\n"));
+            return;
+        }
+        UObject* capsule = *capsule_ptr;
+        UClass* capsule_class = capsule->GetClassPrivate();
+        if (!capsule_class)
+        {
+            Output::send(STR("[MeshGhostPseudo] DIAG: CapsuleComponent value has no class.\n"));
+            return;
+        }
+        Output::send(STR("[MeshGhostPseudo] DIAG: CapsuleComponent points to instance '{}' of class {}\n"),
+                     capsule->GetFullName(),
+                     capsule_class->GetFullName());
+        for (FProperty* property : TFieldRange<FProperty>(capsule_class, EFieldIterationFlags::Default))
+        {
+            if (!property)
+            {
+                continue;
+            }
+            Output::send(STR("[MeshGhostPseudo] DIAG: CapsuleComponent property '{}' ({})\n"), property->GetName(), property->GetClass().GetName());
+        }
+        Output::send(STR("[MeshGhostPseudo] DIAG: end of CapsuleComponent reflection dump.\n"));
+
+        // Follow-up, 2026-08-13: facing-direction investigation. The capsule's own RelativeRotation
+        // read back as implausible garbage via two independent methods (K2_GetActorRotation() and
+        // direct property reflection), while the ghost visually stays stable in one direction --
+        // suggesting this game doesn't drive visual character facing through capsule/actor
+        // rotation at all. `VisualMesh` (found in the top-level pawn property dump above) is the
+        // likely candidate for wherever facing actually lives -- dumping its properties and, since
+        // a scale-based left/right flip is a common pattern in games with wallRight?/leftAttack?-
+        // style directional properties (already seen on the pawn), also printing its actual
+        // RelativeRotation and RelativeScale3D values directly, not just names.
+        UObject** visual_mesh_ptr = pawn->GetValuePtrByPropertyNameInChain<UObject*>(STR("VisualMesh"));
+        if (!visual_mesh_ptr || !*visual_mesh_ptr)
+        {
+            Output::send(STR("[MeshGhostPseudo] DIAG: VisualMesh is null or property not found on the pawn instance.\n"));
+            return;
+        }
+        UObject* visual_mesh = *visual_mesh_ptr;
+        UClass* visual_mesh_class = visual_mesh->GetClassPrivate();
+        if (!visual_mesh_class)
+        {
+            Output::send(STR("[MeshGhostPseudo] DIAG: VisualMesh value has no class.\n"));
+            return;
+        }
+        Output::send(STR("[MeshGhostPseudo] DIAG: VisualMesh points to instance '{}' of class {}\n"),
+                     visual_mesh->GetFullName(),
+                     visual_mesh_class->GetFullName());
+        for (FProperty* property : TFieldRange<FProperty>(visual_mesh_class, EFieldIterationFlags::Default))
+        {
+            if (!property)
+            {
+                continue;
+            }
+            Output::send(STR("[MeshGhostPseudo] DIAG: VisualMesh property '{}' ({})\n"), property->GetName(), property->GetClass().GetName());
+        }
+        if (FRotator* vm_rot = visual_mesh->GetValuePtrByPropertyNameInChain<FRotator>(STR("RelativeRotation")))
+        {
+            Output::send(STR("[MeshGhostPseudo] DIAG: VisualMesh RelativeRotation = (pitch={}, yaw={}, roll={})\n"),
+                         vm_rot->GetPitch(), vm_rot->GetYaw(), vm_rot->GetRoll());
+        }
+        if (FVector* vm_scale = visual_mesh->GetValuePtrByPropertyNameInChain<FVector>(STR("RelativeScale3D")))
+        {
+            Output::send(STR("[MeshGhostPseudo] DIAG: VisualMesh RelativeScale3D = (x={}, y={}, z={})\n"),
+                         vm_scale->X(), vm_scale->Y(), vm_scale->Z());
+        }
+        Output::send(STR("[MeshGhostPseudo] DIAG: end of VisualMesh reflection dump.\n"));
     }
 
     // Runs on the real game thread (registered via RegisterEngineTickPostCallback in
@@ -818,6 +1441,7 @@ namespace MeshGhostPseudo
             if (class_looks_like_player(pawn_obj))
             {
                 ++ticks_since_pawn_valid;
+                log_pawn_reflection_once(static_cast<AActor*>(pawn_obj));
             }
             else
             {
@@ -845,19 +1469,133 @@ namespace MeshGhostPseudo
                 }
             }
 
-            // anim: placeholder per 7.3's decision, not a final vocabulary -- real playback
-            // is 7.6's problem. "idle" is enough to prove the wire shape end to end.
+            // Real animation state (see verified.md's "ghost animation" entry): read straight off
+            // the fields the pawn's own ABP_PlayerGoat_C anim instance mirrors every tick,
+            // confirmed by name via the read-only reflection dump (log_pawn_reflection_once).
+            // "anim" itself stays the 7.3 placeholder -- this data travels via "extras" instead
+            // (Extras is the established opaque-structured-data field, e.g. Emerald's
+            // extras.gender, so no core/protocol change is needed).
+            uint8_t* move_state_ptr = pawn->GetValuePtrByPropertyNameInChain<uint8_t>(STR("moveState"));
+            uint8_t* action_state_ptr = pawn->GetValuePtrByPropertyNameInChain<uint8_t>(STR("actionState"));
+            double* h_speed_ptr = pawn->GetValuePtrByPropertyNameInChain<double>(STR("horizontalSpeed"));
+            double* v_speed_ptr = pawn->GetValuePtrByPropertyNameInChain<double>(STR("verticalSpeed"));
+            uint8_t* anim_jump_type_ptr = pawn->GetValuePtrByPropertyNameInChain<uint8_t>(STR("animJumpType"));
+
+            // "Stuck flying after jump" fix (see RemoteGhost::target_movement_mode's comment):
+            // also mirror the real CharacterMovementComponent's own MovementMode byte, confirmed
+            // via reflection to be a real property on this build's stock component.
+            uint8_t movement_mode = 0;
+            bool orient_rotation_to_movement = false;
+            if (UObject** movement_ptr = pawn->GetValuePtrByPropertyNameInChain<UObject*>(STR("CharacterMovement")); movement_ptr && *movement_ptr)
+            {
+                if (uint8_t* movement_mode_ptr = (*movement_ptr)->GetValuePtrByPropertyNameInChain<uint8_t>(STR("MovementMode")))
+                {
+                    movement_mode = *movement_mode_ptr;
+                }
+                // Facing-direction investigation, 2026-08-13: if this is true, the ghost's own
+                // CharacterMovementComponent may re-derive rotation from its own (near-zero, since
+                // it's teleported not driven by real input) internal velocity every tick, fighting
+                // our explicit K2_SetActorLocationAndRotation yaw write -- confirmed as a real
+                // property via reflection (log_pawn_reflection_once's CharacterMovement dump), not
+                // guessed at. Checking the real player's own value here, not yet acted on.
+                if (bool* orient_ptr = (*movement_ptr)->GetValuePtrByPropertyNameInChain<bool>(STR("bOrientRotationToMovement")))
+                {
+                    orient_rotation_to_movement = *orient_ptr;
+                }
+            }
+
+            // Untested landed?/jumped? pulse theory -- see RemoteGhost::target_landed's comment.
+            bool* landed_ptr = pawn->GetValuePtrByPropertyNameInChain<bool>(STR("landed?"));
+            bool* jumped_ptr = pawn->GetValuePtrByPropertyNameInChain<bool>(STR("jumped?"));
+            bool landed_now = landed_ptr && *landed_ptr;
+            bool jumped_now = jumped_ptr && *jumped_ptr;
+
+            // Live trace for the "stuck flying after jump, slide resets it" investigation --
+            // reusing the existing ~2s log cadence (LOG_INTERVAL_TICKS) so this can run through a
+            // full jump/stuck/slide/recovered cycle without flooding the log.
+            if (tick_count % LOG_INTERVAL_TICKS == 0)
+            {
+                Output::send(STR("[MeshGhostPseudo] TRACE local: moveState={} actionState={} hSpeed={} vSpeed={} animJumpType={} movementMode={} landed={} jumped={} yaw={} bOrientRotationToMovement={}\n"),
+                             move_state_ptr ? static_cast<int>(*move_state_ptr) : -1,
+                             action_state_ptr ? static_cast<int>(*action_state_ptr) : -1,
+                             h_speed_ptr ? *h_speed_ptr : -1.0,
+                             v_speed_ptr ? *v_speed_ptr : -1.0,
+                             anim_jump_type_ptr ? static_cast<int>(*anim_jump_type_ptr) : -1,
+                             static_cast<int>(movement_mode),
+                             landed_now,
+                             jumped_now,
+                             rotation.GetYaw(),
+                             orient_rotation_to_movement);
+
+                // Facing-direction investigation, continued: is VisualMesh's own
+                // RelativeRotation/RelativeScale3D what actually changes when the real player
+                // turns around? The one-shot dump caught only a single snapshot (yaw=-90,
+                // scale=(1,1,1)) -- logging on the existing trace cadence to see it live across a
+                // real turn.
+                if (UObject** vm_ptr = pawn->GetValuePtrByPropertyNameInChain<UObject*>(STR("VisualMesh")); vm_ptr && *vm_ptr)
+                {
+                    FRotator* vm_rot = (*vm_ptr)->GetValuePtrByPropertyNameInChain<FRotator>(STR("RelativeRotation"));
+                    FVector* vm_scale = (*vm_ptr)->GetValuePtrByPropertyNameInChain<FVector>(STR("RelativeScale3D"));
+                    Output::send(STR("[MeshGhostPseudo] TRACE local VisualMesh: rot=(pitch={},yaw={},roll={}) scale=(x={},y={},z={})\n"),
+                                 vm_rot ? vm_rot->GetPitch() : -9999.0,
+                                 vm_rot ? vm_rot->GetYaw() : -9999.0,
+                                 vm_rot ? vm_rot->GetRoll() : -9999.0,
+                                 vm_scale ? vm_scale->X() : -9999.0,
+                                 vm_scale ? vm_scale->Y() : -9999.0,
+                                 vm_scale ? vm_scale->Z() : -9999.0);
+                }
+                // Missing cross-check: does the REAL PLAYER's own capsule RelativeRotation change
+                // correctly with turning? Only the ghost's capsule rotation was ever confirmed
+                // garbage so far -- if the real player's own capsule rotation tracks turning
+                // correctly here, that means capsule rotation really is the right mechanism and
+                // the bug is specific to the ghost (fixable), not a wrong theory about how this
+                // game drives facing at all.
+                if (UObject** cap_ptr = pawn->GetValuePtrByPropertyNameInChain<UObject*>(STR("CapsuleComponent")); cap_ptr && *cap_ptr)
+                {
+                    if (FRotator* cap_rot = (*cap_ptr)->GetValuePtrByPropertyNameInChain<FRotator>(STR("RelativeRotation")))
+                    {
+                        Output::send(STR("[MeshGhostPseudo] TRACE local CapsuleComponent RelativeRotation: pitch={} yaw={} roll={}\n"),
+                                     cap_rot->GetPitch(), cap_rot->GetYaw(), cap_rot->GetRoll());
+                    }
+                    else
+                    {
+                        Output::send(STR("[MeshGhostPseudo] TRACE local CapsuleComponent RelativeRotation: property not found.\n"));
+                    }
+                }
+            }
+
+            // Latch update + JSON build happen inside one critical section so the "landed"/
+            // "jumped" values baked into local_state always match exactly what the latch held at
+            // that instant -- on_update clears these same members (under the same mutex) only
+            // after it has actually copied cached_local_state_json out, so a "true" latch value is
+            // guaranteed to survive into at least one string on_update sends, even if this
+            // specific tick's pulse would otherwise have been overwritten by the next tick's
+            // build before on_update (a separate thread, different poll rate) ever read it.
+            std::lock_guard<std::mutex> lock(state_mutex);
+            pending_landed_pulse = pending_landed_pulse || landed_now;
+            pending_jumped_pulse = pending_jumped_pulse || jumped_now;
+
             std::string local_state = std::format(
                 "{{\"type\":\"local_state\",\"payload\":{{\"state\":{{\"area_id\":\"{}\",\"position\":[{},{},{}],"
-                "\"orientation\":[{},{},{}],\"anim\":\"idle\"}}}}}}",
+                "\"orientation\":[{},{},{}],\"anim\":\"idle\","
+                "\"extras\":{{\"move_state\":{},\"action_state\":{},\"h_speed\":{},\"v_speed\":{},\"anim_jump_type\":{},\"movement_mode\":{},"
+                "\"landed\":{},\"jumped\":{}}}"
+                "}}}}}}",
                 json_escape(area_id),
                 location.X(),
                 location.Y(),
                 location.Z(),
                 rotation.GetPitch(),
                 rotation.GetYaw(),
-                rotation.GetRoll());
-            std::lock_guard<std::mutex> lock(state_mutex);
+                rotation.GetRoll(),
+                move_state_ptr ? static_cast<int>(*move_state_ptr) : 0,
+                action_state_ptr ? static_cast<int>(*action_state_ptr) : 0,
+                h_speed_ptr ? *h_speed_ptr : 0.0,
+                v_speed_ptr ? *v_speed_ptr : 0.0,
+                anim_jump_type_ptr ? static_cast<int>(*anim_jump_type_ptr) : 0,
+                static_cast<int>(movement_mode),
+                pending_landed_pulse ? 1 : 0,
+                pending_jumped_pulse ? 1 : 0);
             cached_local_state_json = local_state;
         }
         else
@@ -879,7 +1617,6 @@ namespace MeshGhostPseudo
 
         // Redraw every currently-known remote unconditionally, every tick -- per PROTOCOL.md,
         // not only on ticks where new network data arrived.
-        FHitResult unused_hit_result;
         for (auto& [id, remote] : remotes)
         {
             if (!remote.ghost)
@@ -916,10 +1653,87 @@ namespace MeshGhostPseudo
             }
             FVector target_loc(remote.target_x, remote.target_y, remote.target_z);
             FRotator target_rot(remote.target_pitch, remote.target_yaw, remote.target_roll);
-            remote.ghost->K2_SetActorLocationAndRotation(target_loc, target_rot, false, unused_hit_result, false);
+            // Facing-direction root cause fix, 2026-08-13: the real bug was never bTeleport --
+            // it was the vendored SDK's K2_SetActorLocationAndRotation marshaling FRotator's
+            // Pitch/Yaw/Roll as hardcoded float into a double-sized slot on this UE5 game (see
+            // call_set_actor_location_and_rotation's comment for the full root cause). bTeleport
+            // is still true here, matching the local-test path and the "this is a teleport, not a
+            // physics move" reasoning below -- just no longer the fix itself.
+            call_set_actor_location_and_rotation(remote.ghost, target_loc, target_rot);
+
+            // Ghost animation (see verified.md's "ghost animation" entry): the ghost is a full
+            // spawned clone of the same BP_PlayerGoatMain_C class, so it has its own
+            // moveState/actionState/horizontalSpeed/verticalSpeed/animJumpType and its own
+            // already-attached ABP_PlayerGoat_C anim instance mirroring them every tick, same as
+            // the real player. Writing the real player's values onto the ghost's copies each tick
+            // should make the ghost's anim instance drive itself the same way -- no direct AnimBP
+            // writes needed. No-ops safely (nullptr checks) in hijack mode, where the ghost is a
+            // StaticMeshActor with no such properties.
+            if (uint8_t* g_move_state = remote.ghost->GetValuePtrByPropertyNameInChain<uint8_t>(STR("moveState")))
+            {
+                *g_move_state = static_cast<uint8_t>(remote.target_move_state);
+            }
+            if (uint8_t* g_action_state = remote.ghost->GetValuePtrByPropertyNameInChain<uint8_t>(STR("actionState")))
+            {
+                *g_action_state = static_cast<uint8_t>(remote.target_action_state);
+            }
+            if (double* g_h_speed = remote.ghost->GetValuePtrByPropertyNameInChain<double>(STR("horizontalSpeed")))
+            {
+                *g_h_speed = remote.target_h_speed;
+            }
+            if (double* g_v_speed = remote.ghost->GetValuePtrByPropertyNameInChain<double>(STR("verticalSpeed")))
+            {
+                *g_v_speed = remote.target_v_speed;
+            }
+            if (uint8_t* g_anim_jump_type = remote.ghost->GetValuePtrByPropertyNameInChain<uint8_t>(STR("animJumpType")))
+            {
+                *g_anim_jump_type = static_cast<uint8_t>(remote.target_anim_jump_type);
+            }
+            // "Stuck flying after jump" fix -- see RemoteGhost::target_movement_mode's comment.
+            if (UObject** g_movement_ptr = remote.ghost->GetValuePtrByPropertyNameInChain<UObject*>(STR("CharacterMovement")); g_movement_ptr && *g_movement_ptr)
+            {
+                if (uint8_t* g_movement_mode = (*g_movement_ptr)->GetValuePtrByPropertyNameInChain<uint8_t>(STR("MovementMode")))
+                {
+                    *g_movement_mode = static_cast<uint8_t>(remote.target_movement_mode);
+                }
+            }
+            // Untested landed?/jumped? pulse theory -- see RemoteGhost::target_landed's comment.
+            if (bool* g_landed = remote.ghost->GetValuePtrByPropertyNameInChain<bool>(STR("landed?")))
+            {
+                *g_landed = remote.target_landed;
+            }
+            if (bool* g_jumped = remote.ghost->GetValuePtrByPropertyNameInChain<bool>(STR("jumped?")))
+            {
+                *g_jumped = remote.target_jumped;
+            }
 
             if (tick_count % LOG_INTERVAL_TICKS == 0)
             {
+                // Read back what actually stuck on the ghost after our writes above, not just
+                // what we intended to write -- "ran without errors" isn't evidence something took
+                // effect, per CLAUDE.md.
+                uint8_t* rb_move_state = remote.ghost->GetValuePtrByPropertyNameInChain<uint8_t>(STR("moveState"));
+                uint8_t* rb_action_state = remote.ghost->GetValuePtrByPropertyNameInChain<uint8_t>(STR("actionState"));
+                double* rb_v_speed = remote.ghost->GetValuePtrByPropertyNameInChain<double>(STR("verticalSpeed"));
+                int rb_movement_mode = -1;
+                if (UObject** rb_movement_ptr = remote.ghost->GetValuePtrByPropertyNameInChain<UObject*>(STR("CharacterMovement")); rb_movement_ptr && *rb_movement_ptr)
+                {
+                    if (uint8_t* rb_movement_mode_ptr = (*rb_movement_ptr)->GetValuePtrByPropertyNameInChain<uint8_t>(STR("MovementMode")))
+                    {
+                        rb_movement_mode = static_cast<int>(*rb_movement_mode_ptr);
+                    }
+                }
+                Output::send(STR("[MeshGhostPseudo] TRACE remote {}: sent moveState={} actionState={} vSpeed={} movementMode={} | readback moveState={} actionState={} vSpeed={} movementMode={}\n"),
+                             to_wide_ascii(id),
+                             static_cast<int>(remote.target_move_state),
+                             static_cast<int>(remote.target_action_state),
+                             remote.target_v_speed,
+                             static_cast<int>(remote.target_movement_mode),
+                             rb_move_state ? static_cast<int>(*rb_move_state) : -1,
+                             rb_action_state ? static_cast<int>(*rb_action_state) : -1,
+                             rb_v_speed ? *rb_v_speed : -1.0,
+                             rb_movement_mode);
+
                 FVector actual_loc = remote.ghost->K2_GetActorLocation();
                 Output::send(STR("[MeshGhostPseudo] remote {} redraw: intended=({},{},{}) actual=({},{},{})\n"),
                              to_wide_ascii(id),
@@ -929,6 +1743,34 @@ namespace MeshGhostPseudo
                              actual_loc.X(),
                              actual_loc.Y(),
                              actual_loc.Z());
+
+                // Facing-direction investigation, 2026-08-13: read back the ghost's actual yaw
+                // after our K2_SetActorLocationAndRotation write, to see whether it's sticking or
+                // being reverted (e.g. by the ghost's own CharacterMovementComponent, if
+                // bOrientRotationToMovement is fighting it -- see the local-side TRACE log).
+                FRotator actual_rot = remote.ghost->K2_GetActorRotation();
+                // Cross-check via direct property reflection -- K2_GetActorRotation()'s own
+                // readback came back as implausible garbage on a previous run despite
+                // K2_GetActorLocation() on the same object working fine in the same call. This
+                // retry's first version read via RootComponent and got the exact same garbage as
+                // the native call, which (since the ghost visually looks stable, not glitching)
+                // points at reading the wrong object rather than genuinely corrupt data --
+                // RootComponent may not resolve reliably on a freshly spawned actor. Retrying via
+                // CapsuleComponent instead, already proven reliable elsewhere in this file
+                // (log_pawn_reflection_once's dump, the animation-state mirroring code).
+                double reflected_yaw = -9999.0;
+                if (UObject** g_capsule_ptr = remote.ghost->GetValuePtrByPropertyNameInChain<UObject*>(STR("CapsuleComponent")); g_capsule_ptr && *g_capsule_ptr)
+                {
+                    if (FRotator* g_relative_rot = (*g_capsule_ptr)->GetValuePtrByPropertyNameInChain<FRotator>(STR("RelativeRotation")))
+                    {
+                        reflected_yaw = g_relative_rot->GetYaw();
+                    }
+                }
+                Output::send(STR("[MeshGhostPseudo] TRACE remote {} yaw: sent={} K2_actual={} reflected_actual={}\n"),
+                             to_wide_ascii(id),
+                             target_rot.GetYaw(),
+                             actual_rot.GetYaw(),
+                             reflected_yaw);
 
                 bool* hidden_ptr = remote.ghost->GetValuePtrByPropertyNameInChain<bool>(STR("bHidden"));
                 if (hidden_ptr)
@@ -981,6 +1823,12 @@ namespace MeshGhostPseudo
             {
                 std::lock_guard<std::mutex> lock(state_mutex);
                 local_state_to_send = cached_local_state_json;
+                // Clear the landed?/jumped? latches now that this snapshot -- which already has
+                // whatever value they held baked into it -- is about to actually be sent. See
+                // pending_landed_pulse's own comment in Plugin.hpp for why this can't just happen
+                // in game_thread_tick.
+                pending_landed_pulse = false;
+                pending_jumped_pulse = false;
             }
             if (!local_state_to_send.empty())
             {

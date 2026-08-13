@@ -1605,3 +1605,109 @@ Copy this block per fact:
   was found immediately after this confirmation, when entering a new area — see `pitfalls.md`/the
   next phase7.md entry for the fix; this entry covers only the two behaviors explicitly confirmed
   live above, not area-transition safety.
+
+### C++ mod: area-transition crash fixed by clearing the cached camera pointer before LoadMap
+
+- Date: 2026-08-13
+- Observed: with `last_known_good_view_target = nullptr;` added to the existing `LoadMap PRE`
+  hook (before the transition can free the cached `AActor*`), user ran a full session covering
+  every transition the earlier crash could hit: entering the second area worked fine, returning
+  to the first area worked fine, exiting to the main menu and pressing "play" again worked fine,
+  and normal game exit at the end had no issue. No crashes anywhere.
+- Source: `adapters/pseudoregalia/MeshGhostPseudo/Mod/src/Plugin.cpp`, the `LoadMap PRE` callback
+  registered via `Hook::RegisterLoadMapPostCallback` (same hook `release_all_ghosts` already used).
+- Notes: closes the `EXCEPTION_ACCESS_VIOLATION` crash logged in the previous entry's notes.
+  Rebuilt via `cmake --build . --config Game__Shipping__Win64` (0 errors), deployed to
+  `ue4ss\Mods\MeshGhostPseudo\dlls\main.dll`, deploy confirmed via `Get-FileHash` matching the
+  build output exactly, before this test.
+
+### C++ mod: ghost animation state (moveState/actionState/speeds/movementMode) mirrors correctly
+
+- Date: 2026-08-13
+- Observed: with the ghost's `moveState`/`actionState`/`horizontalSpeed`/`verticalSpeed`/
+  `animJumpType`/`CharacterMovement->MovementMode` written each tick from the real player's own
+  values (sent via `extras`, the same opaque-structured-data field Emerald's `extras.gender`
+  already uses), user confirmed live: the previously-stiff, non-animating ghost now plays real
+  walk/run/idle animations tracking the real player, over a real relay/core/bridge loopback
+  round trip. A live trace (`TRACE remote` log lines) also confirmed the writes genuinely stick
+  — read-back values after each write exactly matched what was sent, not just "no error."
+- Source: `adapters/pseudoregalia/MeshGhostPseudo/Mod/src/Plugin.cpp`, `game_thread_tick`'s
+  local-state build and per-remote redraw loop. Field names confirmed via a read-only native
+  reflection dump (`log_pawn_reflection_once`, `TFieldRange<FProperty>`) of the real pawn class
+  and its `animBPref`-referenced `ABP_PlayerGoat_C` AnimBlueprint instance, not guessed — the
+  AnimBP has its own near-exact-name-mirrored locals (`Move State`, `Vertical Speed`, etc.),
+  consistent with the standard UE pattern of an AnimBP's Blueprint logic copying state off its
+  owning pawn every tick.
+- Notes: **not fully solved** — the ghost still gets stuck in a falling/airborne pose after
+  landing (a slide forces a reset; two separate fix attempts, mirroring `MovementMode` and
+  mirroring `landed?`/`jumped?` as latched one-shot pulses, both failed live), can't grab
+  ledges, and does not turn to face different directions (a separate, previously-unnoticed
+  issue). See `agent_docs/plans.md`'s deferred animation-polish note and `agent_docs/risks.md`'s
+  ghost-collision entry for why collision was tried and reverted as a possible fix for the first
+  two.
+
+### C++ mod: ghost facing-direction fix — vendored SDK marshaled FRotator as float on a UE5 game
+
+- Date: 2026-08-13
+- Observed: with `FORCE_ROTATION_CYCLE_TEST = true` (forces the ghost's target yaw through
+  0/90/180/270 on a ~3s timer, independent of the real player's own facing) and the new
+  `call_set_actor_location_and_rotation` helper routing the ghost's rotation write, user
+  confirmed live, verbatim: "it works!, the ghost is turning around." `UE4SS.log` cross-check
+  from the same run shows the previously-garbage readback replaced by exact agreement between
+  sent and reflected values at every step, e.g. `forcing ghost yaw to 180` immediately followed
+  by `TRACE remote local-test yaw: sent=180 K2_actual=180 reflected_actual=180`, and
+  `sent=270 K2_actual=-90.00000000000001 reflected_actual=-90.00000000000003` (270° and -90° are
+  the same angle — expected normalization, not an error). The one-time diagnostic line
+  `call_set_actor_location_and_rotation: NewLocation@0 NewRotation@24 inner_type=double
+  parms_size=296` confirms the helper resolved real reflected offsets and chose the `double` path
+  for this UE 5.1 build, as intended.
+- Source: `adapters/pseudoregalia/MeshGhostPseudo/Mod/src/Plugin.cpp`,
+  `call_set_actor_location_and_rotation` (new helper) and its two call sites in
+  `run_local_offset_test_tick` and `game_thread_tick`. Root cause traced to
+  `RE-UE4SS/deps/first/Unreal/src/AActor.cpp`'s `K2_SetActorLocationAndRotation` /
+  `K2_SetActorRotation`, which marshal `FRotator`'s `Pitch`/`Yaw`/`Roll` as hardcoded `float`
+  into the reflected parameter buffer (`UE_COPY_STRUCT_INNER_PROPERTY(..., float, ...)` at
+  `AActor.cpp:120-130` and `:92-105`), unlike `FVector`'s `X`/`Y`/`Z`, which correctly branch on
+  engine version via `UE_COPY_VECTOR`
+  (`RE-UE4SS/deps/first/Unreal/include/Unreal/BPMacros.hpp:120-132`). Pseudoregalia is UE 5.1
+  (confirmed in `phase7.md`'s 7.0 entry), where the real `FRotator` fields are `double` — writing
+  a 4-byte float into an 8-byte slot of a zeroed buffer produces a denormal
+  (`90.0f`'s bit pattern in a zeroed double slot is exactly `5.529052754e-315`, matching the
+  `~5.5e-315` garbage logged during the investigation to three significant figures).
+- Notes: fixed with a local, version-aware helper in `Plugin.cpp` rather than patching the SDK —
+  `RE-UE4SS` is a git submodule (pinned at `733e5969`), so this repo tracks only its commit, never
+  its file contents; an SDK patch could not be committed here at all. The helper only covers
+  `K2_SetActorLocationAndRotation`, the one rotation-writing function this file calls — the same
+  bug affects `K2_SetActorRotation` and presumably other native `FRotator`-taking functions in
+  this SDK; do not assume any of those are safe without routing through an equivalent helper. See
+  `agent_docs/pitfalls.md`. A separate, unrelated sign error found in the same investigation
+  (`FRotator::Quaternion()`, `Rotator.hpp:158`, missing a negation on the `Y` term) is harmless
+  for this pawn (pitch/roll are confirmed always zero, per Phase 7.1) and was left unfixed.
+  **Real-networked-path verification, same day, follow-up**: with `LOCAL_OFFSET_TEST_MODE`/
+  `FORCE_ROTATION_CYCLE_TEST` flipped back to `false` (real bridge/relay/core loopback, ghost
+  mirroring the real player's own yaw instead of a forced cycle), user confirmed live: "its
+  following properly now" — the ghost's facing now tracks the real player's turning, closing the
+  gap this entry originally left open. See the new entry below for what this fix additionally,
+  unexpectedly enabled and surfaced.
+
+### C++ mod: facing-direction fix also fixed ledge-grab, and exposed a pre-existing stuck-animation bug
+
+- Date: 2026-08-13
+- Observed: with the facing-direction fix confirmed over the real networked path (previous
+  entry), user reported the ghost "managed to grab onto a ledge now when the facing was fixed"
+  — ledge-grab, one of the two animation gaps left open by the same day's earlier "ghost
+  animation state" entry, was never a separate bug; it depended on the ghost's rotation actually
+  reaching the renderer; e.g. plausibly UE's ledge-grab detection needs the character's facing to
+  be geometrically correct to trace against. Also newly visible now that ledge interactions work
+  at all: the ghost gets stuck in the ledge-hang animation after the real player has already let
+  go and moved away. The other known-open animation bug — getting stuck in a falling pose after
+  landing — is unaffected by this fix and still reproduces exactly as before.
+- Source: `adapters/pseudoregalia/MeshGhostPseudo/Mod/src/Plugin.cpp`,
+  `call_set_actor_location_and_rotation` (see previous entry) and the animation-mirroring block
+  in `game_thread_tick` (see the "ghost animation state" entry).
+- Notes: **not a fix for either animation-stuck bug** — this entry records what the rotation fix
+  incidentally enabled/revealed, not a resolution. Two open animation bugs remain, both
+  plausibly the same root-cause class as the already-tried-and-failed `landed?`/`jumped?` pulse
+  mirroring: a one-shot state transition on the real player's side (landing, or releasing a
+  ledge) that isn't being mirrored onto the ghost, so the ghost's AnimBP never receives the event
+  that would move it out of the sustained pose. Not yet investigated further.

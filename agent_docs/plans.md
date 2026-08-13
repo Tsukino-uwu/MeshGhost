@@ -252,6 +252,29 @@ has no socket support (confirmed via `gh api` code search and docs.ue4ss.com —
 can hold a real socket here. Next: 7.1, a throwaway Lua probe to confirm the player-state read
 empirically before writing the C++ adapter.
 
+Deferred idea, raised by the user during Phase 7.6 animation testing (2026-08-13), not
+scheduled: make ghost collision (currently always off, `ensure_ghost_spawned`'s
+`SetActorEnableCollision`, gated behind the `GHOST_COLLISION_ENABLED` toggle) an opt-in feature
+rather than permanently disabled. The user's own framing: physically sharing space with another
+player can make the game feel more interactable than a pure visual ghost.
+
+**Tried and reverted same-day, real risk found — see `agent_docs/risks.md`'s ghost-collision
+entry for the full record.** A blanket `SetActorEnableCollision(true)` test did *not* make the
+ghost physically solid — the real player could still walk straight through it — but it could
+still be attacked and killed with melee, which killed the real player's own character, not just
+the ghost. Worst of both: no physical solidity (the actual goal) plus a new death risk.
+`SetActorEnableCollision` only restores the component's existing query/physics collision mode,
+not per-channel Block/Overlap/Ignore responses — real physical blocking would need a separate,
+explicit response-channel change, not yet identified. The real-player-death effect suggests this
+class's health/damage state may not be safely scoped per-instance at all. Any future attempt
+needs to identify and disable the specific damage/hit collision channel via reflection first
+(not guessed), separately figure out what response-channel change would give real physical
+blocking, plus a real answer to the open question the user raised: does *any* other in-world
+damage source (hazards, out-of-bounds, enemies) reach the ghost and propagate to the real player
+the same way, or was that specific to melee's collision-based hit detection? Not investigated
+yet. This is a materially harder and riskier feature than it looked at first — treat as genuinely
+deferred, not a quick follow-up.
+
 ### Post-Phase-4 — Room codes
 
 Not a numbered phase because it doesn't gate the games-side milestones. Add shared-secret

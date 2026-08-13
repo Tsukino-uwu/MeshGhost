@@ -226,6 +226,53 @@
   is still reasonable defensive practice and is enforced by `main.lua`'s current design either
   way.)
 
+- **Enabling ghost collision can kill the real player's own character, confirmed live
+  2026-08-13.** Tried `SetActorEnableCollision(true)` on the spawn-based Pseudoregalia ghost
+  (was `false`) as a real fix attempt for the stuck-falling-pose and can't-grab-ledges
+  animation bugs (both plausibly need a real physics trace to detect ground/ledge contact).
+  **Confirmed live, corrected from an earlier wrong write-up**: the ghost did *not* become
+  physically solid — the real player could still walk straight into/through it, no blocking
+  collision at all. But it could be attacked and killed with melee, and doing so killed the
+  **real player's own character**, not just the ghost. So this one call produced the worst
+  combination: no physical solidity (the actual goal), but real vulnerability to being killed
+  (a new danger). Consistent with standard UE behavior: `SetActorEnableCollision` only restores
+  whatever `CollisionEnabled` query/physics mode the component's existing collision profile
+  already specifies — it does not change per-channel collision *responses* (Block/Overlap/
+  Ignore). A stock "Pawn" collision preset commonly overlaps (not blocks) other Pawn-channel
+  actors by default while still registering weapon-trace hits via that same overlap query — real
+  physical blocking would need an explicit response-channel change, separately from this toggle,
+  not guessed yet. The real-player-death effect is the more serious finding on top of that: it
+  suggests health/damage state on `BP_PlayerGoatMain_C` may not be safely scoped per-instance (a
+  `'As MV Game Instance Ref'` object property, found during the animation-state reflection dump,
+  is one candidate mechanism, not yet confirmed) — i.e. this game's own gameplay Blueprints were
+  plausibly never written to expect two live instances of the player class at once, unlike an
+  NPC class. **Reverted same-day.**
+
+  **Second attempt, same day, also failed, real melee-death risk still unaddressed**: added
+  `UPrimitiveComponent::SetCollisionResponseToChannel(ECC_Pawn, ECR_Block)` on the ghost's own
+  `CapsuleComponent` on top of `SetActorEnableCollision(true)`, via a real UFunction call whose
+  parameter offsets come from the function's own reflected properties (not a guessed struct
+  layout). Confirmed via log that the function was genuinely found and the call made — no
+  reflection failure this time, unlike many other UFunctions on this build. Still no physical
+  solidity; the real player could still walk straight through the ghost. Leading theory: UE's
+  dynamic-vs-dynamic actor blocking requires **both** actors' collision response to agree on
+  Block, and only the ghost's side was ever changed — the real player's own capsule was very
+  likely never configured to Block the Pawn channel at all, since two-pawn contact was never a
+  real case in a single-player game. Fixing that would require modifying the **real player's
+  own live collision component**, not just the ghost's — a materially bigger risk than anything
+  tried so far, layered on top of the still-unresolved melee-death danger above. **Reverted
+  same-day** (`GHOST_COLLISION_ENABLED` toggle in `Plugin.cpp`, currently `false`). Do not
+  re-enable, and do not attempt modifying the real player's own collision setup, without
+  explicit go-ahead given the accumulated risk.
+- **Open question, raised by the user 2026-08-13, not yet investigated**: does *any* in-world
+  damage source reach the ghost and propagate to the real player the same way melee did, or was
+  that specific to collision-enabled melee hit detection? With collision back off (current
+  state), the ghost should be undetectable by most world hazards, but this hasn't been checked
+  — some UE trigger volumes (hazards, out-of-bounds kill-Z, scripted death triggers) fire on
+  overlap events that may not depend on the same collision toggle just tested. Needs its own
+  grounded investigation (what actually caused the real-player death above) before any future
+  collision-related change, not an assumption that "collision off" fully closes this off.
+
 ## Mitigations
 
 - Keep the contract minimal, and validate it early with a fake adapter (Phase 5).

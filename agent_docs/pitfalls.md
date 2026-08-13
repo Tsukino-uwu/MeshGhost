@@ -367,6 +367,50 @@ that engine.
   touched, not just the component itself (a partial rollback can leave one dependency on the
   newer version by oversight).
 
+### Vendored RE-UE4SS SDK marshals `FRotator` as `float` regardless of engine version (UE5 games)
+
+- **Symptom**: writing a ghost's rotation via `K2_SetActorLocationAndRotation` or
+  `K2_SetActorRotation` had position stick correctly but rotation read back as an implausible
+  denormal (`~5.5e-315`) via every read method tried (`K2_GetActorRotation()`, direct
+  `RelativeRotation` property reads). A forced yaw-cycle test (0/90/180/270 on a timer) produced
+  zero visible change, which looked like proof the write mechanism wasn't reaching the renderer
+  at all.
+  - **Probe**: read the vendored SDK's actual marshaling code
+    (`RE-UE4SS/deps/first/Unreal/src/AActor.cpp` and `include/Unreal/BPMacros.hpp`) rather than
+    continuing to guess at the ghost/engine side. `UE_COPY_VECTOR` (used for `FVector`
+    parameters) branches on `Version::IsBelow(5, 0)` to marshal `float` vs `double`; every
+    `FRotator`-taking native function hardcodes `UE_COPY_STRUCT_INNER_PROPERTY(..., float, ...)`
+    with no equivalent version branch. Confirmed arithmetically, not just plausibly: `90.0f`'s
+    bit pattern placed in the low 4 bytes of a zeroed 8-byte double slot is exactly
+    `5.529052754e-315` — matching the logged garbage to three significant figures.
+  - **Cause**: on a UE 5.0+ game, the engine's real `FRotator` fields are `double`. The SDK
+    writes only the low 4 bytes of each 8-byte reflected slot, leaving the upper 4 bytes
+    whatever the zeroed buffer already had — the engine then reads a near-zero denormal instead
+    of the intended value. This is a bug in the third-party SDK, not in adapter code, and not in
+    the game.
+  - **Fix**: a local, version-aware marshaling helper in the adapter's own source
+    (`call_set_actor_location_and_rotation`, `adapters/pseudoregalia/MeshGhostPseudo/Mod/src/
+    Plugin.cpp`) that mirrors `UE_COPY_VECTOR`'s version branch for the rotation fields too,
+    using real `FProperty::GetOffset_Internal()` offsets rather than a guessed struct layout —
+    not a patch to the SDK itself. See the reasoning below for why.
+  - **Why not patch the submodule**: `RE-UE4SS` is a git submodule: the parent repo tracks only
+    its pinned commit, never its file contents. A patch to `BPMacros.hpp`/`AActor.cpp` could not
+    be committed to this repo at all — it would live as uncommitted dirt in a nested repo,
+    invisible to anyone cloning fresh, invisible to CI, and silently wiped by any
+    `git submodule update`. This SDK is source compiled into the mod's own DLL, not the UE4SS
+    runtime the game loads, so patching it was never a risk to the installed UE4SS build or to a
+    coexisting mod — the problem is purely that a submodule edit isn't committable.
+  - **Generalizes to**: any UE5 (5.0+) game targeted via this SDK. The local helper covers only
+    the one function this adapter calls (`K2_SetActorLocationAndRotation`) — `K2_SetActorRotation`
+    and presumably other native `FRotator`-taking functions in the same SDK carry the identical
+    bug. Before calling any new SDK function that takes or returns an `FRotator` on a UE5 target,
+    check whether its marshaling macro is version-aware the way `UE_COPY_VECTOR` is — if not,
+    route it through an equivalent local helper rather than assuming it works because the
+    function compiles and "succeeds." A secondary, unrelated bug found in the same investigation:
+    `FRotator::Quaternion()` (`include/Unreal/Rotator.hpp:158`) is missing a negation on its `Y`
+    term versus UE's real formula — harmless when pitch and roll are both zero (true for this
+    game's pawn), but would corrupt a spawn-time rotation for a pawn with non-zero pitch/roll.
+
 ### Cross-adapter issues that were fixed in the core, not the adapter
 
 Found while building an adapter, but the fix belonged in `internal/core` — listed here so the
