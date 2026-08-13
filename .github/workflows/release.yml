@@ -25,6 +25,8 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: true
 
       - uses: actions/setup-go@v5
         with:
@@ -108,6 +110,41 @@ jobs:
             exit 1
           }
           Write-Host "Pseudoregalia DLL is up to date with its source."
+
+      - name: Verify the committed UE4SS runtime isn't stale
+        # UE4SS.dll/dwmapi.dll are checked into packaging/release/games/pseudoregalia/ue4ss-runtime/
+        # so users get a one-step drop-in (no separate UE4SS download) -- a deliberate exception
+        # to the project's normal "user installs the modding tool themselves" posture, see
+        # agent_docs/licensing.md's RE-UE4SS entry. CI can't build these itself (see
+        # dev-scripts/stage-ue4ss-runtime.bat), so this only checks the committed binaries still
+        # match both their own recorded hashes and the RE-UE4SS submodule pin they were built
+        # from -- catching the case where the submodule pin moved but nobody re-staged.
+        shell: pwsh
+        run: |
+          $destDir = "packaging\release\games\pseudoregalia\ue4ss-runtime"
+          $builtFrom = Get-Content "$destDir\built-from.txt" -Raw
+
+          $stale = $false
+          foreach ($name in @("ue4ss\UE4SS.dll", "dwmapi.dll")) {
+            $actual = (Get-FileHash "$destDir\$name" -Algorithm SHA256).Hash
+            $label = Split-Path $name -Leaf
+            if ($builtFrom -notmatch "(?im)^$([regex]::Escape($label)):\s*$actual\s*$") {
+              Write-Host "::error::$label has changed since it was staged (expected hash $actual not found in built-from.txt)"
+              $stale = $true
+            }
+          }
+
+          $submoduleCommit = git -C adapters\pseudoregalia\MeshGhostPseudo\RE-UE4SS rev-parse HEAD
+          if ($builtFrom -notmatch "(?im)^re-ue4ss-submodule-commit:\s*$submoduleCommit\s*$") {
+            Write-Host "::error::RE-UE4SS submodule pin ($submoduleCommit) does not match ue4ss-runtime/built-from.txt -- the submodule pin moved since the runtime was staged"
+            $stale = $true
+          }
+
+          if ($stale) {
+            Write-Host "::error::UE4SS runtime is stale - run dev-scripts\stage-ue4ss-runtime.bat and commit the result"
+            exit 1
+          }
+          Write-Host "UE4SS runtime is up to date with its RE-UE4SS submodule pin."
 
       - name: Assemble release package
         shell: pwsh

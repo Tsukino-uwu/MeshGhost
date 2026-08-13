@@ -1,0 +1,7 @@
+# Written by dev-scripts\stage-ue4ss-runtime.bat -- read by .github\workflows\release.yml's
+# staleness gate. Do not hand-edit.
+# UE4SS.dll and dwmapi.dll are built from the RE-UE4SS submodule pinned below, via
+# MeshGhostPseudo's own CMake build tree -- not a separately downloaded release.
+re-ue4ss-submodule-commit: 733e59695ec01e8ae74590e33345a5e8f4e12808
+UE4SS.dll: b36ff0d19b25314a40c08e530fdecf34d50cb8635a48f5959812639a953f2f89
+dwmapi.dll: 406b8400df103007291a540fa23c22ba4e74a04ad720ee1829f5c10fbc178c66

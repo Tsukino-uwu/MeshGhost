@@ -29,6 +29,15 @@
 # gate fails the build if it's older than the source that produced it.
 !/packaging/release/games/pseudoregalia/MeshGhostPseudo/dlls/main.dll
 
+# Exception: the UE4SS runtime itself is bundled on purpose starting the v0.2.0 release --
+# a deliberate exception to "user installs the modding tool themselves" (agent_docs/licensing.md's
+# RE-UE4SS entry), since UE4SS is obscure enough that pointing users at a manual download hurt
+# onboarding more than redistributing our own MIT-compliant build helps. Built from this repo's
+# own pinned RE-UE4SS submodule via dev-scripts/stage-ue4ss-runtime.bat; release.yml's staleness
+# gate fails the build if these drift from that submodule pin.
+!/packaging/release/games/pseudoregalia/ue4ss-runtime/dwmapi.dll
+!/packaging/release/games/pseudoregalia/ue4ss-runtime/ue4ss/UE4SS.dll
+
 # Go
 /vendor/
 
