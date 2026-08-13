@@ -1943,3 +1943,18 @@ Copy this block per fact:
   stuck on whatever frame it was left on before despawning.
 - Source: user's own in-game observation; `adapters/tevi/MeshGhostTevi/Plugin.cs` read directly
   to find the mechanism.
+
+### TEVI map marker (step 6.7) shows a peer's real room location
+
+- Date: 2026-08-13
+- Observed: with room-grid coordinates now sent over the wire (`extras.room_x/room_y`) and a
+  cloned/tinted `FullMap.playerPos` marker positioned via the same `roomtilelist` scan
+  `MoveMapToCurrentRoom` uses, user opened TEVI's pause-menu map screen and confirmed a small
+  marker appears at the other player's actual room.
+- Source: user's own in-game observation.
+- Notes: confirms the core mechanism (extras plumbing, marker cloning/positioning, the
+  `isFullMap`/same-area gating) works end to end. Not separately re-verified yet: the
+  fog-of-war guard (`SaveManager.GetRoomWalkedBool`) specifically withholding a marker in an
+  undiscovered room, the marker disappearing when the peer leaves the area, and whether the
+  marker's size tracks map zoom correctly (reasoned from `GemaFixedSizeMapIcon`'s own
+  rescaling code, not directly observed).

@@ -202,34 +202,34 @@ point of picking a second, structurally different game.
         This is the answer to "how to avoid a peer's marker leaking map layout the local
         player hasn't discovered themselves": gate every remote marker on this being true for
         the local save, not just on the remote's own state.
-      - **Design decided, logged 2026-08-13 (not yet built)**: the wire protocol needs zero
-        core/Go changes — `protocol.State.Extras` is already embedded in both
-        `bridge.LocalState`/`bridge.RenderRemote`; the gap is purely that
-        `BridgeClient.cs`'s hand-rolled JSON in `SendLocalState`/`DrainInto` doesn't touch
-        `extras` at all yet. Plan:
-        1. `BridgeClient.cs`: add `RoomX`/`RoomY` fields to `RemoteState`, wire them through
-           `SendLocalState`'s outgoing JSON and `DrainInto`'s parsing of `render_remote`.
-        2. `Plugin.cs`: read `WorldManager.Instance.CurrentRoomX/CurrentRoomY` alongside the
-           existing `Area` read, send in `extras`. Track per-remote map markers the same shape
-           as `remoteVisuals`, cloned from `FullMap.Instance.playerPos.gameObject` (reusing the
-           game's own marker sprite, not inventing an icon) and tinted the same cyan already
-           used for the remote character ghost — one consistent "this is a MeshGhost marker"
-           visual language, instantly distinguishable from the player's own default-colored
-           marker, no text/nameplate labels (fastest way a small map gets cluttered with only
-           1-2 peers realistically shown).
-        3. Render gating (all must hold, or the marker deactivates): `FullMap.Instance.isFullMap`
-           (map actually open), remote's `area_id` equals the local player's own current area
-           (v1 scope — mirrors the world-ghost's same-area filtering decision, skips a harder
-           multi-area map-browsing question for later), and
-           `SaveManager.Instance.GetRoomWalkedBool(area, room_x, room_y)` true for the local
-           save (fog-of-war respected).
-        4. Marker position: the same `roomtilelist` linear scan `MoveMapToCurrentRoom` already
-           does, generalized to the remote's `(area, room_x, room_y)` instead of always
-           "current."
-        Full design writeup and file-by-file plan: see this session's plan file (title
-        "TEVI: show remote players' room locations on the map") if still available, or redo
-        the `ilspycmd` decompile pass above — nothing here is guessed, all traceable to real
-        `Assembly-CSharp.dll` source read this session.
+      - **Built, 2026-08-13 — not yet confirmed live.** Implemented per the design above, wire
+        protocol needed zero core/Go changes (`protocol.State.Extras` was already embedded in
+        both `bridge.LocalState`/`bridge.RenderRemote`; the gap was purely that
+        `BridgeClient.cs`'s hand-rolled JSON didn't touch `extras` at all). What landed:
+        1. `BridgeClient.cs`: `RemoteState` gained nullable `RoomX`/`RoomY`, wired through
+           `SendLocalState`'s outgoing `extras.room_x/room_y` and `DrainInto`'s parsing of
+           `render_remote`'s `state.extras`.
+        2. `Plugin.cs`: reads `WorldManager.Instance.CurrentRoomX/CurrentRoomY` each frame
+           (`currentLocalArea` also hoisted earlier in `Update()`, before `bridge.DrainInto`,
+           since the marker-gating logic runs synchronously inside it). Per-remote map markers
+           tracked the same shape as `remoteVisuals`, lazily cloned from `FullMap`'s own
+           private `playerPos` field (via reflection, same pattern already used for
+           `EventManager.mainCharacter`'s cross-build shape difference) and tinted cyan.
+           Cloned with the same transform parent as the original so it inherits `FullMap`'s own
+           zoom rescaling (`GemaFixedSizeMapIcon.Update` was seen doing this explicitly against
+           `FullMap.Instance.transform.localScale`) — reasoned from real code, not yet watched
+           live to confirm the marker actually scales correctly with map zoom.
+        3. Gating implemented as designed: `FullMap.Instance.isFullMap`, same-area-as-local
+           (string equality on `area_id`), and `SaveManager.Instance.GetRoomWalkedBool` for
+           fog-of-war. `FindRoomTile` mirrors `MoveMapToCurrentRoom`'s own `roomtilelist` scan,
+           generalized to any `(area, x, y)`.
+        4. `DespawnRemoteGhost` also deactivates the matching map marker now.
+        Builds clean (0 errors against the real `Assembly-CSharp.dll` reference), deployed to
+        both local installs. **Confirmed live, same session**: user opened the map and
+        confirmed a marker shows at the other player's actual room. See `verified.md`. Not yet
+        separately re-checked: fog-of-war (no marker in an undiscovered room), cross-area
+        hiding of the marker specifically (distinct from the world ghost's own cross-area
+        test), and whether the marker's size actually tracks map zoom correctly.
 
 ## Notes
 

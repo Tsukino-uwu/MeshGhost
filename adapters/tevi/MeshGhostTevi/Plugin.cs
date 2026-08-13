@@ -93,6 +93,134 @@ namespace MeshGhostTevi
 
         private readonly Dictionary<string, RemoteGhostVisual> remoteVisuals = new Dictionary<string, RemoteGhostVisual>();
 
+        // Step 6.7 (agent_docs/phases/phase6.md): a remote's marker on TEVI's map screen
+        // (FullMap, the pause-menu map -- room-grid based, not continuous-position-based).
+        // Separate from RemoteGhostVisual: the world-space ghost only helps when a peer is
+        // on-screen with you; this helps anywhere in the shared zone, gated on the map
+        // actually being open and the room already being discovered by the local player (see
+        // UpdateRemoteMapMarker).
+        private sealed class RemoteMapMarker
+        {
+            public GameObject Go;
+        }
+
+        private readonly Dictionary<string, RemoteMapMarker> remoteMapMarkers = new Dictionary<string, RemoteMapMarker>();
+
+        // FullMap.playerPos (the local player's own map marker, a SpriteRenderer) and
+        // FullMap.maxroom (the per-area stride into FullMap.roomtilelist) are both private
+        // fields -- confirmed by decompiling Assembly-CSharp.dll with ilspycmd, same
+        // reflection approach already used below for EventManager.mainCharacter's shape
+        // differing across builds. roomtilelist itself and isFullMap are public, read
+        // directly with no reflection needed.
+        private static readonly FieldInfo FullMapPlayerPosField =
+            typeof(FullMap).GetField("playerPos", BindingFlags.NonPublic | BindingFlags.Instance);
+        private static readonly FieldInfo FullMapMaxRoomField =
+            typeof(FullMap).GetField("maxroom", BindingFlags.NonPublic | BindingFlags.Instance);
+
+        // Tinted distinctly from the local player's own (default-colored) FullMap.playerPos
+        // marker -- same cyan already established for the remote character ghost (step
+        // 6.4/6.5), one consistent "this is a MeshGhost marker" visual language.
+        private static readonly Color RemoteMapMarkerColor = new Color(0f, 1f, 1f, 1f);
+
+        // Set once per Update, before bridge.DrainInto runs, so UpdateRemoteMapMarker (called
+        // from inside UpsertRemoteGhost, itself invoked by DrainInto) has the local player's
+        // current area to gate against without needing to parse it back out of the AreaId
+        // string on every remote.
+        private byte currentLocalArea = 255;
+
+        // Finds the FullMapTile for (area, x, y) the same way FullMap.MoveMapToCurrentRoom
+        // does for the local player's current room -- confirmed live by reading that method
+        // directly, not guessed: roomtilelist is a flat array indexed area*maxroom+slot, found
+        // by a linear scan of that area's slice comparing GetX()/GetY(). Generalized here to
+        // any (area, x, y), not just "current."
+        private static FullMapTile FindRoomTile(byte area, int x, int y)
+        {
+            FullMap map = FullMap.Instance;
+            if (map == null || map.roomtilelist == null || FullMapMaxRoomField == null)
+            {
+                return null;
+            }
+            int maxroom = (int)FullMapMaxRoomField.GetValue(map);
+            int start = area * maxroom;
+            int end = start + maxroom;
+            for (int i = start; i < end && i < map.roomtilelist.Length; i++)
+            {
+                FullMapTile tile = map.roomtilelist[i];
+                if (tile != null && tile.GetX() == x && tile.GetY() == y)
+                {
+                    return tile;
+                }
+            }
+            return null;
+        }
+
+        private void UpdateRemoteMapMarker(string playerId, BridgeClient.RemoteState state)
+        {
+            FullMap map = FullMap.Instance;
+            bool wantVisible = map != null && map.isFullMap
+                && state.RoomX.HasValue && state.RoomY.HasValue
+                && state.AreaId == currentLocalArea.ToString()
+                // Fog-of-war: never let a peer's marker reveal a room the local player hasn't
+                // personally discovered yet (SaveManager.GetRoomWalkedBool is the game's own
+                // discovery-state query, confirmed live by reading FullMapTile.SetVisible's
+                // use of it).
+                && SaveManager.Instance != null
+                && SaveManager.Instance.GetRoomWalkedBool(currentLocalArea, state.RoomX.Value, state.RoomY.Value, 0, 0);
+
+            if (!remoteMapMarkers.TryGetValue(playerId, out RemoteMapMarker marker) || marker.Go == null)
+            {
+                if (!wantVisible)
+                {
+                    return; // nothing to create yet, and nothing to show
+                }
+                if (map == null || FullMapPlayerPosField == null)
+                {
+                    return;
+                }
+                SpriteRenderer template = (SpriteRenderer)FullMapPlayerPosField.GetValue(map);
+                if (template == null)
+                {
+                    return;
+                }
+                // Same parent as the original so it inherits FullMap's own zoom rescaling
+                // (see GemaFixedSizeMapIcon.Update, which explicitly rescales map icons
+                // against FullMap.Instance.transform.localScale every frame) instead of
+                // staying a fixed size while the map zooms.
+                GameObject go = Instantiate(template.gameObject, template.transform.parent);
+                go.name = $"MeshGhostMapMarker_{playerId}";
+                SpriteRenderer sr = go.GetComponent<SpriteRenderer>();
+                if (sr != null)
+                {
+                    sr.color = RemoteMapMarkerColor;
+                }
+                marker = new RemoteMapMarker { Go = go };
+                remoteMapMarkers[playerId] = marker;
+            }
+
+            if (!wantVisible)
+            {
+                marker.Go.SetActive(false);
+                return;
+            }
+
+            FullMapTile tile = FindRoomTile(currentLocalArea, state.RoomX.Value, state.RoomY.Value);
+            if (tile == null)
+            {
+                marker.Go.SetActive(false);
+                return;
+            }
+            marker.Go.SetActive(true);
+            marker.Go.transform.position = tile.transform.position;
+        }
+
+        private void DespawnRemoteMapMarker(string playerId)
+        {
+            if (remoteMapMarkers.TryGetValue(playerId, out RemoteMapMarker marker) && marker.Go != null)
+            {
+                marker.Go.SetActive(false);
+            }
+        }
+
         // Set once per Update from EventManager.Instance.mainCharacter, before bridge.DrainInto
         // runs, so UpsertRemoteGhost has a live template to clone from the first time a remote
         // shows up. Cloning the *local* player's own visual is exactly correct for the loopback
@@ -176,6 +304,8 @@ namespace MeshGhostTevi
                 visual.Pc.anim.Play(state.Anim);
                 visual.LastAnim = state.Anim;
             }
+
+            UpdateRemoteMapMarker(playerId, state);
         }
 
         private void DespawnRemoteGhost(string playerId)
@@ -193,6 +323,7 @@ namespace MeshGhostTevi
                 // regardless of whether the string itself actually differs.
                 visual.LastAnim = null;
             }
+            DespawnRemoteMapMarker(playerId);
         }
 
         private void Awake()
@@ -244,6 +375,10 @@ namespace MeshGhostTevi
             // crashing" standard applied to a missing reference instead of a bad address.
             CharacterBase player = EventManager.Instance != null ? GetMainCharacter(EventManager.Instance) : null;
             cloneTemplate = (player != null && player.t != null) ? player : cloneTemplate;
+            // Set before bridge.DrainInto below, which invokes UpsertRemoteGhost ->
+            // UpdateRemoteMapMarker synchronously and needs the local player's current area
+            // to gate remote markers against.
+            currentLocalArea = WorldManager.Instance != null ? WorldManager.Instance.Area : (byte)255;
 
             bridge.DrainLogsInto(msg => Logger.LogInfo(msg));
             bridge.TryConnect();
@@ -267,7 +402,13 @@ namespace MeshGhostTevi
             }
 
             Vector3 pos = player.t.position;
-            byte area = WorldManager.Instance != null ? WorldManager.Instance.Area : (byte)255;
+            byte area = currentLocalArea;
+
+            // Room-grid coordinates for the map marker (step 6.7) -- TEVI's map is room-based,
+            // not continuous-position-based, see UpdateRemoteMapMarker/FindRoomTile above.
+            // Only meaningful together with WorldManager.Instance itself being present.
+            int? roomX = WorldManager.Instance != null ? (int?)WorldManager.Instance.CurrentRoomX : null;
+            int? roomY = WorldManager.Instance != null ? (int?)WorldManager.Instance.CurrentRoomY : null;
 
             // Anim sent over the wire is the *real* currently-playing Animator clip name
             // (SpriteAnimation.GetAnimationTrueName(), reads pixel.anim's own
@@ -287,6 +428,8 @@ namespace MeshGhostTevi
                 Position = new[] { pos.x, pos.y },
                 Orientation = player.direction.ToString(),
                 Anim = clipName,
+                RoomX = roomX,
+                RoomY = roomY,
             });
 
             bool discreteChange = !hadPlayerLastFrame

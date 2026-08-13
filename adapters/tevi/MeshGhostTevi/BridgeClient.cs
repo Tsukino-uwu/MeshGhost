@@ -25,6 +25,14 @@ namespace MeshGhostTevi
             public float[] Position;
             public string Orientation;
             public string Anim;
+
+            // Room-grid coordinates (TEVI's map is room-based, not continuous-position-based --
+            // see agent_docs/phases/phase6.md's 6.7 entry), carried in the wire protocol's
+            // free-form "extras" dict (contract.md) rather than a schema change. Null means
+            // "not present on this message" (e.g. an older peer, or a state with no room data
+            // yet), distinct from a real 0,0 room.
+            public int? RoomX;
+            public int? RoomY;
         }
 
         private readonly string host;
@@ -217,6 +225,9 @@ namespace MeshGhostTevi
                 return;
             }
 
+            object extras = (state != null && state.RoomX.HasValue && state.RoomY.HasValue)
+                ? new { room_x = state.RoomX.Value, room_y = state.RoomY.Value }
+                : null;
             object payloadState = state == null
                 ? null
                 : (object)new
@@ -225,6 +236,7 @@ namespace MeshGhostTevi
                     position = state.Position,
                     orientation = state.Orientation,
                     anim = state.Anim,
+                    extras,
                 };
 
             string json = JsonConvert.SerializeObject(new
@@ -265,12 +277,15 @@ namespace MeshGhostTevi
                         {
                             string playerId = (string)payload["player_id"];
                             JObject st = (JObject)payload["state"];
+                            JObject extras = st["extras"] as JObject;
                             var remote = new RemoteState
                             {
                                 AreaId = (string)st["area_id"],
                                 Position = st["position"]?.ToObject<float[]>(),
                                 Orientation = (string)st["orientation"],
                                 Anim = (string)st["anim"],
+                                RoomX = (int?)extras?["room_x"],
+                                RoomY = (int?)extras?["room_y"],
                             };
                             onRenderRemote(playerId, remote);
                             break;
