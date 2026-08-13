@@ -1,10 +1,10 @@
 # Packaging
 
 What actually goes in a release, and why it's laid out the way it is. Consumed by
-`.github/workflows/release.yml` — this folder holds the hand-written parts (launcher `.bat`
-files, the config template, player-facing READMEs, and the committed TEVI plugin); the
-workflow adds the freshly-built Go `.exe`s and the Emerald adapter files on top and zips the
-whole `packaging/release/` folder as the one release asset.
+`.github/workflows/release.yml` — this folder holds the hand-written parts (the config
+template, player-facing READMEs, and the committed TEVI/Pseudoregalia plugins); the workflow
+adds the freshly-built Go `.exe`s and the Emerald adapter files on top and zips the whole
+`packaging/release/` folder as the one release asset.
 
 ## Why one zip
 
@@ -16,9 +16,20 @@ decision they had no basis to make: "relay" and "player" are this project's own 
 not "am I hosting or joining."
 
 One zip fixes that at the source — there's no second file to pick wrong. `client`/`server`
-sections in one `config.json`, `run-client.bat`/`run-server.bat` side by side, and
+sections in one `config.json`, `meshghost.exe`/`meshghost-server.exe` side by side, and
 `games/<publisher>/<game>/` mirroring `adapters/` so a second game adds a folder inside the
 same zip, not a new release asset to explain. See `packaging/release/` for the actual layout.
+
+## No launcher `.bat` files
+
+An earlier version of this packaging shipped `run-client.bat`/`run-server.bat` alongside the
+`.exe`s. Their only real function was the trailing `pause`: double-clicking an `.exe` directly
+opens a console window same as the `.bat` did, but that window vanishes the instant the process
+exits, taking a crash message with it before a non-technical user could read it — `pause` kept
+the window open long enough to read it. Removed once `cmd/meshghost`/`cmd/meshghost-relay`
+started writing their own `meshghost.log`/`meshghost-server.log` next to the `.exe` (tee'd
+alongside stderr, truncated each run) — that file survives the window closing, so the `.bat`
+files stopped doing anything a user couldn't already get by double-clicking the `.exe` itself.
 
 ## No password/auth yet
 

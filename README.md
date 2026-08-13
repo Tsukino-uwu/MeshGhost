@@ -14,9 +14,9 @@ ghosts — position, facing, walking, and running all tracked live, no shared wo
 ## Playing right now (Emerald, plus experimental TEVI)
 
 No need to build anything: grab the latest release from the [Releases page](../../releases) —
-one zip for everyone. Unpack it, run `run-client.bat` to play; whoever's hosting also runs
-`run-server.bat`. The one file you actually need to edit is `config.json` (server address,
-room name, your display name), and `README.txt` has the full walkthrough. See
+one zip for everyone. Unpack it, double-click `meshghost.exe` to play; whoever's hosting also
+double-clicks `meshghost-server.exe`. The one file you actually need to edit is `config.json`
+(server address, room name, your display name), and `README.txt` has the full walkthrough. See
 [packaging/README.md](packaging/README.md) if you're curious how it's built.
 
 ## The shape

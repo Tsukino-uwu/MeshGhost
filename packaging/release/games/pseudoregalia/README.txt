@@ -25,9 +25,9 @@ Setup, once:
 2. Copy the MeshGhostPseudo folder from here into `ue4ss\Mods\MeshGhostPseudo\`.
 
 Setup, every time you play:
-1. Double-click run-client.bat (one folder up). Leave the window open.
+1. Double-click meshghost.exe (one folder up). Leave the window open.
 2. Launch Pseudoregalia normally. The mod loads automatically via UE4SS -- no separate
-   script to open, and nothing to set in config.json -- the mod tells run-client.bat which
+   script to open, and nothing to set in config.json -- the mod tells meshghost.exe which
    game it is on its own.
 3. Walk around. Once a friend joins the same server in the same room, you should see their
    goat as a ghost -- correct position, facing, and movement animations.

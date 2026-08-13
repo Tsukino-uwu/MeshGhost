@@ -147,8 +147,10 @@
   `meshghost-relay-.../meshghost-emerald-player-...` split (from the `v0.1.0` cut, flagged
   right after as confusing to a non-technical downloader) is replaced by one zip:
   `packaging/release/` holds `meshghost.exe`/`meshghost-server.exe`, one `config.json` with
-  `client`/`server` sections, `run-client.bat`/`run-server.bat`, and `games/<publisher>/<game>/`
-  mirroring `adapters/`. TEVI now ships in that same zip, marked experimental — its
+  `client`/`server` sections, and `games/<publisher>/<game>/` mirroring `adapters/`. The
+  launcher `.bat` files were removed 2026-08-13 once both `.exe`s started writing their own
+  `meshghost.log`/`meshghost-server.log` next to themselves — see `packaging/README.md`'s "No
+  launcher .bat files" section. TEVI now ships in that same zip, marked experimental — its
   `MeshGhostTevi.dll` is a committed build output (`dev-scripts/build-tevi.bat`), since CI can't
   build it itself (needs the developer's own proprietary TEVI install), guarded by a staleness
   check in `.github/workflows/release.yml` that fails the release if the DLL predates its

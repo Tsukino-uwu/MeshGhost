@@ -18,10 +18,10 @@ import (
 // openLogFile creates (truncating any previous run's contents) meshghost-server.log next
 // to wherever the process's working directory is -- the same cwd config.json is read from,
 // so it lands beside the exe in the normal double-click-from-the-package-folder case. This
-// exists so a crash is still readable after the console window itself is gone (e.g. if
-// someone runs meshghost-server.exe directly instead of through run-server.bat's trailing
-// `pause`) -- see packaging/release/README.txt. Falls back to stderr-only, with a warning,
-// if the file can't be created (e.g. read-only folder).
+// exists so a crash is still readable after the console window itself is gone: double-clicking
+// an .exe opens a console that closes the instant the process exits, taking any error message
+// with it -- see packaging/README.md's "No launcher .bat files" section. Falls back to
+// stderr-only, with a warning, if the file can't be created (e.g. read-only folder).
 func openLogFile(name string) io.Writer {
 	f, err := os.Create(name)
 	if err != nil {
