@@ -2122,3 +2122,88 @@ Copy this block per fact:
   temporary `dev-scripts/DEBUG-run-core-tevi*-nofilter.bat` scripts used only for the isolation
   test have been deleted per their own doc comments — they were never meant to ship. The fix
   itself lives in `adapters/tevi/MeshGhostTevi/Plugin.cs`'s `CreateRealGhostVisual`.
+
+### Emerald Lua adapter sweep fixes, live-verified via loopback
+
+- Date: 2026-08-14
+- Observed: user loaded `adapters/pokemon/emerald/phase5_5_sprite.lua` in BizHawk against a real
+  relay/core run with `-loopback`. Confirmed on screen: the loopback-echoed ghost spawned
+  correctly, and killing the client (closing BizHawk/disconnecting) despawned the ghost cleanly
+  on the other side rather than leaving it stuck.
+- Source: `adapters/pokemon/emerald/phase5_5_sprite.lua` (the same-day sweep's fixes: partial-line
+  receive/send handling, dead-socket-after-hard-error, `pcall` around the main loop, control-char
+  JSON escaping — see the "same-day review/refactor sweep" ADR in `architecture.md`).
+- Notes: this closes the last item from `status.md`'s 2026-08-14 sweep entry marked "not yet
+  live-verified in an emulator." User confirmed this was a genuine loopback run (ghost spawn +
+  clean despawn on client kill), not just a script load with no errors — satisfies `CLAUDE.md`'s
+  "ran without errors is not evidence" standard. Not separately exercised in this pass: a relay
+  restart mid-session (dead-socket path) or a two-real-peer (non-loopback) run — loopback spawn/
+  despawn was the scenario tested.
+
+### Pseudoregalia despawn-visual and area-transition, live-verified via loopback
+
+- Date: 2026-08-14
+- Observed: two separate live tests, both confirmed on screen by the user. (1) With the
+  loopback ghost visible and following the player, walking back and forth between two areas
+  produced no crash and the ghost kept correctly following across both transitions. (2) After a
+  real, previously-unknown bug was found and fixed (see the next entry below), closing the
+  client (`meshghost.exe`) with the loopback ghost visible made it actually disappear, instead
+  of the earlier behavior where it was left standing frozen and visible.
+- Source: `adapters/pseudoregalia/MeshGhostPseudo/Mod/src/Plugin.cpp` — `release_all_ghosts`
+  (`LoadMap PRE` hook, area transitions) and the new `release_all_ghosts_parked` (bridge
+  disconnect, see below).
+- Notes: closes the last item from `status.md`'s 2026-08-14 sweep entry ("not started: live
+  in-game verification of Pseudoregalia's despawn-visual/area-transition behavior"). The
+  despawn-visual half required a real code fix, not just testing — see the next entry.
+
+### Pseudoregalia bridge-disconnect ghost cleanup, found live and fixed
+
+- Date: 2026-08-14
+- Observed: first test attempt (before the fix) showed the ghost left standing frozen and
+  visible after closing the client — `release_ghost`/`release_all_ghosts` only ever fired from
+  a real `despawn_remote` message or the `LoadMap PRE` area-transition hook, neither of which
+  fires when the bridge connection itself drops (closing `meshghost.exe`). `on_update()` polled
+  `bridge->is_connected()` every tick but never acted on a connected->disconnected transition.
+  Fixed: `on_update()` now detects that edge and arms `bridge_disconnect_cleanup_pending`
+  (guarded by `state_mutex`); `game_thread_tick()` drains it and calls the new
+  `release_all_ghosts_parked`, which parks every remaining ghost the same way a real
+  `despawn_remote` does. Rebuilt (0 errors after fixing a PATH issue — msys2's bundled `cmake`
+  was shadowing the real `C:\Program Files\CMake\bin` install ahead of it on `PATH`, same
+  problem already logged once before in `phase7.md`), deployed to both the in-repo packaging
+  copy and the live Steam install (hash-diff-confirmed, `67f442bc...`). Re-tested live after the
+  fix: user confirmed the ghost now disappears on client close — see the entry above.
+- Source: `adapters/pseudoregalia/MeshGhostPseudo/Mod/src/Plugin.cpp`/`Plugin.hpp`
+  (`release_all_ghosts_parked`, `bridge_was_connected`, `bridge_disconnect_cleanup_pending`).
+- Notes: same bug class as Emerald's Phase 3 fix ("the Lua adapter didn't detect its own bridge
+  connection dying"), just never previously ported to this adapter.
+
+### Core-relay heartbeat, found live and fixed (idle-timeout reconnect-ID churn)
+
+- Date: 2026-08-14
+- Observed: while testing the above, the user noticed the relay and core logs climbing through
+  player IDs (`p1`→`p2`→...→`p6`) roughly once a minute, each preceded by an `i/o timeout` on
+  both sides. Root cause: a core process with no adapter attached (or any adapter reporting
+  `get_local_state()==nil` for a stretch, e.g. a player parked at a menu) never calls
+  `forwardLocalState`, so nothing was ever sent on an otherwise-healthy relay connection.
+  `transport.DefaultIdleTimeout` (60s, added in the same-day relay-safety sweep) then killed it,
+  the sweep's own auto-reconnect fix immediately redialed, and `nextPlayerID` (a
+  never-reused monotonic counter) handed out a fresh id each cycle — which every other real peer
+  would see as a leave+join/ghost despawn-respawn once a minute, not just log noise. Fixed:
+  `Core.sendHeartbeats` (`internal/core/core.go`), started on every successful `ConnectRelay`,
+  sends a `Ping` every `DefaultHeartbeatInterval` (20s) for as long as that connection stays
+  current; the relay already replied to `Ping` with `Pong` (`internal/relay/relay.go`) but
+  nothing on the client side had ever sent one. `go build`/`vet`/`test` clean; both named
+  binaries (`meshghost.exe`, `meshghost-relay.exe`) rebuilt. Re-tested live: user left an
+  idle core connected well past the old 60s failure point and confirmed no further
+  timeout/reconnect messages appeared in either log — same connection, same player id, the
+  whole time.
+- Source: `internal/core/core.go` (`DefaultHeartbeatInterval`, `sendHeartbeats`);
+  `internal/protocol/protocol.go` (`TypePing`/`TypePong`, `Ping`/`Pong`, pre-existing but
+  unused by any real sender until now); `internal/relay/relay.go` (pre-existing `TypePing`
+  handler).
+- Notes: found by the user asking a question about the logs, not by the agent's own review —
+  same pattern as the two same-day-follow-up gaps in the relay-safety hardening entry above.
+  Not yet re-tested with a real second peer connected during the old failure window (to directly
+  observe the leave/join churn this fixes from another client's point of view) — the fix is
+  confirmed to stop the reconnect loop itself, not separately confirmed from a second peer's
+  perspective.

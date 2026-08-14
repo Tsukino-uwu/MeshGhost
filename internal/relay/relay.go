@@ -85,43 +85,35 @@ func (r *Room) Forward(msg protocol.Envelope, to []string) {
 	}
 }
 
-// tryAdd adds c unless the room is already at MaxClientsPerRoom, atomically
-// with the capacity check (unlike a separate size()-then-add, which would
-// race two simultaneous joins past the limit). ok is false if the room was
-// full; the caller refuses the connection, same as a game_id mismatch.
-func (r *Room) tryAdd(c *Client) (ok bool) {
+// tryAdd adds c to the room. Capacity is enforced server-wide, not per
+// room (see Server.tryReserveSlot) — a caller only reaches this after
+// already reserving a slot, so this cannot fail.
+func (r *Room) tryAdd(c *Client) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if len(r.members) >= MaxClientsPerRoom {
-		return false
-	}
 	r.members[c.PlayerID] = c
-	return true
 }
 
-// tryAddAndSnapshotRoster adds c (respecting MaxClientsPerRoom, same as
-// tryAdd) and returns the roster as it stood immediately before the add,
-// all under one r.mu critical section. Combining these matters: two
-// clients joining concurrently via separate roster() + tryAdd() calls
-// could each snapshot the roster before either had actually added itself,
-// so neither would ever learn about the other through its own Welcome or
-// the resulting Join broadcast. With the roster cross-check
-// internal/core now does on receive (agent_docs/architecture.md's ADR),
-// that isn't just a cosmetic gap anymore — it's a silently invisible peer,
-// since a State for an unrostered id is dropped outright. Found in a
-// review pass.
-func (r *Room) tryAddAndSnapshotRoster(c *Client) (rosterBeforeJoin []string, ok bool) {
+// tryAddAndSnapshotRoster adds c and returns the roster as it stood
+// immediately before the add, all under one r.mu critical section.
+// Combining these matters: two clients joining concurrently via separate
+// roster() + tryAdd() calls could each snapshot the roster before either
+// had actually added itself, so neither would ever learn about the other
+// through its own Welcome or the resulting Join broadcast. With the roster
+// cross-check internal/core now does on receive (agent_docs/architecture.md's
+// ADR), that isn't just a cosmetic gap anymore — it's a silently invisible
+// peer, since a State for an unrostered id is dropped outright. Found in a
+// review pass. Like tryAdd, capacity is already reserved server-wide by
+// the caller, so this cannot fail.
+func (r *Room) tryAddAndSnapshotRoster(c *Client) (rosterBeforeJoin []string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if len(r.members) >= MaxClientsPerRoom {
-		return nil, false
-	}
 	rosterBeforeJoin = make([]string, 0, len(r.members))
 	for id := range r.members {
 		rosterBeforeJoin = append(rosterBeforeJoin, id)
 	}
 	r.members[c.PlayerID] = c
-	return rosterBeforeJoin, true
+	return rosterBeforeJoin
 }
 
 func (r *Room) remove(playerID string) {
@@ -196,11 +188,60 @@ type Server struct {
 	// agent_docs/architecture.md and internal/README.md for what this does
 	// and doesn't defend against.
 	RoomCode string
+
+	// MaxClients bounds how many clients this relay accepts in total,
+	// summed across every room it's hosting — not per room (see
+	// DefaultMaxClients). Zero means "use DefaultMaxClients", the same
+	// zero-means-default convention as HelloTimeout. Read fresh on every
+	// join attempt (tryReserveSlot), so changing it mid-Serve takes effect
+	// immediately rather than only for rooms created afterward.
+	MaxClients int
+
+	// IdleTimeout overrides transport.DefaultIdleTimeout for every
+	// connection this relay accepts. Zero means "use transport's own
+	// default" — same zero-means-default convention as HelloTimeout.
+	// Exists for tests that need a short, waitable idle window rather than
+	// the real 60s default; a real deployment should leave this unset.
+	IdleTimeout time.Duration
+
+	// clientCount is the number of clients currently holding a reserved
+	// slot, guarded by mu (the same lock already used for the rooms map,
+	// rather than a separate one — server-wide join bookkeeping is a
+	// single small critical section, not worth its own lock).
+	clientCount int
 }
 
 // NewServer creates an empty Server with no rooms.
 func NewServer() *Server {
-	return &Server{rooms: make(map[string]*Room), HelloTimeout: DefaultHelloTimeout}
+	return &Server{rooms: make(map[string]*Room), HelloTimeout: DefaultHelloTimeout, MaxClients: DefaultMaxClients}
+}
+
+// tryReserveSlot reserves one of the server's MaxClients slots, atomically
+// with the capacity check (unlike a separate count()-then-increment, which
+// would race two simultaneous joins past the limit). ok is false if the
+// relay was already at capacity across all rooms combined; the caller
+// refuses the connection before it ever reaches a room. Every reserved
+// slot must be matched by exactly one later releaseSlot call.
+func (s *Server) tryReserveSlot() (ok bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	maxClients := s.MaxClients
+	if maxClients <= 0 {
+		maxClients = DefaultMaxClients
+	}
+	if s.clientCount >= maxClients {
+		return false
+	}
+	s.clientCount++
+	return true
+}
+
+// releaseSlot returns one previously reserved slot (see tryReserveSlot),
+// called once a joined client disconnects.
+func (s *Server) releaseSlot() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.clientCount--
 }
 
 // Serve accepts connections on ln, handling each on its own goroutine,
@@ -308,9 +349,13 @@ func (s *Server) handleConn(conn net.Conn) {
 	// post-construction field set, so it's in effect before the read
 	// loop's first Scan (found as a real, if narrow, race in a review
 	// pass: transport.FromConn already starts that goroutine before
-	// returning). 0/0 for idle/write timeout means "use transport's own
-	// defaults" — the relay has no need for different values there.
-	nd := transport.FromConnWithLimits(conn, protocol.MaxLineBytes, 0, 0)
+	// returning). IdleTimeout is normally left at 0 ("use transport's own
+	// default", DefaultIdleTimeout) — s.IdleTimeout exists so a test can
+	// shrink it to something waitable, e.g. proving Core's heartbeat
+	// (internal/core's sendHeartbeats) actually keeps an otherwise-quiet
+	// connection alive past it. 0 for write timeout: the relay has no need
+	// for a different value there.
+	nd := transport.FromConnWithLimits(conn, protocol.MaxLineBytes, s.IdleTimeout, 0)
 
 	var (
 		mu       sync.Mutex
@@ -369,6 +414,7 @@ func (s *Server) handleConn(conn net.Conn) {
 			return
 		}
 		r.remove(id)
+		s.releaseSlot()
 		leave, _ := envelope(protocol.TypeLeave, protocol.Leave{PlayerID: id})
 		r.Forward(leave, r.roster())
 		s.dropIfEmpty(r)
@@ -464,16 +510,19 @@ func (s *Server) handleConn(conn net.Conn) {
 				return
 			}
 
-			newID := s.nextPlayerID()
-			rosterBeforeJoin, added := joined.tryAddAndSnapshotRoster(&Client{PlayerID: newID, Conn: nd})
-			if !added {
-				// Room already at MaxClientsPerRoom (agent_docs/contract.md
-				// Limits) — refuse the same way a game_id mismatch is
-				// refused, rather than letting a room grow unbounded.
-				rejectAndClose(nd, hello, protocol.ReasonRoomFull)
+			if !s.tryReserveSlot() {
+				// Relay already at MaxClients across every room combined
+				// (agent_docs/contract.md Limits) — refuse the same way a
+				// game_id mismatch is refused, rather than letting total
+				// connections grow unbounded. dropIfEmpty cleans up if
+				// joinOrCreateRoom just created this room for this attempt.
+				rejectAndClose(nd, hello, protocol.ReasonServerFull)
 				s.dropIfEmpty(joined)
 				return
 			}
+
+			newID := s.nextPlayerID()
+			rosterBeforeJoin := joined.tryAddAndSnapshotRoster(&Client{PlayerID: newID, Conn: nd})
 
 			mu.Lock()
 			room, playerID = joined, newID

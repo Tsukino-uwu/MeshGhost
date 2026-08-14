@@ -34,16 +34,17 @@ files stopped doing anything a user couldn't already get by double-clicking the 
 ## Room-code auth (added 2026-08-14)
 
 `server.room_code` (host-set) and `client.room_code` (must match) in `config.json` — see
-`agent_docs/architecture.md`'s room-code/version ADR and `internal/README.md`. **Optional and
-off by default**: an empty `server.room_code` means the relay still accepts anyone with the
-address, the original no-auth posture. `packaging/release/README.txt` should tell a host to
-set one before treating a session as safe for people they don't personally know — see that
-file's own note.
+[agent_docs/architecture.md](../agent_docs/architecture.md)'s room-code/version ADR and
+[internal/README.md](../internal/README.md). **Optional and off by default**: an empty
+`server.room_code` means the relay still accepts anyone with the address, the original
+no-auth posture. `packaging/release/README.txt` should tell a host to set one before treating
+a session as safe for people they don't personally know — see that file's own note.
 
 **The one thing this can't protect against, and every host needs to know**: room-code auth is
 enforced entirely by the relay, so it only works if `meshghost-server.exe` is a current build.
 An old relay silently ignores an unrecognized `room_code` field and stays open with no warning
-— see `risks.md`'s "stale relay" entry. There is no way to fix this from the client side; the
+— see [agent_docs/risks.md](../agent_docs/risks.md)'s "stale relay" entry. There is no way to
+fix this from the client side; the
 only mitigation is telling hosts plainly to update the relay, not just the client, before
 relying on a room code.
 
@@ -93,7 +94,8 @@ it), and TEVI below for what a compiled adapter needs instead.
 everything else under `packaging/release/games/` is either hand-written or assembled fresh by
 CI. TEVI is different because **CI cannot build it**: `MeshGhostTevi.csproj` compiles against
 `adapters/tevi/MeshGhostTevi/lib/*.dll`, copies of the developer's own proprietary TEVI
-install that are gitignored and never committed (`agent_docs/licensing.md`). Our own output —
+install that are gitignored and never committed
+([agent_docs/licensing.md](../agent_docs/licensing.md)). Our own output —
 16 KB, `<Private>false</Private>` so no game DLL is embedded in it — is fine to distribute,
 it just has to be built on a machine that already has TEVI installed.
 
@@ -108,8 +110,37 @@ result as part of that change.
 TEVI ships marked experimental (see `packaging/release/README.txt` and
 `packaging/release/games/tevi/README.txt`): the mod is code-complete but has never been tested
 against a second real player (Steam won't run two TEVI instances on one machine, so this
-release *is* the way that finally gets tested — see `agent_docs/phases/phase6.md`'s 6.6). Cut
+release *is* the way that finally gets tested — see
+[agent_docs/phases/phase6.md](../agent_docs/phases/phase6.md)'s 6.6). Cut
 this kind of release with the `prerelease` checkbox ticked (below).
+
+## Pseudoregalia: another committed build output, and a committed runtime
+
+`packaging/release/games/pseudoregalia/` is checked into the repo too, for the same reason as
+TEVI: **CI cannot build it**. `MeshGhostPseudo`'s CMake build tree depends on the private
+UEPseudo dependency (not publicly cloneable, see
+[agent_docs/phases/phase7.md](../agent_docs/phases/phase7.md)'s 7.2 entry) and a locally
+configured RE-UE4SS submodule build, so `main.dll` has to be built on a machine
+that already has that tree set up.
+
+Two dev scripts stage this folder, and they're independent of each other:
+
+- `dev-scripts/build-pseudoregalia.bat` builds `main.dll` from
+  `adapters/pseudoregalia/MeshGhostPseudo/Mod/src/*` and stages it under
+  `pseudoregalia/Binaries/Win64/ue4ss/Mods/MeshGhostPseudo/`, recording source hashes to
+  `MeshGhostPseudo-built-from.txt` — same staleness-gate pattern as TEVI's `built-from.txt`
+  above.
+- `dev-scripts/stage-ue4ss-runtime.bat` stages the RE-UE4SS runtime itself (`UE4SS.dll`,
+  settings, stock `Mods/`) from the pinned RE-UE4SS submodule, recording its own provenance to
+  `ue4ss-runtime-built-from.txt`. This one is a deliberate exception to the project's normal
+  "never redistribute the modding tool, user installs it themselves" posture — RE-UE4SS is
+  MIT-licensed, and this ships its own `LICENSE` alongside the binaries per MIT's terms (see
+  [agent_docs/licensing.md](../agent_docs/licensing.md)'s RE-UE4SS entry).
+
+Both stage into the same `pseudoregalia/Binaries/Win64/...` tree, mirroring the real Steam
+install's own folder layout, so the whole `pseudoregalia/` folder is one drag-and-drop into a
+user's Steam install root — same onboarding as the AP randomizer. Whoever edits the C++ mod or
+bumps the RE-UE4SS submodule pin re-runs the relevant script and commits the result.
 
 ## Cutting a release
 
@@ -117,6 +148,7 @@ Manual only, deliberately — nothing publishes on its own just from pushing a c
 On GitHub: repo → **Actions** tab → **Release** workflow → **Run workflow** → type a version
 (e.g. `v0.1.0`), tick **prerelease** if this cut includes untested content (e.g. TEVI before
 its first real two-player test) → run. It builds both `.exe`s for Windows/amd64 (the only
-platform BizHawk's LuaSocket vendoring currently supports, per `agent_docs/licensing.md`),
-verifies the committed TEVI plugin isn't stale, assembles the one zip, creates the tag if it
+platform BizHawk's LuaSocket vendoring currently supports, per
+[agent_docs/licensing.md](../agent_docs/licensing.md)), verifies the committed TEVI plugin
+isn't stale, assembles the one zip, creates the tag if it
 doesn't already exist, and attaches the zip to a new GitHub Release.

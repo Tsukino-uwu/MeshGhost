@@ -1183,3 +1183,168 @@ func TestConnectRelayOnAdapterHelloCachesPermanentReject(t *testing.T) {
 		t.Fatalf("second call = %v, want the identical cached error %v (a live dial would fail differently, connection refused)", err2, err)
 	}
 }
+
+// recordingTransport is a transport.Transport stand-in that records every
+// sent envelope's raw bytes, for tests that need to inspect what was sent
+// (not just count calls, unlike countingTransport above).
+type recordingTransport struct {
+	mu   sync.Mutex
+	sent [][]byte
+}
+
+func (rt *recordingTransport) Send(payload []byte) error {
+	rt.mu.Lock()
+	defer rt.mu.Unlock()
+	cp := make([]byte, len(payload))
+	copy(cp, payload)
+	rt.sent = append(rt.sent, cp)
+	return nil
+}
+func (rt *recordingTransport) OnReceive(func([]byte))   {}
+func (rt *recordingTransport) OnDisconnect(func(error)) {}
+func (rt *recordingTransport) OnError(func(error))      {}
+func (rt *recordingTransport) Close() error             { return nil }
+
+func (rt *recordingTransport) count() int {
+	rt.mu.Lock()
+	defer rt.mu.Unlock()
+	return len(rt.sent)
+}
+
+func (rt *recordingTransport) all() [][]byte {
+	rt.mu.Lock()
+	defer rt.mu.Unlock()
+	out := make([][]byte, len(rt.sent))
+	copy(out, rt.sent)
+	return out
+}
+
+// TestSendHeartbeatsSendsPeriodicPings is a unit test for sendHeartbeats
+// itself, bypassing the network: confirms it actually sends "ping" envelopes
+// on a fixed cadence, and stops once c.relay is replaced (the same signal
+// ConnectRelay's OnDisconnect/reconnect path uses to supersede an old
+// connection). See DefaultHeartbeatInterval's doc comment for the live
+// idle-timeout-churn bug this exists to prevent.
+func TestSendHeartbeatsSendsPeriodicPings(t *testing.T) {
+	c := New()
+	c.HeartbeatInterval = 5 * time.Millisecond
+	rt := &recordingTransport{}
+	c.mu.Lock()
+	c.relay = rt
+	c.mu.Unlock()
+
+	go c.sendHeartbeats(rt)
+
+	deadline := time.Now().Add(testTimeout)
+	for rt.count() < 3 && time.Now().Before(deadline) {
+		time.Sleep(2 * time.Millisecond)
+	}
+	if got := rt.count(); got < 3 {
+		t.Fatalf("got %d pings sent in %v, want at least 3 at a %v interval", got, testTimeout, c.HeartbeatInterval)
+	}
+	for _, raw := range rt.all() {
+		var env protocol.Envelope
+		if err := json.Unmarshal(raw, &env); err != nil {
+			t.Fatalf("sent envelope did not unmarshal: %v", err)
+		}
+		if env.Type != protocol.TypePing {
+			t.Fatalf("sent envelope type = %q, want %q", env.Type, protocol.TypePing)
+		}
+	}
+
+	// Superseding the connection (as a real reconnect does) must stop
+	// further sends.
+	c.mu.Lock()
+	c.relay = &recordingTransport{}
+	c.mu.Unlock()
+	countAfterSupersede := rt.count()
+	time.Sleep(30 * time.Millisecond)
+	if got := rt.count(); got != countAfterSupersede {
+		t.Fatalf("sendHeartbeats kept sending on a superseded connection: %d sends after supersede, still %d more since", countAfterSupersede, got-countAfterSupersede)
+	}
+}
+
+// TestSendHeartbeatsDisabledByNonPositiveInterval confirms the <= 0 opt-out
+// used by TestWithoutHeartbeatIdleRelayConnectionDrops actually works at the
+// mechanism level, not just "the relay dropped it eventually".
+func TestSendHeartbeatsDisabledByNonPositiveInterval(t *testing.T) {
+	c := New()
+	c.HeartbeatInterval = 0
+	rt := &recordingTransport{}
+	c.mu.Lock()
+	c.relay = rt
+	c.mu.Unlock()
+
+	go c.sendHeartbeats(rt)
+	time.Sleep(30 * time.Millisecond)
+	if got := rt.count(); got != 0 {
+		t.Fatalf("sendHeartbeats sent %d pings with HeartbeatInterval <= 0, want 0 (disabled)", got)
+	}
+}
+
+// TestHeartbeatKeepsIdleRelayConnectionAlive is the positive, end-to-end
+// counterpart to relay's TestIdleConnectionWithoutPingIsDroppedByIdleTimeout:
+// with the same shrunk relay IdleTimeout, a real Core with heartbeats
+// enabled and zero forwardLocalState calls the whole time stays connected
+// well past the point an unheartbeated connection would have been dropped
+// (proven by the control test below). This is the 2026-08-14 live incident
+// from agent_docs/verified.md — a core with no adapter attached went idle,
+// got killed by the relay's IdleTimeout, and reconnected under a brand-new
+// player_id every cycle.
+func TestHeartbeatKeepsIdleRelayConnectionAlive(t *testing.T) {
+	s := relay.NewServer()
+	s.IdleTimeout = 50 * time.Millisecond
+	relayAddr := startRelayWith(t, s)
+
+	c := New()
+	c.HeartbeatInterval = 15 * time.Millisecond
+	c.RelayAddr = relayAddr
+	c.DialTimeout = testTimeout
+	if err := c.ConnectRelay("emerald"); err != nil {
+		t.Fatalf("ConnectRelay: %v", err)
+	}
+	firstPlayerID := c.PlayerID()
+	if firstPlayerID == "" {
+		t.Fatal("expected a non-empty player id after a successful connect")
+	}
+
+	// Several multiples of IdleTimeout, with no forwardLocalState call at
+	// all — the exact "no adapter attached" scenario that surfaced the bug.
+	time.Sleep(10 * s.IdleTimeout)
+
+	if got := c.PlayerID(); got != firstPlayerID {
+		t.Fatalf("player id = %q after the wait, want unchanged %q — connection was dropped/reconnected despite heartbeats being enabled", got, firstPlayerID)
+	}
+}
+
+// TestWithoutHeartbeatIdleRelayConnectionDrops is
+// TestHeartbeatKeepsIdleRelayConnectionAlive's control: same shrunk relay
+// IdleTimeout, heartbeats explicitly disabled, zero forwardLocalState calls
+// — the connection must actually die, proving this test harness really
+// exercises the bug rather than trivially passing regardless of the fix.
+func TestWithoutHeartbeatIdleRelayConnectionDrops(t *testing.T) {
+	s := relay.NewServer()
+	s.IdleTimeout = 50 * time.Millisecond
+	relayAddr := startRelayWith(t, s)
+
+	c := New()
+	c.HeartbeatInterval = 0 // disabled -- pre-fix behavior
+	c.RelayAddr = relayAddr
+	c.DialTimeout = testTimeout
+	if err := c.ConnectRelay("emerald"); err != nil {
+		t.Fatalf("ConnectRelay: %v", err)
+	}
+	firstPlayerID := c.PlayerID()
+	if firstPlayerID == "" {
+		t.Fatal("expected a non-empty player id after a successful connect")
+	}
+
+	deadline := time.Now().Add(testTimeout)
+	for time.Now().Before(deadline) {
+		if c.PlayerID() == "" {
+			return // dropped, as expected with no heartbeat and no traffic
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("connection was not dropped by IdleTimeout with heartbeats disabled — test harness assumption is wrong (still connected as %q)", firstPlayerID)
+}

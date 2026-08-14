@@ -144,6 +144,16 @@ namespace MeshGhostPseudo
         auto release_ghost(const std::string& player_id) -> void;
         auto release_all_ghosts(const wchar_t* reason) -> void;
 
+        // Found live 2026-08-14: closing the core process (meshghost.exe) drops the bridge
+        // connection, but neither despawn_remote (the core never gets a chance to send it) nor
+        // the LoadMap PRE hook (no area transition happened) fires -- a remote's ghost was left
+        // standing frozen and visible indefinitely. Unlike release_all_ghosts's LoadMap case,
+        // no level teardown is coming to reclaim the actor here, so this parks every remaining
+        // ghost the same way a real despawn_remote does (see release_ghost). Must run on the
+        // game thread, same requirement as release_ghost's own actor write -- called from
+        // game_thread_tick, armed by on_update noticing the connected->disconnected edge.
+        auto release_all_ghosts_parked(const wchar_t* reason) -> void;
+
         auto log_remote_state(const wchar_t* context) -> void;
 
         // User-requested 2026-08-13: isolate the render-freeze investigation from the network
@@ -193,6 +203,11 @@ namespace MeshGhostPseudo
         std::mutex state_mutex;
         std::vector<std::string> pending_incoming_lines; // filled by on_update, drained by game_thread_tick
         std::string cached_local_state_json;             // built by game_thread_tick, sent by on_update
+        // Bridge-disconnect ghost cleanup handoff (see release_all_ghosts_parked's comment):
+        // on_update notices the connected->disconnected edge and sets the pending flag;
+        // game_thread_tick drains it and does the actual (game-thread-only) parking.
+        bool bridge_was_connected{false};
+        bool bridge_disconnect_cleanup_pending{false};
 
         // Local landed?/jumped? edge counters for the redone pulse mirror (see
         // RemoteGhost::target_land_count's comment). Incremented once per rising edge of the real

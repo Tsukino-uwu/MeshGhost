@@ -16,10 +16,18 @@ import "time"
 // constants aliased here, some referenced as protocol.* directly at the
 // same call sites) confusing.
 const (
-	// MaxClientsPerRoom bounds room size. Phase 4's target is two; this
-	// leaves room for the roadmap's later multi-peer testing without
-	// letting a room grow unbounded.
-	MaxClientsPerRoom = 8
+	// DefaultMaxClients bounds how many clients a single relay accepts in
+	// total, across every room it's hosting, when a host doesn't configure
+	// one (see Server.MaxClients). This is server-wide, not per room: two
+	// rooms don't each get their own DefaultMaxClients worth of headroom.
+	// Room.Forward fans every state message out to every other member of
+	// its own room, so traffic within a room grows roughly with the square
+	// of that room's size, not linearly — a host who raises this a lot and
+	// then lets it all pile into one room is trading their own relay's
+	// bandwidth/CPU for more seats, not something to size up casually. No
+	// enforced ceiling: a host who wants more than the default is free to
+	// configure it and find out.
+	DefaultMaxClients = 8
 
 	// MaxMessagesPerSecond is a per-client rate limit on the relay
 	// protocol. The core does not yet throttle its own send rate (an open

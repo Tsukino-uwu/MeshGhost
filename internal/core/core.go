@@ -52,10 +52,10 @@ func asRejectReason(err error) (reason string, ok bool) {
 
 // isPermanentRejectReason reports whether reason won't resolve on its own
 // with a retry (wrong room code, version mismatch, protocol version — all
-// require a config change) as opposed to one that might (ReasonRoomFull,
+// require a config change) as opposed to one that might (ReasonServerFull,
 // if someone leaves).
 func isPermanentRejectReason(reason string) bool {
-	return reason != protocol.ReasonRoomFull
+	return reason != protocol.ReasonServerFull
 }
 
 // IsPermanentRejectErr reports whether err represents a relay Reject whose
@@ -87,6 +87,20 @@ const DefaultInterpolationDelay = 100 * time.Millisecond
 // rate, and is well above the brief's own 10Hz sync hypothesis. Overridable
 // per-Core, same pattern as InterpolationDelay.
 const DefaultMinSendInterval = 50 * time.Millisecond
+
+// DefaultHeartbeatInterval is how often ConnectRelay sends a Ping on an
+// otherwise-quiet relay connection. Found live 2026-08-14: with no adapter
+// attached (or any adapter frame reporting get_local_state()==nil, e.g. a
+// player parked at a menu), forwardLocalState never sends anything, and
+// nothing else was keeping the connection alive — transport.DefaultIdleTimeout
+// (60s) killed it, the same-day auto-reconnect fix immediately redialed, and
+// the relay handed out a brand-new player_id each cycle (nextPlayerID never
+// reuses one), which every other peer sees as a leave+join/ghost despawn-
+// respawn once a minute. 20s leaves comfortable margin under the 60s cutoff
+// even accounting for scheduling jitter. The relay already replies to Ping
+// with Pong (internal/relay/relay.go) — this just wires the client side up
+// to actually send one.
+const DefaultHeartbeatInterval = 20 * time.Second
 
 // DefaultDialTimeout is ConnectRelay's fallback when its timeout parameter
 // is <=0 — every other timing knob in this codebase treats zero as "use
@@ -187,6 +201,12 @@ type Core struct {
 	MinSendInterval time.Duration
 	lastSendAt      time.Time
 
+	// HeartbeatInterval overrides DefaultHeartbeatInterval for this Core —
+	// how often sendHeartbeats pings an otherwise-quiet relay connection.
+	// <= 0 disables heartbeats entirely (used by core_test.go to reproduce
+	// the pre-fix idle-timeout-churn bug directly).
+	HeartbeatInterval time.Duration
+
 	mu          sync.Mutex
 	remotes     map[string]*remoteBuffer
 	localAreaID string // this Core's own most recently known area_id, for cross-area filtering
@@ -264,6 +284,7 @@ func New() *Core {
 		remotes:            make(map[string]*remoteBuffer),
 		InterpolationDelay: DefaultInterpolationDelay,
 		MinSendInterval:    DefaultMinSendInterval,
+		HeartbeatInterval:  DefaultHeartbeatInterval,
 		roster:             make(map[string]struct{}),
 	}
 }
@@ -382,6 +403,7 @@ func (c *Core) ConnectRelay(gameID string) error {
 		c.playerID = w.PlayerID
 		c.relayGame = gameID
 		c.mu.Unlock()
+		go c.sendHeartbeats(conn)
 		return nil
 	case r := <-reject:
 		_ = conn.Close()
@@ -915,6 +937,44 @@ func (c *Core) tickRenders(rendered map[string]bool, render func(id string, st p
 		if _, stillKnown := current[id]; !stillKnown {
 			despawn(id)
 			delete(rendered, id)
+		}
+	}
+}
+
+// sendHeartbeats sends a Ping on conn every DefaultHeartbeatInterval for as
+// long as conn remains this Core's current relay connection, so a relay
+// connection with no real traffic (no adapter attached, or one reporting
+// get_local_state()==nil for a stretch) doesn't get killed by the relay's
+// idle timeout. See DefaultHeartbeatInterval's doc comment for the live
+// incident this fixes. Exits silently once conn is replaced or closed —
+// ConnectRelay's own OnDisconnect handler already logs and handles
+// reconnection; this has nothing more to add on a Send failure.
+func (c *Core) sendHeartbeats(conn transport.Transport) {
+	interval := c.HeartbeatInterval
+	if interval <= 0 {
+		return
+	}
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	var nonce uint64
+	for range ticker.C {
+		c.mu.Lock()
+		stillCurrent := c.relay == conn
+		c.mu.Unlock()
+		if !stillCurrent {
+			return
+		}
+		nonce++
+		payload, err := json.Marshal(protocol.Ping{Nonce: nonce})
+		if err != nil {
+			continue
+		}
+		env, err := json.Marshal(protocol.Envelope{Type: protocol.TypePing, Payload: payload})
+		if err != nil {
+			continue
+		}
+		if err := conn.Send(env); err != nil {
+			return
 		}
 	}
 }

@@ -389,7 +389,7 @@
     the lazy path already used, so a real adapter connecting concurrently can't race it into a
     duplicate dial. A genuinely permanent rejection (wrong code, version mismatch) still exits
     loudly — only "the relay isn't up yet" gained tolerance. `RejectError`/
-    `IsPermanentRejectErr` (`internal/core`) do the classification; `protocol.ReasonRoomFull`
+    `IsPermanentRejectErr` (`internal/core`) do the classification; `protocol.ReasonServerFull`
     is the one reason treated as retry-worthy. **Confirmed live**, not just `go test`: real
     `meshghost.exe` started before any relay existed, retried silently (one log line, not one
     per retry) across ~15s of real backoff, then connected the instant a real
@@ -462,10 +462,25 @@
     `adapters/_template/PROTOCOL.md` updates (Pseudoregalia added to the adapter list, `extras`
     documented as load-bearing, `orientation` shown as opaque any-JSON, a peer-controlled-data
     warning added, plus the TEVI ghost-invisibility entry) are done.
-  - **Not started**: live in-game verification of Pseudoregalia's despawn-visual/area-transition
-    behavior specifically (general spawn/follow/animate already confirmed) and Emerald's
-    connect/retry/receive paths — per `CLAUDE.md`, nothing above goes in `verified.md` until
-    watched happening on screen.
+  - **Emerald (Lua) live-verified 2026-08-14**: user ran `phase5_5_sprite.lua` against a real
+    `-loopback` relay/core, confirmed ghost spawn and clean despawn on client kill — see
+    `verified.md`'s new entry. Not separately exercised: a relay restart mid-session (the
+    dead-socket path) or a non-loopback two-real-peer run.
+  - **Pseudoregalia despawn-visual/area-transition live-verified 2026-08-14, and two new real
+    bugs found and fixed along the way** (both confirmed live, see `verified.md`'s three new
+    entries): (1) closing the client left a ghost frozen and visible instead of despawning —
+    `on_update()` never detected its own bridge connection dying (same bug class as Emerald's
+    Phase 3 fix, never ported here); fixed via `release_all_ghosts_parked`, armed by a
+    connected→disconnected edge check and drained on the game thread. (2) a core with no adapter
+    attached (or reporting `get_local_state()==nil` for a stretch) sent nothing to the relay,
+    hit `transport.DefaultIdleTimeout` (60s), and the sweep's own auto-reconnect kept reconnecting
+    it under a brand-new never-reused player id every ~60s — every other real peer would see a
+    leave+join/ghost despawn-respawn cycle once a minute. Fixed via `Core.sendHeartbeats`, a
+    20s `Ping` the relay already knew how to answer with `Pong` but nothing ever sent. Both
+    `go build`/`vet`/`test` clean; `meshghost.exe`/`meshghost-relay.exe` rebuilt;
+    `MeshGhostPseudo`'s `main.dll` rebuilt and hash-diff-deployed to both the in-repo packaging
+    copy and the live Steam install.
+  - **This closes every item from the 2026-08-14 sweep's "Not started" list.**
 
 ## Go networking layer (2026-08-11)
 

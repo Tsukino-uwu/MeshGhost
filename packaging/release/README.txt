@@ -86,6 +86,16 @@ Setup, once:
                current meshghost.exe/meshghost-server.exe -- an old copy
                silently ignores this setting and stays open with no
                warning. If in doubt, re-download the latest release.
+     "max_clients" -- how many players this relay accepts in total,
+               including you -- across every room, if your group ever
+               uses more than one room name on the same relay at once. 8
+               by default. The relay only ever sends a player's position
+               to other players in that SAME room, never to a different
+               room -- but you can still raise this and end up with one
+               big room, and a bigger room means more network traffic for
+               YOUR machine (the host) to handle, since everyone in it
+               gets sent everyone else's position. Don't set this to
+               something huge without expecting to actually need it.
 
 Hosting (skip this section if you're not the host):
 1. Double-click meshghost-server.exe. Leave the window open while people

@@ -123,7 +123,7 @@ type Reject struct {
 // contract change, per the forward-compatibility rule), these constants
 // exist only for the Go call sites that need to tell a few of them apart —
 // e.g. internal/core deciding whether a rejection is worth retrying
-// (ReasonRoomFull can resolve on its own if someone leaves; every other
+// (ReasonServerFull can resolve on its own if someone leaves; every other
 // reason here requires a config change first). Added alongside room-code
 // auth, see the ADR in agent_docs/architecture.md.
 const (
@@ -132,7 +132,10 @@ const (
 	ReasonInvalidRoomCode         = "invalid room code"
 	ReasonGameMismatch            = "game mismatch for this room"
 	ReasonGameVersionMismatch     = "game version mismatch for this room"
-	ReasonRoomFull                = "room full"
+	// ReasonServerFull means the relay is already at MaxClients across
+	// every room it's hosting combined, not that any one room is full —
+	// see internal/relay.Server.MaxClients.
+	ReasonServerFull = "server full"
 )
 
 // Join announces a peer entering the room. State is reserved for seeding a

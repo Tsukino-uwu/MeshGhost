@@ -3,8 +3,8 @@
 This file describes what the Go networking layer (`core`, `relay`, `bridge`, `protocol`,
 `transport`) does and does not protect against, and why. It exists so "is this safe to use
 with people I don't know" has a real, checkable answer instead of a guess — see
-`CLAUDE.md`'s "no addresses or APIs from memory" rule applied to security claims, not just
-game memory.
+[CLAUDE.md](../CLAUDE.md)'s "no addresses or APIs from memory" rule applied to security
+claims, not just game memory.
 
 **Bottom line up front, updated 2026-08-14: MeshGhost now supports room-code auth and a peer
 game-version check, and the relay/core have been hardened against several concrete
@@ -15,7 +15,8 @@ work: there is no TLS, so a room code crosses the wire in plaintext (raises the 
 network-level attacker"); and room-code auth is enforced entirely by the relay, so it provides
 zero protection if the relay itself is an outdated build, regardless of what any client sends
 or believes it configured — see "A new risk this creates" below.** Full record of this pass:
-the ADR in `agent_docs/architecture.md` (search "room-code/version ADR").
+the ADR in [agent_docs/architecture.md](../agent_docs/architecture.md) (search
+"room-code/version ADR").
 
 ## What changed (2026-08-14 relay-safety hardening pass)
 
@@ -33,7 +34,7 @@ the ADR in `agent_docs/architecture.md` (search "room-code/version ADR").
   memory without limit, and the existing `MaxLineBytes` check ran too late to stop it. Now
   enforced *during* the read.
 - **Read/write deadlines and a hello timeout**, none of which existed before — see the
-  Transport section of `agent_docs/contract.md`.
+  Transport section of [agent_docs/contract.md](../agent_docs/contract.md).
 - **A one-stalled-peer room freeze, fixed**: `Room.Forward` used to hold its lock across every
   recipient's `Send` call; once `Send` could legitimately block for seconds against a stalled
   peer (the deadline above), that meant one bad connection could freeze joins/leaves/roster
@@ -51,7 +52,8 @@ the ADR in `agent_docs/architecture.md` (search "room-code/version ADR").
 - **Start-order independence, added same-day**: `cmd/meshghost` no longer requires the relay
   to already be running — a permanent rejection (wrong room code, version mismatch) still
   exits loudly, but "the relay isn't up yet" now retries with backoff instead of crashing the
-  whole process. Confirmed live: see `verified.md`'s "start-order independence" entry.
+  whole process. Confirmed live: see
+  [agent_docs/verified.md](../agent_docs/verified.md)'s "start-order independence" entry.
 
 ## A new risk this creates
 
@@ -62,7 +64,8 @@ unrecognized JSON field to that binary — silently ignored, not rejected. This 
 problem and can't be fixed client-side: the whole point of enforcing auth at the relay (the
 host controls admission, not each joiner) means the protection only exists if the *relay*
 process is current. If you're hosting: update `meshghost-relay.exe`, not just the client, before
-relying on a room code. See the ADR in `agent_docs/architecture.md` for the full reasoning.
+relying on a room code. See the ADR in
+[agent_docs/architecture.md](../agent_docs/architecture.md) for the full reasoning.
 
 ## What's already true, and why (checked against the actual code, 2026-08-13)
 
@@ -84,8 +87,9 @@ called anywhere in `internal/` or `cmd/` (grepped, zero hits). The relay is stil
 that *could* see a real IP — it's the actual TCP endpoint every client connects to, which is
 unavoidable for any relay architecture — but right now it doesn't even use that information.
 
-**The adapter/core/relay split adds a second layer of isolation**, per `agent_docs/contract.md`'s
-hard rule: an adapter (the game-side script/plugin) never touches the network at all. It only
+**The adapter/core/relay split adds a second layer of isolation**, per
+[agent_docs/contract.md](../agent_docs/contract.md)'s hard rule: an adapter (the game-side
+script/plugin) never touches the network at all. It only
 talks to its own local core process, over localhost, via the bridge. Only the core connects to
 the relay. So even a fully compromised adapter has no path to learn anything about another
 player's machine — it would have to compromise the core itself first, a separate process.
@@ -94,10 +98,11 @@ player's machine — it would have to compromise the core itself first, a separa
 (`internal/relay/limits.go`, `internal/protocol/limits.go`): `MaxLineBytes` (4096, now enforced
 during the read itself, not after), `MaxExtrasBytes` (1024), `MaxPositionLen` (8),
 `MaxOrientationBytes` (256), `MaxAreaIDLen`/`MaxAnimLen` (256), `MaxHelloFieldLen` (128),
-`MaxClientsPerRoom` (8), `MaxMessagesPerSecond` (120), `DefaultHelloTimeout` (10s). Originally
+`DefaultMaxClients` (8, server-wide across all rooms, configurable per relay),
+`MaxMessagesPerSecond` (120), `DefaultHelloTimeout` (10s). Originally
 generous rather than tight (no-auth was the accepted state through Phase 4); audited with an
 adversarial peer in mind as of the 2026-08-14 hardening pass — see "What changed" above and the
-ADR in `agent_docs/architecture.md`.
+ADR in [agent_docs/architecture.md](../agent_docs/architecture.md).
 
 ## What is not yet true — known gaps
 
@@ -125,7 +130,8 @@ member list" feature built naively — would break an invariant that currently h
 
 ## Prior art: how CelesteNet handles this (researched 2026-08-13)
 
-CelesteNet is already an approved read-only design reference (`agent_docs/licensing.md`, MIT).
+CelesteNet is already an approved read-only design reference
+([agent_docs/licensing.md](../agent_docs/licensing.md), MIT).
 Read its actual server source (not assumed) via `gh api` against `0x0ade/CelesteNet` before
 writing any of this — findings below are cited to real files, not memory.
 
@@ -149,7 +155,7 @@ writing any of this — findings below are cited to real files, not memory.
   `CelesteNet-TeapotVersion` header, server responds `409 Version Mismatch` on anything but an
   exact match (`HandshakerRole.cs`'s `TeapotHandshake`). We already do the direct equivalent
   for our own wire protocol (`protocol.Version`, checked in `hello` at
-  [relay.go:304](relay/relay.go#L304)) — but that only covers *our* protocol version, not each
+  [relay.go:443](relay/relay.go#L443)) — but that only covers *our* protocol version, not each
   adapter's underlying game version/DLC, which is the still-open "no peer game-version check"
   gap above. Worth copying the *pattern* (reject outright at handshake, before any state
   exchange) for that gap too, once it's designed.
@@ -172,10 +178,12 @@ problem MeshGhost doesn't have. **Implemented 2026-08-14** — see "What changed
 
 ## Why TCP, not UDP (recorded 2026-08-13 — no prior ADR existed for this)
 
-`internal/transport` is TCP-only (NDJSON framing, `contract.md`'s Transport section). This was
-never actually written down as a deliberate choice against UDP until now — it fell out of
-"stdlib TCP/JSON, debuggability beats bandwidth" (`architecture.md`'s Go-decision ADR) rather
-than a head-to-head comparison. Recording the comparison here since it came up directly while
+`internal/transport` is TCP-only (NDJSON framing,
+[agent_docs/contract.md](../agent_docs/contract.md)'s Transport section). This was never
+actually written down as a deliberate choice against UDP until now — it fell out of "stdlib
+TCP/JSON, debuggability beats bandwidth"
+([agent_docs/architecture.md](../agent_docs/architecture.md)'s Go-decision ADR) rather than a
+head-to-head comparison. Recording the comparison here since it came up directly while
 scoping the relay-safety work.
 
 Real-time games often prefer UDP because TCP's reliable/ordered delivery means one lost packet
@@ -188,7 +196,9 @@ latest state, now. That tradeoff doesn't bite the way it would in a competitive 
   smooth network jitter. A TCP stall is at most ~50ms at this rate — invisible against delay
   we already absorb by design, not a new cost UDP would meaningfully remove.
 - **Debuggability**: NDJSON-over-TCP is exactly why the relay protocol can be read with
-  `netcat` and a human eye (`contract.md`'s framing rationale). UDP has no equivalent
+  `netcat` and a human eye
+  ([agent_docs/contract.md](../agent_docs/contract.md)'s framing rationale). UDP has no
+  equivalent
   "greppable stream" property — each datagram would need its own framing, and there's no
   continuous stream to tap into the same way.
 - **Security**: a real TCP handshake makes connection spoofing/hijacking hard by construction.

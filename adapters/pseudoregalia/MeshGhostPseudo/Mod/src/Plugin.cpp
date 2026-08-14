@@ -777,6 +777,19 @@ namespace MeshGhostPseudo
         }
     }
 
+    auto Plugin::release_all_ghosts_parked(const wchar_t* reason) -> void
+    {
+        Output::send(STR("[MeshGhostPseudo] parking all ghosts ({}): {} remote(s)\n"), reason, remotes.size());
+        for (auto& [id, remote] : remotes)
+        {
+            if (!remote.ghost)
+            {
+                continue;
+            }
+            release_ghost(id);
+        }
+    }
+
     auto Plugin::on_unreal_init() -> void
     {
         Output::send(STR("[MeshGhostPseudo] on_unreal_init reached.\n"));
@@ -1933,13 +1946,20 @@ namespace MeshGhostPseudo
         }
 
         std::vector<std::string> lines_to_process;
+        bool disconnect_cleanup_pending = false;
         {
             std::lock_guard<std::mutex> lock(state_mutex);
             lines_to_process.swap(pending_incoming_lines);
+            disconnect_cleanup_pending = bridge_disconnect_cleanup_pending;
+            bridge_disconnect_cleanup_pending = false;
         }
         for (const std::string& line : lines_to_process)
         {
             handle_bridge_line(line, pawn_obj, controller);
+        }
+        if (disconnect_cleanup_pending)
+        {
+            release_all_ghosts_parked(STR("bridge disconnected"));
         }
 
         // Redraw every currently-known remote unconditionally, every tick -- per PROTOCOL.md,
@@ -2216,7 +2236,17 @@ namespace MeshGhostPseudo
 
         bridge->tick_connect();
 
-        if (bridge->is_connected())
+        bool now_connected = bridge->is_connected();
+        if (bridge_was_connected && !now_connected)
+        {
+            // See release_all_ghosts_parked's comment -- the actual parking must happen on the
+            // game thread, so this only arms the flag; game_thread_tick does the real work.
+            std::lock_guard<std::mutex> lock(state_mutex);
+            bridge_disconnect_cleanup_pending = true;
+        }
+        bridge_was_connected = now_connected;
+
+        if (now_connected)
         {
             if (!bridge->hello_sent())
             {

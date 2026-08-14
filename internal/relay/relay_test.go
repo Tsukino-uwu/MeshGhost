@@ -443,13 +443,13 @@ func TestOversizedLineClosesConnection(t *testing.T) {
 	}
 }
 
-// TestRoomFullRejectsExtraClient confirms a room at MaxClientsPerRoom
-// refuses an additional join rather than growing unbounded.
-func TestRoomFullRejectsExtraClient(t *testing.T) {
+// TestServerFullRejectsExtraClient confirms a relay at its configured
+// MaxClients refuses an additional join rather than growing unbounded.
+func TestServerFullRejectsExtraClient(t *testing.T) {
 	addr := startServer(t)
 
 	var clients []*testClient
-	for i := 0; i < MaxClientsPerRoom; i++ {
+	for i := 0; i < DefaultMaxClients; i++ {
 		c := dialTestClient(t, addr, "emerald", "room1", "member")
 		defer c.conn.Close()
 		c.expectWelcome(timeout)
@@ -642,9 +642,7 @@ func (f *fakeStallingTransport) Close() error              { return nil }
 func TestRoomForwardDoesNotBlockOtherOperationsOnStalledSend(t *testing.T) {
 	r := newRoom("emerald", "", "room1")
 	stalled := &fakeStallingTransport{unblock: make(chan struct{})}
-	if !r.tryAdd(&Client{PlayerID: "p1", Conn: stalled}) {
-		t.Fatal("tryAdd failed for first member")
-	}
+	r.tryAdd(&Client{PlayerID: "p1", Conn: stalled})
 
 	forwardDone := make(chan struct{})
 	go func() {
@@ -789,14 +787,14 @@ func TestGameVersionMismatchRejected(t *testing.T) {
 func TestTryAddAndSnapshotRosterIsAtomic(t *testing.T) {
 	r := newRoom("emerald", "", "room1")
 
-	roster1, ok := r.tryAddAndSnapshotRoster(&Client{PlayerID: "p1", Conn: &fakeStallingTransport{unblock: make(chan struct{})}})
-	if !ok || len(roster1) != 0 {
-		t.Fatalf("first join: ok=%v roster=%v, want ok=true roster=[]", ok, roster1)
+	roster1 := r.tryAddAndSnapshotRoster(&Client{PlayerID: "p1", Conn: &fakeStallingTransport{unblock: make(chan struct{})}})
+	if len(roster1) != 0 {
+		t.Fatalf("first join: roster=%v, want []", roster1)
 	}
 
-	roster2, ok := r.tryAddAndSnapshotRoster(&Client{PlayerID: "p2", Conn: &fakeStallingTransport{unblock: make(chan struct{})}})
-	if !ok || len(roster2) != 1 || roster2[0] != "p1" {
-		t.Fatalf("second join: ok=%v roster=%v, want ok=true roster=[p1]", ok, roster2)
+	roster2 := r.tryAddAndSnapshotRoster(&Client{PlayerID: "p2", Conn: &fakeStallingTransport{unblock: make(chan struct{})}})
+	if len(roster2) != 1 || roster2[0] != "p1" {
+		t.Fatalf("second join: roster=%v, want [p1]", roster2)
 	}
 
 	final := r.roster()
@@ -833,5 +831,67 @@ func TestOversizedHelloFieldRejected(t *testing.T) {
 	}
 	if reject.Reason != protocol.ReasonHelloFieldTooLong {
 		t.Fatalf("reject reason = %q, want %q (length check should run before the version check)", reject.Reason, protocol.ReasonHelloFieldTooLong)
+	}
+}
+
+// TestPingGetsPong confirms the relay's pre-existing Ping handler (added
+// alongside the protocol's Ping/Pong types, but never exercised by a real
+// sender until internal/core's heartbeat fix — see the 2026-08-14 verified.md
+// entry on the idle-timeout reconnect-ID churn bug) actually replies, and
+// echoes the nonce back unchanged so a caller can match requests to replies.
+func TestPingGetsPong(t *testing.T) {
+	addr := startServer(t)
+	c1 := dialTestClient(t, addr, "emerald", "room1", "alice")
+	defer c1.conn.Close()
+	c1.expectWelcome(timeout)
+
+	payload, err := json.Marshal(protocol.Ping{Nonce: 42})
+	if err != nil {
+		t.Fatalf("marshal ping: %v", err)
+	}
+	env, err := json.Marshal(protocol.Envelope{Type: protocol.TypePing, Payload: payload})
+	if err != nil {
+		t.Fatalf("marshal envelope: %v", err)
+	}
+	if err := c1.conn.Send(env); err != nil {
+		t.Fatalf("send ping: %v", err)
+	}
+
+	got := c1.next(timeout)
+	if got.Type != protocol.TypePong {
+		t.Fatalf("got message type %q, want %q", got.Type, protocol.TypePong)
+	}
+	var pong protocol.Pong
+	if err := json.Unmarshal(got.Payload, &pong); err != nil {
+		t.Fatalf("unmarshal pong: %v", err)
+	}
+	if pong.Nonce != 42 {
+		t.Fatalf("pong nonce = %d, want 42 (echoed from the ping)", pong.Nonce)
+	}
+}
+
+// TestIdleConnectionWithoutPingIsDroppedByIdleTimeout is the "before the
+// fix" control: with IdleTimeout shrunk to something waitable and no Ping
+// (or any other traffic) sent, the relay closes the connection once it
+// elapses. Proves the scenario the heartbeat fixes is real and this test
+// harness actually exercises it — see
+// TestHeartbeatKeepsIdleRelayConnectionAlive (internal/core/core_test.go)
+// for the "after the fix" counterpart against the same knob.
+func TestIdleConnectionWithoutPingIsDroppedByIdleTimeout(t *testing.T) {
+	s := NewServer()
+	s.IdleTimeout = 50 * time.Millisecond
+	addr := startServerWith(t, s)
+	c1 := dialTestClient(t, addr, "emerald", "room1", "alice")
+	defer c1.conn.Close()
+	c1.expectWelcome(timeout)
+
+	disconnected := make(chan error, 1)
+	c1.conn.OnDisconnect(func(err error) { disconnected <- err })
+
+	select {
+	case <-disconnected:
+		// expected: the relay's read deadline elapsed with nothing sent.
+	case <-time.After(2 * time.Second):
+		t.Fatal("connection was not dropped by IdleTimeout — test harness assumption is wrong")
 	}
 }

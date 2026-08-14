@@ -353,9 +353,10 @@ alongside room-code auth (see the architecture.md ADR) — treat the numbers bel
   two minutes of real play (see `agent_docs/verified.md`'s Phase 6.4/6.5 entry and the ADR in
   `architecture.md`). The brief's 10Hz hypothesis is still not what's enforced — 20Hz was chosen
   for headroom under the relay's cap, not as a claim that 20Hz is the "right" sync rate.
-- Max clients per room: **8** (`MaxClientsPerRoom`) — Phase 4's target is two; this leaves
-  room for later multi-peer testing without letting a room grow unbounded. A room already at
-  capacity refuses an additional join the same way a `game_id` mismatch is refused.
+- Max clients: **8 by default** (`DefaultMaxClients`), configurable per relay
+  (`Server.MaxClients`, `-max-clients`, `config.json`'s `server.max_clients`) — enforced
+  server-wide, across every room the relay is hosting combined, not per room. A relay already
+  at capacity refuses an additional join the same way a `game_id` mismatch is refused.
 - Hello timeout: an unauthenticated connection that hasn't completed a `hello` and joined a
   room within **10 seconds** (`DefaultHelloTimeout`, `Server.HelloTimeout`) is closed. See
   "Transport" above for why the idle read deadline alone doesn't cover this case.
