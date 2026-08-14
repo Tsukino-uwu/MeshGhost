@@ -284,6 +284,22 @@ the same way, or was that specific to melee's collision-based hit detection? Not
 yet. This is a materially harder and riskier feature than it looked at first — treat as genuinely
 deferred, not a quick follow-up.
 
+### Phase 8 — Emerald, dedicated (post-5.5 ongoing work)
+
+**Status: in progress, started 2026-08-14** — see `agent_docs/phases/phase8.md` for the full
+record. Numbered next in sequence rather than folded back into 1–5.5 (which bundled Emerald
+with building the server/client/core themselves) — those stay as-is to avoid breaking their
+many existing citations elsewhere. A dedicated home for real Emerald-specific work that keeps
+happening after Phase 5.5's "good enough" milestone: a review/refactor sweep (real
+socket-framing and crash-safety bugs), a real non-loopback two-peer test, a four-part
+Archipelago-ROM-compatibility investigation (relocated `CB2_Overworld`, relocated sprite data,
+relocated `gObjectEvents`/`gPlayerAvatar`, and a timing bug in that last fix), a gender-read
+timing bug, local dev/testing tuned for instant feedback (`-interp=0ms`/new `-min-send` flag),
+and a real sub-tile movement-smoothing bug found once that tuning stopped a network buffer from
+hiding it. Not yet started: surf/Mach-Bike/Acro-Bike/ledge/rail movement support (detection
+source found, cited, not yet live-verified — `surf_bike_probe.lua` ready) and the
+VRAM/sprite-injection investigation (`agent_docs/ideas.md`, Stage 1 not started).
+
 ### Room codes / relay safety
 
 **Set as the current/next priority 2026-08-13; core work done 2026-08-14.** Full record: the

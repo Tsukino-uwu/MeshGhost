@@ -24,14 +24,27 @@ decompile the game made this easier and faster than Emerald, even though Emerald
 source decompilation available to reference — a lot of things (notably the animations) just
 worked as soon as they were wired up, with no equivalent of Emerald's memory-probing phase.
 
-Roughly in order (all of it is [agent_docs/phases/phase6.md](../../agent_docs/phases/phase6.md)):
+Roughly in order (mostly [agent_docs/phases/phase6.md](../../agent_docs/phases/phase6.md) —
+item 8 below was found later, during a cross-adapter review pass, and lives in
+[agent_docs/pitfalls.md](../../agent_docs/pitfalls.md) and
+[agent_docs/verified.md](../../agent_docs/verified.md) instead):
 
 1. Purple box as proof of concept (same first step as Emerald).
 2. Cyan box following the player.
 3. Replaced the box with the actual sprite.
 4. Added animations.
-5. Made ghosts hide when the peer is in a different zone, and fixed a bug where a ghost could
-   turn invisible when changing zones.
+5. Wired up real networking; the first real test hit the relay's 120 msg/sec rate limit for
+   real, since TEVI's `Update()` runs uncapped — fixed with a client-side send-rate cap in the
+   core, not the adapter. (6.4/6.5)
+6. Hit a blocker testing with two players locally — Steam won't run two instances of the same
+   game at once — resolved by downloading a second, standalone build via `steamcmd`.
+7. Made ghosts hide when the peer is in a different zone (a real gap where remotes weren't
+   filtered by area at all). (6.6)
+8. Found and fixed a separate bug, later, during a cross-adapter review pass: a ghost
+   recreated during a peer's own zone transition could go permanently invisible, because it
+   inherited a disabled sprite-renderer field from the live character at clone time.
+9. Added a marker on TEVI's own pause-screen map showing where the other player is, gated by
+   the local player's own fog-of-war so it doesn't leak undiscovered rooms. (6.7)
 
 ### Further work past "good enough"
 

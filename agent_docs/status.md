@@ -586,6 +586,17 @@
     follow-up after movement modes are done. Not yet started -- next session should build a
     combined surf/Mach-Bike/Acro-Bike probe.
 
+- `Current focus:` **2026-08-14, later same session — given a dedicated phase file.** Everything
+  Emerald-specific above since Phase 5.5 closed (the review sweep, the two-peer test, the
+  Archipelago investigation, the gender-read fix, the network tuning, the sub-tile glide saga,
+  and the not-yet-started surf/bike/fishing item) now lives in
+  `agent_docs/phases/phase8.md` — numbered next in sequence rather than folded back into 1–5.5
+  (which bundled Emerald with building the server/client/core themselves, so isn't a clean
+  "one phase per adapter" precedent the way Phase 6/TEVI and Phase 7/Pseudoregalia are).
+  `agent_docs/plans.md` and `adapters/pokemon/emerald/README.md` updated to match. This
+  `status.md` file remains the one-screen running log across the whole project; `phase8.md` is
+  the durable, Emerald-specific archive `phase6.md`/`phase7.md` already are for their games.
+
 ## Go networking layer (2026-08-11)
 
 Built and tested ahead of the BizHawk blocker, since it doesn't require a game or emulator:

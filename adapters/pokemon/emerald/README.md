@@ -52,7 +52,9 @@ Roughly in order, with the phase file that covers each part in more depth:
 7. Replaced the static box with an idle sprite that moves around.
    ([agent_docs/phases/phase5_5.md](../../../agent_docs/phases/phase5_5.md))
 8. Added a walking animation. ([agent_docs/phases/phase5_5.md](../../../agent_docs/phases/phase5_5.md))
-9. Added a running animation. ([agent_docs/phases/phase5_5.md](../../../agent_docs/phases/phase5_5.md))
+9. Added a running animation — initially just the walk cycle sped up, corrected to Emerald's
+   real, separate running pic table once live testing showed it looked wrong.
+   ([agent_docs/phases/phase5_5.md](../../../agent_docs/phases/phase5_5.md))
 
 The real networking — the relay, the core, and the bridge protocol connecting an adapter to
 both — got built alongside this adapter rather than before it, since Emerald was also the
@@ -71,7 +73,28 @@ read glitches).
 
 ### Further work past "good enough"
 
-None logged yet — add entries here if work on this adapter resumes past Phase 5.5.
+Real work continued after Phase 5.5 closed — given its own phase file,
+[phase8.md](../../../agent_docs/phases/phase8.md), rather than 1–5.5 (which bundled Emerald
+with building the server/client/core themselves) or living homeless in `status.md`. Roughly in
+order:
+
+10. A review/refactor sweep fixed several real socket-framing and crash-safety bugs (partial
+    send/receive, dead-socket detection, a `pcall` guard, JSON control-character escaping).
+11. Ran a real two-peer (non-loopback) session for the first time; found and fixed a
+    port-collision test-setup mistake along the way, not an adapter bug.
+12. A real Archipelago-patched ROM broke this adapter in four distinct ways — a relocated
+    `CB2_Overworld`, relocated sprite/palette data, relocated `gObjectEvents`/`gPlayerAvatar`,
+    and a timing bug in that last fix — all found via live memory investigation and fixed.
+13. Found and fixed a gender-read timing bug — it could resolve before character creation
+    finished on a fresh save; now gated on being confirmed in the overworld.
+14. Found and fixed a sub-tile movement-smoothing bug once local testing stopped hiding it —
+    the self-correcting glide-duration scheme was measuring idle time as step time; replaced
+    with fixed per-anim timing after two other fixes were tried and disproven.
+15. Not yet done: surf, Mach Bike, Acro Bike, ledges, and Mach Bike rail sections all still
+    snap badly — a real, cited detection source is found (no new memory address needed) but
+    not yet live-verified; a real per-tile timing measurement is also still needed.
+
+See [phase8.md](../../../agent_docs/phases/phase8.md) for the full record.
 
 ## Dev tools
 
