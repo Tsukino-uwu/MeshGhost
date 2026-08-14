@@ -8,18 +8,12 @@ two players, that's useful information -- there's nowhere to report it yet, but 
 assume it's your setup.
 
 What you need, once:
-- Your own legally-obtained copy of Pseudoregalia.
-- That's it. UE4SS (v3.0.1 Beta, exact commit 733e5969) is included in this folder --
-  you do not need to find or install it separately. See "Setup, once" below, and
-  the main project's agent_docs/licensing.md for why this is bundled (MIT-licensed,
-  redistributed with its own LICENSE included) when other games' mod loaders aren't.
+- Your own legally-obtained copy of Pseudoregalia. That's it -- everything else the mod
+  needs is already in this folder.
 
 What's in this folder:
-- pseudoregalia\ -- a single folder that mirrors your actual Pseudoregalia install's own
-  layout (pseudoregalia\Binaries\Win64\...), the same way the Archipelago randomizer's own
-  download works. It has everything: the UE4SS mod loader (built from the exact RE-UE4SS
-  commit this project targets) and the MeshGhostPseudo mod itself, already in the right
-  places inside it.
+- pseudoregalia\ -- the mod, already in the folder shape your game install expects.
+  Drag this whole pseudoregalia folder into your Steam install's Pseudoregalia folder.
 
 Setup, once:
 1. Drag the `pseudoregalia` folder from this folder directly into your Steam install's
@@ -27,8 +21,8 @@ Setup, once:
    `...\Steam\steamapps\common\Pseudoregalia\` (NOT the `pseudoregalia` subfolder already
    inside it -- drop this one ON TOP of that outer folder so the two merge).
 2. Windows will ask about merging folders and replacing files -- say yes to all of it. This
-   only adds/updates UE4SS and MeshGhostPseudo; it won't touch or remove anything else
-   already in your install (including Archipelago's own files, if installed).
+   only adds/updates mod files; it won't touch or remove anything else already in your
+   install (including Archipelago's own files, if installed).
 
 Setup, every time you play:
 1. Double-click meshghost.exe (one folder up). Leave the window open.
@@ -43,7 +37,6 @@ Two important notes specific to Pseudoregalia:
   "local_game_bridge" setting (it's hardcoded in the mod itself right now). If you're
   trying to run two copies of MeshGhost on the same machine (see the main README.txt),
   that trick does not currently work for Pseudoregalia.
-- Cross-area filtering (not seeing a friend's ghost when you're in different areas of the
-  castle) was fixed game-wide on 2026-08-13, but that fix hasn't specifically been watched
-  live in Pseudoregalia yet (only in TEVI). If you do see a ghost across areas, that's
-  useful to know -- there's nowhere to report it yet, but don't assume it's your setup.
+- You should stop seeing a friend's ghost while you're in different areas of the castle --
+  if you still see one across areas, that's useful to know -- there's nowhere to report it
+  yet, but don't assume it's your setup.

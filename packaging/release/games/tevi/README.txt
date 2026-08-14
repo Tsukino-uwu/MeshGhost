@@ -15,8 +15,8 @@ What you need, once:
   a "5.5"/IL2CPP build). Not included -- see the main project's agent_docs/licensing.md.
 
 What's in this folder:
-- MeshGhostTevi.dll -- the mod itself. This is the ONLY file from here that goes into
-  your TEVI install.
+- MeshGhost\ -- the mod itself.
+  Drag this whole MeshGhost folder into your TEVI install's BepInEx\plugins\ folder.
 
 Setup, once:
 1. If you haven't already, install BepInEx into your TEVI folder (the one containing
@@ -24,8 +24,8 @@ Setup, once:
    and a `BepInEx\` folder end up sitting next to TEVI.exe.
 2. Run TEVI once and close it again -- this lets BepInEx finish setting itself up and
    creates the `BepInEx\plugins\` folder.
-3. Copy MeshGhostTevi.dll into `BepInEx\plugins\MeshGhostTevi\MeshGhostTevi.dll` (create
-   the MeshGhostTevi folder if it doesn't exist).
+3. Drag the MeshGhost folder (from this folder) into `BepInEx\plugins\`, so you end up with
+   `BepInEx\plugins\MeshGhost\MeshGhostTevi.dll`.
 
 Setup, every time you play:
 1. Double-click meshghost.exe (one folder up). Leave the window open.

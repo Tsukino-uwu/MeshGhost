@@ -227,7 +227,7 @@ end
 local function scriptDir()
     local pwd = io.popen and io.popen("cd"):read("*l")
     if not pwd or pwd == "" then
-        error("MeshGhost Phase 5.5: could not determine the script's own directory (io.popen \"cd\" unavailable or returned nothing).")
+        error("MeshGhost: could not determine the script's own directory (io.popen \"cd\" unavailable or returned nothing).")
     end
     return pwd .. "\\"
 end
@@ -247,15 +247,15 @@ end
 
 local function loadSocketCore()
     if package.config:sub(1, 1) ~= "\\" then
-        error("MeshGhost Phase 5.5: only Windows is supported by the vendored LuaSocket binary so far.")
+        error("MeshGhost: only Windows is supported by the vendored LuaSocket binary so far.")
     end
     local luaMajor, luaMinor = _VERSION:match("Lua (%d+)%.(%d+)")
     if luaMajor ~= "5" or luaMinor ~= "4" then
-        error("MeshGhost Phase 5.5: only Lua 5.4 is supported by the vendored LuaSocket binary so far (got " .. _VERSION .. ").")
+        error("MeshGhost: only Lua 5.4 is supported by the vendored LuaSocket binary so far (got " .. _VERSION .. ").")
     end
     local arch = os.getenv("PROCESSOR_ARCHITECTURE") or ""
     if not arch:find("64") then
-        error("MeshGhost Phase 5.5: only x64 is supported by the vendored LuaSocket binary so far.")
+        error("MeshGhost: only x64 is supported by the vendored LuaSocket binary so far.")
     end
     preloadLua54()
     local dllPath = SCRIPT_DIR .. "lib/x64/socket-windows-5-4.dll"
@@ -443,7 +443,7 @@ end
 
 local function resetBridge()
     if connected then
-        console.log("MeshGhost Phase 5.5: bridge connection lost, will retry connecting.")
+        console.log("MeshGhost: bridge connection lost, will retry connecting.")
     end
     if sock then pcall(function() sock:close() end) end
     sock = nil
@@ -520,8 +520,15 @@ local function getLocalState()
 end
 
 -- readLocalGender returns "male"/"female", or nil if no save is loaded yet (mirrors
--- getLocalState's own base==0 gate). Called once the first time getLocalState succeeds, not
--- every frame -- gender doesn't change mid-session.
+-- getLocalState's own base==0 gate). Called once, the first time getLocalState succeeds AND
+-- the player is confirmed in the overworld (see the inOverworld() gate at the call site below,
+-- added 2026-08-14) -- not every frame, since gender doesn't change mid-session. The
+-- inOverworld() gate specifically guards against gSaveBlock1Ptr/gSaveBlock2Ptr already being
+-- non-null before the intro cutscene/title screen/character select finish -- unverified
+-- whether that's actually true on this game (flagged, not confirmed, see risks.md), but if it
+-- is, resolving gender the moment getLocalState() alone succeeds could latch in a
+-- default/uninitialized byte before the player ever actually chose a gender, and (since this
+-- only ever runs once) never self-correct for the rest of the session.
 local function readLocalGender()
     local base = memory.read_u32_le(GSAVEBLOCK2PTR_ADDR)
     if base == 0 then return nil end
@@ -774,7 +781,7 @@ if not memory.usememorydomain("System Bus") then
     return
 end
 
-console.log("MeshGhost Phase 5.5 sprite adapter running.")
+console.log("MeshGhost Emerald adapter running.")
 console.log("Decoding Brendan/May sprite frames...")
 loadGenderFrames()
 console.log("Connecting to bridge at " .. BRIDGE_HOST .. ":" .. BRIDGE_PORT .. " ...")
@@ -791,7 +798,7 @@ local function runFrame()
     if not connected then
         connectBridge()
         if connected then
-            console.log("MeshGhost Phase 5.5: connected to bridge.")
+            console.log("MeshGhost: connected to bridge.")
             -- Must be the first message on a fresh connection, before any local_state --
             -- see internal/bridge.Hello. Declares the game so the core can connect to the
             -- relay without the user typing "game" into config.json themselves.
@@ -812,10 +819,13 @@ local function runFrame()
         local state = getLocalState()
         local smoothX, smoothY, smoothAreaId
         if state then
-            if not localGender then
+            -- inOverworld() gate added 2026-08-14 -- see readLocalGender's header comment for
+            -- why: getLocalState() succeeding alone (gSaveBlock1Ptr non-null) isn't confirmed
+            -- to mean a real save is loaded and the player has actually chosen a gender yet.
+            if not localGender and inOverworld() then
                 localGender = readLocalGender()
                 if localGender then
-                    console.log("MeshGhost Phase 5.5: local gender = " .. localGender)
+                    console.log("MeshGhost: local gender = " .. localGender)
                 end
             end
             smoothX, smoothY = smoothPosition(state.x, state.y, state.areaId, state.anim)
@@ -849,7 +859,7 @@ while true do
     if not ok then
         -- Rate-limited: a per-frame error would otherwise spam the console every 1/60s.
         if frameCounter - lastFrameErrorLogged > 300 then
-            console.log("MeshGhost Phase 5.5: frame error (continuing): " .. tostring(err))
+            console.log("MeshGhost: frame error (continuing): " .. tostring(err))
             lastFrameErrorLogged = frameCounter
         end
     end

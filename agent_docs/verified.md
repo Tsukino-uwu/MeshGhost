@@ -2237,3 +2237,23 @@ Copy this block per fact:
   emulator" / "not separately exercised: ... a non-loopback two-real-peer run" gaps noted in
   `status.md`'s 2026-08-14 sweep entry. Relay-restart-mid-session (the dead-socket
   auto-reconnect path) still not separately exercised for this adapter.
+
+### Gender read correctly deferred past character creation on a fresh save
+
+- Date: 2026-08-14
+- Observed: user raised a real, previously-untested gap -- `readLocalGender()` only ever runs
+  once per session, gated only on `gSaveBlock1Ptr` being non-null, which is not the same as
+  confirming a real save is loaded and the player has actually chosen a gender (every earlier
+  gender test had a save already present). Fixed by additionally gating the read on
+  `inOverworld()` (the same gate already used before drawing remotes), on the reasoning that
+  character creation runs under some other `gMain.callback2` value, not `CB2_Overworld`.
+  Confirmed live: user started BizHawk with an existing female save, deleted it, created a new
+  save choosing male, and watched the Lua Console directly through the whole sequence -- the
+  `MeshGhost: local gender = ...` line did not appear at all during the title screen, intro, or
+  character-creation sequence, and printed exactly once, correctly as `male`, only once real
+  gameplay began in the overworld.
+- Source: `adapters/pokemon/emerald/meshghost_emerald.lua` (`readLocalGender`, its call site's
+  `inOverworld()` gate).
+- Notes: closes the open risk in `risks.md` (search "Gender read may resolve before a real save
+  is loaded"). The rarer mid-session delete-and-remake-a-save case (no script reload) is a
+  known, accepted, unfixed limitation -- see that same risks.md entry.

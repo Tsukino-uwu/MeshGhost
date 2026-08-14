@@ -49,12 +49,14 @@ jobs:
         run: go build -o meshghost-server.exe ./cmd/meshghost-relay
 
       - name: Verify the committed TEVI plugin isn't stale
-        # MeshGhostTevi.dll is checked into packaging/release/games/tevi/ because CI can't
-        # build it itself (the .csproj needs the developer's own proprietary TEVI install --
-        # see packaging/README.md and dev-scripts/build-tevi.bat). This is the guard that
-        # stops a release shipping a DLL older than the source that's supposed to have
-        # produced it: rehash the same three files build-tevi.bat hashed, and compare against
-        # what it recorded in built-from.txt.
+        # MeshGhostTevi.dll is checked into packaging/release/games/tevi/MeshGhost/ (a
+        # dedicated subfolder so the whole MeshGhost/ folder is a single drag-and-drop into
+        # BepInEx/plugins/) because CI can't build it itself (the .csproj needs the
+        # developer's own proprietary TEVI install -- see packaging/README.md and
+        # dev-scripts/build-tevi.bat). This is the guard that stops a release shipping a DLL
+        # older than the source that's supposed to have produced it: rehash the same three
+        # files build-tevi.bat hashed, and compare against what it recorded in built-from.txt
+        # (kept outside the MeshGhost/ drag-and-drop tree, one level up).
         shell: pwsh
         run: |
           $destDir = "packaging\release\games\tevi"
@@ -69,7 +71,7 @@ jobs:
           foreach ($name in $files.Keys) {
             $actual = (Get-FileHash $files[$name] -Algorithm SHA256).Hash
             if ($builtFrom -notmatch "(?im)^$([regex]::Escape($name)):\s*$actual\s*$") {
-              Write-Host "::error::$name has changed since packaging/release/games/tevi/MeshGhostTevi.dll was built (expected hash $actual not found in built-from.txt)"
+              Write-Host "::error::$name has changed since packaging/release/games/tevi/MeshGhost/MeshGhostTevi.dll was built (expected hash $actual not found in built-from.txt)"
               $stale = $true
             }
           }

@@ -1,6 +1,9 @@
 @echo off
 rem MeshGhost -- builds the TEVI BepInEx plugin (MeshGhostTevi.dll) and stages it under
-rem packaging\release\games\tevi\, ready to be zipped by .github\workflows\release.yml.
+rem packaging\release\games\tevi\MeshGhost\, ready to be zipped by .github\workflows\release.yml.
+rem Staged under a MeshGhost\ subfolder (not flat in games\tevi\) so the whole MeshGhost\
+rem folder is a single drag-and-drop into the user's BepInEx\plugins\ -- same shape as
+rem Pseudoregalia's drag-and-drop tree (build-pseudoregalia.bat), just one file.
 rem
 rem CI cannot do this build itself: MeshGhostTevi.csproj compiles against
 rem adapters\tevi\MeshGhostTevi\lib\*.dll, copies out of the developer's own TEVI install --
@@ -17,7 +20,8 @@ setlocal enabledelayedexpansion
 
 set ROOT=%~dp0..
 set SRC=%ROOT%\adapters\tevi\MeshGhostTevi
-set DEST=%ROOT%\packaging\release\games\tevi
+set GAMEDIR=%ROOT%\packaging\release\games\tevi
+set DEST=%GAMEDIR%\MeshGhost
 
 echo Building MeshGhostTevi.dll (Release)...
 dotnet build "%SRC%" -c Release
@@ -37,11 +41,12 @@ for /f %%c in ('git -C "%ROOT%" rev-parse HEAD') do set COMMIT=%%c
 
 (
   echo # Written by dev-scripts\build-tevi.bat -- read by .github\workflows\release.yml's
-  echo # staleness gate. Do not hand-edit.
+  echo # staleness gate. Do not hand-edit. Kept outside the MeshGhost\ drag-and-drop tree on
+  echo # purpose so it never lands in a user's BepInEx\plugins\ folder.
   echo commit: %COMMIT%
   echo Plugin.cs: %PLUGIN_HASH%
   echo BridgeClient.cs: %BRIDGE_HASH%
   echo MeshGhostTevi.csproj: %CSPROJ_HASH%
-) > "%DEST%\built-from.txt"
+) > "%GAMEDIR%\built-from.txt"
 
-echo Done. Commit packaging\release\games\tevi\MeshGhostTevi.dll and built-from.txt.
+echo Done. Commit packaging\release\games\tevi\MeshGhost\MeshGhostTevi.dll and built-from.txt.

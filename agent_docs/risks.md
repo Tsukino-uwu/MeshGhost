@@ -40,6 +40,32 @@
 - Relying on a single emulator version or toolchain may create setup drift between sessions.
 - Undocumented game state or menu/camera edge cases can break ghost placement or crash the
   adapter's assumptions about `get_local_state()`'s return shape.
+- **Gender read may resolve before a real save is loaded — raised by the user 2026-08-14,
+  fix applied and confirmed live the same day.** `readLocalGender()` only ever runs once per
+  session, the first time `getLocalState()` succeeds; that only checked `gSaveBlock1Ptr` being
+  non-null, not that the player has actually finished the intro/title screen/character select.
+  Every previous gender test (see the two "Closed 2026-08-11" entries above) was run with a
+  save already present, so this path had never actually been exercised. If a bad read had
+  occurred during the intro, it would have silently locked in the wrong gender for the rest of
+  the session (no crash, no error — exactly the "plausible number instead of crashing" case
+  CLAUDE.md warns about). **Fix**: the gender read is now additionally gated on `inOverworld()`
+  (`adapters/pokemon/emerald/meshghost_emerald.lua`), the same gate already used before drawing
+  remotes. **Confirmed live 2026-08-14**: user started BizHawk fresh with an existing female
+  save, deleted it, created a new male-gender save, and watched the Lua Console directly — the
+  `MeshGhost: local gender = ...` line did not print at all during the title screen/intro/
+  character-creation sequence, and printed exactly once, correctly as `male`, only once actual
+  gameplay began in the overworld. See `agent_docs/verified.md`.
+  - **Confirms the most likely real trigger, per the user: booting BizHawk with no save,
+    deleting/skipping to a fresh save, and picking a gender during character creation** — not
+    the rarer "already playing, return to menu, delete and remake a save mid-session" case,
+    which the user judged unlikely enough not to design around.
+  - **Known, accepted limitation, not fixed**: `localGender` is cached for the rest of a Lua
+    script session once resolved and never re-checked. If a player deletes and remakes a save
+    as the other gender *mid-session* without reloading the script, their ghost keeps showing
+    the stale gender to peers until they reload `meshghost_emerald.lua` — cosmetic only, no
+    crash. Deliberately not fixed: the user judged this specific sequence (already playing →
+    back to menu → delete → remake save, same session) rare enough not to be worth the
+    complexity of re-checking gender on every `inOverworld()` false→true transition.
 - **Licensing exposure**: `pokeemerald` carries no LICENSE file (see `agent_docs/licensing.md`)
   and SilklessCoop is restrictively licensed. Both are permitted as read-only fact sources,
   never as copied code — the risk is a future session forgetting that distinction under time
