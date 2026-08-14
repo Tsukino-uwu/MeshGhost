@@ -100,7 +100,3 @@ file of its own, which is what was happening before this file existed.
 - Every fact cited above already has its own `agent_docs/verified.md` entry with the real
   source/citation — this file doesn't re-derive anything, it's the phase-level index pointing
   at that evidence, matching how Phase 6/7 cite `verified.md` rather than duplicating it.
-- `pseudoregalia-multiplayer` (`highrow623`, MIT — `licensing.md`), found via a YouTube video,
-  is a possible reference project for a future Pseudoregalia comparison pass, not Emerald — not
-  otherwise relevant to this phase, noted here only in case it's mistaken for a dropped
-  Emerald-Phase-8 task.

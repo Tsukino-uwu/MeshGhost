@@ -31,6 +31,14 @@ root) — each script references them as `..\<name>.exe`.
   `agent_docs/phases/phase4.md`'s real-two-peer-retest entry). Recreate these two files
   yourself (they're gitignored, not shipped) if starting fresh on a new machine — see
   `agent_docs/environment.md` for the real `EmuHawk.exe`/ROM paths to put in them.
+
+  **Before diagnosing any two-instance local test** (Emerald, TEVI, or Pseudoregalia), confirm
+  each process actually logged a distinct bridge port — launch every second instance through
+  its `.local.bat`/`run-core-*2.bat` pair, never by double-clicking the game exe directly.
+  Found live 2026-08-14: both instances silently shared one bridge port with no error, and a
+  long pipeline trace confirmed the code was fine the whole time — the test setup was the bug.
+  See `agent_docs/pitfalls.md`'s "Running two instances of the same emulator/game silently
+  collide on a shared default port" entry.
 - `run-bizhawk-emerald-loopback-trail.local.bat` — **not tracked**, same shape as
   `run-bizhawk-emerald.local.bat` above but also sets `MESHGHOST_LOOPBACK_TRAIL=1`. Pair with
   `run-relay-loopback.bat` below AND `run-core-emerald-trail.bat` specifically, not the plain

@@ -51,6 +51,39 @@ proposing a plan that touches the core, an adapter, or the relay.
   record, not a template) — but even there, prefer the fact that actually matters (a version
   number) over an incidental personal detail (a full path containing a username) when either
   would do.
+- **Rebuild the Go binaries before testing via a `.bat` launcher, not just before shipping.**
+  `go build ./...`/`go vet`/`go test` don't refresh `meshghost.exe`/`meshghost-relay.exe`/
+  `meshghost-fakeadapter.exe` at the repo root — `dev-scripts/*.bat` launches those exact named
+  binaries. Rebuild explicitly with `-o` first. Found live 2026-08-14: a bug repro ran against
+  binaries a full day stale.
+- **Never log the value you just wrote as proof it worked.** Read back an independent value
+  instead (e.g. a real getter call, not the local variable you wrote into) — an echoed log
+  line proves your code ran, not that the world actually changed.
+- **Two guessed fixes failing with the identical symptom is a signal, not bad luck.** Stop
+  guessing and isolate by subtraction (one diagnostic, one variable, at a time) instead of
+  trying a third.
+- **A clean light test does not close a risk that depends on sustained load.** Exercise the
+  real rate/duration before marking it closed — a one-shot round trip and a real sustained
+  stream can behave completely differently. Found live: a single successful round trip closed
+  a risk that reopened the same day once tested under real sustained traffic.
+- **Treat "access denied" as a question to research, not a wall to route around** — who gates
+  this, and how does anyone actually get past it — especially before investing in a workaround
+  that would be expensive to undo.
+- **A build tool on `PATH` may silently resolve to the wrong install.** Confirm `cmake` (and
+  similar) resolves to the intended copy (e.g. `C:\Program Files\CMake\bin`, not a bundled
+  MSYS2 copy) before trusting a build failure or success. Found live 2026-08-13: a
+  `CMAKE_GENERATOR` failure was this, not a real toolchain regression.
+- **Don't use worktree-isolated parallel agents for testing work here.** The test loop is "make
+  a change, then watch it live in a running BizHawk/game session" — a git worktree can't share
+  that live, stateful session, so parallelizing testing across worktrees doesn't fit how this
+  project is actually verified.
+- **Keep working through to completion; don't suggest stopping partway.** Only pause to ask if
+  genuinely blocked — a real technical dead end, or a decision only the user can make — not as
+  a default checkpoint.
+- **When giving the user test/local-testing instructions, use plain directions (up/down/
+  left/right), never compass points.** User preference, specifically about talking to them —
+  compass directions (north/south/east/west) remain fine anywhere in code/comments where
+  that's the clearer choice.
 
 ## This file is capped at 300 lines
 
@@ -59,7 +92,8 @@ proposing a plan that touches the core, an adapter, or the relay.
 Research cited by the humanlayer guide puts frontier thinking models at ~150–200 followable
 instructions, and finds degradation is uniform, not tail-first. More instructions doesn't
 mean the bottom of the file gets ignored; it means every rule above gets followed slightly
-worse, including the ones that exist because something went wrong once.
+worse, including the ones that exist because something went wrong once. Source:
+<https://www.humanlayer.dev/blog/writing-a-good-claude-md>
 
 **So when this file would exceed 300 lines, something moves to `agent_docs/` — the question
 is never "can I add this?" but "what comes out to make room?"** Adding a rule is nearly
