@@ -55,7 +55,7 @@ Unchanged from the brief, restated exactly:
 |---|---|
 | `player_id` | assigned by the relay at `hello` |
 | `seq` | monotonic, per-client, for ordering |
-| `timestamp` | numeric, for interpolation. Milliseconds, consistent per client. |
+| `timestamp` | numeric, for interpolation. Milliseconds, wall-clock (`time.Now().UnixMilli()` on whichever side stamps it). **Peers' wall clocks must actually agree, not just be internally consistent** — `internal/core/interp.go`'s `remoteBuffer.at()` compares a *local* wall-clock render time directly against a *remote's* wall-clock timestamps. Meaningful clock skew between peers silently falls back to an edge snapshot every tick (interpolation stops, no error anywhere) rather than failing loudly. |
 | `area_id` | opaque string. Map bank for Emerald, scene name for TEVI/Unity. |
 | `position` | variable-length float array. 2 for Emerald, 3 for 3D games. |
 | `orientation` | optional. Facing direction, angle, or quaternion. Opaque to the core. |
@@ -102,7 +102,7 @@ signal joins/leaves — `despawn_remote(id)` has nothing to trigger it without a
 | `leave` | relay → client | a peer's `player_id` — this is what drives `despawn_remote` |
 | `state` | both directions | the packet schema above |
 | `event` | both directions | **reserved, not implemented.** See Extensibility below. |
-| `ping` / `pong` | both directions | liveness check; RTT feeds the interpolation delay |
+| `ping` / `pong` | both directions | keeps an otherwise-quiet connection from going idle; see below |
 
 ### `features`
 
@@ -216,8 +216,17 @@ ends and the next begins.
     a caller could register the callback, so it fired from a goroutine racing that
     registration — unusable as specified, and nothing in the codebase ever registered one.)
   - Reconnect with exponential backoff on unexpected disconnect.
-  - Heartbeat: a `ping` on an interval; a peer that misses N consecutive `pong`s is treated
-    as dropped and triggers `leave`.
+  - Heartbeat: `internal/core.Core.sendHeartbeats` sends a `ping` every
+    `DefaultHeartbeatInterval` (20s) on an otherwise-quiet connection; the relay replies with
+    `pong`, but nothing currently reads it back — this is not liveness detection. Added
+    2026-08-14 for a narrower reason: a core with no adapter attached (or one reporting no
+    local state) sent nothing at all, which `transport.DefaultIdleTimeout` (60s) closed as
+    idle, and the existing auto-reconnect handed out a fresh `player_id` every cycle — every
+    other peer saw a leave+join/despawn-respawn once a minute. The `ping` just keeps the
+    connection non-idle. Actual drop detection is still entirely
+    `transport.DefaultIdleTimeout` closing the socket, same as before this existed. See
+    `agent_docs/verified.md`'s "Core-relay heartbeat, found live and fixed" entry and the ADR
+    in `architecture.md`.
 - **Versioning:** `hello` carries a protocol version. A relay that sees a mismatched major
   version refuses the connection outright rather than guessing at compatibility.
 - **Bounded reads and timeouts** (added 2026-08-14, relay-safety hardening — ADR in
@@ -337,6 +346,10 @@ alongside room-code auth (see the architecture.md ADR) — treat the numbers bel
 - Max serialized size of `extras`: **1024 bytes** (`MaxExtrasBytes`).
 - Max length of `position`: **8** (`MaxPositionLen`) — headroom above the largest known real
   use (3, for a 3D game); the schema still never fixes this at 2 or 3.
+- Each `position` component must be finite and within **±1e7** (`MaxPositionComponent`,
+  `protocol.IsValidPosition`) — NaN/±Infinity/absurd magnitudes are rejected, dropping the
+  whole `state` message rather than clamping it. Enforced at both the relay (`relay.go`) and
+  the core on receive (`core.go`), added in the 2026-08-14 relay-safety hardening pass.
 - Max serialized size of `orientation`: **256 bytes** (`MaxOrientationBytes`) — generous above
   any real representation (a handful of floats).
 - Max length of `area_id` / `anim`: **256 bytes** each (`MaxAreaIDLen` / `MaxAnimLen`).
@@ -398,8 +411,13 @@ verification standard in `CLAUDE.md`. Do not answer these from memory.
       verified.md` (`gObjectEvents`/facing-direction entry).
 - [ ] Local snapshot frequency: the brief's "10Hz sync looks fine" is a hypothesis for
       tile-grid movement, not yet confirmed against a running emulator.
-- [ ] `seq`/`timestamp` semantics: does `seq` reset on reconnect? Is `timestamp` wall-clock
-      or client-relative?
+- [x] `seq`/`timestamp` semantics: does `seq` reset on reconnect? Is `timestamp` wall-clock
+      or client-relative? **Decided (already true of the implementation, not a new choice):**
+      `seq` is a `Core`-lifetime counter (`atomic.AddUint64(&c.seq, 1)`) that never resets —
+      a reconnect gets a fresh `player_id` anyway per the 2026-08-13 ADR, so this was never
+      actually ambiguous. `timestamp` is unambiguously wall-clock
+      (`time.Now().UnixMilli()`), not client-relative — see the packet-schema table above for
+      why that matters more than it sounds.
 - [x] What does `get_local_state()` return when the player is in a menu, cutscene, or other
       non-renderable state — `nil`, or a state with a sentinel `anim`? **Decided:** position
       stayed valid through every pause menu, dialogue, forced-movement cutscene, warp, and

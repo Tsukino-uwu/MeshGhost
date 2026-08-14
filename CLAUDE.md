@@ -29,6 +29,11 @@ proposing a plan that touches the core, an adapter, or the relay.
   an address, a function name, a data layout — is normal; copying its source or assets is
   not. If the project isn't already listed in `licensing.md`, its license hasn't been
   checked yet — don't use it as a reference until it is.
+- **Any dated fact recorded in `agent_docs/` — a license check, a tool/mod version, a closed
+  risk, a memory address — is true as of that date, not a permanent guarantee.** Installed
+  tools, mods, ROM/game patches, and external repos can all drift without this repo changing.
+  Re-check before relying on an old fact for a genuinely new use, not just reactively if a
+  change happens to be noticed.
 - **Small runnable steps only.** Every unit of work needs a visible, observable outcome.
   "Implement the network layer" is not testable; "connect and heartbeat," "echo to self,"
   "see on second client" are.
@@ -105,16 +110,24 @@ reasoning, the rule stays here and the reasoning goes to a `.md` file in `agent_
 - `README.md` is the public repo landing page.
 - `agent_docs/README.md` is the internal documentation index.
 - `agent_docs/brief.md` is the original design brief — vision and rationale.
+- `agent_docs/project-history.md` is the retrospective on the pre-planning phase, before any
+  adapter existed — per-adapter build stories live in each game's own `README.md` instead.
 - `agent_docs/contract.md` is the implemented packet schema, adapter interface, and
   transport contract. This is the most durable file in the repo; changes to it are
   contract revisions, recorded as ADRs in `architecture.md`.
 - `agent_docs/architecture.md` is for system shape and the architecture decision log.
 - `agent_docs/plans.md` is for the live roadmap, phase status, and non-goals.
+- `agent_docs/ideas.md` is the unscheduled backlog — researched enough to act on when picked,
+  but nothing there is committed until it moves into `plans.md`.
+- `agent_docs/status.md` is the one-screen summary of the active phase and current focus — the
+  file a session actually needs first to know where work stands.
 - `agent_docs/licensing.md` is the third-party license audit — check before referencing any
   outside project.
 - `agent_docs/risks.md` is the assumptions and risk register.
 - `agent_docs/pitfalls.md` is the adapter-specific issues log — symptom, diagnosis, fix.
 - `agent_docs/phases/` holds a file per phase, kept as an archive after the phase ends.
+- `agent_docs/environment.md` is the toolchain/tool/mod version record, filled in as phases
+  actually run.
 - `agent_docs/verified.md` is the append-only log for confirmed runtime facts.
 
 Use this file only for working notes and rules that must be immediately visible to the

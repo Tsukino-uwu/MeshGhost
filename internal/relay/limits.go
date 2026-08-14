@@ -30,11 +30,12 @@ const (
 	DefaultMaxClients = 8
 
 	// MaxMessagesPerSecond is a per-client rate limit on the relay
-	// protocol. The core does not yet throttle its own send rate (an open
-	// question in agent_docs/contract.md — get_local_state can be sampled
-	// up to the adapter's frame rate, up to ~60Hz), so this is set well
-	// above that rather than at the brief's 10Hz hypothesis, to avoid
-	// punishing correct, unthrottled clients.
+	// protocol. The core does throttle its own send rate now
+	// (core.Core.MinSendInterval, added the same session TEVI's uncapped
+	// Update() first tripped this limit for real — see agent_docs/
+	// architecture.md's ADR) — this is still set well above that default
+	// (20Hz) rather than at the brief's 10Hz hypothesis, for headroom
+	// rather than to compensate for an unthrottled client.
 	MaxMessagesPerSecond = 120
 
 	// DefaultHelloTimeout bounds how long an unauthenticated connection may

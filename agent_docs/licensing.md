@@ -16,7 +16,17 @@ structurally-identical code is a different act and is not permitted regardless o
 project's license terms, unless that license explicitly allows redistribution and the
 copied portion is attributed per its terms.
 
-Checked 2026-08-11, via the GitHub API and each repo's own license file — not from memory.
+**Standing rule: every entry below is a snapshot, not a permanent guarantee.** Each row
+records what a project's license *was, as of the date noted in that row* — not a fact that
+holds forever. A project can relicense upstream at any time. Being listed here means "checked
+as of this date," not "cleared for all future use" — re-check an entry before relying on it
+again if meaningful time has passed or the intended use has changed (e.g. moving from
+read-only reference to actually vendoring code), not only reactively if a change happens to be
+noticed. Always re-check every entry before cutting a release regardless.
+
+Most rows below carry their own "Checked" note with a specific date; where one doesn't, it
+inherited the 2026-08-11 batch check (GitHub API + each repo's own license file, not from
+memory) that first populated this table.
 
 | Project | License | What this means for MeshGhost |
 |---|---|---|
@@ -61,4 +71,6 @@ Checked 2026-08-11, via the GitHub API and each repo's own license file — not 
 - Before vendoring any third-party code or library as an actual dependency (as opposed to a
   read-only reference) — check its license fits alongside this project's MIT `LICENSE`
   *before* adding it, not after.
-- If a cited project's license changes upstream — re-check before the next release.
+- Before relying on an existing entry again for a genuinely new use, if meaningful time has
+  passed since its recorded check date — not just reactively if a change happens to be noticed.
+- Always, before cutting a release, regardless of whether anything is suspected to have changed.

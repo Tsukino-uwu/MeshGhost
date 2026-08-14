@@ -223,11 +223,11 @@ main-menu-return and game-close cases now despawn correctly, pause menu confirme
 and cross-area filtering (2026-08-13 ADR — a remote's ghost rendered at another zone's raw
 coordinates regardless of which zone the local player was actually in, invisible only by
 coincidence when two real zones' coordinate ranges didn't overlap on screen — built,
-regression-tested, and confirmed live). **In progress, started 2026-08-13**: 6.7, showing
-remote players' room locations on TEVI's map screens (not just the world-space ghost) — see
-`phase6.md` for the investigation so far (TEVI's map is room-grid based, not continuous
-position; `FullMap.playerPos`/`GetRoomCode`/`roomtilelist` are the relevant real facts found).
-Nothing built yet.
+regression-tested, and confirmed live). **6.7, started and closed 2026-08-13**: shows remote
+players' room locations on TEVI's map screens (not just the world-space ghost) — see
+`phase6.md` for the full record (TEVI's map is room-grid based, not continuous position;
+`FullMap.playerPos`/`GetRoomCode`/`roomtilelist` are the relevant real facts found). Built,
+fog-of-war-gated, and confirmed live the same session.
 
 **Deliberately not blocking a third game on 6.6** (decided 2026-08-12): adapters are
 structurally isolated (`contract.md`'s hard rules — an adapter only ever talks to its own local
@@ -238,8 +238,10 @@ filtering — the latter genuinely unbuilt, not just untested, since `internal/c
 sends every known remote regardless of area). Emerald's own Phase 4 caught two real bugs
 Phase 3's solo loopback hadn't surfaced, so something similar in TEVI once a second machine is
 available is a real possibility, not just a formality — accepted as a small risk of later
-rework rather than sitting idle on a blocker with no ETA. Revisit 6.6 whenever a second machine
-(a friend, or another PC) is available; not scheduled.
+rework rather than sitting idle on a blocker with no ETA. **This risk closed, not just
+resolved by waiting**: a standalone second TEVI build (`C:\dev\tevi-14778703`, confirmed to run
+alongside the Steam copy) unblocked real two-player testing, and 6.6 completed 2026-08-13 — see
+the "Status" line at the top of this section.
 
 ### Phase 7 — Third game (Pseudoregalia)
 
@@ -352,8 +354,11 @@ at `cmd/meshghost-relay/` did not move — end-user-facing rename only) and zips
 
 Adding a game to a release is a deliberate step, not automatic — see "Adding a game to the
 release" in `packaging/README.md`. **TEVI shipped in the same reworked release (2026-08-12)**,
-ahead of its own phase finishing (Phase 6.6 is still open) — the only thing 6.6 needs is a
-real second player, and putting the mod in a friend's hands is how that finally gets tested.
+ahead of its own phase finishing at the time (Phase 6.6 was still open) — the only thing 6.6
+needed was a real second player, and putting the mod in a friend's hands was how that finally
+got tested. **6.6 has since completed** (2026-08-13, see the Phase 6 section above) — this
+paragraph is kept as the real, contemporaneous rationale for shipping ahead of that milestone,
+not a claim that 6.6 is still open.
 TEVI's packaging is unusual: `MeshGhostTevi.dll` is committed to the repo (CI cannot build it —
 see `packaging/README.md`'s TEVI section for why) via `dev-scripts/build-tevi.bat`, guarded by
 a staleness check in `release.yml` that fails the build if the committed DLL predates its
@@ -380,8 +385,14 @@ detail.
 - `agent_docs/contract.md` — packet schema, adapter interface, transport, tick model.
 - `agent_docs/brief.md` — original design brief and rationale.
 - `agent_docs/architecture.md` — system shape and the decision log (ADRs).
-- `agent_docs/phases/phase1.md` — the only currently-live phase file.
+- `agent_docs/phases/` — one file per phase; see `agent_docs/status.md` for which is
+  currently live (this list intentionally doesn't name one directly — it goes stale every
+  time a phase opens or closes, and already had at this exact spot before).
 - `agent_docs/risks.md` — assumptions and risk register.
 - `agent_docs/status.md` — current active phase and focus.
 - `agent_docs/verified.md` — append-only verification log.
 - `agent_docs/licensing.md` — third-party license audit.
+- `agent_docs/pitfalls.md` — adapter-specific issues log: symptom, diagnosis, fix.
+- `agent_docs/environment.md` — toolchain/tool/mod versions, filled in as phases need them.
+- `agent_docs/ideas.md` — unscheduled backlog; an idea moves here first, then gets a phase
+  number and moves into this file once actually picked up.

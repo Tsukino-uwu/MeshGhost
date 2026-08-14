@@ -93,10 +93,12 @@ type Transport interface {
 // Heartbeat (ping/pong) is likewise not implemented here: transport moves
 // bytes, one line at a time, and does not know protocol.Envelope shapes
 // (see the package doc above). Ping/pong are protocol-level messages, so
-// that liveness loop belongs in internal/core and internal/relay, not in
-// this package. Still not implemented in either as of this writing:
-// internal/relay answers a Ping with a Pong, but nothing in internal/core
-// ever sends one.
+// that loop belongs in internal/core and internal/relay, not in this
+// package. internal/core.Core.sendHeartbeats sends a Ping on an otherwise-
+// quiet connection and internal/relay answers with a Pong — but this is an
+// idle-timeout-avoidance mechanism, not liveness/RTT detection; nothing
+// currently reads the Pong back. See agent_docs/contract.md's Transport
+// section for the real mechanism and why it exists.
 type NDJSONConn struct {
 	conn net.Conn
 

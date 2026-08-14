@@ -555,7 +555,7 @@ Format: Date / Decision / Status / Context / Options considered / Resolution / C
 - **Date:** 2026-08-14 (same-day follow-up to the ADR above)
 - **Decision:** Add lifecycle logging (join/leave/reject) at the relay; classify a relay
   `Reject` as permanent or transient (`core.RejectError`/`core.IsPermanentRejectErr`,
-  `protocol.ReasonRoomFull` the one transient reason); cache a permanent rejection on the
+  `protocol.ReasonServerFull` the one transient reason); cache a permanent rejection on the
   `Core` so a retrying adapter doesn't keep re-dialing an already-known-hopeless connection;
   and make `cmd/meshghost`'s eager `-game` startup path retry until the relay is reachable
   instead of crashing the whole process on the first failed dial.
@@ -610,9 +610,9 @@ Format: Date / Decision / Status / Context / Options considered / Resolution / C
 - **Resolution (retry vs. crash):** Option 3. `RejectError` (`internal/core`) wraps a relay
   `Reject`'s reason so it can be distinguished from a plain dial/timeout error without string-
   matching a formatted message. `isPermanentRejectReason` treats every reason except
-  `protocol.ReasonRoomFull` as permanent — the only one of the current named reasons
+  `protocol.ReasonServerFull` as permanent — the only one of the current named reasons
   (`ReasonProtocolVersionMismatch`, `ReasonHelloFieldTooLong`, `ReasonInvalidRoomCode`,
-  `ReasonGameMismatch`, `ReasonGameVersionMismatch`, `ReasonRoomFull`) that can resolve on its
+  `ReasonGameMismatch`, `ReasonGameVersionMismatch`, `ReasonServerFull`) that can resolve on its
   own without a config change, if someone else leaves the room. `Core.permanentRejectGame`/
   `permanentRejectReason` cache a permanent rejection per `gameID`, checked before dialing;
   `IsPermanentRejectErr` is exported so `cmd/meshghost`'s new `connectRelayWithRetry` (backed
@@ -760,3 +760,33 @@ Format: Date / Decision / Status / Context / Options considered / Resolution / C
   fix; there is no automated step that keeps them fresh across a session — rebuild explicitly
   after any `internal/core`/`cmd/meshghost` change before testing via the `dev-scripts/*.bat`
   files, the same discipline already documented for the Pseudoregalia/TEVI adapter builds.
+
+---
+
+- **Date:** 2026-08-14 (retroactively ADR'd — a documentation sweep found this real wire-protocol
+  addition had no ADR despite `CLAUDE.md` requiring one for contract changes)
+- **Decision:** `Core` sends a `ping` every `DefaultHeartbeatInterval` (20s) on an otherwise-quiet
+  relay connection.
+- **Status:** accepted
+- **Context:** A core with no adapter attached, or one whose adapter reported no local state for
+  a stretch (e.g. parked at a menu), sent nothing to the relay at all. `transport.
+  DefaultIdleTimeout` (60s) closed that as an idle connection, and the already-existing
+  auto-reconnect immediately redialed — but `nextPlayerID` never reuses an id, so every other
+  peer in the room saw a leave+join/ghost despawn-respawn cycle roughly once a minute, purely
+  from a quiet client sitting still.
+- **Options considered:** (1) raise `DefaultIdleTimeout` — treats the symptom, not the cause, and
+  weakens idle-connection cleanup generally; (2) send a real heartbeat that keeps the connection
+  demonstrably alive. The relay already replied to `Ping` with `Pong` (protocol support existed
+  from earlier work) but nothing on the client side ever sent one.
+- **Resolution:** Option 2. `Core.sendHeartbeats` sends `Ping` every `HeartbeatInterval`
+  (default `DefaultHeartbeatInterval`, 20s — comfortable margin under the 60s idle timeout even
+  accounting for scheduling jitter). This is deliberately **not** a liveness/RTT mechanism —
+  `Pong`'s `Nonce` is echoed by the relay but not read by anything on receipt. Drop detection is
+  unchanged: still entirely `transport.DefaultIdleTimeout` closing the socket on a truly dead
+  connection. `HeartbeatInterval <= 0` disables heartbeats entirely, used by `core_test.go` to
+  reproduce the pre-fix idle-timeout-churn bug directly.
+- **Consequences:** `contract.md`'s Transport section and message-type table updated to describe
+  this accurately (an earlier version incorrectly described missed-pong-counting drop detection
+  and an RTT-feeds-interpolation-delay mechanism, neither of which was ever implemented — found
+  and corrected in the same documentation sweep that added this ADR). See `verified.md`'s
+  "Core-relay heartbeat, found live and fixed" entry for the live confirmation.

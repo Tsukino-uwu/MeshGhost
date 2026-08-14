@@ -462,7 +462,7 @@ three gets re-tried blind:
   `partial` outright, and the next successful read starts mid-line. `send()` on the same kind of
   socket can accept only part of a buffer, silently truncating the newline-terminated line if the
   return isn't checked against the full length. Found in `adapters/pokemon/emerald/
-  phase5_5_sprite.lua`'s `drainBridge`/`sendLine` (fixed: resume `receive("*l", partial)`,
+  meshghost_emerald.lua`'s `drainBridge`/`sendLine` (fixed: resume `receive("*l", partial)`,
   drop-and-reconnect on a partial send) and, as a partial-send-only variant, in
   `BridgeClient::send_line` (`adapters/pseudoregalia/MeshGhostPseudo/Mod/src/BridgeClient.cpp`,
   fixed the same review sweep). The exact same discard-the-partial `sock:receive()` pattern (no
@@ -554,7 +554,7 @@ three gets re-tried blind:
   the *other* core (`p2`) really was receiving and storing it. The bug wasn't in any of that.
   - **Actual cause**: the second BizHawk instance was launched by double-clicking `EmuHawk.exe`
     directly, rather than through a wrapper that sets `MESHGHOST_BRIDGE_PORT=7779` first. The
-    Lua adapter (`phase5_5_sprite.lua:80`) reads that env var and silently falls back to 7778
+    Lua adapter (`meshghost_emerald.lua:132`) reads that env var and silently falls back to 7778
     (the same default `meshghost.exe -bridge` uses) if it's unset — so *both* BizHawk instances
     connected to the *same* core process's bridge. The second core (the real, correctly-running
     peer on port 7779) sat there with no adapter ever talking to it, so it had nothing of its
@@ -604,4 +604,4 @@ Recurring adapter tasks, and how differently each engine/game has answered them 
 | Drive an animation | N/A (2D overlay) | No direct equivalent of "play this named clip on a clone" — open problem | Send the real clip name (`GetAnimationTrueName()`) and let the engine's own `Animator` play it |
 | Avoid drawing over menus/UI | Explicit gate on the overworld callback state (`gui.drawImage` is a raw overlay) | Not yet needed the same way | Not needed — a world-space object under the game's own camera naturally renders under UI layers |
 | Survive area/level/scene transitions | Re-read relocatable pointers every frame; debounce reads for one frame around a detected map change | Re-acquire pawn/camera references after transition; treat cached "last known good" state as invalidated, not fatal | Recreate the ghost lazily after scene unload rather than trying to preserve it across the transition |
-| Version/build stability | ROM is fixed once verified against a byte-identical build — no drift risk after that | Build-specific: reflection availability and rendering-on-spawn behavior are tied to the exact installed engine/mod-loader build | Steam can auto-update the game; also blocks two simultaneous instances (confirmed by testing, not assumed) |
+| Version/build stability | Real drift risk, not immune: a ROM patch (Archipelago's base recompile) relocates addresses relative to a byte-identical-verified vanilla build — found live for `gObjectEvents`/`gPlayerAvatar`, `CB2_Overworld`, and sprite/palette data, each a separate offset; each patch version needs its own live-detected offsets, see `verified.md`'s Archipelago-relocation entries | Build-specific: reflection availability and rendering-on-spawn behavior are tied to the exact installed engine/mod-loader build | Steam can auto-update the game; also blocks two simultaneous instances (confirmed by testing, not assumed) |

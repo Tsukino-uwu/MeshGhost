@@ -158,9 +158,9 @@ point of picking a second, structurally different game.
         filtering above is built but still needs a live in-game check.
       **No longer blocked on distribution** (2026-08-12): TEVI now ships in the single release
       zip (see `packaging/README.md`'s TEVI section), marked experimental/prerelease.
-- [ ] 6.7 — In progress, started 2026-08-13: show remote players' locations on TEVI's map
-      screens (not just the world-space ghost, which only helps when a peer is on-screen with
-      you). Investigation only so far, nothing built. Decompiled `Assembly-CSharp.dll` with
+- [x] 6.7 — Started 2026-08-13, built and confirmed live the same session: show remote
+      players' locations on TEVI's map screens (not just the world-space ghost, which only
+      helps when a peer is on-screen with you). Decompiled `Assembly-CSharp.dll` with
       `ilspycmd` to scope feasibility before assuming an approach:
       - TEVI's map (`FullMap`, the pause-menu screen, and `MiniMapDisp`, the HUD corner one) is
         **room-grid based, not continuous-world-position based**. The relevant local-player

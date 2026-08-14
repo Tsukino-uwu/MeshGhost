@@ -164,8 +164,11 @@ type Event struct {
 	Payload json.RawMessage `json:"payload"`
 }
 
-// Ping/Pong are the liveness check; RTT derived from them feeds the
-// interpolation delay per agent_docs/contract.md.
+// Ping/Pong keep an otherwise-quiet connection from going idle
+// (internal/core.Core.sendHeartbeats) — not a liveness/RTT mechanism. Nonce
+// is echoed by the relay but not currently read by anything; reserved for a
+// real RTT/liveness use later, per agent_docs/contract.md's Transport
+// section.
 type Ping struct {
 	Nonce uint64 `json:"nonce"`
 }

@@ -5,11 +5,16 @@
 - The core/adapter/relay split, with an out-of-process Go core, is the right long-term
   architecture (see `agent_docs/architecture.md` ADR on the Go decision).
 - A replayable JSON snapshot schema is sufficient for the first two target games.
-- Pokémon Emerald can expose local player position, area, and basic animation state from
-  BizHawk — not yet confirmed, Phase 1's actual purpose.
-- Lua overlay rendering (`gui.drawImage`) is the fastest practical approach for Emerald ghost
-  drawing, and won't visibly flicker once the tick model in `contract.md` is implemented
-  correctly (redraw the whole remote-ghost set every frame, not on receipt).
+- **Closed 2026-08-11 (Phase 1):** Pokémon Emerald can expose local player position, area, and
+  basic animation state from BizHawk — confirmed via dozens of live-tested entries in
+  `agent_docs/verified.md` (position, map bank/number, facing, running/dash state, and more).
+- **Closed 2026-08-11 (Phase 2), but corrected, not simply confirmed:** Lua overlay rendering
+  (`gui.drawImage`) is the fastest practical approach for Emerald ghost drawing. The
+  no-flicker half of this assumption was **wrong as originally stated** — BizHawk's `gui.*`
+  overlay does NOT auto-clear between frames (found live; see `agent_docs/plans.md:158-160` and
+  `agent_docs/pitfalls.md`'s overlay-rendering entry), contradicting `contract.md`'s original
+  tick-model assumption. The actual fix (unconditionally clear the overlay at the top of every
+  frame) is what's now implemented and confirmed live, not the original assumption itself.
 - **Closed 2026-08-12 (Phase 6 start):** TEVI's engine tooling assumption is confirmed, not
   analogized. TEVI is Mono, not IL2CPP — `TEVI_Data\Managed\Assembly-CSharp.dll` present, no
   `GameAssembly.dll` anywhere in the install, `doorstop_config.ini` has a `[UnityMono]` section.
@@ -514,3 +519,8 @@
 - Track toolchain versions in `agent_docs/environment.md` as soon as Phase 1 starts.
 - Re-check a project's license (`agent_docs/licensing.md`) before treating it as anything
   more than a documentation reference.
+- Re-verify a `Closed` risk before trusting it if the conditions that closed it could have
+  changed (a mod/tool update, exercising it under new load/scale) — a closure is a point-in-time
+  test result, not permanent. Real precedent: the `lua_State`-mismatch risk below closed under a
+  light round trip, then reopened the same day once real 10Hz sustained traffic exposed an
+  83-98% corruption rate that the light test never exercised.

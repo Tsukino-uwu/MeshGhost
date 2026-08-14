@@ -8,7 +8,18 @@ game. See `CLAUDE.md` for the full rule; summary:
   reference.
 - This file is append-only and human-gated: an entry goes in only after the user has
   personally watched the behavior happen. A successful build or a plausible-looking number
-  is not sufficient grounds for an entry.
+  is not sufficient grounds for an entry. **Append-only means don't rewrite or delete an
+  existing entry's original observation** — it does not forbid adding newly confirmed detail
+  to an existing entry (e.g. extending it with a later live-confirmed edge case), which has
+  happened before (see the TEVI fog-of-war entry's own edit history) and is a legitimate use,
+  as long as what was originally observed stays intact. Superseding an entry (below) is always
+  a new entry plus an annotation, never an edit to the old one.
+- **A fact confirmed against one build/ROM/version is not automatically true of another.**
+  State the scope explicitly in `Notes` whenever it plausibly matters (which ROM revision or
+  patch, which game/engine build) — several early entries stated a fact as if build-independent
+  and were later directly contradicted by the same fact on a different build (see the
+  Archipelago-ROM entries below, and the `Superseded by` annotations they prompted on the
+  vanilla-only entries they corrected). When in doubt, state the scope.
 
 ## Entry format
 
@@ -21,7 +32,8 @@ Copy this block per fact:
 - Observed: <what was seen on screen, and what action produced it, e.g. "printed value
   decreased by 16 per tile when walking left in Littleroot Town">
 - Source: <exact file + symbol/line in the referenced repo, or doc page + section>
-- Notes: <anything conditional — game version, ROM revision, edge cases found>
+- Notes: <build/ROM/version scope this was confirmed under, if it plausibly matters; any other
+  conditional detail — edge cases found, caveats>
 ```
 
 ## Confirmed facts
@@ -526,7 +538,11 @@ Copy this block per fact:
 - Notes: the bitfield-packing assumption (facingDirection in the low 4 bits of the u16 at
   `+0x18`) was not guaranteed by the C standard and needed exactly this kind of on-screen
   check — it turned out correct. This closes the facing-direction question feeding the
-  `orientation`/`anim` decision in `agent_docs/contract.md`.
+  `orientation`/`anim` decision in `agent_docs/contract.md`. **Scope: vanilla ROM only** — see
+  the entry below, "Superseded by" note.
+- **Superseded by** (for an Archipelago-patched ROM specifically, not vanilla): "Archipelago-
+  relocated gObjectEvents/gPlayerAvatar found and fixed" — the base address above does not hold
+  on that ROM family; a live-detected offset is required instead.
 
 ### Emerald seamless town/route connections can transiently report out-of-bounds coordinates
 
@@ -999,7 +1015,11 @@ Copy this block per fact:
   by inference the base pause-menu list and other overlays already confirmed in Phase 1/2) does
   not. This generalizes and supersedes the "battle-detection address" framing from Phase 2's
   deferred item — the real, simpler question was "is the overworld even on screen," and battle
-  is just one case of that.
+  is just one case of that. **Scope: vanilla ROM only** — see the entry below, "Superseded by"
+  note.
+- **Superseded by** (for an Archipelago-patched ROM specifically, not vanilla): "Archipelago-
+  recompiled CB2_Overworld address found, closing the ghost-never-renders gap" — `0x08085E5D`
+  does not hold on that ROM family; a different, live-cited address is required instead.
 
 ### phase4_multiplayer.lua's overworld gate correctly hides/reshows remote ghosts, per-viewer only
 
@@ -1102,6 +1122,11 @@ Copy this block per fact:
 - Notes: this is Phase 5.5 Step 1 (`agent_docs/phases/phase5_5.md`) — confirms the sprite data
   is raw and uncompressed as expected (no LZ77 decode needed) and that the 4bpp tile-decode
   math in `sprite_probe.lua` is correct, before building any on-screen rendering on top of it.
+  **Scope: vanilla ROM only** — see the entry below, "Superseded by" note.
+- **Superseded by** (for an Archipelago-patched ROM specifically, not vanilla): "Archipelago-
+  patched ROM: gObjectEventPic_BrendanNormal/gObjectEventPal_Brendan decode to garbage, not a
+  real sprite" — the addresses above decode to noise on that ROM family; a different offset,
+  found via direct ROM-byte comparison, is required instead.
 
 ### gui.drawPixel color format is 0xAARRGGBB, not 0xRRGGBBAA — and the decoded sprite renders correctly on screen
 

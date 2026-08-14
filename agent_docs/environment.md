@@ -3,6 +3,13 @@
 Exact tools, versions, and configuration known to work for this project. Unfilled until
 Phase 1 actually sets up BizHawk — do not pre-fill version numbers from memory.
 
+Every version below is confirmed as of its own recorded date, not a permanent guarantee — see
+`CLAUDE.md`'s general rule on dated facts in `agent_docs/`. Installed tools/mods/games can
+update out from under this file with no warning (this has already happened three times here:
+UE4SS drifted v2.5.2→v3.0.1 mid-Phase-7, TEVI's install updated between two consecutive checks,
+and a 2026-08-13 `AP_Randomizer` reinstall silently swapped the shared UE4SS runtime — see the
+UE4SS entry below for that last one specifically, which is currently unresolved).
+
 ## Host
 
 - OS: Windows 11 Pro (dev machine). Cross-platform build targets: Windows, Linux, macOS —
@@ -185,7 +192,15 @@ Built once to extract real RAM addresses via a `make compare`-verified build —
   install mid-session to match a Mar 2026 update to the `pseudoregalia-archipelago` repo (its
   `.gitmodules` pins `RE-UE4SS @ 733e596`, matching the new SHA exactly). **Any Pseudoregalia
   adapter work must target v3.0.1 and the `ue4ss\` layout, not v2.5.2** — re-check
-  `ue4ss\UE4SS.log` before assuming this hasn't drifted again.
+  `ue4ss\UE4SS.log` before assuming this hasn't drifted again. **This line is currently known
+  stale, not just theoretically at risk**: `agent_docs/verified.md`'s "MeshGhostPseudo survives
+  an AP_Randomizer reinstall that silently swaps the shared UE4SS runtime" entry records that a
+  2026-08-13 `AP_Randomizer` reinstall rewrote the *shared* `UE4SS.dll`/`dwmapi.dll`/
+  `UE4SS-settings.ini` to a different build (different size and SHA-256) — and that the
+  `UE4SS.log` banner confirming `v3.0.1`/`733e5969` above was read from a session that predates
+  that swap, so it does **not** identify whatever build is actually installed now. Re-read
+  `ue4ss\UE4SS.log`'s banner fresh before trusting this line for any real work — don't assume
+  it from this entry.
 - Coexisting mod, confirmed working: **`AP_Randomizer`**, a UE4SS **C++** mod (not Lua) —
   `ue4ss\UE4SS.log` reads `Mod 'AP_Randomizer' has enabled.txt, starting mod.`. Its mod folder
   (`ue4ss\Mods\AP_Randomizer\dlls\`) ships `main.dll`, `libssl-3-x64.dll`,
