@@ -66,9 +66,11 @@ Roughly in order:
 8. Tested with static objects, and had to move rendering/follow logic onto the right thread
    to get it to actually follow instead of stutter or freeze — the mod's own update loop
    wasn't running on the real game thread. (7.5)
-9. Figured out how to drive the ghost's facing direction — traced to a marshaling bug in the
-   vendored UE4SS SDK that only affects `FRotator` on UE 5.0+, worked around with a local,
-   version-aware helper rather than patching the (un-committable) submodule. (7.6)
+9. Figured out how to drive the ghost's facing direction — found via a forced test rotation
+   (to tell "the write is dead" apart from "the write lands wrong") that it was landing as
+   ≈0; traced to a marshaling bug in the vendored UE4SS SDK that only affects `FRotator` on UE
+   5.0+, worked around with a local, version-aware helper rather than patching the
+   (un-committable) submodule. (7.6)
 10. Fixed the ghost getting stuck in a falling animation. (7.6)
 11. Fixed the ghost getting stuck in a ledge-hang animation. (7.6)
 12. Ghosts can't actually be deleted on this build, so a leaving ghost is moved into the void
