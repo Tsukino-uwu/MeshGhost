@@ -67,6 +67,14 @@ Thumbs.db
 # Editor/tooling local settings
 .claude/settings.local.json
 
+# Per-machine BizHawk launchers with real local paths filled in (see
+# dev-scripts/README.md) -- the tracked *.bat files stay generic/placeholder since this
+# repo is public. Real reason this exists, not just a preference: a real two-peer Emerald
+# test (2026-08-14) silently failed because instance 2 was launched by double-clicking
+# EmuHawk directly, so MESHGHOST_BRIDGE_PORT was never set and both instances defaulted to
+# the same bridge port -- a launcher that sets it for you removes that failure mode.
+dev-scripts/*.local.bat
+
 # Emulator saves/states (never commit ROMs or save data)
 *.sav
 *.state

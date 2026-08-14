@@ -482,6 +482,43 @@ that engine.
   cleanup" over building your own destroy/lifetime-management layer on top of an already-shaky
   primitive.
 
+### Running two instances of the same emulator/game silently collide on a shared default port
+
+- **Symptom**: a real two-peer Emerald test (2026-08-14, the first ever attempted for this
+  adapter) showed both BizHawk instances' `MeshGhost TRACE` diagnostic stuck at
+  `knownRemotes=0` forever, even with a stable relay connection, matching area_ids, and no
+  connection churn. A long diagnostic session — checking cross-area filtering, adding
+  throttled trace logging in both the Lua adapter and `internal/core` at every hop
+  (send → relay forward → roster → receive → store) — proved the entire Go pipeline was
+  correct: one core (`p1`) really was sending state, the relay really was forwarding it, and
+  the *other* core (`p2`) really was receiving and storing it. The bug wasn't in any of that.
+  - **Actual cause**: the second BizHawk instance was launched by double-clicking `EmuHawk.exe`
+    directly, rather than through a wrapper that sets `MESHGHOST_BRIDGE_PORT=7779` first. The
+    Lua adapter (`phase5_5_sprite.lua:80`) reads that env var and silently falls back to 7778
+    (the same default `meshghost.exe -bridge` uses) if it's unset — so *both* BizHawk instances
+    connected to the *same* core process's bridge. The second core (the real, correctly-running
+    peer on port 7779) sat there with no adapter ever talking to it, so it had nothing of its
+    own to forward — not a bug, just nobody driving it.
+  - **Why this was hard to catch**: nothing errors. Both BizHawk windows show a normal
+    "connected to bridge" line; the port number is only visible if you read it in the console
+    text carefully (`Connecting to bridge at 127.0.0.1:7778 ...` on *both* windows), and it's
+    easy to assume — as happened here — that a launcher script or convention automatically
+    handles per-instance port assignment when actually nothing does unless something sets the
+    env var for that specific process before it starts.
+  - **Fix (procedural, not a code fix)**: a per-machine, gitignored `.local.bat` launcher for
+    each instance that sets `MESHGHOST_BRIDGE_PORT` before launching `EmuHawk.exe`, so this
+    can't be silently skipped by launching the executable directly. See
+    `dev-scripts/README.md`.
+  - **Generalizes to**: any two-instance local multiplayer test where the adapter/game process
+    picks its own listen/connect port from an environment variable with a same-for-everyone
+    default. Don't assume a second manually-launched instance picked up a distinguishing
+    setting just because a first instance worked — verify the actual port/id each instance
+    logs on connect before spending time on protocol-level diagnosis. If a whole pipeline
+    trace (send confirmed, forward confirmed, receive confirmed) comes back clean but the
+    end-to-end symptom persists, seriously consider that the two "peers" are not actually
+    talking to two distinct instances of anything before adding more diagnostics to the
+    pipeline that already proved itself correct.
+
 ### Cross-adapter issues that were fixed in the core, not the adapter
 
 Found while building an adapter, but the fix belonged in `internal/core` — listed here so the

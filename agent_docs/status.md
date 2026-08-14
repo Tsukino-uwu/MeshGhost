@@ -482,6 +482,24 @@
     copy and the live Steam install.
   - **This closes every item from the 2026-08-14 sweep's "Not started" list.**
 
+- `Current focus:` **2026-08-14, later same session — real non-loopback two-peer Emerald test,
+  confirmed live.** Two real BizHawk instances, two real cores, one real relay (no
+  `-loopback`): each client's Lua console and screen confirmed rendering the other player's
+  real ghost sprite. Closes the sweep's "Emerald not yet live-verified outside loopback" gap —
+  see `verified.md`'s new entry. Along the way, a real (non-code) bug cost a long diagnostic
+  session: the second BizHawk instance was launched by double-clicking `EmuHawk.exe` directly
+  instead of through something that sets `MESHGHOST_BRIDGE_PORT=7779` first, so both instances
+  silently shared one core's bridge on the default port. Diagnosed by adding throttled trace
+  logging at every hop of both the Lua adapter and `internal/core` (all reverted once found —
+  no net code change to either), which proved the whole Go pipeline was already correct before
+  the actual cause (a launch-time mistake, not a bug) was found. See `pitfalls.md`'s new entry
+  and `environment.md`'s BizHawk section. Also cleaned up `dev-scripts/`: removed the tracked
+  `run-bizhawk1.bat`/`run-bizhawk2.bat` (couldn't ship real personal EmuHawk/ROM paths in a
+  public repo) and the redundant `run-core.bat`, renamed `run-core1.bat`/`run-core2.bat` to
+  `run-core-emerald.bat`/`run-core-emerald2.bat` for consistency with the TEVI/Pseudoregalia
+  naming, and added two gitignored `.local.bat` BizHawk launchers (real paths, set the bridge
+  port explicitly) so this exact mistake can't recur silently.
+
 ## Go networking layer (2026-08-11)
 
 Built and tested ahead of the BizHawk blocker, since it doesn't require a game or emulator:

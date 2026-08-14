@@ -9,26 +9,38 @@ built at the repo root (e.g. `go build -o meshghost.exe ./cmd/meshghost`, run fr
 root) — each script references them as `..\<name>.exe`.
 
 - `run-relay.bat` — a single relay, default settings.
-- `run-core.bat` — a single core client (solo/self-test).
-- `run-core1.bat` / `run-core2.bat` — two core clients on distinct bridge ports, for real
-  two-player testing (see [agent_docs/phases/phase4.md](../agent_docs/phases/phase4.md)).
-- `run-bizhawk1.bat` / `run-bizhawk2.bat` — two BizHawk instances paired with the two cores
-  above (edit the `EMUHAWK_EXE`/`EMERALD_ROM` paths at the top for your own machine first).
+- `run-core-emerald.bat` / `run-core-emerald2.bat` — two Emerald core clients on distinct
+  bridge ports (7778 / 7779), for real two-player testing (see
+  [agent_docs/phases/phase4.md](../agent_docs/phases/phase4.md)). `run-core-emerald.bat` alone
+  also doubles as the solo/self-test core — pair it with `run-relay-loopback.bat` below instead
+  of `run-relay.bat` to see your own ghost trail yourself with only one BizHawk instance
+  running.
+- `run-bizhawk-emerald.local.bat` / `run-bizhawk-emerald2.local.bat` — **not tracked** (see
+  `.gitignore`; EmuHawk/ROM paths are personal and this repo is public). Per-machine BizHawk
+  launchers, real paths from `agent_docs/environment.md`, pairing with the two cores above
+  (instance 2 sets `MESHGHOST_BRIDGE_PORT=7779` before launch — the Lua adapter reads it,
+  defaulting to 7778 to match instance 1). Exist specifically because launching EmuHawk
+  directly (double-click, no env var) silently defaults both instances to the same bridge
+  port with no error — found live 2026-08-14, cost a full debugging session to diagnose (see
+  `agent_docs/phases/phase4.md`'s real-two-peer-retest entry). Recreate these two files
+  yourself (they're gitignored, not shipped) if starting fresh on a new machine — see
+  `agent_docs/environment.md` for the real `EmuHawk.exe`/ROM paths to put in them.
 - `run-fakeadapter1.bat` / `run-fakeadapter2.bat` — two headless `cmd/meshghost-fakeadapter`
   instances (circle-motion fake ghosts, no game) for testing the core/relay without BizHawk at
   all — see [agent_docs/phases/phase5.md](../agent_docs/phases/phase5.md).
-- `run-relay-loopback.bat` / `run-core-tevi.bat` — TEVI's Phase 6.4/6.5 loopback test: a relay
-  that echoes a lone client's own state back as `<id>-ghost`, and a core started with
-  `-game=tevi`. Pair with TEVI itself (via `adapters/tevi/MeshGhostTevi`, deployed into
-  `BepInEx/plugins/`) to see a real network round trip without needing two TEVI instances —
-  see [agent_docs/phases/phase6.md](../agent_docs/phases/phase6.md).
+- `run-relay-loopback.bat` — a relay that echoes a lone client's own state back as
+  `<id>-ghost`. Pair with any single core (`run-core-emerald.bat`, `run-core-tevi.bat`,
+  `run-core-pseudoregalia.bat`) to see a real network round trip and your own ghost with only
+  one game instance running — see
+  [agent_docs/phases/phase3.md](../agent_docs/phases/phase3.md) and
+  [agent_docs/phases/phase6.md](../agent_docs/phases/phase6.md).
 - `run-core-tevi.bat` / `run-core-tevi2.bat` — two TEVI core clients on distinct bridge ports
-  (7778 / 7779), for real two-TEVI testing with a normal (non-loopback) `run-relay.bat` — the
-  same shape as `run-core1.bat`/`run-core2.bat` above, but for `-game=tevi`. Pair each with its
-  own TEVI install (e.g. the Steam copy on 7778, a standalone build like `C:\dev\tevi-14778703`
-  on 7779 — see [agent_docs/environment.md](../agent_docs/environment.md)); the standalone
-  install's own `BepInEx/config/dev.meshghost.tevi.cfg` needs its `BridgePort` set to match
-  (7779), since Steam already owns the default. See
+  (7778 / 7779), for real two-TEVI testing with a normal (non-loopback) `run-relay.bat` — same
+  shape as the Emerald pair above, but for `-game=tevi`. Pair each with its own TEVI install
+  (e.g. the Steam copy on 7778, a standalone build like `C:\dev\tevi-14778703` on 7779 — see
+  [agent_docs/environment.md](../agent_docs/environment.md)); the standalone install's own
+  `BepInEx/config/dev.meshghost.tevi.cfg` needs its `BridgePort` set to match (7779), since
+  Steam already owns the default. See
   [agent_docs/phases/phase6.md](../agent_docs/phases/phase6.md)'s 6.6 entry.
 - `build-tevi.bat` — not a launcher, a build step: compiles the TEVI BepInEx plugin and stages
   the result into `packaging/release/games/tevi/` for the release zip. Re-run and commit the

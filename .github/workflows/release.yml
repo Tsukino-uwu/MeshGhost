@@ -163,7 +163,7 @@ jobs:
           Copy-Item meshghost.exe packaging\release\
           Copy-Item meshghost-server.exe packaging\release\
           New-Item -ItemType Directory -Force packaging\release\games\pokemon\emerald | Out-Null
-          Copy-Item adapters\pokemon\emerald\phase5_5_sprite.lua packaging\release\games\pokemon\emerald\meshghost_emerald.lua
+          Copy-Item adapters\pokemon\emerald\meshghost_emerald.lua packaging\release\games\pokemon\emerald\meshghost_emerald.lua
           Copy-Item -Recurse adapters\pokemon\emerald\lib packaging\release\games\pokemon\emerald\lib
           Compress-Archive -Path packaging\release\* -DestinationPath "meshghost-$env:VERSION-windows-amd64.zip"
 

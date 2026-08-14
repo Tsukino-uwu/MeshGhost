@@ -41,7 +41,7 @@ same as any two unrelated games — grouping by franchise just keeps the top lev
    per-frame send/receive, redraw-every-frame) independent of any particular language.
 3. For a worked, complete reference of a real adapter speaking this protocol end-to-end
    (connection retry, the hello handshake, NDJSON framing, the remote-ghost set, the tick
-   loop), read `adapters/pokemon/emerald/phase5_5_sprite.lua`. Its game-reading parts are
+   loop), read `adapters/pokemon/emerald/meshghost_emerald.lua`. Its game-reading parts are
    Emerald-specific and won't transfer; its bridge-connection, hello, and tick-loop shape will.
 4. Figure out, for the new game: what counts as `area_id` (a scene/level identifier), what
    `position` looks like (2D or 3D — the schema doesn't fix this), what `anim` tags are

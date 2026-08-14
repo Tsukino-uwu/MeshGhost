@@ -123,7 +123,7 @@ before that rule was written down.
 
 ## Reference implementations
 
-- `adapters/pokemon/emerald/phase5_5_sprite.lua` — the shipped Emerald adapter, including the
+- `adapters/pokemon/emerald/meshghost_emerald.lua` — the shipped Emerald adapter, including the
   hello send right after connecting (search for `GAME_ID`). Its connection/tick-loop shape
   transfers to a new game; its game-memory reads do not.
 - `adapters/tevi/MeshGhostTevi/BridgeClient.cs` / `Plugin.cs` — the same shape in C#/BepInEx.

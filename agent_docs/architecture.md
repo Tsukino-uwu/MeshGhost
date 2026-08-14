@@ -362,7 +362,7 @@ Format: Date / Decision / Status / Context / Options considered / Resolution / C
   edit a text file to match." The cost is a small ordering contract every future adapter must
   follow (hello before any `local_state`) that a purely-flag-driven adapter never had to think
   about — documented in `contract.md` and `adapters/_template/PROTOCOL.md`, and demonstrated in
-  both shipped adapters (`adapters/pokemon/emerald/phase5_5_sprite.lua`,
+  both shipped adapters (`adapters/pokemon/emerald/meshghost_emerald.lua`,
   `adapters/tevi/MeshGhostTevi/BridgeClient.cs`).
 
 ---

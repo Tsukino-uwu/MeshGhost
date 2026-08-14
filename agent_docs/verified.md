@@ -2207,3 +2207,33 @@ Copy this block per fact:
   observe the leave/join churn this fixes from another client's point of view) — the fix is
   confirmed to stop the reconnect loop itself, not separately confirmed from a second peer's
   perspective.
+
+### Real two-peer Emerald test, non-loopback (Phase 4 shape, closes the sweep's Lua-not-live-tested-outside-loopback gap)
+
+- Date: 2026-08-14
+- Observed: two real BizHawk/Emerald instances (`phase5_5_sprite.lua`), two distinct
+  `meshghost.exe` cores (`-bridge` 7778/7779), one real `meshghost-relay.exe` with no
+  `-loopback`. User confirmed live, both directions: each client's Lua console showed
+  `knownRemotes=1`/`match=true` for the other player's id, and each BizHawk window visibly
+  rendered the other player's real Brendan/May ghost sprite tracking their live movement — the
+  first real (non-loopback) two-Emerald-peer test since the 2026-08-14 review/refactor sweep
+  landed, and the first time this specific pipeline (bridge → core → relay → core → bridge →
+  Lua render) was exercised end-to-end with two genuinely independent local processes for this
+  adapter.
+- Real bug found and fixed along the way, unrelated to Emerald itself: the second BizHawk
+  instance was launched by double-clicking `EmuHawk.exe` directly rather than through a
+  wrapper setting `MESHGHOST_BRIDGE_PORT=7779` first, so it silently fell back to the same
+  default (7778) as instance 1 and both ended up talking to one core's bridge — not a MeshGhost
+  code bug, but real enough to cost a long diagnostic session (temporary throttled trace
+  logging added at every hop of both the Lua adapter and `internal/core`, all reverted once
+  diagnosed) before the actual cause was found. See `pitfalls.md`'s new entry ("Running two
+  instances of the same emulator/game silently collide on a shared default port") and
+  `environment.md`'s BizHawk section for the procedural fix (per-machine gitignored
+  `.local.bat` launchers that set the port explicitly).
+- Source: `adapters/pokemon/emerald/phase5_5_sprite.lua` (unchanged by this session —
+  the diagnostic trace added to investigate was reverted, not shipped);
+  `internal/core/core.go` (same — diagnostic trace added and reverted, no net code change).
+- Notes: closes the "Emerald (Lua): all fixes applied ... not yet live-verified in an
+  emulator" / "not separately exercised: ... a non-loopback two-real-peer run" gaps noted in
+  `status.md`'s 2026-08-14 sweep entry. Relay-restart-mid-session (the dead-socket
+  auto-reconnect path) still not separately exercised for this adapter.

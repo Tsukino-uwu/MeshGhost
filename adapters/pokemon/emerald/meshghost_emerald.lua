@@ -1,15 +1,18 @@
--- FROZEN, 2026-08-14: this file is no longer the shipped/maintained adapter -- it's kept only
--- as a byte-identical historical snapshot under its original development-phase name. The real,
--- actively-maintained copy (identical content at the time of the split, will drift from here
--- going forward) is adapters/pokemon/emerald/meshghost_emerald.lua -- that's what
--- packaging/release.yml ships and what any future Emerald fix/feature belongs in. Do not edit
--- this file; edit that one.
+-- This is the real, actively-maintained Emerald adapter -- what actually ships (see
+-- packaging/README.md and .github/workflows/release.yml, which stage this file as
+-- games/pokemon/emerald/meshghost_emerald.lua in the release zip) and what any future fix or
+-- feature for this game should be made in. A byte-identical copy is frozen at
+-- adapters/pokemon/emerald/phase5_5_sprite.lua under its original development-phase name for
+-- historical reference (renamed here 2026-08-14 once the adapter had been the stable, shipped
+-- one for a while and "phase5_5_sprite" no longer read as the current, final adapter it
+-- actually was) -- edit only this file, not that one, going forward.
 --
--- Phase 5.5: real Brendan/May ghost sprite instead of the magenta placeholder box. Same
--- adapter <-> bridge <-> core round trip as adapters/pokemon/emerald/phase4_multiplayer.lua (state
--- reading, screen-position anchor, JSON, bridge protocol, remote-ghost set, tick model,
--- overworld gate, LuaSocket loading -- all unchanged, see that script's header for the full
--- derivation and citations, not re-derived here). Never writes memory.
+-- Otherwise unchanged from its original Phase 5.5 content: real Brendan/May ghost sprite
+-- instead of the magenta placeholder box. Same adapter <-> bridge <-> core round trip as
+-- adapters/pokemon/emerald/phase4_multiplayer.lua (state reading, screen-position anchor,
+-- JSON, bridge protocol, remote-ghost set, tick model, overworld gate, LuaSocket loading --
+-- all unchanged, see that script's header for the full derivation and citations, not
+-- re-derived here). Never writes memory.
 --
 -- What's different from phase4_multiplayer.lua: drawRemotes() decodes and draws the real
 -- Brendan/May overworld sprite (gender, facing direction, and walk/run animation, including a

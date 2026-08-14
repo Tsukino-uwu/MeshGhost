@@ -49,7 +49,13 @@ Phase 1 actually sets up BizHawk — do not pre-fill version numbers from memory
   (a shared install also used by Archipelago, not a MeshGhost-dedicated copy). ROM location:
   `C:\ProgramData\Archipelago\bizhawk roms\Roms\gba\Pokemon - Emerald Version (USA,
   Europe).gba` — same file whose hash is recorded above. Confirmed 2026-08-11 for Phase 4
-  two-instance testing.
+  two-instance testing. **For a real two-instance test, launch each `EmuHawk.exe` with
+  `MESHGHOST_BRIDGE_PORT` set first** (instance 2 needs `7779`; the Lua adapter defaults to
+  7778 if unset, same as instance 1) — double-clicking the exe directly skips this silently,
+  with no error, and both instances end up talking to the same core. See
+  `dev-scripts/README.md`'s `.local.bat` launchers and `pitfalls.md`'s "Running two instances
+  of the same emulator/game silently collide on a shared default port" entry (found live
+  2026-08-14, cost a long diagnostic session before the actual cause was this simple).
 - Archipelago coexistence: confirmed 2 Lua scripts (`ButtonCount`, `Connector`) can run
   concurrently in BizHawk's Lua Console without conflict (2026-08-11) — satisfies
   `phase1.md`'s first coexistence checklist item, though it should be re-checked later with

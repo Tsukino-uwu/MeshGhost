@@ -16,6 +16,12 @@
   hypothesis, not yet confirmed (see open questions in
   [agent_docs/contract.md](../../../agent_docs/contract.md)).
 - No ROM is or will be shipped with this repo. Bring your own legally-obtained copy.
+- The shipped/maintained adapter script is `meshghost_emerald.lua`, in this folder — that's
+  what `.github/workflows/release.yml` ships and what any future fix belongs in.
+  `phase5_5_sprite.lua` is a frozen, byte-identical-at-the-time historical copy under its
+  original development-phase name (split off 2026-08-14, see that file's own header) — the
+  "How this adapter was built" section below is the accurate history of how it came to be,
+  under whatever name it had at each point.
 
 See [agent_docs/contract.md](../../../agent_docs/contract.md) for the adapter interface and
 tick model this adapter must implement, and
@@ -66,3 +72,13 @@ read glitches).
 ### Further work past "good enough"
 
 None logged yet — add entries here if work on this adapter resumes past Phase 5.5.
+
+## Dev tools
+
+- `probe_render_remote_trace.lua` — a headless companion script (same bridge/networking/JSON
+  code as `meshghost_emerald.lua`, no sprite decoding or drawing) that prints this client's own
+  area/position and every known remote's area/position/match status every ~2s. Load it in
+  BizHawk's Lua Console the same way as the real adapter when diagnosing a "ghost isn't
+  rendering" issue — see its own header and `agent_docs/pitfalls.md`'s "Running two instances
+  of the same emulator/game silently collide on a shared default port" entry for the incident
+  that motivated it.
