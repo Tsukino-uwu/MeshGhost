@@ -12,6 +12,8 @@ Internal documentation for MeshGhost: architecture, planning, licensing, and ver
   edits — record the "why" in [architecture.md](architecture.md)'s decision log.
 - [architecture.md](architecture.md) — system shape and the architecture decision log (ADRs).
 - [plans.md](plans.md) — live roadmap, phase status, non-goals.
+- [ideas.md](ideas.md) — unscheduled feature backlog. Not the roadmap — researched enough to
+  act on when picked, but nothing here is committed until it moves into [plans.md](plans.md).
 - [status.md](status.md) — one-screen summary of the active phase and current focus.
 - [risks.md](risks.md) — assumptions and risk register.
 - [licensing.md](licensing.md) — third-party license audit. Check before referencing any

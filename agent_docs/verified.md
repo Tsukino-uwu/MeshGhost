@@ -589,6 +589,22 @@ Copy this block per fact:
   together vs. the probe alone (no stutter, lag, or console slowdown). Reproduced again
   separately with mixed running/walking (left, `x` 9→1, one tile per print) — same frozen
   `flags`/`runningState`/`facingDirection` values, no new information.
+- **Reproduced again, 2026-08-14, on a second, independent Archipelago-patched ROM/seed**
+  (`0x080867F1` CB2_Overworld one), `phase1_probe.lua` loaded alongside the real
+  `meshghost_emerald.lua` adapter: same exact frozen signature throughout ~28 tiles of real
+  movement (`flags=0xFF dash=true runningState=255 objEventId=3 facingDirection=15`, never once
+  changing), while `x`/`y`/`mapGroup`/`mapNum` tracked every step correctly. Confirms this isn't
+  a one-seed fluke. **New consequence traced this session**: `playerScreenPos()`
+  (`meshghost_emerald.lua:633`) reads a sprite index from `GPLAYERAVATAR_ADDR + 0x04` — the same
+  struct, an offset not printed by `phase1_probe.lua` so not directly observed here, but
+  adjacent to the confirmed-garbage `flags`/`runningState`/`objEventId` fields — then indexes
+  into `gSprites[]` with it to find the local player's own screen anchor, which every remote
+  ghost is drawn relative to. Live-observed symptom matching this exactly: a loopback ghost that
+  spawns at a different fixed screen location each script restart, jitters slightly when the
+  local player moves (from the real, correctly-tracking `x`/`y` feeding the position-delta half
+  of the draw formula) but never actually follows — consistent with a wrong-but-constant screen
+  anchor. Circumstantial, not a direct read of the `+0x04` byte itself — see the open item in
+  `risks.md`.
 
 ### Emerald Phase 2 ghost overlay renders and tracks the player near screen center
 
@@ -2257,3 +2273,217 @@ Copy this block per fact:
 - Notes: closes the open risk in `risks.md` (search "Gender read may resolve before a real save
   is loaded"). The rarer mid-session delete-and-remake-a-save case (no script reload) is a
   known, accepted, unfixed limitation -- see that same risks.md entry.
+
+### Archipelago-recompiled CB2_Overworld address found, closing the ghost-never-renders gap
+
+- Date: 2026-08-14
+- Observed: found via Stage 1 of the VRAM injection investigation (`vram_probe.lua`) surfacing
+  `ow=0` for a full ~29-minute real Archipelago-patched-ROM session. Diagnosed live with
+  `battle_probe.lua` (raw `gMain.callback2` printer) loaded alongside the real adapter against
+  the same patched ROM. User watched, isolated per action, no decomp source available for this
+  build so this is confirmed by direct on-screen observation instead:
+  - Standing still/idle in the overworld: exactly one value printed, `0x080867F1`.
+  - Walking multiple tiles, and crossing into a different route: no new line printed at all
+    (value held steady the whole time).
+  - Entering a house: `0x08086965` -> `0x0813873D` -> `0x08086995` (three transient values,
+    consistent with fade-out/map-load/fade-in), settling back to `0x080867F1` once inside and
+    idle.
+  - Leaving the same house: the identical `0x08086965` -> `0x0813873D` -> `0x08086995` ->
+    `0x080867F1` sequence in reverse, and walking around inside the house beforehand held
+    `0x080867F1` steady the same way outside did.
+  This is the same "transient callback during a warp, then reverts to the field callback" shape
+  already on record for vanilla's own `CB2_Overworld` (see the cold-boot entry above), just at a
+  different address -- strong evidence `0x080867F1` is this patched build's `CB2_Overworld`
+  equivalent, not a coincidental match.
+- Source: `adapters/pokemon/emerald/battle_probe.lua` (the diagnostic used); now also cited in
+  `adapters/pokemon/emerald/meshghost_emerald.lua`'s `inOverworld()`,
+  `adapters/pokemon/emerald/vram_probe.lua`'s `isOverworld()`, and `battle_probe.lua` itself,
+  all updated to check this address alongside the vanilla one.
+- Notes: **real, previously-undocumented bug this closes**: `meshghost_emerald.lua` gates both
+  local-gender resolution and remote-ghost rendering itself behind `inOverworld()`
+  (`:825`/`:850` before this fix) — with only the vanilla address checked, neither would ever
+  fire on this Archipelago-patched ROM, meaning ghosts would never render at all while playing
+  on it. Scoped to this specific `.apemerald` base-patch version — per `risks.md`'s
+  Archipelago-coexistence entry, the base patch is one static recompile shared by every seed
+  (only small per-seed `write_token` calls differ), so this address should hold for every
+  player on the same base-patch version, but a future Archipelago Emerald world update could
+  recompile to a different one. Not yet re-verified with an actual rendered ghost on screen
+  (a loopback/two-peer session with the fix applied) -- that's the next concrete check.
+  **Reproduced independently on a second, unique Archipelago-patched ROM/seed (2026-08-14,
+  same day)**, this time with `battle_probe.lua`'s own `looksLikeOverworld` flag updated to
+  include the new address, so it read `true` directly rather than needing inference: a hard
+  reset through the intro cutscene, main menu, and new-game character creation showed a series
+  of other values (none matching either `CB2_Overworld` address, correctly), then
+  `looksLikeOverworld=true` at `0x080867F1` the moment real gameplay began (exiting the
+  starting truck). Held through the exact same `0x08086965` -> `0x0813873D` -> `0x08086995` ->
+  `0x080867F1` warp sequence on entering/leaving three different houses and going
+  upstairs/downstairs, and through a different, longer transition sequence for the in-room
+  clock-setting menu (`0x08135F31` -> `0x081361D9` -> `0x0809F68D` -> `0x08086B65` ->
+  `0x08086A8D` -> `0x080867F1`) — still settling back to the same address. This is the
+  seed-independence the "static base patch" reasoning predicted, now confirmed rather than
+  inferred.
+
+### Archipelago-patched ROM: gObjectEventPic_BrendanNormal/gObjectEventPal_Brendan decode to garbage, not a real sprite
+
+- Date: 2026-08-14
+- Observed: user ran `adapters/pokemon/emerald/sprite_probe.lua` against the same second,
+  independent Archipelago-patched ROM/seed used for the `CB2_Overworld` confirmation above.
+  Printed a 16-color BGR555->RGB palette and a 16x32 palette-index dump of decoded frame 0.
+  The palette is not a plausible hand-authored sprite palette: 6 of its 16 entries (indices 0,
+  3, 5, 7, 9, 11) are the exact same color (`r=239 g=115 b=189`, a pink/magenta), and 4 more
+  (indices 12-15) are another single exact-duplicate color (`r=140 g=66 b=33`, brown) -- 10 of
+  16 slots collapsed to two colors, which a real 16-color sprite palette (designed specifically
+  to maximize distinct colors within the budget) would essentially never do. This is also a
+  direct, exact match for what was independently seen rendered live in the same loopback
+  session earlier the same day: a solid pink block with brown horizontal stripes, not a
+  Brendan/May sprite. The bitmap itself is similarly non-humanoid -- long runs of repeated hex
+  digits (`7777777`, `6666666`, `5555555`) rather than a recognizable hat/head/body silhouette.
+- Source: `adapters/pokemon/emerald/sprite_probe.lua`, reading `gObjectEventPic_BrendanNormal`
+  (`0x084975F8`) and `gObjectEventPal_Brendan` (`0x084987F8`) -- both fixed
+  vanilla-`pokeemerald`-decomp ROM addresses, never re-derived for this patch.
+- Notes: upgrades the `risks.md` sprite-decode item from "confirmed broken" (inferred from what
+  was visually rendered) to a direct read of the actual garbage data being decoded. Same
+  mechanism as the `CB2_Overworld` finding above (a fixed vanilla ROM address landing on
+  different real ROM bytes after Archipelago's recompile), applied to a different address pair.
+  No replacement address found yet -- per `risks.md`, needs Archipelago's own symbol data or a
+  decomp-fork build of the patched ROM to get one, the same rigor already applied to every other
+  address in this project.
+
+### Archipelago-relocated gObjectEvents/gPlayerAvatar found and fixed -- ghost confirmed following correctly on screen
+
+- Date: 2026-08-14
+- Observed: found via a real loopback session on the same Archipelago-patched ROM used for the
+  sprite-decode entry above, once the sprite fix made a real (but positionally stuck) ghost
+  visible for the first time. Located the real relocated addresses through a four-stage live
+  investigation, all on the same ROM/seed:
+  1. `adapters/pokemon/emerald/avatar_scan_probe.lua` (scripted snapshot-diff): counted the
+     user down through pressing and holding down, left, up, right in turn, capturing a full
+     EWRAM snapshot during each hold. Kept only addresses matching the exact expected value
+     (1, then 3, then 2, then 4) at every one of the four steps in order. Narrowed all 262,144
+     bytes of EWRAM to exactly 2 candidates (5411 -> 8 -> 2 -> 2), 8 bytes apart
+     (`0x020375EC`, `0x020375F4`).
+  2. `adapters/pokemon/emerald/avatar_hexdump_probe.lua`: dumped raw bytes around both
+     candidates. Matched the surrounding bytes field-by-field against pokeemerald's real
+     `struct ObjectEvent` layout (`include/global.fieldmap.h`) with entry base `0x020375D4`:
+     `isPlayer` bit set (`+0x02`), `trackedByCamera` bit set (`+0x01`), `localId == 0xFF` =
+     `LOCALID_PLAYER` exactly (`+0x08`), `mapNum == 9` / `mapGroup == 0` (`+0x09`/`+0x0A`,
+     matching Littleroot Town, already independently confirmed 2026-08-11). `facingDirection`
+     (`+0x18`) is `0x020375EC` (candidate 1, the real field); `previousMovementDirection`
+     (`+0x20`) is `0x020375F4` (candidate 2 -- a real, different field that happened to also
+     survive the test, 8 bytes later, exactly matching the struct's own field spacing).
+  3. `adapters/pokemon/emerald/avatar_array_probe.lua`: scanned 20 slots before and after
+     `0x020375D4` at the confirmed 0x24-byte `ObjectEvent` stride. One slot earlier
+     (`0x020375B0`) breaks the pattern completely (not the array, not the old garbage region
+     either) -- confirming `0x020375D4` is index 0, the array's real start. Slots +1/+2/+3 show
+     real sequential `localId` 1/2/3 (other object events on the same map). Following vanilla's
+     own `gPlayerAvatar = gObjectEvents + 0x240` relationship placed a `gPlayerAvatar` candidate
+     at `0x02037814`.
+  4. `adapters/pokemon/emerald/avatar_verify_probe.lua`: read `struct PlayerAvatar`'s real
+     fields (`include/global.fieldmap.h`: `flags`/`transitionFlags`/`runningState`/
+     `tileTransitionState`/`spriteId`/`objectEventId`/`gender`) from `0x02037814` while the user
+     walked, dashed, and turned in every direction. `flags` toggled cleanly `0x01`<->`0x81`
+     exactly with dash; `runningState` cycled `0->1->2` matching real movement;
+     `facingDirection` (read via the confirmed `gObjectEvents` address) tracked every turn
+     correctly; `objectEventId`/`spriteId`/`gender` held sane constant values throughout --
+     fully responsive, live data, not the frozen `0xFF`/`255`/`15` garbage the vanilla addresses
+     read (see the 2026-08-11 entry and its 2026-08-14 reproduction above).
+- Source: the four probe scripts above; now cited in
+  `adapters/pokemon/emerald/meshghost_emerald.lua`'s `AVATAR_ADDR_ARCHIPELAGO_SHIFT` /
+  `detectAvatarAddrOffset()`, applied in `getLocalState()` and `playerScreenPos()`.
+- Notes: `playerScreenPos()` anchored every remote ghost's drawn position off a `spriteId` read
+  from this exact struct, which explained the "ghost renders but is stuck at a different fixed
+  spot each restart" symptom watched live earlier the same day. Both `gObjectEvents` and
+  `gPlayerAvatar` shift by the identical delta relative to vanilla (`0x284`), detected once at
+  startup by scanning up to 16 entries at each candidate base for the `isPlayer`+
+  `LOCALID_PLAYER` signature above (not assumed from a single hardcoded index, since which array
+  slot the player occupies isn't guaranteed constant). Scoped to this Archipelago Emerald
+  base-patch version, same portability caveat as every other Archipelago-specific address in
+  this project.
+  **First fix attempt failed a live re-test the same day**: loading the fixed
+  `meshghost_emerald.lua` and watching the ghost showed the exact same stuck-position symptom.
+  Root cause: `playerObjEventExistsAt()`'s `isPlayer`+`LOCALID_PLAYER` check alone had a false
+  positive against the *abandoned* vanilla address's frozen `FF 03 FF 03...` garbage pattern --
+  `OBJECTEVENT_SIZE` (`0x24`) is even, so every entry lands on the same phase of that 2-byte
+  repeat, and offset `+0x02`/`+0x08` both read `0xFF`, coincidentally satisfying both checks at
+  once. `detectAvatarAddrOffset()` picked vanilla on a ROM already confirmed relocated. Fixed by
+  also requiring `mapGroup` to be a plausible real value -- bounded by `MAP_GROUPS_COUNT` (34,
+  `pret/pokeemerald`'s `include/constants/map_groups.h:598`, not a guessed round number) rather
+  than the garbage pattern's `255`.
+  **Confirmed on screen after the second fix**: user reloaded `meshghost_emerald.lua` and
+  watched a loopback ghost follow their real position correctly -- "it follows the player now,
+  works perfect" / "the ghost is not stuck at a random coordinate anymore."
+  **Re-confirmed across all three ROMs**: user then live-tested loopback again separately on
+  both independent Archipelago-patched seeds AND the vanilla ROM -- ghost spawned and followed
+  correctly on all three, confirming the added auto-detect logic doesn't regress the vanilla
+  path. This closes the third of four Archipelago rendering bugs found via this investigation.
+
+### Archipelago avatar-detection timing bug found and fixed: script loaded during the intro cutscene no longer gets stuck
+
+- Date: 2026-08-14
+- Observed: same day as the previous entry, immediately after confirming bug #3's fix on
+  screen. User found that loading `meshghost_emerald.lua` WHILE still in the intro cutscene
+  (before the game's own object-event system has spawned the player's entry) reproduced the
+  identical stuck-ghost symptom bug #3 was supposed to have closed. Confirmed as a timing bug
+  specifically, not a new address problem: reloading the script after actually reaching real
+  gameplay fixed it every time. Root cause: `detectAvatarAddrOffset()` (as it existed after the
+  bug #3 fix) ran exactly once at script startup; if the player's object event didn't exist yet
+  at that exact moment, both candidate checks failed and the function permanently fell back to
+  the vanilla offset for the rest of the session, never retrying once the player's entry
+  actually appeared. Fixed by replacing the one-shot call with `tryDetectAvatarAddrOffset()`,
+  called every frame from the main loop until it actually finds the player's entry (checked via
+  the same `isPlayer`+`LOCALID_PLAYER`+plausible-`mapGroup` signature as bug #3), then stopping.
+  **Confirmed on screen**: user reloaded the script during the intro cutscene itself (the exact
+  failing case) and watched the ghost correctly follow once real gameplay started, with no
+  stuck/anchored symptom -- then re-confirmed the ordinary mid-game reload case still works with
+  no regression.
+- Source: `adapters/pokemon/emerald/meshghost_emerald.lua`'s `tryDetectAvatarAddrOffset()`,
+  called once at startup and again every frame from the main loop until `avatarAddrConfirmed`.
+- Notes: same class of problem `readLocalGender()`'s own header comment already documents for
+  `gSaveBlock1Ptr`/`gSaveBlock2Ptr` needing an `inOverworld()` gate -- a "resolve once, trust
+  forever" pattern is fragile against anything read before the game state it depends on
+  actually exists. This closes the fourth and final Archipelago rendering bug found via this
+  investigation.
+
+### Emerald walk/run sub-tile glide: fixed-duration constants confirmed pixel-exact, and a real transition-snap bug found and fixed
+
+- Date: 2026-08-14
+- Observed: session prompted by the user testing `meshghost_emerald.lua`'s loopback ghost with
+  `-interp=0 -min-send=10ms` (removes the network-side smoothing that previously masked local
+  timing imprecision) and reporting a visible snap whenever movement pace changed (idle->walk,
+  walk->run, run->walk, idle->run). A temporary per-commit diagnostic (`console.log` of
+  `frameCounter`/`anim`/measured frame-gap between tile commits) showed the adapter's then-live
+  "measure the real gap and reuse it" smoothing scheme misapplying a stale gap across a pace
+  change (e.g. a walk->run transition animating its first running step over a leftover
+  16-frame walking-paced gap instead of the correct 8) -- a real, reproducible bug, not a
+  network artifact. A further per-frame raw-position trace (`rawX`/`rawY` logged every frame,
+  not just at commits) showed something narrower and more important: every genuinely
+  continuous step measured **exactly** 8 (running) or **exactly** 16 (walking) frames, with
+  zero variance across dozens of real steps -- and that the same "measure it live" scheme also
+  misread ordinary tap-then-pause play (release the direction key, briefly idle, press again)
+  as one long, slow single step, since a brief idle gap plus one real step both land inside the
+  same "plausible" frame-count window. A final trace comparing the adapter's own synthetic
+  glide curve against `playerScreenPos()`'s real hardware sprite-offset read
+  (`sx`/`sy`/`sx2`/`sy2`/`cx`/`cy`/`coordOffsetX`/`coordOffsetY`, logged individually) confirmed
+  two more things directly, not by inference: (1) `sx` (the sprite's own screen offset) and
+  `coordOffsetX` (the camera's world-scroll offset) move by exactly ±1 pixel per frame in
+  perfect lockstep during a real step, summing to a value that never changes -- i.e.
+  pokeemerald's screen-locked-player/scrolling-world camera behavior is real and confirmed on
+  this Archipelago-patched ROM, not a stale/wrong address as first suspected; and (2) that
+  1px/frame real cadence matches the fixed `STEP_DURATION_FRAMES` constants exactly (16
+  frames observed for a full 16px walked tile). **Confirmed on screen** by the user across
+  multiple test rounds: idle->walk, walk->run, run->walk, and idle->run transitions all glide
+  cleanly with no snap after reverting to fixed-only durations (no live measurement, no
+  anim-gating -- both tried and reverted the same session after being disproven by this data);
+  a single walked tile visually matches the real character's own pace.
+- Source: `adapters/pokemon/emerald/meshghost_emerald.lua`'s `smoothPosition()` and
+  `playerScreenPos()`; `pokeemerald`'s real per-tile timing was originally measured 2026-08-11
+  (see the "Emerald walk/run tile duration" entry above) and re-confirmed here via the same
+  live-measurement discipline against real per-frame data, not re-derived from source.
+- Notes: the two rejected fix attempts (live-measured duration, and gating a measured duration
+  on whether `anim` matched the previous step) are kept as historical comments in the source
+  rather than deleted, specifically so neither is re-attempted blind in a future session -- see
+  `agent_docs/pitfalls.md`'s new entry on this investigation for the transferable lesson.
+  Network-side tuning from the same session (`-interp=0`, a new `-min-send` flag on
+  `cmd/meshghost`, `dev-scripts/run-core-*.bat` defaults changed to instant-for-local-testing)
+  is design/config work, not a runtime fact, so it isn't a `verified.md` entry on its own --
+  see `dev-scripts/README.md` and `internal/core/core.go`'s `MinSendInterval` for that half.

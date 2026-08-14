@@ -361,7 +361,21 @@ namespace MeshGhostTevi
             }
 
             visual.Go.SetActive(true);
-            visual.Go.transform.position = new Vector3(state.Position[0], state.Position[1], 0f)
+            // Loopback ghost offset, 2026-08-14 -- user-requested, generalized from the same fix
+            // in adapters/pokemon/emerald/meshghost_emerald.lua's drawRemotes() (and
+            // adapters/pseudoregalia's UpsertRemoteGhost-equivalent). A loopback-echoed ghost
+            // (internal/relay's dev-only -loopback flag, id = "<id>-ghost") otherwise renders
+            // exactly on top of the real player -- it's an echo of your own position by
+            // definition -- which made it hard to visually judge ghost rendering quality against
+            // the real character side by side. Nudge it sideways purely for local rendering;
+            // never changes what's actually sent/received over the network (state.Position here
+            // is only ever a local render input). UNVERIFIED MAGNITUDE: unlike Pseudoregalia
+            // (which already had a cited, live-tested 150.0-unit offset from an earlier
+            // diagnostic to reuse), this codebase has no existing reference for what "a couple
+            // tiles" is in TEVI's own world-unit scale -- 2.0f is a guess, not yet confirmed on
+            // screen. Tune this value the first time it's actually used and watched live.
+            float loopbackOffsetX = playerId.EndsWith("-ghost", System.StringComparison.Ordinal) ? 2.0f : 0f;
+            visual.Go.transform.position = new Vector3(state.Position[0] + loopbackOffsetX, state.Position[1], 0f)
                 + visual.AnchorOffset;
 
             // Throttled (once every 2s per remote, not every frame) so a real repro of the

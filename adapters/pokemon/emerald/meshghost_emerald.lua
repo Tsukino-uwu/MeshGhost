@@ -76,12 +76,54 @@ local SPRITE_SIZE = 0x44
 local GSPRITECOORDOFFSETX_ADDR = 0x02021bbc
 local GSPRITECOORDOFFSETY_ADDR = 0x02021bbe
 
+-- Archipelago's recompile relocates gObjectEvents/gPlayerAvatar too -- confirmed live
+-- 2026-08-14 (same day as the CB2_Overworld/sprite fixes above), via a multi-stage live
+-- investigation on a real .apemerald-patched ROM: a scripted snapshot-diff probe
+-- (avatar_scan_probe.lua) narrowed all of EWRAM down to gObjectEvents[0].facingDirection by
+-- requiring an exact down/left/up/right value match at each of four deliberate direction
+-- changes in order; a hex dump (avatar_hexdump_probe.lua) then matched the surrounding bytes
+-- field-by-field against pokeemerald's real struct ObjectEvent layout (isPlayer bit set,
+-- trackedByCamera bit set, localId=0xFF=LOCALID_PLAYER, mapNum=9/mapGroup=0 matching the
+-- already-known Littleroot Town location) to pin down gObjectEvents[0]'s exact base address,
+-- 0x020375D4; an array-boundary scan (avatar_array_probe.lua) confirmed this really is index 0
+-- (one slot earlier breaks the pattern entirely) and found gPlayerAvatar at the same +0x240
+-- relationship vanilla uses (0x02037814); and a final live verification
+-- (avatar_verify_probe.lua) confirmed flags/dash/runningState/facingDirection all track real,
+-- responsive state at these addresses instead of the frozen garbage the vanilla addresses read
+-- (verified.md, 2026-08-11, reproduced 2026-08-14) -- watched live through walking, dashing,
+-- and turning in every direction.
+-- Both addresses shift by the exact same delta relative to vanilla (0x284) -- detected once at
+-- startup below (a live scan, not assumed) by looking for the player's own object event (the
+-- isPlayer bit + LOCALID_PLAYER signature above) at each candidate base, the same discipline as
+-- the sprite-address detection above. Scoped to this Archipelago Emerald base-patch version,
+-- same portability caveat as every other Archipelago-specific address in this file.
+local AVATAR_ADDR_ARCHIPELAGO_SHIFT = 0x284
+
 local GMAIN_CALLBACK2_ADDR = 0x030022c4
 local CB2_OVERWORLD_ADDR = 0x08085e5c
+
+-- Archipelago's Pokemon Emerald patch is one static base ROM recompile shared by every seed
+-- (agent_docs/risks.md's Archipelago-coexistence entry: base_patch.bsdiff4 rewrites real game
+-- logic, per-seed randomization is small write_token calls on top of that shared recompile) --
+-- so CB2_Overworld, being base game code rather than per-seed content, moves to this same
+-- address for every player on that patch version, not just one specific seed. No decomp source
+-- exists for the patched build to cite the normal way, so this was instead confirmed the way
+-- this project's own verification standard treats as equally valid when source isn't available:
+-- watched live, 2026-08-14, via adapters/pokemon/emerald/battle_probe.lua against a real
+-- .apemerald-patched ROM. callback2 read 0x080867F1 while standing idle in the overworld, held
+-- steady through walking and a route change (no line printed -- no change), and through a full
+-- door-transition round trip (entering AND leaving a house) it briefly showed 0x08086965 ->
+-- 0x0813873D -> 0x08086995 (warp/fade/map-load handlers) before settling back to 0x080867F1
+-- both times -- the same "transient callback during a warp, then reverts to the field callback"
+-- shape already documented for vanilla's own CB2_Overworld in verified.md. Scoped to this base
+-- patch version; a future Archipelago Emerald world update could recompile to a different
+-- address, the same portability risk noted in ideas.md for any other fixed-address assumption.
+local CB2_OVERWORLD_ARCHIPELAGO_ADDR = 0x080867f1
 
 local function inOverworld()
     local callback2 = memory.read_u32_le(GMAIN_CALLBACK2_ADDR)
     return callback2 == CB2_OVERWORLD_ADDR or callback2 == CB2_OVERWORLD_ADDR + 1
+        or callback2 == CB2_OVERWORLD_ARCHIPELAGO_ADDR or callback2 == CB2_OVERWORLD_ARCHIPELAGO_ADDR + 1
 end
 
 local TILE = 16 -- confirmed on screen in Phase 3, see phase4_multiplayer.lua's header.
@@ -129,6 +171,23 @@ local GOBJECTEVENTPAL_MAY_ADDR = 0x084a4278
 -- paletteTag) with the walk frames, not a second palette.
 local GOBJECTEVENTPIC_BRENDANRUNNING_ADDR = 0x08497ef8
 local GOBJECTEVENTPIC_MAYRUNNING_ADDR = 0x084a3978
+
+-- Archipelago's recompile relocates this whole sprite/palette data block -- confirmed
+-- 2026-08-14 by directly comparing ROM file bytes (not a runtime read) between the vanilla ROM
+-- and two independent Archipelago-patched-ROM files: the exact 256-byte raw tile block at each
+-- vanilla *_PIC_*_ADDR above, and the exact 32-byte raw palette block at each *_PAL_*_ADDR
+-- above, were each found at exactly ONE new location in both patched ROMs (identical between
+-- the two, i.e. seed-independent, consistent with Archipelago's Emerald patch being one static
+-- base recompile shared by every seed -- see agent_docs/risks.md's Archipelago-coexistence
+-- entry). All six addresses shifted by the exact same delta: +0x7530. This is a genuinely
+-- different address family from CB2_Overworld's own Archipelago shift (which moved by a
+-- different amount, 0x995, in ROM code rather than ROM data) -- no single ROM-wide offset
+-- applies to everything, only to this contiguous graphics block.
+-- Detected once at startup below (a live byte comparison, not assumed) rather than hardcoded as
+-- "the" address, since a future Archipelago Emerald world/generator version could recompile to
+-- a different offset -- the same portability caveat as every other address in this project.
+local SPRITE_ADDR_ARCHIPELAGO_SHIFT = 0x7530
+
 local FRAME_WIDTH_TILES = 2
 local FRAME_HEIGHT_TILES = 4
 local FRAME_WIDTH_PX = FRAME_WIDTH_TILES * 8
@@ -206,14 +265,118 @@ end
 -- once at startup -- a remote's gender and current anim pick which table drawSpriteFrame reads
 -- from, never which tables exist (all always loaded, since any combination could show up).
 local genderFrames = { male = { walk = {}, run = {} }, female = { walk = {}, run = {} } }
+
+-- Detect once at startup whether the vanilla or Archipelago-shifted sprite/palette addresses
+-- are actually live, by comparing Brendan's palette's first 4 raw bytes (0x0E 0x53 0x5F 0x5B,
+-- read directly from the vanilla ROM file 2026-08-14) against both candidate locations -- a
+-- live verification, not an assumption, same discipline as vram_probe.lua's VRAM<->System-Bus
+-- aliasing check. Falls back to vanilla (with a loud warning) if neither matches, e.g. a future
+-- Archipelago Emerald world/generator version that recompiles to a third, unknown offset.
+local BRENDAN_PAL_REF_BYTES = { 0x0e, 0x53, 0x5f, 0x5b }
+local function bytesMatchAt(addr, refBytes)
+    for i, expected in ipairs(refBytes) do
+        if memory.read_u8(addr + i - 1) ~= expected then
+            return false
+        end
+    end
+    return true
+end
+
+local function detectSpriteAddrOffset()
+    if bytesMatchAt(GOBJECTEVENTPAL_BRENDAN_ADDR, BRENDAN_PAL_REF_BYTES) then
+        console.log("MeshGhost: sprite data found at the vanilla ROM address.")
+        return 0
+    end
+    if bytesMatchAt(GOBJECTEVENTPAL_BRENDAN_ADDR + SPRITE_ADDR_ARCHIPELAGO_SHIFT, BRENDAN_PAL_REF_BYTES) then
+        console.log("MeshGhost: sprite data found at the known Archipelago-shifted ROM address.")
+        return SPRITE_ADDR_ARCHIPELAGO_SHIFT
+    end
+    console.log("MeshGhost: WARNING -- Brendan/May sprite data not found at the vanilla address "
+        .. "or the known Archipelago-shifted address. Falling back to vanilla addresses, but "
+        .. "the decoded sprite is likely wrong on this ROM.")
+    return 0
+end
+
+-- Scans up to all 16 gObjectEvents entries at the given base for the player's own entry (the
+-- isPlayer bit set AND localId == LOCALID_PLAYER (0xFF) -- pokeemerald's own sentinel for the
+-- player's object event, confirmed live 2026-08-14 the same way as the header comment above
+-- describes). Returns true if found, without needing to know which index it's at in advance.
+--
+-- BUG FOUND LIVE 2026-08-14, fixed same day: the isPlayer+localId check alone has a real false
+-- positive against the OLD vanilla address once it's abandoned/frozen garbage under Archipelago
+-- -- that garbage reads as a flat repeating `FF 03 FF 03...` pattern (already confirmed via a
+-- hex dump), and since OBJECTEVENT_SIZE (0x24) is even, every entry lands on the same phase of
+-- that 2-byte repeat: offset+0x02 and offset+0x08 both read 0xFF, which satisfies BOTH
+-- isPlayerBit==1 (0xFF's low bit is set) AND localId==0xFF simultaneously, at every single
+-- entry -- a false "found it" on the abandoned vanilla address, which is exactly what
+-- happened live (avatarAddrOffset resolved to 0/vanilla on a ROM already confirmed relocated).
+-- Fix: also require mapGroup to be a plausible real value -- the same garbage pattern reads
+-- mapGroup as 0xFF (255), nowhere close to a real Emerald map group, while the real entry reads
+-- 0 (Littleroot Town, already independently confirmed). A uniform repeating byte pattern can
+-- satisfy one narrow bit-level check by coincidence; it's much less likely to also produce a
+-- plausible, unrelated field at a different offset. Bound is MAP_GROUPS_COUNT (34, valid values
+-- 0-33) from pret/pokeemerald's include/constants/map_groups.h, the same make-compare-verified
+-- build cited everywhere else in this project -- not an arbitrary round number.
+local MAP_GROUPS_COUNT = 34
+local function playerObjEventExistsAt(gObjectEventsBase)
+    for i = 0, 15 do
+        local addr = gObjectEventsBase + i * OBJECTEVENT_SIZE
+        local isPlayerBit = memory.read_u8(addr + 0x02) & 0x1
+        local localId = memory.read_u8(addr + 0x08)
+        local mapGroup = memory.read_u8(addr + 0x0a)
+        if isPlayerBit == 1 and localId == 0xff and mapGroup < MAP_GROUPS_COUNT then
+            return true
+        end
+    end
+    return false
+end
+
+-- Found live 2026-08-14, same day as the fix above: a script loaded WHILE still in the intro
+-- cutscene (before the map/object-event system has spawned the player's own entry) fails BOTH
+-- candidate checks -- there's no real object event data yet at either address, vanilla or
+-- Archipelago-shifted. Calling this once at startup and keeping whatever it returns forever
+-- (the original design) permanently locks in the fallback (vanilla) for the rest of the
+-- session, even after real gameplay starts and the correct data becomes available -- confirmed
+-- live: reloading the script after actually being in-game fixes it every time, proving this is
+-- a timing bug, not a wrong address. Same class of problem readLocalGender()'s own header
+-- comment already documents for gSaveBlock1Ptr/gSaveBlock2Ptr. Fix: don't call this once and
+-- trust the result forever -- call tryDetectAvatarAddrOffset() every frame (see the main loop
+-- below) until it actually finds the player's entry, then stop.
+--
+-- Resolved lazily (see tryDetectAvatarAddrOffset() and the main loop below) -- 0 on vanilla, or
+-- AVATAR_ADDR_ARCHIPELAGO_SHIFT once detected. Declared here (before getLocalState() and
+-- playerScreenPos() are defined) so both can close over it as an upvalue.
+local avatarAddrOffset = 0
+local avatarAddrConfirmed = false
+
+local function tryDetectAvatarAddrOffset()
+    if playerObjEventExistsAt(GOBJECTEVENTS_ADDR) then
+        console.log("MeshGhost: gObjectEvents/gPlayerAvatar found at the vanilla ROM address.")
+        avatarAddrOffset = 0
+        avatarAddrConfirmed = true
+        return
+    end
+    if playerObjEventExistsAt(GOBJECTEVENTS_ADDR + AVATAR_ADDR_ARCHIPELAGO_SHIFT) then
+        console.log("MeshGhost: gObjectEvents/gPlayerAvatar found at the known Archipelago-shifted address.")
+        avatarAddrOffset = AVATAR_ADDR_ARCHIPELAGO_SHIFT
+        avatarAddrConfirmed = true
+        return
+    end
+    -- Not found yet -- most likely still in the intro/title/character-creation sequence and
+    -- the object event system hasn't spawned the player's entry yet. Leave avatarAddrOffset at
+    -- its current value and avatarAddrConfirmed false; the main loop will call this again next
+    -- frame rather than latching in a guess.
+end
+
 local function loadGenderFrames()
-    local malePalette = decodePalette(GOBJECTEVENTPAL_BRENDAN_ADDR)
-    local femalePalette = decodePalette(GOBJECTEVENTPAL_MAY_ADDR)
+    local offset = detectSpriteAddrOffset()
+    local malePalette = decodePalette(GOBJECTEVENTPAL_BRENDAN_ADDR + offset)
+    local femalePalette = decodePalette(GOBJECTEVENTPAL_MAY_ADDR + offset)
     for i = 0, FRAMES_PER_PIC_TABLE - 1 do
-        genderFrames.male.walk[i] = decodeFramePixels(GOBJECTEVENTPIC_BRENDANNORMAL_ADDR, i, malePalette)
-        genderFrames.male.run[i] = decodeFramePixels(GOBJECTEVENTPIC_BRENDANRUNNING_ADDR, i, malePalette)
-        genderFrames.female.walk[i] = decodeFramePixels(GOBJECTEVENTPIC_MAYNORMAL_ADDR, i, femalePalette)
-        genderFrames.female.run[i] = decodeFramePixels(GOBJECTEVENTPIC_MAYRUNNING_ADDR, i, femalePalette)
+        genderFrames.male.walk[i] = decodeFramePixels(GOBJECTEVENTPIC_BRENDANNORMAL_ADDR + offset, i, malePalette)
+        genderFrames.male.run[i] = decodeFramePixels(GOBJECTEVENTPIC_BRENDANRUNNING_ADDR + offset, i, malePalette)
+        genderFrames.female.walk[i] = decodeFramePixels(GOBJECTEVENTPIC_MAYNORMAL_ADDR + offset, i, femalePalette)
+        genderFrames.female.run[i] = decodeFramePixels(GOBJECTEVENTPIC_MAYRUNNING_ADDR + offset, i, femalePalette)
     end
 end
 
@@ -492,12 +655,12 @@ local function getLocalState()
 
     if mapJustChanged(mapGroup, mapNum) then return nil end
 
-    local flags = memory.read_u8(GPLAYERAVATAR_ADDR + 0x00)
-    local runningState = memory.read_u8(GPLAYERAVATAR_ADDR + 0x02)
-    local objectEventId = memory.read_u8(GPLAYERAVATAR_ADDR + 0x05)
+    local flags = memory.read_u8(GPLAYERAVATAR_ADDR + avatarAddrOffset + 0x00)
+    local runningState = memory.read_u8(GPLAYERAVATAR_ADDR + avatarAddrOffset + 0x02)
+    local objectEventId = memory.read_u8(GPLAYERAVATAR_ADDR + avatarAddrOffset + 0x05)
     local dashing = (flags & 0x80) ~= 0
 
-    local objEventAddr = GOBJECTEVENTS_ADDR + (objectEventId * OBJECTEVENT_SIZE)
+    local objEventAddr = GOBJECTEVENTS_ADDR + avatarAddrOffset + (objectEventId * OBJECTEVENT_SIZE)
     local facingRaw = memory.read_u16_le(objEventAddr + 0x18) & 0xF
     local orientation = FACING[facingRaw] or "south"
 
@@ -541,35 +704,37 @@ end
 -- read straight from gSaveBlock1Ptr -- a whole-tile coordinate that only
 -- changes once per completed tile-step, not a continuous pixel position.
 -- Found live 2026-08-11: sending that raw value made a remote's ghost look
--- choppy/teleport-y on the other client's screen, and didn't improve at a
--- shorter -interp -- the interpolation buffer isn't the bottleneck, the
--- source data's own update granularity is (confirmed by the fact that a
--- shorter buffer didn't help; if the buffer were the cause, shortening it
--- would have).
+-- choppy/teleport-y on the other client's screen. Fix: track locally, in
+-- the adapter, when pos.x/y last changed and linearly blend from the
+-- previous committed tile to the new one over STEP_DURATION_FRAMES[anim]
+-- frames.
 --
--- Fix: track locally, in the adapter, when pos.x/y last changed and
--- linearly blend from the previous committed tile to the new one. The
--- blend window is MEASURED, not a hardcoded guess: found live 2026-08-11
--- that assuming a fixed 8-frame tile duration (borrowed from a single
--- ANIMCMD_FRAME's hold time in sAnim_GoSouth -- the duration of one pose
--- within the walk cycle, not necessarily how long a whole tile of
--- *movement* takes) made the ghost visibly pause after each step instead
--- of moving continuously -- the real per-tile duration is evidently
--- longer. Rather than guess a second specific number and risk being wrong
--- again, the adapter measures the real gap between the last two committed
--- tile-changes and uses that as the estimate for the current step -- this
--- self-corrects to whatever the real cadence is (walk/run/bike, all
--- different speeds) without needing a cited frame-count constant at all.
--- One-step-stale by construction (a speed change is only fully reflected
--- starting the step after it changes), which is an acceptable tradeoff
--- for a cosmetic ghost. No new memory address needed either way.
+-- History, both dead ends kept as notes so they aren't re-attempted blind:
+-- (1) MEASURING the real gap between commits and using that as the glide
+-- duration (added 2026-08-11 to self-correct for a possibly-wrong assumed
+-- constant, replacing an earlier fixed-only version) turned out to be a net
+-- regression, root-caused live 2026-08-14 via a real per-frame raw-position
+-- trace (see git history/DIAG_RAW_POS if this needs re-deriving): normal
+-- tap-then-pause play (not holding a direction key continuously) produces
+-- commit-to-commit gaps that are MOSTLY idle time plus one real step, which
+-- a plausibility-range check alone can't distinguish from a genuinely slow
+-- single step -- so the ghost visibly crawled through what should have
+-- been "stand still, then snap." The same trace also proved the fixed
+-- constants below have ZERO measured variance across many real continuous
+-- steps (always exactly 8 or exactly 16, never 9/10/14/15/etc.) -- the
+-- self-correction measuring was supposedly there for was never actually
+-- happening. (2) Also tried and reverted same-day: gating the measured gap
+-- on whether `anim` matched the prior step (to fix cross-pace reuse) --
+-- also proved wrong by the same trace, since `anim` can already show the
+-- NEXT pace before the CURRENT (still-old-paced) step's commit event
+-- lands, so gating on it forced some steps to animate at the WRONG pace's
+-- duration. Given (1) and (2), reverted to fixed-only: no measuring, no
+-- gating, just the plain constant for whatever anim is active right now.
 ----------------------------------------------------------------------------
 
--- Real per-tile frame counts, measured live 2026-08-11 via a temporary diagnostic that printed
--- every real gap between consecutive tile commits: a clean, repeated, stable 16 frames/tile
--- walking and 8 frames/tile running (occasional outliers at genuine transitions -- direction
--- changes, a step right after unblocking from a wall -- are a property of those specific
--- moments, not evidence the steady-state number is wrong). See agent_docs/verified.md.
+-- Real per-tile frame counts. Originally measured live 2026-08-11 (temporary diagnostic
+-- printing every real gap between consecutive tile commits) and re-confirmed live 2026-08-14
+-- with zero variance across many real continuous steps -- see agent_docs/verified.md.
 local STEP_DURATION_FRAMES = { walking = 16, running = 8 }
 
 local frameCounter = 0
@@ -586,24 +751,45 @@ local tileChangeFrame = 0
 -- at the moment the step STARTED fixes that: the rest of that one glide always finishes at the
 -- pace it began at, regardless of what anim does before it completes.
 local activeStepDuration = STEP_DURATION_FRAMES.walking
+-- True only while gliding a REAL committed step (the elseif branch below) -- explicitly false
+-- for the first-sample/map-transition bootstrap case, which also starts a fraction-driven
+-- window but was never an actual step. Added 2026-08-14 after the diagnostics below fired
+-- during the ~16-frame bootstrap window right after connecting, before the player had moved at
+-- all -- confusing and wasted the log budget on a non-event. Used to gate DIAG_STEP_CURVE/
+-- DIAG_SCREENPOS_PARTS below onto only genuine movement.
+local inRealGlide = false
+-- Set when a glide finishes (fraction reaches 1), but not ACTED on until the START of the next
+-- call -- deferred by one frame on purpose so the completion frame itself still reads
+-- inRealGlide == true (the diagnostics' caller reads it AFTER this function returns, so
+-- clearing it in the same call that finishes the glide would silently drop the last, most
+-- relevant frame -- exactly the one a reported "snap at the end" needs to be visible in).
+local glideJustCompleted = false
 
 local function smoothPosition(rawX, rawY, areaId, anim)
+    if glideJustCompleted then
+        inRealGlide = false
+        glideJustCompleted = false
+    end
+
     if committedTileX == nil or areaId ~= committedAreaId then
-        -- First sample, or a map transition -- nothing to interpolate from,
-        -- snap instead of gliding across a map boundary or from nothing.
+        -- First sample, or a map transition -- nothing to interpolate from, snap instead of
+        -- gliding across a map boundary or from nothing. Never a real glide.
         prevTileX, prevTileY = rawX, rawY
         committedTileX, committedTileY = rawX, rawY
         committedAreaId = areaId
         tileChangeFrame = frameCounter
         activeStepDuration = STEP_DURATION_FRAMES[anim] or STEP_DURATION_FRAMES.walking
+        inRealGlide = false
     elseif rawX ~= committedTileX or rawY ~= committedTileY then
         prevTileX, prevTileY = committedTileX, committedTileY
         committedTileX, committedTileY = rawX, rawY
         tileChangeFrame = frameCounter
         activeStepDuration = STEP_DURATION_FRAMES[anim] or STEP_DURATION_FRAMES.walking
+        inRealGlide = true
     end
 
     local fraction = (frameCounter - tileChangeFrame) / activeStepDuration
+    if fraction >= 1 then glideJustCompleted = true end
     if fraction > 1 then fraction = 1 end
     if fraction < 0 then fraction = 0 end
 
@@ -611,8 +797,29 @@ local function smoothPosition(rawX, rawY, areaId, anim)
            prevTileY + (committedTileY - prevTileY) * fraction
 end
 
+-- DIAGNOSTIC, added 2026-08-14 -- checks a specific live-reported symptom: a single-tile walk
+-- still looks "slightly off" between the real player and the ghost even ignoring network delay,
+-- with a visible snap right as the step completes. Working theory: our own synthetic glide
+-- (smoothX/Y above, a fixed linear ramp over STEP_DURATION_FRAMES[anim] frames) might not land
+-- in exact frame-for-frame lockstep with the REAL sprite's own pixel motion that
+-- playerScreenPos() reads -- if the real sprite's per-frame pixel delta isn't a clean, constant
+-- 1px/frame (e.g. it moves in an uneven pattern, or finishes/resets a frame earlier or later
+-- than our own frameCounter-based timing expects), the mismatch would show up exactly as a
+-- small end-of-step correction. Logs both curves side by side, gated to only real glides (see
+-- inRealGlide above) and capped to DIAG_STEP_CURVE_MAX_LOGS actual logged frames -- generous
+-- (a full minute's worth of real step-frames) so there's no rush between reloading the script
+-- and actually moving.
+local DIAG_STEP_CURVE = false
+local DIAG_STEP_CURVE_MAX_LOGS = 3600
+local diagStepCurveLogCount = 0
+local diagPrevRealX, diagPrevRealY = nil, nil
+
+local DIAG_SCREENPOS_PARTS = false
+local DIAG_SCREENPOS_PARTS_MAX_LOGS = 200
+local diagScreenPosPartsLogCount = 0
+
 local function playerScreenPos()
-    local spriteId = memory.read_u8(GPLAYERAVATAR_ADDR + 0x04)
+    local spriteId = memory.read_u8(GPLAYERAVATAR_ADDR + avatarAddrOffset + 0x04)
     local spriteAddr = GSPRITES_ADDR + (spriteId * SPRITE_SIZE)
 
     local sx = memory.read_s16_le(spriteAddr + 0x20)
@@ -624,6 +831,22 @@ local function playerScreenPos()
 
     local coordOffsetX = memory.read_s16_le(GSPRITECOORDOFFSETX_ADDR)
     local coordOffsetY = memory.read_s16_le(GSPRITECOORDOFFSETY_ADDR)
+
+    -- DIAGNOSTIC, added 2026-08-14 -- the combined return value stayed frozen across an entire
+    -- real walked tile (see the DIAG CURVE trace), which could mean either "correct, camera
+    -- absorbs all scroll" or "reading a stale/wrong address never checked for this Archipelago
+    -- ROM's shift" -- logging each component separately (spriteId included, to catch a wrong
+    -- sprite-slot read too) instead of just the sum should show directly which one, if any, is
+    -- the one not moving. Gated to only log during a real committed step's glide (inRealGlide,
+    -- an upvalue from smoothPosition() above) -- found live: gating on raw fraction/timing alone
+    -- also fired during the bootstrap window right after connecting, before the player had
+    -- moved at all.
+    if DIAG_SCREENPOS_PARTS and inRealGlide and diagScreenPosPartsLogCount < DIAG_SCREENPOS_PARTS_MAX_LOGS then
+        diagScreenPosPartsLogCount = diagScreenPosPartsLogCount + 1
+        console.log(string.format(
+            "MeshGhost DIAG PARTS: frame=%d spriteId=%d sx=%d sy=%d sx2=%d sy2=%d cx=%d cy=%d coordOffsetX=%d coordOffsetY=%d",
+            frameCounter, spriteId, sx, sy, sx2, sy2, cx, cy, coordOffsetX, coordOffsetY))
+    end
 
     return sx + sx2 + cx + coordOffsetX, sy + sy2 + cy + coordOffsetY
 end
@@ -739,12 +962,39 @@ local function drawSpriteFrame(gender, pose, frameIndex, hFlip, screenX, screenY
     end
 end
 
+-- A loopback-echoed ghost (internal/relay's dev-only -loopback flag, id = "<id>-ghost") would
+-- otherwise render directly on top of the real player -- both are the same position by
+-- definition, since it's an echo of your own state. Found live 2026-08-14: this made it hard to
+-- visually tell the real character and the ghost apart at all, especially for judging rendering
+-- quality (smoothing, animation) side by side -- the whole point of using loopback for that kind
+-- of test. Nudge it a couple tiles to the side purely for local rendering (screen position only
+-- -- never changes what's actually sent/received over the network) so it visibly mimics the
+-- player in parallel instead of sitting on top of them. Not specific to the "-ghost" suffix
+-- semantically -- any player_id could in principle end this way -- but that's the relay's own
+-- real naming convention for exactly this case, so it's a reliable signal here.
+--
+-- Two genuinely different, both-valid loopback use cases, per the user (2026-08-14): offset
+-- (the default) for visually judging rendering/animation/smoothing quality side by side, since
+-- an exact overlap makes the two impossible to tell apart; zero offset (exact trail) for
+-- verifying the ghost actually tracks the real position precisely, which an offset would
+-- obscure. Controlled via MESHGHOST_LOOPBACK_TRAIL, same env-var pattern as
+-- MESHGHOST_BRIDGE_PORT above -- set (to anything) to force exact-trail mode, unset for the
+-- default offset mode. A launch-time env var rather than a code constant so switching between
+-- the two doesn't need a script reload/edit, just a different .local.bat -- see
+-- dev-scripts/README.md.
+local LOOPBACK_GHOST_OFFSET_TILES_X = (os.getenv("MESHGHOST_LOOPBACK_TRAIL") and 0) or 2
+local LOOPBACK_GHOST_OFFSET_TILES_Y = 0
+
 local function drawRemotes(localAreaId, playerMapX, playerMapY)
     local playerScreenX, playerScreenY = playerScreenPos()
-    for _, remote in pairs(remotes) do
+    for playerId, remote in pairs(remotes) do
         if remote.areaId == localAreaId then
             local screenX = playerScreenX + (remote.x - playerMapX) * TILE
             local screenY = playerScreenY + (remote.y - playerMapY) * TILE
+            if playerId:match("%-ghost$") then
+                screenX = screenX + LOOPBACK_GHOST_OFFSET_TILES_X * TILE
+                screenY = screenY + LOOPBACK_GHOST_OFFSET_TILES_Y * TILE
+            end
 
             local dirInfo = DIRECTION_ANIM[remote.orientation] or DIRECTION_ANIM.south
             local frameIndex, pose
@@ -784,6 +1034,8 @@ end
 console.log("MeshGhost Emerald adapter running.")
 console.log("Decoding Brendan/May sprite frames...")
 loadGenderFrames()
+tryDetectAvatarAddrOffset() -- may not find it yet if loaded during the intro/title sequence --
+-- see the main loop below, which keeps retrying every frame until it succeeds.
 console.log("Connecting to bridge at " .. BRIDGE_HOST .. ":" .. BRIDGE_PORT .. " ...")
 
 local localGender = nil -- resolved lazily, first frame a save is loaded (see readLocalGender)
@@ -794,6 +1046,10 @@ local localGender = nil -- resolved lazily, first frame a save is loaded (see re
 local function runFrame()
     frameCounter = frameCounter + 1
     gui.clearGraphics()
+
+    if not avatarAddrConfirmed then
+        tryDetectAvatarAddrOffset()
+    end
 
     if not connected then
         connectBridge()
@@ -830,6 +1086,16 @@ local function runFrame()
             end
             smoothX, smoothY = smoothPosition(state.x, state.y, state.areaId, state.anim)
             smoothAreaId = state.areaId
+            if DIAG_STEP_CURVE and inRealGlide and diagStepCurveLogCount < DIAG_STEP_CURVE_MAX_LOGS then
+                local realX, realY = playerScreenPos()
+                local deltaX = diagPrevRealX and (realX - diagPrevRealX) or 0
+                local deltaY = diagPrevRealY and (realY - diagPrevRealY) or 0
+                diagPrevRealX, diagPrevRealY = realX, realY
+                diagStepCurveLogCount = diagStepCurveLogCount + 1
+                console.log(string.format(
+                    "MeshGhost DIAG CURVE: frame=%d smoothX=%.4f smoothY=%.4f realScreenX=%d realScreenY=%d realDX=%d realDY=%d",
+                    frameCounter, smoothX, smoothY, realX, realY, deltaX, deltaY))
+            end
             sendLine(encodeLocalState(state.areaId, smoothX, smoothY, state.orientation, state.anim, localGender or "male"))
         else
             sendLine(ENCODED_NO_SEND)

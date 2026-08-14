@@ -30,6 +30,8 @@ Roughly in order (all of it is [agent_docs/phases/phase6.md](../../agent_docs/ph
 2. Cyan box following the player.
 3. Replaced the box with the actual sprite.
 4. Added animations.
+5. Made ghosts hide when the peer is in a different zone, and fixed a bug where a ghost could
+   turn invisible when changing zones.
 
 ### Further work past "good enough"
 

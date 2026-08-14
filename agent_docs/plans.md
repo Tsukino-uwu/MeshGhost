@@ -53,6 +53,11 @@ Tier 1 items are recorded here as things that are possible and cheap (they need 
 writes), specifically **not scheduled** — phase discipline means finishing the two-player
 milestone (Phase 4) before adding anything else, cosmetic or not.
 
+See `agent_docs/ideas.md` for the researched backlog this ladder feeds — including a first
+investigation of Emerald's Union Room (spawn-based rendering vs. today's overlay drawing) and
+TEVI's opt-in ghost-collision experiment. Nothing there is scheduled; move an entry here with a
+phase number when it's picked.
+
 Tier 3 (Emerald trading/battling, concretely) is gated on two things, neither settled: an ADR
 that accepts the save-corruption risk memory writes carry, and the Archipelago-coexistence
 test below, since Archipelago already patches the Emerald ROM and writes memory via its own

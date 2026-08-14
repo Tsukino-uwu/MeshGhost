@@ -68,6 +68,33 @@ Phase 1 actually sets up BizHawk — do not pre-fill version numbers from memory
 - BizHawk's Lua host (`LuaLibraries.cs`, confirmed by reading source 2026-08-11) is a plain
   `new Lua()` (NLua) with no standard library removed afterward — `debug`, `os`, `package`,
   `io` are all available to a script, not just the subset BizHawk's own libraries use.
+- Memory Lua API (Stage 1 of the VRAM investigation, 2026-08-14): `BizHawk.Client.Common.dll`'s
+  embedded doc strings mention `memory.hash_region(addr, count[, domain])`,
+  `memory.read_bytes_as_array(addr, length[, domain])`, `memory.write_bytes_as_array`,
+  `memory.getmemorydomainsize`, `event.onexit`, `event.onmemorywrite` / `onmemoryread` /
+  `onmemoryexecute` / `onmemoryexecuteany`, and the RAM Watch/Search `FreezeValue`/`FreezeList`
+  freeze feature. **Correction, found live 2026-08-14 running `vram_probe.lua` for real: a doc
+  string existing in the DLL is not proof the function is actually callable at runtime.**
+  `memory.hash_region` reported as `nil` (not a function) in this real session even though its
+  doc string is present, which is why the probe fell back to its sampled Tier C rather than the
+  exhaustive hash-based tier. `event.onexit` and `memory.read_u8`/`read_u32_le`/`read_u16_le`
+  (already long-relied-on elsewhere in this project) are confirmed actually callable this way;
+  the rest of the list above is unconfirmed at runtime and should not be assumed available
+  without the same `type(memory.x) == "function"` guard `vram_probe.lua` uses. None of these
+  are game- or sprite-specific — they're generic address-space read/write/hook primitives, the
+  same shape as the standalone-mGBA `emu:write32` idiom `GBA-PK-multiplayer` uses, just under
+  BizHawk's own naming.
+- GBA memory domain names on this core (**confirmed** 2026-08-14, via
+  `memory.getmemorydomainlist()` from `vram_probe.lua`'s startup log, real user run):
+  `IWRAM`, `EWRAM`, `BIOS`, `PALRAM`, `VRAM`, `OAM`, `ROM`, `SRAM`, `Combined WRAM`,
+  `System Bus`. A `VRAM` domain does exist on this core (contrary to the "no VRAM domain
+  confirmed" gap noted in the Stage 1 plan) — `vram_probe.lua` runs its live aliasing check
+  against it at startup rather than assuming the mapping.
+- `memory.getmemorydomainlist()`'s own embedded doc string (`BizHawk.Client.Common.dll`)
+  claims it returns "a single string delimited by line feeds" — **that's wrong for this 2.11
+  build**, confirmed live 2026-08-14: it actually returns a Lua table of domain-name strings.
+  Don't trust that doc string's return-type claim for other scripts either; `vram_probe.lua`
+  now handles both shapes defensively.
 
 ## pokeemerald decomp (address source for Phase 1)
 

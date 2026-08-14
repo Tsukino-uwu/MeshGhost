@@ -25,6 +25,15 @@
 
 local GMAIN_CALLBACK2_ADDR = 0x030022c4
 local CB2_OVERWORLD_ADDR = 0x08085e5c
+-- Archipelago-recompiled equivalent of CB2_Overworld -- watched live 2026-08-14 via this exact
+-- probe against a real .apemerald-patched ROM: 0x080867F1 held steady standing idle, through
+-- walking, a route change, and survived a full door-transition round trip (entering AND
+-- leaving a house showed the same 0x08086965 -> 0x0813873D -> 0x08086995 warp/fade sequence
+-- both directions before settling back to 0x080867F1) -- the same shape vanilla's own
+-- CB2_Overworld shows around a warp. See meshghost_emerald.lua's inOverworld() for why this
+-- address should hold for every Archipelago Emerald player on the same base-patch version, not
+-- just the one seed this was watched on (agent_docs/risks.md's Archipelago-coexistence entry).
+local CB2_OVERWORLD_ARCHIPELAGO_ADDR = 0x080867f1
 
 if not memory.usememorydomain("System Bus") then
     console.log("ERROR: 'System Bus' memory domain not found on this core.")
@@ -35,6 +44,8 @@ end
 console.log("MeshGhost battle probe running. Reading gMain.callback2 @ 0x030022C4.")
 console.log(string.format("CB2_Overworld reference address: 0x%08X (or 0x%08X with the Thumb bit)",
     CB2_OVERWORLD_ADDR, CB2_OVERWORLD_ADDR + 1))
+console.log(string.format("Archipelago-recompiled reference address: 0x%08X (or 0x%08X with the Thumb bit)",
+    CB2_OVERWORLD_ARCHIPELAGO_ADDR, CB2_OVERWORLD_ARCHIPELAGO_ADDR + 1))
 console.log("Only prints when callback2 changes -- walk around, open menus, talk to an NPC,")
 console.log("and start a battle; watch which actions cause a new line to print.")
 
@@ -43,7 +54,8 @@ local lastCallback2 = nil
 while true do
     local callback2 = memory.read_u32_le(GMAIN_CALLBACK2_ADDR)
     if callback2 ~= lastCallback2 then
-        local isOverworld = (callback2 == CB2_OVERWORLD_ADDR or callback2 == CB2_OVERWORLD_ADDR + 1)
+        local isOverworld = (callback2 == CB2_OVERWORLD_ADDR or callback2 == CB2_OVERWORLD_ADDR + 1
+            or callback2 == CB2_OVERWORLD_ARCHIPELAGO_ADDR or callback2 == CB2_OVERWORLD_ARCHIPELAGO_ADDR + 1)
         console.log(string.format("callback2=0x%08X  looksLikeOverworld=%s", callback2, tostring(isOverworld)))
         lastCallback2 = callback2
     end

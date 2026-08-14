@@ -1,6 +1,7 @@
 # Written by dev-scripts\build-tevi.bat -- read by .github\workflows\release.yml's
-# staleness gate. Do not hand-edit.
-commit: b85ab859a89326ff15d3ce40f73f26da7a09ac46
-Plugin.cs: f74f50b8aee53977d410edd3741cf06874263bd26e9214d226b7765b178ff5a9
+# staleness gate. Do not hand-edit. Kept outside the MeshGhost\ drag-and-drop tree on
+# purpose so it never lands in a user's BepInEx\plugins\ folder.
+commit: 2f0c087c82c1c0958601610c137a796c7b325670
+Plugin.cs: 058c24906f0d6c7a7297b5bc7b81f43499e09fc4c07cd741928c580c293d361d
 BridgeClient.cs: 30842cd8d38064aa5bdfdda8c807db5f96c05c7216594645e5a342ce818e1557
 MeshGhostTevi.csproj: 6528cd74c2533a0b16eb7e7669f463500fc5cb8397db1f1cc6e181950811abba

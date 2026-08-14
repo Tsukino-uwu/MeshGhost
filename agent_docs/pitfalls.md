@@ -35,6 +35,15 @@ know the incident, not just the rule, so you can judge when it applies.
   (`actual = ghost:K2_GetActorLocation()`, not the local variable you wrote into `ghostLoc`).
   Source: Phase 7's rendering saga — ten runs of reassuring `positions:` log lines turned out
   to be proof of what the script wrote, never proof the actor's transform changed.
+- **A doc string embedded in a binary is not proof a function is callable at runtime.**
+  `BizHawk.Client.Common.dll`'s embedded doc strings mention `memory.hash_region` and read like
+  any other confirmed API entry in this project's records — but a real session found it reports
+  as `nil` (not a function) at runtime despite the doc string being present in the DLL. Guard
+  every such call with `type(memory.x) == "function"` and have a fallback path, the way
+  `vram_probe.lua` does, rather than trusting a doc string the same way an address citation is
+  trusted. Source: Stage 1 of the VRAM/sprite injection investigation (`ideas.md`), first real
+  run, 2026-08-14 — see `agent_docs/environment.md`'s Memory Lua API entry for the corrected
+  record.
 - **Run the same test without the fix applied.** If a "fix" is real, removing it should change
   the outcome. If the bug reproduces identically with the fix skipped, the fix was never the
   mechanism. Source: an early camera-fix attempt in Phase 7 that looked plausible until a
@@ -83,6 +92,15 @@ know the incident, not just the rule, so you can judge when it applies.
   treat "access denied" as a question to research (who gates this, how does anyone get past it),
   not just a wall to build around — especially before investing in a workaround substantial
   enough that undoing it later is expensive.
+- **Measuring the gap between two discrete events is not the same as measuring one event's real
+  duration.** A "gap between commits" naturally includes any idle time sitting in between them,
+  and a plausibility range alone (min/max frame count) can't tell "one genuinely slow event"
+  apart from "idle time plus one normal-speed event" if both land in the same numeric range —
+  ordinary tap-then-pause human input reliably produces exactly this ambiguity. Source: the
+  Emerald sub-tile smoothing saga below — a live per-frame raw-position trace was needed to
+  prove real per-tile timing had *zero* variance, which is what finally justified dropping
+  dynamic measurement for a plain fixed constant instead of chasing a self-correction that
+  wasn't actually correcting anything.
 
 ## Failure signatures
 
@@ -356,6 +374,48 @@ that engine.
 - **Lock an interpolation's duration at the moment you commit to it**, not re-derived from
   current state every frame — otherwise the animation visibly snaps whenever the driving
   state changes mid-glide.
+- **A network-side delay/buffer (e.g. interpolation smoothing) can silently mask a local timing
+  bug** by absorbing small glitches into a larger, already-fuzzy window. Emerald's sub-tile
+  glide bug (see below) had likely been present since it was first written, but only became
+  visible once local loopback testing ran with the network buffer removed — treat "looks fine
+  with the buffer on" as untested, not confirmed, for anything the buffer could plausibly be
+  hiding.
+
+### Reconstructing continuous motion from discrete, throttled position samples (Emerald sub-tile glide saga, 2026-08-14)
+
+A whole-tile integer position (changes once per completed step, not continuously) needs local
+smoothing to look continuous when re-rendered. This project's Emerald adapter went through
+three real, disproven attempts before landing on the right one — kept here so none of the
+three gets re-tried blind:
+
+- **Attempt 1 (original, 2026-08-11): measure the real gap between consecutive commits and use
+  it as the next glide's duration**, "self-correcting" to whatever the real per-tile cadence
+  is. Sounds robust, and initially was — until interp=0 loopback testing exposed that ordinary
+  tap-then-pause play (not holding a direction key continuously) produces gaps that are mostly
+  idle time plus one real step, indistinguishable from a genuinely slow step by a plausibility
+  range alone. Result: the ghost visibly crawled through what should have been "stand still,
+  then snap."
+- **Attempt 2: gate the measured gap on whether the current anim matches the anim of the step
+  that produced it**, to stop reusing a stale duration across a pace change. Also wrong, and
+  for a subtly different reason: the `anim` field can already show the *next* pace before the
+  *current* (still-old-paced) step's own commit event lands, so gating on it forced some
+  perfectly valid measurements to be discarded in favor of the wrong constant — verified by a
+  live trace showing a real, accurate 16-frame walking-paced gap forcibly overridden to 8 (the
+  running constant) because `anim` had already flipped, animating that one step in half its
+  real duration.
+- **Attempt 3 (adopted): drop measurement and gating entirely, use a plain fixed
+  per-anim constant.** Justified only after live data proved it, not by preference: a
+  per-frame raw-position trace showed every genuinely continuous step measuring *exactly* 8 or
+  16 frames across dozens of real steps, zero variance — the self-correction attempt 1 existed
+  for was never actually correcting anything real.
+- **A follow-up dead end during the same investigation**: suspecting a real hardware sprite
+  read (`playerScreenPos()`) was stale/wrong because it appeared frozen across an entire real
+  walked tile. A per-component trace (logging `sx`/`coordOffsetX` etc. separately instead of
+  their sum) proved it was correct all along — pokeemerald's camera keeps the player's own
+  sprite screen-locked and scrolls the world instead, so a frozen *combined* value is expected,
+  correct behavior, not a bug. **Generalizes to**: a value that never changes is not
+  automatically a stale-read bug — confirm by decomposing it into parts that *should* vary
+  independently before concluding the read itself is wrong.
 
 ### Host-embedded scripting runtimes, vendored DLLs, and ABI mismatch
 

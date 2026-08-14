@@ -76,7 +76,10 @@ another player's network state, because no channel to another player's machine e
 **No message type carries an IP address or other network-identifying field.**
 `internal/protocol/protocol.go`'s complete message set (`Hello`, `Welcome`, `Join`, `Leave`,
 `State`, `Event`, `Ping`/`Pong`) has no address field anywhere. A client only ever learns a
-peer's `player_id`, chosen `display_name`, and cosmetic state (position/area/anim/extras).
+peer's `player_id` and cosmetic state (position/area/anim/extras) — not even a chosen
+`display_name`: `Hello.DisplayName` reaches the relay but is only logged there, never
+redistributed to other clients (`Welcome.Roster` is just a list of ids, `Join` carries no name
+either). See `agent_docs/ideas.md`'s nameplates entry if that's ever wired up for real.
 
 **`player_id` is not derived from an IP.** It's a monotonic counter assigned by the relay
 (`fmt.Sprintf("p%d", n)`, `internal/relay/relay.go`'s `nextPlayerID`) — `p1`, `p2`, ... per

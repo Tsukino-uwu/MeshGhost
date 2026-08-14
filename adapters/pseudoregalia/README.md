@@ -71,6 +71,8 @@ Roughly in order:
    version-aware helper rather than patching the (un-committable) submodule. (7.6)
 10. Fixed the ghost getting stuck in a falling animation. (7.6)
 11. Fixed the ghost getting stuck in a ledge-hang animation. (7.6)
+12. Ghosts can't actually be deleted on this build, so a leaving ghost is moved into the void
+    instead, until the next stage transition clears it out. (7.5)
 
 See [agent_docs/phases/phase7.md](../../agent_docs/phases/phase7.md) for the detailed, dated
 log, and [agent_docs/pitfalls.md](../../agent_docs/pitfalls.md) for the transferable lessons

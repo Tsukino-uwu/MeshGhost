@@ -1270,7 +1270,34 @@ namespace MeshGhostPseudo
             auto it = remotes.find(player_id);
             if (it != remotes.end())
             {
-                it->second.target_x = x;
+                // Loopback ghost offset, 2026-08-14 -- user-requested, generalized from the same
+                // fix in adapters/pokemon/emerald/meshghost_emerald.lua's drawRemotes(). A
+                // loopback-echoed ghost (internal/relay's dev-only -loopback flag, id =
+                // "<id>-ghost") otherwise renders exactly on top of the real player -- it's an
+                // echo of your own position by definition -- which made it hard to visually
+                // judge ghost rendering quality against the real character side by side. Nudge
+                // it sideways purely for local rendering; never changes what's actually
+                // sent/received over the network (target_x/y/z here is only ever a local render
+                // target). Reuses LOCAL_OFFSET_TEST_X's already-established 150.0 unit magnitude
+                // (see that constant's own history above) -- a value already found usable in
+                // this game for the same "visibly separate a test ghost from the player" purpose.
+                //
+                // Two genuinely different, both-valid loopback use cases, per the user
+                // (2026-08-14): offset (this default) for visually judging rendering/animation
+                // quality side by side, since an exact overlap makes the two impossible to tell
+                // apart; zero offset for verifying the ghost actually tracks the real position
+                // exactly, which an offset would obscure. Toggle by changing LOCAL_OFFSET_TEST_X
+                // above to 0.0 -- deliberately a plain constant, not a runtime flag, since
+                // -loopback itself is already a dev-only relay flag never meant to run in a real
+                // session.
+                static const std::string ghost_suffix = "-ghost";
+                double loopback_offset_x = 0.0;
+                if (player_id.size() >= ghost_suffix.size() &&
+                    player_id.compare(player_id.size() - ghost_suffix.size(), ghost_suffix.size(), ghost_suffix) == 0)
+                {
+                    loopback_offset_x = LOCAL_OFFSET_TEST_X;
+                }
+                it->second.target_x = x + loopback_offset_x;
                 it->second.target_y = y;
                 it->second.target_z = z;
                 it->second.target_pitch = pitch;

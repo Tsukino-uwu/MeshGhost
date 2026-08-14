@@ -10,6 +10,10 @@
 # ADR), not Go build output -- must actually be committed.
 !/adapters/pokemon/emerald/lib/**/*.dll
 
+# vram_probe.lua writes a timestamped session log next to itself each run (see its own header) --
+# personal diagnostic output, never meant to be committed.
+/adapters/pokemon/emerald/vram_probe_*.log
+
 # The adapter script + lib/ under packaging/release/games/pokemon/emerald/ are assembled by
 # .github/workflows/release.yml (copied fresh from adapters/pokemon/emerald/ each run) or by a
 # local dry run -- never hand-edited, never committed (avoids a second copy of the adapter
@@ -66,6 +70,12 @@ core.log
 relay.log
 meshghost.log
 meshghost-server.log
+
+# Backup-renamed binaries left behind when a running .exe couldn't be overwritten in place
+# (e.g. go build racing a still-running process on Windows) -- found live 2026-08-14,
+# meshghost.exe~/meshghost-relay.exe~ showed up untracked since *.exe above doesn't match the
+# trailing ~.
+*~
 
 # OS cruft
 .DS_Store

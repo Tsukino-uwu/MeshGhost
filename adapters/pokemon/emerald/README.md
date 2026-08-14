@@ -82,3 +82,20 @@ None logged yet — add entries here if work on this adapter resumes past Phase 
   rendering" issue — see its own header and `agent_docs/pitfalls.md`'s "Running two instances
   of the same emulator/game silently collide on a shared default port" entry for the incident
   that motivated it.
+- `vram_probe.lua` — Stage 1 of the VRAM/sprite injection investigation
+  (`agent_docs/ideas.md`, "Emerald: VRAM/sprite injection investigation"). Standalone, no
+  networking, no drawing, never writes memory. Watches OBJ VRAM/palette/OAM through a play
+  session and reports which tiles were never touched, cross-checked against the game's own
+  sprite-tile allocator bookkeeping. Load it in BizHawk's Lua Console like any other probe;
+  see its own header for the full address citation trail and what a session should cover.
+- `battle_probe.lua` / `sprite_probe.lua` — small throwaway diagnostics (see their own headers)
+  now doubling as the reference implementation for the confirmed Archipelago
+  `CB2_Overworld`/sprite-decode addresses cited in `meshghost_emerald.lua`.
+- `avatar_scan_probe.lua`, `avatar_hexdump_probe.lua`, `avatar_array_probe.lua`,
+  `avatar_verify_probe.lua` — the four-stage live investigation that found Archipelago's
+  relocated `gObjectEvents`/`gPlayerAvatar` addresses (2026-08-14, see `agent_docs/verified.md`
+  for the full trail): a scripted down/left/up/right snapshot-diff to narrow all of EWRAM down
+  to two candidates, a hex dump to match the real `pokeemerald` struct layout field-by-field, an
+  array-boundary scan to confirm the array's start and locate `gPlayerAvatar`, and a final live
+  read-back to confirm real, responsive data. Kept as a reusable template if a future
+  Archipelago Emerald world/generator version shifts these addresses again.

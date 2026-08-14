@@ -500,6 +500,92 @@
   naming, and added two gitignored `.local.bat` BizHawk launchers (real paths, set the bridge
   port explicitly) so this exact mistake can't recur silently.
 
+- `Current focus:` **2026-08-14, later same session — brainstorm/research pass, no code
+  changed.** New `agent_docs/ideas.md` (unscheduled backlog, indexed from `README.md`, pointed to
+  from `plans.md`'s depth ladder): TEVI cosmetic/presence ideas (HUD minimap marker, a real
+  update-vs-frame-driven bug in the shipped `FullMap` marker, nameplates genuinely blocked by a
+  protocol gap — `display_name` reaches the relay but is never redistributed, corrected in
+  `internal/README.md` too), TEVI ghost-collision investigation (scoped, not started), and three
+  Emerald investigations:
+  - **Union Room decomp investigation** (read from the user's local `pokeemerald` checkout,
+    outside the repo, explicit go-ahead given) — six questions answered with citations.
+    **Recommendation: don't build a Union-Room-based spawn adapter** — every entry point needs
+    real RFU link-session data, unreachable from a single BizHawk instance. A follow-up addendum
+    on hijacking an already-live NPC instead (`ObjectEventSetGraphicsId`) is real and
+    better-targeted but still gated on the same no-writes non-goal.
+  - **VRAM/sprite injection investigation**, found via a reference project (`GBA-PK-multiplayer`,
+    CC BY-NC 4.0, added to `licensing.md`) that renders via direct VRAM tile writes instead of
+    drawing. A real 5-stage test plan is agreed (read-only vanilla → read-only Archipelago-patched
+    → real write vanilla → real write patched → sustained traffic) — **not started**. Target
+    shipping shape: two scripts, inject becomes default only if it clears testing and is
+    genuinely better, draw as fallback, or dropped entirely if testing goes badly.
+  - **Archipelago's own `worlds/pokemon_emerald/` read for facts** (new per-directory MIT
+    LICENSE, added to `licensing.md`) — upgraded the existing "Archipelago coexistence" risk from
+    an observed symptom to a real source-level explanation (`risks.md`): a heavy base ROM patch
+    plus a disciplined, guarded live client that depends on exactly the same anchors
+    (`gSaveBlock1Ptr`/`gSaveBlock2Ptr`, `gMain`/`CB2_Overworld`) this adapter already uses.
+    Checked whether Archipelago's location-groups data (`groups.py`) could shortcut the deferred
+    "seamless adjacent-map ghosts" idea — real data, wrong shape (groups a place with its own
+    indoor rooms, not with physically-adjacent outdoor neighbors); logged as its own smaller,
+    cheaper idea instead.
+
+  Also, unrelated small fixes: `adapters/tevi/README.md` and `adapters/pseudoregalia/README.md`
+  each got one plain-language line added to their existing "How this adapter was built" numbered
+  list (cross-area filtering + the invisible-ghost bug; the move-into-the-void despawn design) —
+  deliberately terse, matching the existing style, with the full explanations staying in
+  `pitfalls.md`/`architecture.md` where they already lived.
+
+  **Next step**: Stage 1 of the VRAM injection test plan (`agent_docs/ideas.md`) — a read-only
+  probe of the target VRAM region during normal vanilla play, nothing written yet.
+
+- `Current focus:` **2026-08-14, later same session — loopback testing tuned for instant local
+  feedback, and a real Emerald sub-tile-glide bug found, root-caused, and fixed.** See
+  `verified.md`'s new "Emerald walk/run sub-tile glide" entry for the full evidence trail and
+  `pitfalls.md`'s new "Reconstructing continuous motion from discrete, throttled position
+  samples" entry for the transferable lesson (three attempts, two disproven, kept as comments
+  so neither is retried blind). Short version:
+  - **Network tuning**: `dev-scripts/run-core-*.bat` (all three games, both instances) now
+    default to `-interp=0ms -min-send=10ms` instead of `200ms`/the 50ms default — as close to
+    instant/unsmoothed as the relay's 120 msg/sec cap allows, since local dev testing has no
+    real jitter to smooth over and delay only hides real timing bugs (as this session proved).
+    `cmd/meshghost` gained a new `-min-send`/`min_send` flag (`Core.MinSendInterval` was already
+    a field, just never exposed) alongside the existing `-interp`. A new
+    `run-core-emerald-trail.bat` keeps a real `-interp=200ms` specifically for pairing with
+    `run-bizhawk-emerald-loopback-trail.local.bat` (the exact-trail loopback mode needs a real
+    delay or the ghost sits exactly on top of the player with nothing visible).
+  - **Real bug found and fixed**: `smoothPosition()`'s live-measured glide-duration scheme
+    (self-correcting since 2026-08-11) turned out to conflate idle-then-step gaps with genuine
+    step durations, and a same-session anim-gating attempt to fix that was itself disproven by
+    live data. Reverted to the original fixed `STEP_DURATION_FRAMES` constants (16
+    walking/8 running) with no live measurement at all — justified this time by a per-frame
+    raw-position trace showing zero real variance across dozens of steps, not by preference.
+    **Confirmed on screen**: idle->walk, walk->run, run->walk, idle->run transitions all glide
+    cleanly, no snap.
+  - **A parallel dead end, also resolved**: `playerScreenPos()` (the real hardware sprite-based
+    screen anchor) appeared frozen across an entire walked tile, first suspected as a stale
+    Archipelago-address bug. A per-component trace proved it correct — pokeemerald's real
+    camera keeps the player screen-locked and scrolls the world instead, confirmed live on this
+    exact Archipelago-patched ROM.
+  - **Next step, scoped but not started**: surf, Mach Bike, and Acro Bike movement (the ghost
+    "snaps around like crazy" on these today, per the user, since `getLocalState()`'s anim
+    classification and `STEP_DURATION_FRAMES` only cover walking/running/idle). Real, cited
+    source found for detection: `pokeemerald`'s `include/global.fieldmap.h:288-295` --
+    `PLAYER_AVATAR_FLAG_MACH_BIKE`/`_ACRO_BIKE`/`_SURFING` are bits 1/2/3 on the same
+    `PlayerAvatar.flags` byte this adapter already reads (bit 7 is the already-used dash flag)
+    -- no new address needed, and since it's the same struct as the already-working
+    Archipelago-shifted `avatarAddrOffset` read, the shift should carry over, though this still
+    needs a live on-screen bitfield check per this project's own rule before trusting it. Real
+    per-tile timing for each mode still needs live measurement, same discipline as walk/run.
+    Also flagged by the user, not yet tested: ledge jumps and Mach Bike rail/boost-panel
+    sections (both `PLAYER_AVATAR_FLAG_FORCED_MOVE`, bit 6 -- the game drives position
+    automatically) and Acro-Bike-only slippery/cracked tiles (still just the `ACRO_BIKE` flag,
+    different tile behavior underneath) -- no new probe needed for these, the same
+    `surf_bike_probe.lua` script already logs flag state and real tile-commit timing regardless
+    of what's driving the movement, so they fold into the same test pass. Not yet run.
+    Fishing rod (a stationary action, not a movement speed) is scoped as a separate, smaller
+    follow-up after movement modes are done. Not yet started -- next session should build a
+    combined surf/Mach-Bike/Acro-Bike probe.
+
 ## Go networking layer (2026-08-11)
 
 Built and tested ahead of the BizHawk blocker, since it doesn't require a game or emulator:

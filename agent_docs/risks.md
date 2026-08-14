@@ -125,6 +125,146 @@
   This is also the concrete argument for keeping the read-only default (see the depth ladder
   in `plans.md`): two readers never race, but a future memory-*writing* feature could race
   Archipelago's own writes.
+  - **Source-level explanation found 2026-08-14, from reading Archipelago's own
+    `worlds/pokemon_emerald/` (MIT, own per-directory LICENSE, added to `licensing.md`).**
+    Upgrades this from "observed symptom, cause unconfirmed" to a real mechanism, and adds
+    concrete evidence for anything that might someday try writing memory instead of just
+    reading it. The ROM side is genuinely heavy: a static `base_patch.bsdiff4`
+    (`rom.py:98-105`) compiled from Archipelago's own decomp fork, rewriting real game logic
+    (`docs/rom_changes_en.md` — dozens of changes, including **a changed save-data format**:
+    "Bag space was greatly expanded... Save data format was changed as a result... Shrank some
+    unused space and removed some multiplayer phrases"), plus hundreds of small per-seed
+    `write_token` calls on top for randomized content. The RAM side is much lighter and more
+    disciplined: the live BizHawk client (`client.py`) polls every ~0.75s, reads flags via
+    `gSaveBlock1Ptr`/`gSaveBlock2Ptr`-relative offsets, and gives items by writing exactly 6
+    bytes into a small dedicated mailbox struct, `gArchipelagoReceivedItem` — a *new* symbol the
+    base patch injects, never touching bag/party memory directly; the patch's own injected code
+    does the actual insertion. Every read/write is "guarded" against preconditions (still in
+    overworld, save block pointer unchanged) — the same defensive shape Emerald's own
+    `inOverworld()` gate and map-transition debounce already use independently.
+    **Directly corroborates the pointer-based fields surviving**: Archipelago's own client reads
+    `gMain`/`CB2_Overworld` and `gSaveBlock1Ptr`/`gSaveBlock2Ptr` every poll cycle — the exact
+    same anchors this adapter already uses — so if those broke under the patch, Archipelago's
+    own randomizer would break too. `gPlayerAvatar`/`gObjectEvents` are absent from Archipelago's
+    own dependency set entirely, consistent with (not just similar to) the already-observed
+    break.
+    **New, relevant data point for the Union Room/NPC-hijack idea in `ideas.md`**: Archipelago's
+    generated symbol table (`data/extracted_data.json`, `misc_rom_addresses`) includes real,
+    cited addresses for `gObjectEventGraphicsInfoPointers`, `PatchObjectPalette`,
+    `LoadObjectEventPalette`, and the OAM tables (`gObjectEventBaseOam_*`, `sOamTables_*`) —
+    exactly the graphics/palette machinery a live NPC-reskin would depend on — so that specific
+    machinery is confirmed still present, at known addresses, in at least this checked-out
+    Archipelago build. **What this does *not* cover**: `rom_changes_en.md` also states "The
+    union room receptionist... was reworked for wonder trading" and "Some NPCs or tiles are
+    removed on the creation of a new save file based on player options" — real, cited evidence
+    that Archipelago *does* rearrange which object events exist and where, which is a concrete
+    risk for any design that assumes a specific map's NPC layout (a hijack target, or a
+    spawn-template local id) is the same as vanilla. And Archipelago's own symbol table has
+    nothing for `gObjectEventPic_BrendanNormal`/`MayNormal`/`*Running` — the fixed ROM addresses
+    MeshGhost's **current, already-shipping** overlay-drawing adapter reads to decode the
+    gender-correct player sprite. Their absence here doesn't prove they're broken under the
+    patch, only that this hasn't been checked — a real, previously-undocumented open question
+    about the *existing* shipped renderer, not just a hypothetical future one.
+    **Confirmed broken, live, 2026-08-14** — no longer just an open question, and no longer just
+    inferred from the rendered result. A real loopback session showed the rendered ghost as a
+    solid, structured (not random-noise) purple/brown-striped block instead of a Brendan/May
+    sprite; then `sprite_probe.lua` run directly against the same ROM/seed confirmed it at the
+    decode level — the printed palette has 10 of its 16 entries collapsed into just two exact
+    duplicate colors (a real hand-authored sprite palette wouldn't do that), matching the
+    rendered pink/brown block exactly. Same mechanism already confirmed for `CB2_Overworld`
+    (a fixed vanilla ROM address landing on different real bytes after the recompile, which
+    moved that address by ~2.4KB, `0x995`). No correct replacement address found yet. See `verified.md`
+    for the full palette/bitmap dump.
+    **Concrete next step, if this is ever pursued for real**: `extracted_data.json` is a small,
+    curated set (7 RAM symbols, 48 ROM symbols) — not a full symbol table — so it can't be
+    diffed wholesale against `pokeemerald.sym` the way this project's own address-verification
+    standard would want. Getting a real answer for any *other* specific address (like the
+    Brendan/May sprite pics above) means building against Archipelago's own decomp fork to
+    generate a real map/symbol file for it, the same rigor already applied to vanilla addresses
+    — not assumed from this partial table.
+  - **Third consequence — found, fixed, and confirmed on screen, 2026-08-14 (closed).**
+    `playerScreenPos()` (`meshghost_emerald.lua`) reads a sprite index from
+    `GPLAYERAVATAR_ADDR + 0x04` (the same struct confirmed garbage above) to find `gSprites[]`'s
+    local-player entry, which every remote ghost's drawn position is anchored relative to. A
+    loopback ghost was observed spawning at a different fixed screen location each script
+    restart, jittering slightly when the local player moved but never actually following —
+    confirmed to be exactly the garbage-`gPlayerAvatar` mechanism, not a network/relay/core bug
+    (loopback is shared, game-agnostic code already confirmed working for the other two games,
+    which ruled out that layer). The camera-scroll-instead-of-sprite-move idea in an earlier
+    version of this note turned out not to apply — checked `field_camera.c`/
+    `field_player_avatar.c` directly and the player's sprite goes through the same generic
+    object-event placement as any NPC, no shortcut available. Found the real relocated
+    addresses instead, via a four-stage live investigation (scripted snapshot-diff probe → hex
+    dump matched against pokeemerald's real `struct ObjectEvent` layout → array-boundary scan →
+    final live verification watching real, responsive dash/movement/facing data instead of
+    frozen garbage) — full trail in `verified.md`'s "Archipelago-relocated gObjectEvents/
+    gPlayerAvatar found and fixed" entry. `gObjectEvents` and `gPlayerAvatar` both shift by the
+    same `0x284` delta, detected once at startup (`detectAvatarAddrOffset()`) by scanning up to
+    16 entries for the player's own `isPlayer`+`LOCALID_PLAYER` signature.
+    **First fix attempt failed its own live re-test**, a real, worth-remembering lesson: loading
+    the fixed `meshghost_emerald.lua` and watching the ghost showed the exact same stuck-position
+    symptom. Cause: `playerObjEventExistsAt()`'s `isPlayer`+`LOCALID_PLAYER` check alone had a
+    false positive against the *abandoned* vanilla address's frozen `FF 03 FF 03...` garbage —
+    `OBJECTEVENT_SIZE` (`0x24`) is even, so every entry lands on the same phase of that 2-byte
+    repeat, and offset `+0x02`/`+0x08` both read `0xFF`, coincidentally satisfying both checks at
+    once — `detectAvatarAddrOffset()` picked vanilla on a ROM already confirmed relocated. A
+    narrow, single-bit-level check against a uniform repeating byte pattern is exactly the kind
+    of coincidental match this project's own "no addresses from memory, verify live" discipline
+    exists to catch; it took a real on-screen re-test to surface it, not code review alone.
+    Fixed by also requiring `mapGroup` to be a plausible real value, bounded by `MAP_GROUPS_COUNT`
+    (34, `pret/pokeemerald`'s `include/constants/map_groups.h:598` — cited, not a guessed round
+    number) rather than the garbage pattern's `255`.
+    **Confirmed on screen after the second fix, then re-confirmed across all three ROMs**: user
+    reloaded `meshghost_emerald.lua` and watched a loopback ghost spawn and follow correctly on
+    each of the two independent Archipelago-patched seeds AND the vanilla ROM — the auto-detect
+    logic added for this fix doesn't regress vanilla (important, since the detector now runs
+    there too and needs to correctly resolve offset 0).
+    **Fourth issue found, fixed, and confirmed on screen the same day, in this same fix**:
+    loading the script WHILE still in the
+    intro cutscene (before the game's own object-event system has spawned the player's entry at
+    all) reproduced the identical stuck-ghost symptom — confirmed live, and confirmed to be a
+    timing bug specifically: reloading the script after actually reaching real gameplay fixed it
+    every time. Root cause: the detector ran exactly once at script startup and, if it found
+    nothing at either candidate address (nothing to find yet, this early), permanently latched
+    the vanilla fallback for the rest of the session — never retrying once the player's entry
+    later appeared. Same class of problem `readLocalGender()`'s own header comment already
+    documents for `gSaveBlock1Ptr`/`gSaveBlock2Ptr` needing an `inOverworld()` gate. Fixed by
+    making detection retry every frame (`tryDetectAvatarAddrOffset()`, called from the main
+    loop) until it actually finds the player's entry, then stopping.
+    **Confirmed on screen**: user reloaded the script during the intro cutscene itself (the
+    exact failing case) and watched the ghost correctly follow once real gameplay started, with
+    no stuck/anchored symptom — then also re-confirmed the ordinary mid-game reload case still
+    works with no regression. This closes the fourth and final Archipelago rendering bug found
+    via this investigation.
+  - **Correction, found live 2026-08-14 (Stage 1/2 of the VRAM investigation,
+    `adapters/pokemon/emerald/vram_probe.lua`), to the "directly corroborates the pointer-based
+    fields surviving" claim two paragraphs up: that reasoning conflated "Archipelago's own
+    client also reads a `gMain.callback2`-shaped anchor" with "Archipelago's own client uses the
+    *same numeric* `CB2_Overworld` value this project's vanilla-derived address (0x08085e5c)
+    does." Those are different claims, and a full recompile (already established, `base_patch`
+    above) makes the second one unlikely on its face — Archipelago's client almost certainly
+    reads its own recompiled `CB2_Overworld` value out of *its own* generated symbol data, not
+    vanilla's. Real evidence: a ~29-minute session (102,600 frames) on a real
+    `.apemerald`-patched ROM, covering real varied play (44 distinct `callback2` values
+    observed, so the read itself is live and changing, not stuck/erroring), never once matched
+    `CB2_OVERWORLD_ADDR` or its Thumb-bit variant — `inOverworld()` returned false for the
+    entire session. `gMain` itself (0x030022c4, IWRAM, a plain global struct) is a different
+    address *class* than `gPlayerAvatar`/`gObjectEvents` (EWRAM) above, so this isn't just a
+    repeat of the same finding — it's a new instance of the same underlying mechanism (a full
+    recompile can move any fixed ROM/RAM address) hitting a third address family.
+    **Resolved, 2026-08-14, same day** — see `verified.md`'s "Archipelago-recompiled
+    CB2_Overworld address found" entry for the full evidentiary trail. The vanilla-only
+    `inOverworld()` check WAS the bug this predicted: `meshghost_emerald.lua` gates both
+    local-gender resolution (`:825`) and remote-ghost rendering itself (`:850`,
+    `drawRemotes(...)`) behind it, so with only the vanilla address checked, neither ever fired
+    on an Archipelago-patched ROM — ghosts would never draw at all, silently, no error. Found
+    the real recompiled address (`0x080867F1`) live via `battle_probe.lua`, confirmed
+    independently on a second unique seed, and added it to `inOverworld()` in
+    `meshghost_emerald.lua` (also `vram_probe.lua`'s `isOverworld()` and `battle_probe.lua`
+    itself) alongside the vanilla one, the same pattern already used for the vanilla/Thumb-bit
+    variant. **Still open**: an actual rendered ghost has not yet been watched on screen with
+    this fix applied (a loopback/two-peer session) — the address-level fix is confirmed, the
+    rendering consequence of it is inferred, not yet independently re-verified.
 - **No game-version check between peers, surfaced by TEVI (Phase 6) — closed 2026-08-14, with
   one real limit, and evidence the limit is the right call, not just an accepted gap.** `hello`
   now carries an optional `game_version` (`protocol.Hello.GameVersion`/`bridge.Hello.GameVersion`),

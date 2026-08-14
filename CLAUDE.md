@@ -33,6 +33,14 @@ proposing a plan that touches the core, an adapter, or the relay.
   "Implement the network layer" is not testable; "connect and heartbeat," "echo to self,"
   "see on second client" are.
 - **Ask before touching anything outside `C:\dev\MeshGhost`.**
+- **After changing source for something CI can't build itself, rebuild it before calling the
+  change done.** TEVI's and Pseudoregalia's mod DLLs are committed precisely because CI can't
+  build them (proprietary game DLLs / a private UE4SS dependency — see `packaging/README.md`
+  and each `build-*.bat`'s own header) — a source edit alone leaves the shipped/testable
+  artifact stale. Run `dev-scripts/build-tevi.bat` or `dev-scripts/build-pseudoregalia.bat`
+  right after editing that adapter's source, not just before a release. Found live 2026-08-14:
+  changed both mods' source in one session and left them unbuilt, which would have silently
+  blocked live testing later.
 - **This is a public repo — never hardcode a personal username, absolute personal file path,
   or other machine-identifying detail into a tracked file or script.** Genericize it (a
   placeholder a new user edits, an environment variable) or make it relative instead (e.g.

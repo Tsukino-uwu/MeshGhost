@@ -47,6 +47,7 @@ type fileConfig struct {
 	Room        *string `json:"room"`
 	Name        *string `json:"name"`
 	Interp      *string `json:"interp"`
+	MinSend     *string `json:"min_send"`
 	RoomCode    *string `json:"room_code"`
 	GameVersion *string `json:"game_version"`
 }
@@ -72,6 +73,7 @@ type configTargets struct {
 	room        *string
 	name        *string
 	interp      *time.Duration
+	minSend     *time.Duration
 	roomCode    *string
 	gameVersion *string
 }
@@ -120,6 +122,14 @@ func applyFileConfig(path string, explicit map[string]bool, t configTargets) {
 			log.Printf("meshghost: warning: config file %s has an invalid interp value %q: %v", path, *fc.Interp, err)
 		} else {
 			*t.interp = d
+		}
+	}
+	if fc.MinSend != nil && !explicit["min-send"] {
+		d, err := time.ParseDuration(*fc.MinSend)
+		if err != nil {
+			log.Printf("meshghost: warning: config file %s has an invalid min_send value %q: %v", path, *fc.MinSend, err)
+		} else {
+			*t.minSend = d
 		}
 	}
 	if fc.RoomCode != nil && !explicit["room-code"] {
@@ -188,6 +198,10 @@ func main() {
 	interp := flag.Duration("interp", core.DefaultInterpolationDelay,
 		"interpolation delay for remote ghosts (e.g. 200ms) — how far behind the most recent "+
 			"samples remotes are rendered, to smooth over network jitter")
+	minSend := flag.Duration("min-send", core.DefaultMinSendInterval,
+		"minimum time between state sends to the relay (e.g. 16ms) — lower values send fresher "+
+			"samples more often, at the cost of more relay traffic; mainly useful paired with "+
+			"-interp=0 for local loopback testing where jitter isn't a concern")
 	roomCode := flag.String("room-code", "", "shared secret to send the relay for room-code auth "+
 		"-- only needed if the relay you're connecting to has one configured; leave empty for a "+
 		"relay running open (the default)")
@@ -196,7 +210,7 @@ func main() {
 		"dev/testing scripts with no real adapter attached")
 	configPath := flag.String("config", "config.json",
 		"path to an optional JSON config file with a \"client\" section "+
-			"(connect_to/local_game_bridge/game/room/name/interp/room_code/game_version) -- a "+
+			"(connect_to/local_game_bridge/game/room/name/interp/min_send/room_code/game_version) -- a "+
 			"friendlier alternative to flags for non-developer use; silently ignored if it doesn't "+
 			"exist; any flag explicitly passed on the command line overrides the same field from "+
 			"this file")
@@ -213,12 +227,14 @@ func main() {
 		room:        room,
 		name:        name,
 		interp:      interp,
+		minSend:     minSend,
 		roomCode:    roomCode,
 		gameVersion: gameVersion,
 	})
 
 	c := core.New()
 	c.InterpolationDelay = *interp
+	c.MinSendInterval = *minSend
 	c.RelayAddr = *relayAddr
 	c.Room = *room
 	c.DisplayName = *name
