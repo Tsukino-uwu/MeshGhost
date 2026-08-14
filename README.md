@@ -31,6 +31,9 @@ story and may not all follow.
    `meshghost-server.exe` and forwards a TCP port.
 4. Load your game's mod from `games\<publisher>\<game>\` (BizHawk Lua Console for Emerald,
    BepInEx for TEVI, UE4SS for Pseudoregalia) — **after** `meshghost.exe` is already running.
+   (Emerald is the only game with a `<publisher>` subfolder — `games\pokemon\emerald\` — since
+   "emerald" alone isn't a unique-enough folder name; TEVI and Pseudoregalia sit directly under
+   `games\`.)
 
 Full walkthrough: `packaging/release/README.txt` (ships in the zip) and
 [packaging/README.md](packaging/README.md) for how it's built.

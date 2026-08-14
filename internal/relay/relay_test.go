@@ -415,6 +415,86 @@ func TestOversizedPositionDropped(t *testing.T) {
 	}
 }
 
+// TestOutOfRangePositionDropped confirms a state with a position component
+// past MaxPositionComponent's magnitude is dropped, not forwarded —
+// protocol.IsValidPosition/ValidateState had no test anywhere before this,
+// despite being the newest limit added. A syntactically valid JSON number
+// like 1e308 survives []float64 unmarshaling and becomes +Inf the moment an
+// adapter narrows it to float32. NaN/±Inf themselves aren't tested at this
+// wire level: standard JSON has no literal for them (confirmed:
+// json.Marshal on a NaN/Inf float64 errors), so they can never actually
+// arrive over the wire — IsValidPosition's own NaN/Inf checks are defense
+// in depth for a State constructed directly in Go, covered instead by
+// internal/protocol's own TestIsValidPosition and
+// internal/core's TestNonFiniteInboundPositionDropped (which calls
+// storeRemoteState directly, bypassing JSON).
+func TestOutOfRangePositionDropped(t *testing.T) {
+	addr := startServer(t)
+
+	c1 := dialTestClient(t, addr, "emerald", "room1", "alice")
+	defer c1.conn.Close()
+	w1 := c1.expectWelcome(timeout)
+
+	c2 := dialTestClient(t, addr, "emerald", "room1", "bob")
+	defer c2.conn.Close()
+	c2.expectWelcome(timeout)
+	c1.next(timeout)
+
+	c1.sendState(protocol.State{PlayerID: w1.PlayerID, AreaID: "a", Position: []float64{protocol.MaxPositionComponent + 1, 0}, Anim: "idle"})
+
+	select {
+	case env := <-c2.envs:
+		t.Fatalf("c2 unexpectedly received %q for an out-of-range position", env.Type)
+	case <-time.After(200 * time.Millisecond):
+	}
+}
+
+// TestOversizedOrientationDropped and TestOversizedAnimDropped confirm the
+// remaining two arms of the combined length check in
+// protocol.ValidateState — only the AreaID arm had a test before this.
+func TestOversizedOrientationDropped(t *testing.T) {
+	addr := startServer(t)
+
+	c1 := dialTestClient(t, addr, "emerald", "room1", "alice")
+	defer c1.conn.Close()
+	w1 := c1.expectWelcome(timeout)
+
+	c2 := dialTestClient(t, addr, "emerald", "room1", "bob")
+	defer c2.conn.Close()
+	c2.expectWelcome(timeout)
+	c1.next(timeout)
+
+	oversized := json.RawMessage(`"` + strings.Repeat("a", protocol.MaxOrientationBytes+1) + `"`)
+	c1.sendState(protocol.State{PlayerID: w1.PlayerID, AreaID: "a", Position: []float64{1, 1}, Anim: "idle", Orientation: oversized})
+
+	select {
+	case env := <-c2.envs:
+		t.Fatalf("c2 unexpectedly received %q for an oversized-orientation state", env.Type)
+	case <-time.After(200 * time.Millisecond):
+	}
+}
+
+func TestOversizedAnimDropped(t *testing.T) {
+	addr := startServer(t)
+
+	c1 := dialTestClient(t, addr, "emerald", "room1", "alice")
+	defer c1.conn.Close()
+	w1 := c1.expectWelcome(timeout)
+
+	c2 := dialTestClient(t, addr, "emerald", "room1", "bob")
+	defer c2.conn.Close()
+	c2.expectWelcome(timeout)
+	c1.next(timeout)
+
+	c1.sendState(protocol.State{PlayerID: w1.PlayerID, AreaID: "a", Position: []float64{1, 1}, Anim: strings.Repeat("a", protocol.MaxAnimLen+1)})
+
+	select {
+	case env := <-c2.envs:
+		t.Fatalf("c2 unexpectedly received %q for an oversized-anim state", env.Type)
+	case <-time.After(200 * time.Millisecond):
+	}
+}
+
 // TestOversizedLineClosesConnection confirms a client sending a line over
 // MaxLineBytes gets disconnected rather than silently accepted.
 func TestOversizedLineClosesConnection(t *testing.T) {

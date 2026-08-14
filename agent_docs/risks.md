@@ -102,8 +102,8 @@
   is silently ignored — no error, no warning, the relay just starts up open. A host could set a
   room code, believe their session is protected, and be completely wrong, with nothing telling
   them so. Not a client-side problem and can't be fixed client-side. See the ADR in
-  `agent_docs/architecture.md`'s "Consequences" for the full reasoning. Follow-up not yet done:
-  `internal/README.md`/`packaging/README.md` should say plainly that room-code auth requires an
+  `agent_docs/architecture.md`'s "Consequences" for the full reasoning. Follow-up done:
+  `internal/README.md`/`packaging/README.md` both say plainly that room-code auth requires an
   updated *relay*, not just an updated client.
 - **Archipelago coexistence, confirmed with a real gap**: tested 2026-08-11 with the real
   `connector_bizhawk_generic.lua` against a real `.apemerald`-patched ROM (see

@@ -48,4 +48,8 @@ item 8 below was found later, during a cross-adapter review pass, and lives in
 
 ### Further work past "good enough"
 
-None logged yet — add entries here if work on this adapter resumes past Phase 6.
+- A per-remote redraw trace (position/active-state/scene, throttled to once every 2s per
+  remote) was added in `Plugin.cs`'s `UpsertRemoteGhost` while chasing the zone-transition
+  invisible-ghost bug in item 8 above. That bug is root-caused and fixed, so the trace is now
+  gated behind `DIAG_REDRAW_TRACE` (default `false`) — flip it on only when chasing a similar
+  live repro.

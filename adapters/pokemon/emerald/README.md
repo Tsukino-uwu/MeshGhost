@@ -1,7 +1,9 @@
 # Pokémon Emerald
 
-**Status: first target game (Phase 1 in progress).** See
-[agent_docs/phases/phase1.md](../../../agent_docs/phases/phase1.md).
+**Status: Phase 8 (ongoing, post-"good enough" work).** First game targeted, shipped, and
+live-tested with real two-player sessions. See
+[agent_docs/phases/phase8.md](../../../agent_docs/phases/phase8.md) for the current task list
+and the "Further work past 'good enough'" section below for what's still open.
 
 - Platform: GBA, played via BizHawk.
 - Adapter language: Lua (BizHawk's scripting host).
@@ -9,23 +11,25 @@
   map bank/number, and camera offset rather than requiring reverse engineering. See
   [agent_docs/licensing.md](../../../agent_docs/licensing.md) for the rule on how that decomp
   may and may not be used.
-- Rendering uses `gui.drawImage` overlay (tier 1 of 3 from the brief) — draws over the
-  emulator, not occluded by scenery, a weekend of effort rather than OAM injection or a
-  ROM hack.
-- Tile-grid movement means small integer positions; 10Hz sync is the brief's working
-  hypothesis, not yet confirmed (see open questions in
-  [agent_docs/contract.md](../../../agent_docs/contract.md)).
+- Rendering draws the real Brendan/May overworld sprite pixel-by-pixel via `gui.drawPixel`
+  (tier 1 of 3 from the brief — draws over the emulator, not occluded by scenery). Earlier
+  phases (`phase2_ghost.lua` through `phase4_multiplayer.lua`) used `gui.drawImage` for a flat
+  placeholder box before the real sprite decode replaced it in Phase 5.5.
+- Tile-grid movement means small integer positions; the brief's original "10Hz sync looks
+  fine" hypothesis was superseded once real send-rate limits shipped — the real cap is 20Hz
+  (`core.DefaultMinSendInterval`), live-confirmed across three games (see
+  [agent_docs/contract.md](../../../agent_docs/contract.md)'s Limits section).
 - No ROM is or will be shipped with this repo. Bring your own legally-obtained copy.
 - The shipped/maintained adapter script is `meshghost_emerald.lua`, in this folder — that's
   what `.github/workflows/release.yml` ships and what any future fix belongs in.
-  `phase5_5_sprite.lua` is a frozen, byte-identical-at-the-time historical copy under its
-  original development-phase name (split off 2026-08-14, see that file's own header) — the
-  "How this adapter was built" section below is the accurate history of how it came to be,
-  under whatever name it had at each point.
+  `phase5_5_sprite.lua` is a historical copy under its original development-phase name (split
+  off 2026-08-14, byte-identical only at that moment — see that file's own header for how far
+  it's since diverged) — the "How this adapter was built" section below is the accurate
+  history of how it came to be, under whatever name it had at each point.
 
 See [agent_docs/contract.md](../../../agent_docs/contract.md) for the adapter interface and
 tick model this adapter must implement, and
-[agent_docs/phases/phase1.md](../../../agent_docs/phases/phase1.md) for the current
+[agent_docs/phases/phase8.md](../../../agent_docs/phases/phase8.md) for the current
 verification task list.
 
 ## How this adapter was built
@@ -122,3 +126,11 @@ See [phase8.md](../../../agent_docs/phases/phase8.md) for the full record.
   array-boundary scan to confirm the array's start and locate `gPlayerAvatar`, and a final live
   read-back to confirm real, responsive data. Kept as a reusable template if a future
   Archipelago Emerald world/generator version shifts these addresses again.
+- `sprite_anchor_verify_probe.lua` — dev-only follow-up to `avatar_verify_probe.lua`, watching
+  whether `GSPRITES_ADDR`/`GSPRITECOORDOFFSETX_ADDR`/`GSPRITECOORDOFFSETY_ADDR` were also
+  Archipelago-shifted (unlike `gObjectEvents`/`gPlayerAvatar`, which were). Its result was never
+  separately written up, but is implicit in every later live test:
+  `meshghost_emerald.lua`'s `playerScreenPos()` uses these exact three addresses unmodified
+  (`meshghost_emerald.lua:76-79`), and the ghost has been repeatedly confirmed correctly
+  anchored on this Archipelago-patched ROM since (see `agent_docs/verified.md`) — so these
+  three, unlike the avatar/object-event addresses, are not shifted.

@@ -1,7 +1,7 @@
 # Environment
 
-Exact tools, versions, and configuration known to work for this project. Unfilled until
-Phase 1 actually sets up BizHawk — do not pre-fill version numbers from memory.
+Exact tools, versions, and configuration known to work for this project. Filled in as each
+phase actually sets up its own tooling — never pre-fill a version number from memory.
 
 Every version below is confirmed as of its own recorded date, not a permanent guarantee — see
 `CLAUDE.md`'s general rule on dated facts in `agent_docs/`. Installed tools/mods/games can
@@ -29,14 +29,17 @@ UE4SS entry below for that last one specifically, which is currently unresolved)
   C++ workload (`Microsoft.VisualStudio.Component.VC.Tools.x86.x64`), via winget, at
   `C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools` (confirmed via `vswhere`,
   2026-08-12).
-- **Building a real UE4SS C++ mod is blocked regardless of the above**: RE-UE4SS's core
-  `UE4SS` CMake target hard-depends on a private submodule (`deps/first/Unreal`,
-  `Re-UE4SS/UEPseudo` — confirmed private, `gh api` 404), and no official release ships a
-  prebuilt import library to link against instead. See `agent_docs/risks.md` and
-  `agent_docs/phases/phase7.md` for the full investigation. CMake/MSVC being installed was
-  necessary but not sufficient.
+- **Building a real UE4SS C++ mod was blocked by a private submodule, resolved 2026-08-12**:
+  RE-UE4SS's core `UE4SS` CMake target hard-depends on `deps/first/Unreal`
+  (`Re-UE4SS/UEPseudo`), gated behind linking a GitHub account to an Epic Games account and
+  accepting the resulting `EpicGames` org invite — done, and `git submodule update --init
+  deps/first/Unreal` now succeeds with real content. CMake/MSVC being installed was necessary
+  but not sufficient on its own; this access gate was the other half. See
+  `agent_docs/risks.md` and `agent_docs/phases/phase7.md` for the full investigation, and
+  `MeshGhostPseudo`'s shipping C++ mod (built via `dev-scripts/build-pseudoregalia.bat`) for
+  confirmation the unblocked path actually builds.
 
-## BizHawk / Emerald (to fill during Phase 1)
+## BizHawk / Emerald
 
 - BizHawk version: **confirmed**, 2.11 (Help → About, 2026-08-11).
 - Lua version used by BizHawk: **confirmed**, Lua 5.4 (`print(_VERSION)` in the Lua Console,
@@ -208,21 +211,31 @@ Built once to extract real RAM addresses via a `make compare`-verified build —
   connection to an Archipelago server from inside a UE4SS C++ mod, confirmed proof that C++
   mods can hold real sockets in this exact game/UE4SS combination. This is the load-bearing
   fact behind Phase 7's "C++ for the shipping adapter" decision (`plans.md`).
-- Lua sockets: **not available** — zero `luasocket` references found in the RE-UE4SS repo
-  (`gh api search/code`, 2026-08-12) and the Lua API docs (docs.ue4ss.com) list no networking,
-  `io`, or binary-module-loading capability. A Lua mod can discover state fast (no build step)
-  but cannot itself dial the MeshGhost bridge — confirms the Lua-probe/C++-adapter split.
+- Lua sockets: **reachable after all, via `package.loadlib`** — UE4SS's embedded Lua 5.4 has no
+  first-party socket library (zero `luasocket` references in the RE-UE4SS repo, no networking/
+  `io` capability documented at docs.ue4ss.com), but `package.loadlib` is a real, callable
+  function, and a real connect/send/receive round trip against the actual bridge protocol was
+  live-confirmed working via the vendored `lua54.dll`/`socket-windows-5-4.dll` pair
+  (`MeshGhostSocketProbe`/Stage 3, `agent_docs/verified.md`). The eventual C++-for-the-shipping-
+  adapter decision (`agent_docs/phases/phase7.md`'s 7.6) was **not** about sockets being
+  unreachable from Lua — it was a real binary-compatibility bug in that same vendored socket
+  pair that only surfaced under 7.5's sustained real 10Hz two-way traffic (83-98% of received
+  lines failing to decode), never under a one-shot probe's light traffic. See
+  `agent_docs/risks.md`'s `package.loadlib` entry for the full evidence trail.
 - Discovery tooling already present, usable for the 7.1 Lua probe: `ActorDumperMod`,
   `ConsoleEnablerMod`, `ConsoleCommandsMod`, `LineTraceMod`, `BPModLoaderMod` (`ue4ss\Mods\`
   listing, 2026-08-12).
 
 ## Onboarding checklist
 
-- Confirm the project is checked out to `C:\dev\MeshGhost`.
-- Install and record a Go toolchain version here.
-- Install and verify a supported BizHawk build; record its version here.
-- Confirm the correct Emerald ROM revision and record the expected map/format notes.
-- Set up BizHawk Lua scripting and verify access to the Lua console.
+All done on this machine — kept as the checklist a fresh setup should still follow:
+
+- [x] Confirm the project is checked out to `C:\dev\MeshGhost`.
+- [x] Install and record a Go toolchain version here (see "Host" above).
+- [x] Install and verify a supported BizHawk build; record its version here (see "BizHawk /
+      Emerald" above).
+- [x] Confirm the correct Emerald ROM revision and record the expected map/format notes.
+- [x] Set up BizHawk Lua scripting and verify access to the Lua console.
 
 ## Workspace conventions
 

@@ -1,8 +1,9 @@
 # Phase 6 — Second game (TEVI)
 
-**Status: in progress**, started 2026-08-11. Per `agent_docs/README.md`'s convention: a phase
-earns a file when it's live, folded back into `agent_docs/plans.md` once done. Kept here for
-the task-by-task record.
+**Status: fully done, including 6.6 (two real players) and 6.7 (map markers)**, confirmed
+2026-08-13. Started 2026-08-11. Per `agent_docs/README.md`'s convention: a phase earns a file
+when it's live, folded back into `agent_docs/plans.md` once done — kept here (rather than folded
+back) for the task-by-task record, matching `agent_docs/plans.md`'s own Phase 6 section.
 
 ## Purpose
 
@@ -281,7 +282,17 @@ point of picking a second, structurally different game.
 
 - **Packaging landed (2026-08-12):** the one-zip rework (`plans.md`'s "Release packaging",
   `packaging/README.md`) shipped with TEVI support built in from the start —
-  `packaging/release/games/tevi/MeshGhostTevi.dll` is a committed build output (CI can't build
-  it, see `packaging/README.md`), produced by `dev-scripts/build-tevi.bat` and guarded by a
-  staleness check in `release.yml`. Anyone editing `Plugin.cs`/`BridgeClient.cs`/the `.csproj`
-  must re-run that script and commit the result, or the release workflow fails on purpose.
+  `packaging/release/games/tevi/MeshGhost/MeshGhostTevi.dll` is a committed build output (CI
+  can't build it, see `packaging/README.md`), produced by `dev-scripts/build-tevi.bat` and
+  guarded by a staleness check in `release.yml`. Anyone editing `Plugin.cs`/`BridgeClient.cs`/the
+  `.csproj` must re-run that script and commit the result, or the release workflow fails on
+  purpose.
+
+- **Bridge hello / `game_id` ADR, same day follow-up (2026-08-12):** the adapter now declares
+  `game_id` itself (ADR in `architecture.md`), and `"game"` was dropped from the shipped
+  `config.json`. A new bridge message, `internal/bridge.Hello`, is sent by the adapter as the
+  first thing on a fresh bridge connection; `internal/core.Core.ConnectRelayOnAdapterHello`
+  connects to the relay lazily on that hello instead of requiring `-game`/`"game"` up front. Both
+  shipped adapters updated and TEVI's committed DLL rebuilt to match. `-game`/`"game"` still work
+  as an explicit override, needed by `dev-scripts/run-core-*.bat` (each game's dev launcher still
+  passes it explicitly) and `cmd/meshghost-fakeadapter` (no real adapter to send a hello).

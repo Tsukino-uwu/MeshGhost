@@ -12,10 +12,11 @@ What's in this folder:
 - games\                -- one folder per supported game. Only the folder
                             for the game you're playing matters to you.
 
-Status: Pokemon Emerald is tested and working. TEVI and Pseudoregalia are
-EXPERIMENTAL -- included so they can finally be tested with a real second
-player, but neither has been confirmed working over a real network yet. See
-games\tevi\README.txt and games\pseudoregalia\README.txt.
+Status: Pokemon Emerald is tested and working. TEVI and Pseudoregalia are both
+EXPERIMENTAL. TEVI has been confirmed working with two real players (two local
+instances on one machine; not yet confirmed over a network between two separate
+machines). Pseudoregalia is code-complete but has not yet been tested with a
+second player at all. See games\tevi\README.txt and games\pseudoregalia\README.txt.
 
 Setup, once:
 1. Open config.json in a text editor (Notepad is fine).

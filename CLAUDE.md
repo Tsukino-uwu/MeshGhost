@@ -89,6 +89,11 @@ proposing a plan that touches the core, an adapter, or the relay.
   left/right), never compass points.** User preference, specifically about talking to them —
   compass directions (north/south/east/west) remain fine anywhere in code/comments where
   that's the clearer choice.
+- **Keep `agent_docs/status.md` to one screen (~50 lines).** It drifted to 628 lines once before
+  (Found live 2026-08-15) by accreting a "Current focus:" bullet per session instead of updating
+  the existing one — when the active phase changes, overwrite the relevant line/section instead
+  of appending a new one, and move anything narrative into the relevant
+  `agent_docs/phases/phaseN.md` instead.
 
 ## This file is capped at 300 lines
 

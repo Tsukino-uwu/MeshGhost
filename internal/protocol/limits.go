@@ -1,6 +1,9 @@
 package protocol
 
-import "math"
+import (
+	"encoding/json"
+	"math"
+)
 
 // State field limits, checked both where the relay accepts a State from a
 // client and where a Core accepts one arriving from the relay — having them
@@ -72,4 +75,31 @@ func IsValidPosition(pos []float64) bool {
 		}
 	}
 	return true
+}
+
+// ValidateState reports whether st passes every size/length/finiteness
+// check in this file. Extracted from internal/relay and internal/core,
+// which previously carried the identical five checks verbatim — the two
+// enforcement points (the relay accepting a State from a client, the core
+// accepting one arriving from the relay) can no longer silently drift
+// apart, which is the same reason the individual limits above live here
+// instead of duplicated as package-local constants.
+func ValidateState(st State) bool {
+	if len(st.Position) > MaxPositionLen {
+		return false
+	}
+	if len(st.Extras) > 0 {
+		extrasBytes, err := json.Marshal(st.Extras)
+		if err != nil || len(extrasBytes) > MaxExtrasBytes {
+			return false
+		}
+	}
+	if len(st.AreaID) > MaxAreaIDLen || len(st.Anim) > MaxAnimLen ||
+		len(st.Orientation) > MaxOrientationBytes {
+		return false
+	}
+	// A syntactically valid JSON number like 1e308 survives []float64
+	// unmarshaling and becomes +Inf the moment an adapter narrows it to
+	// float32 — see IsValidPosition's doc comment.
+	return IsValidPosition(st.Position)
 }

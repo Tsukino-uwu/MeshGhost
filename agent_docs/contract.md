@@ -409,8 +409,13 @@ verification standard in `CLAUDE.md`. Do not answer these from memory.
       `pokeemerald`'s own `DIR_*` naming for direct traceability), read from
       `gObjectEvents[gPlayerAvatar.objectEventId].facingDirection`. See `agent_docs/
       verified.md` (`gObjectEvents`/facing-direction entry).
-- [ ] Local snapshot frequency: the brief's "10Hz sync looks fine" is a hypothesis for
-      tile-grid movement, not yet confirmed against a running emulator.
+- [x] Local snapshot frequency: **answered, not by confirming the brief's 10Hz hypothesis, but
+      by superseding it.** The real enforced rate is `Core.DefaultMinSendInterval` = 50ms / 20Hz,
+      live-confirmed across all three shipped games (Emerald, TEVI, Pseudoregalia) — see the
+      "Limits" section above. 20Hz was chosen for headroom under the relay's 120 msg/sec cap
+      (found live: TEVI's frame-driven `Update()` runs uncapped well above 120Hz with no
+      engine-level throttle), not as a claim that 20Hz is the objectively "right" sync rate for
+      tile-grid movement.
 - [x] `seq`/`timestamp` semantics: does `seq` reset on reconnect? Is `timestamp` wall-clock
       or client-relative? **Decided (already true of the implementation, not a new choice):**
       `seq` is a `Core`-lifetime counter (`atomic.AddUint64(&c.seq, 1)`) that never resets —

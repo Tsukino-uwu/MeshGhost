@@ -46,34 +46,26 @@ namespace MeshGhostPseudo
     // from memory" rule means one isn't guessed at here. Opaque to the core/relay,
     // compared only by equality: it catches two peers running different revisions of this
     // mod, the most likely real source of a silent protocol mismatch.
-    constexpr auto ADAPTER_VERSION = "phase7.6";
+    // Bumped 2026-08-15 (doc/dead-code cleanup pass touching this file's own comments and control
+    // flow): a deliberate breaking change so the relay's hard-reject-on-mismatch behavior for
+    // game_version actually catches it if a peer is still running the pre-cleanup build -- exactly
+    // the failure mode this field exists to catch (two peers on genuinely different revisions both
+    // reporting the old version, silently).
+    constexpr auto ADAPTER_VERSION = "phase7.7";
     constexpr auto BRIDGE_HOST = "127.0.0.1";
     constexpr uint16_t BRIDGE_PORT = 7778;
 
-    // User-requested diagnostic, 2026-08-13: when true, on_update() skips the bridge/network
-    // stack entirely (no core.exe/relay.exe needed) and instead drives one hijacked ghost purely
-    // from local reflection reads -- isolates the render-freeze investigation from networking.
-    // Flip back to false to return to the real networked adapter.
-    // Phase 7.6, 2026-08-13: flipped back to false -- the render-freeze this mode was built to
-    // isolate is fixed (RegisterEngineTickPostCallback); this diagnostic was done with then.
-    // Flipped true again same day (user-requested), repurposed for the facing-direction
-    // investigation: run_local_offset_test_tick now uses the same spawn-based ghost mechanism as
-    // the real networked path (see its own comment), so this mode gives a true no-networking
-    // repro of the rotation bug -- one game instance, no relay.exe/meshghost.exe needed at all.
-    // Facing-direction fix confirmed live 2026-08-13 (see verified.md) -- flipped back to false
-    // to restore the real networked adapter as the normal shipping path.
-    constexpr bool LOCAL_OFFSET_TEST_MODE = false;
-    constexpr double LOCAL_OFFSET_TEST_X = 150.0;
-    constexpr auto LOCAL_OFFSET_TEST_ID = "local-test";
-
-    // User-requested, 2026-08-13: rather than mirroring the real player's own yaw (which requires
-    // walking around to see change), force-cycle the ghost's target yaw through four fixed
-    // directions on a timer, so it's immediately obvious on screen whether the ghost can turn at
-    // all, independent of whether it's matching the real player correctly.
-    // Facing-direction fix confirmed live 2026-08-13 -- flipped back to false to restore real
-    // yaw-mirroring as the normal shipping behavior.
-    constexpr bool FORCE_ROTATION_CYCLE_TEST = false;
-    constexpr uint64_t ROTATION_CYCLE_TICKS = 180; // ~3s at a typical 60fps game thread
+    // Live loopback ghost offset -- NOT a test-mode flag (despite the visual proximity to the
+    // dead-code block this used to sit next to; that block, including the similarly-named
+    // LOCAL_OFFSET_TEST_MODE/LOCAL_OFFSET_TEST_ID, was removed in a cleanup pass). This constant
+    // is used in production, networked-path code: handle_bridge_line nudges a loopback-echoed
+    // ghost ("<id>-ghost", from internal/relay's dev-only -loopback flag) sideways by this many
+    // units so it doesn't render exactly on top of the real player, which would otherwise make it
+    // impossible to visually judge ghost rendering/animation quality side by side with the real
+    // character. See handle_bridge_line's own comment on loopback_offset_x for the two valid
+    // loopback use cases (this offset value vs. 0.0) and why this stays a plain constant rather
+    // than a runtime flag.
+    constexpr double LOOPBACK_GHOST_OFFSET_X = 150.0;
 
     // Phase 7.6: one-constant control between the two ghost designs. true = spawn a clone of the
     // player's own pawn class (real player model, can animate -- what Phase 7.6 is actually for),
@@ -157,7 +149,8 @@ namespace MeshGhostPseudo
     // >landed?/jumped? right after we write it -- per CLAUDE.md, a write that "ran without errors"
     // is not evidence it actually stuck. Confirmed live 2026-08-13 (both the falling-pose fix and,
     // after adding Montage_Stop, the ledge-hang-stuck-forever fix) -- flipped back to false, same
-    // as LOCAL_OFFSET_TEST_MODE/FORCE_ROTATION_CYCLE_TEST after their own investigations concluded.
+    // as the other now-removed investigation-only diagnostics (see git history for their
+    // now-deleted local-only test-mode counterparts).
     constexpr bool ANIM_PULSE_TRACE = false;
 
     namespace
@@ -222,8 +215,15 @@ namespace MeshGhostPseudo
 
         // Minimal, non-general JSON field extraction -- deliberately not a full parser, matching
         // the Lua adapter's own minimalism (its jsonString()/hand-built envelopes, not a generic
-        // decoder). Safe here because the wire format is fixed-shape and server-generated
-        // (adapters/_template/PROTOCOL.md), not adversarial input.
+        // decoder). This data is NOT trusted input, despite the fixed envelope shape: it arrives
+        // over the bridge socket as a render_remote line originated by a remote peer, forwarded
+        // by the Go core, which only bounds it by total serialized byte size
+        // (protocol.MaxExtrasBytes) -- not by per-field type, range, or finiteness. See
+        // adapters/_template/PROTOCOL.md's own "peer-controlled" warning on render_remote data,
+        // and clamp_to_uint8's comment below for the specific narrowing hazard this file already
+        // guards against. What actually makes this minimal string-search parser safe to use on
+        // untrusted bytes is narrower than "the format is fixed-shape": see json_number_field's
+        // comment just below for the real reason a whole-string search doesn't misparse.
         auto json_string_field(const std::string& s, const std::string& key) -> std::string
         {
             std::string needle = "\"" + key + "\":\"";
@@ -256,7 +256,14 @@ namespace MeshGhostPseudo
         // Same minimal-parser philosophy as json_string_field/json_vec3_field above. Used for the
         // animation-state fields nested under "extras" -- key names (move_state, h_speed, etc.)
         // are distinct enough that a whole-string search is safe without properly scoping to the
-        // "extras" object, same tradeoff already made for every other field here.
+        // "extras" object, same tradeoff already made for every other field here. This holds even
+        // against a hostile peer, not just a well-behaved one: JSON string values are escaped when
+        // serialized, so a peer-controlled string field (e.g. anim, area_id, player_id) can never
+        // contain a literal, unescaped `"h_speed":` substring that this search could mistake for
+        // the real key -- any such content would itself be escaped (e.g. `\"h_speed\":`) in the
+        // serialized bytes, which does not match the bare needle searched for here. The numeric
+        // *value* found this way is still fully attacker-controlled, though -- that's what
+        // clamp_to_uint8 below exists to bound before use.
         auto json_number_field(const std::string& s, const std::string& key, double& out) -> bool
         {
             std::string needle = "\"" + key + "\":";
@@ -673,7 +680,7 @@ namespace MeshGhostPseudo
     Plugin::Plugin() : CppUserModBase()
     {
         ModName = STR("MeshGhostPseudo");
-        ModVersion = STR("0.4.0");
+        ModVersion = STR("0.5.0");
         ModDescription = STR("MeshGhost adapter for Pseudoregalia (Phase 7.6, spawn-based ghosts on the game thread)");
         ModAuthors = STR("MeshGhost");
     }
@@ -690,10 +697,6 @@ namespace MeshGhostPseudo
         if (load_map_pre_callback_id != Hook::ERROR_ID)
         {
             Hook::UnregisterCallback(load_map_pre_callback_id);
-        }
-        if (load_map_post_callback_id != Hook::ERROR_ID)
-        {
-            Hook::UnregisterCallback(load_map_post_callback_id);
         }
         if (engine_tick_post_callback_id != Hook::ERROR_ID)
         {
@@ -826,12 +829,6 @@ namespace MeshGhostPseudo
                 last_known_good_view_target = nullptr;
             },
             Hook::FCallbackOptions{.OwnerModName = STR("MeshGhostPseudo"), .HookName = STR("ReleaseGhostsBeforeLoadMap")});
-        load_map_post_callback_id = Hook::RegisterLoadMapPostCallback(
-            [this](Hook::TCallbackIterationData<bool>&, UEngine*, FWorldContext&, FURL, UPendingNetGame*, FString&) {
-                Output::send(STR("[MeshGhostPseudo] HOOK: LoadMap POST fired.\n"));
-                log_remote_state(STR("LoadMap POST"));
-            },
-            Hook::FCallbackOptions{.OwnerModName = STR("MeshGhostPseudo"), .HookName = STR("DiagnosticLoadMapPost")});
 
         // THE render-freeze fix -- see game_thread_tick's own doc comment in Plugin.hpp. Runs
         // every real engine frame, on the actual game thread, unlike on_update() (UE4SS's own
@@ -1278,24 +1275,23 @@ namespace MeshGhostPseudo
                 // judge ghost rendering quality against the real character side by side. Nudge
                 // it sideways purely for local rendering; never changes what's actually
                 // sent/received over the network (target_x/y/z here is only ever a local render
-                // target). Reuses LOCAL_OFFSET_TEST_X's already-established 150.0 unit magnitude
-                // (see that constant's own history above) -- a value already found usable in
-                // this game for the same "visibly separate a test ghost from the player" purpose.
+                // target). Uses LOOPBACK_GHOST_OFFSET_X's 150.0 unit magnitude -- a value already
+                // found usable in this game for visibly separating a test ghost from the player.
                 //
                 // Two genuinely different, both-valid loopback use cases, per the user
                 // (2026-08-14): offset (this default) for visually judging rendering/animation
                 // quality side by side, since an exact overlap makes the two impossible to tell
                 // apart; zero offset for verifying the ghost actually tracks the real position
-                // exactly, which an offset would obscure. Toggle by changing LOCAL_OFFSET_TEST_X
-                // above to 0.0 -- deliberately a plain constant, not a runtime flag, since
-                // -loopback itself is already a dev-only relay flag never meant to run in a real
-                // session.
+                // exactly, which an offset would obscure. Toggle by changing
+                // LOOPBACK_GHOST_OFFSET_X above to 0.0 -- deliberately a plain constant, not a
+                // runtime flag, since -loopback itself is already a dev-only relay flag never
+                // meant to run in a real session.
                 static const std::string ghost_suffix = "-ghost";
                 double loopback_offset_x = 0.0;
                 if (player_id.size() >= ghost_suffix.size() &&
                     player_id.compare(player_id.size() - ghost_suffix.size(), ghost_suffix.size(), ghost_suffix) == 0)
                 {
-                    loopback_offset_x = LOCAL_OFFSET_TEST_X;
+                    loopback_offset_x = LOOPBACK_GHOST_OFFSET_X;
                 }
                 it->second.target_x = x + loopback_offset_x;
                 it->second.target_y = y;
@@ -1338,413 +1334,13 @@ namespace MeshGhostPseudo
         }
     }
 
-    // Self-contained local-only test path -- see LOCAL_OFFSET_TEST_MODE's comment. No bridge, no
-    // core/relay, no render_remote parsing: reads the local pawn's own position directly and
-    // targets (position.X + offset, position.Y, position.Z), reusing the same hijack/redraw/
-    // bHidden-toggle machinery as the real networked path so this is a genuine apples-to-apples
-    // isolation of the render-freeze question, not a different code path entirely.
-    auto Plugin::run_local_offset_test_tick() -> void
-    {
-        auto [controller, pawn_obj] = find_local_controller_and_pawn();
-        UWorld* current_world = nullptr;
-        if (pawn_obj)
-        {
-            auto* pawn = static_cast<AActor*>(pawn_obj);
-            FVector pawn_loc = pawn->K2_GetActorLocation();
-            FRotator pawn_rot = pawn->K2_GetActorRotation();
-            current_world = static_cast<UWorld*>(pawn->GetWorld());
-
-            // Bug found immediately, 2026-08-13: this path bypasses game_thread_tick's normal
-            // body entirely (LOCAL_OFFSET_TEST_MODE's own early return), which is the only place
-            // ticks_since_pawn_valid is normally incremented -- ensure_ghost_spawned's
-            // SPAWN_DELAY_TICKS gate never passed, so no ghost was ever spawning in this mode.
-            // Mirrors the same class_looks_like_player-gated increment used there.
-            if (class_looks_like_player(pawn_obj))
-            {
-                ++ticks_since_pawn_valid;
-            }
-            else
-            {
-                ticks_since_pawn_valid = 0;
-            }
-
-            // User-requested 2026-08-13: wired to the same spawn-based ghost mechanism as the
-            // real networked path (handle_bridge_line's identical if constexpr), so the
-            // facing-direction bug can be reproduced with a single game instance and no relay/
-            // core/bridge processes running, ruling networking out as a variable entirely. Before
-            // this change, LOCAL_OFFSET_TEST_MODE always hijacked an existing level actor instead
-            // -- a structurally different ghost that never exercised SpawnActor at all, so it
-            // couldn't have reproduced this bug regardless of networking.
-            if constexpr (SPAWN_BASED_GHOSTS)
-            {
-                ensure_ghost_spawned(LOCAL_OFFSET_TEST_ID, pawn_obj, controller);
-            }
-            else
-            {
-                ensure_ghost_hijacked(LOCAL_OFFSET_TEST_ID, pawn_obj);
-            }
-            auto it = remotes.find(LOCAL_OFFSET_TEST_ID);
-            if (it != remotes.end())
-            {
-                it->second.target_x = pawn_loc.X() + LOCAL_OFFSET_TEST_X;
-                it->second.target_y = pawn_loc.Y();
-                it->second.target_z = pawn_loc.Z();
-                it->second.target_pitch = pawn_rot.GetPitch();
-                if constexpr (FORCE_ROTATION_CYCLE_TEST)
-                {
-                    // Cycles 0 -> 90 -> 180 -> 270 -> 0 ... on a fixed timer, independent of the
-                    // real player's own facing -- see the constant's own comment.
-                    constexpr double CYCLE_YAWS[] = {0.0, 90.0, 180.0, 270.0};
-                    size_t cycle_index = (tick_count / ROTATION_CYCLE_TICKS) % 4;
-                    if (tick_count % ROTATION_CYCLE_TICKS == 0)
-                    {
-                        Output::send(STR("[MeshGhostPseudo] (local-test) forcing ghost yaw to {}\n"), CYCLE_YAWS[cycle_index]);
-                    }
-                    it->second.target_yaw = CYCLE_YAWS[cycle_index];
-                }
-                else
-                {
-                    // Mirror real rotation -- the original offset-only test never set this at all
-                    // (didn't need to, before facing was in scope).
-                    it->second.target_yaw = pawn_rot.GetYaw();
-                }
-                it->second.target_roll = pawn_rot.GetRoll();
-            }
-        }
-
-        for (auto& [id, remote] : remotes)
-        {
-            if (!remote.ghost)
-            {
-                continue;
-            }
-            if (current_world && remote.owning_world && remote.owning_world != current_world)
-            {
-                Output::send(STR("[MeshGhostPseudo] (local-test) remote {} ghost's world changed -- releasing stale reference, will hijack fresh.\n"), to_wide_ascii(id));
-                hijacked_actors.erase(remote.ghost);
-                remote.ghost = nullptr;
-                remote.owning_world = nullptr;
-                continue;
-            }
-            FVector target_loc(remote.target_x, remote.target_y, remote.target_z);
-            FRotator target_rot(remote.target_pitch, remote.target_yaw, remote.target_roll);
-            // Facing-direction root cause fix, 2026-08-13: the three writes this used to stack
-            // (K2_SetActorLocationAndRotation, K2_SetActorRotation, a direct RelativeRotation
-            // property poke plus a bHiddenInGame render-nudge) were all working around the same
-            // single bug -- the vendored SDK's native rotator marshaling truncates to float on a
-            // double-FRotator (UE5) engine. See call_set_actor_location_and_rotation's own comment
-            // for the full root cause. One correct call replaces all of that.
-            call_set_actor_location_and_rotation(remote.ghost, target_loc, target_rot);
-
-            // Fine-grained bisection for the first 15 ticks after spawn -- see
-            // RemoteGhost::ticks_since_spawn's comment. Logs every tick instead of only every
-            // LOG_INTERVAL_TICKS (~2s), to find out exactly when (if at all, this early)
-            // rotation readback goes from correct to garbage.
-            ++remote.ticks_since_spawn;
-            if (remote.ticks_since_spawn <= 15)
-            {
-                double reflected_yaw_early = -9999.0;
-                if (UObject** early_capsule_ptr = remote.ghost->GetValuePtrByPropertyNameInChain<UObject*>(STR("CapsuleComponent")); early_capsule_ptr && *early_capsule_ptr)
-                {
-                    if (FRotator* early_rot = (*early_capsule_ptr)->GetValuePtrByPropertyNameInChain<FRotator>(STR("RelativeRotation")))
-                    {
-                        reflected_yaw_early = early_rot->GetYaw();
-                    }
-                }
-                Output::send(STR("[MeshGhostPseudo] (local-test) EARLY remote {} tick {} since spawn: reflected_yaw={}\n"),
-                             to_wide_ascii(id),
-                             remote.ticks_since_spawn,
-                             reflected_yaw_early);
-            }
-
-            if (tick_count % LOG_INTERVAL_TICKS == 0)
-            {
-                FVector actual_loc = remote.ghost->K2_GetActorLocation();
-                Output::send(STR("[MeshGhostPseudo] (local-test) remote {} redraw: intended=({},{},{}) actual=({},{},{})\n"),
-                             to_wide_ascii(id),
-                             target_loc.X(),
-                             target_loc.Y(),
-                             target_loc.Z(),
-                             actual_loc.X(),
-                             actual_loc.Y(),
-                             actual_loc.Z());
-
-                // Same rotation trace as game_thread_tick's real networked path, for a true
-                // no-networking repro of the facing-direction investigation.
-                FRotator actual_rot = remote.ghost->K2_GetActorRotation();
-                double reflected_yaw = -9999.0;
-                if (UObject** g_capsule_ptr = remote.ghost->GetValuePtrByPropertyNameInChain<UObject*>(STR("CapsuleComponent")); g_capsule_ptr && *g_capsule_ptr)
-                {
-                    if (FRotator* g_relative_rot = (*g_capsule_ptr)->GetValuePtrByPropertyNameInChain<FRotator>(STR("RelativeRotation")))
-                    {
-                        reflected_yaw = g_relative_rot->GetYaw();
-                    }
-                }
-                Output::send(STR("[MeshGhostPseudo] (local-test) TRACE remote {} yaw: sent={} K2_actual={} reflected_actual={}\n"),
-                             to_wide_ascii(id),
-                             target_rot.GetYaw(),
-                             actual_rot.GetYaw(),
-                             reflected_yaw);
-
-                bool* hidden_ptr = remote.ghost->GetValuePtrByPropertyNameInChain<bool>(STR("bHidden"));
-                if (hidden_ptr)
-                {
-                    *hidden_ptr = true;
-                    *hidden_ptr = false;
-                }
-            }
-        }
-    }
-
-    // See declaration comment in Plugin.hpp. Uses the real native reflection API
-    // (TFieldRange<FProperty>, RE-UE4SS/deps/first/Unreal/include/.../UnrealType.hpp:3117 defines
-    // the template; usage grounded against RE-UE4SS/UE4SS/src/GUI/Dumpers.cpp:412, which iterates
-    // a live UObject's class the same way for its own property-value dumper), not the Lua-exposed
-    // UStruct:ForEachProperty binding -- that binding is confirmed missing on this exact installed
-    // build (v3.0.1 Beta, SHA 733e5969; see phase7.md's BP_PlayerCam_C investigation, "attempt to
-    // call a nil value" on every call). This walks real UStruct::ChildProperties memory directly,
-    // via our own statically-linked, version-matched copy of the reflection code, so it isn't
-    // subject to that gap.
-    auto Plugin::log_pawn_reflection_once(AActor* pawn) -> void
-    {
-        if (pawn_reflection_logged || !pawn)
-        {
-            return;
-        }
-        pawn_reflection_logged = true;
-
-        UClass* pawn_class = pawn->GetClassPrivate();
-        if (!pawn_class)
-        {
-            Output::send(STR("[MeshGhostPseudo] DIAG: local pawn has no class, cannot reflect.\n"));
-            return;
-        }
-
-        Output::send(STR("[MeshGhostPseudo] DIAG: reflecting local pawn class {}\n"), pawn_class->GetFullName());
-        for (FProperty* property : TFieldRange<FProperty>(pawn_class, EFieldIterationFlags::Default))
-        {
-            if (!property)
-            {
-                continue;
-            }
-            Output::send(STR("[MeshGhostPseudo] DIAG: property '{}' ({})\n"), property->GetName(), property->GetClass().GetName());
-        }
-        Output::send(STR("[MeshGhostPseudo] DIAG: end of pawn reflection dump.\n"));
-
-        // Follow-up per user request: animBPref looked like the pawn's reference to its own anim
-        // Blueprint instance -- confirm what class it actually points to (and what fields THAT
-        // class exposes) before assuming moveState/actionState/horizontalSpeed/verticalSpeed on
-        // the pawn are really what drives it, rather than something else entirely.
-        UObject** anim_bp_ptr = pawn->GetValuePtrByPropertyNameInChain<UObject*>(STR("animBPref"));
-        if (!anim_bp_ptr || !*anim_bp_ptr)
-        {
-            Output::send(STR("[MeshGhostPseudo] DIAG: animBPref is null or property not found on the pawn instance.\n"));
-            return;
-        }
-        UObject* anim_bp = *anim_bp_ptr;
-        UClass* anim_bp_class = anim_bp->GetClassPrivate();
-        if (!anim_bp_class)
-        {
-            Output::send(STR("[MeshGhostPseudo] DIAG: animBPref value has no class.\n"));
-            return;
-        }
-        Output::send(STR("[MeshGhostPseudo] DIAG: animBPref points to instance '{}' of class {}\n"),
-                     anim_bp->GetFullName(),
-                     anim_bp_class->GetFullName());
-        for (FProperty* property : TFieldRange<FProperty>(anim_bp_class, EFieldIterationFlags::Default))
-        {
-            if (!property)
-            {
-                continue;
-            }
-            Output::send(STR("[MeshGhostPseudo] DIAG: animBPref property '{}' ({})\n"), property->GetName(), property->GetClass().GetName());
-        }
-        Output::send(STR("[MeshGhostPseudo] DIAG: end of animBPref reflection dump.\n"));
-
-        // Follow-up, 2026-08-13 (ledge-hang-stuck-forever investigation): the landed?/jumped?
-        // pulse fix (see PULSE_HOLD_TICKS's comment) provably resets moveState/actionState/
-        // movementMode correctly on the ghost within ~1s of a real landing -- confirmed via a live
-        // TRACE remote readback -- yet the user reports the ghost stays frozen in the ledge-hang
-        // POSE indefinitely regardless of any later jump/slide/land on the real player's side. A
-        // pose that survives every state-machine byte resetting correctly is the signature of an
-        // Anim Montage (played once via a "Play Anim Montage" node and independent of the state
-        // machine's own Move State variable) rather than a state-machine transition -- consistent
-        // with OnMontageStarted/OnMontageEnded/ActiveAnimNotifyState already showing up in the
-        // animBPref property dump above. Per CLAUDE.md, no UFunction name gets called here on a
-        // guess -- enumerating every real UFunction on animBPref's class chain (the same
-        // TFieldRange pattern already used for FProperty above, just over UFunction instead) so
-        // whatever the real montage-stop entry point is called on THIS build gets read off the
-        // engine, not assumed from general Unreal Engine knowledge.
-        Output::send(STR("[MeshGhostPseudo] DIAG: enumerating animBPref UFunctions...\n"));
-        for (UFunction* function : TFieldRange<UFunction>(anim_bp_class, EFieldIterationFlags::Default))
-        {
-            if (!function)
-            {
-                continue;
-            }
-            Output::send(STR("[MeshGhostPseudo] DIAG: animBPref function '{}' PropertiesSize={}\n"),
-                         function->GetName(),
-                         function->GetPropertiesSize());
-        }
-        Output::send(STR("[MeshGhostPseudo] DIAG: end of animBPref UFunction dump.\n"));
-
-        // Follow-up, same investigation: Montage_Stop's real parameter NAMES, not assumed from
-        // general Unreal Engine knowledge -- PropertiesSize=16 is consistent with a (float, object
-        // pointer) pair, but per CLAUDE.md that consistency is not confirmation. Same FProperty/
-        // GetOffset_Internal pattern already used to safely call
-        // call_set_actor_location_and_rotation/call_set_collision_response_to_channel -- read-only
-        // here, no call made yet.
-        if (UFunction* montage_stop_fn = anim_bp->GetFunctionByNameInChain(STR("Montage_Stop")))
-        {
-            Output::send(STR("[MeshGhostPseudo] DIAG: Montage_Stop real signature (PropertiesSize={}):\n"), montage_stop_fn->GetPropertiesSize());
-            for (FProperty* property : TFieldRange<FProperty>(montage_stop_fn, EFieldIterationFlags::None))
-            {
-                if (!property)
-                {
-                    continue;
-                }
-                Output::send(STR("[MeshGhostPseudo] DIAG: Montage_Stop param '{}' ({}) offset={}\n"),
-                             property->GetName(),
-                             property->GetClass().GetName(),
-                             property->GetOffset_Internal());
-            }
-        }
-        else
-        {
-            Output::send(STR("[MeshGhostPseudo] DIAG: Montage_Stop not found via GetFunctionByNameInChain (unexpected -- was listed in the UFunction enumeration above).\n"));
-        }
-
-        // Follow-up, 2026-08-13: user reports the spawned ghost gets stuck in a "flying"/airborne
-        // idle pose after jumping (a slide forcibly resets it back to grounded). Leading theory:
-        // the ghost's SetActorEnableCollision(false) (ensure_ghost_spawned, added deliberately so
-        // the ghost never physically pushes/blocks the real player) means its own real
-        // CharacterMovementComponent can never detect ground contact -- if the AnimBP's
-        // fall-to-land transition reads that component's real grounded state directly (separate
-        // from the moveState byte we already mirror), it would get stuck exactly this way. Confirm
-        // the component and its real property names before assuming this rather than guessing at
-        // a property name to poke.
-        UObject** movement_ptr = pawn->GetValuePtrByPropertyNameInChain<UObject*>(STR("CharacterMovement"));
-        if (!movement_ptr || !*movement_ptr)
-        {
-            Output::send(STR("[MeshGhostPseudo] DIAG: CharacterMovement is null or property not found on the pawn instance.\n"));
-            return;
-        }
-        UObject* movement = *movement_ptr;
-        UClass* movement_class = movement->GetClassPrivate();
-        if (!movement_class)
-        {
-            Output::send(STR("[MeshGhostPseudo] DIAG: CharacterMovement value has no class.\n"));
-            return;
-        }
-        Output::send(STR("[MeshGhostPseudo] DIAG: CharacterMovement points to instance '{}' of class {}\n"),
-                     movement->GetFullName(),
-                     movement_class->GetFullName());
-        for (FProperty* property : TFieldRange<FProperty>(movement_class, EFieldIterationFlags::Default))
-        {
-            if (!property)
-            {
-                continue;
-            }
-            Output::send(STR("[MeshGhostPseudo] DIAG: CharacterMovement property '{}' ({})\n"), property->GetName(), property->GetClass().GetName());
-        }
-        Output::send(STR("[MeshGhostPseudo] DIAG: end of CharacterMovement reflection dump.\n"));
-
-        // Follow-up, 2026-08-13: user asked how to make the ghost physically solid after the
-        // collision test showed SetActorEnableCollision(true) let the ghost be hit/killed but did
-        // NOT make it block the real player's movement. Standard UE mechanism: collision
-        // enable/disable is separate from per-channel collision RESPONSE (Block/Overlap/Ignore) --
-        // likely this class's capsule responds to the Pawn channel with Overlap, not Block, which
-        // is why melee could hit it (an overlap query) but walking into it did nothing. Dumping
-        // CapsuleComponent's own top-level properties to see what's actually configured before
-        // guessing at a channel/response to change -- the detailed per-channel response data lives
-        // inside BodyInstance (a UE-internal struct not exposed in this SDK's minimal headers), so
-        // this may only get us part of the way; logged either way rather than assumed.
-        UObject** capsule_ptr = pawn->GetValuePtrByPropertyNameInChain<UObject*>(STR("CapsuleComponent"));
-        if (!capsule_ptr || !*capsule_ptr)
-        {
-            Output::send(STR("[MeshGhostPseudo] DIAG: CapsuleComponent is null or property not found on the pawn instance.\n"));
-            return;
-        }
-        UObject* capsule = *capsule_ptr;
-        UClass* capsule_class = capsule->GetClassPrivate();
-        if (!capsule_class)
-        {
-            Output::send(STR("[MeshGhostPseudo] DIAG: CapsuleComponent value has no class.\n"));
-            return;
-        }
-        Output::send(STR("[MeshGhostPseudo] DIAG: CapsuleComponent points to instance '{}' of class {}\n"),
-                     capsule->GetFullName(),
-                     capsule_class->GetFullName());
-        for (FProperty* property : TFieldRange<FProperty>(capsule_class, EFieldIterationFlags::Default))
-        {
-            if (!property)
-            {
-                continue;
-            }
-            Output::send(STR("[MeshGhostPseudo] DIAG: CapsuleComponent property '{}' ({})\n"), property->GetName(), property->GetClass().GetName());
-        }
-        Output::send(STR("[MeshGhostPseudo] DIAG: end of CapsuleComponent reflection dump.\n"));
-
-        // Follow-up, 2026-08-13: facing-direction investigation. The capsule's own RelativeRotation
-        // read back as implausible garbage via two independent methods (K2_GetActorRotation() and
-        // direct property reflection), while the ghost visually stays stable in one direction --
-        // suggesting this game doesn't drive visual character facing through capsule/actor
-        // rotation at all. `VisualMesh` (found in the top-level pawn property dump above) is the
-        // likely candidate for wherever facing actually lives -- dumping its properties and, since
-        // a scale-based left/right flip is a common pattern in games with wallRight?/leftAttack?-
-        // style directional properties (already seen on the pawn), also printing its actual
-        // RelativeRotation and RelativeScale3D values directly, not just names.
-        UObject** visual_mesh_ptr = pawn->GetValuePtrByPropertyNameInChain<UObject*>(STR("VisualMesh"));
-        if (!visual_mesh_ptr || !*visual_mesh_ptr)
-        {
-            Output::send(STR("[MeshGhostPseudo] DIAG: VisualMesh is null or property not found on the pawn instance.\n"));
-            return;
-        }
-        UObject* visual_mesh = *visual_mesh_ptr;
-        UClass* visual_mesh_class = visual_mesh->GetClassPrivate();
-        if (!visual_mesh_class)
-        {
-            Output::send(STR("[MeshGhostPseudo] DIAG: VisualMesh value has no class.\n"));
-            return;
-        }
-        Output::send(STR("[MeshGhostPseudo] DIAG: VisualMesh points to instance '{}' of class {}\n"),
-                     visual_mesh->GetFullName(),
-                     visual_mesh_class->GetFullName());
-        for (FProperty* property : TFieldRange<FProperty>(visual_mesh_class, EFieldIterationFlags::Default))
-        {
-            if (!property)
-            {
-                continue;
-            }
-            Output::send(STR("[MeshGhostPseudo] DIAG: VisualMesh property '{}' ({})\n"), property->GetName(), property->GetClass().GetName());
-        }
-        if (FRotator* vm_rot = visual_mesh->GetValuePtrByPropertyNameInChain<FRotator>(STR("RelativeRotation")))
-        {
-            Output::send(STR("[MeshGhostPseudo] DIAG: VisualMesh RelativeRotation = (pitch={}, yaw={}, roll={})\n"),
-                         vm_rot->GetPitch(), vm_rot->GetYaw(), vm_rot->GetRoll());
-        }
-        if (FVector* vm_scale = visual_mesh->GetValuePtrByPropertyNameInChain<FVector>(STR("RelativeScale3D")))
-        {
-            Output::send(STR("[MeshGhostPseudo] DIAG: VisualMesh RelativeScale3D = (x={}, y={}, z={})\n"),
-                         vm_scale->X(), vm_scale->Y(), vm_scale->Z());
-        }
-        Output::send(STR("[MeshGhostPseudo] DIAG: end of VisualMesh reflection dump.\n"));
-    }
-
     // Runs on the real game thread (registered via RegisterEngineTickPostCallback in
     // on_unreal_init) -- see this method's declaration comment in Plugin.hpp for why this split
-    // exists. All actor reads/writes for both the real networked path and
-    // LOCAL_OFFSET_TEST_MODE happen here now.
+    // exists. All actor reads/writes for the real networked path happen here.
     auto Plugin::game_thread_tick() -> void
     {
         if (!unreal_ready)
         {
-            return;
-        }
-
-        if constexpr (LOCAL_OFFSET_TEST_MODE)
-        {
-            run_local_offset_test_tick();
             return;
         }
 
@@ -1766,7 +1362,6 @@ namespace MeshGhostPseudo
             if (class_looks_like_player(pawn_obj))
             {
                 ++ticks_since_pawn_valid;
-                log_pawn_reflection_once(static_cast<AActor*>(pawn_obj));
             }
             else
             {
@@ -2250,11 +1845,6 @@ namespace MeshGhostPseudo
 
         ++tick_count;
         ++ticks_since_ready;
-
-        if constexpr (LOCAL_OFFSET_TEST_MODE)
-        {
-            return; // handled entirely by game_thread_tick in this mode
-        }
 
         if (!bridge)
         {

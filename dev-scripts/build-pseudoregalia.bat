@@ -24,8 +24,19 @@ set SRC=%ROOT%\adapters\pseudoregalia\MeshGhostPseudo
 set GAMEDIR=%ROOT%\packaging\release\games\pseudoregalia
 set DEST=%GAMEDIR%\pseudoregalia\Binaries\Win64\ue4ss\Mods\MeshGhostPseudo
 
+rem CLAUDE.md: "A build tool on PATH may silently resolve to the wrong install." Confirmed
+rem live 2026-08-15: a bare `cmake` on this project's dev machine resolves first to msys2's
+rem older bundled copy (C:\devkitPro\msys2\usr\bin\cmake.exe, 4.0.2), not the real install
+rem the build tree was actually configured with (C:\Program Files\CMake\bin\cmake.exe,
+rem 4.4.2) -- silently using the wrong one can produce a build that looks successful but
+rem doesn't match the configured tree. Prefer the real install explicitly if it's present;
+rem fall back to whatever's on PATH otherwise (e.g. a machine where CMake was installed
+rem somewhere else).
+set CMAKE_EXE=cmake
+if exist "C:\Program Files\CMake\bin\cmake.exe" set CMAKE_EXE=C:\Program Files\CMake\bin\cmake.exe
+
 echo Building MeshGhostPseudo main.dll (Game__Shipping__Win64)...
-cmake --build "%SRC%\build" --config Game__Shipping__Win64 --target MeshGhostPseudo
+"%CMAKE_EXE%" --build "%SRC%\build" --config Game__Shipping__Win64 --target MeshGhostPseudo
 if errorlevel 1 (
   echo build-pseudoregalia: cmake build failed, nothing staged.
   exit /b 1

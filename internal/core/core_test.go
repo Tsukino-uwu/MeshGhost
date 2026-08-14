@@ -2,6 +2,7 @@ package core
 
 import (
 	"encoding/json"
+	"math"
 	"net"
 	"strings"
 	"sync"
@@ -1052,24 +1053,63 @@ func TestSecondWelcomeIgnored(t *testing.T) {
 // relay with a field over its cap is dropped rather than stored, mirroring
 // the relay's own checks — defense in depth against a hostile or
 // compromised relay, which was previously trusted completely on the
-// receive side. agent_docs/architecture.md's ADR.
+// receive side. agent_docs/architecture.md's ADR. Covers all three arms of
+// protocol.ValidateState's combined length check — only AreaID had a test
+// before this.
 func TestOversizedInboundStateFieldsDropped(t *testing.T) {
-	c := New()
-	c.playerID = "self"
-	c.roster["p2"] = struct{}{}
+	cases := map[string]protocol.State{
+		"AreaID":      {AreaID: strings.Repeat("a", protocol.MaxAreaIDLen+1), Position: []float64{1, 2}, Anim: "idle"},
+		"Anim":        {AreaID: "a", Position: []float64{1, 2}, Anim: strings.Repeat("a", protocol.MaxAnimLen+1)},
+		"Orientation": {AreaID: "a", Position: []float64{1, 2}, Anim: "idle", Orientation: json.RawMessage(`"` + strings.Repeat("a", protocol.MaxOrientationBytes+1) + `"`)},
+	}
+	for name, st := range cases {
+		t.Run(name, func(t *testing.T) {
+			c := New()
+			c.playerID = "self"
+			c.roster["p2"] = struct{}{}
 
-	c.storeRemoteState(protocol.State{
-		PlayerID: "p2",
-		AreaID:   strings.Repeat("a", protocol.MaxAreaIDLen+1),
-		Position: []float64{1, 2},
-		Anim:     "idle",
-	})
+			st.PlayerID = "p2"
+			c.storeRemoteState(st)
 
-	c.mu.Lock()
-	_, exists := c.remotes["p2"]
-	c.mu.Unlock()
-	if exists {
-		t.Fatal("oversized AreaID was accepted instead of dropped")
+			c.mu.Lock()
+			_, exists := c.remotes["p2"]
+			c.mu.Unlock()
+			if exists {
+				t.Fatalf("oversized %s was accepted instead of dropped", name)
+			}
+		})
+	}
+}
+
+// TestNonFiniteInboundPositionDropped confirms a State arriving from the
+// relay with a non-finite position component (NaN, +Inf, or a magnitude
+// past MaxPositionComponent) is dropped rather than stored —
+// protocol.IsValidPosition/ValidateState had no test anywhere before this,
+// despite being the newest limit added. A syntactically valid JSON number
+// like 1e308 survives []float64 unmarshaling and becomes +Inf the moment an
+// adapter narrows it to float32.
+func TestNonFiniteInboundPositionDropped(t *testing.T) {
+	cases := map[string][]float64{
+		"NaN":            {math.NaN(), 0},
+		"+Inf":           {math.Inf(1), 0},
+		"-Inf":           {math.Inf(-1), 0},
+		"past max bound": {protocol.MaxPositionComponent + 1, 0},
+	}
+	for name, pos := range cases {
+		t.Run(name, func(t *testing.T) {
+			c := New()
+			c.playerID = "self"
+			c.roster["p2"] = struct{}{}
+
+			c.storeRemoteState(protocol.State{PlayerID: "p2", AreaID: "a", Position: pos, Anim: "idle"})
+
+			c.mu.Lock()
+			_, exists := c.remotes["p2"]
+			c.mu.Unlock()
+			if exists {
+				t.Fatalf("non-finite position (%s) was accepted instead of dropped", name)
+			}
+		})
 	}
 }
 

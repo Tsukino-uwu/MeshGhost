@@ -353,7 +353,7 @@ Format: Date / Decision / Status / Context / Options considered / Resolution / C
   `Hello`, never inspected, same as `area_id`/`anim` (`CLAUDE.md`). `cmd/meshghost`'s `-game`
   flag (and the config file's `"game"` field) still work exactly as before when set — this is
   additive, not a removal, since dev/testing tooling with no real adapter attached
-  (`dev-scripts/run-core.bat`, `cmd/meshghost-fakeadapter`) has no `hello` to wait for. A
+  (`dev-scripts/run-core-*.bat`, `cmd/meshghost-fakeadapter`) has no `hello` to wait for. A
   single `Core` still serves exactly one game per process: a `hello` for a different `game_id`
   than the one already connected is refused, not treated as a game switch.
 - **Consequences:** `packaging/release/config.json` drops `"game"` entirely — the shipped

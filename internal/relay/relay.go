@@ -1,6 +1,8 @@
-// Package relay is the game-agnostic server: it forwards protocol.State (and
-// later, protocol.Event) messages between clients in a room, partitioned by
-// game_id, and never runs or touches a game. It never imports internal/core
+// Package relay is the game-agnostic server: it forwards protocol.State
+// messages between clients in a room, partitioned by game_id, and never
+// runs or touches a game. protocol.Event is reserved for a future addressed
+// event plane (agent_docs/contract.md's Extensibility section) but has no
+// routing here yet. It never imports internal/core
 // or internal/bridge — the relay must stay ignorant of adapter-side
 // concerns, the same way it's ignorant of games.
 package relay
@@ -85,9 +87,11 @@ func (r *Room) Forward(msg protocol.Envelope, to []string) {
 	}
 }
 
-// tryAdd adds c to the room. Capacity is enforced server-wide, not per
-// room (see Server.tryReserveSlot) — a caller only reaches this after
-// already reserving a slot, so this cannot fail.
+// tryAdd adds c to the room. Test-only: production joins go through
+// tryAddAndSnapshotRoster below, which combines the add with a roster
+// snapshot under one critical section (see its own doc comment for why
+// that combination matters). Kept as a smaller building block for tests
+// that don't need the snapshot.
 func (r *Room) tryAdd(c *Client) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -554,31 +558,12 @@ func (s *Server) handleConn(conn net.Conn) {
 			if err := json.Unmarshal(env.Payload, &st); err != nil {
 				return
 			}
-			// Size limits (agent_docs/contract.md) — drop rather than
-			// truncate, so a client sees silence instead of a
-			// half-forwarded, confusing state.
-			if len(st.Position) > protocol.MaxPositionLen {
-				return
-			}
-			if len(st.Extras) > 0 {
-				extrasBytes, err := json.Marshal(st.Extras)
-				if err != nil || len(extrasBytes) > protocol.MaxExtrasBytes {
-					return
-				}
-			}
-			// AreaID/Anim/Orientation were previously unbounded — found
-			// while auditing for malicious-peer hardening alongside
-			// room-code auth. agent_docs/architecture.md's ADR.
-			if len(st.AreaID) > protocol.MaxAreaIDLen || len(st.Anim) > protocol.MaxAnimLen ||
-				len(st.Orientation) > protocol.MaxOrientationBytes {
-				return
-			}
-			// A syntactically valid JSON number like 1e308 survives
-			// []float64 unmarshaling and becomes +Inf the moment an
-			// adapter narrows it to float32 — found in a review pass;
-			// nothing anywhere checked this before. See
-			// protocol.IsValidPosition's doc comment.
-			if !protocol.IsValidPosition(st.Position) {
+			// Size/length/finiteness limits (agent_docs/contract.md) — drop
+			// rather than truncate, so a client sees silence instead of a
+			// half-forwarded, confusing state. protocol.ValidateState is
+			// shared with internal/core so both enforcement points can't
+			// silently drift apart.
+			if !protocol.ValidateState(st) {
 				return
 			}
 			// player_id is stamped server-side from the connection's own

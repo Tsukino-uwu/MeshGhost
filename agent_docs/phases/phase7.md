@@ -1,6 +1,7 @@
 # Phase 7 — Third game (Pseudoregalia)
 
-**Status: in progress**, started 2026-08-12. Per `agent_docs/README.md`'s convention: a phase
+**Status: 7.0-7.6 done, 7.7 (real two-player test) not started**, started 2026-08-12. Per
+`agent_docs/README.md`'s convention: a phase
 earns a file when it's live, folded back into `agent_docs/plans.md` once done. Kept here for
 the task-by-task record.
 
@@ -1205,7 +1206,7 @@ GBA memory). Started early relative to Phase 6's own two-player milestone (6.6) 
       necessarily the active camera view target, a distinct concept in UE. **Fixed**: added
       `controller:SetViewTargetWithBlend(pawn, 0)` right after `Possess()`, grounded via `gh
       api search/code` (218 hits). Not yet retested live.
-- [ ] 7.5 — Port 7.1's real local-state read (not just Stage 3's hardcoded dummy frame) and
+- [x] 7.5 — Port 7.1's real local-state read (not just Stage 3's hardcoded dummy frame) and
       7.3's field decisions into a persistent, per-frame Lua bridge client — a `RegisterHook`-
       or engine-tick-driven loop, not a one-shot script like Stages 1-3, non-blocking connect
       with retry (Stage 3 used a blocking connect+timeout, fine for a one-shot probe, not for
@@ -1292,7 +1293,7 @@ GBA memory). Started early relative to Phase 6's own two-player milestone (6.6) 
       attempted yet: hunt for an alternate prebuilt `socket-windows-5-4.dll`/`lua54.dll` build that
       might not hit this exact ABI mismatch; or the C++/UEPseudo path from 7.2, still blocked on
       the same private-submodule access. See `agent_docs/risks.md`.
-- [ ] 7.6 — Real character-visual ghost: duplicate the player's skeletal mesh actor with
+- [x] 7.6 — Real character-visual ghost: duplicate the player's skeletal mesh actor with
       collision/input/gameplay stripped, driven by the wire `anim` tag. Flagged in `risks.md`
       as likely the hardest task in the phase — UE5 has no direct equivalent of Unity's
       `Animator.Play(clipName)` on a cloned actor.
@@ -1644,10 +1645,14 @@ GBA memory). Started early relative to Phase 6's own two-player milestone (6.6) 
 
 - `adapters/pseudoregalia/README.md` updated 2026-08-12 with the confirmed tooling facts and
   the Lua-probe/C++-adapter decision.
-- Inherited, not fixed in this phase: cross-area filtering is genuinely unbuilt in
-  `internal/core` (sends every known remote regardless of `area_id`), and there's no
-  peer game-version check in `hello` — both apply to Pseudoregalia the same way they already
-  apply to TEVI (`agent_docs/risks.md`).
+- **Both since shipped, game-agnostically in `internal/core`, so they now apply to Pseudoregalia
+  the same way they already do to TEVI/Emerald**: cross-area filtering (`Core.remoteStatesAt`
+  now filters by `area_id` equality — 2026-08-13 ADR in `architecture.md`, built as part of
+  TEVI's Phase 6.6) and a peer game-version check (`hello` carries an optional `game_version`,
+  sticky per room — 2026-08-14 room-code/version ADR, see `agent_docs/plans.md`'s "Room codes /
+  relay safety" section). Neither was re-verified specifically against a live Pseudoregalia
+  session (that needs 7.7's real second player), but both are the same core-level code path
+  already confirmed live for TEVI, not something Pseudoregalia-specific left undone.
 - Environment drift is now a live, observed risk for this phase specifically (see the
   mid-task UE4SS version correction above) — re-check `environment.md`'s UE4SS version at the
   start of any future session before resuming, rather than trusting the last recorded value.

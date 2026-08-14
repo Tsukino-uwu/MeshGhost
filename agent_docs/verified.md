@@ -2512,3 +2512,38 @@ Copy this block per fact:
   `cmd/meshghost`, `dev-scripts/run-core-*.bat` defaults changed to instant-for-local-testing)
   is design/config work, not a runtime fact, so it isn't a `verified.md` entry on its own --
   see `dev-scripts/README.md` and `internal/core/core.go`'s `MinSendInterval` for that half.
+
+### Post-sweep regression check across all three games, confirmed live -- and TEVI's loopback offset found too small
+
+- Date: 2026-08-15
+- Observed: after a full project fact-check/refactor sweep (Go dedup, dead-code removal in the
+  Pseudoregalia C++ mod, doc restructure, `game_version` bumps on Emerald/TEVI/Pseudoregalia,
+  both rebuilt DLLs deployed to their live game installs), the user ran a real loopback pass
+  across all three games to confirm nothing broke. **Emerald**: confirmed working via loopback
+  against both a vanilla ROM and an Archipelago-patched one. **Pseudoregalia**: confirmed
+  working, ghost correctly placed to the side (the existing `LOOPBACK_GHOST_OFFSET_X` = 150.0
+  offset, unchanged by this sweep, still reads correctly). **TEVI**: confirmed still functionally
+  working (no regression), but the loopback ghost rendered basically on top of the real player,
+  not offset to the side -- the existing `loopbackOffsetX` = 2.0f magnitude
+  (`adapters/tevi/MeshGhostTevi/Plugin.cs`, added 2026-08-14 and explicitly flagged
+  "UNVERIFIED MAGNITUDE... a guess, not yet confirmed on screen" at the time) is now confirmed
+  too small in TEVI's own world-unit scale. Fixed same-day: replaced with 80f (X axis only),
+  matching the magnitude of the pre-6.6 magenta-placeholder-box offset
+  (`RemoteVisualTestOffset = new Vector3(-80f, 0f, 0f)`, removed in the real Phase 6.6
+  two-player test -- see `agent_docs/phases/phase6.md`), a value already known to read clearly
+  on screen in this exact game. Rebuilt (0 errors), deployed to both the Steam install and the
+  standalone `C:\dev\tevi-14778703` build, hash-diff-confirmed. **80f confirmed on screen the
+  same day** -- user provided a screenshot: player and ghost side by side (ghost to the right),
+  correctly separated, still fairly close together. **Doubled to 160f same day, at the user's
+  explicit direction that this step is considered confirmed/tested alongside the 80f
+  screenshot, without watching 160f itself live** -- a linear doubling of an offset already
+  watched rendering correctly on the same axis and render path, not a fresh, unverified guess.
+  Rebuilt again (0 errors), redeployed to both installs, hash-diff-confirmed.
+- Source: `adapters/tevi/MeshGhostTevi/Plugin.cs`'s `loopbackOffsetX`; the superseded
+  `RemoteVisualTestOffset` value cited from `agent_docs/phases/phase6.md`'s 6.6 entry (git
+  history: commit `bc642e4`).
+- Notes: this closes the "UNVERIFIED MAGNITUDE" flag TEVI's loopback offset carried since
+  2026-08-14 -- not by fresh measurement, but by reusing a distance this exact codebase had
+  already separately confirmed worked, the same reasoning Pseudoregalia's own loopback offset
+  used when it borrowed its 150.0-unit magnitude from an earlier diagnostic. Current shipped
+  value is 160f, user-confirmed sufficient without a second live round.

@@ -17,11 +17,11 @@
 -- since this probe only needs to show callback2 LEAVING CB2_Overworld, not the specific
 -- battle callback it moves to.
 --
--- NOT YET CONFIRMED: whether the live value includes the Thumb bit (GBA Thumb function
--- pointers are conventionally stored with the low bit set, i.e. 0x08085E5D not 0x08085E5C,
--- to signal Thumb-mode execution to BX) -- that is exactly what this probe is for. Printing
--- the raw hex value lets it be compared by eye against both possibilities rather than
--- guessing which one the check should use.
+-- Thumb bit: resolved. Rather than pin this down from this probe's own printed hex (never
+-- actually forced live here), the shipped adapter (meshghost_emerald.lua:127) simply checks
+-- both possibilities -- callback2 == CB2_OVERWORLD_ADDR or callback2 == CB2_OVERWORLD_ADDR + 1
+-- -- since either reading correctly identifies "not in battle" and getting it wrong the other
+-- way (rejecting a real overworld read) was the only failure mode worth guarding against.
 
 local GMAIN_CALLBACK2_ADDR = 0x030022c4
 local CB2_OVERWORLD_ADDR = 0x08085e5c

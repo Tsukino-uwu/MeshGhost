@@ -28,7 +28,8 @@ root) — each script references them as `..\<name>.exe`.
   defaulting to 7778 to match instance 1). Exist specifically because launching EmuHawk
   directly (double-click, no env var) silently defaults both instances to the same bridge
   port with no error — found live 2026-08-14, cost a full debugging session to diagnose (see
-  `agent_docs/phases/phase4.md`'s real-two-peer-retest entry). Recreate these two files
+  `agent_docs/phases/phase8.md`'s "Real non-loopback two-peer test" entry). Recreate these two
+  files
   yourself (they're gitignored, not shipped) if starting fresh on a new machine — see
   `agent_docs/environment.md` for the real `EmuHawk.exe`/ROM paths to put in them.
 

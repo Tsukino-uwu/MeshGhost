@@ -147,7 +147,7 @@ jobs:
 
           $submoduleCommit = git -C adapters\pseudoregalia\MeshGhostPseudo\RE-UE4SS rev-parse HEAD
           if ($builtFrom -notmatch "(?im)^re-ue4ss-submodule-commit:\s*$submoduleCommit\s*$") {
-            Write-Host "::error::RE-UE4SS submodule pin ($submoduleCommit) does not match ue4ss-runtime/built-from.txt -- the submodule pin moved since the runtime was staged"
+            Write-Host "::error::RE-UE4SS submodule pin ($submoduleCommit) does not match ue4ss-runtime-built-from.txt -- the submodule pin moved since the runtime was staged"
             $stale = $true
           }
 

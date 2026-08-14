@@ -36,7 +36,23 @@ namespace MeshGhostTevi
         // isn't guessed at here. Opaque to the core/relay, compared only by equality: it
         // catches two peers running different revisions of this adapter, the most likely
         // real source of a silent protocol mismatch.
-        public const string PluginVersion = "0.1.0";
+        // Bumped 0.1.0 -> 0.2.0 (2026-08-15): real fixes have landed since 0.1.0 (the
+        // zone-transition invisible-ghost fix, cross-area filtering, pause-map marker work --
+        // see adapters/tevi/README.md's "How this adapter was built") without the version
+        // string ever moving, which meant two peers on genuinely different revisions were
+        // both reporting the same version -- exactly the failure this field exists to catch.
+        // Deliberate breaking change: an older TEVI client's version string will no longer
+        // match a newer one's, and game_version mismatches are a hard reject at the relay.
+        public const string PluginVersion = "0.2.0";
+
+        // Gates the per-remote redraw trace in UpsertRemoteGhost (see LastDiagLogTime below):
+        // it was added to chase the 2026-08-14 zone-transition ghost-invisibility bug, which is
+        // now root-caused and fixed (see the basesprite.enabled reset in CreateRealGhostVisual).
+        // Left off by default since it fires every 2s per remote, forever -- flip to true only
+        // when actively chasing a similar live repro. Matches the flag convention already used
+        // by the other two adapters (Emerald's DIAG_STEP_CURVE/DIAG_SCREENPOS_PARTS,
+        // Pseudoregalia's ANIM_PULSE_TRACE).
+        private const bool DIAG_REDRAW_TRACE = false;
 
         // Diagnostic-only throttling. First attempt (position-change-triggered with a 0.5-unit
         // epsilon) still produced 7324 lines in one session: real per-frame movement deltas in
@@ -369,12 +385,16 @@ namespace MeshGhostTevi
             // definition -- which made it hard to visually judge ghost rendering quality against
             // the real character side by side. Nudge it sideways purely for local rendering;
             // never changes what's actually sent/received over the network (state.Position here
-            // is only ever a local render input). UNVERIFIED MAGNITUDE: unlike Pseudoregalia
-            // (which already had a cited, live-tested 150.0-unit offset from an earlier
-            // diagnostic to reuse), this codebase has no existing reference for what "a couple
-            // tiles" is in TEVI's own world-unit scale -- 2.0f is a guess, not yet confirmed on
-            // screen. Tune this value the first time it's actually used and watched live.
-            float loopbackOffsetX = playerId.EndsWith("-ghost", System.StringComparison.Ordinal) ? 2.0f : 0f;
+            // is only ever a local render input). Magnitude fixed 2026-08-15: the original 2.0f
+            // guess was live-tested and confirmed too small -- the ghost rendered basically
+            // inside the player, not visibly to the side. First replaced with 80f (X axis only,
+            // same as the original 6.3-era magenta-placeholder-box offset removed in 6.6, see
+            // agent_docs/phases/phase6.md's `RemoteVisualTestOffset` entry), confirmed live via
+            // screenshot -- still fairly close. Doubled to 160f same day, per explicit user
+            // direction that this next step didn't need a fresh live check: a linear doubling
+            // of an already-watched, correctly-oriented offset on the same render path, not a
+            // new guess. See agent_docs/verified.md.
+            float loopbackOffsetX = playerId.EndsWith("-ghost", System.StringComparison.Ordinal) ? 160f : 0f;
             visual.Go.transform.position = new Vector3(state.Position[0] + loopbackOffsetX, state.Position[1], 0f)
                 + visual.AnchorOffset;
 
@@ -382,7 +402,7 @@ namespace MeshGhostTevi
             // 2026-08-14 zone-transition bug shows the ghost's actual ongoing position/
             // active-state/scene over time, in case it silently drifts wrong or gets
             // deactivated sometime after the creation log line rather than at creation itself.
-            if (Time.time - visual.LastDiagLogTime >= 2f)
+            if (DIAG_REDRAW_TRACE && Time.time - visual.LastDiagLogTime >= 2f)
             {
                 visual.LastDiagLogTime = Time.time;
                 Logger.LogInfo($"MeshGhost: remote {playerId} redraw: pos={visual.Go.transform.position} "

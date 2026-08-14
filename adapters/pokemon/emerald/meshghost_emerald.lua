@@ -1,11 +1,13 @@
 -- This is the real, actively-maintained Emerald adapter -- what actually ships (see
 -- packaging/README.md and .github/workflows/release.yml, which stage this file as
 -- games/pokemon/emerald/meshghost_emerald.lua in the release zip) and what any future fix or
--- feature for this game should be made in. A byte-identical copy is frozen at
--- adapters/pokemon/emerald/phase5_5_sprite.lua under its original development-phase name for
--- historical reference (renamed here 2026-08-14 once the adapter had been the stable, shipped
--- one for a while and "phase5_5_sprite" no longer read as the current, final adapter it
--- actually was) -- edit only this file, not that one, going forward.
+-- feature for this game should be made in. adapters/pokemon/emerald/phase5_5_sprite.lua was a
+-- byte-identical copy of this file at the moment it was renamed here from that original
+-- development-phase name (2026-08-14, once this had been the stable, shipped adapter for a
+-- while and "phase5_5_sprite" no longer read as the current, final one it actually was) --
+-- it has since diverged (every fix and feature below this point in the history was made only
+-- here) and is kept purely as a historical snapshot, not a live mirror -- edit only this file,
+-- not that one, going forward.
 --
 -- Otherwise unchanged from its original Phase 5.5 content: real Brendan/May ghost sprite
 -- instead of the magenta placeholder box. Same adapter <-> bridge <-> core round trip as
@@ -57,9 +59,9 @@
 -- existed because the 16x16 placeholder box was one tile shorter than a real 16x32 overworld
 -- sprite, so it needed shifting down to align with the character's feet. This script draws a
 -- real 16x32 sprite (same dimensions as the local player's own, which playerScreenPos()'s
--- formula already correctly anchors by top-left corner) -- so no analogous correction should
--- be needed here. NOT YET CONFIRMED ON SCREEN -- this is exactly what the Step 3 live test
--- checks (does the ghost's feet land on the right tile with no offset hack).
+-- formula already correctly anchors by top-left corner) -- so no analogous correction is
+-- needed here. Confirmed on screen live with two real peers, no offset hack required -- see
+-- agent_docs/verified.md's "Phase 5.5 Step 3" entry.
 
 local GSAVEBLOCK1PTR_ADDR = 0x03005d8c
 -- gSaveBlock2Ptr = 0x03005D90 (pointer, right next to gSaveBlock1Ptr at 0x03005D8C --
@@ -144,8 +146,16 @@ local GAME_ID = "emerald"
 -- CLAUDE.md's "no addresses from memory" rule means one isn't guessed at here.
 -- Opaque to the core/relay, compared only by equality: it catches two peers
 -- running different revisions of this adapter script, the most likely real
--- source of a silent protocol mismatch.
-local ADAPTER_VERSION = "phase5.5"
+-- source of a silent protocol mismatch. Bumped from "phase5.5" (2026-08-15,
+-- full project sweep): the script has had several substantive rounds of real
+-- fixes since Phase 5.5 shipped (Archipelago address auto-detection, gender-
+-- read timing, the sub-tile smoothing rewrite, the loopback ghost offset) with
+-- the version string never bumped to match — exactly the silent-mismatch
+-- failure this field exists to catch. This is a deliberate breaking change: an
+-- older client reporting "phase5.5" is now refused a room started by a
+-- "phase8" client, and vice versa, rather than silently interoperating with
+-- unverified-compatible code on the other end.
+local ADAPTER_VERSION = "phase8"
 
 local FACING = { [1] = "south", [2] = "north", [3] = "west", [4] = "east" }
 
@@ -926,7 +936,7 @@ end
 
 ----------------------------------------------------------------------------
 -- Drawing. See the header for the placement-formula change from
--- phase4_multiplayer.lua (no GHOST_Y_CORRECTION -- not yet confirmed).
+-- phase4_multiplayer.lua (no GHOST_Y_CORRECTION needed -- confirmed live).
 ----------------------------------------------------------------------------
 
 -- advanceAnim steps a remote's walk/run animation forward by one frame (called once per emu

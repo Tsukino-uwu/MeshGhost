@@ -8,11 +8,34 @@ and gets folded back once it's done. Phase 4 (two players) is also complete — 
 ## Purpose
 
 Connect the two halves that have never met: the Go networking layer (`internal/transport`,
-`internal/relay`, `internal/core`, `internal/bridge` — built and tested ahead of schedule, see
-`agent_docs/status.md`) and a real BizHawk Lua adapter. Visible outcome: a ghost follows the
-player around Littleroot Town roughly a fifth of a second behind, having made the full round
-trip Lua → bridge → core → relay → core → bridge → Lua. This is also the phase where
-`agent_docs/contract.md`'s "Limits" section becomes enforced rather than just documented.
+`internal/relay`, `internal/core`, `internal/bridge` — built and tested ahead of the BizHawk
+blocker, see "Go networking layer" below) and a real BizHawk Lua adapter. Visible outcome: a
+ghost follows the player around Littleroot Town roughly a fifth of a second behind, having made
+the full round trip Lua → bridge → core → relay → core → bridge → Lua. This is also the phase
+where `agent_docs/contract.md`'s "Limits" section becomes enforced rather than just documented.
+
+## Go networking layer (built 2026-08-11, ahead of the BizHawk blocker)
+
+Built and tested before any real BizHawk adapter existed, since it doesn't require a game or
+emulator:
+
+- `internal/transport` — real NDJSON-over-TCP framing (`Dial`/`FromConn`, `Send`, lifecycle
+  callbacks). 3 tests.
+- `internal/relay` — a real `Server`: hello/welcome handshake, room/roster tracking, forwards
+  `state` to the rest of a room, broadcasts `join`/`leave`, rejects a mismatched `game_id` per
+  room. `cmd/meshghost-relay` runs it. 4 tests.
+- `internal/bridge` — added envelope framing so `local_state`/`render_remote`/
+  `despawn_remote` are distinguishable on the wire (was missing from the Phase 0 skeleton).
+- `internal/core` — a real `Core`: relay handshake, per-remote interpolation buffer (linear
+  position lerp, opaque fields held from the older sample, clamped at buffer edges — no
+  extrapolation), and a bridge listener where each adapter frame call triggers forwarding
+  local state out and pushing interpolated `render_remote`/`despawn_remote` back. `cmd/
+  meshghost` runs it. 9 tests.
+- Verified beyond `go test`: built both binaries, ran a real relay + two real core processes,
+  and drove one over a raw TCP socket standing in for an adapter — confirmed `render_remote`
+  arrived at the other side with correct data. This was not itself a Phase 3 completion (a real
+  adapter and an on-screen ghost were still needed — that's the rest of this phase) but it was
+  real evidence the plumbing worked end-to-end before any Lua code existed.
 
 ## Decisions made this phase (see `agent_docs/architecture.md` for the full ADR)
 

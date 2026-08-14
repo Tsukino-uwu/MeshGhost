@@ -18,7 +18,10 @@ not "am I hosting or joining."
 One zip fixes that at the source — there's no second file to pick wrong. `client`/`server`
 sections in one `config.json`, `meshghost.exe`/`meshghost-server.exe` side by side, and
 `games/<publisher>/<game>/` mirroring `adapters/` so a second game adds a folder inside the
-same zip, not a new release asset to explain. See `packaging/release/` for the actual layout.
+same zip, not a new release asset to explain. (In practice only Emerald has a `<publisher>`
+subfolder — `games/pokemon/emerald/` — since "emerald" alone isn't a unique-enough folder name
+the way "tevi" and "pseudoregalia" already are; TEVI and Pseudoregalia sit directly under
+`games/`.) See `packaging/release/` for the actual layout.
 
 ## No launcher `.bat` files
 
@@ -122,11 +125,13 @@ than the source that's supposed to have produced it. Whoever edits the TEVI adap
 `build-tevi.bat` and commits the result as part of that change.
 
 TEVI ships marked experimental (see `packaging/release/README.txt` and
-`packaging/release/games/tevi/README.txt`): the mod is code-complete but has never been tested
-against a second real player (Steam won't run two TEVI instances on one machine, so this
-release *is* the way that finally gets tested — see
-[agent_docs/phases/phase6.md](../agent_docs/phases/phase6.md)'s 6.6). Cut
-this kind of release with the `prerelease` checkbox ticked (below).
+`packaging/release/games/tevi/README.txt`): the mod is code-complete and **has since been
+confirmed working with two real players** (a standalone second TEVI build unblocked local
+dual-instance testing, since Steam won't run two TEVI instances on one machine otherwise — see
+[agent_docs/phases/phase6.md](../agent_docs/phases/phase6.md)'s 6.6). Still marked experimental
+because it hasn't been confirmed over a real network between two separate machines yet, only
+two local instances on one machine. Cut this kind of release with the `prerelease` checkbox
+ticked (below).
 
 ## Pseudoregalia: another committed build output, and a committed runtime
 
@@ -160,9 +165,10 @@ bumps the RE-UE4SS submodule pin re-runs the relevant script and commits the res
 
 Manual only, deliberately — nothing publishes on its own just from pushing a commit or tag.
 On GitHub: repo → **Actions** tab → **Release** workflow → **Run workflow** → type a version
-(e.g. `v0.1.0`), tick **prerelease** if this cut includes untested content (e.g. TEVI before
-its first real two-player test) → run. It builds both `.exe`s for Windows/amd64 (the only
+(e.g. `v0.1.0`), tick **prerelease** if this cut includes untested content (e.g. Pseudoregalia
+before its first real two-player test) → run. It builds both `.exe`s for Windows/amd64 (the only
 platform BizHawk's LuaSocket vendoring currently supports, per
-[agent_docs/licensing.md](../agent_docs/licensing.md)), verifies the committed TEVI plugin
-isn't stale, assembles the one zip, creates the tag if it
-doesn't already exist, and attaches the zip to a new GitHub Release.
+[agent_docs/licensing.md](../agent_docs/licensing.md)), verifies three committed build outputs
+aren't stale (the TEVI plugin, the Pseudoregalia plugin, and the bundled UE4SS runtime — each
+gated on its own `built-from.txt`-style hash record), assembles the one zip, creates the tag if
+it doesn't already exist, and attaches the zip to a new GitHub Release.

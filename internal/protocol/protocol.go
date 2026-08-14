@@ -20,9 +20,12 @@ const Version = 1
 type State struct {
 	PlayerID string `json:"player_id"`
 	Seq      uint64 `json:"seq"`
-	// Timestamp is milliseconds, consistent per client. See contract.md's
-	// open question on whether this is wall-clock or client-relative —
-	// unresolved until Phase 1.
+	// Timestamp is milliseconds, wall-clock (time.Now().UnixMilli() on
+	// whichever side stamps it) — resolved in contract.md's packet-schema
+	// table. Peers' wall clocks must actually agree, not just be internally
+	// consistent; meaningful clock skew silently falls back to an edge
+	// snapshot every tick rather than failing loudly (see
+	// internal/core/interp.go's remoteBuffer.at()).
 	Timestamp int64 `json:"timestamp"`
 	// AreaID is opaque. Compare by equality only; never branch on contents
 	// outside the adapter that produced it.

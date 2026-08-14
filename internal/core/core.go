@@ -70,8 +70,9 @@ func IsPermanentRejectErr(err error) bool {
 
 // DefaultInterpolationDelay is how far behind the most recent samples the
 // core renders remotes by default, to smooth over network jitter. The
-// brief's "10Hz sync looks fine" is a hypothesis, not yet confirmed against
-// a running game — see the open question in agent_docs/contract.md. 100ms
+// brief's "10Hz sync looks fine" was the original hypothesis; the actual
+// send rate (DefaultMinSendInterval, 20Hz) has since been live-confirmed
+// across three games, see agent_docs/contract.md's Limits section. 100ms
 // is a starting guess for tile-grid movement, not a measured value.
 // Overridable per-Core (see Core.InterpolationDelay) — Phase 3's loopback
 // test runs ~200ms so the trailing ghost is plainly visible on screen.
@@ -111,8 +112,8 @@ const DefaultHeartbeatInterval = 20 * time.Second
 const DefaultDialTimeout = transport.DefaultDialTimeout
 
 // Adapter is an in-process Go interface used only by the Phase 5 fake/test
-// adapter (one that moves a ghost in a circle, per agent_docs/phases —
-// created when that phase starts) and any future in-process host. Real
+// adapter (cmd/meshghost-fakeadapter, a ghost that moves in a circle — see
+// agent_docs/phases/phase5.md) and any future in-process host. Real
 // adapters — BizHawk Lua today, anything else later — never implement this
 // interface; they speak the internal/bridge wire protocol instead. This
 // interface exists purely so Phase 5 can prove the core has no game-specific
@@ -224,8 +225,8 @@ type Core struct {
 	// Core has decided isn't worth retrying (see isPermanentRejectReason).
 	// Checked before dialing in ConnectRelayOnAdapterHello so a retrying
 	// adapter (reconnecting to the bridge every couple of seconds, per
-	// PROTOCOL.md's "non-blocking, retry next frame on failure" rule)
-	// doesn't keep hammering the relay with an identical, hopeless
+	// adapters/_template/PROTOCOL.md's "non-blocking, retry next frame on
+	// failure" rule) doesn't keep hammering the relay with an identical, hopeless
 	// connection attempt. Cleared implicitly on process restart — nothing
 	// else resets it, since nothing about a running process's own Hello
 	// values can change on their own.
@@ -643,27 +644,11 @@ func (c *Core) storeRemoteState(st protocol.State) {
 	if st.PlayerID == "" {
 		return
 	}
-	// Size/length caps mirror the relay's own checks (internal/relay),
-	// applied here too since a hostile or compromised relay was previously
-	// trusted completely. See the ADR in agent_docs/architecture.md.
-	if len(st.Position) > protocol.MaxPositionLen {
-		return
-	}
-	if len(st.Extras) > 0 {
-		extrasBytes, err := json.Marshal(st.Extras)
-		if err != nil || len(extrasBytes) > protocol.MaxExtrasBytes {
-			return
-		}
-	}
-	if len(st.AreaID) > protocol.MaxAreaIDLen || len(st.Anim) > protocol.MaxAnimLen ||
-		len(st.Orientation) > protocol.MaxOrientationBytes {
-		return
-	}
-	// A syntactically valid JSON number like 1e308 survives []float64
-	// unmarshaling and becomes +Inf the moment an adapter narrows it to
-	// float32 — found in a review pass; nothing anywhere checked this
-	// before. See protocol.IsValidPosition's doc comment.
-	if !protocol.IsValidPosition(st.Position) {
+	// Size/length/finiteness caps mirror the relay's own checks
+	// (internal/relay) via the shared protocol.ValidateState, applied here
+	// too since a hostile or compromised relay was previously trusted
+	// completely. See the ADR in agent_docs/architecture.md.
+	if !protocol.ValidateState(st) {
 		return
 	}
 
@@ -805,8 +790,8 @@ func (c *Core) handleBridgeConn(netConn net.Conn) {
 				// Already logged, with dedup, inside
 				// ConnectRelayOnAdapterHello — just close this bridge
 				// connection so the adapter's own reconnect loop tries
-				// again later, per PROTOCOL.md's "non-blocking, retry
-				// next frame on failure".
+				// again later, per adapters/_template/PROTOCOL.md's
+				// "non-blocking, retry next frame on failure".
 				_ = nd.Close()
 			}
 		case bridge.TypeLocalState:

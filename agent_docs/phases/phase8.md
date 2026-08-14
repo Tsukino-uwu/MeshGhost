@@ -32,7 +32,13 @@ file of its own, which is what was happening before this file existed.
       directly skips `MESHGHOST_BRIDGE_PORT`, so a second instance silently shares the first
       core's bridge) rather than a code bug — see `agent_docs/pitfalls.md`'s "Running two
       instances of the same emulator/game silently collide on a shared default port". See
-      `agent_docs/verified.md`'s "Real two-peer Emerald test, non-loopback" entry.
+      `agent_docs/verified.md`'s "Real two-peer Emerald test, non-loopback" entry. Also cleaned up
+      `dev-scripts/`: removed the tracked `run-bizhawk1.bat`/`run-bizhawk2.bat` (couldn't ship real
+      personal EmuHawk/ROM paths in a public repo) and the redundant `run-core.bat`, renamed
+      `run-core1.bat`/`run-core2.bat` to `run-core-emerald.bat`/`run-core-emerald2.bat` for
+      consistency with the TEVI/Pseudoregalia naming, and added two gitignored `.local.bat`
+      BizHawk launchers (real paths, set the bridge port explicitly) so this exact mistake can't
+      recur silently.
 - [x] **Archipelago ROM compatibility investigation** — this adapter had only ever been
       verified against a vanilla ROM; a real Archipelago-patched ROM broke it in four distinct,
       separately-found-and-fixed ways, all confirmed live and cited to the exact ROM-diff/
@@ -78,6 +84,100 @@ file of its own, which is what was happening before this file existed.
       from discrete, throttled position samples" entry for the full three-attempt history.
 - [x] **Loopback ghost offset/exact-trail modes**, generalized to TEVI and Pseudoregalia's own
       remote-ghost placement the same day — see each adapter's own README/pitfalls entries.
+- [x] **Relay-safety hardening pass (2026-08-14)** — set as the next priority once TEVI's 6.6/6.7
+      wrapped up; not Emerald-specific, but logged here per this file's role as the home for
+      cross-cutting infrastructure work done during Phase 8. Full record: the ADR in
+      `agent_docs/architecture.md` (search "room-code/version ADR"), `internal/README.md`'s "What
+      changed" section, and `agent_docs/plans.md`'s "Room codes / relay safety" section. Short
+      version:
+      - **Room-code auth**: `hello` carries an optional `room_code`, constant-time-checked
+        against the relay's own configured `Server.RoomCode`; empty (still the default) means
+        auth stays off. A refused `hello` (bad version, wrong code, game/version mismatch, full
+        room) now gets a `reject` message with a reason before the connection closes, instead of
+        a bare hangup.
+      - **Peer game-version check**: `hello` carries an optional `game_version`, sticky per room
+        the same way `game_id` already is. Each shipped adapter reports its own adapter/mod
+        version (Emerald `"phase5.5"`, TEVI's BepInEx `PluginVersion`, Pseudoregalia `"phase7.6"`)
+        — not a real game/DLC build number, since no cited memory address exists for one in any
+        of the three games. Real gap this still leaves open for TEVI specifically: two peers on
+        different Steam patch levels or DLC states still aren't caught — see `risks.md`.
+      - **Malicious-peer hardening**: a real remote-OOM in `internal/transport` (unbounded read
+        buffer, fixed via `bufio.Scanner` with a real max-token-size enforced during the read),
+        read/write deadlines and a relay hello-timeout (none existed before), `Room.Forward` no
+        longer holding its lock across a potentially-blocking `Send`, and `internal/core` keeping
+        its own roster (from `welcome`/`join`/`leave`) and dropping `state` for any `player_id` it
+        never saw announced. New size/length caps on `orientation`, `area_id`, `anim`, and every
+        `hello` string field.
+      - **Live-confirmed**, not just `go test`: real relay + real client through the actual
+        shipped `packaging/release/config.json`, correct-code accept and wrong-code reject both
+        confirmed via each process's own log output — see `verified.md`.
+      - **Explicit limits recorded, not glossed over**: no TLS (`risks.md`) — a room code crosses
+        the wire in plaintext. And a stale (pre-2026-08-14) relay binary silently provides zero
+        protection regardless of what a client sends — `packaging/README.md`/
+        `packaging/release/README.txt` say plainly that room-code auth needs the relay itself to
+        be current.
+      - **Same-day follow-up, from user questions**: a rejection previously reached nobody but the
+        client's own log — the relay now logs join/leave/reject; `internal/core` logs a connect
+        failure once per distinct message, not once per retry. `cmd/meshghost`'s eager `-game`
+        path no longer crashes via `log.Fatalf` on the first failed dial — it retries with backoff
+        (1s→15s) instead, routed through `ConnectRelayOnAdapterHello`/`relayConnectMu` so a real
+        adapter connecting concurrently can't race it into a duplicate dial. A genuinely permanent
+        rejection (wrong code, version mismatch) still exits loudly. **Confirmed live**: real
+        `meshghost.exe` started before any relay existed, retried silently across ~15s of real
+        backoff, then connected the instant a real `meshghost-relay.exe` came up — see
+        `verified.md` and the ADR in `architecture.md`.
+- [x] **2026-08-14 review/refactor sweep** — a full review/refactor pass across `internal/`,
+      `cmd/`, and all three adapters. See the ADR in `architecture.md` (search "same-day
+      review/refactor sweep") for the four original behavior-changing decisions and the full fix
+      list, plus a follow-up ADR (search "found during live testing of the sweep above") for a
+      relay-auto-reconnect gap found live. `pitfalls.md` has the partial-send/receive NDJSON-
+      framing pattern found independently in Emerald's Lua and Pseudoregalia's C++, and the "move
+      offscreen, never destroy" ghost-lifecycle pitfall. The Lua/Emerald side of this sweep is its
+      own task item above; the rest:
+      - **Go (`internal/`, `cmd/`)**: all sweep fixes applied, plus a same-day follow-up fix found
+        during live testing — a relay that drops *after* a successful connect (crash, restart,
+        network blip) previously had no path back to "connected" short of a full client restart;
+        `Core` now auto-retries in the background. New regression test
+        (`TestRelayDisconnectAutoReconnects`). Live-verified via real binaries (kill relay →
+        client retries → new relay → client reconnects automatically) — see `verified.md`.
+        **Important operational note, also found live**: `meshghost.exe`/`meshghost-relay.exe`/
+        `meshghost-fakeadapter.exe` at the repo root are NOT kept fresh by `go build ./...`/
+        `go vet`/`go test` — those compile-check packages but don't overwrite the named binaries
+        `dev-scripts/*.bat` launches. Always `go build -o meshghost.exe ./cmd/meshghost` (and the
+        other two) explicitly before testing via the `.bat` files.
+      - **Pseudoregalia (C++)**: all fixes applied, rebuilt, hash-diff-confirmed deployed to both
+        the in-repo packaging copy and the live Steam install. **Live-confirmed working**: ghost
+        spawn/follow/animate, no crashes. Unrelated to this sweep, found live during the same
+        test: a possible ghost→real-player combat interaction (ghost landing hits despite
+        `GHOST_COLLISION_ENABLED = false`) — logged as a new data point on the existing
+        ghost-collision open question in `risks.md`, low priority, not yet investigated.
+      - **TEVI (C#)**: all fixes applied (stale-thread generation guard, `TcpClient` disposal,
+        real `Destroy()` on ghost/marker despawn, `OnDestroy`/`OnApplicationQuit` bridge close,
+        `room_x`/`room_y` range check, `TryGetValue` in place of unguarded `JObject` casts).
+        Rebuilt via `dev-scripts\build-tevi.bat`, deployed to both the Steam install and the
+        standalone `tevi-14778703` build, hash-diff-confirmed. Two dedicated dual-instance dev
+        scripts added: `dev-scripts\run-core-tevi.bat` (port 7778) / `run-core-tevi2.bat` (port
+        7779). **Live two-instance testing found and fixed a real bug**: a peer's ghost went
+        permanently invisible after the traveling player returned to a zone — root cause was
+        `CreateRealGhostVisual` cloning a live character's visual hierarchy mid-transition,
+        inheriting a disabled `basesprite` renderer with nothing to ever re-enable it. Fixed
+        (`basesprite.enabled` forced true on recreate) and live-confirmed. See `verified.md` and
+        `pitfalls.md`'s "Level/scene transitions invalidating cached references" entry.
+      - **Docs**: this entry, both ADRs above, and the `pitfalls.md`/
+        `adapters/_template/PROTOCOL.md` updates (Pseudoregalia added to the adapter list,
+        `extras` documented as load-bearing, `orientation` shown as opaque any-JSON, a
+        peer-controlled-data warning added, the TEVI ghost-invisibility entry) are done.
+      - **Pseudoregalia despawn-visual/area-transition live-verified, two more real bugs found and
+        fixed**: (1) closing the client left a ghost frozen/visible instead of despawning —
+        `on_update()` never detected its own bridge connection dying (same bug class as Emerald's
+        Phase 3 fix, never ported here); fixed via `release_all_ghosts_parked`, armed by a
+        connected→disconnected edge check and drained on the game thread. (2) a core with no
+        adapter attached sent nothing to the relay, hit the 60s idle timeout, and the sweep's own
+        auto-reconnect kept reconnecting it under a brand-new player id every ~60s — every peer
+        would see a leave+join/despawn-respawn cycle once a minute. Fixed via `Core.sendHeartbeats`
+        (a 20s `Ping`). Both confirmed live, `main.dll` rebuilt and hash-diff-deployed to both the
+        in-repo packaging copy and the live Steam install. See `verified.md`'s three new entries.
+      - **This closed every item from the 2026-08-14 sweep's "Not started" list.**
 - [ ] **Surf, Mach Bike, Acro Bike, ledges, and Mach Bike rail sections**: the ghost snaps badly
       on all of these today, since `getLocalState()`'s anim classification and
       `STEP_DURATION_FRAMES` only cover walking/running/idle. Real, cited detection source

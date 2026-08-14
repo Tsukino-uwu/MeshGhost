@@ -44,7 +44,9 @@ the ADR in [agent_docs/architecture.md](../agent_docs/architecture.md) (search
   actually saw announced — previously a hostile or compromised relay could inject state for an
   arbitrary id, since `welcome.roster` was discarded entirely.
 - **New size/length limits** on fields that were previously unbounded: `orientation`,
-  `area_id`, `anim`, and every `hello` string field.
+  `area_id`, `anim`, and every `hello` string field. Also new: `MaxPositionComponent`
+  (±1e7) and `protocol.IsValidPosition` — every `position` component must be finite, not
+  just under a length cap.
 - **Lifecycle logging, added same-day**: the relay's own log now records a join, a leave, and
   a refused `hello` (with reason) — previously a host had zero visibility into any of these.
   `internal/core` logs a connect failure only when the message actually changes, so a long
@@ -54,6 +56,16 @@ the ADR in [agent_docs/architecture.md](../agent_docs/architecture.md) (search
   exits loudly, but "the relay isn't up yet" now retries with backoff instead of crashing the
   whole process. Confirmed live: see
   [agent_docs/verified.md](../agent_docs/verified.md)'s "start-order independence" entry.
+- **A core-relay heartbeat, added same-day**: `Core.sendHeartbeats` sends a `ping` every
+  `DefaultHeartbeatInterval` (20s) on an otherwise-quiet connection — found live after a core
+  with no adapter attached (or one reporting no local state) sent nothing at all, got closed
+  as idle by `transport.DefaultIdleTimeout` (60s), and the auto-reconnect below handed out a
+  fresh `player_id` every cycle, which every other peer saw as a leave+join/despawn-respawn
+  once a minute. Not a liveness/RTT mechanism — just keeps the connection non-idle.
+- **Relay-disconnect auto-reconnect, added same-day**: a relay that drops *after* a
+  successful connect (crash, restart, network blip) previously had no path back to
+  "connected" short of a full client restart; `Core` now retries in the background with the
+  same backoff shape as start-order independence above.
 
 ## A new risk this creates
 
@@ -67,7 +79,7 @@ process is current. If you're hosting: update `meshghost-relay.exe`, not just th
 relying on a room code. See the ADR in
 [agent_docs/architecture.md](../agent_docs/architecture.md) for the full reasoning.
 
-## What's already true, and why (checked against the actual code, 2026-08-13)
+## What's already true, and why (checked against the actual code, 2026-08-15)
 
 **No peer-to-peer connection exists.** Clients never connect to each other — only to the
 relay (`internal/relay`), a hub, not a mesh. A client has no mechanism to learn anything about
@@ -158,10 +170,8 @@ writing any of this — findings below are cited to real files, not memory.
   `CelesteNet-TeapotVersion` header, server responds `409 Version Mismatch` on anything but an
   exact match (`HandshakerRole.cs`'s `TeapotHandshake`). We already do the direct equivalent
   for our own wire protocol (`protocol.Version`, checked in `hello` at
-  [relay.go:443](relay/relay.go#L443)) — but that only covers *our* protocol version, not each
-  adapter's underlying game version/DLC, which is the still-open "no peer game-version check"
-  gap above. Worth copying the *pattern* (reject outright at handshake, before any state
-  exchange) for that gap too, once it's designed.
+  [relay.go:489](relay/relay.go#L489)) — and, since 2026-08-14, the same reject-at-handshake
+  shape for each adapter's own `game_version` too (see "What changed" above).
 - **Unpredictable per-connection tokens** (`CelesteNet.Shared/TokenGenerator.cs`, a Galois
   LFSR) specifically prevent a third party from hijacking someone else's *UDP* connection by
   guessing or spamming its token. This defends against a UDP-specific weakness (UDP is
@@ -194,7 +204,8 @@ stalls everything queued behind it ("head-of-line blocking") until it's retransm
 when a newer position update already superseded the lost one and you just want to render the
 latest state, now. That tradeoff doesn't bite the way it would in a competitive shooter:
 
-- **Send rate is capped at 20Hz** (`Core.DefaultMinSendInterval`, `core.go`), and rendering
+- **Send rate is capped at 20Hz** (`core.DefaultMinSendInterval`, overridable per-instance via
+  `Core.MinSendInterval`, `core.go`), and rendering
   already runs `InterpolationDelay` (100ms default) behind the newest sample specifically to
   smooth network jitter. A TCP stall is at most ~50ms at this rate — invisible against delay
   we already absorb by design, not a new cost UDP would meaningfully remove.

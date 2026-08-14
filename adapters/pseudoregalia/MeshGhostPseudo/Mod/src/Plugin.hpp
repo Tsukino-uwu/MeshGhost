@@ -156,24 +156,16 @@ namespace MeshGhostPseudo
 
         auto log_remote_state(const wchar_t* context) -> void;
 
-        // User-requested 2026-08-13: isolate the render-freeze investigation from the network
-        // layer entirely -- when true, the game-thread tick (below) skips BridgeClient/core/relay
-        // completely and just hijacks one object, then repositions it to (local pawn position +
-        // a fixed offset) every tick, driven purely by local reflection reads. Removes networking
-        // as a variable; tests only whether this specific object/build can sustain per-tick
-        // repositioning indefinitely. No .bat files need to be running for this mode.
-        auto run_local_offset_test_tick() -> void;
-
         // THE fix for the render-freeze bug, found 2026-08-13: on_update() runs on UE4SS's own
         // internal polling thread (confirmed directly from UE4SS's source, UE4SSProgram.cpp:
         // ProfilerSetThreadName("UE4SS-UpdateThread"), a ~5ms std::this_thread::sleep_for loop) --
         // NOT the real Unreal game thread. Every actor write this mod ever made was happening off
         // the game thread, which explains "position reads back correctly (same-thread readback)
         // but never visually updates (never reaches the renderer's expected sync point)". This
-        // method runs all actor-touching work (hijack search/writes, redraws, bHidden toggle, and
-        // for LOCAL_OFFSET_TEST_MODE, the local pawn read too) from inside an EngineTick post-hook
-        // instead, which genuinely runs on the game thread -- the same mechanism Lua's
-        // ExecuteInGameThread(EGameThreadMethod.EngineTick) uses under the hood.
+        // method runs all actor-touching work (hijack search/writes, redraws, bHidden toggle) from
+        // inside an EngineTick post-hook instead, which genuinely runs on the game thread -- the
+        // same mechanism Lua's ExecuteInGameThread(EGameThreadMethod.EngineTick) uses under the
+        // hood.
         auto game_thread_tick() -> void;
 
         // Phase 7.6: re-opens Phase 7.4's camera bug (a StaticMeshActor never stole the camera, so
@@ -188,15 +180,6 @@ namespace MeshGhostPseudo
         // UnrealScriptFunctionCallableContext::GetParams<T>()) before the real call proceeds --
         // see its body for the full design and why this needs no second call/deferral at all.
         auto register_camera_fightback_hook() -> void;
-
-        // Read-only investigation for the "ghost doesn't animate" report: logs every reflected
-        // property (name + FField class) on the local player pawn's full class chain, once, via
-        // the real native TFieldRange<FProperty> reflection walk (not the Lua-exposed
-        // UStruct:ForEachProperty binding, which is confirmed missing on this exact installed
-        // UE4SS build -- see phase7.md's BP_PlayerCam_C investigation). Ground truth for whether
-        // a CharacterMovementComponent (or equivalent) exists and what it's actually named on
-        // this class, before writing any code that assumes it. No gameplay side effects.
-        auto log_pawn_reflection_once(RC::Unreal::AActor* pawn) -> void;
 
         // Bridge networking (on_update, UE4SS's own thread) and actor work (game_thread_tick,
         // the real game thread) now run concurrently -- this guards the state both sides touch.
@@ -241,7 +224,6 @@ namespace MeshGhostPseudo
         RC::Unreal::UFunction* svtwb_function{nullptr}; // cached "SetViewTargetWithBlend", found once
         RC::Unreal::AActor* last_known_good_view_target{nullptr};
         bool any_ghost_ever_spawned{false};
-        bool pawn_reflection_logged{false}; // set once log_pawn_reflection_once has run
 
         // Callback/hook IDs, captured so ~Plugin can unregister them explicitly on mod
         // unload/reload -- found in a review pass: previously discarded, leaving every
@@ -254,7 +236,6 @@ namespace MeshGhostPseudo
         // UFunction hook, whose own ID counter starts elsewhere and would not plausibly land on
         // a negative value.
         uint64_t load_map_pre_callback_id{0};
-        uint64_t load_map_post_callback_id{0};
         uint64_t engine_tick_post_callback_id{0};
         int32_t svtwb_hook_id{-1};
     };

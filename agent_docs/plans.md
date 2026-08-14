@@ -114,8 +114,9 @@ battle-skip gating needs a verified `pokeemerald` battle-state address. Phase 5 
 template) is also complete (2026-08-11) — the core was confirmed running standalone against an
 in-process fake adapter (a ghost walking in a circle, no game attached), and
 `adapters/_template/` is now frozen with a language-agnostic protocol stub for Phase 6 to build
-from (see `agent_docs/phases/phase5.md`). See `agent_docs/status.md` for the current one-line
-focus.
+from (see `agent_docs/phases/phase5.md`). Phases 6, 7, and 8 (TEVI, Pseudoregalia, and Emerald's
+own ongoing post-5.5 work, respectively) are covered in their own sections further down this
+file. See `agent_docs/status.md` for the current one-screen summary of active work.
 
 ## Roadmap
 
@@ -376,9 +377,9 @@ that first hello instead of requiring `-game`/`config.json`'s `"game"` up front.
 adapters updated (`adapters/pokemon/emerald/phase5_5_sprite.lua`,
 `adapters/tevi/MeshGhostTevi/BridgeClient.cs` + `Plugin.cs`, TEVI's DLL rebuilt and
 recommitted). `-game`/`"game"` still work as an explicit override — needed by
-`dev-scripts/run-core.bat` and `cmd/meshghost-fakeadapter`, which have no real adapter to send
-a hello. See `agent_docs/contract.md`'s "Connecting: the bridge hello" section for the wire
-detail.
+`dev-scripts/run-core-*.bat` (each game's dev launcher still passes it explicitly) and
+`cmd/meshghost-fakeadapter`, which has no real adapter to send a hello. See
+`agent_docs/contract.md`'s "Connecting: the bridge hello" section for the wire detail.
 
 ## Links
 
