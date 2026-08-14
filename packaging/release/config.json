@@ -4,7 +4,8 @@
     "room": "default",
     "room_code": "",
     "name": "player",
-    "local_game_bridge": "127.0.0.1:7778"
+    "local_game_bridge": "127.0.0.1:7778",
+    "interp": "100ms"
   },
   "server": {
     "listen_on": "0.0.0.0:7777",

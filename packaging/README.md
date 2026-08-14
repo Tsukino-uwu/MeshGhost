@@ -105,13 +105,6 @@ rehashes those same files before assembling a release and fails the build if the
 to have produced it. Whoever edits the TEVI adapter re-runs `build-tevi.bat` and commits the
 result as part of that change.
 
-**Known stale as of the 2026-08-14 relay-safety work**: `Plugin.cs`/`BridgeClient.cs` changed
-(added `game_version` to the bridge `hello`, per the room-code/version ADR) without
-`dev-scripts/build-tevi.bat` being re-run — this session has no TEVI/Unity install to build
-against (`agent_docs/licensing.md`'s gitignored-proprietary-lib constraint, same reason CI
-can't build it either). The staleness check will correctly fail the release workflow until
-someone with a real TEVI install re-runs `build-tevi.bat` and commits the result.
-
 TEVI ships marked experimental (see `packaging/release/README.txt` and
 `packaging/release/games/tevi/README.txt`): the mod is code-complete but has never been tested
 against a second real player (Steam won't run two TEVI instances on one machine, so this

@@ -36,6 +36,33 @@ Setup, once:
      "local_game_bridge" -- internal, on your own PC only. Leave this alone
                unless you're running two copies on the SAME machine (see
                below).
+     "interp" -- how far behind real-time (e.g. "100ms", "200ms") you render
+               OTHER players' ghosts, to smooth out network jitter. This is
+               entirely YOUR OWN client's setting -- it doesn't affect what
+               anyone else sees, and different players in the same session
+               can use different values.
+
+               Not sure? Leave it at "100ms" -- that's the default if you
+               leave this out entirely, and a reasonable starting point for
+               most connections.
+
+               Rough guide if you want to tune it (not scientifically
+               measured for this game, just general rules of thumb -- feel
+               free to experiment):
+                 "100ms"          -- default. Fine for a typical home
+                                     connection playing with friends.
+                 "150ms"-"250ms"  -- a rough, high-ping, or unstable
+                                     connection (playing across countries,
+                                     flaky wifi, etc). Ghosts look smoother
+                                     but noticeably more delayed.
+                 below "50ms"     -- not recommended, even on a great
+                                     connection: your own client only sends
+                                     its position about once every 50ms (20
+                                     times/second) no matter what, so a
+                                     lower value doesn't get you fresher
+                                     data -- it just leaves less buffer to
+                                     smooth over, and will likely look
+                                     stuttery/snappy instead of smooth.
    Only edit the text between the quotes -- keep the quotes, colons, and
    commas exactly as they are, or the file won't parse.
    You do NOT set which game you're playing here -- meshghost.exe figures
