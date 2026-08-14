@@ -96,3 +96,22 @@ func TestRemoteBufferMismatchedPositionLengthFallsBackToOlder(t *testing.T) {
 		t.Fatalf("position = %v, want [1 2] (fallback to older on length mismatch)", got.Position)
 	}
 }
+
+// TestRemoteBufferMismatchedAreaIDFallsBackToOlder is a regression test for
+// a bug found in a review pass: without an AreaID check, lerp blended two
+// bracketing snapshots' raw world coordinates even when they belonged to
+// different areas (a remote crossing a zone boundary mid-interpolation-
+// window), rendering at a meaningless midpoint between two unrelated
+// coordinate spaces — the same phantom-ghost failure the cross-area
+// filtering ADR (agent_docs/architecture.md) exists to prevent, just
+// reached via a different path than the one that ADR actually closed.
+func TestRemoteBufferMismatchedAreaIDFallsBackToOlder(t *testing.T) {
+	var b remoteBuffer
+	b.add(protocol.State{PlayerID: "p2", Timestamp: 1000, Position: []float64{1, 2}, AreaID: "zone-a"})
+	b.add(protocol.State{PlayerID: "p2", Timestamp: 2000, Position: []float64{100, 200}, AreaID: "zone-b"})
+
+	got, _ := b.at(1500)
+	if got.AreaID != "zone-a" || got.Position[0] != 1 || got.Position[1] != 2 {
+		t.Fatalf("state = %+v, want unchanged from older snapshot (zone-a, [1 2]) on an area_id change between bracketing snapshots", got)
+	}
+}

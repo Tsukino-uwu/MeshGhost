@@ -29,6 +29,13 @@ namespace MeshGhostTevi
     {
         public const string PluginGuid = "dev.meshghost.tevi";
         public const string PluginName = "MeshGhost";
+        // Also sent as this adapter's bridge Hello game_version (internal/bridge.Hello,
+        // added for relay-safety hardening — see the ADR in agent_docs/architecture.md).
+        // This is this *plugin's* own version, not TEVI's game build — no cited API exists
+        // to read that, and CLAUDE.md's "no addresses/APIs from memory" rule means one
+        // isn't guessed at here. Opaque to the core/relay, compared only by equality: it
+        // catches two peers running different revisions of this adapter, the most likely
+        // real source of a silent protocol mismatch.
         public const string PluginVersion = "0.1.0";
 
         // Diagnostic-only throttling. First attempt (position-change-triggered with a 0.5-unit
@@ -89,6 +96,12 @@ namespace MeshGhostTevi
             // which Instantiate()-ing it standalone and setting world position directly throws
             // away.
             public Vector3 AnchorOffset;
+
+            // Throttled diagnostic redraw logging (see UpsertRemoteGhost) -- added while
+            // chasing the 2026-08-14 zone-transition ghost-invisibility bug so a next repro
+            // shows whether a ghost's actual position/active-state drifts wrong sometime after
+            // creation, not just what it looked like at the moment it was made.
+            public float LastDiagLogTime = float.NegativeInfinity;
         }
 
         private readonly Dictionary<string, RemoteGhostVisual> remoteVisuals = new Dictionary<string, RemoteGhostVisual>();
@@ -154,11 +167,23 @@ namespace MeshGhostTevi
             return null;
         }
 
+        // room_x/room_y arrive over the wire from a peer (adapters/_template/PROTOCOL.md:
+        // inbound render_remote data is peer-controlled, bound before feeding your engine).
+        // Not a measured game constant -- TEVI's real room grid is far smaller than this -- just
+        // a generous sanity bound so a bogus/adversarial value can't reach GetRoomWalkedBool
+        // (unknown internals, currently only caught by DrainInto's per-line try/catch, which
+        // means a bad value spams that catch's log line every frame instead of just being
+        // filtered out here).
+        private const int MaxRoomCoordinate = 100000;
+
         private void UpdateRemoteMapMarker(string playerId, BridgeClient.RemoteState state)
         {
             FullMap map = FullMap.Instance;
+            bool roomInRange = state.RoomX.HasValue && state.RoomY.HasValue
+                && Mathf.Abs(state.RoomX.Value) <= MaxRoomCoordinate
+                && Mathf.Abs(state.RoomY.Value) <= MaxRoomCoordinate;
             bool wantVisible = map != null && map.isFullMap
-                && state.RoomX.HasValue && state.RoomY.HasValue
+                && roomInRange
                 && state.AreaId == currentLocalArea.ToString()
                 // Fog-of-war: never let a peer's marker reveal a room the local player hasn't
                 // personally discovered yet (SaveManager.GetRoomWalkedBool is the game's own
@@ -215,9 +240,18 @@ namespace MeshGhostTevi
 
         private void DespawnRemoteMapMarker(string playerId)
         {
-            if (remoteMapMarkers.TryGetValue(playerId, out RemoteMapMarker marker) && marker.Go != null)
+            if (remoteMapMarkers.TryGetValue(playerId, out RemoteMapMarker marker))
             {
-                marker.Go.SetActive(false);
+                // SetActive(false) alone left the GameObject (and its dictionary entry) alive
+                // forever -- every despawn/respawn of the same peer (a reconnect, an area
+                // transition) instantiated a fresh marker without ever freeing the old one, a
+                // monotonic per-reconnect leak. Destroy it and drop the entry so the next
+                // UpdateRemoteMapMarker for this playerId creates a clean new one.
+                if (marker.Go != null)
+                {
+                    Destroy(marker.Go);
+                }
+                remoteMapMarkers.Remove(playerId);
             }
         }
 
@@ -228,11 +262,19 @@ namespace MeshGhostTevi
         // would need its own per-character template, deferred until 6.6 has a real second peer.
         private CharacterBase cloneTemplate;
 
-        private GameObject CreateRealGhostVisual(CharacterBase templatePlayer, string name, out PixelCharacter pc, out Vector3 anchorOffset)
+        private GameObject CreateRealGhostVisual(CharacterBase templatePlayer, string name, out PixelCharacter pc, out Vector3 anchorOffset, out string inheritedSpriteState)
         {
             // Measure the real offset before instantiating a detached copy loses the parent
             // relationship that produced it.
             anchorOffset = templatePlayer.spranim_prefer.pixel.transform.position - templatePlayer.t.position;
+
+            // Diagnostic only, captured before the reset below overwrites it -- added while
+            // chasing the 2026-08-14 zone-transition ghost-invisibility bug, to confirm what
+            // render state Instantiate() actually inherited from the live template.
+            SpriteRenderer templateBase = templatePlayer.spranim_prefer.pixel.basesprite;
+            inheritedSpriteState = templateBase != null
+                ? $"enabled={templateBase.enabled} color={templateBase.color}"
+                : "basesprite=null";
 
             GameObject clone = Instantiate(templatePlayer.spranim_prefer.pixel.gameObject);
             clone.name = name;
@@ -249,6 +291,29 @@ namespace MeshGhostTevi
             foreach (var rb in clone.GetComponentsInChildren<Rigidbody2D>(true))
             {
                 Destroy(rb);
+            }
+
+            // Found live 2026-08-14: Instantiate() deep-copies every component's *current*
+            // field values, not just static geometry -- including whatever transient render
+            // state (a screen fade-in right after the zone load that triggered this clone in
+            // the first place, a hit-flash, etc.) the source sprite happens to be in at this
+            // exact instant. The clone has no gameplay logic of its own driving it afterward
+            // (deliberate, see the class comment above), so a bad state captured mid-fade never
+            // self-corrects -- the ghost stays alive, active, correctly positioned, and
+            // invisible forever. Confirmed via inheritedSpriteState logging (below) on a real
+            // repro: basesprite.enabled was false at clone time, color was already a correct
+            // opaque (1,1,1,1) -- so only the renderer's enabled flag needs resetting, NOT its
+            // color. An earlier version of this fix also forced color = Color.white, which
+            // "fixed" the invisibility but introduced a real regression: outlinesprite is not
+            // meant to be white (it renders the character's outline effect in its own distinct
+            // tint), and overwriting its color turned that outline into a solid white glow --
+            // found live immediately after deploying that version. Rather than guessing a delay
+            // to dodge the race window instead (see agent_docs/pitfalls.md's already-burned
+            // guessed-constant history for why that was rejected too), only touch what's
+            // actually confirmed broken.
+            foreach (var sr in clone.GetComponentsInChildren<SpriteRenderer>(true))
+            {
+                sr.enabled = true;
             }
 
             pc = clone.GetComponent<PixelCharacter>();
@@ -268,15 +333,48 @@ namespace MeshGhostTevi
                 {
                     return; // no local player to clone from yet -- retry next frame
                 }
-                GameObject go = CreateRealGhostVisual(cloneTemplate, $"MeshGhostRemote_{playerId}", out PixelCharacter pc, out Vector3 anchorOffset);
+                GameObject go = CreateRealGhostVisual(cloneTemplate, $"MeshGhostRemote_{playerId}", out PixelCharacter pc, out Vector3 anchorOffset, out string inheritedSpriteState);
                 visual = new RemoteGhostVisual { Go = go, Pc = pc, LastAnim = null, AnchorOffset = anchorOffset };
                 remoteVisuals[playerId] = visual;
-                Logger.LogInfo($"MeshGhost: real remote ghost visual created for {playerId} (step 6.4/6.5+).");
+                // Diagnostic fields added while chasing a real bug found live 2026-08-14: after
+                // a zone/scene transition, the traveling player sometimes stopped seeing a
+                // peer's ghost that reappeared in the log as freshly "created" (this line fires)
+                // but was never actually visible again, with no further despawn/recreate logged
+                // after it -- ruling out the object being destroyed again (that would trigger
+                // another one of these lines on the very next frame, via the visual.Go == null
+                // check below) and, separately, ruling out a bad position (computedGhostPos
+                // consistently matched the real remote's real, unmoving coordinates exactly).
+                // Root cause, confirmed via isolate-by-subtraction (temporarily disabling
+                // internal/core's cross-area filter made the bug disappear, isolating it to this
+                // create path specifically): CreateRealGhostVisual's Instantiate() deep-copies
+                // whatever transient render state (a screen fade-in right after the zone load
+                // that triggered this very recreate) the source sprite was in at that instant --
+                // now reset to a known-good visible state there, see its comment. Logged here
+                // (inheritedSpriteState) purely to confirm what state was actually inherited
+                // before the reset overwrote it.
+                Vector3 initialGhostPos = new Vector3(state.Position[0], state.Position[1], 0f) + anchorOffset;
+                Logger.LogInfo($"MeshGhost: real remote ghost visual created for {playerId} (step 6.4/6.5+). "
+                    + $"anchorOffset={anchorOffset} templatePos={cloneTemplate.t.position} "
+                    + $"templateScene={cloneTemplate.spranim_prefer.pixel.gameObject.scene.name} cloneScene={go.scene.name} "
+                    + $"remoteStatePos=({state.Position[0]:F2},{state.Position[1]:F2}) computedGhostPos={initialGhostPos} "
+                    + $"inheritedSpriteState=[{inheritedSpriteState}]");
             }
 
             visual.Go.SetActive(true);
             visual.Go.transform.position = new Vector3(state.Position[0], state.Position[1], 0f)
                 + visual.AnchorOffset;
+
+            // Throttled (once every 2s per remote, not every frame) so a real repro of the
+            // 2026-08-14 zone-transition bug shows the ghost's actual ongoing position/
+            // active-state/scene over time, in case it silently drifts wrong or gets
+            // deactivated sometime after the creation log line rather than at creation itself.
+            if (Time.time - visual.LastDiagLogTime >= 2f)
+            {
+                visual.LastDiagLogTime = Time.time;
+                Logger.LogInfo($"MeshGhost: remote {playerId} redraw: pos={visual.Go.transform.position} "
+                    + $"activeInHierarchy={visual.Go.activeInHierarchy} scene={visual.Go.scene.name} "
+                    + $"localArea={currentLocalArea} remoteAreaId={state.AreaId}");
+            }
 
             // Facing: confirmed live 2026-08-12 that flipX=true means "facing LEFT" is the
             // wrong way around -- inverted from the first guess. All five sprite layers are
@@ -310,18 +408,23 @@ namespace MeshGhostTevi
 
         private void DespawnRemoteGhost(string playerId)
         {
-            if (remoteVisuals.TryGetValue(playerId, out RemoteGhostVisual visual) && visual.Go != null)
+            // Called only from bridge.DrainInto's despawn_remote callback -- a real peer leave.
+            // Previously only SetActive(false)'d the GameObject and left it and its dictionary
+            // entry alive forever, so every reconnect of the same peer instantiated a brand new
+            // clone without ever freeing the last one -- a monotonic leak. Destroy it and drop
+            // the entry; UpsertRemoteGhost already handles a missing entry by creating a fresh
+            // clone next time this playerId reappears.
+            if (remoteVisuals.TryGetValue(playerId, out RemoteGhostVisual visual))
             {
-                visual.Go.SetActive(false);
-                // Found live 2026-08-13 (cross-area filtering test): reactivating a
-                // deactivated GameObject doesn't resume its Animator's own playback, and
-                // UpsertRemoteGhost only calls Play() on an actual anim-string change --
-                // if the remote's anim hadn't changed while hidden (e.g. still "idle"),
-                // reactivation left the ghost visually frozen until the remote's anim next
-                // changed for an unrelated reason. Clearing LastAnim forces the next
-                // UpsertRemoteGhost call to treat any anim as a "change" and Play() it,
-                // regardless of whether the string itself actually differs.
-                visual.LastAnim = null;
+                // Logged (missing before 2026-08-14) so a real despawn_remote can be told apart
+                // from a ghost silently going invisible without one -- see UpsertRemoteGhost's
+                // creation-time diagnostic comment for the bug this was added to chase.
+                Logger.LogInfo($"MeshGhost: despawned remote ghost for {playerId} (localArea={currentLocalArea}).");
+                if (visual.Go != null)
+                {
+                    Destroy(visual.Go);
+                }
+                remoteVisuals.Remove(playerId);
             }
             DespawnRemoteMapMarker(playerId);
         }
@@ -337,6 +440,20 @@ namespace MeshGhostTevi
                 "instance on the same machine for local two-player testing -- each instance " +
                 "needs its own core process on its own port.").Value;
             bridge = new BridgeClient(BridgeHost, bridgePort);
+        }
+
+        // Neither BepInEx nor Unity closes the bridge socket for us on shutdown -- without this,
+        // quitting the game leaves the local core process's bridge connection open until it
+        // eventually times out on its own, delaying this player's despawn for any peer still
+        // connected.
+        private void OnDestroy()
+        {
+            bridge?.Disconnect();
+        }
+
+        private void OnApplicationQuit()
+        {
+            bridge?.Disconnect();
         }
 
         // EventManager.mainCharacter is a property on the current game build (backed by a
@@ -382,7 +499,7 @@ namespace MeshGhostTevi
 
             bridge.DrainLogsInto(msg => Logger.LogInfo(msg));
             bridge.TryConnect();
-            bridge.SendHelloIfNeeded(GameId);
+            bridge.SendHelloIfNeeded(GameId, PluginVersion);
             bridge.DrainInto(UpsertRemoteGhost, DespawnRemoteGhost);
 
             if (player == null || player.t == null)

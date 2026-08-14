@@ -46,16 +46,34 @@
   pressure.
 - **macOS distribution friction**: an unsigned Go binary will trip Gatekeeper on first run.
   Not a blocker for early phases, but worth planning for before a public release.
-- **No-auth relay window**: Phases 3–4 run without authentication (see the relay-auth ADR).
-  Anyone with the address can join during that window. Acceptable for a friend-shared
-  IP:port, not for anything posted publicly, until room codes ship. **User priority, stated
-  2026-08-13**: wants to actually start closing this — the goal is being safe to use with
-  unknown people, not just friends, including against someone actively trying to be malicious
-  with the server/client, not just an uninvited but harmless join. Paired with the no-version-
-  check gap below as the two concrete known items; see `plans.md`'s "Room codes / relay
-  safety" section for the tracked intent (not yet designed/scoped), and `internal/README.md`
-  for the fuller current security/privacy posture — what's already checked-safe (e.g. no
-  client ever learns a peer's IP) versus this gap and the others still open.
+- **No-auth relay window — closed 2026-08-14, with two real limits.** Room-code auth shipped
+  (`protocol.Hello.RoomCode`, constant-time-checked against `Server.RoomCode`; empty/unset
+  means auth stays off, unchanged default). See the ADR in `agent_docs/architecture.md` and
+  `internal/README.md`'s "What changed" section for the full record, including the design
+  options considered (a plain shared secret was chosen over an HMAC challenge-response or a
+  per-room lobby code). Two things this does **not** close: (1) **no TLS** — the code crosses
+  the wire in plaintext, so this raises the bar from "anyone with the address" to "anyone with
+  the address and the code," not to "safe against a network-level attacker"; tracked as its own
+  entry below. (2) **the new "stale relay" risk**, also below — auth is enforced entirely by
+  the relay, so it only works if the relay binary is current.
+- **No TLS on the relay/bridge connection.** `internal/transport` is plaintext NDJSON over TCP,
+  deliberately, for the "greppable with netcat" debuggability property (see
+  `internal/README.md`'s "Why TCP, not UDP" section). This means room-code auth (above) doesn't
+  defend against a network-level attacker who can observe the connection — they can read the
+  code in transit. Not attempted as part of the 2026-08-14 hardening pass (see that ADR's
+  "Options considered (auth)" for why); a real, separately-scoped piece of future work if the
+  threat model ever requires it.
+- **Stale relay silently disables room-code auth — found while scoping the 2026-08-14 pass,
+  from the user asking what happens with an old client/server against new ones.** Room-code
+  auth is enforced entirely by the relay (the host controls admission, not each joiner — the
+  correct architecture), which means it only exists if the *relay* binary is current. A
+  `room_code` in an old relay's `config.json` is an unrecognized JSON field to that binary and
+  is silently ignored — no error, no warning, the relay just starts up open. A host could set a
+  room code, believe their session is protected, and be completely wrong, with nothing telling
+  them so. Not a client-side problem and can't be fixed client-side. See the ADR in
+  `agent_docs/architecture.md`'s "Consequences" for the full reasoning. Follow-up not yet done:
+  `internal/README.md`/`packaging/README.md` should say plainly that room-code auth requires an
+  updated *relay*, not just an updated client.
 - **Archipelago coexistence, confirmed with a real gap**: tested 2026-08-11 with the real
   `connector_bizhawk_generic.lua` against a real `.apemerald`-patched ROM (see
   `agent_docs/verified.md`). Two scripts coexist fine, no performance difference, and
@@ -81,15 +99,30 @@
   This is also the concrete argument for keeping the read-only default (see the depth ladder
   in `plans.md`): two readers never race, but a future memory-*writing* feature could race
   Archipelago's own writes.
-- **No game-version check between peers, surfaced by TEVI (Phase 6)**: `hello` carries `game_id`
-  (e.g. `"tevi"`) but nothing identifying the game's *version* or installed DLC. Emerald sidesteps
-  this because the ROM is a fixed artifact players share by hash; TEVI updates via Steam and has
-  active DLC (the randomizer author was still adding DLC support as of June 2026). Two peers on
-  different TEVI versions, or one with DLC and one without, will connect and exchange state
-  happily but may disagree about what a given `area_id` (scene name) means, or one may reference a
-  scene the other doesn't have. Not yet designed: whether this needs a version field in `hello`
-  (a contract revision) or is left as a "both players should be on the same version" operational
-  note. Surface this at Phase 6 rather than silently designing around it.
+- **No game-version check between peers, surfaced by TEVI (Phase 6) — closed 2026-08-14, with
+  one real limit, and evidence the limit is the right call, not just an accepted gap.** `hello`
+  now carries an optional `game_version` (`protocol.Hello.GameVersion`/`bridge.Hello.GameVersion`),
+  sticky per room the same way `game_id` already is; a mismatch is refused at handshake. See the
+  ADR in `agent_docs/architecture.md`. **The limit**: each shipped adapter reports its own
+  adapter/mod version (e.g. Emerald's `"phase5.5"`, TEVI's BepInEx `PluginVersion`), not the
+  actual game/DLC build — there's no cited memory address to read a real game version from in
+  any of the three games, and `CLAUDE.md`'s rule against guessing addresses from memory means
+  one wasn't invented for this. So this catches two peers on different *adapter* revisions, not
+  a real game-version/DLC mismatch.
+  - **User feedback, 2026-08-14, real usage evidence**: TEVI has actually been played across
+    different game builds/versions successfully — interoperates fine as long as the map/world
+    itself hasn't changed, contradicting the original Phase 6 worry that any version difference
+    would cause silent desync. DLC compatibility specifically is still untested either
+    direction (the user doesn't own the DLC; the older build predates it existing at all).
+  - **This changes the right design for any future real-version check, not just this session's
+    scope**: the earlier "wiring in TEVI's actual build/DLC state as `game_version` would be a
+    natural, low-risk follow-up" framing was wrong given this evidence — a **hard reject on any
+    version difference would incorrectly block a combination already known to work**. If a real
+    game-version read is ever added, it should not reuse this field's current hard-reject
+    behavior as-is; a softer signal (e.g. a warning surfaced to the user, not a connection
+    refusal) or a narrower check (DLC presence/absence specifically, since that's the one
+    axis actually untested) would better match what's actually been observed. Not designed —
+    just recording the constraint so a future session doesn't rebuild the wrong version check.
 - **BepInEx/Harmony coexistence with an already-installed mod, surfaced by TEVI (Phase 6)**: this
   machine's TEVI already runs `Tevi_Randomizer` (the Archipelago integration mod) under the same
   BepInEx. Same shape as the Emerald/Archipelago coexistence risk below: if the randomizer
@@ -279,6 +312,29 @@
   overlap events that may not depend on the same collision toggle just tested. Needs its own
   grounded investigation (what actually caused the real-player death above) before any future
   collision-related change, not an assumption that "collision off" fully closes this off.
+- **New data point, 2026-08-14, minor and not yet investigated: the ghost may be able to land
+  attacks on the real player, in the opposite direction from the 2026-08-13 finding above.**
+  During otherwise-successful live testing of this session's rebuild (ghost spawn/follow/
+  animate all confirmed working, see `verified.md`), the user did a flip, gained height, and
+  spammed attacks; the ghost appeared to land hits back — the real player's hit/hurt (red flash)
+  animation played, though the player didn't die, and this reproduced a few times under the same
+  conditions (airborne + rapid attack spam). `GHOST_COLLISION_ENABLED` is confirmed still `false`
+  in the current build (`Plugin.cpp:143`, unchanged by this session's fixes), so the mechanism is
+  unclear — this is the same open question above (does something other than the disabled
+  collision toggle let a hit register?), just observed from the other direction: the *ghost's*
+  attack reaching the player, not the player's damage reaching the ghost. Two real possibilities,
+  neither confirmed: (1) the same shared/not-per-instance state theorized in the 2026-08-13 entry
+  (`'As MV Game Instance Ref'`) could mean the ghost's attack-hit trigger and the real player's
+  hurt-react are reading/writing the same instance-scoped gameplay state rather than two
+  genuinely separate pawns; (2) an attack hitbox/trigger volume keyed off proximity or animation
+  state rather than the `SetActorEnableCollision`/response-channel path already tested, which
+  would explain it surviving collision being off. **Not yet reproduced with a minimal isolated
+  test** (e.g. does it happen with no attack spam, does height/airborne state matter, does it
+  happen with the real player *not* attacking at all) — treat the "airborne + attack spam"
+  framing as the user's field observation, not a confirmed trigger condition. Low priority (no
+  real damage taken), but should be investigated with the same rigor as the collision work above
+  before any future combat/animation-adjacent change, since it points at the same
+  "two live instances of a class the game never expected to duplicate" risk class.
 
 ## Mitigations
 

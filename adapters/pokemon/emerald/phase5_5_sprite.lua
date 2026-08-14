@@ -85,6 +85,16 @@ local BRIDGE_PORT = tonumber(os.getenv("MESHGHOST_BRIDGE_PORT") or "") or 7778
 -- games/pokemon/emerald/ in the shipped release, per packaging/README.md's convention.
 local GAME_ID = "emerald"
 
+-- Sent as this adapter's bridge Hello alongside GAME_ID (internal/bridge.Hello's
+-- game_version field, added for relay-safety hardening — see the ADR in
+-- agent_docs/architecture.md). This is this *script's* own version, not a ROM
+-- build/revision read from game memory — no cited address exists for that, and
+-- CLAUDE.md's "no addresses from memory" rule means one isn't guessed at here.
+-- Opaque to the core/relay, compared only by equality: it catches two peers
+-- running different revisions of this adapter script, the most likely real
+-- source of a silent protocol mismatch.
+local ADAPTER_VERSION = "phase5.5"
+
 local FACING = { [1] = "south", [2] = "north", [3] = "west", [4] = "east" }
 
 ----------------------------------------------------------------------------
@@ -248,8 +258,17 @@ local socketCore = loadSocketCore()
 -- Minimal JSON -- identical to phase4_multiplayer.lua, see its header.
 ----------------------------------------------------------------------------
 
+local JSON_STRING_ESCAPES = {
+    ["\\"] = "\\\\", ['"'] = '\\"', ["\n"] = "\\n", ["\r"] = "\\r", ["\t"] = "\\t",
+}
 local function jsonString(s)
-    s = s:gsub("\\", "\\\\"):gsub('"', '\\"')
+    -- Every field this feeds is currently a fixed constant (area_id, orientation, anim, gender,
+    -- game_id/version) so this has never fired in practice, but the escaping was still
+    -- incomplete: an unescaped control char, especially \n, would corrupt the NDJSON framing
+    -- (one line on the wire becomes two) rather than just producing invalid JSON.
+    s = s:gsub('[\\"%c]', function(c)
+        return JSON_STRING_ESCAPES[c] or string.format("\\u%04x", c:byte())
+    end)
     return '"' .. s .. '"'
 end
 
@@ -388,6 +407,8 @@ end
 
 local sock = nil
 local connected = false
+local recvPartial = "" -- straddling-line remainder from the last drainBridge() timeout; belongs
+                        -- to the current connection, so resetBridge() clears it too.
 
 local function connectBridge()
     if not sock then
@@ -397,6 +418,16 @@ local function connectBridge()
     local ok, err = sock:connect(BRIDGE_HOST, BRIDGE_PORT)
     if ok == 1 or err == "already connected" then
         connected = true
+    elseif err ~= "timeout" then
+        -- "timeout" is the expected, documented result of a non-blocking connect still in
+        -- progress (phase4_multiplayer.lua's connectBridge, same shape) -- retrying on the
+        -- same socket next tick is correct there. Anything else (e.g. "connection refused") is
+        -- a real failure, and standard BSD socket semantics say a socket that failed a
+        -- connect() this way is not reliably reusable for a second connect() attempt -- drop
+        -- it so the next tick allocates a fresh one, same as the already-handled nil case,
+        -- instead of retrying forever on a dead socket.
+        pcall(function() sock:close() end)
+        sock = nil
     end
 end
 
@@ -407,13 +438,25 @@ local function resetBridge()
     if sock then pcall(function() sock:close() end) end
     sock = nil
     connected = false
+    recvPartial = ""
 end
 
 local function sendLine(line)
-    local ok, err = sock:send(line .. "\n")
-    if not ok and err ~= "timeout" then
-        resetBridge()
+    line = line .. "\n"
+    local sent, err, lastByte = sock:send(line)
+    if sent then return end
+    if err == "timeout" and (lastByte or 0) == 0 then
+        -- Nothing went out at all -- PROTOCOL.md's tick loop resends fresh state next tick
+        -- regardless, so a fully-dropped send here just means this tick's frame is skipped.
+        return
     end
+    -- A partial send (0 < lastByte < #line) previously went uncounted as success -- the
+    -- unsent tail is gone, and resuming next tick with a fresh line would deliver a truncated,
+    -- newline-less fragment to the core, corrupting NDJSON framing for the rest of the
+    -- connection (the core would concatenate it with whatever line comes next). Same
+    -- "when in doubt, drop and reconnect cleanly" posture as any other hard send error, and
+    -- mirrors the fix already made in the C++ adapter's BridgeClient::send_line.
+    resetBridge()
 end
 
 ----------------------------------------------------------------------------
@@ -617,12 +660,23 @@ end
 
 local function drainBridge()
     while true do
-        local line, err = sock:receive()
+        -- With settimeout(0), a line straddling this call's read boundary comes back as
+        -- nil, "timeout", partial -- LuaSocket 3.0's documented behavior for a pattern that
+        -- can't complete before the timeout (see adapters/pokemon/emerald/lib/x64/
+        -- luasocket.LICENSE.txt for the vendored version). The old code discarded that
+        -- partial outright, which is almost certainly the "receive-side corruption" noted in
+        -- MeshGhostPseudo/Mod/src/BridgeClient.hpp:4-6 -- every line after the first split
+        -- would lose its leading bytes. Feed the partial back in as the prefix for the next
+        -- receive() so it resumes mid-line instead of dropping it.
+        local line, err, partial = sock:receive("*l", recvPartial)
         if line then
+            recvPartial = ""
             handleBridgeLine(line)
         elseif err == "timeout" then
+            recvPartial = partial or ""
             return
         else
+            recvPartial = ""
             resetBridge()
             remotes = {}
             return
@@ -717,7 +771,10 @@ console.log("Connecting to bridge at " .. BRIDGE_HOST .. ":" .. BRIDGE_PORT .. "
 
 local localGender = nil -- resolved lazily, first frame a save is loaded (see readLocalGender)
 
-while true do
+-- One frame's worth of work, pcall-wrapped below so a malformed remote (a bad jsonDecode
+-- result reaching handleBridgeLine, an unexpected shape in memory reads, etc.) logs and skips
+-- a frame instead of a single Lua error killing the whole adapter for the rest of the session.
+local function runFrame()
     frameCounter = frameCounter + 1
     gui.clearGraphics()
 
@@ -728,7 +785,7 @@ while true do
             -- Must be the first message on a fresh connection, before any local_state --
             -- see internal/bridge.Hello. Declares the game so the core can connect to the
             -- relay without the user typing "game" into config.json themselves.
-            sendLine(string.format('{"type":"hello","payload":{"game_id":%s}}', jsonString(GAME_ID)))
+            sendLine(string.format('{"type":"hello","payload":{"game_id":%s,"game_version":%s}}', jsonString(GAME_ID), jsonString(ADAPTER_VERSION)))
             -- A fresh bridge connection means a fresh core process on the other end (the
             -- previous one either restarted or its own connection died) -- any remote it had
             -- previously told us about is stale, since the despawn_remote for it (if any was
@@ -774,6 +831,17 @@ while true do
             drawRemotes(smoothAreaId, smoothX, smoothY)
         end
     end
+end
 
+local lastFrameErrorLogged = 0
+while true do
+    local ok, err = pcall(runFrame)
+    if not ok then
+        -- Rate-limited: a per-frame error would otherwise spam the console every 1/60s.
+        if frameCounter - lastFrameErrorLogged > 300 then
+            console.log("MeshGhost Phase 5.5: frame error (continuing): " .. tostring(err))
+            lastFrameErrorLogged = frameCounter
+        end
+    end
     emu.frameadvance()
 end

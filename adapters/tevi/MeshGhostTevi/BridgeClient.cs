@@ -59,6 +59,13 @@ namespace MeshGhostTevi
         private DateTime lastConnectAttempt = DateTime.MinValue;
         private static readonly TimeSpan ReconnectInterval = TimeSpan.FromSeconds(2);
 
+        // Bumped by TryConnect before spawning a new ConnectAndReadLoop thread. A stale thread's
+        // `finally` compares its own captured generation against the current one before clearing
+        // connected/stream/client -- without this, a slow-to-unwind old thread (e.g. blocked in
+        // stream.Read on a connection that's already been superseded by a newer TryConnect) can
+        // null out a newer, live connection's state after the fact.
+        private int connectionGeneration;
+
         public bool IsConnected => connected;
 
         public BridgeClient(string host, int port)
@@ -97,16 +104,25 @@ namespace MeshGhostTevi
             }
             lastConnectAttempt = DateTime.UtcNow;
 
-            var thread = new Thread(ConnectAndReadLoop) { IsBackground = true };
+            int generation = Interlocked.Increment(ref connectionGeneration);
+            var thread = new Thread(() => ConnectAndReadLoop(generation)) { IsBackground = true };
             thread.Start();
         }
 
-        private void ConnectAndReadLoop()
+        private void ConnectAndReadLoop(int generation)
         {
+            TcpClient c = null;
             try
             {
-                var c = new TcpClient();
+                c = new TcpClient();
                 c.Connect(host, port);
+                if (generation != connectionGeneration)
+                {
+                    // Superseded by a newer TryConnect while this one was still dialing --
+                    // don't publish this connection as the live one.
+                    c.Close();
+                    return;
+                }
                 client = c;
                 stream = c.GetStream();
                 connected = true;
@@ -141,9 +157,13 @@ namespace MeshGhostTevi
             }
             finally
             {
-                connected = false;
-                stream = null;
-                client = null;
+                try { c?.Close(); } catch (Exception) { /* already ending; nothing to do */ }
+                if (generation == connectionGeneration)
+                {
+                    connected = false;
+                    stream = null;
+                    client = null;
+                }
             }
         }
 
@@ -169,6 +189,10 @@ namespace MeshGhostTevi
         // later frame once IsConnected is false, the same as any other dropped connection.
         public void Disconnect()
         {
+            // Also invalidates any in-flight ConnectAndReadLoop's generation, so if that thread
+            // is still dialing or blocked in stream.Read, its eventual finally block won't
+            // clobber the state of whatever TryConnect() dials next.
+            Interlocked.Increment(ref connectionGeneration);
             TcpClient c = client;
             connected = false;
             client = null;
@@ -188,7 +212,7 @@ namespace MeshGhostTevi
         // rather than the background connect thread, ahead of any local_state Update() sends
         // this same frame. No-op once already sent for the current connection, or before one
         // exists.
-        public void SendHelloIfNeeded(string gameId)
+        public void SendHelloIfNeeded(string gameId, string gameVersion)
         {
             if (!needsHello || !connected || stream == null)
             {
@@ -199,7 +223,7 @@ namespace MeshGhostTevi
             string json = JsonConvert.SerializeObject(new
             {
                 type = "hello",
-                payload = new { game_id = gameId },
+                payload = new { game_id = gameId, game_version = gameVersion },
             });
 
             try
@@ -267,16 +291,32 @@ namespace MeshGhostTevi
             {
                 try
                 {
+                    // TryGetValue throughout rather than indexer + cast: an indexer miss returns
+                    // a JToken null, and a raw `(JObject)`/`(string)` cast on a shape the core
+                    // didn't actually send (or a value of the wrong JSON type) throws instead of
+                    // giving this catch a chance -- this loop must survive a malformed line, not
+                    // just a deserialization failure.
                     var env = JsonConvert.DeserializeObject<JObject>(line);
-                    string type = (string)env["type"];
-                    JObject payload = (JObject)env["payload"];
+                    if (env == null || !env.TryGetValue("type", out JToken typeToken))
+                    {
+                        Log("MeshGhost: bad bridge message ignored: missing 'type'.");
+                        continue;
+                    }
+                    string type = (string)typeToken;
+                    env.TryGetValue("payload", out JToken payloadToken);
+                    JObject payload = payloadToken as JObject;
 
                     switch (type)
                     {
                         case "render_remote":
                         {
-                            string playerId = (string)payload["player_id"];
-                            JObject st = (JObject)payload["state"];
+                            if (payload == null || !payload.TryGetValue("player_id", out JToken playerIdToken)
+                                || !(payload["state"] is JObject st))
+                            {
+                                Log("MeshGhost: bad render_remote ignored: missing player_id/state.");
+                                break;
+                            }
+                            string playerId = (string)playerIdToken;
                             JObject extras = st["extras"] as JObject;
                             var remote = new RemoteState
                             {
@@ -292,7 +332,12 @@ namespace MeshGhostTevi
                         }
                         case "despawn_remote":
                         {
-                            string playerId = (string)payload["player_id"];
+                            if (payload == null || !payload.TryGetValue("player_id", out JToken playerIdToken))
+                            {
+                                Log("MeshGhost: bad despawn_remote ignored: missing player_id.");
+                                break;
+                            }
+                            string playerId = (string)playerIdToken;
                             onDespawnRemote(playerId);
                             break;
                         }

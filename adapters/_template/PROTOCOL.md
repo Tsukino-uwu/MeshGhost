@@ -1,7 +1,8 @@
 # Adapter protocol stub
 
-Language-agnostic. Every real adapter (BizHawk Lua, TEVI's BepInEx plugin) implements this same
-shape by dialing the local core's bridge port and speaking NDJSON — see
+Language-agnostic. Every real adapter (BizHawk Lua, TEVI's BepInEx plugin, Pseudoregalia's
+UE4SS/C++ mod) implements this same shape by dialing the local core's bridge port and speaking
+NDJSON — see
 `agent_docs/contract.md`'s "Adapter bridge" and "Adapter interface" sections for the full,
 authoritative spec. This file is a condensed, copy-from starting point, not a replacement for
 reading that file first.
@@ -11,7 +12,7 @@ reading that file first.
 The very first message on a fresh bridge connection, before any `local_state`:
 
 ```json
-{"type":"hello","payload":{"game_id":"emerald"}}
+{"type":"hello","payload":{"game_id":"emerald","game_version":"phase5.5"}}
 ```
 
 `game_id` is opaque to the core — same rule as `area_id`/`anim`, per `CLAUDE.md`: compare by
@@ -21,6 +22,17 @@ connecting until an adapter actually shows up and says which game it is — see
 `agent_docs/architecture.md`'s ADR). If the core is already connected to the relay under a
 *different* `game_id` from an earlier connection, it will refuse this one — a single core
 process serves one game at a time.
+
+`game_version` is optional and equally opaque, added alongside room-code auth for relay-safety
+hardening (see `agent_docs/architecture.md`'s ADR). It's what lets the relay refuse two peers on
+incompatible builds before any state is exchanged, rather than letting them silently
+misinterpret each other's `area_id`/`anim`. **Report your own adapter/mod's version, not a game
+build number read from memory** — none of the three shipped adapters read one (there's no cited
+address for it, and `CLAUDE.md`'s "no addresses/APIs from memory" rule means one isn't guessed
+at), and an adapter-script version is the more useful signal anyway: it catches two peers
+running different revisions of *this adapter*, the most likely real source of a silent protocol
+mismatch. Leave it empty (or omit the field) if you have no version concept at all — an empty
+`game_version` is never treated as a mismatch against a room that already has one declared.
 
 ## The three functions
 
@@ -39,7 +51,7 @@ menu, loading screen, or otherwise has no meaningful position right now (see
 Adapter → core, once per frame:
 
 ```json
-{"type":"local_state","payload":{"state":{"area_id":"...","position":[0,0],"orientation":"...","anim":"..."}}}
+{"type":"local_state","payload":{"state":{"area_id":"...","position":[0,0],"orientation":"...","anim":"...","extras":{}}}}
 ```
 
 or, when `get_local_state()` returned nil:
@@ -50,12 +62,34 @@ or, when `get_local_state()` returned nil:
 
 `player_id`, `seq`, and `timestamp` are stamped by the core, not the adapter — leave them out.
 
+`orientation` is opaque *any-JSON* to the core (`agent_docs/contract.md`), not specifically a
+string — it's whatever shape your adapter needs: a compass string (Emerald), an angle, a
+quaternion object. The core never parses it, so nothing here validates its contents; your
+adapter's own consumer of a received `orientation` is responsible for treating it as untrusted
+(see the peer-controlled-data note below).
+
+`extras` is load-bearing, not decorative — every one of the three shipped adapters relies on it
+for real per-game data the core schema has no field for: Emerald carries player gender in it,
+TEVI carries its room-grid coordinates for the map marker, Pseudoregalia carries movement/action
+state enums for its Animator. Treat it as "your adapter's private channel to itself across the
+wire," not an afterthought field.
+
 Core → adapter, zero or more times per frame, one per currently-known remote:
 
 ```json
-{"type":"render_remote","payload":{"player_id":"p2","state":{"area_id":"...","position":[0,0],"orientation":"...","anim":"..."}}}
+{"type":"render_remote","payload":{"player_id":"p2","state":{"area_id":"...","position":[0,0],"orientation":"...","anim":"...","extras":{}}}}
 {"type":"despawn_remote","payload":{"player_id":"p2"}}
 ```
+
+**Inbound `render_remote` data is peer-controlled — bound every number before feeding your
+engine.** The core validates `position` for finiteness and magnitude before forwarding it (see
+`agent_docs/architecture.md`'s ADR), but `orientation`, `anim`, and everything inside `extras`
+are opaque JSON the core cannot inspect — a malicious or simply buggy peer can put anything in
+them, including non-finite numbers, out-of-range enum values, or oversized strings. Every
+adapter has needed at least one guard here in practice: Pseudoregalia clamps `extras` movement
+enums to their valid range before an unchecked numeric cast (`static_cast<uint8_t>`), TEVI range-
+checks `extras.room_x`/`room_y` before they reach a map-lookup call. Write the equivalent for
+whatever your engine's own render call would otherwise do with an unbounded value.
 
 ## The tick loop (the part every real adapter gets wrong the first time)
 
@@ -96,6 +130,12 @@ before that rule was written down.
   Notably, its hello is sent from the main-thread `Update()` loop (`SendHelloIfNeeded`), not
   from the background connect thread that establishes the socket — worth reading if your
   adapter also does networking off the main thread.
+- `adapters/pseudoregalia/MeshGhostPseudo/Mod/src/BridgeClient.cpp` / `.hpp` and `Plugin.cpp` —
+  the same shape again in plain C++/Winsock over a UE4SS mod, no Lua or managed runtime
+  involved. Worth reading for the raw-socket version of the partial-send/partial-receive framing
+  concerns this file's tick loop glosses over, and for `Plugin.cpp`'s "move offscreen, never
+  destroy" ghost-lifecycle workaround (`agent_docs/pitfalls.md`) if your engine also has no
+  reliable runtime actor-destroy call.
 - `cmd/meshghost-fakeadapter/main.go` — not a template for a real adapter (it uses the
   in-process `core.Adapter` Go interface, not this wire protocol, since it has no separate
   process to bridge to). Useful only as a minimal example of the same three-function contract

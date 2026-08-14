@@ -3,6 +3,7 @@ package relay
 import (
 	"encoding/json"
 	"net"
+	"strings"
 	"testing"
 	"time"
 
@@ -20,6 +21,20 @@ type testClient struct {
 
 func dialTestClient(t *testing.T, addr, gameID, room, name string) *testClient {
 	t.Helper()
+	return dialTestClientWithHello(t, addr, protocol.Hello{
+		ProtocolVersion: protocol.Version,
+		GameID:          gameID,
+		Room:            room,
+		DisplayName:     name,
+	})
+}
+
+// dialTestClientWithHello is dialTestClient's more general form, for tests
+// that need to set fields dialTestClient doesn't expose (RoomCode,
+// GameVersion) — added alongside relay-safety hardening,
+// agent_docs/architecture.md's room-code/version ADR.
+func dialTestClientWithHello(t *testing.T, addr string, hello protocol.Hello) *testClient {
+	t.Helper()
 	conn, err := transport.Dial(addr)
 	if err != nil {
 		t.Fatalf("dial: %v", err)
@@ -34,16 +49,14 @@ func dialTestClient(t *testing.T, addr, gameID, room, name string) *testClient {
 		tc.envs <- env
 	})
 
-	hello, err := json.Marshal(protocol.Hello{
-		ProtocolVersion: protocol.Version,
-		GameID:          gameID,
-		Room:            room,
-		DisplayName:     name,
-	})
+	if hello.ProtocolVersion == 0 {
+		hello.ProtocolVersion = protocol.Version
+	}
+	helloBytes, err := json.Marshal(hello)
 	if err != nil {
 		t.Fatalf("marshal hello: %v", err)
 	}
-	env, err := json.Marshal(protocol.Envelope{Type: protocol.TypeHello, Payload: hello})
+	env, err := json.Marshal(protocol.Envelope{Type: protocol.TypeHello, Payload: helloBytes})
 	if err != nil {
 		t.Fatalf("marshal envelope: %v", err)
 	}
@@ -280,6 +293,26 @@ func TestLoopbackEchoesGhost(t *testing.T) {
 		Anim:      "walking",
 	})
 
+	wantGhost := w1.PlayerID + "-ghost"
+
+	// A Join for the synthetic ghost id must precede its first echoed state
+	// — otherwise internal/core.storeRemoteState's roster-trust check (see
+	// the 2026-08-14 ADR in agent_docs/architecture.md) silently drops it as
+	// a state for a player_id it never saw announced. Found live: loopback
+	// mode spawned no ghost at all after that hardening landed, since this
+	// Join was missing entirely.
+	joinEnv := c1.next(timeout)
+	if joinEnv.Type != protocol.TypeJoin {
+		t.Fatalf("got message type %q, want %q (loopback ghost join)", joinEnv.Type, protocol.TypeJoin)
+	}
+	var join protocol.Join
+	if err := json.Unmarshal(joinEnv.Payload, &join); err != nil {
+		t.Fatalf("unmarshal join: %v", err)
+	}
+	if join.PlayerID != wantGhost {
+		t.Fatalf("ghost join player_id = %q, want %q", join.PlayerID, wantGhost)
+	}
+
 	env := c1.next(timeout)
 	if env.Type != protocol.TypeState {
 		t.Fatalf("got message type %q, want %q", env.Type, protocol.TypeState)
@@ -288,12 +321,26 @@ func TestLoopbackEchoesGhost(t *testing.T) {
 	if err := json.Unmarshal(env.Payload, &st); err != nil {
 		t.Fatalf("unmarshal state: %v", err)
 	}
-	wantGhost := w1.PlayerID + "-ghost"
 	if st.PlayerID != wantGhost {
 		t.Fatalf("echoed player_id = %q, want %q", st.PlayerID, wantGhost)
 	}
 	if st.AreaID != "0:9" || len(st.Position) != 2 || st.Position[0] != 5 || st.Position[1] != 6 {
 		t.Fatalf("echoed state = %+v, want area_id=0:9 position=[5 6]", st)
+	}
+
+	// A second State from the same client must NOT re-send the Join —
+	// loopbackGhostSent should have latched after the first one.
+	c1.sendState(protocol.State{
+		PlayerID:  w1.PlayerID,
+		Seq:       2,
+		Timestamp: 2000,
+		AreaID:    "0:9",
+		Position:  []float64{7, 8},
+		Anim:      "walking",
+	})
+	env2 := c1.next(timeout)
+	if env2.Type != protocol.TypeState {
+		t.Fatalf("second echo: got message type %q, want %q (no repeat join)", env2.Type, protocol.TypeState)
 	}
 }
 
@@ -358,7 +405,7 @@ func TestOversizedPositionDropped(t *testing.T) {
 	c2.expectWelcome(timeout)
 	c1.next(timeout)
 
-	oversized := make([]float64, MaxPositionLen+1)
+	oversized := make([]float64, protocol.MaxPositionLen+1)
 	c1.sendState(protocol.State{PlayerID: w1.PlayerID, AreaID: "a", Position: oversized, Anim: "idle"})
 
 	select {
@@ -385,7 +432,7 @@ func TestOversizedLineClosesConnection(t *testing.T) {
 		AreaID:   "a",
 		Position: []float64{1, 1},
 		Anim:     "idle",
-		Extras:   map[string]any{"junk": string(make([]byte, MaxLineBytes+1))},
+		Extras:   map[string]any{"junk": string(make([]byte, protocol.MaxLineBytes+1))},
 	}
 	c1.sendState(huge)
 
@@ -432,5 +479,359 @@ func TestRoomFullRejectsExtraClient(t *testing.T) {
 	case <-disconnected:
 	case <-time.After(timeout):
 		t.Fatal("timed out waiting for the over-capacity join to be refused")
+	}
+}
+
+// TestMismatchedProtocolVersionRejected confirms a Hello whose
+// protocol_version doesn't match protocol.Version is refused outright, per
+// the versioning rule (agent_docs/contract.md). Previously untested —
+// closed as a coverage gap while scoping relay-safety hardening
+// (agent_docs/architecture.md's room-code/version ADR).
+func TestMismatchedProtocolVersionRejected(t *testing.T) {
+	addr := startServer(t)
+
+	conn, err := transport.Dial(addr)
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer conn.Close()
+
+	disconnected := make(chan struct{})
+	conn.OnDisconnect(func(err error) { close(disconnected) })
+
+	hello, _ := json.Marshal(protocol.Hello{
+		ProtocolVersion: protocol.Version + 1,
+		GameID:          "emerald",
+		Room:            "room1",
+		DisplayName:     "alice",
+	})
+	env, _ := json.Marshal(protocol.Envelope{Type: protocol.TypeHello, Payload: hello})
+	if err := conn.Send(env); err != nil {
+		t.Fatalf("send hello: %v", err)
+	}
+
+	select {
+	case <-disconnected:
+	case <-time.After(timeout):
+		t.Fatal("timed out waiting for version-mismatch connection to be refused")
+	}
+}
+
+// TestOversizedExtrasDropped confirms a State whose Extras exceeds
+// MaxExtrasBytes is dropped rather than forwarded. Previously untested —
+// closed as a coverage gap while scoping relay-safety hardening
+// (agent_docs/architecture.md's room-code/version ADR).
+func TestOversizedExtrasDropped(t *testing.T) {
+	addr := startServer(t)
+
+	c1 := dialTestClient(t, addr, "emerald", "room1", "alice")
+	defer c1.conn.Close()
+	w1 := c1.expectWelcome(timeout)
+
+	c2 := dialTestClient(t, addr, "emerald", "room1", "bob")
+	defer c2.conn.Close()
+	c2.expectWelcome(timeout)
+	c1.next(timeout)
+
+	// strings.Repeat, not a raw zero-byte string: JSON escapes each
+	// non-printable byte as a 6-character sequence, which would blow past
+	// MaxLineBytes first and close the connection instead of exercising
+	// the MaxExtrasBytes drop-only path this test targets.
+	oversized := map[string]any{"junk": strings.Repeat("a", protocol.MaxExtrasBytes+1)}
+	c1.sendState(protocol.State{PlayerID: w1.PlayerID, AreaID: "a", Position: []float64{1, 1}, Anim: "idle", Extras: oversized})
+
+	select {
+	case env := <-c2.envs:
+		t.Fatalf("c2 unexpectedly received %q for an oversized-extras state", env.Type)
+	case <-time.After(200 * time.Millisecond):
+	}
+}
+
+// TestRateLimitClosesConnection confirms a client exceeding
+// MaxMessagesPerSecond is disconnected rather than left to keep flooding.
+// Previously untested — closed as a coverage gap while scoping relay-safety
+// hardening (agent_docs/architecture.md's room-code/version ADR).
+func TestRateLimitClosesConnection(t *testing.T) {
+	addr := startServer(t)
+
+	c1 := dialTestClient(t, addr, "emerald", "room1", "alice")
+	defer c1.conn.Close()
+	w1 := c1.expectWelcome(timeout)
+
+	disconnected := make(chan struct{})
+	c1.conn.OnDisconnect(func(err error) { close(disconnected) })
+
+	// Marshal once and send raw via conn.Send, ignoring write errors:
+	// unlike sendState (which t.Fatalf's on error), a later send in this
+	// loop is expected to fail once the relay has already closed the
+	// connection for exceeding the rate limit.
+	payload, err := json.Marshal(protocol.State{PlayerID: w1.PlayerID, AreaID: "a", Position: []float64{1, 1}, Anim: "idle"})
+	if err != nil {
+		t.Fatalf("marshal state: %v", err)
+	}
+	env, err := json.Marshal(protocol.Envelope{Type: protocol.TypeState, Payload: payload})
+	if err != nil {
+		t.Fatalf("marshal envelope: %v", err)
+	}
+	for i := 0; i < MaxMessagesPerSecond+50; i++ {
+		if c1.conn.Send(env) != nil {
+			break
+		}
+	}
+
+	select {
+	case <-disconnected:
+	case <-time.After(timeout):
+		t.Fatal("timed out waiting for rate-limited connection to close")
+	}
+}
+
+// TestHelloTimeoutClosesConnection confirms an unauthenticated connection
+// that never completes a Hello is closed after Server.HelloTimeout rather
+// than held open forever. Found while scoping relay-safety hardening —
+// transport's own IdleTimeout doesn't cover this case on its own, since it
+// resets on any successfully read line, not just a completed Hello. See
+// agent_docs/architecture.md's room-code/version ADR.
+func TestHelloTimeoutClosesConnection(t *testing.T) {
+	s := NewServer()
+	s.HelloTimeout = 100 * time.Millisecond
+	addr := startServerWith(t, s)
+
+	conn, err := transport.Dial(addr)
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer conn.Close()
+
+	disconnected := make(chan struct{})
+	conn.OnDisconnect(func(err error) { close(disconnected) })
+
+	// Deliberately never send a Hello.
+	select {
+	case <-disconnected:
+	case <-time.After(timeout):
+		t.Fatal("timed out waiting for hello-timeout disconnect")
+	}
+}
+
+// fakeStallingTransport is a transport.Transport whose Send blocks until
+// unblock is closed, used to prove Room.Forward no longer holds r.mu for
+// the duration of a slow/stalled Send call.
+type fakeStallingTransport struct {
+	unblock chan struct{}
+}
+
+func (f *fakeStallingTransport) Send(payload []byte) error {
+	<-f.unblock
+	return nil
+}
+func (f *fakeStallingTransport) OnReceive(func([]byte))   {}
+func (f *fakeStallingTransport) OnDisconnect(func(error)) {}
+func (f *fakeStallingTransport) OnError(func(error))      {}
+func (f *fakeStallingTransport) Close() error              { return nil }
+
+// TestRoomForwardDoesNotBlockOtherOperationsOnStalledSend confirms
+// Room.Forward releases r.mu before calling Send, so one stalled room
+// member can't freeze other room operations (joins, leaves, roster reads,
+// other Forward calls) for the duration of its own send. Previously
+// Room.Forward held r.mu for its entire send loop; harmless when Send was
+// unbounded-but-fast, but real once NDJSONConn.Send gained a WriteTimeout
+// (transport.go) and could legitimately block for seconds against a
+// stalled peer. Found while scoping relay-safety hardening —
+// agent_docs/architecture.md's room-code/version ADR.
+func TestRoomForwardDoesNotBlockOtherOperationsOnStalledSend(t *testing.T) {
+	r := newRoom("emerald", "", "room1")
+	stalled := &fakeStallingTransport{unblock: make(chan struct{})}
+	if !r.tryAdd(&Client{PlayerID: "p1", Conn: stalled}) {
+		t.Fatal("tryAdd failed for first member")
+	}
+
+	forwardDone := make(chan struct{})
+	go func() {
+		env, _ := envelope(protocol.TypeLeave, protocol.Leave{PlayerID: "someone"})
+		r.Forward(env, []string{"p1"})
+		close(forwardDone)
+	}()
+
+	// Give Forward a moment to reach the (now stalled) Send call before
+	// racing a room operation against it.
+	time.Sleep(50 * time.Millisecond)
+
+	roomOpDone := make(chan struct{})
+	go func() {
+		r.tryAdd(&Client{PlayerID: "p2", Conn: &fakeStallingTransport{unblock: make(chan struct{})}})
+		close(roomOpDone)
+	}()
+
+	select {
+	case <-roomOpDone:
+	case <-time.After(timeout):
+		t.Fatal("room operation blocked behind Room.Forward's stalled Send — r.mu held too long")
+	}
+
+	close(stalled.unblock)
+	select {
+	case <-forwardDone:
+	case <-time.After(timeout):
+		t.Fatal("Forward never returned after unblocking Send")
+	}
+}
+
+// TestRoomCodeAcceptsCorrectCode confirms a Hello carrying the relay's
+// configured RoomCode is accepted normally — room-code auth added alongside
+// relay-safety hardening, agent_docs/architecture.md's ADR.
+func TestRoomCodeAcceptsCorrectCode(t *testing.T) {
+	s := NewServer()
+	s.RoomCode = "letmein"
+	addr := startServerWith(t, s)
+
+	c1 := dialTestClientWithHello(t, addr, protocol.Hello{
+		GameID: "emerald", Room: "room1", DisplayName: "alice", RoomCode: "letmein",
+	})
+	defer c1.conn.Close()
+
+	w := c1.expectWelcome(timeout)
+	if w.PlayerID == "" {
+		t.Fatal("welcome carried empty player_id for a correct room code")
+	}
+}
+
+// TestRoomCodeRejectsWrongCode confirms a Hello carrying the wrong RoomCode
+// is refused with a legible Reject, not a bare hangup — see the ADR in
+// agent_docs/architecture.md on why a rejection needs to be distinguishable
+// from "the relay is just slow."
+func TestRoomCodeRejectsWrongCode(t *testing.T) {
+	s := NewServer()
+	s.RoomCode = "letmein"
+	addr := startServerWith(t, s)
+
+	c1 := dialTestClientWithHello(t, addr, protocol.Hello{
+		GameID: "emerald", Room: "room1", DisplayName: "alice", RoomCode: "wrong",
+	})
+	defer c1.conn.Close()
+
+	env := c1.next(timeout)
+	if env.Type != protocol.TypeReject {
+		t.Fatalf("got message type %q, want %q", env.Type, protocol.TypeReject)
+	}
+	var reject protocol.Reject
+	if err := json.Unmarshal(env.Payload, &reject); err != nil {
+		t.Fatalf("unmarshal reject: %v", err)
+	}
+	if reject.Reason == "" {
+		t.Fatal("reject carried an empty reason")
+	}
+}
+
+// TestEmptyConfiguredRoomCodeAcceptsAnyHello confirms the back-compat
+// default: a relay with no RoomCode configured accepts a join regardless of
+// what (if anything) the client's Hello.RoomCode contains — auth stays off
+// unless the relay operator opts in, matching the pre-existing friend-hosted
+// posture. agent_docs/architecture.md's ADR.
+func TestEmptyConfiguredRoomCodeAcceptsAnyHello(t *testing.T) {
+	addr := startServer(t) // NewServer(), RoomCode left empty
+
+	c1 := dialTestClientWithHello(t, addr, protocol.Hello{
+		GameID: "emerald", Room: "room1", DisplayName: "alice", RoomCode: "whatever-i-feel-like",
+	})
+	defer c1.conn.Close()
+
+	w := c1.expectWelcome(timeout)
+	if w.PlayerID == "" {
+		t.Fatal("welcome carried empty player_id when the relay has no room code configured")
+	}
+}
+
+// TestGameVersionMismatchRejected confirms a room's game_version, once
+// declared, is sticky the same way game_id already is: a second client
+// claiming a different game_version for the same room is refused, but a
+// client that doesn't declare one at all is never refused for it.
+// agent_docs/architecture.md's room-code/version ADR.
+func TestGameVersionMismatchRejected(t *testing.T) {
+	addr := startServer(t)
+
+	c1 := dialTestClientWithHello(t, addr, protocol.Hello{
+		GameID: "emerald", Room: "room1", DisplayName: "alice", GameVersion: "1.0",
+	})
+	defer c1.conn.Close()
+	c1.expectWelcome(timeout)
+
+	c2 := dialTestClientWithHello(t, addr, protocol.Hello{
+		GameID: "emerald", Room: "room1", DisplayName: "bob", GameVersion: "2.0",
+	})
+	defer c2.conn.Close()
+
+	env := c2.next(timeout)
+	if env.Type != protocol.TypeReject {
+		t.Fatalf("got message type %q, want %q for a mismatched game_version", env.Type, protocol.TypeReject)
+	}
+
+	// A client that doesn't declare a version at all must still be allowed
+	// in — only a real mismatch between two declared versions is refused.
+	c3 := dialTestClientWithHello(t, addr, protocol.Hello{
+		GameID: "emerald", Room: "room1", DisplayName: "carol",
+	})
+	defer c3.conn.Close()
+	w3 := c3.expectWelcome(timeout)
+	if w3.PlayerID == "" {
+		t.Fatal("welcome carried empty player_id for a client with no declared game_version")
+	}
+}
+
+// TestTryAddAndSnapshotRosterIsAtomic is a regression test for a bug found
+// in a review pass: the join path used to call Room.roster() and
+// Room.tryAdd() as two separate calls, so two clients joining concurrently
+// could each snapshot the roster before either had actually added itself —
+// neither would then appear in the other's Welcome roster or the resulting
+// Join broadcast. tryAddAndSnapshotRoster combines both under one critical
+// section so the snapshot for the Nth join always reflects exactly the
+// N-1 members added before it, never fewer, by construction.
+func TestTryAddAndSnapshotRosterIsAtomic(t *testing.T) {
+	r := newRoom("emerald", "", "room1")
+
+	roster1, ok := r.tryAddAndSnapshotRoster(&Client{PlayerID: "p1", Conn: &fakeStallingTransport{unblock: make(chan struct{})}})
+	if !ok || len(roster1) != 0 {
+		t.Fatalf("first join: ok=%v roster=%v, want ok=true roster=[]", ok, roster1)
+	}
+
+	roster2, ok := r.tryAddAndSnapshotRoster(&Client{PlayerID: "p2", Conn: &fakeStallingTransport{unblock: make(chan struct{})}})
+	if !ok || len(roster2) != 1 || roster2[0] != "p1" {
+		t.Fatalf("second join: ok=%v roster=%v, want ok=true roster=[p1]", ok, roster2)
+	}
+
+	final := r.roster()
+	if len(final) != 2 {
+		t.Fatalf("final roster = %v, want both p1 and p2 present", final)
+	}
+}
+
+// TestOversizedHelloFieldRejected confirms a Hello with a field over
+// MaxHelloFieldLen is refused with ReasonHelloFieldTooLong. The
+// DisplayName here is also paired with a bad ProtocolVersion, to confirm
+// the length check runs *first* (a review-pass fix — previously the
+// version check ran first and its rejectAndClose logged the full,
+// oversized field value): if the version check won, the reject reason
+// would be "protocol version mismatch" instead.
+func TestOversizedHelloFieldRejected(t *testing.T) {
+	addr := startServer(t)
+
+	c1 := dialTestClientWithHello(t, addr, protocol.Hello{
+		ProtocolVersion: protocol.Version + 1,
+		GameID:          "emerald",
+		Room:            "room1",
+		DisplayName:     strings.Repeat("a", MaxHelloFieldLen+1),
+	})
+	defer c1.conn.Close()
+
+	env := c1.next(timeout)
+	if env.Type != protocol.TypeReject {
+		t.Fatalf("got message type %q, want %q", env.Type, protocol.TypeReject)
+	}
+	var reject protocol.Reject
+	if err := json.Unmarshal(env.Payload, &reject); err != nil {
+		t.Fatalf("unmarshal reject: %v", err)
+	}
+	if reject.Reason != protocol.ReasonHelloFieldTooLong {
+		t.Fatalf("reject reason = %q, want %q (length check should run before the version check)", reject.Reason, protocol.ReasonHelloFieldTooLong)
 	}
 }

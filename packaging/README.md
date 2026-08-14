@@ -31,14 +31,25 @@ started writing their own `meshghost.log`/`meshghost-server.log` next to the `.e
 alongside stderr, truncated each run) — that file survives the window closing, so the `.bat`
 files stopped doing anything a user couldn't already get by double-clicking the `.exe` itself.
 
-## No password/auth yet
+## Room-code auth (added 2026-08-14)
 
-`packaging/release/README.txt` says this explicitly: the server is no-auth
-(`agent_docs/architecture.md`'s ADR). `"room"` in `config.json`'s `client` section is real
-functionality (lets multiple groups share one server without seeing each other) but is not a
-security mechanism — the server address itself is the de facto shared secret today. Real
-shared-secret room codes are planned (`agent_docs/plans.md`'s "Post-Phase-4 — Room codes") but
-not built; update `config.json`/`README.txt` when that ships.
+`server.room_code` (host-set) and `client.room_code` (must match) in `config.json` — see
+`agent_docs/architecture.md`'s room-code/version ADR and `internal/README.md`. **Optional and
+off by default**: an empty `server.room_code` means the relay still accepts anyone with the
+address, the original no-auth posture. `packaging/release/README.txt` should tell a host to
+set one before treating a session as safe for people they don't personally know — see that
+file's own note.
+
+**The one thing this can't protect against, and every host needs to know**: room-code auth is
+enforced entirely by the relay, so it only works if `meshghost-server.exe` is a current build.
+An old relay silently ignores an unrecognized `room_code` field and stays open with no warning
+— see `risks.md`'s "stale relay" entry. There is no way to fix this from the client side; the
+only mitigation is telling hosts plainly to update the relay, not just the client, before
+relying on a room code.
+
+`"room"` remains real functionality (lets multiple groups share one server without seeing each
+other) but is still not itself a secret — it's a label, checked for equality but not
+constant-time-compared or meant to be hard to guess. `room_code` is the actual secret.
 
 ## Why JSON, not a `.bat`-embedded config
 
@@ -93,6 +104,13 @@ rehashes those same files before assembling a release and fails the build if the
 — a release physically cannot ship a `MeshGhostTevi.dll` older than the source that's supposed
 to have produced it. Whoever edits the TEVI adapter re-runs `build-tevi.bat` and commits the
 result as part of that change.
+
+**Known stale as of the 2026-08-14 relay-safety work**: `Plugin.cs`/`BridgeClient.cs` changed
+(added `game_version` to the bridge `hello`, per the room-code/version ADR) without
+`dev-scripts/build-tevi.bat` being re-run — this session has no TEVI/Unity install to build
+against (`agent_docs/licensing.md`'s gitignored-proprietary-lib constraint, same reason CI
+can't build it either). The staleness check will correctly fail the release workflow until
+someone with a real TEVI install re-runs `build-tevi.bat` and commits the result.
 
 TEVI ships marked experimental (see `packaging/release/README.txt` and
 `packaging/release/games/tevi/README.txt`): the mod is code-complete but has never been tested

@@ -38,7 +38,8 @@ func openLogFile(name string) io.Writer {
 // reads as an opposite of the client's "connect_to" -- see
 // packaging/release/config.json and its README.txt.
 type fileConfig struct {
-	Addr *string `json:"listen_on"`
+	Addr     *string `json:"listen_on"`
+	RoomCode *string `json:"room_code"`
 }
 
 // rootConfig is the top-level shape of the config file: a "server" section
@@ -48,7 +49,7 @@ type rootConfig struct {
 	Server *fileConfig `json:"server"`
 }
 
-func applyFileConfig(path string, explicit map[string]bool, addr *string) {
+func applyFileConfig(path string, explicit map[string]bool, addr, roomCode *string) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if !os.IsNotExist(err) {
@@ -68,6 +69,9 @@ func applyFileConfig(path string, explicit map[string]bool, addr *string) {
 	if rc.Server.Addr != nil && !explicit["addr"] {
 		*addr = *rc.Server.Addr
 	}
+	if rc.Server.RoomCode != nil && !explicit["room-code"] {
+		*roomCode = *rc.Server.RoomCode
+	}
 }
 
 func main() {
@@ -75,18 +79,22 @@ func main() {
 	loopback := flag.Bool("loopback", false, "dev-only Phase 3 flag: echo each client's own "+
 		"state back to it under a synthetic <id>-ghost player_id, so a single client exercises "+
 		"a real core->relay->core round trip. Never enable this outside dev/testing.")
+	roomCode := flag.String("room-code", "", "shared secret clients must send to join a room -- "+
+		"leave empty to run open (anyone with the address can join, the pre-existing default); "+
+		"see agent_docs/architecture.md's room-code ADR for what this does and doesn't defend "+
+		"against (no TLS: the code crosses the wire in plaintext)")
 	configPath := flag.String("config", "config.json",
 		"path to an optional JSON config file with a \"server\" section "+
-			"({\"listen_on\": \"...\"}) -- a friendlier alternative to flags for non-developer "+
-			"use; silently ignored if it doesn't exist; -addr passed explicitly on the command "+
-			"line overrides the file")
+			"({\"listen_on\": \"...\", \"room_code\": \"...\"}) -- a friendlier alternative to "+
+			"flags for non-developer use; silently ignored if it doesn't exist; a flag passed "+
+			"explicitly on the command line overrides the same field from this file")
 	flag.Parse()
 
 	log.SetOutput(openLogFile("meshghost-server.log"))
 
 	explicit := map[string]bool{}
 	flag.Visit(func(f *flag.Flag) { explicit[f.Name] = true })
-	applyFileConfig(*configPath, explicit, addr)
+	applyFileConfig(*configPath, explicit, addr, roomCode)
 
 	ln, err := net.Listen("tcp", *addr)
 	if err != nil {
@@ -96,8 +104,16 @@ func main() {
 
 	server := relay.NewServer()
 	server.Loopback = *loopback
+	server.RoomCode = *roomCode
 	if *loopback {
 		log.Printf("meshghost-relay: -loopback enabled — dev-only, do not use with real peers")
+	}
+	if *roomCode == "" {
+		log.Printf("meshghost-relay: WARNING: no room code configured -- anyone who has this " +
+			"relay's address can join any room. Set -room-code (or \"room_code\" in config.json) " +
+			"before exposing this relay beyond a friend you directly hand the address to.")
+	} else {
+		log.Printf("meshghost-relay: room-code auth enabled")
 	}
 	if err := server.Serve(ln); err != nil {
 		log.Fatalf("meshghost-relay: serve: %v", err)

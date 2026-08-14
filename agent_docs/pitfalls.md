@@ -275,6 +275,35 @@ that engine.
   after a transition until freshly re-acquired, and add an explicit debounce window around
   the transition itself for any data read that might land mid-relocation — don't assume a
   transition is atomic from the adapter's point of view.
+- **TEVI (Unity)**: the same class again, but in *render state* terms instead of a memory
+  address or object reference. `Instantiate()`-cloning a live character's visual hierarchy to
+  make a remote ghost (`CreateRealGhostVisual`, `adapters/tevi/MeshGhostTevi/Plugin.cs`) deep-
+  copies every component's *current* field values, including whatever transient state the
+  source is in at that exact instant — not just static geometry. **Symptom, found live
+  2026-08-14**: a peer's ghost, recreated (via cross-area filtering's despawn/respawn cycle,
+  see the 2026-08-13 ADR in `architecture.md`) right as the traveling player's own zone-load
+  finished, went permanently invisible — alive, active, correctly positioned, never destroyed
+  again (ruled out via dedicated redraw/despawn diagnostic logging added specifically to chase
+  this), just invisible. **Root cause, confirmed via logging the inherited state before
+  overwriting it**: `basesprite.enabled` was `false` at clone time (some in-engine hide/fade
+  tied to the zone-load transition), and the clone has no `CharacterBase` gameplay logic of its
+  own to ever flip it back — a bad state captured mid-transition is permanent for a detached
+  clone, exactly like a Lua reference going stale mid-warp. **Fix, and a real mis-fix caught
+  first**: the first attempt forced *every* sprite renderer to `enabled = true` **and**
+  `color = Color.white` — this "fixed" the invisibility but immediately introduced a visible
+  regression, a solid white glow replacing the character's outline effect (`outlinesprite` is
+  deliberately not white; overwriting its color broke it). Correct fix: log what was actually
+  inherited *before* resetting anything — the log showed `color` was already a correct opaque
+  `(1,1,1,1)`, only `enabled` was wrong — so only reset the field actually confirmed broken,
+  not everything that plausibly could be.
+- **A guessed delay was considered and rejected for the TEVI case above**, same reasoning as
+  every other guessed-constant mistake in this file's history (the console-spam epsilon, TEVI's
+  own position-change epsilon): it would only narrow the race window against a transition
+  effect of unknown/variable duration, not close it, and would add latency to every recreate
+  even when nothing was mid-transition. **Generalizes further**: when a symptom looks like "the
+  right value eventually settles, so just wait for it," check first whether the actual fix is
+  cheaper and more certain — forcing a known-good value directly, rather than racing a timer
+  against an effect whose duration was never measured.
 
 ### Memory probing / address hunting (Emerald-style, static addresses)
 
@@ -366,6 +395,28 @@ that engine.
   sufficient to catch this — when rolling back, back up *everything* the bumped component
   touched, not just the component itself (a partial rollback can leave one dependency on the
   newer version by oversight).
+- **A plain, undiscarded `sock:receive()`/`sock:send()` call on a non-blocking socket silently
+  drops data at NDJSON framing boundaries — found independently in two languages during the
+  2026-08 review sweep.** `receive()` with `settimeout(0)` returns `nil, "timeout", partial`
+  when a line straddles the read boundary; code that only checks the first two returns discards
+  `partial` outright, and the next successful read starts mid-line. `send()` on the same kind of
+  socket can accept only part of a buffer, silently truncating the newline-terminated line if the
+  return isn't checked against the full length. Found in `adapters/pokemon/emerald/
+  phase5_5_sprite.lua`'s `drainBridge`/`sendLine` (fixed: resume `receive("*l", partial)`,
+  drop-and-reconnect on a partial send) and, as a partial-send-only variant, in
+  `BridgeClient::send_line` (`adapters/pseudoregalia/MeshGhostPseudo/Mod/src/BridgeClient.cpp`,
+  fixed the same review sweep). The exact same discard-the-partial `sock:receive()` pattern (no
+  prefix argument) is also present, unfixed, in the abandoned Pseudoregalia Lua probe scripts
+  (`adapters/pseudoregalia/probe_ghost/Scripts/main.lua:499`,
+  `adapters/pseudoregalia/probe_socket/Scripts/stage3_roundtrip.lua:110`) — a plausible
+  *contributing* cause for the 7.5 "receive-side corruption" symptom (see the ABI-mismatch entry
+  above), though the diagnostic ladder that investigation ran (failure rate independent of
+  message size/frequency, correlated with session duration) points at a genuinely separate
+  timing/ABI issue as the dominant cause; this pattern was never live-tested in isolation on that
+  now-superseded Lua path, so treat it as an additional real bug found by code inspection, not a
+  replacement for that diagnosis. **Generalizes to**: any non-blocking socket loop across any
+  language — check every return value of `send`/`receive` against the full requested length, and
+  never assume a documented "timeout" or "partial" result means "nothing happened."
 
 ### Vendored RE-UE4SS SDK marshals `FRotator` as `float` regardless of engine version (UE5 games)
 
@@ -410,6 +461,26 @@ that engine.
     `FRotator::Quaternion()` (`include/Unreal/Rotator.hpp:158`) is missing a negation on its `Y`
     term versus UE's real formula — harmless when pitch and roll are both zero (true for this
     game's pawn), but would corrupt a spawn-time rotation for a pawn with non-zero pitch/roll.
+
+### Actor destroy unavailable on this build — move offscreen, let the level's own teardown reclaim it
+
+- **Symptom**: `K2_DestroyActor()` on a spawned ghost actor silently no-ops on this Pseudoregalia
+  build — no crash, no error, the actor call simply doesn't remove the object. Earlier attempts
+  to destroy ghosts through other means caused world-leak crashes.
+- **Design (not a bug fix, a permanent constraint)**: ghosts are never destroyed. On
+  `despawn_remote`, `Plugin.cpp`'s `release_ghost` moves the ghost far offscreen via the
+  already-proven `call_set_actor_location_and_rotation` path (see the `FRotator` marshaling
+  pitfall above for why that specific call needed its own version-aware helper) instead of
+  attempting any destroy/pool/reuse. The level's own teardown on the next area transition
+  reclaims it, the same as every other actor in the level — so ghosts aren't leaked forever, the
+  cost is purely cosmetic: a peer leaving/reconnecting *within a single area* leaves a frozen,
+  offscreen (not visible) ghost standing until the next transition, rather than a truly clean
+  removal.
+- **Generalizes to**: on any engine/build where a runtime destroy call is confirmed unreliable
+  (no-op, or worse, a crash), prefer "move it somewhere inert and let a mechanism the engine
+  already trusts (a level transition, an object pool the engine itself manages) do the real
+  cleanup" over building your own destroy/lifetime-management layer on top of an already-shaky
+  primitive.
 
 ### Cross-adapter issues that were fixed in the core, not the adapter
 

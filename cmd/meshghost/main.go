@@ -41,12 +41,14 @@ func openLogFile(name string) io.Writer {
 // "local_game_bridge" (not "bridge") makes clear that socket never leaves
 // the machine -- see packaging/release/config.json and its README.txt.
 type fileConfig struct {
-	Relay  *string `json:"connect_to"`
-	Bridge *string `json:"local_game_bridge"`
-	Game   *string `json:"game"`
-	Room   *string `json:"room"`
-	Name   *string `json:"name"`
-	Interp *string `json:"interp"`
+	Relay       *string `json:"connect_to"`
+	Bridge      *string `json:"local_game_bridge"`
+	Game        *string `json:"game"`
+	Room        *string `json:"room"`
+	Name        *string `json:"name"`
+	Interp      *string `json:"interp"`
+	RoomCode    *string `json:"room_code"`
+	GameVersion *string `json:"game_version"`
 }
 
 // rootConfig is the top-level shape of the config file: a "client" section
@@ -57,12 +59,29 @@ type rootConfig struct {
 	Client *fileConfig `json:"client"`
 }
 
+// configTargets are the flag-backed variables applyFileConfig may overwrite
+// — one *string/*time.Duration per fileConfig field. Grouped into a struct
+// (rather than applyFileConfig's old flat list of positional pointer
+// params) since that list was already at five and room-code/game-version
+// support would have pushed it to seven; a struct keeps each field's name
+// at the call site instead of relying on positional order.
+type configTargets struct {
+	relayAddr   *string
+	bridgeAddr  *string
+	gameID      *string
+	room        *string
+	name        *string
+	interp      *time.Duration
+	roomCode    *string
+	gameVersion *string
+}
+
 // applyFileConfig loads path (if it exists -- silently doing nothing if not,
 // so existing flag-only usage is unaffected) and overwrites any flag that
 // was NOT explicitly passed on the command line with the file's "client"
 // section. CLI flags always win over the file, matching normal
 // config-layering convention (most-specific/most-explicit source wins).
-func applyFileConfig(path string, explicit map[string]bool, relayAddr, bridgeAddr, gameID, room, name *string, interp *time.Duration) {
+func applyFileConfig(path string, explicit map[string]bool, t configTargets) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if !os.IsNotExist(err) {
@@ -81,26 +100,79 @@ func applyFileConfig(path string, explicit map[string]bool, relayAddr, bridgeAdd
 	}
 	fc := *rc.Client
 	if fc.Relay != nil && !explicit["relay"] {
-		*relayAddr = *fc.Relay
+		*t.relayAddr = *fc.Relay
 	}
 	if fc.Bridge != nil && !explicit["bridge"] {
-		*bridgeAddr = *fc.Bridge
+		*t.bridgeAddr = *fc.Bridge
 	}
 	if fc.Game != nil && !explicit["game"] {
-		*gameID = *fc.Game
+		*t.gameID = *fc.Game
 	}
 	if fc.Room != nil && !explicit["room"] {
-		*room = *fc.Room
+		*t.room = *fc.Room
 	}
 	if fc.Name != nil && !explicit["name"] {
-		*name = *fc.Name
+		*t.name = *fc.Name
 	}
 	if fc.Interp != nil && !explicit["interp"] {
 		d, err := time.ParseDuration(*fc.Interp)
 		if err != nil {
 			log.Printf("meshghost: warning: config file %s has an invalid interp value %q: %v", path, *fc.Interp, err)
 		} else {
-			*interp = d
+			*t.interp = d
+		}
+	}
+	if fc.RoomCode != nil && !explicit["room-code"] {
+		*t.roomCode = *fc.RoomCode
+	}
+	if fc.GameVersion != nil && !explicit["game-version"] {
+		*t.gameVersion = *fc.GameVersion
+	}
+}
+
+// connectRelayWithRetry keeps calling Core.ConnectRelayOnAdapterHello until
+// it succeeds or is permanently refused, so meshghost.exe doesn't require
+// the relay to already be running when the caller uses an explicit -game
+// (dev-scripts, fakeadapter-style tooling — the default, -game unset,
+// already tolerates this for free the same way, since a real adapter's own
+// bridge-reconnect loop drives retries there). Routed through
+// ConnectRelayOnAdapterHello specifically, not Core.ConnectRelay directly:
+// that function already serializes on Core.relayConnectMu and checks
+// "already connected," which matters here because a real adapter can also
+// connect over the bridge and send its own hello for the same game_id
+// while this loop is still waiting for the relay to come up — without
+// going through the same entry point, both could race to dial
+// independently. ConnectRelayOnAdapterHello's own internal logging (with
+// dedup) already covers "could not connect yet" and "permanently
+// refused," so this loop doesn't log anything of its own beyond the final
+// Fatalf. Added after the user asked whether client/server had to be
+// started in a specific order — they shouldn't have to be.
+//
+// Takes no gameVersion parameter: c.GameVersion is already set from the
+// -game-version flag/config before this is called (see main below), and
+// ConnectRelayOnAdapterHello reads it from there directly — passing it
+// again here would have been a dead argument (found in a review pass;
+// this used to take one and thread it through unused).
+func connectRelayWithRetry(c *core.Core, gameID string) {
+	const (
+		initialBackoff = 1 * time.Second
+		maxBackoff     = 15 * time.Second
+	)
+	backoff := initialBackoff
+	for {
+		err := c.ConnectRelayOnAdapterHello(gameID, "", nil)
+		if err == nil {
+			return
+		}
+		if core.IsPermanentRejectErr(err) {
+			log.Fatalf("meshghost: %v", err)
+		}
+		time.Sleep(backoff)
+		if backoff < maxBackoff {
+			backoff *= 2
+			if backoff > maxBackoff {
+				backoff = maxBackoff
+			}
 		}
 	}
 }
@@ -116,36 +188,54 @@ func main() {
 	interp := flag.Duration("interp", core.DefaultInterpolationDelay,
 		"interpolation delay for remote ghosts (e.g. 200ms) — how far behind the most recent "+
 			"samples remotes are rendered, to smooth over network jitter")
+	roomCode := flag.String("room-code", "", "shared secret to send the relay for room-code auth "+
+		"-- only needed if the relay you're connecting to has one configured; leave empty for a "+
+		"relay running open (the default)")
+	gameVersion := flag.String("game-version", "", "override the game/DLC version advertised to "+
+		"the relay, instead of whatever the adapter itself reports over its bridge Hello -- for "+
+		"dev/testing scripts with no real adapter attached")
 	configPath := flag.String("config", "config.json",
 		"path to an optional JSON config file with a \"client\" section "+
-			"(connect_to/local_game_bridge/game/room/name/interp) -- a friendlier alternative to "+
-			"flags for non-developer use; silently ignored if it doesn't exist; any flag explicitly "+
-			"passed on the command line overrides the same field from this file")
+			"(connect_to/local_game_bridge/game/room/name/interp/room_code/game_version) -- a "+
+			"friendlier alternative to flags for non-developer use; silently ignored if it doesn't "+
+			"exist; any flag explicitly passed on the command line overrides the same field from "+
+			"this file")
 	flag.Parse()
 
 	log.SetOutput(openLogFile("meshghost.log"))
 
 	explicit := map[string]bool{}
 	flag.Visit(func(f *flag.Flag) { explicit[f.Name] = true })
-	applyFileConfig(*configPath, explicit, relayAddr, bridgeAddr, gameID, room, name, interp)
+	applyFileConfig(*configPath, explicit, configTargets{
+		relayAddr:   relayAddr,
+		bridgeAddr:  bridgeAddr,
+		gameID:      gameID,
+		room:        room,
+		name:        name,
+		interp:      interp,
+		roomCode:    roomCode,
+		gameVersion: gameVersion,
+	})
 
 	c := core.New()
 	c.InterpolationDelay = *interp
 	c.RelayAddr = *relayAddr
 	c.Room = *room
 	c.DisplayName = *name
+	c.RoomCode = *roomCode
+	c.GameVersion = *gameVersion
 	c.DialTimeout = 5 * time.Second
+	c.OnRelayConnected = func(gameID string) {
+		log.Printf("meshghost: connected to relay %s as %s in room %q (game %q)", *relayAddr, c.PlayerID(), *room, gameID)
+	}
 
 	if *gameID != "" {
-		if err := c.ConnectRelay(*relayAddr, *gameID, *room, *name, c.DialTimeout); err != nil {
-			log.Fatalf("meshghost: %v", err)
-		}
-		log.Printf("meshghost: connected to relay %s as %s in room %q", *relayAddr, c.PlayerID(), *room)
+		// Backgrounded, not blocking: the bridge listener below starts
+		// immediately regardless of whether the relay is reachable yet —
+		// see connectRelayWithRetry's doc comment.
+		go connectRelayWithRetry(c, *gameID)
 	} else {
 		log.Printf("meshghost: no game set -- waiting for a game to connect and say hello...")
-		c.OnRelayConnected = func(gameID string) {
-			log.Printf("meshghost: connected to relay %s as %s in room %q (game %q)", *relayAddr, c.PlayerID(), *room, gameID)
-		}
 	}
 
 	ln, err := net.Listen("tcp", *bridgeAddr)

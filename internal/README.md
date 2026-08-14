@@ -6,10 +6,63 @@ with people I don't know" has a real, checkable answer instead of a guess — se
 `CLAUDE.md`'s "no addresses or APIs from memory" rule applied to security claims, not just
 game memory.
 
-**Bottom line up front: MeshGhost is currently safe to use with a friend you directly hand an
-address to. It is not yet safe to expose to strangers or post publicly.** The gap is tracked
-as the current priority — see `agent_docs/risks.md`'s "No-auth relay window" entry and
-`agent_docs/plans.md`'s "Next priority — Room codes / relay safety" section.
+**Bottom line up front, updated 2026-08-14: MeshGhost now supports room-code auth and a peer
+game-version check, and the relay/core have been hardened against several concrete
+malicious-peer attack shapes (see "What changed" below). It is safer to use with people you
+don't personally know than it was — but two real limits remain, and neither is closed by this
+work: there is no TLS, so a room code crosses the wire in plaintext (raises the bar from
+"anyone with the address" to "anyone with the address and the code," not to "safe against a
+network-level attacker"); and room-code auth is enforced entirely by the relay, so it provides
+zero protection if the relay itself is an outdated build, regardless of what any client sends
+or believes it configured — see "A new risk this creates" below.** Full record of this pass:
+the ADR in `agent_docs/architecture.md` (search "room-code/version ADR").
+
+## What changed (2026-08-14 relay-safety hardening pass)
+
+- **Room-code auth**: `hello` carries an optional `room_code`, checked constant-time against
+  the relay's own configured code. Empty (the default) means auth stays off — unchanged from
+  the original friend-hosted posture unless a relay operator opts in.
+- **Peer game-version check**: `hello` carries an optional `game_version` (each shipped
+  adapter's own script/mod version, not a game build number — see the ADR for why). A room's
+  version, once declared, is sticky the same way `game_id` already was.
+- **Legible rejection**: a refused `hello` (bad version, wrong room code, mismatched game/
+  version, full room) now gets a `reject` message with a reason before the connection closes,
+  instead of a bare hangup indistinguishable from "the relay is just slow or down."
+- **A real remote-OOM, fixed**: `internal/transport`'s read loop used to buffer a line without
+  any size bound until it found a newline — a peer streaming bytes with no newline could grow
+  memory without limit, and the existing `MaxLineBytes` check ran too late to stop it. Now
+  enforced *during* the read.
+- **Read/write deadlines and a hello timeout**, none of which existed before — see the
+  Transport section of `agent_docs/contract.md`.
+- **A one-stalled-peer room freeze, fixed**: `Room.Forward` used to hold its lock across every
+  recipient's `Send` call; once `Send` could legitimately block for seconds against a stalled
+  peer (the deadline above), that meant one bad connection could freeze joins/leaves/roster
+  reads for everyone else in the room.
+- **The core no longer trusts the relay completely**: it keeps its own roster (seeded from
+  `welcome`, maintained by `join`/`leave`) and drops `state` for any `player_id` it never
+  actually saw announced — previously a hostile or compromised relay could inject state for an
+  arbitrary id, since `welcome.roster` was discarded entirely.
+- **New size/length limits** on fields that were previously unbounded: `orientation`,
+  `area_id`, `anim`, and every `hello` string field.
+- **Lifecycle logging, added same-day**: the relay's own log now records a join, a leave, and
+  a refused `hello` (with reason) — previously a host had zero visibility into any of these.
+  `internal/core` logs a connect failure only when the message actually changes, so a long
+  wait for the relay to come up doesn't flood the log with an identical retry line.
+- **Start-order independence, added same-day**: `cmd/meshghost` no longer requires the relay
+  to already be running — a permanent rejection (wrong room code, version mismatch) still
+  exits loudly, but "the relay isn't up yet" now retries with backoff instead of crashing the
+  whole process. Confirmed live: see `verified.md`'s "start-order independence" entry.
+
+## A new risk this creates
+
+**Room-code auth is enforced entirely by the relay — a stale (pre-2026-08-14) relay binary
+provides zero protection regardless of what any client sends or configures, and gives no error
+telling its host that.** A `room_code` field in an old relay's `config.json` is simply an
+unrecognized JSON field to that binary — silently ignored, not rejected. This isn't a client
+problem and can't be fixed client-side: the whole point of enforcing auth at the relay (the
+host controls admission, not each joiner) means the protection only exists if the *relay*
+process is current. If you're hosting: update `meshghost-relay.exe`, not just the client, before
+relying on a room code. See the ADR in `agent_docs/architecture.md` for the full reasoning.
 
 ## What's already true, and why (checked against the actual code, 2026-08-13)
 
@@ -37,26 +90,30 @@ talks to its own local core process, over localhost, via the bridge. Only the co
 the relay. So even a fully compromised adapter has no path to learn anything about another
 player's machine — it would have to compromise the core itself first, a separate process.
 
-**Basic misbehavior limits exist and defend against a malformed peer** (`internal/relay/limits.go`):
-`MaxLineBytes` (4096), `MaxExtrasBytes` (1024), `MaxPositionLen` (8), `MaxClientsPerRoom` (8),
-`MaxMessagesPerSecond` (120). These stop a broken or careless client from corrupting a room for
-everyone else in it (an oversized payload, a runaway send loop). They are explicitly **not**
-a defense against a determined attacker — generous, not tight, exactly because no-auth was the
-accepted state through Phase 4 (see the relay-auth ADR in `agent_docs/architecture.md`).
+**Misbehavior limits exist and defend against both a malformed and a malicious peer**
+(`internal/relay/limits.go`, `internal/protocol/limits.go`): `MaxLineBytes` (4096, now enforced
+during the read itself, not after), `MaxExtrasBytes` (1024), `MaxPositionLen` (8),
+`MaxOrientationBytes` (256), `MaxAreaIDLen`/`MaxAnimLen` (256), `MaxHelloFieldLen` (128),
+`MaxClientsPerRoom` (8), `MaxMessagesPerSecond` (120), `DefaultHelloTimeout` (10s). Originally
+generous rather than tight (no-auth was the accepted state through Phase 4); audited with an
+adversarial peer in mind as of the 2026-08-14 hardening pass — see "What changed" above and the
+ADR in `agent_docs/architecture.md`.
 
 ## What is not yet true — known gaps
 
-- **No authentication.** Anyone who has the relay's address can connect and join a room. There
-  is no room code, password, or invite mechanism. This is the main reason MeshGhost isn't
-  currently safe with strangers.
-- **No peer game-version check.** `hello` carries `game_id` but nothing about version or
-  installed DLC — two peers on incompatible game versions connect and exchange state without
-  any warning that `area_id`/`anim` might mean different things to each of them.
-- **No protection against a *malicious* (not just malformed) peer specifically** — the limits
-  above bound size/rate, not intent. A peer could still, for example, spam legitimate-looking
-  rapid state changes right up to the rate cap, or send deliberately confusing (not oversized)
-  `extras` content. Not yet audited with an adversarial mindset; the "Next priority" work in
-  `agent_docs/plans.md` should include this, not just auth.
+- **No TLS.** `internal/transport` is plaintext NDJSON over TCP — deliberate, for the
+  "greppable with netcat" debuggability property (see "Why TCP, not UDP" below). A room code
+  therefore crosses the wire in the clear: a network-level attacker positioned between a client
+  and the relay can read it. This is the honest ceiling of what room-code auth buys — "anyone
+  with the address and the code," not "safe against a network-level attacker."
+- **Room-code auth depends on the relay being current** — see "A new risk this creates" above.
+  A stale relay binary silently provides none of the protection a client believes it configured.
+- **Not exhaustively audited.** The 2026-08-14 pass fixed the concrete DoS/trust gaps found
+  while scoping it (a real remote-OOM, a one-stalled-peer room freeze, the relay's roster being
+  discarded client-side) — not a claim that every possible malicious-peer angle has been tried.
+  A peer can still, for example, spam legitimate-looking rapid state changes right up to the
+  rate cap. Revisit if a new concrete attack shape is found, the same way this pass was scoped
+  from real findings rather than a hypothetical checklist.
 
 ## A constraint to protect going forward
 
@@ -111,7 +168,7 @@ writing any of this — findings below are cited to real files, not memory.
 **Takeaway for our own design**: aim for the *shape* of their version-check pattern (a shared
 secret checked once at handshake, reject outright on mismatch, before any state is exchanged)
 for room codes — not their full public-server account/ban/fingerprinting stack, which solves a
-problem MeshGhost doesn't have.
+problem MeshGhost doesn't have. **Implemented 2026-08-14** — see "What changed" above.
 
 ## Why TCP, not UDP (recorded 2026-08-13 — no prior ADR existed for this)
 

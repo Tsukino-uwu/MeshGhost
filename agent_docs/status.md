@@ -333,6 +333,139 @@
   peer game-version check) plus a broader look at malicious-peer hardening generally. Not yet
   designed or scoped — see `risks.md`'s "No-auth relay window" entry and `plans.md`'s "Room
   codes / relay safety" section for what's recorded so far. Start here next session.
+- `Current focus:` **2026-08-14 — relay-safety hardening built.** Full record: the ADR in
+  `architecture.md` (search "room-code/version ADR"), `internal/README.md`'s "What changed"
+  section, and `plans.md`'s "Room codes / relay safety" section. Short version:
+  - **Room-code auth**: `hello` carries an optional `room_code`, constant-time-checked against
+    the relay's own configured `Server.RoomCode`; empty (still the default) means auth stays
+    off. A refused `hello` (bad version, wrong code, game/version mismatch, full room) now gets
+    a `reject` message with a reason before the connection closes, instead of a bare hangup —
+    the old behavior made "wrong code" indistinguishable from "relay is down."
+  - **Peer game-version check**: `hello` carries an optional `game_version`, sticky per room the
+    same way `game_id` already is. Each shipped adapter reports its own adapter/mod version
+    (Emerald `"phase5.5"`, TEVI's BepInEx `PluginVersion`, Pseudoregalia `"phase7.6"`) — not a
+    real game/DLC build number, since no cited memory address exists for one in any of the
+    three games and `CLAUDE.md`'s no-addresses-from-memory rule means one wasn't guessed at.
+    Real, useful gap this still leaves open for TEVI specifically: two peers on different Steam
+    patch levels or DLC states still aren't caught — see `risks.md`'s updated entry.
+  - **Malicious-peer hardening, scoped from concrete findings, not a checklist**: a real
+    remote-OOM in `internal/transport` (unbounded read buffer — fixed via `bufio.Scanner` with
+    a real max-token-size, enforced during the read, not after), read/write deadlines and a
+    relay hello-timeout (none existed before), `Room.Forward` no longer holds its lock across a
+    potentially-blocking `Send` (was a one-stalled-peer room freeze once `Send` could block),
+    and `internal/core` no longer trusts the relay completely — it keeps its own roster (from
+    `welcome`/`join`/`leave`) and drops `state` for any `player_id` it never saw announced.
+    New size/length caps on `orientation`, `area_id`, `anim`, and every `hello` string field.
+  - **A real, live-run confirmation, not just `go test`**: built both binaries, ran a real
+    relay + real client through the actual shipped `packaging/release/config.json` (not
+    flags), confirmed both the correct-code accept and the wrong-code reject via each
+    process's own log output — see `verified.md`'s new entry (agent-read-log gated, same
+    pattern as the TEVI/cross-machine entries above; not yet watched by the user).
+  - **Explicit, honest limits, not silently glossed over**: no TLS (`risks.md`, new entry) — a
+    room code crosses the wire in plaintext, so this raises the bar from "anyone with the
+    address" to "anyone with the address and the code," not to "safe against a network
+    attacker." And a new risk this work itself creates: **room-code auth is enforced entirely
+    by the relay, so a stale (pre-2026-08-14) relay binary silently provides zero protection**
+    regardless of what any client sends or believes it configured — found from the user asking
+    what an old client/server does against new ones. No protocol-level fix exists for that;
+    `packaging/README.md`/`packaging/release/README.txt` now say plainly that room-code auth
+    needs the *relay* to be current, not just the client.
+  - **TEVI's committed `MeshGhostTevi.dll` is now stale relative to source** (`Plugin.cs`/
+    `BridgeClient.cs` changed to add `game_version`) — this session has no TEVI/Unity install
+    to rebuild it with (same constraint that keeps CI from building it). The release workflow's
+    staleness check will correctly fail until someone with a real TEVI install re-runs
+    `dev-scripts/build-tevi.bat` and commits the result.
+  - `go build`/`vet`/`test` clean across the whole module. New regression tests throughout
+    (`internal/transport`, `internal/relay`, `internal/core`) for every fix above, plus three
+    pre-existing coverage gaps closed in passing (protocol-version-mismatch, `MaxExtrasBytes`,
+    `MaxMessagesPerSecond` — none had a test before).
+  - **Same-day follow-up, from user questions**: two real gaps found by the user actually
+    asking how this behaves, not by the agent's own review. (1) A rejection previously reached
+    nobody but the client's own log — the relay now logs join/leave/reject (lifecycle events
+    only, can't spam); `internal/core` logs a connect failure once per distinct message, not
+    once per retry. (2) `cmd/meshghost`'s eager `-game` path required the relay to already be
+    running (crashed via `log.Fatalf` on the first failed dial) — now retries with backoff
+    (1s→15s) instead, routed through the same `ConnectRelayOnAdapterHello`/`relayConnectMu`
+    the lazy path already used, so a real adapter connecting concurrently can't race it into a
+    duplicate dial. A genuinely permanent rejection (wrong code, version mismatch) still exits
+    loudly — only "the relay isn't up yet" gained tolerance. `RejectError`/
+    `IsPermanentRejectErr` (`internal/core`) do the classification; `protocol.ReasonRoomFull`
+    is the one reason treated as retry-worthy. **Confirmed live**, not just `go test`: real
+    `meshghost.exe` started before any relay existed, retried silently (one log line, not one
+    per retry) across ~15s of real backoff, then connected the instant a real
+    `meshghost-relay.exe` came up on that address — see `verified.md`'s new entry and the ADR
+    in `architecture.md` (search "same-day follow-up"). Also, from the same conversation: the
+    game-version check's design was confirmed correct as already scoped (adapter/plugin
+    version, not a real game build) against real user evidence that different TEVI game
+    versions already interoperate fine — see `risks.md`'s updated entry, no code change needed
+    there. Separately flagged, not yet acted on: this pass hardened the Go relay/core layer
+    against DoS/trust issues, but has not audited the adapters' own message-parsing code with
+    an adversarial-input mindset — Pseudoregalia's hand-rolled C++ JSON field extraction
+    (`Plugin.cpp`'s `json_string_field`/`json_vec3_field`/`json_number_field`) was spot-checked
+    and its own doc comment's "not adversarial input" assumption is now known to be wrong for
+    the multiplayer case, though no actual bug was found in the ~50 lines read. A real next
+    step if "safe with strangers" is the goal, not done this session.
+
+- `Next step (2026-08-14 review/refactor sweep):` A full review/refactor pass across
+  `internal/`, `cmd/`, and all three adapters is code-complete; live testing has started and is
+  turning up real, previously-unknown bugs (expected — that's what this pass was for). See the
+  ADR in `architecture.md` (search "same-day review/refactor sweep") for the sweep's four
+  original behavior-changing decisions and the full fix list, plus a follow-up ADR (search
+  "found during live testing of the sweep above") for a relay-auto-reconnect gap found live.
+  `pitfalls.md` has the partial-send/receive NDJSON-framing pattern found independently in
+  Emerald's Lua and Pseudoregalia's C++, and the "move offscreen, never destroy" ghost-lifecycle
+  pitfall. Status by layer:
+  - **Go (`internal/`, `cmd/`)**: all sweep fixes applied, plus a same-day follow-up fix found
+    during live testing — a relay that drops *after* a successful connect (crash, restart,
+    network blip) previously had no path back to "connected" short of a full client restart;
+    `Core` now auto-retries in the background. `go build`/`go vet`/`go test` clean, including a
+    new regression test (`TestRelayDisconnectAutoReconnects`). Live-verified via real binaries
+    (kill relay → client retries → new relay → client reconnects automatically) — see
+    `verified.md`. **Important operational note, also found live**: `meshghost.exe`/
+    `meshghost-relay.exe`/`meshghost-fakeadapter.exe` at the repo root are NOT kept fresh by
+    `go build ./...`/`go vet`/`go test` — those compile-check packages but don't overwrite the
+    named binaries the `dev-scripts/*.bat` files launch. The user's first repro of the
+    auto-reconnect bug was against binaries a full day stale, predating even the prior session's
+    start-order-independence fix. **Always `go build -o meshghost.exe ./cmd/meshghost` (and the
+    other two) explicitly before testing via the `.bat` files**, the same discipline already
+    required for the Pseudoregalia/TEVI adapter builds.
+  - **Pseudoregalia (C++)**: all fixes applied, rebuilt (0 errors), hash-diff-confirmed deployed
+    to both the in-repo packaging copy and the live Steam install. **Live-confirmed working**
+    (2026-08-14, see `verified.md`): ghost spawn/follow/animate, no crashes. Not specifically
+    exercised yet: the move-offscreen-on-despawn behavior itself, and an area transition with a
+    ghost present. Unrelated to this sweep, found live during the same test: a possible ghost→
+    real-player combat interaction (ghost landing hits despite `GHOST_COLLISION_ENABLED = false`)
+    — logged as a new data point on the existing 2026-08-13 collision open question in
+    `risks.md`, low priority, not yet investigated.
+  - **Emerald (Lua)**: all fixes applied (partial-line receive, partial send, dead-socket-after-
+    hard-error, `pcall` around the main loop, control-char JSON escaping) — no rebuild step for
+    Lua, but **not yet live-verified in an emulator.**
+  - **TEVI (C#)**: all fixes applied (stale-thread generation guard, `TcpClient` disposal, real
+    `Destroy()` on ghost/marker despawn, `OnDestroy`/`OnApplicationQuit` bridge close, `room_x`/
+    `room_y` range check, `TryGetValue` in place of unguarded `JObject` casts). Rebuilt via
+    `dev-scripts\build-tevi.bat` (0 errors) — this machine does have the gitignored
+    `lib\Assembly-CSharp.dll`/`lib\Newtonsoft.Json.dll` from a prior session, so a real rebuild
+    against TEVI's actual types was possible after all, correcting the plan's original "no
+    rebuild possible here" assumption. Deployed to both the Steam install and the standalone
+    `C:\dev\tevi-14778703` build, hash-diff-confirmed. Two dedicated dual-instance dev scripts
+    added: `dev-scripts\run-core-tevi.bat` (existing, port 7778) / `run-core-tevi2.bat` (new,
+    port 7779). **Live two-instance testing found and fixed a real bug, now confirmed working**:
+    a peer's ghost went permanently invisible (not merely hidden) after the traveling player
+    returned to a zone — root cause was `CreateRealGhostVisual` cloning a live character's
+    visual hierarchy mid-transition, inheriting a disabled `basesprite` renderer with nothing to
+    ever re-enable it. Fixed (`basesprite.enabled` forced true on recreate) and live-confirmed
+    by the user with normal cross-area filtering restored — see `verified.md` and the
+    `pitfalls.md` entry under "Level/scene transitions invalidating cached references." The
+    relay-auto-reconnect gap and stale-binary issue that complicated the first test attempt are
+    both resolved (see the ADR above).
+  - **Docs**: this entry, all three ADRs above, and the `pitfalls.md`/
+    `adapters/_template/PROTOCOL.md` updates (Pseudoregalia added to the adapter list, `extras`
+    documented as load-bearing, `orientation` shown as opaque any-JSON, a peer-controlled-data
+    warning added, plus the TEVI ghost-invisibility entry) are done.
+  - **Not started**: live in-game verification of Pseudoregalia's despawn-visual/area-transition
+    behavior specifically (general spawn/follow/animate already confirmed) and Emerald's
+    connect/retry/receive paths — per `CLAUDE.md`, nothing above goes in `verified.md` until
+    watched happening on screen.
 
 ## Go networking layer (2026-08-11)
 

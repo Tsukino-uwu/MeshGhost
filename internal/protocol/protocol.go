@@ -56,6 +56,14 @@ const (
 	TypeEvent MessageType = "event"
 	TypePing  MessageType = "ping"
 	TypePong  MessageType = "pong"
+	// TypeReject is the relay's reply to a Hello it refuses — wrong protocol
+	// version, mismatched game_id/game_version for the room, a wrong room
+	// code, or a full room. Sent before the relay closes the connection, so
+	// a client can distinguish "refused, and why" from "the relay is just
+	// slow" or "the relay is down" instead of only ever seeing a bare
+	// hangup. Added alongside room-code auth — see the ADR in
+	// agent_docs/architecture.md.
+	TypeReject MessageType = "reject"
 )
 
 // Envelope is the outer shape of every relay-protocol and bridge message.
@@ -73,6 +81,22 @@ type Hello struct {
 	GameID          string `json:"game_id"`
 	Room            string `json:"room"`
 	DisplayName     string `json:"display_name"`
+	// RoomCode is a shared secret the relay compares (constant-time)
+	// against its own configured code before allowing a join. An empty
+	// configured code on the relay means auth is off — the pre-existing,
+	// still-supported posture for a friend-hosted session where a bare
+	// address is enough. Crosses the wire in plaintext, same as every other
+	// field here: internal/transport has no TLS, so this raises the bar
+	// from "anyone with the address" to "anyone with the address and the
+	// code," not to "safe against a network-level attacker." See
+	// internal/README.md and the ADR in agent_docs/architecture.md.
+	RoomCode string `json:"room_code,omitempty"`
+	// GameVersion is the adapter-reported game/DLC version, opaque to the
+	// relay and core (same discipline as GameID/AreaID/Anim — compared only
+	// by equality, never parsed). Empty means "unknown" and is not checked,
+	// matching how a room's first Hello with no game_id would behave — see
+	// the ADR in agent_docs/architecture.md.
+	GameVersion string `json:"game_version,omitempty"`
 	// Features is a capability list a client advertises. Reserved: nothing
 	// populates or consumes real values yet. See contract.md's Features
 	// section for why this field exists before anything uses it.
@@ -85,8 +109,38 @@ type Welcome struct {
 	Roster   []string `json:"roster"`
 }
 
-// Join announces a peer entering the room, with its most recent state if
-// known — this is what a client uses to seed a newly-visible remote ghost.
+// Reject is the relay's reply to a Hello it refuses to accept — see
+// TypeReject. Sent once, immediately before the relay closes the
+// connection.
+type Reject struct {
+	Reason string `json:"reason"`
+}
+
+// Reason values the relay actually sends in Reject.Reason — named so code
+// on either side of the wire can compare symbolically instead of matching
+// magic strings. Not a closed/coded enum: the wire itself still just
+// carries plain text (a future relay could add a new reason without a
+// contract change, per the forward-compatibility rule), these constants
+// exist only for the Go call sites that need to tell a few of them apart —
+// e.g. internal/core deciding whether a rejection is worth retrying
+// (ReasonRoomFull can resolve on its own if someone leaves; every other
+// reason here requires a config change first). Added alongside room-code
+// auth, see the ADR in agent_docs/architecture.md.
+const (
+	ReasonProtocolVersionMismatch = "protocol version mismatch"
+	ReasonHelloFieldTooLong       = "hello field too long"
+	ReasonInvalidRoomCode         = "invalid room code"
+	ReasonGameMismatch            = "game mismatch for this room"
+	ReasonGameVersionMismatch     = "game version mismatch for this room"
+	ReasonRoomFull                = "room full"
+)
+
+// Join announces a peer entering the room. State is reserved for seeding a
+// newly-visible remote ghost with its most recent known state, but
+// internal/relay does not track or populate it today — every Join it sends
+// has State == nil (found stale in a review pass; the receiving side,
+// internal/core, already handles a populated State correctly if a future
+// relay change starts sending one).
 type Join struct {
 	PlayerID string `json:"player_id"`
 	State    *State `json:"state,omitempty"`

@@ -1,28 +1,21 @@
 package relay
 
+import "time"
+
 // Limits enforced starting Phase 3, per the "Limits" section of
-// agent_docs/contract.md. These defend against a malformed or careless
-// peer corrupting a room for everyone else in it — not against a
-// determined attacker (the relay runs no-auth through Phase 4, see the
-// architecture.md ADR), so the numbers below are generous rather than
-// tight.
+// agent_docs/contract.md. Originally these defended against only a
+// malformed or careless peer, not a determined attacker (the relay ran
+// no-auth through Phase 4) — the relay-safety work recorded in
+// agent_docs/architecture.md's room-code/version ADR adds real
+// authentication and audits this file with an adversarial peer in mind, so
+// treat the numbers below as tight, not generous, going forward. State
+// field limits shared with internal/core (MaxLineBytes, MaxPositionLen,
+// MaxExtrasBytes, etc.) live in internal/protocol/limits.go instead of
+// here, referenced directly as protocol.* at each call site rather than
+// aliased — a review pass found the previous half-aliased state (some
+// constants aliased here, some referenced as protocol.* directly at the
+// same call sites) confusing.
 const (
-	// MaxLineBytes bounds one NDJSON line (the whole Envelope, including
-	// its payload) accepted from a client. Chosen generously above any
-	// legitimate state message (a handful of floats plus short opaque
-	// strings comfortably fits in a few hundred bytes) while still ruling
-	// out a client trying to wedge an unbounded payload through Extras.
-	MaxLineBytes = 4096
-
-	// MaxExtrasBytes bounds the serialized size of State.Extras.
-	MaxExtrasBytes = 1024
-
-	// MaxPositionLen bounds len(State.Position). The contract deliberately
-	// never fixes Position at 2 or 3 components (agent_docs/contract.md),
-	// so this is headroom above the largest known real use (3 for a 3D
-	// game) rather than a length any adapter should approach.
-	MaxPositionLen = 8
-
 	// MaxClientsPerRoom bounds room size. Phase 4's target is two; this
 	// leaves room for the roadmap's later multi-peer testing without
 	// letting a room grow unbounded.
@@ -35,4 +28,23 @@ const (
 	// above that rather than at the brief's 10Hz hypothesis, to avoid
 	// punishing correct, unthrottled clients.
 	MaxMessagesPerSecond = 120
+
+	// DefaultHelloTimeout bounds how long an unauthenticated connection may
+	// sit without completing a Hello and joining a room. Without this, a
+	// connection that never sends a Hello — or sends other, otherwise-legal
+	// messages just to keep transport's idle timeout from firing without
+	// ever actually joining — is held open indefinitely, one live goroutine
+	// and socket per attempt. See Server.HelloTimeout.
+	DefaultHelloTimeout = 10 * time.Second
+
+	// MaxHelloFieldLen bounds every string field of Hello (GameID, Room,
+	// DisplayName, RoomCode, GameVersion) — previously unbounded, found
+	// while auditing for malicious-peer hardening alongside room-code auth.
+	// One shared constant rather than five, since none of these fields has
+	// any real reason to differ from the others: a room name, a display
+	// name, and a version string are all short human-facing text. Checked
+	// before any of them are used to create or look up a room, so an
+	// oversized field is refused at the same handshake stage as a bad
+	// protocol version or room code, not after doing any work with it.
+	MaxHelloFieldLen = 128
 )

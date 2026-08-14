@@ -60,11 +60,19 @@ func (b *remoteBuffer) at(renderTime int64) (protocol.State, bool) {
 // lerp linearly interpolates position between older and newer at
 // renderTime. Non-position fields come from older. Falls back to older
 // unchanged if the snapshots have mismatched position lengths (an
-// adapter-side contract violation, not something to guess through) or a
-// non-positive time span (duplicate timestamps).
+// adapter-side contract violation, not something to guess through), a
+// non-positive time span (duplicate timestamps), or a different AreaID —
+// found in a review pass: without this, a remote crossing a zone boundary
+// gets its two bracketing snapshots' raw world coordinates blended
+// together (stamped with older's AreaID), rendering at a meaningless
+// midpoint between two zones' unrelated coordinate spaces. This is exactly
+// the phantom-ghost failure the 2026-08-13 cross-area filtering ADR
+// (agent_docs/architecture.md) exists to prevent — that filter only
+// guards against a *stale* remote's area, not an in-flight interpolation
+// spanning two different areas.
 func lerp(older, newer protocol.State, renderTime int64) protocol.State {
 	span := newer.Timestamp - older.Timestamp
-	if span <= 0 || len(older.Position) != len(newer.Position) {
+	if span <= 0 || len(older.Position) != len(newer.Position) || older.AreaID != newer.AreaID {
 		return older
 	}
 
@@ -77,6 +85,5 @@ func lerp(older, newer protocol.State, renderTime int64) protocol.State {
 	out := older
 	out.Position = pos
 	out.Timestamp = renderTime
-	out.Seq = newer.Seq
 	return out
 }

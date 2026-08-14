@@ -54,6 +54,14 @@ type Envelope struct {
 // agent_docs/architecture.md's ADR.
 type Hello struct {
 	GameID string `json:"game_id"`
+	// GameVersion is the adapter-reported game/DLC version, opaque to the
+	// core the same way GameID is — forwarded verbatim into the relay
+	// Hello's game_version (internal/protocol.Hello) and never inspected.
+	// Empty means "unknown"; internal/core.Core.GameVersion can override
+	// whatever the adapter reports, mirroring how -game/config already lets
+	// a caller with no real adapter attached force a game_id. Added
+	// alongside room-code auth — see the ADR in agent_docs/architecture.md.
+	GameVersion string `json:"game_version,omitempty"`
 }
 
 // LocalState is sent adapter -> core once per adapter frame tick, the wire

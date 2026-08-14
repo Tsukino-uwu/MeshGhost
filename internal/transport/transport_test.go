@@ -1,6 +1,7 @@
 package transport
 
 import (
+	"bytes"
 	"net"
 	"sync"
 	"testing"
@@ -155,5 +156,87 @@ func TestCloseFiresDisconnect(t *testing.T) {
 	case <-disconnected:
 	case <-time.After(2 * time.Second):
 		t.Fatal("timed out waiting for disconnect")
+	}
+}
+
+// TestOversizedLineWithNoDelimiterClosesConnection confirms a line
+// exceeding MaxLineBytes is rejected during the read itself, not after
+// being fully buffered. Found while scoping relay-safety hardening
+// (agent_docs/architecture.md's room-code/version ADR): the old
+// bufio.Reader-based readLoop grew its internal buffer without bound until
+// it found a '\n', so a peer that streamed bytes with no newline at all
+// could force unbounded memory growth — a length check on the delivered
+// payload (as internal/relay's MaxLineBytes check used to be) ran too late
+// to prevent that. This test sends well over the limit with no trailing
+// newline at all, the exact scenario the old implementation couldn't bound.
+func TestOversizedLineWithNoDelimiterClosesConnection(t *testing.T) {
+	ln, addr := listen(t)
+
+	serverUp := make(chan struct{})
+	go func() {
+		conn, err := ln.Accept()
+		if err != nil {
+			return
+		}
+		server := FromConn(conn)
+		server.MaxLineBytes = 1024
+		close(serverUp)
+	}()
+
+	client, err := Dial(addr)
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer client.Close()
+	<-serverUp
+
+	disconnected := make(chan error, 1)
+	client.OnDisconnect(func(err error) { disconnected <- err })
+
+	// Well over the server's 1024-byte limit, no newline anywhere in it.
+	huge := bytes.Repeat([]byte("x"), 8192)
+	if _, err := client.conn.Write(huge); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	select {
+	case <-disconnected:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for oversized-line-with-no-delimiter disconnect")
+	}
+}
+
+// TestIdleTimeoutClosesConnection confirms a connection that never
+// completes a line within IdleTimeout is closed rather than held open
+// forever — agent_docs/architecture.md's room-code/version ADR.
+func TestIdleTimeoutClosesConnection(t *testing.T) {
+	ln, addr := listen(t)
+
+	serverUp := make(chan struct{})
+	go func() {
+		conn, err := ln.Accept()
+		if err != nil {
+			return
+		}
+		server := FromConn(conn)
+		server.IdleTimeout = 100 * time.Millisecond
+		close(serverUp)
+	}()
+
+	client, err := Dial(addr)
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer client.Close()
+	<-serverUp
+
+	// Client deliberately sends nothing.
+	disconnected := make(chan struct{})
+	client.OnDisconnect(func(err error) { close(disconnected) })
+
+	select {
+	case <-disconnected:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for idle-timeout disconnect")
 	}
 }

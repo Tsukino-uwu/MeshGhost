@@ -9,6 +9,7 @@
 // payloads yet -- step 2 of the phase's C++ rewrite is proving the transport itself is reliable
 // before building anything on top of it (agent_docs/phases/phase7.md).
 
+#include <chrono>
 #include <string>
 #include <vector>
 
@@ -22,6 +23,21 @@ namespace MeshGhostPseudo
         uint64_t lines_received{};
         uint64_t lines_malformed{}; // doesn't start with '{' and end with '}' after trimming \r
     };
+
+    // Bounds recv_buffer's post-extraction partial-line remainder -- see poll_lines's own
+    // comment for why this checks only the remainder, not the raw total a single recv() call
+    // appended (a legitimate burst of many small complete lines must not trip this). Generous
+    // above any real bridge message: render_remote's largest component, Extras, is itself
+    // capped at internal/protocol.MaxExtrasBytes=1024 on the Go side. Found in a review pass --
+    // previously unbounded.
+    inline constexpr size_t MAX_RECV_BUFFER_BYTES = 16 * 1024;
+
+    // Minimum time between connect attempts -- found in a review pass: tick_connect() used to
+    // attempt a fresh connect every single call (this codebase's own on_update() runs at
+    // roughly the UE4SS polling thread's ~5ms cadence), so with the core down that was on the
+    // order of 200 socket create/connect/abort cycles per second. Matches the shape of TEVI's
+    // own BridgeClient.cs ReconnectInterval (2s), a different language but the same problem.
+    inline constexpr std::chrono::milliseconds RECONNECT_INTERVAL{2000};
 
     class BridgeClient
     {
@@ -75,5 +91,8 @@ namespace MeshGhostPseudo
         bool hello_sent_this_connection{false};
         std::string recv_buffer;
         BridgeStats counters{};
+        // Default-constructed (epoch) so the very first tick_connect() call always attempts
+        // immediately, not after waiting out RECONNECT_INTERVAL.
+        std::chrono::steady_clock::time_point last_connect_attempt{};
     };
 } // namespace MeshGhostPseudo

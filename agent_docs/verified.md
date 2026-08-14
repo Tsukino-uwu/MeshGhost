@@ -1962,3 +1962,163 @@ Copy this block per fact:
   (distinct from the world ghost's own cross-area test), and whether the marker's size tracks
   map zoom correctly (reasoned from `GemaFixedSizeMapIcon`'s own
   rescaling code, not directly observed).
+
+### Emerald first real cross-machine online session (open port, two different PCs)
+
+- Date: 2026-08-13
+- Observed: user hosted `cmd/meshghost-relay` with an open port and connected two real,
+  physically separate machines — the host's own client (Emerald) locally, and a friend's
+  client (Emerald) over the internet — into the same relay room. Relay log shows only
+  `meshghost-relay: listening on [::]:7777`; host client log shows
+  `connected to relay 127.0.0.1:7777 as p2 in room "default" (game "emerald")`; friend's
+  client log shows `connected to relay MYWANIP:7777 as p1 in room "default" (game "emerald")`
+  — distinct player IDs (`p1`/`p2`) in the same room, confirming both real connections joined
+  together, not just two independent single-player sessions. This is the first confirmed
+  proof of the client/server stack working over a real internet connection between two
+  separate computers, not just on one machine via loopback.
+- Source: three real session logs, `internal/meshghost emerald first online.log` (friend's
+  client), `internal/meshghost.log` (host's client), `internal/meshghost-server.log` (relay) —
+  all from the same 2026-08-13 22:28–22:44 session, IPs manually redacted by the user before
+  sharing.
+- Notes: per the agent-read-log gating already established for TEVI 6.1 above, a log line is
+  sufficient confirmation for a connectivity claim like this one (distinct from a
+  visual/gameplay claim, which still needs the user to watch it on screen — no ghost rendering
+  was verified in this particular session, only the relay/core connection layer). Also
+  confirms `internal/README.md`'s "no message type carries an IP" claim from the client
+  side: the friend's log shows only the relay's IP (`MYWANIP`, which it must have to connect
+  at all) and never the host's own IP, consistent with there being no peer-to-peer channel.
+  Separately noted by the user as a possible gap, not yet acted on: the relay log recorded
+  only its own startup line and nothing for either client connecting, joining, or
+  disconnecting — worth revisiting when relay-side logging is next touched, since richer
+  connect/disconnect logging would have made this exact kind of session easier to confirm from
+  logs alone.
+
+### Room-code auth accept/reject, real config.json dry run
+
+- Date: 2026-08-14
+- Observed: a real `meshghost-relay.exe` (built from this session's changes) started with
+  `packaging/release/config.json`'s `server.room_code` set to a real value, logged
+  `meshghost-relay: room-code auth enabled` at startup (not the "no room code configured"
+  warning). A real `meshghost.exe`, pointed at the same config with a matching
+  `client.room_code`, logged `meshghost: connected to relay 127.0.0.1:17778 as p1 in room
+  "default"` — a successful join. The same client, config edited to a wrong `room_code` and
+  restarted, logged `core: relay disconnected: EOF` followed by
+  `meshghost: core: relay refused connection: invalid room code` — the new `reject` message's
+  reason string reaching the client's own log, not a bare hangup.
+- Source: agent-run session, both processes' own log output (`meshghost-server.log`,
+  `meshghost.log`) read directly by the agent in a scratch directory
+  (`/tmp/meshghost-smoke`), both real binaries built from `cmd/meshghost`/
+  `cmd/meshghost-relay` at this session's HEAD, driven through the real
+  `packaging/release/config.json` file (not flags), `-game=faketest` standing in for a real
+  adapter (no bridge client available in this environment) — see the corresponding entry in
+  `internal/core/core_test.go` (`TestConnectRelayWithWrongRoomCodeReturnsReadableError`/
+  `TestConnectRelayWithCorrectRoomCodeSucceeds`) for the same behavior under `go test`.
+- Notes: per the agent-read-log gating already established above (TEVI 6.1, the cross-machine
+  session entry) — a log line is sufficient confirmation for a connectivity/protocol claim
+  like this one, distinct from a visual/gameplay claim, which still needs the user to watch it
+  happen on screen. This confirms the room-code feature works through the actual shipped
+  config-file mechanism end to end (not just the Go test suite, which exercises `ConnectRelay`
+  directly) — the real gap this closes is "does `config.json`'s new `room_code` field actually
+  reach the wire," not just "does the relay's comparison logic work." Not confirmed by this
+  entry: the room-code feature has not been watched by the user, and no real adapter/game was
+  involved — `-game=faketest` stands in for one, matching the eager-connect dev-testing path
+  `cmd/meshghost-fakeadapter` also uses, not a real game session.
+
+### Client/relay start-order independence, real dry run
+
+- Date: 2026-08-14
+- Observed: a real `meshghost.exe` (`-game=faketest`, this session's build) was started
+  pointed at a relay address with nothing listening on it yet. It did not crash: its log
+  showed `meshghost: bridge listening on 127.0.0.1:18778` immediately, followed by
+  `core: core: dial relay: dial tcp 127.0.0.1:18777: connectex: No connection could be made
+  because the target machine actively refused it. — will keep retrying` exactly once, despite
+  the process actually retrying on an exponential backoff (1s→2s→4s→...) across roughly 15
+  seconds of wall time before a relay existed — confirming the dedup-logging fix works, not
+  just the retry itself. A real `meshghost-relay.exe` was then started on that same address;
+  within one backoff interval, the client's log gained
+  `meshghost: connected to relay 127.0.0.1:18777 as p1 in room "default" (game "faketest")`
+  with no restart of the client involved, and the relay's own log showed the new
+  join-logging line, `relay: p1 ("alice") joined room "default" as game "faketest"`, at the
+  matching timestamp.
+- Source: agent-run session, both processes' own log output (`meshghost-server.log`,
+  `meshghost.log`) read directly by the agent in a scratch directory
+  (`/tmp/meshghost-order-test`), both real binaries built from `cmd/meshghost`/
+  `cmd/meshghost-relay` at this session's HEAD — see the corresponding regression tests in
+  `internal/core/core_test.go` (`TestConnectRelayOnAdapterHelloRetriesUntilRelayUp`,
+  `TestConnectRelayOnAdapterHelloCachesPermanentReject`) for the same behavior under `go test`.
+- Notes: per the agent-read-log gating already established above (TEVI 6.1, the cross-machine
+  session entry, the room-code dry run immediately above) — a log line is sufficient
+  confirmation for a connectivity/protocol claim like this one, distinct from a visual/gameplay
+  claim, which still needs the user to watch it happen on screen. Confirms the ADR in
+  `architecture.md` (search "2026-08-14 (same-day follow-up)") end to end: the eager `-game`
+  path no longer requires the relay to already be running, and the new lifecycle logging
+  (join/reject, with dedup on the client side) actually reaches both processes' log files as
+  designed. Not confirmed by this entry: the user has not watched this happen, and no real
+  adapter/game was involved (`-game=faketest`, same limitation as the room-code entry above).
+  The *permanent*-rejection case (wrong room code, version mismatch) was exercised only under
+  `go test`, not this particular live dry run — see `TestConnectRelayOnAdapterHelloCachesPermanentReject`.
+
+### Pseudoregalia post-review-sweep rebuild, live confirmed
+
+- Date: 2026-08-14
+- Observed: user tested the rebuilt/redeployed `MeshGhostPseudo` mod (2026-08-14 review/refactor
+  sweep — see the ADR in `architecture.md`) live in game. Ghost spawned, followed the remote
+  player, and animated correctly, with no crashes across the session.
+- Source: user, live gameplay session against the Steam install
+  (`C:\Program Files (x86)\Steam\steamapps\common\Pseudoregalia`), deployed from
+  `packaging/release/games/pseudoregalia/.../ue4ss/Mods/MeshGhostPseudo/dlls/main.dll`,
+  hash-diff-confirmed identical to the repo build before this test.
+- Notes: confirms the general ghost spawn/follow/animate/no-crash path survived this session's
+  fixes (cached-pointer hardening, callback unregistration in `~Plugin`, connect backoff,
+  spurious-landing-pulse fix, mutex-scope fix, unclamped-cast clamp). **Not specifically
+  exercised or confirmed by this entry**: the move-offscreen-on-despawn behavior change itself
+  (a same-area peer leave/reconnect) and an area transition with a ghost present — those need
+  their own dedicated test before being added here. Separately, the user found and reported a
+  new, apparently unrelated bug during this same session — see `risks.md`'s "ghost dealing
+  damage to the real player" addition to the existing 2026-08-13 collision open question.
+
+### Relay-restart auto-reconnect, real dry run
+
+- Date: 2026-08-14
+- Observed: real two-TEVI live testing first surfaced the bug (both clients connected, the
+  shared relay was restarted, and neither client ever reconnected — see `architecture.md`'s ADR,
+  search "found during live testing of the sweep above"). After the fix
+  (`Core.reconnectWithBackoff`, armed via `autoRetryGameID`), re-tested with real binaries: a
+  real `meshghost-relay.exe` was killed mid-session while a real `meshghost.exe` (`-game=tevi`)
+  was connected; the client logged `relay disconnected` followed by `dial relay: ... will keep
+  retrying` (exactly once, per the existing dedup logging). A new `meshghost-relay.exe` was then
+  started on the same address; within one backoff interval the client logged a fresh `connected
+  to relay ... as p1 in room "default" (game "tevi")` line with no restart of the client
+  involved.
+- Source: agent-run session, both processes' own log output (`meshghost.log`, relay stdout)
+  read directly by the agent in a scratch directory, both real binaries built from
+  `cmd/meshghost`/`cmd/meshghost-relay` at this session's HEAD — see the corresponding
+  regression test, `internal/core/core_test.go`'s `TestRelayDisconnectAutoReconnects`, for the
+  same behavior under `go test`.
+- Notes: per the agent-read-log gating already established elsewhere in this file — a log line
+  is sufficient confirmation for a connectivity/protocol claim like this one, distinct from a
+  visual/gameplay claim, which still needs the user to watch it happen on screen. Not confirmed
+  by this entry: the user has not yet re-watched this specific scenario with the rebuilt
+  binaries (their original repro was against stale, pre-fix binaries — see the ADR); worth a
+  quick re-test to close the loop, though the mechanism is the same one just live-verified here
+  and under `go test`.
+
+### TEVI zone-transition ghost-invisibility fix, live confirmed
+
+- Date: 2026-08-14
+- Observed: user reproduced the original bug live (travel to a different zone, return, a
+  peer's ghost that was visible before leaving no longer appears) with two real TEVI instances.
+  Isolated via an isolate-by-subtraction test (a temporary `MESHGHOST_DISABLE_AREA_FILTER` env
+  var bypassing `internal/core`'s cross-area filter) to confirm the despawn/recreate cycle,
+  not the filter's area-matching logic, was the cause. After the real fix (`basesprite.enabled`
+  forced true on ghost recreation, see the `pitfalls.md` entry), user re-tested the same
+  scenario with normal filtering restored (no debug bypass) and confirmed live: the peer's
+  ghost is now visible on return, with no white-glow regression from the first (rejected)
+  version of the fix that also touched `color`.
+- Source: user, live two-instance TEVI testing (Steam install + standalone
+  `C:\dev\tevi-14778703` build), screenshot showing both windows with correctly-visible ghosts
+  after a zone round-trip.
+- Notes: `internal/core`'s debug escape hatch (`disableAreaFilterForDebug`) and the two
+  temporary `dev-scripts/DEBUG-run-core-tevi*-nofilter.bat` scripts used only for the isolation
+  test have been deleted per their own doc comments — they were never meant to ship. The fix
+  itself lives in `adapters/tevi/MeshGhostTevi/Plugin.cs`'s `CreateRealGhostVisual`.

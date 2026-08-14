@@ -452,3 +452,311 @@ Format: Date / Decision / Status / Context / Options considered / Resolution / C
   the `plans.md`/`phase6.md` "genuinely unbuilt" gap. Not yet watched live in-game; next TEVI
   session should confirm a remote in a different zone is no longer rendered at all (not just
   coincidentally off-screen), and reappears cleanly on returning to the same zone.
+
+---
+
+- **Date:** 2026-08-14
+- **Decision:** Add room-code auth and a peer game-version check to `hello`
+  (`protocol.Hello.RoomCode`/`GameVersion`), a `reject` message so a refusal carries a reason
+  instead of a bare hangup, and a broader malicious-peer hardening pass across
+  `internal/transport`, `internal/relay`, and `internal/core`. Supersedes the 2026-08-11
+  no-auth ADR above (kept, not deleted, as the historical record of why no-auth was the right
+  call for Phases 3–4).
+- **Status:** accepted
+- **Context:** Set as the explicit next priority 2026-08-13 (see `risks.md`'s "No-auth relay
+  window" entry and `plans.md`'s "Room codes / relay safety" section): the relay/core was
+  no-auth and safe only for a friend you hand an address to, not for people you don't
+  personally know, including someone actively trying to be malicious with the server/client.
+  Two named gaps (no auth, no peer game-version check) plus a broader malicious-peer audit.
+  Researched CelesteNet's own prior art first (`internal/README.md`'s prior-art section, MIT,
+  approved reference per `licensing.md`) rather than designing from scratch — its self-hosted
+  default is no-auth too (mirroring our own starting posture), and its version-check pattern
+  (reject outright at handshake, before any state exchange) is the shape this ADR reuses for
+  both room codes and game version, without copying its heavier public-server account/ban/
+  hardware-fingerprinting stack, which solves a problem (an always-on server open to the whole
+  internet) MeshGhost doesn't have.
+- **Options considered (auth):** (1) a shared secret in `hello`, compared constant-time,
+  reject before any state flows — simple, no crypto to design, but the secret crosses the wire
+  in plaintext since `internal/transport` has no TLS; (2) an HMAC challenge-response (relay
+  sends a nonce, client returns `HMAC(secret, nonce)`) — the secret itself never crosses the
+  wire, but costs a new handshake round-trip and two new message types, and still doesn't stop
+  a MITM relaying the whole session, which a real TLS layer would (a separate, larger piece of
+  work, deliberately out of scope here); (3) a per-room code set by whichever client creates
+  the room (lobby-password style) — more flexible for a relay hosting several unrelated
+  groups, but the relay has no way to tell an intended host from a race-winning stranger.
+- **Resolution (auth):** Option 1. `protocol.Hello.RoomCode`, checked via
+  `crypto/subtle.ConstantTimeCompare` (not `==`, so a wrong guess can't be timed byte-by-byte)
+  against `Server.RoomCode`. An empty configured code (the default) means auth stays off — the
+  pre-existing friend-hosted posture is unchanged unless a relay operator opts in. The relay
+  logs loudly at startup when running open, the same pattern `-loopback` already used.
+  **Explicit limit, recorded rather than implied:** this raises the bar from "anyone with the
+  address" to "anyone with the address and the code," not to "safe against a network-level
+  attacker" — the code is still plaintext on the wire. TLS is a real, separate piece of future
+  work if that ever becomes the actual threat model; not attempted here.
+- **Options considered (version check):** (1) the adapter reports `game_version` over its
+  bridge `hello`, forwarded into the relay `hello` — follows the existing 2026-08-12
+  "adapter declares `game_id`" ADR's own reasoning (the adapter already knows, don't make the
+  user retype it), but dev-scripts/`cmd/meshghost-fakeadapter` have no real adapter to ask;
+  (2) same, plus a `-game-version`/`config.json` override — mirrors how `-game` already
+  overrides an adapter-declared `game_id` for exactly that case; (3) config-only, no adapter
+  changes — fastest, no adapter rebuilds (including TEVI's committed DLL), but reintroduces the
+  exact redundancy (a fact the adapter already knows, retyped by the user, another place to go
+  stale) the `game_id` ADR removed.
+- **Resolution (version check):** Option 2. `bridge.Hello.GameVersion`, forwarded verbatim
+  (opaque, same discipline as `game_id`/`area_id`/`anim`); `Core.GameVersion` overrides it when
+  set. All three shipped adapters report their own **adapter/mod version**, not a game build
+  number read from memory — no cited address exists for a game version in any of the three
+  games, and `CLAUDE.md`'s "no addresses/APIs from memory" rule means one isn't guessed at. An
+  adapter-script version is arguably the more useful signal anyway: it catches two peers on
+  different revisions of the same adapter, the likelier real source of a silent mismatch. A
+  room's `game_version`, once set by its first member, is sticky the same way `game_id` already
+  is; a client that never declares one is never refused on that basis — only a real mismatch
+  between two declared values counts.
+- **Options considered (malicious-peer hardening scope):** (1) auth and version check only,
+  file the discovered DoS/trust gaps in `risks.md` for a separate pass — smallest change, but
+  ships a "safe for strangers" feature with a known remote-OOM still live; (2) the concrete DoS
+  holes found while scoping this (unbounded read buffer, no read/write deadlines, a lock held
+  across a potentially-slow `Send`, no hello timeout) but not the core-side trust gaps; (3)
+  everything found, relay-side and core-side.
+- **Resolution (hardening scope):** Option 3, per explicit user direction. Fixed:
+  `internal/transport.NDJSONConn`'s unbounded `bufio.Reader.ReadBytes` read (switched to
+  `bufio.Scanner` with a real max-token-size, enforced during the read, not after — the
+  previous `internal/relay.MaxLineBytes` check ran too late to prevent the allocation), added
+  read/write deadlines and a dial timeout (none existed before), fixed
+  `internal/relay.Room.Forward` holding `r.mu` across every recipient's `Send` (a stalled peer
+  could freeze joins/leaves/roster reads for the whole room once `Send` could legitimately
+  block for seconds against it), and added `Server.HelloTimeout` (an unauthenticated connection
+  that never completes a `hello` was previously held open forever). On the trust side:
+  `internal/core` now keeps its own roster (seeded from `welcome`, maintained by `join`/
+  `leave`) and drops `state` for any `player_id` it never actually saw announced — previously a
+  hostile or compromised relay could inject state for an arbitrary id, since `welcome.roster`
+  was discarded entirely and any incoming `player_id` was trusted outright. The relay's own
+  `MaxPositionLen`/`MaxExtrasBytes` caps are now mirrored on the core's receive side too
+  (`internal/protocol/limits.go` holds the shared constants so the two enforcement points can't
+  drift apart), plus new caps on `orientation`, `area_id`, `anim`, and every `hello` string
+  field, none of which were bounded anywhere before.
+- **Consequences:** `protocol.Version` stays at `1` — every new field is optional/additive, and
+  Go's `json.Unmarshal` ignores fields it doesn't recognize, so an old client against a new
+  relay (or vice versa) degrades gracefully rather than breaking outright. The one real residual
+  risk this creates, not fully closed: **room-code auth is enforced entirely by the relay, so a
+  stale (pre-this-ADR) relay binary silently provides zero protection regardless of what any
+  client sends or believes it configured** — a `room_code` field in an old relay's `config.json`
+  is invisible to it (unknown JSON fields are ignored the same way), with no error to tell the
+  host their room is actually wide open. Worth a follow-up: `internal/README.md` and
+  `packaging/README.md` should say plainly that room-code auth requires the *relay* to be
+  current, not just the client. Every new size/length limit is a real, if small, behavior
+  change: a legitimately-oversized field that was previously silently truncated-by-forwarding
+  or merely logged is now dropped outright (state fields) or refused at handshake (`hello`
+  fields) — matches the existing "drop, don't truncate" posture already established for
+  `MaxPositionLen`/`MaxExtrasBytes`, just extended to the fields that were missing it.
+
+---
+
+- **Date:** 2026-08-14 (same-day follow-up to the ADR above)
+- **Decision:** Add lifecycle logging (join/leave/reject) at the relay; classify a relay
+  `Reject` as permanent or transient (`core.RejectError`/`core.IsPermanentRejectErr`,
+  `protocol.ReasonRoomFull` the one transient reason); cache a permanent rejection on the
+  `Core` so a retrying adapter doesn't keep re-dialing an already-known-hopeless connection;
+  and make `cmd/meshghost`'s eager `-game` startup path retry until the relay is reachable
+  instead of crashing the whole process on the first failed dial.
+- **Status:** accepted
+- **Context:** Three real gaps surfaced in conversation while reviewing the room-code/version
+  ADR above, each traced back to something this project's own review missed rather than a new
+  request out of nowhere:
+  1. The user asked how a host or player would actually find out a `hello` was refused. Answer,
+     checked against the code: **nowhere adequate.** `rejectAndClose` (added by the ADR above)
+     sent the reason to the client, but never logged anything server-side — a host had zero
+     visibility that anyone was ever refused. The reason did reach `internal/core`'s own log,
+     but no further: all three shipped adapters, on a closed bridge connection, just log a
+     generic "lost, will retry" and loop silently forever with no reason ever reaching the
+     player. Separately, the relay's own log had never recorded a successful join or leave
+     either — a gap the user had already flagged once before, in the cross-machine session
+     entry in `verified.md`, and it was still unaddressed.
+  2. The user then asked whether the client had to be started after the server. Checked against
+     the code: **yes, for the eager `-game` path specifically.** `cmd/meshghost`'s eager branch
+     called `Core.ConnectRelay` once, synchronously, and `log.Fatalf`'d the whole process on any
+     failure — including a plain "relay isn't up yet" dial error, indistinguishable in that
+     branch from a real permanent refusal. The lazy path (no `-game`, the real shipped
+     `config.json`'s actual default) already tolerated this for free, since a failed
+     `ConnectRelayOnAdapterHello` only closes one bridge connection and the adapter's own
+     reconnect loop drives the next attempt — but that same mechanism had no way to distinguish
+     "keep trying" from "this will never succeed," so a wrong room code or version mismatch
+     would have silently retried forever too, hammering the relay and this process's own log
+     with an identical failure indefinitely once fixed to not crash.
+- **Options considered (logging):** (1) log everything, including per-`state` traffic — rejected
+  outright, this is exactly the spam the user explicitly warned against and duplicates what
+  `MaxMessagesPerSecond` already guards against; (2) log only lifecycle events (hello
+  reject/accept, join, leave) — these happen once per connection event, not per frame, so
+  logging every one of them cannot spam regardless of session length; (3) option 2, plus
+  per-message-content dedup on the *core* side specifically, since a retrying adapter can
+  legitimately hit the *same* connect failure many times in a row where the relay's own
+  lifecycle events (each a genuinely new occurrence) don't have that problem.
+- **Resolution (logging):** Options 2 and 3 together. `internal/relay.rejectAndClose` now logs
+  the reason plus the offending `hello`'s `game_id`/`room`/`display_name` before closing; a
+  successful join logs the assigned `player_id`, display name, room, and game; a disconnect
+  logs the leaving `player_id` and room. `internal/core.ConnectRelayOnAdapterHello` logs a
+  connect failure only when the message actually changes from the last one logged
+  (`Core.lastConnectErr`), so a long wait for the relay to come up, or a room stuck full for a
+  while, produces one line per *actual* state change, not one per retry.
+- **Options considered (retry vs. crash):** (1) leave the eager path crashing on any failure —
+  simplest, but directly contradicts what the user just asked for; (2) retry inside
+  `cmd/meshghost` using `Core.ConnectRelay` directly, with its own backoff loop — works, but a
+  real adapter could *also* connect over the bridge and send its own `hello` for the same
+  `game_id` while this loop is still waiting, and since `ConnectRelay` doesn't serialize against
+  `ConnectRelayOnAdapterHello`'s `relayConnectMu`, the two could race to dial independently;
+  (3) route the eager path's retry loop through `ConnectRelayOnAdapterHello` itself instead of
+  `ConnectRelay` directly, so both entry points serialize on the same lock and share the same
+  permanent/transient classification and logging.
+- **Resolution (retry vs. crash):** Option 3. `RejectError` (`internal/core`) wraps a relay
+  `Reject`'s reason so it can be distinguished from a plain dial/timeout error without string-
+  matching a formatted message. `isPermanentRejectReason` treats every reason except
+  `protocol.ReasonRoomFull` as permanent — the only one of the current named reasons
+  (`ReasonProtocolVersionMismatch`, `ReasonHelloFieldTooLong`, `ReasonInvalidRoomCode`,
+  `ReasonGameMismatch`, `ReasonGameVersionMismatch`, `ReasonRoomFull`) that can resolve on its
+  own without a config change, if someone else leaves the room. `Core.permanentRejectGame`/
+  `permanentRejectReason` cache a permanent rejection per `gameID`, checked before dialing;
+  `IsPermanentRejectErr` is exported so `cmd/meshghost`'s new `connectRelayWithRetry` (backed
+  off 1s→15s, doubling) can decide whether to keep retrying or `log.Fatalf` — a permanent
+  rejection still ends the process loudly, since that's a real, unresolvable-by-retrying
+  refusal, not "the relay isn't up yet." `cmd/meshghost`'s bridge listener now starts
+  immediately regardless of relay reachability (the relay connect is backgrounded, not blocking
+  startup), matching the tolerance the lazy path already had.
+- **Consequences:** Both `cmd/meshghost` startup paths (`-game` set or not) now tolerate the
+  relay coming up after the client, with no ordering requirement either direction — confirmed
+  live (not just `go test`): real `meshghost.exe` started against a relay address nothing was
+  listening on yet, logged the retry message exactly once despite several retry cycles across
+  ~15 seconds, then connected automatically the moment a real `meshghost-relay.exe` started on
+  that address, with matching join lines appearing in both processes' logs at that same moment
+  — see `verified.md`. A permanently-rejected `-game` startup (bad room code, version mismatch)
+  still exits the process via `log.Fatalf`, unchanged from before this ADR — only the
+  transient/"not up yet" case gained tolerance. `cmd/meshghost-fakeadapter` was deliberately
+  left on the old one-shot `ConnectRelay`+immediate-error pattern: it's dev-only tooling meant
+  to fail fast and visibly if pointed at a bad address, not something that needs to tolerate a
+  slow-starting relay the way the real shipped client does.
+
+---
+
+- **Date:** 2026-08-14 (same-day review/refactor sweep)
+- **Decision:** Two review passes (one Go-layer, one adapter) across `internal/`, `cmd/`, and
+  all three adapters surfaced roughly a dozen real bugs, dead code, and stale comments; fix
+  everything found rather than triaging into a follow-up backlog. Four of the fixes are real
+  behavior changes worth recording as decisions, not just bug fixes:
+  1. **Core-side finiteness/magnitude validation on remote `position`.** A remote peer can put
+     `[1e400,...]` on the wire — syntactically valid JSON that overflows to `+Inf` on decode, or
+     `1e308` that overflows to `+Inf` when narrowed to `float32` — and nothing anywhere checked
+     for it (zero `math.IsInf`/`IsNaN` calls existed in `internal/`). This reaches Pseudoregalia's
+     `sscanf`/`FRotator` and TEVI's `Transform` unfiltered. `internal/core.storeRemoteState` now
+     drops (not clamps — same "drop, don't store" posture as the existing size caps) any `State`
+     whose `Position` contains a `NaN`, `Inf`, or `|x| > protocol.MaxPositionComponent` (new
+     const, `1e7` — generous, not a measured game bound, chosen only to reject "obviously not a
+     real coordinate" magnitudes). `orientation` stays opaque JSON the core cannot parse this way;
+     each adapter is documented (`adapters/_template/PROTOCOL.md`) as responsible for bounding
+     whatever numbers it pulls out of its own `orientation`/`extras`.
+  2. **`internal/core/interp.lerp` no longer blends across an `area_id` change.** Two bracketing
+     snapshots with different `AreaID` previously had their raw world coordinates linearly
+     blended and stamped with the older snapshot's `AreaID` — a phantom-midpoint result, the
+     exact failure shape the 2026-08-13 cross-area-filtering ADR (above) exists to prevent, just
+     one layer earlier than that ADR's own fix (which filters at render time, not interpolation
+     time). `lerp` now returns the older snapshot outright when `AreaID` differs, mirroring the
+     existing mismatched-length guard already in the same function.
+  3. **`Core.ConnectRelay`'s 7 positional parameters collapsed to read `Core`'s own fields.**
+     Every parameter but `gameID` already duplicated a `Core` field
+     (`RelayAddr`/`Room`/`DisplayName`/`RoomCode`/`GameVersion`/`DialTimeout`) — the same
+     duplication-is-a-bug-magnet shape already fixed once for `applyFileConfig` via
+     `configTargets`. All three callers (`cmd/meshghost`, `cmd/meshghost-fakeadapter`,
+     `core_test.go`) updated to the new signature; this is a source-breaking change to any code
+     calling `ConnectRelay` directly (not the wire protocol, which is unaffected).
+  4. **Pseudoregalia ghosts move offscreen on despawn instead of only `SetActive`-equivalent
+     hiding.** Cosmetic-only fix, not a lifetime-management change — see the "Actor destroy
+     unavailable" pitfall in `pitfalls.md` for why ghosts are never destroyed on this build at
+     all. Before this fix, a peer leaving/reconnecting within a single area left their last-known
+     ghost frozen in place with no visual indication anything had changed; now `release_ghost`
+     moves it far offscreen first (the same proven `call_set_actor_location_and_rotation` path
+     used everywhere else), so a same-area leave is visually silent instead of a visible frozen
+     statue, while the level's own teardown on the next area transition still does the real
+     reclaim, unchanged.
+- **Status:** accepted
+- **Context:** Set as the explicit next priority once the 2026-08-14 relay-safety ADRs above
+  landed — a full review/refactor sweep across the server/client and all three adapters, since
+  the hardening work above had been added incrementally across several sessions without a
+  dedicated pass to catch what accumulated in the gaps.
+- **Options considered:** fix everything found now (all four items above, plus every
+  non-behavior-changing bug/race/dead-code item logged individually in `verified.md`/commit
+  history rather than here) vs. triage into "must-fix now" and "follow-up backlog." The user
+  chose fix-everything explicitly, plus rebuild+deploy Pseudoregalia, and explicitly **rejected**
+  one reviewer conclusion: destroying Pseudoregalia ghosts, which would reintroduce the
+  world-leak crash the move-offscreen design exists to avoid (see the pitfall entry).
+- **Resolution:** All four items above shipped in this pass, along with the non-behavior-changing
+  fixes (a wedged-core timeout leak, a `DialTimeout==0` instant-fail bug, a real `-race` data
+  race on `playerID`, a cross-game bug where a second adapter's bridge connect could tear down a
+  first adapter's already-working relay session, several smaller races/reorderings/dead-code
+  removals in `internal/`) and the adapter-side fixes in Pseudoregalia's C++ (partial-send/
+  unbounded-recv-buffer, connect backoff, unclamped numeric casts, cached-pointer hardening,
+  callback unregistration), Emerald's Lua (partial-line receive corruption — see the pitfall
+  entry above — partial send, dead-socket-after-hard-connect-error, a `pcall` around the main
+  loop, control-char JSON escaping), and TEVI's C# (a stale-thread generation guard so an
+  in-flight reconnect can't clobber a newer connection's state, `TcpClient` disposal, ghost/marker
+  `GameObject`s actually `Destroy()`d instead of only deactivated, `OnDestroy`/
+  `OnApplicationQuit` closing the bridge, `room_x`/`room_y` range-checked before a map-lookup
+  call, and `TryGetValue` in place of unguarded `JObject` casts in `DrainInto`).
+- **Consequences:** `protocol.Version` is unaffected — every change above is either server-side
+  validation (already-permitted values still round-trip identically; only `NaN`/`Inf`/absurd
+  magnitudes are newly dropped) or adapter-internal. The `ConnectRelay` signature change only
+  affects Go code calling `internal/core` directly, not the wire protocol or any adapter. The
+  Pseudoregalia rebuild was hash-diff-confirmed deployed to the in-repo packaging copy; the live
+  Steam install and the TEVI DLL rebuild remain manual follow-ups outside this repo's automated
+  reach (packaging/README.md's existing staleness-check note covers the latter). Live in-game
+  verification of the Pseudoregalia despawn-visual change and the finiteness/lerp fixes' observed
+  behavior is still pending — nothing above is entered in `verified.md` until watched happening
+  on screen, per `CLAUDE.md`.
+
+---
+
+- **Date:** 2026-08-14 (found during live testing of the sweep above)
+- **Decision:** `Core` now auto-retries a dropped relay connection in the background after any
+  *previously successful* `ConnectRelayOnAdapterHello` connect, not just the first attempt.
+- **Status:** accepted
+- **Context:** Live two-TEVI testing (both clients connected fine, then the shared relay was
+  restarted) showed both clients logging `relay disconnected` and then sitting idle forever —
+  no reconnect attempt at all, requiring a full client restart. Root cause: the only existing
+  retry loop, `cmd/meshghost`'s `connectRelayWithRetry`, drives just the *first* connect attempt
+  and returns once it succeeds (see the "client/relay start-order independence" ADR above); a
+  real adapter's own bridge-Hello resend — the other trigger for `ConnectRelayOnAdapterHello` —
+  only fires when the *bridge* connection itself drops, which a relay-only outage never touches.
+  So a relay restart or network blip after an already-successful connect had no path back to
+  "connected" short of restarting the whole client process. Separately, this same debugging
+  session also surfaced that the actual `meshghost.exe`/`meshghost-relay.exe` binaries at the
+  repo root were stale (dated the day before this entire review sweep) — `go build ./...`/
+  `go vet`/`go test`, run repeatedly throughout the sweep, compile-check everything but don't
+  refresh the named binaries the `dev-scripts/*.bat` files launch. Both issues compounded: the
+  user's first repro was against binaries that predated even the start-order-independence fix.
+- **Options considered:** (1) leave reconnection entirely adapter-driven (status quo) — simplest,
+  but leaves exactly the gap just found; (2) have `cmd/meshghost`'s `connectRelayWithRetry` loop
+  forever instead of returning after the first success — fixes the eager `-game` path only, does
+  nothing for a real adapter (TEVI/Pseudoregalia/Emerald) whose relay drops while its bridge
+  connection stays healthy, which is the actual case that broke live; (3) move auto-retry into
+  `Core` itself, armed only by `ConnectRelayOnAdapterHello`'s own success path, so it covers both
+  the eager path and a real adapter uniformly.
+- **Resolution:** Option 3. `Core.autoRetryGameID`/`autoRetryAdapterGameVersion`/
+  `autoRetryBridgeConn` are set on every `ConnectRelayOnAdapterHello` success; `ConnectRelay`'s
+  `OnDisconnect` handler spawns `Core.reconnectWithBackoff` (same 1s→15s doubling shape as
+  `cmd/meshghost`'s loop, but logs and stops on a permanent reject instead of `log.Fatalf`ing —
+  `Core` is a library and must not exit the host process) whenever these are armed. Deliberately
+  **not** armed for `cmd/meshghost-fakeadapter`'s direct `ConnectRelay` calls or `core_test.go`'s
+  (both leave the fields at zero value, opting out by construction — matches the existing
+  documented "fakeadapter fails fast on purpose" posture). A real regression caught by the test
+  suite before shipping: `handleBridgeConn`'s existing behavior of closing `c.relay` when the
+  *adapter itself* intentionally disconnects (so the relay broadcasts a real Leave) was racing
+  against the new auto-retry and silently reconnecting with a fresh `player_id` before the
+  disconnect could be observed — `TestReconnectAfterBridgeDisconnectGetsFreshPlayerID` failed.
+  Fixed by disarming the auto-retry fields in that same code path, in the same critical section,
+  before the deliberate `relay.Close()` — an intentional adapter-driven disconnect must stay
+  disconnected until a fresh bridge Hello, not silently reconnect behind the adapter's back.
+- **Consequences:** No wire-protocol change. Live-verified (not just `go test`): a real relay
+  killed mid-session, a real client kept retrying with backoff and logging exactly once (existing
+  dedup logic), then reconnected automatically the instant a new relay came up on the same
+  address — see `verified.md`. `meshghost.exe`/`meshghost-relay.exe`/
+  `meshghost-fakeadapter.exe` at the repo root were rebuilt from current source as part of this
+  fix; there is no automated step that keeps them fresh across a session — rebuild explicitly
+  after any `internal/core`/`cmd/meshghost` change before testing via the `dev-scripts/*.bat`
+  files, the same discipline already documented for the Pseudoregalia/TEVI adapter builds.

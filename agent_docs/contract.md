@@ -95,8 +95,9 @@ signal joins/leaves — `despawn_remote(id)` has nothing to trigger it without a
 
 | Message | Direction | Carries |
 |---|---|---|
-| `hello` | client → relay | protocol version, `game_id`, room name, display name, `features` |
+| `hello` | client → relay | protocol version, `game_id`, room name, display name, `room_code`, `game_version`, `features` |
 | `welcome` | relay → client | assigned `player_id`, current room roster |
+| `reject` | relay → client | a reason string — sent once, immediately before the relay closes a refused connection |
 | `join` | relay → client | a peer's `player_id` (and initial `state`, if available) |
 | `leave` | relay → client | a peer's `player_id` — this is what drives `despawn_remote` |
 | `state` | both directions | the packet schema above |
@@ -120,6 +121,33 @@ between two clients running the same game" but nothing enforced that two differe
 couldn't end up in the same room. `game_id` is sent once, at `hello` (e.g. `"emerald"`,
 `"tevi"`). The relay rejects a `hello` whose `game_id` doesn't match the room's existing
 `game_id`, rather than silently mixing clients that would draw garbage at each other.
+
+### `game_version` and `room_code`
+
+Added 2026-08-14 for relay-safety hardening — see the ADR in `architecture.md`. Both optional,
+both opaque to the core and relay (never parsed, compared only where noted below).
+
+- `game_version` is the adapter's own version string, forwarded verbatim from the adapter's
+  bridge `hello` (see "Connecting: the bridge `hello`" below). A room's `game_version`, once set
+  by its first member, is sticky the same way `game_id` is — a later `hello` with a *different*,
+  non-empty `game_version` for that room is refused. A client that omits it (or a room where no
+  member has declared one yet) is never refused on this basis; only a real mismatch between two
+  declared values counts. None of the three shipped adapters read a game build number for this
+  — there's no cited memory address for one, and `CLAUDE.md`'s "no addresses/APIs from memory"
+  rule means one isn't guessed at. Each adapter instead reports its own script/mod version,
+  which is the more useful signal anyway: it catches two peers running different revisions of
+  the same adapter, the likelier real source of a silent protocol mismatch.
+- `room_code` is a shared secret the relay compares (`crypto/subtle.ConstantTimeCompare`)
+  against its own configured code before accepting a join. An empty configured code (the
+  default) means auth is off — the original friend-hosted posture. **Crosses the wire in
+  plaintext** — `internal/transport` has no TLS — so this raises the bar from "anyone with the
+  address" to "anyone with the address and the code," not to "safe against a network-level
+  attacker." See `internal/README.md`.
+
+Both are refused with `reject` (see the message table above) before any `state` is exchanged,
+the same "reject at handshake" shape the protocol-version check already used — researched
+against CelesteNet's own version-check pattern (`internal/README.md`'s prior-art section) before
+building this.
 
 ## Extensibility — the event plane (reserved, not implemented)
 
@@ -182,13 +210,25 @@ ends and the next begins.
 - **Transport interface, expanded:**
   - `send(bytes)` — unchanged from the brief.
   - `on_receive(callback)` — unchanged from the brief.
-  - `on_connect()`, `on_disconnect(reason)`, `on_error(err)` — the brief's version had no
-    way to report a dropped or failed connection.
+  - `on_disconnect(reason)`, `on_error(err)` — the brief's version had no way to report a
+    dropped or failed connection. (`on_connect()` was in this list too until a review pass
+    removed it 2026-08-14: `internal/transport`'s implementation started its read loop before
+    a caller could register the callback, so it fired from a goroutine racing that
+    registration — unusable as specified, and nothing in the codebase ever registered one.)
   - Reconnect with exponential backoff on unexpected disconnect.
   - Heartbeat: a `ping` on an interval; a peer that misses N consecutive `pong`s is treated
     as dropped and triggers `leave`.
 - **Versioning:** `hello` carries a protocol version. A relay that sees a mismatched major
   version refuses the connection outright rather than guessing at compatibility.
+- **Bounded reads and timeouts** (added 2026-08-14, relay-safety hardening — ADR in
+  `architecture.md`): `internal/transport.NDJSONConn` enforces `MaxLineBytes` *during* the read
+  itself (a `bufio.Scanner` max-token-size, not a length check after the line is already fully
+  buffered — the earlier `bufio.Reader.ReadBytes` approach let a peer streaming bytes with no
+  newline grow memory without bound before any check could run), plus a per-line idle read
+  deadline and a per-`Send` write deadline. The relay additionally closes any connection that
+  hasn't completed a `hello` and joined a room within `HelloTimeout` (10s by default) — the idle
+  deadline alone doesn't cover this, since it resets on any successfully read line, not only a
+  completed `hello`.
 
 ## The tick model
 
@@ -246,7 +286,7 @@ above. The very first message an adapter sends on a fresh bridge connection, bef
 `local_state`:
 
 ```json
-{"type":"hello","payload":{"game_id":"emerald"}}
+{"type":"hello","payload":{"game_id":"emerald","game_version":"phase5.5"}}
 ```
 
 `game_id` is opaque to the core — the same equality-only rule as `area_id`/`anim` — and is
@@ -258,6 +298,12 @@ upfront (dev/testing scripts with no adapter attached, e.g. `dev-scripts/run-cor
 `-game` flag) can still connect immediately at startup instead — both paths are supported,
 and are mutually exclusive per process: once a Core is connected to the relay for one
 `game_id`, a bridge `hello` for a *different* `game_id` on the same process is refused.
+
+`game_version`, added 2026-08-14 alongside room-code auth, is optional and forwarded the same
+way into the relay's own `hello.game_version` (see the "`game_version` and `room_code`"
+subsection above). `Core.GameVersion` overrides whatever the adapter reports here — mirroring
+how `-game`/`config.json`'s `"game"` already overrides an adapter-declared `game_id` — for
+callers with no real adapter attached (dev-scripts, `cmd/meshghost-fakeadapter`).
 
 Ordering guarantee: within one bridge connection, `hello` is always processed before any
 `local_state` sent after it — a bridge connection is a single ordered stream, per the "Two
@@ -275,19 +321,28 @@ relay connection actually exists.
 - Transport is swappable behind `send(bytes)` / `on_receive(cb)` from day one.
 - JSON until it hurts.
 
-## Limits (defined now, enforced starting Phase 3)
+## Limits (defined at Phase 3, tightened 2026-08-14 for relay-safety hardening)
 
 Untrusted peers are on the wire the moment Phase 4 happens, so these are specified at the
 same time as the schema rather than bolted on later. Values chosen and enforced at the relay
-(`internal/relay/limits.go`) as of Phase 3 — generous rather than tight, since the relay is
-no-auth through Phase 4 (see the architecture.md ADR) and these defend against a malformed or
-careless peer, not a determined attacker:
+(`internal/relay/limits.go`), and — as of the relay-safety hardening pass — mirrored on
+receive by `internal/core` too (`internal/protocol/limits.go` holds the shared ones, so the
+two enforcement points can't silently drift apart). Originally generous rather than tight,
+since the relay was no-auth through Phase 4; audited with an adversarial peer in mind
+alongside room-code auth (see the architecture.md ADR) — treat the numbers below as tight now:
 
-- Max line length per NDJSON message: **4096 bytes** (`MaxLineBytes`). A connection sending a
-  longer line is closed outright, not truncated.
+- Max line length per NDJSON message: **4096 bytes** (`MaxLineBytes`). Enforced *during* the
+  read itself since 2026-08-14 (`internal/transport`'s bounded-read fix, see "Transport"
+  above) — no longer just a check after the line is already fully buffered.
 - Max serialized size of `extras`: **1024 bytes** (`MaxExtrasBytes`).
 - Max length of `position`: **8** (`MaxPositionLen`) — headroom above the largest known real
   use (3, for a 3D game); the schema still never fixes this at 2 or 3.
+- Max serialized size of `orientation`: **256 bytes** (`MaxOrientationBytes`) — generous above
+  any real representation (a handful of floats).
+- Max length of `area_id` / `anim`: **256 bytes** each (`MaxAreaIDLen` / `MaxAnimLen`).
+- Max length of every `hello` string field (`game_id`, `room`, `display_name`, `room_code`,
+  `game_version`): **128 bytes** (`MaxHelloFieldLen`), checked at the relay before any of them
+  are used to create or look up a room.
 - Per-client rate limit: **120 messages/second** (`MaxMessagesPerSecond`) — the relay closes,
   rather than throttles, a connection that exceeds it. **Client-side enforced since Phase 6**
   (TEVI): `internal/core.Core.MinSendInterval` (default 50ms / 20Hz, `DefaultMinSendInterval`)
@@ -301,21 +356,22 @@ careless peer, not a determined attacker:
 - Max clients per room: **8** (`MaxClientsPerRoom`) — Phase 4's target is two; this leaves
   room for later multi-peer testing without letting a room grow unbounded. A room already at
   capacity refuses an additional join the same way a `game_id` mismatch is refused.
+- Hello timeout: an unauthenticated connection that hasn't completed a `hello` and joined a
+  room within **10 seconds** (`DefaultHelloTimeout`, `Server.HelloTimeout`) is closed. See
+  "Transport" above for why the idle read deadline alone doesn't cover this case.
 - The relay stamps `player_id` on every `state` message from the connection's own
   relay-assigned id, server-side — never trusted from the client's payload, since a peer could
-  otherwise claim someone else's id.
+  otherwise claim someone else's id. `internal/core` mirrors this trust boundary on receive:
+  it keeps its own roster (seeded from `welcome`, maintained by `join`/`leave`) and drops any
+  `state` for a `player_id` it never actually saw announced, rather than trusting the relay
+  completely — a hostile or compromised relay was previously able to inject state for an
+  arbitrary id with nothing to stop it.
 - Remote strings (`area_id`, `anim`, `extras` values, display name) are never interpolated
   into a file path, shell command, or format string by an adapter. They are opaque data,
   not code, even though they're only ever compared by equality within the same game.
 - Max event payload size (reserved, applies once the event plane is implemented).
 - An unknown message `type` is ignored, not treated as an error — same forward-compatibility
   posture as the existing unknown-*field* rule above.
-
-Not yet enforced: `MaxLineBytes` is checked only after a full NDJSON line has been buffered
-(`internal/transport`'s `bufio.Reader.ReadBytes('\n')` has no size cap of its own), so a peer
-that sends unbounded bytes with no newline can still grow memory before the check runs. Real
-risk only once Phase 4 puts untrusted peers on the wire; tracked as a known gap, not fixed in
-Phase 3.
 
 ## Open questions carried from the original Phase 0 backlog
 

@@ -24,10 +24,14 @@ Setup, once:
                "127.0.0.1:7777" only works if YOU are also the host, on the
                same machine.
      "room"  -- whatever your group agrees on; everyone must use the SAME
-               room name to end up in the same session. This is NOT a
-               password -- there is no real authentication yet. Treat the
-               host's address itself as the secret: only give it to people
-               you trust.
+               room name to end up in the same session. This is a label,
+               not a password -- it doesn't stop someone else from also
+               using that name. If the host set a "room_code" (below),
+               enter it here too.
+     "room_code" -- only needed if your host told you they set one. Leave
+               it as "" if they didn't -- most hosts won't have, since it's
+               off by default. If they did set one, you must enter it
+               exactly or you'll be refused.
      "name"  -- whatever you want your ghost to show as to others.
      "local_game_bridge" -- internal, on your own PC only. Leave this alone
                unless you're running two copies on the SAME machine (see
@@ -42,6 +46,19 @@ Setup, once:
      "listen_on" -- what port to accept connections on. "0.0.0.0:7777"
                (the default) means "accept from anywhere," which is what
                you want. Only change the port number if you need to.
+     "room_code" -- OPTIONAL. Leave as "" to keep the old behavior: anyone
+               who has your address can join. Set it to a word or phrase
+               to require everyone to also enter that same code in their
+               own config.json's "client" section before joining -- tell
+               them what it is the same way you tell them your address.
+               This does NOT encrypt anything -- someone who can already
+               watch your network traffic could still read the code in
+               transit -- it just stops a stranger who only has your
+               address from getting in. IMPORTANT: this only works if
+               EVERYONE (you as host, and every player) is running the
+               current meshghost.exe/meshghost-server.exe -- an old copy
+               silently ignores this setting and stays open with no
+               warning. If in doubt, re-download the latest release.
 
 Hosting (skip this section if you're not the host):
 1. Double-click meshghost-server.exe. Leave the window open while people
@@ -50,9 +67,9 @@ Hosting (skip this section if you're not the host):
    your port (TCP) on your router to this machine, or run this on a small
    public server/VPS instead.
 3. Give your friends this machine's IP address (and port, if you changed
-   it) -- they'll need it for their "connect_to" setting. Treat this like a
-   shared secret: there is no password system yet, so anyone with the
-   address can join.
+   it) -- they'll need it for their "connect_to" setting. If you didn't set
+   a "room_code", treat the address itself as the shared secret: anyone
+   who has it can join.
 4. To stop hosting: close the window (or Ctrl+C).
 
 Playing, every session (everyone, including the host):

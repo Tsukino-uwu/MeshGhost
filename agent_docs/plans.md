@@ -21,11 +21,11 @@ TEVI replaced the brief's original Ori: Will of the Wisps pick.
 - No adapter transport or socket handling — adapters speak only to the local bridge.
 - No production binary encoding or performance optimization before the contract is stable.
 - No second-game adapter until Phase 5 validates the template.
-- ~~No relay authentication work before Phase 4 ships on no-auth~~ — **superseded 2026-08-13**:
-  Phase 4 shipped long ago and relay/core safety is now the explicit next priority, see "Next
-  priority — Room codes / relay safety" below. Kept struck through, not deleted, so the
-  original reasoning (don't build room codes early just because they're the eventual goal)
-  stays legible as a past decision, not silently erased.
+- ~~No relay authentication work before Phase 4 ships on no-auth~~ — **superseded 2026-08-13,
+  done 2026-08-14**: Phase 4 shipped long ago; relay/core safety became the explicit next
+  priority and room-code auth is now built, see "Room codes / relay safety" below. Kept struck
+  through, not deleted, so the original reasoning (don't build room codes early just because
+  they're the eventual goal) stays legible as a past decision, not silently erased.
 - No emulator memory *writes* or save-state editing — MeshGhost reads game memory and does
   not write it, today. This is the current posture, not a permanent philosophical stance:
   whether it ever changes (see "Depth beyond the cosmetic ghost" below) is pending an actual
@@ -279,38 +279,40 @@ the same way, or was that specific to melee's collision-based hit detection? Not
 yet. This is a materially harder and riskier feature than it looked at first — treat as genuinely
 deferred, not a quick follow-up.
 
-### Next priority — Room codes / relay safety
+### Room codes / relay safety
 
-**Set as the current/next priority, 2026-08-13** (was previously an unscheduled "Post-Phase-4"
-idea — elevated explicitly by the user, not something to defer again). Add shared-secret room
-codes to the relay so a session isn't just a bare IP:port. **Still not built** — the relay
-remains no-auth (`agent_docs/architecture.md`'s ADR); `room` today is a plain label, not a
-secret. See `internal/README.md` for the full current security/privacy posture — what's
-already checked-safe versus what isn't yet — before starting design work here.
+**Set as the current/next priority 2026-08-13; core work done 2026-08-14.** Full record: the
+ADR in `agent_docs/architecture.md` (search "room-code/version ADR") and `internal/README.md`'s
+"What changed" section. Short version — the three pieces originally scoped, plus what each
+still leaves open:
 
-The goal, in the user's own framing: right now the relay/core is "direct/unsafe," fine for a
-friend you hand an address to, not something meant to be used with people you don't
-personally know, or safe against someone actively trying to be malicious with the
-server/client. Two concrete pieces identified as the real pre-"can we call this safe"
-checkpoint (not the only possible security work, but the two known, already-recorded gaps):
+- **Auth** — `hello` now carries an optional `room_code`, constant-time-checked against the
+  relay's own configured `Server.RoomCode`; empty/unset (the default) still means auth is off,
+  unchanged from the original friend-hosted posture. **Open limit**: no TLS, so the code crosses
+  the wire in plaintext (`risks.md`'s new TLS entry); **and** auth only works if the relay
+  binary is current — a stale relay silently ignores the field and stays open with no warning
+  (`risks.md`'s new "stale relay" entry, found from the user asking what an old client/server
+  does against new ones).
+- **Peer game-version check** — `hello` now carries an optional `game_version`, sticky per room
+  the same way `game_id` already is. **Open limit**: each adapter reports its own script/mod
+  version (no cited memory address exists to read a real game/DLC build in any of the three
+  games), so this doesn't fully close the original TEVI concern about differing Steam patch
+  levels or DLC state — see `risks.md`'s updated entry.
+- **Malicious-peer hardening** — done as a real audit against concrete findings, not a
+  hypothetical checklist: a real remote-OOM in `internal/transport` (unbounded read buffer),
+  missing read/write deadlines, a relay hello-timeout, `Room.Forward` holding a lock across a
+  potentially-blocking `Send`, and the core trusting the relay's `player_id`s completely
+  (`welcome.roster` was discarded) are all fixed. Not claimed exhaustive — see
+  `internal/README.md`'s "known gaps" for what wasn't attempted.
 
-- **No auth** — anyone with the address can join (`risks.md`'s "No-auth relay window").
-  Needs a real wire/core change: room codes or a shared secret in `hello`.
-- **No peer game-version check** — `hello` carries `game_id` but nothing about version/DLC
-  (`risks.md`, surfaced by TEVI in Phase 6). Two peers on different game versions can silently
-  desync.
+`cmd/meshghost`/`cmd/meshghost-relay` both gained `-room-code`/`-game-version` flags and
+matching `config.json` fields (`room_code` on both client and server sections, `game_version`
+on the client section) — see `packaging/README.md`. The config-file mechanism this section
+originally anticipated (2026-08-11) is where these landed, as expected.
 
-Not yet designed or scoped — this is a statement of intent/priority, not a plan. Should also
-fold in a broader look at malicious-peer hardening generally (malformed/oversized messages,
-spoofed `player_id`, flooding) while in this area, beyond just the two items above, per the
-user's framing ("someone would want to be malicious with the server/client things").
-
-The config-file mechanism this section anticipated now exists (2026-08-11, alongside the
-release-packaging work below), ahead of room codes themselves: `cmd/meshghost`/
-`cmd/meshghost-relay` both load an optional `-config=config.json` (defaults to `config.json`
-next to the exe; explicit CLI flags still override individual fields). `interp` is not yet one
-of the loadable fields — cheap to add whenever it's actually wanted; not done speculatively.
-When room codes are actually designed, this is where the secret goes.
+**Not done as part of this pass, deliberately out of scope**: TLS (a separate, larger piece of
+work — see `risks.md`); the "stale relay" gap has no protocol-level fix, only a documentation
+one (tell hosts to update); TEVI's `game_version` doesn't yet reflect a real Steam build number.
 
 ### Release packaging (not a phase, tooling)
 

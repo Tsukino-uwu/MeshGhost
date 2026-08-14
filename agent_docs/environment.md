@@ -130,10 +130,13 @@ Built once to extract real RAM addresses via a `make compare`-verified build —
   reconnecting afterward. No login is cached between sessions on this machine by choice (the
   folder gets wiped after use rather than storing credentials).
 - **Standalone TEVI build for local dual-instance testing**: `C:\dev\tevi-14778703` (SteamDB
-  build `14778703`, 2024-06-20, depot `2230651`, manifest `7992513181981867642`), plus an earlier
-  superseded `C:\dev\tevi-v1.01-test` (buildid `12996163`) — both outside `C:\dev\MeshGhost` for
-  the same reason as the SteamCMD tool. Needs a `steam_appid.txt` (containing `2230650`) at its
-  root for `steam_api64.dll` to initialize when launched outside Steam. See
+  build `14778703`, 2024-06-20, depot `2230651`, manifest `7992513181981867642`) — outside
+  `C:\dev\MeshGhost` for the same reason as the SteamCMD tool. Needs a `steam_appid.txt`
+  (containing `2230650`) at its root for `steam_api64.dll` to initialize when launched outside
+  Steam. An earlier build, `C:\dev\tevi-v1.01-test` (buildid `12996163`), was tried first, didn't
+  work, and has since been **fully removed from disk** (2026-08-14) — `14778703` above is the
+  only standalone build now in use; don't reference the removed one as if it's still present.
+  See
   `agent_docs/verified.md`'s "TEVI build 14778703 allows two simultaneous local instances" entry
   and `agent_docs/phases/phase6.md`'s Notes for how this enables 6.6 (two real players) without a
   second machine.

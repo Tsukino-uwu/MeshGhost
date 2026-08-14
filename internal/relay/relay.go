@@ -6,6 +6,7 @@
 package relay
 
 import (
+	"crypto/subtle"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -19,11 +20,13 @@ import (
 )
 
 // Room holds the connected clients for one room name. A Hello whose game_id
-// doesn't match an existing room's is rejected rather than mixing clients
-// from different games — see agent_docs/contract.md.
+// (or, once declared, game_version) doesn't match an existing room's is
+// rejected rather than mixing clients from different games/versions — see
+// agent_docs/contract.md and the ADR in agent_docs/architecture.md.
 type Room struct {
-	GameID string
-	Name   string
+	GameID      string
+	GameVersion string
+	Name        string
 
 	mu      sync.Mutex
 	members map[string]*Client
@@ -35,8 +38,8 @@ type Client struct {
 	Conn     transport.Transport
 }
 
-func newRoom(gameID, name string) *Room {
-	return &Room{GameID: gameID, Name: name, members: make(map[string]*Client)}
+func newRoom(gameID, gameVersion, name string) *Room {
+	return &Room{GameID: gameID, GameVersion: gameVersion, Name: name, members: make(map[string]*Client)}
 }
 
 // Forward routes msg to the given recipients. Shaped to take an explicit
@@ -53,15 +56,31 @@ func (r *Room) Forward(msg protocol.Envelope, to []string) {
 		return
 	}
 
+	// Snapshot the target connections under the lock, then send after
+	// releasing it. This used to send while holding r.mu for the whole
+	// loop; now that NDJSONConn.Send can block for up to its own
+	// WriteTimeout against a stalled peer (see transport.go), holding the
+	// lock across every recipient's Send meant one stalled room member
+	// could freeze every other room operation — joins, leaves, roster
+	// reads, other Forward calls — for the same duration. Found while
+	// scoping relay-safety hardening, agent_docs/architecture.md's
+	// room-code/version ADR.
+	type target struct {
+		id   string
+		conn transport.Transport
+	}
 	r.mu.Lock()
-	defer r.mu.Unlock()
+	targets := make([]target, 0, len(to))
 	for _, id := range to {
-		c, ok := r.members[id]
-		if !ok {
-			continue
+		if c, ok := r.members[id]; ok {
+			targets = append(targets, target{id: id, conn: c.Conn})
 		}
-		if err := c.Conn.Send(payload); err != nil {
-			log.Printf("relay: send to %s failed: %v", id, err)
+	}
+	r.mu.Unlock()
+
+	for _, t := range targets {
+		if err := t.conn.Send(payload); err != nil {
+			log.Printf("relay: send to %s failed: %v", t.id, err)
 		}
 	}
 }
@@ -78,6 +97,31 @@ func (r *Room) tryAdd(c *Client) (ok bool) {
 	}
 	r.members[c.PlayerID] = c
 	return true
+}
+
+// tryAddAndSnapshotRoster adds c (respecting MaxClientsPerRoom, same as
+// tryAdd) and returns the roster as it stood immediately before the add,
+// all under one r.mu critical section. Combining these matters: two
+// clients joining concurrently via separate roster() + tryAdd() calls
+// could each snapshot the roster before either had actually added itself,
+// so neither would ever learn about the other through its own Welcome or
+// the resulting Join broadcast. With the roster cross-check
+// internal/core now does on receive (agent_docs/architecture.md's ADR),
+// that isn't just a cosmetic gap anymore — it's a silently invisible peer,
+// since a State for an unrostered id is dropped outright. Found in a
+// review pass.
+func (r *Room) tryAddAndSnapshotRoster(c *Client) (rosterBeforeJoin []string, ok bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if len(r.members) >= MaxClientsPerRoom {
+		return nil, false
+	}
+	rosterBeforeJoin = make([]string, 0, len(r.members))
+	for id := range r.members {
+		rosterBeforeJoin = append(rosterBeforeJoin, id)
+	}
+	r.members[c.PlayerID] = c
+	return rosterBeforeJoin, true
 }
 
 func (r *Room) remove(playerID string) {
@@ -136,11 +180,27 @@ type Server struct {
 	// second peer (Phase 4) makes this unnecessary and it must not ship on
 	// by default.
 	Loopback bool
+
+	// HelloTimeout bounds how long an unauthenticated connection may sit
+	// without completing a Hello and joining a room before the relay closes
+	// it. Zero means "use DefaultHelloTimeout" (NewServer's default);
+	// overridable per-Server the same way Loopback is, so tests can use a
+	// short window instead of waiting out the real default.
+	HelloTimeout time.Duration
+
+	// RoomCode, when non-empty, is the shared secret every Hello.RoomCode
+	// must match (constant-time comparison) before the relay accepts a
+	// join. Empty (the default) means auth is off — the relay accepts any
+	// Hello with a valid protocol version and matching game_id, the
+	// pre-existing posture for a friend-hosted session. See the ADR in
+	// agent_docs/architecture.md and internal/README.md for what this does
+	// and doesn't defend against.
+	RoomCode string
 }
 
 // NewServer creates an empty Server with no rooms.
 func NewServer() *Server {
-	return &Server{rooms: make(map[string]*Room)}
+	return &Server{rooms: make(map[string]*Room), HelloTimeout: DefaultHelloTimeout}
 }
 
 // Serve accepts connections on ln, handling each on its own goroutine,
@@ -179,23 +239,47 @@ func sendEnvelope(conn transport.Transport, t protocol.MessageType, payload any)
 	}
 }
 
-// joinOrCreateRoom returns the named room, creating it (with gameID) if it
-// doesn't exist yet. ok is false if the room already exists under a
-// different game_id — the caller must refuse the connection rather than
-// mix clients from different games.
-func (s *Server) joinOrCreateRoom(gameID, name string) (r *Room, ok bool) {
+// rejectAndClose sends a protocol.Reject with reason, logs the refusal for
+// the relay operator's own visibility, then closes conn. Every pre-join
+// refusal (bad protocol version, wrong room code, mismatched game_id/
+// game_version, a full room) goes through this instead of a bare Close, so
+// a client sees why it was refused instead of an anonymous hangup
+// indistinguishable from "the relay is down" or "just slow" — see the ADR
+// in agent_docs/architecture.md. The server-side log line is new alongside
+// this same work: previously a rejected connection left no trace at all in
+// the relay's own log, so a host had no way to tell "nobody's trying to
+// connect" from "someone's trying and failing." One line per rejection —
+// this only fires at handshake, never per state message, so it can't spam.
+func rejectAndClose(conn transport.Transport, hello protocol.Hello, reason string) {
+	log.Printf("relay: refused hello (%s): game_id=%q room=%q display_name=%q", reason, hello.GameID, hello.Room, hello.DisplayName)
+	sendEnvelope(conn, protocol.TypeReject, protocol.Reject{Reason: reason})
+	_ = conn.Close()
+}
+
+// joinOrCreateRoom returns the named room, creating it (with gameID/
+// gameVersion) if it doesn't exist yet. reason is empty on success;
+// non-empty describes why the caller must refuse the connection rather
+// than mix clients from different games or incompatible versions.
+func (s *Server) joinOrCreateRoom(gameID, gameVersion, name string) (r *Room, reason string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	r, exists := s.rooms[name]
 	if !exists {
-		r = newRoom(gameID, name)
+		r = newRoom(gameID, gameVersion, name)
 		s.rooms[name] = r
-		return r, true
+		return r, ""
 	}
 	if r.GameID != gameID {
-		return nil, false
+		return nil, protocol.ReasonGameMismatch
 	}
-	return r, true
+	// GameVersion is only compared once both sides have actually declared
+	// one (protocol.Hello.GameVersion's doc comment) — an adapter that
+	// doesn't report a version yet must not be refused, and a room's first
+	// member sets the version other members are then compared against.
+	if r.GameVersion != "" && gameVersion != "" && r.GameVersion != gameVersion {
+		return nil, protocol.ReasonGameVersionMismatch
+	}
+	return r, ""
 }
 
 // dropIfEmpty removes r from the room table if it currently has no
@@ -219,23 +303,65 @@ func (s *Server) nextPlayerID() string {
 // for the opening Hello, joining a Room, forwarding State messages to the
 // rest of the room, and cleaning up on disconnect.
 func (s *Server) handleConn(conn net.Conn) {
-	nd := transport.FromConn(conn)
+	// MaxLineBytes is the relay's own, tighter limit rather than
+	// transport's generous package default — via FromConnWithLimits, not a
+	// post-construction field set, so it's in effect before the read
+	// loop's first Scan (found as a real, if narrow, race in a review
+	// pass: transport.FromConn already starts that goroutine before
+	// returning). 0/0 for idle/write timeout means "use transport's own
+	// defaults" — the relay has no need for different values there.
+	nd := transport.FromConnWithLimits(conn, protocol.MaxLineBytes, 0, 0)
 
 	var (
 		mu       sync.Mutex
 		room     *Room
 		playerID string
 
-		rateMu     sync.Mutex
+		// rateWindow/rateCount need no mutex of their own, unlike mu above
+		// (which helloTimer's separate AfterFunc goroutine also touches):
+		// both are only ever read or written from inside the OnReceive
+		// callback below, which transport's readLoop calls serially, one
+		// goroutine per connection. A rateMu sync.Mutex guarding them was
+		// removed in a review pass as genuinely unnecessary, not just
+		// redundant defense-in-depth.
 		rateWindow time.Time
 		rateCount  int
+
+		// loopbackGhostSent tracks whether this connection has already been
+		// sent a Join for its own synthetic "<id>-ghost" — needed once
+		// s.Loopback's roster-trust fix below is added. No mutex needed, same
+		// reasoning as rateWindow/rateCount above (OnReceive is single-
+		// goroutine per connection).
+		loopbackGhostSent bool
 	)
+
+	// HelloTimeout: a connection that never completes a Hello and joins a
+	// room is closed after this long, rather than held open indefinitely.
+	// transport's own IdleTimeout doesn't cover this on its own — it resets
+	// on *any* successfully read line, so a connection could stay under the
+	// idle timeout forever by sending pings without ever joining. Found
+	// while scoping relay-safety hardening, agent_docs/architecture.md's
+	// room-code/version ADR.
+	helloTimeout := s.HelloTimeout
+	if helloTimeout <= 0 {
+		helloTimeout = DefaultHelloTimeout
+	}
+	helloTimer := time.AfterFunc(helloTimeout, func() {
+		mu.Lock()
+		stillWaiting := room == nil
+		mu.Unlock()
+		if stillWaiting {
+			log.Printf("relay: connection did not complete hello within %s, closing", helloTimeout)
+			_ = nd.Close()
+		}
+	})
 
 	nd.OnError(func(err error) {
 		log.Printf("relay: connection error: %v", err)
 	})
 
 	nd.OnDisconnect(func(err error) {
+		helloTimer.Stop()
 		mu.Lock()
 		r, id := room, playerID
 		mu.Unlock()
@@ -249,21 +375,16 @@ func (s *Server) handleConn(conn net.Conn) {
 	})
 
 	nd.OnReceive(func(payload []byte) {
-		// Limits, enforced starting Phase 3 (agent_docs/contract.md) —
-		// these guard against a malformed or careless peer, not a
-		// determined attacker (the relay is no-auth through Phase 4). Both
-		// checks close the connection outright rather than silently
-		// dropping the one offending message: a client that sends an
-		// oversized line or floods the relay isn't behaving as this
-		// project's own adapters do, and there's nothing to gain from
-		// staying connected to find out why.
-		if len(payload) > MaxLineBytes {
-			log.Printf("relay: line exceeds MaxLineBytes (%d bytes), closing connection", MaxLineBytes)
-			_ = nd.Close()
-			return
-		}
-
-		rateMu.Lock()
+		// MaxLineBytes is now enforced by transport.go during the read
+		// itself (nd.MaxLineBytes, set above), so an oversized line never
+		// reaches this callback at all — the connection is already closed.
+		//
+		// MaxMessagesPerSecond still guards against a flood of
+		// legitimately-sized messages, which line-length enforcement can't
+		// catch. Closes the connection outright rather than silently
+		// dropping the offending messages: a client flooding the relay
+		// isn't behaving as this project's own adapters do, and there's
+		// nothing to gain from staying connected to find out why.
 		now := time.Now()
 		if now.Sub(rateWindow) >= time.Second {
 			rateWindow = now
@@ -271,7 +392,6 @@ func (s *Server) handleConn(conn net.Conn) {
 		}
 		rateCount++
 		rateExceeded := rateCount > MaxMessagesPerSecond
-		rateMu.Unlock()
 		if rateExceeded {
 			log.Printf("relay: client exceeded %d messages/second, closing connection", MaxMessagesPerSecond)
 			_ = nd.Close()
@@ -299,26 +419,58 @@ func (s *Server) handleConn(conn net.Conn) {
 			if err := json.Unmarshal(env.Payload, &hello); err != nil {
 				return
 			}
-			// Versioning rule (agent_docs/contract.md): a mismatched major
-			// version is refused outright, not guessed at.
-			if hello.ProtocolVersion != protocol.Version {
+			// Every Hello string field was previously unbounded — found
+			// while auditing for malicious-peer hardening alongside
+			// room-code auth. Checked first, before anything else
+			// (including the version check below), and logged without the
+			// raw field values: an oversized field is exactly the case
+			// rejectAndClose's normal logging (which prints the field
+			// contents) would defeat the point of bounding, writing
+			// unbounded attacker-controlled bytes into the relay's own log
+			// on every attempt. Found in a review pass.
+			if len(hello.GameID) > MaxHelloFieldLen || len(hello.Room) > MaxHelloFieldLen ||
+				len(hello.DisplayName) > MaxHelloFieldLen || len(hello.RoomCode) > MaxHelloFieldLen ||
+				len(hello.GameVersion) > MaxHelloFieldLen {
+				log.Printf("relay: refused hello (%s): a field exceeded %d bytes", protocol.ReasonHelloFieldTooLong, MaxHelloFieldLen)
+				sendEnvelope(nd, protocol.TypeReject, protocol.Reject{Reason: protocol.ReasonHelloFieldTooLong})
 				_ = nd.Close()
 				return
 			}
-			joined, ok := s.joinOrCreateRoom(hello.GameID, hello.Room)
-			if !ok {
-				// game_id doesn't match this room's existing clients.
-				_ = nd.Close()
+			// Versioning rule (agent_docs/contract.md): a mismatched major
+			// version is refused outright, not guessed at. Every hello
+			// field is now known to be <= MaxHelloFieldLen (checked
+			// above), so rejectAndClose's logging below is bounded too.
+			if hello.ProtocolVersion != protocol.Version {
+				rejectAndClose(nd, hello, protocol.ReasonProtocolVersionMismatch)
+				return
+			}
+			// Room-code auth (agent_docs/architecture.md's ADR): checked
+			// before touching the room table at all, same "reject at
+			// handshake, before any state flows" shape as the version and
+			// game_id checks. subtle.ConstantTimeCompare so a wrong guess
+			// can't be timed byte-by-byte; an empty configured s.RoomCode
+			// means auth is off (the pre-existing no-auth posture).
+			if s.RoomCode != "" {
+				given := []byte(hello.RoomCode)
+				want := []byte(s.RoomCode)
+				if len(given) != len(want) || subtle.ConstantTimeCompare(given, want) != 1 {
+					rejectAndClose(nd, hello, protocol.ReasonInvalidRoomCode)
+					return
+				}
+			}
+			joined, reason := s.joinOrCreateRoom(hello.GameID, hello.GameVersion, hello.Room)
+			if reason != "" {
+				rejectAndClose(nd, hello, reason)
 				return
 			}
 
-			rosterBeforeJoin := joined.roster()
 			newID := s.nextPlayerID()
-			if !joined.tryAdd(&Client{PlayerID: newID, Conn: nd}) {
+			rosterBeforeJoin, added := joined.tryAddAndSnapshotRoster(&Client{PlayerID: newID, Conn: nd})
+			if !added {
 				// Room already at MaxClientsPerRoom (agent_docs/contract.md
 				// Limits) — refuse the same way a game_id mismatch is
 				// refused, rather than letting a room grow unbounded.
-				_ = nd.Close()
+				rejectAndClose(nd, hello, protocol.ReasonRoomFull)
 				s.dropIfEmpty(joined)
 				return
 			}
@@ -326,6 +478,14 @@ func (s *Server) handleConn(conn net.Conn) {
 			mu.Lock()
 			room, playerID = joined, newID
 			mu.Unlock()
+			helloTimer.Stop()
+
+			// Join/leave are lifecycle events, not per-frame state, so one
+			// line per occurrence can't spam — previously the relay's own
+			// log recorded nothing at all for a connect/join, only its own
+			// startup line, leaving a host with no way to tell "nobody's
+			// connecting" from "someone's connecting and I can't see it."
+			log.Printf("relay: %s (%q) joined room %q as game %q", newID, hello.DisplayName, hello.Room, hello.GameID)
 
 			sendEnvelope(nd, protocol.TypeWelcome, protocol.Welcome{
 				PlayerID: newID,
@@ -348,14 +508,29 @@ func (s *Server) handleConn(conn net.Conn) {
 			// Size limits (agent_docs/contract.md) — drop rather than
 			// truncate, so a client sees silence instead of a
 			// half-forwarded, confusing state.
-			if len(st.Position) > MaxPositionLen {
+			if len(st.Position) > protocol.MaxPositionLen {
 				return
 			}
 			if len(st.Extras) > 0 {
 				extrasBytes, err := json.Marshal(st.Extras)
-				if err != nil || len(extrasBytes) > MaxExtrasBytes {
+				if err != nil || len(extrasBytes) > protocol.MaxExtrasBytes {
 					return
 				}
+			}
+			// AreaID/Anim/Orientation were previously unbounded — found
+			// while auditing for malicious-peer hardening alongside
+			// room-code auth. agent_docs/architecture.md's ADR.
+			if len(st.AreaID) > protocol.MaxAreaIDLen || len(st.Anim) > protocol.MaxAnimLen ||
+				len(st.Orientation) > protocol.MaxOrientationBytes {
+				return
+			}
+			// A syntactically valid JSON number like 1e308 survives
+			// []float64 unmarshaling and becomes +Inf the moment an
+			// adapter narrows it to float32 — found in a review pass;
+			// nothing anywhere checked this before. See
+			// protocol.IsValidPosition's doc comment.
+			if !protocol.IsValidPosition(st.Position) {
+				return
 			}
 			// player_id is stamped server-side from the connection's own
 			// assigned id, never trusted from the payload — a peer could
@@ -374,8 +549,30 @@ func (s *Server) handleConn(conn net.Conn) {
 				// synthetic ghost id, so a lone client exercises a real
 				// core->relay->core round trip. See the Server.Loopback
 				// doc comment.
+				ghostID := id + "-ghost"
+
+				if !loopbackGhostSent {
+					// Found live 2026-08-14: the 2026-08-14 roster-trust
+					// hardening ADR (agent_docs/architecture.md) made
+					// internal/core.storeRemoteState drop any State for a
+					// player_id it never saw announced via Welcome/Join —
+					// correct against a real relay, but this synthetic
+					// ghost id was never joined at all, so every echoed
+					// state was silently dropped and no ghost ever spawned
+					// in loopback mode. Nobody re-tested loopback after that
+					// hardening landed until now. Fix: announce a one-time
+					// Join for the ghost id, sent only to this connection
+					// (not broadcast — no other real peer should ever learn
+					// about another client's own loopback ghost), before
+					// the first echoed state.
+					if join, err := envelope(protocol.TypeJoin, protocol.Join{PlayerID: ghostID}); err == nil {
+						r.Forward(join, []string{id})
+					}
+					loopbackGhostSent = true
+				}
+
 				ghost := st
-				ghost.PlayerID = id + "-ghost"
+				ghost.PlayerID = ghostID
 				ghostEnv, err := envelope(protocol.TypeState, ghost)
 				if err == nil {
 					r.Forward(ghostEnv, []string{id})

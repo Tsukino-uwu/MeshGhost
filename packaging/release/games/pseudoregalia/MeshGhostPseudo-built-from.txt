@@ -1,9 +1,10 @@
-# Written by dev-scripts\build-pseudoregalia.bat -- read by .github\workflows\release.yml's
-# staleness gate. Do not hand-edit.
-commit: 51c96f0c54ae8429f42c75088cbc1899d1ceb895
-Plugin.cpp: b6f6b190de69f0b83f7c16609f81c89c54e2e8bc161b10e22eaf8c62b58dce5f
-Plugin.hpp: 83a50b2a3fc242799afd9e5c18a90a1b9751bd44e7cecc3a3d89b896fffe3a60
-BridgeClient.cpp: 24cd7dc99d7da452ddc5d627de425a86460e9ab3d10400637194da30656dbbb2
-BridgeClient.hpp: d08fa9e91fee0d4202b37f62af8f825a9b9b1a70ee567f25c11c0a93b70ca008
-dllmain.cpp: 2a4cb8328001507fb5d3d7d5a50c03439731867700654b39c5aba6b36a85637c
-CMakeLists.txt: 4a121dbbf30bce3b2e4065f890096e20bf6603cda1d2175945ba6e935c8cb0f4
+﻿# Written by dev-scripts\build-pseudoregalia.bat -- read by .github\workflows\release.yml's
+# staleness gate. Do not hand-edit. Kept outside the pseudoregalia\ drag-and-drop tree
+# on purpose so it never lands in a user's game folder.
+commit: b85ab859a89326ff15d3ce40f73f26da7a09ac46
+Plugin.cpp: 26964FAC8433FE1F6397596018ED758FAB55AC12FC637BB320926DFE645F0A6A
+Plugin.hpp: CD8CF3DBF664FCE577A72C8DDCC9AF40B5DA50BE1AD1F80F9BF32F14083EBA13
+BridgeClient.cpp: 9B1AEB2C9FC4BC971E774DD8193C21BA2E385FBB875D70AC41D4FF72679C95D5
+BridgeClient.hpp: 5CA10572F28B4D4D7F4BAE0DBAD6F177454DB1C4843B3E8AEBDB5755B8CD4E3F
+dllmain.cpp: 2A4CB8328001507FB5D3D7D5A50C03439731867700654B39C5ABA6B36A85637C
+CMakeLists.txt: 4A121DBBF30BCE3B2E4065F890096E20BF6603CDA1D2175945BA6E935C8CB0F4

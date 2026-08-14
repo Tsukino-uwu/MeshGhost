@@ -227,5 +227,20 @@ namespace MeshGhostPseudo
         RC::Unreal::AActor* last_known_good_view_target{nullptr};
         bool any_ghost_ever_spawned{false};
         bool pawn_reflection_logged{false}; // set once log_pawn_reflection_once has run
+
+        // Callback/hook IDs, captured so ~Plugin can unregister them explicitly on mod
+        // unload/reload -- found in a review pass: previously discarded, leaving every
+        // Register*Callback/RegisterPreHook detour pointing at this (about-to-be-freed) Plugin
+        // instance active with no way to remove it. Stored as the underlying primitive types
+        // (Hook::GlobalCallbackId is uint64_t, RC::Unreal::CallbackId is int32_t) rather than
+        // pulling <Unreal/Hooks.hpp> into this widely-included header, the same reasoning
+        // BridgeClient.hpp already applies to storing its SOCKET as a uintptr_t. Hook::ERROR_ID
+        // (0) is this file's real sentinel for "never registered"; -1 mirrors that for the
+        // UFunction hook, whose own ID counter starts elsewhere and would not plausibly land on
+        // a negative value.
+        uint64_t load_map_pre_callback_id{0};
+        uint64_t load_map_post_callback_id{0};
+        uint64_t engine_tick_post_callback_id{0};
+        int32_t svtwb_hook_id{-1};
     };
 } // namespace MeshGhostPseudo

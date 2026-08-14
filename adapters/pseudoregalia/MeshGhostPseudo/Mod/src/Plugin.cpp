@@ -39,6 +39,14 @@ namespace MeshGhostPseudo
     constexpr uint64_t LOG_INTERVAL_TICKS = 120;
 
     constexpr auto GAME_ID = "pseudoregalia";
+    // Sent as this adapter's bridge Hello alongside GAME_ID (internal/bridge.Hello's
+    // game_version field, added for relay-safety hardening -- see the ADR in
+    // agent_docs/architecture.md). This is this *mod's* own version, not Pseudoregalia's
+    // game build -- no cited API exists to read that, and CLAUDE.md's "no addresses/APIs
+    // from memory" rule means one isn't guessed at here. Opaque to the core/relay,
+    // compared only by equality: it catches two peers running different revisions of this
+    // mod, the most likely real source of a silent protocol mismatch.
+    constexpr auto ADAPTER_VERSION = "phase7.6";
     constexpr auto BRIDGE_HOST = "127.0.0.1";
     constexpr uint16_t BRIDGE_PORT = 7778;
 
@@ -82,6 +90,20 @@ namespace MeshGhostPseudo
     // never this close to (0,0,0), so this is "the engine hasn't placed this pawn yet", not a
     // real location.
     constexpr double MIN_PLAUSIBLE_DISTANCE = 100.0;
+
+    // Used by release_ghost to park a despawned ghost far out of the playable area, added in a
+    // review pass. NEVER destroy the actor -- K2_DestroyActor is confirmed to silently no-op on
+    // this build (see the "no working destroy mechanism" comment on ensure_ghost_hijacked), and
+    // earlier attempts to work around that caused the "Fatal world leaks detected" crashes this
+    // design deliberately avoids. Before this, a peer leaving mid-area left its ghost frozen in
+    // place, visible, until the next area transition's own teardown finally reclaimed it; moving
+    // it via the already-proven call_set_actor_location_and_rotation path (the same one the
+    // redraw loop already calls every tick) fixes the visible-freeze without touching actor
+    // lifetime at all -- the level's own teardown on area change is completely unaffected and
+    // still does the real cleanup, exactly as before this change. Symmetric with
+    // MIN_PLAUSIBLE_DISTANCE's own reasoning: a real placed level position is never this far
+    // below the playable area either.
+    constexpr double DESPAWN_PARK_Z = -500000.0;
 
     // User-requested 2026-08-13, re-added: mirrors Lua's original SPAWN_DELAY_TICKS
     // (probe_ghost/Scripts/main.lua, ~5s at that build's tick rate) -- holds off spawning any
@@ -292,6 +314,27 @@ namespace MeshGhostPseudo
         auto actor_is_alive(AActor* actor) -> bool
         {
             return actor != nullptr && !actor->IsUnreachable();
+        }
+
+        // Clamps a remote-controlled double to a valid uint8_t range before narrowing. Added in
+        // a review pass: static_cast<uint8_t>(double) is undefined behavior -- not just "wraps",
+        // the way an integer-to-integer narrowing would -- if the value is NaN or outside
+        // [0, 255]. move_state/action_state/anim_jump_type/movement_mode all come from a remote
+        // peer's extras map, which the Go core only bounds by serialized byte size
+        // (protocol.MaxExtrasBytes), not by per-field numeric range or finiteness -- unlike
+        // Position, which the core's own storeRemoteState now rejects outright if non-finite
+        // (see the ADR in agent_docs/architecture.md), extras values reach here unchecked.
+        auto clamp_to_uint8(double value) -> uint8_t
+        {
+            if (std::isnan(value) || value < 0.0)
+            {
+                return 0;
+            }
+            if (value > 255.0)
+            {
+                return 255;
+            }
+            return static_cast<uint8_t>(value);
         }
 
         // 'landed?'/'jumped?' (and every other per-frame anim local: 'Move State', 'landed?', etc.)
@@ -536,7 +579,20 @@ namespace MeshGhostPseudo
                 nullptr, nullptr, STR("/Script/Engine.Actor:K2_SetActorLocationAndRotation"));
             if (!function)
             {
-                Output::send(STR("[MeshGhostPseudo] WARNING: could not find K2_SetActorLocationAndRotation -- ghost rotation will not be set.\n"));
+                // Cached null is permanent for the process lifetime by
+                // design (a core Engine UFunction either exists once the
+                // game is running or it never will, so retrying every call
+                // buys nothing but cost) -- but the warning itself was not
+                // throttled the same way, so every single caller (once per
+                // ghost per tick) printed it forever. Found in a review
+                // pass; gated the same way the layout-diagnostic message
+                // below already is.
+                static bool logged_warning_once = false;
+                if (!logged_warning_once)
+                {
+                    Output::send(STR("[MeshGhostPseudo] WARNING: could not find K2_SetActorLocationAndRotation -- ghost rotation will not be set.\n"));
+                    logged_warning_once = true;
+                }
                 return;
             }
 
@@ -622,7 +678,32 @@ namespace MeshGhostPseudo
         ModAuthors = STR("MeshGhost");
     }
 
-    Plugin::~Plugin() = default;
+    // Unregisters every detour this mod installed, found missing in a review pass: the
+    // GlobalCallbackId/CallbackId each Register*/RegisterPreHook call below returns was
+    // previously discarded, so on mod unload/reload every one of these detours stayed active,
+    // pointing at this (about-to-be-freed) Plugin instance -- a real dangling-callback hazard,
+    // even though normal single-session play never unloads the mod and so never exercised it.
+    // Hook::ERROR_ID (0) / -1 mean "never actually registered" (e.g. svtwb_function was never
+    // found), guarded the same way the registration sites themselves guard a failed lookup.
+    Plugin::~Plugin()
+    {
+        if (load_map_pre_callback_id != Hook::ERROR_ID)
+        {
+            Hook::UnregisterCallback(load_map_pre_callback_id);
+        }
+        if (load_map_post_callback_id != Hook::ERROR_ID)
+        {
+            Hook::UnregisterCallback(load_map_post_callback_id);
+        }
+        if (engine_tick_post_callback_id != Hook::ERROR_ID)
+        {
+            Hook::UnregisterCallback(engine_tick_post_callback_id);
+        }
+        if (svtwb_function && svtwb_hook_id != -1)
+        {
+            svtwb_function->UnregisterHook(svtwb_hook_id);
+        }
+    }
 
     // Kept from the "Fatal world leaks detected" investigation: dumps every remote's ghost
     // pointer/world whenever called, useful for the LoadMap hook below and for any future
@@ -640,13 +721,22 @@ namespace MeshGhostPseudo
         }
     }
 
-    // Stops tracking one remote's ghost. Never touches the underlying actor. Under the hijack
-    // design it was never ours to destroy; under the spawn design (Phase 7.6), a level transition
-    // destroys it out from under us anyway (confirmed live throughout the Lua saga) and
-    // game_thread_tick's own staleness check (actor_is_alive) is what actually notices and clears
-    // a dead ghost -- this function only drops our own bookkeeping. Keeps the map entry so the
-    // next ensure_ghost_spawned/ensure_ghost_hijacked call can produce a fresh ghost once
-    // render_remote resumes in whatever world comes next.
+    // Stops tracking one remote's ghost. Never destroys the underlying actor -- see
+    // DESPAWN_PARK_Z's own comment for why that's a hard rule here, not a missed optimization.
+    // Under the hijack design the actor was never ours to destroy anyway; under the spawn design
+    // (Phase 7.6), a level transition destroys it out from under us on its own (confirmed live
+    // throughout the Lua saga) and game_thread_tick's own staleness check (actor_is_alive) is
+    // what actually notices and clears a dead ghost after that happens.
+    //
+    // Found in a review pass: before parking the ghost below, a peer despawning mid-area (not via
+    // an area transition) left its ghost standing frozen in place, visible, until the *next* area
+    // transition's teardown finally reclaimed it -- cosmetic, but real. Parking moves it far out
+    // of the playable area via the same proven move call the redraw loop already uses every tick,
+    // with no change to actor lifetime at all; the level's own eventual teardown on area change is
+    // completely unaffected and still does the real cleanup, exactly as before this change.
+    //
+    // Keeps the map entry so the next ensure_ghost_spawned/ensure_ghost_hijacked call can produce
+    // a fresh ghost once render_remote resumes in whatever world comes next.
     auto Plugin::release_ghost(const std::string& player_id) -> void
     {
         auto it = remotes.find(player_id);
@@ -658,6 +748,11 @@ namespace MeshGhostPseudo
                      to_wide_ascii(player_id),
                      static_cast<void*>(it->second.ghost),
                      static_cast<void*>(it->second.owning_world));
+
+        FVector park_loc(it->second.target_x, it->second.target_y, DESPAWN_PARK_Z);
+        FRotator park_rot(it->second.target_pitch, it->second.target_yaw, it->second.target_roll);
+        call_set_actor_location_and_rotation(it->second.ghost, park_loc, park_rot);
+
         hijacked_actors.erase(it->second.ghost);
         it->second.ghost = nullptr;
         it->second.owning_world = nullptr;
@@ -698,7 +793,7 @@ namespace MeshGhostPseudo
         // (callback + FCallbackOptions, returning a GlobalCallbackId, no separate HookLoadMap()
         // call needed) confirmed from cppmods/EventViewerMod/src/Middleware.cpp, an
         // already-approved MIT reference this phase.
-        Hook::RegisterLoadMapPreCallback(
+        load_map_pre_callback_id = Hook::RegisterLoadMapPreCallback(
             [this](Hook::TCallbackIterationData<bool>&, UEngine*, FWorldContext&, FURL, UPendingNetGame*, FString&) {
                 Output::send(STR("[MeshGhostPseudo] HOOK: LoadMap PRE fired.\n"));
                 log_remote_state(STR("LoadMap PRE, before release"));
@@ -718,7 +813,7 @@ namespace MeshGhostPseudo
                 last_known_good_view_target = nullptr;
             },
             Hook::FCallbackOptions{.OwnerModName = STR("MeshGhostPseudo"), .HookName = STR("ReleaseGhostsBeforeLoadMap")});
-        Hook::RegisterLoadMapPostCallback(
+        load_map_post_callback_id = Hook::RegisterLoadMapPostCallback(
             [this](Hook::TCallbackIterationData<bool>&, UEngine*, FWorldContext&, FURL, UPendingNetGame*, FString&) {
                 Output::send(STR("[MeshGhostPseudo] HOOK: LoadMap POST fired.\n"));
                 log_remote_state(STR("LoadMap POST"));
@@ -728,7 +823,7 @@ namespace MeshGhostPseudo
         // THE render-freeze fix -- see game_thread_tick's own doc comment in Plugin.hpp. Runs
         // every real engine frame, on the actual game thread, unlike on_update() (UE4SS's own
         // ~5ms polling thread). All actor reads/writes now happen here instead.
-        Hook::RegisterEngineTickPostCallback(
+        engine_tick_post_callback_id = Hook::RegisterEngineTickPostCallback(
             [this](Hook::TCallbackIterationData<void>&, UEngine*, float, bool) { game_thread_tick(); },
             Hook::FCallbackOptions{.OwnerModName = STR("MeshGhostPseudo"), .HookName = STR("GameThreadTick")});
 
@@ -771,7 +866,7 @@ namespace MeshGhostPseudo
             AActor* NewViewTarget;
         };
 
-        svtwb_function->RegisterPreHook(
+        svtwb_hook_id = svtwb_function->RegisterPreHook(
             [this](UnrealScriptFunctionCallableContext& ctx, void*) {
                 SetViewTargetWithBlendLocals& locals = ctx.GetParams<SetViewTargetWithBlendLocals>();
                 AActor* target = locals.NewViewTarget;
@@ -1145,6 +1240,12 @@ namespace MeshGhostPseudo
             json_number_field(line, "land_count", land_count);
             json_number_field(line, "jump_count", jump_count);
 
+            // Checked before ensure_ghost_spawned/ensure_ghost_hijacked, both of which insert a
+            // default-constructed RemoteGhost via remotes[player_id] on their very first call for
+            // a given player_id regardless of whether the spawn/hijack itself succeeds -- so this
+            // is true exactly once per remote, on the call that creates its entry.
+            bool is_new_remote = remotes.find(player_id) == remotes.end();
+
             if constexpr (SPAWN_BASED_GHOSTS)
             {
                 ensure_ghost_spawned(player_id, local_pawn, local_controller);
@@ -1170,6 +1271,19 @@ namespace MeshGhostPseudo
                 it->second.target_movement_mode = movement_mode;
                 it->second.target_land_count = land_count;
                 it->second.target_jump_count = jump_count;
+                if (is_new_remote)
+                {
+                    // Baseline last_seen_* to this first sample -- found in a review pass.
+                    // RemoteGhost's default member initializers leave last_seen_land_count/
+                    // last_seen_jump_count at 0, so a peer that joins mid-session with an
+                    // already-nonzero land/jump count (they landed or jumped several times
+                    // before this ghost even existed) would otherwise have
+                    // target_land_count > last_seen_land_count on the very next redraw tick,
+                    // firing a spurious landing/jump pulse (and the Montage_Stop it drives) the
+                    // instant the ghost spawns, before the peer has actually done anything new.
+                    it->second.last_seen_land_count = land_count;
+                    it->second.last_seen_jump_count = jump_count;
+                }
             }
         }
         else if (type == "despawn_remote")
@@ -1779,8 +1893,12 @@ namespace MeshGhostPseudo
             // the old bool latch, no clear-after-send handoff step is needed -- whatever value is
             // baked into this tick's JSON is simply the count as of this tick; on_update no longer
             // needs to touch these members at all.
-            std::lock_guard<std::mutex> lock(state_mutex);
-
+            //
+            // std::format runs unlocked -- found in a review pass: it's a pure computation with
+            // no access to any state on_update's thread also touches, so holding state_mutex
+            // across it (as this used to) only needlessly extended the critical section against
+            // that other thread for no correctness benefit. Only the final assignment into
+            // cached_local_state_json, which on_update does read, needs the lock.
             std::string local_state = std::format(
                 "{{\"type\":\"local_state\",\"payload\":{{\"state\":{{\"area_id\":\"{}\",\"position\":[{},{},{}],"
                 "\"orientation\":[{},{},{}],\"anim\":\"idle\","
@@ -1802,7 +1920,10 @@ namespace MeshGhostPseudo
                 static_cast<int>(movement_mode),
                 landed_count,
                 jumped_count);
-            cached_local_state_json = local_state;
+            {
+                std::lock_guard<std::mutex> lock(state_mutex);
+                cached_local_state_json = std::move(local_state);
+            }
         }
         else
         {
@@ -1830,12 +1951,25 @@ namespace MeshGhostPseudo
                 continue;
             }
             // Staleness check, ported from Lua's per-tick `not remote.ghost:IsValid()` poll
-            // (probe_ghost/Scripts/main.lua:787-794) -- the mechanism that actually made Lua's
-            // spawn-based ghosts survive real area transitions: a level transition destroys the
-            // ghost out from under us, this notices via IsUnreachable(), clears the reference, and
-            // ensure_ghost_spawned/ensure_ghost_hijacked lazily produces a fresh one next tick.
-            // See actor_is_alive's own comment for why this is IsValid()'s real C++ equivalent,
-            // not a guess.
+            // (probe_ghost/Scripts/main.lua:787-794). See actor_is_alive's own comment for why
+            // this is IsValid()'s real C++ equivalent, not a guess.
+            //
+            // Reviewed for the same cached-raw-pointer risk that caused the real, confirmed
+            // last_known_good_view_target crash (see the LoadMap PRE hook's comment): calling
+            // ->IsUnreachable() on a raw AActor* is only safe if the object is merely GC-
+            // unreachable-but-still-allocated, not if its memory has actually been freed already.
+            // For the one destruction path this codebase has ever actually observed -- a level
+            // transition -- that's covered proactively, not reactively: release_all_ghosts fires
+            // in the very same LoadMap PRE hook (before the transition proceeds) and nulls
+            // remote.ghost there, so by the time this line would run afterward, `if (!remote.ghost)
+            // continue;` above has already skipped it; this check never sees a LoadMap-transition-
+            // freed pointer at all. This line remains as a defensive second layer for any actor
+            // destruction that *doesn't* route through UEngine::LoadMap (a streaming sub-level
+            // unload, EndPlay-driven destruction, unrelated GC) -- genuinely possible, but not a
+            // path this project has ever reproduced a crash through, unlike the LoadMap one. Not
+            // hardened further pending an actual reproduction, per CLAUDE.md's "no addresses/fixes
+            // from memory" standard applied to speculative crash fixes: a change here carries real
+            // risk in a file with a proven crash history from exactly this class of edit.
             if (!actor_is_alive(remote.ghost))
             {
                 Output::send(STR("[MeshGhostPseudo] remote {} ghost is no longer valid (level transition) -- releasing stale reference, will respawn fresh.\n"),
@@ -1877,11 +2011,11 @@ namespace MeshGhostPseudo
             // StaticMeshActor with no such properties.
             if (uint8_t* g_move_state = remote.ghost->GetValuePtrByPropertyNameInChain<uint8_t>(STR("moveState")))
             {
-                *g_move_state = static_cast<uint8_t>(remote.target_move_state);
+                *g_move_state = clamp_to_uint8(remote.target_move_state);
             }
             if (uint8_t* g_action_state = remote.ghost->GetValuePtrByPropertyNameInChain<uint8_t>(STR("actionState")))
             {
-                *g_action_state = static_cast<uint8_t>(remote.target_action_state);
+                *g_action_state = clamp_to_uint8(remote.target_action_state);
             }
             if (double* g_h_speed = remote.ghost->GetValuePtrByPropertyNameInChain<double>(STR("horizontalSpeed")))
             {
@@ -1893,14 +2027,14 @@ namespace MeshGhostPseudo
             }
             if (uint8_t* g_anim_jump_type = remote.ghost->GetValuePtrByPropertyNameInChain<uint8_t>(STR("animJumpType")))
             {
-                *g_anim_jump_type = static_cast<uint8_t>(remote.target_anim_jump_type);
+                *g_anim_jump_type = clamp_to_uint8(remote.target_anim_jump_type);
             }
             // "Stuck flying after jump" fix -- see RemoteGhost::target_movement_mode's comment.
             if (UObject** g_movement_ptr = remote.ghost->GetValuePtrByPropertyNameInChain<UObject*>(STR("CharacterMovement")); g_movement_ptr && *g_movement_ptr)
             {
                 if (uint8_t* g_movement_mode = (*g_movement_ptr)->GetValuePtrByPropertyNameInChain<uint8_t>(STR("MovementMode")))
                 {
-                    *g_movement_mode = static_cast<uint8_t>(remote.target_movement_mode);
+                    *g_movement_mode = clamp_to_uint8(remote.target_movement_mode);
                 }
             }
             // Redone landed?/jumped? pulse mirror (see PULSE_HOLD_TICKS's comment): a rising edge
@@ -2086,7 +2220,8 @@ namespace MeshGhostPseudo
         {
             if (!bridge->hello_sent())
             {
-                std::string hello = std::string("{\"type\":\"hello\",\"payload\":{\"game_id\":\"") + GAME_ID + "\"}}";
+                std::string hello = std::string("{\"type\":\"hello\",\"payload\":{\"game_id\":\"") + GAME_ID +
+                    "\",\"game_version\":\"" + ADAPTER_VERSION + "\"}}";
                 if (bridge->send_line(hello))
                 {
                     bridge->mark_hello_sent();

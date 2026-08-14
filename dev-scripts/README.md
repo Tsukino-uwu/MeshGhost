@@ -22,6 +22,13 @@ root) — each script references them as `..\<name>.exe`.
   `-game=tevi`. Pair with TEVI itself (via `adapters/tevi/MeshGhostTevi`, deployed into
   `BepInEx/plugins/`) to see a real network round trip without needing two TEVI instances —
   see `agent_docs/phases/phase6.md`.
+- `run-core-tevi.bat` / `run-core-tevi2.bat` — two TEVI core clients on distinct bridge ports
+  (7778 / 7779), for real two-TEVI testing with a normal (non-loopback) `run-relay.bat` — the
+  same shape as `run-core1.bat`/`run-core2.bat` above, but for `-game=tevi`. Pair each with its
+  own TEVI install (e.g. the Steam copy on 7778, a standalone build like `C:\dev\tevi-14778703`
+  on 7779 — see `agent_docs/environment.md`); the standalone install's own
+  `BepInEx/config/dev.meshghost.tevi.cfg` needs its `BridgePort` set to match (7779), since
+  Steam already owns the default. See `agent_docs/phases/phase6.md`'s 6.6 entry.
 - `build-tevi.bat` — not a launcher, a build step: compiles the TEVI BepInEx plugin and stages
   the result into `packaging/release/games/tevi/` for the release zip. Re-run and commit the
   result whenever `adapters/tevi/MeshGhostTevi/{Plugin.cs,BridgeClient.cs,*.csproj}` change —

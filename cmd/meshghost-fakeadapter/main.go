@@ -73,6 +73,9 @@ func main() {
 	relayAddr := flag.String("relay", "127.0.0.1:7777", "relay address to connect to")
 	room := flag.String("room", "fake", "room name to join")
 	name := flag.String("name", "fake-ghost", "display name to advertise to the relay")
+	roomCode := flag.String("room-code", "", "shared secret to send the relay for room-code auth "+
+		"-- only needed if the relay you're connecting to has one configured")
+	gameVersion := flag.String("game-version", "", "game_version to advertise to the relay")
 	radius := flag.Float64("radius", 10, "circle radius in position units")
 	period := flag.Float64("period", 4, "seconds per full revolution")
 	tick := flag.Duration("tick", 16*time.Millisecond, "how often to drive a frame (~60fps default)")
@@ -82,7 +85,18 @@ func main() {
 
 	c := core.New()
 	c.InterpolationDelay = *interp
-	if err := c.ConnectRelay(*relayAddr, "faketest", *room, *name, 5*time.Second); err != nil {
+	c.RelayAddr = *relayAddr
+	c.Room = *room
+	c.DisplayName = *name
+	c.RoomCode = *roomCode
+	c.GameVersion = *gameVersion
+	c.DialTimeout = 5 * time.Second
+	// Deliberately still the old one-shot connect-or-fail pattern, not
+	// cmd/meshghost's retry-with-backoff: this is dev-only tooling meant to
+	// fail fast and visibly if pointed at a bad address, not something that
+	// needs to tolerate a slow-starting relay the way the real shipped
+	// client does. See the ADR in agent_docs/architecture.md.
+	if err := c.ConnectRelay("faketest"); err != nil {
 		log.Fatalf("meshghost-fakeadapter: %v", err)
 	}
 	log.Printf("meshghost-fakeadapter: connected to relay %s as %s in room %q, circling radius=%.1f period=%.1fs",

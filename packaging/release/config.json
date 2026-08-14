@@ -2,10 +2,12 @@
   "client": {
     "connect_to": "127.0.0.1:7777",
     "room": "default",
+    "room_code": "",
     "name": "player",
     "local_game_bridge": "127.0.0.1:7778"
   },
   "server": {
-    "listen_on": "0.0.0.0:7777"
+    "listen_on": "0.0.0.0:7777",
+    "room_code": ""
   }
 }
