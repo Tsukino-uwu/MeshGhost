@@ -57,10 +57,14 @@ Full walkthrough: `packaging/release/README.txt` (ships in the zip) and
 - **Core client** — game-agnostic logic: talks to the relay, buffers and interpolates remote
   player state. Never touches game memory or rendering.
 - **Adapter** — the game-specific layer. Reads the local game's position/area/animation and
-  draws the ghost. Never touches the network directly.
+  draws the ghost. Never touches the network directly. How each one actually reads its game:
+  [Emerald](adapters/pokemon/emerald/README.md), [TEVI](adapters/tevi/README.md),
+  [Pseudoregalia](adapters/pseudoregalia/README.md).
 
-Full detail: [agent_docs/contract.md](agent_docs/contract.md) (schema and interfaces) and
-[agent_docs/architecture.md](agent_docs/architecture.md) (system shape and design rationale).
+Full detail: [agent_docs/contract.md](agent_docs/contract.md) (schema and interfaces),
+[agent_docs/architecture.md](agent_docs/architecture.md) (system shape and design rationale), and
+[internal/README.md](internal/README.md) (the relay/core's own networking-layer doc — security
+posture, what's already checked-safe vs. the known open gaps).
 
 ## Repo layout
 
@@ -76,11 +80,18 @@ MeshGhost/
 
 ## Docs
 
+- [agent_docs/README.md](agent_docs/README.md) — **full internal documentation index.** Start
+  here if what you're looking for isn't in the shortlist below — it covers everything from
+  system design to risk tracking to what's actually been confirmed running.
 - [agent_docs/brief.md](agent_docs/brief.md) — the full design brief and reasoning.
 - [agent_docs/plans.md](agent_docs/plans.md) — the phase-by-phase roadmap.
 - [agent_docs/status.md](agent_docs/status.md) — one-screen summary of where things stand.
 - [agent_docs/pitfalls.md](agent_docs/pitfalls.md) — adapter-specific issues found while
   building each game's adapter, and how they were diagnosed and fixed.
+- [agent_docs/risks.md](agent_docs/risks.md) — known risks and open assumptions (e.g. no TLS
+  on the wire yet).
+- [agent_docs/verified.md](agent_docs/verified.md) — append-only log of facts actually
+  confirmed against a running game, not just "it built."
 - [agent_docs/licensing.md](agent_docs/licensing.md) — what prior-art projects were checked
   and how they may be used, including the
   [`pokeemerald`](https://github.com/pret/pokeemerald) decompilation consulted for Emerald
