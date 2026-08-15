@@ -1,5 +1,5 @@
 CheatManagerEnablerMod : 1
-ActorDumperMod : 0
+ActorDumperMod : 1
 ConsoleCommandsMod : 1
 ConsoleEnablerMod : 1
 SplitScreenMod : 0

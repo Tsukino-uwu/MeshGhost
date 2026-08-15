@@ -1657,17 +1657,47 @@ GBA memory). Started early relative to Phase 6's own two-player milestone (6.6) 
   mid-task UE4SS version correction above) — re-check `environment.md`'s UE4SS version at the
   start of any future session before resuming, rather than trusting the last recorded value.
 - **Found live 2026-08-15, not yet fixed: cling-gem effect and empty-hand glow both missing on
-  the ghost, and the underlying sword-held state isn't tracked at all.** Two symptoms, one root
-  cause: (1) the cling gem's sparkle/effect doesn't render on the ghost when the real player
-  clings; (2) the real player's hand glows when empty (not currently holding the sword) — that
-  glow doesn't appear on the ghost's hand (Pseudoregalia has a mechanic to throw the sword away,
-  so "holding" vs. "not holding" is real, player-controlled state, not a constant). Checked
-  against the code: `Plugin.cpp` carries no field for
-  either today — grepping the outgoing `extras` set (`move_state`, `action_state`, `h_speed`,
-  `v_speed`, `anim_jump_type`, `movement_mode`, `land_count`, `jump_count`, per the local-state
-  `std::format` call around `:1538-1554`) turns up nothing sword- or cling-related. So unlike a
-  case where mirrored state exists but doesn't trigger the right visual, this is upstream of
-  that: the sword-held/thrown state has to actually be *read* from the game before anything can
-  be done about how it's rendered on a ghost. Needs a real investigation (where does the game
-  track sword-held vs. thrown, and separately what actually drives the cling-gem effect) before
-  any fix — per `CLAUDE.md`, no address/field read without a cited source.
+  the ghost.** Two symptoms: (1) the cling gem's sparkle/effect doesn't render on the ghost when
+  the real player clings (the cling *animation* itself already works for free via the existing
+  continuous-state mirror — see `verified.md`'s ability-field-trace entry — this is specifically
+  the sparkle VFX layered on top); (2) the real player's hand glows when empty (not currently
+  holding the sword) — that glow doesn't appear on the ghost's hand. Neither has any sync code
+  today; `wallRideVFX`/`chargingVFX` exist only in the disabled `ABILITY_FIELD_TRACE` diagnostic
+  block (read-only, never sent). **Superseded, same day**: the sword-held/thrown half of this
+  entry (originally "the underlying sword-held state isn't tracked at all") is now stale —
+  `weaponEquipped?`/`animEquippedWeapon` sync shipped as `RemoteGhost::target_weapon_equipped`
+  the same day, five fix attempts in. **Root cause now confirmed, not just theorized, and sharper
+  than first framed**: an inversion test (deliberately syncing the ghost the opposite of the real
+  player's weapon state) showed zero visible effect across a real multi-throw/pickup session, with
+  an independent readback proving the inverted value genuinely wrote and stuck. A follow-up test
+  changed the real player's *costume* live after the ghost had already spawned — the ghost's
+  outfit didn't follow either. Together these show the ghost's visual identity (mesh/weapon/
+  outfit) is a **one-time snapshot taken at spawn, never re-applied by anything**, ours or the
+  game's own — not a live link to "current save state" that our sync code merely failed to
+  override. **Superseded again, same day: the weapon half is now FIXED and confirmed live**,
+  found via a genuine 0%/100%-completion save comparison (dumping every reflected property's real
+  value at ghost spawn on two saves, diffing them — see the new build-log step 20 in
+  `adapters/pseudoregalia/README.md`, a reusable technique, not weapon-specific). That diff found
+  the one real differing field (`animEquippedWeapon` on `animBPref`, out of 230 properties) and
+  separately proved `WeaponMesh`'s own 250 properties never differ at all, ruling the component
+  out entirely. Root cause: the ghost-write code overwrote the raw property BEFORE calling
+  `changeEquippedWeapon`/`updateWeaponEquip`, so those calls always saw no change and silently
+  did nothing — a pure reorder (calls first, property write after) fixed it. User confirmed on
+  screen: sword disappears on a real throw; pickup animation also confirmed fixed as a free side
+  effect of the same reorder (the throw animation specifically remains separately broken, not
+  fixed — a real, distinct, not-yet-root-caused gap). **Outfit sync: also FIXED, same day,
+  originally a genuinely separate investigation from the weapon bug** — despite sharing the
+  "spawn-snapshot" symptom, it needed its own root cause: a live value-diff straddling real
+  costume swaps found `VisualMesh.SkeletalMesh`/`SkinnedAsset` swap directly per outfit (no
+  boolean flag or animBPref indirection like weapon needed). First sync attempt (a raw property
+  write) produced a real negative — the ghost T-posed instead of showing the new costume, the
+  mesh reference stuck but the engine never re-bound the anim instance against it. A live
+  function-name dump found `SetSkeletalMeshAsset` as the one real candidate this build's
+  reflection exposes; calling it before the property write (applying the weapon fix's ordering
+  lesson proactively) fixed the T-pose. User confirmed on screen: ghost correctly swaps costume,
+  no T-pose. A class-type safety check was also added (peer-controlled asset path, resolved via a
+  type-unchecked `StaticFindObject` otherwise) as a defensive hardening pass, not itself
+  live-tested. See `verified.md`'s five "Dream Breaker weapon-visibility" entries plus its two
+  "Outfit/costume sync" entries, and `adapters/pseudoregalia/PLAYER_FIELDS.md` for the current
+  state. **The cling-gem/glow VFX half above remains the only completely untouched Pseudoregalia
+  visual gap left.**

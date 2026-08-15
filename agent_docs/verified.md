@@ -2547,3 +2547,524 @@ Copy this block per fact:
   already separately confirmed worked, the same reasoning Pseudoregalia's own loopback offset
   used when it borrowed its 150.0-unit magnitude from an earlier diagnostic. Current shipped
   value is 160f, user-confirmed sufficient without a second live round.
+
+### Pseudoregalia ability field schema, mapped to every trending-page ability via a real reflection dump
+
+- Date: 2026-08-15
+- Observed: **field existence and names only -- not behavior.** `dump_object_reflection` (new,
+  gated behind `OBJECT_REFLECTION_DUMP`, a generalized restore of the deleted
+  `log_pawn_reflection_once`) was built into `MeshGhostPseudo`, rebuilt, deployed to the live
+  install, and run through a real play session covering as many abilities as the user could
+  trigger. The dump prints `BP_PlayerGoatMain_C`'s and `ABP_PlayerGoat_C`'s full property/
+  function schema (`TFieldRange<FProperty>`/`TFieldRange<UFunction>`) every
+  `OBJECT_REFLECTION_DUMP_INTERVAL_TICKS` (~1.5s observed, not the ~5s originally estimated from
+  tick rate) -- this confirms a field is real and spelled this way on this build, not that its
+  value does what its name suggests. Every ability on the game's own trending-pages list
+  resolved to at least one real field, through iterative correction against the user's actual
+  gameplay knowledge (several of the model's first-pass name-based guesses were wrong and
+  user-corrected -- see notes):
+  - Dream Breaker (weapon): `weaponEquipped?`, `animEquippedWeapon` (on `animBPref`), `weaponRef`,
+    `WeaponMesh`, `spawnWeapon`/`recallWeapon`/`changeEquippedWeapon` functions.
+  - Strikebreak + Soul Cutter (one shared charge-attack mechanic, sequential upgrades to the base
+    weapon per the user, not parallel branches): `obtainedChargeAttack?`, `chargeAttackHoldTime`,
+    `chargingVFX`, `obtainedProjectile?`, `projectileFullDamage`.
+  - Power meter (feeds Soul Cutter's damage boost): `currentPower`, `maxPower`, `baseMaxPower`,
+    `powerAccum`, `powerLevel`, `powerDamageMultiplier`, `changePowerAmount`,
+    `powerBuildUpgrades`, `powerMeterUpgrades`, `obtainedPowerBoost?`.
+  - Sunsetter (Plunge): `obtainedPlunge?`, `doGroundPound`, `doGroundPoundHighJump`,
+    `hasGroundPound`, `altAirBackflip`, `canFlipJump?` (the last two are the plunge-cancel-into-
+    backflip tech, not an unrelated move -- initially guessed unrelated, corrected by the user).
+  - Slide / Slide Jump / Solar Wind: `obtainedSlide?`, `canSlide`, `obtainedSlideJump`,
+    `bunnyhopJumpCap` (Solar Wind itself has no dedicated unlock flag found -- consistent with it
+    being a passive momentum upgrade to Slide Jump, not a new move; `slideDuration`/`SlideCurve`
+    are also plausibly tuned by it, unconfirmed).
+  - Cling Gem: `wallRide*`/`wallRun*` cluster (`obtainedWallRide?`, `wallRideButtonHeld?`,
+    `wallRideVFX`, `wallRideSFX`) -- the game's internal name differs from both the community
+    name ("Cling Gem") and the model's first guess ("wall glide"); no literal "glide" string
+    exists anywhere in the dump.
+  - Sun Greaves: `wallKick*`/`airKick*` cluster (`wallKickActive`, `tryWeaponKick?`,
+    `obtainedAirKick?`, `currentAirKicks`, and one literally named `'wall event kick thing'`).
+  - Ascendant Light: `obtainedLight?` -- present in the schema despite being untested this
+    session, confirming the dump reflects the full class schema, not just exercised fields.
+  - Costumes (not on the trending-pages list; user-requested mid-session):
+    `outfitDataTable`, `changeActiveOutfit`, `tryAddOutfitToUnlockedList`.
+- Source: `UE4SS.log` from the 2026-08-15 03:19-03:20 session (live install,
+  `...\Pseudoregalia\pseudoregalia\Binaries\Win64\ue4ss\UE4SS.log`), `[MeshGhostPseudo] DIAG:`
+  lines, 219 dump cycles. Dumper source: `Plugin.cpp`'s `dump_object_reflection` (added this
+  session, restored/generalized from the deleted `log_pawn_reflection_once` -- see that
+  function's own comment for the `TFieldRange` grounding citation, unchanged from the original).
+- Notes: **this entry documents schema, not confirmed behavior -- do not treat any field above
+  as "working" or implement against it as if it were.** No value was read or watched changing
+  (e.g. `weaponEquipped?` was never actually observed flipping true/false); no VFX/animation was
+  watched playing on the ghost from any of these fields; no sync code exists for any of them yet.
+  The real next step, not yet done: a live-value trace (mirroring how `moveState`/`landed?` are
+  already traced) for the highest-priority subset, to find out which fields already animate
+  correctly via the existing `moveState`/`actionState` mirror "for free," which need a
+  `landed?`/`jumped?`-style one-shot pulse fix, and which (object references, VFX triggers) need
+  new sync code entirely -- three genuinely different amounts of work the field list alone can't
+  distinguish. See `agent_docs/ideas.md`'s Pseudoregalia section for the discovery-phase framing
+  this came out of.
+
+### Pseudoregalia ability field live-value trace -- real values watched, not just names
+
+- Date: 2026-08-15
+- Observed: follow-up to the schema entry above. A live-value trace (`ABILITY_FIELD_TRACE`,
+  gated, same LOG_INTERVAL_TICKS ~2s cadence as the existing `moveState` TRACE line) was added,
+  built, deployed, and run through a second real session where the user deliberately tried every
+  interaction in the game. 616 samples captured. Aggregated distinct values/counts per field,
+  not just a few samples eyeballed (an earlier same-day informal read of 8 samples produced a
+  wrong conclusion for `weaponRef`, corrected here by the full aggregate):
+  - **Persistent "obtained" flags, not moment-to-moment triggers**: `weaponEquipped?` /
+    `animEquippedWeapon` (false 25/616, all in the first few seconds before the weapon was
+    picked up; true for the remaining 591/616, never false again) and `canFlipJump?` (false
+    15/616, true 601/616, same shape). Confirmed: these track "has the ability been obtained,"
+    not "is it actively in use right now."
+  - **Genuinely live values, safe direct-sync candidates**: `currentPower`/`powerLevel` (real
+    fluctuation observed across the session -- rose, fell, rose again). `weaponRef` (non-null
+    41/616 times -- a real, transient toggle, not "always null" as an earlier same-session
+    8-sample spot check had wrongly concluded). `wallRideHeld?` (true 14/616 -- a real, brief
+    flag, caught despite the ~2s sampling gap). `chargingVFX` (non-null 126/616, ~20% --
+    genuine toggling).
+  - **Static, not live**: `chargeAttackHoldTime` only ever took two values across all 616
+    samples: `-1` (the trace's own not-found sentinel, seen only pre-spawn) and `0.7`
+    afterward -- never anything in between. Confirmed a tuning constant (a hold-duration
+    threshold), not a live elapsed timer -- not a useful sync target as a per-tick value.
+  - **Surprising, changes the reading of the schema-only entry above**: `wallRideVFX` was
+    non-null in 431/616 samples (~70%) -- not the on/off toggle expected from its name. Real
+    finding: this field's null-check tracks *component presence/attachment*, not *effect
+    actively playing* -- the two are different questions, and this field alone answers only the
+    first.
+  - **Real negative result, not a sampling gap**: `hasGroundPound` was `false` in all 616/616
+    samples, despite the user deliberately testing the Plunge (Sunsetter) repeatedly. Explicitly
+    not attributed to sampling coincidence: `wallRideHeld?`, a plausibly similarly brief flag,
+    was still caught 14 times at this same cadence in the same session -- zero hits here is
+    treated as a real signal that either this field isn't what an active plunge sets, or its
+    true active window is far shorter than everything else this trace caught.
+- Source: `UE4SS.log` from the second 2026-08-15 session (same live install/path as the schema
+  entry above), `[MeshGhostPseudo] TRACE abilities:` lines, 616 samples, aggregated by field via
+  `grep -oE`/`sort`/`uniq -c` rather than reading samples individually. Trace source: `Plugin.cpp`'s
+  `ABILITY_FIELD_TRACE` block in `game_thread_tick`.
+- Notes: still not sync-ready for most fields -- watching a value change confirms the field means
+  what its name suggests, but syncing it onto the ghost (especially the VFX/object-reference
+  fields) is separate, not-yet-done work, per the three-bucket framing in the schema entry above
+  and `adapters/pseudoregalia/PLAYER_FIELDS.md`. `hasGroundPound` specifically would need a
+  faster, edge-triggered trace (the `ANIM_PULSE_TRACE`/`landed?`-`jumped?` pattern, not this
+  fixed-cadence one) before it can be ruled in or out with confidence.
+
+### Dream Breaker weapon-visibility sync: shipped, live-tested, root cause still unresolved -- WeaponMesh cleared as a suspect
+
+- Date: 2026-08-15
+- Observed: `RemoteGhost::target_weapon_equipped` (new) mirrors `weaponEquipped?`/
+  `animEquippedWeapon` onto the ghost every tick (`Plugin.cpp`: local read, JSON extras field
+  `weapon_equipped`, receive parse, ghost write). Live loopback test: the ghost's sword became
+  visible on spawn matching the real player's own state, but **stayed visible after the real
+  player threw the weapon away** -- a real, reproducible bug, not a one-off.
+  - Independent readback (`WEAPON_SYNC_TRACE`, re-fetched pointers, not the write variable) proved
+    the data pipeline itself is correct: local `weaponEquipped?` flips `false`/`true` exactly on
+    every real throw/pickup (14/616 and 591/616-style clean transitions across two full cycles),
+    and the ghost's own `weaponEquipped?`/`animEquippedWeapon` readback matched the target value on
+    **every single sample**, no exceptions. The sync mechanism is not the bug.
+  - Two function-call hypotheses for the missing throw/pickup *animation*, both confirmed called
+    correctly (live signature-dumped before calling, then confirmed firing via trace log, matching
+    the `call_montage_stop` ledge-hang-fix precedent's discipline) and both a clean negative --
+    **zero visible effect on the ghost, no animation, sword still showing**:
+    1. `updateWeaponEquip(bool animEquippedWeapon)` on `animBPref` (`Plugin.cpp`'s
+       `call_update_weapon_equip`).
+    2. `changeEquippedWeapon(bool weaponEquipped?)` on the pawn itself
+       (`call_change_equipped_weapon`).
+  - Per `CLAUDE.md`'s "two guessed fixes failing identically is a signal" rule, stopped guessing
+    function names and isolated `WeaponMesh` (the component itself, not the pawn) directly instead,
+    via a live-value trace of every stock-engine visibility/attachment property it has. **Four
+    consecutive negative results, every single sample across a real multi-throw/pickup session,
+    zero variation on any of them**: `bHiddenInGame` always `false`, `bVisible` always `true`,
+    `RelativeLocation` always `(0,0,0)`, `AttachSocketName` always `'handSlot_RSocket'`.
+    `WeaponMesh` itself never changes in any detectable way regardless of equip state, confirmed
+    real and not a search-thoroughness gap (the schema dump that found these four names also found
+    the full attach API -- `GetAttachSocketName`, `GetSocketTransform`, `K2_AttachToComponent`,
+    etc. -- none of which was called, since there was no evidence yet pointing at any of them
+    specifically).
+  - User independently confirmed the real game DOES visually show/hide the weapon on their own
+    character with a real throw animation and a real pickup animation -- so the visual effect
+    itself is real and un-disputed; `WeaponMesh` genuinely not correlating with any of it means the
+    visible swap is driven by something else this investigation hasn't found, or -- see below.
+- **Critical finding, reframes the whole investigation**: the user reported, unprompted, that the
+  ghost has correctly mirrored sword-equipped state AND outfit/costume choice **since spawning was
+  first implemented, before any weapon/outfit-specific sync code ever existed** -- specifically at
+  spawn time, observed but never logged at the time. Quote: "the ghost can/does follow the state
+  that the current 'player' has whenever the game is started." Also: "when the ghost spawn in, it
+  either has or don't have the sword equipped similar to the player. it uses the same costume/
+  outfit that the player is using."
+  - **This is reported observation of a real, repeatedly-seen fact, treated as strong evidence --
+    not independently isolated via a dedicated test this session.** The likely explanation (the
+    ghost is a spawned clone of `BP_PlayerGoatMain_C` running in the same local game process, so
+    its own construction/`BeginPlay` logic plausibly reads the same local save data the real
+    player's weapon/outfit ownership comes from, independent of anything this adapter syncs) is
+    reasoned inference from that observation, not something directly watched -- no test this
+    session isolated "the ghost's construction reads local save data" from "our sync code happens
+    to also be correct at that exact instant." An inversion test (deliberately send the ghost the
+    OPPOSITE of the real state and see whether the visual follows the (wrong) synced value or the
+    real local state) was designed but explicitly not run -- user chose to log this finding and
+    decide the fix approach separately rather than spend another build/test cycle proving it
+    further this round.
+  - **If true, this would mean every loopback test in this whole investigation was unable to
+    distinguish "our sync is working" from "the ghost coincidentally matches because it reads the
+    same local save on spawn regardless of what we sync"** -- which would cleanly explain why every
+    function-call/property hypothesis tried had zero visible effect, and would mean the feature has
+    not actually been proven to work for its real purpose (a real two-machine session with two
+    different save files/weapon progressions) yet.
+- Source: `UE4SS.log` across several 2026-08-15 sessions (live install, same path as prior
+  entries), `[MeshGhostPseudo] TRACE weapon local:` / `TRACE weapon ghost:` / `TRACE weapon local
+  WeaponMesh:` lines. Sync code: `Plugin.hpp`'s `RemoteGhost::target_weapon_equipped`/
+  `last_synced_weapon_equipped`/`weapon_equip_call_armed`; `Plugin.cpp`'s `call_update_weapon_equip`/
+  `call_change_equipped_weapon`.
+- Notes: root cause not yet resolved. See the plan file referenced from this session (Pseudoregalia
+  Dream Breaker visibility investigation) for the deferred fix-approach options. `WeaponMesh` is
+  cleared as a suspect for the visibility toggle specifically -- do not re-investigate its own
+  properties again without new grounding data. The throw/pickup *animation* question (separate from
+  visibility) remains fully open and untouched beyond the two disproven function calls above.
+
+### Dream Breaker weapon-visibility sync: inversion test run -- same-local-save-data confound CONFIRMED
+
+- Date: 2026-08-15
+- Observed: the inversion test designed but not run in the entry above (`WEAPON_SYNC_INVERT`, new
+  compile-time flag in `Plugin.cpp`, applied once at the receive-parse site so every downstream
+  consumer sees it) was built, deployed, and run live on loopback. It deliberately stores the
+  OPPOSITE of the real player's `weaponEquipped?` as the ghost's sync target. User started the game
+  holding the sword and cycled through multiple real throw/pickup transitions during the run.
+  - **The ghost's sword and outfit both continued to visually match the real player throughout --
+    the inversion had zero visible effect in either direction.** User's own words: "the ghost still
+    had the same outfit as me, and was also holding the sword" (while the real player was, per the
+    inverted target, supposed to render empty-handed).
+  - `UE4SS.log` confirms the inversion was correctly and continuously applied across the whole
+    session, not a one-off: local `weaponEquipped` toggled `false`->`true`->`false`->`true`->
+    `false`->`true` across 6 real transitions (5/13/17/2/16/15 samples respectively), and the
+    ghost's `target_weapon_equipped` tracked the exact logical opposite at every single one of
+    those transitions, with zero exceptions (`grep`-verified over 391 trace lines).
+  - **Stronger than a plain "no effect" result**: the ghost's own `weaponEquipped?`/
+    `animEquippedWeapon` INDEPENDENT READBACK matched the (deliberately wrong) inverted target on
+    every sample too (e.g. `target_weapon_equipped=false readback_weaponEquipped=false
+    readback_animEquippedWeapon=false`) -- so the write mechanism itself is proven working and
+    sticking correctly, exactly as the original entry already established. The property is
+    correctly, verifiably set to `false` on the ghost, and the ghost still visibly holds the sword.
+    This rules out "the write isn't really landing" as an alternative explanation -- the property
+    demonstrably has **no causal influence on the visual at all**, in either direction.
+  - New trace additions added for this run, both consistent with a same-construction-time-only
+    mechanism rather than any live-updated one: ghost-side `weaponRef` stayed `null` throughout
+    (matching a ghost that was never handed the weapon through the game's own pickup/throw event
+    path, only spawned already matching); `WeaponMesh.SkeletalMesh` was `non-null` on the ghost at
+    every sample regardless of the (inverted) equip state -- the mesh asset itself is never swapped
+    or cleared, on either the real player or the ghost, consistent with the four earlier
+    WeaponMesh-property negative results.
+- **Conclusion: the same-local-save-data confound theorized in the entry above is CONFIRMED, not
+  just plausible.** The ghost's weapon/outfit visual is set once, at spawn/construction time, from
+  the same local save data the real player's own ownership state reads from -- independent of
+  `weaponEquipped?`/`animEquippedWeapon`/`WeaponMesh` or any of the sync code built so far. Every
+  prior "it looked right" loopback result on this feature (including the original ship) was never
+  evidence the sync code did anything; this run proves that directly by showing the *opposite* of
+  "it looked right" (a deliberately wrong sync value) produces the identical visual.
+- **Implication for the fix**: none of `weaponEquipped?`, `animEquippedWeapon`,
+  `changeEquippedWeapon`, `updateWeaponEquip`, or any `WeaponMesh` property is the right lever --
+  five wired-up mechanisms now cleared as suspects for the *visibility* toggle specifically. The
+  right fix mechanism is still unknown; the next step is finding what a real throw/pickup actually
+  calls or writes that visibly changes the mesh (not a bool flag this investigation has already
+  exhausted), most plausibly by hooking/tracing the real in-game throw input path rather than
+  polling more pawn properties. A genuinely different confirmation angle for whenever it's
+  available: a real two-machine session with two different save files/weapon progressions (per
+  Phase 7.7, not yet run) would settle this independently of loopback.
+- Source: `UE4SS.log`, 2026-08-15 session (live install, same path as prior entries),
+  `[MeshGhostPseudo] TRACE weapon local:` / `TRACE weapon ghost:` / `TRACE weapon ghost ...
+  WeaponMesh SkeletalMesh=` lines, 391 total trace lines this session. Diagnostic code:
+  `Plugin.cpp`'s `WEAPON_SYNC_INVERT` (now reverted to `false`) and the new `weaponRef`/
+  `SkeletalMesh` readback additions to the existing `WEAPON_SYNC_TRACE` block.
+- Notes: `WEAPON_SYNC_INVERT`/`WEAPON_SYNC_TRACE` flipped back to `false`, rebuilt, redeployed
+  (hash-confirmed) after this run, per this project's standing diagnostic-toggle convention. This
+  closes the "is our sync even the lever" question for Dream Breaker visibility -- do not re-run
+  the inversion test again without new grounding data. The cling-gem VFX and empty-hand glow gaps
+  remain fully untouched and open.
+- **Follow-up same day, user's own idea, additional confirmation**: loaded a basic save with no
+  sword equipped and default outfit (still single-process loopback, same known limit as the main
+  run above -- can't isolate "reads current save" from "reads same-process live pawn state"). User
+  confirmed on screen (screenshot, two visually identical unarmed characters side by side): the
+  ghost spawned matching -- no sword, default outfit -- same as the real player on this save.
+  Rules out one remaining alternative theory the inversion test alone didn't: this isn't a
+  hardcoded "ghost always spawns with a sword" default that happened to coincide with every prior
+  test session -- the ghost's spawn-time snapshot genuinely tracks whichever state (armed or
+  unarmed) is locally active, just not via any of the sync code exhausted above. Strengthens the
+  same-local-state-at-construction theory; doesn't newly distinguish "save file" from "live pawn
+  object" as the specific copy source -- that still needs the two-machine test (Phase 7.7) noted
+  above.
+- **Second follow-up same day, decisive, sharpens the theory**: on the "have everything" save
+  (sword equipped), user reproduced the matching-sword result again (two screenshots, both
+  characters holding the same glowing sword, matching gold armor/costume), then, while the ghost
+  was already standing there, changed the real player's own costume live to a different outfit
+  ("a sweater"). **The ghost did not follow the costume change** -- it stayed in the golden-armor
+  outfit it had at the moment it spawned, screenshot-confirmed side by side with the now
+  sweater-wearing real player.
+  - **This refines "same-local-save-data confound" into something more precise**: it is not that
+    the ghost continuously reflects whatever the real player's current state is (which a live
+    "reads the same save" theory could still imply) -- it is a **one-time snapshot taken at spawn/
+    construction and never re-read again for anything visual-identity-related** (mesh, weapon,
+    outfit). Everything this phase already knows the ghost DOES update live (`moveState`,
+    `actionState`, animation, position) goes through this adapter's own explicit per-tick sync
+    code; everything that does NOT update live (weapon, outfit) is exactly the set this adapter
+    has never had any sync code for at all. Consistent, not coincidental -- there is no evidence
+    anywhere in this investigation of some other in-game live-update mechanism for these fields
+    that our five sync attempts merely failed to reach; the simpler, now-better-supported
+    explanation is that nothing live-updates them for a spawned clone at all, ours or the game's
+    own.
+  - **Practical implication, changes the fix framing**: since the game itself provides no live
+    re-application of weapon/outfit state to an already-spawned pawn (nothing does this locally,
+    not even for the real player's own visual identity via any observed mechanism), the eventual
+    fix cannot be "find the one function the game calls on throw/pickup/costume-change and call it
+    on the ghost too" in the way `updateWeaponEquip`/`changeEquippedWeapon` assumed -- those may
+    simply not be it, or may need pairing with whatever *does* force a visual refresh (mesh/anim
+    re-initialization), which hasn't been identified. This also means the Dream Breaker bug and a
+    still-unbuilt outfit-sync feature (`ideas.md`'s Costumes row: `outfitDataTable`,
+    `changeActiveOutfit`, `tryAddOutfitToUnlockedList`) are the same underlying problem, not two
+    separate ones -- solving one plausibly solves both.
+  - Source: two screenshots this session, `agent_docs/verified.md`-standard human-gated
+    confirmation (screenshot evidence, not a log inference).
+
+### Dream Breaker spawn-snapshot: cross-save property-value diff -- confirms fresh-read-at-spawn, doesn't yet find the visual lever
+
+- Date: 2026-08-15
+- Observed: new diagnostic (`dump_object_property_values`, gated behind `DUMP_GHOST_SPAWN_VALUES`)
+  prints real values (not just names, unlike the earlier schema-only `dump_object_reflection`) for
+  every bool/int/float/double/name/object-reference property on the ghost, right at spawn, plus the
+  local pawn at that same moment. User loaded a genuine 0%-completion/fresh save (ghost spawned,
+  dumped), then returned to the main menu and loaded a 100%-completion/all-items save (a second
+  ghost spawned, dumped) -- both within the same running game process/log. 389 properties captured
+  per dump, 4 dumps total. Diffed programmatically (instance-ID/level-path noise normalized out
+  first).
+  - **Ghost matched local pawn on both saves**, confirming the spawn snapshot again, this time at
+    the raw property level, not just visually: only expected differences (fresh-spawn timers at 0,
+    no `Controller`/`InputComponent`/`PlayerState` since the ghost isn't possessed, distinct
+    per-instance camera/UI object references).
+  - **Real cross-save differences on the ghost, confirming it reads genuine current-save
+    progression fresh at each spawn**: `weaponEquipped?` `false`->`true`; ability-unlock flags
+    `obtainedAttack?`/`obtainedAirKick?`/`obtainedSlide?`/`obtainedPlunge?`/`obtainedWallRide?`/
+    `obtainedLight?`/`obtainedProjectile?`/`obtainedPowerBoost?`/`obtainedSlideJump`/
+    `obtainedChargeAttack?`/`obtainedMap?` all `false`->`true`; progression stats `airKickLimit`
+    0->3, `maxPower` 30->40, `healAmountPerDing` 10->20, plus nonzero upgrade counters
+    (`healUpgrades`/`damageUpgrades`/`powerBuildUpgrades`/`powerMeterUpgrades`/`bonusAirKicks`).
+  - **Still no new lead on the actual visual mechanism**: `WeaponMesh` itself is only an object
+    *reference* (the same component either way, this dumper doesn't recurse into a referenced
+    object's own properties) and `outfitDataTable` is an identical static `DataTable` asset
+    reference on both saves (the options table, not a "currently equipped" selector) -- no field
+    anywhere in these 389 properties represents "which outfit is equipped" or gates `WeaponMesh`'s
+    own visibility. The four `WeaponMesh` sub-properties already cleared in the original
+    investigation (`bHiddenInGame`/`bVisible`/`RelativeLocation`/`AttachSocketName`) were only ever
+    traced mid-session on an already-armed save during a live throw -- this run did not re-check
+    them on a genuinely fresh no-sword spawn specifically, since the dumper only covers the pawn's
+    own top-level properties, not a referenced component's.
+- Source: `UE4SS.log`, 2026-08-15 session, `[MeshGhostPseudo] DIAG: value-dumping ... = instance`
+  through `DIAG: end of ... value dump.` blocks (two ghost dumps, two local-pawn dumps, 389
+  properties each). Diagnostic code: `Plugin.cpp`'s `dump_object_property_values`, called from
+  `ensure_ghost_spawned`, gated behind `DUMP_GHOST_SPAWN_VALUES`.
+- Notes: confirms (does not newly discover) that the spawn snapshot is a real read of current save
+  progression, not a hardcoded default -- consistent with, not contradicting, the two entries
+  above. The open question is unchanged: what actually renders `WeaponMesh` visible/attached, since
+  no property found anywhere so far (this dump or the four WeaponMesh properties from the original
+  investigation) tracks it. A natural next step, not yet done: recurse the same value-dumper into
+  `WeaponMesh`'s own properties specifically on a genuinely fresh unarmed spawn (as opposed to a
+  live throw mid-session on an already-armed save, the only context those four properties were
+  ever checked in before).
+
+### Dream Breaker spawn-snapshot: WeaponMesh sub-properties are IDENTICAL across a genuine 0%/100% save comparison -- rules out the component entirely
+
+- Date: 2026-08-15
+- Observed: extended `dump_object_property_values` (see the entry above) to recurse into
+  `WeaponMesh` itself (previously only ever printed as an object *reference* from the pawn-level
+  dump), called right at ghost spawn on both the ghost and the local pawn. Same genuine
+  0%-completion/fresh save vs. 100%-completion/all-items save comparison as the prior entry, one
+  more pass. 250 properties captured per `WeaponMesh` instance, 4 dumps total.
+  - **Ghost's `WeaponMesh` matched the local pawn's `WeaponMesh` on the 0% save**: every property
+    identical (sanity check, as expected).
+  - **Decisive result: the ghost's `WeaponMesh` on the 0% (no sword) save and the 100% (sword
+    obtained) save are IDENTICAL across all 250 properties**, not just the four originally
+    checked. Confirmed directly: `SkeletalMesh` is the exact same asset
+    (`/Game/Meshes/Characters/mainWeapon.mainWeapon`) on both saves; `bVisible=true`,
+    `bHiddenInGame=false` on both. This rules out `WeaponMesh` as the lever entirely, not just the
+    four stock visibility/attachment properties already cleared in the original investigation --
+    its full reflected surface never differs between an armed and unarmed spawn, at construction
+    or otherwise. Whatever actually gates the sword being visually shown or hidden is not encoded
+    anywhere on this component.
+- Source: `UE4SS.log`, 2026-08-15 session, `DIAG: value-dumping ... WeaponMesh` /
+  `DIAG: end of ... WeaponMesh value dump.` blocks (2 ghost + 2 local-pawn `WeaponMesh` dumps, 250
+  properties each).
+- Notes: this closes the WeaponMesh-as-lever question completely -- do not re-check its properties
+  again without new grounding data. Next step, not yet done at the time of this entry: `animBPref`
+  (the AnimBP instance) is the one remaining unexamined object in this class's own graph, and
+  exactly where `landed?`/`jumped?`/`animEquippedWeapon` already live -- the dumper is being
+  extended to cover it, plus enum/byte-backed fields (previously skipped as "unsupported type"),
+  since a weapon-state selector is more likely to be enum-typed than the simple types checked so
+  far.
+
+### Dream Breaker weapon-visibility: animBPref cross-save diff finds the one real field; root cause identified and FIXED, confirmed live
+
+- Date: 2026-08-15
+- Observed: `dump_object_property_values` extended to also handle `EnumProperty`/`ByteProperty`
+  (previously skipped entirely) and to recurse into `animBPref`. Same genuine 0%/100%-completion
+  save comparison as the two entries above, one more pass -- 230 properties captured per
+  `animBPref` instance, 4 dumps total.
+  - **Ghost's `animBPref` matched the local pawn's on the 0% save** (sanity check; only expected
+    differences -- `hSpeed`/`leanAmount`/uptime timers at 0 and `Has Movement Input?` false on the
+    freshly-spawned, unpossessed ghost).
+  - **Exactly one field differs between the ghost's `animBPref` on the 0% save and the 100% save,
+    out of 230 properties checked**: `animEquippedWeapon` -- `false` vs. `true`. Nothing else on
+    this object differs at all (the one other apparent diff, `As BP Player Goat Main`, is just the
+    owning-pawn back-reference, expected per-instance noise).
+  - **Root cause found from this result, not guessed**: `RemoteGhost`'s ghost-write code
+    (`tickRenders` in `Plugin.cpp`) wrote the raw `weaponEquipped?`/`animEquippedWeapon`
+    properties directly onto the ghost, unconditionally, every tick -- BEFORE the edge-gated
+    `call_change_equipped_weapon`/`call_update_weapon_equip` calls that only fire on an actual
+    transition. So by the time either function ran on a real throw/pickup, the ghost's own
+    `animEquippedWeapon` had already been overwritten to the new value on that same tick. If either
+    function's own Blueprint graph does the ordinary "only play the transition if the value
+    actually changed" comparison (the same shape as the `animEquippedWeapon` field this pass just
+    proved is the real, single differentiating field), both calls would always see old==new and do
+    nothing -- explaining why two independently-tried functions failed identically without either
+    being the wrong one.
+  - **Fix**: reordered `tickRenders`' Dream Breaker block so `call_change_equipped_weapon`/
+    `call_update_weapon_equip` run FIRST, while the ghost's own property still holds the OLD value,
+    with the raw property write kept afterward as a safety-net sync (unchanged from before, just
+    moved later). No new function, no new property -- purely a reorder of code already shipped.
+  - **CONFIRMED LIVE, user watched it happen**: screenshot, both real player and ghost standing
+    side by side, both empty-handed, sweater outfits matching, the thrown sword visible sitting on
+    the ground (a real physics object) to the side. User: "yes!, the sword went away on the ghost
+    when i threw it." `UE4SS.log` corroborates: `calling changeEquippedWeapon/updateWeaponEquip(false)
+    -- armed=true prev=true` fired at `05:20:18.098`, and the ghost's own independent readback
+    confirms `weaponEquipped?`/`animEquippedWeapon` both landed `false` immediately after, matching
+    the screenshot.
+  - **Not yet separately confirmed**: the reverse direction (pickup, false->true) as a standalone
+    visibility-only test -- the same code path handles both directions symmetrically (any change
+    from `last_synced_weapon_equipped` re-fires the calls), so it's expected to work the same way.
+  - **Follow-up same day, user's own observation, mixed result -- correcting an earlier overclaim
+    in this entry**: the throw/pickup *animation* (the drawing/throwing motion, distinct from mesh
+    visibility) is only PARTLY fixed by this reorder. **Pickup animation**: confirmed fixed, user
+    watched it directly -- previously didn't play at all, now plays correctly. **Throw animation**:
+    user explicitly confirmed something else still blocks it specifically -- NOT fixed, despite
+    sharing the same underlying `weaponEquipped?`/`animEquippedWeapon` sync path as pickup. The two
+    directions are not symmetric here the way the visibility toggle itself is -- do not assume a
+    fix confirmed for one direction (pickup) applies to the other (throw) without watching it
+    separately, exactly the mistake this note originally made.
+- Source: `UE4SS.log`, 2026-08-15 session -- `DIAG: value-dumping ... animBPref` dumps for the
+  root-cause finding; `TRACE weapon ghost ... calling changeEquippedWeapon/updateWeaponEquip` and
+  `TRACE weapon ghost ... target_weapon_equipped=false readback_weaponEquipped=false
+  readback_animEquippedWeapon=false` lines for the live-test confirmation; user screenshot for the
+  visibility confirmation; user's direct visual reports for the pickup-animation confirmation and
+  the throw-animation still-broken finding. Fix code: `Plugin.cpp`'s `tickRenders`, Dream Breaker
+  block (reordered 2026-08-15).
+- Notes: this closes the Dream Breaker held/thrown visibility bug that six fix attempts (five
+  negative, this one positive) chased across the day, and the pickup-animation question -- but the
+  throw-animation question is still open, a real, separate, not-yet-root-caused gap -- see
+  `status.md` and `phase7.md` for the updated open-items list. Cling-gem sparkle VFX and empty-hand
+  glow remain completely untouched.
+
+### Outfit/costume sync: real lever found via live value-diff (VisualMesh.SkeletalMesh/SkinnedAsset), first sync attempt produces a T-pose
+
+- Date: 2026-08-15
+- Observed: new diagnostic (`OUTFIT_TRACE`) periodically dumped the local pawn's `VisualMesh`
+  (the main body mesh, distinct from `WeaponMesh`) at ~0.65s cadence while the user cycled through
+  outfits live via the in-game menu. 61 samples over ~55s, diffed consecutively (no cross-save
+  normalization needed -- same continuous pawn instance throughout).
+  - **Decisive, immediate result**: `SkeletalMesh`/`SkinnedAsset` (both `ObjectProperty`, changing
+    together on every sample) are the ONLY properties that ever differ across consecutive samples
+    (one anomalous block also showed `bOverrideMinLOD`/`bUseBoundsFromLeaderPoseComponent`/
+    `bForceWireframe`/`bDisplayBones`/`bDisableMorphTarget` flipping true->false once, plausibly an
+    unrelated transient during the mesh hot-swap, not investigated further). A real gallery of
+    outfit mesh assets was observed cycling through: `sybil_outfit_sweater`, `dreamLady_pro`,
+    `sybil_outfit_shoujo`, `dreamLady_Min`, `dreamLady_pants`, `sybil_outfit_knight`,
+    `sybil_outfit_Flower`, `dreamLady`, `dreamLady_pantsClass`, `sybil_outfit_nun`,
+    `sybil_outfit_Jam`, and more.
+  - **Unlike Dream Breaker, no boolean flag or animBPref indirection at all** -- outfit is a direct
+    mesh-asset reference swap on the pawn's own `VisualMesh` component, the simplest possible
+    shape. `AnimClass` stayed constant (`ABP_CopySybil_C`) across every sample, and no `Skeleton`
+    property exists on the component itself (checked directly in the saved dumps) -- consistent
+    with all these outfit variants sharing one common skeleton, not separate incompatible rigs.
+  - **Real sync code shipped same day**: local read sends the mesh asset's real object path (not
+    the `GetFullName()` "ClassName Path" form -- stripped to match `StaticFindObject`'s expected
+    input, the same lookup pattern already used for the `SetViewTargetWithBlend` hook elsewhere in
+    this file) as a new `outfit_mesh` extras string field; ghost side resolves it via
+    `StaticFindObject<UObject*>` and writes both `SkeletalMesh`/`SkinnedAsset` directly on the
+    ghost's `VisualMesh`, edge-gated the same way as the weapon sync.
+  - **First live test, real negative result**: the ghost's outfit did NOT visually update to match
+    the real player's costume change -- instead, the ghost's mesh entered a T-pose (screenshot
+    evidence: real player correctly in a sweater, ghost's mesh in the default bind pose, arms out).
+    The mesh reference itself plausibly did land (not independently confirmed by readback on this
+    specific run, though the readback logging added for this feature would show it on the next
+    run) -- T-pose is the standard symptom of a skeletal mesh asset changing without the engine
+    re-binding/re-initializing the anim instance against it, consistent with this project's
+    existing "direct property writes stick but skip whatever bookkeeping the real setter function
+    performs" pattern (already seen for Mobility/render-state elsewhere in this phase).
+- Source: `UE4SS.log`, 2026-08-15 session, `DIAG: value-dumping local pawn VisualMesh` /
+  `DIAG: end of local pawn VisualMesh value dump.` blocks (61 samples). Sync code: `Plugin.hpp`'s
+  `RemoteGhost::target_outfit_mesh`/`last_synced_outfit_mesh`; `Plugin.cpp`'s outfit ghost-write
+  block in `tickRenders`. Negative result: user screenshot, T-pose visible on the ghost.
+- Notes: root cause of the T-pose not yet resolved. A new one-shot diagnostic
+  (`dump_object_reflection` on the ghost's `VisualMesh`, gated behind
+  `DUMP_VISUALMESH_FUNCTIONS`) was added to find what setter functions this build's reflection
+  actually exposes before guessing a name (e.g. `SetSkeletalMesh`) -- this build has repeatedly
+  shown UFunctions silently missing from reflection while direct property writes work, so the real
+  available surface needs confirming, not assumed from general UE API knowledge.
+
+### Outfit/costume sync: T-pose FIXED via SetSkeletalMeshAsset, confirmed live
+
+- Date: 2026-08-15
+- Observed: the `DUMP_VISUALMESH_FUNCTIONS` dump (triggered live during the T-pose test above)
+  found `SetSkeletalMeshAsset` as the one real candidate on `VisualMesh`'s reflection surface --
+  `PropertiesSize=8` (one pointer-sized parameter). No `SetSkeletalMesh` (the older/deprecated
+  name), `InitAnim`, `MarkRenderStateDirty`, or `RecreateRenderState` exist on this build at all.
+  - The function's single parameter's real name was never confirmed (unlike
+    `updateWeaponEquip`/`changeEquippedWeapon`, which matched by exact name) -- grounded instead by
+    `PropertiesSize == 8` leaving nowhere else for a pointer to go: `call_set_skeletal_mesh_asset`
+    (`Plugin.cpp`) iterates the function's reflected properties and writes to whichever single one
+    it finds, rather than guessing a name.
+  - **Applied the weapon-fix's ordering lesson proactively this time** (not after another failed
+    live test): `call_set_skeletal_mesh_asset` is called FIRST, before the direct
+    `SkeletalMesh`/`SkinnedAsset` property writes (kept afterward as a safety net) -- the reverse
+    order that broke the weapon-visibility fix originally.
+- **CONFIRMED LIVE**: user screenshot, both real player and ghost standing side by side in the same
+  matching costume, correct pose (no T-pose), after a costume swap. `UE4SS.log` corroborates: two
+  clean `outfit mesh applied for ghost ...: target=... readback=...` lines this session (sweater,
+  then shoujo), independent readback matching the target on both, zero `WARNING: SetSkeletalMeshAsset`
+  lines (the call never refused to fire).
+- Source: `UE4SS.log`, 2026-08-15 session -- `DIAG: ... function 'SetSkeletalMeshAsset'
+  PropertiesSize=8` line for the discovery; `outfit mesh applied for ghost ...` lines for the
+  live-test confirmation; user screenshot for the actual visual confirmation. Fix code:
+  `Plugin.cpp`'s `call_set_skeletal_mesh_asset` and the outfit ghost-write block in `tickRenders`.
+- Notes: this closes the outfit/costume sync gap end to end -- read, send, resolve, apply, all
+  confirmed live in one session, from discovery to fix. `DUMP_VISUALMESH_FUNCTIONS`/`OUTFIT_TRACE`
+  both flipped back to `false`. Cling-gem sparkle VFX and empty-hand glow remain the only completely
+  untouched Pseudoregalia visual gaps left.
+  - **Hardening added same day, not itself live-tested (a defensive no-op for every legitimate
+    asset seen so far)**: `target_outfit_mesh` is peer-controlled data (`json_string_field`'s own
+    comment already documents extras fields this way), and `StaticFindObject` with `Class=nullptr`
+    matches ANY object at a given path regardless of type -- a malformed or adversarial path could
+    otherwise resolve to something that isn't a `USkeletalMesh` and get written into the
+    `SkeletalMesh`-typed property slot anyway. Added a class-name check
+    (`GetClassPrivate()->GetName() == "SkeletalMesh"`) before applying; refuses and logs a warning
+    otherwise.
+  - **Modded-costume behavior, reasoned from the code, not yet live-tested with a real mod**: the
+    mechanism is generic -- it sends whatever real asset path the sender's `VisualMesh.SkeletalMesh`
+    currently is, vanilla or modded, no per-mod code needed. A receiving peer WITH the same mod
+    resolves and applies it normally. A receiving peer WITHOUT it gets a null `StaticFindObject`
+    result (that asset genuinely doesn't exist in their install) -- logs a warning, ghost's outfit
+    simply doesn't update, no crash, no forced fallback to any specific default. Untested caveat:
+    `StaticFindObject` only finds objects already loaded into memory, not anything unloaded on
+    disk, so even a peer who has the same mod installed could see a transient "not found" if that
+    specific asset was never loaded into their session.
+  - **First-spawn fallback, confirmed by re-reading the ghost-spawn code, not a new live test**:
+    since the ghost is a clone of the RECEIVING peer's own local pawn (see the two "spawn-snapshot"
+    entries above), it already starts dressed in the receiving peer's own currently-equipped
+    outfit before any sync code ever touches it -- if the sender's outfit (modded or otherwise)
+    never resolves, the ghost keeps that starting look rather than defaulting to nothing or a
+    broken/empty mesh.
+  - **Real bug found and fixed while reasoning through this, before any live test hit it**: without
+    a fix, a target that fails to resolve (e.g. a peer's mod this machine lacks) would retry
+    `StaticFindObject` and re-log its warning on EVERY tick forever, since a failed target never
+    updates `last_synced_outfit_mesh`. Added `last_failed_outfit_mesh`/`last_outfit_attempt_tick`
+    (`RemoteGhost`) to throttle retries of the same still-failing target to once per
+    `LOG_INTERVAL_TICKS` (~2s), while a genuinely new target is still tried immediately regardless
+    of the throttle. Not itself live-tested (no real missing-mod scenario was reproduced this
+    session) -- the existing successful sync path (real, present assets) is unchanged by this fix.

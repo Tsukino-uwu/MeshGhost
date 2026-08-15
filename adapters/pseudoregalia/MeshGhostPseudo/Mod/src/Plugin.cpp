@@ -153,6 +153,122 @@ namespace MeshGhostPseudo
     // now-deleted local-only test-mode counterparts).
     constexpr bool ANIM_PULSE_TRACE = false;
 
+    // Discovery tooling, restored 2026-08-16. A near-identical dumper (log_pawn_reflection_once)
+    // existed during the falling-pose/ledge-hang investigation and was deleted in commit c3eb489
+    // as dead diagnostics -- generalized back for a new discovery pass (Dream Breaker
+    // holding-state, ability VFX fields; agent_docs/ideas.md's Pseudoregalia section) rather than
+    // re-adding the old single-purpose version verbatim. Off by default, same convention as
+    // ANIM_PULSE_TRACE/GHOST_COLLISION_ENABLED: flip, rebuild, deploy, watch the log, flip back --
+    // this project's established discovery-toggle workflow, not a runtime keybind.
+    // Flipped back off 2026-08-15 after one real capture session (see verified.md's "Pseudoregalia
+    // ability field schema" entry and adapters/pseudoregalia/PLAYER_FIELDS.md) -- its job (finding
+    // real field names) is done; ABILITY_FIELD_TRACE below is the next real step, not this.
+    constexpr bool OBJECT_REFLECTION_DUMP = false;
+
+    // ~5s at a typical 60fps game thread (observed ~1.5s in practice on this build -- see
+    // verified.md). Deliberately slower than LOG_INTERVAL_TICKS (~2s): each firing dumps every
+    // property AND every function on a class, which is long enough that a 2s cadence would make
+    // consecutive dumps hard to tell apart in the log. The point of this cadence is letting a live
+    // capture protocol work -- hold the sword, wait, let go, wait, cling to a wall, wait -- and
+    // compare dumps taken at each distinct moment, not a single one-shot dump.
+    constexpr uint64_t OBJECT_REFLECTION_DUMP_INTERVAL_TICKS = 300;
+
+    // Live-*value* trace for the ability field schema OBJECT_REFLECTION_DUMP found (see
+    // verified.md's "Pseudoregalia ability field schema" entry and PLAYER_FIELDS.md) -- that dump
+    // only confirmed these fields EXIST and are spelled this way; it never read a single value.
+    // This traces the actual live values of the highest-priority subset (weapon-held state,
+    // charge-attack, power meter, a few wall-kick/wall-ride/plunge flags) at the existing
+    // LOG_INTERVAL_TICKS (~2s) cadence, the same one the local moveState/actionState TRACE line
+    // already uses, so this session's output lines up with that one. Object-reference fields
+    // (WeaponMesh, weaponRef, chargingVFX, wallRideVFX) are logged as null/non-null only -- real
+    // signal (e.g. does WeaponMesh become non-null only once equipped?), just not a full value
+    // print, which this file has no generic case for yet.
+    // Flipped back off 2026-08-15 after the second real capture session (see verified.md's
+    // "Pseudoregalia ability field live-value trace" entry) -- weaponEquipped?/animEquippedWeapon
+    // are now real production sync code (RemoteGhost::target_weapon_equipped), not diagnostics.
+    constexpr bool ABILITY_FIELD_TRACE = false;
+
+    // Debugging the "ghost still holds the Dream Breaker after the real player throws it away"
+    // bug found live 2026-08-15 (screenshot evidence: real player empty-handed with the thrown
+    // weapon visible on the ground, ghost still visibly holding one). Traces two independent
+    // things at the LOG_INTERVAL_TICKS cadence: (1) the real player's own raw weaponEquipped?
+    // value -- does it actually go false on a throw, or does it stay true and weaponRef (which
+    // the earlier live-value trace showed genuinely toggles) is the field that actually tracks
+    // "in hand" -- and (2) an independent READBACK of the ghost's own weaponEquipped? value right
+    // after this file writes it, per CLAUDE.md's "never log the value you just wrote as proof it
+    // worked" rule -- confirms the write actually stuck, not just that the write call ran.
+    // Flipped back off 2026-08-15, investigation paused (see verified.md's "Dream Breaker
+    // weapon-visibility sync" entry): root cause reframed around a shared-local-save-data theory
+    // rather than a property/function to find on WeaponMesh, and the fix approach was deliberately
+    // deferred rather than decided this session. Kept in the tree, off by default, same convention
+    // as OBJECT_REFLECTION_DUMP/ABILITY_FIELD_TRACE.
+    // Flipped back off 2026-08-15 after the reorder-fix live test confirmed working (see
+    // verified.md's "Dream Breaker weapon-visibility: animBPref cross-save diff" entry) -- the
+    // trace lines did their job; the reordered calls in tickRenders' Dream Breaker block are now
+    // real production code, not diagnostics.
+    constexpr bool WEAPON_SYNC_TRACE = false;
+
+    // The inversion test designed in verified.md's "Dream Breaker weapon-visibility sync" entry:
+    // five straight fix attempts on the weapon-visibility sync all failed identically (data
+    // pipeline confirmed correct on every sample, two function calls confirmed firing, four
+    // WeaponMesh properties confirmed never changing), and the user then reported the ghost has
+    // matched sword/costume state since spawning was first built -- BEFORE any weapon sync code
+    // existed. This flag deliberately sends the ghost the OPPOSITE of the real player's
+    // weaponEquipped? state (applied once, at the receive-parse site, so every downstream consumer
+    // -- both ghost property writes, both function calls, edge detection -- sees the inverted
+    // value together). THIS DELIBERATELY MAKES THE GHOST WRONG -- diagnostic only, not a fix.
+    // **Run 2026-08-15, confound CONFIRMED**: the ghost kept visibly matching the real player
+    // (sword and outfit both) despite the inverted target, and an independent readback proved the
+    // inverted value genuinely landed and stuck on the ghost's own weaponEquipped?/
+    // animEquippedWeapon properties -- so the property demonstrably has no causal influence on the
+    // visual at all. See verified.md's "inversion test run" entry for the full evidence. Flipped
+    // back to false; do not re-run without new grounding data (a real two-machine test with
+    // different save files is the next genuinely independent confirmation angle, not another
+    // loopback run of this same flag).
+    constexpr bool WEAPON_SYNC_INVERT = false;
+
+    // Next step after the inversion test confirmed the confound (see WEAPON_SYNC_INVERT's own
+    // comment) and the sweater-costume follow-up sharpened it to "one-time snapshot at spawn":
+    // find WHAT the spawn actually reads, by dumping every simple-typed property's real VALUE on
+    // the ghost the moment it's spawned (dump_object_property_values -- see its own comment for
+    // why this is a value dump, not the earlier name-only OBJECT_REFLECTION_DUMP), then comparing
+    // two captures taken on two different saves (armed-everything vs. no-items) by eye/diff. Also
+    // dumps the local player's own pawn at that same moment as a same-log reference point. One-shot
+    // per ghost spawn (not gated behind a tick interval like OBJECT_REFLECTION_DUMP -- a spawn is
+    // already a rare, easy-to-trigger event, no need to wait). Off by default, same
+    // flip/rebuild/deploy/watch/flip-back convention as every other toggle in this file.
+    // Flipped back off 2026-08-15: its job (finding animEquippedWeapon as the one differing field,
+    // clearing WeaponMesh entirely -- see verified.md's two "cross-save" entries) is done; the
+    // reorder-fix live test below doesn't need it and its output would just add noise.
+    constexpr bool DUMP_GHOST_SPAWN_VALUES = false;
+
+    // Outfit/costume sync investigation, started 2026-08-15 after the Dream Breaker fix. No field
+    // for "currently equipped outfit" has ever turned up anywhere -- the only "outfit"-named
+    // property found so far (outfitDataTable) is a static options-table asset reference, identical
+    // on every save, not a per-player selection. Unlike the weapon investigation, the 0%/100%-save
+    // diff can't be relied on here (both saves may share the same default outfit) -- the reliable
+    // signal is a LIVE costume change within one session, which is known to visibly change
+    // something. This periodically dumps the local pawn's VisualMesh (the main body mesh, distinct
+    // from WeaponMesh) at the same ~2s cadence as the existing weapon/ability traces, so two
+    // samples straddling a live costume swap can be diffed the same way the weapon fields were.
+    // Off by default, same flip/rebuild/deploy/watch/flip-back convention as every other toggle.
+    // Flipped back off 2026-08-15: its job (finding VisualMesh.SkeletalMesh/SkinnedAsset as the
+    // real outfit lever -- see verified.md's outfit-trace entry) is done; real sync code now
+    // exists (RemoteGhost::target_outfit_mesh) and doesn't need this diagnostic running.
+    constexpr bool OUTFIT_TRACE = false;
+
+    // First live outfit-sync test found a real negative: the raw SkeletalMesh/SkinnedAsset
+    // property write (see the outfit ghost-write block in tickRenders) sticks the mesh reference
+    // but the ghost renders in a T-pose -- the engine never re-binds/re-inits the anim instance
+    // against the new mesh. One-shot function-name dump of VisualMesh (via dump_object_reflection,
+    // schema-only, not a value dump) to find the real available setter before guessing a name.
+    // Off by default, same flip/rebuild/deploy/watch/flip-back convention as every other toggle.
+    // Flipped back off 2026-08-15: found SetSkeletalMeshAsset as the one real candidate this
+    // build's reflection exposes (no SetSkeletalMesh/InitAnim/MarkRenderStateDirty/
+    // RecreateRenderState) -- see call_set_skeletal_mesh_asset's own comment for the fix built
+    // from this finding.
+    constexpr bool DUMP_VISUALMESH_FUNCTIONS = false;
+
     namespace
     {
         // StringType is std::wstring on this build (confirmed: RE-UE4SS/deps/first/String/
@@ -389,6 +505,146 @@ namespace MeshGhostPseudo
             }
         }
 
+        // Read-only reflection dumper, gated by OBJECT_REFLECTION_DUMP (see its own comment).
+        // Uses the real native reflection API (TFieldRange<FProperty>/TFieldRange<UFunction>,
+        // RE-UE4SS/deps/first/Unreal/include/.../UnrealType.hpp:3117 defines the template; usage
+        // grounded against RE-UE4SS/UE4SS/src/GUI/Dumpers.cpp:412, which iterates a live UObject's
+        // class the same way for its own property-value dumper), not the Lua-exposed
+        // UStruct:ForEachProperty binding -- that binding was confirmed missing on this exact
+        // installed build during the original falling-pose/ledge-hang investigation (phase7.md's
+        // BP_PlayerCam_C entry, "attempt to call a nil value" on every call). Dumps both
+        // properties and functions in one pass: a weapon-held flag is plausibly a property, a
+        // VFX toggle is plausibly reached via a function (e.g. "Play"/"Activate" on a Niagara
+        // component reference), and neither is known yet -- that's the whole point of this pass.
+        auto dump_object_reflection(UObject* obj, const wchar_t* label) -> void
+        {
+            if (!obj)
+            {
+                Output::send(STR("[MeshGhostPseudo] DIAG: {} is null, cannot reflect.\n"), label);
+                return;
+            }
+            UClass* obj_class = obj->GetClassPrivate();
+            if (!obj_class)
+            {
+                Output::send(STR("[MeshGhostPseudo] DIAG: {} has no class, cannot reflect.\n"), label);
+                return;
+            }
+            Output::send(STR("[MeshGhostPseudo] DIAG: reflecting {} = instance '{}' of class {}\n"),
+                         label, obj->GetFullName(), obj_class->GetFullName());
+            for (FProperty* property : TFieldRange<FProperty>(obj_class, EFieldIterationFlags::Default))
+            {
+                if (!property)
+                {
+                    continue;
+                }
+                Output::send(STR("[MeshGhostPseudo] DIAG: {} property '{}' ({})\n"),
+                             label, property->GetName(), property->GetClass().GetName());
+            }
+            for (UFunction* function : TFieldRange<UFunction>(obj_class, EFieldIterationFlags::Default))
+            {
+                if (!function)
+                {
+                    continue;
+                }
+                Output::send(STR("[MeshGhostPseudo] DIAG: {} function '{}' PropertiesSize={}\n"),
+                             label, function->GetName(), function->GetPropertiesSize());
+            }
+            Output::send(STR("[MeshGhostPseudo] DIAG: end of {} reflection dump.\n"), label);
+        }
+
+        // Value dumper, new 2026-08-15 for the Dream Breaker spawn-snapshot investigation.
+        // dump_object_reflection above only ever printed property NAMES and types -- useful for
+        // finding candidate fields by name, useless for "what's actually different between an
+        // armed-save spawn and an unarmed-save spawn" (verified.md's "second follow-up" entry:
+        // the ghost's weapon/outfit is a one-time spawn-time snapshot, not driven by any of the
+        // five candidate fields/functions already tried). This prints real values for the common
+        // property kinds, by name, reusing the exact same GetValuePtrByPropertyNameInChain<T>
+        // pattern already used everywhere else in this file for each type -- not a new access
+        // mechanism, just applied generically across every property the class has instead of a
+        // hand-picked list. Deliberately does not attempt struct/array/map properties (FVector,
+        // TArray, etc.) -- those need their own per-type marshaling (see the FRotator marshaling
+        // bug elsewhere in this file for why guessing a struct layout is dangerous) and aren't
+        // needed to find a simple "which flag/reference differs" answer first.
+        auto dump_object_property_values(UObject* obj, const wchar_t* label) -> void
+        {
+            if (!obj)
+            {
+                Output::send(STR("[MeshGhostPseudo] DIAG: {} is null, cannot dump values.\n"), label);
+                return;
+            }
+            UClass* obj_class = obj->GetClassPrivate();
+            if (!obj_class)
+            {
+                Output::send(STR("[MeshGhostPseudo] DIAG: {} has no class, cannot dump values.\n"), label);
+                return;
+            }
+            Output::send(STR("[MeshGhostPseudo] DIAG: value-dumping {} = instance '{}' of class {}\n"),
+                         label, obj->GetFullName(), obj_class->GetFullName());
+            for (FProperty* property : TFieldRange<FProperty>(obj_class, EFieldIterationFlags::Default))
+            {
+                if (!property)
+                {
+                    continue;
+                }
+                StringType prop_name = property->GetName();
+                StringType prop_type = property->GetClass().GetName();
+                if (prop_type == STR("BoolProperty"))
+                {
+                    bool* ptr = obj->GetValuePtrByPropertyNameInChain<bool>(prop_name.c_str());
+                    Output::send(STR("[MeshGhostPseudo] DIAG: {} {} (bool) = {}\n"), label, prop_name, ptr ? *ptr : false);
+                }
+                else if (prop_type == STR("IntProperty"))
+                {
+                    int32_t* ptr = obj->GetValuePtrByPropertyNameInChain<int32_t>(prop_name.c_str());
+                    Output::send(STR("[MeshGhostPseudo] DIAG: {} {} (int32) = {}\n"), label, prop_name, ptr ? *ptr : -1);
+                }
+                else if (prop_type == STR("FloatProperty"))
+                {
+                    float* ptr = obj->GetValuePtrByPropertyNameInChain<float>(prop_name.c_str());
+                    Output::send(STR("[MeshGhostPseudo] DIAG: {} {} (float) = {}\n"), label, prop_name, ptr ? *ptr : -1.0f);
+                }
+                else if (prop_type == STR("DoubleProperty"))
+                {
+                    double* ptr = obj->GetValuePtrByPropertyNameInChain<double>(prop_name.c_str());
+                    Output::send(STR("[MeshGhostPseudo] DIAG: {} {} (double) = {}\n"), label, prop_name, ptr ? *ptr : -1.0);
+                }
+                else if (prop_type == STR("NameProperty"))
+                {
+                    FName* ptr = obj->GetValuePtrByPropertyNameInChain<FName>(prop_name.c_str());
+                    Output::send(STR("[MeshGhostPseudo] DIAG: {} {} (FName) = '{}'\n"), label, prop_name, ptr ? ptr->ToString() : STR("<unreadable>"));
+                }
+                else if (prop_type == STR("EnumProperty") || prop_type == STR("ByteProperty"))
+                {
+                    // New 2026-08-15: previously skipped entirely as "unsupported type" -- the
+                    // Dream Breaker spawn-snapshot investigation needs enum-backed fields checked
+                    // too (e.g. a possible weapon-state selector), and every enum-backed field
+                    // already read elsewhere in this file (moveState, actionState, movementMode,
+                    // animJumpType) is read as a raw uint8_t, matching UE's standard
+                    // UENUM(uint8)/plain-byte convention -- not a new access mechanism.
+                    uint8_t* ptr = obj->GetValuePtrByPropertyNameInChain<uint8_t>(prop_name.c_str());
+                    Output::send(STR("[MeshGhostPseudo] DIAG: {} {} ({}) = {}\n"), label, prop_name, prop_type, ptr ? static_cast<int>(*ptr) : -1);
+                }
+                else if (prop_type == STR("ObjectProperty") || prop_type == STR("WeakObjectProperty") ||
+                         prop_type == STR("SoftObjectProperty") || prop_type == STR("ClassProperty"))
+                {
+                    UObject** ptr = obj->GetValuePtrByPropertyNameInChain<UObject*>(prop_name.c_str());
+                    if (ptr && *ptr)
+                    {
+                        Output::send(STR("[MeshGhostPseudo] DIAG: {} {} ({}) = {}\n"), label, prop_name, prop_type, (*ptr)->GetFullName());
+                    }
+                    else
+                    {
+                        Output::send(STR("[MeshGhostPseudo] DIAG: {} {} ({}) = null\n"), label, prop_name, prop_type);
+                    }
+                }
+                else
+                {
+                    Output::send(STR("[MeshGhostPseudo] DIAG: {} {} ({}) = <unsupported type, skipped>\n"), label, prop_name, prop_type);
+                }
+            }
+            Output::send(STR("[MeshGhostPseudo] DIAG: end of {} value dump.\n"), label);
+        }
+
         // Phase 7.6 spawn-safety guard, new (not in the Lua adapter, which never spawned from the
         // title screen because it happened to only reach a real level by the time it first ran):
         // the original C++ spawn crash's ghost was a clone of the title screen's own transient
@@ -548,6 +804,145 @@ namespace MeshGhostPseudo
                 return;
             }
             anim_instance->ProcessEvent(function, params_buffer.data());
+        }
+
+        // Dream Breaker throw/pickup animation, 2026-08-15: writing weaponEquipped?/
+        // animEquippedWeapon directly (RemoteGhost::target_weapon_equipped) was confirmed correct
+        // at the data level (a live readback matched the write on every sample -- verified.md) but
+        // never made the ghost play the throw/pickup montage, which the real player visibly does.
+        // Same category of problem as the ledge-hang fix: a montage is fired by an explicit call,
+        // not read from a polled state. 'updateWeaponEquip' on animBPref (found in the original
+        // schema dump) is the real candidate -- confirmed via a live signature dump (not assumed):
+        // exactly one bool parameter, named 'animEquippedWeapon', offset 0. Hypothesis, not a
+        // confirmed fix -- the ledge-hang fix needed more than just the right call (a specific
+        // facing direction too), so this may not be sufficient alone either.
+        auto call_update_weapon_equip(UObject* anim_instance, bool equipped) -> void
+        {
+            if (!anim_instance)
+            {
+                return;
+            }
+            UFunction* function = anim_instance->GetFunctionByNameInChain(STR("updateWeaponEquip"));
+            if (!function)
+            {
+                return;
+            }
+            int32_t parms_size = function->GetPropertiesSize();
+            if (parms_size < 1)
+            {
+                Output::send(STR("[MeshGhostPseudo] WARNING: updateWeaponEquip has an implausibly small PropertiesSize ({}) -- refusing to call it.\n"),
+                             parms_size);
+                return;
+            }
+            std::vector<uint8_t> params_buffer(static_cast<size_t>(parms_size), 0);
+            bool found_param = false;
+            for (FProperty* property : TFieldRange<FProperty>(function, EFieldIterationFlags::None))
+            {
+                if (property && property->GetName() == STR("animEquippedWeapon"))
+                {
+                    params_buffer[static_cast<size_t>(property->GetOffset_Internal())] = equipped ? 1 : 0;
+                    found_param = true;
+                }
+            }
+            if (!found_param)
+            {
+                Output::send(STR("[MeshGhostPseudo] WARNING: updateWeaponEquip's 'animEquippedWeapon' parameter was not found by name -- refusing to call it.\n"));
+                return;
+            }
+            anim_instance->ProcessEvent(function, params_buffer.data());
+        }
+
+        // Follow-up, 2026-08-15: calling updateWeaponEquip above was confirmed firing correctly
+        // (readback matched every call) with ZERO visible effect -- no animation, WeaponMesh still
+        // visible after a throw. Real negative result. Next candidate: 'changeEquippedWeapon' on
+        // the PAWN (not animBPref) -- found in the original schema dump alongside the real
+        // input-action event handler for Throw, plausibly the actual orchestrating function
+        // (visibility + montage) that only fires from real player input today. Signature confirmed
+        // via a live dump, same discipline: one bool param, real name 'weaponEquipped?', offset 0
+        // -- not assumed from updateWeaponEquip's param name despite the similar shape.
+        auto call_change_equipped_weapon(UObject* pawn, bool equipped) -> void
+        {
+            if (!pawn)
+            {
+                return;
+            }
+            UFunction* function = pawn->GetFunctionByNameInChain(STR("changeEquippedWeapon"));
+            if (!function)
+            {
+                return;
+            }
+            int32_t parms_size = function->GetPropertiesSize();
+            if (parms_size < 1)
+            {
+                Output::send(STR("[MeshGhostPseudo] WARNING: changeEquippedWeapon has an implausibly small PropertiesSize ({}) -- refusing to call it.\n"),
+                             parms_size);
+                return;
+            }
+            std::vector<uint8_t> params_buffer(static_cast<size_t>(parms_size), 0);
+            bool found_param = false;
+            for (FProperty* property : TFieldRange<FProperty>(function, EFieldIterationFlags::None))
+            {
+                if (property && property->GetName() == STR("weaponEquipped?"))
+                {
+                    params_buffer[static_cast<size_t>(property->GetOffset_Internal())] = equipped ? 1 : 0;
+                    found_param = true;
+                }
+            }
+            if (!found_param)
+            {
+                Output::send(STR("[MeshGhostPseudo] WARNING: changeEquippedWeapon's 'weaponEquipped?' parameter was not found by name -- refusing to call it.\n"));
+                return;
+            }
+            pawn->ProcessEvent(function, params_buffer.data());
+        }
+
+        // Outfit T-pose fix, 2026-08-15: a raw direct write to VisualMesh's SkeletalMesh/
+        // SkinnedAsset properties sticks (readback confirmed) but leaves the ghost in a T-pose --
+        // the mesh reference changes without the engine re-binding/re-initializing the anim
+        // instance against it. 'SetSkeletalMeshAsset' is the one real candidate this build's
+        // reflection actually exposes on SkeletalMeshComponent (confirmed via a live function-name
+        // dump, DUMP_VISUALMESH_FUNCTIONS -- no SetSkeletalMesh/InitAnim/MarkRenderStateDirty/
+        // RecreateRenderState exist on this build), PropertiesSize=8 matching exactly one pointer
+        // parameter. Its real parameter name was never confirmed by name (unlike
+        // updateWeaponEquip/changeEquippedWeapon above) -- a PropertiesSize of exactly 8 with a
+        // single property found via TFieldRange is itself the grounding: there is nowhere else for
+        // an 8-byte pointer to go, so writing to "the one property this function has" is not a
+        // guess about which of several params to use, just that pointer's real reflected offset.
+        auto call_set_skeletal_mesh_asset(UObject* mesh_component, UObject* new_mesh) -> void
+        {
+            if (!mesh_component || !new_mesh)
+            {
+                return;
+            }
+            UFunction* function = mesh_component->GetFunctionByNameInChain(STR("SetSkeletalMeshAsset"));
+            if (!function)
+            {
+                return;
+            }
+            int32_t parms_size = function->GetPropertiesSize();
+            if (parms_size < 8)
+            {
+                Output::send(STR("[MeshGhostPseudo] WARNING: SetSkeletalMeshAsset has an implausibly small PropertiesSize ({}) -- refusing to call it.\n"),
+                             parms_size);
+                return;
+            }
+            std::vector<uint8_t> params_buffer(static_cast<size_t>(parms_size), 0);
+            bool found_param = false;
+            for (FProperty* property : TFieldRange<FProperty>(function, EFieldIterationFlags::None))
+            {
+                if (property)
+                {
+                    *std::bit_cast<UObject**>(params_buffer.data() + property->GetOffset_Internal()) = new_mesh;
+                    found_param = true;
+                    break; // exactly one property expected -- see this function's own comment
+                }
+            }
+            if (!found_param)
+            {
+                Output::send(STR("[MeshGhostPseudo] WARNING: SetSkeletalMeshAsset has no reflected parameter -- refusing to call it.\n"));
+                return;
+            }
+            mesh_component->ProcessEvent(function, params_buffer.data());
         }
 
         // Facing-direction root cause, found 2026-08-13: the vendored RE-UE4SS SDK's own
@@ -1213,6 +1608,50 @@ namespace MeshGhostPseudo
                      to_wide_ascii(player_id),
                      static_cast<void*>(world),
                      ghost->GetFullName());
+
+        // Dream Breaker spawn-snapshot investigation, see DUMP_GHOST_SPAWN_VALUES's own comment.
+        // Dumps the ghost right after every field above has already been set up (mesh/rotation/
+        // possession/collision), plus the local player's own pawn at this same moment as a
+        // same-log reference -- comparing this dump across two different saves is the actual
+        // next diagnostic step.
+        if constexpr (DUMP_GHOST_SPAWN_VALUES)
+        {
+            dump_object_property_values(ghost, STR("spawned ghost"));
+            dump_object_property_values(local_pawn, STR("local pawn at ghost-spawn"));
+
+            // 2026-08-15 follow-up: the top-level pawn dump above only ever printed WeaponMesh as
+            // an object REFERENCE (same component either way) -- it never recursed into that
+            // component's OWN properties. The four WeaponMesh properties already cleared
+            // (bHiddenInGame/bVisible/RelativeLocation/AttachSocketName) were only ever traced
+            // mid-session on an already-armed save during a live throw, never on a genuinely fresh
+            // unarmed spawn -- this closes that gap by dumping WeaponMesh's own full property set
+            // (not just those four) at the moment of spawn, on both the ghost and the local pawn.
+            if (UObject** ghost_weapon_mesh = ghost->GetValuePtrByPropertyNameInChain<UObject*>(STR("WeaponMesh")); ghost_weapon_mesh && *ghost_weapon_mesh)
+            {
+                dump_object_property_values(*ghost_weapon_mesh, STR("spawned ghost WeaponMesh"));
+            }
+            if (UObject** local_weapon_mesh = local_pawn->GetValuePtrByPropertyNameInChain<UObject*>(STR("WeaponMesh")); local_weapon_mesh && *local_weapon_mesh)
+            {
+                dump_object_property_values(*local_weapon_mesh, STR("local pawn WeaponMesh at ghost-spawn"));
+            }
+
+            // Second follow-up, same day: WeaponMesh's own properties came back completely
+            // identical across the 0%/100% saves (see verified.md) -- ruling out the component
+            // itself as the lever entirely, not just the four originally-checked properties. The
+            // one remaining unexamined object in this class's own graph is animBPref, exactly
+            // where landed?/jumped?/animEquippedWeapon already live -- the most likely home for
+            // whatever actually selects a weapon-visible-or-not pose/state. dump_object_property_values
+            // now also handles EnumProperty/ByteProperty (previously skipped outright), so this
+            // pass can catch a state-selector field it would have missed before.
+            if (UObject** ghost_abp = ghost->GetValuePtrByPropertyNameInChain<UObject*>(STR("animBPref")); ghost_abp && *ghost_abp)
+            {
+                dump_object_property_values(*ghost_abp, STR("spawned ghost animBPref"));
+            }
+            if (UObject** local_abp = local_pawn->GetValuePtrByPropertyNameInChain<UObject*>(STR("animBPref")); local_abp && *local_abp)
+            {
+                dump_object_property_values(*local_abp, STR("local pawn animBPref at ghost-spawn"));
+            }
+        }
     }
 
     // Parses one received NDJSON line per PROTOCOL.md's wire form and upserts/erases the
@@ -1249,6 +1688,10 @@ namespace MeshGhostPseudo
             double land_count = 0, jump_count = 0;
             json_number_field(line, "land_count", land_count);
             json_number_field(line, "jump_count", jump_count);
+            double weapon_equipped_num = 0;
+            json_number_field(line, "weapon_equipped", weapon_equipped_num);
+            bool weapon_equipped = weapon_equipped_num != 0;
+            std::string outfit_mesh = json_string_field(line, "outfit_mesh"); // best-effort, empty if missing
 
             // Checked before ensure_ghost_spawned/ensure_ghost_hijacked, both of which insert a
             // default-constructed RemoteGhost via remotes[player_id] on their very first call for
@@ -1307,6 +1750,20 @@ namespace MeshGhostPseudo
                 it->second.target_movement_mode = movement_mode;
                 it->second.target_land_count = land_count;
                 it->second.target_jump_count = jump_count;
+                // WEAPON_SYNC_INVERT (see its own comment): deliberately store the opposite of
+                // the real player's weaponEquipped? for the inversion test. Applied here, once,
+                // at parse time so every downstream consumer (ghost property writes, the
+                // updateWeaponEquip/changeEquippedWeapon calls, edge detection) sees the inverted
+                // value consistently, rather than patching each consumer separately.
+                it->second.target_weapon_equipped = WEAPON_SYNC_INVERT ? !weapon_equipped : weapon_equipped;
+                // Empty means "no data this sample" (e.g. an older peer build, or VisualMesh/
+                // SkeletalMesh unresolved that tick) -- never overwrite a known-good target with
+                // an empty string, matching the same "best-effort, missing means unchanged" spirit
+                // as the other optional fields above.
+                if (!outfit_mesh.empty())
+                {
+                    it->second.target_outfit_mesh = outfit_mesh;
+                }
                 if (is_new_remote)
                 {
                     // Baseline last_seen_* to this first sample -- found in a review pass.
@@ -1401,6 +1858,118 @@ namespace MeshGhostPseudo
             double* v_speed_ptr = pawn->GetValuePtrByPropertyNameInChain<double>(STR("verticalSpeed"));
             uint8_t* anim_jump_type_ptr = pawn->GetValuePtrByPropertyNameInChain<uint8_t>(STR("animJumpType"));
 
+            // Dream Breaker visibility mirror -- see RemoteGhost::target_weapon_equipped's
+            // comment. Continuous "do you have the weapon" flag, confirmed via live-value trace
+            // (verified.md), same shape as moveState/actionState above -- not gated behind
+            // ABILITY_FIELD_TRACE, since it's now real production sync code, not diagnostics.
+            bool* weapon_equipped_ptr = pawn->GetValuePtrByPropertyNameInChain<bool>(STR("weaponEquipped?"));
+
+            // Outfit/costume mirror, added 2026-08-15 -- see RemoteGhost::target_outfit_mesh's
+            // comment. Unlike weapon, no boolean flag or animBPref indirection: VisualMesh's own
+            // SkeletalMesh property directly swaps to a different mesh asset per outfit, confirmed
+            // via a live value-diff straddling real costume swaps (OUTFIT_TRACE, verified.md).
+            // Send the asset's real object PATH -- GetFullName() returns "ClassName /Path" (e.g.
+            // "SkeletalMesh /Game/Meshes/Characters/sybil_outfit_sweater.sybil_outfit_sweater",
+            // confirmed by this exact string in dump_object_property_values' own output), but
+            // StaticFindObject's ObjectName parameter expects just the path with no class-name
+            // prefix (the same form already used for the SetViewTargetWithBlend lookup elsewhere
+            // in this file) -- strip everything up to and including the one space UE always puts
+            // between the class name and the path. Not gated behind OUTFIT_TRACE, real production
+            // sync code now.
+            std::string outfit_mesh;
+            if (UObject** visual_mesh_ptr = pawn->GetValuePtrByPropertyNameInChain<UObject*>(STR("VisualMesh")); visual_mesh_ptr && *visual_mesh_ptr)
+            {
+                if (UObject** skel_mesh_ptr = (*visual_mesh_ptr)->GetValuePtrByPropertyNameInChain<UObject*>(STR("SkeletalMesh")); skel_mesh_ptr && *skel_mesh_ptr)
+                {
+                    std::string full_name = to_utf8((*skel_mesh_ptr)->GetFullName());
+                    size_t space_pos = full_name.find(' ');
+                    outfit_mesh = (space_pos != std::string::npos) ? full_name.substr(space_pos + 1) : full_name;
+                }
+            }
+
+            if constexpr (WEAPON_SYNC_TRACE)
+            {
+                if (tick_count % LOG_INTERVAL_TICKS == 0)
+                {
+                    UObject** weapon_ref_ptr = pawn->GetValuePtrByPropertyNameInChain<UObject*>(STR("weaponRef"));
+                    UObject** weapon_mesh_ptr = pawn->GetValuePtrByPropertyNameInChain<UObject*>(STR("WeaponMesh"));
+                    Output::send(STR("[MeshGhostPseudo] TRACE weapon local: weaponEquipped={} weaponRef={} WeaponMesh={}\n"),
+                                 weapon_equipped_ptr ? *weapon_equipped_ptr : false,
+                                 (weapon_ref_ptr && *weapon_ref_ptr) ? STR("non-null") : STR("null"),
+                                 (weapon_mesh_ptr && *weapon_mesh_ptr) ? STR("non-null") : STR("null"));
+
+                    // Follow-up to the WeaponMesh schema dump (see plan file / verified.md):
+                    // found the stock engine visibility surface (bHiddenInGame, bVisible,
+                    // SetHiddenInGame, SetVisibility) on WeaponMesh itself. That dump only proved
+                    // the fields exist -- this traces their real live VALUES on the LOCAL player
+                    // across a throw/pickup, the same "schema is not behavior" discipline every
+                    // other field in this investigation has needed. Ground truth first, before
+                    // touching the ghost at all.
+                    if (weapon_mesh_ptr && *weapon_mesh_ptr)
+                    {
+                        bool* hidden_in_game_ptr = (*weapon_mesh_ptr)->GetValuePtrByPropertyNameInChain<bool>(STR("bHiddenInGame"));
+                        bool* visible_ptr = (*weapon_mesh_ptr)->GetValuePtrByPropertyNameInChain<bool>(STR("bVisible"));
+                        Output::send(STR("[MeshGhostPseudo] TRACE weapon local WeaponMesh: bHiddenInGame={} bVisible={}\n"),
+                                     hidden_in_game_ptr ? *hidden_in_game_ptr : false,
+                                     visible_ptr ? *visible_ptr : false);
+
+                        // Both visibility flags confirmed static (verified.md) -- next hypothesis
+                        // per the user's own instinct: WeaponMesh stays visible and just moves
+                        // between an in-hand and a holstered socket, rather than being hidden.
+                        // RelativeLocation is the standard USceneComponent property (same family
+                        // already confirmed readable on this exact SDK via RelativeRotation/
+                        // RelativeScale3D elsewhere in this file, e.g. VisualMesh) -- read here by
+                        // analogy to an already-proven-present sibling property, not a blind guess
+                        // of an unconfirmed name; nullptr-safe if it doesn't resolve on WeaponMesh
+                        // specifically. A visible jump in this value across a throw/pickup would
+                        // directly confirm the socket-swap theory without needing to find a real
+                        // "AttachSocketName"-style property/function by name first.
+                        if (FVector* rel_loc = (*weapon_mesh_ptr)->GetValuePtrByPropertyNameInChain<FVector>(STR("RelativeLocation")))
+                        {
+                            Output::send(STR("[MeshGhostPseudo] TRACE weapon local WeaponMesh RelativeLocation=({}, {}, {})\n"),
+                                         rel_loc->X(), rel_loc->Y(), rel_loc->Z());
+                        }
+                        else
+                        {
+                            Output::send(STR("[MeshGhostPseudo] TRACE weapon local WeaponMesh has no reflected RelativeLocation property.\n"));
+                        }
+
+                        // RelativeLocation confirmed static at (0,0,0) (verified.md) -- doesn't
+                        // disprove socket-swap on its own, since a relative offset can legitimately
+                        // stay zero across two different sockets. Found the real answer via the
+                        // schema dump instead: WeaponMesh has a genuine 'AttachSocketName'
+                        // (NameProperty) plus a full attach API (GetAttachSocketName,
+                        // GetSocketTransform, K2_AttachToComponent) -- tracing its real live value
+                        // now, the direct test of the socket-swap theory.
+                        if (FName* attach_socket = (*weapon_mesh_ptr)->GetValuePtrByPropertyNameInChain<FName>(STR("AttachSocketName")))
+                        {
+                            Output::send(STR("[MeshGhostPseudo] TRACE weapon local WeaponMesh AttachSocketName='{}'\n"), attach_socket->ToString());
+                        }
+                        else
+                        {
+                            Output::send(STR("[MeshGhostPseudo] TRACE weapon local WeaponMesh has no reflected AttachSocketName property.\n"));
+                        }
+
+                        // New for the inversion-test run: all four properties checked above are
+                        // visibility/attachment -- the mesh ASSET reference itself was never
+                        // checked. 'SkeletalMesh' is the stock USkeletalMeshComponent property,
+                        // read here by the same analogy discipline as RelativeLocation above (this
+                        // file already confirmed the UStaticMeshComponent sibling 'StaticMesh'
+                        // works as a direct-property read elsewhere in this phase); nullptr-safe if
+                        // WeaponMesh isn't actually a skeletal mesh component on this build.
+                        if (UObject** skel_mesh_ptr = (*weapon_mesh_ptr)->GetValuePtrByPropertyNameInChain<UObject*>(STR("SkeletalMesh")))
+                        {
+                            Output::send(STR("[MeshGhostPseudo] TRACE weapon local WeaponMesh SkeletalMesh={}\n"),
+                                         (skel_mesh_ptr && *skel_mesh_ptr) ? STR("non-null") : STR("null"));
+                        }
+                        else
+                        {
+                            Output::send(STR("[MeshGhostPseudo] TRACE weapon local WeaponMesh has no reflected SkeletalMesh property.\n"));
+                        }
+                    }
+                }
+            }
+
             // "Stuck flying after jump" fix (see RemoteGhost::target_movement_mode's comment):
             // also mirror the real CharacterMovementComponent's own MovementMode byte, confirmed
             // via reflection to be a real property on this build's stock component.
@@ -1440,6 +2009,69 @@ namespace MeshGhostPseudo
             }
             prev_landed_raw = landed_now;
             prev_jumped_raw = jumped_now;
+
+            // Field-discovery dump, gated by OBJECT_REFLECTION_DUMP (see its own comment) --
+            // not tied to any specific investigation, unlike the falling-pose/ledge-hang dump
+            // this was restored from. Cadenced (not one-shot) so a live capture protocol can
+            // compare dumps across distinct moments: sword held vs. not, mid-cling vs. grounded,
+            // etc. Dumps the local pawn and its animBPref -- the two objects every field
+            // confirmed so far (moveState, landed?/jumped?, ...) has turned up on.
+            if constexpr (OBJECT_REFLECTION_DUMP)
+            {
+                if (tick_count % OBJECT_REFLECTION_DUMP_INTERVAL_TICKS == 0)
+                {
+                    dump_object_reflection(pawn, STR("local pawn"));
+                    if (UObject** abp_ptr = pawn->GetValuePtrByPropertyNameInChain<UObject*>(STR("animBPref")); abp_ptr && *abp_ptr)
+                    {
+                        dump_object_reflection(*abp_ptr, STR("local pawn animBPref"));
+                    }
+                }
+            }
+
+            // Live-value trace for the ability field schema (see ABILITY_FIELD_TRACE's own
+            // comment and PLAYER_FIELDS.md). Every pointer here is read defensively -- a name not
+            // resolving just means "not this build/this object", same posture as every other
+            // GetValuePtrByPropertyNameInChain call in this file, not a new pattern.
+            if constexpr (ABILITY_FIELD_TRACE)
+            {
+                if (tick_count % LOG_INTERVAL_TICKS == 0)
+                {
+                    bool* weapon_equipped_ptr = pawn->GetValuePtrByPropertyNameInChain<bool>(STR("weaponEquipped?"));
+                    double* charge_hold_ptr = pawn->GetValuePtrByPropertyNameInChain<double>(STR("chargeAttackHoldTime"));
+                    double* current_power_ptr = pawn->GetValuePtrByPropertyNameInChain<double>(STR("currentPower"));
+                    int32_t* power_level_ptr = pawn->GetValuePtrByPropertyNameInChain<int32_t>(STR("powerLevel"));
+                    bool* has_ground_pound_ptr = pawn->GetValuePtrByPropertyNameInChain<bool>(STR("hasGroundPound"));
+                    bool* wallride_held_ptr = pawn->GetValuePtrByPropertyNameInChain<bool>(STR("wallRideButtonHeld?"));
+                    bool* can_flip_jump_ptr = pawn->GetValuePtrByPropertyNameInChain<bool>(STR("canFlipJump?"));
+                    UObject** weapon_mesh_ptr = pawn->GetValuePtrByPropertyNameInChain<UObject*>(STR("WeaponMesh"));
+                    UObject** weapon_ref_ptr = pawn->GetValuePtrByPropertyNameInChain<UObject*>(STR("weaponRef"));
+                    UObject** charging_vfx_ptr = pawn->GetValuePtrByPropertyNameInChain<UObject*>(STR("chargingVFX"));
+                    UObject** wallride_vfx_ptr = pawn->GetValuePtrByPropertyNameInChain<UObject*>(STR("wallRideVFX"));
+
+                    bool anim_equipped_weapon = false;
+                    if (UObject** abp_ptr = pawn->GetValuePtrByPropertyNameInChain<UObject*>(STR("animBPref")); abp_ptr && *abp_ptr)
+                    {
+                        if (bool* anim_equip_ptr = (*abp_ptr)->GetValuePtrByPropertyNameInChain<bool>(STR("animEquippedWeapon")))
+                        {
+                            anim_equipped_weapon = *anim_equip_ptr;
+                        }
+                    }
+
+                    Output::send(STR("[MeshGhostPseudo] TRACE abilities: weaponEquipped={} animEquippedWeapon={} WeaponMesh={} weaponRef={} chargeHoldTime={} chargingVFX={} currentPower={} powerLevel={} hasGroundPound={} wallRideHeld={} wallRideVFX={} canFlipJump={}\n"),
+                                 weapon_equipped_ptr ? *weapon_equipped_ptr : false,
+                                 anim_equipped_weapon,
+                                 (weapon_mesh_ptr && *weapon_mesh_ptr) ? STR("non-null") : STR("null"),
+                                 (weapon_ref_ptr && *weapon_ref_ptr) ? STR("non-null") : STR("null"),
+                                 charge_hold_ptr ? *charge_hold_ptr : -1.0,
+                                 (charging_vfx_ptr && *charging_vfx_ptr) ? STR("non-null") : STR("null"),
+                                 current_power_ptr ? *current_power_ptr : -1.0,
+                                 power_level_ptr ? *power_level_ptr : -1,
+                                 has_ground_pound_ptr ? *has_ground_pound_ptr : false,
+                                 wallride_held_ptr ? *wallride_held_ptr : false,
+                                 (wallride_vfx_ptr && *wallride_vfx_ptr) ? STR("non-null") : STR("null"),
+                                 can_flip_jump_ptr ? *can_flip_jump_ptr : false);
+                }
+            }
 
             // Dense every-tick trace for this investigation -- LOG_INTERVAL_TICKS (~2s) cannot see
             // a one-frame AnimBP pulse. Gated on "airborne or a pulse fired this tick" so a full
@@ -1522,6 +2154,22 @@ namespace MeshGhostPseudo
                         Output::send(STR("[MeshGhostPseudo] TRACE local CapsuleComponent RelativeRotation: property not found.\n"));
                     }
                 }
+
+                // Outfit/costume sync investigation, see OUTFIT_TRACE's own comment. Full value
+                // dump of VisualMesh (the main body mesh -- distinct from WeaponMesh) at the same
+                // ~2s cadence as everything else in this block, so two samples straddling a live
+                // costume swap can be diffed to find whatever field actually changes. Also dumps
+                // the pawn itself, in case the "currently equipped outfit" selector lives there
+                // rather than on VisualMesh -- cheap to capture both on the same pass rather than
+                // needing a second live-test round trip if the first guess is wrong.
+                if constexpr (OUTFIT_TRACE)
+                {
+                    dump_object_property_values(pawn, STR("local pawn (outfit trace)"));
+                    if (UObject** outfit_vm_ptr = pawn->GetValuePtrByPropertyNameInChain<UObject*>(STR("VisualMesh")); outfit_vm_ptr && *outfit_vm_ptr)
+                    {
+                        dump_object_property_values(*outfit_vm_ptr, STR("local pawn VisualMesh"));
+                    }
+                }
             }
 
             // landed_count/jumped_count are monotonic (see Plugin.hpp's comment on them), so unlike
@@ -1538,7 +2186,7 @@ namespace MeshGhostPseudo
                 "{{\"type\":\"local_state\",\"payload\":{{\"state\":{{\"area_id\":\"{}\",\"position\":[{},{},{}],"
                 "\"orientation\":[{},{},{}],\"anim\":\"idle\","
                 "\"extras\":{{\"move_state\":{},\"action_state\":{},\"h_speed\":{},\"v_speed\":{},\"anim_jump_type\":{},\"movement_mode\":{},"
-                "\"land_count\":{},\"jump_count\":{}}}"
+                "\"land_count\":{},\"jump_count\":{},\"weapon_equipped\":{},\"outfit_mesh\":\"{}\"}}"
                 "}}}}}}",
                 json_escape(area_id),
                 location.X(),
@@ -1554,7 +2202,9 @@ namespace MeshGhostPseudo
                 anim_jump_type_ptr ? static_cast<int>(*anim_jump_type_ptr) : 0,
                 static_cast<int>(movement_mode),
                 landed_count,
-                jumped_count);
+                jumped_count,
+                (weapon_equipped_ptr && *weapon_equipped_ptr) ? 1 : 0,
+                json_escape(outfit_mesh));
             {
                 std::lock_guard<std::mutex> lock(state_mutex);
                 cached_local_state_json = std::move(local_state);
@@ -1679,6 +2329,195 @@ namespace MeshGhostPseudo
                     *g_movement_mode = clamp_to_uint8(remote.target_movement_mode);
                 }
             }
+            // Dream Breaker visibility mirror -- see RemoteGhost::target_weapon_equipped's
+            // comment. **Reordered 2026-08-15** (real fix attempt #6, see verified.md's animBPref
+            // spawn-snapshot entry): the raw property writes below used to run BEFORE these two
+            // function calls, every tick, unconditionally -- so by the time
+            // updateWeaponEquip/changeEquippedWeapon actually fired on a real transition,
+            // weaponEquipped?/animEquippedWeapon had ALREADY been overwritten to the new value on
+            // that same tick. If either function's own Blueprint graph does the ordinary "only
+            // play the transition if the value actually changed" comparison against the pawn's
+            // current property (a common pattern for a named "update"/"change" event), it would
+            // always see old==new and silently do nothing -- which would explain both calls
+            // failing identically without either being the wrong function. Calling them FIRST,
+            // while the ghost's own property still holds the OLD value, is a real, testable fix
+            // for that specific failure mode -- not yet confirmed live.
+            if (!remote.weapon_equip_call_armed || remote.target_weapon_equipped != remote.last_synced_weapon_equipped)
+            {
+                if constexpr (WEAPON_SYNC_TRACE)
+                {
+                    Output::send(STR("[MeshGhostPseudo] TRACE weapon ghost {}: calling changeEquippedWeapon/updateWeaponEquip({}) -- armed={} prev={}\n"),
+                                 to_wide_ascii(id), remote.target_weapon_equipped, remote.weapon_equip_call_armed, remote.last_synced_weapon_equipped);
+                }
+                call_change_equipped_weapon(remote.ghost, remote.target_weapon_equipped);
+                if (UObject** g_abp_ptr = remote.ghost->GetValuePtrByPropertyNameInChain<UObject*>(STR("animBPref")); g_abp_ptr && *g_abp_ptr)
+                {
+                    call_update_weapon_equip(*g_abp_ptr, remote.target_weapon_equipped);
+                }
+                remote.last_synced_weapon_equipped = remote.target_weapon_equipped;
+                remote.weapon_equip_call_armed = true;
+            }
+            // Property write kept as a safety-net sync AFTER the calls above, in case either
+            // function has prerequisites/side effects this adapter doesn't drive -- unconditional,
+            // every tick, same as before the reorder.
+            if (bool* g_weapon_equipped = remote.ghost->GetValuePtrByPropertyNameInChain<bool>(STR("weaponEquipped?")))
+            {
+                *g_weapon_equipped = remote.target_weapon_equipped;
+            }
+            if (UObject** g_abp_ptr = remote.ghost->GetValuePtrByPropertyNameInChain<UObject*>(STR("animBPref")); g_abp_ptr && *g_abp_ptr)
+            {
+                if (bool* g_anim_equipped_weapon = (*g_abp_ptr)->GetValuePtrByPropertyNameInChain<bool>(STR("animEquippedWeapon")))
+                {
+                    *g_anim_equipped_weapon = remote.target_weapon_equipped;
+                }
+            }
+            if constexpr (WEAPON_SYNC_TRACE)
+            {
+                if (tick_count % LOG_INTERVAL_TICKS == 0)
+                {
+                    // Independent readback -- re-fetches the pointers fresh rather than reusing
+                    // g_weapon_equipped/g_anim_equipped_weapon above, per CLAUDE.md's "never log
+                    // the value you just wrote as proof it worked" rule.
+                    bool* rb_weapon_equipped = remote.ghost->GetValuePtrByPropertyNameInChain<bool>(STR("weaponEquipped?"));
+                    UObject** rb_weapon_mesh = remote.ghost->GetValuePtrByPropertyNameInChain<UObject*>(STR("WeaponMesh"));
+                    // New for the inversion-test run: weaponRef was only ever traced on the local
+                    // pawn (see the local WEAPON_SYNC_TRACE block's own comment -- an earlier trace
+                    // showed it "genuinely toggles," but its ghost-side value was never recorded).
+                    UObject** rb_weapon_ref = remote.ghost->GetValuePtrByPropertyNameInChain<UObject*>(STR("weaponRef"));
+                    bool rb_anim_equipped = false;
+                    if (UObject** rb_abp_ptr = remote.ghost->GetValuePtrByPropertyNameInChain<UObject*>(STR("animBPref")); rb_abp_ptr && *rb_abp_ptr)
+                    {
+                        if (bool* rb_anim_ptr = (*rb_abp_ptr)->GetValuePtrByPropertyNameInChain<bool>(STR("animEquippedWeapon")))
+                        {
+                            rb_anim_equipped = *rb_anim_ptr;
+                        }
+                    }
+                    Output::send(STR("[MeshGhostPseudo] TRACE weapon ghost {}: target_weapon_equipped={} readback_weaponEquipped={} readback_animEquippedWeapon={} readback_WeaponMesh={} readback_weaponRef={}\n"),
+                                 to_wide_ascii(id),
+                                 remote.target_weapon_equipped,
+                                 rb_weapon_equipped ? *rb_weapon_equipped : false,
+                                 rb_anim_equipped,
+                                 (rb_weapon_mesh && *rb_weapon_mesh) ? STR("non-null") : STR("null"),
+                                 (rb_weapon_ref && *rb_weapon_ref) ? STR("non-null") : STR("null"));
+
+                    // Same mesh-asset check as the local block, on the ghost's own WeaponMesh.
+                    if (rb_weapon_mesh && *rb_weapon_mesh)
+                    {
+                        UObject** rb_skel_mesh = (*rb_weapon_mesh)->GetValuePtrByPropertyNameInChain<UObject*>(STR("SkeletalMesh"));
+                        Output::send(STR("[MeshGhostPseudo] TRACE weapon ghost {} WeaponMesh SkeletalMesh={}\n"),
+                                     to_wide_ascii(id),
+                                     (rb_skel_mesh && *rb_skel_mesh) ? STR("non-null") : STR("null"));
+                    }
+                }
+            }
+
+            // Outfit/costume mirror -- see RemoteGhost::target_outfit_mesh's comment. Edge-gated
+            // like the weapon calls above (only resolve/assign on an actual change, not every
+            // redraw tick) -- unlike weapon, this is a pure direct-property mesh-asset swap, no
+            // function call involved, so there's no call-order hazard to worry about here.
+            // Retry throttle (see RemoteGhost::last_failed_outfit_mesh's comment): a target that
+            // previously failed to resolve (e.g. a peer's modded outfit this machine doesn't have)
+            // only gets retried once per LOG_INTERVAL_TICKS, not every tick -- a genuinely new
+            // target is still tried immediately regardless of the throttle.
+            bool outfit_is_new_target = !remote.target_outfit_mesh.empty() && remote.target_outfit_mesh != remote.last_synced_outfit_mesh;
+            bool outfit_retry_due = remote.target_outfit_mesh == remote.last_failed_outfit_mesh &&
+                                     (tick_count - remote.last_outfit_attempt_tick) < LOG_INTERVAL_TICKS;
+            if (outfit_is_new_target && !outfit_retry_due)
+            {
+                // First real live test (screenshot) found the raw property write alone produces a
+                // T-pose -- the mesh reference sticks but the engine never re-binds/re-inits the
+                // anim instance against it, the classic symptom of skipping the real UE setter
+                // (USkinnedMeshComponent::SetSkeletalMesh(mesh, bReinitPose) is the well-known
+                // engine-side API for exactly this on other UE versions, but its real availability/
+                // signature on THIS build's reflection surface is unconfirmed -- this build has
+                // already shown many UFunctions silently missing from reflection while direct
+                // property writes work. One-shot function-name dump of VisualMesh, gated behind
+                // DUMP_VISUALMESH_FUNCTIONS, to find what's actually callable before guessing a
+                // name -- same discipline as every other function call in this file (signature
+                // confirmed via reflection first, never assumed from general UE knowledge alone).
+                if constexpr (DUMP_VISUALMESH_FUNCTIONS)
+                {
+                    if (UObject** g_visual_mesh_for_dump = remote.ghost->GetValuePtrByPropertyNameInChain<UObject*>(STR("VisualMesh")); g_visual_mesh_for_dump && *g_visual_mesh_for_dump)
+                    {
+                        dump_object_reflection(*g_visual_mesh_for_dump, STR("ghost VisualMesh (outfit function search)"));
+                    }
+                }
+
+                // StaticFindObject<UObject*>(nullptr, nullptr, path) -- grounded via RE-UE4SS's own
+                // official C++ mod guide (docs/guides/creating-a-c++-mod.md), same pattern already
+                // used for the SetViewTargetWithBlend UFunction lookup elsewhere in this file, just
+                // with UObject* instead of UFunction*/UClass*.
+                UObject* outfit_mesh_obj = UObjectGlobals::StaticFindObject<UObject*>(nullptr, nullptr, to_wide_ascii(remote.target_outfit_mesh).c_str());
+                // Type check, found while reasoning about modded-costume peers: target_outfit_mesh
+                // is peer-controlled data (json_string_field's own comment already flags every
+                // extras field this way), and StaticFindObject with Class=nullptr matches ANY
+                // object at that path regardless of type -- without this check, a malformed or
+                // adversarial path could resolve to something that isn't a USkeletalMesh at all,
+                // and get written into a SkeletalMesh-typed property slot anyway (a real type-
+                // confusion risk, not just a cosmetic bug). GetClassPrivate()->GetName() is the
+                // same mechanism already used throughout this file's own dumpers to identify an
+                // object's class -- confirmed "SkeletalMesh" is the real class name printed for
+                // every genuine outfit asset seen so far (e.g. dump_object_property_values' own
+                // "SkeletalMesh (ObjectProperty) = SkeletalMesh /Game/..." output).
+                if (outfit_mesh_obj && outfit_mesh_obj->GetClassPrivate() && outfit_mesh_obj->GetClassPrivate()->GetName() != STR("SkeletalMesh"))
+                {
+                    Output::send(STR("[MeshGhostPseudo] WARNING: outfit mesh '{}' resolved to a non-SkeletalMesh object (class '{}') -- refusing to apply.\n"),
+                                 to_wide_ascii(remote.target_outfit_mesh), outfit_mesh_obj->GetClassPrivate()->GetName());
+                    outfit_mesh_obj = nullptr;
+                }
+                if (outfit_mesh_obj)
+                {
+                    if (UObject** g_visual_mesh = remote.ghost->GetValuePtrByPropertyNameInChain<UObject*>(STR("VisualMesh")); g_visual_mesh && *g_visual_mesh)
+                    {
+                        // T-pose fix, 2026-08-15: call the real setter FIRST, applying the same
+                        // ordering lesson the Dream Breaker fix already taught this file (a raw
+                        // property write done before a state-changing call can make that call see
+                        // no real transition) -- here the risk is the opposite direction, but the
+                        // same principle: let the function that's supposed to do the real work run
+                        // against a clean, not-yet-clobbered state, then keep the direct writes as
+                        // a safety net afterward, not the other way around.
+                        call_set_skeletal_mesh_asset(*g_visual_mesh, outfit_mesh_obj);
+                        // Both properties written directly, kept as a safety net -- the live
+                        // value-diff that found this field (verified.md's outfit-trace entry)
+                        // showed SkeletalMesh and SkinnedAsset changing together on every real
+                        // costume swap; writing only one and hoping the engine keeps the other in
+                        // sync is exactly the kind of untested assumption this project's own
+                        // discipline says to avoid.
+                        if (UObject** g_skel_mesh = (*g_visual_mesh)->GetValuePtrByPropertyNameInChain<UObject*>(STR("SkeletalMesh")))
+                        {
+                            *g_skel_mesh = outfit_mesh_obj;
+                        }
+                        if (UObject** g_skinned_asset = (*g_visual_mesh)->GetValuePtrByPropertyNameInChain<UObject*>(STR("SkinnedAsset")))
+                        {
+                            *g_skinned_asset = outfit_mesh_obj;
+                        }
+                    }
+                    remote.last_synced_outfit_mesh = remote.target_outfit_mesh;
+                    remote.last_failed_outfit_mesh.clear();
+
+                    // Independent readback -- re-fetches the pointer fresh rather than reusing
+                    // g_skel_mesh above, per CLAUDE.md's "never log the value you just wrote as
+                    // proof it worked" rule. Not gated behind OUTFIT_TRACE -- this is a one-shot
+                    // log per real outfit change (edge-gated above), not a per-tick trace, so it's
+                    // cheap enough to keep on permanently the same as the "spawned ghost" log line.
+                    UObject** rb_skel_mesh = nullptr;
+                    if (UObject** rb_visual_mesh = remote.ghost->GetValuePtrByPropertyNameInChain<UObject*>(STR("VisualMesh")); rb_visual_mesh && *rb_visual_mesh)
+                    {
+                        rb_skel_mesh = (*rb_visual_mesh)->GetValuePtrByPropertyNameInChain<UObject*>(STR("SkeletalMesh"));
+                    }
+                    Output::send(STR("[MeshGhostPseudo] outfit mesh applied for ghost {}: target='{}' readback={}\n"),
+                                 to_wide_ascii(id), to_wide_ascii(remote.target_outfit_mesh),
+                                 (rb_skel_mesh && *rb_skel_mesh) ? (*rb_skel_mesh)->GetFullName() : STR("null"));
+                }
+                else
+                {
+                    remote.last_failed_outfit_mesh = remote.target_outfit_mesh;
+                    remote.last_outfit_attempt_tick = tick_count;
+                    Output::send(STR("[MeshGhostPseudo] WARNING: outfit mesh '{}' not found via StaticFindObject -- ghost {} outfit not updated (will retry periodically).\n"),
+                                 to_wide_ascii(remote.target_outfit_mesh), to_wide_ascii(id));
+                }
+            }
+
             // Redone landed?/jumped? pulse mirror (see PULSE_HOLD_TICKS's comment): a rising edge
             // in the received counter arms a hold window, decremented every tick regardless of
             // whether a new render_remote line arrived this tick (this loop runs unconditionally

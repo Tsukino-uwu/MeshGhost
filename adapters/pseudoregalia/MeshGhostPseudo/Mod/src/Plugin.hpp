@@ -73,6 +73,46 @@ namespace MeshGhostPseudo
         // custom subclass) -- mirrored the same opaque-copy way as moveState/actionState.
         double target_movement_mode{};
 
+        // Dream Breaker (weapon) visibility mirror, added 2026-08-15 after a live-value trace
+        // (verified.md's "Pseudoregalia ability field live-value trace" entry) confirmed
+        // weaponEquipped?/animEquippedWeapon are CONTINUOUS "do you have the weapon" flags, not
+        // one-shot pulses (591/616 samples true, never false again once obtained) -- same
+        // opaque-copy shape as moveState/actionState above, not the landed?/jumped? pulse
+        // pattern. Mirrors both the pawn-side and animBPref-side flag since the trace confirmed
+        // both exist and move together but never confirmed which one (if either alone) actually
+        // drives WeaponMesh's visibility -- cheap to write both, and this is the first real test
+        // of whether either one does anything visible on the ghost at all.
+        bool target_weapon_equipped{false};
+
+        // Edge-detection for updateWeaponEquip (see call_update_weapon_equip's comment) -- that
+        // function plausibly fires a one-shot montage each call, so it must only be called on a
+        // real equip/unequip transition, not every redraw tick. weapon_equip_call_armed becomes
+        // true the first time this ghost's real state is known, so the initial spawn state (the
+        // ghost may spawn already equipped) is synced once without being treated as a spurious
+        // "just equipped" transition on tick one.
+        bool last_synced_weapon_equipped{false};
+        bool weapon_equip_call_armed{false};
+
+        // Outfit/costume mirror, added 2026-08-15 after a live value-diff straddling real costume
+        // swaps (OUTFIT_TRACE, verified.md) found VisualMesh's own SkeletalMesh property directly
+        // swaps to a different mesh asset per outfit -- unlike weapon, no boolean flag or animBPref
+        // indirection at all. target_outfit_mesh holds the real object PATH (not the full
+        // "ClassName Path" GetFullName() form -- see the local-read comment in tickRenders for
+        // why); the ghost side resolves it via StaticFindObject and assigns directly to its own
+        // VisualMesh.SkeletalMesh/SkinnedAsset. last_synced_outfit_mesh edge-gates the resolve/
+        // assign so it only happens on an actual change, not every redraw tick.
+        std::string target_outfit_mesh;
+        std::string last_synced_outfit_mesh;
+
+        // Retry throttle, found while reasoning about a peer using a modded outfit the receiving
+        // machine doesn't have installed: without this, a StaticFindObject failure would retry
+        // (and re-log a warning) every single tick forever, since target_outfit_mesh would never
+        // equal last_synced_outfit_mesh. last_failed_outfit_mesh/last_outfit_attempt_tick throttle
+        // retries of the SAME still-failing target to once per LOG_INTERVAL_TICKS, while a genuinely
+        // NEW target (e.g. the peer swaps to a different outfit) still gets tried immediately.
+        std::string last_failed_outfit_mesh;
+        uint64_t last_outfit_attempt_tick{0};
+
         // Landing/jump pulse mirror, redone 2026-08-13 (follow-up session). The first attempt at
         // this (a plain bool, read/written on the PAWN) was a no-op on both ends: a real reflection
         // dump (log_pawn_reflection_once) proved 'landed?'/'jumped?' exist ONLY on animBPref (the

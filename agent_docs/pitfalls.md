@@ -101,6 +101,28 @@ know the incident, not just the rule, so you can judge when it applies.
   prove real per-tile timing had *zero* variance, which is what finally justified dropping
   dynamic measurement for a plain fixed constant instead of chasing a self-correction that
   wasn't actually correcting anything.
+- **When a rendered difference between two known states can't be traced to any field you've
+  thought to check by name, dump every reflected property's real VALUE at the moment that
+  matters, for both states, and diff the two dumps — instead of continuing to guess field names
+  one at a time.** A schema-only dump (property names/types, no values — this project's
+  `dump_object_reflection`) only tells you a field exists; it can't tell you which of dozens of
+  candidates actually differs between two states. Extending the same reflection loop into a
+  generic value-printer (per-type: bool/int/float/double/name/object-reference, one line per
+  property) and running it against two save files chosen to be maximally different (a genuine
+  0%-completion save vs. a 100%-completion save, loaded within the same session so the ghost's
+  spawn snapshot captures each cleanly) turned a guessing game into an exhaustive search: out of
+  230 properties on an AnimBP instance, exactly one differed between an armed and unarmed spawn,
+  and a full 250-property sub-component dump proved a longtime prime suspect (`WeaponMesh`)
+  never differed at all — ruling it out completely, not just the handful of properties anyone
+  had thought to check by name. Source: the Phase 7 Dream Breaker weapon-visibility
+  investigation, 2026-08-15 (`agent_docs/verified.md`'s "cross-save" entries,
+  `adapters/pseudoregalia/PLAYER_FIELDS.md`, `adapters/pseudoregalia/README.md`'s build-log step
+  20). **Generalizes to**: any adapter/engine with runtime property reflection (UE4SS, other
+  Lua/C++ modding APIs) — when two save files, game modes, or player states produce a visibly
+  different result and the responsible field isn't obvious, this diff-driven search finds it
+  without prior knowledge of the field's name, and normalizing out per-instance object
+  IDs/level-path noise before diffing keeps the result from drowning in expected, irrelevant
+  differences.
 
 ## Failure signatures
 
@@ -225,6 +247,30 @@ Misleading symptoms that mean something other than their surface reading:
   — the same filtering is needed when reimplementing equivalent lookups directly (e.g. in a C++
   mod), not just assumed away because "FindFirstOf" sounds authoritative. An `RF_ClassDefaultObject`
   object-flag check is a reliable, standard-UE way to exclude the CDO specifically.
+
+- **Writing a property directly before calling a function that also sets that property can
+  silently defeat the function.** Symptom: two independently-chosen candidate functions
+  (`updateWeaponEquip` on the AnimBP, `changeEquippedWeapon` on the pawn) both confirmed firing
+  correctly (live signature-dumped, confirmed called via trace log) with zero visible effect —
+  the exact "two guessed fixes failing identically" signal above, but the fixes here weren't
+  wrong, the *call order* was. The ghost-sync code wrote the raw property
+  (`weaponEquipped?`/`animEquippedWeapon`) directly onto the object every tick, unconditionally,
+  *before* the edge-gated function calls that were supposed to be the real trigger — so by the
+  time either function ran on an actual transition, the property already held the new value on
+  that same tick. If a Blueprint graph's own custom event does the ordinary "only play the
+  transition if the value actually changed" comparison against the object's current property (a
+  common pattern for a named "update"/"change" event), it will always see old==new and do
+  nothing — with no error, no warning, and a trace log that shows the call firing "successfully."
+  **Fix**: call the function *first*, while the property still holds the old value, and only
+  write the raw property afterward (kept as a safety-net sync, not removed). **Generalizes to**:
+  whenever a sync/mirror path both (a) writes a raw property directly and (b) also calls a
+  function that's supposed to react to that property changing, the property write must happen
+  after the function call, not before, or the function can never observe a real transition.
+  Diagnosed via the value-diff technique above, not guessed — comparing `animBPref`'s reflected
+  values across a genuine 0%/100%-completion save pair found `animEquippedWeapon` as the one
+  real differing field, which is what made the write-order bug obvious once looked for directly
+  in the code. Source: the Phase 7 Dream Breaker weapon-visibility fix, 2026-08-15
+  (`agent_docs/verified.md`'s "animBPref cross-save diff" entry, confirmed live).
 
 ### UE4SS C++ mod threading -- on_update() is not the game thread
 

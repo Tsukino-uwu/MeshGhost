@@ -385,16 +385,134 @@ protocol above is actually run and watched.
 
 ## Pseudoregalia
 
-1. **Reference project found: [pseudoregalia-multiplayer](https://github.com/highrow623/pseudoregalia-multiplayer)
-   (`highrow623`), MIT-licensed** (confirmed live 2026-08-14, see `licensing.md`). Found via a
-   YouTube video, not previously known to this project — appears to be another Pseudoregalia
-   co-op/multiplayer mod, same problem space as Phase 7. **Not yet compared**: whether it's
-   further along than this project's own Phase 7 work, uses a different approach (Lua vs. C++,
-   which UE4SS hooks, ghost representation), or has already solved something this project is
-   still working through (e.g. the falling-pose/ledge-hang animation gaps, or the not-yet-fixed
-   exit-crash — see `status.md`'s Phase 7 entries). A real comparison pass (read its source for
-   facts/approach only, per the license table's standing rule — never copy code) is a
-   reasonable next step whenever Pseudoregalia work resumes, not scheduled yet.
+0. **Fully visually track the thrown Dream Breaker, hand → flight → ground → pickup.** Saved for
+   later while the Dream Breaker held/holstered visibility bug was chased first — that bug is now
+   **fixed and confirmed live** (2026-08-15, see `agent_docs/verified.md`'s "Dream Breaker
+   weapon-visibility" entries and `PLAYER_FIELDS.md`), so this idea is unblocked, still unscheduled.
+   Real lead: `weaponRef` (an `ObjectProperty` on the pawn, distinct from `WeaponMesh`) goes non-null
+   specifically while the weapon is thrown/in-flight and null while held or holstered — found via
+   `WEAPON_SYNC_TRACE` (`agent_docs/verified.md`). A screenshot from the same session shows the
+   thrown weapon as a real, distinct object standing in the world, not attached to any character.
+
+   **User's own explanation of the real mechanic (2026-08-15), scopes this out further than the
+   original note:** the weapon is a real physics object once thrown — it visibly bounces off
+   walls, can be caught out of the air if the player is positioned right, otherwise lands and sits
+   on the ground until walked into (auto-pickup on contact), and separately, an un-recovered thrown
+   weapon can be "respawned" back into hand — so a player can never be permanently disarmed. Full
+   fidelity would mean tracking through every one of these states: in-hand, mid-throw/bouncing,
+   resting on the ground, and picked back up — not just "is it in hand," which is what the current
+   held/holstered chase covers. User's own framing: "it would be fun to fully track the sword
+   visually from when its in the hand, to being thrown, while its in the air/hitting a wall or just
+   going straight to the ground, and while its sitting on the ground, and ofc later getting picked
+   up."
+
+   **Not high priority right now, and doesn't need to be built all at once — user explicitly
+   scoped a staged approach (2026-08-15):** a minimum version is just "show/hide the sword in
+   hand" plus "show it resting on the ground where it landed" — full in-flight physics tracking
+   (bouncing, catching mid-air) is real, but a "cool later" extension on top, not a prerequisite.
+   So this idea has two real cut points, not one all-or-nothing scope:
+   - **MVP**: sync whether the weapon is in-hand (the existing held/holstered chase already covers
+     this) plus a single static position/rotation snapshot for "resting on the ground" once
+     thrown-and-landed — no physics simulation on the ghost side, just two more discrete visual
+     states layered onto the same mirroring pattern already used for movement/animation.
+   - **Full version**: continuous position sync through the whole flight/bounce arc, matching the
+     user's original framing (hand → flight → wall bounces → ground → pickup) — genuinely closer
+     in shape to a small physics-object sync than a simple property mirror, and real added scope
+     over the MVP, not just "the same thing but more polished."
+
+   Scope, once picked up (either version): read `weaponRef`'s target object (position, rotation,
+   class, mesh) on the local player while non-null, sync it as new packet/extras data, and
+   spawn/position an equivalent visible prop on the ghost side. Likely more tractable than the
+   held/holstered toggle in the sense that it's "sync a new world object" rather than "find the one
+   right property/function on an existing one" (three real negative results so far on that front —
+   `verified.md`), but still real scope, not a quick follow-on — and not scheduled.
+
+1. **Reference project compared: [pseudoregalia-multiplayer](https://github.com/highrow623/pseudoregalia-multiplayer)
+   (`highrow623`), MIT-licensed** (license confirmed 2026-08-14, source read 2026-08-15 — see
+   `licensing.md`). Another Pseudoregalia co-op mod, same problem space as Phase 7. Same modding
+   tool (UE4SS) and same overall shape as us — a compiled C++ UE4SS client mod, not Lua — so this
+   is an apples-to-apples architecture comparison on that axis, not a maturity gap.
+
+   **More established than this project's Pseudoregalia work, genuinely** — not just an
+   alpha-label wash. Real tagged releases (v0.1.0 through v0.2.2), an outside contributor (name
+   tags landed via a community PR, not just the original author), and — per the user, who saw a
+   YouTube video of it in actual use 2026-08-15 (not independently verified by this project,
+   consistent with `CLAUDE.md`'s evidence standard for *our own* claims — this is the user's own
+   observation, recorded as such) — real evidence of it working for real players over a real
+   network. MeshGhost's own Pseudoregalia adapter has **not** cleared that bar yet: Phase 7.7 (a
+   real two-player network test) hasn't been run, so "code-complete" is the accurate status, not
+   "confirmed working online." Their last real commit is 2026-03-16 though — inactive, not
+   currently being iterated on, which is a different axis from "has it ever worked."
+
+   **Not actually behind on animation** — their `docs/todo.md` has animation sync as an open
+   "animations??" question with three unexplored options; this project's own Pseudoregalia
+   ghost already has real movement-animation sync, including specific fixes for the
+   falling-stuck and ledge-hang animation bugs (Phase 7.6, `adapters/pseudoregalia/README.md`
+   steps 13/16/17), all live-verified. The real open gap on our side is narrower — ability
+   **VFX**, not animation: the cling-gem effect and empty-hand sword-glow don't render on the
+   ghost (`status.md`, found live 2026-08-15, not yet root-caused) — plus TEVI has an analogous
+   charged-attack VFX gap. Neither project has this solved; it's just not the same gap their
+   `todo.md` names.
+
+   **Worth stealing as an idea:** their ghost is a real Blueprint-authored actor
+   (`Content/Mods/PseudoregaliaMultiplayerMod/BP_PM_Ghost.uasset`) with a per-player configurable
+   color and a name tag above the head — visibly nicer than this project's current ghost, which
+   has neither. (Our ghost is spawned fresh as a clone of the player's own pawn class, not a
+   hijacked level actor — `SPAWN_BASED_GHOSTS = true`, `Plugin.cpp:78/1078-1084`; a hijack
+   fallback exists in code but is dead, unused.) Their C++ side does no actor work at all — it
+   only bridges data into a hand-authored Blueprint (`BP_PM_Manager_C`/`BP_PM_Ghost_C`) that owns
+   spawning, confirmed by reading `dllmain.cpp`/`Client.hpp` directly — which is *why* they never
+   needed camera-fightback or auto-possess fixes: their ghost was never a live instance of the
+   real playable class to begin with. If Pseudoregalia ghost visuals get revisited, a custom
+   Blueprint ghost actor (color + nametag, MeshGhost-authored, no asset copying per
+   `licensing.md`) is the concrete thing to build toward — at the real cost of standing up an
+   Unreal Editor content pipeline this project doesn't currently have.
+
+   **Worth noting as a real trade, not a clean win either way:** their client↔server protocol
+   splits into a WebSocket channel (JSON, low-frequency: connect/join/leave) plus a separate raw
+   UDP channel (packed binary, per-frame position/rotation) — `docs/application-protocol.md`
+   calls this split "admittedly kinda lazy" and says they'd like to go UDP-only eventually.
+   MeshGhost's single TCP/NDJSON channel sidesteps the dual-channel complexity, but the tradeoff
+   cuts both ways, not just in our favor:
+
+   | | UDP (theirs, state channel) | TCP (ours, single channel) |
+   |---|---|---|
+   | Packet loss | Drops the one stale update, moves on — next update just arrives | Head-of-line blocking: a lost packet stalls every *newer* packet queued behind it until it's retransmitted |
+   | Effect on a ghost, in practice | Smooth degradation — an occasional skipped position, easy to miss | Freezes, then jumps to catch up once the resend lands — worse-looking under the same loss rate |
+   | Forgeable packets | Yes — no delivery guarantee to build auth on top of (their `todo.md` flags this, wants HMAC) | No — TCP's own connection state plus our `room_code`/relay checks apply uniformly |
+   | Complexity | Two channels, two message shapes to keep in sync | One channel, one schema (`contract.md`) |
+   | Player-count ceiling | Real one, tied to fitting all updates in one UDP packet (22) | None inherent to the transport |
+   | Implementation/debugging cost | Packed binary, harder to eyeball on the wire | Plain JSON, greppable/typeable over `netcat` (`contract.md`'s own stated reason for choosing it) |
+
+   Net: their UDP-for-state instinct is the conventionally correct one for real-time position
+   data — dropping a stale update beats delaying a fresh one, which is exactly what a
+   latency-sensitive cosmetic overlay wants. Their actual cost was needing a *second* channel
+   (WebSocket) to regain reliability for join/leave. Our TCP choice buys simplicity, no
+   dual-channel complexity, no packet-size player cap, and no forgeable-packet risk, in
+   exchange for worse degradation specifically under real packet loss (jitter, poor wifi, a
+   flaky connection) — a genuine trade against a genuine cost, not a design flaw on their side
+   or a free win on ours. Reasonable to leave as-is at MeshGhost's current scale (small
+   friend-hosted rooms, `interp` buffering already absorbing normal jitter per the release
+   README) — worth revisiting only if real testing surfaces a lossy-connection freeze/jump
+   pattern the interpolation buffer doesn't hide.
+
+   **Setup/hosting: ours is documented as simpler, unproven whether that holds for a real
+   novice.** Their client install branches into three paths depending on existing UE4SS state,
+   two of which recommend a full uninstall/delete/reinstall of the game folder to dodge a version
+   conflict (`installing-the-mod.md`) — ours is one step (drag the release folder onto the Steam
+   install) because every release vendors its own pinned UE4SS build (`licensing.md`'s RE-UE4SS
+   entry), so there's no existing-version conflict to have. Their only documented server-hosting
+   path is a full AWS EC2 walkthrough (security groups, SSH keys, manual `wget`); ours is
+   "double-click the exe," provider-agnostic. This is a comparison of written instructions, not
+   of real first-time users succeeding — see the maturity note above for why their project is
+   still ahead on the metric that actually matters most (real people playing it over a network).
+
+   **Not comparable / not adopted:** their server is Rust (ours is Go — language choice, not a
+   capability gap); their UDP wire format is packed binary with a hard 22-player cap tied to
+   fitting one packet, which MeshGhost's TCP framing has no equivalent constraint for; nothing
+   in their docs mentions rate limiting, room auth, or bounded-read hardening, which this
+   project already has (`contract.md`'s Limits section) — not raised as a critique of their
+   project, just not a place to look for ideas.
 
 ## Links
 

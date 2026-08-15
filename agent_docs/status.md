@@ -20,10 +20,34 @@
 - **TEVI: charged-attack VFX missing on the ghost** — animations play correctly, but the extra
   visual effects on the charged attack (held attack button) don't render. Not yet root-caused.
   See `agent_docs/phases/phase6.md`'s 2026-08-15 entry.
-- **Pseudoregalia: cling-gem effect and empty-hand glow (when not holding the sword) missing on
-  the ghost, and sword-held state isn't tracked at all** — deeper than a rendering gap, since
-  sword-held-vs-thrown is real player state the adapter never reads today. Not yet root-caused.
-  See `agent_docs/phases/phase7.md`'s 2026-08-15 entry.
+- **Pseudoregalia: Dream Breaker held/thrown visibility — FIXED and confirmed live 2026-08-15.**
+  Root cause found via a genuine 0%/100%-completion save comparison (a new reusable diagnostic
+  method, documented in `adapters/pseudoregalia/README.md`'s build-log step 20): the ghost-write
+  code wrote `weaponEquipped?`/`animEquippedWeapon` directly onto the ghost *before* calling
+  `changeEquippedWeapon`/`updateWeaponEquip`, so those calls always saw the property already at
+  the new value and silently did nothing. Fix was a pure reorder (calls first, property write
+  after, as a safety-net) — no new function or property needed. User confirmed on screen: sword
+  disappears on a real throw. Pickup direction (false→true) not separately watched yet, but same
+  code path. **Pickup animation: confirmed fixed as a free side effect of the same reorder** — user
+  watched it directly, previously didn't play at all, now plays correctly on pickup. **Throw
+  animation: still separately blocked, NOT fixed** — user explicitly confirmed something else is
+  still preventing the throw motion specifically, distinct from the pickup direction. Not yet
+  root-caused; needs its own investigation, don't assume the reorder fixed both directions
+  symmetrically just because it fixed pickup.
+- **Pseudoregalia: outfit/costume sync — FIXED and confirmed live 2026-08-15, same day as the
+  weapon fix.** `VisualMesh.SkeletalMesh`/`SkinnedAsset` swap directly per outfit (found via a
+  live value-diff straddling real costume swaps, no boolean flag or animBPref indirection like
+  weapon needed). First sync attempt (a raw property write) produced a real negative: the ghost
+  T-posed instead of showing the new costume — the mesh reference stuck but the engine never
+  re-bound the anim instance. Root cause: `SetSkeletalMeshAsset` (found via a live function-name
+  dump — the only real candidate this build's reflection exposes; no `SetSkeletalMesh`/`InitAnim`/
+  `MarkRenderStateDirty` exist) needed to be called, not just the property written. Fix calls it
+  first, property write kept after as a safety net — applying the weapon fix's ordering lesson
+  proactively this time. User confirmed on screen: ghost correctly swapped costume, no T-pose.
+- **Still fully open**: ability VFX only (cling-gem sparkle, empty-hand glow — zero sync code,
+  only read-only diagnostics exist). This is now the only remaining Pseudoregalia visual gap. See
+  `agent_docs/verified.md`'s "Dream Breaker weapon-visibility" and "Outfit/costume sync" entries
+  and `adapters/pseudoregalia/PLAYER_FIELDS.md`.
 - **Emerald: surf, Mach Bike, Acro Bike, ledges, and Mach Bike rail sections** — the ghost snaps
   badly on all of these today; detection source found and cited
   (`pokeemerald`'s `include/global.fieldmap.h:288-295`), a combined probe script is ready but not
