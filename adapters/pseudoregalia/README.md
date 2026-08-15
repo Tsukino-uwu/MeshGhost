@@ -154,6 +154,17 @@ Roughly in order:
     ghost could mirror at all, it's an animation montage. The game's own "play montage" function
     silently does nothing on a ghost, but the engine's own one underneath it works — so the ghost
     now plays whatever montage the real player plays, throw included. (7.6)
+30. Proved the ghost re-starts animations *on its own*: with every montage call in the mod
+    compiled out, it still began the ledge-grab montage by itself. It turned out our own state
+    sync drives the game's animation graph, which is the system working as intended — a ghost
+    just can't *finish* a montage, having no controller, so the peer now corrects it. (7.6)
+31. Checked the animations nobody had ever triggered by playing them straight onto the ghost,
+    which sidesteps not knowing how to trigger them in-game. All 8 worked with no new code —
+    guarding, getting up, summoning, channelling, and the map-reading idle. (7.6)
+32. Added the bubble's yellow flash, after mistaking it for two other effects first: an
+    afterimage trail, then an eye-blink timeline. It is neither — the game has its own
+    `StartBubbleJumpFlash`, and its own flag saying how long it lasts, so the ghost now asks the
+    game instead of counting. Every wrong guess was caught by watching, never by a log. (7.6)
 
 See [agent_docs/phases/phase7.md](../../agent_docs/phases/phase7.md) for the detailed, dated
 log, and [agent_docs/pitfalls.md](../../agent_docs/pitfalls.md) for the transferable lessons
@@ -164,12 +175,13 @@ bug behind the facing-direction fix).
 
 ### Further work past "good enough"
 
-The ghost passed "good enough" around step 18; steps 19–29 are all polish past that line. Still
+The ghost passed "good enough" around step 18; steps 19–32 are all polish past that line. Still
 open as of 2026-08-15 — [agent_docs/status.md](../../agent_docs/status.md) is the authoritative
 list:
 
 - 7.7 itself, two real players. Also gates the keep-or-axe call on ghost collision.
-- Which *other* montages step 29 fixed for free (attacks, hurt, ledge-hang) — untested.
+- Rotating around a climbing pole. The rotation itself is provably synced; a real second player
+  is needed to judge it, since loopback puts the ghost beside the pole rather than on it.
 - The blue ultra-hop trail (step 26) and the empty-hand recall glow (step 28).
 - Ghost vanishes while a peer is on a climbing pole, then returns stuck in a climb pose.
 - A `Fatal Error!` on game exit, seen once, never root-caused.

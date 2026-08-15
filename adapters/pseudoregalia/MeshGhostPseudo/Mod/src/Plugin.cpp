@@ -86,6 +86,29 @@ namespace MeshGhostPseudo
     // precision platformer can mean being pushed off a ledge. See agent_docs/ideas.md's
     // ghost-collision entry; this is the "untested with a real peer" risk, now partly answered.
     constexpr double LOOPBACK_GHOST_OFFSET_X = 150.0;
+    // Vertical loopback offset, added 2026-08-15 for the pole-rotation question, which the sideways
+    // offset structurally cannot answer.
+    //
+    // **Why a Z offset is the right tool here.** Orbiting a pole moves you around the POLE'S AXIS. A
+    // ghost pushed 150 units sideways orbits a phantom axis 150 units away -- it performs the same
+    // motion faithfully while visibly not going around the pole, which reads as "the rotation isn't
+    // syncing" even when the transform is provably exact (2469 samples, actualYaw == wantYaw to the
+    // decimal across the full +/-180 range -- see verified.md). Offsetting UP instead puts the ghost
+    // on the SAME axis, directly above the player, where an orbit is compared like with like.
+    //
+    // Also the safe way to get a zero horizontal offset: CLAUDE.md forbids
+    // `LOOPBACK_GHOST_OFFSET_X = 0` while ghost collision is on, because an exact overlap reproduces
+    // the 7.4 drag bug by construction. A vertical separation keeps the two bodies apart, so
+    // collision stays on and this stays a one-variable change.
+    //
+    // **Tried 2026-08-15 at 220.0, and it was a BAD tool for this after all -- back to 0.0.** A pole
+    // is a vertical structure, so offsetting along the pole's own axis put the ghost far up the same
+    // pole: the user reported "i couldn't see the ghost at all while on the pole" (out of frame, and
+    // plausibly inside ceiling geometry) and that it made everything else harder to judge. The
+    // geometry reasoning above is still right -- it just fails on the one structure it was built
+    // for. Kept as a named constant because it is the correct tool for a HORIZONTAL orbit, and
+    // because rediscovering the idea is worth more than the two lines it costs.
+    constexpr double LOOPBACK_GHOST_OFFSET_Z = 0.0;
 
     // Phase 7.6: one-constant control between the two ghost designs. true = spawn a clone of the
     // player's own pawn class (real player model, can animate -- what Phase 7.6 is actually for),
@@ -380,6 +403,49 @@ namespace MeshGhostPseudo
     // Every 4 ticks (~22ms at this build's measured ~180Hz). A visible flash cycles far slower than
     // that, so this cannot alias past it, and the diff keeps the volume down by itself.
     constexpr uint64_t BUBBLE_FX_DIFF_INTERVAL_TICKS = 4;
+
+    // Pole ROTATION sync, 2026-08-15 (user: climbing up/down now syncs, "but it does not sync
+    // rotating on it -- not going up, just spinning around the pole by going left/right").
+    //
+    // Reading the code first narrowed this before any capture: pitch/yaw/roll ARE sent
+    // (`orientation`) and ARE applied to the ghost via call_set_actor_location_and_rotation, so
+    // this is not a missing field on the wire. That leaves exactly two candidates, which this
+    // separates in one run:
+    //  (a) the spin is not expressed as ACTOR rotation at all -- this game is already known to
+    //      drive facing through `VisualMesh`'s own RelativeRotation (see the facing-direction
+    //      trace below, which found yaw=-90 on the mesh), so a pole spin may move the mesh, or
+    //      orbit the actor's position, while actor yaw sits still. Then there is nothing wrong
+    //      with the apply and the fix is to sync the thing that actually moves.
+    //  (b) actor yaw does change locally and the ghost's readback does not follow -- the apply is
+    //      being overridden by the ghost's own climb state, the same shape as the montage
+    //      self-start proved this session.
+    // Logs local yaw, VisualMesh relative yaw, and X/Y **on change**, plus each ghost's applied
+    // target yaw and an INDEPENDENT readback of its actual yaw -- never the value just written,
+    // per CLAUDE.md. Gated to movementMode==5 (the flying mode poles and bubbles both use) so a
+    // normal session doesn't flood.
+    // **Off again 2026-08-15, question ANSWERED**: local actorYaw moves smoothly through a spin while
+    // visualMeshYaw stays pinned at -90, and across 2469 ghost samples actualYaw matched wantYaw to
+    // the decimal over the full +/-180 range -- zero mismatches. The rotation pipeline is provably
+    // correct, so what the user saw is not a sync bug. See verified.md.
+    constexpr bool POLE_ROTATION_TRACE = false;
+
+    // One-shot, 2026-08-15: the follow-up BUBBLE_FX_DIFF earned. It found the pulsation's driver
+    // (`Blink_NewTrack_0_<GUID>`, a Blueprint Timeline track), but knowing WHEN the effect runs
+    // isn't enough to reproduce it -- something has to be callable on the ghost. This dumps the
+    // pawn's function names filtered to timeline/blink/flash/colour/material needles, which is the
+    // same "what is this class's API actually called" step that found `Montage_Play` and made the
+    // whole montage mirror possible. A Timeline is driven by UTimelineComponent, so a component or
+    // a Play/SetPlaybackPosition entry point appearing here is the lead; nothing appearing means
+    // the effect is driven from inside the Blueprint graph and needs a different angle.
+    // Deliberately paired with POLE_ROTATION_TRACE in one build: they are independent read-only
+    // captures in different subsystems, distinguishable by log prefix, and the scarce resource is
+    // the user's testing time, not log volume. Not a violation of "one diagnostic at a time" --
+    // that rule is about stacking probes on the SAME question.
+    // **Off again 2026-08-15, job done and it was the turning point**: the dump named
+    // `StartBubbleJumpFlash(Condition)` and `changeBubbleChargedJump(hasBubbleChargedJump)`, which
+    // is the entire bubble fix. Kept because "ask the class what its API is actually called" has now
+    // paid off twice (Montage_Play, then this) and the needle list is one line to change.
+    constexpr bool BLINK_FX_SEARCH = false;
 
     // Discovery tooling, restored 2026-08-16. A near-identical dumper (log_pawn_reflection_once)
     // existed during the falling-pose/ledge-hang investigation and was deleted in commit c3eb489
@@ -1802,6 +1868,55 @@ namespace MeshGhostPseudo
             pawn->ProcessEvent(function, params_buffer.data());
         }
 
+        // Generic single-bool-param Blueprint call, 2026-08-15. Same
+        // GetFunctionByNameInChain/params_buffer/ProcessEvent shape as call_change_equipped_weapon
+        // above, parameterised only because the bubble work needs two of them
+        // (`StartBubbleJumpFlash(Condition)` and `changeBubbleChargedJump(hasBubbleChargedJump)`)
+        // and copying that body twice more would be worse than naming it once.
+        //
+        // Returns whether the call was actually made, so a caller can tell "fired" from "this build
+        // doesn't have it" without inferring it from silence. Still says nothing about whether
+        // anything VISIBLE happened -- per CLAUDE.md, only the user watching establishes that, and
+        // this project already has a recorded case (`CustomPlayMontage`) of a Blueprint wrapper
+        // returning cleanly on a ghost while doing nothing at all.
+        auto call_bool_ufunction(UObject* target, const wchar_t* function_name, const wchar_t* param_name, bool value) -> bool
+        {
+            if (!target)
+            {
+                return false;
+            }
+            UFunction* function = target->GetFunctionByNameInChain(function_name);
+            if (!function)
+            {
+                return false;
+            }
+            int32_t parms_size = function->GetPropertiesSize();
+            if (parms_size < 1)
+            {
+                Output::send(STR("[MeshGhostPseudo] WARNING: {} has an implausibly small PropertiesSize ({}) -- refusing to call it.\n"),
+                             function_name, parms_size);
+                return false;
+            }
+            std::vector<uint8_t> params_buffer(static_cast<size_t>(parms_size), 0);
+            bool found_param = false;
+            for (FProperty* property : TFieldRange<FProperty>(function, EFieldIterationFlags::None))
+            {
+                if (property && property->GetName() == StringType(param_name))
+                {
+                    params_buffer[static_cast<size_t>(property->GetOffset_Internal())] = value ? 1 : 0;
+                    found_param = true;
+                }
+            }
+            if (!found_param)
+            {
+                Output::send(STR("[MeshGhostPseudo] WARNING: {}'s '{}' parameter was not found by name -- refusing to call it.\n"),
+                             function_name, param_name);
+                return false;
+            }
+            target->ProcessEvent(function, params_buffer.data());
+            return true;
+        }
+
         // Trail-VFX prototype, 2026-08-15 (see PLAYER_FIELDS.md's trail-VFX section): 'Spawn After
         // Image' is the real lead OBJECT_REFLECTION_DUMP found for the yellow/blue slide/ultra-hop
         // trail -- a clean, single-float-param callable function, same shape as the calls above.
@@ -2916,6 +3031,12 @@ namespace MeshGhostPseudo
             double weapon_equipped_num = 0;
             json_number_field(line, "weapon_equipped", weapon_equipped_num);
             bool weapon_equipped = weapon_equipped_num != 0;
+            // Bubble charged-jump flag (see the local half). Best-effort like every other extra: a
+            // peer on an older build simply never sends it, leaving this false, which falls the
+            // ghost back to the peer's in-bubble state -- today's behaviour, not a regression.
+            double bubble_charged_num = 0;
+            json_number_field(line, "bubble_charged", bubble_charged_num);
+            bool bubble_charged = bubble_charged_num != 0;
             std::string outfit_mesh = json_string_field(line, "outfit_mesh"); // best-effort, empty if missing
             // Montage mirror -- see RemoteGhost::target_montage. Both best-effort: a peer on an
             // older build simply sends neither, leaving montage_count at 0 forever, which never
@@ -2964,10 +3085,12 @@ namespace MeshGhostPseudo
                 // meant to run in a real session.
                 static const std::string ghost_suffix = "-ghost";
                 double loopback_offset_x = 0.0;
+                double loopback_offset_z = 0.0;
                 if (player_id.size() >= ghost_suffix.size() &&
                     player_id.compare(player_id.size() - ghost_suffix.size(), ghost_suffix.size(), ghost_suffix) == 0)
                 {
                     loopback_offset_x = LOOPBACK_GHOST_OFFSET_X;
+                    loopback_offset_z = LOOPBACK_GHOST_OFFSET_Z;
                 }
                 it->second.target_x = x + loopback_offset_x;
                 it->second.target_y = y;
@@ -2992,7 +3115,7 @@ namespace MeshGhostPseudo
                 {
                     slide_z_comp = GHOST_STANDING_CAPSULE_HALF - capsule_half;
                 }
-                it->second.target_z = z + slide_z_comp;
+                it->second.target_z = z + slide_z_comp + loopback_offset_z;
                 it->second.target_pitch = pitch;
                 it->second.target_yaw = yaw;
                 it->second.target_roll = roll;
@@ -3020,6 +3143,7 @@ namespace MeshGhostPseudo
                 // updateWeaponEquip/changeEquippedWeapon calls, edge detection) sees the inverted
                 // value consistently, rather than patching each consumer separately.
                 it->second.target_weapon_equipped = WEAPON_SYNC_INVERT ? !weapon_equipped : weapon_equipped;
+                it->second.target_bubble_charged = bubble_charged;
                 // Empty means "no data this sample" (e.g. an older peer build, or VisualMesh/
                 // SkeletalMesh unresolved that tick) -- never overwrite a known-good target with
                 // an empty string, matching the same "best-effort, missing means unchanged" spirit
@@ -3161,6 +3285,31 @@ namespace MeshGhostPseudo
                     size_t space_pos = full_name.find(' ');
                     outfit_mesh = (space_pos != std::string::npos) ? full_name.substr(space_pos + 1) : full_name;
                 }
+            }
+
+            // Bubble charged-jump flag, local half -- see the discovery block above for why this is
+            // read rather than reconstructed from a duration. Empty name = this build has no such
+            // property, in which case the ghost side falls back to the peer's in-bubble state.
+            bool local_bubble_charged = false;
+            if (!bubble_charge_prop_name.empty())
+            {
+                if (bool* bc_ptr = pawn->GetValuePtrByPropertyNameInChain<bool>(bubble_charge_prop_name.c_str()))
+                {
+                    local_bubble_charged = *bc_ptr;
+                }
+            }
+            // Local edge log, 2026-08-15, so "does the ghost last exactly as long as the player"
+            // stops being an eyeball judgement. The ghost side already logs its own on/off edges
+            // (BUBBLE ghost), so printing the LOCAL edges too makes the comparison arithmetic:
+            // subtract the two durations. They should differ only by the pipeline's ~100ms
+            // interpolation delay, and any real mismatch shows up as a number rather than a
+            // "looked fine". This is the same reason the pole trace logs local and ghost side by
+            // side rather than trusting one of them.
+            if (local_bubble_charged != prev_local_bubble_charged)
+            {
+                prev_local_bubble_charged = local_bubble_charged;
+                Output::send(STR("[MeshGhostPseudo] BUBBLE local: hasBubbleChargedJump -> {}\n"),
+                             local_bubble_charged);
             }
 
             // Montage mirror, local half -- see RemoteGhost::target_montage. Read every tick (not
@@ -3463,152 +3612,19 @@ namespace MeshGhostPseudo
                     last_slide_refire_tick = tick_count;
                 }
 
-                // Trigger C -- INSIDE the bubble, added 2026-08-15 from a bubble-only coverage
-                // capture (see prev_local_bubble_in_bubble in Plugin.hpp).
-                //
-                // **Measured signature, not a guessed one.** `moveState == 7` appeared for 2002
-                // ticks across the capture and occurred ONLY ever alongside `movementMode == 5`,
-                // `actionState == 0`, `animJumpType == 0` and a full-height 65 capsule, with
-                // `afterImagesToSpawn` reading **0 on all 2002 of those ticks** while the real
-                // player was visibly trailing. Gated on movementMode too, deliberately, so a future
-                // reuse of the moveState value in a grounded context can't silently inherit a trail.
-                //
-                // **Originally mislabelled "post-jump boost window", corrected the same day by the
-                // user's own three-way report** (in-bubble trailed / post-jump didn't / boost did).
-                // The log could not have caught that: it shows a clean held state either way, and
-                // which real-world moment it corresponds to is only visible on screen. Worth
-                // remembering -- a signature can be perfectly solid and still be attached to the
-                // wrong event, and only a human watching separates those.
-                //
-                // **Why this is not the property hunt verified.md closes off.** That entry's ceiling
-                // is real and stands: no single property tells you when the game trails in general,
-                // and intercepting `Spawn After Image` needs the Blueprint UFunction hook that
-                // crashed the game. This is the other, already-proven move -- the same one that
-                // fixed the plain-slide trail after three enum guesses failed: key on a measured
-                // signature of ONE named move. Trigger B is that precedent; these are its siblings.
-                constexpr uint8_t IN_BUBBLE_MOVE_STATE = 7;
-                constexpr uint8_t BUBBLE_MOVEMENT_MODE = 5;
-                bool in_bubble_now = (move_state_now == IN_BUBBLE_MOVE_STATE &&
-                                      movement_mode == BUBBLE_MOVEMENT_MODE);
-                bool bubble_enter_edge = (in_bubble_now && !prev_local_bubble_in_bubble);
-                if (bubble_enter_edge)
-                {
-                    bubble_enter_tick = tick_count;
-                }
-                // **Windowed, from a live observation**: the user reported the real player's own
-                // in-bubble trail "eventually stopped" while the ghost's kept going, because sitting
-                // in the bubble is player-terminated and can last arbitrarily long (261-793 ticks
-                // measured, and longer if you just wait) while the real trail is finite. Same shape
-                // as the slide's SLIDE_REFIRE_WINDOW_TICKS and tuned the same way -- by eye, since
-                // the real trail's length is visual-only and no property exposes it.
-                //
-                // **300 -> 900, corrected 2026-08-15**: at 300 the user reported the ghost losing it
-                // "way way faster" than the real player. Note the tick rate this converts against is
-                // ~180Hz on this build, measured from two independent log timestamp/tick pairs this
-                // session (448 ticks in 2.473s; 3001 in 16.495s) -- NOT the ~150Hz quoted in older
-                // entries, which would make every tick-based duration here read ~20% long.
-                //
-                // **900 is still WRONG and knowingly so -- do not tune this number, replace it.**
-                // BUBBLE_FX_DIFF then measured the real effect directly: `Blink_NewTrack_0_<GUID>`
-                // ran 9406 ticks in a single bubble visit, an order of magnitude past this window,
-                // which is why the user watched the ghost drop its effect early twice (counting ~16s
-                // of real effect remaining, both times). Raising this to ~9400 would make the
-                // duration roughly right and the VISUAL still wrong -- spawned afterimages read as
-                // constant yellow where the real effect flashes. The fix is to drive the ghost from
-                // the Blink track itself, not to keep fitting a constant; see status.md. Left at 900
-                // deliberately: a visibly-short approximation is easier to spot as provisional than
-                // a well-tuned one, and this must not be mistaken for finished.
-                constexpr uint64_t BUBBLE_REFIRE_WINDOW_TICKS = 900;
-                bool bubble_within_window = (tick_count - bubble_enter_tick) < BUBBLE_REFIRE_WINDOW_TICKS;
-                bool bubble_refire = in_bubble_now && !bubble_enter_edge && bubble_within_window &&
-                                     (tick_count - last_bubble_refire_tick) >= SLIDE_REFIRE_INTERVAL_TICKS;
+                // The bubble effect used to be approximated here by spawning afterimages, under two
+                // triggers (in-bubble, and a post-jump window). **Both are gone as of 2026-08-15 --
+                // superseded, not disabled.** They were the wrong mechanism twice over: the real
+                // effect is the game's own `StartBubbleJumpFlash`, driven by its own
+                // `hasBubbleChargedJump` flag, and the ghost now mirrors that directly in
+                // tickRenders -- confirmed live to match the real player to within 0.01s across all
+                // three cases including a negative control. Spawned afterimages also read as a
+                // constant glow where the real effect flashes, and no window constant could ever
+                // have fixed that. The full story, and the two guessed windows that failed on the
+                // way, are in verified.md and pitfalls.md; the code is not kept as a fallback
+                // because a wrong-looking effect is not a useful fallback for a correct one.
 
-                // Trigger D -- the post-jump "boost available" window, the half that was MISSING
-                // (user: "has the after image after jumping out of the bubble (not working)").
-                //
-                // Keyed on LEAVING the bubble state rather than on any enum of its own. That is
-                // deliberate: the window is plain falling (`moveState==1 animJumpType==0
-                // movementMode==3`) and is therefore indistinguishable from ordinary falling by any
-                // field captured -- so a value-based trigger here would trail every fall in the
-                // game. Requiring "was in the bubble last tick" cannot fire anywhere else by
-                // construction, which is the same reasoning that made the capsule shrink the right
-                // slide marker: prefer the fact that can't be coincidence.
-                //
-                // Ends exactly where the user says it ends -- "whenever the user inputs jump / as
-                // long as its before landing on the ground": on the boost itself (animJumpType==2,
-                // which sets afterImagesToSpawn=4 and is already covered by trigger A, so handing
-                // off there avoids double-spawning) or on touching the ground.
-                //
-                // **CONDITIONAL on the in-bubble trail not having run out, added 2026-08-15 from the
-                // user's description of the actual rule**: "you keep it if it didn't go away inside
-                // of the bubble, but if it ends it should not have the after image when you leave."
-                // The trail is a spendable thing with a lifetime, not a property of leaving the
-                // bubble. The first version armed this unconditionally and produced exactly the
-                // predicted wrong result live -- a ghost trailing out of the bubble while the real
-                // player, who had sat there long enough to burn it, had none. So the same window
-                // that bounds the in-bubble trail also decides whether there is anything left to
-                // carry out, which makes BUBBLE_REFIRE_WINDOW_TICKS do double duty: getting it
-                // wrong now shows up in two places at once, which is a feature -- it makes the
-                // number easier to tune, not harder.
-                //
-                // **DISABLED 2026-08-15, same day it was written** -- see BUBBLE_FX_DIFF. The user
-                // looked closely and reported that leaving the bubble the real player has **no
-                // trail at all**; the model pulsates yellow, which resembles one. So this trigger
-                // adds an effect the real player demonstrably does not have -- the crouch-trail
-                // false positive again, and that one is precedent for removing rather than tuning.
-                // Kept in place, not deleted: the WINDOW logic (latch on leaving the bubble, clear
-                // on boost or landing, armed only if the trail hadn't run out) is a correct model of
-                // a real game rule the user described, and is exactly what a material-pulse mirror
-                // will need once BUBBLE_FX_DIFF finds what to drive. Only the afterimage spawn is
-                // wrong. Re-enable by flipping this to true.
-                constexpr bool BOOST_WINDOW_SPAWNS_AFTERIMAGES = false;
-                constexpr uint8_t BOOST_ANIM_JUMP_TYPE = 2;
-                constexpr uint8_t WALKING_MOVEMENT_MODE = 1;
-                if (prev_local_bubble_in_bubble && !in_bubble_now && bubble_within_window)
-                {
-                    boost_window_active = true;
-                }
-                if (boost_window_active &&
-                    (anim_jump_type_now == BOOST_ANIM_JUMP_TYPE || movement_mode == WALKING_MOVEMENT_MODE))
-                {
-                    boost_window_active = false;
-                }
-                bool boost_window_refire = BOOST_WINDOW_SPAWNS_AFTERIMAGES && boost_window_active &&
-                                           (tick_count - last_bubble_refire_tick) >= SLIDE_REFIRE_INTERVAL_TICKS;
-
-                // BUBBLE_FX_DIFF -- see the flag's own comment. Runs while the effect is on screen
-                // (in the bubble, or in the window after leaving it) and prints only what moved.
-                if constexpr (BUBBLE_FX_DIFF)
-                {
-                    if ((in_bubble_now || boost_window_active) &&
-                        (tick_count - bubble_fx_last_sample_tick) >= BUBBLE_FX_DIFF_INTERVAL_TICKS)
-                    {
-                        bubble_fx_last_sample_tick = tick_count;
-                        auto now_snapshot = snapshot_object_values(pawn);
-                        if (!bubble_fx_prev_snapshot.empty())
-                        {
-                            log_value_snapshot_diff(bubble_fx_prev_snapshot, now_snapshot,
-                                                    in_bubble_now ? STR("bubbleFX in-bubble") : STR("bubbleFX post-jump"),
-                                                    tick_count);
-                        }
-                        bubble_fx_prev_snapshot = std::move(now_snapshot);
-                    }
-                    else if (!in_bubble_now && !boost_window_active && !bubble_fx_prev_snapshot.empty())
-                    {
-                        // Drop the baseline on leaving, so the next bubble's first diff isn't
-                        // against a stale snapshot from minutes of unrelated play.
-                        bubble_fx_prev_snapshot.clear();
-                    }
-                }
-
-                if (bubble_enter_edge || bubble_refire || boost_window_refire)
-                {
-                    last_bubble_refire_tick = tick_count;
-                }
-                prev_local_bubble_in_bubble = in_bubble_now;
-
-                if (burst_edge || slide_edge || slide_refire ||
-                    bubble_enter_edge || bubble_refire || boost_window_refire)
+                if (burst_edge || slide_edge || slide_refire)
                 {
                     ++afterimage_count;
                     // Prefer the game's own count when it actually supplied one; otherwise use the
@@ -3617,9 +3633,8 @@ namespace MeshGhostPseudo
                     afterimage_spawn_n = burst_edge ? to_spawn_now : 5;
                     if constexpr (TRAIL_TRIGGER_TRACE)
                     {
-                        Output::send(STR("[MeshGhostPseudo] TRACE trailTrigger: burst_edge={} slide_edge={} slide_refire={} bubble_enter={} bubble_refire={} boost_window={} n={} count={} actionState={} animJumpType={} moveState={}\n"),
+                        Output::send(STR("[MeshGhostPseudo] TRACE trailTrigger: burst_edge={} slide_edge={} slide_refire={} n={} count={} actionState={} animJumpType={} moveState={}\n"),
                                      burst_edge, slide_edge, slide_refire,
-                                     bubble_enter_edge, bubble_refire, boost_window_refire,
                                      afterimage_spawn_n, afterimage_count,
                                      static_cast<int>(action_state_now), static_cast<int>(anim_jump_type_now),
                                      move_state_ptr ? static_cast<int>(*move_state_ptr) : -1);
@@ -3627,6 +3642,146 @@ namespace MeshGhostPseudo
                 }
                 prev_local_afterimages_to_spawn = to_spawn_now;
                 prev_local_sliding = real_slide_now;
+
+                // Bubble CHARGED-JUMP flag discovery, 2026-08-15. The flash mirror works in the
+                // bubble and correctly stays off when the effect already expired, but does not
+                // survive leaving the bubble WHILE active -- the peer's in-bubble state ends and
+                // takes the flash with it, where the real rule (user) is "you keep it if it didn't
+                // go away inside of the bubble", until the boost or landing.
+                //
+                // **Do not reach for another tick window.** Two were tried and both were wrong for
+                // the same reason: the length is the game's business, not ours. `BP_PlayerGoatMain_C`
+                // exposes `changeBubbleChargedJump(hasBubbleChargedJump: bool)`, and a Blueprint
+                // "change<X>" event conventionally sets a variable of that name -- so the flag very
+                // likely exists to be READ, which turns this from a duration to mirror into a
+                // boolean to copy, exact by construction and ending exactly when the game says.
+                //
+                // Resolved by SEARCH rather than by assuming the name: this logs every bool property
+                // whose name mentions a bubble or a charge, then uses the first, so the real name is
+                // visible in the log instead of a guess silently failing. Falls back to the
+                // in-bubble state if nothing matches, which is today's behaviour and already right
+                // for two of the three cases.
+                if (!bubble_charge_prop_searched && class_looks_like_player(pawn))
+                {
+                    bubble_charge_prop_searched = true;
+                    if (UClass* pawn_class = pawn->GetClassPrivate())
+                    {
+                        for (FProperty* property : TFieldRange<FProperty>(pawn_class, EFieldIterationFlags::Default))
+                        {
+                            if (!property || property->GetClass().GetName() != STR("BoolProperty"))
+                            {
+                                continue;
+                            }
+                            StringType pname = property->GetName();
+                            if (pname.find(STR("ubble")) == StringType::npos &&
+                                pname.find(STR("harged")) == StringType::npos)
+                            {
+                                continue;
+                            }
+                            Output::send(STR("[MeshGhostPseudo] DIAG bubbleFlag: candidate bool property '{}'\n"), pname);
+                            if (bubble_charge_prop_name.empty())
+                            {
+                                bubble_charge_prop_name = pname;
+                            }
+                        }
+                    }
+                    Output::send(STR("[MeshGhostPseudo] DIAG bubbleFlag: using '{}' (empty = none found, falling back to in-bubble state)\n"),
+                                 bubble_charge_prop_name.empty() ? StringType(STR("<none>")) : bubble_charge_prop_name);
+                }
+
+                // BLINK_FX_SEARCH -- one-shot, see the flag's own comment. Fires on the first tick
+                // the pawn is valid rather than waiting for a bubble: the function list is a
+                // property of the CLASS, not of the moment, so there is nothing to be gained by
+                // making the user reach a bubble first.
+                if constexpr (BLINK_FX_SEARCH)
+                {
+                    // **class_looks_like_player guard, added after the first run wasted itself.**
+                    // Without it this latched on the TITLE SCREEN's transient DefaultPawn
+                    // (`Class /Script/Engine.DefaultPawn` -- which of course has no blink/timeline
+                    // functions), set the one-shot flag, and never ran again on the real pawn. This
+                    // file already carries that guard for exactly this hazard (see its own comment,
+                    // written after the title-screen DefaultPawn caused a spawn crash) -- a one-shot
+                    // that can fire before the real pawn exists MUST use it.
+                    if (!blink_fx_search_done && class_looks_like_player(pawn))
+                    {
+                        blink_fx_search_done = true;
+                        dump_functions_matching(pawn, STR("local pawn (blink/timeline search)"),
+                                                {STR("link"), STR("imeline"), STR("ubble"), STR("lash"),
+                                                 STR("olour"), STR("olor"), STR("aterial"), STR("cala")});
+                        // The Timeline's own component is the other half: a UTimelineComponent
+                        // exposes Play/Stop/SetPlaybackPosition, so if the pawn holds one by name
+                        // that is the callable path. Object-typed properties whose name mentions a
+                        // timeline are listed here with their real class, which says directly
+                        // whether it is a component we can reach or an inlined graph construct.
+                        if (UClass* pawn_class = pawn->GetClassPrivate())
+                        {
+                            for (FProperty* property : TFieldRange<FProperty>(pawn_class, EFieldIterationFlags::Default))
+                            {
+                                if (!property)
+                                {
+                                    continue;
+                                }
+                                StringType pname = property->GetName();
+                                if (pname.find(STR("imeline")) == StringType::npos &&
+                                    pname.find(STR("link")) == StringType::npos)
+                                {
+                                    continue;
+                                }
+                                StringType ptype = property->GetClass().GetName();
+                                StringType detail = STR("<not an object property>");
+                                if (ptype == STR("ObjectProperty"))
+                                {
+                                    UObject** ptr = pawn->GetValuePtrByPropertyNameInChain<UObject*>(pname.c_str());
+                                    detail = (ptr && *ptr && (*ptr)->GetClassPrivate())
+                                                 ? (*ptr)->GetClassPrivate()->GetFullName()
+                                                 : StringType(STR("<null>"));
+                                }
+                                Output::send(STR("[MeshGhostPseudo] DIAG blinkSearch: property '{}' ({}) -> {}\n"),
+                                             pname, ptype, detail);
+                            }
+                        }
+                    }
+                }
+
+                // POLE_ROTATION_TRACE -- see the flag's own comment for what each outcome means.
+                if constexpr (POLE_ROTATION_TRACE)
+                {
+                    constexpr uint8_t FLYING_MOVEMENT_MODE = 5;
+                    if (movement_mode == FLYING_MOVEMENT_MODE)
+                    {
+                        double vm_yaw = -9999.0;
+                        if (UObject** vm_ptr = pawn->GetValuePtrByPropertyNameInChain<UObject*>(STR("VisualMesh")); vm_ptr && *vm_ptr)
+                        {
+                            if (FRotator* vm_rot = (*vm_ptr)->GetValuePtrByPropertyNameInChain<FRotator>(STR("RelativeRotation")))
+                            {
+                                vm_yaw = vm_rot->GetYaw();
+                            }
+                        }
+                        // Log on CHANGE, at 1-degree/1-unit granularity, so a slow spin still
+                        // registers but a stationary hang doesn't repeat forever.
+                        int yaw_q = static_cast<int>(rotation.GetYaw());
+                        int vm_yaw_q = static_cast<int>(vm_yaw);
+                        int x_q = static_cast<int>(location.X());
+                        int y_q = static_cast<int>(location.Y());
+                        if (!pole_trace_initialized || yaw_q != pole_trace_prev_yaw ||
+                            vm_yaw_q != pole_trace_prev_vm_yaw || x_q != pole_trace_prev_x || y_q != pole_trace_prev_y)
+                        {
+                            pole_trace_initialized = true;
+                            pole_trace_prev_yaw = yaw_q;
+                            pole_trace_prev_vm_yaw = vm_yaw_q;
+                            pole_trace_prev_x = x_q;
+                            pole_trace_prev_y = y_q;
+                            Output::send(STR("[MeshGhostPseudo] POLE local tick={} moveState={} actorYaw={:.1f} visualMeshYaw={:.1f} x={:.1f} y={:.1f}\n"),
+                                         tick_count,
+                                         move_state_ptr ? static_cast<int>(*move_state_ptr) : -1,
+                                         rotation.GetYaw(), vm_yaw, location.X(), location.Y());
+                        }
+                    }
+                    else
+                    {
+                        pole_trace_initialized = false;
+                    }
+                }
 
                 // Coverage capture -- see TRAIL_COVERAGE_TRACE's own comment. Deliberately logs
                 // afterImagesToSpawn on EVERY active tick, not just on a change, so a move that
@@ -4093,7 +4248,8 @@ namespace MeshGhostPseudo
                 "\"extras\":{{\"move_state\":{},\"action_state\":{},\"h_speed\":{},\"v_speed\":{},\"anim_jump_type\":{},\"movement_mode\":{},"
                 "\"land_count\":{},\"jump_count\":{},\"weapon_equipped\":{},\"outfit_mesh\":\"{}\",\"afterimage_count\":{},"
                 "\"montage\":\"{}\",\"montage_count\":{},\"montage_stop_count\":{},"
-                "\"afterimage_n\":{},\"capsule_half\":{:.1f},\"afterimage_color\":[{:.4f},{:.4f},{:.4f}]}}"
+                "\"afterimage_n\":{},\"capsule_half\":{:.1f},\"bubble_charged\":{},"
+                "\"afterimage_color\":[{:.4f},{:.4f},{:.4f}]}}"
                 "}}}}}}",
                 json_escape(area_id),
                 location.X(),
@@ -4118,6 +4274,7 @@ namespace MeshGhostPseudo
                 montage_stop_count,
                 afterimage_spawn_n,
                 local_capsule_half,
+                local_bubble_charged ? 1 : 0,
                 local_afterimage_color.r,
                 local_afterimage_color.g,
                 local_afterimage_color.b);
@@ -4208,6 +4365,82 @@ namespace MeshGhostPseudo
             // is still true here, matching the local-test path and the "this is a teleport, not a
             // physics move" reasoning below -- just no longer the fix itself.
             call_set_actor_location_and_rotation(remote.ghost, target_loc, target_rot);
+
+            // Bubble FLASH mirror, 2026-08-15 -- the real mechanism, replacing the afterimage
+            // approximation (see BUBBLE_SPAWNS_AFTERIMAGES in tickLocal).
+            //
+            // **Found by asking the class what its API is called**, the same step that produced
+            // `Montage_Play` and with it the entire montage mirror. `BP_PlayerGoatMain_C` carries
+            // `StartBubbleJumpFlash(Condition: bool)` and `changeBubbleChargedJump(
+            // hasBubbleChargedJump: bool)` -- named for exactly the effect and exactly the state the
+            // user described, instead of anything this adapter had to infer.
+            //
+            // Driven off the peer's own in-bubble state (moveState==7 && movementMode==5, measured)
+            // rather than a guessed duration, which is the whole point: the previous version could
+            // not stop at the right time because it was counting ticks instead of following the
+            // peer. Called on EDGES only, never per tick -- these are "start"/"change" verbs, and
+            // hammering a Blueprint event every frame is how you get an effect that retriggers
+            // instead of running.
+            //
+            // **NOT yet confirmed to do anything visible on a ghost.** `CustomPlayMontage` is this
+            // project's recorded precedent for a Blueprint wrapper that returns cleanly on a ghost
+            // and does nothing, so the call firing is not the result -- the user watching is. If
+            // this comes back a clean negative, the montage saga's lesson applies: look for the
+            // stock engine call underneath the wrapper (here, the `Blink`/`Timeline_*`
+            // TimelineComponents the same dump found, which have Play/Stop of their own).
+            {
+                constexpr uint8_t IN_BUBBLE_MOVE_STATE = 7;
+                constexpr uint8_t BUBBLE_MOVEMENT_MODE = 5;
+                bool peer_in_bubble = (clamp_to_uint8(remote.target_move_state) == IN_BUBBLE_MOVE_STATE &&
+                                       clamp_to_uint8(remote.target_movement_mode) == BUBBLE_MOVEMENT_MODE);
+                // **The peer's own charged flag wins when it has one** -- that is the whole fix for
+                // "leaving the bubble while it was active didn't keep it". The in-bubble state ends
+                // the moment the peer jumps out, so driving from it necessarily drops the effect
+                // there; the game's flag stays true until the boost or a landing, which is exactly
+                // the rule the user described, maintained by the game rather than timed by us.
+                // OR'd with the in-bubble state rather than replacing it, so a peer on an older
+                // build that never sends the flag keeps today's working in-bubble behaviour instead
+                // of losing the effect entirely.
+                bool peer_flash_on = peer_in_bubble || remote.target_bubble_charged;
+                if (peer_flash_on != remote.ghost_bubble_flash_on)
+                {
+                    remote.ghost_bubble_flash_on = peer_flash_on;
+                    bool charged_ok = call_bool_ufunction(remote.ghost, STR("changeBubbleChargedJump"),
+                                                          STR("hasBubbleChargedJump"), peer_flash_on);
+                    bool flash_ok = call_bool_ufunction(remote.ghost, STR("StartBubbleJumpFlash"),
+                                                        STR("Condition"), peer_flash_on);
+                    Output::send(STR("[MeshGhostPseudo] BUBBLE ghost {}: flash={} (in_bubble={} peerCharged={}) changeBubbleChargedJump={} StartBubbleJumpFlash={}\n"),
+                                 to_wide_ascii(id), peer_flash_on, peer_in_bubble, remote.target_bubble_charged,
+                                 charged_ok, flash_ok);
+                }
+            }
+
+            // POLE_ROTATION_TRACE, ghost half -- see the flag's comment. Reads the ghost's ACTUAL
+            // yaw back from the world rather than echoing target_rot (CLAUDE.md: never log the value
+            // you just wrote), plus its VisualMesh relative yaw, which is where this game is already
+            // known to express facing. Throttled to the existing ~2s cadence: the local half logs on
+            // change and carries the timing, this only needs to answer "did the ghost follow".
+            if constexpr (POLE_ROTATION_TRACE)
+            {
+                constexpr uint8_t FLYING_MOVEMENT_MODE = 5;
+                if (clamp_to_uint8(remote.target_movement_mode) == FLYING_MOVEMENT_MODE &&
+                    tick_count % MONTAGE_DIVERGENCE_CHECK_INTERVAL_TICKS == 0)
+                {
+                    FRotator actual = remote.ghost->K2_GetActorRotation();
+                    double g_vm_yaw = -9999.0;
+                    if (UObject** g_vm = remote.ghost->GetValuePtrByPropertyNameInChain<UObject*>(STR("VisualMesh")); g_vm && *g_vm)
+                    {
+                        if (FRotator* g_vm_rot = (*g_vm)->GetValuePtrByPropertyNameInChain<FRotator>(STR("RelativeRotation")))
+                        {
+                            g_vm_yaw = g_vm_rot->GetYaw();
+                        }
+                    }
+                    Output::send(STR("[MeshGhostPseudo] POLE ghost {} tick={} moveState={} wantYaw={:.1f} actualYaw={:.1f} visualMeshYaw={:.1f}\n"),
+                                 to_wide_ascii(id), tick_count,
+                                 static_cast<int>(clamp_to_uint8(remote.target_move_state)),
+                                 target_rot.GetYaw(), actual.GetYaw(), g_vm_yaw);
+                }
+            }
 
             // Ghost animation (see verified.md's "ghost animation" entry): the ghost is a full
             // spawned clone of the same BP_PlayerGoatMain_C class, so it has its own

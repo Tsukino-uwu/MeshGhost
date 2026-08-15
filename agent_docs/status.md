@@ -28,13 +28,9 @@ Fixed-and-confirmed work is not listed here — see `verified.md` and the phase 
 
 ### Open, not blocked
 
-- **Pseudoregalia: bubble effect — driver FOUND, mirror not built.** The pulsating yellow is a
-  Blueprint Timeline track `Blink_NewTrack_0_<GUID>` on the pawn, not the afterimage system. Next
-  step: find what the Blink drives visually and mirror that. **Do not tune the window; replace the
-  mechanism.** See `verified.md`.
-- **Pseudoregalia: rotating around a climbing pole doesn't sync** (up/down does). Not investigated;
-  position/rotation are already synced, so the question is likely whether the ghost's own climb
-  state overrides applied rotation.
+- **Pseudoregalia: pole rotation** — the transform sync is PROVEN exact (2469 samples, zero
+  mismatch); the apparent bug is very likely the loopback offset placing the ghost beside the pole
+  rather than on it. Needs a real second player to confirm, not more diagnostics. See `verified.md`.
 - **Pseudoregalia: empty-hand recall glow** — blocked on a *precondition* (a real thrown-weapon
   actor for `manageRecallIdleFX`'s `IsValid` guards), not on finding the function. Read
   `verified.md`'s "`manageRecallIdleFX`: NEGATIVE" entry, plus the montage fix's lesson: a game

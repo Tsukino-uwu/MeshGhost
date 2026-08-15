@@ -145,6 +145,16 @@ namespace MeshGhostPseudo
         std::string last_failed_montage;
         uint64_t last_montage_warn_tick{0};
 
+        // Bubble FLASH mirror edge state, 2026-08-15: the last in-bubble value pushed to this ghost,
+        // so the game's own `StartBubbleJumpFlash`/`changeBubbleChargedJump` events fire once per
+        // transition rather than every tick. These are "start"/"change" verbs -- calling them per
+        // frame would retrigger the effect instead of letting it run.
+        bool ghost_bubble_flash_on{false};
+        // The peer's own bubble charged-jump flag, mirrored straight across the wire. Replaces the
+        // two guessed tick windows that both failed for the same reason -- how long the effect lasts
+        // is the game's business, not this adapter's.
+        bool target_bubble_charged{false};
+
         // Diagnostic-only, 2026-08-15: CustomPlayMontage fires on the ghost and returns cleanly
         // (called=true, ten times, no warnings) yet the user confirmed live that no throw animation
         // plays -- the same "call fires, nothing visible" shape as the manageRecallIdleFX negative.
@@ -465,6 +475,28 @@ namespace MeshGhostPseudo
         // header free of the Unreal SDK's string typedef; they are the same type on this build.
         std::map<std::wstring, std::wstring> bubble_fx_prev_snapshot;
         uint64_t bubble_fx_last_sample_tick{0};
+
+        // POLE_ROTATION_TRACE state: previous quantised sample, so the trace logs one line per real
+        // change rather than one per tick. Reset on leaving the flying movement mode so each pole
+        // or bubble visit starts with a fresh baseline line.
+        // BLINK_FX_SEARCH: one-shot latch, so the filtered function/property dump prints once per
+        // session rather than every tick.
+        bool blink_fx_search_done{false};
+
+        // Bubble charged-jump flag discovery (see its block in tickLocal): resolved once by
+        // searching the pawn's bool properties, so the real name lands in the log rather than being
+        // assumed. Empty means this build has none and the ghost falls back to the in-bubble state.
+        // Previous local value of the bubble charged-jump flag, so its on/off edges log once each
+        // and can be timed against the ghost's own edges.
+        bool prev_local_bubble_charged{false};
+        bool bubble_charge_prop_searched{false};
+        std::wstring bubble_charge_prop_name;
+
+        bool pole_trace_initialized{false};
+        int pole_trace_prev_yaw{0};
+        int pole_trace_prev_vm_yaw{0};
+        int pole_trace_prev_x{0};
+        int pole_trace_prev_y{0};
 
         // Health trace (HEALTH_TRACE) for the enemy-damage-vs-ghost test. The melee-death bug is
         // that damaging the ghost also damaged/killed the REAL player, and bCanBeDamaged=false

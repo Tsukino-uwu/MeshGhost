@@ -3804,3 +3804,75 @@ Copy this block per fact:
   trailTrigger`, `DIFF bubbleFX` lines; user's live visual reports throughout, including the
   observation that reframed the whole investigation. Code: `snapshot_object_values`,
   `log_value_snapshot_diff`, `BUBBLE_FX_DIFF`, and triggers C/D in `Plugin.cpp`.
+
+### Bubble flash mirror WORKS — and a correction to the entry above it
+
+- Date: 2026-08-15
+- **CORRECTION to "Bubble effect is a 'Blink' Timeline on the pawn".** That entry named
+  `Blink_NewTrack_0_<GUID>` as the pulsation's driver. **That is wrong, and this entry supersedes
+  it** (this file is append-only, so the error stays visible rather than being edited away). A
+  filtered function dump showed `startBlink` is built from `RandomFloatInRange` +
+  `K2_SetTimerDelegate` — a random-interval timer, i.e. **idle eye-blinking**, which also explains
+  the irregular 200-700 tick gaps that were noted at the time and not questioned. The change-detector
+  was right that something oscillated; naming which effect it belonged to was the same
+  signature-attached-to-the-wrong-event mistake `pitfalls.md` already records from earlier the same
+  day, made a second time in the same investigation.
+- **What actually drives it, and how it was found.** Asking the CLASS what its API is called --
+  the step that produced `Montage_Play` and with it the whole montage mirror -- found named
+  functions on `BP_PlayerGoatMain_C`:
+  `StartBubbleJumpFlash(Condition: bool)`, `changeBubbleChargedJump(hasBubbleChargedJump: bool)`,
+  `EventEnterBubble`, `startBubbleMode(reference)`, `bubble Exit Jump`, `flash(justWeapon?: bool)`.
+  Named for exactly the effect and exactly the state, instead of anything this adapter had to infer.
+- **Then the flag, not a third window.** Driving the ghost off the peer's in-bubble state fixed two
+  of three cases but dropped the effect the instant the peer jumped out. The real rule (user): "you
+  keep it if it didn't go away inside of the bubble", until the boost or a landing. Rather than a
+  third guessed duration -- two had already failed -- the `changeBubbleChargedJump` parameter name
+  implied a readable variable, and a search over the pawn's bool properties found exactly
+  **`hasBubbleChargedJump`**. Mirrored across the wire (`bubble_charged`), OR'd with the in-bubble
+  state so an older peer keeps working. **How long the effect lasts is the game's business, not
+  this adapter's** -- that is the whole lesson of the two failed windows.
+- **CONFIRMED LIVE, all three cases including a negative control** (user: "all 3 worked as
+  intended/matched what happened to the player"):
+  1. jump out while flashing, land without boosting -- ghost keeps flashing, stops on landing;
+  2. jump out while flashing, use the boost -- ghost stops at the boost;
+  3. wait for it to expire inside, then jump out -- ghost correctly shows **nothing**.
+  Case 3 is the one that matters: cases 1 and 2 can only confirm, while 3 is the only one that could
+  have caught a mirror that simply always flashes on leaving a bubble.
+- **Durations measured, not eyeballed.** Logging the LOCAL flag's edges alongside the ghost's turned
+  "does it last as long" into arithmetic: **2.36s/2.36s, 1.32s/1.31s, 22.59s/22.58s**, with the ghost
+  trailing by 14-28ms — the pipeline's own interpolation delay, nothing more.
+- **The superseded code was DELETED, not left disabled**: both afterimage triggers are gone. A
+  wrong-looking effect is not a useful fallback for a correct one, and the history lives here and in
+  `pitfalls.md` rather than in dead code.
+- Source: `UE4SS.log` (live install), 2026-08-15 sessions -- `DIAG blinkSearch`, `DIAG bubbleFlag`,
+  `BUBBLE local`, `BUBBLE ghost` lines; user's direct visual confirmation of all three cases. Code:
+  `call_bool_ufunction` and the bubble flash mirror in `Plugin.cpp`.
+
+### Pseudoregalia pole ROTATION syncs exactly — the apparent bug is a loopback artifact
+
+- Date: 2026-08-15
+- User report: climbing a pole up/down syncs, but spinning around it left/right leaves the ghost
+  looking unrotated. Reading the code first ruled out the obvious: pitch/yaw/roll are already sent
+  (`orientation`) and applied via `call_set_actor_location_and_rotation`, so nothing was missing
+  from the wire.
+- **Both hypotheses were wrong, and the measurement says the pipeline is fine.** Local `actorYaw`
+  moves smoothly through a spin (12.7 -> 25.2 over 29 ticks) while `visualMeshYaw` stays pinned at
+  **-90.0** throughout, so the spin IS actor rotation and not the mesh-relative rotation this game
+  uses for facing elsewhere. And across **2469 ghost samples, `actualYaw` matched `wantYaw` to the
+  decimal over the full -179.9..179.7 range -- zero mismatches beyond 5 degrees**, read back
+  independently from the world rather than echoed from what was written.
+- **The likely explanation is the loopback offset, and the agent had dismissed it wrongly.** The
+  user suggested it early ("might be due to the offset maybe?") and was told it shouldn't matter
+  because the ghost would still visibly swing around an empty axis. **Orbiting a pole is rotation
+  about the POLE'S axis** -- a ghost displaced 150 units sideways orbits a phantom axis 150 units
+  away, performing the motion faithfully while visibly not going around the pole. Still
+  UNCONFIRMED visually.
+- **A vertical (Z) offset was tried to put the ghost on the same axis, and failed for a reason worth
+  recording**: a pole is a vertical structure, so offsetting along its own axis put the ghost far up
+  the same pole -- "i couldn't see the ghost at all while on the pole". The idea is right for a
+  HORIZONTAL orbit and wrong for this one; `LOOPBACK_GHOST_OFFSET_Z` is kept at 0.0.
+- **Consequence: this is a loopback-can't-answer item**, the same category as ghost collision — a
+  real second player stands on the pole rather than beside it. Do not spend more diagnostics on the
+  transform pipeline; it is proven correct.
+- Source: `UE4SS.log` (live install), 2026-08-15 -- `POLE local` / `POLE ghost` lines (7011 local,
+  2469 ghost). Code: `POLE_ROTATION_TRACE` in `Plugin.cpp`.
