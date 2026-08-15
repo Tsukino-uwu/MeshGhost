@@ -3349,7 +3349,19 @@ namespace MeshGhostPseudo
     // adapter spawned, the extra one was constructed by the ghost and the fix is a sweep, exactly
     // like the glow's. If the count is right, the bug is in our own spawn/state handling instead
     // and the first two columns say which field disagrees.
-    constexpr bool GHOST_SPAWN_WEAPON_TRACE = true;
+    // Off 2026-08-16, investigation CLOSED with a negative result -- worth stating plainly, since a
+    // negative is easy to mistake for "nobody checked". Throwing before a ghost spawns behaves
+    // correctly: the census showed exactly two loose weapons (the real one and ours, no third), the
+    // prop tracked the arc and landed at the peer's own Y/Z, and the equip state settled by the
+    // follow-up sample. The apparent weirdness was the ghost mirroring the LOCAL player's state at
+    // construction, which is expected in loopback where the peer is the local player.
+    //
+    // Reading this path for the capture did surface a real defect independently: the "already
+    // synced" latches were never re-armed when a ghost was replaced, so a fresh ghost could keep
+    // its construction state forever. Fixed -- see release_all_ghosts. That one is invisible in
+    // loopback and only misbehaves against a real peer, which is why it needed finding by reading
+    // rather than by watching.
+    constexpr bool GHOST_SPAWN_WEAPON_TRACE = false;
 
     // Ticks after a ghost spawns before the follow-up sample. ~1s at this build's measured ~150Hz:
     // long enough for construction and a first state packet, short enough to still be "at spawn".
@@ -3725,6 +3737,13 @@ namespace MeshGhostPseudo
         it->second.spawn_weapon_trace_tick = 0;
         it->second.spawn_weapon_traced_at_spawn = false;
         it->second.spawn_weapon_traced_after = false;
+        // See release_all_ghosts for why these latches must be re-armed when a ghost goes away:
+        // they describe an actor that is about to stop existing, and a replacement ghost builds
+        // itself from the local save rather than from the peer's state.
+        it->second.weapon_equip_call_armed = false;
+        it->second.last_synced_weapon_equipped = false;
+        it->second.last_synced_outfit_mesh.clear();
+        it->second.last_failed_outfit_mesh.clear();
 
         // The peer's thrown sword is a separate actor with its own lifetime, so a peer despawning
         // mid-throw must not leave a sword hanging in the level. Handled BEFORE the ghost check on
@@ -3794,6 +3813,19 @@ namespace MeshGhostPseudo
             remote.spawn_weapon_trace_tick = 0;
             remote.spawn_weapon_traced_at_spawn = false;
             remote.spawn_weapon_traced_after = false;
+            // **Re-arm every "already synced" latch, because the NEXT ghost is a different actor.**
+            // Found 2026-08-16 while reading this path for the spawn-mid-throw capture. These
+            // latches exist to avoid re-calling transition functions every tick, but they describe
+            // a ghost that is about to stop existing. A replacement ghost constructs itself from
+            // the LOCAL player's save, so if the peer's value happens to equal what was last synced
+            // to the old ghost, there is no edge, the transition function is never called, and the
+            // new ghost keeps its construction state forever -- wearing the local player's outfit,
+            // or holding a sword the peer has thrown. Same bug family as the dangling prop pointer:
+            // per-ghost state that outlived its ghost.
+            remote.weapon_equip_call_armed = false;
+            remote.last_synced_weapon_equipped = false;
+            remote.last_synced_outfit_mesh.clear();
+            remote.last_failed_outfit_mesh.clear();
 
             if (!remote.ghost)
             {
@@ -6262,6 +6294,19 @@ namespace MeshGhostPseudo
                 remote.spawn_weapon_trace_tick = 0;
                 remote.spawn_weapon_traced_at_spawn = false;
                 remote.spawn_weapon_traced_after = false;
+            // **Re-arm every "already synced" latch, because the NEXT ghost is a different actor.**
+            // Found 2026-08-16 while reading this path for the spawn-mid-throw capture. These
+            // latches exist to avoid re-calling transition functions every tick, but they describe
+            // a ghost that is about to stop existing. A replacement ghost constructs itself from
+            // the LOCAL player's save, so if the peer's value happens to equal what was last synced
+            // to the old ghost, there is no edge, the transition function is never called, and the
+            // new ghost keeps its construction state forever -- wearing the local player's outfit,
+            // or holding a sword the peer has thrown. Same bug family as the dangling prop pointer:
+            // per-ghost state that outlived its ghost.
+            remote.weapon_equip_call_armed = false;
+            remote.last_synced_weapon_equipped = false;
+            remote.last_synced_outfit_mesh.clear();
+            remote.last_failed_outfit_mesh.clear();
                 remote.ghost = nullptr;
                 remote.owning_world = nullptr;
                 continue;
@@ -6282,6 +6327,19 @@ namespace MeshGhostPseudo
                 remote.spawn_weapon_trace_tick = 0;
                 remote.spawn_weapon_traced_at_spawn = false;
                 remote.spawn_weapon_traced_after = false;
+            // **Re-arm every "already synced" latch, because the NEXT ghost is a different actor.**
+            // Found 2026-08-16 while reading this path for the spawn-mid-throw capture. These
+            // latches exist to avoid re-calling transition functions every tick, but they describe
+            // a ghost that is about to stop existing. A replacement ghost constructs itself from
+            // the LOCAL player's save, so if the peer's value happens to equal what was last synced
+            // to the old ghost, there is no edge, the transition function is never called, and the
+            // new ghost keeps its construction state forever -- wearing the local player's outfit,
+            // or holding a sword the peer has thrown. Same bug family as the dangling prop pointer:
+            // per-ghost state that outlived its ghost.
+            remote.weapon_equip_call_armed = false;
+            remote.last_synced_weapon_equipped = false;
+            remote.last_synced_outfit_mesh.clear();
+            remote.last_failed_outfit_mesh.clear();
                 remote.ghost = nullptr;
                 remote.owning_world = nullptr;
                 continue;

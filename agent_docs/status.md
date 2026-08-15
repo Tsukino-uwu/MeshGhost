@@ -17,6 +17,12 @@ Fixed-and-confirmed work is not listed here — see `verified.md` and the phase 
 
 - **7.7 itself** — untested; Steam single-instance behavior for this game is unconfirmed
   either way. This is the top unblock: it also gates the two items below.
+- **A fresh ghost showing the LOCAL player's state instead of the peer's.** A ghost is a clone
+  constructed from the local save, so at spawn it mirrors *you* — invisible in loopback, where the
+  peer is you, and wrong with a real peer (their ghost would show your sword/outfit/glow). Two
+  fixes shipped 2026-08-16 — re-arming the "already synced" latches when a ghost is replaced, and
+  sweeping a self-constructed recall glow — but **neither can be verified without two players**,
+  by construction.
 - **Ghost collision keep-or-axe.** Kept ON as a deliberate feature (user decision,
   2026-08-15); its run-ending risk is fixed. Loopback cannot answer whether real-peer
   contact is disruptive. Never judge it with `LOOPBACK_GHOST_OFFSET_X = 0` — that
