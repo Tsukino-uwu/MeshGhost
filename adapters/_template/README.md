@@ -1,6 +1,7 @@
 # Adapter template
 
-**Frozen 2026-08-11**, at the end of Phase 5. The core was proven to run against a fake
+**First written 2026-08-11**, at the end of Phase 5, and kept current since with what the three
+shipped adapters learned the hard way (last swept 2026-08-15). The core was proven to run against a fake
 adapter (`cmd/meshghost-fakeadapter`, a ghost that walks in a circle, driven by
 `core.RunAdapter` — see [agent_docs/verified.md](../../agent_docs/verified.md)'s Phase 5 entry)
 with no game attached and no import of anything under `adapters/`. This folder is what that
@@ -47,20 +48,59 @@ same as any two unrelated games — grouping by franchise just keeps the top lev
    `position` looks like (2D or 3D — the schema doesn't fix this), what `anim` tags are
    meaningful, and whether `get_local_state()` should ever return "don't send this frame" (a
    menu, loading screen, or similar).
-5. Follow this project's verification standard ([CLAUDE.md](../../CLAUDE.md)): no address,
+5. Read [agent_docs/pitfalls.md](../../agent_docs/pitfalls.md) — at minimum its "Diagnostic
+   methodology" section (one diagnostic at a time, never log the value you just wrote, run the
+   test without the fix, two identical failures means stop guessing). It's the most transferable
+   content in the repo, and the rest of the file is the log of what the three existing adapters
+   got wrong so you don't have to.
+6. Follow this project's verification standard ([CLAUDE.md](../../CLAUDE.md)): no address,
    hook, or API call from memory — everything traceable to a source, and nothing in
    [agent_docs/verified.md](../../agent_docs/verified.md) until it's been watched happening on
    screen.
-6. Do not modify `internal/core` or `internal/relay` for game-specific reasons. If something
+7. Do not modify `internal/core` or `internal/relay` for game-specific reasons. If something
    about the new game seems to require that, stop — it means either the contract needs a real,
    ADR'd revision (rare), or the adapter is trying to do something the boundary doesn't allow
    (much more likely).
-7. When the adapter is actually ready to ship, add it to the release: give it its own step in
+8. When the adapter is actually ready to ship, add it to the release: give it its own step in
    `.github/workflows/release.yml`'s assemble job, under `games/<publisher>/<game>/` — nothing
    under `adapters/` is picked up automatically. See
    [packaging/README.md](../../packaging/README.md)'s "Adding a game to the release" for the
    pattern (and its TEVI section if the adapter needs a build step, not just a file copy,
-   before it's shippable).
+   before it's shippable). A *compiled* adapter is four things, not one: a
+   `dev-scripts/build-<game>.bat` that stages its output into `packaging/release/games/...` and
+   writes a `built-from.txt` SHA-256 record, the build output committed to the repo (CI can't
+   build these), its own staleness-verification step in `release.yml`, and a hand-written
+   `README.txt` for the game folder that nothing generates.
+
+## Testing it
+
+The local rig already exists — read [dev-scripts/README.md](../../dev-scripts/README.md) before
+inventing your own. Three things about it are worth knowing up front, because each was learned
+the expensive way:
+
+- **Give each game a `run-core-<game>.bat`, and test with `-interp=0ms -min-send=10ms`.** The
+  core's default 200ms interpolation buffer smooths over real local timing bugs — treat "looks
+  fine with the buffer on" as untested, not confirmed. (If you also start a relay locally, it
+  needs `-send-hz=100` or it silently overrides every core's fast `-min-send`.)
+- **Solo-test through `run-relay-loopback.bat`**, which echoes your own state back as
+  `<id>-ghost`, and give loopback ghosts a **render-only** offset so you can tell the ghost from
+  your own character — all three adapters do this (Emerald 1-2 tiles, TEVI 160 units,
+  Pseudoregalia 150). Offset for judging render quality, zero for verifying exact tracking;
+  either way it never touches what goes on the wire.
+- **Loopback cannot exercise cross-area filtering, join/leave, or despawn** — it always echoes
+  your own area back. Those bugs only appear with two real instances, which is why the bridge
+  port has to be per-instance overridable (see [PROTOCOL.md](PROTOCOL.md)). `run-fakeadapter1/2`
+  exercise core+relay with no game attached at all.
+
+Two habits from the existing adapters worth copying:
+
+- **Diagnostics are named constant flags, default off, left in the tree with what they found
+  written in the comment** (Emerald's `DIAG_STEP_CURVE`, TEVI's `DIAG_REDRAW_TRACE`,
+  Pseudoregalia's `ANIM_PULSE_TRACE`). Throttle or edge-trigger every one of them — a per-frame
+  log produced 7324 lines in a single TEVI session.
+- **Hash-diff the file actually deployed into the game directory against your repo copy before
+  believing any live test.** Every adapter here is a build artifact copied somewhere, and a
+  stale copy has invalidated whole test sessions twice.
 
 ## Writing the new adapter's own README
 

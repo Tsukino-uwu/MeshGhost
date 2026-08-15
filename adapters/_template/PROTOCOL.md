@@ -7,7 +7,15 @@ NDJSON — see
 authoritative spec. This file is a condensed, copy-from starting point, not a replacement for
 reading that file first.
 
-## Connecting: send hello first
+## Connecting: where, and send hello first
+
+The bridge listens on `127.0.0.1:7778` by default (`packaging/release/config.json`'s
+`local_game_bridge`). **Make the port overridable per instance — an env var, a config entry,
+anything — do not hardcode it.** Two copies of the same game on one machine is how every adapter
+in this repo got tested, and two instances sharing one default port fail silently, with both
+logging a normal "connected" line: it cost a full debugging session once
+(`dev-scripts/README.md`). Emerald uses `MESHGHOST_BRIDGE_PORT`, TEVI a BepInEx `BridgePort`
+entry. Log the port you actually resolved when you connect.
 
 The very first message on a fresh bridge connection, before any `local_state`:
 
@@ -100,15 +108,17 @@ loop, once per real game frame:
         agent_docs/contract.md's tick model)
 
     if not connected to bridge:
-        try to connect (non-blocking, retry next frame on failure)
+        if at least ~2s since the last attempt:      # NOT every frame — see below
+            try to connect (non-blocking)
+            on success: clear the remote-ghost map, then send hello(game_id)
 
     if connected:
-        if hello not yet sent on this connection:
-            send hello(game_id)                # must be the very first message
         state = get_local_state()
         send local_state(state)               # state may be nil — send it anyway
         drain all buffered render_remote / despawn_remote messages, updating the
             adapter-owned remote-ghost map (upsert / delete)
+        if any socket error that is not "would block"/"timeout":
+            drop the socket, clear the remote-ghost map, reconnect on the schedule above
 
     redraw every entry currently in the remote-ghost map, unconditionally — not only the
         ones that changed this frame. render_remote is an upsert into a set the adapter
@@ -120,6 +130,126 @@ The "redraw every frame regardless of new data" rule is the one that produces fl
 skipped — see `agent_docs/contract.md`'s tick model section for the full reasoning, and
 `adapters/pokemon/emerald/phase3_loopback.lua`'s header for the specific bug this project hit live
 before that rule was written down.
+
+Four things in that loop are there because a shipped adapter got them wrong first:
+
+- **Throttle reconnects (~2s), don't retry every frame.** A per-frame connect against a dead
+  core is on the order of 200 socket create/connect/abort cycles per second. TEVI and
+  Pseudoregalia independently landed on the same 2s interval.
+- **Clear the remote-ghost map on connect *and* on disconnect.** `despawn_remote` is not
+  guaranteed to arrive: if the core process exits or is restarted, nothing tells you, and a
+  peer's ghost stands frozen on screen indefinitely. All three adapters hit this live.
+- **Treat "timeout"/"would block" as the *only* harmless socket result** — everything else is
+  fatal. The intuitive inverse (special-case "closed" as fatal, treat the rest as a timeout) is
+  what Emerald shipped in Phase 3 and Pseudoregalia repeated in C++; it silently converts a dead
+  connection into a permanently frozen ghost.
+- **Keep sending `local_state` every frame, including `null`.** The core only emits
+  `render_remote`/`despawn_remote` in reply to a local frame (`internal/core/core.go`'s
+  `onAdapterFrame`) — there is no independent push. An adapter that optimizes away nil or
+  unchanged sends stops receiving ghost updates entirely, and it looks like a frozen ghost, not
+  a protocol error. For the same reason, **stay connected through menus and pauses and send
+  `null`** rather than closing the socket: closing it is a real relay `leave`, and reconnecting
+  gets you a brand-new `player_id` (`agent_docs/contract.md`).
+
+## Framing: NDJSON is fragile in exactly two places
+
+The "drain all buffered messages" line above hides the bug that has bitten every adapter here,
+in three different languages:
+
+- **Receive: keep the straddling partial line in a buffer.** A read returns whatever bytes
+  happened to arrive; the last line is usually incomplete. Discarding it (easy to do in Lua,
+  where a non-blocking `receive` returns `nil, "timeout", partial` and code that checks only the
+  first two values drops the third) corrupts the stream from that point on. Bound the buffer too
+  — Pseudoregalia caps it at 16 KB.
+- **Send: a partial send is a fatal framing error, not a success.** If the socket accepted only
+  part of your line, the newline may not have gone out; drop the connection rather than continue.
+  The tick loop makes a dropped frame free, so this costs one frame, not correctness.
+
+Also escape control characters when you build JSON by hand — an unescaped `\n` inside a string
+turns one line on the wire into two.
+
+**One bad line, or one bad frame, must not kill the adapter.** Wrap the per-frame work so an
+error can't escape it, rate-limit the resulting error log (a per-frame error otherwise spams the
+console 60 times a second), parse optional fields best-effort with defaults, and never let a
+missing or wrong-typed value overwrite known-good state.
+
+## Limits your adapter must respect
+
+Enforced by `internal/protocol/limits.go` (and the relay). Oversized values are dropped
+*silently* — the bridge itself doesn't enforce them, so a too-big `extras` sails across the
+bridge and disappears later, which is a miserable thing to debug:
+
+| Field | Limit |
+| --- | --- |
+| `extras` | 1024 bytes (serialized) |
+| `position` | 8 elements |
+| `orientation` | 256 bytes |
+| `area_id`, `anim` | 256 bytes each |
+| whole line | 4096 bytes |
+| `game_id`, `game_version` | 128 bytes (refused at handshake) |
+
+## Updates are sparse: ~20 Hz, not per-frame
+
+The core throttles sending (default 20 Hz, `protocol.DefaultSendHz`; the effective rate is the
+slower of the relay's `send_hz` and your config's `max_receive_hz_per_player`). Calling
+`get_local_state()` every frame is correct and safe — but only ~20 samples/sec reach peers, so
+**peers never observe your intermediate states.** Two consequences that are protocol-level, not
+engine-level:
+
+- **Drive animation from your own frame clock, not from packet arrival.** `render_remote` is a
+  merge into an existing ghost, not a replacement — a position update every ~50ms must not reset
+  which walk-cycle frame is showing. (TEVI's version of this: call `Play()` only on change, or
+  the clip restarts from time 0 every frame and never visibly progresses.)
+- **Send one-shot events as monotonic counters, not booleans.** A jump/land/hit flag that is
+  true for one frame will usually be sampled on a frame where it's false. Pseudoregalia carries
+  `land_count`/`jump_count`/`afterimage_count` in `extras` and baselines them on a remote's first
+  sample so it doesn't fire a spurious pulse at spawn.
+
+## `area_id` gates rendering — it is not just metadata
+
+The core drops any remote whose `area_id` differs from your last non-nil local `area_id`
+(`internal/core/core.go`'s `remoteStatesAt`), and interpolation refuses to blend across an
+`area_id` change. So an unstable `area_id`, or returning nil during transitions, makes remotes
+despawn and reappear for no visible reason. Note there are **three** ghost states, not two: alive,
+hidden-because-the-peer-is-elsewhere (still in your map, just not drawn), and actually despawned.
+
+## Ghost lifecycle: confirm your despawn actually frees
+
+`despawn_remote` must remove the entry from your map, not just hide the visual. TEVI leaked a
+clone per reconnect twice by only deactivating the GameObject and leaving the dictionary entry
+alive. Where the engine has no reliable runtime destroy (Pseudoregalia), park the actor far
+offscreen instead — but still drop the map entry.
+
+Two more traps if your ghost is a clone of the real player, which is how all three adapters
+ended up building it:
+
+- **A clone deep-copies transient state at the instant you cloned it.** TEVI cloned a player
+  mid-zone-fade and inherited `enabled == false` on a renderer, with no gameplay logic that
+  would ever flip it back: a permanently invisible, alive, correctly-positioned ghost. Reset
+  only the field you proved was wrong — the first fix forced every renderer on and white, which
+  broke the outline effect.
+- **A duplicate of the player class may steal control or share gameplay state.** The game was
+  never written to have two live instances. Pseudoregalia's ghost auto-possessed and dragged the
+  real player around, and later, with collision on, melee-ing the ghost killed the real player.
+  Ghosts are visual-only: strip colliders/rigidbodies, suppress the paired SFX, never write game
+  memory.
+
+And **measure the anchor offset, don't guess it** — read the real offset at clone time. A
+hardcoded constant is how both Emerald and TEVI ended up with a ghost rendering near the
+player's head.
+
+## Caches die at scene/area transitions
+
+Whatever your engine's version of "cached" is — an actor pointer, a pawn reference, a save-block
+address — a level/scene/area change invalidates it. Recorded independently for UE5, GBA/Lua and
+Unity; it's the most recurring bug class in the project (`agent_docs/pitfalls.md`). Related: a
+`(0,0,0)` read right after a spawn or load usually means the engine hasn't placed the object yet,
+not that it's at the origin.
+
+The same shape applies at startup: **don't latch a value once at init.** An adapter loaded at the
+title screen or during an intro reads whatever was true then and keeps it for the session — this
+happened twice, to a gender read (before character creation) and to an address-offset detection
+(during a cutscene). Gate on real gameplay and retry every frame until the read succeeds.
 
 ## Reference implementations
 
