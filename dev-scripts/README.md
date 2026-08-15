@@ -130,18 +130,20 @@ downloaded release folder and run against its `meshghost-server.exe` instead.
   testing this script. Dropped in the wrong folder it says so in plain language and exits
   rather than failing cryptically.
 
-  **Status: mechanically confirmed, not yet used for real (2026-08-15).** What was actually
-  checked, from a stand-in release folder launched from an unrelated working directory:
-  `-loopback enabled` in the log, `config.json` and `meshghost-server.log` both resolving to the
-  release folder, the wrong-folder guard exiting cleanly, and a real `render_remote p1-ghost`
-  round trip driven by `meshghost-fakeadapter.exe`. What has **not** happened: nobody has run
-  this from a genuine downloaded release zip with a real game attached and watched their own
-  ghost appear on screen. The moving parts are the shipped relay binary and its existing
-  `-loopback` flag, unchanged — the script adds no new behavior of its own — so there's no
-  specific reason to expect trouble; it simply hasn't been through the standard "seen happening
-  in a running game" bar (`CLAUDE.md`). Nothing goes in
-  [agent_docs/verified.md](../agent_docs/verified.md) until it has. Worth updating this line
-  the first time someone actually uses it.
+  **Status: confirmed working in a real release folder (user-run, 2026-08-15).** It launches and
+  runs loopback from a genuine downloaded release, which is the part the script itself is
+  responsible for — that's no longer an open question, and it's fine to hand out. Earlier
+  agent-side checks, from a stand-in release folder launched from an unrelated working
+  directory, cover the details underneath: `-loopback enabled` in the log, `config.json` and
+  `meshghost-server.log` both resolving to the release folder, the wrong-folder guard exiting
+  cleanly, and a real `render_remote p1-ghost` round trip driven by `meshghost-fakeadapter.exe`.
+
+  **Still unwatched: the ghost itself.** No run so far has had a game mod loaded, so nobody has
+  seen their own ghost appear on screen *from this script* — which is exactly the bar
+  [agent_docs/verified.md](../agent_docs/verified.md) exists for, so nothing goes in there yet.
+  Low risk rather than an unknown: the moving parts are the shipped relay binary and its
+  existing `-loopback` flag, both unchanged, and the script adds no behavior of its own. The
+  first person to run it with a game attached closes this — add the entry then.
 
   The loopback ghost renders a short distance to the side of the real player rather than
   exactly on top of it, so the two can be compared without overlapping — that offset is
