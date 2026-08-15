@@ -62,6 +62,16 @@ same as any two unrelated games — grouping by franchise just keeps the top lev
    pattern (and its TEVI section if the adapter needs a build step, not just a file copy,
    before it's shippable).
 
+## Writing the new adapter's own README
+
+Give the game's folder a `README.md` with a **"How this adapter was built"** numbered list — the
+short, readable version of the story, one step per thing that happened, ~2-4 lines each, in plain
+language. See `adapters/pseudoregalia/README.md` for the worked example. Keep the detail
+(field names, dump sizes, failed attempts, dated evidence) in `agent_docs/phases/phaseN.md`,
+`verified.md`, and `pitfalls.md`, and link to them — a step that has grown into paragraphs of
+caveats belongs there with a one-line pointer left behind. See [CLAUDE.md](../../CLAUDE.md)'s
+hard rule on this.
+
 ## Hard rules, restated (unchanged from [agent_docs/contract.md](../../agent_docs/contract.md))
 
 - The adapter may hold a socket to its own local core process (the bridge) and nothing else —

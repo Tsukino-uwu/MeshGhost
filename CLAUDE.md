@@ -89,6 +89,18 @@ proposing a plan that touches the core, an adapter, or the relay.
   left/right), never compass points.** User preference, specifically about talking to them —
   compass directions (north/south/east/west) remain fine anywhere in code/comments where
   that's the clearer choice.
+- **An adapter's `README.md` is a short build story, not a log.** Its "How this adapter was
+  built" list stays plain and skimmable: **one numbered step per thing that happened, ~2-4 lines
+  each**, saying what was done and why it worked, in the language you'd use explaining it out
+  loud. Field names, offsets, dump counts, sample sizes, failed-attempt trails, and dated
+  evidence go to `agent_docs/phases/phaseN.md`, `verified.md`, or `pitfalls.md` — link, don't
+  inline. When a step starts needing bold sub-clauses or a paragraph of caveats, that's the
+  signal it belongs in the phase file with a one-line pointer left behind. Any time figure is
+  **time to reach a named milestone, not total time spent** ("~10 hours from nothing to good
+  enough", not "~10 hours in") — the three existing adapter READMEs all read that way, and it's
+  the number a reader is actually asking for. Found live 2026-08-15:
+  Pseudoregalia's steps 19-22 had each grown to 15-20 dense lines while 1-18 stayed at 2-4,
+  making the file hard to read for exactly the audience it's for.
 - **Keep `agent_docs/status.md` to one screen (~50 lines).** It drifted to 628 lines once before
   (Found live 2026-08-15) by accreting a "Current focus:" bullet per session instead of updating
   the existing one — when the active phase changes, overwrite the relevant line/section instead

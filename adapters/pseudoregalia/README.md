@@ -38,15 +38,23 @@ package cut 2026-08-13, marked experimental/pre-release pending 7.7. See
   found via a real reflection dump.
 
 ## Custom features
-Outfit/cosume mod support, if you have the same mod installed as another player it will get synced for you
 
+- Outfit/costume mod support, if you have the same mod installed as another player it will get
+  synced for you.
+- Trail (afterimage) colour, including modded colours — the colour is read live off the real
+  player and sent, rather than hardcoded, so a peer running a colour mod shows up with their own
+  trail colour on your screen.
+
+Both work for the same reason: nothing hardcodes the list of outfits or colours, so anything a mod
+changes about them syncs for free between two peers who both have that mod.
 
 ## How this adapter was built
 
-Third game, and by far the hardest so far: roughly 15-20 hours in and still not fully done
-(the ghost follows and animates, but Phase 7.7 — a real two-player test — hasn't happened
-yet). Started in Lua, then had to be substantially remade in C++ partway through once Lua
-proved unable to reliably send everything the adapter needed.
+Third game, and by far the hardest: roughly 15-20 hours to reach "good enough" — a ghost that
+follows, animates, and faces the right way (the end of step 18 below). Everything after that is
+polish, and Phase 7.7 (a real two-player test) still hasn't happened. Started in Lua, then had to
+be substantially remade in C++ partway through once Lua proved unable to reliably send everything
+the adapter needed.
 
 All of this is one phase, [agent_docs/phases/phase7.md](../../agent_docs/phases/phase7.md) —
 the sub-numbers below (7.1, 7.4,
@@ -98,7 +106,8 @@ Roughly in order:
     pawn's movement-state fields onto the ghost's own AnimBP instance. (7.6)
 14. Tried enabling ghost collision, found it genuinely dangerous, reverted — it didn't make
     the ghost solid, but let the real player accidentally kill it in melee, which killed the
-    real player's own character too. (7.6)
+    real player's own character too. (7.6) **Reversed 2026-08-15 — collision is now ON as a
+    deliberate feature and the run-ending half of this danger is fixed; see step 27.**
 15. Figured out how to drive the ghost's facing direction — found via a forced test rotation
     (to tell "the write is dead" apart from "the write lands wrong") that it was landing as
     ≈0; traced to a marshaling bug in the vendored UE4SS SDK that only affects `FRotator` on UE
@@ -108,93 +117,38 @@ Roughly in order:
 17. Fixed the ghost getting stuck in a ledge-hang animation. (7.6)
 18. Ghosts can't actually be deleted on this build, so a leaving ghost is moved into the void
     instead, until the next stage transition clears it out. (7.5)
-19. Started chasing the Dream Breaker (weapon), ability VFX (cling gem, sword glow), and outfit
-    gaps — restored a generalized reflection dumper (`dump_object_reflection`, gated behind
-    `OBJECT_REFLECTION_DUMP`) in the C++ mod, deleted as dead diagnostics after the falling-pose/
-    ledge-hang investigation and rebuilt for this new discovery pass, plus turned on UE4SS's own
-    already-vendored `ConsoleCommandsMod`/`ActorDumperMod` for live, no-rebuild-needed lookups. A
-    real capture session mapped every ability on the game's own trending-pages list to real
-    internal field names, several only after correcting an initial name-based guess against
-    actual gameplay knowledge (the code's own name for "Cling Gem" isn't "glide" anywhere, and
-    "Solar Wind" turned out to be a passive stat upgrade with no unlock flag of its own, not a
-    flip move). A follow-up live-*value* trace (`ABILITY_FIELD_TRACE`) then separated real
-    findings from guesses: `weaponEquipped?`/`canFlipJump?` turned out to be persistent
-    "obtained" flags, not moment-to-moment triggers; `currentPower`/`powerLevel` are genuinely
-    live; `chargeAttackHoldTime` is a static tuning constant, not a live timer; and
-    `hasGroundPound` never once went true across 616 samples despite deliberately testing every
-    interaction — a real negative result, not a sampling gap, since a similarly brief flag
-    (`wallRideHeld?`) still got caught 14 times at the same cadence. See
-    [PLAYER_FIELDS.md](PLAYER_FIELDS.md) for the full field map and
-    [agent_docs/verified.md](../../agent_docs/verified.md) for the dated, evidence-cited entries.
-    **Stale as of the same day**: `weaponEquipped?`/`animEquippedWeapon` were subsequently wired
-    into the actual sync path (`RemoteGhost::target_weapon_equipped`) — shipped, live-tested, and
-    still not visually correct after a real throw (five straight fix attempts, root cause
-    unresolved; see `verified.md`'s "Dream Breaker weapon-visibility sync" entry and
-    `PLAYER_FIELDS.md`). The rest of the mapped fields (cling-gem/VFX, outfit) remain unwired.
-20. **New reusable testing method, found this same investigation: comparing a genuine 0%-completion
-    save against a 100%-completion save.** An inversion test (deliberately syncing the ghost the
-    *opposite* of the real player's state) had already confirmed the ghost's weapon/outfit visual
-    is a spawn-time snapshot, not driven by any sync code — but that only proves the sync code
-    isn't the lever, not what actually is. Loading two saves with maximally different progression
-    within the same running game process, dumping every reflected property's real *value* (not
-    just its name/type — the existing `dump_object_reflection` schema dumper was extended into a
-    new `dump_object_property_values`) right at ghost spawn on both, then diffing the two dumps
-    (after normalizing out per-instance object IDs and level-path noise) turned a guessing game
-    into an exhaustive, evidence-based search: it found the *one* field that actually differs
-    between an armed and unarmed spawn (`animEquippedWeapon` on `animBPref`) out of 230 properties
-    checked, and separately proved `WeaponMesh`'s own component state is provably identical in
-    both saves across all 250 of its properties — ruling it out as a suspect entirely, not just
-    the four properties anyone had thought to check by name. **General technique, not
-    weapon-specific**: whenever two known game states produce a visibly different result and the
-    responsible field isn't obvious, load a save representing each extreme, dump every reflected
-    property's value at the moment that matters, and diff — this finds the field(s) that actually
-    differ without having to guess field names first. Diagnostic code:
-    `dump_object_property_values` in `Plugin.cpp`, gated behind `DUMP_GHOST_SPAWN_VALUES`. See
-    `verified.md`'s two "cross-save" entries for the full evidence.
-21. **Dream Breaker held/thrown visibility bug FIXED, 2026-08-15 — root cause was a call-order
-    bug, not a missing property or function.** Step 20's diff found `animEquippedWeapon` as the
-    one field that actually correlates with sword-equipped state, on `animBPref`. But the
-    ghost-write code had been setting that raw property directly, unconditionally, every tick —
-    *before* the edge-gated `changeEquippedWeapon`/`updateWeaponEquip` calls that were meant to be
-    the real trigger. So by the time either function ran on a real throw, the property had already
-    been overwritten to the new value on that same tick; if either function's own Blueprint graph
-    does the ordinary "only play the transition if the value changed" comparison, it would always
-    see old==new and do nothing — explaining why both function calls had failed identically
-    despite both being confirmed to fire. **Fix: reorder so the function calls run first, while
-    the ghost's property still holds the old value, with the property write kept afterward as a
-    safety-net.** No new function or property needed — both candidates from step 19 were right all
-    along. **Confirmed live**: user watched the ghost's sword disappear on a real throw. See the
-    fix itself in `Plugin.cpp`'s `tickRenders` (Dream Breaker block) and
-    `agent_docs/verified.md`'s "Dream Breaker weapon-visibility: animBPref cross-save diff" entry
-    for the full before/after evidence; also written up as a general UE4SS/Blueprint-reflection
-    lesson in `agent_docs/pitfalls.md`'s "Engine reflection / API availability" section
-    ("Writing a property directly before calling a function that also sets that property can
-    silently defeat the function").
-22. **Outfit/costume sync FIXED, same day.** Unlike weapon, no boolean flag or `animBPref`
-    indirection at all — a live value-diff straddling real costume swaps in the in-game menu found
-    `VisualMesh`'s own `SkeletalMesh`/`SkinnedAsset` properties swap directly to a different mesh
-    asset per outfit; `AnimClass` and skeleton stay constant across every variant, so a plain
-    mesh-asset reference is the whole mechanism. Sent as the asset's real object path; the ghost
-    resolves it via `StaticFindObject` (grounded in RE-UE4SS's own official C++ mod guide). First
-    live attempt (a raw property write) T-posed the ghost instead of showing the new costume — the
-    mesh reference stuck (readback confirmed) but the engine never re-bound the anim instance
-    against it. A live function-name dump of `VisualMesh` found `SetSkeletalMeshAsset` as the one
-    real candidate this build's reflection exposes (no `SetSkeletalMesh`/`InitAnim`/
-    `MarkRenderStateDirty`); calling it *before* the property write — applying step 21's ordering
-    lesson proactively this time, not after another failed test — fixed the T-pose. **Confirmed
-    live**: user screenshot, ghost correctly wearing the swapped costume, no T-pose. Two follow-up
-    hardening passes, reasoned through rather than hit by a live bug: a class-type check before
-    applying (the resolved object is peer-controlled data, and an unchecked `StaticFindObject`
-    match could otherwise write a non-mesh object into the mesh property slot), and a retry
-    throttle (a target that fails to resolve — e.g. a peer's outfit mod this machine lacks — would
-    otherwise retry and re-log a warning every single tick forever). **Notable emergent property,
-    not a deliberate feature**: because nothing here hardcodes which outfits exist — it just reads
-    and sends whatever asset is actually equipped — any *modded* outfit works automatically between
-    two peers who both have that mod installed, no per-mod code required. A peer without it simply
-    keeps seeing their own default outfit on that ghost rather than breaking (the ghost is a clone
-    of the *receiving* peer's own pawn, so it already starts dressed as them before any sync runs).
-    See `agent_docs/verified.md`'s two "Outfit/costume sync" entries for the full evidence and the
-    untested edge cases (asset must be loaded into memory, not just installed, to resolve).
+19. Went after the remaining visual gaps (weapon, outfit, ability VFX) by rebuilding a
+    generalized reflection dumper and turning on UE4SS's own console/actor-dumper mods, then
+    mapping every in-game ability to real internal field names — and a follow-up live *value*
+    trace to sort genuinely live fields from persistent "obtained" flags and static constants.
+    (7.6 — see [PLAYER_FIELDS.md](PLAYER_FIELDS.md))
+20. Found a reusable diagnostic along the way: diff a 0%-completion save against a 100% one.
+    Dumping every reflected property's *value* at the moment that matters on both saves, then
+    diffing, finds the field that actually differs without guessing names first — here, 1 real
+    field out of 230, plus proof that the suspected mesh component never differs at all. (7.6)
+21. Fixed the Dream Breaker (sword) appearing on the ghost after a throw — the code wrote the
+    raw property *before* calling the functions meant to trigger the transition, so they always
+    saw old==new and silently did nothing. A pure reorder fixed it. (7.6)
+22. Added outfit/costume sync — the outfit is just a mesh asset swap, sent as an object path and
+    resolved by name on the other side. A raw property write T-posed the ghost; calling the
+    engine's own setter first fixed that. Modded outfits work for free as a side effect. (7.6)
+23. Added the slide/ultra-hop trail (afterimages), triggered off the player capsule physically
+    shrinking rather than an animation-state enum — three enum-based triggers were each disproven
+    live, because the enums overlap between different moves and the shrink doesn't. (7.6)
+24. Fixed the ghost sinking into the floor mid-slide: the same shrink drops the capsule's origin
+    by 43 units, so a full-height ghost placed there sat 43 under the floor. Mirroring the ghost's
+    capsule provably didn't work; compensating its render height did. (7.6)
+25. Added the cling-gem (wall-ride) VFX by calling the pawn's own wall-run function on the ghost,
+    with the paired sound suppressed — ghosts are a visual-only layer. (7.6)
+26. Synced the trail colour, modded colours included. The ultra hop's blue trail turned out to be
+    a separate mechanism and is parked — it isn't derivable from any polled state. (7.6)
+27. Fixed enemies damaging a ghost hurting and killing the *real* player, by moving the ghost's
+    capsule off the collision channel enemy targeting queries. Ghost collision is now kept ON as a
+    deliberate feature; whether it's actually fun stays open until a real two-player test. (7.6)
+28. Two negatives worth not re-walking: hooking Blueprint functions crashes this build (native
+    ones are fine), and the empty-hand recall glow needs a real thrown-weapon actor to exist
+    before it will do anything — you can only trigger the game's own systems when their
+    preconditions are state you can write. (7.6)
 
 See [agent_docs/phases/phase7.md](../../agent_docs/phases/phase7.md) for the detailed, dated
 log, and [agent_docs/pitfalls.md](../../agent_docs/pitfalls.md) for the transferable lessons
@@ -205,5 +159,12 @@ bug behind the facing-direction fix).
 
 ### Further work past "good enough"
 
-Not reached yet — Phase 7.7 (a real two-player test) is still outstanding. Add entries here
-once work continues past that point.
+The ghost passed "good enough" around step 18; steps 19–28 are all polish past that line. Still
+open as of 2026-08-15 — [agent_docs/status.md](../../agent_docs/status.md) is the authoritative
+list:
+
+- 7.7 itself, two real players. Also gates the keep-or-axe call on ghost collision.
+- The sword *throw* animation (pickup was fixed by step 21; throw is separately blocked).
+- The blue ultra-hop trail (step 26) and the empty-hand recall glow (step 28).
+- Ghost vanishes while a peer is on a climbing pole, then returns stuck in a climb pose.
+- A `Fatal Error!` on game exit, seen once, never root-caused.

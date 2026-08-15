@@ -1656,8 +1656,10 @@ GBA memory). Started early relative to Phase 6's own two-player milestone (6.6) 
 - Environment drift is now a live, observed risk for this phase specifically (see the
   mid-task UE4SS version correction above) — re-check `environment.md`'s UE4SS version at the
   start of any future session before resuming, rather than trusting the last recorded value.
-- **Found live 2026-08-15, not yet fixed: cling-gem effect and empty-hand glow both missing on
-  the ghost.** Two symptoms: (1) the cling gem's sparkle/effect doesn't render on the ghost when
+- **Found live 2026-08-15: cling-gem effect and empty-hand glow both missing on the ghost.**
+  **Status now (same day): cling gem FIXED and confirmed live; empty-hand glow still open, but
+  for a known reason — see the VFX-session bullet below.** Two symptoms as originally found:
+  (1) the cling gem's sparkle/effect doesn't render on the ghost when
   the real player clings (the cling *animation* itself already works for free via the existing
   continuous-state mirror — see `verified.md`'s ability-field-trace entry — this is specifically
   the sparkle VFX layered on top); (2) the real player's hand glows when empty (not currently
@@ -1699,5 +1701,61 @@ GBA memory). Started early relative to Phase 6's own two-player milestone (6.6) 
   type-unchecked `StaticFindObject` otherwise) as a defensive hardening pass, not itself
   live-tested. See `verified.md`'s five "Dream Breaker weapon-visibility" entries plus its two
   "Outfit/costume sync" entries, and `adapters/pseudoregalia/PLAYER_FIELDS.md` for the current
-  state. **The cling-gem/glow VFX half above remains the only completely untouched Pseudoregalia
-  visual gap left.**
+  state. **The cling-gem/glow VFX half above was then taken on the same day too — see the next
+  bullet; only the empty-hand glow half survives, and with a known blocker.**
+- **Ghost VFX session, 2026-08-15 (commit `4c76a8a`) — five fixes, all confirmed live by the
+  user watching them on screen.** This is the session that closed the cling-gem gap logged in the
+  bullet above, plus four things found along the way. Condensed here; full evidence in
+  `agent_docs/verified.md`'s eight Pseudoregalia entries from that day, and a narrative version as
+  build-log steps 23–28 in `adapters/pseudoregalia/README.md`.
+  1. **Slide/ultra-hop trail (afterimages)** — write `afterImagesToSpawn` on the ghost, then call
+     `spawnNumAfterimages` (the count write was the missing piece; the call alone did nothing).
+     The trigger keys on the **capsule shrink 65→22**, not an `actionState` enum: three enum-based
+     attempts were each disproven live (`as==18` also fires on a turn-around skid; `as==18 &&
+     ajt==13` belongs to the skid and to the pre-backflip slide, firing zero times on a plain
+     slide; and the game's own `afterImagesToSpawn` is never set during a plain slide at all, so
+     mirroring it is pipeline-exact but has incomplete coverage). The shrink is a physical fact of
+     the move, in a place where the enums overlap between moves.
+  2. **Ghost sinking into the floor during a slide** — arithmetic, not animation: the same shrink
+     drops the capsule origin 43 units (feet stay planted), so a full-height ghost teleported
+     there sat 43 under the floor. Mirroring the ghost's capsule provably applied and did nothing
+     (the mesh offset is fixed at construction, and the crouch logic that adjusts it never runs on
+     an unpossessed ghost); fixed by compensating render Z instead.
+  3. **Cling-gem (wall-ride) VFX** — `moveState==4` was already the confirmed marker and already
+     on the wire, so no new sync: call the pawn's own `doWallRun` on the ghost on entry,
+     `Deactivate` `wallRideVFX` on the falling edge, suppress the paired SFX entirely (ghosts are
+     visual-only and silent by design).
+  4. **Trail colour, incl. modded colours** — `afterimageColor` read live, sent via `extras`,
+     written before each burst; `FLinearColor` layout resolved by reflection, not assumed; write
+     path proven with a deliberate magenta override first.
+  5. **Enemy damage to a ghost hurting/killing the real player** — `bCanBeDamaged=false` was tried
+     and provably did not work (this game bypasses UE's standard damage path); fixed by re-typing
+     the ghost capsule's collision *object type* to `WorldDynamic`, since enemy targeting queries
+     the Pawn channel. Confirmed live: no enemy damage, and the ghost shoves enemies.
+
+  **Ghost collision is kept ON as a deliberate feature** (user decision, 2026-08-15); the
+  keep-or-axe call is explicitly deferred to 7.7's real two-player session, because loopback
+  cannot answer it. **Never judge collision with `LOOPBACK_GHOST_OFFSET_X = 0`** — that reproduces
+  the 7.4 drag bug by construction and says nothing about real peers.
+
+  **Negative results from the same session, recorded so they aren't re-walked**: (a) a UFunction
+  hook on `Spawn After Image` — the correct event-sourced design in principle — **CRASHED this
+  build** (registered fine, never fired, then fatal error); UE4SS hooks are safe here only for
+  *native* functions, and this is now in `pitfalls.md`. (b) `manageRecallIdleFX` produces nothing
+  on a ghost: its `IsValid` guards need a real thrown-weapon actor, which established the
+  **precondition clause** — triggering the pawn's own systems only works when those systems'
+  preconditions are state we can write. This is why the empty-hand glow is still open. (c) The
+  ultra hop's **blue** trail does not come from `afterimageColor`, nor from `ultraCap` /
+  `fullUltraModifier` / `cappedUltraModifier` / `animJumpType`; parked with evidence — don't
+  resume by guessing more property names.
+
+  **New gap found live in the same session, cause UNKNOWN**: the ghost disappears while a peer is
+  climbing/on a pole, then reappears stuck in a climb pose. Two suspects ruled out with evidence —
+  not the slide floor fix above (`CapsuleHalfHeight` read 65 for all 10,930 in-game ticks
+  including throughout a climb, so the render-Z compensation never fires during one), and not
+  purely the loopback sideways offset either (a reasonable theory, but untestable without the
+  zero-offset setting that reproduces the 7.4 drag bug). Next step is 7.7's real second player,
+  which sidesteps the offset entirely.
+
+  All diagnostic flags were returned to `false` at the end of the session, and the shipped
+  `main.dll` was rebuilt and redeployed from these sources.
