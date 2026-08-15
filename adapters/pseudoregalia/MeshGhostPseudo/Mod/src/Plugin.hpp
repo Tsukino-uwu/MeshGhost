@@ -131,6 +131,11 @@ namespace MeshGhostPseudo
         double target_montage_count{0};
         double last_seen_montage_count{0};
 
+        // Stop half of the mirror (see the local montage_stop_count's comment). Same monotonic
+        // counter shape, same first-sample baselining, for the same reason.
+        double target_montage_stop_count{0};
+        double last_seen_montage_stop_count{0};
+
         // Retry/spam guard, same role as last_failed_outfit_mesh above: a montage path that
         // doesn't resolve on this machine (peer on a different game build, say) must not re-resolve
         // and re-warn on every tick. Unlike outfit there's nothing to retry -- a montage is a
@@ -150,6 +155,17 @@ namespace MeshGhostPseudo
         // present at t+0 then gone means something else stops it (this adapter's own land/jump
         // Montage_Stop pulse being the first suspect).
         uint32_t montage_readback_ticks_left{0};
+
+        // Diagnostic-only, 2026-08-15: previous-tick snapshot of the state actually WRITTEN to this
+        // ghost, so ANIM_TRACE can log the ghost's timeline on change and line it up against the
+        // local player's. Exists for the ledge-grab-lingers-after-release question, where the
+        // montage explanation was ruled out by evidence and the remaining suspects are all about
+        // when the state transition reaches the ghost.
+        bool anim_trace_initialized{false};
+        int anim_trace_prev_move_state{-1};
+        int anim_trace_prev_action_state{-1};
+        int anim_trace_prev_movement_mode{-1};
+        int anim_trace_prev_anim_jump_type{-1};
 
         // Landing/jump pulse mirror, redone 2026-08-13 (follow-up session). The first attempt at
         // this (a plain bool, read/written on the PAWN) was a no-op on both ends: a real reflection
@@ -326,6 +342,15 @@ namespace MeshGhostPseudo
         // event to replay on the ghost, since the ghost's own copy runs out on its own.
         uint32_t montage_count{0};
         std::string prev_local_montage;
+
+        // Montage STOPS, added 2026-08-15 immediately after the throw fix shipped: mirroring only
+        // starts left a real gap, and the user found it the same session -- the ghost held the
+        // ledge-grab pose for a noticeable beat after the real player let go. A montage that ends
+        // on its own is harmless (the ghost's copy of the same asset ends on its own too), but one
+        // the game cuts short -- letting go of a ledge -- left the ghost holding the pose until the
+        // land/jump Montage_Stop pulse happened to clear it. Counts local montage ENDS the same
+        // monotonic way montage_count counts starts.
+        uint32_t montage_stop_count{0};
 
         // Diagnostic-only, 2026-08-15 trail-VFX investigation: edge-detects the real pawn's
         // 'spawnTrackingParticles?' bool (found by OBJECT_REFLECTION_DUMP) so ABILITY_FIELD_TRACE

@@ -3568,3 +3568,62 @@ Copy this block per fact:
   lines; user's direct visual confirmation for the fix itself. Code: `Plugin.cpp`'s
   `call_montage_play`, `read_current_active_montage`, the montage block in `tickRenders`, and
   `RemoteGhost::target_montage`.
+
+### Montage mirror covers the whole game; ledge-climb-up lingering root-caused (the ghost restarts montages itself); crouch trail false positive fixed
+
+- Date: 2026-08-15
+- **The montage mirror is general, confirmed live across one session**: 51 montage starts -> 49 ghost
+  plays, zero refusals (`length` never 0), covering `Attack_GF1`/`GF2`/`GL2`, `Flinch`, `KnockBack`,
+  `LedgeGrab`, `PoleToPerch`, `WeaponThrow`/`WeaponCatch`, and sitting (user screenshot: real player
+  and ghost in the same sit pose). **No new per-animation code was written for any of these** -- they
+  came free with the throw fix, which is the whole point of mirroring the mechanism rather than the
+  one animation.
+  - **Full vocabulary captured** via `UObjectGlobals::FindAllOf(STR("AnimMontage"))` (signature read
+    from the vendored SDK header, `RE-UE4SS deps/first/Unreal/include/Unreal/UObjectGlobals.hpp:244`):
+    33 montages loaded, including player ones not yet triggered -- `Guard_Main`,
+    `Guard_BlockedHit`, `Guard_CounterF`, `Getup`, `SummonWeapon`, `Channel`, `Sit`, `SitLowHP`,
+    `Idle_ThinkMap`. **Loaded objects only** -- an absent montage means "not streamed in", not
+    "doesn't exist".
+  - **Not montage-driven, established by silence**: ground pound/plunge, slide and wall-ride fired
+    no montage at all, so they need the mechanisms they already have, not this path.
+  - **2 of 51 starts dropped, benign and understood**: a ledge grab that started and ended within
+    ~7ms (inside one sample) sends an incremented counter with an empty name, so the ghost had
+    nothing to play. Fix if ever needed: latch the last-started name instead of the currently-playing
+    one.
+- **Ledge-grab pose lingered on the ghost after a climb-UP (~1.4-1.7s), not after a drop-down. Root
+  cause: the ghost re-starts the montage ITSELF.** Two wrong guesses died on the way, both by
+  measurement:
+  1. *"The stop needs a hard blend."* The stop mirror used a 0.1s blend vs the land/jump pulse's
+     0.0f. Changed to 0.0f: **measured as no change at all** (1.34s/1.44s/1.73s before and after).
+  2. *"Our Montage_Stop call doesn't work."* Killed by an immediate same-tick readback right after
+     the call: it reads `playing='none'` **every time**. The call works.
+  - **What the evidence showed instead**: ~0.4s after a confirmed-effective stop, the ghost is
+    playing `LedgeGrab_Montage` again with **no `Montage_Play` from this adapter in between** (every
+    play is logged; there is none). The ghost restarts it on its own. **Leading explanation, NOT
+    proven**: the ghost is a real pawn clone with collision enabled, and its own tick-driven
+    ledge detection re-grabs the ledge it was left standing at -- which fits climb-ups being affected
+    (ghost left at the lip) and drop-downs not (ghost falls away). Also casts the original
+    "ledge-hang stuck forever" bug in a new light: the land/jump pulse may have been masking this
+    same behavior rather than fixing it.
+  - **Fix, deliberately independent of the unproven half**: a peer-authoritative montage divergence
+    correction -- every 4 ticks (~27ms), if the peer is playing no montage and the ghost is, stop the
+    ghost's. One-sided by design (only stops, never starts), so it cannot fight the start mirror or
+    re-trigger anything. **CONFIRMED LIVE**: "the ledge(up) thing seems to be fixed, its not stuck
+    anymore and does the proper animation as well."
+- **Crouch trail false positive FIXED** (user-reported: the ghost trailed afterimages while
+  crouching). **Both obvious discriminators are useless, measured**: crouch and slide read an
+  identical `capsule=22.0` and both set `bIsCrouched=true` -- so tightening `SLIDE_CAPSULE_THRESHOLD`
+  would have changed nothing and gating on `bIsCrouched` would have killed the real slide trail.
+  `moveState` separates them cleanly (crouch 2, slide 0), across 3 crouches and 5 slides. Written as
+  "not the crouch state" so an unrecognised future state keeps its trail. **CONFIRMED LIVE on a
+  second save**: crouching clean, sliding still trails.
+- **Reusable lesson, bigger than any of these**: when a call on a ghost appears not to work, read
+  back the effect *immediately, in the same tick*, before theorising about the call. Here that one
+  measurement flipped the diagnosis from "our call is broken" to "something else undoes it" and
+  saved a third wrong fix. It is the direct generalisation of the `manageRecallIdleFX` entry's own
+  stated weakness.
+- Source: `UE4SS.log`, 2026-08-15 sessions 16:53-17:21 (live install) -- `TRACE montage local/ghost`,
+  `TRACE animState local/ghost`, `DIAG: montage asset`, `DIAG: Montage_Play param` lines; user's
+  direct visual confirmations for all three fixes and the sit screenshot. Code: `Plugin.cpp`'s
+  montage divergence correction and stop mirror in `tickRenders`, the crouch exclusion in the trail
+  trigger, `RemoteGhost::target_montage_stop_count`.

@@ -27,15 +27,14 @@ Fixed-and-confirmed work is not listed here — see `verified.md` and the phase 
 
 ### Open, not blocked
 
-- **Pseudoregalia: empty-hand recall glow** — blocked on a *precondition* (needs a real
-  thrown-weapon actor for `manageRecallIdleFX`'s `IsValid` guards), not on finding the right
-  function. Read `verified.md`'s "`manageRecallIdleFX`: NEGATIVE" entry before retrying —
-  **and the montage fix's lesson first**: the game's own wrapper bailing on a ghost was worked
-  around by calling the stock engine function underneath it, which may apply here too.
-- **Pseudoregalia: which montages now ride the mirror for free — UNTESTED.** The montage mirror
-  (2026-08-15, `verified.md`) is general, so attack/hurt/ledge-hang montages may already play on
-  the ghost with no new code. Nobody has watched. One loopback session answers it; test before
-  building anything.
+- **Pseudoregalia: empty-hand recall glow** — blocked on a *precondition* (a real thrown-weapon
+  actor for `manageRecallIdleFX`'s `IsValid` guards), not on finding the function. Read
+  `verified.md`'s "`manageRecallIdleFX`: NEGATIVE" entry, plus the montage fix's lesson: a game
+  wrapper that no-ops on a ghost may still work via the stock engine call underneath it.
+- **Pseudoregalia: does the ghost's own logic re-grab ledges/poles?** The ghost was shown
+  re-starting `LedgeGrab_Montage` by itself (2026-08-15); leading explanation, UNPROVEN, is its own
+  collision-driven ledge detection. May be the same mechanism as the climbing-pole item above.
+  Clean test: disable the montage mirror, see if the montage still appears.
 - **Pseudoregalia: ultra hop's BLUE trail — PARKED with evidence.** Not `afterimageColor`,
   not `ultraCap`/`fullUltraModifier`/`cappedUltraModifier`/`animJumpType`. Not derivable
   from polled state; do not resume by guessing more property names.
@@ -48,9 +47,9 @@ Fixed-and-confirmed work is not listed here — see `verified.md` and the phase 
 - **Send/receive rate control** (built 2026-08-15) — `go test` clean and the new tests were
   confirmed to fail when broken, but **not live-verified**: needs two clients, one with a low
   `max_receive_hz_per_player`, watched on screen at visibly different smoothness.
-- **Relay-safety follow-ups, deliberately out of scope so far**: no TLS (room codes cross the
-  wire in plaintext), TEVI's `game_version` isn't a real Steam build number, and the
-  *adapters'* message parsing has never had the adversarial-input audit the Go layer got.
+- **Relay-safety follow-ups, out of scope so far**: no TLS (room codes in plaintext), TEVI's
+  `game_version` isn't a real Steam build number, and the *adapters'* message parsing never had
+  the adversarial-input audit the Go layer got.
 
 ## Links
 

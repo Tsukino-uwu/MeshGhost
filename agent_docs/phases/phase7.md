@@ -1783,3 +1783,21 @@ the land/jump `Montage_Stop` pulse still covers the ledge-hang case and is not s
 wrapper silently no-ops on a ghost, the stock engine function underneath it may still work. That is
 a second, cheaper move to try before concluding a precondition is unsatisfiable — and it is exactly
 the shape `manageRecallIdleFX` (empty-hand glow) was parked on.
+
+### 2026-08-15 — what the montage mirror unlocked, and two follow-up fixes
+
+- **The mirror is general, confirmed**: 51 starts -> 49 ghost plays in one session, covering
+  attacks, flinch, knockback, ledge grab, pole-to-perch, throw/catch and sitting, with **no new
+  per-animation code**. Full 33-montage vocabulary captured via `FindAllOf`. Plunge, slide and
+  wall-ride fired no montage — established as not-montage-driven by silence.
+- **Ledge climb-up lingering (~1.4s): the ghost re-starts the montage itself.** Two guesses died by
+  measurement first (a blend-time change: no measurable difference; "our stop call fails": disproved
+  by an immediate same-tick readback showing `none`). Fixed with a peer-authoritative divergence
+  correction. Confirmed live.
+- **Crouch trail false positive**: crouch and slide are identical on capsule *and* `bIsCrouched`;
+  only `moveState` separates them. Fixed and confirmed live on a second save.
+- **Open question this raised** (see `status.md`): if the ghost re-grabs ledges on its own, the
+  climbing-pole bug may be the same mechanism.
+- **Reference checked, negative**: `attire-ui-overhaul`'s dash-colour feature touches only
+  `afterimageColor` (name-table strings in `DashDataLib.uasset`) — no separate ultra/blue colour
+  concept, so it doesn't help the parked blue-trail question. Licence posture per `licensing.md`.

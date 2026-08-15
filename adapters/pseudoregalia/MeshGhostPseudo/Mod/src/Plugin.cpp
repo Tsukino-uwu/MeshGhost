@@ -38,6 +38,12 @@ namespace MeshGhostPseudo
     // PROTOCOL.md's tick loop ("send local_state every frame, state may be nil"), not throttled.
     constexpr uint64_t LOG_INTERVAL_TICKS = 120;
 
+    // How often the montage divergence check asks the ghost what it's playing (see its call site in
+    // tickRenders). Every tick would be a ProcessEvent getter call per ghost per frame for a
+    // correction that only matters on the timescale an eye can see; 4 ticks is ~27ms on this
+    // build's measured ~150Hz, well under a frame's worth of visible delay, at a quarter the cost.
+    constexpr uint64_t MONTAGE_DIVERGENCE_CHECK_INTERVAL_TICKS = 4;
+
     constexpr auto GAME_ID = "pseudoregalia";
     // Sent as this adapter's bridge Hello alongside GAME_ID (internal/bridge.Hello's
     // game_version field, added for relay-safety hardening -- see the ADR in
@@ -416,7 +422,40 @@ namespace MeshGhostPseudo
     // the readback showing the right montage playing. The montage mirror it produced is real
     // production code now (RemoteGhost::target_montage); what stays behind this flag is only its
     // logging plus the post-call readback, kept for the next montage question rather than deleted.
-    constexpr bool THROW_ANIM_TRACE = false;
+    // **Flipped back ON 2026-08-15, one session**, for the follow-up the fix opened up: the mirror
+    // is general, so attack/hurt/ledge-hang montages may already play on the ghost with no new
+    // code, and nobody has watched. This run logs every montage the local player starts and every
+    // one the ghost plays, so the session produces real names even for animations too quick or too
+    // subtle to judge by eye -- plus a one-shot dump of every loaded AnimMontage asset, which
+    // answers "what else is there" directly instead of one trigger at a time. Flip off after.
+    //
+    // **Renamed from THROW_ANIM_TRACE 2026-08-15**: it outgrew the throw. That session confirmed
+    // the montage mirror carries attacks, flinch, knockback, ledge grab, pole-to-perch and sitting,
+    // and the same log-on-change shape is now answering two follow-ups it inherited:
+    //  (a) **Ledge-grab pose lingers on the ghost after release** -- and NOT because of montages:
+    //      LedgeGrab_Montage is 0.567s and the log shows it running to completion, with its mirrored
+    //      stop landing 15-20ms after the local one. So the hang itself is a state-machine pose and
+    //      the release is a state transition. This trace now logs the LOCAL state timeline and the
+    //      GHOST's applied state side by side so the actual lag can be measured rather than guessed
+    //      at -- this adapter's own pulse-hold logic being the first suspect.
+    //  (b) **The ghost trails afterimages while CROUCHING** (user-observed live). Cause is visible
+    //      in the code: the trail's real-slide trigger keys on the capsule shrinking below 50
+    //      (65 standing, 22 sliding) and crouching shrinks it too. The fix depends on a number
+    //      nobody has measured -- the capsule half-height while crouched -- so the local line below
+    //      now carries capsule + bIsCrouched. If crouch sits well above 22, tightening the
+    //      threshold is the whole fix; if not, bIsCrouched has to gate it, but ONLY if that flag
+    //      isn't also set during a real slide, which the same capture settles.
+    //
+    // **Flipped back off 2026-08-15, both answered and both fixes confirmed live.** (a) The ledge
+    // lingering was the ghost RE-STARTING the montage itself (our stop provably worked -- an
+    // immediate same-tick readback read 'none' -- and the montage was back ~0.4s later with no
+    // Montage_Play from this adapter); fixed by the peer-authoritative divergence correction in
+    // tickRenders, user-confirmed "not stuck anymore and does the proper animation as well".
+    // (b) Crouch and slide are identical on capsule (22.0) and bIsCrouched (true) and differ only
+    // on moveState -- fix shipped, user-confirmed crouch clean and slide still trailing. Two wrong
+    // guesses died on the way (a blend-time change; a "the stop call fails" theory), both killed by
+    // measurement rather than argument -- see verified.md.
+    constexpr bool ANIM_TRACE = false;
 
     // The inversion test designed in verified.md's "Dream Breaker weapon-visibility sync" entry:
     // five straight fix attempts on the weapon-visibility sync all failed identically (data
@@ -1136,7 +1175,7 @@ namespace MeshGhostPseudo
         }
 
         // Dream Breaker THROW-animation investigation, 2026-08-15 -- read-only probe, see
-        // THROW_ANIM_TRACE's own comment. 'Montage_Stop' is already confirmed present on
+        // ANIM_TRACE's own comment. 'Montage_Stop' is already confirmed present on
         // animBPref's class chain (call_montage_stop above), so this chain does carry the stock
         // montage API -- but no *getter* for the currently-playing montage has ever been
         // enumerated on this build, so this resolves one by name and gives up quietly if it isn't
@@ -2581,6 +2620,8 @@ namespace MeshGhostPseudo
             std::string montage = json_string_field(line, "montage");
             double montage_count_in = 0;
             json_number_field(line, "montage_count", montage_count_in);
+            double montage_stop_count_in = 0;
+            json_number_field(line, "montage_stop_count", montage_stop_count_in);
 
             // Checked before ensure_ghost_spawned/ensure_ghost_hijacked, both of which insert a
             // default-constructed RemoteGhost via remotes[player_id] on their very first call for
@@ -2690,6 +2731,7 @@ namespace MeshGhostPseudo
                 // construction. Storing the path unconditionally keeps the pair consistent.
                 it->second.target_montage = montage;
                 it->second.target_montage_count = montage_count_in;
+                it->second.target_montage_stop_count = montage_stop_count_in;
                 if (is_new_remote)
                 {
                     // Baseline last_seen_* to this first sample -- found in a review pass.
@@ -2705,6 +2747,7 @@ namespace MeshGhostPseudo
                     // Same reason for montages: a peer who has thrown the sword six times before
                     // this ghost existed must not have throw #6 replayed at spawn.
                     it->second.last_seen_montage_count = montage_count_in;
+                    it->second.last_seen_montage_stop_count = montage_stop_count_in;
                 }
             }
         }
@@ -2834,13 +2877,24 @@ namespace MeshGhostPseudo
                     size_t space_pos = montage_full_name.find(' ');
                     montage_path = (space_pos != std::string::npos) ? montage_full_name.substr(space_pos + 1) : montage_full_name;
                 }
-                // Count STARTS only -- a change to a different non-empty montage, or from nothing
-                // to something. A montage ending is deliberately not an event: the ghost is playing
-                // its own copy of the same asset, which ends on its own.
+                // A montage ENDING is its own event -- see montage_stop_count's comment. Counted
+                // whether the game let it finish or cut it short, because the two are
+                // indistinguishable from out here and stopping an already-finished montage on the
+                // ghost is a no-op anyway. The cut-short case is the one that matters: it's what
+                // left the ghost holding a ledge-grab pose after the real player let go.
+                if (montage_path.empty() && !prev_local_montage.empty())
+                {
+                    ++montage_stop_count;
+                    if constexpr (ANIM_TRACE)
+                    {
+                        Output::send(STR("[MeshGhostPseudo] TRACE montage local: STOP #{} (was '{}')\n"),
+                                     montage_stop_count, to_wide_ascii(prev_local_montage));
+                    }
+                }
                 if (!montage_path.empty() && montage_path != prev_local_montage)
                 {
                     ++montage_count;
-                    if constexpr (THROW_ANIM_TRACE)
+                    if constexpr (ANIM_TRACE)
                     {
                         Output::send(STR("[MeshGhostPseudo] TRACE montage local: START #{} '{}'\n"),
                                      montage_count, to_wide_ascii(montage_path));
@@ -3063,7 +3117,20 @@ namespace MeshGhostPseudo
                 // enums demonstrably overlap between moves and have burned three attempts now.
                 uint8_t action_state_now = action_state_ptr ? *action_state_ptr : 0;
                 uint8_t anim_jump_type_now = anim_jump_type_ptr ? *anim_jump_type_ptr : 0;
-                bool real_slide_now = (local_capsule_half > 0.0f && local_capsule_half < SLIDE_CAPSULE_THRESHOLD);
+                // **Crouch exclusion, added 2026-08-15 from a live measurement** (user-reported:
+                // the ghost trailed afterimages while crouching, which it must not). A crouch and a
+                // slide are INDISTINGUISHABLE on the two fields you'd reach for first -- both read
+                // capsule=22.0 (identical, not merely similar) and both set bIsCrouched=true -- so
+                // tightening SLIDE_CAPSULE_THRESHOLD would have changed nothing and gating on
+                // bIsCrouched would have killed the real slide trail outright. Measured across 3
+                // crouches and 5 slides in one capture, moveState separates them cleanly:
+                // crouch is moveState==2, slide is moveState==0. Written as "not the crouch state"
+                // rather than "is the slide state" deliberately -- an unrecognised future state
+                // then still gets a trail (today's behaviour) instead of silently losing one.
+                constexpr uint8_t CROUCH_MOVE_STATE = 2;
+                uint8_t move_state_now = move_state_ptr ? *move_state_ptr : 0;
+                bool real_slide_now = (local_capsule_half > 0.0f && local_capsule_half < SLIDE_CAPSULE_THRESHOLD &&
+                                       move_state_now != CROUCH_MOVE_STATE);
                 bool slide_edge = (real_slide_now && !prev_local_sliding);
 
 
@@ -3179,14 +3246,14 @@ namespace MeshGhostPseudo
                 prev_spawn_tracking_particles = spawn_tracking_particles_now;
             }
 
-            // Dream Breaker THROW-animation ground truth -- see THROW_ANIM_TRACE's own comment.
+            // Dream Breaker THROW-animation ground truth -- see ANIM_TRACE's own comment.
             // Log-on-change rather than log-every-tick or a burst triggered by the weaponEquipped?
             // edge: the throw wind-up necessarily happens BEFORE the flag flips, so an edge-
             // triggered burst would miss the exact frames the question is about, while a 60-line-
             // per-second dump would bury them. One line per real change gives the full timeline
             // AND the tick counts (how long each state lasts), which is the send-cadence half of
             // the question.
-            if constexpr (THROW_ANIM_TRACE)
+            if constexpr (ANIM_TRACE)
             {
                 UObject* local_abp = nullptr;
                 if (UObject** abp_ptr = pawn->GetValuePtrByPropertyNameInChain<UObject*>(STR("animBPref")); abp_ptr && *abp_ptr)
@@ -3209,6 +3276,30 @@ namespace MeshGhostPseudo
                     {
                         dump_functions_matching(local_abp, STR("local pawn animBPref (throw search)"),
                                                 {STR("ontage"), STR("hrow"), STR("eapon"), STR("quip")});
+                    }
+
+                    // Montage vocabulary, added 2026-08-15 after the throw fix shipped: the mirror
+                    // plays whatever montage the local player plays, so the interesting question
+                    // stopped being "which function?" and became "how many montages does this game
+                    // have?" -- previously answerable only by triggering them one at a time and
+                    // reading the name off the trace. UObjectGlobals::FindAllOf is used here rather
+                    // than assumed: its signature is read directly from the vendored SDK header
+                    // (RE-UE4SS deps/first/Unreal/include/Unreal/UObjectGlobals.hpp:244, MIT --
+                    // agent_docs/licensing.md).
+                    //
+                    // **Reads LOADED objects only.** A montage whose asset hasn't been streamed in
+                    // yet simply won't appear, so an absence here is not evidence the animation
+                    // doesn't exist -- it means it hadn't loaded at the moment of the dump.
+                    std::vector<UObject*> loaded_montages;
+                    UObjectGlobals::FindAllOf(STR("AnimMontage"), loaded_montages);
+                    Output::send(STR("[MeshGhostPseudo] DIAG: {} AnimMontage asset(s) loaded right now:\n"),
+                                 loaded_montages.size());
+                    for (UObject* montage : loaded_montages)
+                    {
+                        if (montage)
+                        {
+                            Output::send(STR("[MeshGhostPseudo] DIAG: montage asset '{}'\n"), montage->GetFullName());
+                        }
                     }
                 }
 
@@ -3244,6 +3335,18 @@ namespace MeshGhostPseudo
                                      montage_now != throw_trace_prev_montage;
                 if (changed)
                 {
+                    // capsule/crouched added 2026-08-15 for the crouch-trail false positive (see
+                    // ANIM_TRACE's own comment): the trail's slide trigger keys on capsule < 50, and
+                    // this is the measurement that decides whether a tighter threshold is enough or
+                    // whether bIsCrouched has to gate it. Reading bIsCrouched here rather than
+                    // assuming it: the same property the trailCoverage trace already reads.
+                    bool crouched_now = false;
+                    if (bool* crouched_ptr = pawn->GetValuePtrByPropertyNameInChain<bool>(STR("bIsCrouched")))
+                    {
+                        crouched_now = *crouched_ptr;
+                    }
+                    Output::send(STR("[MeshGhostPseudo] TRACE animState local: capsule={:.1f} crouched={}\n"),
+                                 local_capsule_half, crouched_now);
                     Output::send(STR("[MeshGhostPseudo] TRACE throwAnim: tick={} weaponEquipped={} weaponRef={} moveState={} actionState={} animJumpType={} montage='{}'\n"),
                                  tick_count,
                                  weapon_equipped_now,
@@ -3539,7 +3642,7 @@ namespace MeshGhostPseudo
                 "\"orientation\":[{},{},{}],\"anim\":\"idle\","
                 "\"extras\":{{\"move_state\":{},\"action_state\":{},\"h_speed\":{},\"v_speed\":{},\"anim_jump_type\":{},\"movement_mode\":{},"
                 "\"land_count\":{},\"jump_count\":{},\"weapon_equipped\":{},\"outfit_mesh\":\"{}\",\"afterimage_count\":{},"
-                "\"montage\":\"{}\",\"montage_count\":{},"
+                "\"montage\":\"{}\",\"montage_count\":{},\"montage_stop_count\":{},"
                 "\"afterimage_n\":{},\"capsule_half\":{:.1f},\"afterimage_color\":[{:.4f},{:.4f},{:.4f}]}}"
                 "}}}}}}",
                 json_escape(area_id),
@@ -3562,6 +3665,7 @@ namespace MeshGhostPseudo
                 afterimage_count,
                 json_escape(montage_path),
                 montage_count,
+                montage_stop_count,
                 afterimage_spawn_n,
                 local_capsule_half,
                 local_afterimage_color.r,
@@ -3691,6 +3795,57 @@ namespace MeshGhostPseudo
                     *g_movement_mode = clamp_to_uint8(remote.target_movement_mode);
                 }
             }
+            // Ghost-side state timeline for the ledge-lingering question -- see ANIM_TRACE's own
+            // comment. Logged right after the writes above, on change only, so it lines up
+            // line-for-line with the local timeline and the gap between "the real player let go"
+            // and "the ghost was told" can simply be read off the timestamps. Logs what was
+            // WRITTEN this tick (the values driving the ghost's AnimBP), which is the thing whose
+            // arrival time is in question.
+            if constexpr (ANIM_TRACE)
+            {
+                int move_state_applied = static_cast<int>(clamp_to_uint8(remote.target_move_state));
+                int action_state_applied = static_cast<int>(clamp_to_uint8(remote.target_action_state));
+                int movement_mode_applied = static_cast<int>(clamp_to_uint8(remote.target_movement_mode));
+                // animJumpType added 2026-08-15: the first capture showed a climb-up exit is
+                // exactly 'moveState=1 actionState=0 animJumpType=6' for ~0.4s where a drop-down is
+                // animJumpType=0 -- i.e. the one field that distinguishes the case that looks wrong
+                // from the case that looks right was the one field this trace didn't carry.
+                int anim_jump_type_applied = static_cast<int>(clamp_to_uint8(remote.target_anim_jump_type));
+                if (!remote.anim_trace_initialized ||
+                    move_state_applied != remote.anim_trace_prev_move_state ||
+                    action_state_applied != remote.anim_trace_prev_action_state ||
+                    movement_mode_applied != remote.anim_trace_prev_movement_mode ||
+                    anim_jump_type_applied != remote.anim_trace_prev_anim_jump_type)
+                {
+                    // Independent readback of what the ghost ACTUALLY holds plus what it's actually
+                    // playing, rather than only the values just written -- CLAUDE.md's "never log
+                    // the value you just wrote as proof it worked", and the specific question here
+                    // is whether the ghost is still in the LedgeGrab montage while it looks stuck.
+                    int rb_move = -1, rb_ajt = -1;
+                    if (uint8_t* rb_ms = remote.ghost->GetValuePtrByPropertyNameInChain<uint8_t>(STR("moveState")))
+                    {
+                        rb_move = static_cast<int>(*rb_ms);
+                    }
+                    if (uint8_t* rb_aj = remote.ghost->GetValuePtrByPropertyNameInChain<uint8_t>(STR("animJumpType")))
+                    {
+                        rb_ajt = static_cast<int>(*rb_aj);
+                    }
+                    std::string rb_montage;
+                    if (UObject** g_abp_rb = remote.ghost->GetValuePtrByPropertyNameInChain<UObject*>(STR("animBPref")); g_abp_rb && *g_abp_rb)
+                    {
+                        read_current_active_montage(*g_abp_rb, rb_montage);
+                    }
+                    Output::send(STR("[MeshGhostPseudo] TRACE animState ghost {}: moveState={} actionState={} movementMode={} animJumpType={} | readback moveState={} animJumpType={} montage='{}'\n"),
+                                 to_wide_ascii(id), move_state_applied, action_state_applied, movement_mode_applied,
+                                 anim_jump_type_applied, rb_move, rb_ajt, to_wide_ascii(rb_montage));
+                    remote.anim_trace_prev_anim_jump_type = anim_jump_type_applied;
+                    remote.anim_trace_initialized = true;
+                    remote.anim_trace_prev_move_state = move_state_applied;
+                    remote.anim_trace_prev_action_state = action_state_applied;
+                    remote.anim_trace_prev_movement_mode = movement_mode_applied;
+                }
+            }
+
             // Dream Breaker visibility mirror -- see RemoteGhost::target_weapon_equipped's
             // comment. **Reordered 2026-08-15** (real fix attempt #6, see verified.md's animBPref
             // spawn-snapshot entry): the raw property writes below used to run BEFORE these two
@@ -3733,9 +3888,11 @@ namespace MeshGhostPseudo
             // an animation montage" path, and the Dream Breaker throw is simply its first
             // customer. Counter-gated the same way as the land/jump pulses, so a montage shorter
             // than the send interval still arrives.
+            bool montage_started_this_tick = false;
             if (remote.target_montage_count > remote.last_seen_montage_count && !remote.target_montage.empty())
             {
                 remote.last_seen_montage_count = remote.target_montage_count;
+                montage_started_this_tick = true;
                 UObject* montage_obj = UObjectGlobals::StaticFindObject<UObject*>(nullptr, nullptr, to_wide_ascii(remote.target_montage).c_str());
                 // Type check, same reasoning as the outfit mesh's: a path that resolves to
                 // something that isn't a montage must not be handed to CustomPlayMontage.
@@ -3757,7 +3914,7 @@ namespace MeshGhostPseudo
                     {
                         play_length = call_montage_play(*g_abp_ptr, montage_obj);
                     }
-                    if constexpr (THROW_ANIM_TRACE)
+                    if constexpr (ANIM_TRACE)
                     {
                         // Arm the post-call readback (see montage_readback_ticks_left's comment).
                         remote.montage_readback_ticks_left = 12;
@@ -3782,11 +3939,94 @@ namespace MeshGhostPseudo
                 }
             }
 
+            // Stop half of the montage mirror -- see the local montage_stop_count's comment for the
+            // ledge-grab symptom that motivated it. Checked AFTER the start block above so that a
+            // sample carrying both a stop and a start (one montage ending as the next begins, which
+            // the send cadence can easily merge into one packet) doesn't stop the montage it just
+            // started -- ordering matters here in exactly the way the weapon call/write reorder
+            // taught.
+            if (remote.target_montage_stop_count > remote.last_seen_montage_stop_count)
+            {
+                remote.last_seen_montage_stop_count = remote.target_montage_stop_count;
+                // Only stop if a montage didn't just START on this same tick -- see above. This has
+                // to be an explicit flag set by the start block: comparing the counters here would
+                // always read "no start", because the start block advances last_seen_montage_count
+                // itself, so the check would stop the very montage just started.
+                if (!montage_started_this_tick)
+                {
+                    if (UObject** g_abp_ptr = remote.ghost->GetValuePtrByPropertyNameInChain<UObject*>(STR("animBPref")); g_abp_ptr && *g_abp_ptr)
+                    {
+                        // **0.0f, corrected 2026-08-15 from a live capture.** This was 0.1f on the
+                        // reasoning that a normal end-of-animation deserves a soft blend rather
+                        // than the land/jump pulse's hard snap. The measurement says otherwise: on
+                        // a ledge climb-UP (no landing, so the pulse never fires and this is the
+                        // only stop that runs) the ghost kept playing LedgeGrab_Montage for ~2s
+                        // after this call, readback-confirmed -- while a drop-DOWN cleared fine,
+                        // because the landing pulse's 0.0f stop was doing the real work there. The
+                        // hard stop is the one shape known to work on a ghost's anim instance on
+                        // this build; the soft blend is not, and this is not the place to find out
+                        // why. See verified.md's ledge-grab entry.
+                        call_montage_stop(*g_abp_ptr, 0.0f);
+                        if constexpr (ANIM_TRACE)
+                        {
+                            // Read back IMMEDIATELY, same tick, right after the call -- the one
+                            // measurement that splits the two remaining explanations for the
+                            // ledge-climb-up lingering (~1.4s, measured). If this reads 'none', the
+                            // stop works and something RE-STARTS the montage afterwards; if it
+                            // still reads the montage, the call itself is a no-op here even though
+                            // the byte-identical call in the land/jump pulse below demonstrably
+                            // works. Guessing between those two produced one wrong fix already
+                            // (the 0.1f->0.0f blend change, which measured as no change at all).
+                            std::string after_stop;
+                            read_current_active_montage(*g_abp_ptr, after_stop);
+                            Output::send(STR("[MeshGhostPseudo] TRACE montage ghost {}: Montage_Stop (stop_count={}) -- immediately after, playing='{}'\n"),
+                                         to_wide_ascii(id), remote.target_montage_stop_count, to_wide_ascii(after_stop));
+                        }
+                    }
+                }
+            }
+
+            // Montage divergence correction, 2026-08-15 -- the real fix for the ledge-climb-up
+            // lingering, after two wrong guesses (a blend-time change that measured as no change,
+            // and a "the stop call doesn't work" theory the readback disproved).
+            //
+            // **What the evidence actually showed**: our stop DOES work -- an immediate same-tick
+            // readback reads 'none' right after every call -- and then the ghost is playing
+            // LedgeGrab_Montage again ~0.4s later with no Montage_Play from this adapter in
+            // between (every play is logged; there is none). So the ghost re-starts montages ON
+            // ITS OWN. Leading explanation, consistent with only climb-ups being affected: the
+            // ghost is a real pawn clone with collision enabled, and its own tick-driven
+            // ledge-detection re-grabs the ledge it was left standing at, where a drop-down carries
+            // it away from the ledge entirely. That explanation is NOT proven and this fix does not
+            // depend on it -- it corrects the divergence whatever restarted it.
+            //
+            // The rule: the peer is the authority on what montage its ghost plays. If the peer has
+            // no montage playing and the ghost does, the ghost's is wrong. Deliberately one-sided:
+            // it only STOPS a montage the peer isn't playing, and never starts one, so it can't
+            // fight the start mirror or re-trigger anything.
+            if (tick_count % MONTAGE_DIVERGENCE_CHECK_INTERVAL_TICKS == 0 && remote.target_montage.empty())
+            {
+                if (UObject** g_abp_ptr = remote.ghost->GetValuePtrByPropertyNameInChain<UObject*>(STR("animBPref")); g_abp_ptr && *g_abp_ptr)
+                {
+                    std::string ghost_montage;
+                    if (read_current_active_montage(*g_abp_ptr, ghost_montage) &&
+                        !ghost_montage.empty() && ghost_montage != "none")
+                    {
+                        call_montage_stop(*g_abp_ptr, 0.0f);
+                        if constexpr (ANIM_TRACE)
+                        {
+                            Output::send(STR("[MeshGhostPseudo] TRACE montage ghost {}: divergence -- peer plays nothing, ghost played '{}', stopped\n"),
+                                         to_wide_ascii(id), to_wide_ascii(ghost_montage));
+                        }
+                    }
+                }
+            }
+
             // Independent readback of what the GHOST's own anim instance is actually playing, for
             // the ticks right after a CustomPlayMontage call -- see montage_readback_ticks_left's
             // comment for why this exists and what each outcome means. Re-fetches animBPref fresh
             // and asks the game, rather than trusting the call's own return value.
-            if constexpr (THROW_ANIM_TRACE)
+            if constexpr (ANIM_TRACE)
             {
                 if (remote.montage_readback_ticks_left > 0)
                 {
@@ -4234,6 +4474,18 @@ namespace MeshGhostPseudo
                     // ~100ms interpolation delay already inherent to the pipeline) -- 0.0s cuts
                     // instead of blending, closing the rest of the gap.
                     call_montage_stop(*g_abp_for_montage, 0.0f);
+                    if constexpr (ANIM_TRACE)
+                    {
+                        // Same immediate readback as the montage-mirror stop above, on the pulse's
+                        // own call -- this is the control. Both calls are byte-identical, so if
+                        // this one clears the montage and the other doesn't, the difference is
+                        // context/timing and not the call, which is exactly what needs proving
+                        // before anything else is changed.
+                        std::string after_pulse_stop;
+                        read_current_active_montage(*g_abp_for_montage, after_pulse_stop);
+                        Output::send(STR("[MeshGhostPseudo] TRACE montage ghost {}: PULSE Montage_Stop (land={} jump={}) -- immediately after, playing='{}'\n"),
+                                     to_wide_ascii(id), land_edge, jump_edge, to_wide_ascii(after_pulse_stop));
+                    }
                     if constexpr (ANIM_PULSE_TRACE)
                     {
                         Output::send(STR("[MeshGhostPseudo] PULSE remote {}: called Montage_Stop (land_edge={} jump_edge={})\n"),
