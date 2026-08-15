@@ -1656,3 +1656,18 @@ GBA memory). Started early relative to Phase 6's own two-player milestone (6.6) 
 - Environment drift is now a live, observed risk for this phase specifically (see the
   mid-task UE4SS version correction above) — re-check `environment.md`'s UE4SS version at the
   start of any future session before resuming, rather than trusting the last recorded value.
+- **Found live 2026-08-15, not yet fixed: cling-gem effect and empty-hand glow both missing on
+  the ghost, and the underlying sword-held state isn't tracked at all.** Two symptoms, one root
+  cause: (1) the cling gem's sparkle/effect doesn't render on the ghost when the real player
+  clings; (2) the real player's hand glows when empty (not currently holding the sword) — that
+  glow doesn't appear on the ghost's hand (Pseudoregalia has a mechanic to throw the sword away,
+  so "holding" vs. "not holding" is real, player-controlled state, not a constant). Checked
+  against the code: `Plugin.cpp` carries no field for
+  either today — grepping the outgoing `extras` set (`move_state`, `action_state`, `h_speed`,
+  `v_speed`, `anim_jump_type`, `movement_mode`, `land_count`, `jump_count`, per the local-state
+  `std::format` call around `:1538-1554`) turns up nothing sword- or cling-related. So unlike a
+  case where mirrored state exists but doesn't trigger the right visual, this is upstream of
+  that: the sword-held/thrown state has to actually be *read* from the game before anything can
+  be done about how it's rendered on a ghost. Needs a real investigation (where does the game
+  track sword-held vs. thrown, and separately what actually drives the cling-gem effect) before
+  any fix — per `CLAUDE.md`, no address/field read without a cited source.

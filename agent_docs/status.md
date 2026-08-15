@@ -17,6 +17,13 @@
 - **Pseudoregalia: a not-yet-root-caused `Fatal Error!` crash** observed once on game exit in an
   earlier session (crashdump, not `LowLevelFatalError`) — see `agent_docs/phases/phase7.md`'s 7.6
   entry.
+- **TEVI: charged-attack VFX missing on the ghost** — animations play correctly, but the extra
+  visual effects on the charged attack (held attack button) don't render. Not yet root-caused.
+  See `agent_docs/phases/phase6.md`'s 2026-08-15 entry.
+- **Pseudoregalia: cling-gem effect and empty-hand glow (when not holding the sword) missing on
+  the ghost, and sword-held state isn't tracked at all** — deeper than a rendering gap, since
+  sword-held-vs-thrown is real player state the adapter never reads today. Not yet root-caused.
+  See `agent_docs/phases/phase7.md`'s 2026-08-15 entry.
 - **Emerald: surf, Mach Bike, Acro Bike, ledges, and Mach Bike rail sections** — the ghost snaps
   badly on all of these today; detection source found and cited
   (`pokeemerald`'s `include/global.fieldmap.h:288-295`), a combined probe script is ready but not
