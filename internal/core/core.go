@@ -52,10 +52,21 @@ func asRejectReason(err error) (reason string, ok bool) {
 
 // isPermanentRejectReason reports whether reason won't resolve on its own
 // with a retry (wrong room code, version mismatch, protocol version — all
-// require a config change) as opposed to one that might (ReasonServerFull,
-// if someone leaves).
+// require a config change) as opposed to one that might. An explicit
+// retryable set, not a blacklist-of-one, since the send/receive rate-control
+// feature added a second retryable reason (see the ADR in
+// agent_docs/architecture.md): unknown reasons from a future relay stay
+// classified permanent, the conservative default this has always had.
 func isPermanentRejectReason(reason string) bool {
-	return reason != protocol.ReasonServerFull
+	switch reason {
+	case protocol.ReasonServerFull, protocol.ReasonRateLimited:
+		// ServerFull resolves if someone leaves; RateLimited resolves
+		// because a reconnecting client re-reads the room's advertised
+		// send_hz from the new Welcome and may well fit under the cap this
+		// time.
+		return false
+	}
+	return true
 }
 
 // IsPermanentRejectErr reports whether err represents a relay Reject whose
@@ -78,16 +89,30 @@ func IsPermanentRejectErr(err error) bool {
 // test runs ~200ms so the trailing ghost is plainly visible on screen.
 const DefaultInterpolationDelay = 100 * time.Millisecond
 
-// DefaultMinSendInterval caps how often forwardLocalState actually sends to
-// the relay, independent of how often the adapter calls in. Added in Phase 6
-// (TEVI) after hitting this for real: relay.MaxMessagesPerSecond is 120, but
-// a Unity adapter's Update() runs uncapped well above that, so every-frame
-// forwarding got the connection closed by the relay after ~2 minutes
-// (agent_docs/verified.md's Phase 6.4/6.5 entry). 50ms (20Hz) leaves
-// comfortable headroom under the relay's cap regardless of adapter frame
-// rate, and is well above the brief's own 10Hz sync hypothesis. Overridable
-// per-Core, same pattern as InterpolationDelay.
-const DefaultMinSendInterval = 50 * time.Millisecond
+// DefaultMinSendInterval is this Core's fallback send interval when neither
+// the relay advertised a rate nor this Core's own MinSendInterval was set
+// (see effectiveSendInterval) — an older relay that predates
+// Welcome.SendHz, most obviously. Rederived from protocol.DefaultSendHz
+// rather than a separate literal so the two numbers cannot drift apart.
+// Added in Phase 6 (TEVI) after hitting this for real: relay.
+// MaxMessagesPerSecond was a hardcoded 120, but a Unity adapter's Update()
+// runs uncapped well above that, so every-frame forwarding got the
+// connection closed by the relay after ~2 minutes (agent_docs/verified.md's
+// Phase 6.4/6.5 entry). 50ms (20Hz) leaves comfortable headroom under the
+// relay's cap regardless of adapter frame rate, and is well above the
+// brief's own 10Hz sync hypothesis. See the ADR in agent_docs/architecture.md
+// for the send/receive rate-control feature that made this a fallback
+// rather than a fixed rate.
+const DefaultMinSendInterval = time.Second / protocol.DefaultSendHz
+
+// DefaultMaxReceiveHz is the receive cap a Core requests in Hello.
+// MaxReceiveHz when its caller hasn't set one. Zero means uncapped — every
+// peer's state is forwarded at whatever rate the room runs at, which is
+// exactly today's pre-existing behavior and therefore the only safe
+// default: capping by default would silently degrade every existing ghost.
+// Opting in (Core.MaxReceiveHz) is a statement about this machine's own
+// downlink, not about the room. See the ADR in agent_docs/architecture.md.
+const DefaultMaxReceiveHz = 0
 
 // DefaultHeartbeatInterval is how often ConnectRelay sends a Ping on an
 // otherwise-quiet relay connection. Found live 2026-08-14: with no adapter
@@ -179,6 +204,13 @@ type Core struct {
 	// "use whatever the adapter reported."
 	GameVersion string
 	DialTimeout time.Duration
+	// MaxReceiveHz is sent as Hello.MaxReceiveHz — the highest rate, per
+	// peer, at which this client asks the relay to forward other players'
+	// state to it. Zero (DefaultMaxReceiveHz) means uncapped. A request, not
+	// a guarantee: an older relay ignores the field entirely and there is no
+	// echo in Welcome to tell this Core whether it was honored. See the ADR
+	// in agent_docs/architecture.md.
+	MaxReceiveHz int
 
 	// OnRelayConnected, if set, is called once after
 	// ConnectRelayOnAdapterHello successfully connects — lets a caller like
@@ -196,11 +228,26 @@ type Core struct {
 	// the bridge wire protocol.
 	InterpolationDelay time.Duration
 
-	// MinSendInterval overrides DefaultMinSendInterval for this Core — the
-	// minimum time between relay sends, regardless of adapter call rate.
-	// See DefaultMinSendInterval's comment for why this exists.
+	// MinSendInterval is this Core's own deliberately-configured floor on
+	// how often it sends to the relay, regardless of adapter call rate.
+	// Zero (the default — New() no longer presets this) means "no local
+	// preference; adopt whatever the relay advertises." A non-zero value is
+	// a floor, never a ceiling: effectiveSendInterval takes the SLOWER of
+	// this and the relay's advertised rate, so setting this can only ever
+	// make this Core send slower than the room, on behalf of a poor local
+	// connection — the relay can never speed this Core up past a rate it
+	// deliberately chose. See DefaultMinSendInterval and the ADR in
+	// agent_docs/architecture.md for the send/receive rate-control feature.
 	MinSendInterval time.Duration
 	lastSendAt      time.Time
+
+	// serverSendInterval is the interval derived from the relay's advertised
+	// Welcome.SendHz, or 0 if the relay advertised nothing (an older relay)
+	// or hasn't sent Welcome yet. Guarded by mu; set once per connection in
+	// handleRelayMessage's Welcome case and cleared on disconnect, so a
+	// reconnect to a differently-configured relay never inherits a stale
+	// rate.
+	serverSendInterval time.Duration
 
 	// HeartbeatInterval overrides DefaultHeartbeatInterval for this Core —
 	// how often sendHeartbeats pings an otherwise-quiet relay connection.
@@ -277,14 +324,16 @@ type Core struct {
 // once a bridge Hello arrives (the default, no-game-set path) — "call
 // ConnectRelay before ServeBridge" stopped being the only supported order
 // once that lazy path was added; this comment previously still said it was
-// required, found stale in a review pass. InterpolationDelay and
-// MinSendInterval default to DefaultInterpolationDelay/
-// DefaultMinSendInterval; set the fields directly to override them.
+// required, found stale in a review pass. InterpolationDelay defaults to
+// DefaultInterpolationDelay; set the field directly to override it.
+// MinSendInterval is deliberately left at its zero value here (unlike
+// InterpolationDelay) — see its own doc comment: zero means "no local
+// preference, adopt the relay's advertised rate," and DefaultMinSendInterval
+// only ever applies as effectiveSendInterval's last-resort fallback.
 func New() *Core {
 	return &Core{
 		remotes:            make(map[string]*remoteBuffer),
 		InterpolationDelay: DefaultInterpolationDelay,
-		MinSendInterval:    DefaultMinSendInterval,
 		HeartbeatInterval:  DefaultHeartbeatInterval,
 		roster:             make(map[string]struct{}),
 	}
@@ -353,6 +402,11 @@ func (c *Core) ConnectRelay(gameID string) error {
 			c.playerID = ""
 			c.relayGame = ""
 			c.relayOwner = nil
+			// Cleared so a reconnect (to this relay again, or a different,
+			// differently-configured one) starts from effectiveSendInterval's
+			// "nothing advertised yet" fallback instead of inheriting this
+			// connection's now-stale rate.
+			c.serverSendInterval = 0
 		}
 		retryGameID, retryAdapterVersion, retryBridgeConn := c.autoRetryGameID, c.autoRetryAdapterGameVersion, c.autoRetryBridgeConn
 		c.mu.Unlock()
@@ -374,6 +428,7 @@ func (c *Core) ConnectRelay(gameID string) error {
 		DisplayName:     displayName,
 		RoomCode:        roomCode,
 		GameVersion:     gameVersion,
+		MaxReceiveHz:    c.MaxReceiveHz,
 	})
 	if err != nil {
 		_ = conn.Close()
@@ -597,6 +652,16 @@ func (c *Core) handleRelayMessage(payload []byte, welcome chan<- protocol.Welcom
 			for _, id := range w.Roster {
 				c.roster[id] = struct{}{}
 			}
+			// w.SendHz == 0 means "not advertised" (an older relay that
+			// predates this field), a distinct case from "advertised badly" —
+			// only clamp (defense-in-depth against a hostile relay talking
+			// this Core into an absurd rate, same trust-boundary posture as
+			// the roster cross-check and ValidateState on receive) when a
+			// real value was actually sent. See effectiveSendInterval and the
+			// ADR in agent_docs/architecture.md.
+			if w.SendHz > 0 {
+				c.serverSendInterval = time.Second / time.Duration(protocol.ClampSendHz(w.SendHz))
+			}
 			c.mu.Unlock()
 			select {
 			case welcome <- w:
@@ -609,6 +674,17 @@ func (c *Core) handleRelayMessage(payload []byte, welcome chan<- protocol.Welcom
 			select {
 			case reject <- r:
 			default:
+				// No handshake select is waiting on this channel — this is a
+				// Reject arriving after the handshake (the relay closing an
+				// already-joined connection, e.g. ReasonRateLimited). Without
+				// logging it here the reason is lost entirely and the user
+				// sees only a bare "relay disconnected" from OnDisconnect.
+				c.mu.Lock()
+				connected := c.playerID != ""
+				c.mu.Unlock()
+				if connected {
+					log.Printf("core: relay closed this connection: %s", r.Reason)
+				}
 			}
 		}
 	case protocol.TypeJoin:
@@ -860,12 +936,36 @@ func (c *Core) onAdapterFrameInProcess(adapter Adapter, rendered map[string]bool
 	c.tickRenders(rendered, adapter.RenderRemote, adapter.DespawnRemote)
 }
 
+// effectiveSendInterval returns the slower of (the relay's advertised
+// interval, this Core's own configured floor), falling back to
+// DefaultMinSendInterval when neither exists. Slower, always: the relay's
+// rate is prescriptive for a client that hasn't expressed a preference, but
+// a client that deliberately set MinSendInterval did so because of its own
+// connection, and the relay has no business overriding that upward. Caller
+// holds c.mu. See the ADR in agent_docs/architecture.md.
+func (c *Core) effectiveSendInterval() time.Duration {
+	switch {
+	case c.MinSendInterval > 0 && c.serverSendInterval > 0:
+		if c.MinSendInterval > c.serverSendInterval {
+			return c.MinSendInterval
+		}
+		return c.serverSendInterval
+	case c.MinSendInterval > 0:
+		return c.MinSendInterval
+	case c.serverSendInterval > 0:
+		return c.serverSendInterval
+	default:
+		return DefaultMinSendInterval
+	}
+}
+
 // forwardLocalState stamps and sends state to the relay, if there is one.
 // state == nil means "don't send this frame" (get_local_state()'s nil
-// case). Actual sends are capped to MinSendInterval regardless of how often
-// the adapter calls in — see DefaultMinSendInterval's comment. A dropped
-// frame here is not stamped with seq/timestamp at all, so it never reaches
-// the relay and never affects Core.seq's monotonic count.
+// case). Actual sends are capped to effectiveSendInterval() regardless of
+// how often the adapter calls in — see its own comment and
+// DefaultMinSendInterval's. A dropped frame here is not stamped with
+// seq/timestamp at all, so it never reaches the relay and never affects
+// Core.seq's monotonic count.
 func (c *Core) forwardLocalState(state *protocol.State) {
 	if state == nil {
 		return
@@ -886,11 +986,12 @@ func (c *Core) forwardLocalState(state *protocol.State) {
 		c.mu.Unlock()
 		return
 	}
+	interval := c.effectiveSendInterval()
 	elapsed := time.Since(c.lastSendAt)
 	if c.lastSendAt.IsZero() {
-		elapsed = c.MinSendInterval // always allow the first send
+		elapsed = interval // always allow the first send
 	}
-	if elapsed < c.MinSendInterval {
+	if elapsed < interval {
 		c.mu.Unlock()
 		return
 	}

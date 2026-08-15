@@ -8,19 +8,26 @@ These assume `meshghost.exe`, `meshghost-relay.exe`, and `meshghost-fakeadapter.
 built at the repo root (e.g. `go build -o meshghost.exe ./cmd/meshghost`, run from the repo
 root) — each script references them as `..\<name>.exe`.
 
-- `run-relay.bat` — a single relay, default settings.
+- `run-relay.bat` / `run-relay-loopback.bat` — a single relay, `-send-hz=100`. Deliberately NOT
+  the relay's own 20Hz default: since the send/receive rate-control feature (see the ADR in
+  agent_docs/architecture.md), a relay's advertised send_hz is prescriptive — a Core adopts it
+  unless it has its own slower explicit `-min-send`, and the SLOWER of the two always wins. Left
+  at 20Hz, this relay would silently override every `run-core-*.bat` script's own fast
+  `-min-send` (below) back down to 50ms. 100Hz keeps this relay out of the way entirely, so
+  each core's own `-min-send` is what actually governs local test timing, same as before this
+  feature existed.
 - `run-core-emerald.bat` / `run-core-emerald2.bat` — two Emerald core clients on distinct
   bridge ports (7778 / 7779), for real two-player testing (see
   [agent_docs/phases/phase4.md](../agent_docs/phases/phase4.md)). `run-core-emerald.bat` alone
   also doubles as the solo/self-test core — pair it with `run-relay-loopback.bat` below instead
   of `run-relay.bat` to see your own ghost trail yourself with only one BizHawk instance
   running. Defaults to `-interp=0ms -min-send=10ms` (changed 2026-08-14, was `200ms`) — as
-  close to instant/unsmoothed as the relay's 120 msg/sec cap allows, since local dev testing has
-  no real network jitter to smooth over and artificial delay only makes it harder to tell
-  whether a remote ghost's animation genuinely matches the real player frame-for-frame. The
-  same TEVI/Pseudoregalia core launchers below share this default. **Exception:**
-  `run-core-emerald-trail.bat` below intentionally keeps a real delay for pairing with the
-  loopback-trail BizHawk launcher.
+  close to instant/unsmoothed as the relay's per-client flood cap allows (paired with
+  `-send-hz=100` above), since local dev testing has no real network jitter to smooth over and
+  artificial delay only makes it harder to tell whether a remote ghost's animation genuinely
+  matches the real player frame-for-frame. The same TEVI/Pseudoregalia core launchers below
+  share this default. **Exception:** `run-core-emerald-trail.bat` below intentionally keeps a
+  real delay for pairing with the loopback-trail BizHawk launcher.
 - `run-bizhawk-emerald.local.bat` / `run-bizhawk-emerald2.local.bat` — **not tracked** (see
   `.gitignore`; EmuHawk/ROM paths are personal and this repo is public). Per-machine BizHawk
   launchers, real paths from `agent_docs/environment.md`, pairing with the two cores above

@@ -22,7 +22,21 @@ const testTimeout = 2 * time.Second
 // implementation, not a mock.
 func startRelay(t *testing.T) string {
 	t.Helper()
-	return startRelayWith(t, relay.NewServer())
+	s := relay.NewServer()
+	// Since the send/receive rate-control feature (see the ADR in
+	// agent_docs/architecture.md), a relay's advertised send_hz is
+	// prescriptive: effectiveSendInterval takes the SLOWER of the relay's
+	// rate and a Core's own explicit MinSendInterval. Left at the relay's
+	// own 20Hz default, that would silently override every existing test
+	// that sets a fast MinSendInterval (e.g. 1ms) purely so its own
+	// assertions land inside testTimeout — exactly the same class of
+	// regression flagged for dev-scripts (a fast local override getting
+	// slowed down by a default-rate relay). protocol.MaxSendHz here means
+	// the relay is never the bottleneck in a test; a test that specifically
+	// wants to exercise a slower or unconfigured relay uses startRelayWith
+	// with its own Server instead.
+	s.SendHz = protocol.MaxSendHz
+	return startRelayWith(t, s)
 }
 
 // startRelayWith is startRelay's more general form, for tests that need a
@@ -1387,4 +1401,269 @@ func TestWithoutHeartbeatIdleRelayConnectionDrops(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 	}
 	t.Fatalf("connection was not dropped by IdleTimeout with heartbeats disabled — test harness assumption is wrong (still connected as %q)", firstPlayerID)
+}
+
+// --- Send/receive rate control (agent_docs/architecture.md's ADR) ---
+
+// TestClientAdoptsRelayAdvertisedSendRateWhenItHasNoPreference confirms a
+// Core with no local MinSendInterval genuinely speeds up past its own
+// built-in 20Hz default when a relay advertises a faster rate — the
+// "prescriptive" half of the design: the relay's number IS the room's rate
+// for a client that hasn't expressed a preference.
+func TestClientAdoptsRelayAdvertisedSendRateWhenItHasNoPreference(t *testing.T) {
+	s := relay.NewServer()
+	s.SendHz = 100
+	relayAddr := startRelayWith(t, s)
+
+	c, _ := startCore(t, relayAddr, "emerald", "room1", "alice")
+
+	c.mu.Lock()
+	interval := c.effectiveSendInterval()
+	c.mu.Unlock()
+
+	want := time.Second / 100
+	if interval != want {
+		t.Fatalf("effective send interval = %v, want %v (adopted from the relay's advertised 100Hz)", interval, want)
+	}
+}
+
+// TestExplicitMinSendIntervalIsNeverSpedUpByTheRelay confirms a Core that
+// deliberately set a slower MinSendInterval keeps it even against a fast
+// relay — the user's own "bad internet, don't want to send faster" scenario
+// this feature was designed around.
+func TestExplicitMinSendIntervalIsNeverSpedUpByTheRelay(t *testing.T) {
+	s := relay.NewServer()
+	s.SendHz = 100
+	relayAddr := startRelayWith(t, s)
+
+	c := New()
+	c.MinSendInterval = 200 * time.Millisecond
+	c.RelayAddr = relayAddr
+	c.Room = "room1"
+	c.DisplayName = "alice"
+	c.DialTimeout = testTimeout
+	if err := c.ConnectRelay("emerald"); err != nil {
+		t.Fatalf("connect relay: %v", err)
+	}
+
+	c.mu.Lock()
+	interval := c.effectiveSendInterval()
+	c.mu.Unlock()
+	if interval != 200*time.Millisecond {
+		t.Fatalf("effective send interval = %v, want 200ms (an explicit floor must never be sped up by a faster relay)", interval)
+	}
+}
+
+// TestRelayAdvertisedRateWinsWhenSlowerThanTheLocalPreference confirms the
+// other half of "slower always wins": a local preference faster than the
+// relay's own rate does NOT let this Core exceed the room's configured
+// speed — the relay's rate is a ceiling too, not just a floor.
+func TestRelayAdvertisedRateWinsWhenSlowerThanTheLocalPreference(t *testing.T) {
+	s := relay.NewServer()
+	s.SendHz = 10
+	relayAddr := startRelayWith(t, s)
+
+	c := New()
+	c.MinSendInterval = 10 * time.Millisecond
+	c.RelayAddr = relayAddr
+	c.Room = "room1"
+	c.DisplayName = "alice"
+	c.DialTimeout = testTimeout
+	if err := c.ConnectRelay("emerald"); err != nil {
+		t.Fatalf("connect relay: %v", err)
+	}
+
+	c.mu.Lock()
+	interval := c.effectiveSendInterval()
+	c.mu.Unlock()
+	want := time.Second / 10
+	if interval != want {
+		t.Fatalf("effective send interval = %v, want %v (relay's slower 10Hz must win over a faster local preference)", interval, want)
+	}
+}
+
+// TestUnadvertisedSendRateFallsBackToTheBuiltInDefault confirms a Welcome
+// with no send_hz at all (an older relay that predates this field) is read
+// as "nothing advertised," not as an advertised 0Hz — this Core falls back
+// to DefaultMinSendInterval instead of never sending at all.
+func TestUnadvertisedSendRateFallsBackToTheBuiltInDefault(t *testing.T) {
+	c := New()
+	payload, err := json.Marshal(protocol.Welcome{PlayerID: "p1"})
+	if err != nil {
+		t.Fatalf("marshal welcome: %v", err)
+	}
+	env, err := json.Marshal(protocol.Envelope{Type: protocol.TypeWelcome, Payload: payload})
+	if err != nil {
+		t.Fatalf("marshal envelope: %v", err)
+	}
+	welcome := make(chan protocol.Welcome, 1)
+	reject := make(chan protocol.Reject, 1)
+	c.handleRelayMessage(env, welcome, reject)
+
+	c.mu.Lock()
+	interval := c.effectiveSendInterval()
+	c.mu.Unlock()
+	if interval != DefaultMinSendInterval {
+		t.Fatalf("effective send interval = %v, want DefaultMinSendInterval (%v) — a Welcome with no send_hz must not be treated as advertising 0Hz", interval, DefaultMinSendInterval)
+	}
+}
+
+// TestAbsurdAdvertisedSendRateIsClampedNotBelieved confirms a hostile or
+// buggy relay cannot conscript this Core into flooding by advertising an
+// absurd send_hz — defense in depth on receive, the same trust-boundary
+// posture as the roster cross-check and ValidateState.
+func TestAbsurdAdvertisedSendRateIsClampedNotBelieved(t *testing.T) {
+	c := New()
+	payload, err := json.Marshal(protocol.Welcome{PlayerID: "p1", SendHz: 100000})
+	if err != nil {
+		t.Fatalf("marshal welcome: %v", err)
+	}
+	env, err := json.Marshal(protocol.Envelope{Type: protocol.TypeWelcome, Payload: payload})
+	if err != nil {
+		t.Fatalf("marshal envelope: %v", err)
+	}
+	welcome := make(chan protocol.Welcome, 1)
+	reject := make(chan protocol.Reject, 1)
+	c.handleRelayMessage(env, welcome, reject)
+
+	c.mu.Lock()
+	interval := c.effectiveSendInterval()
+	c.mu.Unlock()
+	want := time.Second / time.Duration(protocol.MaxSendHz)
+	if interval != want {
+		t.Fatalf("effective send interval = %v, want %v — a hostile relay's absurd advertised rate must be clamped, not believed", interval, want)
+	}
+}
+
+// TestAdvertisedSendRateIsForgottenOnRelayDisconnect confirms
+// serverSendInterval is cleared when the relay connection drops, so a
+// reconnect (to this relay again, or a different one) starts from
+// effectiveSendInterval's "nothing advertised yet" fallback instead of
+// inheriting a stale rate from the connection that just died.
+func TestAdvertisedSendRateIsForgottenOnRelayDisconnect(t *testing.T) {
+	s := relay.NewServer()
+	s.SendHz = 100
+	relayAddr := startRelayWith(t, s)
+
+	c, _ := startCore(t, relayAddr, "emerald", "room1", "alice")
+
+	c.mu.Lock()
+	before := c.serverSendInterval
+	relayConn := c.relay
+	c.mu.Unlock()
+	if before == 0 {
+		t.Fatal("setup: serverSendInterval was never set after connecting to a 100Hz relay")
+	}
+
+	_ = relayConn.Close()
+
+	deadline := time.Now().Add(testTimeout)
+	for time.Now().Before(deadline) {
+		c.mu.Lock()
+		after := c.serverSendInterval
+		c.mu.Unlock()
+		if after == 0 {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatal("serverSendInterval was not cleared after the relay connection disconnected")
+}
+
+// TestMaxReceiveHzReachesTheRelayInHello confirms Core.MaxReceiveHz
+// actually reaches the wire as Hello.MaxReceiveHz — a minimal fake relay
+// (a raw listener, not a real internal/relay.Server) that just observes
+// the first Hello it receives, since there's no relay-side rejection
+// behavior to hang an indirect proof on the way
+// TestBridgeHelloGameVersionReachesRelay does for game_version. The relay
+// side's own actual throttling behavior is covered end-to-end by
+// internal/relay's TestReceiveCapThrottlesOnlyTheClientThatAskedForIt.
+func TestMaxReceiveHzReachesTheRelayInHello(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	defer ln.Close()
+
+	gotHello := make(chan protocol.Hello, 1)
+	go func() {
+		conn, err := ln.Accept()
+		if err != nil {
+			return
+		}
+		// No defer conn.Close() here: registering OnReceive doesn't block,
+		// so this goroutine would otherwise return and close the connection
+		// immediately after registering the callback -- before Core's Hello
+		// could ever arrive. Left open for the rest of the test process;
+		// closing ln in the caller (defer ln.Close() above) is enough
+		// cleanup for a short-lived test.
+		nd := transport.FromConn(conn)
+		nd.OnReceive(func(payload []byte) {
+			var env protocol.Envelope
+			if err := json.Unmarshal(payload, &env); err != nil {
+				return
+			}
+			if env.Type != protocol.TypeHello {
+				return
+			}
+			var h protocol.Hello
+			if err := json.Unmarshal(env.Payload, &h); err != nil {
+				return
+			}
+			select {
+			case gotHello <- h:
+			default:
+			}
+		})
+		// Deliberately never replies with a Welcome -- this test only needs
+		// to observe what Core actually sent, not complete the handshake.
+	}()
+
+	c := New()
+	c.RelayAddr = ln.Addr().String()
+	c.Room = "room1"
+	c.DisplayName = "alice"
+	c.DialTimeout = 200 * time.Millisecond
+	c.MaxReceiveHz = 15
+	// Expected to time out waiting for a Welcome that never comes -- the
+	// Hello has already been sent by the time that happens, which is all
+	// this test needs.
+	_ = c.ConnectRelay("emerald")
+
+	select {
+	case h := <-gotHello:
+		if h.MaxReceiveHz != 15 {
+			t.Fatalf("Hello.MaxReceiveHz = %d, want 15", h.MaxReceiveHz)
+		}
+	case <-time.After(testTimeout):
+		t.Fatal("timed out waiting for the relay side to observe a Hello")
+	}
+}
+
+// TestRateLimitedRejectIsRetryableUnlikeAConfigReject confirms
+// isPermanentRejectReason's classification: ReasonRateLimited (like
+// ReasonServerFull) is retryable, while every config-driven reason stays
+// permanent, including a reason this build doesn't recognize — the
+// conservative default a future relay's new reason should get.
+func TestRateLimitedRejectIsRetryableUnlikeAConfigReject(t *testing.T) {
+	retryable := []string{protocol.ReasonRateLimited, protocol.ReasonServerFull}
+	for _, reason := range retryable {
+		if isPermanentRejectReason(reason) {
+			t.Fatalf("isPermanentRejectReason(%q) = true, want false (retryable)", reason)
+		}
+	}
+
+	permanent := []string{
+		protocol.ReasonInvalidRoomCode,
+		protocol.ReasonGameMismatch,
+		protocol.ReasonGameVersionMismatch,
+		protocol.ReasonProtocolVersionMismatch,
+		protocol.ReasonHelloFieldTooLong,
+		"some-future-reason-this-build-does-not-recognize",
+	}
+	for _, reason := range permanent {
+		if !isPermanentRejectReason(reason) {
+			t.Fatalf("isPermanentRejectReason(%q) = false, want true (permanent)", reason)
+		}
+	}
 }

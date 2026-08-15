@@ -204,11 +204,16 @@ stalls everything queued behind it ("head-of-line blocking") until it's retransm
 when a newer position update already superseded the lost one and you just want to render the
 latest state, now. That tradeoff doesn't bite the way it would in a competitive shooter:
 
-- **Send rate is capped at 20Hz** (`core.DefaultMinSendInterval`, overridable per-instance via
-  `Core.MinSendInterval`, `core.go`), and rendering
-  already runs `InterpolationDelay` (100ms default) behind the newest sample specifically to
-  smooth network jitter. A TCP stall is at most ~50ms at this rate — invisible against delay
-  we already absorb by design, not a new cost UDP would meaningfully remove.
+- **Send rate defaults to 20Hz, operator-configurable 10-100Hz** (`core.DefaultMinSendInterval`
+  is the fallback when nothing else applies; the actual rate is
+  `Core.effectiveSendInterval()` — the slower of a relay's advertised `Welcome.SendHz` and a
+  client's own explicit `Core.MinSendInterval`, `core.go`; see the send/receive rate-control ADR
+  in `architecture.md`), and rendering already runs `InterpolationDelay` (100ms default) behind
+  the newest sample specifically to smooth network jitter. A TCP stall is at most one send
+  interval (~50ms at the 20Hz default, as low as ~10ms at the 100Hz ceiling) — invisible against
+  delay already absorbed by design at the default rate, not a new cost UDP would meaningfully
+  remove; a relay configured near the 100Hz ceiling narrows that margin and is worth revisiting
+  if this reasoning is ever re-checked.
 - **Debuggability**: NDJSON-over-TCP is exactly why the relay protocol can be read with
   `netcat` and a human eye
   ([agent_docs/contract.md](../agent_docs/contract.md)'s framing rationale). UDP has no

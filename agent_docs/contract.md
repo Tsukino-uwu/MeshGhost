@@ -95,9 +95,9 @@ signal joins/leaves — `despawn_remote(id)` has nothing to trigger it without a
 
 | Message | Direction | Carries |
 |---|---|---|
-| `hello` | client → relay | protocol version, `game_id`, room name, display name, `room_code`, `game_version`, `features` |
-| `welcome` | relay → client | assigned `player_id`, current room roster |
-| `reject` | relay → client | a reason string — sent once, immediately before the relay closes a refused connection |
+| `hello` | client → relay | protocol version, `game_id`, room name, display name, `room_code`, `game_version`, `features`, `max_receive_hz_per_player` |
+| `welcome` | relay → client | assigned `player_id`, current room roster, room send rate (`send_hz`) |
+| `reject` | relay → client | a reason string — sent immediately before the relay closes a connection, either refusing a `hello` at handshake or, since the send/receive rate-control feature (see the ADR in `architecture.md`), closing an already-joined connection for exceeding the per-client message cap |
 | `join` | relay → client | a peer's `player_id` (and initial `state`, if available) |
 | `leave` | relay → client | a peer's `player_id` — this is what drives `despawn_remote` |
 | `state` | both directions | the packet schema above |
@@ -148,6 +148,39 @@ Both are refused with `reject` (see the message table above) before any `state` 
 the same "reject at handshake" shape the protocol-version check already used — researched
 against CelesteNet's own version-check pattern (`internal/README.md`'s prior-art section) before
 building this.
+
+### `send_hz` and `max_receive_hz_per_player`
+
+Added for the send/receive rate-control feature — see the ADR in `architecture.md`. Both
+integer Hz (updates per second), both optional, both degrade to today's pre-existing behavior
+in either direction against an older peer.
+
+- `send_hz` (on `welcome`) is the room-wide state send rate the relay is configured for. A
+  client adopts it as its own actual send rate **unless** it has deliberately configured a
+  slower rate of its own (`internal/core.Core.MinSendInterval`) — the effective rate is always
+  the **slower** of the two, so a peer on a poor connection can decline to go faster than it
+  wants, but the relay can never speed a client up past a rate it explicitly chose. Zero on the
+  wire (only possible from an older relay that predates this field) means "nothing advertised";
+  a client reading that falls back to `Core.DefaultMinSendInterval`. Prescriptive, not
+  enforced: nothing makes a client actually honor `send_hz` — the only hard limit is the
+  per-client flood cap below, which scales from it.
+- `max_receive_hz_per_player` (on `hello`) is the highest rate, **per other player**, at which
+  a client wants the relay to forward that player's state to it. Zero or absent means uncapped
+  (the pre-existing behavior, and what an older client sends). Enforced **at the relay**, which
+  drops the excess before it goes out on the wire — discarding on receive would save the
+  client's downlink nothing, which is the entire point. Per-recipient, not per-sender: two
+  different recipients can receive the same sender's state at two different effective rates
+  simultaneously, decided entirely by each recipient's own requested cap — harmless, since a
+  ghost is a purely cosmetic overlay with no shared state that needs to agree across clients.
+  Excess samples are **dropped, never coalesced or queued** — consistent with the state plane
+  already being lossy/latest-wins (see the Extensibility section below); a lower effective rate
+  costs ghost smoothness, never added latency or memory. `join`/`leave`/`welcome`/`reject`/
+  `ping`/`pong` are never subject to this cap — only `state` is throttled, since a throttled
+  `leave` would strand a permanently frozen ghost on the capped recipient's screen.
+
+Both values are bounded to **10–100** (`protocol.MinSendHz`/`MaxSendHz`) when set to something
+other than their own "unspecified"/"uncapped" sentinel; see the Limits section below for the
+exact clamping table.
 
 ## Extensibility — the event plane (reserved, not implemented)
 
@@ -356,16 +389,30 @@ alongside room-code auth (see the architecture.md ADR) — treat the numbers bel
 - Max length of every `hello` string field (`game_id`, `room`, `display_name`, `room_code`,
   `game_version`): **128 bytes** (`MaxHelloFieldLen`), checked at the relay before any of them
   are used to create or look up a room.
-- Per-client rate limit: **120 messages/second** (`MaxMessagesPerSecond`) — the relay closes,
-  rather than throttles, a connection that exceeds it. **Client-side enforced since Phase 6**
-  (TEVI): `internal/core.Core.MinSendInterval` (default 50ms / 20Hz, `DefaultMinSendInterval`)
-  caps how often `forwardLocalState` actually sends to the relay, independent of how often the
-  adapter calls in. Found live: a Unity adapter's `Update()` runs uncapped well above 120Hz, so
-  the original "up to ~60Hz, one per adapter frame" assumption was already wrong for a frame-
-  driven game with no engine-level cap, and the connection was closed by the relay after about
-  two minutes of real play (see `agent_docs/verified.md`'s Phase 6.4/6.5 entry and the ADR in
-  `architecture.md`). The brief's 10Hz hypothesis is still not what's enforced — 20Hz was chosen
-  for headroom under the relay's cap, not as a claim that 20Hz is the "right" sync rate.
+- Per-client rate limit: **`max(120, send_hz × 6)` messages/second** (`maxMessagesPerSecond`,
+  `internal/relay/limits.go`) — the relay closes, rather than throttles, a connection that
+  exceeds it, sending a `reject` (`ReasonRateLimited`) first since the send/receive rate-control
+  feature (see the ADR in `architecture.md`). At the default `send_hz` (20), this computes to
+  exactly the historical flat **120** — unchanged for an unconfigured relay. The cap **only ever
+  scales up**, never down: a relay turned *down* to a slower room rate must not start
+  disconnecting older clients still sending at their own built-in 20Hz default.
+  **Client-side enforced since Phase 6** (TEVI): `internal/core.Core.MinSendInterval` (default
+  50ms / 20Hz, `DefaultMinSendInterval`) caps how often `forwardLocalState` actually sends to the
+  relay, independent of how often the adapter calls in — since the rate-control feature, the
+  actual cap is `effectiveSendInterval()`, the slower of this and the relay's advertised
+  `send_hz` (see the subsection above). Found live: a Unity adapter's `Update()` runs uncapped
+  well above 120Hz, so the original "up to ~60Hz, one per adapter frame" assumption was already
+  wrong for a frame-driven game with no engine-level cap, and the connection was closed by the
+  relay after about two minutes of real play (see `agent_docs/verified.md`'s Phase 6.4/6.5 entry
+  and the ADR in `architecture.md`). The brief's 10Hz hypothesis is still not what's enforced by
+  default — 20Hz was chosen for headroom under the relay's cap, not as a claim that 20Hz is the
+  "right" sync rate.
+- `send_hz` / `max_receive_hz_per_player` clamping (`protocol.ClampSendHz` /
+  `protocol.ClampReceiveHz`): absent, zero, or negative resolves to the field's own "unspecified"
+  default (`protocol.DefaultSendHz` for `send_hz`; uncapped for `max_receive_hz_per_player`); a
+  positive value below **10** or above **100** is clamped to the nearest bound rather than
+  refused — a typo in a cosmetic tuning knob must not stop a relay from starting or a client
+  from connecting.
 - Max clients: **8 by default** (`DefaultMaxClients`), configurable per relay
   (`Server.MaxClients`, `-max-clients`, `config.json`'s `server.max_clients`) — enforced
   server-wide, across every room the relay is hosting combined, not per room. A relay already
@@ -415,7 +462,9 @@ verification standard in `CLAUDE.md`. Do not answer these from memory.
       "Limits" section above. 20Hz was chosen for headroom under the relay's 120 msg/sec cap
       (found live: TEVI's frame-driven `Update()` runs uncapped well above 120Hz with no
       engine-level throttle), not as a claim that 20Hz is the objectively "right" sync rate for
-      tile-grid movement.
+      tile-grid movement. Still 20Hz by default; now operator-configurable per relay
+      (`server.send_hz`, 10–100) as of the send/receive rate-control feature — see the subsection
+      above and the ADR in `architecture.md`.
 - [x] `seq`/`timestamp` semantics: does `seq` reset on reconnect? Is `timestamp` wall-clock
       or client-relative? **Decided (already true of the implementation, not a new choice):**
       `seq` is a `Core`-lifetime counter (`atomic.AddUint64(&c.seq, 1)`) that never resets —

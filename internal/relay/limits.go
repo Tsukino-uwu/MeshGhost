@@ -29,14 +29,33 @@ const (
 	// configure it and find out.
 	DefaultMaxClients = 8
 
-	// MaxMessagesPerSecond is a per-client rate limit on the relay
-	// protocol. The core does throttle its own send rate now
-	// (core.Core.MinSendInterval, added the same session TEVI's uncapped
-	// Update() first tripped this limit for real — see agent_docs/
-	// architecture.md's ADR) — this is still set well above that default
-	// (20Hz) rather than at the brief's 10Hz hypothesis, for headroom
+	// MaxMessagesPerSecond is the FLOOR of the per-client flood cap, not the
+	// cap itself since the send/receive rate-control feature (see the ADR in
+	// agent_docs/architecture.md): the real cap is
+	// max(MaxMessagesPerSecond, sendHz*RateLimitHeadroomMultiple), computed
+	// by maxMessagesPerSecond below, so a relay configured for a faster
+	// send_hz gets proportionally more headroom instead of tripping this
+	// flat number outright. At the default send_hz (protocol.DefaultSendHz,
+	// 20), the computed cap is exactly this constant's historical value —
+	// 120 — so an unconfigured relay's behavior is unchanged. The core does
+	// throttle its own send rate (core.Core.MinSendInterval / the room's
+	// advertised send_hz, added the same session TEVI's uncapped Update()
+	// first tripped this limit for real — see agent_docs/architecture.md's
+	// ADR); this floor still sits above that default rate for headroom
 	// rather than to compensate for an unthrottled client.
 	MaxMessagesPerSecond = 120
+
+	// RateLimitHeadroomMultiple is how many messages per second per client
+	// the relay tolerates for each Hz of the room's configured send rate.
+	// 6x is not a fresh judgement: it is exactly MaxMessagesPerSecond /
+	// protocol.DefaultSendHz (120/20), chosen so a relay left at defaults
+	// computes precisely the historical hardcoded 120 and this scaling
+	// changes nothing for an existing deployment. The headroom covers
+	// ping/pong heartbeats, scheduling jitter against a fixed tumbling
+	// window, and a client that ignores the advertised rate outright — the
+	// flood cap is a resource guard, not enforcement of send_hz (nothing
+	// anywhere makes a client honor Welcome.SendHz).
+	RateLimitHeadroomMultiple = 6
 
 	// DefaultHelloTimeout bounds how long an unauthenticated connection may
 	// sit without completing a Hello and joining a room. Without this, a
@@ -57,3 +76,17 @@ const (
 	// protocol version or room code, not after doing any work with it.
 	MaxHelloFieldLen = 128
 )
+
+// maxMessagesPerSecond returns the per-client flood cap for a room running
+// at sendHz. It only ever scales UP from MaxMessagesPerSecond: lowering a
+// relay's send_hz must never start disconnecting clients that are still
+// sending at their own built-in default rate — an older client, or any
+// client with an explicit local override, never sees Welcome.SendHz at all
+// or deliberately ignores it, and none of them deserve to be dropped just
+// because the operator turned the room down.
+func maxMessagesPerSecond(sendHz int) int {
+	if limit := sendHz * RateLimitHeadroomMultiple; limit > MaxMessagesPerSecond {
+		return limit
+	}
+	return MaxMessagesPerSecond
+}

@@ -338,6 +338,43 @@ originally anticipated (2026-08-11) is where these landed, as expected.
 work — see `risks.md`); the "stale relay" gap has no protocol-level fix, only a documentation
 one (tell hosts to update); TEVI's `game_version` doesn't yet reflect a real Steam build number.
 
+### Send/receive rate control
+
+**Built 2026-08-15**, in response to a user question about a setting they recalled discussing
+but that had never actually landed in the code (checked via full git history/reflog/dangling-
+commit search — no trace found; either a prior conversation that didn't leave a commit, or a
+plan that was never implemented). Full record: the ADR in `agent_docs/architecture.md` (search
+"2026-08-15", the send/receive rate-control ADR) and `agent_docs/contract.md`'s new
+"`send_hz` and `max_receive_hz_per_player`" subsection. Short version:
+
+- **`server.send_hz`** (relay, default 20, valid 10–100) — the room-wide state send rate,
+  advertised to every client via `Welcome.SendHz`. A client adopts it as its own send rate
+  unless it deliberately configured a slower one (`-min-send`/`min_send`), which always wins —
+  prescriptive but with a per-client floor, never a way to force a client to send faster than
+  it wants to.
+- **`client.max_receive_hz_per_player`** (client, default 0/uncapped, valid 10–100 if set) — how
+  fast a client wants *other players'* state forwarded to it, per peer. Enforced at the relay by
+  dropping the excess before it goes out on the wire (client-side discarding would save no
+  bandwidth). Two recipients can receive the same sender at two different effective rates
+  simultaneously.
+- The per-client flood cap (`relay.MaxMessagesPerSecond`) now scales with the configured
+  `send_hz` (`max(120, send_hz × 6)`), **only ever up**, never down — turning a room's rate down
+  must never start disconnecting older clients still sending at their own built-in 20Hz.
+- An over-limit client now gets a `Reject` (`ReasonRateLimited`, classified retryable) before the
+  relay closes the connection, instead of the previous anonymous hangup.
+
+**Real regression caught and fixed in the same change**: all six `dev-scripts/run-core-*.bat`
+pass `-min-send=10ms` — faster than the (now fallback-only) 20Hz default — which under "slower
+wins" against an unconfigured relay would have silently capped every one of them back down to
+50ms, undoing the exact fast-local-timing setup Phase 8 chose deliberately
+(`agent_docs/phases/phase8.md`). Both relay dev scripts now pass `-send-hz=100`.
+
+**Not done, deliberately**: advertising a recipient's cap back to the sender (no way for a
+sender to know a given peer is receiving it throttled); auto-deriving `-interp` from the
+effective rate (a cap/rate below ~10Hz needs `-interp` raised by hand or ghosts visibly stutter,
+documented in the flag help and README instead of engineered around). Both are real, left for
+`agent_docs/ideas.md`.
+
 ### Release packaging (not a phase, tooling)
 
 Added 2026-08-11 (`v0.1.0`, two zips: `meshghost-relay-...` / `meshghost-emerald-player-...`).

@@ -61,6 +61,35 @@ const (
 	// bytes) while still ruling out a peer trying to wedge an unbounded
 	// payload through Extras.
 	MaxLineBytes = 4096
+
+	// DefaultSendHz is the room-wide state send rate a relay advertises in
+	// Welcome.SendHz when its operator hasn't configured one, and the rate a
+	// client falls back to when the relay advertises nothing at all (an
+	// older relay). 20Hz, not the brief's original 10Hz hypothesis: 20Hz is
+	// the rate live-confirmed across all three shipped games as
+	// internal/core.DefaultMinSendInterval (agent_docs/contract.md's Limits
+	// section), and this constant exists to keep the two provably equal
+	// rather than as a fresh claim about the "right" rate.
+	DefaultSendHz = 20
+
+	// MinSendHz / MaxSendHz bound both server.send_hz (a relay's configured
+	// room rate) and client.max_receive_hz_per_player (a client's own
+	// per-peer receive cap) — see the ADR in agent_docs/architecture.md for
+	// the send/receive rate-control feature. The floor is the brief's
+	// original 10Hz hypothesis: below it, internal/core's default 100ms
+	// interpolation delay is no longer longer than the gap between samples,
+	// and internal/core/interp.go's remoteBuffer.at() starts falling back to
+	// an edge snapshot every tick instead of smoothing — a lower rate would
+	// degrade smoothness in a way that looks like a bug, not a setting
+	// someone chose. The ceiling is a bandwidth bound, not a technical one: a
+	// room's traffic grows with send_hz times the square of its size (see
+	// internal/relay.DefaultMaxClients), so 100Hz in a full 8-seat room is
+	// already thousands of messages/second through the relay. MaxSendHz also
+	// bounds what a hostile relay can talk a client into sending, which is
+	// why these live here rather than in internal/relay/limits.go — both
+	// sides enforce them, same reasoning as MaxPositionComponent above.
+	MinSendHz = 10
+	MaxSendHz = 100
 )
 
 // IsValidPosition reports whether every component of pos is finite (not
@@ -75,6 +104,56 @@ func IsValidPosition(pos []float64) bool {
 		}
 	}
 	return true
+}
+
+// ClampSendHz resolves a configured or advertised send/receive rate to a
+// usable one: zero or negative means "unspecified, use DefaultSendHz" (the
+// same zero-means-default convention as internal/relay.Server.MaxClients and
+// internal/core.Core.DialTimeout), and anything outside [MinSendHz,
+// MaxSendHz] is clamped rather than refused — clamping, not refusing: a
+// relay must not fail to start over a typo in a cosmetic tuning knob, and a
+// client must not drop a working relay connection because that relay
+// advertised a number this build doesn't like. Shared by internal/relay (its
+// own server.send_hz config) and internal/core (a possibly-hostile relay's
+// Welcome.SendHz, and its own client.max_receive_hz_per_player config) so
+// the two enforcement points can't drift apart — same reasoning as
+// ValidateState above. Callers that want to warn when a value they read from
+// config or the wire wasn't already in range compare their input against
+// this function's return value themselves; this function only resolves,
+// it never logs. For client.max_receive_hz_per_player / Hello.MaxReceiveHz,
+// where zero means "uncapped" rather than "use the default rate", use
+// ClampReceiveHz instead.
+func ClampSendHz(hz int) int {
+	if hz <= 0 {
+		return DefaultSendHz
+	}
+	if hz < MinSendHz {
+		return MinSendHz
+	}
+	if hz > MaxSendHz {
+		return MaxSendHz
+	}
+	return hz
+}
+
+// ClampReceiveHz resolves a configured or advertised per-peer receive cap
+// (client.max_receive_hz_per_player / protocol.Hello.MaxReceiveHz) to a
+// usable one. Unlike ClampSendHz, zero or negative here means "uncapped" —
+// there is no sensible default cap, only "off" — so it stays 0 rather than
+// resolving to DefaultSendHz. A positive value outside [MinSendHz,
+// MaxSendHz] is still clamped rather than refused, same reasoning as
+// ClampSendHz.
+func ClampReceiveHz(hz int) int {
+	if hz <= 0 {
+		return 0
+	}
+	if hz < MinSendHz {
+		return MinSendHz
+	}
+	if hz > MaxSendHz {
+		return MaxSendHz
+	}
+	return hz
 }
 
 // ValidateState reports whether st passes every size/length/finiteness

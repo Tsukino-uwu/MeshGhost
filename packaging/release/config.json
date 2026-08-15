@@ -5,11 +5,13 @@
     "room_code": "",
     "name": "player",
     "local_game_bridge": "127.0.0.1:7778",
-    "interp": "100ms"
+    "interp": "100ms",
+    "max_receive_hz_per_player": 0
   },
   "server": {
     "listen_on": "0.0.0.0:7777",
     "room_code": "",
-    "max_clients": 8
+    "max_clients": 8,
+    "send_hz": 20
   }
 }

@@ -61,9 +61,12 @@ const (
 	TypePong  MessageType = "pong"
 	// TypeReject is the relay's reply to a Hello it refuses — wrong protocol
 	// version, mismatched game_id/game_version for the room, a wrong room
-	// code, or a full room. Sent before the relay closes the connection, so
-	// a client can distinguish "refused, and why" from "the relay is just
-	// slow" or "the relay is down" instead of only ever seeing a bare
+	// code, or a full room — or, since the send/receive rate-control feature
+	// (see the ADR in agent_docs/architecture.md), a mid-session close of an
+	// already-joined connection for exceeding the per-client message cap
+	// (ReasonRateLimited). Sent before the relay closes the connection, so a
+	// client can distinguish "refused/closed, and why" from "the relay is
+	// just slow" or "the relay is down" instead of only ever seeing a bare
 	// hangup. Added alongside room-code auth — see the ADR in
 	// agent_docs/architecture.md.
 	TypeReject MessageType = "reject"
@@ -104,17 +107,41 @@ type Hello struct {
 	// populates or consumes real values yet. See contract.md's Features
 	// section for why this field exists before anything uses it.
 	Features []string `json:"features,omitempty"`
+	// MaxReceiveHz is the highest rate, in updates per second *per peer*, at
+	// which this client wants the relay to forward other players' state to
+	// it. Zero or absent means uncapped (the pre-existing behavior, and what
+	// an older client that doesn't know this field sends). Enforced at the
+	// relay, which drops the excess before it goes out on the wire —
+	// discarding on receive would save the client nothing, which is the
+	// entire point. Per peer, not in total: a 5Hz cap in an 8-player room is
+	// up to 35 messages/sec inbound, not 5 — see internal/core.Core.
+	// MaxReceiveHz and the ADR in agent_docs/architecture.md.
+	MaxReceiveHz int `json:"max_receive_hz_per_player,omitempty"`
 }
 
 // Welcome is the relay's reply to a successful Hello.
 type Welcome struct {
 	PlayerID string   `json:"player_id"`
 	Roster   []string `json:"roster"`
+	// SendHz is the room-wide state send rate this relay is configured for,
+	// in updates per second. A client adopts it as its actual send rate
+	// unless it has deliberately configured a slower one of its own (see
+	// internal/core.Core.MinSendInterval) — the effective rate is the slower
+	// of the two, so a peer on a poor connection can decline to go faster
+	// but can never be made to go faster than the room. Always populated by
+	// a relay that knows this field; a zero here means an older relay that
+	// doesn't, which a client reads as "nothing advertised" and falls back
+	// to internal/core.DefaultMinSendInterval. Deliberately not omitempty: a
+	// new relay always sends a real value, so a 0 on the wire from one would
+	// be a bug worth seeing rather than eliding. See the ADR in
+	// agent_docs/architecture.md.
+	SendHz int `json:"send_hz"`
 }
 
-// Reject is the relay's reply to a Hello it refuses to accept — see
-// TypeReject. Sent once, immediately before the relay closes the
-// connection.
+// Reject is the relay's reply to a Hello it refuses to accept, or — since
+// the send/receive rate-control feature — its notice before closing an
+// already-joined connection for exceeding the per-client message cap. See
+// TypeReject. Sent once, immediately before the relay closes the connection.
 type Reject struct {
 	Reason string `json:"reason"`
 }
@@ -139,6 +166,16 @@ const (
 	// every room it's hosting combined, not that any one room is full —
 	// see internal/relay.Server.MaxClients.
 	ReasonServerFull = "server full"
+	// ReasonRateLimited means the connection exceeded the relay's per-client
+	// message cap (internal/relay.MaxMessagesPerSecond, scaled by the room's
+	// configured send rate) and is being closed. Unlike every other reason
+	// here, this one is typically sent *after* a successful join, not at
+	// handshake — and unlike the others it is retryable: a reconnecting
+	// client re-reads the room's advertised send rate from the new Welcome
+	// and may well fit under the cap the second time. See
+	// internal/core.isPermanentRejectReason and the ADR in
+	// agent_docs/architecture.md.
+	ReasonRateLimited = "rate limited"
 )
 
 // Join announces a peer entering the room. State is reserved for seeding a

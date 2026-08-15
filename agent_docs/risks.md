@@ -507,6 +507,25 @@
   before any future combat/animation-adjacent change, since it points at the same
   "two live instances of a class the game never expected to duplicate" risk class.
 
+- **`send_hz` is prescriptive but unenforced — a non-compliant client can legitimately run at up
+  to 6x the room's configured rate before it's disconnected.** Built 2026-08-15 (see the ADR in
+  `agent_docs/architecture.md`). The relay advertises a room-wide send rate in `Welcome`, and a
+  well-behaved client adopts it, but nothing checks that a client actually *does* — the only
+  hard backstop is the scaled per-client flood cap (`max(120, send_hz × 6)`), which exists to
+  guard against a genuinely misbehaving/flooding client, not to enforce compliance with the
+  advertised rate. A buggy or hostile client that ignores `Welcome.SendHz` entirely and sends at
+  its own faster pace is tolerated right up to that cap.
+- **Raising a relay's `send_hz` taxes every peer's download, and a client running a pre-change
+  build has no way to opt out of a fast room.** `client.max_receive_hz_per_player` lets an
+  *updated* client cap its own inbound rate per peer, but an older client (or one whose config
+  file hasn't been updated) is uncapped and simply receives whatever the room's configured rate
+  produces. Combined with the pre-existing O(n²) room fan-out
+  (`internal/relay.DefaultMaxClients`'s own doc comment), a host who raises `send_hz` without
+  telling their players is imposing a real, potentially unwanted bandwidth cost on everyone in
+  the room. Mitigated by documentation only (`packaging/release/README.txt`'s Hz section states
+  the concrete cost and recommends leaving the defaults alone) — there is no protocol-level
+  fix, the same shape as the "stale relay" risk above.
+
 ## Mitigations
 
 - Keep the contract minimal, and validate it early with a fake adapter (Phase 5).

@@ -38,6 +38,64 @@ type Room struct {
 type Client struct {
 	PlayerID string
 	Conn     transport.Transport
+
+	// maxReceiveHz is this client's own requested per-peer receive cap from
+	// its Hello (protocol.Hello.MaxReceiveHz, already resolved through
+	// protocol.ClampReceiveHz); 0 means uncapped. Written once when this
+	// Client is constructed, before it is published into Room.members, and
+	// never mutated after — so unlike gateMu/lastStateTo below it needs no
+	// lock of its own.
+	maxReceiveHz int
+
+	// gateMu guards lastStateTo, which maps a *sender's* player_id to the
+	// last time a State from that sender was forwarded *to this client*.
+	// This is the one piece of per-connection state that does not inherit
+	// handleConn's "OnReceive is serial, so no mutex needed" invariant: it
+	// is per-recipient but read and written by the *sender's* OnReceive
+	// goroutine, so every other member of the room can touch one recipient's
+	// gate concurrently. See the ADR in agent_docs/architecture.md.
+	gateMu      sync.Mutex
+	lastStateTo map[string]time.Time
+}
+
+// allowStateFrom reports whether a State from sender may be forwarded to c
+// right now, given c's own requested maxReceiveHz, and records the decision
+// if so. A minimum-interval gate, not a token bucket — the same shape as
+// core.Core.forwardLocalState's own throttle, and with the same consequence:
+// the achievable effective rate is quantized to
+// senderHz/ceil(senderHz/capHz), so e.g. a 15Hz cap against a 20Hz sender
+// yields 10Hz, not 15. Acceptable because ghosts are cosmetic
+// (agent_docs/contract.md's state plane is explicitly lossy, latest-wins) —
+// excess samples are dropped, never coalesced or queued, so this can neither
+// grow memory nor add latency. hz <= 0 (uncapped, the default and the only
+// behavior an older client can get) returns true immediately without
+// touching the map or the lock at all.
+func (c *Client) allowStateFrom(sender string, now time.Time) bool {
+	if c.maxReceiveHz <= 0 {
+		return true
+	}
+	interval := time.Second / time.Duration(c.maxReceiveHz)
+	c.gateMu.Lock()
+	defer c.gateMu.Unlock()
+	if c.lastStateTo == nil {
+		c.lastStateTo = make(map[string]time.Time)
+	}
+	last, ok := c.lastStateTo[sender]
+	if ok && now.Sub(last) < interval {
+		return false
+	}
+	c.lastStateTo[sender] = now
+	return true
+}
+
+// forgetSender purges sender's entry from c's own receive gate. Called when
+// sender leaves the room: player_ids are never reused (nextPlayerID), so
+// without this a long-lived relay with real churn would accumulate one
+// stale map entry per departed sender in every remaining member's gate.
+func (c *Client) forgetSender(sender string) {
+	c.gateMu.Lock()
+	defer c.gateMu.Unlock()
+	delete(c.lastStateTo, sender)
 }
 
 func newRoom(gameID, gameVersion, name string) *Room {
@@ -122,8 +180,20 @@ func (r *Room) tryAddAndSnapshotRoster(c *Client) (rosterBeforeJoin []string) {
 
 func (r *Room) remove(playerID string) {
 	r.mu.Lock()
-	defer r.mu.Unlock()
 	delete(r.members, playerID)
+	remaining := make([]*Client, 0, len(r.members))
+	for _, c := range r.members {
+		remaining = append(remaining, c)
+	}
+	r.mu.Unlock()
+
+	// Purge playerID's entry from every remaining member's own receive gate
+	// (Client.forgetSender), after unlocking r.mu — never while holding it,
+	// same reasoning as Forward's own snapshot-then-act shape: no other lock
+	// is taken here, so there is no ordering to get wrong later.
+	for _, c := range remaining {
+		c.forgetSender(playerID)
+	}
 }
 
 func (r *Room) size() int {
@@ -152,6 +222,38 @@ func (r *Room) allExcept(exclude string) []string {
 	for id := range r.members {
 		if id != exclude {
 			ids = append(ids, id)
+		}
+	}
+	return ids
+}
+
+// stateRecipients returns which of the room's other members should receive
+// a State from sender right now, applying each recipient's own
+// maxReceiveHz cap (Client.allowStateFrom). Snapshots member pointers under
+// r.mu and then consults each recipient's own gate after unlocking, so this
+// never nests one lock inside the other and never does per-recipient work
+// under the room lock — same reasoning as Forward's own snapshot-then-act
+// shape. Recording the decision here rather than after a successful Send is
+// deliberate: a Send failure means the recipient is gone or stalled, and
+// re-crediting it a slot would be work for a connection that's already on
+// its way out. Only ever called for state — join/leave/welcome/reject/pong
+// go through allExcept or a direct recipient list instead, so they are
+// never throttled (a throttled leave would strand a permanently frozen
+// ghost).
+func (r *Room) stateRecipients(sender string, now time.Time) []string {
+	r.mu.Lock()
+	members := make([]*Client, 0, len(r.members))
+	for id, c := range r.members {
+		if id != sender {
+			members = append(members, c)
+		}
+	}
+	r.mu.Unlock()
+
+	ids := make([]string, 0, len(members))
+	for _, c := range members {
+		if c.allowStateFrom(sender, now) {
+			ids = append(ids, c.PlayerID)
 		}
 	}
 	return ids
@@ -208,6 +310,19 @@ type Server struct {
 	// the real 60s default; a real deployment should leave this unset.
 	IdleTimeout time.Duration
 
+	// SendHz is the room-wide state send rate this relay advertises to
+	// every client in its Welcome, in updates per second. Zero means
+	// protocol.DefaultSendHz; out-of-range values are clamped
+	// (protocol.ClampSendHz) at the use site (resolveSendHz) rather than
+	// refused, the same zero-means-default/resolve-late convention as
+	// MaxClients and HelloTimeout. Prescriptive but not enforced: raising
+	// this genuinely makes every ghost in every room on this relay update
+	// more often (and costs every peer that much more bandwidth in both
+	// directions), but nothing makes a client honor it — the only hard
+	// limit is the flood cap, which scales from this value (see
+	// maxMessagesPerSecond). See the ADR in agent_docs/architecture.md.
+	SendHz int
+
 	// clientCount is the number of clients currently holding a reserved
 	// slot, guarded by mu (the same lock already used for the rooms map,
 	// rather than a separate one — server-wide join bookkeeping is a
@@ -246,6 +361,15 @@ func (s *Server) releaseSlot() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.clientCount--
+}
+
+// resolveSendHz returns this relay's configured send rate, clamped through
+// protocol.ClampSendHz (zero means "use protocol.DefaultSendHz", same
+// zero-means-default convention as MaxClients).
+func (s *Server) resolveSendHz() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return protocol.ClampSendHz(s.SendHz)
 }
 
 // Serve accepts connections on ln, handling each on its own goroutine,
@@ -384,6 +508,15 @@ func (s *Server) handleConn(conn net.Conn) {
 		loopbackGhostSent bool
 	)
 
+	// Resolved once, here, rather than per message: the enforced cap must
+	// match what this connection's own Welcome advertises, and re-reading
+	// s.SendHz mid-session would let the relay enforce a limit it never told
+	// this client about. Same no-mutex reasoning as rateWindow/rateCount —
+	// computed before OnReceive is registered, read only from inside it. See
+	// the ADR in agent_docs/architecture.md.
+	sendHz := s.resolveSendHz()
+	msgLimit := maxMessagesPerSecond(sendHz)
+
 	// HelloTimeout: a connection that never completes a Hello and joins a
 	// room is closed after this long, rather than held open indefinitely.
 	// transport's own IdleTimeout doesn't cover this on its own — it resets
@@ -441,9 +574,16 @@ func (s *Server) handleConn(conn net.Conn) {
 			rateCount = 0
 		}
 		rateCount++
-		rateExceeded := rateCount > MaxMessagesPerSecond
-		if rateExceeded {
-			log.Printf("relay: client exceeded %d messages/second, closing connection", MaxMessagesPerSecond)
+		if rateCount > msgLimit {
+			// A Reject before the close, not a bare hangup — same posture as
+			// rejectAndClose's handshake refusals, applied here for the first
+			// time to an already-joined connection. ReasonRateLimited is
+			// classified retryable by core.isPermanentRejectReason: a
+			// reconnecting client re-reads this room's advertised send_hz
+			// from the new Welcome and may well fit under the cap the second
+			// time. See the ADR in agent_docs/architecture.md.
+			log.Printf("relay: client exceeded %d messages/second, rejecting and closing connection", msgLimit)
+			sendEnvelope(nd, protocol.TypeReject, protocol.Reject{Reason: protocol.ReasonRateLimited})
 			_ = nd.Close()
 			return
 		}
@@ -526,7 +666,11 @@ func (s *Server) handleConn(conn net.Conn) {
 			}
 
 			newID := s.nextPlayerID()
-			rosterBeforeJoin := joined.tryAddAndSnapshotRoster(&Client{PlayerID: newID, Conn: nd})
+			rosterBeforeJoin := joined.tryAddAndSnapshotRoster(&Client{
+				PlayerID:     newID,
+				Conn:         nd,
+				maxReceiveHz: protocol.ClampReceiveHz(hello.MaxReceiveHz),
+			})
 
 			mu.Lock()
 			room, playerID = joined, newID
@@ -543,6 +687,7 @@ func (s *Server) handleConn(conn net.Conn) {
 			sendEnvelope(nd, protocol.TypeWelcome, protocol.Welcome{
 				PlayerID: newID,
 				Roster:   rosterBeforeJoin,
+				SendHz:   sendHz,
 			})
 
 			join, err := envelope(protocol.TypeJoin, protocol.Join{PlayerID: newID})
@@ -575,7 +720,7 @@ func (s *Server) handleConn(conn net.Conn) {
 			if err != nil {
 				return
 			}
-			r.Forward(stateEnv, r.allExcept(id))
+			r.Forward(stateEnv, r.stateRecipients(id, time.Now()))
 
 			if s.Loopback {
 				// Dev-only Phase 3 loopback (agent_docs/phases/phase3.md):

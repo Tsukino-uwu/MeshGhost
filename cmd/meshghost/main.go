@@ -50,6 +50,11 @@ type fileConfig struct {
 	MinSend     *string `json:"min_send"`
 	RoomCode    *string `json:"room_code"`
 	GameVersion *string `json:"game_version"`
+	// MaxReceiveHzPerPlayer is the highest rate, per OTHER player, at which
+	// this client wants the relay to forward their state to it. Absent or 0
+	// means uncapped (the pre-existing behavior). Per-peer, not a total —
+	// see core.Core.MaxReceiveHz and the ADR in agent_docs/architecture.md.
+	MaxReceiveHzPerPlayer *int `json:"max_receive_hz_per_player"`
 }
 
 // rootConfig is the top-level shape of the config file: a "client" section
@@ -67,15 +72,16 @@ type rootConfig struct {
 // support would have pushed it to seven; a struct keeps each field's name
 // at the call site instead of relying on positional order.
 type configTargets struct {
-	relayAddr   *string
-	bridgeAddr  *string
-	gameID      *string
-	room        *string
-	name        *string
-	interp      *time.Duration
-	minSend     *time.Duration
-	roomCode    *string
-	gameVersion *string
+	relayAddr    *string
+	bridgeAddr   *string
+	gameID       *string
+	room         *string
+	name         *string
+	interp       *time.Duration
+	minSend      *time.Duration
+	roomCode     *string
+	gameVersion  *string
+	maxReceiveHz *int
 }
 
 // applyFileConfig loads path (if it exists -- silently doing nothing if not,
@@ -138,6 +144,9 @@ func applyFileConfig(path string, explicit map[string]bool, t configTargets) {
 	if fc.GameVersion != nil && !explicit["game-version"] {
 		*t.gameVersion = *fc.GameVersion
 	}
+	if fc.MaxReceiveHzPerPlayer != nil && !explicit["max-receive-hz-per-player"] {
+		*t.maxReceiveHz = *fc.MaxReceiveHzPerPlayer
+	}
 }
 
 // connectRelayWithRetry keeps calling Core.ConnectRelayOnAdapterHello until
@@ -198,22 +207,32 @@ func main() {
 	interp := flag.Duration("interp", core.DefaultInterpolationDelay,
 		"interpolation delay for remote ghosts (e.g. 200ms) — how far behind the most recent "+
 			"samples remotes are rendered, to smooth over network jitter")
-	minSend := flag.Duration("min-send", core.DefaultMinSendInterval,
-		"minimum time between state sends to the relay (e.g. 16ms) — lower values send fresher "+
-			"samples more often, at the cost of more relay traffic; mainly useful paired with "+
-			"-interp=0 for local loopback testing where jitter isn't a concern")
+	minSend := flag.Duration("min-send", 0,
+		"a FLOOR on how slowly you send your position to the relay -- leave this unset (0) to "+
+			"just adopt whatever rate the relay advertises (see -send-hz on the relay side; "+
+			"defaults to 20Hz/50ms if the relay doesn't advertise one at all). Setting this only "+
+			"ever makes you send SLOWER than the room, never faster: it's for a poor connection "+
+			"that wants to opt out of a fast room, not a way to exceed what the relay allows. "+
+			"e.g. 100ms means 'send at most 10 times/sec even if this room runs faster'")
 	roomCode := flag.String("room-code", "", "shared secret to send the relay for room-code auth "+
 		"-- only needed if the relay you're connecting to has one configured; leave empty for a "+
 		"relay running open (the default)")
 	gameVersion := flag.String("game-version", "", "override the game/DLC version advertised to "+
 		"the relay, instead of whatever the adapter itself reports over its bridge Hello -- for "+
 		"dev/testing scripts with no real adapter attached")
+	maxReceiveHz := flag.Int("max-receive-hz-per-player", core.DefaultMaxReceiveHz,
+		"the highest rate, per OTHER player, at which you want the relay to forward their "+
+			"position to you -- leave at 0 (uncapped, the default) unless you're on a metered or "+
+			"weak connection. This is PER PLAYER, not a total: setting 5 in a room of 8 is up to "+
+			"35 updates/sec inbound, not 5. Only affects your own download and nobody else's view "+
+			"of you. Valid range 10-100 if set; values below ~10 will look stuttery unless you "+
+			"also raise -interp")
 	configPath := flag.String("config", "config.json",
 		"path to an optional JSON config file with a \"client\" section "+
-			"(connect_to/local_game_bridge/game/room/name/interp/min_send/room_code/game_version) -- a "+
-			"friendlier alternative to flags for non-developer use; silently ignored if it doesn't "+
-			"exist; any flag explicitly passed on the command line overrides the same field from "+
-			"this file")
+			"(connect_to/local_game_bridge/game/room/name/interp/min_send/room_code/game_version/"+
+			"max_receive_hz_per_player) -- a friendlier alternative to flags for non-developer use; "+
+			"silently ignored if it doesn't exist; any flag explicitly passed on the command line "+
+			"overrides the same field from this file")
 	flag.Parse()
 
 	log.SetOutput(openLogFile("meshghost.log"))
@@ -221,20 +240,22 @@ func main() {
 	explicit := map[string]bool{}
 	flag.Visit(func(f *flag.Flag) { explicit[f.Name] = true })
 	applyFileConfig(*configPath, explicit, configTargets{
-		relayAddr:   relayAddr,
-		bridgeAddr:  bridgeAddr,
-		gameID:      gameID,
-		room:        room,
-		name:        name,
-		interp:      interp,
-		minSend:     minSend,
-		roomCode:    roomCode,
-		gameVersion: gameVersion,
+		relayAddr:    relayAddr,
+		bridgeAddr:   bridgeAddr,
+		gameID:       gameID,
+		room:         room,
+		name:         name,
+		interp:       interp,
+		minSend:      minSend,
+		roomCode:     roomCode,
+		gameVersion:  gameVersion,
+		maxReceiveHz: maxReceiveHz,
 	})
 
 	c := core.New()
 	c.InterpolationDelay = *interp
 	c.MinSendInterval = *minSend
+	c.MaxReceiveHz = *maxReceiveHz
 	c.RelayAddr = *relayAddr
 	c.Room = *room
 	c.DisplayName = *name

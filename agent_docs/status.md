@@ -28,6 +28,12 @@
   adapters' own message-parsing code hasn't been audited with an adversarial-input mindset the
   way the Go relay/core layer was. See `agent_docs/risks.md` and `agent_docs/plans.md`'s "Room
   codes / relay safety" section.
+- **Send/receive rate control (`server.send_hz` / `client.max_receive_hz_per_player`), built
+  2026-08-15** — `go test` clean, all new tests confirmed to actually fail when their check is
+  broken, but **not yet live-verified**: needs a real two-client session, one client with a low
+  `max_receive_hz_per_player`, watching both ghosts on screen at visibly different smoothness.
+  See `agent_docs/plans.md`'s "Send/receive rate control" section and the ADR in
+  `agent_docs/architecture.md`.
 
 ## Links
 

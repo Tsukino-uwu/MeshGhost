@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -708,7 +709,7 @@ func (f *fakeStallingTransport) Send(payload []byte) error {
 func (f *fakeStallingTransport) OnReceive(func([]byte))   {}
 func (f *fakeStallingTransport) OnDisconnect(func(error)) {}
 func (f *fakeStallingTransport) OnError(func(error))      {}
-func (f *fakeStallingTransport) Close() error              { return nil }
+func (f *fakeStallingTransport) Close() error             { return nil }
 
 // TestRoomForwardDoesNotBlockOtherOperationsOnStalledSend confirms
 // Room.Forward releases r.mu before calling Send, so one stalled room
@@ -973,5 +974,407 @@ func TestIdleConnectionWithoutPingIsDroppedByIdleTimeout(t *testing.T) {
 		// expected: the relay's read deadline elapsed with nothing sent.
 	case <-time.After(2 * time.Second):
 		t.Fatal("connection was not dropped by IdleTimeout — test harness assumption is wrong")
+	}
+}
+
+// --- Send/receive rate control (agent_docs/architecture.md's ADR) ---
+
+// TestWelcomeAdvertisesConfiguredSendRate confirms a relay operator's
+// configured Server.SendHz reaches a joining client verbatim in Welcome.
+func TestWelcomeAdvertisesConfiguredSendRate(t *testing.T) {
+	s := NewServer()
+	s.SendHz = 50
+	addr := startServerWith(t, s)
+
+	c1 := dialTestClient(t, addr, "emerald", "room1", "alice")
+	defer c1.conn.Close()
+	w := c1.expectWelcome(timeout)
+	if w.SendHz != 50 {
+		t.Fatalf("Welcome.SendHz = %d, want 50", w.SendHz)
+	}
+}
+
+// TestWelcomeAdvertisesDefaultSendRateWhenUnconfigured confirms an
+// unconfigured relay (Server.SendHz left at its zero value) advertises
+// protocol.DefaultSendHz — the zero-means-default convention applied to
+// this new field.
+func TestWelcomeAdvertisesDefaultSendRateWhenUnconfigured(t *testing.T) {
+	addr := startServer(t)
+	c1 := dialTestClient(t, addr, "emerald", "room1", "alice")
+	defer c1.conn.Close()
+	w := c1.expectWelcome(timeout)
+	if w.SendHz != protocol.DefaultSendHz {
+		t.Fatalf("Welcome.SendHz = %d, want protocol.DefaultSendHz (%d)", w.SendHz, protocol.DefaultSendHz)
+	}
+}
+
+// TestOutOfRangeSendRateIsClampedRatherThanRefused confirms an operator's
+// bad server.send_hz value is clamped, not refused — a typo in a cosmetic
+// tuning knob must not stop a relay from starting. Covers all four
+// documented clamp cases: absent/zero and negative both fall back to the
+// default; too low and too high are clamped to the nearest valid bound. Not
+// table-driven subtests (this file's own convention) — a sequence of
+// independent checks instead.
+func TestOutOfRangeSendRateIsClampedRatherThanRefused(t *testing.T) {
+	check := func(configured, want int) {
+		s := NewServer()
+		s.SendHz = configured
+		addr := startServerWith(t, s)
+		c := dialTestClient(t, addr, "emerald", "room1", "alice")
+		defer c.conn.Close()
+		w := c.expectWelcome(timeout)
+		if w.SendHz != want {
+			t.Fatalf("configured send_hz=%d: Welcome.SendHz = %d, want %d", configured, w.SendHz, want)
+		}
+	}
+	check(0, protocol.DefaultSendHz)
+	check(-5, protocol.DefaultSendHz)
+	check(5, protocol.MinSendHz)
+	check(1000, protocol.MaxSendHz)
+}
+
+// TestReceiveCapThrottlesOnlyTheClientThatAskedForIt confirms the
+// per-(sender,recipient) gate is genuinely per-recipient: a sender pushing a
+// steady stream of states reaches an uncapped recipient at (close to) full
+// rate, while a recipient that requested a 5Hz cap receives meaningfully
+// fewer of the same messages — never zero (the gate always lets the first
+// one through), never as many as the uncapped peer got.
+func TestReceiveCapThrottlesOnlyTheClientThatAskedForIt(t *testing.T) {
+	addr := startServer(t)
+
+	sender := dialTestClient(t, addr, "emerald", "room1", "alice")
+	defer sender.conn.Close()
+	wSender := sender.expectWelcome(timeout)
+
+	uncapped := dialTestClient(t, addr, "emerald", "room1", "bob")
+	defer uncapped.conn.Close()
+	uncapped.expectWelcome(timeout)
+
+	capped := dialTestClientWithHello(t, addr, protocol.Hello{
+		GameID: "emerald", Room: "room1", DisplayName: "carol", MaxReceiveHz: 5,
+	})
+	defer capped.conn.Close()
+	capped.expectWelcome(timeout)
+
+	const sendCount = 50
+	const sendInterval = 15 * time.Millisecond // ~750ms total, well under any flood cap
+
+	countStates := func(tc *testClient, done <-chan struct{}) int {
+		count := 0
+		for {
+			select {
+			case env := <-tc.envs:
+				if env.Type == protocol.TypeState {
+					count++
+				}
+			case <-done:
+				// Drain whatever already arrived before returning.
+				for {
+					select {
+					case env := <-tc.envs:
+						if env.Type == protocol.TypeState {
+							count++
+						}
+					default:
+						return count
+					}
+				}
+			}
+		}
+	}
+
+	doneUncapped := make(chan struct{})
+	doneCapped := make(chan struct{})
+	var gotUncapped, gotCapped int
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() { defer wg.Done(); gotUncapped = countStates(uncapped, doneUncapped) }()
+	go func() { defer wg.Done(); gotCapped = countStates(capped, doneCapped) }()
+
+	for i := 0; i < sendCount; i++ {
+		sender.sendState(protocol.State{PlayerID: wSender.PlayerID, AreaID: "a", Position: []float64{float64(i), 0}, Anim: "idle"})
+		time.Sleep(sendInterval)
+	}
+	time.Sleep(100 * time.Millisecond) // let any in-flight forwards land
+	close(doneUncapped)
+	close(doneCapped)
+	wg.Wait()
+
+	if gotUncapped < sendCount/2 {
+		t.Fatalf("uncapped recipient got %d of %d states, want most of them", gotUncapped, sendCount)
+	}
+	if gotCapped == 0 {
+		t.Fatal("capped recipient (5Hz) got zero states — the gate should always let the first one through")
+	}
+	if gotCapped >= gotUncapped {
+		t.Fatalf("capped recipient got %d states, uncapped recipient got %d — want the capped one meaningfully fewer", gotCapped, gotUncapped)
+	}
+}
+
+// TestReceiveCapDoesNotThrottleJoinOrLeave confirms a recipient's own
+// receive gate — even set aggressively low — never blocks a Join or Leave.
+// A throttled Leave would strand a permanently frozen ghost on that
+// recipient's screen, exactly the failure this guarantee exists to prevent.
+func TestReceiveCapDoesNotThrottleJoinOrLeave(t *testing.T) {
+	addr := startServer(t)
+
+	capped := dialTestClientWithHello(t, addr, protocol.Hello{
+		GameID: "emerald", Room: "room1", DisplayName: "watcher", MaxReceiveHz: 1,
+	})
+	defer capped.conn.Close()
+	capped.expectWelcome(timeout)
+
+	peer := dialTestClient(t, addr, "emerald", "room1", "peer")
+	w := peer.expectWelcome(timeout)
+
+	join := capped.next(timeout)
+	if join.Type != protocol.TypeJoin {
+		t.Fatalf("got %q, want %q (peer's join)", join.Type, protocol.TypeJoin)
+	}
+
+	// Several states in immediate succession -- capped's 1Hz gate will drop
+	// all but (at most) the first of these, proving the gate is actually
+	// active for this recipient.
+	for i := 0; i < 5; i++ {
+		peer.sendState(protocol.State{PlayerID: w.PlayerID, AreaID: "a", Position: []float64{float64(i), 0}, Anim: "idle"})
+	}
+	peer.conn.Close()
+
+	deadline := time.After(timeout)
+	for {
+		select {
+		case env := <-capped.envs:
+			if env.Type != protocol.TypeLeave {
+				continue // ignore any State that made it through the gate
+			}
+			var l protocol.Leave
+			if err := json.Unmarshal(env.Payload, &l); err != nil {
+				t.Fatalf("unmarshal leave: %v", err)
+			}
+			if l.PlayerID != w.PlayerID {
+				t.Fatalf("leave player_id = %q, want %q", l.PlayerID, w.PlayerID)
+			}
+			return
+		case <-deadline:
+			t.Fatal("capped recipient never received peer's Leave — join/leave must never be throttled")
+		}
+	}
+}
+
+// TestUncappedRecipientStillReceivesEveryState is the default-path
+// regression: with no MaxReceiveHz set (every client today, and every older
+// client forever), every single state sent must still arrive, byte for
+// byte the same guarantee as before the receive-cap gate existed.
+func TestUncappedRecipientStillReceivesEveryState(t *testing.T) {
+	addr := startServer(t)
+
+	sender := dialTestClient(t, addr, "emerald", "room1", "alice")
+	defer sender.conn.Close()
+	wSender := sender.expectWelcome(timeout)
+
+	recipient := dialTestClient(t, addr, "emerald", "room1", "bob")
+	defer recipient.conn.Close()
+	recipient.expectWelcome(timeout)
+
+	const sendCount = 20
+	for i := 0; i < sendCount; i++ {
+		sender.sendState(protocol.State{PlayerID: wSender.PlayerID, AreaID: "a", Position: []float64{float64(i), 0}, Anim: "idle"})
+	}
+
+	got := 0
+	deadline := time.After(timeout)
+	for got < sendCount {
+		select {
+		case env := <-recipient.envs:
+			if env.Type == protocol.TypeState {
+				got++
+			}
+		case <-deadline:
+			t.Fatalf("received %d of %d states before timing out — an uncapped recipient must receive every one", got, sendCount)
+		}
+	}
+}
+
+// TestRateLimitScalesWithConfiguredSendRate confirms a relay configured for
+// a fast room (100Hz) tolerates proportionally more traffic before closing
+// a connection — the historical flat 120/sec cap would have tripped well
+// before this burst completes.
+func TestRateLimitScalesWithConfiguredSendRate(t *testing.T) {
+	s := NewServer()
+	s.SendHz = 100
+	addr := startServerWith(t, s)
+
+	c1 := dialTestClient(t, addr, "emerald", "room1", "alice")
+	defer c1.conn.Close()
+	w1 := c1.expectWelcome(timeout)
+
+	disconnected := make(chan struct{})
+	c1.conn.OnDisconnect(func(err error) { close(disconnected) })
+
+	payload, err := json.Marshal(protocol.State{PlayerID: w1.PlayerID, AreaID: "a", Position: []float64{1, 1}, Anim: "idle"})
+	if err != nil {
+		t.Fatalf("marshal state: %v", err)
+	}
+	env, err := json.Marshal(protocol.Envelope{Type: protocol.TypeState, Payload: payload})
+	if err != nil {
+		t.Fatalf("marshal envelope: %v", err)
+	}
+	// 100Hz * RateLimitHeadroomMultiple (6) = 600/sec cap. This burst is
+	// well above the OLD flat 120 but comfortably under 600.
+	const burst = 200
+	for i := 0; i < burst; i++ {
+		if err := c1.conn.Send(env); err != nil {
+			t.Fatalf("send %d of %d: %v (connection closed prematurely)", i, burst, err)
+		}
+	}
+
+	select {
+	case <-disconnected:
+		t.Fatal("connection was closed — the flood cap did not scale with the configured 100Hz send rate")
+	case <-time.After(200 * time.Millisecond):
+		// still open, as expected
+	}
+
+	// The connection must still work normally afterward, not just survive.
+	c2 := dialTestClient(t, addr, "emerald", "room1", "bob")
+	defer c2.conn.Close()
+	c2.expectWelcome(timeout)
+	c1.sendState(protocol.State{PlayerID: w1.PlayerID, AreaID: "a", Position: []float64{2, 2}, Anim: "idle"})
+	got := c2.next(timeout)
+	if got.Type != protocol.TypeState {
+		t.Fatalf("got %q, want %q", got.Type, protocol.TypeState)
+	}
+}
+
+// TestRateLimitNeverFallsBelowTheHistoricalFloor confirms a relay
+// configured for a SLOW room (10Hz) still tolerates the historical 120/sec
+// floor, not the smaller scaled value (10*6=60) — turning a room down must
+// never start disconnecting older clients still sending at their own
+// built-in 20Hz default.
+func TestRateLimitNeverFallsBelowTheHistoricalFloor(t *testing.T) {
+	s := NewServer()
+	s.SendHz = 10
+	addr := startServerWith(t, s)
+
+	c1 := dialTestClient(t, addr, "emerald", "room1", "alice")
+	defer c1.conn.Close()
+	w1 := c1.expectWelcome(timeout)
+
+	disconnected := make(chan struct{})
+	c1.conn.OnDisconnect(func(err error) { close(disconnected) })
+
+	payload, err := json.Marshal(protocol.State{PlayerID: w1.PlayerID, AreaID: "a", Position: []float64{1, 1}, Anim: "idle"})
+	if err != nil {
+		t.Fatalf("marshal state: %v", err)
+	}
+	env, err := json.Marshal(protocol.Envelope{Type: protocol.TypeState, Payload: payload})
+	if err != nil {
+		t.Fatalf("marshal envelope: %v", err)
+	}
+	// More than the scaled value (10*6=60) but fewer than the historical
+	// floor (120) -- proves the floor, not the scaled-down value, applies.
+	const burst = 100
+	for i := 0; i < burst; i++ {
+		if err := c1.conn.Send(env); err != nil {
+			t.Fatalf("send %d of %d: %v (connection closed prematurely -- floor not enforced)", i, burst, err)
+		}
+	}
+
+	select {
+	case <-disconnected:
+		t.Fatal("connection was closed at 100 messages — the flood cap fell below its historical 120 floor")
+	case <-time.After(200 * time.Millisecond):
+	}
+}
+
+// TestRateLimitedClientReceivesRejectBeforeClose confirms the rate-limit
+// path sends a Reject (ReasonRateLimited) before closing, replacing the
+// previous anonymous hangup — the same "refused/closed, and why" posture
+// TypeReject already provides at handshake, extended to a mid-session close.
+func TestRateLimitedClientReceivesRejectBeforeClose(t *testing.T) {
+	addr := startServer(t)
+
+	c1 := dialTestClient(t, addr, "emerald", "room1", "alice")
+	defer c1.conn.Close()
+	w1 := c1.expectWelcome(timeout)
+
+	disconnected := make(chan struct{})
+	c1.conn.OnDisconnect(func(err error) { close(disconnected) })
+
+	payload, err := json.Marshal(protocol.State{PlayerID: w1.PlayerID, AreaID: "a", Position: []float64{1, 1}, Anim: "idle"})
+	if err != nil {
+		t.Fatalf("marshal state: %v", err)
+	}
+	env, err := json.Marshal(protocol.Envelope{Type: protocol.TypeState, Payload: payload})
+	if err != nil {
+		t.Fatalf("marshal envelope: %v", err)
+	}
+	for i := 0; i < MaxMessagesPerSecond+50; i++ {
+		if c1.conn.Send(env) != nil {
+			break
+		}
+	}
+
+	var reject protocol.Envelope
+	deadline := time.After(timeout)
+	found := false
+	for !found {
+		select {
+		case e := <-c1.envs:
+			if e.Type == protocol.TypeReject {
+				reject = e
+				found = true
+			}
+		case <-deadline:
+			t.Fatal("timed out waiting for a Reject before the rate-limited connection closed")
+		}
+	}
+	var r protocol.Reject
+	if err := json.Unmarshal(reject.Payload, &r); err != nil {
+		t.Fatalf("unmarshal reject: %v", err)
+	}
+	if r.Reason != protocol.ReasonRateLimited {
+		t.Fatalf("reject reason = %q, want %q", r.Reason, protocol.ReasonRateLimited)
+	}
+
+	select {
+	case <-disconnected:
+	case <-time.After(timeout):
+		t.Fatal("received Reject but the connection was never actually closed afterward")
+	}
+}
+
+// TestReceiveGateForgetsASenderThatLeft is a white-box regression for
+// Room.remove's gate purge: without it, a departed sender's entry would sit
+// forever in every remaining member's receive gate (player_ids are never
+// reused), one stale map entry per departure over a long-lived relay's
+// life.
+func TestReceiveGateForgetsASenderThatLeft(t *testing.T) {
+	r := newRoom("emerald", "", "room1")
+	sender := &Client{PlayerID: "p1", Conn: &fakeStallingTransport{unblock: make(chan struct{})}}
+	// maxReceiveHz must be > 0 -- the uncapped (0) path short-circuits
+	// allowStateFrom before it ever touches the gate map, so an uncapped
+	// recipient would never actually exercise (or need) the purge below.
+	recipient := &Client{PlayerID: "p2", Conn: &fakeStallingTransport{unblock: make(chan struct{})}, maxReceiveHz: 10}
+	r.tryAdd(sender)
+	r.tryAdd(recipient)
+
+	if !recipient.allowStateFrom("p1", time.Now()) {
+		t.Fatal("setup: the first state from a sender should always be allowed through the gate")
+	}
+	recipient.gateMu.Lock()
+	_, tracked := recipient.lastStateTo["p1"]
+	recipient.gateMu.Unlock()
+	if !tracked {
+		t.Fatal("setup: the gate did not record the sender")
+	}
+
+	r.remove("p1")
+
+	recipient.gateMu.Lock()
+	_, stillTracked := recipient.lastStateTo["p1"]
+	recipient.gateMu.Unlock()
+	if stillTracked {
+		t.Fatal("departed sender's entry was not purged from the remaining member's receive gate")
 	}
 }

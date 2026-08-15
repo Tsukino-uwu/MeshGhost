@@ -64,6 +64,25 @@ Setup, once:
                                      data -- it just leaves less buffer to
                                      smooth over, and will likely look
                                      stuttery/snappy instead of smooth.
+     "max_receive_hz_per_player" -- LEAVE THIS AT 0 UNLESS YOU KNOW YOU
+               NEED IT. Caps how often you want OTHER players' positions
+               sent to YOU, one at a time (see "What do Hz/ms/tickrate
+               mean?" below if that's unfamiliar). 0 (the default) means
+               uncapped -- you get everyone's updates as fast as the room
+               sends them. Only useful if your OWN internet connection is
+               slow or has a data cap and you want to trade smoothness for
+               less incoming data.
+
+               IMPORTANT: this is PER OTHER PLAYER, not a total. Setting
+               this to 5 in a room of 8 people is up to 35 updates/second
+               coming in, not 5 -- multiply by (however many other players
+               are in your room minus you).
+
+               This only ever affects what YOU download and what YOU see
+               -- it changes nothing about what anyone else sees or what
+               you send. If you do set it, valid values are 10-100;
+               anything below about 10 will look stuttery/snappy unless
+               you also raise "interp" above.
    Only edit the text between the quotes -- keep the quotes, colons, and
    commas exactly as they are, or the file won't parse.
    You do NOT set which game you're playing here -- meshghost.exe figures
@@ -97,6 +116,81 @@ Setup, once:
                YOUR machine (the host) to handle, since everyone in it
                gets sent everyone else's position. Don't set this to
                something huge without expecting to actually need it.
+     "send_hz" -- LEAVE THIS AT 20 UNLESS YOU KNOW YOU NEED IT. How many
+               times per second every player in your room sends their
+               position (see "What do Hz/ms/tickrate mean?" just below).
+               20 (the default) is a "20 tick" room; every player already
+               sends at this rate today whether you set this or not.
+               Raising it makes every ghost update more often -- but it
+               also multiplies every player's network usage by the same
+               amount, in both directions, and YOUR machine (the host)
+               pays for it worst of all (see the numbers below). Valid
+               range is 10-100. A player can still choose to send SLOWER
+               than this if their own connection needs it (their client's
+               own setting always wins over yours if theirs is slower) --
+               but nobody can send faster than what you set here.
+
+What do Hz/ms/tickrate mean? (relevant to "send_hz" above and
+"max_receive_hz_per_player" earlier)
+
+These are three ways of writing the same number, and different people
+know different ones -- if you only recognize one of these words, this is
+for you:
+  - Hz (hertz) = how many times per second something happens. "20 Hz"
+    means 20 updates every second.
+  - ms (milliseconds) = the GAP between updates, the flipped-around way
+    of saying the same thing. 20 Hz = one update every 50 ms. The math:
+    1000 / Hz = ms. Higher Hz means a SMALLER gap between updates, and
+    vice versa -- they move in opposite directions, which is the usual
+    source of confusion.
+  - "Tickrate" is the word game servers usually use for this. A "64 tick"
+    or "128 tick" server (Counter-Strike, Valorant, Overwatch, etc.) means
+    64 Hz or 128 Hz. If you've ever tuned a game server's tickrate before,
+    "send_hz" here is that same setting.
+  In short: 20 Hz = 50 ms between updates = a "20 tick" room. Three
+  labels for one number.
+
+The real cost of raising send_hz -- shown per-hour, not per-second,
+because the same number looks tiny per-second and adds up fast per-hour.
+These are REAL MEASURED numbers (not estimates) for a typical 3D game's
+position update, sent 20 vs. 100 times/second:
+
+  YOUR OWN upload (what you personally send out -- same no matter how
+  many people are in the room):
+    20 Hz  (default):  about  7.8 KB/s  =  about  28 MB/hour
+    100 Hz (maximum):  about 39.0 KB/s  =  about 140 MB/hour   (5x)
+
+  YOUR OWN download (everyone else's positions coming IN to you --
+  scales with how many OTHER players are in the room):
+    2-player room (1 other player):
+      20 Hz:  about  7.8 KB/s  =  about  28 MB/hour
+      100 Hz: about 39.0 KB/s  =  about 140 MB/hour
+    4-player room (3 other players):
+      20 Hz:  about 23.4 KB/s  =  about  84 MB/hour
+      100 Hz: about 117 KB/s   =  about 505 MB/hour
+    8-player room (7 other players):
+      20 Hz:  about 54.6 KB/s  =  about 197 MB/hour
+      100 Hz: about 273 KB/s   =  about 983 MB/hour
+
+  THE HOST'S traffic (everyone's position, relayed to everyone else --
+  this is what YOUR machine carries if you're hosting; it grows with the
+  SQUARE of room size, not the number of players):
+    2-player room:
+      20 Hz:  about  15.6 KB/s  =  about   56 MB/hour
+      100 Hz: about  78.0 KB/s  =  about  281 MB/hour
+    4-player room:
+      20 Hz:  about  93.6 KB/s  =  about  337 MB/hour
+      100 Hz: about 468.0 KB/s  =  about 1.68 GB/hour
+    8-player room:
+      20 Hz:  about 436.8 KB/s  =  about 1.57 GB/hour
+      100 Hz: about   2.18 MB/s  =  about 7.86 GB/hour
+
+Bottom line: going from 20 to 100 multiplies EVERYONE's bandwidth by 5,
+for a visual improvement that's small and gets smaller the higher you
+go -- your client already smooths motion between updates ("interp"
+above), so 20/second already looks smooth to begin with. If you're
+hosting, look at the host row first; that's what your own machine has to
+carry. Only raise this if you have a specific reason to.
 
 Hosting (skip this section if you're not the host):
 1. Double-click meshghost-server.exe. Leave the window open while people
