@@ -11,6 +11,7 @@
 #include <mutex>
 #include <set>
 #include <string>
+#include <tuple>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -714,6 +715,14 @@ namespace MeshGhostPseudo
         // once. Separate from local_afterimages_seen because that one is deliberately pruned to
         // stay bounded, and re-logging a pruned-then-reappearing name would be misleading.
         std::set<std::string> local_afterimages_traced;
+        // TRAIL_COLOR_TRACE: full name -> (tick first seen, was it the local player's). Entries are
+        // erased and reported the moment an image disappears, so this stays bounded and yields how
+        // long each side's afterimages actually survive.
+        std::map<std::string, std::pair<uint64_t, bool>> afterimage_lifetimes;
+        // Last known position per pooled afterimage. These actors are never destroyed, only
+        // re-used, so a change here is the real spawn signal -- see the reuse check in tickLocal.
+        // Bounded by the pool size, which is small and fixed per level.
+        std::map<std::string, std::tuple<double, double, double>> afterimage_last_pos;
         // Has any real afterimage colour been observed yet? Until one has, the pawn's
         // afterimageColor is used as a startup fallback; afterwards the latched per-burst colour
         // stands on its own and no timer or per-tick read may overwrite it.

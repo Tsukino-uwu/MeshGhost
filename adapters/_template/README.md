@@ -190,8 +190,26 @@ ghost* if you can — being able to fire it on demand beats waiting to perform a
 That is how Pseudoregalia identified its afterimage as a spawned actor carrying a posed mesh
 snapshot, after months of assuming it was a particle effect and guessing colour properties.
 
-**The trap that makes this method lie to you: a sampling window that is too narrow produces a
-false negative indistinguishable from a real one.** The first run of exactly that probe reported
+**Check whether the objects are pooled before counting them.** Engines recycle particles,
+projectiles, decals and damage numbers rather than destroying them, so "an object I have not seen
+before" fires while the pool grows and then goes quiet — silently undercounting every re-use after
+that. The cheap test is to ask whether the objects ever disappear at all: track them and log a
+lifetime when one vanishes. If nothing ever vanishes, they are pooled, and the spawn signal has to
+be re-use instead — for a static snapshot-style effect, a position change works, since it cannot
+have moved on its own.
+
+Two traps make this specific mistake very hard to see, and both cost real time in Pseudoregalia:
+
+- **Agreement between the two sides you are comparing is not correctness, when one instrument
+  measures both.** A blind spot in the detector undercounts local and remote identically, so the
+  numbers agree perfectly and describe neither. Four separate metrics said "identical" — count,
+  spacing, position, timing — while the user could plainly see a denser trail on the real player.
+  The eye was right. If a human keeps reporting a difference your metrics deny, suspect the metric.
+- **A probe that returns nothing is a result, not a malfunction.** Ask what a genuine zero would
+  mean before widening the net. Here "no object ever disappeared" *was* the answer.
+
+**The other trap: a sampling window that is too narrow produces a false negative indistinguishable
+from a real one.** The first run of exactly that probe reported
 "0 new objects" every time and concluded the effect was pooled and reused. It was not — the objects
 were created slightly later than the sample and then persisted. What caught it was the *totals*
 printed alongside the diff, which climbed by exactly two every probe. So:

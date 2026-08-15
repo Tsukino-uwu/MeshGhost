@@ -3430,6 +3430,11 @@ namespace MeshGhostPseudo
     // reasoning as PULSE_HOLD_TICKS for the landed?/jumped? one-shots.
     constexpr uint64_t AFTERIMAGE_COLOR_HOLD_TICKS = 15;
 
+    // How far a pooled afterimage must move to count as re-used rather than still sitting where it
+    // was placed. An afterimage is a frozen snapshot and does not move at all once spawned, so this
+    // separates "zero" from "somewhere else entirely" and only needs to clear read noise.
+    constexpr double AFTERIMAGE_REUSE_MOVE_THRESHOLD = 5.0;
+
     // Drive the ghost's trail from afterimages the game REALLY created, instead of reconstructing
     // when it probably created them. The old trigger keyed on a measured capsule shrink -- the best
     // available at the time, after three wrong actionState guesses -- but it was still our
@@ -6415,11 +6420,28 @@ namespace MeshGhostPseudo
                         if (local_afterimages_traced.find(trace_name) == local_afterimages_traced.end())
                         {
                             local_afterimages_traced.insert(trace_name);
+                            // Birth tick + which character it belongs to, so its lifetime can be
+                            // reported when it disappears (see the sweep after this loop).
+                            afterimage_lifetimes[trace_name] = {tick_count, is_ours};
                             LinearColorRGBA trace_color{};
                             const bool ok = read_linear_color(image, STR("Color"), trace_color);
+                            // Position and tick, added 2026-08-16: the counts came out equal
+                            // (32/32) while the user could plainly see a denser trail on the real
+                            // player than on the ghost. Equal counts do NOT settle that, and
+                            // assuming they did would have been the wrong call -- both sides are
+                            // counted by this same scan, so anything it misses it misses
+                            // symmetrically and still reports parity. What density actually
+                            // depends on is how many images exist and how far apart they sit, so
+                            // both are recorded here and compared afterwards instead of judged by
+                            // eye. Two distinguishable outcomes: images bunched at one position
+                            // means the ghost's bursts are collapsing (a send-rate problem), while
+                            // genuinely fewer images spread over the same path means this scan is
+                            // missing spawns (a sampling problem).
                             std::string owner = (cached_ptr && *cached_ptr) ? to_utf8((*cached_ptr)->GetFullName()) : std::string("<none>");
-                            Output::send(STR("[MeshGhostPseudo] TRAILCOLOR image: mine={} rgb=({:.3f}, {:.3f}, {:.3f}) ok={} from='{}'\n"),
+                            FVector image_loc = static_cast<AActor*>(image)->K2_GetActorLocation();
+                            Output::send(STR("[MeshGhostPseudo] TRAILCOLOR image: mine={} rgb=({:.3f}, {:.3f}, {:.3f}) ok={} at=({:.0f}, {:.0f}, {:.0f}) tick={} from='{}'\n"),
                                          is_ours, trace_color.r, trace_color.g, trace_color.b, ok,
+                                         image_loc.X(), image_loc.Y(), image_loc.Z(), tick_count,
                                          to_wide_ascii(owner));
                         }
                     }
@@ -6430,7 +6452,35 @@ namespace MeshGhostPseudo
                     }
                     std::string image_name = to_utf8(image->GetFullName());
                     alive.insert(image_name);
-                    if (local_afterimages_seen.find(image_name) != local_afterimages_seen.end())
+
+                    // **Count REUSE, not just creation.** Measured 2026-08-16: across 122 tracked
+                    // afterimages, not one ever disappeared -- the lifetime sweep produced zero
+                    // samples. These actors are pooled and re-used, never destroyed, so treating
+                    // "a name we have not seen" as the spawn signal silently undercounted every
+                    // burst after the pool stopped growing. That is precisely why the real trail
+                    // looked denser than the ghost's while spawn count, spacing and position all
+                    // measured as matching: both sides were being counted by the same blind rule.
+                    //
+                    // A reused image betrays itself by TELEPORTING: an afterimage is a frozen
+                    // snapshot and never moves once placed, so any position change means the pool
+                    // handed it back out at the player's current location. Threshold is generous
+                    // because the alternative to a jump is exactly zero movement, not a small one.
+                    const FVector image_loc = static_cast<AActor*>(image)->K2_GetActorLocation();
+                    auto known = afterimage_last_pos.find(image_name);
+                    bool is_new_spawn = false;
+                    if (known == afterimage_last_pos.end())
+                    {
+                        is_new_spawn = true; // genuinely new object -- the pool grew
+                    }
+                    else
+                    {
+                        const double dx = image_loc.X() - std::get<0>(known->second);
+                        const double dy = image_loc.Y() - std::get<1>(known->second);
+                        const double dz = image_loc.Z() - std::get<2>(known->second);
+                        is_new_spawn = (dx * dx + dy * dy + dz * dz) > (AFTERIMAGE_REUSE_MOVE_THRESHOLD * AFTERIMAGE_REUSE_MOVE_THRESHOLD);
+                    }
+                    afterimage_last_pos[image_name] = {image_loc.X(), image_loc.Y(), image_loc.Z()};
+                    if (!is_new_spawn)
                     {
                         continue;
                     }
@@ -6485,6 +6535,46 @@ namespace MeshGhostPseudo
                 // Replacing the set rather than inserting into it prunes images the game has
                 // already reclaimed, so this cannot grow without bound over a session.
                 local_afterimages_seen = std::move(alive);
+
+                // **Lifetime, which is what the density question actually turns on now.** Spawn
+                // count, spacing and position are all measured as matching one-for-one between the
+                // player and the ghost, yet the player's trail plainly looks denser. The remaining
+                // way that can be true is that the ghost's images do not LAST as long -- fewer of
+                // them on screen at any instant reads exactly as a thinner trail, no matter how
+                // faithfully they were spawned.
+                //
+                // Plausible mechanism worth naming so the result can be judged: BP_AfterImage_C
+                // drives its own fade from a Timeline (Timeline_0_opacity), and a Timeline needs
+                // the actor to tick. An actor spawned by this adapter onto an unpossessed ghost may
+                // not run it the same way. This does not assume that -- it just measures how long
+                // each side's images survive, which distinguishes it from every other explanation.
+                if constexpr (TRAIL_COLOR_TRACE)
+                {
+                    std::vector<UObject*> now_alive;
+                    UObjectGlobals::FindAllOf(STR("BP_AfterImage_C"), now_alive);
+                    std::set<std::string> now_names;
+                    for (UObject* image : now_alive)
+                    {
+                        if (image)
+                        {
+                            now_names.insert(to_utf8(image->GetFullName()));
+                        }
+                    }
+                    for (auto it = afterimage_lifetimes.begin(); it != afterimage_lifetimes.end();)
+                    {
+                        if (now_names.find(it->first) == now_names.end())
+                        {
+                            Output::send(STR("[MeshGhostPseudo] TRAILLIFE: {} lived {} ticks (mine={})\n"),
+                                         to_wide_ascii(it->first.substr(it->first.rfind('.') + 1)),
+                                         tick_count - it->second.first, it->second.second);
+                            it = afterimage_lifetimes.erase(it);
+                        }
+                        else
+                        {
+                            ++it;
+                        }
+                    }
+                }
 
                 // Batch composition. Two attempts at the blue loss have now failed (a tie-break,
                 // then a faster scan), and the counts say why they were shots in the dark: 16 blue

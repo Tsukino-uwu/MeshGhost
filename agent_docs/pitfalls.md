@@ -752,6 +752,35 @@ Backing detail for `CLAUDE.md`'s public-repo rule. Two live cases, and they fail
   `cmake`, and from the same devkitPro MSYS2 install. Treat a tool's *config-dependent*
   output (not just its success/failure) as suspect until the binary is identified.
 
+### Pooled objects: detecting "spawned" by object identity silently undercounts (2026-08-16)
+
+- **Symptom**: a ghost's afterimage trail was visibly thinner than the real player's, while every
+  measurement said the two matched — identical counts (32 vs 32), identical spacing between spawns
+  (18-21 ticks each side), identical positions modulo the loopback offset.
+- **Diagnosis**: the engine **pools** afterimage actors. They are re-used, never destroyed. So a
+  spawn detector keyed on "an object name I have not seen before" fires while the pool is growing
+  and then goes quiet, missing every subsequent re-use. Since the pool is shared, the same blind
+  rule undercounted BOTH sides equally — which is why the counts agreed perfectly and still
+  described far fewer images than were actually on screen.
+- **What actually revealed it**: a lifetime probe that produced **zero samples**. It only logged an
+  entry when an image disappeared, and across 122 tracked afterimages not one ever did. The empty
+  result was the finding — objects that never die are pooled objects.
+- **Fix**: detect re-use, not creation. An afterimage is a frozen snapshot that never moves once
+  placed, so a position change means the pool handed it back out at the player's current location.
+  Treat "new object OR moved" as the spawn signal.
+- **Two traps worth carrying forward, both of which cost real time here:**
+  - **Agreement between two measured sides is not correctness** when the same instrument measures
+    both. Counting local and remote with one blind rule guarantees they agree and says nothing
+    about either. A human eye said "denser" for several rounds while four separate metrics said
+    "identical"; the eye was right and the metrics were measuring their own blind spot.
+  - **A probe returning nothing is data.** The instinct is to assume it is broken and widen it. Ask
+    first what a genuine zero would mean — here, "nothing ever dies" was the whole answer, and an
+    earlier version of this same probe had already hinted at pooling before that hint was talked
+    away because a different number kept rising.
+- **Generalizes to**: particles, projectiles, decals, damage numbers, audio emitters — anything an
+  engine recycles for performance. Before building a spawn counter on object identity, check
+  whether the objects ever actually disappear.
+
 ### Latch event payloads to the event; don't republish them as per-tick state (2026-08-16)
 
 - **Symptom**: a peer's ultra-hop afterimage was blue, the ghost's was blue only sometimes. Ratios
