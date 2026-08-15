@@ -48,20 +48,23 @@ same as any two unrelated games — grouping by franchise just keeps the top lev
    `position` looks like (2D or 3D — the schema doesn't fix this), what `anim` tags are
    meaningful, and whether `get_local_state()` should ever return "don't send this frame" (a
    menu, loading screen, or similar).
-5. Read [agent_docs/pitfalls.md](../../agent_docs/pitfalls.md) — at minimum its "Diagnostic
+5. **Enumerate the game before guessing at it** — see "Ask the game what it has" below. Do this
+   as soon as a ghost renders at all, not later. It is the biggest time-saver found so far, and
+   it was found late enough to have cost real sessions in the Pseudoregalia adapter.
+6. Read [agent_docs/pitfalls.md](../../agent_docs/pitfalls.md) — at minimum its "Diagnostic
    methodology" section (one diagnostic at a time, never log the value you just wrote, run the
    test without the fix, two identical failures means stop guessing). It's the most transferable
    content in the repo, and the rest of the file is the log of what the three existing adapters
    got wrong so you don't have to.
-6. Follow this project's verification standard ([CLAUDE.md](../../CLAUDE.md)): no address,
+7. Follow this project's verification standard ([CLAUDE.md](../../CLAUDE.md)): no address,
    hook, or API call from memory — everything traceable to a source, and nothing in
    [agent_docs/verified.md](../../agent_docs/verified.md) until it's been watched happening on
    screen.
-7. Do not modify `internal/core` or `internal/relay` for game-specific reasons. If something
+8. Do not modify `internal/core` or `internal/relay` for game-specific reasons. If something
    about the new game seems to require that, stop — it means either the contract needs a real,
    ADR'd revision (rare), or the adapter is trying to do something the boundary doesn't allow
    (much more likely).
-8. When the adapter is actually ready to ship, add it to the release: give it its own step in
+9. When the adapter is actually ready to ship, add it to the release: give it its own step in
    `.github/workflows/release.yml`'s assemble job, under `games/<publisher>/<game>/` — nothing
    under `adapters/` is picked up automatically. See
    [packaging/README.md](../../packaging/README.md)'s "Adding a game to the release" for the
@@ -71,6 +74,74 @@ same as any two unrelated games — grouping by franchise just keeps the top lev
    writes a `built-from.txt` SHA-256 record, the build output committed to the repo (CI can't
    build these), its own staleness-verification step in `release.yml`, and a hand-written
    `README.txt` for the game folder that nothing generates.
+
+## Ask the game what it has, before you guess at what it might have
+
+**Do this early — right after a ghost renders at all, not after months of polish.** It is the
+single biggest time-saver this repo has found, and it was found late: Pseudoregalia's adapter
+spent multiple sessions guessing property and function names before anyone thought to simply
+enumerate what the game contained. User's own conclusion, 2026-08-16, and the reason this section
+exists: *"if we had done this earlier in the pseudo adapter i think we could have saved a lot of
+time. so it's probably a good idea to check what's in a game instead of trying to piece it together
+by guessing."*
+
+**The failure mode this replaces.** The intuitive approach is to reason from a name: the trail
+effect is probably called something with "Trail" in it, the glide ability is probably called
+"glide", a tracking-particles flag probably controls tracking particles. Every one of those was
+wrong in this repo. `AnimGraphNode_Trail` turned out to be stock bone physics for dangling cloth
+and ears. Cling Gem has no "glide" string anywhere in the game. `spawnTrackingParticles?` is a
+static flag set once at spawn. Each wrong guess costs a full build-deploy-play-watch cycle, and
+worse, a plausible name makes you *confident* while you're wrong.
+
+**The replacement is two complementary passes.** Run both; they answer different questions and
+neither substitutes for the other.
+
+1. **A catalog probe — "what does each thing look like?"** Enumerate everything of a kind the
+   game has loaded, then play them onto a ghost one at a time on a fixed cadence (~3s each),
+   logging a line naming each as it starts. A human watches and matches look to name. This
+   sidesteps the trigger problem entirely: you never need to know how to make the game produce an
+   effect in order to find out what it is. In Pseudoregalia this confirmed 8 untested animations in
+   one session, and later identified the empty-hand glow out of a catalog of 58 effects.
+2. **A passive watcher — "what does the real player produce, and when?"** Every N ticks, enumerate
+   what is currently live, and log the *difference* against the previous sample. Diffing is what
+   makes it cheap: static scenery reports itself once and then stays quiet, so what you see is
+   what actually just happened. This is the half that answers the trigger question — which effect
+   appears at the moment of a throw, a landing, a wall-ride — by observation instead of inference.
+
+**What the probe must log to be worth running**, learned by getting each wrong once:
+
+- **Attachment, not just identity.** Log what each thing hangs off and where: parent component,
+  socket/bone name, and relative offset. Without it you can reproduce an effect but not *place*
+  it, and you will end up nudging offsets by eye. The first watcher here logged identity only, and
+  the resulting ghost glow sat visibly in the wrong spot.
+- **A known-good control in the cycle.** Include one entry you have already confirmed. If the
+  control doesn't look right, the probe is broken and every other result that session is worthless.
+- **A shortlist, not everything.** 58 effects at 3s each is three minutes of mostly level dressing,
+  and a person cannot track that. Filter by name substring to something under about a dozen. The
+  filter should be widenable, not a hardcoded list of names you already picked — the entire point
+  is finding things nobody has named.
+- **Stable ordering** (sort the catalog), so "the seventh one" still means the same thing after a
+  relaunch. That is the note a human watching will actually take.
+- **One at a time.** Retire the previous item before starting the next, or a look cannot be
+  attributed to a name.
+
+**Check every system the engine offers, not just the first one you find.** Unreal has two particle
+systems (Niagara and the older Cascade) and effects can live in either; a search that assumes one
+reports "not found" for something that is plainly on screen. The general rule: before concluding an
+effect does not exist, confirm you searched everywhere it could be. If it is in neither, that is
+still a real result — it likely is not a particle effect at all, but a material property on the
+mesh, which is a different search to run deliberately.
+
+**Engine-agnostic in shape, engine-specific in API.** The mechanics above are Unreal
+(`FindAllOf`-style object enumeration, spawning by asset path). The shape transfers: any engine has
+some registry you can enumerate and some way to trigger one entry — Unity has animator states and
+particle systems, a ROM has a fixed animation table at a known address. Ask what the game contains
+before you theorise about what it might contain.
+
+**One caveat that bites in multiplayer specifically.** Catalogs include content from *mods the
+local machine has installed*. Pseudoregalia's enumeration turned up a custom effect from a
+third-party mod. Anything built on such an asset silently does nothing for peers who lack it, so
+prefer base-game assets and treat a failed asset lookup as an expected case, not an error.
 
 ## Testing it
 

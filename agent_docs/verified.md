@@ -3975,3 +3975,52 @@ Copy this block per fact:
   thrown-weapon and `idleGlowVFX` dumps); user's direct visual confirmation for every visible
   claim. Code: `Plugin.cpp`'s `tick_remote_weapon`, `call_change_weapon_state`,
   `stop_projectile_movement`, `spawn_niagara_attached`, and `RemoteGhost::weapon_actor`.
+
+### Pseudoregalia: a ghost's thrown sword cannot be picked up by the local player
+
+- Date: 2026-08-16
+- **Confirmed on screen by the user**, deliberately tested rather than assumed: walking into a
+  ghost's thrown sword — in flight and resting on the ground — does nothing. The local player does
+  not pick it up and their own weapon state is unaffected.
+- Why this needed checking rather than reasoning: `BP_looseWeapon_C` carries a real `PlayerPickup`
+  BoxComponent (its own property dump), so a collidable copy would have handed the local player a
+  peer's phantom sword — a game-state effect, outside this project's visual-only posture and a
+  genuinely different class of bug from a cosmetic one.
+- Mechanism: `SetActorEnableCollision(false)` on the prop at spawn (`tick_remote_weapon`). Note
+  this is the opposite choice from the ghost PAWN, whose collision is deliberately ON as a feature
+  (`GHOST_COLLISION_ENABLED`) — there is no version of the weapon prop that should ever be
+  touchable.
+- Standing caution: this is a property of the *current* code, not a guarantee. Any future change
+  that spawns or re-parents this prop must re-verify it, since the failure is silent and only
+  visible by trying to walk into one.
+
+### Pseudoregalia empty-hand recall glow: FIXED by spawning the effect directly, confirmed live
+
+- Date: 2026-08-16
+- Closes a gap `status.md` had carried as blocked, and the original diagnosis was subtly wrong in a
+  way worth recording. It was recorded as blocked on a *precondition*: `manageRecallIdleFX` returned
+  cleanly on a ghost while spawning nothing, and the leading theory was that its internal `IsValid`
+  guards wanted a real thrown-weapon actor the ghost didn't have. The thrown-Dream-Breaker work
+  provided exactly that actor — and it was never needed. Spawning the effect directly requires no
+  guards to pass at all.
+- **Found by enumeration, not by guessing a name.** A catalog probe cycled every loaded Niagara
+  system onto a ghost, ~3s each; the user identified `/Game/VFX/Emitters/NS_WeaponCallReady` on
+  screen as the empty-hand glow. 58 systems in the full catalog, narrowed to 10 by a name filter
+  after the user reported that tracking 58 mostly-level-dressing effects was the real obstacle.
+- Gated on the already-synced `weaponEquipped?`, so it needs no new data on the wire. Asset is a
+  constant here (unlike the landed sword's ring, which reads its path off the peer) because there
+  is nothing to read it from: the real player's copy is spawned into the world rather than parented
+  to the pawn, established by a watcher run that found exactly one Niagara component on the pawn
+  across a whole session.
+- **Known-imperfect, user-reported after the live test**: the glow's position on the ghost is
+  visibly off. It is attached to the ghost's root because nothing had yet said where the real one
+  attaches — the first watcher logged identity only, not attachment. Being fixed by capturing
+  `AttachParent`/`AttachSocketName`/`RelativeLocation` on appearance rather than by adjusting an
+  offset by eye.
+- **Still open, and deliberately not guessed at**: a second "sword outline" glow the user can see
+  has not been located in any Niagara enumeration. The search now also covers Cascade
+  (`ParticleSystemComponent`), since every pass until now silently assumed Niagara purely because
+  the sword's ring happened to be Niagara. If it is in neither, it is likely a material property
+  rather than a particle effect, which is a different search.
+- Source: `UE4SS.log` 2026-08-15/16 (`VFXPROBE` catalog and cycle lines, `VFXWATCH`), user's direct
+  visual confirmation. Code: `Plugin.cpp`'s `tick_remote_recall_glow`, `spawn_niagara_attached`.

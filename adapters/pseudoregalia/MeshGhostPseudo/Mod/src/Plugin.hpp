@@ -162,6 +162,15 @@ namespace MeshGhostPseudo
         std::string target_weapon_glow;
         RC::Unreal::UObject* weapon_glow_component{nullptr};
 
+        // The empty-hand recall glow -- the white shimmer the real player shows while their sword
+        // is thrown and recallable. Long listed as blocked (`status.md`), and it was never blocked
+        // on finding a function: `manageRecallIdleFX` returned cleanly on a ghost and spawned
+        // nothing, because its internal IsValid guards want state an unpossessed ghost lacks. It is
+        // instead spawned directly, the same way the landed sword's ring is, which needs no guards
+        // to pass. Gated purely on the peer's already-synced weaponEquipped? flag.
+        RC::Unreal::UObject* recall_glow_component{nullptr};
+        bool recall_glow_shown{false};
+
         // Smoothed render position for the above. Needed because `extras` is NOT interpolated by
         // the core -- internal/core/interp.go interpolates `position` only and holds every extras
         // field from the older bracketing snapshot -- so these targets arrive in 20Hz steps while
@@ -381,6 +390,9 @@ namespace MeshGhostPseudo
         // Cycles every loaded Niagara system onto one ghost, one at a time -- see VFX_CATALOG_PROBE
         // in Plugin.cpp for why a probe answers this better than hunting triggers.
         auto tick_vfx_catalog_probe(RC::Unreal::AActor* ghost) -> void;
+
+        // Shows/hides a ghost's empty-hand recall glow -- see RemoteGhost::recall_glow_component.
+        auto tick_remote_recall_glow(const std::string& player_id, RemoteGhost& remote) -> void;
 
         auto release_ghost(const std::string& player_id) -> void;
         auto release_all_ghosts(const wchar_t* reason) -> void;

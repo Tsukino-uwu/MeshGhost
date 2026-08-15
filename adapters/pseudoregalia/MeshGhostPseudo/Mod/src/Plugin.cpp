@@ -896,10 +896,10 @@ namespace MeshGhostPseudo
     // Read-only: enumerates and logs, spawns and calls nothing.
     constexpr bool VFX_WATCH = true;
 
-    // ~5 samples/sec at this build's measured ~150Hz. An effect that appears and vanishes entirely
-    // between two samples would be missed, which is the accepted cost of not logging at 150Hz; the
-    // effects being hunted are visible glows that persist, not one-frame flashes.
-    constexpr uint64_t VFX_WATCH_INTERVAL_TICKS = 30;
+    // ~15 samples/sec at this build's measured ~150Hz. Tightened from 30 for the throw capture:
+    // the throw itself is a ~1s montage and effects around it can be brief, and since this logs
+    // only the DIFFERENCE between samples, a faster cadence costs resolution, not log volume.
+    constexpr uint64_t VFX_WATCH_INTERVAL_TICKS = 10;
 
     // The VFX equivalent of the montage catalog probe (README build-log step 31), and it exists for
     // the same reason that one did: the effects nobody has reproduced are mostly effects nobody
@@ -918,7 +918,12 @@ namespace MeshGhostPseudo
     // the watcher says which effects the real player spawns and *when* (the trigger), while this
     // says what each one actually looks like (the identity). The white empty-hand glow and the
     // yellow held-sword outline need the second; the parked blue ultra trail needs both.
-    constexpr bool VFX_CATALOG_PROBE = true;
+    // Off again 2026-08-15: the shortlisted pass did its job -- the user identified
+    // NS_WeaponCallReady on screen as the empty-hand glow, which is now real sync code
+    // (tick_remote_recall_glow). Flip on, optionally widening VFX_PROBE_NAME_FILTERS, to identify
+    // the next effect the same way. It spawns effects onto a ghost, so VFX_WATCH's results are only
+    // clean while this is off; run the two in sequence.
+    constexpr bool VFX_CATALOG_PROBE = false;
 
     // ~3s per effect at this build's measured ~150Hz -- long enough to see a looping idle effect
     // establish itself and be recognised, matching the montage probe's own ~4s cadence.
@@ -927,6 +932,22 @@ namespace MeshGhostPseudo
     // Engine and plugin content is skipped: this is a hunt for *this game's* effects, and the
     // engine's default systems would pad the cycle with things the player can never produce.
     constexpr const char* VFX_PROBE_PATH_FILTER = "/Game/";
+
+    // Name shortlist, added 2026-08-15 after the first full run. The `/Game/` filter alone left 58
+    // systems, most of them level dressing -- item glows, breaking walls, crystals -- and the user
+    // reported that as the actual problem: they can tell a player effect from a non-player one on
+    // sight, but not while tracking 58 of them over three minutes. That is a signal-to-noise
+    // problem, not a "watch harder" problem.
+    //
+    // So the cycle is narrowed to the two families that could plausibly be the effects being
+    // hunted -- a white empty-hand glow and a yellow glow outlining where the sword was held --
+    // which takes it to roughly ten and a full loop to well under a minute. Substring match, case
+    // sensitive, matched against the asset path.
+    //
+    // Deliberately kept as a widenable list rather than a hardcoded set of asset names: the whole
+    // point of enumerating the catalog live was to find effects nobody had named, and pinning it
+    // to names we already picked would throw that away. Clear the array to go back to all 58.
+    constexpr const char* VFX_PROBE_NAME_FILTERS[] = {"Weapon", "Aura"};
 
     // Smoothing for a remote's thrown sword -- see RemoteGhost::render_weapon_x for why any is
     // needed (extras cross the wire at 20Hz and the core never interpolates them, while this
@@ -3242,6 +3263,67 @@ namespace MeshGhostPseudo
         }
     }
 
+    // Shows a ghost's empty-hand recall glow. See RemoteGhost::recall_glow_component for why this
+    // spawns the effect directly instead of calling the game's own `manageRecallIdleFX`.
+    //
+    // The asset is a constant here, unlike the landed sword's ring which reads its path off the
+    // peer. That is not a shortcut around the "nothing from memory" rule -- the path came from a
+    // live catalog enumeration recorded in `UE4SS.log`, and the user identified this specific
+    // entry on screen as the empty-hand glow. It is a constant because there is nothing to read it
+    // from: the real player's copy is spawned into the world rather than parented to the pawn, so
+    // the pawn exposes no property pointing at it (the first VFX_WATCH run found exactly one
+    // component on the pawn across a whole session, which is what established that).
+    constexpr const wchar_t* RECALL_GLOW_ASSET = STR("/Game/VFX/Emitters/NS_WeaponCallReady.NS_WeaponCallReady");
+
+    auto Plugin::tick_remote_recall_glow(const std::string& player_id, RemoteGhost& remote) -> void
+    {
+        if (!remote.ghost)
+        {
+            return;
+        }
+        // weaponEquipped? is already synced and confirmed live in both directions, so the peer
+        // being empty-handed needs no new state on the wire.
+        const bool want_glow = !remote.target_weapon_equipped;
+        if (want_glow == remote.recall_glow_shown)
+        {
+            return;
+        }
+        remote.recall_glow_shown = want_glow;
+
+        if (!want_glow)
+        {
+            if (remote.recall_glow_component)
+            {
+                if (UFunction* destroy_fn = remote.recall_glow_component->GetFunctionByNameInChain(STR("DestroyComponent")))
+                {
+                    remote.recall_glow_component->ProcessEvent(destroy_fn, nullptr);
+                }
+                remote.recall_glow_component = nullptr;
+            }
+            return;
+        }
+
+        UObject* glow_asset = UObjectGlobals::StaticFindObject<UObject*>(nullptr, nullptr, RECALL_GLOW_ASSET);
+        if (!glow_asset)
+        {
+            static bool warned = false;
+            if (!warned)
+            {
+                warned = true;
+                Output::send(STR("[MeshGhostPseudo] WARNING: recall-glow system '{}' not found -- ghosts will show no empty-hand glow.\n"),
+                             RECALL_GLOW_ASSET);
+            }
+            return;
+        }
+        if (UObject** root_ptr = remote.ghost->GetValuePtrByPropertyNameInChain<UObject*>(STR("RootComponent")); root_ptr && *root_ptr)
+        {
+            remote.recall_glow_component = spawn_niagara_attached(glow_asset, *root_ptr);
+            Output::send(STR("[MeshGhostPseudo] RECALLGLOW {}: spawn -> {}\n"),
+                         to_wide_ascii(player_id),
+                         remote.recall_glow_component ? STR("component returned") : STR("NULL"));
+        }
+    }
+
     // See VFX_CATALOG_PROBE for what this is for and why it exists in this shape.
     auto Plugin::tick_vfx_catalog_probe(AActor* ghost) -> void
     {
@@ -3267,6 +3349,24 @@ namespace MeshGhostPseudo
                 if (path.find(VFX_PROBE_PATH_FILTER) == std::string::npos)
                 {
                     continue;
+                }
+                // See VFX_PROBE_NAME_FILTERS: an empty list means "everything", which is what the
+                // first run did.
+                if (std::size(VFX_PROBE_NAME_FILTERS) > 0)
+                {
+                    bool matched = false;
+                    for (const char* needle : VFX_PROBE_NAME_FILTERS)
+                    {
+                        if (path.find(needle) != std::string::npos)
+                        {
+                            matched = true;
+                            break;
+                        }
+                    }
+                    if (!matched)
+                    {
+                        continue;
+                    }
                 }
                 vfx_probe_catalog.push_back(path);
             }
@@ -3363,6 +3463,9 @@ namespace MeshGhostPseudo
             FVector weapon_park_loc(it->second.target_weapon_x, it->second.target_weapon_y, DESPAWN_PARK_Z);
             call_set_actor_location_and_rotation(it->second.weapon_actor, weapon_park_loc, FRotator(0.0, 0.0, 0.0));
             it->second.weapon_glow_component = nullptr; // attached to the prop; dies with it
+            // The recall glow is attached to the ghost itself, so it goes when the ghost does.
+            it->second.recall_glow_component = nullptr;
+            it->second.recall_glow_shown = false;
             it->second.weapon_actor = nullptr;
             it->second.weapon_actor_world = nullptr;
             it->second.weapon_render_primed = false;
@@ -3400,6 +3503,10 @@ namespace MeshGhostPseudo
                          static_cast<void*>(remote.ghost),
                          static_cast<void*>(remote.owning_world));
             hijacked_actors.erase(remote.ghost);
+            // The recall glow is attached to this ghost -- it dies with the actor, so only the
+            // reference needs clearing before a fresh ghost spawns its own.
+            remote.recall_glow_component = nullptr;
+            remote.recall_glow_shown = false;
             remote.ghost = nullptr;
             remote.owning_world = nullptr;
         }
@@ -4468,13 +4575,40 @@ namespace MeshGhostPseudo
                 {
                     std::vector<UObject*> niagara_components;
                     UObjectGlobals::FindAllOf(STR("NiagaraComponent"), niagara_components);
+                    // Collected into its own vector and appended explicitly rather than reusing the
+                    // one above: whether FindAllOf clears its out-parameter is not something to
+                    // assume, and getting it wrong would silently drop every Niagara result.
+                    {
+                        std::vector<UObject*> cascade_components;
+                        UObjectGlobals::FindAllOf(STR("ParticleSystemComponent"), cascade_components);
+                        niagara_components.insert(niagara_components.end(),
+                                                  cascade_components.begin(), cascade_components.end());
+                    }
 
-                    // Ownership test by name: a component's GetFullName() embeds its outer chain,
-                    // so a component owned by this pawn contains the pawn's own unique instance
-                    // name. Cheaper and less fragile than walking outers, and specific enough that
-                    // another actor's effects can't match -- the instance name carries a unique id.
+                    // **Widened 2026-08-15 after the first run caught almost nothing** -- one
+                    // component across a whole session, while the player demonstrably produced
+                    // footstep dust, an afterimage trail and more. The original filter kept only
+                    // components whose outer chain contains the pawn's own instance name, i.e.
+                    // components PARENTED to the player. But an effect spawned at a world position
+                    // rather than attached to something is owned by the level, so every
+                    // location-spawned effect the player causes was invisible to it -- which is
+                    // most of them, and plausibly both of the glows this was built to find.
+                    //
+                    // Now every live Niagara component is tracked, with the ones owned by the local
+                    // pawn marked. Volume stays manageable because this logs the DIFFERENCE between
+                    // samples: a level's static effects appear once at load and then say nothing.
+                    // **Cascade too, not just Niagara** (2026-08-16). The "sword outline" glow has
+                    // not turned up anywhere yet, and every search so far has quietly assumed
+                    // Niagara because that is what the landed sword's ring happened to be. This
+                    // game is perfectly capable of using the older ParticleSystemComponent as well,
+                    // and an effect in that system would have been invisible to every pass so far.
+                    // Checking both is the difference between "we looked and it isn't there" and
+                    // "we looked in one of the two places it could be".
+                    UObjectGlobals::FindAllOf(STR("ParticleSystemComponent"), niagara_components);
+
                     const std::string pawn_name = to_utf8(pawn->GetName());
                     std::set<std::string> live_vfx;
+                    std::map<std::string, UObject*> live_components;
                     for (UObject* component : niagara_components)
                     {
                         if (!component)
@@ -4482,20 +4616,26 @@ namespace MeshGhostPseudo
                             continue;
                         }
                         const std::string full_name = to_utf8(component->GetFullName());
-                        if (full_name.find(pawn_name) == std::string::npos)
-                        {
-                            continue;
-                        }
+                        const bool on_local_pawn = full_name.find(pawn_name) != std::string::npos;
                         // The asset is the payload: it is exactly what reproducing the effect on a
-                        // ghost needs, as the landed sword's glow already demonstrated.
+                        // ghost needs, as the landed sword's glow already demonstrated. Niagara
+                        // calls it 'Asset', Cascade calls it 'Template' -- try both rather than
+                        // silently reporting "<no asset>" for every Cascade effect found.
                         std::string asset_name = "<no asset>";
-                        if (UObject** asset_ptr = component->GetValuePtrByPropertyNameInChain<UObject*>(STR("Asset")); asset_ptr && *asset_ptr)
+                        UObject** asset_ptr = component->GetValuePtrByPropertyNameInChain<UObject*>(STR("Asset"));
+                        if (!asset_ptr || !*asset_ptr)
+                        {
+                            asset_ptr = component->GetValuePtrByPropertyNameInChain<UObject*>(STR("Template"));
+                        }
+                        if (asset_ptr && *asset_ptr)
                         {
                             std::string asset_full = to_utf8((*asset_ptr)->GetFullName());
                             size_t space_pos = asset_full.find(' ');
                             asset_name = (space_pos != std::string::npos) ? asset_full.substr(space_pos + 1) : asset_full;
                         }
-                        live_vfx.insert(asset_name + "  |  " + full_name);
+                        const std::string entry = asset_name + (on_local_pawn ? "  [ON PLAYER]  " : "  |  ") + full_name;
+                        live_vfx.insert(entry);
+                        live_components[entry] = component;
                     }
 
                     for (const std::string& entry : live_vfx)
@@ -4504,6 +4644,40 @@ namespace MeshGhostPseudo
                         {
                             Output::send(STR("[MeshGhostPseudo] VFXWATCH: + APPEARED tick={} {}\n"),
                                          tick_count, to_wide_ascii(entry));
+
+                            // **Where it is attached**, logged only on appearance. This is the
+                            // other half the ghost needs and the first watcher never captured: the
+                            // recall glow shipped attached to the ghost's ROOT purely because
+                            // nothing said otherwise, and the user reports it sitting visibly
+                            // wrong. AttachParent plus AttachSocketName say what the real effect
+                            // hangs off -- a named bone socket, most likely -- and RelativeLocation
+                            // says how far off it sits from there. Together they are enough to
+                            // place a copy exactly, instead of adjusting an offset by eye.
+                            UObject* component = live_components[entry];
+                            if (!component)
+                            {
+                                continue;
+                            }
+                            std::string attach_parent = "<none>";
+                            if (UObject** parent_ptr = component->GetValuePtrByPropertyNameInChain<UObject*>(STR("AttachParent")); parent_ptr && *parent_ptr)
+                            {
+                                attach_parent = to_utf8((*parent_ptr)->GetFullName());
+                            }
+                            std::string socket = "<none>";
+                            if (FName* socket_ptr = component->GetValuePtrByPropertyNameInChain<FName>(STR("AttachSocketName")))
+                            {
+                                socket = to_utf8(socket_ptr->ToString());
+                            }
+                            double rel_x = 0.0, rel_y = 0.0, rel_z = 0.0;
+                            if (FVector* rel_ptr = component->GetValuePtrByPropertyNameInChain<FVector>(STR("RelativeLocation")))
+                            {
+                                rel_x = rel_ptr->X();
+                                rel_y = rel_ptr->Y();
+                                rel_z = rel_ptr->Z();
+                            }
+                            Output::send(STR("[MeshGhostPseudo] VFXWATCH:     attach='{}' socket='{}' relativeLocation=({:.2f}, {:.2f}, {:.2f})\n"),
+                                         to_wide_ascii(attach_parent), to_wide_ascii(socket),
+                                         rel_x, rel_y, rel_z);
                         }
                     }
                     for (const std::string& entry : prev_player_vfx)
@@ -5725,6 +5899,10 @@ namespace MeshGhostPseudo
                 Output::send(STR("[MeshGhostPseudo] remote {} ghost is no longer valid (level transition) -- releasing stale reference, will respawn fresh.\n"),
                              to_wide_ascii(id));
                 hijacked_actors.erase(remote.ghost);
+                // The recall glow is attached to this ghost -- it dies with the actor, so only the
+                // reference needs clearing before a fresh ghost spawns its own.
+                remote.recall_glow_component = nullptr;
+                remote.recall_glow_shown = false;
                 remote.ghost = nullptr;
                 remote.owning_world = nullptr;
                 continue;
@@ -5737,6 +5915,10 @@ namespace MeshGhostPseudo
                 Output::send(STR("[MeshGhostPseudo] remote {} ghost's world changed (local player transitioned) -- releasing stale reference, will respawn fresh.\n"),
                              to_wide_ascii(id));
                 hijacked_actors.erase(remote.ghost);
+                // The recall glow is attached to this ghost -- it dies with the actor, so only the
+                // reference needs clearing before a fresh ghost spawns its own.
+                remote.recall_glow_component = nullptr;
+                remote.recall_glow_shown = false;
                 remote.ghost = nullptr;
                 remote.owning_world = nullptr;
                 continue;
@@ -5755,6 +5937,10 @@ namespace MeshGhostPseudo
             // here, after the ghost's own staleness checks have run, so it never spawns a loose
             // sword for a peer whose ghost has just been invalidated by a level transition.
             tick_remote_weapon(id, remote, current_world);
+
+            // The empty-hand recall glow. Edge-gated inside, so this is a cheap no-op on the vast
+            // majority of ticks.
+            tick_remote_recall_glow(id, remote);
 
             // Runs on whichever ghost comes first and only that one -- the probe's value is being
             // able to say "that look is this asset", which two ghosts showing different effects at
