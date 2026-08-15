@@ -3646,3 +3646,161 @@ Copy this block per fact:
 - Source: the two `.uasset` files above, read as name-table strings only, per `licensing.md`'s
   facts-only posture for this no-license repo (re-confirmed 2026-08-15: `gh api` still reports no
   LICENSE). No asset content copied. Earlier findings from the same mod are in `ideas.md` item 2.
+
+### Ghost self-starts montages: PROVEN, and it is the state sync, not collision
+
+- Date: 2026-08-15
+- **The question.** The ledge-climb-up fix that shipped earlier the same day rested on an explicitly
+  unproven guess: that the ghost's own *collision-driven ledge detection* re-grabbed the lip. The
+  evidence behind it was an argument from absence ("no `Montage_Play` from this adapter appears in
+  the log between the stop and the montage reappearing") read off a log while the adapter was still
+  making montage calls constantly. `GHOST_SELF_MONTAGE_PROBE` replaces that with subtraction: **all
+  four montage call sites in `Plugin.cpp` compiled out** (start mirror, stop mirror, divergence
+  correction, land/jump pulse stop), leaving only a read-only poll of the ghost's own anim instance
+  logged on change. It has to be all four -- any surviving call leaves a negative ambiguous.
+- **Run 1 (collision on) -- the ghost self-starts montages, PROVEN.**
+  `PROBE selfmontage ghost p14-ghost tick 2920: ghost now playing 'AnimMontage
+  /Game/Animations/Player/dreamLady_LedgeGrab_Montage' (peer target '(none)') -- adapter started
+  NOTHING`. Peer playing nothing, adapter physically incapable of having started it. The line never
+  changed again (log-on-change), i.e. it stuck. User watched and confirmed the stuck pose.
+- **Run 2 (collision off, one variable) -- NOT collision.** Identical self-start
+  (`p15-ghost tick 3060`). User's own observation is the sharper half: the ghost **visibly could not
+  hang on the ledge** this run and still ended up stuck in the hang pose. The leading explanation
+  carried since this morning is therefore **wrong**, and `GHOST_COLLISION_ENABLED` was restored to
+  `true` -- the kept feature does not own this bug. *Limit of this run, stated honestly*: disabling
+  the actor's collision does not disable traces cast *from* the character, so what is excluded is
+  "the ghost is resting on / blocked by the ledge", not "the ghost runs a ledge query".
+- **Run 3 (collision on, `ANIM_TRACE` on) -- it is THIS ADAPTER'S STATE SYNC, and it fires on the
+  transition OUT of the hang.** The timeline settles it:
+
+  | time | event |
+  | --- | --- |
+  | 42.792 | `montage local: START #1 'dreamLady_LedgeGrab_Montage'` (real player grabs) |
+  | 42.813 | ghost `moveState=3 movementMode=5` -- told "hanging" -- `montage='none'` |
+  | 42.814 | `Montage_Play(...) length=-1.000` -- `-1` = call never made (probe), as designed |
+  | 42.814-42.889 | readback `t+0`..`t+11`: `playing='none'` -- twelve ticks, nothing started |
+  | 47.769 | `montage local: STOP #1` (real player climbs up) |
+  | 47.790 | ghost `moveState=1 movementMode=3 animJumpType=6` -- told "hang ended" |
+  | 48.193 | ghost `animJumpType 6->0`, `montage='...LedgeGrab_Montage'` -- **self-start, +0.42s** |
+
+  The ghost sat in the synced hang state for a full **5 seconds playing nothing**, then started the
+  montage 0.42s after being told the hang *ended*. So the trigger is not the ledge, not collision,
+  and not entering the state -- it is this adapter writing `moveState`/`animJumpType` into a real
+  pawn clone whose own `ABP_PlayerGoat_C` acts on them.
+- **What this means for the design, and it is not a bug in the ghost.** The self-start is the game's
+  own animation logic working correctly -- precisely what mirroring state is supposed to buy (see
+  the project's "let the game do the work" posture). What a ghost cannot do is **finish** it: the
+  montage holds a section that input-driven logic normally advances, and a ghost has no
+  Controller/InputComponent, so the pose sticks forever. Same root shape as every other ghost issue
+  in this adapter. **Correcting it from outside is therefore the right shape, not a workaround** --
+  and specifically, "stop syncing the field that triggers it" would trade a stuck pose for a dead
+  one and must not be attempted.
+- **The shipped fix survived being wrong about its own cause** because it was deliberately written
+  not to depend on the guess ("it corrects the divergence whatever restarted it"). That is the
+  reusable lesson: when the mechanism is unproven, write the fix so the proof isn't load-bearing.
+- **Gap found by reading, then closed**: the divergence correction only ran when the peer was
+  playing *nothing*, so a ghost self-starting the wrong montage *while the peer plays a different
+  one* stayed uncorrected until the peer's ended. Widened to "the ghost is playing something other
+  than what the peer is playing", re-playing the peer's montage in the same breath. **Candidate for
+  the unexplained "ghost returns stuck in a climb pose" pole bug** (a peer on a pole may play a
+  climb montage continuously, holding the old check shut) -- NOT confirmed, do not close that item
+  on this basis alone.
+- Source: `UE4SS.log` (live install), 2026-08-15 17:56 / 17:58 / 18:02 sessions -- `PROBE
+  selfmontage` and `TRACE animState`/`TRACE montage` lines; user's direct visual confirmation of the
+  stuck pose in all three runs, plus screenshots. Code: `GHOST_SELF_MONTAGE_PROBE` and the montage
+  divergence correction in `Plugin.cpp`.
+
+### Every previously-untriggered player montage works on a ghost for free -- 8 of 8
+
+- Date: 2026-08-15
+- **The blocked question, and the way around it.** verified.md's vocabulary dump found 33 loaded
+  `AnimMontage` assets including nine player ones nobody had ever watched being triggered. The
+  ordinary way to test them is blocked: they need whatever local player input fires them, which for
+  several may be unreachable in normal play. `MONTAGE_CATALOG_PROBE` asks from the other end --
+  play each montage on the ghost DIRECTLY, one every ~4s, and let the user watch. **This needs no
+  knowledge of the local trigger at all**, and it answers the actual question ("does this montage
+  work on a ghost") instead of a proxy for it. Reusable shape for any "does X work on a ghost"
+  question where the natural trigger is out of reach.
+- **Resolved by substring against loaded assets, not by a guessed path.** The vocabulary was
+  recorded as short labels while the real assets carry prefixes/suffixes, and the full paths were
+  never captured -- inventing one would be an address from memory. The probe enumerates what is
+  actually loaded, matches case-insensitively, logs the resolved full name, and reports ambiguity or
+  non-resolution explicitly. All eight resolved unambiguously; nothing went unresolved.
+- **Result: 8 of 8 play on a ghost, all user-watched.** Every one returned a real non-zero length
+  (the engine's own verdict that it started) *and* was seen animating:
+
+  | label | resolved asset | length |
+  | --- | --- | --- |
+  | `WeaponThrow` (control, both rounds) | `dreamLady_WeaponThrow_Montage` | 1.000 |
+  | `Guard_Main` | `Attacks/dreamLady_Guard_Main_Montage` | 1.350 |
+  | `Getup` | `dreamLady_Getup_Montage` | 2.000 |
+  | `SummonWeapon` | `dreamLady_SummonWeaponMontage` | 1.433 |
+  | `Channel` | `dreamLady_Channel_Montage` | 1.433 |
+  | `Idle_ThinkMap` | `dreamLady_Idle_ThinkMap_Montage` | 2.367 |
+  | `Guard_BlockedHit` | `Attacks/dreamLady_Guard_BlockedHit_Montage` | 0.850 |
+  | `Guard_CounterF` | `Attacks/dreamLady_Guard_CounterF_Montage` | 0.733 |
+  | `SitLowHP` | `dreamLady_SitLowHP_Montage` | 5.000 |
+
+  (`Sit` was excluded as already confirmed live by screenshot, making nine of nine for the player
+  montages in the dump.) **No new per-animation code exists for any of them** -- they ride the
+  general montage mirror, which is the whole return on mirroring the mechanism rather than the
+  animation. User: "all the other things are playing as well."
+- **What this does and does not establish.** It establishes that the *ghost side* is not the limit
+  for any of these: if a peer plays one, its ghost will too. It does NOT establish that the local
+  player ever triggers them -- `Idle_ThinkMap` in particular may be a UI state rather than something
+  the character plays, which this probe cannot see. Coverage of the local half stays whatever the
+  mirror observes.
+- **The control earned its place.** `WeaponThrow` led both rounds precisely so that a round where
+  nothing animated would be distinguishable from a broken probe. It animated both times.
+- Source: `UE4SS.log` (live install), 2026-08-15 18:08 (round 1) and 18:12 (round 2) sessions,
+  `PROBE catalog` lines; user's direct visual confirmation for both rounds. Code:
+  `MONTAGE_CATALOG_PROBE` / `find_loaded_montage_by_label` in `Plugin.cpp`.
+
+### Bubble effect is a "Blink" Timeline on the pawn, NOT the afterimage system
+
+- Date: 2026-08-15
+- **The wrong turn, and how it was caught.** A bubble-only coverage capture found a clean held state
+  (`moveState==7 && movementMode==5`, 2002 ticks, `afterImagesToSpawn==0` throughout) and it was
+  wired up as an afterimage trigger. Two separate errors rode along, and **neither was visible in the
+  log**:
+  1. The state was labelled "post-jump boost-available window". It is actually **inside the
+     bubble**. Caught by the user's three-way report (in-bubble trailed / post-jump didn't / boost
+     did) -- a held state looks identical either way in a log. See `pitfalls.md`'s methodology entry.
+  2. The effect is **not an afterimage at all**. User, looking closely: leaving the bubble there is
+     "no trail behind you", the model itself is "pulsating yellow"; and in-bubble the real player is
+     "kinda flashing" while the ghost "looks like its a constant yellow colour in comparison". Their
+     own conclusion, and the correct one: "we might have tried to applied the after image, where
+     something else was supposed to be/play."
+- **What found it: a change-detector, not a dump.** A pulsation is by definition an oscillating
+  value, so `BUBBLE_FX_DIFF` snapshots the local pawn's simple-typed properties every 4 ticks while
+  the effect is on screen and logs **only fields that changed**. 4844 diff lines, and the answer is
+  near the top of the histogram:
+  - **`Blink_NewTrack_0_<GUID>`** -- a Blueprint **Timeline** track cycling `0 -> 1 -> 2 -> 0`.
+    65 changes in-bubble, 1 post-jump. A track literally named *Blink*, cycling in ~31 ticks with
+    gaps of ~200-700 between cycles, matching "kinda flashing" exactly.
+  - `Timeline_5_NewTrack_0_<GUID>` -- a smooth `0 -> 1` ramp running alongside it.
+  - Everything else that moved is ordinary movement state (`moveStateUptime`, `verticalSpeed`,
+    `moveInputAmount`, ...).
+- **Why this matters more than the specific field**: the afterimage investigation hit a real
+  ceiling (a second spawn path reachable only through a Blueprint UFunction hook that crashes the
+  game). **This effect has no such ceiling** -- its driver is a plain readable property on the pawn,
+  the same category as every mirror this adapter already ships. It was only unreachable while it was
+  being mistaken for an afterimage.
+- **Measured duration kills the tuning approach**: `Blink` ran **9406 ticks in a single bubble
+  visit** (~52s at this build's ~180Hz), against a 900-tick guessed window. The user watched the
+  ghost drop its effect early twice, counting ~16s of real effect still to come each time. Raising
+  the constant would fix the duration and leave the visual wrong -- spawned afterimages read as
+  constant yellow where the real thing flashes.
+- **Tick rate correction, affects other entries**: this build measures **~180Hz**, from two
+  independent timestamp/tick pairs (448 ticks in 2.473s; 3001 in 16.495s). Earlier entries quote
+  ~150Hz, which makes every tick-based duration in this adapter read ~20% long.
+- **Shipped state, deliberately provisional**: trigger C (in-bubble afterimage) stays at its
+  visibly-short 900-tick window, and trigger D (post-jump) is **disabled** -- it added a trail the
+  real player provably does not have, which is the crouch-trail false positive again, and that one
+  is precedent for removing rather than tuning. D's window logic is kept intact because it correctly
+  models a real rule the user described ("you keep it if it didn't go away inside of the bubble") and
+  is what a Blink mirror will need.
+- Source: `UE4SS.log` (live install), 2026-08-15 sessions -- `TRACE trailCoverage`, `TRACE
+  trailTrigger`, `DIFF bubbleFX` lines; user's live visual reports throughout, including the
+  observation that reframed the whole investigation. Code: `snapshot_object_values`,
+  `log_value_snapshot_diff`, `BUBBLE_FX_DIFF`, and triggers C/D in `Plugin.cpp`.

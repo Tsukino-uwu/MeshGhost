@@ -32,6 +32,20 @@ know the incident, not just the rule, so you can judge when it applies.
   readback killed it instantly (it read `none` every time — the ghost was re-starting the montage
   by itself ~0.4s later). Generalises the `manageRecallIdleFX` entry's own stated weakness:
   an uninstrumented call can't distinguish "never ran" from "ran and was undone".
+- **A state signature can be perfectly solid and still be attached to the wrong event — only a
+  human watching can tell you which.** A bubble-only coverage capture found `moveState==7 &&
+  movementMode==5` holding for 2002 ticks with `afterImagesToSpawn` at 0 throughout: clean,
+  repeatable across every repetition, unambiguous. It was labelled "the post-jump boost-available
+  window" and shipped as a trail trigger on that basis. It is actually *inside the bubble*. The log
+  could not have caught the error — a held state looks identical either way, and which real-world
+  moment it corresponds to exists only on screen. The user's three-way report (in-bubble trailed /
+  post-jump didn't / boost did) separated them in one sentence.
+  **So: naming which real moment a signature belongs to is a visual claim, not a log claim, and it
+  needs the same human gate as any other visual claim** (see `verified.md`'s own gating rule). State
+  the mapping as an assumption when you write it, and have the watcher confirm the *label*, not just
+  that the effect appeared. Corollary that saved the follow-up fix: when a window is bounded by an
+  event you can't see (a trail "running out"), don't infer its length from the state's duration —
+  the state outlived the effect here, and the ghost kept trailing long after the real player stopped.
 - **A soft/"nicer" parameter value is a change, not a freebie.** The same session shipped a
   montage stop with a 0.1s blend purely because a gentle blend seemed more appropriate than the
   existing hard 0.0f, and it was inert on this build — the bug it caused was then chased as if it

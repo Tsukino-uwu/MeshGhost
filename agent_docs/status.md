@@ -21,20 +21,24 @@ Fixed-and-confirmed work is not listed here — see `verified.md` and the phase 
   2026-08-15); its run-ending risk is fixed. Loopback cannot answer whether real-peer
   contact is disruptive. Never judge it with `LOOPBACK_GHOST_OFFSET_X = 0` — that
   reproduces the 7.4 drag bug by construction.
-- **Ghost vanishes while a peer is climbing/on a pole, then returns stuck in a climb pose.**
-  Cause UNKNOWN; two suspects ruled out with evidence (not the slide floor fix, not purely
-  the loopback offset). See `phase7.md`.
+- **Ghost vanishes while a peer is climbing/on a pole.** Cause UNKNOWN; three suspects ruled out
+  (not the slide floor fix, not the loopback offset, not ghost collision). The *"returns stuck in a
+  climb pose"* half is likely fixed — the montage divergence correction was widened 2026-08-15 and
+  pole climbing up/down then confirmed working. See `phase7.md`, `verified.md`.
 
 ### Open, not blocked
 
+- **Pseudoregalia: bubble effect — driver FOUND, mirror not built.** The pulsating yellow is a
+  Blueprint Timeline track `Blink_NewTrack_0_<GUID>` on the pawn, not the afterimage system. Next
+  step: find what the Blink drives visually and mirror that. **Do not tune the window; replace the
+  mechanism.** See `verified.md`.
+- **Pseudoregalia: rotating around a climbing pole doesn't sync** (up/down does). Not investigated;
+  position/rotation are already synced, so the question is likely whether the ghost's own climb
+  state overrides applied rotation.
 - **Pseudoregalia: empty-hand recall glow** — blocked on a *precondition* (a real thrown-weapon
   actor for `manageRecallIdleFX`'s `IsValid` guards), not on finding the function. Read
   `verified.md`'s "`manageRecallIdleFX`: NEGATIVE" entry, plus the montage fix's lesson: a game
   wrapper that no-ops on a ghost may still work via the stock engine call underneath it.
-- **Pseudoregalia: does the ghost's own logic re-grab ledges/poles?** The ghost was shown
-  re-starting `LedgeGrab_Montage` by itself (2026-08-15); leading explanation, UNPROVEN, is its own
-  collision-driven ledge detection. May be the same mechanism as the climbing-pole item above.
-  Clean test: disable the montage mirror, see if the montage still appears.
 - **Pseudoregalia: ultra hop's BLUE trail — PARKED with evidence.** Not `afterimageColor`,
   not `ultraCap`/`fullUltraModifier`/`cappedUltraModifier`/`animJumpType`. Not derivable
   from polled state; do not resume by guessing more property names. Re-checked 2026-08-15

@@ -1,9 +1,12 @@
 #include <Plugin.hpp>
 
 #include <algorithm>
+#include <array>
 #include <bit>
+#include <cctype>
 #include <cmath>
 #include <cstdio>
+#include <map>
 #include <cwctype>
 #include <format>
 #include <utility>
@@ -167,6 +170,10 @@ namespace MeshGhostPseudo
     // attack, AoE, or environmental hazard striking the ghost is a different vector entirely and
     // nobody has tried it. If a player ever dies for no visible reason near a ghost, look here
     // first. See agent_docs/ideas.md's ghost-collision entry.
+    // Briefly false on 2026-08-15 for run 2 of GHOST_SELF_MONTAGE_PROBE's design, then restored:
+    // that run showed the ledge-grab self-start happens with collision OFF too (the ghost visibly
+    // could not hang on the ledge and still ended up in the hang pose), so collision does not cause
+    // it and there is no reason to keep the feature disabled. See verified.md.
     constexpr bool GHOST_COLLISION_ENABLED = true;
 
     // Redone landed?/jumped? pulse mirror, 2026-08-13 (follow-up session) -- see
@@ -271,6 +278,12 @@ namespace MeshGhostPseudo
     // all ruled out). See verified.md. Kept in the tree for the still-open turn-around
     // false-positive question, same flip/rebuild/deploy/watch/flip-back convention as every other
     // toggle in this file.
+    // **On again 2026-08-15** to verify trigger C (the bubble boost-available trail) actually fires,
+    // and how many times per bubble -- it logs only when a trigger fires, so it is cheap next to the
+    // coverage trace, and the new bubble_edge/bubble_refire columns say which one did it. Flip off
+    // once the trail is confirmed on screen. **Off again 2026-08-15**: it confirmed trigger C fires
+    // (bubble_enter then a run of bubble_refire, moveState=7 throughout), which is how the trigger
+    // was shown to be attached to the IN-BUBBLE state rather than the post-jump window.
     constexpr bool TRAIL_TRIGGER_TRACE = false;
 
     // Enemy-damage-vs-ghost safety test, 2026-08-15. Ghost collision is now on as a deliberate
@@ -309,7 +322,64 @@ namespace MeshGhostPseudo
     // for all 10,930 in-game ticks including throughout a climb, so the slide floor fix's render-Z
     // compensation (which only fires below 65) provably never runs during a climb and is NOT the
     // cause of the ghost vanishing there. Cause still unknown -- see status.md.
+    //
+    // **On again 2026-08-15 for the BUBBLE capture** (user-reported: the ghost animates correctly
+    // inside the bubble/ball that suspends you in the air, but gets no afterimages, and the real
+    // player's trail persists after leaving it until the forward launch). This is a concrete,
+    // repeatable instance of the "REMAINING GAP" recorded in verified.md's afterImagesToSpawn entry
+    // -- a spawn path that never touches that field -- and a repeatable trigger is exactly what
+    // that investigation never had.
+    //
+    // **This does NOT reopen the general property hunt that entry closes.** That ceiling is real:
+    // no single property tells you when the game trails, and intercepting `Spawn After Image`
+    // itself needs the Blueprint UFunction hook that CRASHED the game. What this capture is for is
+    // the narrower, already-proven move: the plain-slide trail was fixed not by finding a "trailing
+    // now" property but by keying on a PHYSICAL FACT of that one move (capsule 65 -> 22), which is
+    // trigger B in tickLocal today. If the bubble has an equally clean signature, it earns a trigger
+    // C the same way. If it doesn't, the answer is that it stays uncovered -- do not substitute a
+    // guess for a signature.
+    // Per the slide lesson, capture ONE move and nothing else: the deliberately minimal
+    // plain-slide-only capture answered two questions after several broad ones had produced wrong
+    // answers. Flip off after.
+    // **Flipped back off 2026-08-15, job done.** The bubble-only capture was decisive: `moveState==7`
+    // (always with `movementMode==5`, `actionState==0`, `animJumpType==0`, capsule 65) is the
+    // post-jump boost-available state, and `afterImagesToSpawn` reads 0 across all 2002 ticks of it.
+    // That produced trigger C in tickLocal. The boost itself (`animJumpType==2`) sets it to 4 and
+    // was already covered by trigger A.
     constexpr bool TRAIL_COVERAGE_TRACE = false;
+
+    // **The bubble effect is probably NOT an afterimage at all**, 2026-08-15, from the user's own
+    // close look: leaving the bubble the real player has "no trail behind you" -- the MODEL ITSELF
+    // is "pulsating yellow", which at a glance resembles a trail. And inside the bubble the real
+    // player is "kinda flashing" while the ghost, fed real spawned afterimages by trigger C, "looks
+    // like its a constant yellow colour in comparison". User's own conclusion, and it is the right
+    // one: "we might have tried to applied the after image, where something else was supposed to
+    // be/play". Triggers C and D reproduce a real effect that the game is not using here.
+    //
+    // A pulsation is by definition a value that oscillates, so this samples the local pawn's
+    // simple-typed properties while the effect is on screen and logs only what CHANGED between
+    // samples (snapshot_object_values + log_value_snapshot_diff). A dump gives 389 lines to eyeball;
+    // a diff gives the handful that moved. Same technique that found the outfit field by diffing two
+    // dumps rather than reading one.
+    //
+    // **A quiet log is a real answer here, not a failure**: it means the effect is not a
+    // simple-typed property on the pawn, and the search moves to the mesh/material (a dynamic
+    // material instance's scalar parameter would be invisible to this) instead of continuing to
+    // stare at the pawn. Deliberately samples during BOTH the in-bubble state and the window after
+    // leaving it, since the user reports the effect spans both.
+    // **Ran 2026-08-15, and it FOUND IT -- flipped back off.** The diff was not quiet: the pawn
+    // carries `Blink_NewTrack_0_<GUID>`, a Blueprint Timeline track cycling 0 -> 1 -> 2 -> 0 (65
+    // changes in-bubble, 1 post-jump), alongside `Timeline_5_NewTrack_0_<GUID>` ramping smoothly
+    // 0 -> 1. A track literally named "Blink" whose cycle matches the user's "kinda flashing" is
+    // the pulsation, and it is a READABLE PROPERTY on the pawn -- so the trigger information this
+    // effect needs is available after all, unlike the afterimage second-spawn-path ceiling.
+    // Measured span: 9406 ticks in a single bubble visit (~52s at ~180Hz), which is why the
+    // 900-tick guess dropped the ghost's effect so early. See verified.md; next step recorded in
+    // status.md.
+    constexpr bool BUBBLE_FX_DIFF = false;
+    // Every 4 ticks (~22ms at this build's measured ~180Hz). A visible flash cycles far slower than
+    // that, so this cannot alias past it, and the diff keeps the volume down by itself.
+    constexpr uint64_t BUBBLE_FX_DIFF_INTERVAL_TICKS = 4;
 
     // Discovery tooling, restored 2026-08-16. A near-identical dumper (log_pawn_reflection_once)
     // existed during the falling-pose/ledge-hang investigation and was deleted in commit c3eb489
@@ -455,7 +525,96 @@ namespace MeshGhostPseudo
     // on moveState -- fix shipped, user-confirmed crouch clean and slide still trailing. Two wrong
     // guesses died on the way (a blend-time change; a "the stop call fails" theory), both killed by
     // measurement rather than argument -- see verified.md.
+    // **On again 2026-08-15 for run 3** of GHOST_SELF_MONTAGE_PROBE, then back off, job done. Runs
+    // 1 and 2 had proved the ghost self-starts LedgeGrab_Montage and that collision isn't why; this
+    // flag's log-on-change of the GHOST's applied state timeline supplied the answer, by lining that
+    // timeline up against the probe's self-start line. Result: the ghost held the synced hang state
+    // for 5s playing nothing and started the montage 0.42s AFTER being told the hang ended, so the
+    // trigger is this adapter's own state sync driving ABP_PlayerGoat_C, not the ledge. Full
+    // timeline in verified.md; the conclusion is written up at the divergence correction itself.
     constexpr bool ANIM_TRACE = false;
+
+    // Proof-by-subtraction for the one unproven claim left over from the montage work: **does the
+    // ghost's OWN logic start montages?** verified.md's ledge-climb-up entry established that the
+    // ghost was playing `LedgeGrab_Montage` ~0.4s after a readback-confirmed effective stop, with
+    // no `Montage_Play` from this adapter in between -- but "no play in between" was read off a
+    // log while the adapter was still making montage calls constantly, so it argues rather than
+    // proves. The divergence correction that shipped was deliberately written not to depend on it.
+    //
+    // This flag removes the adapter from the montage business entirely: no start mirror, no stop
+    // mirror, no divergence stop, no land/jump pulse stop. **Every montage call this file makes on
+    // a ghost is suppressed** -- that is the single variable, and it has to be all of them, because
+    // any surviving call leaves "we didn't see one" ambiguous. What remains is a read-only poll of
+    // the ghost's own anim instance, logged on CHANGE. Then the reading is unambiguous:
+    //   * ghost plays a montage at any point -> something other than this adapter started it, which
+    //     is the claim, proven directly rather than inferred from an absence in a busy log.
+    //   * ghost stays on 'none' for a whole session including ledge grabs and poles -> the claim is
+    //     FALSE and the lingering had another cause, which reopens the ledge/pole questions.
+    // The name it logs matters as much as the fact: `LedgeGrab` vs a pole/climb montage is the
+    // direct link to the "ghost vanishes on a pole, returns stuck in a climb pose" item.
+    //
+    // **Deliberately makes the ghost wrong while on** -- no montage animation mirrors at all, and
+    // the ledge-hang lingering comes back. Diagnostic only; flip, rebuild, deploy, watch, flip back,
+    // same convention as ANIM_TRACE. Turns ANIM_TRACE's logging on for itself implicitly by having
+    // its own unconditional output, so it does not need ANIM_TRACE set as well.
+    //
+    // **Second run, one variable later:** if run 1 shows self-starts, rebuild with
+    // GHOST_COLLISION_ENABLED = false and repeat. Self-starts disappearing pins it on
+    // collision-driven ledge detection (the leading explanation); self-starts surviving means the
+    // ghost's anim graph does it without world contact and collision is exonerated.
+    // **Run 2026-08-15, three runs, question ANSWERED -- see the divergence correction in tickRenders
+    // for the conclusion and verified.md for the evidence.** Kept rather than deleted: it is the
+    // only tool that can tell "the ghost did this" from "we did this", and the pole bug may yet need
+    // exactly that answer again.
+    constexpr bool GHOST_SELF_MONTAGE_PROBE = false;
+
+    // The other half of the montage follow-up: the mirror is general, so the montages nobody has
+    // ever triggered on camera -- `Guard_Main`, `Getup`, `SummonWeapon`, `Channel` (verified.md's
+    // 33-montage vocabulary dump) -- should already play on a ghost for free. Nobody has watched,
+    // and the ordinary way to find out is blocked: they need whatever local player input fires
+    // them, which for at least some of them may be unreachable in normal play.
+    //
+    // So this asks the question from the other end: play each named montage on the ghost DIRECTLY,
+    // one every CATALOG_PROBE_INTERVAL_TICKS, logging the asset it resolved to as it starts. The
+    // user watches the ghost and reports which ones visibly animate; the log lines timestamp what
+    // was on screen. This needs no knowledge of the local trigger at all, and it answers the
+    // actual question ("does this montage work on a ghost") rather than a proxy for it.
+    //
+    // The list carries a known-good control (the throw, confirmed live) so a session where nothing
+    // animates is distinguishable from a session where the probe itself is broken. Names are
+    // matched as case-insensitive SUBSTRINGS of loaded AnimMontage assets, because verified.md
+    // records these as short labels and the real asset names carry prefixes/suffixes
+    // (`dreamLady_WeaponThrow_Montage` for what that entry calls `WeaponThrow`) -- the resolved
+    // full name is logged so an ambiguous match is visible rather than silent. **Loaded assets
+    // only**, same caveat as the vocabulary dump: an unresolved name means "not streamed in here",
+    // not "doesn't exist", and it logs as such.
+    // **Run 2026-08-15 in two rounds, question ANSWERED: 8 of 8 montages play on a ghost** (see
+    // verified.md). Kept rather than deleted -- it is the general answer to "does X work on a ghost
+    // when I can't trigger X locally", and the list is one line to change.
+    constexpr bool MONTAGE_CATALOG_PROBE = false;
+    // ~4s at this build's measured ~150Hz -- long enough to see a full montage play and end before
+    // the next one starts, short enough that the whole list fits in one calm stretch of play.
+    constexpr uint64_t CATALOG_PROBE_INTERVAL_TICKS = 600;
+    // Cycled in order by the catalog probe. The first entry is the control: `WeaponThrow` is the
+    // montage confirmed live on a ghost (verified.md), so if it doesn't animate here the probe is
+    // broken and the other four results mean nothing. The rest are exactly the player montages
+    // verified.md's vocabulary dump found loaded but never observed being triggered.
+    // **Round 1 (2026-08-15) is DONE and all four passed** -- Guard_Main, Getup, SummonWeapon and
+    // Channel all resolved unambiguously, all returned a real length, and the user watched all four
+    // animate on the ghost. Round 2 below finishes the set: the remaining player montages from
+    // verified.md's vocabulary dump that nobody has watched. `Sit` is deliberately absent -- it is
+    // already confirmed live (user screenshot of the real player and ghost in the same sit pose).
+    // `Idle_ThinkMap` is the one the user asked about directly ("looking at map").
+    constexpr std::array<const char*, 5> CATALOG_PROBE_MONTAGES = {
+        "WeaponThrow", "Idle_ThinkMap", "Guard_BlockedHit", "Guard_CounterF", "SitLowHP",
+    };
+
+    // Either probe needs this file to stop calling Montage_Stop on ghosts, for opposite reasons:
+    // GHOST_SELF_MONTAGE_PROBE must not touch the ghost at all, and MONTAGE_CATALOG_PROBE plays
+    // montages the peer isn't playing, which the divergence correction would otherwise cancel within
+    // ~27ms -- the probe would look like it had failed when it had actually worked. Named once here
+    // so a future third probe can't half-suppress them and quietly get an ambiguous result.
+    constexpr bool MONTAGE_PROBES_SUPPRESS_ADAPTER_STOPS = GHOST_SELF_MONTAGE_PROBE || MONTAGE_CATALOG_PROBE;
 
     // The inversion test designed in verified.md's "Dream Breaker weapon-visibility sync" entry:
     // five straight fix attempts on the weapon-visibility sync all failed identically (data
@@ -965,6 +1124,96 @@ namespace MeshGhostPseudo
             Output::send(STR("[MeshGhostPseudo] DIAG: end of {} value dump.\n"), label);
         }
 
+        // Same enumeration as dump_object_property_values, but returning the values instead of
+        // printing them, so successive samples can be DIFFED. Built 2026-08-15 for the bubble
+        // effect: the user reported that what the real player has in and after the bubble is not an
+        // afterimage trail at all but the model itself **pulsating yellow** -- and a pulsation is,
+        // by definition, a value that oscillates. A dump prints 389 lines you then have to eyeball;
+        // a diff prints only what actually moved, which for a flashing effect is exactly the field
+        // driving it. Same reason the outfit mirror was found by diffing two dumps rather than
+        // reading one.
+        //
+        // Object-typed fields are recorded as null/non-null only, matching ABILITY_FIELD_TRACE's
+        // convention: a component being swapped in is real signal, a full name is noise here.
+        auto snapshot_object_values(UObject* obj) -> std::map<StringType, StringType>
+        {
+            std::map<StringType, StringType> out;
+            if (!obj)
+            {
+                return out;
+            }
+            UClass* obj_class = obj->GetClassPrivate();
+            if (!obj_class)
+            {
+                return out;
+            }
+            for (FProperty* property : TFieldRange<FProperty>(obj_class, EFieldIterationFlags::Default))
+            {
+                if (!property)
+                {
+                    continue;
+                }
+                StringType prop_name = property->GetName();
+                StringType prop_type = property->GetClass().GetName();
+                if (prop_type == STR("BoolProperty"))
+                {
+                    bool* ptr = obj->GetValuePtrByPropertyNameInChain<bool>(prop_name.c_str());
+                    out[prop_name] = ptr ? (*ptr ? STR("true") : STR("false")) : STR("<unreadable>");
+                }
+                else if (prop_type == STR("IntProperty"))
+                {
+                    int32_t* ptr = obj->GetValuePtrByPropertyNameInChain<int32_t>(prop_name.c_str());
+                    out[prop_name] = ptr ? std::format(STR("{}"), *ptr) : STR("<unreadable>");
+                }
+                else if (prop_type == STR("FloatProperty"))
+                {
+                    float* ptr = obj->GetValuePtrByPropertyNameInChain<float>(prop_name.c_str());
+                    out[prop_name] = ptr ? std::format(STR("{:.4f}"), *ptr) : STR("<unreadable>");
+                }
+                else if (prop_type == STR("DoubleProperty"))
+                {
+                    double* ptr = obj->GetValuePtrByPropertyNameInChain<double>(prop_name.c_str());
+                    out[prop_name] = ptr ? std::format(STR("{:.4f}"), *ptr) : STR("<unreadable>");
+                }
+                else if (prop_type == STR("EnumProperty") || prop_type == STR("ByteProperty"))
+                {
+                    uint8_t* ptr = obj->GetValuePtrByPropertyNameInChain<uint8_t>(prop_name.c_str());
+                    out[prop_name] = ptr ? std::format(STR("{}"), static_cast<int>(*ptr)) : STR("<unreadable>");
+                }
+                else if (prop_type == STR("ObjectProperty") || prop_type == STR("WeakObjectProperty") ||
+                         prop_type == STR("SoftObjectProperty") || prop_type == STR("ClassProperty"))
+                {
+                    UObject** ptr = obj->GetValuePtrByPropertyNameInChain<UObject*>(prop_name.c_str());
+                    out[prop_name] = (ptr && *ptr) ? STR("<non-null>") : STR("<null>");
+                }
+            }
+            return out;
+        }
+
+        // Log every field that changed between two snapshots. Prints nothing when nothing moved,
+        // which is the point: a quiet log through the whole bubble means the effect is NOT a
+        // simple-typed property on this object, and the search moves to the mesh/material rather
+        // than continuing to stare at the pawn.
+        auto log_value_snapshot_diff(const std::map<StringType, StringType>& before,
+                                     const std::map<StringType, StringType>& after,
+                                     const wchar_t* label,
+                                     uint64_t tick) -> void
+        {
+            for (const auto& [name, new_value] : after)
+            {
+                auto it = before.find(name);
+                if (it == before.end())
+                {
+                    continue;
+                }
+                if (it->second != new_value)
+                {
+                    Output::send(STR("[MeshGhostPseudo] DIFF {} tick={}: {} : {} -> {}\n"),
+                                 label, tick, name, it->second, new_value);
+                }
+            }
+        }
+
         // Phase 7.6 spawn-safety guard, new (not in the Lua adapter, which never spawned from the
         // title screen because it happened to only reach a real level by the time it first ran):
         // the original C++ spawn crash's ghost was a clone of the title screen's own transient
@@ -1351,6 +1600,60 @@ namespace MeshGhostPseudo
                 return *std::bit_cast<float*>(params_buffer.data() + return_property->GetOffset_Internal());
             }
             return 0.0f;
+        }
+
+        // Resolve one of MONTAGE_CATALOG_PROBE's short labels to a real loaded AnimMontage.
+        // Substring, case-insensitive, for the reason given at CATALOG_PROBE_MONTAGES: verified.md
+        // records the vocabulary as short labels while the assets carry prefixes and suffixes, and
+        // the exact asset names for the never-triggered four were never captured -- guessing a full
+        // path here would be inventing an address, which this project does not do. StaticFindObject
+        // (used by the mirror, which receives a real full path from a peer) is therefore not usable
+        // for these; enumerating what is actually loaded and matching is.
+        //
+        // Returns the FIRST match and reports how many matched, so an ambiguous label is visible in
+        // the log rather than silently resolving to whichever asset came first.
+        auto find_loaded_montage_by_label(const std::string& label) -> UObject*
+        {
+            std::vector<UObject*> loaded_montages;
+            UObjectGlobals::FindAllOf(STR("AnimMontage"), loaded_montages);
+
+            std::string needle = label;
+            std::transform(needle.begin(), needle.end(), needle.begin(),
+                           [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+
+            UObject* first_match = nullptr;
+            size_t match_count = 0;
+            for (UObject* montage : loaded_montages)
+            {
+                if (!montage)
+                {
+                    continue;
+                }
+                std::string name = to_utf8(montage->GetName());
+                std::transform(name.begin(), name.end(), name.begin(),
+                               [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+                if (name.find(needle) == std::string::npos)
+                {
+                    continue;
+                }
+                ++match_count;
+                if (!first_match)
+                {
+                    first_match = montage;
+                }
+            }
+
+            if (!first_match)
+            {
+                Output::send(STR("[MeshGhostPseudo] DIAG: catalog probe -- '{}' matched none of the {} loaded AnimMontage asset(s) (not streamed in here; absence is not evidence it doesn't exist).\n"),
+                             to_wide_ascii(label), loaded_montages.size());
+            }
+            else if (match_count > 1)
+            {
+                Output::send(STR("[MeshGhostPseudo] DIAG: catalog probe -- '{}' matched {} loaded assets, using '{}'.\n"),
+                             to_wide_ascii(label), match_count, first_match->GetFullName());
+            }
+            return first_match;
         }
 
         // Name-filtered function dump -- dump_object_reflection's function half, minus the
@@ -3160,7 +3463,152 @@ namespace MeshGhostPseudo
                     last_slide_refire_tick = tick_count;
                 }
 
-                if (burst_edge || slide_edge || slide_refire)
+                // Trigger C -- INSIDE the bubble, added 2026-08-15 from a bubble-only coverage
+                // capture (see prev_local_bubble_in_bubble in Plugin.hpp).
+                //
+                // **Measured signature, not a guessed one.** `moveState == 7` appeared for 2002
+                // ticks across the capture and occurred ONLY ever alongside `movementMode == 5`,
+                // `actionState == 0`, `animJumpType == 0` and a full-height 65 capsule, with
+                // `afterImagesToSpawn` reading **0 on all 2002 of those ticks** while the real
+                // player was visibly trailing. Gated on movementMode too, deliberately, so a future
+                // reuse of the moveState value in a grounded context can't silently inherit a trail.
+                //
+                // **Originally mislabelled "post-jump boost window", corrected the same day by the
+                // user's own three-way report** (in-bubble trailed / post-jump didn't / boost did).
+                // The log could not have caught that: it shows a clean held state either way, and
+                // which real-world moment it corresponds to is only visible on screen. Worth
+                // remembering -- a signature can be perfectly solid and still be attached to the
+                // wrong event, and only a human watching separates those.
+                //
+                // **Why this is not the property hunt verified.md closes off.** That entry's ceiling
+                // is real and stands: no single property tells you when the game trails in general,
+                // and intercepting `Spawn After Image` needs the Blueprint UFunction hook that
+                // crashed the game. This is the other, already-proven move -- the same one that
+                // fixed the plain-slide trail after three enum guesses failed: key on a measured
+                // signature of ONE named move. Trigger B is that precedent; these are its siblings.
+                constexpr uint8_t IN_BUBBLE_MOVE_STATE = 7;
+                constexpr uint8_t BUBBLE_MOVEMENT_MODE = 5;
+                bool in_bubble_now = (move_state_now == IN_BUBBLE_MOVE_STATE &&
+                                      movement_mode == BUBBLE_MOVEMENT_MODE);
+                bool bubble_enter_edge = (in_bubble_now && !prev_local_bubble_in_bubble);
+                if (bubble_enter_edge)
+                {
+                    bubble_enter_tick = tick_count;
+                }
+                // **Windowed, from a live observation**: the user reported the real player's own
+                // in-bubble trail "eventually stopped" while the ghost's kept going, because sitting
+                // in the bubble is player-terminated and can last arbitrarily long (261-793 ticks
+                // measured, and longer if you just wait) while the real trail is finite. Same shape
+                // as the slide's SLIDE_REFIRE_WINDOW_TICKS and tuned the same way -- by eye, since
+                // the real trail's length is visual-only and no property exposes it.
+                //
+                // **300 -> 900, corrected 2026-08-15**: at 300 the user reported the ghost losing it
+                // "way way faster" than the real player. Note the tick rate this converts against is
+                // ~180Hz on this build, measured from two independent log timestamp/tick pairs this
+                // session (448 ticks in 2.473s; 3001 in 16.495s) -- NOT the ~150Hz quoted in older
+                // entries, which would make every tick-based duration here read ~20% long.
+                //
+                // **900 is still WRONG and knowingly so -- do not tune this number, replace it.**
+                // BUBBLE_FX_DIFF then measured the real effect directly: `Blink_NewTrack_0_<GUID>`
+                // ran 9406 ticks in a single bubble visit, an order of magnitude past this window,
+                // which is why the user watched the ghost drop its effect early twice (counting ~16s
+                // of real effect remaining, both times). Raising this to ~9400 would make the
+                // duration roughly right and the VISUAL still wrong -- spawned afterimages read as
+                // constant yellow where the real effect flashes. The fix is to drive the ghost from
+                // the Blink track itself, not to keep fitting a constant; see status.md. Left at 900
+                // deliberately: a visibly-short approximation is easier to spot as provisional than
+                // a well-tuned one, and this must not be mistaken for finished.
+                constexpr uint64_t BUBBLE_REFIRE_WINDOW_TICKS = 900;
+                bool bubble_within_window = (tick_count - bubble_enter_tick) < BUBBLE_REFIRE_WINDOW_TICKS;
+                bool bubble_refire = in_bubble_now && !bubble_enter_edge && bubble_within_window &&
+                                     (tick_count - last_bubble_refire_tick) >= SLIDE_REFIRE_INTERVAL_TICKS;
+
+                // Trigger D -- the post-jump "boost available" window, the half that was MISSING
+                // (user: "has the after image after jumping out of the bubble (not working)").
+                //
+                // Keyed on LEAVING the bubble state rather than on any enum of its own. That is
+                // deliberate: the window is plain falling (`moveState==1 animJumpType==0
+                // movementMode==3`) and is therefore indistinguishable from ordinary falling by any
+                // field captured -- so a value-based trigger here would trail every fall in the
+                // game. Requiring "was in the bubble last tick" cannot fire anywhere else by
+                // construction, which is the same reasoning that made the capsule shrink the right
+                // slide marker: prefer the fact that can't be coincidence.
+                //
+                // Ends exactly where the user says it ends -- "whenever the user inputs jump / as
+                // long as its before landing on the ground": on the boost itself (animJumpType==2,
+                // which sets afterImagesToSpawn=4 and is already covered by trigger A, so handing
+                // off there avoids double-spawning) or on touching the ground.
+                //
+                // **CONDITIONAL on the in-bubble trail not having run out, added 2026-08-15 from the
+                // user's description of the actual rule**: "you keep it if it didn't go away inside
+                // of the bubble, but if it ends it should not have the after image when you leave."
+                // The trail is a spendable thing with a lifetime, not a property of leaving the
+                // bubble. The first version armed this unconditionally and produced exactly the
+                // predicted wrong result live -- a ghost trailing out of the bubble while the real
+                // player, who had sat there long enough to burn it, had none. So the same window
+                // that bounds the in-bubble trail also decides whether there is anything left to
+                // carry out, which makes BUBBLE_REFIRE_WINDOW_TICKS do double duty: getting it
+                // wrong now shows up in two places at once, which is a feature -- it makes the
+                // number easier to tune, not harder.
+                //
+                // **DISABLED 2026-08-15, same day it was written** -- see BUBBLE_FX_DIFF. The user
+                // looked closely and reported that leaving the bubble the real player has **no
+                // trail at all**; the model pulsates yellow, which resembles one. So this trigger
+                // adds an effect the real player demonstrably does not have -- the crouch-trail
+                // false positive again, and that one is precedent for removing rather than tuning.
+                // Kept in place, not deleted: the WINDOW logic (latch on leaving the bubble, clear
+                // on boost or landing, armed only if the trail hadn't run out) is a correct model of
+                // a real game rule the user described, and is exactly what a material-pulse mirror
+                // will need once BUBBLE_FX_DIFF finds what to drive. Only the afterimage spawn is
+                // wrong. Re-enable by flipping this to true.
+                constexpr bool BOOST_WINDOW_SPAWNS_AFTERIMAGES = false;
+                constexpr uint8_t BOOST_ANIM_JUMP_TYPE = 2;
+                constexpr uint8_t WALKING_MOVEMENT_MODE = 1;
+                if (prev_local_bubble_in_bubble && !in_bubble_now && bubble_within_window)
+                {
+                    boost_window_active = true;
+                }
+                if (boost_window_active &&
+                    (anim_jump_type_now == BOOST_ANIM_JUMP_TYPE || movement_mode == WALKING_MOVEMENT_MODE))
+                {
+                    boost_window_active = false;
+                }
+                bool boost_window_refire = BOOST_WINDOW_SPAWNS_AFTERIMAGES && boost_window_active &&
+                                           (tick_count - last_bubble_refire_tick) >= SLIDE_REFIRE_INTERVAL_TICKS;
+
+                // BUBBLE_FX_DIFF -- see the flag's own comment. Runs while the effect is on screen
+                // (in the bubble, or in the window after leaving it) and prints only what moved.
+                if constexpr (BUBBLE_FX_DIFF)
+                {
+                    if ((in_bubble_now || boost_window_active) &&
+                        (tick_count - bubble_fx_last_sample_tick) >= BUBBLE_FX_DIFF_INTERVAL_TICKS)
+                    {
+                        bubble_fx_last_sample_tick = tick_count;
+                        auto now_snapshot = snapshot_object_values(pawn);
+                        if (!bubble_fx_prev_snapshot.empty())
+                        {
+                            log_value_snapshot_diff(bubble_fx_prev_snapshot, now_snapshot,
+                                                    in_bubble_now ? STR("bubbleFX in-bubble") : STR("bubbleFX post-jump"),
+                                                    tick_count);
+                        }
+                        bubble_fx_prev_snapshot = std::move(now_snapshot);
+                    }
+                    else if (!in_bubble_now && !boost_window_active && !bubble_fx_prev_snapshot.empty())
+                    {
+                        // Drop the baseline on leaving, so the next bubble's first diff isn't
+                        // against a stale snapshot from minutes of unrelated play.
+                        bubble_fx_prev_snapshot.clear();
+                    }
+                }
+
+                if (bubble_enter_edge || bubble_refire || boost_window_refire)
+                {
+                    last_bubble_refire_tick = tick_count;
+                }
+                prev_local_bubble_in_bubble = in_bubble_now;
+
+                if (burst_edge || slide_edge || slide_refire ||
+                    bubble_enter_edge || bubble_refire || boost_window_refire)
                 {
                     ++afterimage_count;
                     // Prefer the game's own count when it actually supplied one; otherwise use the
@@ -3169,8 +3617,10 @@ namespace MeshGhostPseudo
                     afterimage_spawn_n = burst_edge ? to_spawn_now : 5;
                     if constexpr (TRAIL_TRIGGER_TRACE)
                     {
-                        Output::send(STR("[MeshGhostPseudo] TRACE trailTrigger: burst_edge={} slide_edge={} slide_refire={} n={} count={} actionState={} animJumpType={} moveState={}\n"),
-                                     burst_edge, slide_edge, slide_refire, afterimage_spawn_n, afterimage_count,
+                        Output::send(STR("[MeshGhostPseudo] TRACE trailTrigger: burst_edge={} slide_edge={} slide_refire={} bubble_enter={} bubble_refire={} boost_window={} n={} count={} actionState={} animJumpType={} moveState={}\n"),
+                                     burst_edge, slide_edge, slide_refire,
+                                     bubble_enter_edge, bubble_refire, boost_window_refire,
+                                     afterimage_spawn_n, afterimage_count,
                                      static_cast<int>(action_state_now), static_cast<int>(anim_jump_type_now),
                                      move_state_ptr ? static_cast<int>(*move_state_ptr) : -1);
                     }
@@ -3910,9 +4360,14 @@ namespace MeshGhostPseudo
                     // "correct" entry point in principle, and would be the thing to revisit if the
                     // ghost ever gains the possession state it seems to need.
                     float play_length = -1.0f;
-                    if (UObject** g_abp_ptr = remote.ghost->GetValuePtrByPropertyNameInChain<UObject*>(STR("animBPref")); g_abp_ptr && *g_abp_ptr)
+                    // Suppressed wholesale while GHOST_SELF_MONTAGE_PROBE is on -- the counter above
+                    // still advances so nothing backlogs, but no montage is started. See that flag.
+                    if constexpr (!GHOST_SELF_MONTAGE_PROBE)
                     {
-                        play_length = call_montage_play(*g_abp_ptr, montage_obj);
+                        if (UObject** g_abp_ptr = remote.ghost->GetValuePtrByPropertyNameInChain<UObject*>(STR("animBPref")); g_abp_ptr && *g_abp_ptr)
+                        {
+                            play_length = call_montage_play(*g_abp_ptr, montage_obj);
+                        }
                     }
                     if constexpr (ANIM_TRACE)
                     {
@@ -3952,7 +4407,8 @@ namespace MeshGhostPseudo
                 // to be an explicit flag set by the start block: comparing the counters here would
                 // always read "no start", because the start block advances last_seen_montage_count
                 // itself, so the check would stop the very montage just started.
-                if (!montage_started_this_tick)
+                // Suppressed while either probe is on -- see MONTAGE_PROBES_SUPPRESS_ADAPTER_STOPS.
+                if (!montage_started_this_tick && !MONTAGE_PROBES_SUPPRESS_ADAPTER_STOPS)
                 {
                     if (UObject** g_abp_ptr = remote.ghost->GetValuePtrByPropertyNameInChain<UObject*>(STR("animBPref")); g_abp_ptr && *g_abp_ptr)
                     {
@@ -3986,25 +4442,50 @@ namespace MeshGhostPseudo
                 }
             }
 
-            // Montage divergence correction, 2026-08-15 -- the real fix for the ledge-climb-up
+            // Montage divergence correction, 2026-08-15 -- the fix for the ledge-climb-up
             // lingering, after two wrong guesses (a blend-time change that measured as no change,
             // and a "the stop call doesn't work" theory the readback disproved).
             //
-            // **What the evidence actually showed**: our stop DOES work -- an immediate same-tick
-            // readback reads 'none' right after every call -- and then the ghost is playing
-            // LedgeGrab_Montage again ~0.4s later with no Montage_Play from this adapter in
-            // between (every play is logged; there is none). So the ghost re-starts montages ON
-            // ITS OWN. Leading explanation, consistent with only climb-ups being affected: the
-            // ghost is a real pawn clone with collision enabled, and its own tick-driven
-            // ledge-detection re-grabs the ledge it was left standing at, where a drop-down carries
-            // it away from the ledge entirely. That explanation is NOT proven and this fix does not
-            // depend on it -- it corrects the divergence whatever restarted it.
+            // **Root cause, PROVEN 2026-08-15 by GHOST_SELF_MONTAGE_PROBE across three runs** (this
+            // block originally shipped against an explicitly-unproven guess, which the probe then
+            // showed to be wrong -- see verified.md, and note the fix survived being wrong because
+            // it was deliberately written not to depend on the guess):
+            //  * The ghost self-starts montages. With every montage call in this file compiled out,
+            //    the ghost still began `dreamLady_LedgeGrab_Montage` on its own, all three runs.
+            //  * It is NOT collision. Run 2 with GHOST_COLLISION_ENABLED=false behaved identically,
+            //    with the ghost visibly unable to hang on the ledge and stuck in the pose anyway.
+            //  * It is the STATE SYNC, and it fires on the transition OUT of the hang, not into it.
+            //    The ghost held the synced hang state (moveState=3/movementMode=5) for a full 5s
+            //    playing nothing, then started the montage ~0.42s after being told the hang ended
+            //    (moveState->1, movementMode->3, animJumpType 6->0). This adapter writes those
+            //    fields, `ABP_PlayerGoat_C` acts on them, and the graph plays the climb-up montage.
             //
-            // The rule: the peer is the authority on what montage its ghost plays. If the peer has
-            // no montage playing and the ghost does, the ghost's is wrong. Deliberately one-sided:
-            // it only STOPS a montage the peer isn't playing, and never starts one, so it can't
-            // fight the start mirror or re-trigger anything.
-            if (tick_count % MONTAGE_DIVERGENCE_CHECK_INTERVAL_TICKS == 0 && remote.target_montage.empty())
+            // So the self-start is the game's own animation logic working correctly on a pawn clone
+            // -- exactly what mirroring state is supposed to buy. What a ghost cannot do is FINISH
+            // it: the montage holds a section that input-driven logic normally advances, and a ghost
+            // has no controller, so the pose sticks forever. Correcting it from outside is therefore
+            // the right shape, not a workaround, and no "stop syncing that field" fix is wanted --
+            // that would trade a stuck pose for a dead one.
+            //
+            // The rule: the peer is the authority on what montage its ghost plays. If what the ghost
+            // is playing differs from what the peer is playing, the ghost's is wrong.
+            //
+            // **Widened 2026-08-15 from "peer plays nothing" to "peer plays something else."** The
+            // original only ran when `target_montage` was empty, so a ghost that self-started the
+            // wrong montage *while the peer played a different one* stayed uncorrected until the
+            // peer's own montage ended. On a ledge that window is short; on a climbing pole, where a
+            // peer may play a climb montage continuously, it is not -- which makes this a candidate
+            // for the "ghost returns stuck in a climb pose" bug (status.md), still unconfirmed.
+            // When the peer IS playing something, the correction re-plays it in the same breath
+            // rather than leaving the ghost bare. That cannot loop: if the re-play fails the ghost
+            // ends up playing nothing, and this block does nothing at all when the ghost is idle.
+            //
+            // Suppressed while either montage probe is on -- these are montage calls on a ghost like
+            // any other. GHOST_SELF_MONTAGE_PROBE needs them gone to see what the ghost does alone;
+            // MONTAGE_CATALOG_PROBE needs them gone because it deliberately plays montages the peer
+            // isn't playing, which is precisely what this block exists to undo.
+            if (!MONTAGE_PROBES_SUPPRESS_ADAPTER_STOPS &&
+                tick_count % MONTAGE_DIVERGENCE_CHECK_INTERVAL_TICKS == 0)
             {
                 if (UObject** g_abp_ptr = remote.ghost->GetValuePtrByPropertyNameInChain<UObject*>(STR("animBPref")); g_abp_ptr && *g_abp_ptr)
                 {
@@ -4012,12 +4493,100 @@ namespace MeshGhostPseudo
                     if (read_current_active_montage(*g_abp_ptr, ghost_montage) &&
                         !ghost_montage.empty() && ghost_montage != "none")
                     {
-                        call_montage_stop(*g_abp_ptr, 0.0f);
-                        if constexpr (ANIM_TRACE)
+                        // read_current_active_montage returns UE's "ClassName /Path" full name while
+                        // target_montage is the bare path (the local send strips it for
+                        // StaticFindObject's sake -- see the outfit mirror's comment for the same
+                        // strip and why). Compare like with like, or every tick looks divergent.
+                        const size_t space_pos = ghost_montage.find(' ');
+                        const std::string ghost_path =
+                            (space_pos != std::string::npos) ? ghost_montage.substr(space_pos + 1) : ghost_montage;
+
+                        if (ghost_path != remote.target_montage)
                         {
-                            Output::send(STR("[MeshGhostPseudo] TRACE montage ghost {}: divergence -- peer plays nothing, ghost played '{}', stopped\n"),
-                                         to_wide_ascii(id), to_wide_ascii(ghost_montage));
+                            call_montage_stop(*g_abp_ptr, 0.0f);
+
+                            // Peer is playing something else -- put the ghost on the RIGHT montage
+                            // instead of just leaving it bare until the next start pulse, which for
+                            // a long-held montage might not come for seconds.
+                            float restored_length = -1.0f;
+                            if (!remote.target_montage.empty())
+                            {
+                                if (UObject* want = UObjectGlobals::StaticFindObject<UObject*>(nullptr, nullptr, to_wide_ascii(remote.target_montage).c_str());
+                                    want && want->GetClassPrivate() && want->GetClassPrivate()->GetName() == STR("AnimMontage"))
+                                {
+                                    restored_length = call_montage_play(*g_abp_ptr, want);
+                                }
+                            }
+                            if constexpr (ANIM_TRACE)
+                            {
+                                Output::send(STR("[MeshGhostPseudo] TRACE montage ghost {}: divergence -- ghost played '{}', peer wants '{}', stopped (restore length={:.3f})\n"),
+                                             to_wide_ascii(id), to_wide_ascii(ghost_path),
+                                             to_wide_ascii(remote.target_montage.empty() ? std::string("(nothing)") : remote.target_montage),
+                                             restored_length);
+                            }
                         }
+                    }
+                }
+            }
+
+            // GHOST_SELF_MONTAGE_PROBE's read-only half -- see that flag's comment for what each
+            // outcome means. Polls on the same interval as the divergence check it replaces, and
+            // logs one line per CHANGE so a whole session of ledge grabs stays readable. The peer's
+            // own target_montage rides along on every line: while the probe is on this adapter
+            // starts nothing, so a ghost montage with the peer showing '(none)' is a self-start,
+            // and one matching the peer's would mean the mirror is somehow still firing (it can't
+            // be -- every call site is compiled out -- but the line proves it rather than assuming).
+            if constexpr (GHOST_SELF_MONTAGE_PROBE)
+            {
+                if (tick_count % MONTAGE_DIVERGENCE_CHECK_INTERVAL_TICKS == 0)
+                {
+                    if (UObject** g_abp_ptr = remote.ghost->GetValuePtrByPropertyNameInChain<UObject*>(STR("animBPref")); g_abp_ptr && *g_abp_ptr)
+                    {
+                        std::string ghost_montage;
+                        if (read_current_active_montage(*g_abp_ptr, ghost_montage))
+                        {
+                            if (!remote.self_probe_initialized || ghost_montage != remote.self_probe_prev_montage)
+                            {
+                                remote.self_probe_initialized = true;
+                                remote.self_probe_prev_montage = ghost_montage;
+                                Output::send(STR("[MeshGhostPseudo] PROBE selfmontage ghost {} tick {}: ghost now playing '{}' (peer target '{}') -- adapter started NOTHING\n"),
+                                             to_wide_ascii(id), tick_count, to_wide_ascii(ghost_montage),
+                                             to_wide_ascii(remote.target_montage.empty() ? std::string("(none)") : remote.target_montage));
+                            }
+                        }
+                    }
+                }
+            }
+
+            // MONTAGE_CATALOG_PROBE -- see that flag's comment. Advances on its own wall-clock-ish
+            // interval, independent of anything the peer does, and plays each entry on the ghost via
+            // the same call_montage_play the production mirror uses, so a result here transfers
+            // directly to the mirror rather than being a property of the probe. Logs the resolved
+            // asset and Montage_Play's own length verdict; only the user watching establishes that
+            // the animation is VISIBLE, which is the whole reason this exists.
+            if constexpr (MONTAGE_CATALOG_PROBE)
+            {
+                if (!remote.catalog_probe_started ||
+                    tick_count - remote.catalog_probe_last_tick >= CATALOG_PROBE_INTERVAL_TICKS)
+                {
+                    if (remote.catalog_probe_started)
+                    {
+                        remote.catalog_probe_index = (remote.catalog_probe_index + 1) % CATALOG_PROBE_MONTAGES.size();
+                    }
+                    remote.catalog_probe_started = true;
+                    remote.catalog_probe_last_tick = tick_count;
+
+                    const std::string label = CATALOG_PROBE_MONTAGES[remote.catalog_probe_index];
+                    if (UObject* montage_obj = find_loaded_montage_by_label(label))
+                    {
+                        float play_length = -1.0f;
+                        if (UObject** g_abp_ptr = remote.ghost->GetValuePtrByPropertyNameInChain<UObject*>(STR("animBPref")); g_abp_ptr && *g_abp_ptr)
+                        {
+                            play_length = call_montage_play(*g_abp_ptr, montage_obj);
+                        }
+                        Output::send(STR("[MeshGhostPseudo] PROBE catalog ghost {} tick {}: '{}' -> Montage_Play('{}') length={:.3f} -- WATCH THE GHOST NOW\n"),
+                                     to_wide_ascii(id), tick_count, to_wide_ascii(label),
+                                     montage_obj->GetFullName(), play_length);
                     }
                 }
             }
@@ -4465,7 +5034,12 @@ namespace MeshGhostPseudo
             // a jumped pulse -- confirmed via the live trace of a real hang->release->land cycle),
             // so this is the right moment to force-stop any lingering montage on the ghost too,
             // not merely mirror the continuous state that a montage doesn't listen to anyway.
-            if (land_edge || jump_edge)
+            //
+            // Suppressed while either probe is on (MONTAGE_PROBES_SUPPRESS_ADAPTER_STOPS) -- this is
+            // the LAST montage call this file makes on a ghost, and the self-probe needs all of them
+            // gone, not most. It is also the one that had been masking the self-start all along, as
+            // that probe went on to prove.
+            if ((land_edge || jump_edge) && !MONTAGE_PROBES_SUPPRESS_ADAPTER_STOPS)
             {
                 if (UObject** g_abp_for_montage = remote.ghost->GetValuePtrByPropertyNameInChain<UObject*>(STR("animBPref")); g_abp_for_montage && *g_abp_for_montage)
                 {

@@ -6,6 +6,7 @@
 // UE4SS/include/Mod/CppUserModBase.hpp directly (RE-UE4SS, MIT -- agent_docs/licensing.md),
 // not from memory. No pseudoregalia-archipelago source was read to write this.
 
+#include <map>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -155,6 +156,20 @@ namespace MeshGhostPseudo
         // present at t+0 then gone means something else stops it (this adapter's own land/jump
         // Montage_Stop pulse being the first suspect).
         uint32_t montage_readback_ticks_left{0};
+
+        // GHOST_SELF_MONTAGE_PROBE state (see that flag's comment). Previous poll of what the
+        // GHOST's own anim instance reported playing, so the probe logs one line per real change
+        // instead of one per poll -- the same log-on-change shape ANIM_TRACE uses, and the reason
+        // its output stays readable across a whole session of ledge grabs.
+        bool self_probe_initialized{false};
+        std::string self_probe_prev_montage;
+
+        // MONTAGE_CATALOG_PROBE state (see that flag's comment). Index into
+        // CATALOG_PROBE_MONTAGES, and the tick the current entry started, so the probe advances on
+        // its own interval rather than on anything the peer does.
+        size_t catalog_probe_index{0};
+        uint64_t catalog_probe_last_tick{0};
+        bool catalog_probe_started{false};
 
         // Diagnostic-only, 2026-08-15: previous-tick snapshot of the state actually WRITTEN to this
         // ghost, so ANIM_TRACE can log the ghost's timeline on change and line it up against the
@@ -422,6 +437,34 @@ namespace MeshGhostPseudo
         // are exactly the ones that linger past it. Bounding the spawn window to the early part of
         // the slide makes the trail's tail land near the slide's end instead of ~0.5-1s after.
         uint64_t slide_start_tick{0};
+
+        // Bubble post-jump "boost available" trail, 2026-08-15 (trigger C). The user reported the
+        // ghost animating correctly through the bubble but never trailing, and a bubble-only
+        // coverage capture found why: across 2002 ticks of that state the game sets
+        // `afterImagesToSpawn` to **zero every single tick**, so trigger A cannot see it and the
+        // capsule never shrinks, so trigger B can't either. It is the documented second spawn path.
+        //
+        // Unlike the slide there is no end-of-move tick count to bound: the state ends when the
+        // player presses jump (which they may do at any time) or lands, measured at 261-793 ticks
+        // across repetitions. So this re-fires for as long as the state is HELD, with no window
+        // cutoff -- the real player's trail lasts the whole time too.
+        // `moveState==7 && movementMode==5` is INSIDE the bubble (originally mislabelled as the
+        // post-jump window; corrected by the user's live three-way report, see the trigger's own
+        // comment). bubble_enter_tick bounds the in-bubble trail, because sitting in a bubble is
+        // player-terminated and can outlast the real trail, which the user watched happen.
+        bool prev_local_bubble_in_bubble{false};
+        uint64_t last_bubble_refire_tick{0};
+        uint64_t bubble_enter_tick{0};
+        // Trigger D's latch: the post-jump "boost available" window, which is plain falling in every
+        // field captured and so can only be identified by having just left the bubble. Cleared on
+        // the boost (animJumpType==2) or on landing -- the two ends the user described.
+        bool boost_window_active{false};
+        // BUBBLE_FX_DIFF state: previous property snapshot of the LOCAL pawn, kept only while the
+        // bubble effect is on screen and cleared on leaving, so the next bubble's first diff isn't
+        // taken against a stale baseline. std::wstring keys rather than StringType to keep this
+        // header free of the Unreal SDK's string typedef; they are the same type on this build.
+        std::map<std::wstring, std::wstring> bubble_fx_prev_snapshot;
+        uint64_t bubble_fx_last_sample_tick{0};
 
         // Health trace (HEALTH_TRACE) for the enemy-damage-vs-ghost test. The melee-death bug is
         // that damaging the ghost also damaged/killed the REAL player, and bCanBeDamaged=false
