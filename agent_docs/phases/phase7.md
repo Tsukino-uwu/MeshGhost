@@ -550,7 +550,7 @@ GBA memory). Started early relative to Phase 6's own two-player milestone (6.6) 
       called immediately, the camera stayed on the ghost. User asked directly whether fixing the
       camera or fixing non-Pawn rendering is the easier path -- went to plan mode given no
       remaining lead on the non-Pawn side (recorded plan:
-      `C:\Users\nyden\.claude\plans\still-nothing-no-greedy-horizon.md`). Chose to keep the
+      `~/.claude/plans/still-nothing-no-greedy-horizon.md`). Chose to keep the
       Pawn-class design (needed for 7.6's real skeletal-mesh ghost anyway) and fix the camera,
       rather than resume chasing StaticMeshActor rendering with no new leads.
 
@@ -933,7 +933,7 @@ GBA memory). Started early relative to Phase 6's own two-player milestone (6.6) 
       code at all. Two guess-based fixes in a row failing identically is a signal the guesses
       were both wrong in the same way — assuming the *positioning math* was the problem. Went
       to plan mode rather than trying a fifth guess; new leading theory recorded in
-      `C:\Users\nyden\.claude\plans\nope-i-was-still-cryptic-horizon.md`: `BP_PlayerGoatMain_C`
+      `~/.claude/plans/nope-i-was-still-cryptic-horizon.md`: `BP_PlayerGoatMain_C`
       may have "Auto Possess Player" set to Player 0 (a common pawn-Blueprint default), meaning
       `SpawnActor` may silently swap `PlayerController.Pawn` to the new ghost — which would
       explain both the identical-looking drag regardless of which mutation-target fix was
@@ -1082,7 +1082,7 @@ GBA memory). Started early relative to Phase 6's own two-player milestone (6.6) 
 
       **Went to plan mode rather than a third blind guess** -- two guessed fixes failing
       identically is the exact "signal, not bad luck" pattern already in `agent_docs/pitfalls.md`.
-      Recorded plan: `C:\Users\nyden\.claude\plans\lowlevelfatalerror-file-d-build-ue5-sync-zazzy-star.md`
+      Recorded plan: `~/.claude/plans/lowlevelfatalerror-file-d-build-ue5-sync-zazzy-star.md`
       -- diagnostic-first (granular logging + a `LoadMapPreCallback`/`PostCallback` hook to confirm
       whether a real `LoadMap` call correlates with the crash, plus an isolate-by-subtraction
       fallback test disabling the `Possess` call entirely) before attempting a targeted fix.

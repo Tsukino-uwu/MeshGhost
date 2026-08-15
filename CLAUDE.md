@@ -51,7 +51,12 @@ proposing a plan that touches the core, an adapter, or the relay.
   placeholder a new user edits, an environment variable) or make it relative instead (e.g.
   scripts under `adapters/` resolve their own directory rather than assuming one). Found live
   2026-08-11: a Phase 2 script had a hardcoded personal path that only ever worked on the
-  machine it was written on — a real portability bug, not just a style nit.
+  machine it was written on — a real portability bug, not just a style nit. **This applies to
+  prose in `agent_docs/` just as much as to code** — "would this run elsewhere?" is the wrong
+  test there and returns a false pass. Found live 2026-08-15: four `Recorded plan:
+  C:\Users\<name>\...` citations had accreted across `phase7.md`/`verified.md`, all pasted
+  verbatim from tool output rather than typed. Cite such files by name only; the absolute
+  prefix is unusable to a reader anyway.
   `agent_docs/environment.md` is the one deliberate exception (it's a factual environment
   record, not a template) — but even there, prefer the fact that actually matters (a version
   number) over an incidental personal detail (a full path containing a username) when either

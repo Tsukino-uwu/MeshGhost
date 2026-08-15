@@ -1453,7 +1453,7 @@ Copy this block per fact:
 - Notes: this rules out both the collision theory and the live-reference-mutation theory as
   complete explanations — something else is going on, most plausibly something that makes the
   distinction between "the pawn" and "the ghost" meaningless (e.g. an auto-possession swap; see
-  the plan at `C:\Users\nyden\.claude\plans\nope-i-was-still-cryptic-horizon.md` and
+  the plan at `~/.claude/plans/nope-i-was-still-cryptic-horizon.md` and
   `agent_docs/phases/phase7.md`). Not yet investigated further live — a diagnostic-only script
   (`adapters/pseudoregalia/probe_ghost/Scripts/diagnose.lua`) was written to gather evidence
   before attempting a fifth fix.
