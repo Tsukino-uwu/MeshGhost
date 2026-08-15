@@ -37,7 +37,9 @@ Fixed-and-confirmed work is not listed here — see `verified.md` and the phase 
   Clean test: disable the montage mirror, see if the montage still appears.
 - **Pseudoregalia: ultra hop's BLUE trail — PARKED with evidence.** Not `afterimageColor`,
   not `ultraCap`/`fullUltraModifier`/`cappedUltraModifier`/`animJumpType`. Not derivable
-  from polled state; do not resume by guessing more property names.
+  from polled state; do not resume by guessing more property names. Re-checked 2026-08-15
+  against `attire-ui-overhaul`: its dash-colour feature knows only `afterimageColor` and has
+  no ultra/blue concept at all, so that mod is not a lead either (`verified.md`).
 - **Pseudoregalia: a `Fatal Error!` crash on game exit**, seen once, never root-caused.
 - **TEVI: charged-attack VFX missing on the ghost** — animations play, the extra effects
   don't. Not root-caused. See `phase6.md`'s 2026-08-15 entry.

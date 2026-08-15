@@ -3627,3 +3627,22 @@ Copy this block per fact:
   direct visual confirmations for all three fixes and the sit screenshot. Code: `Plugin.cpp`'s
   montage divergence correction and stop mirror in `tickRenders`, the crouch exclusion in the trail
   trigger, `RemoteGhost::target_montage_stop_count`.
+
+### `attire-ui-overhaul` re-checked for the ultra/blue trail: NEGATIVE, it knows only one colour
+
+- Date: 2026-08-15
+- **Question** (user): does that mod recolour the *blue* perfect-timed ("ultra") hop trail as well as
+  the normal one — and could it therefore point at where the blue trail lives?
+- **Answer: no.** Name-table strings in `Content/Mods/FoeHammers_AttireUIOverhaul_P/Blueprints/
+  LibsAndMacs/DashDataLib.uasset` contain exactly one relevant game property, **`afterimageColor`**,
+  alongside `SetDashColour`/`SetDefaultColour`/`SetRandomDashColour`/`OutputColour` — all one
+  colour. `Blueprints/UI/UI_DashColourSelector.uasset` is hex entry, randomise and reset
+  (`ColourHex_Text`, `ColourRandom_Button`, `ColourReset_Button`). **Neither asset contains any
+  string for ultra, perfect timing, a second colour, or blue.**
+- **Why this is worth recording**: `afterimageColor` is the same property this project already syncs
+  and already proved live does NOT drive the blue trail. So an independent modder building exactly
+  this feature found the same single lever — which raises confidence that the blue trail isn't
+  reachable through an obvious colour property, and closes this mod as a lead for it.
+- Source: the two `.uasset` files above, read as name-table strings only, per `licensing.md`'s
+  facts-only posture for this no-license repo (re-confirmed 2026-08-15: `gh api` still reports no
+  LICENSE). No asset content copied. Earlier findings from the same mod are in `ideas.md` item 2.

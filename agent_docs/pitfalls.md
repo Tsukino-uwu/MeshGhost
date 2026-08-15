@@ -25,6 +25,18 @@ know the incident, not just the rule, so you can judge when it applies.
   guard) makes it impossible to tell which one mattered. Source: the Phase 7.5 LuaSocket
   investigation (`phase7.md`), which narrowed a "ghost teleports instead of following" bug
   through five sequential, single-variable probes before finding the real cause.
+- **Read an effect back in the SAME tick before theorising about the call.** When a call on a
+  ghost looks like it did nothing, the first probe is an immediate readback right after it —
+  not a hypothesis about the call. Source: the 2026-08-15 ledge-climb-up saga, where "our
+  Montage_Stop doesn't work" survived two rounds of reasoning and one wrong fix, and a same-tick
+  readback killed it instantly (it read `none` every time — the ghost was re-starting the montage
+  by itself ~0.4s later). Generalises the `manageRecallIdleFX` entry's own stated weakness:
+  an uninstrumented call can't distinguish "never ran" from "ran and was undone".
+- **A soft/"nicer" parameter value is a change, not a freebie.** The same session shipped a
+  montage stop with a 0.1s blend purely because a gentle blend seemed more appropriate than the
+  existing hard 0.0f, and it was inert on this build — the bug it caused was then chased as if it
+  were pre-existing. If an existing call in the file uses a specific value that works, match it,
+  and change it only with a measurement.
 - **Two guessed fixes failing identically is a signal, not bad luck.** If a second guess
   reproduces the exact same symptom as the first, both guesses were wrong in the same way —
   stop guessing and go isolate instead. Source: the Phase 7 player-drag bug, where a
@@ -723,7 +735,7 @@ Recurring adapter tasks, and how differently each engine/game has answered them 
 | Task | Pokemon Emerald (GBA, BizHawk/Lua) | Pseudoregalia (UE5, UE4SS/Lua) | TEVI (Unity/Mono) |
 | --- | --- | --- | --- |
 | Represent the remote player visually | 2D overlay sprite drawn every frame (`gui.*`) | Spawned/duplicated 3D actor | World-space `GameObject` with `SpriteRenderer` |
-| Drive an animation | N/A (2D overlay) | No direct equivalent of "play this named clip on a clone" — open problem | Send the real clip name (`GetAnimationTrueName()`) and let the engine's own `Animator` play it |
+| Drive an animation | N/A (2D overlay) | Two layers: continuous poses mirror via state properties (`moveState`/`actionState`), one-shot animations via a **montage mirror** — send whatever `AnimMontage` the peer plays, call stock `Montage_Play` on the ghost's anim instance (2026-08-15, `verified.md`). The game's own `CustomPlayMontage` wrapper silently no-ops on a ghost | Send the real clip name (`GetAnimationTrueName()`) and let the engine's own `Animator` play it |
 | Avoid drawing over menus/UI | Explicit gate on the overworld callback state (`gui.drawImage` is a raw overlay) | Not yet needed the same way | Not needed — a world-space object under the game's own camera naturally renders under UI layers |
 | Survive area/level/scene transitions | Re-read relocatable pointers every frame; debounce reads for one frame around a detected map change | Re-acquire pawn/camera references after transition; treat cached "last known good" state as invalidated, not fatal | Recreate the ghost lazily after scene unload rather than trying to preserve it across the transition |
 | Version/build stability | Real drift risk, not immune: a ROM patch (Archipelago's base recompile) relocates addresses relative to a byte-identical-verified vanilla build — found live for `gObjectEvents`/`gPlayerAvatar`, `CB2_Overworld`, and sprite/palette data, each a separate offset; each patch version needs its own live-detected offsets, see `verified.md`'s Archipelago-relocation entries | Build-specific: reflection availability and rendering-on-spawn behavior are tied to the exact installed engine/mod-loader build | Steam can auto-update the game; also blocks two simultaneous instances (confirmed by testing, not assumed) |
