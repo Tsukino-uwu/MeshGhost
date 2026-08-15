@@ -162,6 +162,12 @@ const (
 	ReasonInvalidRoomCode         = "invalid room code"
 	ReasonGameMismatch            = "game mismatch for this room"
 	ReasonGameVersionMismatch     = "game version mismatch for this room"
+	// ReasonGameNotAllowed means this relay is configured to host one
+	// specific game and the client is playing a different one — a
+	// server-wide restriction the operator declared up front (see
+	// internal/relay.Server.OnlyGame), not the per-room stickiness
+	// ReasonGameMismatch reports. No room the client picks would help.
+	ReasonGameNotAllowed = "game not allowed on this relay"
 	// ReasonServerFull means the relay is already at MaxClients across
 	// every room it's hosting combined, not that any one room is full —
 	// see internal/relay.Server.MaxClients.

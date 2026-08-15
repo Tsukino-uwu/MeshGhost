@@ -85,6 +85,11 @@ Setup, once:
                you also raise "interp" above.
    Only edit the text between the quotes -- keep the quotes, colons, and
    commas exactly as they are, or the file won't parse.
+   Notepad is fine for this. If you use something else, save the file as
+   UTF-8 (the usual default) -- saving it as "Unicode"/UTF-16 makes it
+   unreadable, and then EVERY setting in it is ignored, not just the one
+   you changed. meshghost.log / meshghost-server.log say so plainly if
+   that happens, so check there first if an edit seems to do nothing.
    You do NOT set which game you're playing here -- meshghost.exe figures
    that out automatically from whichever game's mod/script you load (see
    "Playing" below). Switching games just means loading a different one and
@@ -106,6 +111,27 @@ Setup, once:
                current meshghost.exe/meshghost-server.exe -- an old copy
                silently ignores this setting and stays open with no
                warning. If in doubt, re-download the latest release.
+     "only_game" -- OPTIONAL. Leave as "" to keep the old behavior: your
+               server hosts whatever game each player shows up with, and
+               can even host two different games at once if they're using
+               different room names. Set it to one game's id to run a
+               dedicated single-game server -- anyone playing anything
+               else is turned away as soon as they connect, with a message
+               saying so. The valid ids are exactly:
+                   emerald         (Pokemon Emerald)
+                   tevi            (TEVI)
+                   pseudoregalia   (Pseudoregalia)
+               Type one of those exactly as written, all lowercase -- a
+               typo here turns EVERYONE away, including you. If that
+               happens, meshghost-server.log prints the value it actually
+               read on startup, so you can see what it thinks you set.
+               Nobody has to change anything on their end for this; their
+               game announces itself automatically. IMPORTANT: same catch
+               as "room_code" -- this only works if YOU (the host) are
+               running the current meshghost-server.exe. An old copy
+               silently ignores this setting and keeps hosting every game
+               with no warning. If in doubt, re-download the latest
+               release.
      "max_clients" -- how many players this relay accepts in total,
                including you -- across every room, if your group ever
                uses more than one room name on the same relay at once. 8

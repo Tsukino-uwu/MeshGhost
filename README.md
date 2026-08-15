@@ -7,12 +7,18 @@ friend kills a boss, it stays alive in your world, and that's okay.
 
 ## Games
 
-- **Pokémon Emerald** (GBA, via BizHawk) — tested online with two real players. Animated,
-  correctly-gendered Brendan/May ghosts with live position, facing, walking, and running.
-- **TEVI** (Unity) — adapter confirmed working (two clients / client + loopback), not yet
-  tested online.
-- **Pseudoregalia** (Unreal Engine 5) — adapter confirmed working locally, not yet tested
-  online.
+- **Pokémon Emerald** (GBA, via BizHawk) — game id `emerald`. Tested online with two real
+  players. Animated, correctly-gendered Brendan/May ghosts with live position, facing, walking,
+  and running.
+- **TEVI** (Unity) — game id `tevi`. Adapter confirmed working (two clients / client +
+  loopback), not yet tested online.
+- **Pseudoregalia** (Unreal Engine 5) — game id `pseudoregalia`. Adapter confirmed working
+  locally, not yet tested online.
+
+The game id is what an adapter announces itself as. You never set it yourself as a player —
+it's picked up automatically from whichever game's mod you load — but a host running a
+dedicated single-game server types one of those exact strings into `server.only_game` (see
+Setup below).
 
 TEVI and Pseudoregalia aren't personally confirmed online yet, but they're expected to work —
 the relay and core client are game-agnostic and don't know which game an adapter is for, so
@@ -28,7 +34,9 @@ story and may not all follow.
 2. Edit `config.json`: `connect_to` (the host's address), `room` (must match everyone else's),
    and `name`. If the host set a `room_code`, enter that too.
 3. Run `meshghost.exe` — everyone does this. Whoever's hosting also runs
-   `meshghost-server.exe` and forwards a TCP port.
+   `meshghost-server.exe` and forwards a TCP port. A host who wants their server to be for one
+   game only sets `server.only_game` to that game's id from the list above; left blank (the
+   default) the server hosts any game, including several at once in different rooms.
 4. Load your game's mod from `games\<publisher>\<game>\` (BizHawk Lua Console for Emerald,
    BepInEx for TEVI, UE4SS for Pseudoregalia) — **after** `meshghost.exe` is already running.
    (Emerald is the only game with a `<publisher>` subfolder — `games\pokemon\emerald\` — since

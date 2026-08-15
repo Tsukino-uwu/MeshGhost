@@ -122,6 +122,14 @@ couldn't end up in the same room. `game_id` is sent once, at `hello` (e.g. `"eme
 `"tevi"`). The relay rejects a `hello` whose `game_id` doesn't match the room's existing
 `game_id`, rather than silently mixing clients that would draw garbage at each other.
 
+A relay may additionally be configured (`server.only_game`, off by default — see the ADR in
+`architecture.md`) to accept just one `game_id` server-wide, independent of any room. That
+refusal carries its own reason, `ReasonGameNotAllowed`, distinct from the per-room
+`ReasonGameMismatch`: a client refused for it cannot fix the problem by picking another room.
+Adding a reason string is not a contract revision — the reason field is plain text and the
+constants are a convenience for Go call sites, not a closed enum (see the message table above
+and the forward-compatibility rule).
+
 ### `game_version` and `room_code`
 
 Added 2026-08-14 for relay-safety hardening — see the ADR in `architecture.md`. Both optional,

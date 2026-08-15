@@ -55,6 +55,24 @@ relying on a room code.
 other) but is still not itself a secret — it's a label, checked for equality but not
 constant-time-compared or meant to be hard to guess. `room_code` is the actual secret.
 
+## Single-game servers (`server.only_game`, added 2026-08-15)
+
+`server.only_game` (host-set, no client-side counterpart) restricts a relay to one game id:
+anything else is refused at the handshake. **Optional and off by default** — an empty value
+keeps the original posture, where one relay happily hosts different games in different rooms.
+See [agent_docs/architecture.md](../agent_docs/architecture.md)'s ADR.
+
+The valid values are the ids the shipped adapters announce — `emerald`, `tevi`,
+`pseudoregalia` — compared for exact equality, so `README.txt` lists them literally rather than
+describing them, and the relay logs the value it actually read on startup (a typo'd id refuses
+every client with no other visible cause). This is the only end-user-facing setting whose valid
+values are a list that grows when a game is added; **adding a game means adding it to that list
+in both `packaging/release/README.txt` and the repo's top-level `README.md`.**
+
+Same stale-relay caveat as room-code auth above, and for the same reason: the check lives
+entirely in the relay, so an old `meshghost-server.exe` ignores the field and keeps hosting
+everything.
+
 ## Why JSON, not a `.bat`-embedded config
 
 Considered and rejected: config values baked directly into the launcher `.bat` (what an
@@ -65,6 +83,20 @@ but JSON was the user's explicit preference and the downside is mitigated by shi
 `config.json` pre-filled with working placeholder values (so a user only ever edits values,
 not structure) and by `cmd/meshghost`/`cmd/meshghost-relay` logging a clear parse-error
 warning rather than failing silently.
+
+**That mitigation was weaker than it looked, found live 2026-08-15 while testing
+`only_game`.** A JSON file saved with a UTF-8 BOM — three invisible bytes some Windows editors
+put before the opening brace, including PowerShell 5.1's own `Out-File -Encoding utf8` — is
+refused outright by `encoding/json`. The file looked perfectly correct to whoever edited it,
+and the failure discarded the *entire* file, silently falling back to built-in defaults for
+every setting in it. The dangerous case isn't a wrong port (obvious immediately) but
+`room_code`: a host could set one, see it in their editor, and be running wide open. Both
+binaries now strip a UTF-8 BOM before parsing (`stripBOM`, mirrored in each `main.go` the same
+way `applyFileConfig` already is, with a regression test in each package), name UTF-16 —
+Notepad's "Unicode" save option, unsalvageable by stripping a prefix — as its own actionable
+warning instead of a cryptic JSON error, and state the consequence out loud in every
+config-failure message: *every setting in it is being IGNORED*. The general lesson for a
+hand-edited config file: a warning is only a mitigation if it says what it *cost* you.
 
 ## One config file, two sections
 

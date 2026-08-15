@@ -821,6 +821,72 @@ func TestEmptyConfiguredRoomCodeAcceptsAnyHello(t *testing.T) {
 	}
 }
 
+// TestOnlyGameAcceptsMatchingGame confirms a relay restricted to one game
+// still accepts a client playing that game normally — see the ADR in
+// agent_docs/architecture.md on the single-game relay setting.
+func TestOnlyGameAcceptsMatchingGame(t *testing.T) {
+	s := NewServer()
+	s.OnlyGame = "pseudoregalia"
+	addr := startServerWith(t, s)
+
+	c1 := dialTestClientWithHello(t, addr, protocol.Hello{
+		GameID: "pseudoregalia", Room: "room1", DisplayName: "alice",
+	})
+	defer c1.conn.Close()
+
+	w := c1.expectWelcome(timeout)
+	if w.PlayerID == "" {
+		t.Fatal("welcome carried empty player_id for the relay's configured game")
+	}
+}
+
+// TestOnlyGameRejectsOtherGame confirms a client playing a different game
+// than the relay is configured for is refused with a legible Reject naming
+// that specific reason, not a bare hangup and not the per-room
+// ReasonGameMismatch (no room this client could pick would help).
+func TestOnlyGameRejectsOtherGame(t *testing.T) {
+	s := NewServer()
+	s.OnlyGame = "pseudoregalia"
+	addr := startServerWith(t, s)
+
+	c1 := dialTestClientWithHello(t, addr, protocol.Hello{
+		GameID: "emerald", Room: "room1", DisplayName: "alice",
+	})
+	defer c1.conn.Close()
+
+	env := c1.next(timeout)
+	if env.Type != protocol.TypeReject {
+		t.Fatalf("got message type %q, want %q", env.Type, protocol.TypeReject)
+	}
+	var reject protocol.Reject
+	if err := json.Unmarshal(env.Payload, &reject); err != nil {
+		t.Fatalf("unmarshal reject: %v", err)
+	}
+	if reject.Reason != protocol.ReasonGameNotAllowed {
+		t.Fatalf("reject reason = %q, want %q", reject.Reason, protocol.ReasonGameNotAllowed)
+	}
+}
+
+// TestEmptyOnlyGameAcceptsAnyGame confirms the back-compat default: a relay
+// with no OnlyGame configured hosts whatever shows up, including two
+// different games at once in different rooms — the pre-existing posture,
+// unchanged unless the operator opts in. agent_docs/architecture.md's ADR.
+func TestEmptyOnlyGameAcceptsAnyGame(t *testing.T) {
+	addr := startServer(t) // NewServer(), OnlyGame left empty
+
+	c1 := dialTestClient(t, addr, "emerald", "room1", "alice")
+	defer c1.conn.Close()
+	if w := c1.expectWelcome(timeout); w.PlayerID == "" {
+		t.Fatal("welcome carried empty player_id when the relay restricts no game")
+	}
+
+	c2 := dialTestClient(t, addr, "pseudoregalia", "room2", "bob")
+	defer c2.conn.Close()
+	if w := c2.expectWelcome(timeout); w.PlayerID == "" {
+		t.Fatal("second game refused by a relay that restricts no game")
+	}
+}
+
 // TestGameVersionMismatchRejected confirms a room's game_version, once
 // declared, is sticky the same way game_id already is: a second client
 // claiming a different game_version for the same room is refused, but a

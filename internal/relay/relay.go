@@ -295,6 +295,16 @@ type Server struct {
 	// and doesn't defend against.
 	RoomCode string
 
+	// OnlyGame, when non-empty, restricts this relay to a single game: any
+	// Hello whose game_id differs is refused at the handshake. Empty (the
+	// default) means "host any game", the pre-existing posture. Distinct
+	// from Room.GameID, which is per-room and sticky-on-first-join (one
+	// relay can host an Emerald room and a TEVI room side by side) — this
+	// is server-wide and declared up front by whoever's hosting, for a
+	// dedicated single-game server. Compared by equality only, like every
+	// other use of game_id. See the ADR in agent_docs/architecture.md.
+	OnlyGame string
+
 	// MaxClients bounds how many clients this relay accepts in total,
 	// summed across every room it's hosting — not per room (see
 	// DefaultMaxClients). Zero means "use DefaultMaxClients", the same
@@ -647,6 +657,17 @@ func (s *Server) handleConn(conn net.Conn) {
 					rejectAndClose(nd, hello, protocol.ReasonInvalidRoomCode)
 					return
 				}
+			}
+			// Single-game relay (agent_docs/architecture.md's ADR): checked
+			// here, after the field-length bound (so the game_id
+			// rejectAndClose logs is <= MaxHelloFieldLen) and before the
+			// room table is touched or a slot reserved, same "reject at
+			// handshake, before any state flows" shape as the checks above.
+			// An empty s.OnlyGame means the relay hosts any game, the
+			// pre-existing posture.
+			if s.OnlyGame != "" && hello.GameID != s.OnlyGame {
+				rejectAndClose(nd, hello, protocol.ReasonGameNotAllowed)
+				return
 			}
 			joined, reason := s.joinOrCreateRoom(hello.GameID, hello.GameVersion, hello.Room)
 			if reason != "" {

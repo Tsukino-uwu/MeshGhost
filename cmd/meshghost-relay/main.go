@@ -5,12 +5,14 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"flag"
 	"io"
 	"log"
 	"net"
 	"os"
+	"strings"
 
 	"meshghost/internal/protocol"
 	"meshghost/internal/relay"
@@ -39,8 +41,12 @@ func openLogFile(name string) io.Writer {
 // reads as an opposite of the client's "connect_to" -- see
 // packaging/release/config.json and its README.txt.
 type fileConfig struct {
-	Addr       *string `json:"listen_on"`
-	RoomCode   *string `json:"room_code"`
+	Addr     *string `json:"listen_on"`
+	RoomCode *string `json:"room_code"`
+	// OnlyGame restricts this relay to a single game_id. Absent or ""
+	// means it hosts any game (the pre-existing posture). See the ADR in
+	// agent_docs/architecture.md and relay.Server.OnlyGame.
+	OnlyGame   *string `json:"only_game"`
 	MaxClients *int    `json:"max_clients"`
 	// SendHz is the room-wide state send rate this relay advertises. Absent
 	// or 0 means protocol.DefaultSendHz. See the ADR in
@@ -63,8 +69,34 @@ type rootConfig struct {
 type configTargets struct {
 	addr       *string
 	roomCode   *string
+	onlyGame   *string
 	maxClients *int
 	sendHz     *int
+}
+
+// stripBOM removes a leading UTF-8 byte-order mark from a config file's
+// contents, and refuses a UTF-16 one outright (returning nil) with a message
+// naming the actual fix. Both cases exist because config.json is a file a
+// non-developer edits by hand on Windows: a BOM is three bytes some editors
+// (Notepad's "UTF-8 with BOM" save option, PowerShell 5.1's `Out-File
+// -Encoding utf8`) put before the opening brace, and encoding/json refuses
+// them -- so a file that looks completely correct to whoever edited it gets
+// discarded whole, silently taking every setting in it along with it,
+// room_code included. Found while testing the only_game setting. The BOM is
+// stripped rather than warned about (the file is valid UTF-8 either way, and
+// the offending bytes are invisible in an editor); UTF-16 can't be salvaged
+// this cheaply, so it gets an actionable warning instead of the cryptic JSON
+// error it would otherwise produce. Mirrored in cmd/meshghost/main.go, the
+// same way applyFileConfig itself is.
+func stripBOM(data []byte, path, prog string) []byte {
+	data = bytes.TrimPrefix(data, []byte{0xEF, 0xBB, 0xBF})
+	if bytes.HasPrefix(data, []byte{0xFF, 0xFE}) || bytes.HasPrefix(data, []byte{0xFE, 0xFF}) {
+		log.Printf("%s: warning: config file %s looks like it was saved as UTF-16 (\"Unicode\" in "+
+			"Notepad's save-as list) -- re-save it as UTF-8. Every setting in it is being IGNORED "+
+			"and built-in defaults used instead.", prog, path)
+		return nil
+	}
+	return data
 }
 
 func applyFileConfig(path string, explicit map[string]bool, t configTargets) {
@@ -75,13 +107,19 @@ func applyFileConfig(path string, explicit map[string]bool, t configTargets) {
 		}
 		return
 	}
+	data = stripBOM(data, path, "meshghost-relay")
+	if data == nil {
+		return
+	}
 	var rc rootConfig
 	if err := json.Unmarshal(data, &rc); err != nil {
-		log.Printf("meshghost-relay: warning: could not parse config file %s: %v", path, err)
+		log.Printf("meshghost-relay: warning: could not parse config file %s: %v -- every setting "+
+			"in it is being IGNORED and built-in defaults used instead", path, err)
 		return
 	}
 	if rc.Server == nil {
-		log.Printf("meshghost-relay: warning: config file %s has no \"server\" section", path)
+		log.Printf("meshghost-relay: warning: config file %s has no \"server\" section -- "+
+			"every server setting is falling back to its built-in default", path)
 		return
 	}
 	if rc.Server.Addr != nil && !explicit["addr"] {
@@ -89,6 +127,9 @@ func applyFileConfig(path string, explicit map[string]bool, t configTargets) {
 	}
 	if rc.Server.RoomCode != nil && !explicit["room-code"] {
 		*t.roomCode = *rc.Server.RoomCode
+	}
+	if rc.Server.OnlyGame != nil && !explicit["only-game"] {
+		*t.onlyGame = *rc.Server.OnlyGame
 	}
 	if rc.Server.MaxClients != nil && !explicit["max-clients"] {
 		*t.maxClients = *rc.Server.MaxClients
@@ -107,6 +148,11 @@ func main() {
 		"leave empty to run open (anyone with the address can join, the pre-existing default); "+
 		"see agent_docs/architecture.md's room-code ADR for what this does and doesn't defend "+
 		"against (no TLS: the code crosses the wire in plaintext)")
+	onlyGame := flag.String("only-game", "", "restrict this relay to a single game: a client "+
+		"playing anything else is refused at the handshake. Leave empty (the default) to host any "+
+		"game, including several at once in different rooms. Valid values are the game_id an "+
+		"adapter advertises -- \"emerald\", \"tevi\", or \"pseudoregalia\" for the three shipped "+
+		"adapters -- and must match exactly")
 	maxClients := flag.Int("max-clients", relay.DefaultMaxClients,
 		"max clients this relay accepts in total, across every room it's hosting combined -- "+
 			"not per room. Every room member's state is forwarded to every other member of that "+
@@ -125,8 +171,9 @@ func main() {
 			"fans out with the square of room size")
 	configPath := flag.String("config", "config.json",
 		"path to an optional JSON config file with a \"server\" section "+
-			"({\"listen_on\": \"...\", \"room_code\": \"...\", \"max_clients\": ..., "+
-			"\"send_hz\": ...}) -- a friendlier alternative to flags for non-developer use; "+
+			"({\"listen_on\": \"...\", \"room_code\": \"...\", \"only_game\": \"...\", "+
+			"\"max_clients\": ..., \"send_hz\": ...}) -- a friendlier alternative to flags for "+
+			"non-developer use; "+
 			"silently ignored if it doesn't exist; a flag passed explicitly on the command line "+
 			"overrides the same field from this file")
 	flag.Parse()
@@ -138,6 +185,7 @@ func main() {
 	applyFileConfig(*configPath, explicit, configTargets{
 		addr:       addr,
 		roomCode:   roomCode,
+		onlyGame:   onlyGame,
 		maxClients: maxClients,
 		sendHz:     sendHz,
 	})
@@ -151,6 +199,12 @@ func main() {
 	server := relay.NewServer()
 	server.Loopback = *loopback
 	server.RoomCode = *roomCode
+	// Trimmed because this is normally hand-typed into config.json and a
+	// stray space would otherwise refuse every client for no visible
+	// reason. Deliberately not lower-cased or otherwise normalized -- that
+	// would diverge from the exact-equality game_id comparison every other
+	// use site (joinOrCreateRoom, the adapters) already relies on.
+	server.OnlyGame = strings.TrimSpace(*onlyGame)
 	server.MaxClients = *maxClients
 	server.SendHz = *sendHz
 	log.Printf("meshghost-relay: max clients (total, across all rooms): %d", *maxClients)
@@ -176,6 +230,15 @@ func main() {
 			"before exposing this relay beyond a friend you directly hand the address to.")
 	} else {
 		log.Printf("meshghost-relay: room-code auth enabled")
+	}
+	// Echo the configured value back rather than just "restriction on":
+	// a typo'd game_id refuses every client with no other visible cause,
+	// and this log line is the operator's only way to spot it.
+	if server.OnlyGame == "" {
+		log.Printf("meshghost-relay: hosting any game (no \"only_game\" set)")
+	} else {
+		log.Printf("meshghost-relay: restricted to game_id %q -- clients playing any other game will be refused",
+			server.OnlyGame)
 	}
 	if err := server.Serve(ln); err != nil {
 		log.Fatalf("meshghost-relay: serve: %v", err)

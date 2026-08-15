@@ -11,6 +11,7 @@
   "server": {
     "listen_on": "0.0.0.0:7777",
     "room_code": "",
+    "only_game": "",
     "max_clients": 8,
     "send_hz": 20
   }

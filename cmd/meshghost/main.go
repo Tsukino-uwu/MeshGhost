@@ -4,6 +4,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"flag"
 	"io"
@@ -89,6 +90,31 @@ type configTargets struct {
 // was NOT explicitly passed on the command line with the file's "client"
 // section. CLI flags always win over the file, matching normal
 // config-layering convention (most-specific/most-explicit source wins).
+// stripBOM removes a leading UTF-8 byte-order mark from a config file's
+// contents, and refuses a UTF-16 one outright (returning nil) with a message
+// naming the actual fix. Both cases exist because config.json is a file a
+// non-developer edits by hand on Windows: a BOM is three bytes some editors
+// (Notepad's "UTF-8 with BOM" save option, PowerShell 5.1's `Out-File
+// -Encoding utf8`) put before the opening brace, and encoding/json refuses
+// them -- so a file that looks completely correct to whoever edited it gets
+// discarded whole, silently taking every setting in it along with it,
+// room_code included. Found while testing the only_game setting. The BOM is
+// stripped rather than warned about (the file is valid UTF-8 either way, and
+// the offending bytes are invisible in an editor); UTF-16 can't be salvaged
+// this cheaply, so it gets an actionable warning instead of the cryptic JSON
+// error it would otherwise produce. Mirrored in cmd/meshghost-relay/main.go,
+// the same way applyFileConfig itself is.
+func stripBOM(data []byte, path, prog string) []byte {
+	data = bytes.TrimPrefix(data, []byte{0xEF, 0xBB, 0xBF})
+	if bytes.HasPrefix(data, []byte{0xFF, 0xFE}) || bytes.HasPrefix(data, []byte{0xFE, 0xFF}) {
+		log.Printf("%s: warning: config file %s looks like it was saved as UTF-16 (\"Unicode\" in "+
+			"Notepad's save-as list) -- re-save it as UTF-8. Every setting in it is being IGNORED "+
+			"and built-in defaults used instead.", prog, path)
+		return nil
+	}
+	return data
+}
+
 func applyFileConfig(path string, explicit map[string]bool, t configTargets) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -97,13 +123,19 @@ func applyFileConfig(path string, explicit map[string]bool, t configTargets) {
 		}
 		return
 	}
+	data = stripBOM(data, path, "meshghost")
+	if data == nil {
+		return
+	}
 	var rc rootConfig
 	if err := json.Unmarshal(data, &rc); err != nil {
-		log.Printf("meshghost: warning: could not parse config file %s: %v", path, err)
+		log.Printf("meshghost: warning: could not parse config file %s: %v -- every setting in it "+
+			"is being IGNORED and built-in defaults used instead", path, err)
 		return
 	}
 	if rc.Client == nil {
-		log.Printf("meshghost: warning: config file %s has no \"client\" section", path)
+		log.Printf("meshghost: warning: config file %s has no \"client\" section -- "+
+			"every client setting is falling back to its built-in default", path)
 		return
 	}
 	fc := *rc.Client
