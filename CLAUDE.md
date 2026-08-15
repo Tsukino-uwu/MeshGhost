@@ -59,6 +59,16 @@ proposing a plan that touches the core, an adapter, or the relay.
   files contain the pattern by definition — this one, and the two that document it). `agent_docs/environment.md` is the one deliberate exception (a
   factual environment record, not a template) — even there prefer the version number over a
   path containing a username. Both found-live cases: `agent_docs/pitfalls.md`.
+- **Never let a scripted edit write CRLF into the LF-pinned adapter sources.** `.gitattributes`
+  pins TEVI's `*.cs`/`*.csproj` and Pseudoregalia's `Mod/src/*.cpp|hpp`/`CMakeLists.txt` to
+  `eol=lf`, because the release staleness gate hashes them on a Windows runner that defaults to
+  `core.autocrlf=true`. A `python`/`perl`/heredoc edit that emits `\r\n` leaves the working tree
+  disagreeing with what git stores, so the hash the build bakes into `*-built-from.txt` can never
+  match CI's checkout — the gate then fails claiming the DLL is stale when it is perfectly fresh,
+  and rebuilding "to fix it" just re-bakes the same wrong hash. **Order matters: normalize first,
+  then build, then commit.** After any scripted edit to those files, `file <path>` must not say
+  CRLF (`perl -pi -e 's/\r\n/\n/g'` fixes it). Prefer the Edit tool, which respects the existing
+  endings. Found live twice, most recently 2026-08-15.
 - **Rebuild the Go binaries before testing via a `.bat` launcher, not just before shipping.**
   `go build ./...`/`go vet`/`go test` don't refresh `meshghost.exe`/`meshghost-relay.exe`/
   `meshghost-fakeadapter.exe` at the repo root — `dev-scripts/*.bat` launches those exact named
