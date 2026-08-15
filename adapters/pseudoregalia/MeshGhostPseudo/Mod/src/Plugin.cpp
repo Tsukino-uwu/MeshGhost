@@ -6573,10 +6573,33 @@ namespace MeshGhostPseudo
                 // count at all and the remaining candidate is how they look, not how many.
                 if constexpr (TRAIL_COLOR_TRACE)
                 {
-                    if (tick_count % LOG_INTERVAL_TICKS == 0)
+                    // Cadence chosen for the ISOLATED single-slide test (user's idea, 2026-08-16):
+                    // start fresh, perform exactly one slide, stop. Every previous capture ran for
+                    // minutes and mixed many moves, so totals accumulated and each number had to be
+                    // teased apart from everything else that had happened. One slide on a clean
+                    // session gives one burst per side and nothing else, which makes a fade curve
+                    // directly readable instead of inferred. ~15Hz is dense enough to see a fade
+                    // that lasts about a second, and the volume only stays sane BECAUSE the test is
+                    // deliberately tiny -- this cadence would be far too noisy for a long session.
+                    if (tick_count % 10 == 0)
                     {
-                        int alive_mine = 0;
-                        int alive_ghost = 0;
+                        // Creation parity is now measured and exact (40 vs 40), so counting bodies
+                        // says nothing more. What a person sees is how many are VISIBLE at an
+                        // instant, and these actors fade themselves via a Timeline
+                        // (`Timeline_0_opacity` in the schema dump) rather than being destroyed --
+                        // which is also why the pool only ever grows. So this counts images that
+                        // are actually opaque enough to see, alongside the raw bodies.
+                        //
+                        // The property name carries a Blueprint-compile GUID suffix, so it is found
+                        // by PREFIX rather than by the exact name from one dump -- an exact name
+                        // would be a value copied from a single observation, and would silently
+                        // read nothing on any other build of the game.
+                        int alive_mine = 0, alive_ghost = 0;
+                        int visible_mine = 0, visible_ghost = 0;
+                        // The actual opacity values, not just a count over a threshold: with one
+                        // slide the two curves can be compared directly, and a curve distinguishes
+                        // "never becomes visible" from "fades faster" -- which a count cannot.
+                        std::string opacities_mine, opacities_ghost;
                         for (UObject* image : afterimages)
                         {
                             if (!image)
@@ -6588,17 +6611,68 @@ namespace MeshGhostPseudo
                             {
                                 continue;
                             }
-                            if (to_utf8((*cm)->GetFullName()).find(pawn_name) != std::string::npos)
+                            const bool mine = to_utf8((*cm)->GetFullName()).find(pawn_name) != std::string::npos;
+
+                            float opacity = -1.0f;
+                            if (UClass* image_class = image->GetClassPrivate())
+                            {
+                                for (FProperty* prop : TFieldRange<FProperty>(image_class, EFieldIterationFlags::Default))
+                                {
+                                    if (!prop || prop->GetClass().GetName() != STR("FloatProperty"))
+                                    {
+                                        continue;
+                                    }
+                                    if (StringType(prop->GetName()).find(STR("opacity")) == StringType::npos)
+                                    {
+                                        continue;
+                                    }
+                                    if (float* op = image->GetValuePtrByPropertyNameInChain<float>(prop->GetName().c_str()))
+                                    {
+                                        opacity = *op;
+                                    }
+                                    break;
+                                }
+                            }
+                            const bool visible = opacity > 0.01f;
+                            // **Height, added to test the user's hypothesis (2026-08-16).** The
+                            // slide floor-sinking fix raises the ghost's whole actor by
+                            // (65 - peer_half), i.e. +43 mid-slide, because an unpossessed ghost
+                            // never runs the crouch logic that drops the real player's mesh. An
+                            // afterimage is placed at the ACTOR's location and carries its own
+                            // fixed mesh offset, so the ghost's snapshots could land ~43 units off
+                            // from where its visible body is -- floating or buried -- and only
+                            // during a slide. That is the first candidate that is slide-specific,
+                            // which is what the symptom has been all along.
+                            //
+                            // Printed as a Z per side rather than a count, because this is the one
+                            // axis every previous instrument collapsed away: positions were only
+                            // ever compared in X (where the +150 loopback offset was confirmed) and
+                            // heights were never differenced at all.
+                            const double image_z = static_cast<AActor*>(image)->K2_GetActorLocation().Z();
+                            char buf[24];
+                            std::snprintf(buf, sizeof(buf), "%.2f@%.0f ", opacity, image_z);
+                            if (mine)
                             {
                                 ++alive_mine;
+                                visible_mine += visible ? 1 : 0;
+                                if (opacities_mine.size() < 90) { opacities_mine += buf; }
                             }
                             else
                             {
                                 ++alive_ghost;
+                                visible_ghost += visible ? 1 : 0;
+                                if (opacities_ghost.size() < 90) { opacities_ghost += buf; }
                             }
                         }
-                        Output::send(STR("[MeshGhostPseudo] TRAILALIVE: mine={} ghost={} poolTotal={} tick={}\n"),
-                                     alive_mine, alive_ghost, afterimages.size(), tick_count);
+                        // Only print while something is actually on screen, so an idle session
+                        // produces no lines at all and the single slide's curve stands alone.
+                        if (alive_mine > 0 || alive_ghost > 0)
+                        {
+                            Output::send(STR("[MeshGhostPseudo] TRAILALIVE: bodies mine={} ghost={} | VISIBLE mine={} ghost={} | opac mine=[{}] ghost=[{}] | tick={}\n"),
+                                         alive_mine, alive_ghost, visible_mine, visible_ghost,
+                                         to_wide_ascii(opacities_mine), to_wide_ascii(opacities_ghost),
+                                         tick_count);
+                        }
                     }
                 }
 

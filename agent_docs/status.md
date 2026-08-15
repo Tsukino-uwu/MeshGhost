@@ -50,6 +50,29 @@ Fixed-and-confirmed work is not listed here — see `verified.md` and the phase 
   from polled state; do not resume by guessing more property names. Re-checked 2026-08-15
   against `attire-ui-overhaul`: its dash-colour feature knows only `afterimageColor` and has
   no ultra/blue concept at all, so that mod is not a lead either (`verified.md`).
+- **Pseudoregalia: ghost's afterimage trail looks thinner than the real player's — PARKED, and
+  every obvious cause is already disproven.** Do not resume by counting things. Measured across
+  four separate instruments, all showing parity on the same slides the user judged wrong:
+  spawn count (7 vs 7), burst timing and spacing (18-21 ticks each side), position (correct +150
+  loopback offset), opacity/fade curves (ghost's slightly *higher*), and colour. The ghost is also
+  confirmed to create exactly as many afterimages as the player (40 vs 40 in a longer session).
+  - Also disproven, and worth recording so it isn't re-tried: the slide Z-compensation
+    (`ghost_z = peer_z + (65 - peer_half)`) does NOT leak into the afterimages. Measured heights are
+    identical on both sides (both at Z=501 on the same slide). It was a good hypothesis — the only
+    slide-specific one anyone had — and it is simply wrong.
+  - **Untested candidate, and the only one left consistent with all the evidence**: the POSE. An
+    afterimage is a `PoseableMeshComponent` snapshot; if the ghost's snapshots capture a degenerate
+    skeleton (wrong mesh, missing bones, collapsed pose) they would render as almost nothing while
+    still reporting N bodies at full opacity in the right place — which is exactly the pattern. The
+    decisive oddity to explain: the ghost's images measure *more* opaque than the player's
+    (0.62 vs 0.34) while looking fainter, and no count-based instrument can reconcile that.
+    Next step is comparing the PoseableMeshComponent's mesh asset and bone data between a local and
+    a ghost afterimage — not another counter.
+  - **Method note**: the user's isolated single-action tests (fresh session, one slide, stop) found
+    more in one run than several minutes-long mixed captures did. Prefer them here.
+  - What IS confirmed working and must not be regressed while chasing this: the trail fires on
+    every move including ultras (the old capsule-shrink rule only knew slides), at the game's own
+    timing, and the ultra's blue is identified and reproduced.
 - **Pseudoregalia: a `Fatal Error!` crash on game exit**, seen once, never root-caused.
 - **Pseudoregalia: a ghost's thrown sword near the save crystal looks wrong in loopback.** Expected,
   not a bug to chase here: the ghost is offset 150 units sideways, so its arc is computed against
