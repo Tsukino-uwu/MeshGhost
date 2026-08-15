@@ -238,6 +238,34 @@ And **measure the anchor offset, don't guess it** — read the real offset at cl
 hardcoded constant is how both Emerald and TEVI ended up with a ghost rendering near the
 player's head.
 
+### The second object a ghost owns is where lifetime bugs come from
+
+A ghost usually starts as exactly one engine object, and the lifetime handling written for it is
+correct. The bug arrives when a peer gains a *companion* object — a dropped weapon, a held item, a
+mount, an attached VFX component — because that object silently inherits every lifetime rule the
+first one has, and those rules generally do not live in an obvious place.
+
+Pseudoregalia crashed on exactly this (`EXCEPTION_ACCESS_VIOLATION` returning to the main menu,
+2026-08-16, `pitfalls.md`). Its ghost pointer had always been safe because a pre-teardown hook
+dropped it while it was still valid. A thrown-weapon prop added later was never added to that hook,
+so a level transition freed it, and the next despawn moved freed memory.
+
+Three rules that transfer to any engine:
+
+- **Find where the existing reference is dropped, and add the new one there.** Not to the
+  destructor, not to your despawn handler — to whatever runs *before* the engine reclaims things
+  (a level-unload hook, a scene-change callback). Grep for the existing pointer and match every
+  site; do not assume a new field behaves like its neighbours because it sits beside them.
+- **A liveness check is not a substitute.** "Is this object still valid?" is only answerable for an
+  object that still exists. Once memory is freed, the check is another read of a dangling pointer.
+  The only real defence is dropping the reference while it is still valid.
+- **In a pre-teardown hook, drop references and call nothing.** The engine is mid-transition; the
+  level is about to reclaim all of it anyway. Calling *into* an actor at that moment is its own
+  crash source, recorded separately in `pitfalls.md`.
+
+A useful habit: when adding any engine object to a per-peer struct, write down what destroys it and
+who else holds a reference, before writing the code that creates it.
+
 ## Caches die at scene/area transitions
 
 Whatever your engine's version of "cached" is — an actor pointer, a pawn reference, a save-block
