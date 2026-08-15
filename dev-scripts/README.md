@@ -6,7 +6,9 @@ instead: see [packaging/README.md](../packaging/README.md) and the repo's Releas
 
 These assume `meshghost.exe`, `meshghost-relay.exe`, and `meshghost-fakeadapter.exe` are
 built at the repo root (e.g. `go build -o meshghost.exe ./cmd/meshghost`, run from the repo
-root) — each script references them as `..\<name>.exe`.
+root) — each script references them as `..\<name>.exe`. The one exception is
+`run-loopback-in-release-folder.bat` below, which is written to be copied *out* of here into a
+downloaded release folder and run against its `meshghost-server.exe` instead.
 
 - `run-relay.bat` / `run-relay-loopback.bat` — a single relay, `-send-hz=100`. Deliberately NOT
   the relay's own 20Hz default: since the send/receive rate-control feature (see the ADR in
@@ -106,6 +108,35 @@ root) — each script references them as `..\<name>.exe`.
   one game instance running — see
   [agent_docs/phases/phase3.md](../agent_docs/phases/phase3.md) and
   [agent_docs/phases/phase6.md](../agent_docs/phases/phase6.md).
+- `run-loopback-in-release-folder.bat` — **the only script here meant to leave this folder.**
+  Same loopback idea as above, but for someone who downloaded a release zip rather than built
+  the repo: they copy this one file next to `meshghost.exe`/`meshghost-server.exe` and run it
+  instead of `meshghost-server.exe`, and see a ghost of themselves with no second player and no
+  second PC. Hand it out on request — it is deliberately **not** bundled into the release
+  (`.github/workflows/release.yml` only zips `packaging/release/*`, so nothing here ships), and
+  the release stays a clean two-exe folder with no dev-only flag sitting in it.
+
+  Two deliberate differences from `run-relay-loopback.bat`, both from the release layout rather
+  than preference: the release renames the relay to `meshghost-server.exe` and puts it in the
+  *same* folder as the script rather than one level up, and there is no `-send-hz=100` override
+  — that exists only to keep a dev relay out of the way of the `run-core-*.bat` scripts' own
+  fast `-min-send`, so in a release folder it would just silently override the user's own
+  `config.json`. It `cd /d "%~dp0"` first (the relay reads `config.json` from the working
+  directory, which differs between double-clicking, dragging onto a cmd window, and Run as
+  administrator) but still launches via the full `"%~dp0meshghost-server.exe"` path: cmd's
+  usual "search the current directory for a command" lookup is disabled wherever
+  `NoDefaultCurrentDirectoryInExePath` is set, and a bare exe name then fails with "not
+  recognized as an internal or external command" while sitting right there — found live while
+  testing this script. Dropped in the wrong folder it says so in plain language and exits
+  rather than failing cryptically. Verified 2026-08-15 end to end from a stand-in release
+  folder: `-loopback enabled` in the log, `config.json` and `meshghost-server.log` resolving to
+  the release folder while launched from an unrelated working directory, and a real
+  `render_remote p1-ghost` round trip via `meshghost-fakeadapter.exe`.
+
+  The loopback ghost renders a short distance to the side of the real player rather than
+  exactly on top of it, so the two can be compared without overlapping — that offset is
+  adapter-side, not in this script: `LOOPBACK_GHOST_OFFSET_TILES_X` in
+  `meshghost_emerald.lua`, `LOOPBACK_GHOST_OFFSET_X` in Pseudoregalia's `Plugin.cpp`.
 - `run-core-tevi.bat` / `run-core-tevi2.bat` — two TEVI core clients on distinct bridge ports
   (7778 / 7779), for real two-TEVI testing with a normal (non-loopback) `run-relay.bat` — same
   shape as the Emerald pair above, but for `-game=tevi`. Pair each with its own TEVI install
