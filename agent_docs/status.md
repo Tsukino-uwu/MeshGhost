@@ -13,7 +13,10 @@
 ## Genuinely open items
 
 - **Pseudoregalia 7.7** — two real players, not yet tested (Steam single-instance behavior for
-  this game is unconfirmed either way). See `agent_docs/phases/phase7.md`.
+  this game is unconfirmed either way). See `agent_docs/phases/phase7.md`. **Now also the gating
+  item for the ghost-collision feature**: the user's explicit position (2026-08-15) is that a small
+  push between players and ghosts may well be fine, but keep-or-axe is deferred until a real
+  two-player session — loopback cannot answer it (see `ideas.md`).
 - **Pseudoregalia: a not-yet-root-caused `Fatal Error!` crash** observed once on game exit in an
   earlier session (crashdump, not `LowLevelFatalError`) — see `agent_docs/phases/phase7.md`'s 7.6
   entry.
@@ -44,10 +47,56 @@
   `MarkRenderStateDirty` exist) needed to be called, not just the property written. Fix calls it
   first, property write kept after as a safety net — applying the weapon fix's ordering lesson
   proactively this time. User confirmed on screen: ghost correctly swapped costume, no T-pose.
-- **Still fully open**: ability VFX only (cling-gem sparkle, empty-hand glow — zero sync code,
-  only read-only diagnostics exist). This is now the only remaining Pseudoregalia visual gap. See
-  `agent_docs/verified.md`'s "Dream Breaker weapon-visibility" and "Outfit/costume sync" entries
-  and `adapters/pseudoregalia/PLAYER_FIELDS.md`.
+- **Pseudoregalia: slide/ultra-hop trail (afterimage) VFX — PARTLY WORKING, confirmed live
+  2026-08-15.** The repeating trail itself is fixed and confirmed on screen: write
+  `afterImagesToSpawn` on the ghost, then call `spawnNumAfterimages` (the count write was the
+  missing piece; calling it alone did nothing). **Two known-open imperfections**, both confirmed
+  live: (1) **trail COLOUR sync built and confirmed** 2026-08-15 — `afterimageColor` read live,
+  sent via `extras`, written to the ghost before each burst (write path proven via a deliberate
+  magenta override). **The ultra hop's BLUE trail is a separate mechanism and is PARKED**: traces
+  ruled out `afterimageColor` (never changes) and then `ultraCap`/`fullUltraModifier`/
+  `cappedUltraModifier`/`animJumpType` (all identical on normal backflips and the ultra alike). Not
+  derivable from polled state; don't resume by guessing more property names — see `verified.md`;
+  (2) a quick 180-degree turn-around
+  fires a false positive, because it shares `actionState==18` with a real slide. The trigger is
+  still a polled `actionState` heuristic — **the correct event-sourced fix (a UFunction hook on
+  `Spawn After Image`) was tried and CRASHED the game; do not retry it**, see `verified.md`'s
+  "trail-VFX UFunction hook" entry. See `adapters/pseudoregalia/PLAYER_FIELDS.md`.
+- **Pseudoregalia: ghost sinks into the floor during a slide — FIXED and confirmed live 2026-08-15.**
+  Root cause was arithmetic, not animation: a slide shrinks the player's capsule 65→22 and drops its
+  origin by 43 (feet stay planted), so a still-65-tall ghost teleported to that origin sat exactly 43
+  units under the floor. Mirroring the ghost's capsule was tried, provably applied, and did NOT work
+  (the mesh's offset is fixed at construction); the fix compensates the ghost's render Z instead.
+  See `verified.md`.
+- **Pseudoregalia: cling-gem (wall-ride) VFX — FIXED and confirmed live 2026-08-15.** Calls the
+  pawn's own `doWallRun` on the ghost when its mirrored `moveState` enters 4 (the confirmed cling
+  marker), deactivates `wallRideVFX` on the falling edge, and suppresses the paired SFX entirely
+  (ghosts are silent by design). See `verified.md`'s cling-gem entry.
+- **Pseudoregalia: ghost collision — ON as a deliberate feature, and its run-ending risk is FIXED
+  (2026-08-15).** Enemy damage to a ghost was confirmed to hurt/kill the real player; fixed by
+  re-typing the ghost capsule's collision object type to `WorldDynamic` (enemy targeting queries
+  the Pawn channel). Confirmed live: no enemy damage, and the ghost physically shoves enemies. A
+  player deliberately attacking a ghost still takes damage — the accepted, controllable footgun.
+  See `verified.md`. Note: setting `LOOPBACK_GHOST_OFFSET_X = 0` reproduces the Phase 7.4 drag bug
+  and must never be used to judge collision — a loopback ghost teleported to the player's *exact*
+  position every tick is a pathological overlap the physics can never resolve, and says nothing
+  about real peers, who would at worst bump and separate normally. Whether real-peer contact is
+  disruptive in practice is still untested (needs a real two-player session), but is not by itself
+  a reason to hold the feature.
+- **Pseudoregalia: ghost disappears while a peer is climbing/on a pole, then reappears stuck in a
+  climb pose** — found live 2026-08-15 (user screenshots). **Cause still UNKNOWN, but two suspects
+  are ruled out with evidence**: (1) NOT the same-day slide floor fix — a live capture showed
+  `CapsuleHalfHeight` reads 65 for all 10,930 in-game ticks including throughout a climb, so the
+  render-Z compensation (which only fires below 65) never runs during one; (2) NOT purely the
+  loopback sideways offset either, though that was a reasonable theory (150 units from a pole lands
+  the ghost in a wall or on a neighbouring pole, matching "appeared on another pole") — it could
+  not be tested, because setting `LOOPBACK_GHOST_OFFSET_X = 0` reproduces the Phase 7.4 drag bug
+  and had to be reverted immediately. **Next step**: test with a real second player rather than
+  loopback (Phase 7.7), which sidesteps the offset entirely. The "stuck in climb pose" half is
+  likely a separate animation/state issue, same family as the older falling-pose and ledge-hang bugs.
+- **Still open**: empty-hand recall glow — blocked on a *precondition* (needs a real
+  thrown-weapon actor for its `IsValid` guards), not on finding the right function; see
+  `verified.md`'s "`manageRecallIdleFX`: NEGATIVE" entry before retrying.
 - **Emerald: surf, Mach Bike, Acro Bike, ledges, and Mach Bike rail sections** — the ghost snaps
   badly on all of these today; detection source found and cited
   (`pokeemerald`'s `include/global.fieldmap.h:288-295`), a combined probe script is ready but not

@@ -3037,6 +3037,32 @@ Copy this block per fact:
   confirmed live in one session, from discovery to fix. `DUMP_VISUALMESH_FUNCTIONS`/`OUTFIT_TRACE`
   both flipped back to `false`. Cling-gem sparkle VFX and empty-hand glow remain the only completely
   untouched Pseudoregalia visual gaps left.
+
+## Pseudoregalia ghost trail (afterimage) VFX: `Spawn After Image` call confirmed to work
+
+- Same-day continuation of the slide/ultra-hop trail-VFX investigation (`PLAYER_FIELDS.md`'s trail-
+  VFX section): `spawnTrackingParticles?` and `AnimGraphNode_Trail` were both ruled out earlier this
+  session, leaving `Spawn After Image(Duration: float)` (found on the local pawn) as the real,
+  untested lead.
+- Prototype: `call_spawn_after_image` (`Plugin.cpp`, modeled directly on `call_change_equipped_weapon`
+  -- `GetFunctionByNameInChain`/params-buffer/`ProcessEvent`), gated behind a new diagnostic-only
+  `AFTERIMAGE_CALL_TEST` flag, calling it on every remote ghost at a fixed ~3s cadence, deliberately
+  decoupled from any real trigger condition -- same phased approach as the weapon-visibility chase
+  (confirm the call itself does something before wiring it to the right condition).
+- **CONFIRMED LIVE**: user ran a loopback test with a visible ghost and watched the afterimage/trail
+  effect actually appear on the ghost, repeating on the test cadence -- including while the ghost was
+  just walking (not sliding), which is expected and correct: this test call is intentionally
+  unconditional, not yet tied to the real slide/ultra-hop trigger.
+- Source: user's own live report, this session (2026-08-15). Fix/prototype code: `Plugin.cpp`'s
+  `call_spawn_after_image` and the `AFTERIMAGE_CALL_TEST`-gated call site in `tickRenders`.
+- Notes: this confirms `Spawn After Image` is the real trigger function, not just a plausible name --
+  the missing piece was never "which function," it was "has anyone actually called it." Next step,
+  not yet done: replace the fixed-cadence test call with a real edge-detected trigger keyed off the
+  real player's `actionState` transitions (18=slide, 8=airborne flip-after-slide, both correlated
+  live earlier this session -- see `PLAYER_FIELDS.md`), sent to the ghost as a one-shot pulse (same
+  `landed?`/`jumped?` shape), then flip `AFTERIMAGE_CALL_TEST` back to `false` once that's real
+  production code. Color (`afterimageColor`, also found this session) is a separate follow-on, not
+  part of this fix.
   - **Hardening added same day, not itself live-tested (a defensive no-op for every legitimate
     asset seen so far)**: `target_outfit_mesh` is peer-controlled data (`json_string_field`'s own
     comment already documents extras fields this way), and `StaticFindObject` with `Class=nullptr`
@@ -3068,3 +3094,415 @@ Copy this block per fact:
     `LOG_INTERVAL_TICKS` (~2s), while a genuinely new target is still tried immediately regardless
     of the throttle. Not itself live-tested (no real missing-mod scenario was reproduced this
     session) -- the existing successful sync path (real, present assets) is unchanged by this fix.
+
+## Pseudoregalia ghost trail (afterimage) VFX: real repeating trail CONFIRMED working
+
+- Continuation of the same-day trail-VFX investigation (`PLAYER_FIELDS.md`'s trail-VFX section,
+  this file's earlier "Spawn After Image call confirmed" entry). Four real live-test rounds were
+  needed after the single-call confirmation, each ruled out by an actual live test, not assumption:
+  1. Repeat-calling `Spawn After Image` on a tight ~40ms interval (edge-detected `afterimage_count`,
+     re-fired while `actionState` held 18/8) -- fired once per action instead of repeating.
+  2. A ghost-side "coalescing" fix (call the delta count of times instead of once, per received
+     network update) -- identical "fires once" symptom on a second live test.
+  3. A pivot to calling `spawnNumAfterimages` (the real game's own orchestrating function) once per
+     edge, trusting its internal `SetTimerDelegate`-based loop for the repeat -- confirmed via
+     dual-side tracing (`TRAIL_TRIGGER_TRACE`) that the call reliably resolves and fires, but
+     produced ZERO visible afterimages, worse than attempt 1.
+  4. A much wider real-measured interval (~200ms) for the direct-repeat-call approach -- same
+     "fires once, at weird times" symptom, ruling out spacing/cooldown as the cause too.
+- **Root cause found via a targeted property re-search** (`OBJECT_REFLECTION_DUMP`, one more pass):
+  `afterImagesToSpawn` (`IntProperty` on the pawn) had never been searched for by name.
+  `spawnNumAfterimages`'s own reflected internals (`CallFunc_Subtract_IntInt_ReturnValue`,
+  `Temp_int_Variable`, `CallFunc_Greater_IntInt_ReturnValue`) are consistent with a "spawn N via a
+  repeating timer, counting an externally-set N down" loop -- and attempt 3 never wrote that count
+  before calling it, plausibly making its internal "count > 0" check fail immediately.
+- **Fix**: write `afterImagesToSpawn = 6` on the ghost, then call `spawnNumAfterimages` once per
+  action-start edge (`actionState` transitioning into 18=slide or 8=airborne flip-after-slide),
+  trusting the game's own internal timer for the repeat/spacing rather than reimplementing it.
+- **CONFIRMED LIVE**: user ran a real loopback test (slides, slide-jump/backflips, an ultra-hop
+  attempt) and confirmed the ghost now shows a real repeating trail matching the shape of the real
+  player's own afterimages, not a single flash.
+- Source: user's own live report, this session (2026-08-15). Fix code: `Plugin.cpp`'s
+  `call_spawn_num_afterimages`, the `afterImagesToSpawn` property write and
+  `call_spawn_num_afterimages` call in the ghost-apply block (`tickRenders`), and the edge-detected
+  `afterimage_count` trigger (`Plugin.hpp`/`Plugin.cpp`).
+- Notes: two known follow-ups, NOT part of this fix. (1) The ultra-hop's blue trail color didn't
+  show — trail color (`afterimageColor`, a separate `FLinearColor` property found earlier this
+  session) isn't synced yet, only the trigger. (2) A real false positive: a quick 180-degree
+  turn-around (walk one direction, quickly reverse) also fires the trigger, which shouldn't happen
+  — `actionState==18` is plausibly not exclusively "sliding," or some other condition needs to be
+  added to the trigger check. Not yet root-caused; see `PLAYER_FIELDS.md` for the next investigation
+  step.
+
+## Pseudoregalia trail-VFX UFunction hook: CRASHED the game — do not retry this approach
+
+- **What was tried**: replacing the polled-`actionState` trail trigger (a known-imperfect heuristic
+  — see the two follow-ups in the entry above) with a real event source:
+  `UFunction::RegisterPostHook` on the local pawn's own `Spawn After Image` and
+  `spawnNumAfterimages`, so `afterimage_count` would increment on the actual call rather than on a
+  guess about when one probably happened. Motivated by the user's own read after five failed
+  heuristic rounds: "the timing/triggers feel inconsistent ... there has to be a better way than
+  trying to manually time it" — correct instinct, wrong mechanism on this build.
+- **Result: Fatal error crash**, user-witnessed (`The UE-pseudoregalia Game has crashed and will
+  close / Fatal error!`), ~18 seconds into normal play after the hooks registered.
+- **Evidence, read directly from `UE4SS.log`**: both hooks registered successfully and logged real
+  callback IDs (`trail-VFX hooks registered on BP_PlayerGoatMain_C ... (SpawnAfterImage=6
+  spawnNumAfterimages=7)`, 07:29:26), then fired **zero times** across the whole session despite
+  real sliding, and the log simply stops mid-normal-operation (steady `bridge: connected=true`
+  lines every ~0.67s right up to 07:29:44) with no error, warning, or stack trace logged.
+- **Root cause (mechanism, not just correlation)**: UE4SS's `RegisterPre/PostHook` works by
+  swapping the `UFunction`'s own function pointer (`SetFuncPtr`). That is safe for **native**
+  functions — which is exactly what this file's one existing, long-working hook targets
+  (`SetViewTargetWithBlend`, whose `register_camera_fightback_hook` comment already documents the
+  native-vs-Blueprint distinction and why a ProcessEvent-based approach failed for it). But
+  `Spawn After Image`/`spawnNumAfterimages` are **Blueprint** functions, whose function pointer is
+  the shared `ProcessInternal` bytecode entry point rather than a per-function native routine.
+  Swapping it both failed to intercept any call (zero fires) and corrupted execution (crash).
+- Source: `UE4SS.log` from the 2026-08-15 session (live install), lines around 07:29:26–07:29:44;
+  user's own crash report. Reverted the same session; the trail trigger is back on the polled
+  `actionState` heuristic, which does not crash.
+- **Do not retry UFunction hooks on Blueprint functions on this build.** A `DO NOT re-add` note
+  sits at the removed code's location in `Plugin.hpp`. A genuinely different event source (not this
+  mechanism) would still be the right long-term fix for the heuristic's known imperfections.
+- **Process lesson, worth more than the finding**: this same change also swapped the ghost-side
+  apply path away from the confirmed-working `afterImagesToSpawn` + `spawnNumAfterimages` at the
+  same time as changing the trigger — two variables at once, against `CLAUDE.md`'s "one diagnostic
+  at a time" rule — which regressed a working visual and briefly confused the diagnosis. The apply
+  path was restored unchanged before the revert was tested.
+
+## Pseudoregalia ghost vs. local player, full property diff: NO master VFX gate; the real difference is possession
+
+- **Question asked** (user, 2026-08-15): is there a quick toggle to just "enable all VFX" on the
+  ghost? Answered by pointing the existing `DUMP_GHOST_SPAWN_VALUES` dumper (built for the earlier
+  cross-save weapon investigation) at a new pair — the ghost and the local player, captured at the
+  same instant at ghost spawn — and diffing every property value, rather than guessing gate names.
+- **Result: the ghost is identical to the real player on 381 of 389 pawn properties** (and 228 of
+  230 on `animBPref`). There is no master VFX/particle enable flag differing between them.
+  - `spawnTrackingParticles?` — the prime suspect, a bool previously ruled out as a per-action
+    *trigger* but never checked on the ghost — reads **`true` on the ghost**, same as the local
+    player. Definitively not a gate.
+  - Every ability-unlock flag is already `true` on the ghost too (`obtainedSlide?`,
+    `obtainedWallRide?`, `obtainedSlideJump`, `obtainedChargeAttack?`), on a 100%-completion save.
+- **The only meaningful differences are possession/ownership**, all null on the ghost:
+  `Controller`, `InputComponent`, `Owner`, `PlayerState`, `PreviousController`. The remaining three
+  (`actionStateUptime`, `moveStateUptime`, `proximityToSaveCrystal`) are incidental runtime values,
+  not gates — the ghost had simply just spawned.
+- **What this explains, in one stroke**: the ghost has zero VFX for *everything* (not per-effect
+  bugs) because it is fully capable but **nothing drives it**. Its ability logic is input-driven —
+  no `Controller` means no `InputComponent` means the input events that start a slide/charge/etc.
+  never fire, so the pawn's own ability code that would spawn those effects never runs at all. This
+  also explains why manually calling `spawnNumAfterimages` on the ghost works: that bypasses the
+  never-run ability logic and calls the effect directly.
+- Source: `UE4SS.log`, 2026-08-15 session, the `DIAG: value-dumping spawned ghost` /
+  `DIAG: value-dumping local pawn at ghost-spawn` blocks (389 properties each), diffed
+  programmatically with object-instance IDs normalized so identical component references don't read
+  as differences. Agent's own log read, per `CLAUDE.md`'s evidence standard for log-sourced facts.
+- **Consequence for design**: this is the concrete, evidence-backed form of the "let the ghost's own
+  pawn logic do the work" principle (`agent_docs/ideas.md`, Pseudoregalia item 3). The general fix
+  for ghost VFX is not per-effect reverse engineering but getting the pawn's own ability entry
+  points to run. **Constraint**: possessing the ghost with the real player controller is exactly
+  what Phase 7.4's auto-possess saga exists to prevent (it steals the player's control/camera), so
+  "give it a Controller" is not a free move — see `ideas.md` for the open options.
+
+## Pseudoregalia empty-hand recall glow via `manageRecallIdleFX`: NEGATIVE — the pattern has a precondition
+
+- **What was tried**: the second application of the "trigger the pawn's own system" pattern that
+  produced the afterimage trail. `manageRecallIdleFX` was called on the ghost on the weapon-equip
+  edge (one call per real throw/pickup). Chosen over the cling-gem sparkle because it depends only
+  on weapon state, which this adapter already syncs, with no geometry/collision dependency.
+  Signature confirmed by live param dump first: all internals are Blueprint temporaries
+  (`CallFunc_IsValid_ReturnValue` x3, `CallFunc_BooleanAND_ReturnValue`,
+  `CallFunc_Not_PreBool_ReturnValue`, `CallFunc_SpawnSystemAttached_ReturnValue`,
+  `CallFunc_SpawnSoundAttached_ReturnValue`) — i.e. it spawns a Niagara system plus a sound behind
+  its own validity guards.
+- **Result: no glow on the ghost** (user-confirmed live, screenshot). No crash, no visible change.
+- **Test limitation, stated honestly**: the call was NOT instrumented with a trace line, so this
+  result does not distinguish "the call never resolved" from "it resolved and bailed on a guard."
+  A future retry should log resolution + entry, per this repo's own "never log the value you just
+  wrote as proof" discipline applied to calls.
+- **Leading explanation (unconfirmed)**: the `IsValid` guards most plausibly validate `weaponRef` —
+  the reference to the **real thrown-weapon actor in the world**, previously found (see the
+  `WEAPON_SYNC_TRACE` entries) to go non-null only while the weapon is actually thrown. The ghost
+  has no such actor and `weaponRef` is not synced, so the guard fails and nothing spawns.
+- **The real lesson, and the reason this negative result matters**: the "trigger the pawn's own
+  system" pattern (`ideas.md` Pseudoregalia item 3) has a **precondition clause**. It works when
+  the system's preconditions are satisfied by state we can write — the trail worked because its
+  only precondition was `afterImagesToSpawn`, a plain int. It fails when preconditions depend on
+  real world objects or interactions the ghost doesn't have.
+- **Predictive consequence**: the cling-gem sparkle is expected to fail the same way, for a
+  structural reason rather than a findable-function reason — `doWallRun`/`wallRunTick` depend on
+  `wallRideHit` (a real geometry hit result), and the ghost's collision is deliberately disabled
+  (`GHOST_COLLISION_ENABLED = false`, kept off for the melee-death hazard in `risks.md`), so it can
+  never produce one. Both remaining Pseudoregalia VFX gaps are therefore blocked on the ghost
+  lacking real world-interaction state, not on identifying the right function to call.
+- Source: user's own live report + screenshot, 2026-08-15 session. Call site:
+  `call_manage_recall_idle_fx` and the weapon-equip edge block in `tickRenders` (`Plugin.cpp`).
+
+## Pseudoregalia trail (afterimage) COLOUR write: CONFIRMED working on the ghost
+
+- **What was built**: `afterimageColor` (an `FLinearColor` on the pawn) read live from the local
+  player each tick, sent through `extras` as `afterimage_color: [r,g,b]`, and written onto the
+  ghost immediately before its trail burst is triggered. Read live rather than cached at spawn
+  because the base game changes this dynamically — a perfect-timing "ultra" hop trails BLUE instead
+  of the normal yellow, which is exactly the case a one-time read would miss.
+- **Layout resolved by reflection, not assumed**: the vendored SDK only forward-declares
+  `FLinearColor` (`Core/Math/MathFwd.hpp`), so `resolve_linear_color_offsets` finds the struct via
+  `UClass::FindProperty` → `FStructProperty::GetStruct()` → `FindProperty("R"/"G"/"B"/"A")` and uses
+  each channel's real reflected offset. Deliberate, per `pitfalls.md`'s `FRotator` entry, where
+  assuming a struct's layout against this same SDK was a real bug. `A` is deliberately never
+  written — its meaning (trail fade/transparency) was never verified, so the ghost keeps its own.
+- **CONFIRMED LIVE**: with `AFTERIMAGE_COLOR_TEST_OVERRIDE` on, forcing the ghost's trail to bright
+  magenta while the real player's stayed yellow, the user watched the ghost's trail render magenta.
+  This proves the property write actually lands and is consumed by the spawn.
+- **Why the override existed at all** (worth reusing): on a same-machine loopback both characters
+  naturally have the SAME trail colour, so "synced correctly" and "never written at all" look
+  identical on screen — the exact confound that made the weapon/outfit sync so hard to judge. The
+  user raised this unprompted ("its kinda hard to tell if its different or not"). A deliberately
+  WRONG value is the cheapest way to prove a write path, same technique as `WEAPON_SYNC_INVERT`.
+- Source: user's own live report, 2026-08-15 session. Code: `resolve_linear_color_offsets` /
+  `read_linear_color` / `write_linear_color_rgb` and the trail-burst block in `tickRenders`
+  (`Plugin.cpp`), `target_afterimage_color`/`afterimage_color_valid` (`Plugin.hpp`).
+- Notes: override flipped back off after confirmation, so the ghost now shows the peer's real
+  colour. A per-peer distinct-colour feature idea came out of this test; see `ideas.md`'s
+  Pseudoregalia section.
+- **CORRECTION, same session**: an earlier version of this entry claimed the blue-on-ultra case
+  "follows for free from the live read." **That is FALSE and was written before it was watched.**
+  See the entry below.
+
+## Pseudoregalia blue ultra-hop trail does NOT come from `afterimageColor` — separate mechanism
+
+- **Symptom**: with trail-colour sync working and confirmed, the ghost still trails YELLOW during a
+  perfect-timing "ultra" hop while the real player trails BLUE (user-confirmed live).
+- **Decisive evidence**: an every-tick edge-logged trace of the local player's own `afterimageColor`
+  (logging only on real change, deliberately not on a periodic sample, since an ultra hop's window
+  is only ~690ms and a ~2s sample could miss it entirely) recorded exactly TWO events across a full
+  session containing a real ultra hop: one `read_ok=false` before the pawn existed, then
+  `rgb=(1.000, 0.888, 0.260)` — yellow — which then **never changed again**, through the ultra
+  included.
+- **Conclusion**: `afterimageColor` is the base/customisable trail colour (it is the field the
+  third-party `attire-ui-overhaul` dash-colour picker writes — see `licensing.md`), NOT the source
+  of the ultra's blue. The blue is produced by some other mechanism inside the spawn path.
+- **What this does NOT invalidate**: the colour sync itself is still correct and still worth having
+  — it carries a peer's *chosen/custom* dash colour, and its write path is independently confirmed.
+  It simply does not carry the blue.
+- Source: `UE4SS.log`, 2026-08-15 session, `TRACE trailColor local` lines; user's live report of the
+  ghost's colour during the ultra.
+- **Follow-up trace run, same session — all ultra-state candidates RULED OUT.** An edge-logged
+  trace of `ultraCap`/`fullUltraModifier`/`cappedUltraModifier`/`animJumpType` across a capture the
+  user described as "2-3 slides, 6-7ish backflips, 1 ultra at the end":
+  - `fullUltraModifier` (1.2500) and `cappedUltraModifier` (1.1000) **never change at all** — they
+    are tuning constants, not per-jump state.
+  - `ultraCap` toggles, but identically on every jump cycle (false grounded → true airborne → false
+    on landing), including all the normal backflips. Not ultra-specific.
+  - `animJumpType` runs the identical `13 → 11 → 0` sequence on all ~8 backflips, the ultra
+    included. Notable because this adapter **already syncs `animJumpType`** to the ghost, so if it
+    were the marker the blue would already work.
+  - The only correlate is launch `vSpeed`, and it does not separate: normal backflips reached
+    1369.0 and 1348.6, the ultra 1388.9 — a ~1.4% gap, i.e. noise, not a discriminator.
+- **Status: PARKED, deliberately.** The blue's source is not derivable from any polled pawn state
+  found so far; it most plausibly lives inside the afterimage spawn Blueprint's own logic (a
+  different Niagara asset/material picked at spawn time) rather than in a readable property. That
+  would need Blueprint-graph inspection, not more property tracing — and Blueprint UFunction hooks
+  are known to crash this build (see the UFunction-hook entry above), which closes the obvious
+  dynamic route. Weighed against what already works (the trail itself, and custom colour sync),
+  this specific cosmetic nuance is low value for the remaining cost. Do not resume by guessing more
+  property names — that avenue is now well-covered and empty.
+
+## Pseudoregalia ghost hurtbox: `bCanBeDamaged=false` does NOT stop the melee-death bug
+
+- **Context**: ghost collision was re-enabled and kept on as a deliberate feature (see
+  `ideas.md`), leaving the 2026-08-13 melee-death hazard live — attacking a ghost damages/kills the
+  REAL player. User proposed the right shape of fix: keep collision, remove the hurtbox.
+- **What was tried**: writing `bCanBeDamaged = false` on every ghost at spawn. Chosen because it is
+  a stock `AActor` UPROPERTY — the engine-level gate standard `TakeDamage`/`ApplyDamage` paths
+  check — so it is not a guess about this game's own damage model, and because `pitfalls.md`
+  prefers a direct property write over a setter UFunction on this build.
+- **Result: NEGATIVE, and unambiguously so.** The user could still hit and kill themselves via the
+  ghost. Critically, this is not a "did the write land?" ambiguity: the log shows
+  `ghost hurtbox disabled (bCanBeDamaged=false).` on all four ghost spawns that session, so the
+  property resolved and was written every time.
+- **Conclusion**: Pseudoregalia's melee does NOT route damage through UE's standard damage path. It
+  almost certainly runs its own overlap/trace check and applies the effect directly, which
+  `bCanBeDamaged` has no authority over. Any real fix has to target whatever channel/query that
+  bespoke check uses — still unidentified.
+- Source: user's live report + `UE4SS.log`, 2026-08-15 session. Code: the `GHOST_COLLISION_ENABLED`
+  block in `ensure_ghost_spawned` (`Plugin.cpp`).
+- **The hazard therefore remains live and accepted** — see `ideas.md`'s ghost-collision entry.
+
+## Pseudoregalia wall-ride (cling gem) state: `moveState=4` is the marker, and it is ALREADY synced
+
+- Edge-logged trace across many real clings (`WALLRIDE_TRACE`), 2026-08-15:
+  - **`moveState == 4` is the cling state** — present on every single cling, unambiguous.
+  - **`actionState` stays `0` throughout** — it is NOT the wall-ride marker, unlike the slide/flip
+    case where 18/8 mattered.
+  - `movementMode == 3` (Falling) during a cling.
+  - `currentWallRunClings` counts up 1→4 per wall (`wallRunClingLimit` is 5).
+  - **`canWallRun` reads `false` even while actively wall-riding** — a misleading name; it is not a
+    "currently wall-running" flag and must not be used as one.
+  - **`wallRideVFX` transitions null → non-null on the FIRST cling and then stays non-null for the
+    rest of the session** — the VFX component is spawned once and reused/reactivated, not created
+    per cling. On the ghost it is `null` (never spawned), per the ghost-vs-player diff.
+- **Key consequence**: `moveState` is already mirrored to the ghost (`target_move_state`), so the
+  ghost already receives `moveState = 4` during a peer's cling — and still shows no VFX. Third
+  independent confirmation that ability VFX come from the gameplay logic, not from the mirrored
+  state value or the AnimBP.
+- **What this unlocks**: a clean, reliable trigger signal for a ghost-side `doWallRun` attempt
+  (edge on `moveState` entering 4), which is what the earlier investigation lacked. Whether that
+  call succeeds still depends on the precondition clause (`wallRideHit` is a real geometry hit
+  result) — collision is now enabled on ghosts, which may or may not be enough.
+- Source: `UE4SS.log`, 2026-08-15 session, `TRACE wallRide` lines (37 state changes across many
+  real clings).
+
+## Pseudoregalia cling-gem (wall-ride) VFX on the ghost: CONFIRMED WORKING
+
+- **The second successful application of the "trigger the pawn's own system" pattern**
+  (`ideas.md` Pseudoregalia item 3), after the afterimage trail — and the one that closes a gap
+  previously written off as structurally blocked. Three iterations, each fixing a real observed
+  defect rather than a guessed one:
+  1. **Start**: on the ghost's mirrored `moveState` entering 4 (the confirmed cling marker), call
+     `doWallRun` on the ghost. **Confirmed live: the cling-gem effect appears on the ghost.**
+  2. **Stop**: the effect then persisted forever, following the ghost around while walking. Fixed by
+     calling stock `Deactivate` on the ghost's own `wallRideVFX` component on the falling edge
+     (`moveState` leaving 4) — matching what the real player's own logic evidently does, since
+     `wallRideVFX` stays non-null on the real player too rather than being destroyed.
+     **Confirmed live: stops correctly.**
+  3. **Silence**: the paired `wallRideSFX` then looped forever. Fixed by stopping the audio
+     component immediately after `doWallRun` starts it (falling edge also stops it, as a backstop),
+     so it is never audible. **Confirmed live: audio fixed.**
+- **What made this succeed where the recall glow failed**: its precondition was satisfiable.
+  `doWallRun` evidently needs no state the ghost lacks — notably, ghost collision was enabled
+  earlier the same session, which may or may not have been necessary (untested either way; it was
+  already on before this attempt, so this entry cannot claim it was required).
+- **Design rule this produced, now recorded in `ideas.md` as the "silence clause"**: triggering the
+  pawn's own systems hands you its AUDIO for free, and for a visual-only layer that is a defect.
+  Ghosts should be silent; suppress the audio component at the point of the triggering call, not on
+  the way out. Applies to every future ability trigger.
+- Source: user's own live reports across three test rounds, 2026-08-15 session. Code:
+  `call_do_wall_run`, `call_component_deactivate`, `call_audio_component_stop`, and the
+  `WALLRUN_TRIGGER_TEST` block in `tickRenders` (`Plugin.cpp`);
+  `RemoteGhost::last_wallrun_move_state` (`Plugin.hpp`).
+- Notes: this leaves the empty-hand recall glow as the only remaining Pseudoregalia ability-VFX
+  gap, and that one is still genuinely blocked on a precondition (a real thrown-weapon actor) rather
+  than on finding a function.
+
+## Pseudoregalia trail trigger rewritten to mirror the game's own `afterImagesToSpawn` — pipeline exact, but incomplete coverage
+
+- **Why rewritten**: every `actionState`-based heuristic failed live in a different way — firing on
+  a quick 180-degree turn-around (shares `actionState 18` with a real slide), then on a plain
+  walking backflip (`actionState 8` means "backflip" generically, not "slide-launched trick"), plus
+  afterimages lingering in odd places from a hardcoded burst size.
+- **The fix**: stop inferring, and mirror `afterImagesToSpawn` — the int the REAL GAME sets when IT
+  decides to trail. The game's timer counts it down as it spawns, so any INCREASE is a fresh burst
+  and its value is the true size. Same principle that made `moveState==4` the right cling-gem
+  trigger: read the game's own decision instead of reconstructing it.
+- **Result: the pipeline is exact.** A live capture recorded 6 real bursts detected locally and 6
+  applied to the ghost — 1:1, no drops on either side. User: "the timing/triggers feels more
+  precise now."
+- **Two findings worth keeping from that capture**:
+  - The real burst size is **5**, not the 6 previously hardcoded — now carried over the wire
+    (`afterimage_n`) so the ghost reproduces the true size instead of a guess.
+  - **`actionState` read 0 on five of the six real bursts.** This retrospectively explains why every
+    actionState-based heuristic failed and could never have worked: the game trails at moments where
+    that field says nothing useful.
+- **REMAINING GAP, and it is not this pipeline**: some afterimages still don't appear on the ghost.
+  Since detection and application match exactly, those are actions where the game **never sets
+  `afterImagesToSpawn` at all** — i.e. a second spawn path, almost certainly direct
+  `Spawn After Image` calls rather than the counted burst. Catching those would require
+  intercepting the call itself, which is exactly the Blueprint UFunction hook that **crashed the
+  game** (see that entry above). **So this is a real ceiling, not a missing idea** — do not resume
+  by hunting for another property; the property-mirroring avenue is now provably exact and provably
+  insufficient on its own.
+- Source: `UE4SS.log`, 2026-08-15 session, `TRACE trailTrigger` lines; user's live reports.
+
+## Pseudoregalia plain-slide trail + ghost-sinks-into-floor: BOTH FIXED, from one capture
+
+- **One narrow capture answered both.** After several partial captures had produced wrong answers,
+  a deliberately minimal one — walk, then four plain slides, nothing else — with
+  `CapsuleHalfHeight`/`bIsCrouched`/`z` logged **ungated** on every active tick. Ungated matters:
+  an earlier version gated the capsule log behind the slide trigger being debugged, so it captured
+  nothing at all. **Never gate a diagnostic behind the thing you are trying to diagnose.**
+- **What a plain slide actually is**: `actionState == 1` with the capsule **shrunk 65 -> 22**, four
+  runs of *exactly* 87 ticks each, origin dropping 567.2 -> 524.2 (feet stay planted).
+- **Three earlier trigger guesses were all wrong**, and this is why:
+  - `actionState == 18` — also fires on a turn-around skid.
+  - `actionState == 18 && animJumpType == 13` — that pair belongs to the skid and to the slide that
+    *precedes a backflip*; it fired **zero** times across a session of real plain slides.
+  - `afterImagesToSpawn` alone — never set during a plain slide at all (0 across 12k ticks).
+  - **Fix**: key on the capsule shrink instead. Deliberate choice — the shrink is a *physical fact*
+    of the move, whereas the state enums demonstrably overlap between moves and burned three
+    attempts. **Confirmed live: the slide afterimage now appears.**
+- **Floor-sinking, root-caused with arithmetic rather than theory**: peer feet = `524.2 - 22 =
+  502.2`; a ghost still 65 tall teleported to 524.2 has feet at `459.2`, i.e. exactly **43 units**
+  (65-22) under the floor.
+  - **First fix attempt FAILED informatively**: mirroring the ghost's `CapsuleHalfHeight` provably
+    applied (readback showed 22) but changed nothing visually — because the skeletal mesh hangs off
+    the capsule at a **fixed** relative offset set at construction (-65), and it is the real
+    player's own crouch logic, which an unpossessed ghost never runs, that adjusts that offset.
+  - **Working fix**: compensate the ghost's *render* Z instead —
+    `ghost_z = peer_z + (65 - peer_half)`, i.e. +43 while sliding, 0 standing. Applied at the
+    receive site alongside the existing loopback offset, since `target_x/y/z` are only ever a local
+    render target and never touch the wire. The capsule resize was **removed**, not left in: with Z
+    compensation it would leave the collision capsule floating above the floor.
+    **Confirmed live: "the ghost is not inside the floor during slides anymore."**
+- **Trail tail tightened**: images spawned late in a slide outlive it, so new spawns are cut off
+  ~40 ticks into the 87-tick slide (`SLIDE_REFIRE_WINDOW_TICKS`). Overhang went from ~0.5-1s to
+  ~0.1-0.3s; user: "it looks perfectly fine now but not 1:1." Left there deliberately — tightening
+  further risks visibly truncating the trail, which reads worse than a slightly long tail.
+- **Known constant to watch**: the Z compensation assumes a standing capsule half-height of 65.
+  That is measured on this build/character and degrades gracefully (no compensation when not
+  sliding), but it is an observed constant, not a live-read one.
+- Source: `UE4SS.log`, 2026-08-15 session (`TRACE trailCoverage`, `TRACE slideCapsule`,
+  `applied CapsuleHalfHeight` readbacks); user's live reports across four test rounds.
+
+## Pseudoregalia: ENEMY damage to a ghost hurts and can KILL the real player — CONFIRMED
+
+- **This is the vector that was flagged as untested when ghost collision was kept on as a feature,
+  and it is real.** User-confirmed live: "the ghost taking damage from enemies actually hurt and can
+  kill the player."
+- **Why this is materially worse than the previously-accepted risk.** The decision to ship collision
+  on rested on the judgement that co-op players won't deliberately swing at each other — a fair call
+  about *player* behaviour. But enemies attack whatever is in front of them, and a ghost stands in
+  the world where enemies fight. So this is not a footgun the player can choose to avoid: a peer's
+  ghost drifting into a fight can kill you during normal play, with no visible cause and no input
+  from you.
+- **Also observed**: the ghost gets stuck in a hurt animation indefinitely after being hit, until
+  the peer jumps or falls — which swaps it briefly to the flashing-red damage visual before
+  returning to normal idle/walk. Cosmetic next to the death propagation, but same root area.
+- **Mechanism detail that explains the intermittency**: the ghost has i-frames for the duration of
+  that hurt animation — it cannot be damaged again until it has passed through the red
+  "took damage" phase. Since the ghost is stuck in the hurt state until the peer jumps/falls, it is
+  accidentally invulnerable for that whole window, which rate-limits the damage rather than letting
+  it chain. This does NOT make the feature safe — the first hit still reaches the player — but it
+  is why the effect is occasional rather than continuous, and it means a peer standing still near
+  enemies is effectively shielded after the first hit.
+- **What is already ruled out as the fix**: `bCanBeDamaged = false` (provably applied, did not stop
+  it — this game's melee doesn't use UE's standard damage path). See that entry above.
+- **FIXED and CONFIRMED LIVE, same session**: change the ghost's collision OBJECT TYPE rather than
+  its responses — `SetCollisionObjectType(ECC_WorldDynamic)` on the ghost capsule instead of
+  leaving it `ECC_Pawn`. Enemy targeting/hit-detection queries the Pawn channel, so re-typing takes
+  the ghost out of their queries entirely. Applied after the existing
+  `SetCollisionResponseToChannel(Pawn, Block)` call, since re-typing first would leave that
+  response set against a channel the capsule no longer belongs to.
+  - **User-confirmed**: "the ghost didn't take any damage and was just able to push enemies around."
+    So the run-ending vector is closed AND the physical presence that made the feature worth having
+    is intact — the ghost even shoves enemies, which is a strictly better outcome than the
+    non-solid alternative.
+  - **Remaining, and unchanged**: the player can still deliberately attack their own/a peer's ghost
+    and take damage from it. That is the vector already judged an acceptable footgun (a co-op player
+    has to choose to swing at a friend), and it is the *controllable* one — unlike enemies, which
+    attack whatever is in front of them.
+  - **Why this worked where `bCanBeDamaged=false` didn't**: that tried to gate the damage after the
+    hit was already registered, through a path this game doesn't use. This instead prevents the hit
+    from ever being aimed at the ghost. Generalisable lesson: when a bespoke damage system ignores
+    the engine's own damage gate, stop fighting the damage and change what the attacker can *see*.
+- **Fallback candidate, user's own idea and a good one**: exploit the i-frames the ghost already
+  demonstrably has. The hurt animation grants invulnerability (see the mechanism detail above), and
+  the reflection dump found an **`activateGuardFrames`** function (PropertiesSize=0) on the pawn
+  plus a `slideIframeWindow` property — so invulnerability is a real, addressable concept in this
+  game's own code. If the object-type fix fails, holding the ghost permanently guard-framed would
+  block damage propagation regardless of which channel or damage path an attacker uses, which is a
+  strictly more general fix than channel juggling.
+- **Recommendation recorded at the time**: `GHOST_COLLISION_ENABLED` should default to OFF until
+  this is solved. The feature is genuinely fun and worth keeping as an opt-in, but a confirmed
+  run-ending failure mode during ordinary play is not something to ship on by default.
+- Source: user's own live report, 2026-08-15 session, during a deliberate enemy-damage test.

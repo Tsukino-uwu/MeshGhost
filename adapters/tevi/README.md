@@ -15,6 +15,10 @@
 - Phase 6 in progress. Phase 5 froze the adapter template (`adapters/_template/`) — see
   [agent_docs/phases/phase5.md](../../agent_docs/phases/phase5.md).
 
+## Custom features
+Map marker for other player ghosts, shows a constantly tracking/updating tiny tevi bunny icon
+for where other players are in your current zone(as long as you have discovered/seen the maps before)
+
 ## How this adapter was built
 
 Second game, and by far the fastest: about 1 hour from start to a ghost following the player

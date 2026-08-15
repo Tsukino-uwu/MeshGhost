@@ -141,3 +141,60 @@ first place. **Caution, learned from outfit**: two fields sharing the same sympt
 snapshot, no live update) does not mean they share the same root cause — outfit still doesn't
 propagate live even after the weapon fix shipped, so it needs its own investigation from scratch,
 not an assumption that the same reorder will fix it too.
+
+## Slide/ultra-hop trail (afterimage) VFX: investigated 2026-08-15, not yet built
+
+User-confirmed live: the ghost currently has **zero VFX/particles for anything**, not just the
+cling-gem/glow gap — a systemic gap, not case-by-case. Two negative results and one real lead
+this session (all via `OBJECT_REFLECTION_DUMP`/`ABILITY_FIELD_TRACE`, see their own comments):
+
+1. **Ruled out**: `spawnTrackingParticles?` (bool, on the pawn). Looked like a promising bucket-1
+   candidate by name, but a live edge-triggered trace showed it goes `false→true` once at pawn
+   spawn and never changes again — a static flag, not tied to sliding/hopping at all.
+2. **Ruled out**: the `AnimGraphNode_Trail`/`_1`-`_6` cluster found on `animBPref`. Recursing into
+   the struct's own fields (`TrailBone`, `ChainLength`, `ChainBoneAxis`, `bLimitStretch`, ...)
+   showed this is the stock Unreal `FAnimNode_Trail` bone-physics dangle node (tails/ears/cloth
+   secondary motion) — a red herring from name-matching "Trail," unrelated to the particle effect.
+3. **CONFIRMED LIVE, 2026-08-15, same session**: two real functions on the pawn, `Spawn After
+   Image(Duration: float)` and `spawnNumAfterimages` (the latter is a Blueprint event-graph
+   wrapper exposing only internal compiler temporaries — no real caller-facing parameter).
+   Prototyped calling `Spawn After Image` on the ghost (`call_spawn_after_image`, gated behind
+   `AFTERIMAGE_CALL_TEST`, fixed ~3s test cadence, decoupled from any real trigger) — user watched
+   the afterimage/trail effect actually appear on the ghost. See `verified.md`'s "Pseudoregalia
+   ghost trail (afterimage) VFX" entry. **Not yet production code**: still needs a real
+   edge-detected trigger (see point 4 below) in place of the fixed test cadence, and
+   `AFTERIMAGE_CALL_TEST` flipped back to `false` once that's wired up.
+4. **TRIGGER — three wrong answers before the right one. Read this before touching it again.**
+   The trail trigger is **NOT** `actionState`-based, despite that being the obvious candidate and
+   the one three separate attempts used. All were disproven live:
+   - `actionState == 18` — also fires on a quick 180° turn-around skid (false positives).
+   - `actionState == 18 && animJumpType == 13` — that pair belongs to the skid and to the slide that
+     *precedes a backflip*; it fired **zero** times across a whole session of real plain slides.
+   - `afterImagesToSpawn` increases alone — the game never sets it during a plain slide at all
+     (zero across 12k ticks), so this covered almost nothing.
+   - **The correct signal, measured**: a plain slide is `actionState == 1` with the **capsule shrunk
+     from 65 to 22**, running a consistent 87 ticks. The shipped trigger keys on that capsule shrink
+     (plus `afterImagesToSpawn` increases as a second, authoritative-but-rare path). Keying on the
+     capsule is deliberate: the shrink is a *physical fact* of the move, whereas the state enums
+     demonstrably overlap between moves.
+
+5. **Color — DONE, synced and confirmed live.** `afterimageColor` (an `FLinearColor` on the pawn) is
+   read live each tick, sent through `extras`, and written to the ghost immediately before each
+   burst. Found by strings-scanning the third-party `attire-ui-overhaul` mod's `.uasset` binaries
+   (facts-only per its "no license" posture, `licensing.md`) — its dash-color picker casts the
+   player to `BP_PlayerGoatMain_C` and writes this field — but it is a **first-party base-game
+   property**, so syncing it needs no dependency on that mod. Layout resolved by reflection, not
+   assumed (the vendored SDK only forward-declares `FLinearColor`); alpha deliberately never
+   written. Write path proven with a deliberate magenta override.
+   - **It does NOT carry the ultra hop's blue**: an every-tick trace showed `afterimageColor` never
+     changes during a real ultra. That variant comes from some other mechanism and is parked — see
+     `verified.md`, and do not resume by guessing more property names.
+
+6. **Ghost sinking into the floor during slides — FIXED, and the first fix was wrong in an
+   instructive way.** The slide drops the player's capsule origin 567.2 → 524.2 as it shrinks
+   65 → 22 (feet stay planted), so a still-65-tall ghost teleported to that origin sits exactly 43
+   units under the floor. Mirroring the ghost's `CapsuleHalfHeight` **provably applied** (readback
+   showed 22) and changed nothing visually — because the skeletal mesh hangs off the capsule at a
+   *fixed* offset set at construction, and it is the player's own crouch logic, which an
+   unpossessed ghost never runs, that adjusts it. The working fix compensates the ghost's **render
+   Z** instead: `ghost_z = peer_z + (65 - peer_half)`.

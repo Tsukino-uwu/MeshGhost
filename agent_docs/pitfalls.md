@@ -568,6 +568,35 @@ three gets re-tried blind:
     term versus UE's real formula — harmless when pitch and roll are both zero (true for this
     game's pawn), but would corrupt a spawn-time rotation for a pawn with non-zero pitch/roll.
 
+### UFunction hooks work on native functions but CRASH on Blueprint functions (RE-UE4SS)
+
+- **Symptom**: `UFunction::RegisterPostHook` on two Blueprint functions of the Pseudoregalia player
+  pawn (`Spawn After Image`, `spawnNumAfterimages`) registered successfully — real callback IDs
+  returned and logged — then fired **zero times** across ~18s of real play that definitely
+  triggered those effects on screen, and the game died with `Fatal error!` and nothing written to
+  the log (steady per-tick output right up to the last line, no error/warning/stack trace).
+- **Cause**: RE-UE4SS's `RegisterPre/PostHook` installs itself by swapping the `UFunction`'s own
+  function pointer (`SetFuncPtr`). For a **native** (`FUNC_Native`) function that pointer is a real
+  per-function C++ routine, so swapping it is well-defined — this is why the long-working
+  `SetViewTargetWithBlend` camera hook in the same file is fine. For a **Blueprint** function the
+  pointer is the shared `ProcessInternal` bytecode entry point, not a per-function routine;
+  swapping it neither intercepts the call nor leaves execution intact.
+- **Fix**: don't hook Blueprint functions on this build. The feature reverted to polling a property
+  (`actionState`) each tick and edge-detecting it — less accurate (it can't distinguish a real
+  slide from a quick turn-around that shares the same state value) but stable.
+- **Generalizes to**: before reaching for a UFunction hook on any UE target, check whether the
+  function is native or Blueprint (the reflection dump's `FUNC_Native` flag, or simply: is it a
+  `/Script/Engine.*` engine function, or a `_C` Blueprint class member?). A hook that *registers
+  successfully* is not evidence it works — this one returned valid IDs and still never fired. If
+  the only available event source is a Blueprint function, prefer polling a property that the
+  Blueprint itself sets over hooking the call.
+- **Process note, transferable beyond UE**: this change also swapped a *confirmed-working*
+  ghost-side apply path at the same time as changing the trigger — two variables at once, against
+  the "one diagnostic at a time" rule at the top of this file — which regressed a working visual
+  and briefly muddied the diagnosis of the crash. When replacing the *source* of an event, hold the
+  *handling* of that event fixed.
+- Full evidence: `agent_docs/verified.md`'s "Pseudoregalia trail-VFX UFunction hook" entry.
+
 ### Actor destroy unavailable on this build — move offscreen, let the level's own teardown reclaim it
 
 - **Symptom**: `K2_DestroyActor()` on a spawned ghost actor silently no-ops on this Pseudoregalia

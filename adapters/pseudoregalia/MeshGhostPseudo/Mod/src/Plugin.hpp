@@ -138,6 +138,44 @@ namespace MeshGhostPseudo
         // write before its state machine transition gets a chance to see it. See PULSE_HOLD_TICKS.
         uint32_t landed_hold_ticks{0}, jumped_hold_ticks{0};
 
+        // Trail-VFX pulse mirror, 2026-08-15 -- see Plugin's own afterimage_count comment and
+        // PLAYER_FIELDS.md's trail-VFX section. Same monotonic-counter edge-fire shape as
+        // target_land_count/last_seen_land_count above: any observed increase over
+        // last_seen_afterimage_count calls call_spawn_after_image on this ghost once.
+        double target_afterimage_count{};
+        double last_seen_afterimage_count{};
+        // Real burst size from the sender's own game, replacing a hardcoded 6 -- a wrong count left
+        // extra afterimages lingering after a slide (user-observed).
+        double target_afterimage_spawn_n{};
+
+        // Capsule half-height mirror, 2026-08-15. Fixes the "ghost sinks into the floor during a
+        // slide" bug, whose mechanism is now measured rather than guessed: a UE Character's actor
+        // location is its CAPSULE CENTRE, and a real slide shrinks the player's capsule from 65 to
+        // 22 while dropping its origin 567.2 -> 524.2. Teleporting a still-65-tall ghost to that
+        // lowered origin buries it exactly 65-22 = 43 units. Mirroring the half-height makes the
+        // ghost's capsule shrink the same way, so the lowered origin is correct for it too.
+        // Doubles as the real slide signal -- see target_capsule_half's use in tickRenders.
+        double target_capsule_half{};
+        double last_applied_capsule_half{};
+        bool prev_remote_sliding{false};
+        // Ghost's own last-seen health, for the enemy-damage test (see HEALTH_TRACE in Plugin.cpp).
+        double last_seen_ghost_health{-1.0};
+
+        // Cling-gem (wall-ride) trigger edge. moveState==4 is the confirmed cling marker
+        // (verified.md's wall-ride entry) and moveState is already mirrored, so this only needs to
+        // remember the previous value to fire once per cling rather than every tick of one.
+        uint8_t last_wallrun_move_state{0};
+
+        // Trail colour mirror (see read_linear_color/write_linear_color in Plugin.cpp). Written to
+        // the ghost's own 'afterimageColor' immediately before its trail burst is triggered, so
+        // the burst picks up the sender's colour -- including the base game's own dynamic
+        // yellow->BLUE change on a perfect-timing "ultra" hop, not just a modded custom colour.
+        // Defaults chosen so a peer on an older build (no colour in its extras) leaves the ghost's
+        // own inherited colour untouched rather than forcing it to black: afterimage_color_valid
+        // stays false until a real value actually arrives.
+        float target_afterimage_color[4]{};
+        bool afterimage_color_valid{false};
+
         // Lua's trySpawnRemoteGhost guards spawning with a `remote.spawning` re-entrancy flag
         // because its spawn call is deferred through ExecuteInGameThread -- a gap exists between
         // "decided to spawn" and "the ghost field is actually set" where a re-check could fire
@@ -243,6 +281,100 @@ namespace MeshGhostPseudo
         uint32_t landed_count{0}, jumped_count{0};
         bool prev_landed_raw{false}, prev_jumped_raw{false};
 
+        // Diagnostic-only, 2026-08-15 trail-VFX investigation: edge-detects the real pawn's
+        // 'spawnTrackingParticles?' bool (found by OBJECT_REFLECTION_DUMP) so ABILITY_FIELD_TRACE
+        // can log its onset/offset every tick instead of only sampling it at the ~2s trace cadence,
+        // which risks missing a slide/ultra-hop shorter than that window entirely.
+        bool prev_spawn_tracking_particles{false};
+
+        // Trail-VFX pulse mirror, 2026-08-15 -- same monotonic-counter edge-fire shape as
+        // landed_count/jumped_count above (survives the send-rate/interp-buffer gap the same way).
+        // Incremented on the real pawn entering actionState 18 (slide) or 8 (airborne
+        // flip-after-slide). This is a known-imperfect heuristic, kept deliberately: a real
+        // UFunction hook would be the correct event source, but that was tried and crashed the
+        // game (see the DO-NOT-re-add note further down this file). Known open imperfections, both
+        // confirmed live: a quick 180-degree turn-around shares actionState 18 with a real slide
+        // and so fires a false positive, and Solar Wind's ultra hop doesn't reliably match.
+        // prev_trail_action_state tracks the previous tick's raw actionState purely to detect the
+        // transition into 18/8, same role as prev_landed_raw/prev_jumped_raw above.
+        // **Rearchitected again 2026-08-15, and this time from the game's own signal.** Every
+        // actionState-based heuristic failed live in a different way: firing on a quick 180-degree
+        // turn-around (which shares actionState 18 with a real slide), and on a plain walking
+        // backflip (actionState 8 turns out to mean "backflip" generically, not "slide-launched
+        // trick"). Rather than hunt for a fourth discriminator, this now mirrors
+        // 'afterImagesToSpawn' -- the int the REAL GAME sets when IT decides to trail, and the same
+        // field the ghost side already writes before calling spawnNumAfterimages. Reading the
+        // game's own decision cannot false-positive by construction, the same reasoning that made
+        // moveState==4 the right cling-gem trigger.
+        // afterimage_count is still the monotonic wire counter (it survives the send-rate/interp
+        // gap); afterimage_spawn_n carries the real N so the ghost reproduces the true burst size
+        // instead of a hardcoded guess.
+        uint32_t afterimage_count{0};
+        int32_t afterimage_spawn_n{0};
+        int32_t prev_local_afterimages_to_spawn{0};
+        // Real-slide edge detection (see the trigger block in Plugin.cpp). actionState==18 alone is
+        // NOT a slide -- a quick 180-degree turn-around produces the same value. The discriminator,
+        // found by segmenting a dense coverage capture into state runs, is animJumpType: real
+        // slides run as=18 WITH ajt=13, turn-around skids run as=18 with ajt=0.
+        // Real-slide detection, corrected 2026-08-15 by a plain-slide-only capture. A plain slide
+        // is actionState==1 with the capsule SHRUNK (65 -> 22), not actionState==18/ajt==13 as an
+        // earlier guess had it -- that signature belongs to the skid/turn-around and to the slide
+        // that precedes a backflip. Capsule shrink is the reliable marker because it is physical
+        // rather than an enum whose meanings overlap between moves.
+        bool prev_local_sliding{false};
+        // Re-fire throttle for a held slide. Earlier repeat attempts were abandoned because the
+        // trigger itself was wrong (actionState alone caught turn-arounds too, so repeating it
+        // multiplied the false positives). With as=18 && ajt=13 the signal is specific to a real
+        // slide, so repeating is now safe and is what makes the ghost's trail last as long as the
+        // real one instead of being a single burst at the start.
+        uint64_t last_slide_refire_tick{0};
+        // Tick the current slide started, so re-fires can be cut off before the slide ends. A real
+        // slide is a consistent 87 ticks (measured across four consecutive slides), and each
+        // afterimage lives out its own lifetime after spawning -- so images spawned near the end
+        // are exactly the ones that linger past it. Bounding the spawn window to the early part of
+        // the slide makes the trail's tail land near the slide's end instead of ~0.5-1s after.
+        uint64_t slide_start_tick{0};
+
+        // Health trace (HEALTH_TRACE) for the enemy-damage-vs-ghost test. The melee-death bug is
+        // that damaging the ghost also damaged/killed the REAL player, and bCanBeDamaged=false
+        // provably did NOT stop it -- so with collision now on as a feature, the open question is
+        // whether ENEMY/environmental damage hitting a ghost does the same. A naive live test can't
+        // answer that (if enemies are hitting the player too, the cause is ambiguous), so this
+        // records local and ghost health independently and only on change.
+        double prev_local_health{-1.0};
+        bool health_names_logged{false};
+
+        // Diagnostic (TRAIL_TRIGGER_TRACE): previous tick's local afterimageColor, so a real
+        // CHANGE can be edge-logged rather than sampled. Answers the one question that splits the
+        // "ghost's ultra hop trails yellow instead of blue" bug in two -- either afterimageColor
+        // never turns blue on the real player (so blue comes from some other mechanism entirely
+        // and this property is the wrong lever), or it does and the sync/timing is dropping it.
+        float prev_local_afterimage_color[3]{-1.0f, -1.0f, -1.0f};
+
+        // Diagnostic (TRAIL_TRIGGER_TRACE): previous tick's ultra-state candidates, edge-logged the
+        // same way and for the same reason as the colour above -- an ultra hop's window is short
+        // enough that a periodic sample could miss it. Question being answered: which field (if
+        // any) actually marks a perfect-timing ultra, since afterimageColor was proven NOT to carry
+        // the blue (verified.md). animJumpType is included deliberately even though this adapter
+        // ALREADY syncs it (target_anim_jump_type) -- an earlier capture showed it reading 13 on one
+        // jump vs 11 on normal ones, and if that turns out to be the ultra marker then the ghost is
+        // already receiving it and the blue's absence has a different cause again.
+        bool prev_ultra_cap{false};
+        double prev_full_ultra_modifier{-1.0};
+        double prev_capped_ultra_modifier{-1.0};
+        int32_t prev_anim_jump_type{-1};
+
+        // Diagnostic (WALLRIDE_TRACE): previous tick's cling-gem/wall-ride state, edge-logged.
+        // Purpose is the precondition question, not the trigger question: enabling ghost collision
+        // did NOT make the cling-gem VFX appear (expected -- the ghost's wall-run logic never runs
+        // without input), so before calling doWallRun on the ghost this needs to establish WHICH
+        // state that logic reads and what it looks like during a real wall ride, per the
+        // precondition clause in ideas.md that the recall-glow failure established.
+        bool prev_wallride_button_held{false};
+        bool prev_can_wall_run{false};
+        int32_t prev_current_wall_run_clings{-1};
+        bool prev_wallride_vfx_valid{false};
+
         bool unreal_ready{false};
         uint64_t tick_count{0};
         uint64_t ticks_since_ready{0};
@@ -264,6 +396,17 @@ namespace MeshGhostPseudo
         RC::Unreal::UFunction* svtwb_function{nullptr}; // cached "SetViewTargetWithBlend", found once
         RC::Unreal::AActor* last_known_good_view_target{nullptr};
         bool any_ghost_ever_spawned{false};
+
+        // DO NOT re-add UFunction hooks on 'Spawn After Image'/'spawnNumAfterimages' -- tried
+        // 2026-08-15 and it CRASHED the game (see verified.md's "trail-VFX UFunction hook crash"
+        // entry and agent_docs/pitfalls.md). Both hooks registered successfully (real callback IDs
+        // logged) but fired ZERO times across ~18s of real play, then the game hit a Fatal error
+        // with nothing logged. Root cause: UE4SS's RegisterPre/PostHook works by swapping the
+        // UFunction's own function pointer, which is safe for NATIVE functions (what the
+        // SetViewTargetWithBlend camera hook below targets -- see register_camera_fightback_hook's
+        // comment) but these two are BLUEPRINT functions, whose pointer is the shared
+        // ProcessInternal bytecode entry -- swapping it both failed to intercept and corrupted
+        // execution. The trail trigger stays on polled actionState instead (afterimage_count).
 
         // Callback/hook IDs, captured so ~Plugin can unregister them explicitly on mod
         // unload/reload -- found in a review pass: previously discarded, leaving every

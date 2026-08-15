@@ -37,6 +37,10 @@ package cut 2026-08-13, marked experimental/pre-release pending 7.7. See
   syncs today, plus a map from every in-game ability to the internal field names behind it,
   found via a real reflection dump.
 
+## Custom features
+Outfit/cosume mod support, if you have the same mod installed as another player it will get synced for you
+
+
 ## How this adapter was built
 
 Third game, and by far the hardest so far: roughly 15-20 hours in and still not fully done

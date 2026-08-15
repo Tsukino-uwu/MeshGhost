@@ -514,6 +514,174 @@ protocol above is actually run and watched.
    project already has (`contract.md`'s Limits section) — not raised as a critique of their
    project, just not a place to look for ideas.
 
+2. **Sync the trail (afterimage) color.** Raised by the user (2026-08-15) while investigating the
+   base slide/ultra-hop trail effect itself (see `PLAYER_FIELDS.md`'s trail-VFX entry —
+   `Spawn After Image(Duration: float)` found on the pawn, base trail sync not yet built).
+   **Rescoped 2026-08-15, same day**: originally thought this needed reflecting into a
+   third-party mod's own class (the
+   [attire-ui-overhaul](https://github.com/pseudoregalia-modding/attire-ui-overhaul) mod exposes
+   an in-game color picker for it, `UI_DashColourSelector`/`DashDataLib` — see `licensing.md`),
+   but strings-scanning that mod's own `.uasset` binaries (facts-only, per its "no license"
+   posture in `licensing.md`) showed its `SetDashColour`/`SetRandomDashColour` functions cast the
+   player to `BP_PlayerGoatMain_C` — the exact same base-game pawn class this adapter already
+   reflects — and write to a field it calls `afterimageColor`. **Confirmed live the same session**:
+   `afterimageColor` (a `StructProperty`, almost certainly `FLinearColor`) is genuinely present in
+   this session's own `OBJECT_REFLECTION_DUMP` capture, on the local pawn. So this is **not**
+   third-party-mod-dependent state after all — it's a plain first-party pawn property, syncable
+   the same shape as `weaponEquipped?` (read `FLinearColor`, send, apply to the ghost's own pawn),
+   with zero dependency on the other player having that color-picker mod installed; a default
+   color presumably exists even without it. Still genuinely blocked on the base trail effect
+   (`Spawn After Image`) actually working on the ghost first, and the exact `FLinearColor` value
+   hasn't been read live yet (property confirmed to exist, not confirmed to read/write correctly)
+   — not investigated further, not scheduled.
+
+3. **Design principle: let the ghost's own pawn logic do the work; only trigger it.** Raised by the
+   user 2026-08-15 after the trail-VFX saga: "we are literally using the player model that is able
+   to do everything ... we just need to allow things to start/actually trigger and it should already
+   be doing everything else on its own." This is well-grounded, not speculative — the Pseudoregalia
+   ghost is a real `BP_PlayerGoatMain_C` instance (`SPAWN_BASED_GHOSTS`), so it carries the full
+   AnimBP, movement component, ability logic, and VFX systems the real player has.
+
+   **Direct evidence it's already true**: the Dream Breaker weapon-visibility saga
+   (`verified.md`, five entries) ended with the finding that the ghost had been matching weapon
+   *and* outfit state correctly since spawning was first built, **before any sync code for either
+   existed** — because it's constructed from the same class reading the same local save data. Five
+   fix attempts chased a sync path that was never the lever. The camera fight-back and the
+   deliberate collision disable are the same fact seen from the other side: those exist precisely
+   *because* the ghost is fully alive and does everything a player pawn does unless stopped.
+
+   **The boundary that makes this a principle rather than a blanket rule: cosmetic/animation
+   systems yes, movement authority no.** The ghost's position must come from the network, so
+   anything that starts its own movement logic puts it in a fight with the per-tick position
+   writes — the exact class of bug `register_camera_fightback_hook` exists to solve. So: prefer
+   triggering the pawn's own system over reimplementing its behavior, but never hand it authority
+   over where it is.
+
+   **SILENCE CLAUSE, 2026-08-15**: triggering the pawn's own systems gets you its AUDIO for free
+   too, whether you want it or not — and you generally don't. The cling-gem trigger started a
+   looping wall-ride sound on the ghost that kept playing after the peer left the wall. User's
+   call, and it matches the project's own premise (MeshGhost is a *visual*-only layer): **ghosts
+   should be silent.** A peer's ability sounds coming from across the room are noise, and they
+   multiply with player count. Suppress the audio component immediately after the call that starts
+   it, not on the way out, so it never becomes audible. Applies to every future ability trigger,
+   not just this one.
+
+   **PRECONDITION CLAUSE, learned the hard way 2026-08-15** — this principle is not unconditional.
+   Triggering the pawn's own system only works when that system's own preconditions are satisfied
+   by state we can actually write. The afterimage trail worked because its only precondition was
+   `afterImagesToSpawn`, a plain int. The empty-hand recall glow (`manageRecallIdleFX`) failed
+   live: its internal `IsValid` guards most plausibly require `weaponRef`, a reference to the real
+   thrown-weapon *actor*, which the ghost has no equivalent of. Cling-gem is expected to fail the
+   same structural way (`wallRideHit` needs real geometry contact; the ghost's collision is
+   deliberately disabled). **So the useful triage question is not "which function do I call?" but
+   "what state does that function read, and can I write it?"** See `verified.md`'s
+   "`manageRecallIdleFX`: NEGATIVE" entry.
+
+   **Where this would concretely apply next** (none scheduled): (a) the trail-VFX trigger's
+   turn-around false positive — a heuristic guess at *when* to fire disappears by construction if
+   the pawn's own ability start is what fires it, though the movement-authority tension above has
+   to be solved first; (b) trail color (item 2 above) may partly self-solve, since a spawn-time
+   clone would already carry the *local* player's chosen color — correct whenever both players use
+   the default, wrong only when they differ, which is cheap to check live before building sync;
+   (c) any future ability VFX (cling-gem sparkle, empty-hand glow) should start by asking "what
+   does the pawn already do on its own, and what minimal trigger starts it?" before writing
+   mirroring code. **Caveat worth carrying**: `agent_docs/verified.md`'s "trail-VFX UFunction hook"
+   entry is a real limit on how this can be implemented — Blueprint-function hooks crash this
+   build, so "trigger the pawn's own system" has to be done via property writes or direct
+   `ProcessEvent` calls, not by intercepting the game's own calls.
+
+4. **Custom feature: per-peer distinct ghost trail colours.** User's own idea (2026-08-15), raised
+   the moment the trail-colour write was confirmed working: since `afterimageColor` can be written
+   to any arbitrary value on a ghost (proven live — a forced magenta trail rendered correctly while
+   the real player's stayed yellow, see `verified.md`), MeshGhost could deliberately assign each
+   remote peer its own distinct trail colour so players are visually tellable apart at a glance in
+   a multi-peer room.
+
+   **Why this is cheap**: the whole mechanism already exists and is confirmed — the diagnostic
+   override built to prove the write path (`AFTERIMAGE_COLOR_TEST_OVERRIDE`) is essentially this
+   feature already, just with one hardcoded colour instead of a per-peer one. The remaining work is
+   deciding *where the colour comes from*, not whether it can be applied.
+
+   **Design tension to settle first, because it cuts against the project's core contract**:
+   MeshGhost's whole premise is showing what the other player *actually* looks like — a deliberately
+   wrong colour is the opposite of faithful mirroring. So this should be an explicit opt-in, not a
+   default, and the natural shape is a config toggle ("distinguish peers by colour") that overrides
+   the synced value only when enabled. Related open question: whether the colour is picked locally
+   (each client colours its own ghosts, so two players disagree about who is which colour) or
+   assigned by the relay (consistent for everyone, but that's identity data the relay doesn't carry
+   today — the same gap `nameplates` hits, see the TEVI section's item 3).
+
+   **Sits alongside the existing "worth stealing" note** about `pseudoregalia-multiplayer`'s
+   per-player configurable ghost colour + nametag (item 1 above) — that project chose per-player
+   colour as a real feature, which is independent corroboration this is worth having. Not scheduled.
+
+5. **Custom feature: ghost collision as an opt-in "accidental PvP" toggle.** User's idea
+   (2026-08-15) after re-enabling `GHOST_COLLISION_ENABLED` for the cling-gem investigation and
+   finding it well-behaved in practice — "its not pushing/pulling me, I think we can actually leave
+   it on as a feature, intentional optional pvp~ kinda". Fits MeshGhost's cosmetic-first premise
+   surprisingly well: the ghost doesn't push the player around, so enabling collision adds a
+   playful physical presence without breaking anyone's run by shoving them off a ledge.
+
+   **DECIDED 2026-08-15: kept ON.** `GHOST_COLLISION_ENABLED = true` is now a deliberate feature,
+   not a test flag — the user's call, on the reasoning that co-op players won't swing at each other
+   by accident and the added physicality is worth it.
+
+   **Accepted residual risk, NOT fixed — and one fix attempt has already FAILED**: the 2026-08-13
+   melee-death bug is unchanged. Setting `bCanBeDamaged = false` on the ghost was tried 2026-08-15
+   and did not stop it, despite the write provably landing (see `verified.md`) — this game's melee
+   doesn't use UE's standard damage path, so the engine-level gate has no authority over it. A real
+   fix must target whatever bespoke overlap/trace check the game's melee actually runs, which is
+   still unidentified. Deliberate player-on-ghost melee is judged an acceptable, unlikely footgun. **The genuinely untested vector is non-player damage**:
+   an enemy attack, AoE, or environmental hazard hitting the ghost was never tried, and the ghost
+   stands in the world where enemies fight. If a player ever dies for no visible reason near a
+   ghost, this is the first thing to check. The real fix, if it's ever wanted, is making the ghost
+   collidable-but-unhittable — no response on whatever channel the damage/weapon trace queries
+   (still unidentified per `GHOST_COLLISION_ENABLED`'s own comment).
+
+   **Found dangerous, then FIXED, 2026-08-15 — the feature now stands on its own.** The untested
+   vector flagged here (enemy damage) turned out to be real and run-ending: an enemy hitting a ghost
+   hurt and could kill the real player, during ordinary play, with no visible cause. Fixed by
+   changing the ghost capsule's collision OBJECT TYPE to `ECC_WorldDynamic` instead of `ECC_Pawn`,
+   so enemy targeting (which queries the Pawn channel) never sees it. **Confirmed live: the ghost
+   takes no enemy damage and can physically shove enemies around** — the physical presence that
+   made this worth having is fully intact. Remaining and unchanged: a player can still deliberately
+   attack a ghost and take damage, which is the controllable footgun already judged acceptable. See
+   `verified.md`'s enemy-damage entry, including the fallback (`activateGuardFrames`) if the
+   player-melee case is ever worth closing too.
+
+   **PARTLY ANSWERED 2026-08-15, and the answer is bad**: the concern below was tested by setting
+   `LOOPBACK_GHOST_OFFSET_X` to 0 so the ghost overlapped the player. It **immediately reproduced
+   the original Phase 7.4 drag/pull bug** — the ghost physically shoves the real player around.
+   User: "its dragging/pulling me ... unsafe/should never be enabled." Reverted at once.
+
+   **IMPORTANT SCOPING CORRECTION, same day** — an earlier version of this entry concluded from
+   that test that "real peers will shove each other," which **overstated it**. The user's push-back
+   was correct: loopback-with-zero-offset is a *pathological* case, not a representative one. The
+   ghost is teleported to the player's EXACT position every tick, so the physics engine can never
+   resolve the overlap and keeps re-resolving it frame after frame — that is what produces the
+   violent continuous drag. Two real peers would at worst partially overlap occasionally and be
+   pushed apart once, which is ordinary multiplayer behaviour, not a bug.
+
+   **What remains genuinely unknown** (much narrower than the original claim): whether occasional
+   real-peer contact — landing on someone, or crowding the same ledge — pushes hard enough to
+   matter in a precision platformer. That is a judgement call needing a real two-player test, not a
+   loopback one, and it is *not* a reason to hold the feature by itself. If it ever does prove to
+   be a problem, the fix direction is making the ghost block the world but NOT the player's own
+   capsule — the reverse of the original `SetCollisionResponseToChannel(Pawn, Block)` attempt,
+   which was trying to make it MORE solid to pawns.
+
+   **Standing rule from this**: never test collision behaviour with `LOOPBACK_GHOST_OFFSET_X = 0`.
+   It reproduces the Phase 7.4 drag bug by construction and tells you nothing about real peers.
+
+   **USER'S POSITION, 2026-08-15 — decision deliberately DEFERRED, feature not axed**: "a small
+   push/actual collision between players and ghosts might be fine. but this does need proper 2 real
+   players/online testing before i say yay/nay about axing the collision feature itself." So the
+   feature stays ON as-is for now, and the yes/no decision is explicitly gated on a real
+   two-player session — **not** on any further loopback result, which cannot answer it. This makes
+   Phase 7.7 (the never-yet-run real two-player test, see `status.md`) the blocking item for this
+   feature, alongside everything else it already gates. Do not re-open this question from loopback
+   evidence.
+
 ## Links
 
 - `agent_docs/plans.md` — the roadmap; move an idea here (with a phase number) once it's picked.
