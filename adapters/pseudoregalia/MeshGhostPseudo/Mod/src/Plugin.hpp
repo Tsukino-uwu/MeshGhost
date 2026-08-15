@@ -114,6 +114,79 @@ namespace MeshGhostPseudo
         std::string last_failed_outfit_mesh;
         uint64_t last_outfit_attempt_tick{0};
 
+        // Thrown Dream Breaker, added 2026-08-15 after the WEAPON_ACTOR_TRACE capture (see that
+        // flag in Plugin.cpp, and verified.md). Everything else in this struct mirrors a state OF
+        // the peer's character; this is the first thing that mirrors a SEPARATE world object.
+        //
+        // Measured lifecycle, which is what makes this tractable: a throw spawns a fresh
+        // BP_looseWeapon_C actor and points the pawn's `weaponRef` at it; the actor flies a
+        // ~2s ballistic arc under the engine's own ProjectileMovementComponent, bounces, comes to
+        // rest, and on pickup is NOT destroyed but parked at world origin with `weaponRef` left
+        // pointing at it. So "in hand" is the peer's own transform reading (0,0,0), and the whole
+        // visual -- flight, wall bounces, resting pose -- is carried by position+rotation alone,
+        // with no physics to reproduce on this side.
+        //
+        // weapon_actor is our own spawned copy, one per remote, reused across that peer's throws
+        // and parked at DESPAWN_PARK_Z (never destroyed) whenever the peer's sword is in hand --
+        // the same lifetime rule release_ghost applies to the ghost pawn itself, for the same
+        // reason. Its collision is disabled at spawn: the real BP carries a `PlayerPickup` box,
+        // so a collidable copy would let the local player walk into a peer's phantom sword and
+        // actually pick it up, which is a game-state effect and outside this project's
+        // visual-only posture.
+        RC::Unreal::AActor* weapon_actor{nullptr};
+        RC::Unreal::UWorld* weapon_actor_world{nullptr};
+        bool target_weapon_thrown{false};
+        std::string target_weapon_class;
+        double target_weapon_x{}, target_weapon_y{}, target_weapon_z{};
+        double target_weapon_pitch{}, target_weapon_yaw{}, target_weapon_roll{};
+
+        // The peer's weaponState. Measured 2026-08-15: the real sword steps 0 -> 3 the moment it
+        // lands, identically across five consecutive throws, and that state -- not any mesh offset
+        // -- is what makes a landed sword read as resting on the floor rather than hanging in the
+        // air. Our prop has collision off and is teleported rather than simulated, so it never
+        // touches the ground and never runs the transition itself; mirroring the peer's value is
+        // what stands in for the landing it never has.
+        //
+        // Edge-gated by last_synced_weapon_state, and for a sharper reason than saving work: the
+        // Dream Breaker visibility bug was caused by calling a game transition function on every
+        // tick, so by the time it ran on a real change its own "did this actually change?" check
+        // saw nothing to do. Calling only on a real edge is the shape that fixed that.
+        double target_weapon_state{};
+        double last_synced_weapon_state{-1.0}; // -1 = nothing synced yet, outside any real state
+
+        // The landed sword's glow ring. Sent as the NiagaraSystem asset's own object path, read off
+        // the peer's real sword rather than hardcoded, so a build or mod with a different effect
+        // still resolves. weapon_glow_component is our spawned copy: it lives and dies with the
+        // prop (the prop is destroyed per throw), so it only needs clearing alongside it.
+        std::string target_weapon_glow;
+        RC::Unreal::UObject* weapon_glow_component{nullptr};
+
+        // Smoothed render position for the above. Needed because `extras` is NOT interpolated by
+        // the core -- internal/core/interp.go interpolates `position` only and holds every extras
+        // field from the older bracketing snapshot -- so these targets arrive in 20Hz steps while
+        // the redraw loop runs at ~150Hz. Replaying them raw would render the measured smooth arc
+        // as a visible ~15-unit-per-step stutter. Exponential smoothing toward the target is used
+        // rather than a second interpolation buffer, deliberately: a real buffer here would be
+        // duplicating the core's one genuinely reusable hard part into an adapter, which is the
+        // exact leak agent_docs/contract.md's tick model exists to prevent.
+        double render_weapon_x{}, render_weapon_y{}, render_weapon_z{};
+        bool weapon_render_primed{false};
+
+        // What we actually wrote to the prop last frame, kept solely so the NEXT frame can read the
+        // actor's location BEFORE writing again and see whether anything moved it in between.
+        // Exists because the original sinking diagnostic had a blind spot: it read the location
+        // back immediately after our own write, which proves the write landed but cannot detect
+        // drift applied between frames -- it would report "rock steady" in exactly the case where
+        // something else drags the sword down every frame and we snap it back.
+        double last_written_weapon_x{}, last_written_weapon_y{}, last_written_weapon_z{};
+        bool weapon_write_recorded{false};
+
+        // Retry throttle for resolving the peer's weapon class, same shape and same reason as
+        // last_failed_outfit_mesh above: a peer whose weapon class doesn't resolve locally must
+        // not re-attempt (and re-log) every single tick forever.
+        std::string last_failed_weapon_class;
+        uint64_t last_weapon_spawn_attempt_tick{0};
+
         // Montage mirror, added 2026-08-15 to fix the Dream Breaker THROW animation. Live capture
         // (verified.md / phase7.md) proved the throw is an Anim Montage
         // (dreamLady_WeaponThrow_Montage) and NOT any state-machine value this adapter mirrors --
@@ -298,6 +371,12 @@ namespace MeshGhostPseudo
         // level transition destroys it out from under us anyway (confirmed live, Lua saga), so by
         // the time this runs there is nothing left to destroy either way -- see the staleness
         // check in game_thread_tick, which is what actually detects and clears a dead ghost.
+        // Renders one remote's thrown Dream Breaker -- spawn/park/move of the peer's loose-weapon
+        // prop. Split out of the redraw loop rather than inlined because it owns a second actor
+        // with its own independent lifetime, staleness and smoothing state; see
+        // RemoteGhost::weapon_actor.
+        auto tick_remote_weapon(const std::string& player_id, RemoteGhost& remote, RC::Unreal::UWorld* current_world) -> void;
+
         auto release_ghost(const std::string& player_id) -> void;
         auto release_all_ghosts(const wchar_t* reason) -> void;
 
@@ -537,6 +616,33 @@ namespace MeshGhostPseudo
         bool prev_can_wall_run{false};
         int32_t prev_current_wall_run_clings{-1};
         bool prev_wallride_vfx_valid{false};
+
+        // Diagnostic (WEAPON_ACTOR_TRACE): thrown-Dream-Breaker tracking. See that flag's own
+        // comment in Plugin.cpp for what each of these is measuring and why the existing record on
+        // `weaponRef` can't be trusted without it.
+        //
+        // prev_weapon_ref holds the raw pointer purely to compare identity against the next tick's
+        // value -- it is never dereferenced after the tick that stored it, so a destroyed thrown
+        // weapon (the case this whole capture is about) can't be followed into freed memory. The
+        // last-logged transform is kept as plain doubles for the same reason.
+        RC::Unreal::UObject* prev_weapon_ref{nullptr};
+        bool weapon_ref_value_dumped{false};
+        bool prev_weapon_equipped_for_actor_trace{true};
+        uint64_t weapon_actor_sweep_due_tick{0}; // 0 = no sweep pending
+        double weapon_actor_last_logged_x{0.0}, weapon_actor_last_logged_y{0.0}, weapon_actor_last_logged_z{0.0};
+        bool weapon_actor_transform_logged{false};
+
+        // Diagnostic (WEAPON_LANDING_TRACE): previous values on the LOCAL player's own thrown
+        // weapon, so a landing edge-logs once instead of sampling. -1/-2 sentinels mean "nothing
+        // read yet" and are outside any real byte value, so the first real read always logs.
+        // One-shot latch for the same trace's function/property dump of the real thrown weapon --
+        // fires once per session, not once per throw.
+        bool weapon_landing_reflection_dumped{false};
+        // One-shot latch for dumping the real landed sword's idleGlowVFX component.
+        bool weapon_glow_dumped{false};
+        int32_t prev_local_weapon_state{-1};
+        int32_t prev_local_weapon_embedded{-1};
+        double prev_local_weapon_mesh_offset[3]{-99999.0, -99999.0, -99999.0};
 
         bool unreal_ready{false};
         uint64_t tick_count{0};

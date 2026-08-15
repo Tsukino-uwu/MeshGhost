@@ -3916,3 +3916,62 @@ Copy this block per fact:
   confirmed this is the intended way to use it — smoothing/rate is tuned in `config.json`, the
   same knob a real session uses. Don't "fix" that difference by adding `-send-hz` back to the
   script; see `dev-scripts/README.md`'s entry for the full reasoning.
+
+### Pseudoregalia thrown Dream Breaker: full hand → flight → bounce → ground sync, CONFIRMED LIVE
+
+- Date: 2026-08-15
+- Closes `ideas.md`'s Pseudoregalia idea 0 at its **full** scope (continuous flight sync), not the
+  MVP cut point it also described. The user watched flight, wall bounces, the resting sword and its
+  glow ring on a ghost.
+- **The thrown sword is a separate actor**, `/Game/ThirdPerson/Player/BP_looseWeapon.BP_looseWeapon_C`,
+  freshly spawned per throw. The pawn's `weaponRef` points at it.
+- **The two prior contradictory notes on `weaponRef` are both explained and now resolved.** It does
+  NOT go null on pickup — the game parks the picked-up weapon at world origin and leaves `weaponRef`
+  pointing at it. So "in hand" reads as a transform of `(0,0,0)`, and `ideas.md`'s "non-null only
+  while thrown" was wrong while the throw-animation entry's "non-null while in hand" was right.
+  Thrown is derived from three things together: actor exists, `weaponEquipped?` false, and the
+  transform is not at origin.
+- **Flight needs no physics reproduction.** A throw is a ~2s ballistic arc sampled at ~150Hz;
+  position + rotation replayed on a copy reproduces bounces too, since the peer's own
+  `ProjectileMovementComponent` already resolved them. Smoothing is exponential (25%/frame) with a
+  400-unit snap, because `extras` is never interpolated by the core (`internal/core/interp.go`).
+- **Resting pose = `weaponState`, measured 0 → 3 on touchdown, identical across five throws.**
+  `isEmbedded?` never changes and the mesh's `RelativeLocation` is bit-identical in flight and at
+  rest — so this was NOT the slide floor-sinking bug's mesh-offset shape, despite looking like it.
+  Driven on the ghost by the class's own `Change Weapon State` (one byte, parameter resolved by
+  reflection as `weaponState`), called BEFORE the raw property write per the Dream Breaker
+  visibility fix's ordering lesson.
+- **The "sinking while embedded" bug was gravity, and two fixes failed before it was measured.**
+  A mesh-offset theory and `SetSimulatePhysics(false)` both failed with the identical symptom. Root
+  cause: the diagnostic itself was reading the position back *immediately after our own write*,
+  which proves the write landed but structurally cannot see drift applied between frames. Reading
+  it BEFORE each write showed the actor sitting further below the previous frame's written value
+  every sample (−7.5, −8.6 … −13.1 units, growing linearly ≈ 850 units/s²). The prop's own
+  `ProjectileMovementComponent` integrates velocity, which is why disabling *physics simulation*
+  changed nothing. Fixed by `Deactivate` on that component plus zeroing its `Velocity` and
+  `ProjectileGravityScale`.
+- **Cross-throw accumulation fixed separately** by destroying the prop on pickup (`K2_DestroyActor`,
+  real on this class) and spawning a fresh one per throw, matching what the game itself does.
+- **The glow ring is a `NiagaraComponent` running `/Game/VFX/Emitters/NS_WeaponIdle`**, created by
+  the real sword on landing. `Change Weapon State` provably does NOT create it (our prop's
+  `idleGlowVFX` stayed null across every state call), and `checkForValidLandingPoint` is
+  flight-path prediction whose entire parameter list is Blueprint compiler temporaries and which
+  line-traces against collision the prop deliberately lacks. With no in-game trigger left to
+  borrow, it is spawned directly via `NiagaraFunctionLibrary:SpawnSystemAttached`, with the asset
+  path read live off the peer's `idleGlowVFX.Asset` rather than hardcoded.
+- **Collision is disabled on the prop and that is required, not cautious**: `BP_looseWeapon_C`
+  carries a `PlayerPickup` box, so a collidable copy would let the local player pick up a peer's
+  phantom sword — a game-state effect, outside this project's visual-only posture.
+- **Caution recorded**: the stock engine bool block in this actor's property dump is unreliable —
+  `bHidden`, `bActorIsBeingDestroyed` and `bIsEditorOnlyActor` all read `true` on a live, working
+  actor in a shipping build. UE packs them into a bitfield and the byte-wide read returns true for
+  any non-zero byte. Blueprint-defined bools (`isEmbedded?`, `hasLight?`) are separate properties
+  and read correctly.
+- **Not judgeable in loopback**: a sword thrown at the save crystal behaves oddly, which is
+  expected — the ghost is offset 150 units sideways, so its arc is computed against geometry that
+  isn't where the ghost is. Same artifact already recorded for pole climbing; needs a real second
+  player.
+- Source: `UE4SS.log` 2026-08-15 sessions (`WEAPONACTOR`, `WEAPONLAND`, `WEAPONPROP` traces, the
+  thrown-weapon and `idleGlowVFX` dumps); user's direct visual confirmation for every visible
+  claim. Code: `Plugin.cpp`'s `tick_remote_weapon`, `call_change_weapon_state`,
+  `stop_projectile_movement`, `spawn_niagara_attached`, and `RemoteGhost::weapon_actor`.

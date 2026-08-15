@@ -385,47 +385,14 @@ protocol above is actually run and watched.
 
 ## Pseudoregalia
 
-0. **Fully visually track the thrown Dream Breaker, hand → flight → ground → pickup.** Saved for
-   later while the Dream Breaker held/holstered visibility bug was chased first — that bug is now
-   **fixed and confirmed live** (2026-08-15, see `agent_docs/verified.md`'s "Dream Breaker
-   weapon-visibility" entries and `PLAYER_FIELDS.md`), so this idea is unblocked, still unscheduled.
-   Real lead: `weaponRef` (an `ObjectProperty` on the pawn, distinct from `WeaponMesh`) goes non-null
-   specifically while the weapon is thrown/in-flight and null while held or holstered — found via
-   `WEAPON_SYNC_TRACE` (`agent_docs/verified.md`). A screenshot from the same session shows the
-   thrown weapon as a real, distinct object standing in the world, not attached to any character.
+0. **~~Fully visually track the thrown Dream Breaker, hand → flight → ground → pickup.~~ DONE
+   2026-08-15 — built and confirmed live at the FULL scope**, not the MVP cut point this entry also
+   offered: continuous position/rotation sync through flight and wall bounces, the resting pose, and
+   the landed sword's glow ring. See `agent_docs/verified.md`'s "thrown Dream Breaker" entry for the
+   measurements and the two wrong turns, and `PLAYER_FIELDS.md` for the fields involved. Kept here
+   as a pointer only; the open follow-on is the empty-hand recall glow (item below), whose blocked
+   precondition — a real thrown-weapon actor on the ghost — this work now provides.
 
-   **User's own explanation of the real mechanic (2026-08-15), scopes this out further than the
-   original note:** the weapon is a real physics object once thrown — it visibly bounces off
-   walls, can be caught out of the air if the player is positioned right, otherwise lands and sits
-   on the ground until walked into (auto-pickup on contact), and separately, an un-recovered thrown
-   weapon can be "respawned" back into hand — so a player can never be permanently disarmed. Full
-   fidelity would mean tracking through every one of these states: in-hand, mid-throw/bouncing,
-   resting on the ground, and picked back up — not just "is it in hand," which is what the current
-   held/holstered chase covers. User's own framing: "it would be fun to fully track the sword
-   visually from when its in the hand, to being thrown, while its in the air/hitting a wall or just
-   going straight to the ground, and while its sitting on the ground, and ofc later getting picked
-   up."
-
-   **Not high priority right now, and doesn't need to be built all at once — user explicitly
-   scoped a staged approach (2026-08-15):** a minimum version is just "show/hide the sword in
-   hand" plus "show it resting on the ground where it landed" — full in-flight physics tracking
-   (bouncing, catching mid-air) is real, but a "cool later" extension on top, not a prerequisite.
-   So this idea has two real cut points, not one all-or-nothing scope:
-   - **MVP**: sync whether the weapon is in-hand (the existing held/holstered chase already covers
-     this) plus a single static position/rotation snapshot for "resting on the ground" once
-     thrown-and-landed — no physics simulation on the ghost side, just two more discrete visual
-     states layered onto the same mirroring pattern already used for movement/animation.
-   - **Full version**: continuous position sync through the whole flight/bounce arc, matching the
-     user's original framing (hand → flight → wall bounces → ground → pickup) — genuinely closer
-     in shape to a small physics-object sync than a simple property mirror, and real added scope
-     over the MVP, not just "the same thing but more polished."
-
-   Scope, once picked up (either version): read `weaponRef`'s target object (position, rotation,
-   class, mesh) on the local player while non-null, sync it as new packet/extras data, and
-   spawn/position an equivalent visible prop on the ghost side. Likely more tractable than the
-   held/holstered toggle in the sense that it's "sync a new world object" rather than "find the one
-   right property/function on an existing one" (three real negative results so far on that front —
-   `verified.md`), but still real scope, not a quick follow-on — and not scheduled.
 
 1. **Reference project compared: [pseudoregalia-multiplayer](https://github.com/highrow623/pseudoregalia-multiplayer)
    (`highrow623`), MIT-licensed** (license confirmed 2026-08-14, source read 2026-08-15 — see

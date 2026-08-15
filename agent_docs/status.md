@@ -31,16 +31,24 @@ Fixed-and-confirmed work is not listed here — see `verified.md` and the phase 
 - **Pseudoregalia: pole rotation** — the transform sync is PROVEN exact (2469 samples, zero
   mismatch); the apparent bug is very likely the loopback offset placing the ghost beside the pole
   rather than on it. Needs a real second player to confirm, not more diagnostics. See `verified.md`.
-- **Pseudoregalia: empty-hand recall glow** — blocked on a *precondition* (a real thrown-weapon
-  actor for `manageRecallIdleFX`'s `IsValid` guards), not on finding the function. Read
-  `verified.md`'s "`manageRecallIdleFX`: NEGATIVE" entry, plus the montage fix's lesson: a game
-  wrapper that no-ops on a ghost may still work via the stock engine call underneath it.
+- **Pseudoregalia: empty-hand recall glow — the precondition is now MET, retry it.** It was never
+  blocked on finding the function: `manageRecallIdleFX`'s `IsValid` guards most plausibly want a
+  real thrown-weapon actor, and the ghost had none. The thrown-Dream-Breaker sync (done and
+  confirmed live 2026-08-15) now spawns exactly that. Retry by pointing the ghost pawn's own
+  `weaponRef` at its prop before calling, or by spawning the Niagara system directly the way the
+  landed sword's glow now does. Read `verified.md`'s "`manageRecallIdleFX`: NEGATIVE" entry first,
+  plus the montage fix's lesson: a game wrapper that no-ops on a ghost may still work via the stock
+  engine call underneath it.
 - **Pseudoregalia: ultra hop's BLUE trail — PARKED with evidence.** Not `afterimageColor`,
   not `ultraCap`/`fullUltraModifier`/`cappedUltraModifier`/`animJumpType`. Not derivable
   from polled state; do not resume by guessing more property names. Re-checked 2026-08-15
   against `attire-ui-overhaul`: its dash-colour feature knows only `afterimageColor` and has
   no ultra/blue concept at all, so that mod is not a lead either (`verified.md`).
 - **Pseudoregalia: a `Fatal Error!` crash on game exit**, seen once, never root-caused.
+- **Pseudoregalia: a ghost's thrown sword near the save crystal looks wrong in loopback.** Expected,
+  not a bug to chase here: the ghost is offset 150 units sideways, so its arc is computed against
+  geometry that isn't where the ghost is. Same artifact as the pole-rotation item above; needs a
+  real second player to judge.
 - **TEVI: charged-attack VFX missing on the ghost** — animations play, the extra effects
   don't. Not root-caused. See `phase6.md`'s 2026-08-15 entry.
 - **Emerald: surf, Mach/Acro Bike, ledges, Mach Bike rails** — the ghost snaps badly on all

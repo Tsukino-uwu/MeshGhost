@@ -165,6 +165,14 @@ Roughly in order:
     afterimage trail, then an eye-blink timeline. It is neither — the game has its own
     `StartBubbleJumpFlash`, and its own flag saying how long it lasts, so the ghost now asks the
     game instead of counting. Every wrong guess was caught by watching, never by a log. (7.6)
+33. Made the *thrown* sword real on a ghost — flying, bouncing off walls, planted in the ground
+    with its glow. It's a separate actor, so the ghost now spawns its own copy per throw and
+    replays the peer's position; the bounces come free, since the peer's game already worked them
+    out. Collision stays off, or you could walk into a peer's sword and pick it up. (7.6)
+34. Fixed that copy sinking through the floor, after two wrong fixes. The giveaway was that
+    nothing in its position ever changed — because the check was reading the position back right
+    after writing it, which can't see anything that moves between frames. Reading it *before*
+    showed plain gravity: the sword's own movement component, still falling. (7.6)
 
 See [agent_docs/phases/phase7.md](../../agent_docs/phases/phase7.md) for the detailed, dated
 log, and [agent_docs/pitfalls.md](../../agent_docs/pitfalls.md) for the transferable lessons
@@ -175,13 +183,14 @@ bug behind the facing-direction fix).
 
 ### Further work past "good enough"
 
-The ghost passed "good enough" around step 18; steps 19–32 are all polish past that line. Still
+The ghost passed "good enough" around step 18; steps 19–34 are all polish past that line. Still
 open as of 2026-08-15 — [agent_docs/status.md](../../agent_docs/status.md) is the authoritative
 list:
 
 - 7.7 itself, two real players. Also gates the keep-or-axe call on ghost collision.
 - Rotating around a climbing pole. The rotation itself is provably synced; a real second player
   is needed to judge it, since loopback puts the ghost beside the pole rather than on it.
-- The blue ultra-hop trail (step 26) and the empty-hand recall glow (step 28).
+- The blue ultra-hop trail (step 26). The empty-hand recall glow (step 28) is now worth retrying:
+  it needed a real thrown-weapon actor to exist, and step 33 makes one.
 - Ghost vanishes while a peer is on a climbing pole, then returns stuck in a climb pose.
 - A `Fatal Error!` on game exit, seen once, never root-caused.

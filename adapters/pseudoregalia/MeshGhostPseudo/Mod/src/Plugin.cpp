@@ -751,6 +751,145 @@ namespace MeshGhostPseudo
     // from this finding.
     constexpr bool DUMP_VISUALMESH_FUNCTIONS = false;
 
+    // Thrown-Dream-Breaker tracking, started 2026-08-15 (`ideas.md`'s Pseudoregalia idea 0:
+    // "fully visually track the thrown Dream Breaker, hand -> flight -> ground -> pickup").
+    // Everything shipped so far syncs the sword only as a state OF THE CHARACTER -- in hand or
+    // not (`weaponEquipped?`) plus the throw/catch montages. The thrown weapon is a real, separate
+    // world object: it flies, bounces off walls, can be caught mid-air, otherwise lands and sits
+    // there until walked into. None of that is visible on a ghost today, because none of it lives
+    // on the pawn.
+    //
+    // This capture answers the ONE question the whole feature is blocked on, and it is a genuine
+    // contradiction in the existing record rather than an unexplored gap: `ideas.md` says
+    // `weaponRef` goes non-null specifically while the weapon is thrown/in-flight (from
+    // WEAPON_SYNC_TRACE), but `verified.md`'s throw-animation entry records the opposite from a
+    // later capture -- non-null for most of a session INCLUDING while the sword was in hand, and
+    // null once while equipped. Both were incidental observations at a ~2s sampling cadence in
+    // traces built to answer something else, so neither is trustworthy for this. Per CLAUDE.md's
+    // "two guessed fixes failing identically is a signal", the fix is to stop sampling and
+    // measure the field directly, on its own edges:
+    //
+    //   1. **Identity edges, not a cadence.** Logs whenever the OBJECT `weaponRef` points at
+    //      changes (including to/from null), with its class and full name, alongside the current
+    //      `weaponEquipped?`. If a throw allocates a fresh actor, that shows up as a new object
+    //      identity at the exact tick the flag drops -- which a value sampler at 2s intervals
+    //      cannot distinguish from "same object the whole time".
+    //   2. **Is it an actor at all, and does it move?** An object with a reflected `RootComponent`
+    //      is an actor (the reflection-only test this file uses everywhere instead of a raw cast
+    //      on an unknown type). While non-null, its world transform is logged on real MOVEMENT
+    //      (>WEAPON_ACTOR_MOVE_EPSILON units since the last logged sample) plus a slow heartbeat --
+    //      so a flight arc prints as a dense run of samples, a sword resting on the ground prints
+    //      as silence plus its resting position, and "never an actor / never moves" prints as
+    //      neither. That distinction is exactly the MVP-vs-full-version cut point in `ideas.md`.
+    //   3. **A fallback if `weaponRef` is the wrong lever.** On the `weaponEquipped?` true->false
+    //      edge (a real throw), one deferred one-shot sweep of every live actor whose class or
+    //      name looks weapon-ish, so the flying object can be found by world search even if the
+    //      pawn never references it. Deferred by WEAPON_ACTOR_SWEEP_DELAY_TICKS so the sweep runs
+    //      while the sword is actually in the air, not on the frame the throw starts.
+    //   4. **What can we even sync?** One-shot full value dump of the first non-null `weaponRef`,
+    //      the same dump_object_property_values that found `animEquippedWeapon` -- this is what
+    //      says whether the object carries physics/velocity/resting-state fields worth sending, or
+    //      whether position+rotation is the whole story.
+    //
+    // Read-only: this flag spawns nothing, writes nothing, and calls no game function.
+    // Its job is DONE -- the capture ran 2026-08-15 and answered all four questions (see
+    // verified.md's thrown-Dream-Breaker entry); real sync code now exists for what it found.
+    // Left in place rather than deleted: it is the tool for the next question about this actor.
+    constexpr bool WEAPON_ACTOR_TRACE = false;
+
+    // Movement threshold for (2) above, in Unreal units. The point is to separate "in flight"
+    // from "resting on the ground" without drowning the log at this build's ~150Hz tick rate, so
+    // this only has to be above the noise floor of a stationary object, not precise.
+    constexpr double WEAPON_ACTOR_MOVE_EPSILON = 1.0;
+
+    // Ticks after a real throw before the one-shot world sweep in (3) runs -- long enough that the
+    // sword is genuinely airborne rather than still in the throw animation's first frames. ~0.2s
+    // at this build's measured ~150Hz.
+    constexpr uint64_t WEAPON_ACTOR_SWEEP_DELAY_TICKS = 30;
+
+    // First live test of the thrown-sword sync, 2026-08-15: the prop spawns and plays its own spin
+    // animation, but then hangs motionless in mid-air (user screenshot: sword planted vertically,
+    // exactly as it looks when embedded in a wall). It never follows the arc, never parks when the
+    // peer picks their sword back up, and a second throw re-triggers its animation without moving
+    // it. Notably the ghost's *held* sword still shows and hides correctly, so the peer's
+    // weapon-equipped state is arriving fine -- it is specifically the prop that is stuck.
+    //
+    // Three causes would produce that identical symptom, and they need completely different fixes,
+    // so this separates them instead of guessing (CLAUDE.md: isolate by subtraction, one variable
+    // at a time). Each line prints four things side by side:
+    //
+    //   * TARGET    -- what the peer says. If this stops changing, the bug is on the send/parse
+    //                  side and nothing about the prop is at fault.
+    //   * RENDER    -- what the smoother decided to write. If TARGET moves but RENDER doesn't, the
+    //                  smoothing/snap logic is wrong.
+    //   * READBACK  -- the actor's OWN world location, read via K2_GetActorLocation *after* the
+    //                  write. Per CLAUDE.md this is the independent read that actually proves
+    //                  anything: if RENDER moves but READBACK doesn't, our move call is being
+    //                  silently rejected on this actor, and no amount of send-side work fixes it.
+    //   * thrown/isEmbedded?/weaponState -- whether a park was even requested, and whether the
+    //                  prop's own Blueprint logic has decided it embedded itself in the geometry,
+    //                  which is the leading suspect for a write being rejected.
+    //
+    // Read-only apart from the writes tick_remote_weapon already performs.
+    // Flipped back off 2026-08-15, its job done: it found the resting pose (weaponState 0 -> 3),
+    // proved the state setter does NOT spawn the glow, and -- once its own blind spot was fixed by
+    // reading the position BEFORE each write instead of after -- measured the sinking as gravity.
+    constexpr bool WEAPON_PROP_TRACE = false;
+
+    // Why a landed ghost sword floats, 2026-08-15. The sync itself is PROVEN correct for this:
+    // WEAPON_PROP_TRACE showed TARGET/RENDER/READBACK agreeing to a decimal through a whole arc,
+    // and the prop comes to rest at exactly the peer's own resting coordinates and rotation. Yet
+    // the peer's real sword lies on the floor while our copy hovers at that same position.
+    //
+    // Same coordinates + different appearance means the difference is INSIDE the actor, not in the
+    // transform we're syncing -- structurally the same bug as the slide floor-sinking fix
+    // (PLAYER_FIELDS.md): a mesh hangs off its parent at an offset fixed at construction, and it's
+    // the object's own logic -- which a teleported copy never runs, since our prop has collision
+    // off and never actually lands on anything -- that adjusts it. Do NOT "fix" this by nudging
+    // render Z by a guessed constant; the slide fix earned its constant from a measurement, and
+    // the same is required here.
+    //
+    // Three candidate mechanisms, all read off the LOCAL player's own thrown weapon, all logged on
+    // CHANGE so a landing prints a couple of lines rather than a flood:
+    //   * weaponState -- a real ByteProperty on the actor, which reads 0 on our prop the whole
+    //     time. If the real one steps to another value on landing, that's the resting state and
+    //     the fix is to mirror it.
+    //   * isEmbedded? -- a real bool on the actor. Same question; the name suggests it's set when
+    //     the sword plants into geometry.
+    //   * the SkeletalMesh component's own RelativeLocation -- the direct analogue of the slide
+    //     bug. If this shifts on landing, the fix is to mirror the offset itself rather than any
+    //     state flag.
+    // Whichever one moves names the fix; if none move, the cause is somewhere else again and no
+    // guess gets to be spent on it.
+    // Flipped back off 2026-08-15: it answered all three candidates at once -- weaponState carries
+    // the resting pose, isEmbedded? and the mesh offset provably never move, and the glow is a
+    // NiagaraComponent whose asset path is now read live rather than guessed. Kept, not deleted:
+    // it is the tool for the next question about this actor.
+    constexpr bool WEAPON_LANDING_TRACE = false;
+
+    // ~10 lines/sec at this build's measured ~150Hz -- dense enough to see a 2s arc as motion,
+    // sparse enough that the four columns stay readable side by side.
+    constexpr uint64_t WEAPON_PROP_TRACE_INTERVAL_TICKS = 15;
+
+    // Smoothing for a remote's thrown sword -- see RemoteGhost::render_weapon_x for why any is
+    // needed (extras cross the wire at 20Hz and the core never interpolates them, while this
+    // redraw loop runs at ~150Hz). Fraction of the remaining gap closed per redraw tick: covers
+    // most of a 20Hz step within that step's own interval, without the prop visibly trailing the
+    // arc behind where the peer actually threw it.
+    constexpr double WEAPON_SMOOTHING_ALPHA = 0.25;
+
+    // Above this gap, snap instead of smoothing. A throw starts at the peer's hand and a peer can
+    // also cross an area, and easing across either would draw the sword gliding through the level.
+    // Comfortably above a real 20Hz step of the measured arc (~300 units/sec, so ~15 units per
+    // update) and well below a room-scale jump.
+    constexpr double WEAPON_SNAP_DISTANCE = 400.0;
+
+    // The weaponState value a thrown sword takes once it has landed and planted itself. Measured,
+    // not assumed: an edge trace of the real sword showed 0 -> 3 on touchdown, identically across
+    // five consecutive throws, with 0 covering flight. Named rather than left as a bare 3 because
+    // it is now load-bearing in two places (the resting pose and the glow spawn).
+    constexpr int LANDED_WEAPON_STATE = 3;
+
     namespace
     {
         // StringType is std::wstring on this build (confirmed: RE-UE4SS/deps/first/String/
@@ -1832,6 +1971,293 @@ namespace MeshGhostPseudo
         // (visibility + montage) that only fires from real player input today. Signature confirmed
         // via a live dump, same discipline: one bool param, real name 'weaponEquipped?', offset 0
         // -- not assumed from updateWeaponEquip's param name despite the similar shape.
+        // Puts a thrown-weapon prop into a given weaponState. Found by measurement, not by name
+        // guessing: an edge trace of the LOCAL player's real thrown sword showed `weaponState`
+        // stepping 0 -> 3 on landing, identically across five consecutive throws, while
+        // `isEmbedded?` never changed and the mesh's relative offset stayed bit-identical -- so the
+        // resting pose is driven by this state and nothing else this adapter can see. The live
+        // function dump of the same actor then turned up exactly one plausible entry point,
+        // 'Change Weapon State' with a one-byte parameter, which matches a uint8 state enum.
+        //
+        // The parameter is located by enumerating the function's own reflected properties rather
+        // than by assuming a name (its name was never dumped, unlike changeEquippedWeapon's), and
+        // the resolved name is logged once so it stays traceable to the game rather than to a
+        // guess. PropertiesSize is verified as exactly the single byte expected before any call.
+        // Destroys a thrown-weapon prop. Unlike the ghost pawn -- which this file deliberately
+        // never destroys, only parks (see DESPAWN_PARK_Z), because under the hijack design it was
+        // never ours and reflection for K2_DestroyActor wasn't available on it -- this prop IS ours,
+        // spawned by us, and the live function dump of BP_looseWeapon_C lists K2_DestroyActor with
+        // PropertiesSize=0. Returns false if the call isn't available so the caller can fall back
+        // to parking rather than leaking a visible sword.
+        // Stops a component's physics bodies simulating. Built for the "ghost sword sinks while
+        // embedded" bug, whose measurement ruled out every transform explanation: with the sword at
+        // rest the actor's world location and the mesh's RelativeLocation were both provably
+        // constant while it visibly sank. A simulating component explains exactly that pairing --
+        // its physics bodies are driven in world space and the engine stops maintaining the cached
+        // relative transform, so the visual falls while every property we can read stays still. The
+        // real sword is presumably put to rest by the landing it actually performs; ours has
+        // collision off, never lands on anything, and so never stops falling.
+        //
+        // Resolved by name through reflection and logged, never assumed present: if this build
+        // doesn't expose it, that prints once and the accompanying component dump (see
+        // WEAPON_PROP_TRACE's spawn block) is what names the real lever, rather than a second guess.
+        auto call_set_simulate_physics(UObject* component, bool simulate, const wchar_t* label) -> bool
+        {
+            if (!component)
+            {
+                return false;
+            }
+            UFunction* function = component->GetFunctionByNameInChain(STR("SetSimulatePhysics"));
+            if (!function)
+            {
+                Output::send(STR("[MeshGhostPseudo] WEAPONPROP: no reflected 'SetSimulatePhysics' on {} -- see its component dump for what this build actually exposes.\n"), label);
+                return false;
+            }
+            int32_t parms_size = function->GetPropertiesSize();
+            if (parms_size < 1)
+            {
+                Output::send(STR("[MeshGhostPseudo] WARNING: 'SetSimulatePhysics' on {} has an implausibly small PropertiesSize ({}) -- refusing to call it.\n"), label, parms_size);
+                return false;
+            }
+            std::vector<uint8_t> params_buffer(static_cast<size_t>(parms_size), 0);
+            params_buffer[0] = simulate ? 1 : 0;
+            component->ProcessEvent(function, params_buffer.data());
+            Output::send(STR("[MeshGhostPseudo] WEAPONPROP: called SetSimulatePhysics({}) on {}\n"), simulate, label);
+            return true;
+        }
+
+        // Stops a prop's ProjectileMovementComponent driving it. This is the measured cause of the
+        // sinking, not another candidate: with the sword at rest, the actor's position read BEFORE
+        // each frame's write sat further below the previous frame's written value every sample --
+        // -7.5, -8.6, -9.2 ... -13.1 units, growing linearly, which is a constant downward
+        // acceleration of roughly 850 units/s^2. That is gravity, and it is the component's own
+        // velocity integration rather than physics bodies, which is why SetSimulatePhysics(false)
+        // changed nothing. Our per-frame teleport reset the POSITION every frame but never the
+        // accumulated VELOCITY, so each frame it fell further before the screen ever saw it.
+        //
+        // Deactivate stops the component ticking; the velocity and gravity-scale writes afterwards
+        // make sure a component that somehow resumes has nothing left to integrate. Each piece is
+        // resolved by reflection and reported, so a build where one is missing says so rather than
+        // silently doing less than it claims.
+        // Spawns a Niagara system attached to a component, for the landed sword's glow ring.
+        //
+        // Why spawning it ourselves rather than triggering the game's own path: the glow is
+        // measured to be a NiagaraComponent running '/Game/VFX/Emitters/NS_WeaponIdle', created by
+        // the real sword on landing. 'Change Weapon State' is PROVEN not to create it (our prop's
+        // idleGlowVFX stayed null across every 0 -> 3 call), and the other candidate,
+        // 'checkForValidLandingPoint', turned out to be flight-path prediction whose whole
+        // parameter list is Blueprint compiler temporaries -- it line-traces against collision this
+        // prop deliberately doesn't have, so it could never succeed here. There is no remaining
+        // in-game trigger to borrow, which is what makes spawning it directly the right call rather
+        // than the lazy one.
+        //
+        // Self-validating, in the same spirit as call_change_weapon_state: every parameter is
+        // resolved by NAME off the function's own reflection, the complete list is logged once, and
+        // if the essential parameters aren't found it refuses to call rather than firing a
+        // half-filled buffer at a Blueprint-adjacent engine function. A wrong call here is exactly
+        // the class of thing that has crashed this game before.
+        auto spawn_niagara_attached(UObject* system_asset, UObject* attach_component) -> UObject*
+        {
+            if (!system_asset || !attach_component)
+            {
+                return nullptr;
+            }
+            static UFunction* function = UObjectGlobals::StaticFindObject<UFunction*>(
+                nullptr, nullptr, STR("/Script/Niagara.NiagaraFunctionLibrary:SpawnSystemAttached"));
+            static UObject* library_cdo = UObjectGlobals::StaticFindObject<UObject*>(
+                nullptr, nullptr, STR("/Script/Niagara.Default__NiagaraFunctionLibrary"));
+            if (!function || !library_cdo)
+            {
+                static bool warned = false;
+                if (!warned)
+                {
+                    warned = true;
+                    Output::send(STR("[MeshGhostPseudo] WARNING: SpawnSystemAttached={} NiagaraFunctionLibrary CDO={} -- cannot spawn the ghost sword's glow.\n"),
+                                 function ? STR("found") : STR("MISSING"),
+                                 library_cdo ? STR("found") : STR("MISSING"));
+                }
+                return nullptr;
+            }
+
+            const int32_t parms_size = function->GetPropertiesSize();
+            if (parms_size < 1)
+            {
+                return nullptr;
+            }
+            std::vector<uint8_t> params_buffer(static_cast<size_t>(parms_size), 0);
+            bool has_system = false;
+            bool has_attach = false;
+            UObject** return_slot = nullptr;
+
+            static bool logged_params = false;
+            for (FProperty* param : TFieldRange<FProperty>(function, EFieldIterationFlags::None))
+            {
+                if (!param)
+                {
+                    continue;
+                }
+                const StringType param_name = param->GetName();
+                if (!logged_params)
+                {
+                    Output::send(STR("[MeshGhostPseudo] DIAG: SpawnSystemAttached param '{}' ({}) offset={} size={}\n"),
+                                 param_name, param->GetClass().GetName(),
+                                 param->GetOffset_Internal(), param->GetSize());
+                }
+                uint8_t* slot = params_buffer.data() + param->GetOffset_Internal();
+                if (param_name == STR("SystemTemplate"))
+                {
+                    *std::bit_cast<UObject**>(slot) = system_asset;
+                    has_system = true;
+                }
+                else if (param_name == STR("AttachToComponent"))
+                {
+                    *std::bit_cast<UObject**>(slot) = attach_component;
+                    has_attach = true;
+                }
+                else if (param_name == STR("bAutoActivate"))
+                {
+                    // Must be explicit: a zeroed buffer would spawn the system and never play it,
+                    // which would look exactly like this whole feature failing again.
+                    *slot = 1;
+                }
+                else if (param_name == STR("bAutoDestroy"))
+                {
+                    // The component's lifetime is the prop's -- destroying the prop takes it with
+                    // it -- so self-destruction on completion would only risk losing a looping
+                    // idle effect early.
+                    *slot = 0;
+                }
+                else if (param_name == STR("ReturnValue"))
+                {
+                    return_slot = std::bit_cast<UObject**>(slot);
+                }
+                // Every other parameter is deliberately left zeroed: Location/Rotation zero means
+                // "at the attach point", LocationType 0 is KeepRelativeOffset, PoolingMethod 0 is
+                // None, and bPreCullCheck false only means the effect is never culled early.
+            }
+            logged_params = true;
+
+            if (!has_system || !has_attach)
+            {
+                Output::send(STR("[MeshGhostPseudo] WARNING: SpawnSystemAttached is missing SystemTemplate/AttachToComponent by name -- refusing to call it. See the DIAG param list above for this build's real signature.\n"));
+                return nullptr;
+            }
+
+            library_cdo->ProcessEvent(function, params_buffer.data());
+            return return_slot ? *return_slot : nullptr;
+        }
+
+        auto stop_projectile_movement(UObject* prop) -> void
+        {
+            if (!prop)
+            {
+                return;
+            }
+            UObject** pm_ptr = prop->GetValuePtrByPropertyNameInChain<UObject*>(STR("ProjectileMovement"));
+            if (!pm_ptr || !*pm_ptr)
+            {
+                Output::send(STR("[MeshGhostPseudo] WEAPONPROP: prop has no reflected 'ProjectileMovement' -- cannot stop its gravity.\n"));
+                return;
+            }
+            UObject* projectile_movement = *pm_ptr;
+
+            if (UFunction* deactivate = projectile_movement->GetFunctionByNameInChain(STR("Deactivate")))
+            {
+                projectile_movement->ProcessEvent(deactivate, nullptr);
+                Output::send(STR("[MeshGhostPseudo] WEAPONPROP: called Deactivate on prop ProjectileMovement.\n"));
+            }
+            else
+            {
+                Output::send(STR("[MeshGhostPseudo] WARNING: no reflected 'Deactivate' on prop ProjectileMovement -- the prop may still fall.\n"));
+            }
+
+            if (FVector* velocity = projectile_movement->GetValuePtrByPropertyNameInChain<FVector>(STR("Velocity")))
+            {
+                *velocity = FVector(0.0, 0.0, 0.0);
+            }
+            if (float* gravity_scale = projectile_movement->GetValuePtrByPropertyNameInChain<float>(STR("ProjectileGravityScale")))
+            {
+                *gravity_scale = 0.0f;
+            }
+        }
+
+        auto call_destroy_actor(AActor* actor) -> bool
+        {
+            if (!actor)
+            {
+                return false;
+            }
+            UFunction* function = actor->GetFunctionByNameInChain(STR("K2_DestroyActor"));
+            if (!function)
+            {
+                static bool warned = false;
+                if (!warned)
+                {
+                    warned = true;
+                    Output::send(STR("[MeshGhostPseudo] WARNING: no reflected 'K2_DestroyActor' -- thrown-weapon props will be parked instead of destroyed.\n"));
+                }
+                return false;
+            }
+            actor->ProcessEvent(function, nullptr);
+            return true;
+        }
+
+        auto call_change_weapon_state(UObject* weapon_actor, uint8_t new_state) -> void
+        {
+            if (!weapon_actor)
+            {
+                return;
+            }
+            UFunction* function = weapon_actor->GetFunctionByNameInChain(STR("Change Weapon State"));
+            if (!function)
+            {
+                static bool warned = false;
+                if (!warned)
+                {
+                    warned = true;
+                    Output::send(STR("[MeshGhostPseudo] WARNING: no 'Change Weapon State' on this weapon's class chain -- ghost sword's resting pose will not update.\n"));
+                }
+                return;
+            }
+            int32_t parms_size = function->GetPropertiesSize();
+            if (parms_size < 1)
+            {
+                Output::send(STR("[MeshGhostPseudo] WARNING: 'Change Weapon State' has an implausibly small PropertiesSize ({}) -- refusing to call it.\n"),
+                             parms_size);
+                return;
+            }
+            std::vector<uint8_t> params_buffer(static_cast<size_t>(parms_size), 0);
+            bool found_param = false;
+            for (FProperty* property : TFieldRange<FProperty>(function, EFieldIterationFlags::None))
+            {
+                if (!property)
+                {
+                    continue;
+                }
+                // The one byte-sized parameter. Guarded on size so a future build that adds a
+                // second parameter can't silently get this byte written into the wrong slot.
+                if (property->GetSize() == 1)
+                {
+                    params_buffer[static_cast<size_t>(property->GetOffset_Internal())] = new_state;
+                    found_param = true;
+                    static bool logged_name = false;
+                    if (!logged_name)
+                    {
+                        logged_name = true;
+                        Output::send(STR("[MeshGhostPseudo] 'Change Weapon State' parameter resolved as '{}' (offset {}, size {})\n"),
+                                     property->GetName(), property->GetOffset_Internal(), property->GetSize());
+                    }
+                    break;
+                }
+            }
+            if (!found_param)
+            {
+                Output::send(STR("[MeshGhostPseudo] WARNING: 'Change Weapon State' has no single-byte parameter -- refusing to call it.\n"));
+                return;
+            }
+            weapon_actor->ProcessEvent(function, params_buffer.data());
+        }
+
         auto call_change_equipped_weapon(UObject* pawn, bool equipped) -> void
         {
             if (!pawn)
@@ -2410,6 +2836,355 @@ namespace MeshGhostPseudo
         }
     }
 
+    // Renders one remote peer's thrown Dream Breaker. See RemoteGhost::weapon_actor for the
+    // measured lifecycle behind the three states this switches between, and verified.md's
+    // thrown-Dream-Breaker entry for the capture that established them.
+    //
+    // Reuses, rather than reinvents, every mechanism the ghost pawn already proved on this game:
+    // SpawnActor into the local player's own world, call_set_actor_location_and_rotation to move
+    // it (which is where the FRotator float/double marshaling fix lives -- a hand-rolled move call
+    // here would silently reintroduce that bug), actor_is_alive for staleness, and parking at
+    // DESPAWN_PARK_Z instead of destroying.
+    auto Plugin::tick_remote_weapon(const std::string& player_id, RemoteGhost& remote, UWorld* current_world) -> void
+    {
+        // Staleness, both checks the ghost pawn gets and for the same reasons: a level transition
+        // destroys spawned actors out from under us, and a peer/local area change leaves this
+        // pointing into a torn-down world. Cleared rather than reused -- the next thrown sample
+        // spawns a fresh prop in whatever world is current.
+        if (remote.weapon_actor)
+        {
+            const bool dead = !actor_is_alive(remote.weapon_actor);
+            const bool wrong_world = current_world && remote.weapon_actor_world && remote.weapon_actor_world != current_world;
+            if (dead || wrong_world)
+            {
+                // The glow component is attached to the prop and dies with it -- only the reference
+
+                // needs clearing, so the next throw's fresh prop spawns its own.
+
+                remote.weapon_glow_component = nullptr;
+                remote.weapon_actor = nullptr;
+                remote.weapon_actor_world = nullptr;
+                remote.weapon_render_primed = false;
+                // A replacement prop is a fresh actor in its own default state, so the peer's
+                // current weaponState has to be applied to it again from scratch.
+                remote.last_synced_weapon_state = -1.0;
+            }
+        }
+
+        // Sword back in the peer's hand. The held sword is already handled by the existing
+        // weaponEquipped?/animEquippedWeapon mirror on the ghost's own body, so all this has to do
+        // is get rid of the loose prop.
+        //
+        // DESTROYED rather than parked and reused, changed 2026-08-15 after the first live test of
+        // the resting pose: the prop landed upright correctly, but sank visibly further into the
+        // floor on each successive throw. One prop was being reused for every throw while
+        // `Change Weapon State` was called on it again each time, so whatever the embed step
+        // adjusts accumulated instead of starting clean. The game itself spawns a fresh
+        // BP_looseWeapon_C per throw (three throws produced three distinct instances in the
+        // WEAPONACTOR capture) -- matching that is both the fix and the more faithful mirror, and
+        // it avoids having to find and reset every piece of state the embed touches.
+        if (!remote.target_weapon_thrown)
+        {
+            if (remote.weapon_actor)
+            {
+                if (!call_destroy_actor(remote.weapon_actor))
+                {
+                    // Fallback only: park it out of the playable area so a failed destroy can never
+                    // leave a sword hanging in the level.
+                    FVector park_loc(remote.target_weapon_x, remote.target_weapon_y, DESPAWN_PARK_Z);
+                    call_set_actor_location_and_rotation(remote.weapon_actor, park_loc, FRotator(0.0, 0.0, 0.0));
+                }
+                if constexpr (WEAPON_PROP_TRACE)
+                {
+                    Output::send(STR("[MeshGhostPseudo] WEAPONPROP {}: sword back in hand -- prop released (actor={})\n"),
+                                 to_wide_ascii(player_id), static_cast<void*>(remote.weapon_actor));
+                }
+                // The glow component is attached to the prop and dies with it -- only the reference
+
+                // needs clearing, so the next throw's fresh prop spawns its own.
+
+                remote.weapon_glow_component = nullptr;
+                remote.weapon_actor = nullptr;
+                remote.weapon_actor_world = nullptr;
+                remote.weapon_render_primed = false;
+                remote.last_synced_weapon_state = -1.0;
+            }
+            return;
+        }
+
+        if (!remote.weapon_actor)
+        {
+            if (remote.target_weapon_class.empty() || !current_world)
+            {
+                return;
+            }
+            // Retry throttle, same shape and reason as the outfit mirror's: a peer whose weapon
+            // class doesn't resolve on this machine must not re-attempt and re-log every tick. A
+            // genuinely different class still gets tried immediately.
+            if (remote.target_weapon_class == remote.last_failed_weapon_class &&
+                tick_count - remote.last_weapon_spawn_attempt_tick < LOG_INTERVAL_TICKS)
+            {
+                return;
+            }
+            remote.last_weapon_spawn_attempt_tick = tick_count;
+
+            UClass* weapon_class = UObjectGlobals::StaticFindObject<UClass*>(
+                nullptr, nullptr, to_wide_ascii(remote.target_weapon_class).c_str());
+            if (!weapon_class)
+            {
+                remote.last_failed_weapon_class = remote.target_weapon_class;
+                Output::send(STR("[MeshGhostPseudo] WARNING: weapon class '{}' not found via StaticFindObject -- remote {}'s thrown sword not rendered (will retry periodically).\n"),
+                             to_wide_ascii(remote.target_weapon_class), to_wide_ascii(player_id));
+                return;
+            }
+            remote.last_failed_weapon_class.clear();
+
+            FVector spawn_loc(remote.target_weapon_x, remote.target_weapon_y, remote.target_weapon_z);
+            FRotator spawn_rot(remote.target_weapon_pitch, remote.target_weapon_yaw, remote.target_weapon_roll);
+            AActor* prop = current_world->SpawnActor(weapon_class, &spawn_loc, &spawn_rot);
+            if (!prop)
+            {
+                Output::send(STR("[MeshGhostPseudo] SpawnActor returned nullptr for remote {}'s thrown weapon.\n"),
+                             to_wide_ascii(player_id));
+                return;
+            }
+
+            // **Required, not a precaution.** The real BP_looseWeapon_C carries a `PlayerPickup`
+            // BoxComponent (confirmed in its own property dump, verified.md) -- a collidable copy
+            // would let the local player walk into a peer's phantom sword and actually pick it up,
+            // which is a game-state effect and outside this project's visual-only posture. Unlike
+            // the ghost pawn, whose collision is deliberately ON as a feature
+            // (GHOST_COLLISION_ENABLED), there is no version of this prop that should ever be
+            // touchable.
+            prop->SetActorEnableCollision(false);
+
+            // Stop the prop simulating. We drive this actor's transform entirely from the peer's
+            // samples, so any physics it runs of its own is only ever something to fight -- and the
+            // sinking-while-embedded bug is what that fight looks like on screen. Applied to both
+            // the root Box and the SkeletalMesh, because the measurement could not say which of
+            // them carries the simulating bodies and each is cheap to call.
+            // The measured cause of the sinking -- see stop_projectile_movement's own comment for
+            // the numbers. Kept ahead of the physics calls below because it is the one with
+            // evidence behind it; those two remain because a prop we drive entirely by teleport
+            // should not be simulating either way, not because they ever fixed anything.
+            stop_projectile_movement(prop);
+
+            if (UObject** root_ptr = prop->GetValuePtrByPropertyNameInChain<UObject*>(STR("RootComponent")); root_ptr && *root_ptr)
+            {
+                call_set_simulate_physics(*root_ptr, false, STR("prop RootComponent"));
+            }
+            if (UObject** mesh_ptr = prop->GetValuePtrByPropertyNameInChain<UObject*>(STR("SkeletalMesh")); mesh_ptr && *mesh_ptr)
+            {
+                call_set_simulate_physics(*mesh_ptr, false, STR("prop SkeletalMesh"));
+                if constexpr (WEAPON_PROP_TRACE)
+                {
+                    // One-shot, first prop only: names the real physics/visibility API this build's
+                    // SkeletalMeshComponent exposes. Cited evidence for whichever call ends up
+                    // fixing this, and the fallback if SetSimulatePhysics above turns out not to
+                    // exist or not to be the lever -- so a failed attempt still leaves us with the
+                    // answer instead of another guess.
+                    static bool dumped = false;
+                    if (!dumped)
+                    {
+                        dumped = true;
+                        dump_object_reflection(*mesh_ptr, STR("prop SkeletalMesh component"));
+                    }
+                }
+            }
+
+            remote.weapon_actor = prop;
+            remote.weapon_actor_world = current_world;
+            remote.weapon_render_primed = false;
+            Output::send(STR("[MeshGhostPseudo] spawned thrown-weapon prop for remote {}: class='{}' actor={}\n"),
+                         to_wide_ascii(player_id), to_wide_ascii(remote.target_weapon_class),
+                         static_cast<void*>(prop));
+
+            if constexpr (WEAPON_PROP_TRACE)
+            {
+                // One-shot, because Mobility doesn't change after construction. This is the single
+                // specific reason a UE actor silently refuses every SetActorLocation call while
+                // reporting no error: a root component whose Mobility is Static (0) rather than
+                // Movable (2). The ghost PAWN's root is a CapsuleComponent and is Movable, which is
+                // why the identical move call has always worked there -- so this prop's root being
+                // a BoxComponent is a real difference between the two cases, not a stretch.
+                // Logged rather than "fixed" on the spot: writing Mobility blind would be guessing
+                // at the cause, and if it reads Movable here the fix lies somewhere else entirely.
+                if (UObject** root_ptr = prop->GetValuePtrByPropertyNameInChain<UObject*>(STR("RootComponent")); root_ptr && *root_ptr)
+                {
+                    uint8_t* mobility_ptr = (*root_ptr)->GetValuePtrByPropertyNameInChain<uint8_t>(STR("Mobility"));
+                    Output::send(STR("[MeshGhostPseudo] WEAPONPROP {}: root='{}' Mobility={} (0=Static, 1=Stationary, 2=Movable)\n"),
+                                 to_wide_ascii(player_id),
+                                 (*root_ptr)->GetFullName(),
+                                 mobility_ptr ? static_cast<int>(*mobility_ptr) : -1);
+                }
+            }
+        }
+
+        // Smoothing. Position only -- rotation is written straight through deliberately: the
+        // measured throw tumbles in discrete 30-degree steps rather than sweeping continuously, so
+        // there is no smooth curve to reconstruct, and easing an angle invites wrap-around
+        // artifacts at the +/-180 boundary for no visual gain.
+        const double dx = remote.target_weapon_x - remote.render_weapon_x;
+        const double dy = remote.target_weapon_y - remote.render_weapon_y;
+        const double dz = remote.target_weapon_z - remote.render_weapon_z;
+        const bool snap = !remote.weapon_render_primed ||
+                          std::sqrt(dx * dx + dy * dy + dz * dz) > WEAPON_SNAP_DISTANCE;
+        if (snap)
+        {
+            remote.render_weapon_x = remote.target_weapon_x;
+            remote.render_weapon_y = remote.target_weapon_y;
+            remote.render_weapon_z = remote.target_weapon_z;
+            remote.weapon_render_primed = true;
+        }
+        else
+        {
+            remote.render_weapon_x += dx * WEAPON_SMOOTHING_ALPHA;
+            remote.render_weapon_y += dy * WEAPON_SMOOTHING_ALPHA;
+            remote.render_weapon_z += dz * WEAPON_SMOOTHING_ALPHA;
+        }
+
+        // Resting pose. The prop never lands on anything -- collision is off and it is teleported,
+        // not simulated -- so the 0 -> 3 transition the real sword performs on impact has to be
+        // driven from here instead.
+        //
+        // Function call FIRST, raw property write second, and that order is load-bearing: the
+        // Dream Breaker visibility bug was exactly this code shape with the two reversed, where
+        // writing the property up front meant the game's own transition function saw no change
+        // left to act on and did nothing (PLAYER_FIELDS.md's worked example). The write is kept
+        // afterwards only as a safety net for the case where the call is a no-op.
+        if (remote.target_weapon_state != remote.last_synced_weapon_state)
+        {
+            remote.last_synced_weapon_state = remote.target_weapon_state;
+            const auto new_state = static_cast<uint8_t>(remote.target_weapon_state);
+            call_change_weapon_state(remote.weapon_actor, new_state);
+            if (uint8_t* state_ptr = remote.weapon_actor->GetValuePtrByPropertyNameInChain<uint8_t>(STR("weaponState")))
+            {
+                *state_ptr = new_state;
+            }
+            if constexpr (WEAPON_PROP_TRACE)
+            {
+                // Independent readback, per CLAUDE.md: report what the actor says its state is
+                // now, not the value just written into it.
+                uint8_t* readback_ptr = remote.weapon_actor->GetValuePtrByPropertyNameInChain<uint8_t>(STR("weaponState"));
+                // The glow half, measured on the real sword: idleGlowVFX goes null -> non-null on
+                // exactly this 0 -> 3 edge, every throw. So the question here is narrow and this
+                // readback answers it outright -- if our prop's idleGlowVFX is non-null too, the
+                // state call already spawns the component and the glow is failing for some later
+                // reason; if it stays null, the spawn lives in the landing path the real sword runs
+                // on impact and calling the state setter alone was never going to reach it.
+                UObject** glow_ptr = remote.weapon_actor->GetValuePtrByPropertyNameInChain<UObject*>(STR("idleGlowVFX"));
+                Output::send(STR("[MeshGhostPseudo] WEAPONPROP {}: weaponState -> {} (readback={}) idleGlowVFX={}\n"),
+                             to_wide_ascii(player_id), static_cast<int>(new_state),
+                             readback_ptr ? static_cast<int>(*readback_ptr) : -1,
+                             (glow_ptr && *glow_ptr) ? STR("non-null") : STR("null"));
+            }
+
+            // The landed sword's glow ring. Spawned on the landing edge only, and only once per
+            // prop -- the prop is destroyed and rebuilt per throw, so there is no stale component
+            // to clean up here and no way for these to accumulate across throws.
+            if (new_state == LANDED_WEAPON_STATE && !remote.weapon_glow_component && !remote.target_weapon_glow.empty())
+            {
+                UObject* glow_asset = UObjectGlobals::StaticFindObject<UObject*>(
+                    nullptr, nullptr, to_wide_ascii(remote.target_weapon_glow).c_str());
+                if (!glow_asset)
+                {
+                    Output::send(STR("[MeshGhostPseudo] WARNING: glow system '{}' not found via StaticFindObject -- ghost {}'s landed sword will have no glow.\n"),
+                                 to_wide_ascii(remote.target_weapon_glow), to_wide_ascii(player_id));
+                }
+                else if (UObject** root_ptr = remote.weapon_actor->GetValuePtrByPropertyNameInChain<UObject*>(STR("RootComponent")); root_ptr && *root_ptr)
+                {
+                    remote.weapon_glow_component = spawn_niagara_attached(glow_asset, *root_ptr);
+                    Output::send(STR("[MeshGhostPseudo] WEAPONPROP {}: glow spawn '{}' -> {}\n"),
+                                 to_wide_ascii(player_id), to_wide_ascii(remote.target_weapon_glow),
+                                 remote.weapon_glow_component ? STR("component returned") : STR("NULL"));
+                }
+            }
+        }
+
+        // Drift detection -- the isolation step for "still sinking after two fixes". Read BEFORE
+        // this frame's write and compared against what we wrote last frame, which is the one
+        // question the previous diagnostic structurally could not answer (see
+        // RemoteGhost::last_written_weapon_x). Exactly two outcomes, and they point opposite ways:
+        //
+        //   * PRE differs from what we wrote -> something moves the actor between our writes, and
+        //     our own write papers over it every frame while the render still catches the drift.
+        //     The delta's size and sign then say what: a steady small drop is gravity.
+        //   * PRE matches what we wrote -> the actor transform genuinely never moves, and the
+        //     sinking is purely visual -- bone/animation driven, below the level of any transform
+        //     property, which means no amount of position syncing will ever address it.
+        if constexpr (WEAPON_PROP_TRACE)
+        {
+            if (remote.weapon_write_recorded && tick_count % WEAPON_PROP_TRACE_INTERVAL_TICKS == 0)
+            {
+                FVector pre = remote.weapon_actor->K2_GetActorLocation();
+                const double drift_x = pre.X() - remote.last_written_weapon_x;
+                const double drift_y = pre.Y() - remote.last_written_weapon_y;
+                const double drift_z = pre.Z() - remote.last_written_weapon_z;
+                Output::send(STR("[MeshGhostPseudo] WEAPONPROP {}: PRE=({:.2f}, {:.2f}, {:.2f}) lastWrote=({:.2f}, {:.2f}, {:.2f}) drift=({:.3f}, {:.3f}, {:.3f})\n"),
+                             to_wide_ascii(player_id),
+                             pre.X(), pre.Y(), pre.Z(),
+                             remote.last_written_weapon_x, remote.last_written_weapon_y, remote.last_written_weapon_z,
+                             drift_x, drift_y, drift_z);
+            }
+        }
+
+        FVector render_loc(remote.render_weapon_x, remote.render_weapon_y, remote.render_weapon_z);
+        FRotator render_rot(remote.target_weapon_pitch, remote.target_weapon_yaw, remote.target_weapon_roll);
+        call_set_actor_location_and_rotation(remote.weapon_actor, render_loc, render_rot);
+        remote.last_written_weapon_x = remote.render_weapon_x;
+        remote.last_written_weapon_y = remote.render_weapon_y;
+        remote.last_written_weapon_z = remote.render_weapon_z;
+        remote.weapon_write_recorded = true;
+
+        if constexpr (WEAPON_PROP_TRACE)
+        {
+            // Sampled rather than per-tick: at ~150Hz a per-tick line would bury the very
+            // comparison it exists to make. The four columns are read AFTER the write above, so
+            // READBACK reflects whatever the engine actually let happen to the actor.
+            if (tick_count % WEAPON_PROP_TRACE_INTERVAL_TICKS == 0)
+            {
+                FVector readback = remote.weapon_actor->K2_GetActorLocation();
+                bool* embedded_ptr = remote.weapon_actor->GetValuePtrByPropertyNameInChain<bool>(STR("isEmbedded?"));
+                uint8_t* weapon_state_ptr = remote.weapon_actor->GetValuePtrByPropertyNameInChain<uint8_t>(STR("weaponState"));
+
+                // The prop's own mesh offset, added 2026-08-15 for the "sinks downwards while
+                // embedded" report. That symptom splits cleanly in two and these two columns
+                // decide it outright, with no third possibility:
+                //   * READBACK z falling  -> the ACTOR is being driven down. Our own position write
+                //     runs every frame and would normally win, so that would mean something moves
+                //     it after us -- most likely its still-live ProjectileMovementComponent
+                //     continuing to fall, since collision is off and it can never land on anything.
+                //   * READBACK z steady but MESH z falling -> the drift is INSIDE the actor and our
+                //     actor-level writes can never correct it, because they don't touch it. The
+                //     likely driver then is the embed/landing logic (the class has a real
+                //     `checkForValidLandingPoint`) tracing for ground it can never find, again
+                //     because collision is off.
+                // Both roads lead back to collision being disabled -- which is non-negotiable for
+                // the PlayerPickup reason -- so the fix differs per branch and neither is worth
+                // guessing at.
+                double mesh_x = -99999.0, mesh_y = -99999.0, mesh_z = -99999.0;
+                if (UObject** mesh_ptr = remote.weapon_actor->GetValuePtrByPropertyNameInChain<UObject*>(STR("SkeletalMesh")); mesh_ptr && *mesh_ptr)
+                {
+                    if (FVector* rel_loc = (*mesh_ptr)->GetValuePtrByPropertyNameInChain<FVector>(STR("RelativeLocation")))
+                    {
+                        mesh_x = rel_loc->X();
+                        mesh_y = rel_loc->Y();
+                        mesh_z = rel_loc->Z();
+                    }
+                }
+
+                Output::send(STR("[MeshGhostPseudo] WEAPONPROP {}: TARGET=({:.1f}, {:.1f}, {:.1f}) RENDER=({:.1f}, {:.1f}, {:.1f}) READBACK=({:.1f}, {:.1f}, {:.1f}) MESH=({:.2f}, {:.2f}, {:.2f}) isEmbedded={} weaponState={}\n"),
+                             to_wide_ascii(player_id),
+                             remote.target_weapon_x, remote.target_weapon_y, remote.target_weapon_z,
+                             remote.render_weapon_x, remote.render_weapon_y, remote.render_weapon_z,
+                             readback.X(), readback.Y(), readback.Z(),
+                             mesh_x, mesh_y, mesh_z,
+                             embedded_ptr ? *embedded_ptr : false,
+                             weapon_state_ptr ? static_cast<int>(*weapon_state_ptr) : -1);
+            }
+        }
+    }
+
     // Stops tracking one remote's ghost. Never destroys the underlying actor -- see
     // DESPAWN_PARK_Z's own comment for why that's a hard rule here, not a missed optimization.
     // Under the hijack design the actor was never ours to destroy anyway; under the spawn design
@@ -2429,7 +3204,28 @@ namespace MeshGhostPseudo
     auto Plugin::release_ghost(const std::string& player_id) -> void
     {
         auto it = remotes.find(player_id);
-        if (it == remotes.end() || !it->second.ghost)
+        if (it == remotes.end())
+        {
+            return;
+        }
+
+        // The peer's thrown sword is a separate actor with its own lifetime, so it needs the same
+        // treatment: park it out of the playable area and drop the reference. Without this, a peer
+        // who despawns mid-throw leaves a sword hanging in mid-air until the level tears down --
+        // the same cosmetic bug that motivated parking the ghost body below. Handled BEFORE the
+        // ghost check on purpose: a remote can legitimately have a live weapon prop and no ghost
+        // (the ghost was invalidated first), and that sword must still be reclaimed.
+        if (it->second.weapon_actor)
+        {
+            FVector weapon_park_loc(it->second.target_weapon_x, it->second.target_weapon_y, DESPAWN_PARK_Z);
+            call_set_actor_location_and_rotation(it->second.weapon_actor, weapon_park_loc, FRotator(0.0, 0.0, 0.0));
+            it->second.weapon_glow_component = nullptr; // attached to the prop; dies with it
+            it->second.weapon_actor = nullptr;
+            it->second.weapon_actor_world = nullptr;
+            it->second.weapon_render_primed = false;
+        }
+
+        if (!it->second.ghost)
         {
             return;
         }
@@ -3046,6 +3842,21 @@ namespace MeshGhostPseudo
             json_number_field(line, "montage_count", montage_count_in);
             double montage_stop_count_in = 0;
             json_number_field(line, "montage_stop_count", montage_stop_count_in);
+            // Thrown Dream Breaker -- see RemoteGhost::target_weapon_thrown. Best-effort like every
+            // other extra: a peer on an older build sends none of these, leaving weapon_thrown
+            // false forever, which is exactly today's behaviour (no thrown sword rendered at all),
+            // not a regression.
+            double weapon_thrown_num = 0;
+            json_number_field(line, "weapon_thrown", weapon_thrown_num);
+            bool weapon_thrown = weapon_thrown_num != 0;
+            std::string weapon_class = json_string_field(line, "weapon_class");
+            double weapon_state_in = 0;
+            json_number_field(line, "weapon_state", weapon_state_in);
+            std::string weapon_glow = json_string_field(line, "weapon_glow");
+            double weapon_x = 0, weapon_y = 0, weapon_z = 0;
+            bool has_weapon_pos = json_vec3_field(line, "weapon_pos", weapon_x, weapon_y, weapon_z);
+            double weapon_pitch = 0, weapon_yaw = 0, weapon_roll = 0;
+            bool has_weapon_rot = json_vec3_field(line, "weapon_rot", weapon_pitch, weapon_yaw, weapon_roll);
 
             // Checked before ensure_ghost_spawned/ensure_ghost_hijacked, both of which insert a
             // default-constructed RemoteGhost via remotes[player_id] on their very first call for
@@ -3159,6 +3970,37 @@ namespace MeshGhostPseudo
                 it->second.target_montage = montage;
                 it->second.target_montage_count = montage_count_in;
                 it->second.target_montage_stop_count = montage_stop_count_in;
+                // Thrown Dream Breaker. The transform is only accepted when the peer actually says
+                // "thrown" AND both vectors parsed -- a half-parsed sample must not drag the prop
+                // to a partly-stale position, and the peer sends zeros in these fields whenever the
+                // sword is in hand, which would otherwise yank it to world origin. The loopback
+                // X offset is applied for the same reason it's applied to the ghost body: on a
+                // same-machine loopback the peer IS you, so without it the ghost's sword renders
+                // exactly inside your own and the two can't be told apart.
+                it->second.target_weapon_thrown = weapon_thrown;
+                if (weapon_thrown && has_weapon_pos && has_weapon_rot)
+                {
+                    it->second.target_weapon_x = weapon_x + loopback_offset_x;
+                    it->second.target_weapon_y = weapon_y;
+                    it->second.target_weapon_z = weapon_z + loopback_offset_z;
+                    it->second.target_weapon_pitch = weapon_pitch;
+                    it->second.target_weapon_yaw = weapon_yaw;
+                    it->second.target_weapon_roll = weapon_roll;
+                    it->second.target_weapon_state = weapon_state_in;
+                }
+                // Never overwrite a known-good class with an empty one, same rule as outfit_mesh:
+                // the peer stops sending it the moment the sword is back in hand, and the prop is
+                // reused across that peer's next throw rather than re-resolved.
+                if (!weapon_class.empty())
+                {
+                    it->second.target_weapon_class = weapon_class;
+                }
+                // Same "never overwrite a known-good value with an empty one" rule: the peer only
+                // reports this while its sword is actually landed.
+                if (!weapon_glow.empty())
+                {
+                    it->second.target_weapon_glow = weapon_glow;
+                }
                 if (is_new_remote)
                 {
                     // Baseline last_seen_* to this first sample -- found in a review pass.
@@ -3287,6 +4129,195 @@ namespace MeshGhostPseudo
                 }
             }
 
+            // Thrown Dream Breaker, local half -- see RemoteGhost::target_weapon_thrown for the
+            // measured lifecycle this reads out of, and WEAPON_ACTOR_TRACE for the capture that
+            // established it. Read every tick, not at a trace cadence: this is production sync.
+            //
+            // "Thrown" is deliberately derived from three things rather than trusted to any single
+            // flag, because the obvious single flag is wrong. `weaponRef` alone does NOT mean
+            // thrown -- it stays pointing at the last thrown weapon after pickup, which is exactly
+            // what made the two prior observations of this field contradict each other
+            // (agent_docs/verified.md). The game parks a picked-up weapon at world origin instead
+            // of destroying it, so origin is the real "it's in hand" sentinel, and the equipped
+            // flag agrees with it.
+            bool weapon_thrown = false;
+            std::string weapon_class;
+            double weapon_x = 0.0, weapon_y = 0.0, weapon_z = 0.0;
+            double weapon_pitch = 0.0, weapon_yaw = 0.0, weapon_roll = 0.0;
+            // See RemoteGhost::target_weapon_state -- 0 in flight, 3 once landed, measured.
+            int weapon_state = 0;
+            // See RemoteGhost::target_weapon_glow -- non-empty only while the sword is landed.
+            std::string weapon_glow;
+            {
+                UObject** weapon_ref_ptr = pawn->GetValuePtrByPropertyNameInChain<UObject*>(STR("weaponRef"));
+                UObject* weapon_ref = weapon_ref_ptr ? *weapon_ref_ptr : nullptr;
+                const bool weapon_in_hand = weapon_equipped_ptr && *weapon_equipped_ptr;
+                // RootComponent is the reflection-only actor test used throughout this file, in
+                // place of a raw cast on an object whose type isn't guaranteed.
+                if (weapon_ref && !weapon_in_hand &&
+                    weapon_ref->GetValuePtrByPropertyNameInChain<UObject*>(STR("RootComponent")))
+                {
+                    auto* weapon_actor = static_cast<AActor*>(weapon_ref);
+                    FVector weapon_loc = weapon_actor->K2_GetActorLocation();
+                    const double origin_distance = std::sqrt(weapon_loc.X() * weapon_loc.X() +
+                                                             weapon_loc.Y() * weapon_loc.Y() +
+                                                             weapon_loc.Z() * weapon_loc.Z());
+                    // MIN_PLAUSIBLE_DISTANCE is reused rather than a new constant: it already means
+                    // "this transform is a real placement in the world, not an unplaced/parked
+                    // near-origin default" everywhere else in this file, which is precisely the
+                    // question here.
+                    if (origin_distance >= MIN_PLAUSIBLE_DISTANCE)
+                    {
+                        FRotator weapon_rot = weapon_actor->K2_GetActorRotation();
+                        weapon_thrown = true;
+                        weapon_x = weapon_loc.X();
+                        weapon_y = weapon_loc.Y();
+                        weapon_z = weapon_loc.Z();
+                        weapon_pitch = weapon_rot.GetPitch();
+                        weapon_yaw = weapon_rot.GetYaw();
+                        weapon_roll = weapon_rot.GetRoll();
+                        // Class path sent live rather than hardcoded, per CLAUDE.md's rule against
+                        // baking in a value from memory -- and it costs nothing extra, since it's
+                        // only on the wire during a throw. Same "strip the class-name prefix that
+                        // GetFullName() puts before the path" step as outfit_mesh, for the same
+                        // StaticFindObject reason.
+                        if (UClass* weapon_class_obj = weapon_ref->GetClassPrivate())
+                        {
+                            std::string full_name = to_utf8(weapon_class_obj->GetFullName());
+                            size_t space_pos = full_name.find(' ');
+                            weapon_class = (space_pos != std::string::npos) ? full_name.substr(space_pos + 1) : full_name;
+                        }
+
+                        // Production read now, not a diagnostic -- the landing trace below proved
+                        // this is the field that carries the resting pose.
+                        if (uint8_t* state_ptr = weapon_ref->GetValuePtrByPropertyNameInChain<uint8_t>(STR("weaponState")))
+                        {
+                            weapon_state = static_cast<int>(*state_ptr);
+                        }
+
+                        // The glow ring's Niagara asset, read off the peer's own landed sword
+                        // rather than hardcoded from the one path we happened to observe
+                        // ('/Game/VFX/Emitters/NS_WeaponIdle') -- same reasoning as weapon_class
+                        // above, and it costs nothing since idleGlowVFX is non-null exactly while
+                        // landed, which is exactly when the ghost needs it. Same class-name-prefix
+                        // strip as every other object path this adapter sends.
+                        if (UObject** glow_ptr = weapon_ref->GetValuePtrByPropertyNameInChain<UObject*>(STR("idleGlowVFX")); glow_ptr && *glow_ptr)
+                        {
+                            if (UObject** asset_ptr = (*glow_ptr)->GetValuePtrByPropertyNameInChain<UObject*>(STR("Asset")); asset_ptr && *asset_ptr)
+                            {
+                                std::string full_name = to_utf8((*asset_ptr)->GetFullName());
+                                size_t space_pos = full_name.find(' ');
+                                weapon_glow = (space_pos != std::string::npos) ? full_name.substr(space_pos + 1) : full_name;
+                            }
+                        }
+
+                        // See WEAPON_LANDING_TRACE for what each of these is testing and why a
+                        // guessed Z nudge is not an acceptable substitute for this measurement.
+                        if constexpr (WEAPON_LANDING_TRACE)
+                        {
+                            // One-shot schema dump of the real thrown weapon. The user's read is
+                            // that the prop never performs the embed/place step at all, rather than
+                            // performing it into a wrong-looking pose -- which makes this a "find
+                            // and call the game's own function" problem, the same shape that
+                            // actually worked for the trail VFX (Spawn After Image) and the outfit
+                            // mesh (SetSkeletalMeshAsset), rather than a value to mirror. This
+                            // lists every function the class exposes so the real entry point is
+                            // read off the game instead of guessed at by name.
+                            if (!weapon_landing_reflection_dumped)
+                            {
+                                weapon_landing_reflection_dumped = true;
+                                dump_object_reflection(weapon_ref, STR("thrown weapon"));
+
+                                // Parameter names for the landing entry point. The glow is now
+                                // known to be a NiagaraComponent running
+                                // '/Game/VFX/Emitters/NS_WeaponIdle', spawned by the real sword's
+                                // landing and NOT by 'Change Weapon State' (our prop's idleGlowVFX
+                                // stayed null through every state call). 'checkForValidLandingPoint'
+                                // is the plausible entry point, but its PropertiesSize is 1330 --
+                                // far too large to call with a blindly zeroed buffer, and calling a
+                                // Blueprint function with wrong parameters is not a safe experiment
+                                // on a game with this file's crash history. So this dumps its real
+                                // parameter list first and calls nothing.
+                                if (UFunction* landing_fn = weapon_ref->GetFunctionByNameInChain(STR("checkForValidLandingPoint")))
+                                {
+                                    for (FProperty* param : TFieldRange<FProperty>(landing_fn, EFieldIterationFlags::None))
+                                    {
+                                        if (!param)
+                                        {
+                                            continue;
+                                        }
+                                        Output::send(STR("[MeshGhostPseudo] DIAG: checkForValidLandingPoint param '{}' ({}) offset={} size={}\n"),
+                                                     param->GetName(), param->GetClass().GetName(),
+                                                     param->GetOffset_Internal(), param->GetSize());
+                                    }
+                                }
+                            }
+
+                            uint8_t* state_ptr = weapon_ref->GetValuePtrByPropertyNameInChain<uint8_t>(STR("weaponState"));
+                            bool* embedded_ptr = weapon_ref->GetValuePtrByPropertyNameInChain<bool>(STR("isEmbedded?"));
+                            const int32_t state_now = state_ptr ? static_cast<int32_t>(*state_ptr) : -2;
+                            const int32_t embedded_now = embedded_ptr ? (*embedded_ptr ? 1 : 0) : -2;
+
+                            // The mesh-offset candidate: the direct analogue of the slide bug. Read
+                            // off the actor's own SkeletalMesh component, which the property dump
+                            // confirmed exists on this class.
+                            double mesh_x = -99999.0, mesh_y = -99999.0, mesh_z = -99999.0;
+                            if (UObject** mesh_ptr = weapon_ref->GetValuePtrByPropertyNameInChain<UObject*>(STR("SkeletalMesh")); mesh_ptr && *mesh_ptr)
+                            {
+                                if (FVector* rel_loc = (*mesh_ptr)->GetValuePtrByPropertyNameInChain<FVector>(STR("RelativeLocation")))
+                                {
+                                    mesh_x = rel_loc->X();
+                                    mesh_y = rel_loc->Y();
+                                    mesh_z = rel_loc->Z();
+                                }
+                            }
+
+                            const bool mesh_moved = std::fabs(mesh_x - prev_local_weapon_mesh_offset[0]) > 0.01 ||
+                                                    std::fabs(mesh_y - prev_local_weapon_mesh_offset[1]) > 0.01 ||
+                                                    std::fabs(mesh_z - prev_local_weapon_mesh_offset[2]) > 0.01;
+                            // The landed sword's glow ring, missing on the ghost (user screenshot,
+                            // 2026-08-15): the real one shows a coloured ring once planted, ours
+                            // shows none. `idleGlowVFX` read null in the actor's property dump, but
+                            // that dump was taken mid-throw -- if it becomes non-null on landing,
+                            // the glow is a component the landing spawns, and the question becomes
+                            // whether our own Change Weapon State call already spawns one (and it's
+                            // failing for another reason) or never gets that far. `hasLight?` is
+                            // read alongside it as the other plausible gate, at no extra cost.
+                            UObject** glow_ptr = weapon_ref->GetValuePtrByPropertyNameInChain<UObject*>(STR("idleGlowVFX"));
+                            bool* has_light_ptr = weapon_ref->GetValuePtrByPropertyNameInChain<bool>(STR("hasLight?"));
+
+                            // Now that the state setter is PROVEN not to spawn the glow (our prop's
+                            // idleGlowVFX stayed null through every 0 -> 3 call), the practical
+                            // route is to spawn the effect ourselves rather than keep hunting for
+                            // whichever internal landing branch does it. That needs the actual
+                            // asset, so this dumps the REAL component the moment it exists: its
+                            // class says what kind of system it is (Niagara vs Cascade, which
+                            // decides the spawn call), and its properties carry the asset
+                            // reference to spawn. One-shot, on the first landed sword of a session.
+                            if (glow_ptr && *glow_ptr && !weapon_glow_dumped)
+                            {
+                                weapon_glow_dumped = true;
+                                dump_object_property_values(*glow_ptr, STR("real sword idleGlowVFX"));
+                            }
+
+                            if (state_now != prev_local_weapon_state || embedded_now != prev_local_weapon_embedded || mesh_moved)
+                            {
+                                Output::send(STR("[MeshGhostPseudo] WEAPONLAND local: weaponState={} isEmbedded={} meshRelativeLocation=({:.2f}, {:.2f}, {:.2f}) actorZ={:.1f} idleGlowVFX={} hasLight={} tick={}\n"),
+                                             state_now, embedded_now, mesh_x, mesh_y, mesh_z, weapon_z,
+                                             (glow_ptr && *glow_ptr) ? STR("non-null") : STR("null"),
+                                             has_light_ptr ? *has_light_ptr : false,
+                                             tick_count);
+                                prev_local_weapon_state = state_now;
+                                prev_local_weapon_embedded = embedded_now;
+                                prev_local_weapon_mesh_offset[0] = mesh_x;
+                                prev_local_weapon_mesh_offset[1] = mesh_y;
+                                prev_local_weapon_mesh_offset[2] = mesh_z;
+                            }
+                        }
+                    }
+                }
+            }
+
             // Bubble charged-jump flag, local half -- see the discovery block above for why this is
             // read rather than reconstructed from a duration. Empty name = this build has no such
             // property, in which case the ghost side falls back to the peer's in-bubble state.
@@ -3353,6 +4384,142 @@ namespace MeshGhostPseudo
                     }
                 }
                 prev_local_montage = montage_path;
+            }
+
+            // Thrown-Dream-Breaker capture -- see WEAPON_ACTOR_TRACE's own comment for the four
+            // questions this answers and why the existing weaponRef record is contradictory.
+            if constexpr (WEAPON_ACTOR_TRACE)
+            {
+                UObject** weapon_ref_ptr = pawn->GetValuePtrByPropertyNameInChain<UObject*>(STR("weaponRef"));
+                UObject* weapon_ref = weapon_ref_ptr ? *weapon_ref_ptr : nullptr;
+                const bool equipped_now = weapon_equipped_ptr && *weapon_equipped_ptr;
+
+                // (1) Identity edge. Logged on a real change of the referenced object, not on a
+                // cadence -- a throw that swaps in a freshly spawned actor is invisible to any
+                // sampler, and that is precisely the fact in dispute.
+                if (weapon_ref != prev_weapon_ref)
+                {
+                    if (weapon_ref)
+                    {
+                        UClass* ref_class = weapon_ref->GetClassPrivate();
+                        Output::send(STR("[MeshGhostPseudo] WEAPONACTOR: weaponRef -> NON-NULL at tick {} (weaponEquipped={}) instance='{}' class='{}'\n"),
+                                     tick_count,
+                                     equipped_now,
+                                     weapon_ref->GetFullName(),
+                                     ref_class ? ref_class->GetFullName() : STR("<no class>"));
+                    }
+                    else
+                    {
+                        Output::send(STR("[MeshGhostPseudo] WEAPONACTOR: weaponRef -> NULL at tick {} (weaponEquipped={})\n"),
+                                     tick_count, equipped_now);
+                    }
+                    prev_weapon_ref = weapon_ref;
+                    weapon_actor_transform_logged = false; // a new object gets its own first sample
+                }
+
+                if (weapon_ref)
+                {
+                    // (4) One-shot value dump, so the answer to "what is there to sync" comes from
+                    // the object's own reflected fields rather than from guessing property names --
+                    // the same dump that found animEquippedWeapon after four hand-picked guesses
+                    // on WeaponMesh all came back negative (verified.md).
+                    if (!weapon_ref_value_dumped)
+                    {
+                        weapon_ref_value_dumped = true;
+                        dump_object_property_values(weapon_ref, STR("weaponRef"));
+                    }
+
+                    // (2) Actor test by reflection, not by casting an object of unknown type: only
+                    // actors carry a RootComponent. If this never prints, weaponRef is a component
+                    // or data object and the thrown sword has to be found some other way -- which
+                    // is what the sweep below exists for.
+                    UObject** root_component_ptr = weapon_ref->GetValuePtrByPropertyNameInChain<UObject*>(STR("RootComponent"));
+                    if (root_component_ptr)
+                    {
+                        auto* weapon_actor = static_cast<AActor*>(weapon_ref);
+                        FVector weapon_loc = weapon_actor->K2_GetActorLocation();
+                        FRotator weapon_rot = weapon_actor->K2_GetActorRotation();
+
+                        const double dx = weapon_loc.X() - weapon_actor_last_logged_x;
+                        const double dy = weapon_loc.Y() - weapon_actor_last_logged_y;
+                        const double dz = weapon_loc.Z() - weapon_actor_last_logged_z;
+                        const bool moved = !weapon_actor_transform_logged ||
+                                           std::sqrt(dx * dx + dy * dy + dz * dz) > WEAPON_ACTOR_MOVE_EPSILON;
+
+                        // Movement prints densely, rest prints once every LOG_INTERVAL_TICKS. The
+                        // shape of the log is itself the measurement: a continuous arc means the
+                        // full version (real position sync through flight) is the only faithful
+                        // option, whereas a jump straight from "in hand" to a single resting
+                        // position means the MVP in ideas.md is already the whole truth.
+                        if (moved || tick_count % LOG_INTERVAL_TICKS == 0)
+                        {
+                            Output::send(STR("[MeshGhostPseudo] WEAPONACTOR: tick={} equipped={} moved={} loc=({:.1f}, {:.1f}, {:.1f}) rot=(p={:.1f}, y={:.1f}, r={:.1f})\n"),
+                                         tick_count, equipped_now, moved,
+                                         weapon_loc.X(), weapon_loc.Y(), weapon_loc.Z(),
+                                         weapon_rot.GetPitch(), weapon_rot.GetYaw(), weapon_rot.GetRoll());
+                        }
+                        if (moved)
+                        {
+                            weapon_actor_last_logged_x = weapon_loc.X();
+                            weapon_actor_last_logged_y = weapon_loc.Y();
+                            weapon_actor_last_logged_z = weapon_loc.Z();
+                            weapon_actor_transform_logged = true;
+                        }
+                    }
+                    else if (tick_count % LOG_INTERVAL_TICKS == 0)
+                    {
+                        Output::send(STR("[MeshGhostPseudo] WEAPONACTOR: weaponRef is non-null but has no reflected RootComponent -- not an actor.\n"));
+                    }
+                }
+
+                // (3) Arm the fallback sweep on a real throw (weapon leaves the hand), then run it
+                // a fraction of a second later, while the sword is genuinely airborne.
+                if (prev_weapon_equipped_for_actor_trace && !equipped_now)
+                {
+                    weapon_actor_sweep_due_tick = tick_count + WEAPON_ACTOR_SWEEP_DELAY_TICKS;
+                    Output::send(STR("[MeshGhostPseudo] WEAPONACTOR: throw detected at tick {} -- world sweep armed for tick {}.\n"),
+                                 tick_count, weapon_actor_sweep_due_tick);
+                }
+                prev_weapon_equipped_for_actor_trace = equipped_now;
+
+                if (weapon_actor_sweep_due_tick != 0 && tick_count >= weapon_actor_sweep_due_tick)
+                {
+                    weapon_actor_sweep_due_tick = 0;
+                    std::vector<UObject*> all_actors;
+                    UObjectGlobals::FindAllOf(STR("Actor"), all_actors);
+                    size_t hits = 0;
+                    for (UObject* candidate : all_actors)
+                    {
+                        if (!candidate)
+                        {
+                            continue;
+                        }
+                        UClass* candidate_class = candidate->GetClassPrivate();
+                        // Name match on the class AND the instance, lowercased, against the words a
+                        // Pseudoregalia weapon actor could plausibly be named. Deliberately loose:
+                        // this is a discovery sweep whose output a human reads, so a few false
+                        // positives cost nothing and a missed real hit costs the whole capture.
+                        std::string class_name = candidate_class ? to_utf8(candidate_class->GetName()) : std::string();
+                        std::string instance_name = to_utf8(candidate->GetName());
+                        std::string haystack = class_name + " " + instance_name;
+                        std::transform(haystack.begin(), haystack.end(), haystack.begin(),
+                                       [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+                        if (haystack.find("weapon") == std::string::npos &&
+                            haystack.find("breaker") == std::string::npos &&
+                            haystack.find("sword") == std::string::npos &&
+                            haystack.find("blade") == std::string::npos &&
+                            haystack.find("throw") == std::string::npos)
+                        {
+                            continue;
+                        }
+                        ++hits;
+                        Output::send(STR("[MeshGhostPseudo] WEAPONACTOR SWEEP: instance='{}' class='{}'\n"),
+                                     candidate->GetFullName(),
+                                     candidate_class ? candidate_class->GetFullName() : STR("<no class>"));
+                    }
+                    Output::send(STR("[MeshGhostPseudo] WEAPONACTOR SWEEP: {} weapon-like actor(s) out of {} live actors at tick {}.\n"),
+                                 hits, all_actors.size(), tick_count);
+                }
             }
 
             if constexpr (WEAPON_SYNC_TRACE)
@@ -4249,7 +5416,15 @@ namespace MeshGhostPseudo
                 "\"land_count\":{},\"jump_count\":{},\"weapon_equipped\":{},\"outfit_mesh\":\"{}\",\"afterimage_count\":{},"
                 "\"montage\":\"{}\",\"montage_count\":{},\"montage_stop_count\":{},"
                 "\"afterimage_n\":{},\"capsule_half\":{:.1f},\"bubble_charged\":{},"
-                "\"afterimage_color\":[{:.4f},{:.4f},{:.4f}]}}"
+                "\"afterimage_color\":[{:.4f},{:.4f},{:.4f}],"
+                // Thrown Dream Breaker -- see the local read above. Only the flag is always
+                // present; the class path and transform are sent as fixed one-decimal values
+                // (0.1 Unreal units is well under a visible difference) specifically to bound
+                // this block's size, since agent_docs/contract.md caps extras at
+                // MaxExtrasBytes = 1024 and an unbounded double can print 17 significant digits.
+                // Measured worst case with this block: ~689 bytes.
+                "\"weapon_thrown\":{},\"weapon_class\":\"{}\",\"weapon_state\":{},\"weapon_glow\":\"{}\","
+                "\"weapon_pos\":[{:.1f},{:.1f},{:.1f}],\"weapon_rot\":[{:.1f},{:.1f},{:.1f}]}}"
                 "}}}}}}",
                 json_escape(area_id),
                 location.X(),
@@ -4277,7 +5452,17 @@ namespace MeshGhostPseudo
                 local_bubble_charged ? 1 : 0,
                 local_afterimage_color.r,
                 local_afterimage_color.g,
-                local_afterimage_color.b);
+                local_afterimage_color.b,
+                weapon_thrown ? 1 : 0,
+                json_escape(weapon_class),
+                weapon_state,
+                json_escape(weapon_glow),
+                weapon_x,
+                weapon_y,
+                weapon_z,
+                weapon_pitch,
+                weapon_yaw,
+                weapon_roll);
             {
                 std::lock_guard<std::mutex> lock(state_mutex);
                 cached_local_state_json = std::move(local_state);
@@ -4365,6 +5550,11 @@ namespace MeshGhostPseudo
             // is still true here, matching the local-test path and the "this is a teleport, not a
             // physics move" reasoning below -- just no longer the fix itself.
             call_set_actor_location_and_rotation(remote.ghost, target_loc, target_rot);
+
+            // Thrown Dream Breaker -- a second, independent actor with its own lifetime. Placed
+            // here, after the ghost's own staleness checks have run, so it never spawns a loose
+            // sword for a peer whose ghost has just been invalidated by a level transition.
+            tick_remote_weapon(id, remote, current_world);
 
             // Bubble FLASH mirror, 2026-08-15 -- the real mechanism, replacing the afterimage
             // approximation (see BUBBLE_SPAWNS_AFTERIMAGES in tickLocal).

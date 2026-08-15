@@ -29,14 +29,18 @@ pawn instance/AnimBP every redraw tick:
 | `landed?` / `jumped?` | pawn → `animBPref` | bool, **not** on the pawn itself. One-shot pulses, not continuous state — mirrored as a monotonic counter + hold window (`PULSE_HOLD_TICKS`) since a single-tick flag doesn't survive the ~20Hz send-rate/network round trip. Writing `jumped?`/`landed?` alone didn't fix the ledge-hang-stuck-forever bug — that needed an explicit `Montage_Stop` call on the ghost's AnimBP instance too. |
 | `weaponEquipped?` / `animEquippedWeapon` | pawn / pawn → `animBPref` | bool, mirrored continuously (`RemoteGhost::target_weapon_equipped`). **FIXED and confirmed live, 2026-08-15** — see the Dream Breaker section below. The property write alone never drove the visual; the real fix was calling `changeEquippedWeapon`/`updateWeaponEquip` *before* the raw property overwrite, not after, so those functions see the value actually change. This row is now "done" the same as the others above. |
 | `SkeletalMesh` / `SkinnedAsset` (on `VisualMesh`) | pawn → `VisualMesh` | object reference to a `USkeletalMesh` asset, one per outfit. **FIXED and confirmed live, 2026-08-15** — see the Outfit section below. Sent as the asset's real object path (`RemoteGhost::target_outfit_mesh`); ghost resolves it via `StaticFindObject` and calls `SetSkeletalMeshAsset` (found via a live function-name dump) before the direct property write. |
+| `weaponRef`'s thrown actor (position, rotation, `weaponState`, glow asset) | pawn → the thrown `BP_looseWeapon_C` actor | **DONE and confirmed live, 2026-08-15.** The only row here that mirrors a *separate world object* rather than a state of the character. See the thrown-Dream-Breaker section below. |
 
 `position`/`orientation` (top-level packet fields, not `extras`) come from `K2_GetActorLocation`/
 `K2_GetActorRotation`; `area_id` from `PersistentLevel`'s `GetFullName()`.
 
-**Not synced today, known gap**: ability VFX (cling-gem effect, sword/empty-hand glow) —
-`agent_docs/status.md`. This is now the only remaining Pseudoregalia visual gap. This file's second
-half is the field-discovery work originally aimed at both this and the (now-fixed) outfit/weapon
-gaps.
+**Not synced today, known gaps** (`agent_docs/status.md`): the empty-hand recall glow and the ultra
+hop's blue trail. The cling-gem effect and the thrown sword's own glow are both done. This file's
+second half is the field-discovery work originally aimed at the (now-fixed) outfit/weapon gaps.
+
+Worth noting for the recall glow specifically: it was blocked on a *precondition* — the `IsValid`
+guards in `manageRecallIdleFX` most plausibly want a real thrown-weapon actor, which the ghost had
+none of. The thrown-Dream-Breaker work below now provides exactly that, so it is worth retrying.
 
 ## Ability → internal field map (schema only, not yet synced or behavior-confirmed)
 
@@ -198,3 +202,30 @@ this session (all via `OBJECT_REFLECTION_DUMP`/`ABILITY_FIELD_TRACE`, see their 
    *fixed* offset set at construction, and it is the player's own crouch logic, which an
    unpossessed ghost never runs, that adjusts it. The working fix compensates the ghost's **render
    Z** instead: `ghost_z = peer_z + (65 - peer_half)`.
+
+## Thrown Dream Breaker (the loose weapon actor): DONE, confirmed live 2026-08-15
+
+The first thing this adapter mirrors that is a **separate world object** rather than a state of the
+character. Full measurements and the two wrong turns are in `agent_docs/verified.md`'s
+"thrown Dream Breaker" entry; this is the field map.
+
+| Field | Lives on | Notes |
+|---|---|---|
+| `weaponRef` | pawn | Object reference to the thrown `BP_looseWeapon_C` actor. **Not a "is it thrown" flag** — it keeps pointing at the last thrown weapon after pickup, because the game parks a picked-up weapon at world origin instead of destroying it. Thrown = actor exists AND `weaponEquipped?` false AND transform not at origin. |
+| position / rotation | the thrown actor | Sampled every tick, sent as `weapon_pos`/`weapon_rot`. Replaying these reproduces flight *and* wall bounces — the peer's own `ProjectileMovementComponent` already resolved them, so nothing is simulated on the receiving side. |
+| `weaponState` | the thrown actor | uint8. **0 in flight, 3 once landed**, measured identically across five throws. This is what makes a landed sword read as planted rather than hovering. Applied via the class's own `Change Weapon State` (one byte). |
+| `idleGlowVFX` → `Asset` | the thrown actor → its `NiagaraComponent` | The landed sword's glow ring, `/Game/VFX/Emitters/NS_WeaponIdle`. Created by the real sword's landing; sent as an asset path and spawned on the ghost's prop via `NiagaraFunctionLibrary:SpawnSystemAttached`. |
+
+Three things worth carrying to the next field on this actor:
+
+1. **A prop per throw, not one reused prop.** Reusing one actor and re-running the landing
+   transition on it accumulated state and sank the sword deeper each throw. The game spawns a fresh
+   `BP_looseWeapon_C` per throw; matching that is simpler than finding and resetting everything the
+   transition touches.
+2. **Collision must stay off** — the actor carries a `PlayerPickup` box, so a collidable copy would
+   let the local player pick up a peer's phantom sword. That is a game-state effect, not a cosmetic
+   one, and outside this project's visual-only posture.
+3. **The stock engine bools in this actor's dump are garbage.** `bHidden`,
+   `bActorIsBeingDestroyed` and `bIsEditorOnlyActor` all read `true` on a live, working actor —
+   UE packs them into a bitfield and the byte-wide read returns true for any non-zero byte. The
+   Blueprint-defined bools (`isEmbedded?`, `hasLight?`) are separate properties and read correctly.
