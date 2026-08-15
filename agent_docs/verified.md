@@ -3874,8 +3874,25 @@ Copy this block per fact:
 - **Consequence: this is a loopback-can't-answer item**, the same category as ghost collision — a
   real second player stands on the pole rather than beside it. Do not spend more diagnostics on the
   transform pipeline; it is proven correct.
+- **Later the same day, a sharper user report closed the question: "sometimes it works, sometimes
+  i don't see the ghost, and sometimes i see it on another pole than mine."** All three are the
+  sideways offset, and "another pole" is the tell that settles it. The offset is applied as a
+  fixed **world-X** render target (`target_x = x + loopback_offset_x`, `target_y = y` --
+  `Plugin.cpp`'s `handle_bridge_line`), not relative to facing, and the adapter re-sets the
+  ghost's location every tick, so nothing can snap it to anything: where poles are spaced along
+  world X, 150 units simply lines the ghost up with the NEXT pole while you climb yours. Poles
+  sit against structures, so the same nudge puts it inside adjacent geometry (invisible), and in
+  open space it looks fine -- hence the intermittency, which is level geometry, not timing.
+- **Consequently this is not a bug and was deliberately left unchanged (user's call, 2026-08-15).**
+  With a real second player, "the ghost is on a different pole" is the CORRECT rendering -- they
+  really are on a different pole. The offset stays at 150.0 because judging rendering quality
+  side by side is worth more than making poles legible in loopback, which they can't be anyway.
+  `LOOPBACK_GHOST_OFFSET_X = 0.0` remains the one-variable isolation step if a genuine pole bug
+  is ever suspected again (ghost sits exactly on you, so it must share your pole) -- but note it
+  reproduces the drag/pull collision case, per that constant's own comment.
 - Source: `UE4SS.log` (live install), 2026-08-15 -- `POLE local` / `POLE ghost` lines (7011 local,
-  2469 ghost). Code: `POLE_ROTATION_TRACE` in `Plugin.cpp`.
+  2469 ghost). Code: `POLE_ROTATION_TRACE` in `Plugin.cpp`; the offset itself is
+  `LOOPBACK_GHOST_OFFSET_X` and its use site in `handle_bridge_line`.
 
 ### Release-folder loopback script works with a real game attached
 
