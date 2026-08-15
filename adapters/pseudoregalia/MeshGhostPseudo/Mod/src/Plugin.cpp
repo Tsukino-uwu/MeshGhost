@@ -3392,7 +3392,11 @@ namespace MeshGhostPseudo
     // Deliberately scoped to identification only. No attempt to explain the blue yet: the blue is a
     // property of a thing nobody has identified, and this file's own history says the guesses go
     // wrong precisely when the underlying object is still unknown.
-    constexpr bool AFTERIMAGE_DISCOVERY = true;
+    // Off 2026-08-16, job done: it identified an afterimage as a BP_AfterImage_C actor carrying a
+    // PoseableMeshComponent, which is what made both the observed-spawn trigger and the real colour
+    // source possible. **Must stay off while judging the trail**: it fires an afterimage on the
+    // ghost every ~3s on its own, which would look exactly like a trail bug.
+    constexpr bool AFTERIMAGE_DISCOVERY = false;
 
     // ~3s between probes at this build's measured ~150Hz, and the "after" snapshot 3 ticks past the
     // call -- long enough for the spawn to exist, short enough that a short-lived afterimage has
@@ -3407,6 +3411,53 @@ namespace MeshGhostPseudo
     // sampling window that is too narrow looks identical to a real negative, which is worth
     // remembering: the counts, not the diff, are what caught it.
     constexpr uint64_t AFTERIMAGE_DISCOVERY_SAMPLE_DELAY_TICKS = 30;
+
+    // How often the local side reads the colour off its own live afterimages (production, not a
+    // diagnostic -- see the block in tickLocal). ~15Hz at this build's measured ~150Hz: below the
+    // 20Hz send rate, and an afterimage lives about a second, so a burst cannot be missed. Scoped
+    // to the exact class so the enumeration stays small.
+    // Tightened 10 -> 3 (2026-08-16, ~50Hz) alongside the batch tie-break below. Both attack the
+    // same measured failure from different sides: a scan that catches several new afterimages at
+    // once has to choose one colour for them, and the fewer images share a batch, the less often
+    // that choice has to be made at all. Still class-scoped, so each scan enumerates only
+    // afterimages rather than every actor.
+    constexpr uint64_t AFTERIMAGE_COLOR_SCAN_INTERVAL_TICKS = 3;
+
+    // How long a non-baseline afterimage colour is held so it cannot be overwritten before the
+    // ~20Hz send samples it. At this build's ~150Hz that send interval is ~7-8 ticks, so 15 covers
+    // it with margin -- sized against the send rate rather than against how long the effect looks
+    // right for, because the whole failure was a sampling race, not a visual duration. Same
+    // reasoning as PULSE_HOLD_TICKS for the landed?/jumped? one-shots.
+    constexpr uint64_t AFTERIMAGE_COLOR_HOLD_TICKS = 15;
+
+    // Drive the ghost's trail from afterimages the game REALLY created, instead of reconstructing
+    // when it probably created them. The old trigger keyed on a measured capsule shrink -- the best
+    // available at the time, after three wrong actionState guesses -- but it was still our
+    // re-derivation of the game's rule, so it could lead or lag the real burst, and it only ever
+    // knew about slides. That last part is why an ultra hop produced NO ghost trail at all: an
+    // ultra is not a slide, so nothing fired, and the blue had nothing to colour.
+    //
+    // Possible only now that an afterimage is known to be a BP_AfterImage_C actor, which makes
+    // "count the ones the game made" a cheap, exact question. Same principle as the recall glow's
+    // presence mirror: copy the decision, never re-implement the rule.
+    constexpr bool AFTERIMAGE_TRIGGER_OBSERVED = true;
+
+    // The ghost trails on a slide now (trigger confirmed live) but still never blue on an ultra.
+    // Colour crosses three hands, and this logs all three so the one that drops it is named rather
+    // than guessed -- there are exactly three places it can be lost and they need different fixes:
+    //   1. LOCAL   -- is a blue afterimage even observed and captured? If the local scan only ever
+    //                 reports gold, the ultra's images are being missed (a sampling problem), and
+    //                 nothing downstream matters.
+    //   2. WRITE   -- what colour does the ghost's burst actually write, and did the write report
+    //                 success? This is the value after the wire, so a mismatch with (1) means the
+    //                 send/parse path or the timing between burst and colour update.
+    //   3. RESULT  -- what Color do the GHOST's own afterimages come out with? If (2) writes blue
+    //                 and (3) is still gold, then the pawn's afterimageColor does NOT seed the
+    //                 spawned actor's Color, and the fix is to write Color on the ghost's
+    //                 afterimage actors directly -- which is now possible, since they are findable.
+    // Every new afterimage is logged with the character it came from, so local and ghost images can
+    // be told apart in one stream.
+    constexpr bool TRAIL_COLOR_TRACE = true;
 
     // How often the local side checks whether the real recall glow is currently showing. This is a
     // full Niagara-component enumeration, so it is deliberately not per-tick: at ~10Hz it is well
@@ -3647,6 +3698,57 @@ namespace MeshGhostPseudo
             Output::send(STR("[MeshGhostPseudo] AFTERIMAGE: nothing new within the sample window -- check whether the totals above are still climbing before concluding anything.\n"));
         }
         afterimage_prev_after = std::move(after);
+
+        // **The lead, found in the schema dump**: BP_AfterImage_C carries its own `Color`
+        // (StructProperty). The property-value dumper skips structs, which is why it never showed
+        // up before -- and it explains the whole dead end in `status.md`. Every colour attempt so
+        // far targeted `afterimageColor` on the PAWN, and that field provably never changes during
+        // an ultra. It was simply the wrong object: the pawn's value seeds a normal trail, while
+        // the colour that actually renders lives on each afterimage actor.
+        //
+        // So this logs the Color of every afterimage belonging to the LOCAL player as it appears.
+        // Do a few normal hops and one ultra in the same session and the answer is a diff, not a
+        // guess: if ultra afterimages carry a different Color, that is the blue, and reproducing it
+        // means writing Color on the ghost's own afterimage actors rather than anything on its pawn.
+        {
+            std::vector<UObject*> actors;
+            UObjectGlobals::FindAllOf(STR("Actor"), actors);
+            for (UObject* candidate : actors)
+            {
+                if (!candidate)
+                {
+                    continue;
+                }
+                UClass* candidate_class = candidate->GetClassPrivate();
+                if (!candidate_class || to_utf8(candidate_class->GetName()).find("AfterImage") == std::string::npos)
+                {
+                    continue;
+                }
+                const std::string full_name = to_utf8(candidate->GetFullName());
+                if (afterimage_colors_logged.find(full_name) != afterimage_colors_logged.end())
+                {
+                    continue;
+                }
+                afterimage_colors_logged.insert(full_name);
+
+                // Whose afterimage is this? `cachedMesh` points at the VisualMesh of the character
+                // it was snapshotted from, which separates the local player's trail from the
+                // ghost's own -- otherwise the ghost's probe-spawned images would drown the real
+                // ones being measured.
+                std::string source = "<unknown>";
+                if (UObject** cached_ptr = candidate->GetValuePtrByPropertyNameInChain<UObject*>(STR("cachedMesh")); cached_ptr && *cached_ptr)
+                {
+                    source = to_utf8((*cached_ptr)->GetFullName());
+                }
+                LinearColorRGBA color{};
+                const bool ok = read_linear_color(candidate, STR("Color"), color);
+                bool* grow_ptr = candidate->GetValuePtrByPropertyNameInChain<bool>(STR("Grow?"));
+                Output::send(STR("[MeshGhostPseudo] AFTERIMAGECOLOR: {} rgba=({:.3f}, {:.3f}, {:.3f}, {:.3f}) read_ok={} grow={} from='{}'\n"),
+                             candidate->GetName(), color.r, color.g, color.b, color.a, ok,
+                             grow_ptr ? *grow_ptr : false,
+                             to_wide_ascii(source));
+            }
+        }
 
         // Identification is done: an afterimage is a BP_AfterImage_C actor carrying a
         // PoseableMeshComponent -- a posed mesh snapshot, NOT a particle system. That single fact
@@ -5720,7 +5822,11 @@ namespace MeshGhostPseudo
                 // way, are in verified.md and pitfalls.md; the code is not kept as a fallback
                 // because a wrong-looking effect is not a useful fallback for a correct one.
 
-                if (burst_edge || slide_edge || slide_refire)
+                // Superseded by the observed-spawn trigger below (see AFTERIMAGE_TRIGGER_OBSERVED).
+                // Kept behind the flag rather than deleted only until the observed path has been
+                // watched live; a reconstruction that fires at the wrong time is not a useful
+                // fallback for one that mirrors the real thing, so this should go once confirmed.
+                if (!AFTERIMAGE_TRIGGER_OBSERVED && (burst_edge || slide_edge || slide_refire))
                 {
                     ++afterimage_count;
                     // Prefer the game's own count when it actually supplied one; otherwise use the
@@ -6233,7 +6339,198 @@ namespace MeshGhostPseudo
             // so a one-time read would miss exactly the case worth syncing. Falls back to the
             // game's own normal trail colour if the read fails, so a peer never receives garbage.
             LinearColorRGBA local_afterimage_color{};
-            bool local_color_read_ok = read_linear_color(pawn, STR("afterimageColor"), local_afterimage_color);
+            // **Read into a LOCAL, not straight into the member.** This line runs every tick while
+            // the afterimage scan below runs every few, so assigning the member here republished
+            // the pawn's baseline colour on every tick in between -- meaning two ticks out of three
+            // the outgoing packet carried gold no matter what the scan had observed, and the ~20Hz
+            // send simply landed wherever it landed. That, not detection and not the send rate, is
+            // what capped blue reproduction at roughly a third (measured 10 observed, 4 arriving),
+            // and it is why holding the observed colour for longer changed nothing: the hold was
+            // real, but this line overwrote its result further down the same tick.
+            LinearColorRGBA pawn_afterimage_color{};
+            bool local_color_read_ok = read_linear_color(pawn, STR("afterimageColor"), pawn_afterimage_color);
+            // The pawn's value is only a STARTUP fallback, used until a real afterimage has been
+            // observed. After that the latched per-burst colour stands until the next burst
+            // replaces it -- see the latch in the scan below for why nothing else may touch it.
+            if (!afterimage_have_observed_color)
+            {
+                local_afterimage_color = pawn_afterimage_color;
+            }
+
+            // **The ultra hop's blue, solved 2026-08-16 -- read the colour off the AFTERIMAGE, not
+            // off the pawn.** `status.md` parked this after `afterimageColor` was proven never to
+            // change during a real ultra, and that finding was correct; it was simply the wrong
+            // object. A live capture of every afterimage's own `Color` shows normal images at
+            // (1.000, 0.888, 0.260) and ultra images at (0.000, 0.787, 1.000) -- so the ultra path
+            // sets the colour per-afterimage and bypasses the pawn field entirely.
+            //
+            // This mirrors the observed colour rather than detecting an ultra, which matters: the
+            // repeated failure here was trying to identify the ultra STATE, and this needs no such
+            // test. Whatever the game decides -- ultra, a future variant, a mod -- the ghost copies
+            // the colour the game actually used. Same principle as the recall glow's presence
+            // mirror, and the reason neither needs to know the rule.
+            //
+            // Enumerated by exact class so this stays cheap enough to ship (only afterimages, not
+            // every actor), at a bounded cadence, and holds its last value between scans. The
+            // pawn's afterimageColor above remains the fallback for when no afterimage is alive.
+            // The same scan also drives the trail TRIGGER now, not just its colour -- see
+            // AFTERIMAGE_TRIGGER_OBSERVED. Counting afterimages the game really created replaces
+            // reconstructing when it might have created them, which fixes two things at once:
+            // slide timing (the old trigger keyed on a capsule shrink, so it led or lagged the real
+            // burst) and coverage (it only knew about slides, which is why an ultra hop produced no
+            // ghost trail at all -- confirmed in the capture, where every ghost afterimage was gold
+            // and only the local player had blue ones).
+            if (tick_count % AFTERIMAGE_COLOR_SCAN_INTERVAL_TICKS == 0)
+            {
+                std::vector<UObject*> afterimages;
+                UObjectGlobals::FindAllOf(STR("BP_AfterImage_C"), afterimages);
+                const std::string pawn_name = to_utf8(pawn->GetName());
+                std::set<std::string> alive;
+                int new_images = 0;
+                // The pawn's own afterimageColor -- the baseline an ordinary trail is drawn in, and
+                // what the tie-break inside the loop is measured against. Taken from the local
+                // read above rather than from the member, which by this point may already hold an
+                // observed colour being held.
+                const LinearColorRGBA baseline_afterimage_color = pawn_afterimage_color;
+                bool batch_has_special_color = false;
+                for (UObject* image : afterimages)
+                {
+                    if (!image)
+                    {
+                        continue;
+                    }
+                    // Must be OUR afterimage: `cachedMesh` names the character it was snapshotted
+                    // from, and a ghost's own images are in this list too. Without this filter the
+                    // ghost's colour would feed back into itself and its trail would self-trigger.
+                    UObject** cached_ptr = image->GetValuePtrByPropertyNameInChain<UObject*>(STR("cachedMesh"));
+                    const bool is_ours = cached_ptr && *cached_ptr &&
+                                         to_utf8((*cached_ptr)->GetFullName()).find(pawn_name) != std::string::npos;
+
+                    // Trace (1) LOCAL and (3) RESULT in one pass -- every new afterimage, whoever
+                    // it belongs to. A ghost's images appearing gold here while the local player's
+                    // are blue is the decisive observation.
+                    if constexpr (TRAIL_COLOR_TRACE)
+                    {
+                        std::string trace_name = to_utf8(image->GetFullName());
+                        if (local_afterimages_traced.find(trace_name) == local_afterimages_traced.end())
+                        {
+                            local_afterimages_traced.insert(trace_name);
+                            LinearColorRGBA trace_color{};
+                            const bool ok = read_linear_color(image, STR("Color"), trace_color);
+                            std::string owner = (cached_ptr && *cached_ptr) ? to_utf8((*cached_ptr)->GetFullName()) : std::string("<none>");
+                            Output::send(STR("[MeshGhostPseudo] TRAILCOLOR image: mine={} rgb=({:.3f}, {:.3f}, {:.3f}) ok={} from='{}'\n"),
+                                         is_ours, trace_color.r, trace_color.g, trace_color.b, ok,
+                                         to_wide_ascii(owner));
+                        }
+                    }
+
+                    if (!is_ours)
+                    {
+                        continue;
+                    }
+                    std::string image_name = to_utf8(image->GetFullName());
+                    alive.insert(image_name);
+                    if (local_afterimages_seen.find(image_name) != local_afterimages_seen.end())
+                    {
+                        continue;
+                    }
+                    ++new_images;
+                    LinearColorRGBA image_color{};
+                    if (!read_linear_color(image, STR("Color"), image_color))
+                    {
+                        continue;
+                    }
+
+                    // **Tie-break within a batch, and it is load-bearing.** A scan can see several
+                    // new images at once, and simply taking the last one meant whichever the
+                    // enumeration happened to return last won -- so a batch holding one blue ultra
+                    // image and one gold image was a coin flip. Measured: 2 blue images locally,
+                    // only 1 reproduced on the ghost, with totals otherwise matching exactly
+                    // (33/33). That is the whole of the "blue sometimes, yellow other times" bug.
+                    //
+                    // The rule: an image whose colour differs from the pawn's own afterimageColor
+                    // wins. That field is by definition the baseline the ordinary trail uses, so a
+                    // divergence from it is the game deliberately colouring one image differently
+                    // -- the salient one. Losing a gold image among blues is invisible; losing the
+                    // blue is precisely what was reported. This is a tie-break over observed
+                    // values, not an inference about game state: it never asks whether an ultra is
+                    // happening, only which of two observed colours matters more.
+                    constexpr float COLOR_MATCH_EPSILON = 0.01f;
+                    const bool differs_from_baseline =
+                        std::fabs(image_color.r - baseline_afterimage_color.r) > COLOR_MATCH_EPSILON ||
+                        std::fabs(image_color.g - baseline_afterimage_color.g) > COLOR_MATCH_EPSILON ||
+                        std::fabs(image_color.b - baseline_afterimage_color.b) > COLOR_MATCH_EPSILON;
+                    // **Latch the colour to the event, and change it only on the next event.**
+                    //
+                    // This replaces three stacked heuristics -- a batch tie-break, a special-colour
+                    // hold window, and an observed-colour window -- that were each added to patch
+                    // the previous one's shortfall. Together they over-applied badly: 6 blue images
+                    // locally produced 98 blue ones on the ghost. Layering timers to protect a
+                    // value from being overwritten was the wrong shape; the fix is to stop
+                    // overwriting it.
+                    //
+                    // The rule is now exact rather than approximate. `afterimage_count` and this
+                    // colour describe ONE event, they are written together here, and nothing else
+                    // touches the colour afterwards -- not the per-tick pawn read, not a later
+                    // ordinary image, not a timer. Whenever the ~20Hz send samples the packet it
+                    // therefore sees the colour belonging to the most recent burst, whichever tick
+                    // it happens to land on. That is correct by construction, with no window to
+                    // size and no race to lose, which is why the earlier attempts kept missing:
+                    // they tried to make a sampling race land favourably instead of removing it.
+                    local_afterimage_color = image_color;
+                    local_color_read_ok = true;
+                    batch_has_special_color = batch_has_special_color || differs_from_baseline;
+                    afterimage_have_observed_color = true;
+                }
+                // Replacing the set rather than inserting into it prunes images the game has
+                // already reclaimed, so this cannot grow without bound over a session.
+                local_afterimages_seen = std::move(alive);
+
+                // Batch composition. Two attempts at the blue loss have now failed (a tie-break,
+                // then a faster scan), and the counts say why they were shots in the dark: 16 blue
+                // images locally, 6 reproduced, totals otherwise matching exactly. That pattern is
+                // consistent with several different causes -- blues sharing a batch and collapsing
+                // into one increment, blues never being seen as new, or the burst size not
+                // carrying them -- and they need different fixes.
+                //
+                // So this prints what each batch actually contained and what was chosen from it.
+                // The decisive comparison is `blue` against `n`: if a batch holds 3 blue images and
+                // sends n=3, the ghost should produce 3 blue ones, and any shortfall is downstream
+                // in the burst. If batches hold blues but the chosen colour is gold, the tie-break
+                // is not firing. If blues never appear in any batch at all, they are being missed
+                // by the scan entirely and no amount of colour logic will help.
+                if constexpr (TRAIL_COLOR_TRACE)
+                {
+                    if (new_images > 0)
+                    {
+                        int blue_in_batch = 0;
+                        for (UObject* image : afterimages)
+                        {
+                            if (!image)
+                            {
+                                continue;
+                            }
+                            LinearColorRGBA c{};
+                            if (read_linear_color(image, STR("Color"), c) && c.r < 0.5f && c.b > 0.5f)
+                            {
+                                ++blue_in_batch;
+                            }
+                        }
+                        Output::send(STR("[MeshGhostPseudo] TRAILBATCH: n={} chose=({:.3f}, {:.3f}, {:.3f}) special={} blueAliveNow={} tick={}\n"),
+                                     new_images,
+                                     local_afterimage_color.r, local_afterimage_color.g, local_afterimage_color.b,
+                                     batch_has_special_color, blue_in_batch, tick_count);
+                    }
+                }
+
+                if (AFTERIMAGE_TRIGGER_OBSERVED && new_images > 0)
+                {
+                    // One wire increment carrying the real burst size, matching how the ghost side
+                    // already consumes this pair (a counter that survives the send rate, plus N).
+                    ++afterimage_count;
+                    afterimage_spawn_n = new_images;
+                }
+            }
             if (!local_color_read_ok)
             {
                 local_afterimage_color = LinearColorRGBA{1.0f, 1.0f, 1.0f, 1.0f};
@@ -7285,6 +7582,14 @@ namespace MeshGhostPseudo
                 }
                 bool color_written = have_color &&
                                      write_linear_color_rgb(remote.ghost, STR("afterimageColor"), write_r, write_g, write_b);
+
+                // Trace (2) WRITE -- the colour as it exists on this side of the wire, immediately
+                // before the burst that should consume it.
+                if constexpr (TRAIL_COLOR_TRACE)
+                {
+                    Output::send(STR("[MeshGhostPseudo] TRAILCOLOR write: rgb=({:.3f}, {:.3f}, {:.3f}) have_color={} written={} n={}\n"),
+                                 write_r, write_g, write_b, have_color, color_written, spawn_count);
+                }
 
                 if constexpr (TRAIL_TRIGGER_TRACE)
                 {

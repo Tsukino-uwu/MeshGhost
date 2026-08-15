@@ -752,6 +752,36 @@ Backing detail for `CLAUDE.md`'s public-repo rule. Two live cases, and they fail
   `cmake`, and from the same devkitPro MSYS2 install. Treat a tool's *config-dependent*
   output (not just its success/failure) as suspect until the binary is identified.
 
+### Latch event payloads to the event; don't republish them as per-tick state (2026-08-16)
+
+- **Symptom**: a peer's ultra-hop afterimage was blue, the ghost's was blue only sometimes. Ratios
+  across four attempts: 2→1, 8→4, 10→4, then an over-correction to 6→98.
+- **Diagnosis, in the order it was actually established** — worth reading as a sequence, because
+  three of the four attempts were aimed at the wrong stage:
+  1. Detection was never at fault. Instrumenting each stage separately showed every blue image was
+     observed and correctly chosen (10 observed, 10 chosen). Only 4 arrived.
+  2. The real cause was one line: the pawn's baseline colour was read **into the member that gets
+     serialized, every tick**, while the observed colour was updated only every few ticks. So on
+     most ticks the outgoing packet carried the baseline regardless of what had been observed, and
+     the lower-rate send sampled whichever tick it happened to land on.
+  3. The fix that finally worked was not another timer but **deleting** the timers: the counter and
+     its colour describe one event, so they are written together and nothing touches the colour
+     afterwards. Whenever the send samples, it sees the payload belonging to the latest event.
+- **The shape to recognise**: a monotonic counter survives a lossy, low-rate send precisely because
+  it is never recomputed. Any payload that travels *with* that counter needs the same property. If
+  the payload is recomputed from live state each tick, the counter is exact and its payload is a
+  lottery — and the two disagreeing is invisible in the code, because both fields look equally
+  "synced" at the call site.
+- **The meta-lesson, which cost the most here**: three fixes were added in sequence — a tie-break,
+  then a hold window, then a second hold window — each patching the previous one's shortfall. That
+  escalation was itself the signal that the shape was wrong. **When you are adding a second timer
+  to protect a value from being overwritten, stop and remove the thing overwriting it instead.**
+  The over-correction (6 real blues becoming 98) is what layered heuristics look like when they
+  finally interact; the correct version has no window to size and no race to lose.
+- **Generalizes to**: any adapter sending event-plus-payload over a lossy, rate-limited channel —
+  a hit type with a hit counter, a colour or asset with a spawn counter, a sound id with a footstep
+  counter. Latch the payload where the event is detected, and let nothing else write it.
+
 ### A raw actor pointer added to a tracking struct must also be dropped in the pre-teardown hook (2026-08-16)
 
 - **Symptom**: `EXCEPTION_ACCESS_VIOLATION` returning to the main menu, reported live. Stack:

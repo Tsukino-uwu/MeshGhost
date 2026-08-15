@@ -169,6 +169,21 @@ covers every situation that produces the effect rather than the ones you thought
 drift when the game changes. The same reasoning fixed a glow whose real rule ("only near a save
 crystal") nobody had guessed — mirroring presence meant never needing to know the rule at all.
 
+**Latch anything that travels with the counter, at the moment you detect the event.** A counter
+survives a lossy, low-rate send precisely because it is never recomputed; a payload sent alongside
+it — a colour, an asset path, a hit type — needs that same property. Recompute the payload from
+live state each tick and the counter stays exact while its payload becomes a lottery, decided by
+which tick the send happens to sample. That is invisible at the call site, because both fields look
+equally "synced". Pseudoregalia lost roughly half its ultra-hop trail colours to exactly this, from
+a single line that read a baseline value into the outgoing field every tick while the real value
+updated more slowly.
+
+The failure has a recognisable escalation, and it is worth knowing before you are in it: the first
+fix is a tie-break, the second a hold window, the third a longer hold window, and then one day six
+real events produce ninety-eight fake ones. **When you find yourself adding a second timer to
+protect a value from being overwritten, stop and remove whatever overwrites it instead.** The
+correct version has no window to size and no race to lose.
+
 **Finding what to count.** If the effect is an object, diff the world around it: snapshot the
 candidate object types, trigger the effect, snapshot again, print what is new. Trigger it *on the
 ghost* if you can — being able to fire it on demand beats waiting to perform a hard trick in-game.

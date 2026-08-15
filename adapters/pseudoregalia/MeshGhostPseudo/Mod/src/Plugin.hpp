@@ -701,6 +701,23 @@ namespace MeshGhostPseudo
         // exactly how the first run concluded "nothing was created".
         std::set<std::string> afterimage_prev_after;
         bool afterimage_dumped{false};
+        // Afterimages already logged, so each is reported once as it appears rather than every
+        // probe. Keyed by full name for the same reason the probe's own sets are: these are
+        // short-lived objects whose addresses get recycled.
+        std::set<std::string> afterimage_colors_logged;
+
+        // Afterimages currently alive on the LOCAL player, by full name. Rebuilt each scan rather
+        // than appended to, so entries for images the game has reclaimed drop out and the set stays
+        // bounded across a long session. Drives both the trail trigger and its colour.
+        std::set<std::string> local_afterimages_seen;
+        // TRAIL_COLOR_TRACE: every afterimage already reported, local or ghost, so each is logged
+        // once. Separate from local_afterimages_seen because that one is deliberately pruned to
+        // stay bounded, and re-logging a pruned-then-reappearing name would be misleading.
+        std::set<std::string> local_afterimages_traced;
+        // Has any real afterimage colour been observed yet? Until one has, the pawn's
+        // afterimageColor is used as a startup fallback; afterwards the latched per-burst colour
+        // stands on its own and no timer or per-tick read may overwrite it.
+        bool afterimage_have_observed_color{false};
         uint64_t afterimage_probe_tick{0};
         bool afterimage_probe_pending{false};
 
