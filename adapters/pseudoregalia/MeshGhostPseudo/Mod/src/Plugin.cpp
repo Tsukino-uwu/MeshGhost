@@ -3367,6 +3367,47 @@ namespace MeshGhostPseudo
     // long enough for construction and a first state packet, short enough to still be "at spawn".
     constexpr uint64_t GHOST_SPAWN_WEAPON_TRACE_DELAY_TICKS = 150;
 
+    // The ultra hop's BLUE trail, resumed 2026-08-16 -- but NOT by guessing more property names,
+    // which `status.md` explicitly parks this on. The record there is a list of negatives:
+    // `afterimageColor` provably never changes during a real ultra, and `ultraCap`,
+    // `fullUltraModifier`, `cappedUltraModifier` and `animJumpType` were all cleared too. The note
+    // ends "not derivable from polled state", and that conclusion still stands -- so this does not
+    // poll anything.
+    //
+    // What changed is that two things are now known that were not when it was parked:
+    //   1. Effects in this game can be identified by enumeration rather than inference (the whole
+    //      VFX catalog/watcher approach that found NS_WeaponCallReady).
+    //   2. The trail is almost certainly NOT a particle system. The catalog holds 58 game Niagara
+    //      systems and not one is an afterimage -- so a colour property on a particle effect was
+    //      never going to be the answer, which retrospectively explains why every colour guess
+    //      failed.
+    //
+    // The remaining leverage is that this adapter can already SPAWN an afterimage on demand, via
+    // the pawn's own `Spawn After Image` (confirmed live -- the trail appears on a ghost). So the
+    // mechanism can be studied without landing a perfect ultra: snapshot the world's mesh
+    // components and actors, fire one afterimage on the ghost, snapshot again, and print what is
+    // new. That names what an afterimage physically IS -- a pooled actor, a mesh component, a
+    // material instance -- which is the prerequisite for asking where its colour comes from.
+    //
+    // Deliberately scoped to identification only. No attempt to explain the blue yet: the blue is a
+    // property of a thing nobody has identified, and this file's own history says the guesses go
+    // wrong precisely when the underlying object is still unknown.
+    constexpr bool AFTERIMAGE_DISCOVERY = true;
+
+    // ~3s between probes at this build's measured ~150Hz, and the "after" snapshot 3 ticks past the
+    // call -- long enough for the spawn to exist, short enough that a short-lived afterimage has
+    // not faded and been reclaimed before it is seen.
+    constexpr uint64_t AFTERIMAGE_DISCOVERY_INTERVAL_TICKS = 450;
+
+    // **Was 3, and 3 was wrong** (2026-08-16). At that delay the probe reported "0 new objects"
+    // every time and concluded afterimages were pooled -- the exact opposite of the truth. The
+    // give-away was in its own output: the total object count rose by exactly 2 between one probe
+    // and the next (1460 -> 1462 -> 1464 ...), so each call was demonstrably creating two objects
+    // that simply had not appeared yet 3 ticks in, and then persisted. A negative result from a
+    // sampling window that is too narrow looks identical to a real negative, which is worth
+    // remembering: the counts, not the diff, are what caught it.
+    constexpr uint64_t AFTERIMAGE_DISCOVERY_SAMPLE_DELAY_TICKS = 30;
+
     // How often the local side checks whether the real recall glow is currently showing. This is a
     // full Niagara-component enumeration, so it is deliberately not per-tick: at ~10Hz it is well
     // under the 20Hz rate the state is sent at anyway, so a tighter cadence would buy nothing
@@ -3516,6 +3557,134 @@ namespace MeshGhostPseudo
         Output::send(STR("[MeshGhostPseudo] RECALLGLOW {}: spawn on WeaponMesh -> {}\n"),
                      to_wide_ascii(player_id),
                      remote.recall_glow_component ? STR("component returned") : STR("NULL"));
+    }
+
+    // See AFTERIMAGE_DISCOVERY for why this exists and why it identifies rather than explains.
+    auto Plugin::tick_afterimage_discovery(AActor* ghost) -> void
+    {
+        if (!ghost)
+        {
+            return;
+        }
+
+        // Enumerated together and treated as one set. MeshComponent covers static/skeletal/poseable
+        // in one go (an afterimage is most plausibly a mesh snapshot), and Actor covers the case
+        // where each one is its own pooled actor instead.
+        auto snapshot = [](std::set<std::string>& out) {
+            out.clear();
+            std::vector<UObject*> objects;
+            UObjectGlobals::FindAllOf(STR("MeshComponent"), objects);
+            {
+                std::vector<UObject*> actors;
+                UObjectGlobals::FindAllOf(STR("Actor"), actors);
+                objects.insert(objects.end(), actors.begin(), actors.end());
+            }
+            for (UObject* object : objects)
+            {
+                if (object)
+                {
+                    out.insert(to_utf8(object->GetFullName()));
+                }
+            }
+        };
+
+        if (!afterimage_probe_pending)
+        {
+            if (afterimage_probe_tick != 0 && tick_count - afterimage_probe_tick < AFTERIMAGE_DISCOVERY_INTERVAL_TICKS)
+            {
+                return;
+            }
+            snapshot(afterimage_before);
+            // Catch anything that appeared since the last probe's post-call sample -- i.e. later
+            // than the sample delay. This is the half that was missing when the probe wrongly
+            // reported afterimages as pooled.
+            if (!afterimage_prev_after.empty())
+            {
+                for (const std::string& entry : afterimage_before)
+                {
+                    if (afterimage_prev_after.find(entry) == afterimage_prev_after.end())
+                    {
+                        Output::send(STR("[MeshGhostPseudo] AFTERIMAGE: + LATE (appeared between probes) {}\n"),
+                                     to_wide_ascii(entry));
+                    }
+                }
+            }
+            call_spawn_after_image(ghost, 1.0f);
+            afterimage_probe_tick = tick_count;
+            afterimage_probe_pending = true;
+            return;
+        }
+
+        if (tick_count - afterimage_probe_tick < AFTERIMAGE_DISCOVERY_SAMPLE_DELAY_TICKS)
+        {
+            return;
+        }
+        afterimage_probe_pending = false;
+
+        std::set<std::string> after;
+        snapshot(after);
+
+        size_t new_count = 0;
+        for (const std::string& entry : after)
+        {
+            if (afterimage_before.find(entry) != afterimage_before.end())
+            {
+                continue;
+            }
+            ++new_count;
+            Output::send(STR("[MeshGhostPseudo] AFTERIMAGE: + NEW {}\n"), to_wide_ascii(entry));
+        }
+        Output::send(STR("[MeshGhostPseudo] AFTERIMAGE: {} new object(s) {} ticks after one Spawn After Image on the ghost (before={}, after={}).\n"),
+                     new_count, AFTERIMAGE_DISCOVERY_SAMPLE_DELAY_TICKS,
+                     afterimage_before.size(), after.size());
+        if (new_count == 0)
+        {
+            // Do NOT read this as "pooled" any more -- the first run did exactly that and was
+            // wrong. If the totals are still climbing between probes, the objects are being
+            // created and this window is simply still too narrow; the LATE lines above are then
+            // where the answer is. Only a flat total across several probes would actually argue
+            // for pooling.
+            Output::send(STR("[MeshGhostPseudo] AFTERIMAGE: nothing new within the sample window -- check whether the totals above are still climbing before concluding anything.\n"));
+        }
+        afterimage_prev_after = std::move(after);
+
+        // Identification is done: an afterimage is a BP_AfterImage_C actor carrying a
+        // PoseableMeshComponent -- a posed mesh snapshot, NOT a particle system. That single fact
+        // retroactively explains the whole trail of failed colour guesses in `status.md`: they were
+        // all aimed at particle/pawn properties, and the thing that is actually coloured here is a
+        // mesh's material.
+        //
+        // So this dumps one real instance, once: the actor's own property values (where a colour or
+        // material reference would live if the Blueprint holds one) and its function list (where a
+        // setter would be), plus the same for its PoseableMeshComponent, which is what actually
+        // renders. This is schema discovery only -- no claim yet about which field carries the
+        // blue, because the next step is comparing a normal hop against an ultra and diffing, and
+        // that comparison needs to know what fields exist before it can mean anything.
+        if (!afterimage_dumped)
+        {
+            std::vector<UObject*> actors;
+            UObjectGlobals::FindAllOf(STR("Actor"), actors);
+            for (UObject* candidate : actors)
+            {
+                if (!candidate)
+                {
+                    continue;
+                }
+                UClass* candidate_class = candidate->GetClassPrivate();
+                if (!candidate_class || to_utf8(candidate_class->GetName()).find("AfterImage") == std::string::npos)
+                {
+                    continue;
+                }
+                afterimage_dumped = true;
+                dump_object_property_values(candidate, STR("BP_AfterImage_C"));
+                dump_object_reflection(candidate, STR("BP_AfterImage_C"));
+                if (UObject** mesh_ptr = candidate->GetValuePtrByPropertyNameInChain<UObject*>(STR("PoseableMesh")); mesh_ptr && *mesh_ptr)
+                {
+                    dump_object_property_values(*mesh_ptr, STR("afterimage PoseableMesh"));
+                }
+                break;
+            }
+        }
     }
 
     // See GHOST_SPAWN_WEAPON_TRACE for what this is answering and why the loose-weapon census is
@@ -6366,6 +6535,11 @@ namespace MeshGhostPseudo
             if constexpr (GHOST_SPAWN_WEAPON_TRACE)
             {
                 tick_ghost_spawn_weapon_trace(id, remote);
+            }
+
+            if constexpr (AFTERIMAGE_DISCOVERY)
+            {
+                tick_afterimage_discovery(remote.ghost);
             }
 
             // Runs on whichever ghost comes first and only that one -- the probe's value is being

@@ -415,6 +415,10 @@ namespace MeshGhostPseudo
         // Two-sample capture of the ghost-spawns-mid-throw case -- see GHOST_SPAWN_WEAPON_TRACE.
         auto tick_ghost_spawn_weapon_trace(const std::string& player_id, RemoteGhost& remote) -> void;
 
+        // Identifies what an afterimage physically is, by diffing the world around a deliberate
+        // Spawn After Image call on a ghost -- see AFTERIMAGE_DISCOVERY.
+        auto tick_afterimage_discovery(RC::Unreal::AActor* ghost) -> void;
+
         auto release_ghost(const std::string& player_id) -> void;
         auto release_all_ghosts(const wchar_t* reason) -> void;
 
@@ -686,6 +690,19 @@ namespace MeshGhostPseudo
         // RECALL_GLOW_SCAN_INTERVAL_TICKS and held between scans, then sent so a ghost mirrors the
         // game's own decision instead of a reimplementation of its rule.
         bool local_recall_glow{false};
+
+        // AFTERIMAGE_DISCOVERY state. The "before" set is full object names, not pointers: an
+        // afterimage is expected to be pooled or short-lived, and a recycled address would make a
+        // reused object look brand new.
+        std::set<std::string> afterimage_before;
+        // The previous probe's post-call snapshot, kept so anything that appears in the long gap
+        // BETWEEN probes is still attributed and printed. Without it, an object created later than
+        // the sample delay is invisible to the diff yet still inflates the totals -- which is
+        // exactly how the first run concluded "nothing was created".
+        std::set<std::string> afterimage_prev_after;
+        bool afterimage_dumped{false};
+        uint64_t afterimage_probe_tick{0};
+        bool afterimage_probe_pending{false};
 
         // VFX_CATALOG_PROBE state. The catalog is built once per session and then cycled: index is
         // where the cycle is up to, and the component is the currently-showing effect, destroyed

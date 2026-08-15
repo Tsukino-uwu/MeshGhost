@@ -143,6 +143,51 @@ local machine has installed*. Pseudoregalia's enumeration turned up a custom eff
 third-party mod. Anything built on such an asset silently does nothing for peers who lack it, so
 prefer base-game assets and treat a failed asset lookup as an expected case, not an error.
 
+## When a mirrored effect's timing is slightly off, stop reconstructing the trigger
+
+Enumeration (above) answers *what exists*. This answers *when it happens* — and it is the fix for
+the specific, recurring symptom of a ghost that does roughly the right thing at roughly the wrong
+moment: a trail that starts late, an effect that lingers, a pose that lags.
+
+**The failure mode.** You cannot see the peer's game, so the tempting move is to reconstruct the
+condition under which the effect fires — "a slide is this state plus this capsule height for this
+many ticks" — and drive the ghost from your reconstruction. It works, mostly. But it is a
+re-implementation of a rule the peer's game already evaluated perfectly, so it can lead, lag, or
+miss edge cases, and it only ever covers the cases you enumerated. Pseudoregalia went through
+three wrong triggers for one trail before landing on a measured-but-still-inferred fourth, and it
+still only knew about slides.
+
+**The fix: mirror the decision, not the rule.** Detect that the effect actually happened on the
+local player, count those events, send the count, and have the ghost reproduce one per increment.
+Send a **monotonic counter**, never a boolean: a flag that is true for one frame will not survive a
+~20 Hz send rate, whereas "has this number gone up since I last looked" is well-defined no matter
+which samples arrive. Baseline the counter on a peer's first sample so a mid-session joiner does
+not replay its whole history at spawn.
+
+This is strictly better than a reconstruction in three ways: the timing is the game's own, it
+covers every situation that produces the effect rather than the ones you thought of, and it cannot
+drift when the game changes. The same reasoning fixed a glow whose real rule ("only near a save
+crystal") nobody had guessed — mirroring presence meant never needing to know the rule at all.
+
+**Finding what to count.** If the effect is an object, diff the world around it: snapshot the
+candidate object types, trigger the effect, snapshot again, print what is new. Trigger it *on the
+ghost* if you can — being able to fire it on demand beats waiting to perform a hard trick in-game.
+That is how Pseudoregalia identified its afterimage as a spawned actor carrying a posed mesh
+snapshot, after months of assuming it was a particle effect and guessing colour properties.
+
+**The trap that makes this method lie to you: a sampling window that is too narrow produces a
+false negative indistinguishable from a real one.** The first run of exactly that probe reported
+"0 new objects" every time and concluded the effect was pooled and reused. It was not — the objects
+were created slightly later than the sample and then persisted. What caught it was the *totals*
+printed alongside the diff, which climbed by exactly two every probe. So:
+
+- Always print a **total**, not only the difference. The number that shouldn't change is what
+  reveals that your window is wrong.
+- Widen the window and diff **across** probes, so anything appearing in a gap is still attributed.
+- Never let a probe write its conclusion into the log ("likely pooled") — write the observation and
+  conclude outside it. A wrong conclusion recorded in a log file outlives the run and gets believed
+  later.
+
 ## Testing it
 
 The local rig already exists — read [dev-scripts/README.md](../../dev-scripts/README.md) before
