@@ -3876,3 +3876,26 @@ Copy this block per fact:
   transform pipeline; it is proven correct.
 - Source: `UE4SS.log` (live install), 2026-08-15 -- `POLE local` / `POLE ghost` lines (7011 local,
   2469 ghost). Code: `POLE_ROTATION_TRACE` in `Plugin.cpp`.
+
+### Release-folder loopback script works with a real game attached
+
+- Date: 2026-08-15
+- Observed: user copied `dev-scripts/run-loopback-in-release-folder.bat` into an unzipped
+  release folder, ran it instead of `meshghost-server.exe`, then started `meshghost.exe` and
+  loaded the Pseudoregalia UE4SS mod. The relay window showed the script's own banner,
+  `-loopback enabled`, `room send rate: 20Hz`, and `relay: p1 ("player") joined room "default"
+  as game "pseudoregalia"`; the client window showed `connected to relay 127.0.0.1:7777 as p1`.
+  On screen: a ghost of the player standing a short distance to the side of the real character,
+  not overlapping it. Screenshot supplied by the user.
+- Source: `dev-scripts/run-loopback-in-release-folder.bat`; the relay's `-loopback` flag
+  (`Server.Loopback` in `internal/relay/relay.go`); the side offset is
+  `LOOPBACK_GHOST_OFFSET_X` in Pseudoregalia's `Mod/src/Plugin.cpp`.
+- Notes: scope is **Pseudoregalia in a release-layout folder** (relay named
+  `meshghost-server.exe`, sitting beside the script) — says nothing about Emerald or TEVI, and
+  TEVI's loopback ghost offset remains an open question with no such constant found in its
+  source. **The ghost moved visibly less smoothly than under the dev loopback, and that is
+  correct, not a regression**: this script deliberately omits the dev scripts' `-send-hz=100`,
+  so the relay ran at the release `config.json`'s own `send_hz` (20Hz above) instead. The user
+  confirmed this is the intended way to use it — smoothing/rate is tuned in `config.json`, the
+  same knob a real session uses. Don't "fix" that difference by adding `-send-hz` back to the
+  script; see `dev-scripts/README.md`'s entry for the full reasoning.

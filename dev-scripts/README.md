@@ -130,20 +130,23 @@ downloaded release folder and run against its `meshghost-server.exe` instead.
   testing this script. Dropped in the wrong folder it says so in plain language and exits
   rather than failing cryptically.
 
-  **Status: confirmed working in a real release folder (user-run, 2026-08-15).** It launches and
-  runs loopback from a genuine downloaded release, which is the part the script itself is
-  responsible for — that's no longer an open question, and it's fine to hand out. Earlier
-  agent-side checks, from a stand-in release folder launched from an unrelated working
-  directory, cover the details underneath: `-loopback enabled` in the log, `config.json` and
-  `meshghost-server.log` both resolving to the release folder, the wrong-folder guard exiting
-  cleanly, and a real `render_remote p1-ghost` round trip driven by `meshghost-fakeadapter.exe`.
+  **Status: confirmed on screen in a running game (2026-08-15)** — user ran it from a real
+  release folder with Pseudoregalia attached and saw their own ghost standing beside them; see
+  [agent_docs/verified.md](../agent_docs/verified.md)'s entry for what was observed. Fine to
+  hand out. Agent-side checks cover the details underneath: `config.json` and
+  `meshghost-server.log` both resolving to the release folder when launched from an unrelated
+  working directory, the wrong-folder guard exiting cleanly, and a `render_remote p1-ghost`
+  round trip driven by `meshghost-fakeadapter.exe`.
 
-  **Still unwatched: the ghost itself.** No run so far has had a game mod loaded, so nobody has
-  seen their own ghost appear on screen *from this script* — which is exactly the bar
-  [agent_docs/verified.md](../agent_docs/verified.md) exists for, so nothing goes in there yet.
-  Low risk rather than an unknown: the moving parts are the shipped relay binary and its
-  existing `-loopback` flag, both unchanged, and the script adds no behavior of its own. The
-  first person to run it with a game attached closes this — add the entry then.
+  **Expect it to look less smooth than the dev loopback — that's the point, not a bug.** Since
+  this script omits `-send-hz=100`, the relay runs at the release `config.json`'s own `send_hz`
+  (20 by default), which is what a real session actually looks like; the dev scripts' 100Hz is
+  the artificial one. The difference is clearly visible side by side and was the first thing
+  noticed on the live run. Rate and smoothing are tuned in `config.json` (`send_hz`, `interp`),
+  the same knobs a real player has — resist adding `-send-hz` back to this script.
+
+  Still unconfirmed: Emerald and TEVI. TEVI in particular has no loopback offset constant in
+  its source, so its ghost may sit directly on top of the player rather than beside it.
 
   The loopback ghost renders a short distance to the side of the real player rather than
   exactly on top of it, so the two can be compared without overlapping — that offset is
