@@ -128,10 +128,20 @@ downloaded release folder and run against its `meshghost-server.exe` instead.
   `NoDefaultCurrentDirectoryInExePath` is set, and a bare exe name then fails with "not
   recognized as an internal or external command" while sitting right there — found live while
   testing this script. Dropped in the wrong folder it says so in plain language and exits
-  rather than failing cryptically. Verified 2026-08-15 end to end from a stand-in release
-  folder: `-loopback enabled` in the log, `config.json` and `meshghost-server.log` resolving to
-  the release folder while launched from an unrelated working directory, and a real
-  `render_remote p1-ghost` round trip via `meshghost-fakeadapter.exe`.
+  rather than failing cryptically.
+
+  **Status: mechanically confirmed, not yet used for real (2026-08-15).** What was actually
+  checked, from a stand-in release folder launched from an unrelated working directory:
+  `-loopback enabled` in the log, `config.json` and `meshghost-server.log` both resolving to the
+  release folder, the wrong-folder guard exiting cleanly, and a real `render_remote p1-ghost`
+  round trip driven by `meshghost-fakeadapter.exe`. What has **not** happened: nobody has run
+  this from a genuine downloaded release zip with a real game attached and watched their own
+  ghost appear on screen. The moving parts are the shipped relay binary and its existing
+  `-loopback` flag, unchanged — the script adds no new behavior of its own — so there's no
+  specific reason to expect trouble; it simply hasn't been through the standard "seen happening
+  in a running game" bar (`CLAUDE.md`). Nothing goes in
+  [agent_docs/verified.md](../agent_docs/verified.md) until it has. Worth updating this line
+  the first time someone actually uses it.
 
   The loopback ghost renders a short distance to the side of the real player rather than
   exactly on top of it, so the two can be compared without overlapping — that offset is
