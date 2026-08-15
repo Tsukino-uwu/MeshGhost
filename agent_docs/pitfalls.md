@@ -654,6 +654,30 @@ three gets re-tried blind:
     talking to two distinct instances of anything before adding more diagnostics to the
     pipeline that already proved itself correct.
 
+### Personal paths reaching a public repo, and a leak-check that silently passes (2026-08-15)
+
+Backing detail for `CLAUDE.md`'s public-repo rule. Two live cases, and they failed differently:
+
+- **2026-08-11, code**: a Phase 2 script had a hardcoded personal path that only ever worked on
+  the machine it was written on — a portability bug, not just a style nit.
+- **2026-08-15, prose**: four `Recorded plan: <absolute path>` citations had accreted across
+  `phases/phase7.md` and `verified.md`. The rule already covered these; what failed was the
+  *check it cues*. Its worked example is script-shaped ("would this run on another machine?"),
+  and against a design doc that question returns a false pass — a doc doesn't run anywhere,
+  while the leak is a privacy problem rather than a portability one. All four were pasted
+  verbatim from tool output rather than typed, which is when authoring-time judgement doesn't
+  fire at all. Hence the rule now names prose and pasted output explicitly.
+- **The check itself had a false-pass bug**, found while writing it down: `git grep` with a
+  backslash pattern (`'C:\\Users'`, `"C:\\\\Users"`, any regex form tried) matches **nothing**
+  on Windows paths and exits clean. An earlier scan looked like it verified the tree, but was
+  entirely carried by an unrelated username in the same alternation; the path half never
+  matched anything. Only `-F` (fixed string) works: `git grep -inIF -e 'C:\Users' -e '/home/'`.
+  Verified in both directions — against a deliberately planted leak (must find it) and against
+  the clean tree (must find nothing). **Generalizes**: a hygiene check that can only ever print
+  "nothing found" is indistinguishable from a broken one. Plant a positive before trusting it.
+  Corollary found the same way: don't put a literal example of the banned pattern in the rule
+  text, or the rule trips its own check and trains you to ignore the output.
+
 ### Two `git.exe` installs on one machine disagree about whether the tree is dirty (2026-08-15)
 
 - **Symptom**: `git status --short` run from PowerShell reported 53 modified files and

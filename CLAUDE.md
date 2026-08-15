@@ -46,21 +46,19 @@ proposing a plan that touches the core, an adapter, or the relay.
   right after editing that adapter's source, not just before a release. Found live 2026-08-14:
   changed both mods' source in one session and left them unbuilt, which would have silently
   blocked live testing later.
-- **This is a public repo — never hardcode a personal username, absolute personal file path,
-  or other machine-identifying detail into a tracked file or script.** Genericize it (a
-  placeholder a new user edits, an environment variable) or make it relative instead (e.g.
-  scripts under `adapters/` resolve their own directory rather than assuming one). Found live
-  2026-08-11: a Phase 2 script had a hardcoded personal path that only ever worked on the
-  machine it was written on — a real portability bug, not just a style nit. **This applies to
-  prose in `agent_docs/` just as much as to code** — "would this run elsewhere?" is the wrong
-  test there and returns a false pass. Found live 2026-08-15: four `Recorded plan:
-  C:\Users\<name>\...` citations had accreted across `phase7.md`/`verified.md`, all pasted
-  verbatim from tool output rather than typed. Cite such files by name only; the absolute
-  prefix is unusable to a reader anyway.
-  `agent_docs/environment.md` is the one deliberate exception (it's a factual environment
-  record, not a template) — but even there, prefer the fact that actually matters (a version
-  number) over an incidental personal detail (a full path containing a username) when either
-  would do.
+- **This is a public repo — no personal username, home-directory path, or other
+  machine-identifying detail in any tracked file. Prose counts, not just code.** Genericize it
+  (a placeholder a new user edits, an environment variable) or make it relative (scripts under
+  `adapters/` resolve their own directory). Cite files living outside the repo by filename
+  only — an absolute prefix is unusable to a reader anyway. Suspect pasted tool output
+  above all: both live cases got in that way rather than by being typed. Verify before
+  committing, and never assume a clean run means clean —
+  `git grep -inIF -e 'C:\Users' -e '/home/' -- . ':!CLAUDE.md' ':!agent_docs/environment.md'
+  ':!agent_docs/pitfalls.md'` must print nothing (`-F` is load-bearing: as a regex the
+  backslashes silently match nothing, so the check passes while leaking. The three excluded
+  files contain the pattern by definition — this one, and the two that document it). `agent_docs/environment.md` is the one deliberate exception (a
+  factual environment record, not a template) — even there prefer the version number over a
+  path containing a username. Both found-live cases: `agent_docs/pitfalls.md`.
 - **Rebuild the Go binaries before testing via a `.bat` launcher, not just before shipping.**
   `go build ./...`/`go vet`/`go test` don't refresh `meshghost.exe`/`meshghost-relay.exe`/
   `meshghost-fakeadapter.exe` at the repo root — `dev-scripts/*.bat` launches those exact named
