@@ -757,17 +757,21 @@ Backing detail for `CLAUDE.md`'s public-repo rule. Two live cases, and they fail
 - **Symptom**: a ghost's afterimage trail was visibly thinner than the real player's, while every
   measurement said the two matched — identical counts (32 vs 32), identical spacing between spawns
   (18-21 ticks each side), identical positions modulo the loopback offset.
-- **Diagnosis**: the engine **pools** afterimage actors. They are re-used, never destroyed. So a
-  spawn detector keyed on "an object name I have not seen before" fires while the pool is growing
-  and then goes quiet, missing every subsequent re-use. Since the pool is shared, the same blind
-  rule undercounted BOTH sides equally — which is why the counts agreed perfectly and still
-  described far fewer images than were actually on screen.
-- **What actually revealed it**: a lifetime probe that produced **zero samples**. It only logged an
-  entry when an image disappeared, and across 122 tracked afterimages not one ever did. The empty
-  result was the finding — objects that never die are pooled objects.
-- **Fix**: detect re-use, not creation. An afterimage is a frozen snapshot that never moves once
-  placed, so a position change means the pool handed it back out at the player's current location.
-  Treat "new object OR moved" as the spawn signal.
+- **Confirmed finding**: the engine **pools** afterimage actors. They are re-used and never
+  destroyed, so a spawn detector keyed on "an object name I have not seen before" fires while the
+  pool is growing and then goes quiet. Established by a lifetime probe that produced **zero
+  samples**: it only logged an entry when an image disappeared, and across 122 tracked afterimages
+  not one ever did. The empty result was the finding — objects that never die are pooled objects.
+- **NOT the cause of the symptom, and the correction matters more than the theory.** Counting
+  re-use as a spawn was implemented on the strength of the above and then **reverted**: a census of
+  the world showed the ghost had produced roughly *twice* as many afterimages as the real player
+  (27 vs 54 attributed at one sample) while still looking thinner. So the thin trail was never a
+  spawn-count problem, and counting re-use only added spurious spawns. The remaining candidate is
+  visibility/fade, which is a different investigation — see `status.md`.
+- **Which is itself the lesson**: a correct, well-evidenced finding about the *mechanism* (pooling
+  is real) does not make it the *cause* of the symptom in front of you. The pooling discovery was
+  sound and the fix built on it was wrong, because nobody had yet measured whether spawn count was
+  the shortfall at all.
 - **Two traps worth carrying forward, both of which cost real time here:**
   - **Agreement between two measured sides is not correctness** when the same instrument measures
     both. Counting local and remote with one blind rule guarantees they agree and says nothing

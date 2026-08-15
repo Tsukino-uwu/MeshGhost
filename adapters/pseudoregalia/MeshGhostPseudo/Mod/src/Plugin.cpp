@@ -3435,6 +3435,17 @@ namespace MeshGhostPseudo
     // separates "zero" from "somewhere else entirely" and only needs to clear read noise.
     constexpr double AFTERIMAGE_REUSE_MOVE_THRESHOLD = 5.0;
 
+    // **OFF: counting pool re-use as a spawn made the ghost over-fire, and it was never the cause.**
+    // It was added on the theory that the ghost's thinner trail came from missed spawns. A world
+    // census then measured the opposite: the ghost has produced roughly TWICE as many afterimages
+    // as the real player (27 vs 54 attributed at one sample), while still looking thinner. So the
+    // shortfall was never about how many are created, and this only added spurious ones.
+    //
+    // Kept rather than deleted because the underlying finding is real and still useful: these
+    // actors ARE pooled and re-used, which is why nothing ever disappears. If a future effect needs
+    // re-use counted, this is the mechanism -- it just is not what the trail needed.
+    constexpr bool AFTERIMAGE_COUNT_REUSE = false;
+
     // Drive the ghost's trail from afterimages the game REALLY created, instead of reconstructing
     // when it probably created them. The old trigger keyed on a measured capsule shrink -- the best
     // available at the time, after three wrong actionState guesses -- but it was still our
@@ -6472,6 +6483,10 @@ namespace MeshGhostPseudo
                     {
                         is_new_spawn = true; // genuinely new object -- the pool grew
                     }
+                    else if (!AFTERIMAGE_COUNT_REUSE)
+                    {
+                        is_new_spawn = false;
+                    }
                     else
                     {
                         const double dx = image_loc.X() - std::get<0>(known->second);
@@ -6548,6 +6563,45 @@ namespace MeshGhostPseudo
                 // the actor to tick. An actor spawned by this adapter onto an unpossessed ghost may
                 // not run it the same way. This does not assume that -- it just measures how long
                 // each side's images survive, which distinguishes it from every other explanation.
+                // **Ground truth, measured off the world rather than off this detector.** Every
+                // number so far has been produced by the same scan that was undercounting, so it
+                // could only ever agree with itself. This instead counts how many afterimages are
+                // ALIVE and attributed to each character at the same instant -- the thing a person
+                // actually perceives as trail density. If the player has many alive and the ghost
+                // few, the shortfall is real and downstream of detection (the ghost's spawn call
+                // producing fewer than asked); if both are similar, then density is not about
+                // count at all and the remaining candidate is how they look, not how many.
+                if constexpr (TRAIL_COLOR_TRACE)
+                {
+                    if (tick_count % LOG_INTERVAL_TICKS == 0)
+                    {
+                        int alive_mine = 0;
+                        int alive_ghost = 0;
+                        for (UObject* image : afterimages)
+                        {
+                            if (!image)
+                            {
+                                continue;
+                            }
+                            UObject** cm = image->GetValuePtrByPropertyNameInChain<UObject*>(STR("cachedMesh"));
+                            if (!cm || !*cm)
+                            {
+                                continue;
+                            }
+                            if (to_utf8((*cm)->GetFullName()).find(pawn_name) != std::string::npos)
+                            {
+                                ++alive_mine;
+                            }
+                            else
+                            {
+                                ++alive_ghost;
+                            }
+                        }
+                        Output::send(STR("[MeshGhostPseudo] TRAILALIVE: mine={} ghost={} poolTotal={} tick={}\n"),
+                                     alive_mine, alive_ghost, afterimages.size(), tick_count);
+                    }
+                }
+
                 if constexpr (TRAIL_COLOR_TRACE)
                 {
                     std::vector<UObject*> now_alive;
