@@ -150,6 +150,11 @@ Roughly in order:
     before it will do anything — you can only trigger the game's own systems when their
     preconditions are state you can write. (7.6)
 
+29. Fixed the sword *throw* animation, which step 21 didn't cover: the throw isn't a state the
+    ghost could mirror at all, it's an animation montage. The game's own "play montage" function
+    silently does nothing on a ghost, but the engine's own one underneath it works — so the ghost
+    now plays whatever montage the real player plays, throw included. (7.6)
+
 See [agent_docs/phases/phase7.md](../../agent_docs/phases/phase7.md) for the detailed, dated
 log, and [agent_docs/pitfalls.md](../../agent_docs/pitfalls.md) for the transferable lessons
 pulled out of this saga (auto-possession on spawn, camera/view-target
@@ -159,12 +164,12 @@ bug behind the facing-direction fix).
 
 ### Further work past "good enough"
 
-The ghost passed "good enough" around step 18; steps 19–28 are all polish past that line. Still
+The ghost passed "good enough" around step 18; steps 19–29 are all polish past that line. Still
 open as of 2026-08-15 — [agent_docs/status.md](../../agent_docs/status.md) is the authoritative
 list:
 
 - 7.7 itself, two real players. Also gates the keep-or-axe call on ghost collision.
-- The sword *throw* animation (pickup was fixed by step 21; throw is separately blocked).
+- Which *other* montages step 29 fixed for free (attacks, hurt, ledge-hang) — untested.
 - The blue ultra-hop trail (step 26) and the empty-hand recall glow (step 28).
 - Ghost vanishes while a peer is on a climbing pole, then returns stuck in a climb pose.
 - A `Fatal Error!` on game exit, seen once, never root-caused.

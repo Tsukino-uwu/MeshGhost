@@ -384,6 +384,40 @@ namespace MeshGhostPseudo
     // real production code, not diagnostics.
     constexpr bool WEAPON_SYNC_TRACE = false;
 
+    // Dream Breaker THROW animation, still open after the 2026-08-15 call-order fix (verified.md's
+    // "animBPref cross-save diff" entry): that reorder fixed weapon VISIBILITY in both directions
+    // and the PICKUP animation, but the user confirmed live that the throw MOTION specifically
+    // still doesn't play on the ghost. The asymmetry is the whole clue -- the same edge, the same
+    // two calls, the same synced flag, one direction animates and the other doesn't -- so
+    // `changeEquippedWeapon(true)` plausibly IS the game's own pickup path (draw montage included)
+    // while the throw motion is played by something else entirely that only real player input
+    // reaches. That fits the ghost-vs-player property diff (verified.md): the ghost has no
+    // Controller/InputComponent, so nothing input-driven ever runs on it.
+    //
+    // This flag is the read-only ground-truth pass BEFORE any fix attempt, per this project's
+    // "what state does that function read, and can I write it?" triage question: watch what the
+    // LOCAL player's own pawn and anim instance actually do across a real throw. It logs one line
+    // per real CHANGE (not per tick) in moveState/actionState/animJumpType/weaponEquipped?/
+    // weaponRef plus the currently-playing montage, which answers three things in one capture:
+    // (a) is the throw a montage (needs Montage_Play with a named asset, the mechanism
+    // call_montage_stop already proves works here) or a state-machine pose (needs a property we
+    // aren't syncing); (b) how many ticks the throw state actually lasts -- if it's a handful, the
+    // send cadence drops it and it needs the landed?/jumped? monotonic-counter pulse treatment
+    // (PLAYER_FIELDS.md's bucket 2 predicted exactly this for a "weapon thrown" moment); and
+    // (c) the real name of the throw entry point, via the one-shot filtered function dump, since
+    // the log that originally held it has since been overwritten by later sessions.
+    // Flip back to false once the capture is done, same convention as every flag above.
+    // **Flipped back off 2026-08-15, job done and the fix CONFIRMED LIVE.** The three captures this
+    // flag paid for, in order: (1) the throw is invisible to every value this adapter mirrors --
+    // moveState/actionState/animJumpType are bit-identical through a real throw -- and is an Anim
+    // Montage, 'dreamLady_WeaponThrow_Montage'; (2) the game's own CustomPlayMontage wrapper is a
+    // clean NEGATIVE on a ghost (returns normally, montage never starts, twelve-tick readback says
+    // 'none'); (3) stock Montage_Play on the ghost's animBPref works, returning length=1.000 with
+    // the readback showing the right montage playing. The montage mirror it produced is real
+    // production code now (RemoteGhost::target_montage); what stays behind this flag is only its
+    // logging plus the post-call readback, kept for the next montage question rather than deleted.
+    constexpr bool THROW_ANIM_TRACE = false;
+
     // The inversion test designed in verified.md's "Dream Breaker weapon-visibility sync" entry:
     // five straight fix attempts on the weapon-visibility sync all failed identically (data
     // pipeline confirmed correct on every sample, two function calls confirmed firing, four
@@ -1099,6 +1133,241 @@ namespace MeshGhostPseudo
                 return;
             }
             anim_instance->ProcessEvent(function, params_buffer.data());
+        }
+
+        // Dream Breaker THROW-animation investigation, 2026-08-15 -- read-only probe, see
+        // THROW_ANIM_TRACE's own comment. 'Montage_Stop' is already confirmed present on
+        // animBPref's class chain (call_montage_stop above), so this chain does carry the stock
+        // montage API -- but no *getter* for the currently-playing montage has ever been
+        // enumerated on this build, so this resolves one by name and gives up quietly if it isn't
+        // there rather than assuming the engine's API surface, per CLAUDE.md. The same capture
+        // dumps every 'ontage'-named function on both objects (dump_functions_matching below), so
+        // a name that doesn't resolve gets answered with evidence from that same session instead
+        // of a second guess. Writes the montage's full name into `out_name` and returns false only
+        // when the getter itself couldn't be used -- so the caller can stop asking after one miss.
+        auto read_current_active_montage(UObject* anim_instance, std::string& out_name) -> bool
+        {
+            out_name.clear();
+            if (!anim_instance)
+            {
+                return false;
+            }
+            UFunction* function = anim_instance->GetFunctionByNameInChain(STR("GetCurrentActiveMontage"));
+            if (!function)
+            {
+                Output::send(STR("[MeshGhostPseudo] TRACE throwAnim: no 'GetCurrentActiveMontage' on this anim instance's class chain -- see the filtered function dump for what montage API this build actually has.\n"));
+                return false;
+            }
+            FProperty* return_property = nullptr;
+            for (FProperty* property : TFieldRange<FProperty>(function, EFieldIterationFlags::None))
+            {
+                if (property && property->GetName() == STR("ReturnValue"))
+                {
+                    return_property = property;
+                }
+            }
+            if (!return_property || return_property->GetClass().GetName() != STR("ObjectProperty"))
+            {
+                Output::send(STR("[MeshGhostPseudo] TRACE throwAnim: 'GetCurrentActiveMontage' has no ObjectProperty 'ReturnValue' -- refusing to call it.\n"));
+                return false;
+            }
+            int32_t parms_size = function->GetPropertiesSize();
+            int32_t return_end = static_cast<int32_t>(return_property->GetOffset_Internal()) + static_cast<int32_t>(sizeof(UObject*));
+            if (parms_size < return_end)
+            {
+                Output::send(STR("[MeshGhostPseudo] TRACE throwAnim: 'GetCurrentActiveMontage' PropertiesSize={} is too small for its own ReturnValue (needs {}) -- refusing to call it.\n"),
+                             parms_size, return_end);
+                return false;
+            }
+            std::vector<uint8_t> params_buffer(static_cast<size_t>(parms_size), 0);
+            anim_instance->ProcessEvent(function, params_buffer.data());
+            UObject* montage = *std::bit_cast<UObject**>(params_buffer.data() + return_property->GetOffset_Internal());
+            out_name = montage ? to_utf8(montage->GetFullName()) : std::string("none");
+            return true;
+        }
+
+        // Montage mirror, 2026-08-15 -- the Dream Breaker THROW-animation fix (see
+        // RemoteGhost::target_montage). 'CustomPlayMontage' is the game's OWN wrapper on
+        // BP_PlayerGoatMain_C, confirmed by live reflection dump this same session alongside the
+        // stock engine alternatives (Montage_Play on animBPref, PlayAnimMontage on the pawn):
+        // exactly one parameter, 'MontageToPlay' (ObjectProperty), PropertiesSize=8. Chosen over
+        // the stock calls deliberately, per ideas.md's "let the game do the work" -- the game's own
+        // wrapper is what the real player's throw goes through, so whatever slot/blend handling it
+        // does is the handling the animation was authored against. Matched by parameter NAME, same
+        // discipline as call_montage_stop and call_change_equipped_weapon above.
+        auto call_custom_play_montage(UObject* pawn, UObject* montage) -> bool
+        {
+            if (!pawn || !montage)
+            {
+                return false;
+            }
+            UFunction* function = pawn->GetFunctionByNameInChain(STR("CustomPlayMontage"));
+            if (!function)
+            {
+                return false;
+            }
+            int32_t parms_size = function->GetPropertiesSize();
+            if (parms_size < static_cast<int32_t>(sizeof(UObject*)))
+            {
+                Output::send(STR("[MeshGhostPseudo] WARNING: CustomPlayMontage has an implausibly small PropertiesSize ({}) -- refusing to call it.\n"),
+                             parms_size);
+                return false;
+            }
+            std::vector<uint8_t> params_buffer(static_cast<size_t>(parms_size), 0);
+            bool found_param = false;
+            for (FProperty* property : TFieldRange<FProperty>(function, EFieldIterationFlags::None))
+            {
+                if (property && property->GetName() == STR("MontageToPlay"))
+                {
+                    *std::bit_cast<UObject**>(params_buffer.data() + property->GetOffset_Internal()) = montage;
+                    found_param = true;
+                }
+            }
+            if (!found_param)
+            {
+                Output::send(STR("[MeshGhostPseudo] WARNING: CustomPlayMontage's 'MontageToPlay' parameter was not found by name -- refusing to call it.\n"));
+                return false;
+            }
+            pawn->ProcessEvent(function, params_buffer.data());
+            return true;
+        }
+
+        // Second mechanism for the montage mirror, 2026-08-15, after CustomPlayMontage came back a
+        // clean NEGATIVE: it returned normally on the ghost ten times with no warning, and an
+        // independent readback of the ghost's own anim instance showed 'none' playing on every one
+        // of the twelve ticks after each call (verified.md). The game's own wrapper bails somewhere
+        // inside, most plausibly on the possession state the ghost structurally lacks (no
+        // Controller/InputComponent/PlayerState -- the ghost-vs-player diff), which is the same
+        // precondition clause manageRecallIdleFX ran into.
+        //
+        // 'Montage_Play' is the stock UAnimInstance entry point, confirmed present on the ghost's
+        // animBPref class chain by this session's own dump (alongside Montage_Stop, which this file
+        // already calls successfully on that same object -- so montage calls on a ghost's anim
+        // instance do reach it). Every parameter is matched by NAME and only the ones understood
+        // are written; the rest stay zeroed. Its float ReturnValue is a real built-in success
+        // signal -- UAnimInstance::Montage_Play returns the montage length it started, or 0 when it
+        // refuses to play -- so this reports what the engine itself thought, not just that the call
+        // ran.
+        auto call_montage_play(UObject* anim_instance, UObject* montage) -> float
+        {
+            if (!anim_instance || !montage)
+            {
+                return -1.0f;
+            }
+            UFunction* function = anim_instance->GetFunctionByNameInChain(STR("Montage_Play"));
+            if (!function)
+            {
+                return -1.0f;
+            }
+            int32_t parms_size = function->GetPropertiesSize();
+            if (parms_size < static_cast<int32_t>(sizeof(UObject*)))
+            {
+                Output::send(STR("[MeshGhostPseudo] WARNING: Montage_Play has an implausibly small PropertiesSize ({}) -- refusing to call it.\n"),
+                             parms_size);
+                return -1.0f;
+            }
+            std::vector<uint8_t> params_buffer(static_cast<size_t>(parms_size), 0);
+            bool found_montage_param = false;
+            FProperty* return_property = nullptr;
+            // One-shot parameter dump, first call only: this function's real signature on THIS
+            // build has never been recorded, and CLAUDE.md's rule is that a call's parameters come
+            // from a dump rather than from general engine knowledge. Logging them at the first real
+            // call means the same session that tests the fix also carries the evidence for it.
+            static bool signature_dumped = false;
+            for (FProperty* property : TFieldRange<FProperty>(function, EFieldIterationFlags::None))
+            {
+                if (!property)
+                {
+                    continue;
+                }
+                if (!signature_dumped)
+                {
+                    Output::send(STR("[MeshGhostPseudo] DIAG: Montage_Play param '{}' ({}) offset={}\n"),
+                                 property->GetName(), property->GetClass().GetName(), property->GetOffset_Internal());
+                }
+                if (property->GetName() == STR("MontageToPlay"))
+                {
+                    *std::bit_cast<UObject**>(params_buffer.data() + property->GetOffset_Internal()) = montage;
+                    found_montage_param = true;
+                }
+                else if (property->GetName() == STR("InPlayRate"))
+                {
+                    *std::bit_cast<float*>(params_buffer.data() + property->GetOffset_Internal()) = 1.0f;
+                }
+                else if (property->GetName() == STR("ReturnValue"))
+                {
+                    return_property = property;
+                }
+            }
+            signature_dumped = true;
+            if (!found_montage_param)
+            {
+                Output::send(STR("[MeshGhostPseudo] WARNING: Montage_Play's 'MontageToPlay' parameter was not found by name -- refusing to call it.\n"));
+                return -1.0f;
+            }
+            anim_instance->ProcessEvent(function, params_buffer.data());
+            if (return_property && return_property->GetClass().GetName() == STR("FloatProperty") &&
+                parms_size >= static_cast<int32_t>(return_property->GetOffset_Internal()) + static_cast<int32_t>(sizeof(float)))
+            {
+                return *std::bit_cast<float*>(params_buffer.data() + return_property->GetOffset_Internal());
+            }
+            return 0.0f;
+        }
+
+        // Name-filtered function dump -- dump_object_reflection's function half, minus the
+        // property flood, so a targeted "what is this class's throw/montage API actually called"
+        // question can be answered from one capture without 389 property lines per cycle drowning
+        // it. Same TFieldRange<UFunction> enumeration and same param-by-param print as that
+        // function's own FX/ability filter, just with the needle list passed in by the caller
+        // instead of hardcoded.
+        auto dump_functions_matching(UObject* obj, const wchar_t* label, const std::vector<StringType>& needles) -> void
+        {
+            if (!obj)
+            {
+                Output::send(STR("[MeshGhostPseudo] DIAG: {} is null, cannot reflect.\n"), label);
+                return;
+            }
+            UClass* obj_class = obj->GetClassPrivate();
+            if (!obj_class)
+            {
+                Output::send(STR("[MeshGhostPseudo] DIAG: {} has no class, cannot reflect.\n"), label);
+                return;
+            }
+            Output::send(STR("[MeshGhostPseudo] DIAG: filtered function dump for {} = class {}\n"),
+                         label, obj_class->GetFullName());
+            for (UFunction* function : TFieldRange<UFunction>(obj_class, EFieldIterationFlags::Default))
+            {
+                if (!function)
+                {
+                    continue;
+                }
+                StringType function_name(function->GetName());
+                bool matched = false;
+                for (const StringType& needle : needles)
+                {
+                    if (function_name.find(needle) != StringType::npos)
+                    {
+                        matched = true;
+                        break;
+                    }
+                }
+                if (!matched)
+                {
+                    continue;
+                }
+                Output::send(STR("[MeshGhostPseudo] DIAG: {} function '{}' PropertiesSize={}\n"),
+                             label, function->GetName(), function->GetPropertiesSize());
+                for (FProperty* param : TFieldRange<FProperty>(function, EFieldIterationFlags::Default))
+                {
+                    if (!param)
+                    {
+                        continue;
+                    }
+                    Output::send(STR("[MeshGhostPseudo] DIAG: {} {}(...) param '{}' ({})\n"),
+                                 label, function->GetName(), param->GetName(), param->GetClass().GetName());
+                }
+            }
+            Output::send(STR("[MeshGhostPseudo] DIAG: end of {} filtered function dump.\n"), label);
         }
 
         // Dream Breaker throw/pickup animation, 2026-08-15: writing weaponEquipped?/
@@ -2306,6 +2575,12 @@ namespace MeshGhostPseudo
             json_number_field(line, "weapon_equipped", weapon_equipped_num);
             bool weapon_equipped = weapon_equipped_num != 0;
             std::string outfit_mesh = json_string_field(line, "outfit_mesh"); // best-effort, empty if missing
+            // Montage mirror -- see RemoteGhost::target_montage. Both best-effort: a peer on an
+            // older build simply sends neither, leaving montage_count at 0 forever, which never
+            // fires anything.
+            std::string montage = json_string_field(line, "montage");
+            double montage_count_in = 0;
+            json_number_field(line, "montage_count", montage_count_in);
 
             // Checked before ensure_ghost_spawned/ensure_ghost_hijacked, both of which insert a
             // default-constructed RemoteGhost via remotes[player_id] on their very first call for
@@ -2409,6 +2684,12 @@ namespace MeshGhostPseudo
                 {
                     it->second.target_outfit_mesh = outfit_mesh;
                 }
+                // Montage mirror -- unlike outfit_mesh, an empty montage IS meaningful here (it's
+                // simply "nothing playing right now"), but it's the counter that drives the ghost,
+                // and the counter only ever advances on a start, where the path is non-empty by
+                // construction. Storing the path unconditionally keeps the pair consistent.
+                it->second.target_montage = montage;
+                it->second.target_montage_count = montage_count_in;
                 if (is_new_remote)
                 {
                     // Baseline last_seen_* to this first sample -- found in a review pass.
@@ -2421,6 +2702,9 @@ namespace MeshGhostPseudo
                     // instant the ghost spawns, before the peer has actually done anything new.
                     it->second.last_seen_land_count = land_count;
                     it->second.last_seen_jump_count = jump_count;
+                    // Same reason for montages: a peer who has thrown the sword six times before
+                    // this ghost existed must not have throw #6 replayed at spawn.
+                    it->second.last_seen_montage_count = montage_count_in;
                 }
             }
         }
@@ -2531,6 +2815,38 @@ namespace MeshGhostPseudo
                     size_t space_pos = full_name.find(' ');
                     outfit_mesh = (space_pos != std::string::npos) ? full_name.substr(space_pos + 1) : full_name;
                 }
+            }
+
+            // Montage mirror, local half -- see RemoteGhost::target_montage. Read every tick (not
+            // at the trace cadence): the whole point of the monotonic counter below is that a
+            // montage shorter than the send interval still gets delivered, which only works if the
+            // start is actually noticed on the tick it happens. Same object-path form as
+            // outfit_mesh above, for the same StaticFindObject reason.
+            std::string montage_path;
+            {
+                std::string montage_full_name;
+                if (UObject** abp_ptr = pawn->GetValuePtrByPropertyNameInChain<UObject*>(STR("animBPref")); abp_ptr && *abp_ptr)
+                {
+                    read_current_active_montage(*abp_ptr, montage_full_name);
+                }
+                if (!montage_full_name.empty() && montage_full_name != "none")
+                {
+                    size_t space_pos = montage_full_name.find(' ');
+                    montage_path = (space_pos != std::string::npos) ? montage_full_name.substr(space_pos + 1) : montage_full_name;
+                }
+                // Count STARTS only -- a change to a different non-empty montage, or from nothing
+                // to something. A montage ending is deliberately not an event: the ghost is playing
+                // its own copy of the same asset, which ends on its own.
+                if (!montage_path.empty() && montage_path != prev_local_montage)
+                {
+                    ++montage_count;
+                    if constexpr (THROW_ANIM_TRACE)
+                    {
+                        Output::send(STR("[MeshGhostPseudo] TRACE montage local: START #{} '{}'\n"),
+                                     montage_count, to_wide_ascii(montage_path));
+                    }
+                }
+                prev_local_montage = montage_path;
             }
 
             if constexpr (WEAPON_SYNC_TRACE)
@@ -2863,6 +3179,89 @@ namespace MeshGhostPseudo
                 prev_spawn_tracking_particles = spawn_tracking_particles_now;
             }
 
+            // Dream Breaker THROW-animation ground truth -- see THROW_ANIM_TRACE's own comment.
+            // Log-on-change rather than log-every-tick or a burst triggered by the weaponEquipped?
+            // edge: the throw wind-up necessarily happens BEFORE the flag flips, so an edge-
+            // triggered burst would miss the exact frames the question is about, while a 60-line-
+            // per-second dump would bury them. One line per real change gives the full timeline
+            // AND the tick counts (how long each state lasts), which is the send-cadence half of
+            // the question.
+            if constexpr (THROW_ANIM_TRACE)
+            {
+                UObject* local_abp = nullptr;
+                if (UObject** abp_ptr = pawn->GetValuePtrByPropertyNameInChain<UObject*>(STR("animBPref")); abp_ptr && *abp_ptr)
+                {
+                    local_abp = *abp_ptr;
+                }
+
+                // Gate the one-shot dump on animBPref actually resolving, not just on "a pawn
+                // exists". First capture (2026-08-15) fired it at tick 333 against
+                // Class /Script/Engine.DefaultPawn -- the placeholder pawn that exists before the
+                // real BP_PlayerGoatMain_C is possessed -- so it dumped zero matching functions and
+                // burned its one shot. animBPref only exists on the real player pawn, so it is the
+                // precise "the thing I want to reflect is here now" signal.
+                if (!throw_trace_schema_dumped && local_abp)
+                {
+                    throw_trace_schema_dumped = true;
+                    dump_functions_matching(pawn, STR("local pawn (throw search)"),
+                                            {STR("hrow"), STR("eapon"), STR("ttack"), STR("ontage"), STR("quip")});
+                    if (local_abp)
+                    {
+                        dump_functions_matching(local_abp, STR("local pawn animBPref (throw search)"),
+                                                {STR("ontage"), STR("hrow"), STR("eapon"), STR("quip")});
+                    }
+                }
+
+                bool weapon_equipped_now = false;
+                if (bool* we_ptr = pawn->GetValuePtrByPropertyNameInChain<bool>(STR("weaponEquipped?")))
+                {
+                    weapon_equipped_now = *we_ptr;
+                }
+                UObject** weapon_ref_ptr = pawn->GetValuePtrByPropertyNameInChain<UObject*>(STR("weaponRef"));
+                bool weapon_ref_valid_now = (weapon_ref_ptr && *weapon_ref_ptr);
+                int move_state_now = move_state_ptr ? static_cast<int>(*move_state_ptr) : -1;
+                int action_state_now = action_state_ptr ? static_cast<int>(*action_state_ptr) : -1;
+                int anim_jump_type_now = anim_jump_type_ptr ? static_cast<int>(*anim_jump_type_ptr) : -1;
+
+                // Only ask while there IS an anim instance to ask, and only latch the getter off on
+                // a real "this function doesn't exist on this build" answer. First capture
+                // (2026-08-15) latched it off permanently on tick 333, when local_abp was still
+                // null on the pre-possession DefaultPawn -- so the montage column read empty for the
+                // whole session without a single call ever being attempted. A null receiver is "not
+                // yet", not "never".
+                std::string montage_now;
+                if (throw_trace_montage_getter_ok && local_abp)
+                {
+                    throw_trace_montage_getter_ok = read_current_active_montage(local_abp, montage_now);
+                }
+
+                const bool changed = !throw_trace_initialized ||
+                                     weapon_equipped_now != throw_trace_prev_weapon_equipped ||
+                                     weapon_ref_valid_now != throw_trace_prev_weapon_ref_valid ||
+                                     move_state_now != throw_trace_prev_move_state ||
+                                     action_state_now != throw_trace_prev_action_state ||
+                                     anim_jump_type_now != throw_trace_prev_anim_jump_type ||
+                                     montage_now != throw_trace_prev_montage;
+                if (changed)
+                {
+                    Output::send(STR("[MeshGhostPseudo] TRACE throwAnim: tick={} weaponEquipped={} weaponRef={} moveState={} actionState={} animJumpType={} montage='{}'\n"),
+                                 tick_count,
+                                 weapon_equipped_now,
+                                 weapon_ref_valid_now ? STR("non-null") : STR("null"),
+                                 move_state_now,
+                                 action_state_now,
+                                 anim_jump_type_now,
+                                 to_wide_ascii(montage_now));
+                    throw_trace_initialized = true;
+                    throw_trace_prev_weapon_equipped = weapon_equipped_now;
+                    throw_trace_prev_weapon_ref_valid = weapon_ref_valid_now;
+                    throw_trace_prev_move_state = move_state_now;
+                    throw_trace_prev_action_state = action_state_now;
+                    throw_trace_prev_anim_jump_type = anim_jump_type_now;
+                    throw_trace_prev_montage = montage_now;
+                }
+            }
+
             // Field-discovery dump, gated by OBJECT_REFLECTION_DUMP (see its own comment) --
             // not tied to any specific investigation, unlike the falling-pose/ledge-hang dump
             // this was restored from. Cadenced (not one-shot) so a live capture protocol can
@@ -3140,6 +3539,7 @@ namespace MeshGhostPseudo
                 "\"orientation\":[{},{},{}],\"anim\":\"idle\","
                 "\"extras\":{{\"move_state\":{},\"action_state\":{},\"h_speed\":{},\"v_speed\":{},\"anim_jump_type\":{},\"movement_mode\":{},"
                 "\"land_count\":{},\"jump_count\":{},\"weapon_equipped\":{},\"outfit_mesh\":\"{}\",\"afterimage_count\":{},"
+                "\"montage\":\"{}\",\"montage_count\":{},"
                 "\"afterimage_n\":{},\"capsule_half\":{:.1f},\"afterimage_color\":[{:.4f},{:.4f},{:.4f}]}}"
                 "}}}}}}",
                 json_escape(area_id),
@@ -3160,6 +3560,8 @@ namespace MeshGhostPseudo
                 (weapon_equipped_ptr && *weapon_equipped_ptr) ? 1 : 0,
                 json_escape(outfit_mesh),
                 afterimage_count,
+                json_escape(montage_path),
+                montage_count,
                 afterimage_spawn_n,
                 local_capsule_half,
                 local_afterimage_color.r,
@@ -3326,6 +3728,83 @@ namespace MeshGhostPseudo
                 remote.last_synced_weapon_equipped = remote.target_weapon_equipped;
                 remote.weapon_equip_call_armed = true;
             }
+            // Montage mirror -- see RemoteGhost::target_montage. Deliberately NOT tied to the
+            // weapon-equip edge above: this is the general "the peer's character started playing
+            // an animation montage" path, and the Dream Breaker throw is simply its first
+            // customer. Counter-gated the same way as the land/jump pulses, so a montage shorter
+            // than the send interval still arrives.
+            if (remote.target_montage_count > remote.last_seen_montage_count && !remote.target_montage.empty())
+            {
+                remote.last_seen_montage_count = remote.target_montage_count;
+                UObject* montage_obj = UObjectGlobals::StaticFindObject<UObject*>(nullptr, nullptr, to_wide_ascii(remote.target_montage).c_str());
+                // Type check, same reasoning as the outfit mesh's: a path that resolves to
+                // something that isn't a montage must not be handed to CustomPlayMontage.
+                if (montage_obj && montage_obj->GetClassPrivate() && montage_obj->GetClassPrivate()->GetName() != STR("AnimMontage"))
+                {
+                    Output::send(STR("[MeshGhostPseudo] WARNING: montage path '{}' resolved to a {}, not an AnimMontage -- ignoring.\n"),
+                                 to_wide_ascii(remote.target_montage), montage_obj->GetClassPrivate()->GetName());
+                    montage_obj = nullptr;
+                }
+                if (montage_obj)
+                {
+                    // call_custom_play_montage(remote.ghost, montage_obj) was here and is a
+                    // recorded NEGATIVE -- see call_montage_play's comment. The helper is kept,
+                    // documented, and simply not called: the game's own wrapper is still the more
+                    // "correct" entry point in principle, and would be the thing to revisit if the
+                    // ghost ever gains the possession state it seems to need.
+                    float play_length = -1.0f;
+                    if (UObject** g_abp_ptr = remote.ghost->GetValuePtrByPropertyNameInChain<UObject*>(STR("animBPref")); g_abp_ptr && *g_abp_ptr)
+                    {
+                        play_length = call_montage_play(*g_abp_ptr, montage_obj);
+                    }
+                    if constexpr (THROW_ANIM_TRACE)
+                    {
+                        // Arm the post-call readback (see montage_readback_ticks_left's comment).
+                        remote.montage_readback_ticks_left = 12;
+                        // play_length is the engine's own verdict: >0 is the length of the montage
+                        // it started, 0 means it declined, -1 means the call was never made. Still
+                        // not proof the animation is VISIBLE -- only the user watching the ghost
+                        // establishes that -- but unlike CustomPlayMontage's silent success it
+                        // distinguishes "started" from "refused" without waiting for the readback.
+                        Output::send(STR("[MeshGhostPseudo] TRACE montage ghost {}: Montage_Play('{}') length={:.3f} count={}\n"),
+                                     to_wide_ascii(id), to_wide_ascii(remote.target_montage), play_length, remote.target_montage_count);
+                    }
+                }
+                else if (remote.target_montage != remote.last_failed_montage ||
+                         tick_count - remote.last_montage_warn_tick >= LOG_INTERVAL_TICKS)
+                {
+                    // Throttled per last_failed_montage's comment -- a peer on a build whose
+                    // montage assets this machine doesn't have must not spam a warning per throw.
+                    Output::send(STR("[MeshGhostPseudo] WARNING: montage path '{}' did not resolve on this machine -- ghost keeps its current animation.\n"),
+                                 to_wide_ascii(remote.target_montage));
+                    remote.last_failed_montage = remote.target_montage;
+                    remote.last_montage_warn_tick = tick_count;
+                }
+            }
+
+            // Independent readback of what the GHOST's own anim instance is actually playing, for
+            // the ticks right after a CustomPlayMontage call -- see montage_readback_ticks_left's
+            // comment for why this exists and what each outcome means. Re-fetches animBPref fresh
+            // and asks the game, rather than trusting the call's own return value.
+            if constexpr (THROW_ANIM_TRACE)
+            {
+                if (remote.montage_readback_ticks_left > 0)
+                {
+                    --remote.montage_readback_ticks_left;
+                    std::string ghost_montage;
+                    bool asked = false;
+                    if (UObject** g_abp_ptr = remote.ghost->GetValuePtrByPropertyNameInChain<UObject*>(STR("animBPref")); g_abp_ptr && *g_abp_ptr)
+                    {
+                        asked = read_current_active_montage(*g_abp_ptr, ghost_montage);
+                    }
+                    Output::send(STR("[MeshGhostPseudo] TRACE montage ghost {} readback t+{}: asked={} playing='{}'\n"),
+                                 to_wide_ascii(id),
+                                 11 - remote.montage_readback_ticks_left,
+                                 asked,
+                                 to_wide_ascii(ghost_montage));
+                }
+            }
+
             // Property write kept as a safety-net sync AFTER the calls above, in case either
             // function has prerequisites/side effects this adapter doesn't drive -- unconditional,
             // every tick, same as before the reorder.

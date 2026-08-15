@@ -113,6 +113,44 @@ namespace MeshGhostPseudo
         std::string last_failed_outfit_mesh;
         uint64_t last_outfit_attempt_tick{0};
 
+        // Montage mirror, added 2026-08-15 to fix the Dream Breaker THROW animation. Live capture
+        // (verified.md / phase7.md) proved the throw is an Anim Montage
+        // (dreamLady_WeaponThrow_Montage) and NOT any state-machine value this adapter mirrors --
+        // moveState/actionState/animJumpType are bit-identical before and during a throw, so no
+        // amount of property syncing could ever have reproduced it. Mirrored generically rather
+        // than special-casing the one asset: the local side sends whatever montage is playing, so
+        // every montage-driven animation this game has rides the same path.
+        //
+        // target_montage_count is a monotonic counter, the same shape as target_land_count and for
+        // the same reason -- a montage that starts and ends between two sends would otherwise be
+        // dropped entirely by the send cadence, and "did the count go up since I last looked" is
+        // well-defined regardless of which snapshots arrive. last_seen_montage_count is baselined
+        // on a peer's first sample so a mid-session joiner doesn't replay its last montage the
+        // instant its ghost spawns (same fix as last_seen_land_count's).
+        std::string target_montage;
+        double target_montage_count{0};
+        double last_seen_montage_count{0};
+
+        // Retry/spam guard, same role as last_failed_outfit_mesh above: a montage path that
+        // doesn't resolve on this machine (peer on a different game build, say) must not re-resolve
+        // and re-warn on every tick. Unlike outfit there's nothing to retry -- a montage is a
+        // one-shot event, not a persistent visual state -- so this only exists to throttle the
+        // warning.
+        std::string last_failed_montage;
+        uint64_t last_montage_warn_tick{0};
+
+        // Diagnostic-only, 2026-08-15: CustomPlayMontage fires on the ghost and returns cleanly
+        // (called=true, ten times, no warnings) yet the user confirmed live that no throw animation
+        // plays -- the same "call fires, nothing visible" shape as the manageRecallIdleFX negative.
+        // That entry's own stated weakness was that it couldn't distinguish "never started" from
+        // "started and was immediately killed", so this reads the GHOST's own currently-playing
+        // montage back for a few ticks after each call, via the same getter used on the local pawn
+        // -- an independent read of the world, not an echo of what was written, per CLAUDE.md.
+        // Splits the two cases cleanly: nothing at t+0 means CustomPlayMontage bailed internally;
+        // present at t+0 then gone means something else stops it (this adapter's own land/jump
+        // Montage_Stop pulse being the first suspect).
+        uint32_t montage_readback_ticks_left{0};
+
         // Landing/jump pulse mirror, redone 2026-08-13 (follow-up session). The first attempt at
         // this (a plain bool, read/written on the PAWN) was a no-op on both ends: a real reflection
         // dump (log_pawn_reflection_once) proved 'landed?'/'jumped?' exist ONLY on animBPref (the
@@ -281,11 +319,36 @@ namespace MeshGhostPseudo
         uint32_t landed_count{0}, jumped_count{0};
         bool prev_landed_raw{false}, prev_jumped_raw{false};
 
+        // Local half of the montage mirror (see RemoteGhost::target_montage). montage_count ticks
+        // up once per montage START -- prev_local_montage tracks the previous tick's value purely
+        // to detect that edge, exactly as prev_landed_raw does for landings. Only a transition to a
+        // genuinely different, non-empty montage counts: a montage ending (-> "none") is not an
+        // event to replay on the ghost, since the ghost's own copy runs out on its own.
+        uint32_t montage_count{0};
+        std::string prev_local_montage;
+
         // Diagnostic-only, 2026-08-15 trail-VFX investigation: edge-detects the real pawn's
         // 'spawnTrackingParticles?' bool (found by OBJECT_REFLECTION_DUMP) so ABILITY_FIELD_TRACE
         // can log its onset/offset every tick instead of only sampling it at the ~2s trace cadence,
         // which risks missing a slide/ultra-hop shorter than that window entirely.
         bool prev_spawn_tracking_particles{false};
+
+        // Diagnostic-only, 2026-08-15 Dream Breaker THROW-animation investigation (see
+        // THROW_ANIM_TRACE in Plugin.cpp for the hypothesis). Previous-tick snapshot of everything
+        // the local player's throw could plausibly show up in, so the trace can log one line per
+        // real CHANGE instead of 60 lines a second -- and, crucially, catch the throw wind-up that
+        // happens BEFORE weaponEquipped? flips, which an edge-triggered burst would miss by
+        // construction. throw_trace_montage_getter_ok latches false the first time the montage
+        // getter fails to resolve, so a missing name logs once rather than every tick.
+        bool throw_trace_initialized{false};
+        bool throw_trace_schema_dumped{false};
+        bool throw_trace_montage_getter_ok{true};
+        bool throw_trace_prev_weapon_equipped{false};
+        bool throw_trace_prev_weapon_ref_valid{false};
+        int throw_trace_prev_move_state{-1};
+        int throw_trace_prev_action_state{-1};
+        int throw_trace_prev_anim_jump_type{-1};
+        std::string throw_trace_prev_montage;
 
         // Trail-VFX pulse mirror, 2026-08-15 -- same monotonic-counter edge-fire shape as
         // landed_count/jumped_count above (survives the send-rate/interp-buffer gap the same way).

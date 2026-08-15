@@ -3506,3 +3506,65 @@ Copy this block per fact:
   this is solved. The feature is genuinely fun and worth keeping as an opt-in, but a confirmed
   run-ending failure mode during ordinary play is not something to ship on by default.
 - Source: user's own live report, 2026-08-15 session, during a deliberate enemy-damage test.
+
+## Pseudoregalia Dream Breaker THROW animation: root-caused as a montage, FIXED via stock `Montage_Play`, confirmed live
+
+- Date: 2026-08-15
+- **The question**: the 2026-08-15 call-order reorder fixed weapon visibility both directions and
+  the PICKUP animation, but the user confirmed the THROW motion specifically still didn't play on
+  the ghost (see the "animBPref cross-save diff" entry's own follow-up note). Five prior attempts
+  had all hunted for the right property or flag.
+- **Capture 1 -- why every property hunt was doomed** (`THROW_ANIM_TRACE`, log-on-change so a
+  throw's wind-up isn't missed by a sampling cadence): across a clean single-throw session,
+  `moveState`/`actionState`/`animJumpType` are **bit-identical before, during and after a real
+  throw** (`moveState=0 actionState=0 animJumpType=0` standing; `moveState=1 actionState=0
+  animJumpType=1` mid-air, i.e. plain airborne). The only thing that moves is `weaponEquipped?`
+  itself. The `actionState=18` blips near some throws last 1-2 ticks and are the already-documented
+  slide/turn-around false positive, not the throw. **The throw is an Anim Montage**:
+  `/Game/Animations/Player/dreamLady_WeaponThrow_Montage`, ~1.0s, starting on the same tick
+  `weaponEquipped?` goes false. Pickup is `dreamLady_WeaponCatch_Montage`, same shape.
+  So no property mirror could ever have reproduced it -- the data simply isn't in the state this
+  adapter syncs.
+- **Mechanism found by reflection dump, not assumed**: `CustomPlayMontage` on
+  `BP_PlayerGoatMain_C`, one param `MontageToPlay` (ObjectProperty), PropertiesSize=8 -- sitting
+  next to `InpActEvt_IA_Throw_K2Node_EnhancedInputActionEvent_7`, the input event only a real
+  controller reaches. (The first capture attempt dumped `/Script/Engine.DefaultPawn` instead --
+  the pre-possession placeholder pawn -- and burned its one shot; the dump is now gated on
+  `animBPref` resolving. Same bug latched the montage getter off permanently. Both fixed before
+  capture 2; **a one-shot diagnostic needs a gate proving the object it wants actually exists yet**.)
+- **Capture 2 -- `CustomPlayMontage` on a ghost is a clean NEGATIVE**: called 10 times across 10
+  throws, `called=true` every time, asset resolved every time, zero warnings -- and an independent
+  readback of the ghost's OWN anim instance showed `playing='none'` on all 12 ticks after every
+  call. The game's own wrapper accepts the call and does nothing. Most plausibly the possession
+  state the ghost structurally lacks (no `Controller`/`InputComponent`/`PlayerState`), the same
+  precondition clause `manageRecallIdleFX` hit. **This readback is the direct fix for that entry's
+  own stated weakness** -- it distinguishes "never started" from "started and was killed", which
+  that investigation couldn't.
+- **Capture 3 -- stock `Montage_Play` on the ghost's `animBPref` WORKS.** One variable changed
+  (which function is called; trigger, counter, asset resolution and readback all untouched).
+  Signature dumped at the first real call, not assumed: `MontageToPlay` (Object, offset 0),
+  `InPlayRate` (Float, 8), `ReturnValueType` (Enum, 12), `InTimeToStartMontageAt` (Float, 16),
+  `bStopAllMontages` (Bool, 20), `ReturnValue` (Float, 24). Returned `length=1.000` (the engine's
+  own verdict that it started) with the readback showing the correct montage playing on all 12
+  subsequent ticks, for both throw and catch. Chosen over more guessing because this file already
+  calls `Montage_Stop` successfully on that same object -- montage calls demonstrably reach it.
+- **CONFIRMED LIVE, user watched it happen**: "the ghost is doing the throw animation now."
+- **What shipped is general, not throw-specific**: the local side sends whatever montage is playing
+  (`montage` + monotonic `montage_count` extras, the same pulse shape as `land_count` so a montage
+  shorter than the send interval isn't dropped), and the ghost plays that asset. Every
+  montage-driven animation this game has rides the same path. Baselined on a peer's first sample so
+  a mid-session joiner doesn't replay its last throw at spawn; asset type-checked with a throttled
+  warning if a peer's path doesn't resolve locally.
+- **Known gap, deliberate**: montage STARTS are mirrored, stops are not -- a montage interrupted
+  early on the peer still plays out on the ghost. The existing land/jump `Montage_Stop` pulse
+  covers the case that motivated it (ledge-hang) and is NOT superseded by this.
+- **Unrelated observation from capture 1, recorded but not acted on**: `weaponRef` read non-null
+  for most of the session including while the sword was in hand, and went null once while equipped
+  -- which does not match `ideas.md`'s note that it goes non-null specifically while thrown/
+  in-flight. Left as-is pending a deliberate look; it bears on the empty-hand recall glow, whose
+  blocked precondition is exactly this field.
+- Source: `UE4SS.log`, 2026-08-15 16:27/16:35/16:38/16:40 sessions (live install) -- `TRACE
+  throwAnim`, `DIAG: ... (throw search)`, `TRACE montage local/ghost`, `DIAG: Montage_Play param`
+  lines; user's direct visual confirmation for the fix itself. Code: `Plugin.cpp`'s
+  `call_montage_play`, `read_current_active_montage`, the montage block in `tickRenders`, and
+  `RemoteGhost::target_montage`.

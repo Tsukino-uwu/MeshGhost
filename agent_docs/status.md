@@ -27,12 +27,15 @@ Fixed-and-confirmed work is not listed here — see `verified.md` and the phase 
 
 ### Open, not blocked
 
-- **Pseudoregalia: Dream Breaker *throw* animation.** Pickup was fixed by the call/write
-  reorder; throw specifically was NOT, confirmed by the user. Distinct, not root-caused —
-  don't assume the reorder fixed both directions symmetrically.
 - **Pseudoregalia: empty-hand recall glow** — blocked on a *precondition* (needs a real
   thrown-weapon actor for `manageRecallIdleFX`'s `IsValid` guards), not on finding the right
-  function. Read `verified.md`'s "`manageRecallIdleFX`: NEGATIVE" entry before retrying.
+  function. Read `verified.md`'s "`manageRecallIdleFX`: NEGATIVE" entry before retrying —
+  **and the montage fix's lesson first**: the game's own wrapper bailing on a ghost was worked
+  around by calling the stock engine function underneath it, which may apply here too.
+- **Pseudoregalia: which montages now ride the mirror for free — UNTESTED.** The montage mirror
+  (2026-08-15, `verified.md`) is general, so attack/hurt/ledge-hang montages may already play on
+  the ghost with no new code. Nobody has watched. One loopback session answers it; test before
+  building anything.
 - **Pseudoregalia: ultra hop's BLUE trail — PARKED with evidence.** Not `afterimageColor`,
   not `ultraCap`/`fullUltraModifier`/`cappedUltraModifier`/`animJumpType`. Not derivable
   from polled state; do not resume by guessing more property names.

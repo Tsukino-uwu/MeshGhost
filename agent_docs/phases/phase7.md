@@ -1759,3 +1759,27 @@ GBA memory). Started early relative to Phase 6's own two-player milestone (6.6) 
 
   All diagnostic flags were returned to `false` at the end of the session, and the shipped
   `main.dll` was rebuilt and redeployed from these sources.
+
+### 2026-08-15 — Dream Breaker throw animation: root-caused and fixed (montage mirror)
+
+The last open piece of the Dream Breaker work. Three captures, one variable each, full evidence in
+`verified.md`'s "THROW animation" entry:
+
+1. **Why five property hunts failed.** `moveState`/`actionState`/`animJumpType` are bit-identical
+   through a real throw — the animation was never in the state this adapter mirrors. It's an Anim
+   Montage (`dreamLady_WeaponThrow_Montage`); pickup is `dreamLady_WeaponCatch_Montage`.
+2. **The game's own `CustomPlayMontage` is a negative on a ghost** — 10 calls, all `called=true`,
+   montage never started (12-tick independent readback said `none` every time). Consistent with the
+   ghost lacking `Controller`/`InputComponent`/`PlayerState`.
+3. **Stock `Montage_Play` on the ghost's `animBPref` works** — `length=1.000`, readback confirms,
+   user watched the ghost throw. Reasonable next step rather than a guess because `Montage_Stop`
+   already worked on that same object.
+
+What shipped is a **general montage mirror** (`montage` + monotonic `montage_count` extras), not a
+throw special-case, so any montage-driven animation rides it. Starts are mirrored, stops are not —
+the land/jump `Montage_Stop` pulse still covers the ledge-hang case and is not superseded.
+
+**The reusable lesson, and the reason this matters beyond one animation**: when the game's own
+wrapper silently no-ops on a ghost, the stock engine function underneath it may still work. That is
+a second, cheaper move to try before concluding a precondition is unsatisfiable — and it is exactly
+the shape `manageRecallIdleFX` (empty-hand glow) was parked on.
