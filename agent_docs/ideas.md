@@ -649,6 +649,51 @@ protocol above is actually run and watched.
    feature, alongside everything else it already gates. Do not re-open this question from loopback
    evidence.
 
+6. **Custom feature: build cosmetic features out of the game's own VFX catalog.** User's idea
+   (2026-08-15), raised while watching the `VFX_CATALOG_PROBE` cycle: "we could use these to make
+   cool/custom things happen elsewhere later right?"
+
+   **What changed to make this real.** Until the thrown Dream Breaker work, every VFX attempt here
+   went "guess a function or property name, call it, watch nothing happen" — a long trail of
+   negatives (`afterimageColor`, `manageRecallIdleFX`, four hand-picked `WeaponMesh` properties).
+   That work proved something different: a Niagara system can be spawned on a ghost from **nothing
+   but its asset path**, with no game function and no trigger involved
+   (`spawn_niagara_attached`, `verified.md`). The probe then enumerated the whole catalog — **58
+   game systems**, named things like `NS_GoldAura`, `NS_WhiteAura1`, `NS_HealWave`, `NS_RockBreak`,
+   `NS_WallRide`. So the raw material is a known, addressable list, and the mechanism to play any
+   of it on any actor already ships and is confirmed live.
+
+   **Why this is a genuinely different class of feature from what's been built so far.** Everything
+   cosmetic to date *mirrors* something the peer is really doing — their animation, their outfit,
+   their sword. This would be MeshGhost drawing things the peer's game never drew: a join/leave
+   flourish, a per-peer aura for telling ghosts apart at distance (compare idea 4's trail colours,
+   which solves the same problem within the mirror-only constraint), an effect on a shared
+   milestone. That is still fully inside the visual-only posture — no game memory writes, no shared
+   world state, nothing that changes anyone's run — but it is **authored** cosmetics rather than
+   mirrored ones, and that distinction should be made deliberately rather than drifted into.
+
+   **Four constraints to design against, all already learned rather than hypothetical:**
+   - **Modded assets don't travel.** The probe's `catalog[0]` was `/Game/Mods/CustomVFX/NS_GreenAura`
+     — from a mod on this machine, not the base game. Anything built on a modded asset silently
+     does nothing for peers without it. The existing spawn path degrades gracefully (warns once,
+     throttles the retry), but a feature should prefer base-game assets or treat resolution failure
+     as expected.
+   - **Names mislead here specifically.** This repo has burned real sessions on `AnimGraphNode_Trail`
+     (bone physics, not the trail effect) and on Cling Gem having no "glide" string anywhere. A
+     catalog name is a candidate, never an identification — confirm by watching the probe.
+   - **On the local player, not just ghosts, is a bigger step.** Spawning effects on someone's own
+     character changes their game's appearance, not a ghost overlay. Still visual-only, but it
+     deserves an explicit opt-in the way ghost collision did (idea 5), not a default.
+   - **Peer-triggered effects would need the event plane.** Cosmetic state that rides along with
+     normal sync fits `extras` fine; "player A causes an effect on player B's screen" is a
+     bounded, consensual interaction, which is exactly what `contract.md`'s reserved-but-unbuilt
+     event plane is for. Don't grow the state plane into that.
+
+   **Not scheduled, and deliberately downstream of Phase 7.7.** The open Pseudoregalia items are all
+   blocked on a real two-player session, and authored cosmetics are the kind of thing that is much
+   easier to judge with two real players than in loopback — where, per idea 4's own note, both
+   characters are the same person and "does this help me tell peers apart" cannot be answered.
+
 ## Links
 
 - `agent_docs/plans.md` — the roadmap; move an idea here (with a phase number) once it's picked.

@@ -871,6 +871,63 @@ namespace MeshGhostPseudo
     // sparse enough that the four columns stay readable side by side.
     constexpr uint64_t WEAPON_PROP_TRACE_INTERVAL_TICKS = 15;
 
+    // Finds the player's own VFX by watching for them instead of guessing at their triggers.
+    //
+    // Motivated by two effects the user can see but can't reliably trigger on demand: a white glow
+    // when empty-handed, and a yellow glow outlining where the sword used to be held. Every VFX
+    // hunt in this file so far has worked the other way round -- guess a function or property name,
+    // call it, watch nothing happen -- and that approach produced a long trail of negative results
+    // (`afterimageColor` for the ultra trail, `manageRecallIdleFX`, four hand-picked WeaponMesh
+    // properties). The thrown sword's glow changed what's possible here: effects in this game are
+    // Niagara components with real, readable asset paths, and the sword's glow was reproduced on a
+    // ghost purely by spawning the peer's own asset, with no in-game trigger involved at all.
+    //
+    // So this inverts the search. Every few ticks it enumerates the live NiagaraComponents owned by
+    // the LOCAL player and logs the difference against the previous sample, giving two things per
+    // effect that no name-guess ever did: **what asset it is** (which is all that's needed to
+    // reproduce it, per the sword glow) and **exactly when it appeared**, which is the trigger
+    // question answered by observation rather than by knowing the answer in advance.
+    //
+    // Deliberately not filtered to the two effects above -- anything the player spawns shows up,
+    // including during an ultra hop, which is the one remaining lead on the parked blue-trail
+    // problem (`verified.md` says that one is not derivable from any polled property, and this
+    // isn't a polled property).
+    //
+    // Read-only: enumerates and logs, spawns and calls nothing.
+    constexpr bool VFX_WATCH = true;
+
+    // ~5 samples/sec at this build's measured ~150Hz. An effect that appears and vanishes entirely
+    // between two samples would be missed, which is the accepted cost of not logging at 150Hz; the
+    // effects being hunted are visible glows that persist, not one-frame flashes.
+    constexpr uint64_t VFX_WATCH_INTERVAL_TICKS = 30;
+
+    // The VFX equivalent of the montage catalog probe (README build-log step 31), and it exists for
+    // the same reason that one did: the effects nobody has reproduced are mostly effects nobody
+    // knows how to *trigger* on demand, and a probe sidesteps the trigger question entirely by
+    // playing each candidate directly onto the ghost, one after another on a fixed cadence, naming
+    // each in the log as it goes. That turned 8 untested montages into 8 confirmed ones in a single
+    // session without ever learning their in-game triggers.
+    //
+    // What makes it possible here is the thrown sword's glow: it proved a Niagara system can be
+    // spawned on a ghost from nothing but its asset path, with no game function involved. So the
+    // catalog is every Niagara system this build has loaded, enumerated live rather than typed out
+    // -- unlike the montage probe's hand-written name list, which could only ever contain names
+    // somebody already knew.
+    //
+    // Deliberately paired with VFX_WATCH rather than replacing it. They answer different halves:
+    // the watcher says which effects the real player spawns and *when* (the trigger), while this
+    // says what each one actually looks like (the identity). The white empty-hand glow and the
+    // yellow held-sword outline need the second; the parked blue ultra trail needs both.
+    constexpr bool VFX_CATALOG_PROBE = true;
+
+    // ~3s per effect at this build's measured ~150Hz -- long enough to see a looping idle effect
+    // establish itself and be recognised, matching the montage probe's own ~4s cadence.
+    constexpr uint64_t VFX_PROBE_INTERVAL_TICKS = 450;
+
+    // Engine and plugin content is skipped: this is a hunt for *this game's* effects, and the
+    // engine's default systems would pad the cycle with things the player can never produce.
+    constexpr const char* VFX_PROBE_PATH_FILTER = "/Game/";
+
     // Smoothing for a remote's thrown sword -- see RemoteGhost::render_weapon_x for why any is
     // needed (extras cross the wire at 20Hz and the core never interpolates them, while this
     // redraw loop runs at ~150Hz). Fraction of the remaining gap closed per redraw tick: covers
@@ -3185,6 +3242,92 @@ namespace MeshGhostPseudo
         }
     }
 
+    // See VFX_CATALOG_PROBE for what this is for and why it exists in this shape.
+    auto Plugin::tick_vfx_catalog_probe(AActor* ghost) -> void
+    {
+        if (!ghost)
+        {
+            return;
+        }
+
+        if (!vfx_probe_catalog_built)
+        {
+            vfx_probe_catalog_built = true;
+            std::vector<UObject*> systems;
+            UObjectGlobals::FindAllOf(STR("NiagaraSystem"), systems);
+            for (UObject* system : systems)
+            {
+                if (!system)
+                {
+                    continue;
+                }
+                std::string full_name = to_utf8(system->GetFullName());
+                size_t space_pos = full_name.find(' ');
+                std::string path = (space_pos != std::string::npos) ? full_name.substr(space_pos + 1) : full_name;
+                if (path.find(VFX_PROBE_PATH_FILTER) == std::string::npos)
+                {
+                    continue;
+                }
+                vfx_probe_catalog.push_back(path);
+            }
+            // Sorted so a second session walks the catalog in the same order -- otherwise "the
+            // seventh one was the yellow glow" wouldn't survive a relaunch, which is exactly the
+            // note a person watching this is going to take.
+            std::sort(vfx_probe_catalog.begin(), vfx_probe_catalog.end());
+            Output::send(STR("[MeshGhostPseudo] VFXPROBE: catalog built -- {} game Niagara system(s) to cycle, ~{} seconds each.\n"),
+                         vfx_probe_catalog.size(), VFX_PROBE_INTERVAL_TICKS / 150);
+            for (size_t i = 0; i < vfx_probe_catalog.size(); ++i)
+            {
+                Output::send(STR("[MeshGhostPseudo] VFXPROBE: catalog[{}] = {}\n"), i, to_wide_ascii(vfx_probe_catalog[i]));
+            }
+        }
+
+        if (vfx_probe_catalog.empty())
+        {
+            return;
+        }
+        if (vfx_probe_last_switch_tick != 0 && tick_count - vfx_probe_last_switch_tick < VFX_PROBE_INTERVAL_TICKS)
+        {
+            return;
+        }
+        vfx_probe_last_switch_tick = tick_count;
+
+        // Retire the previous effect first, so exactly one is ever on screen -- the whole point is
+        // being able to attribute a look to a name, which overlapping effects would ruin.
+        if (vfx_probe_component)
+        {
+            if (UFunction* destroy_fn = vfx_probe_component->GetFunctionByNameInChain(STR("DestroyComponent")))
+            {
+                vfx_probe_component->ProcessEvent(destroy_fn, nullptr);
+            }
+            else if (UFunction* deactivate_fn = vfx_probe_component->GetFunctionByNameInChain(STR("Deactivate")))
+            {
+                vfx_probe_component->ProcessEvent(deactivate_fn, nullptr);
+            }
+            vfx_probe_component = nullptr;
+        }
+
+        const std::string& path = vfx_probe_catalog[vfx_probe_index];
+        Output::send(STR("[MeshGhostPseudo] VFXPROBE: [{}/{}] now showing '{}'\n"),
+                     vfx_probe_index + 1, vfx_probe_catalog.size(), to_wide_ascii(path));
+        vfx_probe_index = (vfx_probe_index + 1) % vfx_probe_catalog.size();
+
+        UObject* system = UObjectGlobals::StaticFindObject<UObject*>(nullptr, nullptr, to_wide_ascii(path).c_str());
+        if (!system)
+        {
+            Output::send(STR("[MeshGhostPseudo] VFXPROBE: '{}' no longer resolves -- skipped.\n"), to_wide_ascii(path));
+            return;
+        }
+        if (UObject** root_ptr = ghost->GetValuePtrByPropertyNameInChain<UObject*>(STR("RootComponent")); root_ptr && *root_ptr)
+        {
+            vfx_probe_component = spawn_niagara_attached(system, *root_ptr);
+            if (!vfx_probe_component)
+            {
+                Output::send(STR("[MeshGhostPseudo] VFXPROBE: spawn returned null for '{}'.\n"), to_wide_ascii(path));
+            }
+        }
+    }
+
     // Stops tracking one remote's ghost. Never destroys the underlying actor -- see
     // DESPAWN_PARK_Z's own comment for why that's a hard rule here, not a missed optimization.
     // Under the hijack design the actor was never ours to destroy anyway; under the spawn design
@@ -4315,6 +4458,63 @@ namespace MeshGhostPseudo
                             }
                         }
                     }
+                }
+            }
+
+            // See VFX_WATCH for why this searches by observation rather than by name.
+            if constexpr (VFX_WATCH)
+            {
+                if (tick_count % VFX_WATCH_INTERVAL_TICKS == 0)
+                {
+                    std::vector<UObject*> niagara_components;
+                    UObjectGlobals::FindAllOf(STR("NiagaraComponent"), niagara_components);
+
+                    // Ownership test by name: a component's GetFullName() embeds its outer chain,
+                    // so a component owned by this pawn contains the pawn's own unique instance
+                    // name. Cheaper and less fragile than walking outers, and specific enough that
+                    // another actor's effects can't match -- the instance name carries a unique id.
+                    const std::string pawn_name = to_utf8(pawn->GetName());
+                    std::set<std::string> live_vfx;
+                    for (UObject* component : niagara_components)
+                    {
+                        if (!component)
+                        {
+                            continue;
+                        }
+                        const std::string full_name = to_utf8(component->GetFullName());
+                        if (full_name.find(pawn_name) == std::string::npos)
+                        {
+                            continue;
+                        }
+                        // The asset is the payload: it is exactly what reproducing the effect on a
+                        // ghost needs, as the landed sword's glow already demonstrated.
+                        std::string asset_name = "<no asset>";
+                        if (UObject** asset_ptr = component->GetValuePtrByPropertyNameInChain<UObject*>(STR("Asset")); asset_ptr && *asset_ptr)
+                        {
+                            std::string asset_full = to_utf8((*asset_ptr)->GetFullName());
+                            size_t space_pos = asset_full.find(' ');
+                            asset_name = (space_pos != std::string::npos) ? asset_full.substr(space_pos + 1) : asset_full;
+                        }
+                        live_vfx.insert(asset_name + "  |  " + full_name);
+                    }
+
+                    for (const std::string& entry : live_vfx)
+                    {
+                        if (prev_player_vfx.find(entry) == prev_player_vfx.end())
+                        {
+                            Output::send(STR("[MeshGhostPseudo] VFXWATCH: + APPEARED tick={} {}\n"),
+                                         tick_count, to_wide_ascii(entry));
+                        }
+                    }
+                    for (const std::string& entry : prev_player_vfx)
+                    {
+                        if (live_vfx.find(entry) == live_vfx.end())
+                        {
+                            Output::send(STR("[MeshGhostPseudo] VFXWATCH: - gone     tick={} {}\n"),
+                                         tick_count, to_wide_ascii(entry));
+                        }
+                    }
+                    prev_player_vfx = std::move(live_vfx);
                 }
             }
 
@@ -5555,6 +5755,15 @@ namespace MeshGhostPseudo
             // here, after the ghost's own staleness checks have run, so it never spawns a loose
             // sword for a peer whose ghost has just been invalidated by a level transition.
             tick_remote_weapon(id, remote, current_world);
+
+            // Runs on whichever ghost comes first and only that one -- the probe's value is being
+            // able to say "that look is this asset", which two ghosts showing different effects at
+            // once would destroy. Guarded by its own last-switch tick, so the loop calling it once
+            // per remote per tick doesn't advance the cycle faster with more peers present.
+            if constexpr (VFX_CATALOG_PROBE)
+            {
+                tick_vfx_catalog_probe(remote.ghost);
+            }
 
             // Bubble FLASH mirror, 2026-08-15 -- the real mechanism, replacing the afterimage
             // approximation (see BUBBLE_SPAWNS_AFTERIMAGES in tickLocal).

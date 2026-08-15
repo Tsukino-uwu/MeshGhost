@@ -9,6 +9,7 @@
 #include <map>
 #include <memory>
 #include <mutex>
+#include <set>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
@@ -377,6 +378,10 @@ namespace MeshGhostPseudo
         // RemoteGhost::weapon_actor.
         auto tick_remote_weapon(const std::string& player_id, RemoteGhost& remote, RC::Unreal::UWorld* current_world) -> void;
 
+        // Cycles every loaded Niagara system onto one ghost, one at a time -- see VFX_CATALOG_PROBE
+        // in Plugin.cpp for why a probe answers this better than hunting triggers.
+        auto tick_vfx_catalog_probe(RC::Unreal::AActor* ghost) -> void;
+
         auto release_ghost(const std::string& player_id) -> void;
         auto release_all_ghosts(const wchar_t* reason) -> void;
 
@@ -637,6 +642,22 @@ namespace MeshGhostPseudo
         // read yet" and are outside any real byte value, so the first real read always logs.
         // One-shot latch for the same trace's function/property dump of the real thrown weapon --
         // fires once per session, not once per throw.
+        // Diagnostic (VFX_WATCH): the set of Niagara effects currently live on the LOCAL player,
+        // as "asset | instance" strings, so appearances and disappearances can be edge-logged
+        // rather than sampled. A set of strings rather than of pointers deliberately -- a pointer
+        // says nothing about which effect it was, and these are short-lived objects whose
+        // addresses get recycled.
+        std::set<std::string> prev_player_vfx;
+
+        // VFX_CATALOG_PROBE state. The catalog is built once per session and then cycled: index is
+        // where the cycle is up to, and the component is the currently-showing effect, destroyed
+        // when the next one starts so only one is ever on screen to attribute a look to.
+        std::vector<std::string> vfx_probe_catalog;
+        bool vfx_probe_catalog_built{false};
+        size_t vfx_probe_index{0};
+        uint64_t vfx_probe_last_switch_tick{0};
+        RC::Unreal::UObject* vfx_probe_component{nullptr};
+
         bool weapon_landing_reflection_dumped{false};
         // One-shot latch for dumping the real landed sword's idleGlowVFX component.
         bool weapon_glow_dumped{false};
