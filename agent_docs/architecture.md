@@ -916,6 +916,26 @@ Format: Date / Decision / Status / Context / Options considered / Resolution / C
     2D/no-orientation/single-extras-field shape, **390 bytes** for Pseudoregalia's richer
     3D/orientation/8-extras-field shape — the README's worked table uses the 390-byte figure as
     the representative case, since it's the heavier of the two currently-shipped shapes.
+  - **Re-measured 2026-08-15, and the figures above had gone stale — the README's table was
+    understating host cost by ~1.5x.** Pseudoregalia's extras grew from 8 fields to 14 over that
+    day's VFX/weapon/outfit work (trail colour, capsule height, outfit mesh path, afterimage
+    counts), taking its state line from 390 to **597 bytes**. All three shipped adapters
+    re-measured together this time, same method: Emerald **206**, TEVI **249** (never previously
+    measured), Pseudoregalia **597**. Emerald's 206-vs-185 difference is methodology, not drift —
+    this pass included its `orientation` field, which the original omitted.
+    **Maintenance rule this establishes: a change to any adapter's `extras` set is a change to
+    the published bandwidth table.** The wire size is a product of adapter feature work, so it
+    drifts silently whenever a game gains a synced field, with nothing in CI to catch it — the
+    dated-fact caveat in `CLAUDE.md` applies directly. Re-run the measurement when extras change,
+    and update `packaging/release/README.txt`'s hosting section with it.
+  - **Hosting guidance added to `packaging/release/README.txt` (2026-08-15):** the table is now
+    explicitly Pseudoregalia-based and labelled as a worst case, since it is the heaviest of the
+    three by more than 2x — a host sizing a room off it can only be surprised in the good
+    direction by running a lighter game. It also carries host upload in Mbps (the unit an
+    internet plan is actually sold in) against a "budget half your measured upload" rule, plus
+    the note that per-ghost *render* cost is a separate ceiling the network numbers say nothing
+    about. `max_clients`'s default of 8 is presented as a safe-for-most-connections choice
+    rather than a technical limit, which is what `internal/relay/limits.go` already says.
   - **Not done, deliberately, in this change:** advertising `max_receive_hz_per_player` back to
     the sender (a sender has no way to know a given recipient is receiving it throttled) and
     deriving `InterpolationDelay` automatically from the effective rate (a room or cap set below

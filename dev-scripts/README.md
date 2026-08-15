@@ -69,6 +69,37 @@ root) — each script references them as `..\<name>.exe`.
 - `run-fakeadapter1.bat` / `run-fakeadapter2.bat` — two headless `cmd/meshghost-fakeadapter`
   instances (circle-motion fake ghosts, no game) for testing the core/relay without BizHawk at
   all — see [agent_docs/phases/phase5.md](../agent_docs/phases/phase5.md).
+- `run-loadtest-relay.bat` / `run-loadtest-peers.bat` / `run-ghostload-pseudoregalia.bat` — the
+  synthetic-peer load rig, for answering "how many players can this actually hold?". The
+  shipped `max_clients` of 8 is a policy default, not a technical limit (see
+  `internal/relay/limits.go`), and there are three separate ceilings behind it:
+
+  1. **Relay fan-out**, which grows with the *square* of room size — `Room.Forward` sends every
+     state to every other member. Measured on the real structs, one Pseudoregalia state line is
+     597 bytes, so a 16-seat room at the default 20Hz is ~2.7 MB/s of relay upload (~9.6 GB an
+     hour) against ~175 KB/s down per player; a 32-seat room is ~11.3 MB/s up (~40 GB/hour).
+     The host carries the quadratic term, which is why raising the cap is their bandwidth bill.
+  2. **Per-client receive**, which grows linearly and won't be what breaks.
+  3. **Adapter render cost** — almost certainly the one that actually binds, and the only one
+     that can't be measured without a game running.
+
+  `run-loadtest-relay.bat` + `run-loadtest-peers.bat [count]` cover tiers 1–2 headlessly (no
+  game at all): N peers in one process, each a real `Core` with its own relay connection. The
+  `client0_remotes` line is the rig's self-check — it is a *lower* bound (`>=N-1`), because in
+  the tier-3 rig a real game client is in the room too.
+
+  `run-ghostload-pseudoregalia.bat [count]` is tier 3: the same synthetic peers, but wearing a
+  real game's `game_id`/`area_id` so **one** running copy of Pseudoregalia renders N ghosts. It
+  needs `MG_AREA` and `MG_CENTER` set from a live session first — `area_id` is matched by
+  equality in `internal/core`, so a wrong value renders nothing and looks exactly like a broken
+  rig rather than a mismatch. Ramp the count and read a real frame-time number (`stat unit`)
+  off the game each step; add `-churn-every` to exercise ghost spawn/despawn (a full pawn-clone
+  construction each time), which may cost more than steady-state rendering. Note this is a
+  *rendering* load test only — synthetic peers say nothing about whether two real game
+  instances can run at once, which is Phase 7.7's separate question.
+
+  `meshghost-fakeadapter.exe` knows nothing about any game: the per-game specifics live in
+  these launchers and in `loadtest-extras-pseudoregalia.json`, passed via `-extras`.
 - `run-relay-loopback.bat` — a relay that echoes a lone client's own state back as
   `<id>-ghost`. Pair with any single core (`run-core-emerald.bat`, `run-core-tevi.bat`,
   `run-core-pseudoregalia.bat`) to see a real network round trip and your own ghost with only

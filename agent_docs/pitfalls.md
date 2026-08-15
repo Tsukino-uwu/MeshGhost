@@ -654,6 +654,29 @@ three gets re-tried blind:
     talking to two distinct instances of anything before adding more diagnostics to the
     pipeline that already proved itself correct.
 
+### Two `git.exe` installs on one machine disagree about whether the tree is dirty (2026-08-15)
+
+- **Symptom**: `git status --short` run from PowerShell reported 53 modified files and
+  `git diff --stat` showed 15,039 insertions / 15,039 deletions — every line of every file
+  replaced. Run from the Bash tool, the same tree was clean.
+- **Actual cause**: the two shells resolve different git binaries with different configs.
+  PowerShell's `PATH` hits `c:\devkitPro\msys2\usr\bin\git.exe` (devkitPro's bundled MSYS2
+  git) with `core.autocrlf` **unset**; the Bash tool gets Git for Windows
+  (`C:\Program Files\Git`) with `core.autocrlf=true` in its system config. The worktree is
+  CRLF and the blobs are LF (`git ls-files --eol` → `i/lf w/crlf`), so the autocrlf-less git
+  sees a whole-file difference in everything while the other normalizes it away.
+- **Why this is dangerous**: the obvious "fix" is a `git checkout --`/`git restore` to wipe
+  the churn. That would rewrite 52 files for nothing, and on a tree with genuine uncommitted
+  work it would destroy it — all in response to a diff that doesn't exist. `git diff
+  --ignore-cr-at-eol --stat` returning empty is the cheap tell that a diff is line-ending
+  artifact rather than content.
+- **Fix**: none applied — nothing is actually wrong with the tree. Before acting on a
+  surprisingly large diff, confirm which git produced it (`(Get-Command git).Source` /
+  `which git`) and check `git config --show-origin --get core.autocrlf` for that binary.
+- **Generalizes to**: the same "wrong install on `PATH`" trap `CLAUDE.md` already records for
+  `cmake`, and from the same devkitPro MSYS2 install. Treat a tool's *config-dependent*
+  output (not just its success/failure) as suspect until the binary is identified.
+
 ### Cross-adapter issues that were fixed in the core, not the adapter
 
 Found while building an adapter, but the fix belonged in `internal/core` — listed here so the

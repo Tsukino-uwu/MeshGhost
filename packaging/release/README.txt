@@ -116,6 +116,8 @@ Setup, once:
                YOUR machine (the host) to handle, since everyone in it
                gets sent everyone else's position. Don't set this to
                something huge without expecting to actually need it.
+               See "How many players can I actually host?" below for what
+               a given room size actually costs your connection.
      "send_hz" -- LEAVE THIS AT 20 UNLESS YOU KNOW YOU NEED IT. How many
                times per second every player in your room sends their
                position (see "What do Hz/ms/tickrate mean?" just below).
@@ -152,38 +154,39 @@ for you:
 
 The real cost of raising send_hz -- shown per-hour, not per-second,
 because the same number looks tiny per-second and adds up fast per-hour.
-These are REAL MEASURED numbers (not estimates) for a typical 3D game's
-position update, sent 20 vs. 100 times/second:
+
+These are REAL MEASURED numbers, not estimates. They are measured for
+PSEUDOREGALIA, deliberately: it sends the most detailed position update
+of the three supported games (597 bytes per update, vs. 249 for TEVI and
+206 for Pokemon Emerald), so every number below is a worst case. If
+you're hosting one of the other two, your real usage is roughly a third
+of what's shown here. Pick your room size off this table and a lighter
+game can only surprise you in the good direction.
 
   YOUR OWN upload (what you personally send out -- same no matter how
   many people are in the room):
-    20 Hz  (default):  about  7.8 KB/s  =  about  28 MB/hour
-    100 Hz (maximum):  about 39.0 KB/s  =  about 140 MB/hour   (5x)
+    20 Hz  (default):  about 11.7 KB/s  =  about  41 MB/hour
+    100 Hz (maximum):  about 58.3 KB/s  =  about 205 MB/hour   (5x)
 
   YOUR OWN download (everyone else's positions coming IN to you --
-  scales with how many OTHER players are in the room):
-    2-player room (1 other player):
-      20 Hz:  about  7.8 KB/s  =  about  28 MB/hour
-      100 Hz: about 39.0 KB/s  =  about 140 MB/hour
-    4-player room (3 other players):
-      20 Hz:  about 23.4 KB/s  =  about  84 MB/hour
-      100 Hz: about 117 KB/s   =  about 505 MB/hour
-    8-player room (7 other players):
-      20 Hz:  about 54.6 KB/s  =  about 197 MB/hour
-      100 Hz: about 273 KB/s   =  about 983 MB/hour
+  scales with how many OTHER players are in the room), at 20 Hz:
+    2-player room:   about  11.7 KB/s  =  about   41 MB/hour
+    4-player room:   about  35.0 KB/s  =  about  123 MB/hour
+    8-player room:   about  81.6 KB/s  =  about  287 MB/hour
+    16-player room:  about 174.9 KB/s  =  about  615 MB/hour
+  At 100 Hz, multiply all four by 5.
 
-  THE HOST'S traffic (everyone's position, relayed to everyone else --
+  THE HOST'S upload (everyone's position, relayed to everyone else --
   this is what YOUR machine carries if you're hosting; it grows with the
-  SQUARE of room size, not the number of players):
-    2-player room:
-      20 Hz:  about  15.6 KB/s  =  about   56 MB/hour
-      100 Hz: about  78.0 KB/s  =  about  281 MB/hour
-    4-player room:
-      20 Hz:  about  93.6 KB/s  =  about  337 MB/hour
-      100 Hz: about 468.0 KB/s  =  about 1.68 GB/hour
-    8-player room:
-      20 Hz:  about 436.8 KB/s  =  about 1.57 GB/hour
-      100 Hz: about   2.18 MB/s  =  about 7.86 GB/hour
+  SQUARE of room size, not just the number of players), at 20 Hz:
+    2-player room:   about  23.3 KB/s  =  about   82 MB/hour
+    4-player room:   about 139.9 KB/s  =  about  492 MB/hour
+    8-player room:   about 653.0 KB/s  =  about  2.2 GB/hour
+    12-player room:  about   1.5 MB/s  =  about  5.3 GB/hour
+    16-player room:  about   2.7 MB/s  =  about  9.6 GB/hour
+    24-player room:  about   6.3 MB/s  =  about 22.1 GB/hour
+    32-player room:  about  11.3 MB/s  =  about 39.7 GB/hour
+  At 100 Hz, multiply all of these by 5 as well.
 
 Bottom line: going from 20 to 100 multiplies EVERYONE's bandwidth by 5,
 for a visual improvement that's small and gets smaller the higher you
@@ -191,6 +194,52 @@ go -- your client already smooths motion between updates ("interp"
 above), so 20/second already looks smooth to begin with. If you're
 hosting, look at the host row first; that's what your own machine has to
 carry. Only raise this if you have a specific reason to.
+
+
+How many players can I actually host? (guidance for "max_clients")
+
+The honest answer is that YOUR UPLOAD SPEED decides this, not the
+software. There's no hard limit built in -- max_clients is 8 by default
+because that's a size almost any home connection can carry, not because
+9 would break something.
+
+Because the host relays everyone's position to everyone else, host
+upload grows with the SQUARE of the room. Doubling the players roughly
+quadruples your upload. That's why the jump from 8 to 16 costs so much
+more than the jump from 2 to 4.
+
+Here's the same host-upload numbers as above, in the units your internet
+plan is sold in (megabits per second), at the default 20 Hz and for the
+heaviest game:
+
+    4 players:    about  1.2 Mbps upload
+    8 players:    about  5.4 Mbps upload   (the default)
+    12 players:   about 12.6 Mbps upload
+    16 players:   about 22.9 Mbps upload
+    24 players:   about 52.7 Mbps upload
+    32 players:   about 94.8 Mbps upload
+
+To use this: run any internet speed test, look at the UPLOAD number (not
+download -- they're often very different, and upload is usually the much
+smaller one), and don't plan to spend more than about half of it here.
+The other half is for the game itself, voice chat, and general headroom;
+a link run at 100% doesn't just get slower, it gets erratic, and ghosts
+start stuttering for everyone at once.
+
+Two things worth knowing before you raise it:
+
+  - Raising send_hz multiplies every number above by up to 5. Raising
+    BOTH send_hz and max_clients together is what actually gets people
+    into trouble. Change one at a time.
+  - These are network numbers only. Your own game also has to draw every
+    ghost, and a 3D game drawing 15 extra characters costs real frames
+    on the machines of everyone in the room, not just yours. If people
+    report the game getting choppy while the network looks fine, that's
+    this, and the fix is a smaller room.
+
+If you want to find your own real ceiling rather than trusting a table,
+the repo has a load-test rig that fills a room with synthetic players --
+see dev-scripts/README.md.
 
 Hosting (skip this section if you're not the host):
 1. Double-click meshghost-server.exe. Leave the window open while people

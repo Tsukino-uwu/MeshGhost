@@ -2,131 +2,64 @@
 
 ## Active status
 
-- **Active phase: Phase 8 (Emerald, dedicated ongoing work), in progress since 2026-08-14.** TEVI
-  (Phase 6) and Pseudoregalia (Phase 7) have both shipped in the release zip, marked
-  experimental. TEVI is fully done through 6.6/6.7 (two real players, map markers), confirmed
-  live. Pseudoregalia is done through 7.6 (real character-visual ghost, animation, facing
-  direction); **7.7 (a real two-player test) has not started.** See `agent_docs/plans.md` for the
+- **Active phase: Phase 8 (Emerald, dedicated ongoing work), in progress since 2026-08-14.**
+  TEVI (Phase 6) and Pseudoregalia (Phase 7) have both shipped in the release zip, marked
+  experimental. TEVI is fully done through 6.6/6.7. Pseudoregalia is done through 7.6;
+  **7.7 (a real two-player test) has not started.** See `agent_docs/plans.md` for the
   authoritative roadmap and `agent_docs/phases/phase6.md`/`phase7.md`/`phase8.md` for the
-  full task-by-task record of each.
+  task-by-task record.
 
 ## Genuinely open items
 
-- **Pseudoregalia 7.7** — two real players, not yet tested (Steam single-instance behavior for
-  this game is unconfirmed either way). See `agent_docs/phases/phase7.md`. **Now also the gating
-  item for the ghost-collision feature**: the user's explicit position (2026-08-15) is that a small
-  push between players and ghosts may well be fine, but keep-or-axe is deferred until a real
-  two-player session — loopback cannot answer it (see `ideas.md`).
-- **Pseudoregalia: a not-yet-root-caused `Fatal Error!` crash** observed once on game exit in an
-  earlier session (crashdump, not `LowLevelFatalError`) — see `agent_docs/phases/phase7.md`'s 7.6
-  entry.
-- **TEVI: charged-attack VFX missing on the ghost** — animations play correctly, but the extra
-  visual effects on the charged attack (held attack button) don't render. Not yet root-caused.
-  See `agent_docs/phases/phase6.md`'s 2026-08-15 entry.
-- **Pseudoregalia: Dream Breaker held/thrown visibility — FIXED and confirmed live 2026-08-15.**
-  Root cause found via a genuine 0%/100%-completion save comparison (a new reusable diagnostic
-  method, documented in `adapters/pseudoregalia/README.md`'s build-log step 20): the ghost-write
-  code wrote `weaponEquipped?`/`animEquippedWeapon` directly onto the ghost *before* calling
-  `changeEquippedWeapon`/`updateWeaponEquip`, so those calls always saw the property already at
-  the new value and silently did nothing. Fix was a pure reorder (calls first, property write
-  after, as a safety-net) — no new function or property needed. User confirmed on screen: sword
-  disappears on a real throw. Pickup direction (false→true) not separately watched yet, but same
-  code path. **Pickup animation: confirmed fixed as a free side effect of the same reorder** — user
-  watched it directly, previously didn't play at all, now plays correctly on pickup. **Throw
-  animation: still separately blocked, NOT fixed** — user explicitly confirmed something else is
-  still preventing the throw motion specifically, distinct from the pickup direction. Not yet
-  root-caused; needs its own investigation, don't assume the reorder fixed both directions
-  symmetrically just because it fixed pickup.
-- **Pseudoregalia: outfit/costume sync — FIXED and confirmed live 2026-08-15, same day as the
-  weapon fix.** `VisualMesh.SkeletalMesh`/`SkinnedAsset` swap directly per outfit (found via a
-  live value-diff straddling real costume swaps, no boolean flag or animBPref indirection like
-  weapon needed). First sync attempt (a raw property write) produced a real negative: the ghost
-  T-posed instead of showing the new costume — the mesh reference stuck but the engine never
-  re-bound the anim instance. Root cause: `SetSkeletalMeshAsset` (found via a live function-name
-  dump — the only real candidate this build's reflection exposes; no `SetSkeletalMesh`/`InitAnim`/
-  `MarkRenderStateDirty` exist) needed to be called, not just the property written. Fix calls it
-  first, property write kept after as a safety net — applying the weapon fix's ordering lesson
-  proactively this time. User confirmed on screen: ghost correctly swapped costume, no T-pose.
-- **Pseudoregalia: slide/ultra-hop trail (afterimage) VFX — PARTLY WORKING, confirmed live
-  2026-08-15.** The repeating trail itself is fixed and confirmed on screen: write
-  `afterImagesToSpawn` on the ghost, then call `spawnNumAfterimages` (the count write was the
-  missing piece; calling it alone did nothing). **Two known-open imperfections**, both confirmed
-  live: (1) **trail COLOUR sync built and confirmed** 2026-08-15 — `afterimageColor` read live,
-  sent via `extras`, written to the ghost before each burst (write path proven via a deliberate
-  magenta override). **The ultra hop's BLUE trail is a separate mechanism and is PARKED**: traces
-  ruled out `afterimageColor` (never changes) and then `ultraCap`/`fullUltraModifier`/
-  `cappedUltraModifier`/`animJumpType` (all identical on normal backflips and the ultra alike). Not
-  derivable from polled state; don't resume by guessing more property names — see `verified.md`;
-  (2) a quick 180-degree turn-around
-  fires a false positive, because it shares `actionState==18` with a real slide. The trigger is
-  still a polled `actionState` heuristic — **the correct event-sourced fix (a UFunction hook on
-  `Spawn After Image`) was tried and CRASHED the game; do not retry it**, see `verified.md`'s
-  "trail-VFX UFunction hook" entry. See `adapters/pseudoregalia/PLAYER_FIELDS.md`.
-- **Pseudoregalia: ghost sinks into the floor during a slide — FIXED and confirmed live 2026-08-15.**
-  Root cause was arithmetic, not animation: a slide shrinks the player's capsule 65→22 and drops its
-  origin by 43 (feet stay planted), so a still-65-tall ghost teleported to that origin sat exactly 43
-  units under the floor. Mirroring the ghost's capsule was tried, provably applied, and did NOT work
-  (the mesh's offset is fixed at construction); the fix compensates the ghost's render Z instead.
-  See `verified.md`.
-- **Pseudoregalia: cling-gem (wall-ride) VFX — FIXED and confirmed live 2026-08-15.** Calls the
-  pawn's own `doWallRun` on the ghost when its mirrored `moveState` enters 4 (the confirmed cling
-  marker), deactivates `wallRideVFX` on the falling edge, and suppresses the paired SFX entirely
-  (ghosts are silent by design). See `verified.md`'s cling-gem entry.
-- **Pseudoregalia: ghost collision — ON as a deliberate feature, and its run-ending risk is FIXED
-  (2026-08-15).** Enemy damage to a ghost was confirmed to hurt/kill the real player; fixed by
-  re-typing the ghost capsule's collision object type to `WorldDynamic` (enemy targeting queries
-  the Pawn channel). Confirmed live: no enemy damage, and the ghost physically shoves enemies. A
-  player deliberately attacking a ghost still takes damage — the accepted, controllable footgun.
-  See `verified.md`. Note: setting `LOOPBACK_GHOST_OFFSET_X = 0` reproduces the Phase 7.4 drag bug
-  and must never be used to judge collision — a loopback ghost teleported to the player's *exact*
-  position every tick is a pathological overlap the physics can never resolve, and says nothing
-  about real peers, who would at worst bump and separate normally. Whether real-peer contact is
-  disruptive in practice is still untested (needs a real two-player session), but is not by itself
-  a reason to hold the feature.
-- **Pseudoregalia: ghost disappears while a peer is climbing/on a pole, then reappears stuck in a
-  climb pose** — found live 2026-08-15 (user screenshots). **Cause still UNKNOWN, but two suspects
-  are ruled out with evidence**: (1) NOT the same-day slide floor fix — a live capture showed
-  `CapsuleHalfHeight` reads 65 for all 10,930 in-game ticks including throughout a climb, so the
-  render-Z compensation (which only fires below 65) never runs during one; (2) NOT purely the
-  loopback sideways offset either, though that was a reasonable theory (150 units from a pole lands
-  the ghost in a wall or on a neighbouring pole, matching "appeared on another pole") — it could
-  not be tested, because setting `LOOPBACK_GHOST_OFFSET_X = 0` reproduces the Phase 7.4 drag bug
-  and had to be reverted immediately. **Next step**: test with a real second player rather than
-  loopback (Phase 7.7), which sidesteps the offset entirely. The "stuck in climb pose" half is
-  likely a separate animation/state issue, same family as the older falling-pose and ledge-hang bugs.
-- **Still open**: empty-hand recall glow — blocked on a *precondition* (needs a real
-  thrown-weapon actor for its `IsValid` guards), not on finding the right function; see
-  `verified.md`'s "`manageRecallIdleFX`: NEGATIVE" entry before retrying.
-- **Emerald: surf, Mach Bike, Acro Bike, ledges, and Mach Bike rail sections** — the ghost snaps
-  badly on all of these today; detection source found and cited
-  (`pokeemerald`'s `include/global.fieldmap.h:288-295`), a combined probe script is ready but not
-  yet run. See `agent_docs/phases/phase8.md`.
-- **Emerald: VRAM/sprite injection investigation** (`agent_docs/ideas.md`) — a 5-stage test plan
-  is agreed; Stage 1 (read-only vanilla probe) not started. See `agent_docs/phases/phase8.md`.
-- **Relay-safety follow-ups, deliberately out of scope so far**: no TLS (a room code crosses the
-  wire in plaintext), TEVI's `game_version` doesn't reflect a real Steam build number, and the
-  adapters' own message-parsing code hasn't been audited with an adversarial-input mindset the
-  way the Go relay/core layer was. See `agent_docs/risks.md` and `agent_docs/plans.md`'s "Room
-  codes / relay safety" section.
-- **Send/receive rate control (`server.send_hz` / `client.max_receive_hz_per_player`), built
-  2026-08-15** — `go test` clean, all new tests confirmed to actually fail when their check is
-  broken, but **not yet live-verified**: needs a real two-client session, one client with a low
-  `max_receive_hz_per_player`, watching both ghosts on screen at visibly different smoothness.
-  See `agent_docs/plans.md`'s "Send/receive rate control" section and the ADR in
-  `agent_docs/architecture.md`.
+Fixed-and-confirmed work is not listed here — see `verified.md` and the phase files.
+
+### Blocked on a real two-player session (Pseudoregalia 7.7)
+
+- **7.7 itself** — untested; Steam single-instance behavior for this game is unconfirmed
+  either way. This is the top unblock: it also gates the two items below.
+- **Ghost collision keep-or-axe.** Kept ON as a deliberate feature (user decision,
+  2026-08-15); its run-ending risk is fixed. Loopback cannot answer whether real-peer
+  contact is disruptive. Never judge it with `LOOPBACK_GHOST_OFFSET_X = 0` — that
+  reproduces the 7.4 drag bug by construction.
+- **Ghost vanishes while a peer is climbing/on a pole, then returns stuck in a climb pose.**
+  Cause UNKNOWN; two suspects ruled out with evidence (not the slide floor fix, not purely
+  the loopback offset). See `phase7.md`.
+
+### Open, not blocked
+
+- **Pseudoregalia: Dream Breaker *throw* animation.** Pickup was fixed by the call/write
+  reorder; throw specifically was NOT, confirmed by the user. Distinct, not root-caused —
+  don't assume the reorder fixed both directions symmetrically.
+- **Pseudoregalia: empty-hand recall glow** — blocked on a *precondition* (needs a real
+  thrown-weapon actor for `manageRecallIdleFX`'s `IsValid` guards), not on finding the right
+  function. Read `verified.md`'s "`manageRecallIdleFX`: NEGATIVE" entry before retrying.
+- **Pseudoregalia: ultra hop's BLUE trail — PARKED with evidence.** Not `afterimageColor`,
+  not `ultraCap`/`fullUltraModifier`/`cappedUltraModifier`/`animJumpType`. Not derivable
+  from polled state; do not resume by guessing more property names.
+- **Pseudoregalia: a `Fatal Error!` crash on game exit**, seen once, never root-caused.
+- **TEVI: charged-attack VFX missing on the ghost** — animations play, the extra effects
+  don't. Not root-caused. See `phase6.md`'s 2026-08-15 entry.
+- **Emerald: surf, Mach/Acro Bike, ledges, Mach Bike rails** — the ghost snaps badly on all
+  of these. Detection source cited; a combined probe script is ready but **not yet run**.
+- **Emerald: VRAM/sprite injection** — 5-stage plan agreed, Stage 1 not started.
+- **Send/receive rate control** (built 2026-08-15) — `go test` clean and the new tests were
+  confirmed to fail when broken, but **not live-verified**: needs two clients, one with a low
+  `max_receive_hz_per_player`, watched on screen at visibly different smoothness.
+- **Relay-safety follow-ups, deliberately out of scope so far**: no TLS (room codes cross the
+  wire in plaintext), TEVI's `game_version` isn't a real Steam build number, and the
+  *adapters'* message parsing has never had the adversarial-input audit the Go layer got.
 
 ## Links
 
-- `agent_docs/plans.md` — the authoritative roadmap and per-phase status.
-- `agent_docs/phases/phase6.md` — TEVI, fully done.
-- `agent_docs/phases/phase7.md` — Pseudoregalia, done through 7.6, 7.7 open.
-- `agent_docs/phases/phase8.md` — Emerald's ongoing post-5.5 work, in progress.
+- `agent_docs/plans.md` — authoritative roadmap and per-phase status.
+- `agent_docs/phases/phase6.md` (TEVI, done) / `phase7.md` (Pseudoregalia, 7.7 open) /
+  `phase8.md` (Emerald, in progress).
 - `agent_docs/risks.md` — assumptions and risk register.
 - `agent_docs/verified.md` — append-only verification log.
 
 ## Update guidance
 
-- Update this file whenever the active phase changes — overwrite the relevant line/section in
-  place, don't append a new one.
-- Keep entries short; this is a one-screen summary, not a log. Narrative detail belongs in the
-  relevant `agent_docs/phases/phaseN.md`.
+- Update whenever the active phase changes — overwrite in place, never append.
+- **Keep this to one screen (~50 lines).** When an item is fixed and confirmed, delete it
+  here and let `verified.md`/the phase file hold the record; don't leave a "FIXED" entry
+  behind. Narrative detail belongs in `agent_docs/phases/phaseN.md`.

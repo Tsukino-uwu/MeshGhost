@@ -1,0 +1,16 @@
+{
+  "move_state": 0,
+  "action_state": 0,
+  "h_speed": 0.0,
+  "v_speed": 0.0,
+  "anim_jump_type": 0,
+  "movement_mode": 3,
+  "land_count": 0,
+  "jump_count": 0,
+  "weapon_equipped": 1,
+  "outfit_mesh": "",
+  "afterimage_count": 0,
+  "afterimage_n": 0,
+  "capsule_half": 65.0,
+  "afterimage_color": [1.0, 1.0, 1.0]
+}
