@@ -170,6 +170,24 @@ namespace MeshGhostPseudo
         // to pass. Gated purely on the peer's already-synced weaponEquipped? flag.
         RC::Unreal::UObject* recall_glow_component{nullptr};
         bool recall_glow_shown{false};
+        // The peer's observed answer, not our recomputation of the game's rule -- see
+        // RECALL_GLOW_ENABLED for why this is mirrored rather than derived.
+        bool target_recall_glow{false};
+
+        // One-shot: has this ghost been swept for a recall glow it built ITSELF at construction?
+        // A ghost is a clone of the local player's own class reading the local save, so it can
+        // spawn already glowing -- proven from timestamps, the ghost was glowing a full minute
+        // before this adapter spawned any glow on it. Harmless-looking in loopback, where the peer
+        // IS the local player, and wrong with a real peer: it would show the LOCAL player's state
+        // on someone else's ghost, and nothing would ever clear it, since this adapter only tracks
+        // the component it spawned itself.
+        bool recall_glow_swept{false};
+
+        // GHOST_SPAWN_WEAPON_TRACE bookkeeping: the tick this ghost spawned, and whether each of
+        // the two samples has been taken. 0 = not spawned yet.
+        uint64_t spawn_weapon_trace_tick{0};
+        bool spawn_weapon_traced_at_spawn{false};
+        bool spawn_weapon_traced_after{false};
 
         // Smoothed render position for the above. Needed because `extras` is NOT interpolated by
         // the core -- internal/core/interp.go interpolates `position` only and holds every extras
@@ -393,6 +411,9 @@ namespace MeshGhostPseudo
 
         // Shows/hides a ghost's empty-hand recall glow -- see RemoteGhost::recall_glow_component.
         auto tick_remote_recall_glow(const std::string& player_id, RemoteGhost& remote) -> void;
+
+        // Two-sample capture of the ghost-spawns-mid-throw case -- see GHOST_SPAWN_WEAPON_TRACE.
+        auto tick_ghost_spawn_weapon_trace(const std::string& player_id, RemoteGhost& remote) -> void;
 
         auto release_ghost(const std::string& player_id) -> void;
         auto release_all_ghosts(const wchar_t* reason) -> void;
@@ -660,6 +681,11 @@ namespace MeshGhostPseudo
         // says nothing about which effect it was, and these are short-lived objects whose
         // addresses get recycled.
         std::set<std::string> prev_player_vfx;
+
+        // Whether the real recall glow is currently showing on the local player. Sampled at
+        // RECALL_GLOW_SCAN_INTERVAL_TICKS and held between scans, then sent so a ghost mirrors the
+        // game's own decision instead of a reimplementation of its rule.
+        bool local_recall_glow{false};
 
         // VFX_CATALOG_PROBE state. The catalog is built once per session and then cycled: index is
         // where the cycle is up to, and the component is the currently-showing effect, destroyed

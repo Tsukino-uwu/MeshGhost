@@ -4024,3 +4024,27 @@ Copy this block per fact:
   rather than a particle effect, which is a different search.
 - Source: `UE4SS.log` 2026-08-15/16 (`VFXPROBE` catalog and cycle lines, `VFXWATCH`), user's direct
   visual confirmation. Code: `Plugin.cpp`'s `tick_remote_recall_glow`, `spawn_niagara_attached`.
+
+### Pseudoregalia: use-after-free crash on level transition after a throw, FIXED and confirmed live
+
+- Date: 2026-08-16
+- **Introduced by the thrown-weapon feature earlier the same day**, not pre-existing. Distinct from
+  the `Fatal Error!`-on-game-exit entry in `status.md`, which was seen once, has a different
+  trigger, and remains un-root-caused — do not treat this fix as closing that one.
+- **Symptom**: `EXCEPTION_ACCESS_VIOLATION` returning to the main menu after throwing the sword.
+  Stack: `game_thread_tick` → `handle_bridge_line` → `release_ghost` →
+  `call_set_actor_location_and_rotation`.
+- **Cause**: the level tore down and destroyed our thrown-weapon prop while MeshGhost kept a raw
+  pointer to it; a `despawn_remote` arriving after the transition then moved freed memory. The
+  ghost pawn was immune only because `release_all_ghosts` (LoadMap PRE hook, before teardown)
+  nulls *its* pointer — the prop, added later, never got the same treatment. A second, smaller
+  mistake compounded it: that path still parked the prop, left over from before props became
+  per-throw destroyed.
+- **Fix**: every actor-shaped field on every remote is now cleared at the top of
+  `release_all_ghosts`, before its "no ghost, skip" continue; `release_ghost` destroys rather than
+  moves the prop. `release_all_ghosts` deliberately drops references without calling into any
+  actor.
+- **CONFIRMED LIVE by the user, both transition paths**: returning to the main menu after a throw,
+  and moving to a different zone after a throw. Neither crashes.
+- Recorded in `pitfalls.md` with the generalizable form, including why a liveness check would not
+  have helped (`IsUnreachable()` is only meaningful on an object that is still allocated).

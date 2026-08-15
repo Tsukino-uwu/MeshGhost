@@ -752,6 +752,32 @@ Backing detail for `CLAUDE.md`'s public-repo rule. Two live cases, and they fail
   `cmake`, and from the same devkitPro MSYS2 install. Treat a tool's *config-dependent*
   output (not just its success/failure) as suspect until the binary is identified.
 
+### A raw actor pointer added to a tracking struct must also be dropped in the pre-teardown hook (2026-08-16)
+
+- **Symptom**: `EXCEPTION_ACCESS_VIOLATION` returning to the main menu, reported live. Stack:
+  `game_thread_tick` → `handle_bridge_line` → `release_ghost` →
+  `call_set_actor_location_and_rotation`. Use-after-free on the thrown-weapon prop.
+- **Diagnosis**: the level transition destroyed the prop; nothing cleared MeshGhost's raw pointer to
+  it; a `despawn_remote` arriving afterwards then tried to *move* freed memory. Two contributing
+  mistakes: (1) that path still *parked* the prop, left over from before props became per-throw
+  destroyed, so it moved an actor the code no longer keeps alive; (2) `release_all_ghosts` — which
+  runs in the **LoadMap PRE hook**, the one moment guaranteed to be before the engine destroys
+  actors — nulled the *ghost* pointer but had never been extended to the prop added later.
+- **A liveness check would NOT have prevented this**, which is the part worth internalising:
+  `IsUnreachable()` is only meaningful on an object that is still *allocated*. Against genuinely
+  freed memory it is another read of a dangling pointer, not a guard. Dropping the reference while
+  it is still valid is the only real defence.
+- **Fix**: clear every actor-shaped field for every remote at the top of `release_all_ghosts`,
+  before its existing "no ghost, skip" continue, and destroy (never move) the prop elsewhere. That
+  function deliberately only drops references and calls into no actor — calling into actors during a
+  LoadMap hook is itself something this file has crashed on before.
+- **Generalizes to**: the moment you add a *second* engine object to a per-peer tracking struct, it
+  inherits every lifetime rule the first one has, and those rules usually live somewhere
+  non-obvious — a hook rather than the destructor. Grep for where the existing pointer is nulled and
+  match it, rather than assuming the new field is like the old ones because it sits next to them.
+  The single-object version of this code was correct for a year; adding a companion object silently
+  broke it.
+
 ### Cross-adapter issues that were fixed in the core, not the adapter
 
 Found while building an adapter, but the fix belonged in `internal/core` — listed here so the

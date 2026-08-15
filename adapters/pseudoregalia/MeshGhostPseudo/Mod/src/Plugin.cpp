@@ -894,7 +894,11 @@ namespace MeshGhostPseudo
     // isn't a polled property).
     //
     // Read-only: enumerates and logs, spawns and calls nothing.
-    constexpr bool VFX_WATCH = true;
+    // Off 2026-08-16 after the throw/save-crystal capture answered both open questions: the recall
+    // glow attaches to WeaponMesh (fixing its placement) and its trigger is now mirrored by
+    // observing the real effect rather than inferred. Left in place -- it is the tool for the next
+    // effect, and NS_WeaponPickup is already a known, un-reproduced candidate it found.
+    constexpr bool VFX_WATCH = false;
 
     // ~15 samples/sec at this build's measured ~150Hz. Tightened from 30 for the throw capture:
     // the throw itself is a ~1s montage and effects around it can be brief, and since this logs
@@ -2225,6 +2229,56 @@ namespace MeshGhostPseudo
             return return_slot ? *return_slot : nullptr;
         }
 
+        // Whether a component is currently ACTIVE, as opposed to merely existing.
+        //
+        // Built for the "ghost keeps the recall glow forever after walking away from the save
+        // crystal" bug. The local side detected the glow by asking whether the component existed,
+        // which silently assumed the game destroys it when it stops. A Niagara component spawned
+        // with bAutoDestroy off is normally deactivated and kept, so it stays in the enumeration
+        // permanently and the existence test can never go false again -- which is exactly the
+        // symptom. Note this is strictly more precise rather than a coin-flip between two theories:
+        // a destroyed component fails the lookup and is reported inactive anyway, so this is
+        // correct whichever the game actually does.
+        //
+        // Uses the reflected IsActive() function rather than reading a `bIsActive` property, and
+        // that choice matters here: UE packs component bools into a bitfield, and this file has
+        // already been bitten by exactly that -- `bHidden`/`bActorIsBeingDestroyed` read `true` on
+        // a live, working actor (`verified.md`). A byte-wide read of a bitfield flag is not
+        // trustworthy; a function return value is.
+        auto component_is_active(UObject* component) -> bool
+        {
+            if (!component)
+            {
+                return false;
+            }
+            UFunction* function = component->GetFunctionByNameInChain(STR("IsActive"));
+            if (!function)
+            {
+                static bool warned = false;
+                if (!warned)
+                {
+                    warned = true;
+                    Output::send(STR("[MeshGhostPseudo] WARNING: no reflected 'IsActive' on a Niagara component -- falling back to existence, which cannot detect a deactivated effect.\n"));
+                }
+                return true;
+            }
+            const int32_t parms_size = function->GetPropertiesSize();
+            if (parms_size < 1)
+            {
+                return true;
+            }
+            std::vector<uint8_t> params_buffer(static_cast<size_t>(parms_size), 0);
+            component->ProcessEvent(function, params_buffer.data());
+            for (FProperty* param : TFieldRange<FProperty>(function, EFieldIterationFlags::None))
+            {
+                if (param && param->GetName() == STR("ReturnValue"))
+                {
+                    return *std::bit_cast<bool*>(params_buffer.data() + param->GetOffset_Internal());
+                }
+            }
+            return true;
+        }
+
         auto stop_projectile_movement(UObject* prop) -> void
         {
             if (!prop)
@@ -3275,15 +3329,123 @@ namespace MeshGhostPseudo
     // component on the pawn across a whole session, which is what established that).
     constexpr const wchar_t* RECALL_GLOW_ASSET = STR("/Game/VFX/Emitters/NS_WeaponCallReady.NS_WeaponCallReady");
 
+    // Capture for "throwing the sword BEFORE the ghost spawns leaves things weird", reported
+    // 2026-08-16. Every weapon test so far has thrown with a ghost already standing there, so the
+    // spawn-mid-throw ordering has genuinely never been exercised.
+    //
+    // Leading suspect, and it is not a guess -- it is the same mechanism proven hours earlier by
+    // the self-constructed recall glow: a ghost is a clone of the player's class reading the
+    // player's save, so it builds itself with whatever save-dependent state that implies. If the
+    // save says the sword is thrown, the ghost's construction may spawn its OWN loose-weapon actor,
+    // which this adapter neither tracks nor destroys. That would leave an extra sword in the world
+    // belonging to nobody, on top of the one we spawn deliberately.
+    //
+    // So the capture is aimed at exactly that: at ghost spawn, and again shortly after (once the
+    // construction has had time to run and the first real state has arrived), it logs
+    //   * what this adapter believes about the peer's weapon (thrown / state / equipped / class),
+    //   * the ghost's own weapon fields, which say what its construction decided independently,
+    //   * and EVERY live BP_looseWeapon_C in the world with its location and Instigator.
+    // The last one is the decisive column: if the count is higher than the number of swords this
+    // adapter spawned, the extra one was constructed by the ghost and the fix is a sweep, exactly
+    // like the glow's. If the count is right, the bug is in our own spawn/state handling instead
+    // and the first two columns say which field disagrees.
+    constexpr bool GHOST_SPAWN_WEAPON_TRACE = true;
+
+    // Ticks after a ghost spawns before the follow-up sample. ~1s at this build's measured ~150Hz:
+    // long enough for construction and a first state packet, short enough to still be "at spawn".
+    constexpr uint64_t GHOST_SPAWN_WEAPON_TRACE_DELAY_TICKS = 150;
+
+    // How often the local side checks whether the real recall glow is currently showing. This is a
+    // full Niagara-component enumeration, so it is deliberately not per-tick: at ~10Hz it is well
+    // under the 20Hz rate the state is sent at anyway, so a tighter cadence would buy nothing
+    // visible. The last result is held between scans.
+    constexpr uint64_t RECALL_GLOW_SCAN_INTERVAL_TICKS = 15;
+
+    // Superseded note kept for the reasoning, 2026-08-16 -- the flag below is now ON again.
+    //
+    // 1. **The gate is known wrong.** This shows the glow whenever a peer is empty-handed, but the
+    //    user reports the real one only appears when near a save crystal, because that is the only
+    //    place the sword can be summoned. So a ghost currently glows in situations the real player
+    //    never would. Rather than reimplement "am I near a crystal" -- reproducing a game rule we
+    //    would get subtly wrong, and which would silently drift if the game's own rule changed --
+    //    the fix is to mirror the game's own DECISION: sync whether the real effect is actually
+    //    present on the peer, which covers the crystal rule and any other condition nobody has
+    //    noticed, for free. That is the same "let the game do the work" principle the montage
+    //    mirror already runs on.
+    // 2. **It would contaminate the very capture that fixes it.** VFX_WATCH enumerates every live
+    //    Niagara component; a copy we spawn ourselves on a ghost would appear in those results as
+    //    an appearing NS_WeaponCallReady, which is precisely the thing the capture is trying to
+    //    observe on the real player. Leaving it on risks reading our own output back as evidence.
+    //
+    // **Both are now resolved and it is back on.** The capture (`UE4SS.log`, 2026-08-16) answered
+    // the trigger and the placement together:
+    //   * The real effect attaches to the pawn's **WeaponMesh** at a zero offset -- i.e. exactly
+    //     where the sword is held -- not to the actor root, which is where this originally put it
+    //     and why the user reported it sitting visibly wrong.
+    //   * The gate is no longer inferred at all. Instead of trying to reproduce "empty-handed AND
+    //     near a save crystal", the local side simply observes whether the real effect is currently
+    //     present and sends that. Whatever rule the game applies -- crystal proximity or anything
+    //     else nobody has noticed -- is mirrored for free, and cannot drift out of sync with the
+    //     game's own logic the way a reimplemented rule would.
+    constexpr bool RECALL_GLOW_ENABLED = true;
+
     auto Plugin::tick_remote_recall_glow(const std::string& player_id, RemoteGhost& remote) -> void
     {
         if (!remote.ghost)
         {
             return;
         }
-        // weaponEquipped? is already synced and confirmed live in both directions, so the peer
-        // being empty-handed needs no new state on the wire.
-        const bool want_glow = !remote.target_weapon_equipped;
+        // See RECALL_GLOW_ENABLED: the gate below is known to be wrong (empty-handed is necessary
+        // but not sufficient -- the real glow also needs the sword to be summonable, which means
+        // being near a save crystal), so this is held off rather than shipped visibly wrong.
+        if constexpr (!RECALL_GLOW_ENABLED)
+        {
+            return;
+        }
+        // Clear any recall glow the ghost constructed for itself, once per ghost. See
+        // RemoteGhost::recall_glow_swept for why this is a real bug rather than tidiness: in
+        // loopback it merely happens to agree with the peer's state, because the peer is the local
+        // player; against a real peer it would display the LOCAL player's summon availability on
+        // someone else's ghost, permanently, since nothing else would ever take it down.
+        if (!remote.recall_glow_swept)
+        {
+            remote.recall_glow_swept = true;
+            std::vector<UObject*> niagara_components;
+            UObjectGlobals::FindAllOf(STR("NiagaraComponent"), niagara_components);
+            const std::string ghost_name = to_utf8(remote.ghost->GetName());
+            for (UObject* component : niagara_components)
+            {
+                if (!component || component == remote.recall_glow_component)
+                {
+                    continue;
+                }
+                if (to_utf8(component->GetFullName()).find(ghost_name) == std::string::npos)
+                {
+                    continue;
+                }
+                UObject** asset_ptr = component->GetValuePtrByPropertyNameInChain<UObject*>(STR("Asset"));
+                if (!asset_ptr || !*asset_ptr)
+                {
+                    continue;
+                }
+                if (to_utf8((*asset_ptr)->GetFullName()).find(to_utf8(RECALL_GLOW_ASSET)) == std::string::npos)
+                {
+                    continue;
+                }
+                if (UFunction* deactivate_fn = component->GetFunctionByNameInChain(STR("Deactivate")))
+                {
+                    component->ProcessEvent(deactivate_fn, nullptr);
+                }
+                if (UFunction* destroy_fn = component->GetFunctionByNameInChain(STR("DestroyComponent")))
+                {
+                    component->ProcessEvent(destroy_fn, nullptr);
+                }
+                Output::send(STR("[MeshGhostPseudo] RECALLGLOW {}: cleared a self-constructed glow (not ours) at spawn.\n"),
+                             to_wide_ascii(player_id));
+            }
+        }
+
+        const bool want_glow = remote.target_recall_glow;
         if (want_glow == remote.recall_glow_shown)
         {
             return;
@@ -3294,10 +3456,20 @@ namespace MeshGhostPseudo
         {
             if (remote.recall_glow_component)
             {
+                // Deactivate first, then destroy. Destroy alone should be enough, but the local
+                // half of this same bug was the game keeping a deactivated component alive, so a
+                // component that outlives our DestroyComponent call would leave a ghost glowing
+                // permanently -- the exact symptom being fixed. Deactivating first makes that
+                // failure mode invisible rather than permanent.
+                if (UFunction* deactivate_fn = remote.recall_glow_component->GetFunctionByNameInChain(STR("Deactivate")))
+                {
+                    remote.recall_glow_component->ProcessEvent(deactivate_fn, nullptr);
+                }
                 if (UFunction* destroy_fn = remote.recall_glow_component->GetFunctionByNameInChain(STR("DestroyComponent")))
                 {
                     remote.recall_glow_component->ProcessEvent(destroy_fn, nullptr);
                 }
+                Output::send(STR("[MeshGhostPseudo] RECALLGLOW {}: hidden\n"), to_wide_ascii(player_id));
                 remote.recall_glow_component = nullptr;
             }
             return;
@@ -3315,13 +3487,104 @@ namespace MeshGhostPseudo
             }
             return;
         }
-        if (UObject** root_ptr = remote.ghost->GetValuePtrByPropertyNameInChain<UObject*>(STR("RootComponent")); root_ptr && *root_ptr)
+        // Attached to WeaponMesh, not the actor root. Measured, not chosen: the capture showed the
+        // real effect hanging off the pawn's own WeaponMesh at a zero offset -- i.e. right where
+        // the sword is held, which is why the user described it as an outline of the sword. The
+        // root-attached first attempt is what made it sit visibly wrong.
+        UObject** attach_ptr = remote.ghost->GetValuePtrByPropertyNameInChain<UObject*>(STR("WeaponMesh"));
+        if (!attach_ptr || !*attach_ptr)
         {
-            remote.recall_glow_component = spawn_niagara_attached(glow_asset, *root_ptr);
-            Output::send(STR("[MeshGhostPseudo] RECALLGLOW {}: spawn -> {}\n"),
-                         to_wide_ascii(player_id),
-                         remote.recall_glow_component ? STR("component returned") : STR("NULL"));
+            // Falling back to the root would silently reintroduce the exact misplacement this fix
+            // exists to correct, so it is better to show nothing and say why.
+            Output::send(STR("[MeshGhostPseudo] RECALLGLOW {}: ghost has no WeaponMesh -- glow not shown.\n"),
+                         to_wide_ascii(player_id));
+            return;
         }
+        remote.recall_glow_component = spawn_niagara_attached(glow_asset, *attach_ptr);
+        Output::send(STR("[MeshGhostPseudo] RECALLGLOW {}: spawn on WeaponMesh -> {}\n"),
+                     to_wide_ascii(player_id),
+                     remote.recall_glow_component ? STR("component returned") : STR("NULL"));
+    }
+
+    // See GHOST_SPAWN_WEAPON_TRACE for what this is answering and why the loose-weapon census is
+    // the column that decides it.
+    auto Plugin::tick_ghost_spawn_weapon_trace(const std::string& player_id, RemoteGhost& remote) -> void
+    {
+        if (!remote.ghost)
+        {
+            return;
+        }
+        if (remote.spawn_weapon_trace_tick == 0)
+        {
+            remote.spawn_weapon_trace_tick = tick_count;
+        }
+        const bool at_spawn = !remote.spawn_weapon_traced_at_spawn;
+        const bool after = !remote.spawn_weapon_traced_after &&
+                           tick_count - remote.spawn_weapon_trace_tick >= GHOST_SPAWN_WEAPON_TRACE_DELAY_TICKS;
+        if (!at_spawn && !after)
+        {
+            return;
+        }
+        const wchar_t* label = at_spawn ? STR("AT-SPAWN") : STR("AFTER");
+        if (at_spawn)
+        {
+            remote.spawn_weapon_traced_at_spawn = true;
+        }
+        else
+        {
+            remote.spawn_weapon_traced_after = true;
+        }
+
+        // What we believe about the peer, i.e. what the ghost is being told to show.
+        Output::send(STR("[MeshGhostPseudo] SPAWNWEAPON {} {}: peer thrown={} state={} equipped={} ourProp={} class='{}'\n"),
+                     label, to_wide_ascii(player_id),
+                     remote.target_weapon_thrown,
+                     static_cast<int>(remote.target_weapon_state),
+                     remote.target_weapon_equipped,
+                     static_cast<void*>(remote.weapon_actor),
+                     to_wide_ascii(remote.target_weapon_class));
+
+        // What the ghost's OWN construction decided, independently of anything we sent it.
+        bool* ghost_equipped = remote.ghost->GetValuePtrByPropertyNameInChain<bool>(STR("weaponEquipped?"));
+        UObject** ghost_weapon_ref = remote.ghost->GetValuePtrByPropertyNameInChain<UObject*>(STR("weaponRef"));
+        Output::send(STR("[MeshGhostPseudo] SPAWNWEAPON {} {}: ghost weaponEquipped={} weaponRef={}\n"),
+                     label, to_wide_ascii(player_id),
+                     ghost_equipped ? *ghost_equipped : false,
+                     (ghost_weapon_ref && *ghost_weapon_ref) ? (*ghost_weapon_ref)->GetFullName() : STR("null"));
+
+        // The census. Every loose weapon in the world, with where it is and who threw it --
+        // Instigator is what distinguishes "the real player's sword" from "a sword some clone
+        // created". More of these than this adapter spawned means the ghost built its own.
+        std::vector<UObject*> loose_weapons;
+        UObjectGlobals::FindAllOf(STR("Actor"), loose_weapons);
+        size_t count = 0;
+        for (UObject* candidate : loose_weapons)
+        {
+            if (!candidate)
+            {
+                continue;
+            }
+            UClass* candidate_class = candidate->GetClassPrivate();
+            if (!candidate_class || to_utf8(candidate_class->GetName()).find("looseWeapon") == std::string::npos)
+            {
+                continue;
+            }
+            ++count;
+            auto* weapon_actor = static_cast<AActor*>(candidate);
+            FVector loc = weapon_actor->K2_GetActorLocation();
+            std::string instigator = "<none>";
+            if (UObject** inst_ptr = candidate->GetValuePtrByPropertyNameInChain<UObject*>(STR("Instigator")); inst_ptr && *inst_ptr)
+            {
+                instigator = to_utf8((*inst_ptr)->GetName());
+            }
+            Output::send(STR("[MeshGhostPseudo] SPAWNWEAPON {} {}:   loose weapon '{}' at ({:.1f}, {:.1f}, {:.1f}) instigator='{}' isOurs={}\n"),
+                         label, to_wide_ascii(player_id),
+                         candidate->GetName(), loc.X(), loc.Y(), loc.Z(),
+                         to_wide_ascii(instigator),
+                         candidate == remote.weapon_actor);
+        }
+        Output::send(STR("[MeshGhostPseudo] SPAWNWEAPON {} {}: {} loose weapon(s) alive in the world.\n"),
+                     label, to_wide_ascii(player_id), count);
     }
 
     // See VFX_CATALOG_PROBE for what this is for and why it exists in this shape.
@@ -3452,23 +3715,38 @@ namespace MeshGhostPseudo
             return;
         }
 
-        // The peer's thrown sword is a separate actor with its own lifetime, so it needs the same
-        // treatment: park it out of the playable area and drop the reference. Without this, a peer
-        // who despawns mid-throw leaves a sword hanging in mid-air until the level tears down --
-        // the same cosmetic bug that motivated parking the ghost body below. Handled BEFORE the
-        // ghost check on purpose: a remote can legitimately have a live weapon prop and no ghost
-        // (the ghost was invalidated first), and that sword must still be reclaimed.
+        // Bookkeeping that owns no actor of its own is cleared unconditionally. Previously this sat
+        // inside the `if (weapon_actor)` block below, so a remote with no prop kept stale recall-glow
+        // and trace state -- harmless today only by luck.
+        it->second.weapon_glow_component = nullptr;  // attached to the prop; dies with it
+        it->second.recall_glow_component = nullptr;  // attached to the ghost; dies with it
+        it->second.recall_glow_shown = false;
+        it->second.recall_glow_swept = false;
+        it->second.spawn_weapon_trace_tick = 0;
+        it->second.spawn_weapon_traced_at_spawn = false;
+        it->second.spawn_weapon_traced_after = false;
+
+        // The peer's thrown sword is a separate actor with its own lifetime, so a peer despawning
+        // mid-throw must not leave a sword hanging in the level. Handled BEFORE the ghost check on
+        // purpose: a remote can legitimately have a live prop and no ghost.
+        //
+        // **DESTROYED, not parked** -- fixing a real crash (EXCEPTION_ACCESS_VIOLATION, 2026-08-16,
+        // reported going back to the main menu; stack: handle_bridge_line -> release_ghost ->
+        // call_set_actor_location_and_rotation). Two mistakes met here. The park call was left over
+        // from before props became per-throw destroyed, so it moved an actor this code no longer
+        // keeps alive. And nothing cleared this pointer when a LEVEL tore the prop down, so a
+        // `despawn_remote` arriving after a transition moved freed memory. Note a liveness check
+        // would NOT have saved it: as the redraw loop's own comment records, IsUnreachable() is only
+        // safe on an object that is still allocated. The real fix is the proactive clear in
+        // release_all_ghosts (which runs in the LoadMap PRE hook, before teardown) -- exactly the
+        // mechanism that has always kept the ghost pointer safe here, now extended to the prop.
         if (it->second.weapon_actor)
         {
-            FVector weapon_park_loc(it->second.target_weapon_x, it->second.target_weapon_y, DESPAWN_PARK_Z);
-            call_set_actor_location_and_rotation(it->second.weapon_actor, weapon_park_loc, FRotator(0.0, 0.0, 0.0));
-            it->second.weapon_glow_component = nullptr; // attached to the prop; dies with it
-            // The recall glow is attached to the ghost itself, so it goes when the ghost does.
-            it->second.recall_glow_component = nullptr;
-            it->second.recall_glow_shown = false;
+            call_destroy_actor(it->second.weapon_actor);
             it->second.weapon_actor = nullptr;
             it->second.weapon_actor_world = nullptr;
             it->second.weapon_render_primed = false;
+            it->second.last_synced_weapon_state = -1.0;
         }
 
         if (!it->second.ghost)
@@ -3493,6 +3771,30 @@ namespace MeshGhostPseudo
     {
         for (auto& [id, remote] : remotes)
         {
+            // **Cleared for EVERY remote, before the no-ghost skip below** -- this is the fix for a
+            // real crash (see release_ghost's comment). This function runs in the LoadMap PRE hook,
+            // i.e. the one moment we are guaranteed to be before the level destroys its actors, so
+            // it is the only place a pointer can be dropped while it is still definitely valid.
+            // Nulling the ghost here is what has always made the ghost safe; the thrown-weapon prop
+            // was added later and never got the same treatment, which left it dangling across a
+            // transition for a later despawn to trip over. Anything actor-shaped added to
+            // RemoteGhost in future belongs in these lines too.
+            //
+            // Deliberately just drops references and destroys nothing: the level's own teardown is
+            // already about to reclaim all of it, and calling into an actor during a LoadMap PRE
+            // hook is exactly the kind of thing this file has crashed on before.
+            remote.weapon_actor = nullptr;
+            remote.weapon_actor_world = nullptr;
+            remote.weapon_render_primed = false;
+            remote.weapon_glow_component = nullptr;
+            remote.last_synced_weapon_state = -1.0;
+            remote.recall_glow_component = nullptr;
+            remote.recall_glow_shown = false;
+            remote.recall_glow_swept = false;
+            remote.spawn_weapon_trace_tick = 0;
+            remote.spawn_weapon_traced_at_spawn = false;
+            remote.spawn_weapon_traced_after = false;
+
             if (!remote.ghost)
             {
                 continue;
@@ -3503,10 +3805,6 @@ namespace MeshGhostPseudo
                          static_cast<void*>(remote.ghost),
                          static_cast<void*>(remote.owning_world));
             hijacked_actors.erase(remote.ghost);
-            // The recall glow is attached to this ghost -- it dies with the actor, so only the
-            // reference needs clearing before a fresh ghost spawns its own.
-            remote.recall_glow_component = nullptr;
-            remote.recall_glow_shown = false;
             remote.ghost = nullptr;
             remote.owning_world = nullptr;
         }
@@ -4103,6 +4401,9 @@ namespace MeshGhostPseudo
             double weapon_state_in = 0;
             json_number_field(line, "weapon_state", weapon_state_in);
             std::string weapon_glow = json_string_field(line, "weapon_glow");
+            double recall_glow_num = 0;
+            json_number_field(line, "recall_glow", recall_glow_num);
+            bool recall_glow = recall_glow_num != 0;
             double weapon_x = 0, weapon_y = 0, weapon_z = 0;
             bool has_weapon_pos = json_vec3_field(line, "weapon_pos", weapon_x, weapon_y, weapon_z);
             double weapon_pitch = 0, weapon_yaw = 0, weapon_roll = 0;
@@ -4251,6 +4552,7 @@ namespace MeshGhostPseudo
                 {
                     it->second.target_weapon_glow = weapon_glow;
                 }
+                it->second.target_recall_glow = recall_glow;
                 if (is_new_remote)
                 {
                     // Baseline last_seen_* to this first sample -- found in a review pass.
@@ -4566,6 +4868,58 @@ namespace MeshGhostPseudo
                         }
                     }
                 }
+            }
+
+            // Recall glow, local half -- see RECALL_GLOW_ENABLED. This mirrors the game's own
+            // DECISION rather than its rule: it asks "is the real effect showing right now?"
+            // instead of trying to recompute "empty-handed and near a save crystal". Scanned at a
+            // bounded cadence and held between scans, since it enumerates components.
+            if (tick_count % RECALL_GLOW_SCAN_INTERVAL_TICKS == 0)
+            {
+                std::vector<UObject*> niagara_components;
+                UObjectGlobals::FindAllOf(STR("NiagaraComponent"), niagara_components);
+                const std::string pawn_name = to_utf8(pawn->GetName());
+                bool glow_now = false;
+                for (UObject* component : niagara_components)
+                {
+                    if (!component)
+                    {
+                        continue;
+                    }
+                    // Owned by THIS pawn -- confirmed by the capture, where the real effect is a
+                    // component of the player actor rather than a world-spawned one (unlike, say,
+                    // footstep dust, which belongs to WorldSettings).
+                    if (to_utf8(component->GetFullName()).find(pawn_name) == std::string::npos)
+                    {
+                        continue;
+                    }
+                    UObject** asset_ptr = component->GetValuePtrByPropertyNameInChain<UObject*>(STR("Asset"));
+                    if (!asset_ptr || !*asset_ptr)
+                    {
+                        continue;
+                    }
+                    if (to_utf8((*asset_ptr)->GetFullName()).find(to_utf8(RECALL_GLOW_ASSET)) == std::string::npos)
+                    {
+                        continue;
+                    }
+                    // Active, not merely present -- see component_is_active for why existence alone
+                    // left a ghost glowing forever once its peer walked away from the crystal.
+                    if (component_is_active(component))
+                    {
+                        glow_now = true;
+                        break;
+                    }
+                }
+                if (glow_now != local_recall_glow)
+                {
+                    // Edge-logged so "is the LOCAL side even noticing the change?" is answerable
+                    // from the log instead of by staring at a ghost. If this line prints false and
+                    // the ghost still glows, the bug is in the ghost's teardown, not in detection
+                    // -- the two have completely different fixes.
+                    Output::send(STR("[MeshGhostPseudo] RECALLGLOW local: {} at tick {}\n"),
+                                 glow_now ? STR("ON") : STR("OFF"), tick_count);
+                }
+                local_recall_glow = glow_now;
             }
 
             // See VFX_WATCH for why this searches by observation rather than by name.
@@ -5797,7 +6151,7 @@ namespace MeshGhostPseudo
                 // this block's size, since agent_docs/contract.md caps extras at
                 // MaxExtrasBytes = 1024 and an unbounded double can print 17 significant digits.
                 // Measured worst case with this block: ~689 bytes.
-                "\"weapon_thrown\":{},\"weapon_class\":\"{}\",\"weapon_state\":{},\"weapon_glow\":\"{}\","
+                "\"weapon_thrown\":{},\"weapon_class\":\"{}\",\"weapon_state\":{},\"weapon_glow\":\"{}\",\"recall_glow\":{},"
                 "\"weapon_pos\":[{:.1f},{:.1f},{:.1f}],\"weapon_rot\":[{:.1f},{:.1f},{:.1f}]}}"
                 "}}}}}}",
                 json_escape(area_id),
@@ -5831,6 +6185,7 @@ namespace MeshGhostPseudo
                 json_escape(weapon_class),
                 weapon_state,
                 json_escape(weapon_glow),
+                local_recall_glow ? 1 : 0,
                 weapon_x,
                 weapon_y,
                 weapon_z,
@@ -5903,6 +6258,10 @@ namespace MeshGhostPseudo
                 // reference needs clearing before a fresh ghost spawns its own.
                 remote.recall_glow_component = nullptr;
                 remote.recall_glow_shown = false;
+                remote.recall_glow_swept = false;
+                remote.spawn_weapon_trace_tick = 0;
+                remote.spawn_weapon_traced_at_spawn = false;
+                remote.spawn_weapon_traced_after = false;
                 remote.ghost = nullptr;
                 remote.owning_world = nullptr;
                 continue;
@@ -5919,6 +6278,10 @@ namespace MeshGhostPseudo
                 // reference needs clearing before a fresh ghost spawns its own.
                 remote.recall_glow_component = nullptr;
                 remote.recall_glow_shown = false;
+                remote.recall_glow_swept = false;
+                remote.spawn_weapon_trace_tick = 0;
+                remote.spawn_weapon_traced_at_spawn = false;
+                remote.spawn_weapon_traced_after = false;
                 remote.ghost = nullptr;
                 remote.owning_world = nullptr;
                 continue;
@@ -5941,6 +6304,11 @@ namespace MeshGhostPseudo
             // The empty-hand recall glow. Edge-gated inside, so this is a cheap no-op on the vast
             // majority of ticks.
             tick_remote_recall_glow(id, remote);
+
+            if constexpr (GHOST_SPAWN_WEAPON_TRACE)
+            {
+                tick_ghost_spawn_weapon_trace(id, remote);
+            }
 
             // Runs on whichever ghost comes first and only that one -- the probe's value is being
             // able to say "that look is this asset", which two ghosts showing different effects at
