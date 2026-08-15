@@ -32,6 +32,31 @@ know the incident, not just the rule, so you can judge when it applies.
   readback killed it instantly (it read `none` every time — the ghost was re-starting the montage
   by itself ~0.4s later). Generalises the `manageRecallIdleFX` entry's own stated weakness:
   an uninstrumented call can't distinguish "never ran" from "ran and was undone".
+- **The game already knows — find what it calls the thing instead of reconstructing it.** Every
+  hard visual-sync problem in Phase 7 ended the same way, and every failed attempt was an attempt to
+  rebuild something the game was already tracking:
+  - *The throw animation.* Guessing which synced state meant "throwing" was hopeless —
+    `moveState`/`actionState`/`animJumpType` are bit-identical through a real throw. `Montage_Play`
+    on the ghost's own anim instance fixed it, and generalised for free to every montage in the game.
+  - *The bubble flash.* Two guessed tick windows failed identically because the duration was never
+    ours to know. `StartBubbleJumpFlash` + the game's own `hasBubbleChargedJump` flag matched the
+    real player to within 0.01s across three cases, including one that could only ever have caught
+    us being wrong.
+  - *The slide trail.* Three `actionState` heuristics failed; what worked was keying on a physical
+    fact of the move (the capsule shrinking 65 → 22) rather than an enum whose meanings overlap.
+  **The move that keeps paying: dump the class's own function/property names, filtered by a needle
+  list, and read what they are called.** That single step produced `Montage_Play` and then
+  `StartBubbleJumpFlash`/`changeBubbleChargedJump` — both named for exactly the effect and exactly
+  the state, after hours of inference had failed. Do it EARLY, not after the guesses run out.
+  Two specific tells that you are reconstructing instead of asking:
+  1. **You are about to tune a duration constant.** How long an effect lasts is the game's business.
+     A `change<X>(hasX: bool)` function name is a near-certain sign that a readable `X` flag exists —
+     search the properties for it rather than timing the effect with a stopwatch.
+  2. **You are on your second guess with the same symptom.** That is the existing "two guessed fixes
+     failing identically" rule, and "ask the class what its API is called" is usually the isolation
+     step it should send you to.
+  One caveat, learned the hard way twice in one day: **a name found this way still needs its
+  real-world meaning confirmed by a human watching** — see the entry directly below.
 - **A state signature can be perfectly solid and still be attached to the wrong event — only a
   human watching can tell you which.** A bubble-only coverage capture found `moveState==7 &&
   movementMode==5` holding for 2002 ticks with `afterImagesToSpawn` at 0 throughout: clean,
