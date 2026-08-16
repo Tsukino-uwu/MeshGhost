@@ -1224,6 +1224,71 @@ func TestJoinArrivingBeforeWelcomeIsNotErased(t *testing.T) {
 	}
 }
 
+// TestCoreDependsOnOrderedLifecycleDelivery pins down an assumption this
+// package makes but cannot enforce: lifecycle messages arrive in the order
+// the relay sent them.
+//
+// There is deliberately no guard here. delete on an absent key is a no-op,
+// so a Leave processed before its own Join leaves that peer in the roster
+// with nothing remaining to remove them -- their ghost would stay on screen
+// for the rest of the session. This test asserts that cost rather than
+// pretending it away, so the coupling is visible from this side.
+//
+// The guarantee is provided one layer down, by every transport: tcp is an
+// ordered stream, quic's reliable path is an ordered stream, and udpconn
+// resequences (netx/udpconn's TestReliableWritesArriveInOrderUnderLoss).
+// udpconn did NOT do that until 2026-08-16, and this scenario was reachable
+// and confirmed on udp -- the client default -- before it was fixed.
+//
+// So: if this test ever starts failing, a guard was added here and the
+// comment above needs rewriting. If a transport ever stops delivering
+// lifecycle messages in order, this test keeps passing and a ghost strands
+// in the field instead -- which is exactly why the ordering property is
+// tested down there rather than defended up here.
+func TestCoreDependsOnOrderedLifecycleDelivery(t *testing.T) {
+	c := New()
+	welcome := make(chan protocol.Welcome, 1)
+	reject := make(chan protocol.Reject, 1)
+
+	deliver := func(kind protocol.MessageType, payload any) {
+		t.Helper()
+		p, err := json.Marshal(payload)
+		if err != nil {
+			t.Fatalf("marshal payload: %v", err)
+		}
+		env, err := json.Marshal(protocol.Envelope{Type: kind, Payload: p})
+		if err != nil {
+			t.Fatalf("marshal envelope: %v", err)
+		}
+		c.handleRelayMessage(env, welcome, reject)
+	}
+
+	// In order, the normal case: the peer joins, then leaves, and is gone.
+	deliver(protocol.TypeJoin, protocol.Join{PlayerID: "p-ordered"})
+	deliver(protocol.TypeLeave, protocol.Leave{PlayerID: "p-ordered"})
+
+	c.mu.Lock()
+	_, stillHere := c.roster["p-ordered"]
+	c.mu.Unlock()
+	if stillHere {
+		t.Error("a peer that joined and then left is still in the roster")
+	}
+
+	// Out of order, which no transport may produce: the Leave lands first
+	// and the Join resurrects a peer who is already gone.
+	deliver(protocol.TypeLeave, protocol.Leave{PlayerID: "p-reordered"})
+	deliver(protocol.TypeJoin, protocol.Join{PlayerID: "p-reordered"})
+
+	c.mu.Lock()
+	_, stranded := c.roster["p-reordered"]
+	c.mu.Unlock()
+	if !stranded {
+		t.Error("a guard against reordered lifecycle messages was added to core — that is a " +
+			"fine thing to do, but this test and its comment now describe behaviour that no " +
+			"longer exists and must be rewritten")
+	}
+}
+
 // TestSecondWelcomeIgnored confirms a second Welcome mid-connection doesn't
 // reset this Core's roster or get pushed to the handshake's welcome
 // channel — Welcome is protocol-illegal outside the initial handshake, and

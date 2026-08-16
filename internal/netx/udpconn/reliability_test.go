@@ -217,6 +217,69 @@ func TestReliableWriteIsDeliveredOnlyOnce(t *testing.T) {
 	}
 }
 
+// TestReliableWritesArriveInOrderUnderLoss pins down what "reliable"
+// actually promises on this transport.
+//
+// Reliable and ordered are separate properties, and the receive path
+// delivers each payload the moment it arrives, deduping by seq with no
+// resequencing buffer. So a payload whose first datagram is lost is
+// overtaken by the next one, which was never lost: both arrive, in the
+// wrong order.
+//
+// This matters above here rather than in the abstract. internal/relay sends
+// every lifecycle message (join, leave, welcome, reject) on this path, and
+// internal/core applies them in arrival order -- a Leave overtaken by its
+// own Join strands that peer's ghost permanently. See
+// TestLeaveIsNotUndoneByALateJoin in internal/core.
+//
+// If a resequencing buffer is ever added, this test is the thing that
+// should fail and be consciously rewritten -- not silently keep passing
+// against a guarantee that changed.
+func TestReliableWritesArriveInOrderUnderLoss(t *testing.T) {
+	l := listenTest(t)
+	p := newLossyProxy(t, l.Addr().String())
+	client, server := connectThroughProxy(t, l, p)
+
+	const first = `{"type":"join"}` + "\n"
+	const second = `{"type":"leave"}` + "\n"
+
+	// Only the first payload's initial datagram is lost. The second is
+	// written straight after and travels cleanly, so it reaches the far end
+	// while the first is still waiting on its retransmit.
+	p.dropNextToServer(1)
+	if _, err := client.Write([]byte(first)); err != nil {
+		t.Fatalf("write first: %v", err)
+	}
+	if _, err := client.Write([]byte(second)); err != nil {
+		t.Fatalf("write second: %v", err)
+	}
+
+	buf := make([]byte, MaxDatagramBytes)
+	read := func(what string) string {
+		t.Helper()
+		if err := server.SetReadDeadline(time.Now().Add(testTimeout)); err != nil {
+			t.Fatalf("deadline: %v", err)
+		}
+		n, err := server.Read(buf)
+		if err != nil {
+			t.Fatalf("%s read: %v", what, err)
+		}
+		return string(buf[:n])
+	}
+
+	got := []string{read("first"), read("second")}
+	want := []string{first, second}
+
+	// Both must arrive -- that is the reliability property, and it holds.
+	if got[0] == got[1] {
+		t.Fatalf("the same payload was delivered twice: %q", got[0])
+	}
+	if got[0] != want[0] || got[1] != want[1] {
+		t.Errorf("reliable payloads were delivered out of order.\n got: %q then %q\nwant: %q then %q",
+			got[0], got[1], want[0], want[1])
+	}
+}
+
 // TestUnreliableWriteIsDroppedNotRetried is the deliberate other side of
 // the design. State samples must NOT be retransmitted: the plane is
 // latest-wins, so a resent sample would arrive stale and out of order,

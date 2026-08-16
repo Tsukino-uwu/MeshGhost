@@ -153,6 +153,15 @@ const (
 	// instead would let one slow reader stall the demultiplexer for every
 	// other connection on the socket.
 	readQueue = 64
+
+	// reorderWindow bounds how many out-of-order reliable payloads are held
+	// while waiting for the gap ahead of them to fill. Overflow is safe
+	// rather than lossy: a payload that cannot be held is simply not acked,
+	// so the sender retransmits it — the same mechanism that covers a
+	// dropped datagram. 64 is far above what this plane can actually
+	// produce, since only lifecycle messages ride it and a sender has at
+	// most a handful in flight.
+	reorderWindow = 64
 )
 
 // ErrDatagramTooLarge is returned by Write for a payload that would risk IP
@@ -227,11 +236,25 @@ type Conn struct {
 
 	// Reliability state. Write goes through here; WriteUnreliable does not
 	// touch any of it.
-	relMu    sync.Mutex
-	nextSeq  uint64
-	pending  map[uint64]*pendingMsg
-	seenSeq  map[uint64]bool
-	maxSeen  uint64
+	relMu   sync.Mutex
+	nextSeq uint64
+	pending map[uint64]*pendingMsg
+
+	// wantSeq is the next sequence number that may be delivered, and
+	// reorderBuf holds payloads that arrived ahead of it. Together they make
+	// the reliable path ordered as well as reliable.
+	//
+	// These replaced a plain seen-set: with in-order delivery a duplicate is
+	// just seq < wantSeq, so the old set and its 1024-entry pruning are no
+	// longer needed to recognise one.
+	//
+	// wantSeq is initialised lazily rather than at construction because
+	// there are two construction sites; 0 means "not yet started" and is
+	// promoted to 1, which is the first value Write can assign (it
+	// increments before use).
+	wantSeq    uint64
+	reorderBuf map[uint64][]byte
+
 	retryOne sync.Once
 }
 
@@ -279,6 +302,14 @@ func (c *Conn) Read(p []byte) (int, error) {
 // Write sends p reliably: it is retransmitted until the far end acks it or
 // the retry budget runs out, at which point the connection is closed
 // (which internal/relay already turns into a normal leave).
+//
+// Payloads are also delivered to the far end IN ORDER. That is not free on
+// a datagram transport and is not implied by retransmission: the receive
+// path holds anything that arrives early until the gap ahead of it fills
+// (see handleControl's ctrlData case). Before that, this comment claimed
+// "TCP-like semantics" while delivering out of order under loss, and
+// internal/relay's lifecycle messages ride this path — a leave overtaking
+// its own join stranded that peer's ghost for the whole session.
 //
 // Reliable is the default because this is a net.Conn: anything holding one
 // generically — internal/transport's framing, a future caller, a test —
@@ -461,58 +492,83 @@ func (c *Conn) handleControl(b []byte) []byte {
 		payload := body[seqLen:]
 
 		c.relMu.Lock()
-		if c.seenSeq == nil {
-			c.seenSeq = map[uint64]bool{}
+		if c.wantSeq == 0 {
+			c.wantSeq = 1
 		}
-		duplicate := c.seenSeq[seq]
-		c.relMu.Unlock()
 
-		// A duplicate has already been delivered, so re-ack it and stop.
-		// Acking duplicates matters: a lost ack is exactly why the sender
-		// is retransmitting, and silence would keep it retransmitting until
-		// it gives up and drops the connection.
-		if duplicate {
+		// Already delivered. Re-ack and stop: a lost ack is exactly why the
+		// sender is retransmitting, and silence would keep it retransmitting
+		// until it gives up and drops the connection.
+		if seq < c.wantSeq {
+			c.relMu.Unlock()
 			c.sendAck(seq)
 			return nil
 		}
 
-		// Deliver BEFORE acking, and ack only if delivery succeeded.
+		// Arrived ahead of something still in flight. Hold it, so nothing
+		// above here ever sees a later message before an earlier one — a
+		// leave overtaking its own join used to strand that peer's ghost
+		// permanently (see internal/core's TestLeaveIsNotUndoneByALateJoin).
 		//
-		// The obvious order — ack, record, then hand upward — is wrong, and
-		// wrong in a way that silently defeats the entire reliability
-		// layer: deliver drops when the queue is full, but the sender has
-		// its ack by then so it never retransmits, and the dedup record
-		// would suppress the retransmit even if it did. A join, leave or
-		// welcome could vanish under a burst while Write reported success.
-		// Only reachable with a stalled reader and a full queue, which is
-		// why no test caught it; found in review.
-		out := make([]byte, len(payload))
-		copy(out, payload)
-		if !c.deliver(out) {
-			// Neither acked nor recorded, so the sender retransmits and
-			// this arrives again once the reader has caught up.
+		// Deliberately NOT acked while it sits here, which is what keeps the
+		// "ack only what was actually delivered" rule below intact: acking
+		// now and hitting a full queue at delivery time would lose the
+		// payload with the sender believing it landed. Unacked means the
+		// sender keeps retransmitting until it is genuinely delivered.
+		if seq > c.wantSeq {
+			if c.reorderBuf == nil {
+				c.reorderBuf = map[uint64][]byte{}
+			}
+			if _, held := c.reorderBuf[seq]; !held && len(c.reorderBuf) < reorderWindow {
+				buf := make([]byte, len(payload))
+				copy(buf, payload)
+				c.reorderBuf[seq] = buf
+			}
+			c.relMu.Unlock()
 			return nil
 		}
 
-		c.relMu.Lock()
-		c.seenSeq[seq] = true
-		if seq > c.maxSeen {
-			c.maxSeen = seq
-		}
-		// Bound the dedup set. Sequence numbers only ever increase, so
-		// anything far behind the highest seen can never legitimately
-		// arrive again — and without pruning this map would grow for the
-		// life of the connection.
-		if len(c.seenSeq) > 1024 {
-			for sq := range c.seenSeq {
-				if sq+512 < c.maxSeen {
-					delete(c.seenSeq, sq)
-				}
+		// This is the one being waited for, so it and any contiguous run it
+		// unblocks can go up now.
+		//
+		// Deliver BEFORE acking, and ack only if delivery succeeded. The
+		// obvious order — ack, record, then hand upward — is wrong, and
+		// wrong in a way that silently defeats the entire reliability layer:
+		// deliver drops when the queue is full, but the sender has its ack
+		// by then so it never retransmits. A join, leave or welcome could
+		// vanish under a burst while Write reported success. Only reachable
+		// with a stalled reader and a full queue, which is why no test
+		// caught it; found in review.
+		out := make([]byte, len(payload))
+		copy(out, payload)
+		curSeq, cur, buffered := seq, out, false
+
+		var acks []uint64
+		for {
+			if !c.deliver(cur) {
+				// Nothing was consumed: a buffered payload is still in the
+				// map and wantSeq still points at it, and a just-arrived one
+				// is still held by the sender. Either way it is retried, and
+				// the next arrival re-runs this drain.
+				break
 			}
+			acks = append(acks, curSeq)
+			if buffered {
+				delete(c.reorderBuf, curSeq)
+			}
+			c.wantSeq = curSeq + 1
+
+			next, ok := c.reorderBuf[c.wantSeq]
+			if !ok {
+				break
+			}
+			curSeq, cur, buffered = c.wantSeq, next, true
 		}
 		c.relMu.Unlock()
 
-		c.sendAck(seq)
+		for _, a := range acks {
+			c.sendAck(a)
+		}
 		return nil
 
 	case ctrlAck:
