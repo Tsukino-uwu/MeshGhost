@@ -37,11 +37,12 @@ func applyTestConfigFull(path string) (relayAddr, roomCode, transport string) {
 	var bridgeAddr, gameID, room, name, gameVersion string
 	var interp, minSend time.Duration
 	var maxReceiveHz int
+	var showConsole bool
 	applyFileConfig(path, map[string]bool{}, configTargets{
 		relayAddr: &relayAddr, bridgeAddr: &bridgeAddr, gameID: &gameID,
 		room: &room, name: &name, interp: &interp, minSend: &minSend,
 		roomCode: &roomCode, gameVersion: &gameVersion, maxReceiveHz: &maxReceiveHz,
-		transport: &transport,
+		transport: &transport, showConsole: &showConsole,
 	})
 	return relayAddr, roomCode, transport
 }
@@ -113,13 +114,94 @@ func TestTransportAbsentFromConfigLeavesTheFlagDefault(t *testing.T) {
 	var relayAddr, bridgeAddr, gameID, room, name, gameVersion, roomCode string
 	var interp, minSend time.Duration
 	var maxReceiveHz int
+	var showConsole bool
 	applyFileConfig(path, map[string]bool{}, configTargets{
 		relayAddr: &relayAddr, bridgeAddr: &bridgeAddr, gameID: &gameID,
 		room: &room, name: &name, interp: &interp, minSend: &minSend,
 		roomCode: &roomCode, gameVersion: &gameVersion, maxReceiveHz: &maxReceiveHz,
-		transport: &transport,
+		transport: &transport, showConsole: &showConsole,
 	})
 	if transport != "tcp" {
 		t.Errorf("transport = %q, want it left at the flag default %q", transport, "tcp")
+	}
+}
+
+// TestShowConsoleIsReadFromConfig covers the only path a player can actually
+// reach this setting by: editing config.json. There is a -show-console flag too,
+// but nobody autostarting the client types flags -- the adapter spawns it without
+// any.
+func TestShowConsoleIsReadFromConfig(t *testing.T) {
+	path := writeConfig(t, nil, `{"client":{"show_console":true}}`)
+	var relayAddr, bridgeAddr, gameID, room, name, gameVersion, roomCode, transport string
+	var interp, minSend time.Duration
+	var maxReceiveHz int
+	var showConsole bool
+	applyFileConfig(path, map[string]bool{}, configTargets{
+		relayAddr: &relayAddr, bridgeAddr: &bridgeAddr, gameID: &gameID,
+		room: &room, name: &name, interp: &interp, minSend: &minSend,
+		roomCode: &roomCode, gameVersion: &gameVersion, maxReceiveHz: &maxReceiveHz,
+		transport: &transport, showConsole: &showConsole,
+	})
+	if !showConsole {
+		t.Error("show_console = false, want true from the config file")
+	}
+}
+
+// TestShowConsoleAbsentFromConfigStaysOff guards the default that makes autostart
+// worth having. Every config.json written before this key existed omits it, and a
+// silent client is the entire point -- an absent key must never be read as "open a
+// window".
+func TestShowConsoleAbsentFromConfigStaysOff(t *testing.T) {
+	path := writeConfig(t, nil, `{"client":{"connect_to":"1.2.3.4:7777"}}`)
+	var relayAddr, bridgeAddr, gameID, room, name, gameVersion, roomCode, transport string
+	var interp, minSend time.Duration
+	var maxReceiveHz int
+	var showConsole bool
+	applyFileConfig(path, map[string]bool{}, configTargets{
+		relayAddr: &relayAddr, bridgeAddr: &bridgeAddr, gameID: &gameID,
+		room: &room, name: &name, interp: &interp, minSend: &minSend,
+		roomCode: &roomCode, gameVersion: &gameVersion, maxReceiveHz: &maxReceiveHz,
+		transport: &transport, showConsole: &showConsole,
+	})
+	if showConsole {
+		t.Error("show_console = true, want it left off when the key is absent")
+	}
+}
+
+// TestWatchParentPIDFiresOnceWhenTheParentGoes is the regression test for the
+// orphan case autostart introduces: a game crashes, and the client it spawned
+// keeps running with no window, holding the bridge port so the next launch can't
+// listen. The probe is injected rather than killing a real process so this stays
+// deterministic and identical on every platform.
+func TestWatchParentPIDFiresOnceWhenTheParentGoes(t *testing.T) {
+	var checks int
+	fired := make(chan struct{}, 4)
+	// Alive for the first two polls, then gone -- so the test also covers that
+	// watchParentPID keeps waiting rather than firing on its first look.
+	gone := func(int) bool {
+		checks++
+		return checks > 2
+	}
+	watchParentPID(1234, gone, time.Millisecond, func() { fired <- struct{}{} })
+
+	if len(fired) != 1 {
+		t.Fatalf("onGone fired %d times, want exactly 1", len(fired))
+	}
+	if checks != 3 {
+		t.Errorf("probe called %d times, want 3 (two alive, then gone)", checks)
+	}
+}
+
+// TestWatchParentPIDIgnoresZero covers the default. Every client a person starts
+// themselves passes no -exit-with-pid, and pid 0 must not be watched: on Windows
+// it is a real (system) process id, so a lenient check here would have this client
+// watching something that never exits, and on the way there it would call the probe
+// forever for no reason.
+func TestWatchParentPIDIgnoresZero(t *testing.T) {
+	called := false
+	watchParentPID(0, func(int) bool { called = true; return true }, time.Millisecond,
+		func() { t.Error("onGone fired for pid 0, want no watch at all") })
+	if called {
+		t.Error("probe was called for pid 0, want the watch skipped entirely")
 	}
 }

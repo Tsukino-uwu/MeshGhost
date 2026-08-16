@@ -12,6 +12,7 @@
 #include <utility>
 
 #include <BridgeClient.hpp>
+#include <CoreLauncher.hpp>
 
 #include <DynamicOutput/DynamicOutput.hpp>
 #include <Unreal/AActor.hpp>
@@ -4538,6 +4539,7 @@ namespace MeshGhostPseudo
         Output::send(STR("[MeshGhostPseudo] on_unreal_init reached.\n"));
         unreal_ready = true;
         bridge = std::make_unique<BridgeClient>(BRIDGE_HOST, BRIDGE_PORT);
+        core_launcher = std::make_unique<CoreLauncher>(BRIDGE_PORT);
 
         // Kept from the investigation: releases every remote's ghost reference synchronously
         // before a LoadMap-driven transition proceeds. This drops our own bookkeeping (a dangling-
@@ -8812,6 +8814,21 @@ namespace MeshGhostPseudo
         bridge->tick_connect();
 
         bool now_connected = bridge->is_connected();
+        if (core_launcher)
+        {
+            // Driven off the connection state rather than called directly by tick_connect, so
+            // BridgeClient stays what it says it is (a socket, nothing else) and the launcher
+            // never runs unless a connect has actually failed -- which is what makes reusing an
+            // already-running core the default rather than a special case.
+            if (now_connected)
+            {
+                core_launcher->tick_connected();
+            }
+            else
+            {
+                core_launcher->tick_disconnected();
+            }
+        }
         if (bridge_was_connected && !now_connected)
         {
             // See release_all_ghosts_parked's comment -- the actual parking must happen on the

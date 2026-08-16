@@ -46,6 +46,16 @@ configuration, never through the bridge. A future in-process adapter (e.g. a C# 
 library) replaces the bridge socket with direct function calls — same invariant, no socket
 needed at all.
 
+**An adapter MAY start its own local core process** (added 2026-08-16, with autostart — see the
+ADR in `architecture.md`). That is a lifecycle act, not a protocol one, and everything above still
+holds: the spawned core is given a working directory and finds its own `config.json` there, so the
+adapter passes no relay address, no transport, and no rate, exactly as if a human had launched it
+in that folder. The only arguments an adapter may pass are ones that are already its own business
+— its bridge port, and a pid for the core to exit with. **Passing `-relay` (or any other relay
+setting) is forbidden and would break this invariant**, which is why the mechanism is a working
+directory rather than a command line. An adapter must also only ever stop a core it started
+itself; a core it merely found belongs to whoever started it.
+
 **Bridge lifecycle is tied to the relay connection:** if the bridge connection ends (the
 adapter/game closes, or its socket otherwise drops), the core closes its relay connection too,
 which the relay reports to the rest of the room as a real `leave` — see the 2026-08-13 ADR in

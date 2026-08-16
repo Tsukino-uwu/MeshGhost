@@ -12,6 +12,7 @@ add_library(${TARGET} SHARED
     src/dllmain.cpp
     src/Plugin.cpp
     src/BridgeClient.cpp
+    src/CoreLauncher.cpp
 )
 
 target_include_directories(${TARGET} PRIVATE src)

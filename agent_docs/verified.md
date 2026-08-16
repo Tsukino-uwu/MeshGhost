@@ -4626,3 +4626,28 @@ oversized state message (`udpconn.MaxDatagramBytes`, 1200) would present on udp 
 **Not yet exercised live:** sustained multi-minute load on udp/quic (the retransmit timer and
 dedup pruning only engage over time), two real machines over a network rather than loopback, and
 a room genuinely mixing transports between two live players.
+
+## 2026-08-16 — Autostart, Go side: `-exit-with-pid`, log append, config visibility
+
+**Established with the tools, not by watching a game** (CLAUDE.md's "the Go client/server is the
+opposite case" rule): `dev-scripts/run-gotests.bat` green after the change — build, vet, and the
+whole suite twice including `internal/e2e` — plus these three run by hand against the real
+`meshghost.exe`, in a scratch folder outside the repo:
+
+- **`-exit-with-pid` reaps the client.** Started a throwaway parent process, started the client
+  with `-exit-with-pid=<parent>` and `-bridge=127.0.0.1:7999`, confirmed it was alive and
+  listening, killed the parent, and the client exited within the ~2s poll — logging
+  `pid 12852 is gone -- exiting so nothing is left holding 127.0.0.1:7999`. This is the orphan
+  case autostart introduces: a hidden client outliving a crashed game and holding the bridge port.
+- **The log appends across runs.** Two consecutive runs left two `=== meshghost run start ===`
+  banners in one `meshghost.log`, where the old truncating open would have erased the first. The
+  banner correctly read `autostarted by a game adapter` for the run with `-exit-with-pid` and
+  `started manually` for the run without.
+- **A missing config now says so.** With no `config.json` present the log named the absolute path
+  it looked at and that built-in defaults were in use; with one present it logged
+  `config loaded from <abs path>`. Previously both cases were silent, which with no console window
+  is indistinguishable from "the settings I edited did nothing".
+
+**Not watched, and not claimed:** that a running Pseudoregalia actually starts a core, that no
+window appears, that a ghost shows up with nothing launched by hand, or anything at all under
+Proton. The mod side is built and deployed but unconfirmed — see `status.md`.

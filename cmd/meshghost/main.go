@@ -11,26 +11,87 @@ import (
 	"log"
 	"net"
 	"os"
+	"path/filepath"
+	"runtime"
+	"runtime/debug"
 	"time"
 
 	"meshghost/internal/core"
 	"meshghost/internal/netx"
+	"meshghost/internal/protocol"
 )
 
-// openLogFile creates (truncating any previous run's contents) meshghost.log next to
-// wherever the process's working directory is -- the same cwd config.json is read from,
-// so it lands beside the exe in the normal double-click-from-the-package-folder case. This
-// exists so a crash is still readable after the console window itself is gone: double-clicking
-// an .exe opens a console that closes the instant the process exits, taking any error message
-// with it -- see packaging/README.md's "No launcher .bat files" section. Falls back to
-// stderr-only, with a warning, if the file can't be created (e.g. read-only folder).
+// maxLogBytes is the size at which meshghost.log is rotated to meshghost.log.1
+// (one generation, then the older one is discarded). A cap is needed because
+// the log APPENDS rather than truncating -- see openLogFile -- so without one a
+// machine that autostarts the client with every game session would grow it
+// forever.
+const maxLogBytes = 1 << 20 // 1 MiB
+
+// openLogFile opens (creating, and APPENDING to) meshghost.log next to wherever
+// the process's working directory is -- the same cwd config.json is read from, so
+// it lands beside the exe in the normal double-click-from-the-package-folder case,
+// and beside the mod in the autostarted case (the adapter sets the child's working
+// directory; see agent_docs/architecture.md's autostart ADR). This exists so a
+// crash is still readable after the console window itself is gone: double-clicking
+// an .exe opens a console that closes the instant the process exits, taking any
+// error message with it -- see packaging/README.md's "No launcher .bat files"
+// section.
+//
+// It appends rather than truncating, which it did until autostart landed. Once the
+// adapter starts the client for you there is usually no console at all, so this file
+// is the ONLY thing a remote tester can send back -- and a client that dies and gets
+// respawned would truncate away the evidence of why it died, which is exactly the
+// report worth having. One rotation at maxLogBytes bounds the growth that buys.
+//
+// Returns nil, with a warning, if the file can't be opened (e.g. a read-only
+// folder) -- the caller still has stderr and, if asked for, a console.
 func openLogFile(name string) io.Writer {
-	f, err := os.Create(name)
-	if err != nil {
-		log.Printf("meshghost: warning: could not create log file %s: %v (log output will only appear in this window)", name, err)
-		return os.Stderr
+	if fi, err := os.Stat(name); err == nil && fi.Size() >= maxLogBytes {
+		// Best-effort: a failed rotate must not cost us the log entirely, so
+		// the error is deliberately ignored and the append below still runs.
+		_ = os.Rename(name, name+".1")
 	}
-	return io.MultiWriter(os.Stderr, f)
+	f, err := os.OpenFile(name, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	if err != nil {
+		log.Printf("meshghost: warning: could not open log file %s: %v (log output will only appear in this window)", name, err)
+		return nil
+	}
+	return f
+}
+
+// logRunBanner marks the start of a run in an appending log, so a file holding
+// several runs can be read at all -- without it, a respawned client's output runs
+// straight into the dead one's with no way to tell where one ended. Everything on
+// it is something that has actually been guessed wrong in a support conversation:
+// which executable is really running, which folder it thinks it is in (that is the
+// folder its config and this log come from), and whether an adapter started it or
+// a human did.
+func logRunBanner(autostarted bool) {
+	exe, err := os.Executable()
+	if err != nil {
+		exe = "unknown"
+	}
+	cwd, err := os.Getwd()
+	if err != nil {
+		cwd = "unknown"
+	}
+	startedBy := "started manually"
+	if autostarted {
+		startedBy = "autostarted by a game adapter"
+	}
+	revision := "unknown"
+	if info, ok := debug.ReadBuildInfo(); ok {
+		for _, s := range info.Settings {
+			if s.Key == "vcs.revision" {
+				revision = s.Value
+			}
+		}
+	}
+	log.Printf("=== meshghost run start === pid %d, %s, protocol v%d, build %s, %s/%s",
+		os.Getpid(), startedBy, protocol.Version, revision, runtime.GOOS, runtime.GOARCH)
+	log.Printf("meshghost: executable %s", exe)
+	log.Printf("meshghost: working directory %s (config and this log are read/written here)", cwd)
 }
 
 // fileConfig is the shape of the "client" section of an optional JSON config
@@ -69,6 +130,11 @@ type fileConfig struct {
 	// packaging/release/README.txt and the transport discovery ADR in
 	// agent_docs/architecture.md.
 	Transport *string `json:"transport"`
+	// ShowConsole opens a console window for a client that an adapter started
+	// with no window. Absent or false is the point of autostart -- MeshGhost
+	// should feel like part of launching the game, not a third thing to run --
+	// so this is for someone who wants to watch it work. See consoleWriter.
+	ShowConsole *bool `json:"show_console"`
 }
 
 // rootConfig is the top-level shape of the config file: a "client" section
@@ -97,12 +163,14 @@ type configTargets struct {
 	gameVersion  *string
 	maxReceiveHz *int
 	transport    *string
+	showConsole  *bool
 }
 
-// applyFileConfig loads path (if it exists -- silently doing nothing if not,
-// so existing flag-only usage is unaffected) and overwrites any flag that
-// was NOT explicitly passed on the command line with the file's "client"
-// section. CLI flags always win over the file, matching normal
+// applyFileConfig loads path (leaving every flag alone if it doesn't exist, so
+// existing flag-only usage is unaffected -- but SAYING SO in the log, which it
+// did not do before autostart made this file a player's only feedback channel)
+// and overwrites any flag that was NOT explicitly passed on the command line
+// with the file's "client" section. CLI flags always win over the file, matching normal
 // config-layering convention (most-specific/most-explicit source wins).
 // stripBOM removes a leading UTF-8 byte-order mark from a config file's
 // contents, and refuses a UTF-16 one outright (returning nil) with a message
@@ -130,26 +198,43 @@ func stripBOM(data []byte, path, prog string) []byte {
 }
 
 func applyFileConfig(path string, explicit map[string]bool, t configTargets) {
+	// Absolute, always: with the client autostarted there is no console showing
+	// which folder it was launched from, and "I edited config.json and nothing
+	// changed" is nearly always a different config.json than the one being read
+	// -- a relative path in the log answers that question with another question.
+	shown := path
+	if abs, err := filepath.Abs(path); err == nil {
+		shown = abs
+	}
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if !os.IsNotExist(err) {
-			log.Printf("meshghost: warning: could not read config file %s: %v", path, err)
+			log.Printf("meshghost: warning: could not read config file %s: %v", shown, err)
+			return
 		}
+		// Missing was silent until autostart landed. Silence is fine when a
+		// developer passes flags on purpose, and actively misleading for a
+		// player whose only feedback channel is this file: every setting they
+		// typed is being ignored and there was nothing anywhere saying so.
+		log.Printf("meshghost: no config file at %s -- using built-in defaults "+
+			"(connect_to 127.0.0.1:7777). If you edited a config.json somewhere else, "+
+			"that is not the one being read.", shown)
 		return
 	}
-	data = stripBOM(data, path, "meshghost")
+	log.Printf("meshghost: config loaded from %s", shown)
+	data = stripBOM(data, shown, "meshghost")
 	if data == nil {
 		return
 	}
 	var rc rootConfig
 	if err := json.Unmarshal(data, &rc); err != nil {
 		log.Printf("meshghost: warning: could not parse config file %s: %v -- every setting in it "+
-			"is being IGNORED and built-in defaults used instead", path, err)
+			"is being IGNORED and built-in defaults used instead", shown, err)
 		return
 	}
 	if rc.Client == nil {
 		log.Printf("meshghost: warning: config file %s has no \"client\" section -- "+
-			"every client setting is falling back to its built-in default", path)
+			"every client setting is falling back to its built-in default", shown)
 		return
 	}
 	fc := *rc.Client
@@ -171,7 +256,7 @@ func applyFileConfig(path string, explicit map[string]bool, t configTargets) {
 	if fc.Interp != nil && !explicit["interp"] {
 		d, err := time.ParseDuration(*fc.Interp)
 		if err != nil {
-			log.Printf("meshghost: warning: config file %s has an invalid interp value %q: %v", path, *fc.Interp, err)
+			log.Printf("meshghost: warning: config file %s has an invalid interp value %q: %v", shown, *fc.Interp, err)
 		} else {
 			*t.interp = d
 		}
@@ -179,7 +264,7 @@ func applyFileConfig(path string, explicit map[string]bool, t configTargets) {
 	if fc.MinSend != nil && !explicit["min-send"] {
 		d, err := time.ParseDuration(*fc.MinSend)
 		if err != nil {
-			log.Printf("meshghost: warning: config file %s has an invalid min_send value %q: %v", path, *fc.MinSend, err)
+			log.Printf("meshghost: warning: config file %s has an invalid min_send value %q: %v", shown, *fc.MinSend, err)
 		} else {
 			*t.minSend = d
 		}
@@ -195,6 +280,9 @@ func applyFileConfig(path string, explicit map[string]bool, t configTargets) {
 	}
 	if fc.Transport != nil && !explicit["transport"] {
 		*t.transport = *fc.Transport
+	}
+	if fc.ShowConsole != nil && !explicit["show-console"] {
+		*t.showConsole = *fc.ShowConsole
 	}
 }
 
@@ -245,6 +333,44 @@ func connectRelayWithRetry(c *core.Core, gameID string) {
 	}
 }
 
+// parentPollInterval is how often watchParentPID checks whether the process that
+// spawned this one is still alive. Two seconds matches the adapters' own bridge
+// reconnect interval: it is fast enough that a restarted game finds the port free,
+// and cheap enough to be invisible (one process-handle open per tick).
+const parentPollInterval = 2 * time.Second
+
+// watchParentPID exits this process once pid does, so an autostarted client dies
+// with the game that started it.
+//
+// Without it, the worst failure mode of autostart is an ORPHAN: a client with no
+// console, spawned by a game that has since crashed, still holding the bridge
+// port -- so the next launch cannot listen and the player sees nothing, with no
+// window anywhere to explain why. A crashed game never gets to clean up after
+// itself, so the child has to do it.
+//
+// Note this is about the process, not about peers seeing you leave: when a game
+// dies its bridge socket closes, and the core already drops the relay connection
+// on that (internal/core.Core.handleBridgeConn), so a real leave is sent either
+// way. What survives is the empty core process, and that is what this reaps.
+//
+// pid <= 0 means "not asked for" and returns immediately -- the guard lives here
+// rather than at the call site so it is covered by the same test.
+//
+// gone and poll are parameters rather than direct calls to parentGone and
+// parentPollInterval so a test can drive this without a real process to kill.
+func watchParentPID(pid int, gone func(int) bool, poll time.Duration, onGone func()) {
+	if pid <= 0 {
+		return
+	}
+	for {
+		if gone(pid) {
+			onGone()
+			return
+		}
+		time.Sleep(poll)
+	}
+}
+
 func main() {
 	relayAddr := flag.String("relay", "127.0.0.1:7777", "relay address to connect to")
 	bridgeAddr := flag.String("bridge", "127.0.0.1:7778", "address to listen on for the adapter bridge")
@@ -286,15 +412,32 @@ func main() {
 			"wire in the clear. quic: same loss behaviour as udp but encrypted and hard to spoof. "+
 			"auto: take the best on offer, preferring quic, and never udp unless it is all there "+
 			"is")
+	exitWithPID := flag.Int("exit-with-pid", 0,
+		"exit when the process with this pid does -- set by a game adapter that starts this "+
+			"client for you, so a crashed game can't leave an invisible orphan holding the bridge "+
+			"port. 0 (the default) means don't watch anything. Deliberately not a config.json "+
+			"setting: it's a per-launch fact from whoever spawned us, not something a player configures")
+	showConsole := flag.Bool("show-console", false,
+		"open a console window and mirror the log to it. Only meaningful when a game adapter "+
+			"started this client (it spawns us with no window on purpose); a client you ran "+
+			"yourself already has the terminal you ran it from. For \"is it actually running?\" -- "+
+			"the log file answers the same question either way. Ignored on non-Windows")
 	configPath := flag.String("config", "config.json",
 		"path to an optional JSON config file with a \"client\" section "+
 			"(connect_to/local_game_bridge/game/room/name/interp/min_send/room_code/game_version/"+
-			"max_receive_hz_per_player/transport) -- a friendlier alternative to flags for non-developer use; "+
-			"silently ignored if it doesn't exist; any flag explicitly passed on the command line "+
+			"max_receive_hz_per_player/transport/show_console) -- a friendlier alternative to flags for non-developer use; "+
+			"a warning is logged if it doesn't exist; any flag explicitly passed on the command line "+
 			"overrides the same field from this file")
 	flag.Parse()
 
-	log.SetOutput(openLogFile("meshghost.log"))
+	// Log into a buffer until the destination is known, then replay. show_console
+	// lives in the config file (that is where a player can reach it), so the
+	// console can't be opened until the file has been read -- and the file's own
+	// messages, "this is the config I loaded" above all, are exactly the ones
+	// someone who turned the console ON is looking for. Buffering is what keeps
+	// them from landing before the window they belong in exists.
+	var earlyLog bytes.Buffer
+	log.SetOutput(&earlyLog)
 
 	explicit := map[string]bool{}
 	flag.Visit(func(f *flag.Flag) { explicit[f.Name] = true })
@@ -310,7 +453,28 @@ func main() {
 		gameVersion:  gameVersion,
 		maxReceiveHz: maxReceiveHz,
 		transport:    transportName,
+		showConsole:  showConsole,
 	})
+
+	// stderr stays in the list unconditionally: when this client was run from a
+	// terminal that IS the live output, and when it was spawned with no window
+	// the writes simply go nowhere. openLogFile returns nil if the file could not
+	// be opened, which is survivable rather than fatal -- losing the log is worth
+	// saying loudly, but not worth refusing to play over.
+	writers := []io.Writer{os.Stderr}
+	if f := openLogFile("meshghost.log"); f != nil {
+		writers = append(writers, f)
+	}
+	if *showConsole {
+		if w := consoleWriter(); w != nil {
+			writers = append(writers, w)
+		}
+	}
+	out := io.MultiWriter(writers...)
+	log.SetOutput(out)
+
+	logRunBanner(*exitWithPID != 0)
+	_, _ = io.Copy(out, &earlyLog)
 
 	// Fatal on a bad value rather than clamping to tcp, deliberately
 	// departing from how send_hz and interp are handled: a typo in those
@@ -336,6 +500,15 @@ func main() {
 	c.DialTimeout = 5 * time.Second
 	c.OnRelayConnected = func(gameID string) {
 		log.Printf("meshghost: connected to relay %s as %s in room %q (game %q)", *relayAddr, c.PlayerID(), *room, gameID)
+	}
+
+	if *exitWithPID != 0 {
+		log.Printf("meshghost: watching pid %d -- will exit when it does", *exitWithPID)
+		go watchParentPID(*exitWithPID, parentGone, parentPollInterval, func() {
+			log.Printf("meshghost: pid %d is gone -- exiting so nothing is left holding %s",
+				*exitWithPID, *bridgeAddr)
+			os.Exit(0)
+		})
 	}
 
 	if *gameID != "" {

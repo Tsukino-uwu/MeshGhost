@@ -76,7 +76,17 @@
   never as copied code — the risk is a future session forgetting that distinction under time
   pressure.
 - **macOS distribution friction**: an unsigned Go binary will trip Gatekeeper on first run.
-  Not a blocker for early phases, but worth planning for before a public release.
+  Not a blocker for early phases, but worth planning for before a public release. Autostart
+  (below) would make this worse there in the same way it does on Windows, whenever Mac builds land.
+- **Autostart makes the antivirus false positives more likely, not less** (added 2026-08-16 with
+  the autostart ADR). The shipped exes already draw false-positive trojan flags, and a game mod
+  silently starting a hidden, unsigned executable is the literal shape of a dropper — a materially
+  stronger heuristic trigger than a user double-clicking the same file. **This raises the priority
+  of the SignPath OSS code-signing work**, which is mentioned once in `ideas.md` and has never been
+  scheduled; it is now the mitigation for two separate things rather than a nice-to-have.
+  Available today instead: `MESHGHOST_NO_AUTOSTART` skips the spawn entirely, and the manual
+  "run meshghost.exe yourself" path is unchanged and still supported. Unmeasured — no antivirus
+  has actually been observed reacting to the spawn yet, on this machine or a tester's.
 - **No-auth relay window — closed 2026-08-14, with two real limits.** Room-code auth shipped
   (`protocol.Hello.RoomCode`, constant-time-checked against `Server.RoomCode`; empty/unset
   means auth stays off, unchanged default). See the ADR in `agent_docs/architecture.md` and

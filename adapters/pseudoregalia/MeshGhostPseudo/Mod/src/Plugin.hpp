@@ -29,6 +29,7 @@ namespace RC::Unreal
 namespace MeshGhostPseudo
 {
     class BridgeClient;
+    class CoreLauncher;
 
     // One entry per remote player_id, driven entirely by render_remote/despawn_remote -- mirrors
     // the Lua adapter's `remotes` table (adapters/pseudoregalia/probe_ghost/Scripts/main.lua).
@@ -810,6 +811,11 @@ namespace MeshGhostPseudo
         // so the moment it swaps away is a clean, isolated, observable event.
         uint64_t ticks_since_pawn_valid{0};
         std::unique_ptr<BridgeClient> bridge;
+        // Starts meshghost.exe if one isn't already running, so the player doesn't have to.
+        // Declared after bridge so it is destroyed first, stopping the core before the socket
+        // to it goes away. See CoreLauncher.hpp for why the adapter is allowed to do this at
+        // all without breaking contract.md's invariant.
+        std::unique_ptr<CoreLauncher> core_launcher;
         std::unordered_map<std::string, RemoteGhost> remotes;
         std::unordered_set<RC::Unreal::AActor*> hijacked_actors; // prevents two remotes sharing one prop
         RC::Unreal::UWorld* last_logged_world{nullptr};

@@ -182,6 +182,21 @@ jobs:
         run: |
           Copy-Item meshghost.exe packaging\release\
           Copy-Item meshghost-server.exe packaging\release\
+          # A copy of the client beside each mod that installs INTO the game, because the
+          # mod starts it (see agent_docs/architecture.md's autostart ADR) and after a
+          # drag-and-drop install there is nothing pointing back at this release folder.
+          # Emerald is deliberately not in this list: its script is loaded from the release
+          # folder itself, so it reaches the root exe and config without a second copy.
+          # TEVI joins this list when its own mod learns to start a core; shipping an exe
+          # beside a mod that never launches it would just be a confusing spare copy.
+          $modFolders = @(
+            'packaging\release\games\pseudoregalia\pseudoregalia\Binaries\Win64\ue4ss\Mods\MeshGhostPseudo'
+          )
+          foreach ($f in $modFolders) {
+            Copy-Item meshghost.exe $f\
+            Copy-Item packaging\release\games\client-config-template.json $f\config.json
+          }
+          Remove-Item packaging\release\games\client-config-template.json
           New-Item -ItemType Directory -Force packaging\release\games\pokemon\emerald | Out-Null
           Copy-Item adapters\pokemon\emerald\meshghost_emerald.lua packaging\release\games\pokemon\emerald\meshghost_emerald.lua
           Copy-Item -Recurse adapters\pokemon\emerald\lib packaging\release\games\pokemon\emerald\lib
