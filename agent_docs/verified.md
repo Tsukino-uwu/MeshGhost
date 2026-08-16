@@ -4740,3 +4740,33 @@ with joins, which is what made it misleading.
 **Caveat kept deliberately:** a `join` arriving before `welcome` is still possible on the wire.
 Fixing that relay-side would mean holding the room lock across a network write to a brand-new
 connection; tolerating it in the core is cheaper and robust to any relay that behaves this way.
+
+## 2026-08-16 — Autostart reuses an existing core, and never kills one it didn't start (user-watched)
+
+**Confirmed on screen by the user**, completing the Windows side of the autostart work. The user
+started `dev-scripts/run-relay.bat` and `run-core-pseudoregalia.bat` by hand, then launched
+Pseudoregalia:
+
+- **The mod used the existing core instead of starting its own.** UE4SS.log:
+  `bridge connected.` followed immediately by `using a MeshGhost core that was already running.`,
+  with `connect_attempts=1` and no spawn line anywhere. Only one `meshghost.exe` existed.
+- **The session ran clean over that reused core:** `send_ok` climbed past 1,800 with
+  `send_fail=0`, `lines_malformed=0`, and the core logged the bridge dropping normally when the
+  game closed.
+- **Quitting the game did NOT kill the core.** The user confirmed the console windows stay open
+  and `meshghost.exe` keeps running after the game exits, closing them by hand afterwards. This is
+  the invariant that matters: a mod may stop a core it started, never one it merely found — which
+  someone may well be using for a second game, or have started deliberately.
+
+A first attempt at this could not settle the last point: both processes were gone by the time the
+logs were read, and the log looks identical whether the core was killed at game exit or closed by
+hand later. Re-run watching for it specifically, rather than inferred from the earlier run.
+
+**Windows autostart is now fully watched:** cold start, ghost rendering, cleanup on exit, reuse,
+and non-interference with a core it didn't start. Still unwatched: anything under Proton, and TEVI
+and Emerald, which are deliberately not converted yet.
+
+Incidental, from the same logs, neither a fault: `run-relay.bat` serves tcp only (it passes no
+-transport), so the client correctly logged `this relay does not offer udp ... staying on tcp`
+rather than failing; and a relay restart between the two script launches produced a
+`will keep retrying` reconnect that recovered on its own three seconds later.
