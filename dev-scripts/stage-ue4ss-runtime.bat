@@ -41,6 +41,13 @@ rem MeshGhostPseudo, staged separately by build-pseudoregalia.bat. copy/xcopy
 rem below overwrite matching files in place and leave anything else (i.e.
 rem MeshGhostPseudo, if already staged) untouched -- order-independent
 rem between this script and build-pseudoregalia.bat.
+rem
+rem %DEST%\ue4ss\THIRD-PARTY-NOTICES.txt is HAND-MAINTAINED and deliberately not staged by
+rem this script -- it carries the licence notices of the libraries RE-UE4SS statically links
+rem into UE4SS.dll (MIT/BSD/zlib all require the notice travel with the binary). It survives
+rem because nothing here deletes the folder; if you ever add a delete-and-recreate, preserve
+rem it. Update it when the RE-UE4SS pin moves and its dependency set changes.
+rem See agent_docs/licensing.md's UE4SS dependency-chain entry.
 copy /y "%BUILDBIN%\dwmapi.dll" "%DEST%\dwmapi.dll" >nul
 copy /y "%BUILDBIN%\UE4SS.dll" "%DEST%\ue4ss\UE4SS.dll" >nul
 copy /y "%SUB%\assets\UE4SS-settings.ini" "%DEST%\ue4ss\UE4SS-settings.ini" >nul
