@@ -220,6 +220,13 @@ Roughly in order:
     drawing 1-2 more afterimages than the player, which turned out to be the same bug seen from the
     other side. Player and ghost are now indistinguishable, trailing and not trailing alike. (7.6)
 
+42. Made the mod start MeshGhost itself, so there's nothing to run before the game. A speedrunner
+    who tried this said the separate client exe defeated the point — the good encounters were the
+    unplanned ones, and nobody launches a second program for those. The mod now spawns it hidden
+    when it finds nothing on the bridge, which also means a client that's already running gets used
+    rather than duplicated. It passes no relay settings, only a working directory, so the core still
+    reads its own config and the adapter still knows nothing about the relay. (7.7)
+
 > **Steps 38–41 are deliberately longer than the rest of this list — please leave them that way.**
 > The house style for these steps is 2–4 lines each (see `CLAUDE.md`), and that rule is a good one:
 > it exists because steps 19–22 once grew to 15–20 dense lines and made the list unreadable. These

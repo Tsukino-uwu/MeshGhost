@@ -305,15 +305,23 @@ Hosting (skip this section if you're not the host):
 4. To stop hosting: close the window (or Ctrl+C).
 
 Playing, every session (everyone, including the host):
-1. Double-click meshghost.exe. Leave the window open -- it should say
-   "no game set -- waiting for a game to connect and say hello...". If it
-   prints a warning about config.json instead, you probably broke the JSON
-   syntax above -- the warning will say what's wrong.
+1. Pseudoregalia: just start the game. The mod starts MeshGhost for you,
+   with no window -- there is nothing to run and nothing to leave open.
+   Its settings live in the mod's own folder (games\pseudoregalia\...\Mods\
+   MeshGhostPseudo\config.json), NOT the config.json next to this README:
+   once you drag the mod into your game, that's the copy it reads.
+
+   TEVI and Emerald: double-click meshghost.exe first and leave the window
+   open -- it should say "no game set -- waiting for a game to connect and
+   say hello...". If it prints a warning about config.json instead, you
+   probably broke the JSON syntax above -- the warning will say what's
+   wrong.
 2. Open your game and load its MeshGhost mod/script -- see games\<your
    game>\README.txt for exactly how (BizHawk Lua Console for Emerald,
-   BepInEx plugin for TEVI, UE4SS mod for Pseudoregalia). Once it connects,
-   the meshghost.exe window should change to say "connected to relay ... in
-   room ..." -- that's your "it worked" signal.
+   BepInEx plugin for TEVI, UE4SS mod for Pseudoregalia -- which loads
+   itself). Where there is a meshghost.exe window, it should change to say
+   "connected to relay ... in room ..." -- that's your "it worked" signal.
+   Where there isn't one, the same line is in meshghost.log beside the mod.
 3. Walk around. Once a friend joins the same server in the same room,
    you'll see their character as a ghost -- correct sprite/model, facing,
    and movement, tracking their real position. No shared world state:
@@ -326,9 +334,19 @@ and in the second copy's config.json change "local_game_bridge" to
 "127.0.0.1:7779" (must differ from the first copy's).
 
 Something not working? Both meshghost.exe and meshghost-server.exe also
-write everything they print to a log file in this same folder
-(meshghost.log / meshghost-server.log), overwritten fresh each run -- if a
-window closes before you can read what it said, check the log file instead.
+write everything they print to a log file (meshghost.log /
+meshghost-server.log) -- if a window closes before you can read what it
+said, or there was never a window at all, read the log instead. It's
+written next to whichever copy ran: this folder for one you started
+yourself, or the mod's own folder for one a game started for you. Each run
+adds to the file rather than replacing it, so a crash from ten minutes ago
+is still there; every run begins with a "=== meshghost run start ===" line
+saying which executable it was, which folder it read its config from, and
+whether a game started it or you did.
+
+If a game started MeshGhost for you and you want to SEE it working, set
+"show_console": true in that mod folder's config.json -- you'll get a real
+window with live output. It's off by default on purpose.
 
 Common things to check:
 - The server window (host's machine) should show your name joining.
@@ -338,8 +356,25 @@ Common things to check:
   port forwarded -- that's their setup, not yours.
 - meshghost.exe's window still says "waiting for a game to connect" after
   you loaded your game's mod/script? Double-check you loaded it from the
-  right folder under games\, and that meshghost.exe was already running
-  first.
+  right folder under games\, and (for TEVI and Emerald) that meshghost.exe
+  was already running first.
+- Pseudoregalia, and nothing happens at all? Check meshghost.log in the
+  MeshGhostPseudo folder. No log file means the mod never started the
+  client: look in ue4ss\UE4SS.log, which will say whether meshghost.exe was
+  missing (antivirus is a real possibility -- see the note below) or the
+  start itself failed. Also make sure MESHGHOST_NO_AUTOSTART isn't set in
+  your environment; that switches the whole thing off deliberately.
+- Edited config.json and nothing changed? Open meshghost.log and find the
+  "config loaded from ..." line -- it prints the full path of the file it
+  actually read. With a mod that starts MeshGhost for you, that's the copy
+  in the MOD's folder, not the one next to this README.
+
+A note on antivirus: because the Pseudoregalia mod starts meshghost.exe by
+itself, some antivirus software may be more suspicious of it than of a
+program you double-clicked (the executables aren't code-signed yet). If
+yours removes or blocks it, you can set the environment variable
+MESHGHOST_NO_AUTOSTART to anything and start meshghost.exe yourself
+instead -- that path still works exactly as it always did.
 
 
 Transports -- tcp vs udp vs quic

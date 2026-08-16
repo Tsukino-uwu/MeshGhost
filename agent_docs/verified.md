@@ -4651,3 +4651,31 @@ whole suite twice including `internal/e2e` — plus these three run by hand agai
 **Not watched, and not claimed:** that a running Pseudoregalia actually starts a core, that no
 window appears, that a ghost shows up with nothing launched by hand, or anything at all under
 Proton. The mod side is built and deployed but unconfirmed — see `status.md`.
+
+## 2026-08-16 — Autostart works live on Pseudoregalia (user-watched)
+
+**Confirmed on screen by the user**, same day as the Go-side entry above. The user launched only
+`dev-scripts/run-relay-loopback.bat` and then the game — nothing else:
+
+- **The mod started the core by itself.** Task Manager showed exactly one `meshghost.exe`
+  alongside `meshghost-relay.exe`, neither client having been launched by hand.
+- **No console window appeared for the client at any point**, which is the actual feature — the
+  session reads as server + game rather than server + client + game.
+- **The full chain worked untouched:** the relay logged
+  `p1 ("player") joined room "default" as game "pseudoregalia" over udp`, and the loopback ghost
+  rendered in-game.
+
+This closes the question the speedrunner's feedback raised for Pseudoregalia on Windows: starting
+the game is now the whole ritual.
+
+- **It cleaned up after itself.** The user watched Task Manager across the whole session and
+  confirmed the client was both started and killed correctly — so a finished session leaves no
+  hidden `meshghost.exe` holding the bridge port, which was the failure mode `-exit-with-pid`
+  was written for.
+
+**Still not confirmed:** reuse of a core that was already running (the "started it by hand first"
+path). Nothing under Proton. TEVI and Emerald not converted.
+
+Noted in passing from the same relay log, NOT investigated and NOT attributed to this change: a
+`relay: connection error: read tcp ...: use of closed network connection` line immediately before
+the join, which is the shape of the tcp handshake connection closing after the upgrade to udp.

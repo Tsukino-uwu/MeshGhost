@@ -24,17 +24,33 @@ Setup, once:
    only adds/updates mod files; it won't touch or remove anything else already in your
    install (including Archipelago's own files, if installed).
 
+Setup, once more -- where your settings live:
+3. Open config.json in the MeshGhostPseudo mod folder you just installed
+   (`...\Pseudoregalia\pseudoregalia\Binaries\Win64\ue4ss\Mods\MeshGhostPseudo\config.json`)
+   and set "connect_to" to your host's address, plus "room" and "name". This is the file
+   the mod's own copy of meshghost.exe reads -- NOT the config.json in the folder you
+   unzipped. Once the mod is installed inside your game, that outer one is out of reach.
+
 Setup, every time you play:
-1. Double-click meshghost.exe (one folder up). Leave the window open.
-2. Launch Pseudoregalia normally. The mod loads automatically via UE4SS -- no separate
-   script to open, and nothing to set in config.json -- the mod tells meshghost.exe which
-   game it is on its own.
-3. Walk around. Once a friend joins the same server in the same room, you should see their
+1. Launch Pseudoregalia normally. That's the whole thing -- the mod starts MeshGhost for
+   you, with no window to leave open and nothing to run first. The mod loads automatically
+   via UE4SS and tells MeshGhost which game it is on its own.
+2. Walk around. Once a friend joins the same server in the same room, you should see their
    goat as a ghost -- correct position, facing, and movement animations.
 
+If you want to see it working rather than take it on faith, set "show_console": true in
+that config.json for a real window with live output, or read meshghost.log, which appears
+in the same mod folder. If neither exists, the mod never got as far as starting it -- check
+ue4ss\UE4SS.log, and see the antivirus note in the main README.txt.
+
+Prefer to run it yourself? Set the environment variable MESHGHOST_NO_AUTOSTART to anything
+and the mod won't start one; double-click meshghost.exe (in the folder you unzipped)
+before launching the game, exactly as TEVI and Emerald do.
+
 Two important notes specific to Pseudoregalia:
-- The mod always uses local bridge port 7778 and does not read config.json's
-  "local_game_bridge" setting (it's hardcoded in the mod itself right now). If you're
+- The mod always uses local bridge port 7778, and the config.json beside it deliberately
+  has no "local_game_bridge" setting -- the mod passes that port to MeshGhost itself, so
+  there's only one place it can be set rather than two that could disagree. If you're
   trying to run two copies of MeshGhost on the same machine (see the main README.txt),
   that trick does not currently work for Pseudoregalia.
 - You should stop seeing a friend's ghost while you're in different areas of the castle --

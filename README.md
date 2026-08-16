@@ -33,13 +33,17 @@ story and may not all follow.
 1. Grab the latest release zip from the [Releases page](../../releases) and unzip it.
 2. Edit `config.json`: `connect_to` (the host's address), `room` (must match everyone else's),
    and `name`. If the host set a `room_code`, enter that too.
-3. Run `meshghost.exe` — everyone does this. Whoever's hosting also runs
+3. Run `meshghost.exe` — everyone does this, **except for Pseudoregalia, where the mod starts it
+   for you with no window** (its settings then live in the mod's own folder, in the `config.json`
+   beside it). Whoever's hosting also runs
    `meshghost-server.exe` and forwards a port (TCP 7777 by default; see Transports below if
    you enable `udp` or `quic`, which need their own rules). A host who wants their server to be for one
    game only sets `server.only_game` to that game's id from the list above; left blank (the
    default) the server hosts any game, including several at once in different rooms.
 4. Load your game's mod from `games\<publisher>\<game>\` (BizHawk Lua Console for Emerald,
-   BepInEx for TEVI, UE4SS for Pseudoregalia) — **after** `meshghost.exe` is already running.
+   BepInEx for TEVI, UE4SS for Pseudoregalia) — for Emerald and TEVI, **after** `meshghost.exe`
+   is already running. For Pseudoregalia there's no order to get right: starting the game is the
+   whole thing.
    (Emerald is the only game with a `<publisher>` subfolder — `games\pokemon\emerald\` — since
    "emerald" alone isn't a unique-enough folder name; TEVI and Pseudoregalia sit directly under
    `games\`.)
