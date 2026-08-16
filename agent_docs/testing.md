@@ -21,7 +21,7 @@ detector and fuzzing. See below.
 
 ## What runs where
 
-| Check | Local | CI (every push) | Release |
+| Check | Local | CI (see below) | Release |
 |---|---|---|---|
 | `go build` / `go vet` | yes | yes | yes |
 | Unit + integration suite | yes (`-count=2`) | yes (`-count=3`, Linux; `-count=2`, Windows) | yes (`-count=2`) |
@@ -29,9 +29,16 @@ detector and fuzzing. See below.
 | **Race detector** | **no — can't** | yes (Linux) | no |
 | **Fuzzing** | seed corpus only | yes, short campaign per target | no |
 
-CI is `.github/workflows/ci.yml`. The release workflow gained its vet/test steps at the same
-time; before that it went from checkout straight to build-and-zip, so the one artifact users
-download was the only Go build in the repo that nothing verified.
+CI is `.github/workflows/ci.yml`. **It only runs when a `.go` file, `go.mod`/`go.sum`, or the
+workflow itself changed** — every tracked `.go` file lives under `internal/` or `cmd/`, so that
+filter is exactly "the client/server changed". A push touching only adapters, `packaging/`, or
+`agent_docs/` produces no CI run at all, which is correct: nothing in CI tests an adapter. If you
+want a run anyway, Actions → CI → Run workflow is unfiltered.
+
+The release workflow gained its vet/test steps at the same time; before that it went from
+checkout straight to build-and-zip, so the one artifact users download was the only Go build in
+the repo that nothing verified. Note it is `workflow_dispatch` only — it cannot start on its own,
+and its `contents: write` permission is the reason CI is deliberately `contents: read`.
 
 ## The suites, and what each is actually for
 
@@ -107,6 +114,13 @@ artifact. Download it, drop it into the matching `testdata/fuzz/<Target>/` direc
   the relay is unreachable, so the adapter's own loop retries later (see `core.go`'s bridge
   `hello` handler and `adapters/_template/PROTOCOL.md`). An adapter without that loop appears to
   work whenever the relay happens to start first and silently never recovers otherwise.
+- **A client can receive a `Leave` before its own `Welcome`.** The relay adds a joining client to
+  the room before sending its Welcome, so a peer departing at that instant gets its Leave
+  forwarded to the newcomer first. This is harmless in production (`internal/core` ignores a
+  Leave for a player it never knew), but a test that asserts the Welcome is the *first* message —
+  as `relay_test.go`'s `expectWelcome` does — will fail on a busy room. Use a helper that skips
+  ahead to the Welcome, like `leak_test.go`'s `awaitWelcome`. Found 2026-08-16 by CI: it failed
+  all three `-race` runs while passing locally, purely on timing.
 - **Never set `NDJSONConn.MaxLineBytes`/`IdleTimeout`/`WriteTimeout` after `FromConn`.** `FromConn`
   starts the read loop before returning, so the assignment races it. Use `FromConnWithLimits`.
   This exact mistake, in two tests, was the intermittent failure found on 2026-08-16.

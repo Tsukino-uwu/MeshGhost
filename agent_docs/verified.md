@@ -4446,3 +4446,23 @@ Copy this block per fact:
   hellos quickly and the resulting log volume — not the relay — collapses throughput to zero for
   ~18s at a stretch. Diagnosed by subtraction after two wrong guesses (a slot leak and a goroutine
   leak, both disproven by the leak tests above).
+
+## CI's first real run: no data race, one over-strict test of my own
+
+- Date: 2026-08-16
+- **Established by the agent from the CI logs** (`gh run view 31927088210 --log-failed`), not
+  watched by the user.
+- The `-race` job's first execution ever — the check that could not be run locally. Result:
+  **no data race anywhere.** `cmd/meshghost`, `cmd/meshghost-relay`, `internal/core`,
+  `internal/e2e`, `internal/protocol` and `internal/transport` all passed clean under
+  `-race -count=3` on Linux, including the e2e tests that launch the real binaries.
+- The one failure was `TestNoGoroutineLeakAcrossManyConnections`, added the same day, failing all
+  three runs with `got message type "leave", want "welcome"`. Not a leak and not a race: the test
+  used `expectWelcome`, which requires the Welcome to be the *first* message received.
+- **The underlying relay behaviour is real and benign**: a joining client is added to its room
+  before its Welcome is sent, so a peer disconnecting at that moment can have its Leave forwarded
+  to the newcomer first. `internal/core` ignores a Leave for a player it never knew about, so
+  nothing is broken on the wire — but a test asserting on first-message ordering will fail on a
+  busy room. Fixed by skipping ahead to the Welcome (`awaitWelcome` in `leak_test.go`).
+- Worth noting for future flake-hunting: this passed locally every time, including at `-count=20`
+  and with `GOMAXPROCS=2`, and only ever failed on CI. Not everything reproduces on this machine.

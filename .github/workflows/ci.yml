@@ -12,9 +12,29 @@ name: CI
 # two of the three mod DLLs can't even be built here (proprietary game DLLs
 # and a private UE4SS dependency -- see packaging/README.md). The staleness
 # gates in release.yml are what guard those.
+#
+# Only runs when the Go client/server actually changed. Every tracked .go file
+# in this repo lives under internal/ or cmd/ (verified 2026-08-16), so "**.go"
+# is precisely "server/client files" -- an adapter, packaging, or agent_docs
+# push produces no run at all, rather than spending minutes re-proving code it
+# cannot have affected. The workflow file itself is included so a change to
+# these checks still gets exercised by them.
+#
+# workflow_dispatch deliberately carries no filter: the Actions tab can always
+# run the full thing by hand, whatever the last commit touched.
 on:
   push:
+    paths:
+      - '**.go'
+      - 'go.mod'
+      - 'go.sum'
+      - '.github/workflows/ci.yml'
   pull_request:
+    paths:
+      - '**.go'
+      - 'go.mod'
+      - 'go.sum'
+      - '.github/workflows/ci.yml'
   workflow_dispatch:
 
 permissions:
@@ -38,6 +58,10 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: "1.22"
+          # No go.sum in this module (zero dependencies), and setup-go's cache
+          # keys off one -- leaving it on just logs a "Dependencies file is not
+          # found" restore failure on every run with nothing to cache anyway.
+          cache: false
 
       - name: Build
         run: go build ./...
@@ -63,6 +87,10 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: "1.22"
+          # No go.sum in this module (zero dependencies), and setup-go's cache
+          # keys off one -- leaving it on just logs a "Dependencies file is not
+          # found" restore failure on every run with nothing to cache anyway.
+          cache: false
 
       # A relay is a listening port strangers connect to, so every byte it
       # parses is attacker-controlled. Each target gets a short campaign per
@@ -113,6 +141,10 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: "1.22"
+          # No go.sum in this module (zero dependencies), and setup-go's cache
+          # keys off one -- leaving it on just logs a "Dependencies file is not
+          # found" restore failure on every run with nothing to cache anyway.
+          cache: false
 
       - name: Build the release binaries
         run: |

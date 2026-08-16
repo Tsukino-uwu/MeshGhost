@@ -20,8 +20,8 @@ proposing a plan that touches the core, an adapter, or the relay.
   rests on a guess about a game, which is exactly why the three are separated. Before calling a
   change to them done, run `dev-scripts/run-gotests.bat` — build, vet, and the whole suite
   twice, including `internal/e2e`, which launches the real binaries and drives a real adapter
-  over the bridge (no game, no watching). CI adds the race detector and a fuzz campaign on
-  every push; neither runs locally, so a green script is not a green CI. **Repeat the suite
+  over the bridge (no game, no watching). CI adds the race detector and a fuzz campaign on any
+  push touching a `.go` file; neither runs locally, so a green script is not a green CI. **Repeat the suite
   when touching concurrency** — `-count=10` has caught what `-count=1` and `-count=2` both
   miss, most recently 2026-08-16. A behaviour change wants a regression test that fails
   without the fix.

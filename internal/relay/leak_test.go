@@ -5,6 +5,8 @@ import (
 	"runtime"
 	"testing"
 	"time"
+
+	"meshghost/internal/protocol"
 )
 
 // The relay spawns a goroutine per accepted connection (Serve) plus one read
@@ -14,6 +16,28 @@ import (
 // relay is a long-lived process holding sessions for hours, so a goroutine
 // that outlives its connection is a slow leak that only shows up in
 // production.
+
+// awaitWelcome waits for this client's Welcome, skipping anything that
+// arrives ahead of it.
+//
+// relay_test.go's expectWelcome insists the Welcome is the *first* message,
+// which is right for tests that join a quiet room but wrong here. These tests
+// deliberately churn connections through one busy room, and a client is added
+// to the room before its Welcome goes out — so a peer departing at that
+// instant can have its Leave forwarded to the new client first. Nothing is
+// broken when that happens: internal/core ignores a Leave for a player it
+// never knew about. But it made these two tests fail on CI (all three -race
+// runs, 2026-08-16) while passing locally, purely on timing.
+func awaitWelcome(t *testing.T, tc *testClient) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if env := tc.next(time.Until(deadline)); env.Type == protocol.TypeWelcome {
+			return
+		}
+	}
+	t.Fatal("no welcome arrived before the deadline")
+}
 
 // waitForGoroutines polls until the count drops to at most want, or the
 // deadline passes, and reports the final count. Polling rather than a single
@@ -51,7 +75,7 @@ func TestNoGoroutineLeakAcrossManyConnections(t *testing.T) {
 		clients := make([]*testClient, 0, perRound)
 		for i := 0; i < perRound; i++ {
 			tc := dialTestClient(t, addr, "leakgame", "leakroom", fmt.Sprintf("p%d-%d", r, i))
-			tc.expectWelcome(timeout)
+			awaitWelcome(t, tc)
 			clients = append(clients, tc)
 		}
 		for _, tc := range clients {
@@ -85,7 +109,7 @@ func TestNoSlotLeak(t *testing.T) {
 	// the fifth join here would already be refused.
 	for i := 0; i < 24; i++ {
 		tc := dialTestClient(t, addr, "slotgame", "slotroom", fmt.Sprintf("p%d", i))
-		tc.expectWelcome(timeout)
+		awaitWelcome(t, tc)
 		tc.conn.Close()
 
 		// The slot is released when the relay notices the hangup, so give
