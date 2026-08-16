@@ -4828,3 +4828,40 @@ point the visible console is noise and the default should be reconsidered. Still
 orphan case is real under Wine, and `-exit-with-pid` does not survive that boundary; the window is
 then doing its job, and the fix belongs in the mod (a native client started by hand, per the
 reuse path, avoids the problem entirely). Either answer is worth having; "it worked" alone is not.
+
+## 2026-08-16 — Autostart works under Proton (Linux tester, with logs)
+
+**Confirmed by the Linux speedrunner** who prompted this whole feature, on v0.7.0, with both logs
+sent back. This closes the last unknown from the autostart ADR.
+
+- **The mod spawns the Windows client inside the Proton prefix.** UE4SS.log:
+  `started meshghost.exe (pid 680)` then `bridge connected` — `CreateProcessW` works through Wine.
+- **The client runs normally there.** `autostarted by a game adapter`, config loaded from the mod
+  folder, bridge listening on 127.0.0.1:7778, relay connected as p1…p6 across six sessions.
+- **`-exit-with-pid` works across the Wine boundary**, which was the part most likely to misbehave.
+  Every one of the six runs ends with `pid NNN is gone -- exiting so nothing is left holding
+  127.0.0.1:7778`. No orphans. Their words: *"it closes correctly and it does load the config, a
+  changed name gets sent to the server"*.
+- **So a Linux user needs only the Windows zip.** Drag the mod in, edit the config beside it,
+  launch. The native Linux build is an option, not a requirement.
+
+**Two negative findings from the same test:**
+
+- **Wine has no usable console window.** Detection worked — every run logged
+  `running under Wine (Proton/CrossOver)` — but no window ever appeared, because Wine only
+  emulates a console via wineconsole/conhost and a Proton-launched game has no backend for it.
+  `AllocConsole` can report success and produce nothing. The Wine console default has been
+  removed: it could not work, and the cleanup it was guarding turned out to hold anyway. What
+  remains is a log line saying a console cannot appear here, rather than silence.
+- **One mistyped value discarded the entire config.** They wrote `"show_console": "true"`
+  (quoted) and got `cannot unmarshal string into Go struct field ... of type bool -- every
+  setting in it is being IGNORED`. That is why the relay showed them joining as `"player"`
+  instead of their configured name. Fixed: `encoding/json` already skips only the bad field and
+  keeps decoding the rest, and the code was throwing that away on `err != nil`. A type error now
+  warns about the one key and applies everything else; a genuine syntax error still rejects the
+  file. Mirrored in the relay, where the same mistake silently dropped `room_code`.
+
+**The appending log with a per-run banner is what made this diagnosable at all** — six runs in one
+file, each naming its executable, working directory, and which `config.json` it read, from a
+machine nobody here can access. Recorded because it justifies the cost of that design, and because
+the relay was still truncating its own log every run until this entry (now fixed to match).

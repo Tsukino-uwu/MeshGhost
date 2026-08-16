@@ -168,49 +168,59 @@ func TestShowConsoleAbsentFromConfigStaysOff(t *testing.T) {
 	}
 }
 
-// TestShowConsoleDefaultsOnUnderWineOnly covers the safety valve for Proton:
-// on Windows the mod starts the client, watches the game's pid, and stops it,
-// all verified on screen -- so hidden is right. Under Wine none of that is
-// proven, and an orphan there would be a client with no window still holding
-// the bridge port, which a player can neither see nor close. The window makes
-// it findable.
+// TestWineConsoleIsReportedNotPretended covers what replaced a mistake. There
+// was briefly a default here that turned the console ON under Wine, as a safety
+// valve in case an autostarted client outlived its game there. The Linux tester
+// proved both halves wrong on 2026-08-16: no window ever appeared (Wine has no
+// usable console for a Proton-launched game), and -exit-with-pid reaped the
+// client every time anyway, so there was nothing to guard.
 //
-// The explicit cases are the ones worth pinning: a default that ignored an
-// explicit choice would be a bug, not a safety net.
-func TestShowConsoleDefaultsOnUnderWineOnly(t *testing.T) {
+// What is left is honesty: if someone asks for a console where one cannot exist,
+// say so rather than silently doing nothing -- which is exactly what cost that
+// tester an afternoon.
+func TestWineConsoleIsReportedNotPretended(t *testing.T) {
 	cases := []struct {
-		name         string
-		explicitFlag bool
-		underWine    bool
-		want         bool
+		name      string
+		requested bool
+		underWine bool
+		want      bool
 	}{
-		{"under wine, nothing specified: show it", false, true, true},
-		{"real windows, nothing specified: stay hidden", false, false, false},
-		{"under wine but -show-console was passed: the flag decides", true, true, false},
-		{"real windows with an explicit flag: the flag decides", true, false, false},
+		{"asked for one under Wine: tell them it cannot appear", true, true, true},
+		{"asked for one on real Windows: it works, say nothing", true, false, false},
+		{"did not ask, under Wine: nothing to explain", false, true, false},
+		{"did not ask, real Windows: nothing to explain", false, false, false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := defaultShowConsoleUnderWine(tc.explicitFlag, tc.underWine); got != tc.want {
-				t.Errorf("defaultShowConsoleUnderWine(explicit=%v, wine=%v) = %v, want %v",
-					tc.explicitFlag, tc.underWine, got, tc.want)
+			if got := wineHasNoUsableConsole(tc.requested, tc.underWine); got != tc.want {
+				t.Errorf("wineHasNoUsableConsole(requested=%v, wine=%v) = %v, want %v",
+					tc.requested, tc.underWine, got, tc.want)
 			}
 		})
 	}
 }
 
-// TestShowConsoleFromConfigStillWinsUnderWine pins the other half: the Wine
-// default is applied BEFORE the config file is read, precisely so someone on
-// Proton who has satisfied themselves it cleans up properly can turn the window
-// off and have it stay off. A default that a config file couldn't override
-// would be an annoyance nobody could escape.
-func TestShowConsoleFromConfigStillWinsUnderWine(t *testing.T) {
-	path := writeConfig(t, nil, `{"client":{"show_console":false}}`)
+// TestOneBadValueDoesNotDiscardTheWholeConfig is the regression test for the bug
+// that cost a real user their whole session on 2026-08-16. They wrote
+// `"show_console": "true"` -- quoted, so a JSON string where a bool belongs --
+// and every OTHER setting silently reverted to its built-in default. The relay
+// logged them joining as "player" rather than the name they had configured,
+// which is how it was spotted at all.
+//
+// The values checked here are deliberately the ones that matter to a player:
+// where they connect, which room, and what they are called.
+func TestOneBadValueDoesNotDiscardTheWholeConfig(t *testing.T) {
+	path := writeConfig(t, nil, `{"client":{
+		"connect_to": "1.2.3.4:9999",
+		"room": "castle",
+		"name": "speedrunner",
+		"show_console": "true"
+	}}`)
+
 	var relayAddr, bridgeAddr, gameID, room, name, gameVersion, roomCode, transport string
 	var interp, minSend time.Duration
 	var maxReceiveHz int
-	showConsole := true // what the Wine default would have just set
-
+	var showConsole bool
 	applyFileConfig(path, map[string]bool{}, configTargets{
 		relayAddr: &relayAddr, bridgeAddr: &bridgeAddr, gameID: &gameID,
 		room: &room, name: &name, interp: &interp, minSend: &minSend,
@@ -218,8 +228,44 @@ func TestShowConsoleFromConfigStillWinsUnderWine(t *testing.T) {
 		transport: &transport, showConsole: &showConsole,
 	})
 
+	if relayAddr != "1.2.3.4:9999" {
+		t.Errorf("connect_to = %q, want it applied despite the bad show_console", relayAddr)
+	}
+	if room != "castle" {
+		t.Errorf("room = %q, want it applied despite the bad show_console", room)
+	}
+	if name != "speedrunner" {
+		t.Errorf("name = %q, want it applied despite the bad show_console", name)
+	}
+	// The offending setting itself is the one thing that must NOT be guessed at:
+	// "true" is a string, and treating it as true would be inventing intent.
 	if showConsole {
-		t.Error("show_console:false in config.json did not override the Wine default")
+		t.Error("show_console was applied from a string value, want it skipped as unreadable")
+	}
+}
+
+// TestSyntaxErrorStillDiscardsTheWholeConfig pins the other half. A missing
+// comma or stray brace is not one bad field -- the rest of the file cannot be
+// trusted to mean what the user intended, so the original whole-file warning is
+// still the right answer there. Being lenient about EVERYTHING would have been
+// the easy overcorrection.
+func TestSyntaxErrorStillDiscardsTheWholeConfig(t *testing.T) {
+	path := writeConfig(t, nil, `{"client":{"connect_to": "1.2.3.4:9999" "room": "castle"}}`)
+
+	var relayAddr, bridgeAddr, gameID, room, name, gameVersion, roomCode, transport string
+	var interp, minSend time.Duration
+	var maxReceiveHz int
+	var showConsole bool
+	applyFileConfig(path, map[string]bool{}, configTargets{
+		relayAddr: &relayAddr, bridgeAddr: &bridgeAddr, gameID: &gameID,
+		room: &room, name: &name, interp: &interp, minSend: &minSend,
+		roomCode: &roomCode, gameVersion: &gameVersion, maxReceiveHz: &maxReceiveHz,
+		transport: &transport, showConsole: &showConsole,
+	})
+
+	if relayAddr != "" || room != "" {
+		t.Errorf("a syntactically broken file was partly applied (connect_to=%q room=%q), "+
+			"want the whole file rejected", relayAddr, room)
 	}
 }
 

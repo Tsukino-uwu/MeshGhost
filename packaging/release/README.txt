@@ -396,13 +396,14 @@ game attached and no reason to go through Wine at all. If you'd rather your
 client be native too, start it before launching the game: Pseudoregalia's mod
 checks whether one is already running and uses it instead of starting its own.
 
-One difference you'll notice under Proton/Wine: the client shows a console
-window there, where on Windows it stays hidden. That's on purpose. On Windows
-we've watched it start with the game and stop with it, crashes included;
-through Wine that's untested, so it makes itself visible rather than risk
-leaving you a process you can neither see nor close. If it's ever still running
-after you quit the game, close that window. Setting "show_console": false in
-config.json turns it off if you'd rather.
+One thing to know under Proton/Wine: "show_console" does nothing there. Wine
+has no usable console window for a game launched this way, so none can appear
+whatever you set -- the client says so in meshghost.log if you ask for one, and
+that file carries exactly the same output.
+
+Nothing is lost by that. MeshGhost exits with the game under Proton, confirmed
+on a real Linux setup 2026-08-16 across six sessions, including when the game
+is killed outright rather than quit normally.
 
 One exception worth knowing: Pokemon Emerald's adapter is a BizHawk Lua script
 (games\pokemon\emerald\ in this zip), and BizHawk itself runs natively on

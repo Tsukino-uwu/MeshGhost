@@ -6,6 +6,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"flag"
 	"io"
 	"log"
@@ -14,6 +15,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"runtime/debug"
+	"strings"
 	"time"
 
 	"meshghost/internal/core"
@@ -197,6 +199,57 @@ func stripBOM(data []byte, path, prog string) []byte {
 	return data
 }
 
+// applyDespiteBadValue decides whether a json.Unmarshal error is survivable, and
+// logs the right thing either way. It returns true when the caller should carry
+// on applying the config it just decoded.
+//
+// This exists because a single mistyped value used to cost a user their ENTIRE
+// config. Found live 2026-08-16: a Proton tester wrote `"show_console": "true"`
+// — quoted, so a JSON string where a bool belongs — and got every other setting
+// silently reverted to defaults, including their name (they joined as "player")
+// and, worse for a host, room_code.
+//
+// The cruel part is that Go had already done the right thing. encoding/json does
+// not abort on a type mismatch: it records the first UnmarshalTypeError, skips
+// that one value, and keeps decoding every other field. So the struct handed back
+// is fully populated apart from the offending key — and the old code threw it away
+// on `err != nil`.
+//
+// A SyntaxError is different and still fatal to the file: a missing comma or
+// stray brace means the rest genuinely cannot be trusted to be what the user
+// meant. That is the case the whole-file warning was written for, and it keeps it.
+//
+// prog is the binary's own name, since this is mirrored in cmd/meshghost-relay
+// the same way stripBOM is.
+func applyDespiteBadValue(err error, path, prog string) bool {
+	var typeErr *json.UnmarshalTypeError
+	if !errors.As(err, &typeErr) {
+		log.Printf("%s: warning: could not parse config file %s: %v -- every setting in it "+
+			"is being IGNORED and built-in defaults used instead", prog, path, err)
+		return false
+	}
+
+	// Field arrives as "client.show_console"; a player knows it as the key they
+	// typed. The Go type name would mean nothing to them either, so say what a
+	// bool actually looks like in the file.
+	key := typeErr.Field
+	if i := strings.LastIndex(key, "."); i >= 0 {
+		key = key[i+1:]
+	}
+	wanted := typeErr.Type.String()
+	switch wanted {
+	case "bool":
+		wanted = "true or false, without quotes"
+	case "int":
+		wanted = "a plain number, without quotes"
+	}
+	log.Printf("%s: warning: config file %s: \"%s\" was given a %s, but it needs %s. That ONE "+
+		"setting is being ignored -- everything else in the file still applies. (Quotes make a "+
+		"value text: \"%s\": true, not \"%s\": \"true\".)",
+		prog, path, key, typeErr.Value, wanted, key, key)
+	return true
+}
+
 func applyFileConfig(path string, explicit map[string]bool, t configTargets) {
 	// Absolute, always: with the client autostarted there is no console showing
 	// which folder it was launched from, and "I edited config.json and nothing
@@ -228,9 +281,9 @@ func applyFileConfig(path string, explicit map[string]bool, t configTargets) {
 	}
 	var rc rootConfig
 	if err := json.Unmarshal(data, &rc); err != nil {
-		log.Printf("meshghost: warning: could not parse config file %s: %v -- every setting in it "+
-			"is being IGNORED and built-in defaults used instead", shown, err)
-		return
+		if !applyDespiteBadValue(err, shown, "meshghost") {
+			return
+		}
 	}
 	if rc.Client == nil {
 		log.Printf("meshghost: warning: config file %s has no \"client\" section -- "+
@@ -371,28 +424,25 @@ func watchParentPID(pid int, gone func(int) bool, poll time.Duration, onGone fun
 	}
 }
 
-// defaultShowConsoleUnderWine decides whether a client nobody explicitly
-// configured should open a console window because it is running under Wine
-// (Proton on Linux, CrossOver on macOS).
+// wineHasNoUsableConsole reports whether a requested console window cannot
+// actually appear, which is the case under Wine (Proton on Linux, CrossOver on
+// macOS).
 //
-// Hidden is the right default on Windows: the mod starts the client, watches
-// the game's pid, and stops it -- all inside one process namespace, all
-// verified on screen. Under Wine none of that is proven, and the failure it
-// guards against is an ORPHAN: a client with no window, still holding the
-// bridge port, that the player has no way to see or stop. A window is a poor
-// feature and an excellent safety valve -- it makes the process findable and
-// closable by hand on exactly the platform where our own cleanup is least
-// certain.
+// Wine only emulates a Windows console through wineconsole/conhost, and a
+// Proton-launched game has no usable backend for it, so AllocConsole can report
+// success while producing no window at all. This exists purely so the client can
+// SAY that, rather than silently doing nothing.
 //
-// Only a DEFAULT: an explicit -show-console, or show_console in config.json,
-// still wins (this runs before applyFileConfig, so the file overrides it the
-// same way it overrides any other unset flag). Someone on Proton who has
-// satisfied themselves it cleans up properly can turn it off and keep it off.
-//
-// Reconsider once the Proton path has actually been watched -- if the client
-// reliably dies with the game there, this becomes noise rather than a valve.
-func defaultShowConsoleUnderWine(explicitFlag, underWine bool) bool {
-	return underWine && !explicitFlag
+// Confirmed by the Linux tester 2026-08-16: the client logged that it was
+// showing a console, and no window ever appeared. There was briefly a default
+// here that turned the console ON under Wine, as a safety valve in case an
+// autostarted client outlived its game there. Both halves of that turned out to
+// be wrong -- the window cannot appear, and the same test proved -exit-with-pid
+// reaps the client across the Wine boundary anyway (six sessions, every one
+// ending in "pid N is gone -- exiting"). So the valve guarded a door that was
+// already shut, with a lock that did not work.
+func wineHasNoUsableConsole(requested, underWine bool) bool {
+	return requested && underWine
 }
 
 func main() {
@@ -466,15 +516,6 @@ func main() {
 	explicit := map[string]bool{}
 	flag.Visit(func(f *flag.Flag) { explicit[f.Name] = true })
 
-	// Before applyFileConfig, so config.json still overrides it like any other
-	// flag the command line didn't set. See the function's own comment.
-	if defaultShowConsoleUnderWine(explicit["show-console"], runningUnderWine()) {
-		*showConsole = true
-		log.Printf("meshghost: running under Wine (Proton/CrossOver) -- showing a console window " +
-			"by default so this process is visible and can be closed by hand. Set \"show_console\": " +
-			"false in config.json to hide it.")
-	}
-
 	applyFileConfig(*configPath, explicit, configTargets{
 		relayAddr:    relayAddr,
 		bridgeAddr:   bridgeAddr,
@@ -499,6 +540,11 @@ func main() {
 	if f := openLogFile("meshghost.log"); f != nil {
 		writers = append(writers, f)
 	}
+	// The Wine check is deliberately independent of whether consoleWriter
+	// succeeded: under Wine AllocConsole can report success and still produce no
+	// visible window, so a non-nil writer proves nothing there. Warn on the
+	// request, not on the result.
+	noConsolePossible := wineHasNoUsableConsole(*showConsole, runningUnderWine())
 	if *showConsole {
 		if w := consoleWriter(); w != nil {
 			writers = append(writers, w)
@@ -509,6 +555,13 @@ func main() {
 
 	logRunBanner(*exitWithPID != 0)
 	_, _ = io.Copy(out, &earlyLog)
+
+	if noConsolePossible {
+		log.Printf("meshghost: show_console is on, but this is running under Wine " +
+			"(Proton/CrossOver), which has no usable console window -- one will not appear no " +
+			"matter what this is set to. Everything it would have shown is in this file " +
+			"(meshghost.log) instead.")
+	}
 
 	// Fatal on a bad value rather than clamping to tcp, deliberately
 	// departing from how send_hz and interp are handled: a typo in those

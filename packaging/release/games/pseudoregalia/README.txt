@@ -38,17 +38,21 @@ Setup, every time you play:
 2. Walk around. Once a friend joins the same server in the same room, you should see their
    goat as a ghost -- correct position, facing, and movement animations.
 
-If you want to see it working rather than take it on faith, add "show_console": true to
-that config.json for a real window with live output, or read meshghost.log, which appears
-in the same mod folder.
+Want to see it working rather than take it on faith? Read meshghost.log, which appears in
+the same mod folder. On WINDOWS you can also add "show_console": true to that config.json
+for a live window.
 
-On Linux (Proton) and macOS (CrossOver), that window is shown by DEFAULT, and that's
-deliberate. On Windows we've watched MeshGhost start with the game and stop with it,
-including when the game crashes. Through Wine that's untested -- so rather than risk
-leaving you a process you can't see and can't close, it shows itself. Close it by hand if
-it's ever still there after you quit. Add "show_console": false if you've satisfied
-yourself it cleans up and would rather not see it. If neither exists, the mod never got as far as starting it -- check
-ue4ss\UE4SS.log, and see the antivirus note in the main README.txt.
+On Linux (Proton) and macOS (CrossOver) there is no window to show: Wine has no usable
+console for a game launched this way, so "show_console" cannot do anything there, and the
+client says so in the log if you set it. meshghost.log carries exactly the same output.
+
+Nothing is lost by that, because the problem a window would have warned you about does not
+happen -- MeshGhost exits with the game under Proton, confirmed on a real Linux setup
+2026-08-16 across six sessions, including when the game was killed outright rather than
+quit normally.
+
+If meshghost.log does not exist at all, the mod never got as far as starting the client --
+check ue4ss\UE4SS.log, and see the antivirus note in the main README.txt.
 
 Prefer to run it yourself? Set the environment variable MESHGHOST_NO_AUTOSTART to anything
 and the mod won't start one; double-click meshghost.exe (in the folder you unzipped)

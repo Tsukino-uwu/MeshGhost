@@ -7,12 +7,14 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
 	"log"
 	"net"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -21,17 +23,34 @@ import (
 	"meshghost/internal/relay"
 )
 
-// openLogFile creates (truncating any previous run's contents) meshghost-server.log next
-// to wherever the process's working directory is -- the same cwd config.json is read from,
-// so it lands beside the exe in the normal double-click-from-the-package-folder case. This
-// exists so a crash is still readable after the console window itself is gone: double-clicking
-// an .exe opens a console that closes the instant the process exits, taking any error message
-// with it -- see packaging/README.md's "No launcher .bat files" section. Falls back to
-// stderr-only, with a warning, if the file can't be created (e.g. read-only folder).
+// maxLogBytes is the size at which meshghost-server.log is rotated to
+// meshghost-server.log.1. Mirrors cmd/meshghost's own cap, for the same reason:
+// the log appends rather than truncating, so something has to bound it.
+const maxLogBytes = 1 << 20 // 1 MiB
+
+// openLogFile opens (creating, and APPENDING to) meshghost-server.log next to wherever
+// the process's working directory is -- the same cwd config.json is read from, so it lands
+// beside the exe in the normal double-click-from-the-package-folder case. This exists so a
+// crash is still readable after the console window itself is gone: double-clicking an .exe
+// opens a console that closes the instant the process exits, taking any error message with
+// it -- see packaging/README.md's "No launcher .bat files" section.
+//
+// It appends, where it used to truncate on every run (os.Create). Brought in line with the
+// client 2026-08-16, after the client's appending log was the ONLY reason a Proton bug
+// report could be diagnosed remotely: six runs in one file, each with its own banner. A
+// relay that erases its own history every restart cannot answer "what happened before it
+// died", which is the question a host is asking when they go looking.
+//
+// Falls back to stderr-only, with a warning, if the file can't be opened (e.g. read-only
+// folder).
 func openLogFile(name string) io.Writer {
-	f, err := os.Create(name)
+	if fi, err := os.Stat(name); err == nil && fi.Size() >= maxLogBytes {
+		// Best-effort: a failed rotate must not cost the log entirely.
+		_ = os.Rename(name, name+".1")
+	}
+	f, err := os.OpenFile(name, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
 	if err != nil {
-		log.Printf("meshghost-relay: warning: could not create log file %s: %v (log output will only appear in this window)", name, err)
+		log.Printf("meshghost-relay: warning: could not open log file %s: %v (log output will only appear in this window)", name, err)
 		return os.Stderr
 	}
 	return io.MultiWriter(os.Stderr, f)
@@ -115,27 +134,70 @@ func stripBOM(data []byte, path, prog string) []byte {
 	return data
 }
 
+// applyDespiteBadValue decides whether a json.Unmarshal error is survivable, and
+// logs the right thing either way. Mirrored from cmd/meshghost/main.go, the same
+// way stripBOM and applyFileConfig are -- see that copy for the full story.
+//
+// The short version: encoding/json does not abort on a type mismatch, it skips
+// that one value and keeps decoding, so throwing the result away over `err != nil`
+// cost a user every OTHER setting in their file. Found live 2026-08-16 on the
+// client. The relay has no bool settings, but "max_clients": "8" is the same
+// mistake, and it would silently take room_code and only_game with it -- a host
+// who believes they set a room code, running wide open.
+func applyDespiteBadValue(err error, path, prog string) bool {
+	var typeErr *json.UnmarshalTypeError
+	if !errors.As(err, &typeErr) {
+		log.Printf("%s: warning: could not parse config file %s: %v -- every setting in it "+
+			"is being IGNORED and built-in defaults used instead", prog, path, err)
+		return false
+	}
+
+	key := typeErr.Field
+	if i := strings.LastIndex(key, "."); i >= 0 {
+		key = key[i+1:]
+	}
+	wanted := typeErr.Type.String()
+	switch wanted {
+	case "bool":
+		wanted = "true or false, without quotes"
+	case "int":
+		wanted = "a plain number, without quotes"
+	}
+	log.Printf("%s: warning: config file %s: \"%s\" was given a %s, but it needs %s. That ONE "+
+		"setting is being ignored -- everything else in the file still applies. (Quotes make a "+
+		"value text: \"%s\": 8, not \"%s\": \"8\".)",
+		prog, path, key, typeErr.Value, wanted, key, key)
+	return true
+}
+
 func applyFileConfig(path string, explicit map[string]bool, t configTargets) {
+	// Absolute, mirroring the client (cmd/meshghost/main.go): "I edited config.json
+	// and nothing changed" is nearly always a different config.json than the one
+	// being read, and a relative path in the log answers that with another question.
+	shown := path
+	if abs, err := filepath.Abs(path); err == nil {
+		shown = abs
+	}
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if !os.IsNotExist(err) {
-			log.Printf("meshghost-relay: warning: could not read config file %s: %v", path, err)
+			log.Printf("meshghost-relay: warning: could not read config file %s: %v", shown, err)
 		}
 		return
 	}
-	data = stripBOM(data, path, "meshghost-relay")
+	data = stripBOM(data, shown, "meshghost-relay")
 	if data == nil {
 		return
 	}
 	var rc rootConfig
 	if err := json.Unmarshal(data, &rc); err != nil {
-		log.Printf("meshghost-relay: warning: could not parse config file %s: %v -- every setting "+
-			"in it is being IGNORED and built-in defaults used instead", path, err)
-		return
+		if !applyDespiteBadValue(err, shown, "meshghost-relay") {
+			return
+		}
 	}
 	if rc.Server == nil {
 		log.Printf("meshghost-relay: warning: config file %s has no \"server\" section -- "+
-			"every server setting is falling back to its built-in default", path)
+			"every server setting is falling back to its built-in default", shown)
 		return
 	}
 	if rc.Server.Addr != nil && !explicit["addr"] {
