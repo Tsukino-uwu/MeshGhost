@@ -2,10 +2,18 @@
 
 ## Active status
 
-**Phase 7 (Pseudoregalia) is the live one** — all of 2026-08-16 went to its trail/VFX sync; Phase 8
-(Emerald) is open but idle since 2026-08-14; Phase 6 (TEVI) is done. Both shipping adapters are in
-the release zip marked experimental, and **7.7 (a real two-player test) has not started.**
-Roadmap: `plans.md`. Per-phase log: `phases/`.
+**Phase 7 (Pseudoregalia) is the live one, and 7.7 is DONE** — two real players on two machines,
+confirmed 2026-08-16 with the Linux tester, which also cleared the items that were blocked on it.
+Phase 8 (Emerald) is open but idle since 2026-08-14; Phase 6 (TEVI) is done.
+
+**Also landed 2026-08-16**, all confirmed on screen unless noted: autostart (the game's mod starts
+the client itself, Windows and Proton), v0.7.0 shipped with Linux/macOS client+server builds as
+separate downloads, one-adapter-per-core admission control with the port walk (Pseudoregalia side
+built, **not yet watched live**), the camera fix (a ghost brings its own rig — identified by the
+rig's `OwningActor`), ghosts no longer rendering through walls, and the ghost no longer stealing
+the controller on spawn.
+
+Roadmap: `plans.md`. Per-phase log: `phases/`. Evidence for all of the above: `verified.md`.
 
 ## Genuinely open items
 
