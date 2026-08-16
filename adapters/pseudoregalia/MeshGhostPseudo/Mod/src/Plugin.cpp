@@ -4971,7 +4971,49 @@ namespace MeshGhostPseudo
             return;
         }
 
+        // Stop the clone taking the controller in the first place, rather than taking it back
+        // afterwards.
+        //
+        // CONFIRMED the mechanism before writing this (POSSESS_TRACE, 2026-08-16): bracketing the
+        // spawn showed the controller holding the LOCAL pawn before, the GHOST immediately after,
+        // and the local pawn again after our hand-back. So the ghost really does auto-possess, and
+        // every spawn puts the player through an unpossess/re-possess cycle -- twice per level
+        // load, since a duplicate spawn is also happening. That cycle is the suspect for the
+        // player being unable to move while the camera stays on them: re-possessing restores the
+        // pawn, but need not restore whatever input the game bound to it.
+        //
+        // AutoPossessPlayer is a stock APawn UPROPERTY (EAutoReceiveInput), read during spawn, so
+        // it has to be cleared on the class default object BEFORE SpawnActor -- setting it on the
+        // instance afterwards is already too late. Restored immediately after so nothing else that
+        // spawns this class is affected; the whole window is one synchronous call on the game
+        // thread.
+        //
+        // Logged either way rather than assumed: if the property does not resolve on this build,
+        // that is a finding, not something to quietly skip ("it ran without errors is not
+        // evidence").
+        uint8_t* auto_possess = nullptr;
+        uint8_t saved_auto_possess = 0;
+        if (UObject* cdo = pawn_class ? pawn_class->GetClassDefaultObject() : nullptr)
+        {
+            auto_possess = cdo->GetValuePtrByPropertyNameInChain<uint8_t>(STR("AutoPossessPlayer"));
+            if (auto_possess)
+            {
+                saved_auto_possess = *auto_possess;
+                *auto_possess = 0; // EAutoReceiveInput::Disabled
+            }
+        }
+        if (POSSESS_TRACE)
+        {
+            Output::send(STR("[MeshGhostPseudo] POSSESS_TRACE AutoPossessPlayer on the ghost class = {}\n"),
+                         auto_possess ? std::to_wstring(saved_auto_possess) : STR("<not reflected>"));
+        }
+
         AActor* ghost = world->SpawnActor(pawn_class, &spawn_loc, &spawn_rot);
+
+        if (auto_possess)
+        {
+            *auto_possess = saved_auto_possess;
+        }
         if (!ghost)
         {
             Output::send(STR("[MeshGhostPseudo] SpawnActor returned nullptr for remote {}.\n"), to_wide_ascii(player_id));
