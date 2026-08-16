@@ -1,7 +1,7 @@
 {
   "client": {
     "connect_to": "127.0.0.1:7777",
-    "transport": "udp",
+    "transport": "auto",
     "room": "default",
     "room_code": "",
     "name": "player",
@@ -11,8 +11,8 @@
   },
   "server": {
     "listen_on": "0.0.0.0:7777",
-    "listen_quic": "0.0.0.0:7780",
-    "transport": "tcp",
+    "listen_quic": "",
+    "transport": "tcp,quic",
     "room_code": "",
     "only_game": "",
     "max_clients": 8,

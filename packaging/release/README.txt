@@ -34,14 +34,18 @@ Setup, once:
                off by default. If they did set one, you must enter it
                exactly or you'll be refused.
      "name"  -- whatever you want your ghost to show as to others.
-     "transport" -- LEAVE THIS AS "udp" unless you have a reason not to.
+     "transport" -- LEAVE THIS AS "auto" unless you have a reason not to.
+               "auto" takes the best your host offers, preferring "quic",
+               which is the only one that ENCRYPTS your session (including
+               your room_code). It never picks "udp" on its own, because
+               udp cannot be encrypted at all.
                "connect_to" above is still the only address you need -- and
                it does need the port on the end, as shown. What you do NOT
                need is to know which transports your host runs, or which
-               EXTRA ports they use for them: your client always makes
+               ports they use for them: your client always makes
                contact on that one address over tcp first, asks what they
-               serve, and only then switches. If they don't offer udp you
-               simply stay on tcp and everything still works.
+               serve, and only then switches. If they offer nothing better
+               you simply stay on tcp and everything still works.
                Put "quic" here instead if you want your room_code
                encrypted -- but your host has to be serving quic for that
                to happen (ask them). "tcp" keeps you on the plain, most
@@ -111,14 +115,21 @@ Setup, once:
      "listen_on" -- what port to accept connections on. "0.0.0.0:7777"
                (the default) means "accept from anywhere," which is what
                you want. Only change the port number if you need to.
-     "transport" -- "tcp" (the default), "udp", "quic", or a list like
-               "tcp,quic" to offer more than one at once. Players find
-               whatever you turn on by themselves, so you do NOT need to
-               tell them which to use or what port it's on -- a player on
-               the default picks up udp automatically if you serve it, and
-               falls back to tcp if you don't. tcp is always served whether
-               you list it or not, because that is how every client makes
-               first contact. Pros/cons of each are in "Transports --
+     "transport" -- "tcp,quic" (the default), or "tcp", "udp", "quic", or
+               any list of them. The default serves quic alongside tcp so
+               your players get an ENCRYPTED session without anyone doing
+               anything, and both sit on the SAME port number -- so you
+               forward one number, 7777, for both TCP and UDP (they are
+               separate rules on most routers). Players find whatever you
+               turn on by themselves, so you do NOT need to tell them which
+               to use -- a player on the default picks up quic
+               automatically, and falls back to tcp if you don't serve it.
+               tcp is always served whether you list it or not, because
+               that is how every client makes first contact.
+               Adding "udp" is the one case that needs more: udp takes the
+               same UDP port quic wants, so you must also set
+               "listen_quic" (e.g. "0.0.0.0:7780") and forward that too.
+               The server refuses to start and tells you if you forget. Pros/cons of each are in "Transports --
                tcp vs udp vs quic" near the bottom, along with which ports
                you need to forward for each.
      "listen_quic" -- only used if you put "quic" in "transport". It needs
@@ -491,24 +502,31 @@ is SMOOTHNESS on a bad connection, not lower ping on a good one.
 Short version:
   Playing, not hosting?           udp (the default -- just leave it)
   Want your room_code encrypted?  quic (and ask your host to serve it)
-  Hosting, keep it simple?        tcp
-  Hosting for a flaky group?      tcp,udp
-  Hosting, privacy-conscious?     tcp,udp,quic
+  Hosting, just want it to work?  tcp,quic  (the default)
+  Hosting, keep it simplest?      tcp
+  Hosting for a flaky group?      tcp,udp   (see the udp warning above)
 
-There is also "auto", which asks the host and takes the best on offer --
-it prefers quic, then tcp, and deliberately never picks udp for you, since
+"auto" is the player default: it asks the host and takes the best on offer,
+preferring quic, then tcp, and deliberately never picking udp for you --
 choosing an unencryptable transport on someone's behalf isn't a decision a
-default should make. Use it if you'd rather not think about this at all.
+default should make. Leave it alone and you get the best available.
 
-Hosting: "transport" accepts a list, so you can offer several at once --
-"tcp,udp,quic". Players still pick a single one each, and players on
-DIFFERENT transports still share a room and see each other normally.
+Hosting: "transport" accepts a list, so you can offer several at once.
+Players still pick a single one each, and players on DIFFERENT transports
+still share a room and see each other normally.
 
 Port forwarding, if you host over the internet: you need a rule per
 transport you actually offer, and the protocol matters --
   tcp  -> forward TCP  on 7777
-  udp  -> forward UDP  on 7777   (same number as tcp is fine, they don't
-                                  clash -- TCP and UDP are separate)
-  quic -> forward UDP  on 7780   (whatever "listen_quic" says)
+  quic -> forward UDP  on 7777   (the SAME number as tcp, on purpose --
+                                  TCP and UDP are separate, so this is one
+                                  number and two rules, not two numbers)
+  udp  -> forward UDP  on 7777   (it takes that UDP port itself, which is
+                                  why serving udp AND quic makes you set
+                                  "listen_quic" to somewhere else, e.g.
+                                  7780, and forward UDP there as well)
+The server prints exactly what to forward when it starts, so you don't have
+to work it out from this table -- look for the "to accept players from
+outside this machine, forward:" line.
 A player set to a transport you haven't forwarded just sees a timeout with
 nothing explaining it, so if someone can't connect, check this first.

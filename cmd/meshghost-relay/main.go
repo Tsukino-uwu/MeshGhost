@@ -223,9 +223,9 @@ func applyFileConfig(path string, explicit map[string]bool, t configTargets) {
 	}
 }
 
-// DefaultQuicAddr is where quic listens when nothing says otherwise. The
-// port deliberately differs from -addr's 7777: quic is carried over udp, so
-// it cannot share a port with the plain udp transport.
+// FallbackQuicAddr is where quic goes when it cannot share -addr's port,
+// which happens only when the plain udp transport is also being served and
+// has taken that udp port first.
 //
 // 7778 and 7779 are both skipped because packaging/release/README.txt
 // already hands those out as local bridge ports (7778 normally, 7779 for a
@@ -233,7 +233,24 @@ func applyFileConfig(path string, explicit map[string]bool, t configTargets) {
 // bridge is TCP and this is UDP, which are separate port spaces -- but a
 // reader comparing two config files should not have to know that to tell
 // whether something is a typo.
-const DefaultQuicAddr = "127.0.0.1:7780"
+const FallbackQuicAddr = "127.0.0.1:7780"
+
+// quicSharesAddrPort is the -listen-quic default: empty means "use -addr's
+// port". quic is carried over udp and tcp/udp are separate port spaces, so
+// tcp:7777 and quic:7777/udp coexist happily.
+//
+// This is a NAT decision rather than a tidiness one. Serving quic by default
+// (see the transport ADR in agent_docs/architecture.md) would otherwise have
+// turned hosting from "forward 7777" into "forward 7777 and 7780", and the
+// port-forwarding step is where a host actually gives up. Sharing the number
+// makes it "forward 7777, TCP and UDP" -- one rule in most router UIs.
+//
+// The plain udp transport is the one thing that cannot coexist here, since
+// it takes -addr's udp port itself. It is opt-in, unencryptable and
+// deliberately last in netx.AutoPreference, so it is the right one to carry
+// the awkwardness: asking for udp and quic together requires naming a port
+// for quic, and the startup error says so.
+const quicSharesAddrPort = ""
 
 func main() {
 	addr := flag.String("addr", "127.0.0.1:7777", "address to listen on (tcp and udp; quic uses -listen-quic)")
@@ -265,16 +282,21 @@ func main() {
 			"directions for a visual gain that's small and diminishing (see README.txt for the "+
 			"real numbers), and YOUR machine (the host) carries the worst of it, since traffic "+
 			"fans out with the square of room size")
-	transportNames := flag.String("transport", netx.TCP.String(),
+	transportNames := flag.String("transport", "tcp,quic",
 		"which transports to serve, comma-separated: any of tcp, udp, quic. Serving several at "+
 			"once is fine and clients may mix freely within one room -- tcp is readable with "+
 			"netcat for debugging, udp survives a lossy connection better but CANNOT be "+
 			"encrypted (Go has no DTLS), and quic is encrypted and spoofing-resistant by "+
-			"default. Each client picks one; tell them which, and which port")
-	quicAddr := flag.String("listen-quic", DefaultQuicAddr,
-		"address to serve quic on. Must be a DIFFERENT port from -addr: quic runs over udp, so "+
-			"it cannot share a port with the plain udp transport. Ignored unless quic is in "+
-			"-transport")
+			"default. The default serves tcp and quic so a default client (-transport auto) "+
+			"gets an encrypted session without anyone configuring anything -- but note quic "+
+			"needs -listen-quic's port forwarded too, not just -addr's")
+	quicAddr := flag.String("listen-quic", quicSharesAddrPort,
+		"address to serve quic on. Empty (the default) means share -addr's port -- quic runs "+
+			"over udp and tcp/udp are separate port spaces, so tcp:7777 and quic:7777/udp "+
+			"coexist and a host forwards ONE port number for both. Only the plain udp transport "+
+			"cannot share it, since udp takes -addr's udp port itself; serving udp and quic "+
+			"together therefore needs a port named here (e.g. "+FallbackQuicAddr+"). Ignored "+
+			"unless quic is in -transport")
 	configPath := flag.String("config", "config.json",
 		"path to an optional JSON config file with a \"server\" section "+
 			"({\"listen_on\": \"...\", \"listen_quic\": \"...\", \"room_code\": \"...\", "+
@@ -307,6 +329,33 @@ func main() {
 	kinds, err := netx.ParseKinds(*transportNames)
 	if err != nil {
 		log.Fatalf("meshghost-relay: %v", err)
+	}
+
+	// Resolve where quic listens, now that the transport list is known.
+	//
+	// Sharing -addr's port is the default because it keeps hosting to one
+	// forwarded port number; the only thing that can take that udp port away
+	// is the plain udp transport. Refused rather than silently relocated: a
+	// relay that quietly moved quic somewhere else would advertise a port the
+	// host never forwarded, and the failure would surface much later as
+	// "quic clients can't connect" with nothing pointing here.
+	servesUDP, servesQUIC := false, false
+	for _, k := range kinds {
+		switch k {
+		case netx.UDP:
+			servesUDP = true
+		case netx.QUIC:
+			servesQUIC = true
+		}
+	}
+	if servesQUIC && *quicAddr == quicSharesAddrPort {
+		if servesUDP {
+			log.Fatalf("meshghost-relay: serving both udp and quic needs a port for quic: udp has "+
+				"already taken %s's udp port, and quic runs over udp too. Pass -listen-quic "+
+				"(e.g. %s), or drop udp from -transport -- it cannot be encrypted and nothing "+
+				"picks it automatically.", *addr, FallbackQuicAddr)
+		}
+		*quicAddr = *addr
 	}
 
 	// One listener per selected transport, all feeding the same Server.
@@ -357,6 +406,26 @@ func main() {
 			continue
 		}
 		offers = append(offers, protocol.TransportOffer{Kind: bl.kind.String(), Port: port})
+	}
+
+	// Spell out the port forwarding, because "which ports do I open" is the
+	// step that actually decides whether anyone can connect, and serving quic
+	// by default made it two rules instead of one. Only the host needs this
+	// at all -- every client dials outward -- so saying it here, once, is the
+	// whole of the NAT story for a user. Protocol is named per line because
+	// tcp/7777 and udp/7777 are different forwarding rules on most routers,
+	// and quic is udp despite sitting beside a tcp port.
+	forwards := make([]string, 0, len(offers))
+	for _, o := range offers {
+		proto := "udp"
+		if o.Kind == netx.TCP.String() {
+			proto = "tcp"
+		}
+		forwards = append(forwards, fmt.Sprintf("%d/%s (%s)", o.Port, proto, o.Kind))
+	}
+	if len(forwards) > 0 {
+		log.Printf("meshghost-relay: to accept players from outside this machine, forward: %s",
+			strings.Join(forwards, ", "))
 	}
 
 	server := relay.NewServer()

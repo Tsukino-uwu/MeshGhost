@@ -110,7 +110,7 @@ func TestTransportKeysAreReadFromConfig(t *testing.T) {
 // neither key, and such a relay must keep serving tcp exactly as it did.
 func TestTransportAbsentFromConfigLeavesTheFlagDefaults(t *testing.T) {
 	path := writeConfig(t, nil, `{"server":{"listen_on":"0.0.0.0:7777"}}`)
-	transport, quicAddr := "tcp", DefaultQuicAddr
+	transport, quicAddr := "tcp", quicSharesAddrPort
 	var addr, onlyGame, roomCode string
 	var maxClients, sendHz int
 	applyFileConfig(path, map[string]bool{}, configTargets{
@@ -121,7 +121,7 @@ func TestTransportAbsentFromConfigLeavesTheFlagDefaults(t *testing.T) {
 	if transport != "tcp" {
 		t.Errorf("transport = %q, want it left at the flag default %q", transport, "tcp")
 	}
-	if quicAddr != DefaultQuicAddr {
-		t.Errorf("listen_quic = %q, want it left at %q", quicAddr, DefaultQuicAddr)
+	if quicAddr != quicSharesAddrPort {
+		t.Errorf("listen_quic = %q, want it left at the flag default (empty = share -addr's port)", quicAddr)
 	}
 }

@@ -38,6 +38,7 @@ import (
 	"time"
 
 	"meshghost/internal/core"
+	"meshghost/internal/netx"
 	"meshghost/internal/protocol"
 )
 
@@ -291,7 +292,19 @@ func main() {
 	interp := flag.Duration("interp", core.DefaultInterpolationDelay, "interpolation delay for remote ghosts")
 	logEvery := flag.Duration("log-every", 500*time.Millisecond, "minimum time between console prints per remote (the core still ticks at -tick regardless)")
 	statsEvery := flag.Duration("stats-every", 0, "if set, print a periodic summary of remotes rendered and render rate")
+	transportName := flag.String("transport", netx.TCP.String(),
+		"which transport to move to after the (always-tcp) handshake: tcp, udp, quic, or auto. "+
+			"Until this existed the rig never set Transport at all, so it inherited netx.Kind's tcp "+
+			"zero value and the load tiers could only ever exercise tcp -- see dev-scripts/README.md")
 	flag.Parse()
+
+	// Strict parse, same as cmd/meshghost: a typo must not silently downgrade
+	// the transport, which netx.Kind's tcp zero value would otherwise do
+	// quietly.
+	transportKind, err := netx.ParseKind(*transportName)
+	if err != nil {
+		log.Fatalf("meshghost-fakeadapter: %v", err)
+	}
 
 	if *clients < 1 {
 		log.Fatalf("meshghost-fakeadapter: -clients must be at least 1, got %d", *clients)
@@ -328,6 +341,7 @@ func main() {
 
 		c := core.New()
 		c.InterpolationDelay = *interp
+		c.Transport = transportKind
 		c.RelayAddr = *relayAddr
 		c.Room = *room
 		c.DisplayName = displayName

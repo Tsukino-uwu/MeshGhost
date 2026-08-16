@@ -476,16 +476,16 @@ func main() {
 			"35 updates/sec inbound, not 5. Only affects your own download and nobody else's view "+
 			"of you. Valid range 10-100 if set; values below ~10 will look stuttery unless you "+
 			"also raise -interp")
-	transportName := flag.String("transport", netx.UDP.String(),
+	transportName := flag.String("transport", netx.Auto.String(),
 		"which transport to move to AFTER connecting. The handshake is always tcp and this "+
 			"cannot be changed -- so you never need to know which port a transport is on, and a "+
 			"preference the relay does not serve degrades to a working tcp session instead of a "+
-			"timeout. tcp: stay on tcp (reliable, and the only one readable with netcat while "+
-			"debugging). udp (the default): upgrade if the relay serves it -- better on a lossy "+
-			"connection, but CANNOT be encrypted (Go has no DTLS), so your room code crosses the "+
-			"wire in the clear. quic: same loss behaviour as udp but encrypted and hard to spoof. "+
-			"auto: take the best on offer, preferring quic, and never udp unless it is all there "+
-			"is")
+			"timeout. auto (the default): take the best on offer, preferring quic, and never udp "+
+			"unless it is all there is. tcp: stay on tcp (reliable, and the only one readable "+
+			"with netcat while debugging). udp: upgrade if the relay serves it -- better on a "+
+			"lossy connection, but CANNOT be encrypted (Go has no DTLS), so your room code "+
+			"crosses the wire in the clear. quic: same loss behaviour as udp but encrypted and "+
+			"hard to spoof")
 	exitWithPID := flag.Int("exit-with-pid", 0,
 		"exit when the process with this pid does -- set by a game adapter that starts this "+
 			"client for you, so a crashed game can't leave an invisible orphan holding the bridge "+
