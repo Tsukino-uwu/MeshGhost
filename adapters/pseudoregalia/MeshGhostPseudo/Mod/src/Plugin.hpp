@@ -824,8 +824,6 @@ namespace MeshGhostPseudo
         // No pending/deferred fields needed -- the RegisterPreHook design rewrites the engine's own
         // argument buffer in place, synchronously, before the real call runs.
         RC::Unreal::UFunction* svtwb_function{nullptr}; // cached "SetViewTargetWithBlend", found once
-        RC::Unreal::AActor* last_known_good_view_target{nullptr};
-        bool any_ghost_ever_spawned{false};
 
         // DO NOT re-add UFunction hooks on 'Spawn After Image'/'spawnNumAfterimages' -- tried
         // 2026-08-15 and it CRASHED the game (see verified.md's "trail-VFX UFunction hook crash"

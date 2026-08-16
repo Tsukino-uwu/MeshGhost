@@ -4939,3 +4939,30 @@ original 7.4 problem no longer exists and the mechanism should be deleted rather
 camera misbehaves with it off, the original problem is still real and the fix has to be aimed at
 what the trace shows rather than at the symptom. Either answer is worth having; this is
 `pitfalls.md`'s "run the same test without the fix applied".
+
+## 2026-08-16 — Camera fight-back removed; the camera is correct without it
+
+**Confirmed on screen by the user**, running the same session with the mechanism disabled:
+*"the camera was correctly placed/following the player all the time"* — through the intro cutscene,
+with a loopback ghost present, and across an in-game "reset to last save" and the cutscene after it.
+
+The log agrees and shows exactly what changed: **2 camera-rig switches allowed that the previous
+build would have blocked** (`branch=allowed-change from=BP_PlayerCam_C_… to=…`), **0 rewrites**, and
+a ghost present (`1 remote(s)` at the transition). Same steps, same area, same rigs — the only
+difference was not interfering.
+
+**So the mechanism was removed rather than tuned.** With it, the mod pinned the camera to whichever
+rig was current just after a level load and blocked every later switch; the user saw that as the
+ghost stealing the camera. The 7.4 problem it was written for — a ghost spawn making the game
+re-pick its camera — did not reproduce at all, most likely because ghosts now spawn with collision
+disabled and can no longer trigger whatever selects a rig. **A fix aimed at a symptom outlived the
+cause and became the bug.**
+
+Deleted: the rewrite path, `last_known_good_view_target`, `any_ghost_ever_spawned`, and the LoadMap
+clearing that existed only to keep the cached pointer safe. What remains is the read-only probe
+that settled this, behind `CAMERA_TRACE` (off by default) — which is also the shape
+`adapters/_template`'s new "observe before you override" rule asks for.
+
+**Not claimed:** that no ghost can ever disturb the camera. This was one area, one session, with
+one stationary loopback ghost. If it reappears, the trace is already in place and the next fix
+should be aimed at what it shows.

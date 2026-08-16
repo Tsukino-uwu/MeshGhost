@@ -166,28 +166,7 @@ namespace MeshGhostPseudo
     // object is what caused this project's worst regression (pitfalls.md, 2026-08-16), and
     // GetFullName() here is the same expensive call, just called a few times a minute instead of
     // thousands. Do not move it into a tick loop.
-    // Whether to force the view target back when the game changes it. OFF as of 2026-08-16, as
-    // an experiment, not a cleanup -- see agent_docs/phase7.md.
-    //
-    // This was written for a real problem (7.4): spawning a ghost made the game re-pick its
-    // camera ~2.6ms later. But it was aimed at the symptom, and a live trace showed what that
-    // costs. The game switches BP_PlayerCam_C rigs routinely as the player moves, and this
-    // rewrites EVERY such switch back to whichever rig existed just after the level load, forever
-    // -- the log caught it twice in one session, neither time near a ghost spawn. The player sees
-    // that as "the ghost grabbed the camera", because the pinned rig frames where the ghost is
-    // standing.
-    //
-    // The question this flag exists to answer: does the ORIGINAL problem still happen? Ghosts now
-    // spawn with collision disabled, so if rig switching is driven by overlap volumes, a ghost can
-    // no longer trigger one and there is nothing left to fight. If the camera behaves with this
-    // off, delete the mechanism rather than tuning it.
-    //
-    // Note this gates the WORK, not just the decision: with it false the engine's own
-    // NewViewTarget is left untouched, which is a real revert and not an A/B that leaves the cost
-    // running (CLAUDE.md).
-    constexpr bool CAMERA_FIGHTBACK = false;
-
-    constexpr bool CAMERA_TRACE = true;
+    constexpr bool CAMERA_TRACE = false;
 
     constexpr uint64_t SPAWN_DELAY_TICKS = 300;
 
@@ -4609,7 +4588,6 @@ namespace MeshGhostPseudo
                 // "has this been fully freed" here -- so never let the pointer survive into a
                 // transition in the first place. Same reasoning as release_all_ghosts above, just
                 // for the camera's cached reference instead of the ghosts' own.
-                last_known_good_view_target = nullptr;
             },
             Hook::FCallbackOptions{.OwnerModName = STR("MeshGhostPseudo"), .HookName = STR("ReleaseGhostsBeforeLoadMap")});
 
@@ -4647,10 +4625,18 @@ namespace MeshGhostPseudo
     // tick needed -- the corrected value is simply what the engine's own call uses.
     auto Plugin::register_camera_fightback_hook() -> void
     {
+        // Read-only as of 2026-08-16. This used to force the view target back to a remembered
+        // "known good" one whenever the game changed it; that mechanism is gone, and what remains
+        // is the probe that proved it had to go.
+        if (!CAMERA_TRACE)
+        {
+            return;
+        }
+
         svtwb_function = UObjectGlobals::StaticFindObject<UFunction*>(nullptr, nullptr, STR("/Script/Engine.PlayerController:SetViewTargetWithBlend"));
         if (!svtwb_function)
         {
-            Output::send(STR("[MeshGhostPseudo] WARNING: could not find SetViewTargetWithBlend UFunction -- camera fight-back disabled this session.\n"));
+            Output::send(STR("[MeshGhostPseudo] WARNING: could not find SetViewTargetWithBlend UFunction -- camera trace unavailable this session.\n"));
             return;
         }
 
@@ -4663,73 +4649,9 @@ namespace MeshGhostPseudo
             [this](UnrealScriptFunctionCallableContext& ctx, void*) {
                 SetViewTargetWithBlendLocals& locals = ctx.GetParams<SetViewTargetWithBlendLocals>();
                 AActor* target = locals.NewViewTarget;
-                if (!target || target->IsUnreachable())
-                {
-                    if (CAMERA_TRACE)
-                    {
-                        Output::send(STR("[MeshGhostPseudo] CAMERA_TRACE tick={} branch=junk-target\n"), tick_count);
-                    }
-                    return;
-                }
-
-                if (!any_ghost_ever_spawned)
-                {
-                    if (CAMERA_TRACE)
-                    {
-                        Output::send(STR("[MeshGhostPseudo] CAMERA_TRACE tick={} branch=learn target={}\n"),
-                                     tick_count,
-                                     target->GetFullName());
-                    }
-                    last_known_good_view_target = target;
-                    return;
-                }
-
-                if (!last_known_good_view_target || last_known_good_view_target->IsUnreachable())
-                {
-                    // A level transition destroys the previous area's camera rig, invalidating
-                    // last_known_good_view_target permanently -- re-baseline on the first call
-                    // after a transition instead of leaving the fight-back mechanism disabled
-                    // forever (Lua's confirmed fix for the exact same failure mode).
-                    if (CAMERA_TRACE)
-                    {
-                        Output::send(STR("[MeshGhostPseudo] CAMERA_TRACE tick={} branch=rebaseline target={}\n"),
-                                     tick_count,
-                                     target->GetFullName());
-                    }
-                    last_known_good_view_target = target;
-                    return;
-                }
-
-                if (target == last_known_good_view_target)
-                {
-                    if (CAMERA_TRACE)
-                    {
-                        Output::send(STR("[MeshGhostPseudo] CAMERA_TRACE tick={} branch=same target={}\n"),
-                                     tick_count,
-                                     target->GetFullName());
-                    }
-                    return;
-                }
-
-                if (!CAMERA_FIGHTBACK)
-                {
-                    // Experiment (2026-08-16): let the game have its camera and record what it
-                    // chose, so the log still shows every switch we would have blocked.
-                    if (CAMERA_TRACE)
-                    {
-                        Output::send(STR("[MeshGhostPseudo] CAMERA_TRACE tick={} branch=allowed-change from={} to={}\n"),
-                                     tick_count,
-                                     last_known_good_view_target->GetFullName(),
-                                     target->GetFullName());
-                    }
-                    last_known_good_view_target = target;
-                    return;
-                }
-
-                Output::send(STR("[MeshGhostPseudo] camera fight-back: rewriting NewViewTarget from {} to {} before the real call runs.\n"),
-                             target->GetFullName(),
-                             last_known_good_view_target->GetFullName());
-                locals.NewViewTarget = last_known_good_view_target;
+                Output::send(STR("[MeshGhostPseudo] CAMERA_TRACE tick={} target={}\n"),
+                             tick_count,
+                             target ? target->GetFullName() : STR("(null)"));
             },
             nullptr);
     }
@@ -5059,7 +4981,6 @@ namespace MeshGhostPseudo
             }
         }
 
-        any_ghost_ever_spawned = true; // gates the camera fight-back hook -- see its own comment
 
         RemoteGhost& remote = remotes[player_id];
         remote.ghost = ghost;
@@ -7711,8 +7632,9 @@ namespace MeshGhostPseudo
             // (probe_ghost/Scripts/main.lua:787-794). See actor_is_alive's own comment for why
             // this is IsValid()'s real C++ equivalent, not a guess.
             //
-            // Reviewed for the same cached-raw-pointer risk that caused the real, confirmed
-            // last_known_good_view_target crash (see the LoadMap PRE hook's comment): calling
+            // Reviewed for the same cached-raw-pointer risk that caused a real, confirmed crash
+            // in the camera fight-back's cached view target (that mechanism was removed
+            // 2026-08-16; see verified.md): calling
             // ->IsUnreachable() on a raw AActor* is only safe if the object is merely GC-
             // unreachable-but-still-allocated, not if its memory has actually been freed already.
             // For the one destruction path this codebase has ever actually observed -- a level

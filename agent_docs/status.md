@@ -27,9 +27,6 @@ that a peer's state genuinely differs from the local player's, which loopback co
 
 ### Open, not blocked
 
-- **Camera not re-grabbed after a cutscene or "reset to last save"** (user-reported 2026-08-16).
-  The fight-back hook rewrites EVERY view-target change once a ghost exists; `phase7.md`, and read
-  the existing `camera fight-back: rewriting` log lines before instrumenting.
 - **Two different games at once is broken** — both mods use bridge port 7778, and a core serves
   one game only, so the second reconnects forever in silence. Fix options in `ideas.md`.
 - **Autostart: TEVI and Emerald not converted yet.** Windows and Proton both fully confirmed;
