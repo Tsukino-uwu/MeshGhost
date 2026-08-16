@@ -168,6 +168,61 @@ func TestShowConsoleAbsentFromConfigStaysOff(t *testing.T) {
 	}
 }
 
+// TestShowConsoleDefaultsOnUnderWineOnly covers the safety valve for Proton:
+// on Windows the mod starts the client, watches the game's pid, and stops it,
+// all verified on screen -- so hidden is right. Under Wine none of that is
+// proven, and an orphan there would be a client with no window still holding
+// the bridge port, which a player can neither see nor close. The window makes
+// it findable.
+//
+// The explicit cases are the ones worth pinning: a default that ignored an
+// explicit choice would be a bug, not a safety net.
+func TestShowConsoleDefaultsOnUnderWineOnly(t *testing.T) {
+	cases := []struct {
+		name         string
+		explicitFlag bool
+		underWine    bool
+		want         bool
+	}{
+		{"under wine, nothing specified: show it", false, true, true},
+		{"real windows, nothing specified: stay hidden", false, false, false},
+		{"under wine but -show-console was passed: the flag decides", true, true, false},
+		{"real windows with an explicit flag: the flag decides", true, false, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := defaultShowConsoleUnderWine(tc.explicitFlag, tc.underWine); got != tc.want {
+				t.Errorf("defaultShowConsoleUnderWine(explicit=%v, wine=%v) = %v, want %v",
+					tc.explicitFlag, tc.underWine, got, tc.want)
+			}
+		})
+	}
+}
+
+// TestShowConsoleFromConfigStillWinsUnderWine pins the other half: the Wine
+// default is applied BEFORE the config file is read, precisely so someone on
+// Proton who has satisfied themselves it cleans up properly can turn the window
+// off and have it stay off. A default that a config file couldn't override
+// would be an annoyance nobody could escape.
+func TestShowConsoleFromConfigStillWinsUnderWine(t *testing.T) {
+	path := writeConfig(t, nil, `{"client":{"show_console":false}}`)
+	var relayAddr, bridgeAddr, gameID, room, name, gameVersion, roomCode, transport string
+	var interp, minSend time.Duration
+	var maxReceiveHz int
+	showConsole := true // what the Wine default would have just set
+
+	applyFileConfig(path, map[string]bool{}, configTargets{
+		relayAddr: &relayAddr, bridgeAddr: &bridgeAddr, gameID: &gameID,
+		room: &room, name: &name, interp: &interp, minSend: &minSend,
+		roomCode: &roomCode, gameVersion: &gameVersion, maxReceiveHz: &maxReceiveHz,
+		transport: &transport, showConsole: &showConsole,
+	})
+
+	if showConsole {
+		t.Error("show_console:false in config.json did not override the Wine default")
+	}
+}
+
 // TestWatchParentPIDFiresOnceWhenTheParentGoes is the regression test for the
 // orphan case autostart introduces: a game crashes, and the client it spawned
 // keeps running with no window, holding the bridge port so the next launch can't

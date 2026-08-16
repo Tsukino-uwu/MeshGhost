@@ -4798,3 +4798,25 @@ one does not.
 **Luck-of-the-draw, which is worse than a reliable failure**: the same code had passed on the
 Windows job minutes earlier (CI run 31952340980), so re-running the release would have "fixed" it
 and taught us nothing. Full suite green after the fix, e2e repeated at `-count=3`.
+
+## 2026-08-16 — The client shows a console under Wine by default (Windows side verified)
+
+**Established with the tools**, from the user's suggestion: if MeshGhost is going to be invisible,
+it should only be invisible where we have actually watched it clean up after itself.
+
+- **On real Windows it stays hidden.** Ran the freshly built `meshghost.exe` here: no window
+  appeared and the log contains no Wine line, confirming `runningUnderWine` does not false-positive
+  on the platform where hidden IS the feature.
+- **Wine detection** resolves `wine_get_version` in ntdll — Wine's own ntdll exports it and real
+  Windows has no equivalent. Traceable, not from memory: Wine's `dlls/ntdll/version.c`, and the
+  long-standing documented answer to "how do I detect Wine".
+- **It is only a default.** `-show-console` or `show_console` in config.json still decides;
+  regression tests cover both the four-way default matrix and a config file overriding it.
+- **Caught while writing it:** the shipped mod-folder config template had `"show_console": false`
+  set explicitly, which would have overridden the new default and disabled the safety valve for
+  exactly the Proton users it exists for. The key is now absent from the template on purpose, with
+  a comment saying why, since absent means "decide per platform".
+
+**Untested, and the whole point of the change:** that the window actually appears under Proton, and
+whether the client there dies with the game at all. If it turns out cleanup works fine through
+Wine, this default becomes noise and should be reconsidered — noted in the code as well.

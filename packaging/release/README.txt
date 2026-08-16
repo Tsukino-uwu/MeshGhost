@@ -395,6 +395,14 @@ game attached and no reason to go through Wine at all. If you'd rather your
 client be native too, start it before launching the game: Pseudoregalia's mod
 checks whether one is already running and uses it instead of starting its own.
 
+One difference you'll notice under Proton/Wine: the client shows a console
+window there, where on Windows it stays hidden. That's on purpose. On Windows
+we've watched it start with the game and stop with it, crashes included;
+through Wine that's untested, so it makes itself visible rather than risk
+leaving you a process you can neither see nor close. If it's ever still running
+after you quit the game, close that window. Setting "show_console": false in
+config.json turns it off if you'd rather.
+
 One exception worth knowing: Pokemon Emerald's adapter is a BizHawk Lua script
 (games\pokemon\emerald\ in this zip), and BizHawk itself runs natively on
 Linux and macOS. Nothing about that script is Windows-specific -- though

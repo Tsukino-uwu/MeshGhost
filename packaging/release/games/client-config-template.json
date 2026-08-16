@@ -9,6 +9,6 @@
     "name": "player",
     "interp": "100ms",
     "max_receive_hz_per_player": 0,
-    "show_console": false
+    "_comment_show_console": "\"show_console\" is deliberately NOT listed below, because absent means 'decide for me' and that is the useful behaviour: hidden on Windows, where the mod starts and stops MeshGhost for you, and VISIBLE under Proton/Wine, where that cleanup is unproven -- so the process is something you can see and close yourself if the game doesn't. Adding \"show_console\": false here would switch that off everywhere, including where it is a safety net. Add it (true or false) only if you want to decide for yourself on every platform."
   }
 }

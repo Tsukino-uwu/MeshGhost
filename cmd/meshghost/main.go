@@ -371,6 +371,30 @@ func watchParentPID(pid int, gone func(int) bool, poll time.Duration, onGone fun
 	}
 }
 
+// defaultShowConsoleUnderWine decides whether a client nobody explicitly
+// configured should open a console window because it is running under Wine
+// (Proton on Linux, CrossOver on macOS).
+//
+// Hidden is the right default on Windows: the mod starts the client, watches
+// the game's pid, and stops it -- all inside one process namespace, all
+// verified on screen. Under Wine none of that is proven, and the failure it
+// guards against is an ORPHAN: a client with no window, still holding the
+// bridge port, that the player has no way to see or stop. A window is a poor
+// feature and an excellent safety valve -- it makes the process findable and
+// closable by hand on exactly the platform where our own cleanup is least
+// certain.
+//
+// Only a DEFAULT: an explicit -show-console, or show_console in config.json,
+// still wins (this runs before applyFileConfig, so the file overrides it the
+// same way it overrides any other unset flag). Someone on Proton who has
+// satisfied themselves it cleans up properly can turn it off and keep it off.
+//
+// Reconsider once the Proton path has actually been watched -- if the client
+// reliably dies with the game there, this becomes noise rather than a valve.
+func defaultShowConsoleUnderWine(explicitFlag, underWine bool) bool {
+	return underWine && !explicitFlag
+}
+
 func main() {
 	relayAddr := flag.String("relay", "127.0.0.1:7777", "relay address to connect to")
 	bridgeAddr := flag.String("bridge", "127.0.0.1:7778", "address to listen on for the adapter bridge")
@@ -441,6 +465,16 @@ func main() {
 
 	explicit := map[string]bool{}
 	flag.Visit(func(f *flag.Flag) { explicit[f.Name] = true })
+
+	// Before applyFileConfig, so config.json still overrides it like any other
+	// flag the command line didn't set. See the function's own comment.
+	if defaultShowConsoleUnderWine(explicit["show-console"], runningUnderWine()) {
+		*showConsole = true
+		log.Printf("meshghost: running under Wine (Proton/CrossOver) -- showing a console window " +
+			"by default so this process is visible and can be closed by hand. Set \"show_console\": " +
+			"false in config.json to hide it.")
+	}
+
 	applyFileConfig(*configPath, explicit, configTargets{
 		relayAddr:    relayAddr,
 		bridgeAddr:   bridgeAddr,
