@@ -3456,6 +3456,30 @@ namespace MeshGhostPseudo
     // Possible only now that an afterimage is known to be a BP_AfterImage_C actor, which makes
     // "count the ones the game made" a cheap, exact question. Same principle as the recall glow's
     // presence mirror: copy the decision, never re-implement the rule.
+    // **Temporarily FALSE for an A/B test, 2026-08-16** -- user's recollection is that the trail
+    // stopped looking right when this trigger was revamped, and that is worth testing directly
+    // rather than reasoning about, because the mechanical difference is real: the old path asked
+    // the ghost for a BURST of 5-6 images per detection, while this one asks for 1 per detected
+    // image. Aggregate counts come out equal either way (measured, 7 vs 7), but the same total
+    // delivered one-at-a-time instead of in clumps looks completely different on screen -- and no
+    // counter built so far could have shown that, which is exactly why four instruments all
+    // reported parity while the user kept seeing a thinner trail.
+    //
+    // **A/B RESULT (2026-08-16): the trigger revamp is NOT the cause.** Reverting to the old
+    // capsule-shrink path did not restore the trail, so it is back on -- it covers ultras, which
+    // the old rule never did, and its timing is the game's own.
+    //
+    // What the A/B did find, which no previous instrument had: the ghost's spawn call
+    // UNDER-DELIVERS. The old path requested 25 bursts of 5 (125 images) and produced 49 bodies,
+    // about two per burst. Leading explanation, consistent with this file's own note that the
+    // game's loop counts `afterImagesToSpawn` DOWN as it spawns: the spawn happens over several
+    // ticks, and a re-fire 12 ticks later overwrites the counter mid-countdown, truncating the
+    // burst still in progress. The repeats fight each other, which is why more requests did not
+    // mean more images -- and why reverting the trigger changed nothing.
+    //
+    // That makes the next step concrete and NOT another counter: measure how many images one
+    // single request actually yields, with no second request anywhere near it, before changing any
+    // trigger. See `status.md`.
     constexpr bool AFTERIMAGE_TRIGGER_OBSERVED = true;
 
     // The ghost trails on a slide now (trigger confirmed live) but still never blue on an ultra.

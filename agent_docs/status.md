@@ -60,7 +60,17 @@ Fixed-and-confirmed work is not listed here — see `verified.md` and the phase 
     (`ghost_z = peer_z + (65 - peer_half)`) does NOT leak into the afterimages. Measured heights are
     identical on both sides (both at Z=501 on the same slide). It was a good hypothesis — the only
     slide-specific one anyone had — and it is simply wrong.
-  - **Untested candidate, and the only one left consistent with all the evidence**: the POSE. An
+  - **STRONGEST LEAD, found 2026-08-16 by an A/B against the old trigger: the ghost's spawn call
+    under-delivers.** 25 bursts requesting 5 images each (125 requested) produced 49 bodies —
+    roughly two per burst. Consistent with this file's own note that the game's loop counts
+    `afterImagesToSpawn` DOWN as it spawns over several ticks: a re-fire ~12 ticks later overwrites
+    the counter mid-countdown and truncates the burst in progress, so repeated requests fight each
+    other. That also explains why reverting the trigger did NOT restore the trail — the old path
+    has the same collision.
+    - **Next step, and deliberately not another counter**: issue ONE request with no second request
+      near it, and count how many images actually result. That measures delivery in isolation,
+      which nothing so far has done. Only then change any trigger.
+  - **Also still open**: the POSE. An
     afterimage is a `PoseableMeshComponent` snapshot; if the ghost's snapshots capture a degenerate
     skeleton (wrong mesh, missing bones, collapsed pose) they would render as almost nothing while
     still reporting N bodies at full opacity in the right place — which is exactly the pattern. The
