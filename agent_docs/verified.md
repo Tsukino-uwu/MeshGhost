@@ -4895,3 +4895,14 @@ appearance differs from yours. **So: loopback is sufficient for anything about r
 movement that is symmetric between the two sides, and not sufficient for anything that depends on
 the two sides being different.** That distinction is narrower than "always needs two machines" and
 is what actually failed here before.
+
+## 2026-08-16 — Pseudoregalia pole rotation is correct (two-machine session)
+
+**Confirmed by the user** during the same two-machine session that closed 7.7. Rotation while a
+peer is on a climbing pole renders correctly.
+
+This settles it in the direction the earlier entry suspected but could not prove: pole rotation was
+listed as "very likely the loopback offset, not a real bug", because loopback puts the ghost beside
+the geometry rather than on it, and a ghost standing next to a pole cannot demonstrate rotation
+around one. A real peer, actually on the pole, was the only thing that could tell those apart —
+and it is exactly the asymmetric case `testing.md`'s new rule keeps two machines for.

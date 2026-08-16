@@ -21,8 +21,9 @@ that a peer's state genuinely differs from the local player's, which loopback co
 - **Ghost collision keep-or-axe.** Kept ON deliberately; run-ending risk fixed. `risks.md`.
 - **Ghost vanishes while a peer is on a pole.** Cause unknown, three suspects ruled out;
   `phase7.md`.
-- **Pole rotation, and a thrown sword near a save crystal.** Both suspected loopback-offset
-  artifacts rather than real bugs — a two-machine session is what settles it. `verified.md`.
+- **A thrown sword near a save crystal.** Suspected a loopback-offset artifact rather than a real
+  bug; a two-machine session settles it. (Pole rotation, same suspicion, confirmed FINE
+  2026-08-16.) `verified.md`.
 
 ### Open, not blocked
 
