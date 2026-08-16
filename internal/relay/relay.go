@@ -47,6 +47,18 @@ type Client struct {
 	// lock of its own.
 	maxReceiveHz int
 
+	// transport is which transport this client arrived over ("tcp", "udp",
+	// "quic"), for logging only — nothing routes on it, and the relay
+	// forwards identically regardless. Written once at construction, before
+	// this Client is published into Room.members, so it needs no lock.
+	//
+	// Worth having because a room may legitimately mix transports: without
+	// this, a host looking at "why is this player's ghost stuttering" has no
+	// way to tell whether they are on udp or tcp short of asking them to read
+	// their own client log. Gap noticed during the first live three-transport
+	// test, 2026-08-16.
+	transport string
+
 	// gateMu guards lastStateTo, which maps a *sender's* player_id to the
 	// last time a State from that sender was forwarded *to this client*.
 	// This is the one piece of per-connection state that does not inherit
@@ -108,6 +120,24 @@ func newRoom(gameID, gameVersion, name string) *Room {
 // Extensibility section) is a small localized change instead of a rewrite
 // of this path.
 func (r *Room) Forward(msg protocol.Envelope, to []string) {
+	r.forward(msg, to, false)
+}
+
+// ForwardUnreliable is Forward for the state plane only, which
+// agent_docs/contract.md defines as lossy and latest-wins. Identical to
+// Forward on tcp; on a datagram transport it skips retransmission, so a
+// lost sample is superseded by the next one rather than arriving stale and
+// out of order behind it.
+//
+// Deliberately a separate method rather than a flag on Forward: every OTHER
+// use — join, leave, reject, the loopback ghost's own join — must stay
+// reliable, and a caller that forgets which it wanted gets the safe one.
+// See the transport ADR in agent_docs/architecture.md.
+func (r *Room) ForwardUnreliable(msg protocol.Envelope, to []string) {
+	r.forward(msg, to, true)
+}
+
+func (r *Room) forward(msg protocol.Envelope, to []string, unreliable bool) {
 	payload, err := json.Marshal(msg)
 	if err != nil {
 		// Envelope's fields always marshal; nothing in this project builds
@@ -139,7 +169,11 @@ func (r *Room) Forward(msg protocol.Envelope, to []string) {
 	r.mu.Unlock()
 
 	for _, t := range targets {
-		if err := t.conn.Send(payload); err != nil {
+		send := t.conn.Send
+		if unreliable {
+			send = t.conn.SendUnreliable
+		}
+		if err := send(payload); err != nil {
 			log.Printf("relay: send to %s failed: %v", t.id, err)
 		}
 	}
@@ -333,6 +367,18 @@ type Server struct {
 	// maxMessagesPerSecond). See the ADR in agent_docs/architecture.md.
 	SendHz int
 
+	// Offers is what a QueryOnly Hello is answered with: the transports
+	// this relay actually serves, and their ports. Set by
+	// cmd/meshghost-relay from the listeners it created, because only the
+	// caller knows what it bound — internal/relay is handed net.Listeners
+	// and deliberately cannot tell one transport from another, which is the
+	// whole reason it needed no changes to gain two of them.
+	//
+	// Empty (the default, and what every test gets) means discovery answers
+	// with an empty list, which a client treats exactly as it treats an
+	// older relay: nothing to upgrade to, carry on where you are.
+	Offers []protocol.TransportOffer
+
 	// clientCount is the number of clients currently holding a reserved
 	// slot, guarded by mu (the same lock already used for the rooms map,
 	// rather than a separate one — server-wide join bookkeeping is a
@@ -343,6 +389,20 @@ type Server struct {
 // NewServer creates an empty Server with no rooms.
 func NewServer() *Server {
 	return &Server{rooms: make(map[string]*Room), HelloTimeout: DefaultHelloTimeout, MaxClients: DefaultMaxClients}
+}
+
+// transportOffers snapshots Offers under the lock. Returns a copy so a
+// caller cannot retain a slice the server might later replace, and so the
+// JSON encoder can never race a reconfiguration.
+func (s *Server) transportOffers() []protocol.TransportOffer {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if len(s.Offers) == 0 {
+		return nil
+	}
+	out := make([]protocol.TransportOffer, len(s.Offers))
+	copy(out, s.Offers)
+	return out
 }
 
 // tryReserveSlot reserves one of the server's MaxClients slots, atomically
@@ -481,6 +541,19 @@ func (s *Server) nextPlayerID() string {
 // handleConn drives one client connection for its whole lifetime: waiting
 // for the opening Hello, joining a Room, forwarding State messages to the
 // rest of the room, and cleaning up on disconnect.
+// transportName labels a connection for logging without internal/relay
+// having to import any transport package: internal/netx/udpconn and
+// internal/netx/quicconn each implement TransportName, and anything else
+// (a real TCP conn, a net.Pipe in tests) is tcp-shaped by definition. Same
+// structural-interface approach internal/transport uses for its unreliable
+// write path, and it keeps this package's import list unchanged.
+func transportName(conn net.Conn) string {
+	if n, ok := conn.(interface{ TransportName() string }); ok {
+		return n.TransportName()
+	}
+	return "tcp"
+}
+
 func (s *Server) handleConn(conn net.Conn) {
 	// MaxLineBytes is the relay's own, tighter limit rather than
 	// transport's generous package default — via FromConnWithLimits, not a
@@ -658,6 +731,21 @@ func (s *Server) handleConn(conn net.Conn) {
 					return
 				}
 			}
+			// Transport discovery. Placed deliberately AFTER the field-length,
+			// protocol-version and room-code checks above and BEFORE the room
+			// table is touched: a caller learns nothing here it could not have
+			// learned by simply joining, so this adds no pre-auth surface —
+			// which is the property that made an explicit query preferable to
+			// having clients join over tcp and then reconnect. No room is
+			// joined, no player_id assigned, no slot reserved, and nobody in
+			// any room is told anything. See the transport discovery ADR in
+			// agent_docs/architecture.md.
+			if hello.QueryOnly {
+				sendEnvelope(nd, protocol.TypeTransports, protocol.Transports{Offers: s.transportOffers()})
+				_ = nd.Close()
+				return
+			}
+
 			// Single-game relay (agent_docs/architecture.md's ADR): checked
 			// here, after the field-length bound (so the game_id
 			// rejectAndClose logs is <= MaxHelloFieldLen) and before the
@@ -691,6 +779,7 @@ func (s *Server) handleConn(conn net.Conn) {
 				PlayerID:     newID,
 				Conn:         nd,
 				maxReceiveHz: protocol.ClampReceiveHz(hello.MaxReceiveHz),
+				transport:    transportName(conn),
 			})
 
 			mu.Lock()
@@ -703,7 +792,8 @@ func (s *Server) handleConn(conn net.Conn) {
 			// log recorded nothing at all for a connect/join, only its own
 			// startup line, leaving a host with no way to tell "nobody's
 			// connecting" from "someone's connecting and I can't see it."
-			log.Printf("relay: %s (%q) joined room %q as game %q", newID, hello.DisplayName, hello.Room, hello.GameID)
+			log.Printf("relay: %s (%q) joined room %q as game %q over %s",
+				newID, hello.DisplayName, hello.Room, hello.GameID, transportName(conn))
 
 			sendEnvelope(nd, protocol.TypeWelcome, protocol.Welcome{
 				PlayerID: newID,
@@ -741,7 +831,7 @@ func (s *Server) handleConn(conn net.Conn) {
 			if err != nil {
 				return
 			}
-			r.Forward(stateEnv, r.stateRecipients(id, time.Now()))
+			r.ForwardUnreliable(stateEnv, r.stateRecipients(id, time.Now()))
 
 			if s.Loopback {
 				// Dev-only Phase 3 loopback (agent_docs/phases/phase3.md):
@@ -775,7 +865,11 @@ func (s *Server) handleConn(conn net.Conn) {
 				ghost.PlayerID = ghostID
 				ghostEnv, err := envelope(protocol.TypeState, ghost)
 				if err == nil {
-					r.Forward(ghostEnv, []string{id})
+					// State, so unreliable like any other — the loopback
+					// ghost's own Join above stays reliable, since losing
+					// that would leave every echoed state dropped by
+					// core.storeRemoteState's roster check.
+					r.ForwardUnreliable(ghostEnv, []string{id})
 				}
 			}
 		case protocol.TypePing:

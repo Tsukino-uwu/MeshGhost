@@ -18,11 +18,14 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"meshghost/internal/bridge"
+	"meshghost/internal/netx"
 	"meshghost/internal/protocol"
 	"meshghost/internal/transport"
 )
@@ -204,6 +207,14 @@ type Core struct {
 	// "use whatever the adapter reported."
 	GameVersion string
 	DialTimeout time.Duration
+	// Transport selects how ConnectRelay reaches the relay. The zero value
+	// (netx.TCP) is the original and only pre-2026-08-16 behaviour, so a
+	// Core built without setting this is unchanged — which is what keeps
+	// every existing test on the exact same code path. Note this concerns
+	// only the relay connection: the adapter bridge is always loopback TCP
+	// and no adapter can observe this field. See the transport ADR in
+	// agent_docs/architecture.md.
+	Transport netx.Kind
 	// MaxReceiveHz is sent as Hello.MaxReceiveHz — the highest rate, per
 	// peer, at which this client asks the relay to forward other players'
 	// state to it. Zero (DefaultMaxReceiveHz) means uncapped. A request, not
@@ -377,10 +388,26 @@ func (c *Core) ConnectRelay(gameID string) error {
 	// relay connection didn't, despite enforcing every per-field cap on
 	// receive (storeRemoteState). 0/0 for idle/write timeout means "use
 	// transport's own defaults".
-	conn, err := transport.DialWithLimits(addr, protocol.MaxLineBytes, 0, 0)
+	// The handshake always happens over tcp, whatever Transport says, and
+	// that is not configurable. Only after it does this Core move to the
+	// transport the user actually asked for. See resolveTransport.
+	kind, dialAddr, err := c.resolveTransport(addr, gameID, room, displayName, roomCode, gameVersion)
 	if err != nil {
 		return fmt.Errorf("core: dial relay: %w", err)
 	}
+
+	// netx.Dial rather than transport.Dial* so the transport is selectable
+	// (agent_docs/architecture.md's transport ADR); transport.FromConnWithLimits
+	// then applies the same NDJSON framing and limits to whatever net.Conn
+	// comes back, identically for tcp, udp and quic. DefaultDialTimeout,
+	// not this call's `timeout`, matches what transport.DialWithLimits used
+	// internally before this change — `timeout` bounds the wait for Welcome
+	// further down, which is a different thing.
+	netConn, err := netx.Dial(kind, dialAddr, transport.DefaultDialTimeout)
+	if err != nil {
+		return fmt.Errorf("core: dial relay: %w", err)
+	}
+	conn := transport.FromConnWithLimits(netConn, protocol.MaxLineBytes, 0, 0)
 	c.mu.Lock()
 	c.relay = conn
 	c.mu.Unlock()
@@ -1094,6 +1121,188 @@ func (c *Core) sendHeartbeats(conn transport.Transport) {
 	}
 }
 
+// discoverTransportTimeout bounds the whole "what do you serve?" exchange.
+// Short on purpose: this sits in front of every connection attempt when
+// transport is "auto", and a relay that cannot answer promptly is one we
+// should stop waiting on and just connect to over tcp.
+const discoverTransportTimeout = 3 * time.Second
+
+// resolveTransport decides what this Core actually dials.
+//
+// **The handshake is always tcp, and no config setting can change that.**
+// Core.Transport is not "how to connect" but "what to move to once
+// connected": tcp means stay put, and udp or quic mean upgrade if the relay
+// offers them. That inversion buys three things at once — a client never
+// needs to be told which port a transport lives on (quic's differs, and
+// guessing is impossible), the one leg that must work is always the
+// transport that works everywhere and is readable while debugging, and a
+// misconfigured preference degrades to a working tcp session instead of a
+// timeout.
+//
+// A tcp preference short-circuits: there is nothing to upgrade to, so the
+// single connection made is already the tcp one, and asking would cost a
+// round trip to learn nothing.
+//
+// The returned error is non-nil only when the relay could not be reached
+// over tcp at all — which is exactly the error the caller would have
+// produced itself, so it is passed up rather than papered over. Every other
+// failure (old relay, refused room code, malformed answer) returns tcp at
+// the configured address, letting the real connect attempt surface the real
+// problem.
+func (c *Core) resolveTransport(addr, gameID, room, displayName, roomCode, gameVersion string) (netx.Kind, string, error) {
+	if c.Transport == netx.TCP {
+		return netx.TCP, addr, nil
+	}
+
+	offers, err := c.queryTransports(addr, gameID, room, displayName, roomCode, gameVersion)
+	if err != nil {
+		return netx.TCP, addr, err
+	}
+	kind, dialAddr := c.chooseTransport(addr, offers)
+	return kind, dialAddr, nil
+}
+
+// queryTransports performs the tcp handshake leg: connect, ask what the
+// relay serves, hang up without joining.
+//
+// Not joining is the whole point. Joining first and upgrading afterwards
+// would make every other player in the room watch this one leave and
+// rejoin, because the relay assigns a fresh player_id per connection and
+// agent_docs/contract.md guarantees no session resumption.
+//
+// An error is returned only for an unreachable relay. Anything else yields
+// a nil list, meaning "nothing to upgrade to".
+func (c *Core) queryTransports(addr, gameID, room, displayName, roomCode, gameVersion string) ([]protocol.TransportOffer, error) {
+	netConn, err := netx.Dial(netx.TCP, addr, discoverTransportTimeout)
+	if err != nil {
+		return nil, err
+	}
+	conn := transport.FromConnWithLimits(netConn, protocol.MaxLineBytes, 0, 0)
+	defer conn.Close()
+
+	replies := make(chan protocol.Envelope, 1)
+	conn.OnReceive(func(payload []byte) {
+		var env protocol.Envelope
+		if err := json.Unmarshal(payload, &env); err != nil {
+			return
+		}
+		select {
+		case replies <- env:
+		default:
+		}
+	})
+
+	hello, err := json.Marshal(protocol.Hello{
+		ProtocolVersion: protocol.Version,
+		GameID:          gameID,
+		Room:            room,
+		DisplayName:     displayName,
+		RoomCode:        roomCode,
+		GameVersion:     gameVersion,
+		QueryOnly:       true,
+	})
+	if err != nil {
+		return nil, nil
+	}
+	env, err := json.Marshal(protocol.Envelope{Type: protocol.TypeHello, Payload: hello})
+	if err != nil {
+		return nil, nil
+	}
+	if err := conn.Send(env); err != nil {
+		return nil, nil
+	}
+
+	select {
+	case reply := <-replies:
+		switch reply.Type {
+		case protocol.TypeTransports:
+			var t protocol.Transports
+			if err := json.Unmarshal(reply.Payload, &t); err != nil {
+				return nil, nil
+			}
+			return t.Offers, nil
+		case protocol.TypeWelcome:
+			// An older relay: it does not know query_only, so it treated
+			// this as a real hello and joined us. Nothing to upgrade to, so
+			// use tcp. The connection is closed on return, which such a
+			// relay reports to the room as a leave — one spurious
+			// join/leave against pre-2026-08-16 relays only, and the price
+			// of the field being additive rather than a version bump.
+			log.Printf("core: relay at %s does not support transport discovery (older build) — using tcp", addr)
+			return nil, nil
+		default:
+			// A reject (wrong room code, wrong version, ...). Let the real
+			// connect attempt surface it, with its reason, rather than
+			// duplicating that logic here.
+			return nil, nil
+		}
+	case <-time.After(discoverTransportTimeout):
+		return nil, nil
+	}
+}
+
+// chooseTransport picks the best offered transport and rebuilds the address
+// to dial.
+//
+// Only the port comes from the relay; the host is always the one the user
+// configured. That is what lets discovery work through NAT and port
+// forwarding — a relay bound to 0.0.0.0 has no idea which address reaches
+// it, but the client just connected to one, so it already knows.
+func (c *Core) chooseTransport(addr string, offers []protocol.TransportOffer) (netx.Kind, string) {
+	if len(offers) == 0 {
+		return netx.TCP, addr
+	}
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		return netx.TCP, addr
+	}
+
+	byKind := map[string]protocol.TransportOffer{}
+	for _, o := range offers {
+		if o.Port > 0 && o.Port < 65536 {
+			byKind[o.Kind] = o
+		}
+	}
+
+	// An explicit preference is honoured exactly, and only that one is
+	// considered — a client asking for quic must not silently land on udp,
+	// which would swap an encrypted session for one that cannot be
+	// encrypted at all. netx.Auto is the only value that ranks.
+	wants := []netx.Kind{c.Transport}
+	if c.Transport == netx.Auto {
+		wants = netx.AutoPreference
+	}
+
+	for _, want := range wants {
+		if want == netx.TCP {
+			return netx.TCP, addr
+		}
+		o, ok := byKind[want.String()]
+		if !ok {
+			continue
+		}
+		chosen := net.JoinHostPort(host, strconv.Itoa(o.Port))
+		log.Printf("core: relay offers %s — using %s at %s", offerList(offers), want, chosen)
+		return want, chosen
+	}
+
+	// Asked for something this relay does not serve. Staying on tcp is
+	// right — the session works, which a timeout would not — but say so,
+	// because otherwise a user who deliberately chose quic for encryption
+	// would silently get an unencrypted session with nothing to indicate it.
+	log.Printf("core: this relay does not offer %s (it offers %s) — staying on tcp",
+		c.Transport, offerList(offers))
+	return netx.TCP, addr
+}
+
+func offerList(offers []protocol.TransportOffer) string {
+	parts := make([]string, 0, len(offers))
+	for _, o := range offers {
+		parts = append(parts, fmt.Sprintf("%s:%d", o.Kind, o.Port))
+	}
+	return strings.Join(parts, ", ")
+}
+
 func (c *Core) sendState(relay transport.Transport, st protocol.State) {
 	payload, err := json.Marshal(st)
 	if err != nil {
@@ -1105,7 +1314,15 @@ func (c *Core) sendState(relay transport.Transport, st protocol.State) {
 		log.Printf("core: BUG: state envelope failed to marshal: %v", err)
 		return
 	}
-	if err := relay.Send(env); err != nil {
+	// SendUnreliable, not Send: this is the state plane, which
+	// agent_docs/contract.md defines as lossy and latest-wins. On tcp
+	// there is no difference at all. On a datagram transport it means a
+	// lost sample is superseded by the next one ~50ms later instead of
+	// being retransmitted — and a retransmitted position would arrive
+	// stale and out of order, which is worse than the gap it fills. Every
+	// other message this Core sends stays on Send. See the transport ADR
+	// in agent_docs/architecture.md.
+	if err := relay.SendUnreliable(env); err != nil {
 		log.Printf("core: send state to relay failed: %v", err)
 	}
 }

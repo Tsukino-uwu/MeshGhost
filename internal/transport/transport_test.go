@@ -327,3 +327,108 @@ func TestIdleTimeoutClosesConnection(t *testing.T) {
 		t.Fatal("timed out waiting for idle-timeout disconnect")
 	}
 }
+
+// countingConn is a net.Conn that records every Write it receives, so a
+// test can assert on the *number* of writes rather than only the bytes that
+// come out the other end. Reads block until Close, which is enough for
+// FromConn's read loop to sit quietly while the test drives Send.
+type countingConn struct {
+	mu     sync.Mutex
+	writes [][]byte
+	closed chan struct{}
+	once   sync.Once
+}
+
+func newCountingConn() *countingConn {
+	return &countingConn{closed: make(chan struct{})}
+}
+
+func (c *countingConn) Write(p []byte) (int, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	cp := make([]byte, len(p))
+	copy(cp, p)
+	c.writes = append(c.writes, cp)
+	return len(p), nil
+}
+
+func (c *countingConn) Read(p []byte) (int, error) {
+	<-c.closed
+	return 0, net.ErrClosed
+}
+
+func (c *countingConn) Close() error {
+	c.once.Do(func() { close(c.closed) })
+	return nil
+}
+
+func (c *countingConn) LocalAddr() net.Addr                { return nil }
+func (c *countingConn) RemoteAddr() net.Addr               { return nil }
+func (c *countingConn) SetDeadline(t time.Time) error      { return nil }
+func (c *countingConn) SetReadDeadline(t time.Time) error  { return nil }
+func (c *countingConn) SetWriteDeadline(t time.Time) error { return nil }
+
+func (c *countingConn) snapshot() [][]byte {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	out := make([][]byte, len(c.writes))
+	copy(out, c.writes)
+	return out
+}
+
+// TestSendIssuesExactlyOneWritePerMessage pins the property that makes
+// NDJSON framing survive a datagram transport: payload and its terminating
+// newline must leave in a *single* Write. Send used to issue two (payload,
+// then "\n"), which TCP hides completely — the bytes arrive identically
+// either way — but which becomes two datagrams per message over UDP or a
+// QUIC datagram, splitting every line in half with no way to reassemble it
+// downstream. Found while scoping selectable transports; see the transport
+// ADR in agent_docs/architecture.md.
+//
+// This test fails against the two-Write version, which is the point: the
+// bytes-level assertions below pass either way, so only the count catches a
+// regression here.
+func TestSendIssuesExactlyOneWritePerMessage(t *testing.T) {
+	cc := newCountingConn()
+	conn := FromConn(cc)
+	defer conn.Close()
+
+	for _, payload := range [][]byte{[]byte(`{"a":1}`), []byte(`{"b":2}`)} {
+		if err := conn.Send(payload); err != nil {
+			t.Fatalf("send: %v", err)
+		}
+	}
+
+	writes := cc.snapshot()
+	if len(writes) != 2 {
+		t.Fatalf("got %d writes for 2 messages, want 2 (one per message); a split payload/newline write breaks datagram transports", len(writes))
+	}
+	for i, want := range []string{"{\"a\":1}\n", "{\"b\":2}\n"} {
+		if string(writes[i]) != want {
+			t.Errorf("write %d = %q, want %q", i, writes[i], want)
+		}
+	}
+}
+
+// TestSendUnreliableMatchesSendOverTCP confirms the opt-out is a no-op on a
+// stream transport: TCP has no unreliable mode to drop into, so the bytes
+// and the write count must be identical to Send. A transport that quietly
+// did something different here would make the state plane behave one way on
+// tcp and another on udp for no reason a caller could see.
+func TestSendUnreliableMatchesSendOverTCP(t *testing.T) {
+	cc := newCountingConn()
+	conn := FromConn(cc)
+	defer conn.Close()
+
+	if err := conn.SendUnreliable([]byte(`{"a":1}`)); err != nil {
+		t.Fatalf("send unreliable: %v", err)
+	}
+
+	writes := cc.snapshot()
+	if len(writes) != 1 {
+		t.Fatalf("got %d writes, want 1", len(writes))
+	}
+	if got, want := string(writes[0]), "{\"a\":1}\n"; got != want {
+		t.Errorf("write = %q, want %q", got, want)
+	}
+}

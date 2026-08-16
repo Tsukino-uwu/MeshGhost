@@ -706,10 +706,11 @@ func (f *fakeStallingTransport) Send(payload []byte) error {
 	<-f.unblock
 	return nil
 }
-func (f *fakeStallingTransport) OnReceive(func([]byte))   {}
-func (f *fakeStallingTransport) OnDisconnect(func(error)) {}
-func (f *fakeStallingTransport) OnError(func(error))      {}
-func (f *fakeStallingTransport) Close() error             { return nil }
+func (f *fakeStallingTransport) SendUnreliable(payload []byte) error { return f.Send(payload) }
+func (f *fakeStallingTransport) OnReceive(func([]byte))              {}
+func (f *fakeStallingTransport) OnDisconnect(func(error))            {}
+func (f *fakeStallingTransport) OnError(func(error))                 {}
+func (f *fakeStallingTransport) Close() error                        { return nil }
 
 // TestRoomForwardDoesNotBlockOtherOperationsOnStalledSend confirms
 // Room.Forward releases r.mu before calling Send, so one stalled room

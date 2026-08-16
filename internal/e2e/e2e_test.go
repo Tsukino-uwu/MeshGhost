@@ -22,11 +22,13 @@ import (
 	"path/filepath"
 	"runtime"
 	"strconv"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"meshghost/internal/bridge"
+	"meshghost/internal/netx"
 	"meshghost/internal/protocol"
 	"meshghost/internal/transport"
 )
@@ -336,5 +338,180 @@ func TestClientSurvivesARelayThatIsNotThereYet(t *testing.T) {
 	case <-time.After(testTimeout):
 		t.Fatalf("client never established a working session with a relay that "+
 			"appeared after it started (waited %s)", testTimeout)
+	}
+}
+
+// waitForRelayTransport is waitForListener for a transport where a bare TCP
+// connect proves nothing. It dials the way a real client would — which for
+// udp means completing the address-validation exchange, and for quic the
+// TLS handshake — so a successful probe means the relay is genuinely
+// serving that transport on that port, not merely that something is bound.
+func waitForRelayTransport(t *testing.T, kind netx.Kind, addr string) {
+	t.Helper()
+	if kind == netx.TCP {
+		waitForListener(t, addr)
+		return
+	}
+	deadline := time.Now().Add(testTimeout)
+	for {
+		conn, err := netx.Dial(kind, addr, time.Second)
+		if err == nil {
+			conn.Close()
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("nothing serving %s on %s after %s: %v", kind, addr, testTimeout, err)
+		}
+		time.Sleep(pollEvery)
+	}
+}
+
+// startRelayOn is startRelay for a chosen transport. quic gets its own
+// address because it runs over udp and so cannot share a port with the
+// plain udp transport.
+// startRelayOn serves tcp plus kind, and returns once both are up.
+//
+// tcp is not optional: netx.ParseKinds adds it whether or not it is named,
+// because every client handshakes over tcp before moving to its configured
+// transport. tcpAddr is therefore what a client connects to for ANY kind —
+// quic in particular listens elsewhere (it runs over udp and cannot share a
+// port with the plain udp transport), and the client learns that port from
+// the handshake rather than being told it.
+func startRelayOn(t *testing.T, dir, bin, tcpAddr, quicAddr string, kind netx.Kind) {
+	t.Helper()
+	args := []string{"-loopback", "-transport", "tcp," + kind.String(), "-addr", tcpAddr}
+	if kind == netx.QUIC {
+		args = append(args, "-listen-quic", quicAddr)
+	}
+	start(t, dir, bin, args...)
+	waitForRelayTransport(t, netx.TCP, tcpAddr)
+	if kind == netx.QUIC {
+		waitForRelayTransport(t, netx.QUIC, quicAddr)
+	} else if kind != netx.TCP {
+		waitForRelayTransport(t, kind, tcpAddr)
+	}
+}
+
+func startClientOn(t *testing.T, dir, bin, relayAddr, bridgeAddr string, kind netx.Kind) {
+	t.Helper()
+	start(t, dir, bin,
+		"-relay", relayAddr,
+		"-bridge", bridgeAddr,
+		"-transport", kind.String(),
+		"-game", "e2egame",
+		"-room", "e2eroom",
+		"-interp", "0ms",
+		"-min-send", "10ms",
+	)
+	waitForListener(t, bridgeAddr)
+}
+
+// withFreshPorts reuses an already-built pair of binaries with new ports,
+// so a table of transports does not pay for a rebuild per entry — which
+// matters more now that quic-go is linked in.
+func (r rig) withFreshPorts(t *testing.T) rig {
+	t.Helper()
+	r.relayAddr = net.JoinHostPort("127.0.0.1", strconv.Itoa(freePort(t)))
+	r.bridgeAddr = net.JoinHostPort("127.0.0.1", strconv.Itoa(freePort(t)))
+	return r
+}
+
+// TestReleaseBinariesRoundTripAGhostOnEveryTransport is
+// TestReleaseBinariesRoundTripAGhost repeated for udp and quic: the real
+// relay and client processes, launched with -transport, carrying a real
+// ghost all the way from the adapter's bridge socket, out over the chosen
+// transport, through the relay and back.
+//
+// This is the test that would catch a transport wired correctly in the
+// packages but not actually reachable from the shipped binaries' flags and
+// config — the gap between "the unit tests pass" and "a user can turn it
+// on", which is the entire reason internal/e2e exists.
+func TestReleaseBinariesRoundTripAGhostOnEveryTransport(t *testing.T) {
+	if testing.Short() {
+		t.Skip("builds and launches real binaries; skipped under -short")
+	}
+
+	base := newRig(t)
+	for _, kind := range []netx.Kind{netx.UDP, netx.QUIC} {
+		t.Run(kind.String(), func(t *testing.T) {
+			r := base.withFreshPorts(t)
+			quicAddr := net.JoinHostPort("127.0.0.1", strconv.Itoa(freePort(t)))
+			startRelayOn(t, r.dir, r.relayBin, r.relayAddr, quicAddr, kind)
+			// The client is given the TCP address only, for every kind: the
+			// handshake is always tcp, and the real transport's port comes
+			// back from the relay.
+			startClientOn(t, r.dir, r.clientBin, r.relayAddr, r.bridgeAddr, kind)
+
+			renders, stop := startAdapter(t, r.bridgeAddr, "e2egame")
+			defer stop()
+
+			select {
+			case rr := <-renders:
+				if rr.PlayerID == "" {
+					t.Fatal("render_remote carried an empty player_id")
+				}
+				if rr.State.AreaID != "e2earea" {
+					t.Fatalf("ghost came back in area %q, want %q", rr.State.AreaID, "e2earea")
+				}
+				if rr.State.Anim != "walk" {
+					t.Fatalf("ghost anim is %q, want %q", rr.State.Anim, "walk")
+				}
+			case <-time.After(testTimeout):
+				t.Fatalf("no render_remote reached the adapter over %s within %s", kind, testTimeout)
+			}
+		})
+	}
+}
+
+// TestAutoTransportUpgradesToQUIC is the discovery feature end to end: a
+// real client told only "auto" and a tcp address finds the relay's quic
+// port, which it could not possibly have guessed — quic runs on a
+// different port, so there is nothing to probe for.
+//
+// It asserts on the client's own log rather than on packet contents
+// because that log line is also the user-visible artifact: without it, a
+// user has no way to tell which transport they actually ended up on.
+func TestAutoTransportUpgradesToQUIC(t *testing.T) {
+	if testing.Short() {
+		t.Skip("builds and launches real binaries; skipped under -short")
+	}
+
+	base := newRig(t)
+	r := base.withFreshPorts(t)
+	quicAddr := net.JoinHostPort("127.0.0.1", strconv.Itoa(freePort(t)))
+
+	start(t, r.dir, r.relayBin,
+		"-loopback",
+		"-transport", "tcp,quic",
+		"-addr", r.relayAddr,
+		"-listen-quic", quicAddr,
+	)
+	waitForRelayTransport(t, netx.TCP, r.relayAddr)
+	waitForRelayTransport(t, netx.QUIC, quicAddr)
+
+	// The client is given the TCP address only. Finding quic requires
+	// asking the relay.
+	startClientOn(t, r.dir, r.clientBin, r.relayAddr, r.bridgeAddr, netx.Auto)
+
+	renders, stop := startAdapter(t, r.bridgeAddr, "e2egame")
+	defer stop()
+
+	select {
+	case rr := <-renders:
+		if rr.State.AreaID != "e2earea" {
+			t.Fatalf("ghost came back in area %q, want %q", rr.State.AreaID, "e2earea")
+		}
+	case <-time.After(testTimeout):
+		t.Fatalf("no render_remote reached the adapter with transport=auto within %s", testTimeout)
+	}
+
+	logBytes, err := os.ReadFile(filepath.Join(r.dir, "meshghost.log"))
+	if err != nil {
+		t.Fatalf("read client log: %v", err)
+	}
+	logText := string(logBytes)
+	wantPort := quicAddr[strings.LastIndex(quicAddr, ":"):]
+	if !strings.Contains(logText, "using quic at") || !strings.Contains(logText, wantPort) {
+		t.Fatalf("client did not report upgrading to quic on %s. Log was:\n%s", quicAddr, logText)
 	}
 }

@@ -23,13 +23,24 @@ const testServerConfig = `{"server": {"listen_on": "1.2.3.4:9999", "only_game": 
 // applyTestConfig runs applyFileConfig over path with no flags marked
 // explicit, returning the resulting listen address and only_game.
 func applyTestConfig(path string) (addr, onlyGame string) {
+	addr, onlyGame, _, _ = applyTestConfigFull(path)
+	return addr, onlyGame
+}
+
+// applyTestConfigFull is applyTestConfig plus the transport keys, and it
+// passes EVERY configTargets field. Passing all of them is not tidiness: a
+// nil target is a nil dereference the moment a config file sets the
+// corresponding key, so a partially-populated struct here would turn a real
+// crash into a test that passes by never exercising the field.
+func applyTestConfigFull(path string) (addr, onlyGame, transport, quicAddr string) {
 	var maxClients, sendHz int
 	var roomCode string
 	applyFileConfig(path, map[string]bool{}, configTargets{
 		addr: &addr, roomCode: &roomCode, onlyGame: &onlyGame,
 		maxClients: &maxClients, sendHz: &sendHz,
+		transport: &transport, quicAddr: &quicAddr,
 	})
-	return addr, onlyGame
+	return addr, onlyGame, transport, quicAddr
 }
 
 // TestConfigWithUTF8BOMIsStillRead is the regression test for a config file
@@ -71,5 +82,46 @@ func TestUTF16ConfigLeavesDefaults(t *testing.T) {
 	addr, onlyGame := applyTestConfig(path)
 	if addr != "" || onlyGame != "" {
 		t.Errorf("listen_on = %q, only_game = %q, want both left at their defaults", addr, onlyGame)
+	}
+}
+
+// TestTransportKeysAreReadFromConfig confirms both new server keys reach
+// their flag targets. listen_quic matters as much as transport: quic runs
+// over udp and so cannot share a port with the plain udp transport, which
+// means a relay serving both needs two addresses and silently dropping one
+// of them would bind quic somewhere nobody is dialing.
+func TestTransportKeysAreReadFromConfig(t *testing.T) {
+	path := writeConfig(t, nil, `{"server":{"listen_on":"0.0.0.0:7777",`+
+		`"listen_quic":"0.0.0.0:7780","transport":"tcp,udp,quic"}}`)
+	addr, _, transport, quicAddr := applyTestConfigFull(path)
+	if transport != "tcp,udp,quic" {
+		t.Errorf("transport = %q, want %q", transport, "tcp,udp,quic")
+	}
+	if quicAddr != "0.0.0.0:7780" {
+		t.Errorf("listen_quic = %q, want %q", quicAddr, "0.0.0.0:7780")
+	}
+	if addr != "0.0.0.0:7777" {
+		t.Errorf("listen_on = %q, want %q", addr, "0.0.0.0:7777")
+	}
+}
+
+// TestTransportAbsentFromConfigLeavesTheFlagDefaults is the compatibility
+// half: a config.json written before selectable transports existed has
+// neither key, and such a relay must keep serving tcp exactly as it did.
+func TestTransportAbsentFromConfigLeavesTheFlagDefaults(t *testing.T) {
+	path := writeConfig(t, nil, `{"server":{"listen_on":"0.0.0.0:7777"}}`)
+	transport, quicAddr := "tcp", DefaultQuicAddr
+	var addr, onlyGame, roomCode string
+	var maxClients, sendHz int
+	applyFileConfig(path, map[string]bool{}, configTargets{
+		addr: &addr, roomCode: &roomCode, onlyGame: &onlyGame,
+		maxClients: &maxClients, sendHz: &sendHz,
+		transport: &transport, quicAddr: &quicAddr,
+	})
+	if transport != "tcp" {
+		t.Errorf("transport = %q, want it left at the flag default %q", transport, "tcp")
+	}
+	if quicAddr != DefaultQuicAddr {
+		t.Errorf("listen_quic = %q, want it left at %q", quicAddr, DefaultQuicAddr)
 	}
 }

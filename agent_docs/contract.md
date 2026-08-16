@@ -37,7 +37,12 @@ broken. There are two separate channels, and the invariant applies to only one o
 **Invariant (restated precisely):** an adapter may hold a socket to its own local core
 process and nothing else. It never learns a relay address, never speaks the relay protocol
 directly, and never sends bytes to anything off-machine. The core is the only thing that
-touches the relay. A future in-process adapter (e.g. a C# host embedding the core as a
+touches the relay. **An adapter also has no say in *how* the core reaches the relay** — not the
+address, not the transport, not the rate. Added 2026-08-16 with selectable transports: the rules
+above forbade an adapter from *doing* relay things but not from *influencing* them, so a
+`preferred_transport` field in the bridge `hello` would have violated nothing written here while
+being exactly the wrong shape. A game that suits one transport better is expressed as shipped
+configuration, never through the bridge. A future in-process adapter (e.g. a C# host embedding the core as a
 library) replaces the bridge socket with direct function calls — same invariant, no socket
 needed at all.
 
@@ -248,8 +253,50 @@ ends and the next begins.
   over length-prefixing because it stays greppable and typeable over `netcat` while
   debugging — the same "debuggability beats bandwidth" reasoning the brief already applies
   to choosing JSON over binary.
+- **Selectable transport** (added 2026-08-16 — ADR in `architecture.md`): the relay connection
+  runs over `tcp` (default), `udp`, or `quic`, chosen by `"transport"` in `config.json` on each
+  end. The relay may serve several at once, and **one room may hold clients on different
+  transports simultaneously** — the relay forwards through the `Transport` interface and never
+  learns which is which. None of this reaches an adapter: the bridge is always loopback TCP
+  NDJSON.
+  - **Framing is identical on all three: one datagram carries exactly one NDJSON line.** The
+    consequence worth knowing is that `send` must emit payload and its newline in a *single*
+    write — two writes are two datagrams and split every line in half.
+  - **Datagram size:** `internal/netx/udpconn.MaxDatagramBytes` (1200) bounds one message on
+    `udp`, below `MaxLineBytes` (4096). A message over that is refused, not fragmented, because
+    a fragmented datagram is lost whole when any one fragment is lost. Large `extras` therefore
+    means `tcp`.
+  - **`udp` cannot be encrypted.** Go's standard library has no DTLS, so `room_code` crosses
+    that transport in the clear with no fix available. `quic` is the encrypted option — its
+    handshake is TLS 1.3.
+  - **Ports:** `tcp` and `udp` share `listen_on` (independent port spaces); `quic` needs its own
+    `listen_quic`, because it is itself carried over UDP.
+  - **The handshake is always tcp, and is not configurable.** `transport` is not *how* a client
+    connects but what it moves to *once* connected: `tcp` stays put, `udp` (the shipped client
+    default) and `quic` upgrade if offered, `auto` takes the best available. **tcp is mandatory
+    on the relay too** — `netx.ParseKinds` adds it whether or not the operator names it, because
+    a relay without tcp is unreachable by every client. Note the shipped *relay* default is
+    tcp-only, so an out-of-the-box pair has the client ask for udp and degrade back to tcp with a
+    log line.
+  - **Discovery:** a client may send `hello`
+    with `query_only: true`; the relay replies `transports` (kind + **port only**, never a host —
+    the client already knows one, and a relay bound to `0.0.0.0` does not) and closes, **without
+    joining a room, assigning a `player_id`, or announcing anything**. The query passes every
+    check a real join does *first*, room code included, so it discloses nothing to anyone who
+    could not simply have joined — that is what keeps the relay free of any pre-auth endpoint.
+    Preference order is `quic`, `tcp`, `udp`; **`auto` never picks `udp` unless nothing else is
+    offered**, since it cannot be encrypted. Any failure falls back to `tcp` at the configured
+    address, so discovery can only improve a connection, never prevent one.
 - **Transport interface, expanded:**
-  - `send(bytes)` — unchanged from the brief.
+  - `send(bytes)` — unchanged from the brief. **Reliable on every transport**, so a caller that
+    knows nothing about `send_unreliable` below is always correct.
+  - `send_unreliable(bytes)` — added 2026-08-16, for the `state` plane and nothing else. Delivery
+    is not guaranteed: on `udp` the datagram is sent once, on `quic` it rides a QUIC datagram, and
+    on `tcp` it is exactly `send`. Correct precisely because this document already defines the
+    state plane as lossy and latest-wins — a retransmitted position would arrive stale and out of
+    order, which is worse than the gap it fills. Everything carrying lifecycle meaning
+    (`hello`, `welcome`, `join`, `leave`, `reject`, `ping`, `pong`) stays on `send`; a dropped
+    `leave` would strand a ghost on screen forever.
   - `on_receive(callback)` — unchanged from the brief.
   - `on_disconnect(reason)`, `on_error(err)` — the brief's version had no way to report a
     dropped or failed connection. (`on_connect()` was in this list too until a review pass
@@ -363,7 +410,8 @@ relay connection actually exists.
 
 ## Hard rules (unchanged from the brief, still binding)
 
-- Adapters never speak the relay protocol or open a socket to anything but the bridge.
+- Adapters never speak the relay protocol or open a socket to anything but the bridge, and have
+  no say in how the core reaches the relay (address, transport, or rate).
 - The core never touches game memory or a rendering primitive.
 - `if game == "emerald"` anywhere in the core means the abstraction has leaked.
 - Coordinate systems (Y-up vs Z-up, tile vs world units, pixel origins) are normalized

@@ -345,6 +345,31 @@ originally anticipated (2026-08-11) is where these landed, as expected.
 work — see `risks.md`); the "stale relay" gap has no protocol-level fix, only a documentation
 one (tell hosts to update); TEVI's `game_version` doesn't yet reflect a real Steam build number.
 
+**Partly overtaken 2026-08-16 by selectable transports** (ADR in `architecture.md`): `quic` is
+encrypted, so a room code on that transport no longer crosses the wire in the clear. TLS over
+`tcp` is still unbuilt, and `udp` can never have it at all. Neither end changed default — both
+still ship `tcp`.
+
+### Selectable transport: `tcp` | `udp` | `quic`
+
+**Built 2026-08-16**, from a user question about whether a TCP/UDP toggle was possible. Motivation
+is modularity, explicitly not throughput: `Transport` was called "the swappable network boundary"
+in the brief and in its own doc comment while having exactly one implementation, so the claim was
+untested. Three implementations behind one interface, selected by `"transport"` in `config.json`,
+with the relay able to serve several at once and a room able to mix them freely.
+
+The seam sits at `net.Listener`/`net.Conn` (`internal/netx`), not at a second `Transport`
+implementation, which is why `internal/relay` gained no transport-aware line and its
+per-connection-goroutine concurrency model survived untouched. `Send` is reliable everywhere and
+`SendUnreliable` is the explicit opt-out, used only by the two state hot paths.
+
+**Adapters are unaffected and cannot observe any of it** — the bridge stays loopback TCP NDJSON.
+
+**Open, and deliberately not attempted here**: a client cannot discover which transports a relay
+offers, so the host must say so out of band (`ideas.md` has the `Welcome`-advertisement design);
+`udp` can never be encrypted; there is still no per-IP connection cap. Full detail in the ADR,
+`risks.md`, and `verified.md`.
+
 ### Send/receive rate control
 
 **Built 2026-08-15**, in response to a user question about a setting they recalled discussing

@@ -59,8 +59,16 @@ const (
 // never implement or hold this directly (see internal/bridge for their
 // side), but internal/core and internal/relay both depend on it.
 type Transport interface {
-	// Send writes one payload as a single NDJSON line.
+	// Send writes one payload as a single NDJSON line, reliably. Every
+	// transport guarantees delivery here, so a caller that knows nothing
+	// about SendUnreliable below is always correct.
 	Send(payload []byte) error
+
+	// SendUnreliable writes one payload with no delivery guarantee, for
+	// the lossy latest-wins state plane only. A transport with no
+	// unreliable mode (TCP) implements it as Send. See the NDJSONConn
+	// method for why reliability is opt-out rather than opt-in.
+	SendUnreliable(payload []byte) error
 
 	// OnReceive registers the callback invoked once per received line.
 	// Replaces any previously registered callback.
@@ -120,6 +128,11 @@ type NDJSONConn struct {
 	WriteTimeout time.Duration
 
 	writeMu sync.Mutex
+	// writeBuf is Send's scratch space for joining payload and '\n' into a
+	// single Write. Guarded by writeMu, reused across calls so the hot
+	// state path doesn't allocate per message. See Send for why one Write
+	// rather than two.
+	writeBuf []byte
 
 	cbMu         sync.Mutex
 	onReceive    func(payload []byte)
@@ -301,11 +314,68 @@ func (c *NDJSONConn) Send(payload []byte) error {
 		defer c.conn.SetWriteDeadline(time.Time{})
 	}
 
-	if _, err := c.conn.Write(payload); err != nil {
-		return err
-	}
-	_, err := c.conn.Write([]byte{'\n'})
+	// One Write, not two. Over TCP the split was invisible — the kernel
+	// coalesces a byte stream either way — but a datagram transport turns
+	// "write payload, write '\n'" into two datagrams per message, which
+	// breaks framing outright and cannot be fixed downstream. Found while
+	// scoping selectable transports (agent_docs/architecture.md's transport
+	// ADR); see the one-Write regression test in transport_test.go.
+	c.writeBuf = append(c.writeBuf[:0], payload...)
+	c.writeBuf = append(c.writeBuf, '\n')
+	_, err := c.conn.Write(c.writeBuf)
 	return err
+}
+
+// SendUnreliable sends payload with no delivery guarantee, for the lossy
+// latest-wins state plane (agent_docs/contract.md: excess samples are
+// dropped, never queued, so a lost one is superseded rather than missed).
+//
+// Reliability is opt-*out* rather than opt-in on purpose: Send is reliable
+// on every transport, so a call site that never learns about this method
+// stays correct. Only the two state hot paths — the core's own send and the
+// relay's forward — give the guarantee up, and everything carrying
+// lifecycle meaning (hello/welcome/join/leave/reject/ping/pong) keeps it. A
+// dropped leave would strand a ghost on screen forever.
+//
+// Over TCP there is nothing to give up: the stream is reliable whether or
+// not anyone asks, so this is exactly Send. A datagram transport opts in by
+// having its net.Conn implement unreliableWriter, which is why this is a
+// type assertion rather than a field — internal/transport must not import
+// internal/netx (it has no internal dependencies at all, by design), and a
+// net.Conn that knows nothing about any of this still works.
+func (c *NDJSONConn) SendUnreliable(payload []byte) error {
+	uw, ok := c.conn.(unreliableWriter)
+	if !ok {
+		return c.Send(payload)
+	}
+
+	c.writeMu.Lock()
+	defer c.writeMu.Unlock()
+
+	writeTimeout := c.WriteTimeout
+	if writeTimeout < 0 {
+		writeTimeout = 0
+	} else if writeTimeout == 0 {
+		writeTimeout = DefaultWriteTimeout
+	}
+	if writeTimeout > 0 {
+		_ = c.conn.SetWriteDeadline(time.Now().Add(writeTimeout))
+		defer c.conn.SetWriteDeadline(time.Time{})
+	}
+
+	c.writeBuf = append(c.writeBuf[:0], payload...)
+	c.writeBuf = append(c.writeBuf, '\n')
+	_, err := uw.WriteUnreliable(c.writeBuf)
+	return err
+}
+
+// unreliableWriter is the optional escape hatch a datagram-based net.Conn
+// implements to offer fire-and-forget delivery alongside the reliable Write
+// every net.Conn already has. Declared here rather than imported so this
+// package keeps its no-internal-dependencies property; internal/netx/udpconn
+// and internal/netx/quicconn satisfy it structurally.
+type unreliableWriter interface {
+	WriteUnreliable(p []byte) (int, error)
 }
 
 // OnReceive registers cb as this connection's message handler, then

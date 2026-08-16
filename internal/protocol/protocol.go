@@ -70,6 +70,18 @@ const (
 	// hangup. Added alongside room-code auth — see the ADR in
 	// agent_docs/architecture.md.
 	TypeReject MessageType = "reject"
+	// TypeTransports is the relay's reply to a Hello with QueryOnly set:
+	// which transports this relay serves, and on which ports. The relay
+	// closes the connection immediately after sending it — no room is
+	// joined, no player_id is assigned, nothing is announced to anyone.
+	//
+	// It exists so a client set to "auto" can discover that a relay also
+	// speaks quic (which is on a DIFFERENT port and therefore impossible to
+	// find by probing) before it joins, rather than joining over tcp and
+	// then reconnecting — which would make every other player in the room
+	// watch it leave and rejoin. Added 2026-08-16; see the transport
+	// discovery ADR in agent_docs/architecture.md.
+	TypeTransports MessageType = "transports"
 )
 
 // Envelope is the outer shape of every relay-protocol and bridge message.
@@ -117,6 +129,39 @@ type Hello struct {
 	// up to 35 messages/sec inbound, not 5 — see internal/core.Core.
 	// MaxReceiveHz and the ADR in agent_docs/architecture.md.
 	MaxReceiveHz int `json:"max_receive_hz_per_player,omitempty"`
+
+	// QueryOnly asks the relay to reply with a Transports message and hang
+	// up, instead of joining a room. Every check that guards a real join
+	// still runs first — field lengths, protocol version, and above all the
+	// room code — so this discloses nothing to anyone who could not already
+	// have joined. That is deliberate: it means transport discovery adds no
+	// pre-auth surface to a relay, which the 2026-08-14 hardening pass
+	// worked to keep clear.
+	//
+	// An older relay does not know this field and will treat the message as
+	// an ordinary Hello, joining the client for real. A client must
+	// therefore be ready to receive a Welcome here and simply carry on with
+	// the connection rather than assume a Transports reply — see
+	// internal/core.
+	QueryOnly bool `json:"query_only,omitempty"`
+}
+
+// TransportOffer is one transport a relay serves.
+//
+// The port travels but the host does not, on purpose: a relay bound to
+// 0.0.0.0 has no idea what address reaches it from outside, whereas the
+// client necessarily already knows one — it just connected to it. Sending
+// only the port means discovery keeps working through NAT and port
+// forwarding without the relay ever having to learn its own public address.
+type TransportOffer struct {
+	// Kind is "tcp", "udp", or "quic".
+	Kind string `json:"kind"`
+	Port int    `json:"port"`
+}
+
+// Transports is the relay's reply to a QueryOnly Hello.
+type Transports struct {
+	Offers []TransportOffer `json:"offers"`
 }
 
 // Welcome is the relay's reply to a successful Hello.

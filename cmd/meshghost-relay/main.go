@@ -8,12 +8,15 @@ import (
 	"bytes"
 	"encoding/json"
 	"flag"
+	"fmt"
 	"io"
 	"log"
 	"net"
 	"os"
+	"strconv"
 	"strings"
 
+	"meshghost/internal/netx"
 	"meshghost/internal/protocol"
 	"meshghost/internal/relay"
 )
@@ -52,6 +55,17 @@ type fileConfig struct {
 	// or 0 means protocol.DefaultSendHz. See the ADR in
 	// agent_docs/architecture.md for the send/receive rate-control feature.
 	SendHz *int `json:"send_hz"`
+	// Transport is a comma-separated list of transports to serve at once:
+	// any of "tcp", "udp", "quic". Absent means "tcp". Clients pick one of
+	// them; a room can hold clients on different transports simultaneously,
+	// since the relay forwards through the transport.Transport interface and
+	// never learns which is which. See the transport ADR in
+	// agent_docs/architecture.md.
+	Transport *string `json:"transport"`
+	// QuicAddr is where quic listens, and it must differ from listen_on's
+	// port: quic is carried over udp, so it cannot share a port with the
+	// plain "udp" transport. Absent means DefaultQuicAddr.
+	QuicAddr *string `json:"listen_quic"`
 }
 
 // rootConfig is the top-level shape of the config file: a "server" section
@@ -72,6 +86,8 @@ type configTargets struct {
 	onlyGame   *string
 	maxClients *int
 	sendHz     *int
+	transport  *string
+	quicAddr   *string
 }
 
 // stripBOM removes a leading UTF-8 byte-order mark from a config file's
@@ -137,10 +153,28 @@ func applyFileConfig(path string, explicit map[string]bool, t configTargets) {
 	if rc.Server.SendHz != nil && !explicit["send-hz"] {
 		*t.sendHz = *rc.Server.SendHz
 	}
+	if rc.Server.Transport != nil && !explicit["transport"] {
+		*t.transport = *rc.Server.Transport
+	}
+	if rc.Server.QuicAddr != nil && !explicit["listen-quic"] {
+		*t.quicAddr = *rc.Server.QuicAddr
+	}
 }
 
+// DefaultQuicAddr is where quic listens when nothing says otherwise. The
+// port deliberately differs from -addr's 7777: quic is carried over udp, so
+// it cannot share a port with the plain udp transport.
+//
+// 7778 and 7779 are both skipped because packaging/release/README.txt
+// already hands those out as local bridge ports (7778 normally, 7779 for a
+// second copy on the same machine). Neither would actually collide -- the
+// bridge is TCP and this is UDP, which are separate port spaces -- but a
+// reader comparing two config files should not have to know that to tell
+// whether something is a typo.
+const DefaultQuicAddr = "127.0.0.1:7780"
+
 func main() {
-	addr := flag.String("addr", "127.0.0.1:7777", "address to listen on")
+	addr := flag.String("addr", "127.0.0.1:7777", "address to listen on (tcp and udp; quic uses -listen-quic)")
 	loopback := flag.Bool("loopback", false, "dev-only Phase 3 flag: echo each client's own "+
 		"state back to it under a synthetic <id>-ghost player_id, so a single client exercises "+
 		"a real core->relay->core round trip. Never enable this outside dev/testing.")
@@ -169,9 +203,20 @@ func main() {
 			"directions for a visual gain that's small and diminishing (see README.txt for the "+
 			"real numbers), and YOUR machine (the host) carries the worst of it, since traffic "+
 			"fans out with the square of room size")
+	transportNames := flag.String("transport", netx.TCP.String(),
+		"which transports to serve, comma-separated: any of tcp, udp, quic. Serving several at "+
+			"once is fine and clients may mix freely within one room -- tcp is readable with "+
+			"netcat for debugging, udp survives a lossy connection better but CANNOT be "+
+			"encrypted (Go has no DTLS), and quic is encrypted and spoofing-resistant by "+
+			"default. Each client picks one; tell them which, and which port")
+	quicAddr := flag.String("listen-quic", DefaultQuicAddr,
+		"address to serve quic on. Must be a DIFFERENT port from -addr: quic runs over udp, so "+
+			"it cannot share a port with the plain udp transport. Ignored unless quic is in "+
+			"-transport")
 	configPath := flag.String("config", "config.json",
 		"path to an optional JSON config file with a \"server\" section "+
-			"({\"listen_on\": \"...\", \"room_code\": \"...\", \"only_game\": \"...\", "+
+			"({\"listen_on\": \"...\", \"listen_quic\": \"...\", \"room_code\": \"...\", "+
+			"\"only_game\": \"...\", \"transport\": \"...\", "+
 			"\"max_clients\": ..., \"send_hz\": ...}) -- a friendlier alternative to flags for "+
 			"non-developer use; "+
 			"silently ignored if it doesn't exist; a flag passed explicitly on the command line "+
@@ -188,13 +233,69 @@ func main() {
 		onlyGame:   onlyGame,
 		maxClients: maxClients,
 		sendHz:     sendHz,
+		transport:  transportNames,
+		quicAddr:   quicAddr,
 	})
 
-	ln, err := net.Listen("tcp", *addr)
+	// Fatal on an unrecognized transport rather than falling back to tcp:
+	// netx.Kind's zero value IS tcp, so a lenient parse would quietly hand
+	// an operator who asked for quic an unencrypted relay. Same reasoning
+	// as cmd/meshghost's own -transport handling, and a deliberate
+	// departure from the clamp-and-warn treatment send_hz gets below.
+	kinds, err := netx.ParseKinds(*transportNames)
 	if err != nil {
-		log.Fatalf("meshghost-relay: listen on %s: %v", *addr, err)
+		log.Fatalf("meshghost-relay: %v", err)
 	}
-	log.Printf("meshghost-relay: listening on %s", ln.Addr())
+
+	// One listener per selected transport, all feeding the same Server.
+	// relay.Serve takes any net.Listener and handleConn any net.Conn, so
+	// nothing in internal/relay knows or cares which is which -- and a
+	// single room can hold clients arriving over different transports,
+	// because Room.Forward sends through the transport.Transport interface.
+	type boundListener struct {
+		kind netx.Kind
+		ln   net.Listener
+	}
+	var listeners []boundListener
+	for _, k := range kinds {
+		bind := *addr
+		if k == netx.QUIC {
+			bind = *quicAddr
+		}
+		ln, err := netx.Listen(k, bind)
+		if err != nil {
+			log.Fatalf("meshghost-relay: listen %s on %s: %v", k, bind, err)
+		}
+		listeners = append(listeners, boundListener{kind: k, ln: ln})
+		log.Printf("meshghost-relay: listening on %s (%s)", ln.Addr(), k)
+	}
+
+	// What a client with transport "auto" is told. Built from the listeners
+	// that actually came up, not from the configured list, so a transport
+	// that failed to bind is never advertised. Only the port is sent — the
+	// host is whatever the client already connected to, which is what makes
+	// this work through NAT (this relay may be bound to 0.0.0.0 and have no
+	// idea what address reaches it). See protocol.TransportOffer.
+	offers := make([]protocol.TransportOffer, 0, len(listeners))
+	for _, bl := range listeners {
+		addr, ok := bl.ln.Addr().(*net.TCPAddr)
+		var port int
+		if ok {
+			port = addr.Port
+		} else if ua, ok := bl.ln.Addr().(*net.UDPAddr); ok {
+			port = ua.Port
+		} else if _, p, err := net.SplitHostPort(bl.ln.Addr().String()); err == nil {
+			if n, err := strconv.Atoi(p); err == nil {
+				port = n
+			}
+		}
+		if port == 0 {
+			log.Printf("meshghost-relay: warning: could not determine the port for the %s listener (%s) — clients using transport \"auto\" will not be offered it",
+				bl.kind, bl.ln.Addr())
+			continue
+		}
+		offers = append(offers, protocol.TransportOffer{Kind: bl.kind.String(), Port: port})
+	}
 
 	server := relay.NewServer()
 	server.Loopback = *loopback
@@ -205,6 +306,7 @@ func main() {
 	// would diverge from the exact-equality game_id comparison every other
 	// use site (joinOrCreateRoom, the adapters) already relies on.
 	server.OnlyGame = strings.TrimSpace(*onlyGame)
+	server.Offers = offers
 	server.MaxClients = *maxClients
 	server.SendHz = *sendHz
 	log.Printf("meshghost-relay: max clients (total, across all rooms): %d", *maxClients)
@@ -240,7 +342,17 @@ func main() {
 		log.Printf("meshghost-relay: restricted to game_id %q -- clients playing any other game will be refused",
 			server.OnlyGame)
 	}
-	if err := server.Serve(ln); err != nil {
-		log.Fatalf("meshghost-relay: serve: %v", err)
+	// Serve every listener concurrently and block on the first one to fail.
+	// Previously this was a single blocking Serve call; the failure
+	// behaviour is deliberately unchanged (any listener dying is fatal)
+	// rather than trying to limp along on the remaining transports, which
+	// would leave some clients able to connect and others not, with only a
+	// log line to explain it.
+	serveErr := make(chan error, len(listeners))
+	for _, bl := range listeners {
+		go func(bl boundListener) {
+			serveErr <- fmt.Errorf("%s: %w", bl.kind, server.Serve(bl.ln))
+		}(bl)
 	}
+	log.Fatalf("meshghost-relay: serve: %v", <-serveErr)
 }

@@ -18,6 +18,57 @@ or believes it configured — see "A new risk this creates" below.** Full record
 the ADR in [agent_docs/architecture.md](../agent_docs/architecture.md) (search
 "room-code/version ADR").
 
+## How a client actually connects (added 2026-08-16)
+
+Worth having up front, because it explains where the security properties below apply. **Every
+client handshakes over tcp, always, and no config setting can change that.** `"transport"` in
+`config.json` is not *how* you connect — it is what you move to *once* connected.
+
+```text
+STEP 1 — the handshake. ALWAYS tcp. Not configurable.
+
+    client  ───────  tcp connect + "what do you serve?"  ──────►  relay
+    client  ◄──────  "tcp:7777, udp:7777, quic:7780"     ───────  relay
+
+    The relay answers only AFTER the room-code check, then hangs up.
+    Nothing joins a room. No player_id is assigned. Nobody is told anything.
+
+STEP 2 — the session. Whatever "transport" asked for.
+
+    transport: "tcp"    ──►  stay put            client ◄═══ tcp  ═══► relay
+    transport: "udp"    ──►  reconnect :7777     client ◄═══ udp  ═══► relay
+    transport: "quic"   ──►  reconnect :7780     client ◄═══ quic ═══► relay
+    transport: "auto"   ──►  best on offer (prefers quic; never udp unless
+                             it is the only thing there)
+
+    relay does not serve what you asked for?
+                        ──►  stay on tcp, and say so in the log
+```
+
+Three things follow from that shape, and they are the reason for it:
+
+- **A client never needs to know a port.** quic listens on a different one (it runs over udp, so
+  it cannot share with the plain udp transport), and guessing is impossible — so it is told.
+  `connect_to` only ever needs the tcp address.
+- **A wrong preference degrades instead of failing.** Ask for quic from a relay that does not
+  serve it and you get a working tcp session plus a log line, not a timeout with no explanation.
+- **tcp is mandatory on the relay too.** `netx.ParseKinds` adds it whether or not the operator
+  names it, because a relay without tcp would be unreachable by every client — including ones
+  configured for the transports it *does* serve. Found by `internal/e2e`, not by reasoning.
+
+The security consequence: the handshake, and therefore the room-code check, always happens over
+tcp — which is **not encrypted**. See "known gaps" below for what that does and does not mean,
+and note `udp` cannot be encrypted at all while `quic` can.
+
+**The tcp handshake grants no session identity.** It is query-only: nothing joins, no `player_id`
+is assigned, and the connection that follows authenticates itself independently. So the udp leg
+defends itself, with two separate mechanisms — an address-validation cookie gating admission
+(blocks blind spoofing and reflection), and a per-connection unpredictable token required on
+every datagram afterwards (blocks injection by anyone who merely guessed a live client's
+ip:port). The second is the measure the CelesteNet notes below describe; it was added 2026-08-16
+after the first version shipped with only the former. Neither is encryption: an attacker already
+on the path reads both out of the traffic, exactly as they would a TCP sequence number.
+
 ## What changed (2026-08-14 relay-safety hardening pass)
 
 - **Room-code auth**: `hello` carries an optional `room_code`, checked constant-time against
@@ -125,11 +176,18 @@ ADR in [agent_docs/architecture.md](../agent_docs/architecture.md).
 
 ## What is not yet true — known gaps
 
-- **No TLS.** `internal/transport` is plaintext NDJSON over TCP — deliberate, for the
-  "greppable with netcat" debuggability property (see "Why TCP, not UDP" below). A room code
-  therefore crosses the wire in the clear: a network-level attacker positioned between a client
-  and the relay can read it. This is the honest ceiling of what room-code auth buys — "anyone
-  with the address and the code," not "safe against a network-level attacker."
+- **No TLS on `tcp` or `udp`.** Both are plaintext NDJSON — deliberate on `tcp`, for the
+  "greppable with netcat" debuggability property (see "Why TCP is the default" below), and
+  *unavoidable* on `udp`, since Go's standard library has no DTLS. A room code therefore crosses
+  either in the clear: anyone positioned between a client and the relay can read it. This is the
+  honest ceiling of what room-code auth buys on those two — "anyone with the address and the
+  code," not "safe against a network-level attacker."
+  **`quic` is the exception, since 2026-08-16**: its handshake *is* TLS 1.3, so the session is
+  encrypted and the source address cannot be forged. What it still does not give is proof of *who*
+  the relay is — the certificate is self-signed and unverified, because `connect_to` is a bare IP
+  with no CA and no hostname to check. Closing that (by binding the room code to the TLS session)
+  is scoped and unscheduled in [agent_docs/ideas.md](../agent_docs/ideas.md); the keying material
+  it needs is confirmed reachable from a quic-go connection.
 - **Room-code auth depends on the relay being current** — see "A new risk this creates" above.
   A stale relay binary silently provides none of the protection a client believes it configured.
 - **Not exhaustively audited.** The 2026-08-14 pass fixed the concrete DoS/trust gaps found
@@ -193,7 +251,14 @@ secret checked once at handshake, reject outright on mismatch, before any state 
 for room codes — not their full public-server account/ban/fingerprinting stack, which solves a
 problem MeshGhost doesn't have. **Implemented 2026-08-14** — see "What changed" above.
 
-## Why TCP, not UDP (recorded 2026-08-13 — no prior ADR existed for this)
+## Why TCP is the default (recorded 2026-08-13; UDP and QUIC became selectable 2026-08-16)
+
+**Update 2026-08-16:** the transport is now a `config.json` setting — `tcp` (default), `udp`, or
+`quic` — see the transport ADR in [agent_docs/architecture.md](../agent_docs/architecture.md). The
+reasoning below is why `tcp` remains the *default*, not why it is the only option. Two things it
+did not anticipate: `udp` cannot be encrypted at all in Go (no DTLS in the standard library), and
+QUIC gets the loss behaviour and encryption together, so it is the one to reach for rather than
+plain UDP if either matters.
 
 `internal/transport` is TCP-only (NDJSON framing,
 [agent_docs/contract.md](../agent_docs/contract.md)'s Transport section). This was never
@@ -227,13 +292,28 @@ latest state, now. That tradeoff doesn't bite the way it would in a competitive 
 - **Security**: a real TCP handshake makes connection spoofing/hijacking hard by construction.
   This is *why* CelesteNet needs its own unpredictable-token generator for its UDP leg (see
   above) — a problem TCP doesn't have, and one we'd have to solve ourselves if we switched.
-  Given relay safety is the current priority, this is a real point in TCP's favor right now,
-  not just a wash.
+  **Update 2026-08-16: we did switch (as an option), and we did have to solve it.**
+  `internal/netx/udpconn` now implements both halves — an address-validation cookie gating
+  admission, and exactly the kind of unpredictable per-connection token described here, required
+  on every datagram afterwards. The point above stands as the reason tcp remains the default and
+  the mandatory handshake leg: on tcp this protection is free, and on udp it is code we own and
+  must keep correct.
 - **NAT/reachability is identical either way**: MeshGhost is relay/star-topology, not P2P — no
   client ever connects directly to another client, only to the relay. UDP's actual advantage
   for reachability (hole-punching to skip port-forwarding for direct peer connections) doesn't
   apply, because there's no direct peer connection to punch a hole for.
 
-**Conclusion: TCP remains the right choice.** Worth revisiting only if MeshGhost's update rate
-or player count ever grows enough that head-of-line stalls become perceptible against
-`InterpolationDelay` — not the case today, and not close to it.
+**Caveat on the ~50ms figure above, added 2026-08-16 — it is optimistic.** A lost packet stalls
+delivery until it is *retransmitted*, so the bound is retransmit timing, not send rate. Fast
+retransmit needs three subsequent packets, which at 20Hz is already ~150ms, so the RTO timer —
+floored near 200ms on common stacks — is likely to dominate instead. **This is reasoning, not a
+measurement**: nobody has run MeshGhost over a genuinely lossy link and watched. It does not
+change the conclusion (100ms of interpolation absorbs a lot, and a ghost is cosmetic), but the
+number should be re-derived rather than cited if this comparison is ever re-opened.
+
+**Conclusion: TCP remains the right default**, and is what both ends ship with. It is the only
+transport that can be read with `netcat` or a packet capture while debugging, the only one that
+could gain TLS later, and the only choice that changes nothing for an existing user. `udp` and
+`quic` are there for the cases the reasoning above genuinely does not cover — a lossy connection,
+or a relay near the 100Hz ceiling — and, just as much, because having three implementations behind
+one interface is what makes the "swappable network boundary" claim true rather than aspirational.

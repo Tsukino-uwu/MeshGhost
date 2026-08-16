@@ -4466,3 +4466,163 @@ Copy this block per fact:
   busy room. Fixed by skipping ahead to the Welcome (`awaitWelcome` in `leak_test.go`).
 - Worth noting for future flake-hunting: this passed locally every time, including at `-count=20`
   and with `GOMAXPROCS=2`, and only ever failed on CI. Not everything reproduces on this machine.
+
+## Selectable transport (`tcp`/`udp`/`quic`) — 2026-08-16, established with the Go tools
+
+Per `CLAUDE.md`'s split, all of the below is Go-side and was confirmed by running the tools
+directly, **not** by watching a game. Nothing here is a claim about anything on screen.
+
+- **All three transports carry a real session through an unmodified relay.**
+  `TestRelayOverUDP`, `TestRelayOverQUIC`, and `TestRelayMixesAllThreeTransportsInOneRoom`
+  (`internal/relay/relay_transport_test.go`): hello, welcome, join and forwarded state, with
+  `internal/relay` containing no transport-aware line.
+- **A room really can mix transports.** Three clients, one each on tcp/udp/quic, all see each
+  other's joins and state. This is what makes the setting a feature rather than a way to
+  partition the player base.
+- **The shipped binaries can actually turn it on.** `internal/e2e`'s
+  `TestReleaseBinariesRoundTripAGhostOnEveryTransport` launches the real `meshghost.exe` and
+  `meshghost-server.exe` with `-transport udp` / `-transport quic` and drives a ghost through the
+  full bridge → client → relay → client → bridge round trip.
+- **`Send` used to issue two writes**, payload then `'\n'` — invisible over TCP, two datagrams per
+  message over UDP. Fixed, and `TestSendIssuesExactlyOneWritePerMessage` was confirmed to fail
+  against the old version by reverting it and watching it report 4 writes for 2 messages, rather
+  than assumed to.
+- **Reliability behaves as designed under real loss.** With a deterministic loss-injecting proxy,
+  a `Send` payload survives its first 3 datagrams being dropped and is delivered exactly once,
+  while a `SendUnreliable` payload is dropped and never retransmitted. The reliable test was also
+  confirmed to fail with the retransmit loop disabled.
+- **TCP and UDP genuinely share a port number** (`TestTCPAndUDPShareAPortNumber`), so `tcp,udp`
+  costs one port. QUIC cannot share with `udp` and has its own.
+- **quic-go exposes a working `ExportKeyingMaterial`** over a TLS 1.3 connection
+  (`TestHandshakeIsTLS13`). This was the open question gating the shelved room-code
+  channel-binding design in `ideas.md` — it would drop straight into `quic`.
+- **The UDP demultiplexer survives hostile input.** `FuzzListenerSurvivesArbitraryDatagrams`,
+  1,482,717 executions in 30s, no crashes and no wedged listener. Worth recording *how* that
+  number was reached: the first version of the target dialled a fresh socket per execution and
+  stalled at ~20k execs with the rate pinned at 0/sec, while still reporting PASS — a green run
+  that was measuring almost nothing. Replacing the liveness check with a raw hello on an
+  already-open socket raised throughput ~70x.
+- **Full suite green at `-count=10`**, per `CLAUDE.md`'s concurrency rule, including
+  `internal/e2e`.
+
+## Transport discovery (`transport: "auto"`) — 2026-08-16, established with the Go tools
+
+- **A real client given only a tcp address finds and uses quic.** Confirmed twice: by
+  `internal/e2e`'s `TestAutoTransportUpgradesToQUIC` (real binaries, `-transport auto`, full ghost
+  round trip, asserting on the client's own log), and by hand against a relay serving all three —
+  the client logged `relay offers tcp:48001, udp:48001, quic:48003 — using quic at
+  127.0.0.1:48003`. It could not have guessed that port; quic runs on a different one.
+- **Discovery discloses nothing without the room code.** `TestQueryOnlyStillRequiresTheRoomCode`:
+  a wrong code gets a `reject`, not a transport list, and the correct code gets the list. This is
+  the property that made "ask before joining" acceptable rather than a new pre-auth endpoint.
+- **A query never joins.** `TestQueryOnlyReturnsTheTransportListAndDoesNotJoin` watches an
+  existing room member and asserts it sees nothing at all — no `join`, no `player_id` consumed.
+  That is the entire point of asking first rather than joining and reconnecting.
+- **An offer-less relay is harmless**, replying with an empty list, which every pre-existing test
+  server exercises for free.
+- **Full suite green at `-count=10`** after the change, including `internal/e2e`.
+
+## UDP per-connection token — 2026-08-16, established with the Go tools
+
+Added after the user asked whether the CelesteNet UDP measures were needed here. They were: the
+address-validation cookie gated *admission* only, so a connection was identified by source
+address alone and anyone able to spoof a live client's ip:port could inject state into its
+session — the gap `internal/README.md` already cited CelesteNet's token as closing.
+
+- `TestInjectionFromTheRightAddressWithTheWrongTokenIsDropped` forges a correctly-framed
+  datagram from the client's **real** source address with a token that is merely wrong, and
+  confirms it is dropped **and** that the targeted session keeps working afterwards.
+- `TestUnframedDatagramsAreIgnored` covers the bypass: bare NDJSON lines were previously valid
+  unreliable payloads, so leaving them accepted would have made the token optional in practice.
+- Fuzzing re-run against the new framing: **4,837,744 executions in 25s**, 27 new interesting
+  inputs, no crashes and no wedged listener, with seeds added for every token-carrying frame
+  shape.
+- Full suite green, including `internal/e2e` driving the real binaries over udp.
+
+Technique only — no CelesteNet code was read or copied; the reference is this repo's own
+prior-art summary, and a per-connection secret is generic (TCP sequence numbers, SYN cookies,
+QUIC connection IDs).
+
+## A real bug found in review, and a test that first failed to catch it — 2026-08-16
+
+Found by a documentation-writing pass reading `udpconn` closely, not by any test.
+
+**The bug:** a reliable udp payload was acknowledged *before* delivery. Delivery into a `Conn` is
+non-blocking and drops when the 64-deep queue is full, so under a burst the sender would receive
+its ack, never retransmit, and the dedup record would have suppressed the retransmit anyway — a
+`join`, `leave` or `welcome` could vanish while `Write` reported success. Fixed by delivering
+first and acking only on success; a duplicate is still re-acked, since a lost ack is exactly why
+a sender retries.
+
+**Worth recording more than the bug:** the first regression test written for it **passed against
+the buggy code**. It flooded and drained through the public API, and the receive queue was not
+reliably full at the deciding instant, so the failure never triggered — a green test that proved
+nothing, the same shape as the earlier fuzz target that reported PASS while frozen at 20k
+executions. Replaced with one that saturates the queue directly and asserts the precise property
+(**an undeliverable payload must not be acknowledged**), then confirmed to fail against the
+restored bug before being kept.
+
+Also fixed in the same pass: `contract.md` claimed `auto` was the shipped client default (it is
+`udp`), `internal/README.md`'s CelesteNet section still said the UDP token was hypothetical, and
+a doc comment in `relay.go` had been merged onto the wrong function.
+
+## Live: all three transports confirmed on screen with Pseudoregalia — 2026-08-16
+
+**Human-gated, per `CLAUDE.md`: the user watched this.** Loopback relay serving `tcp,udp,quic`,
+Pseudoregalia adapter, one transport per run, run in the order quic → tcp → udp.
+
+- **The ghost spawned and moved on all three.** User's words: "the ghost spawned in and was moving
+  around for all 3 of the protocols." This is the first time `udp` or `quic` has carried a real
+  game session — everything before it was tests.
+- **The client log named the transport each time**, e.g.
+  `core: relay offers tcp:7777, udp:7777, quic:7780 — using udp at 127.0.0.1:7777`. That line is
+  what makes the run meaningful: a preference the relay does not serve degrades silently to tcp,
+  so "it worked" alone proves nothing about which transport was exercised.
+- **The relay log independently corroborates the run order**, and incidentally confirmed a
+  behaviour that previously had only a unit test. The quic and udp runs each show a closed tcp
+  connection immediately before the join — the discovery handshake connecting, asking, and hanging
+  up. The tcp run shows **no such line**, because a tcp preference short-circuits
+  `resolveTransport` and never opens a discovery connection at all. Established from the log by
+  the agent, not watched.
+
+**One symptom, seen once, never reproduced, cause unknown.** On an earlier attempt the user saw
+"one ghost getting stuck and not moving". It did not recur across the three ordered runs, and the
+user confirmed ghosts were removed properly in all three. **Nobody established what caused it**,
+and the user's own read — "idk exactly what caused it, but don't think it's protocol related" —
+is the position recorded here rather than any theory.
+
+The leading hypothesis, unconfirmed and not tested: that attempt ran all three transports back to
+back **without closing the game in between**, so the mod stayed loaded across client restarts.
+Killing `meshghost.exe` drops the bridge socket abruptly, and the core cannot send
+`despawn_remote` because it is already gone — so cleanup would have to come from the mod side.
+That would leave the previous run's ghost frozen while the new session works, which matches what
+was seen. It matches; it is not evidence.
+
+A port already in use was raised as a hypothesis and is a poor fit, recorded so it is not
+re-raised: a taken port fails loudly at bind rather than yielding a running client with a frozen
+ghost.
+
+**Suspected, not confirmed, and pre-existing rather than caused by the transport work:** the
+Pseudoregalia mod appears to have no despawn-on-bridge-loss path — a search found no disconnect
+callback and no ghost-map clear (absence of a match is not proof, so this needs confirming
+properly). If that is right, a real user whose `meshghost.exe` crashes mid-session is left with
+ghosts frozen in their world rather than disappearing, on **any** transport. Worth checking
+independently of this work.
+
+**If it is ever built, the fix is `release_all_ghosts` on bridge loss — NOT moving the ghosts
+somewhere out of sight.** Parking a stranded actor was suggested (reusing what zone transitions
+appear to do) and is the one approach already known to be wrong here: `Plugin.cpp`'s own comment
+records an `EXCEPTION_ACCESS_VIOLATION` from exactly that, `release_ghost ->
+call_set_actor_location_and_rotation` on an actor whose level had already torn it down, which is
+why props became destroyed-not-parked. A liveness check does not help — `IsUnreachable()` is only
+safe on an object that is still allocated. What actually works is the proactive clear the LoadMap
+PRE hook already performs, *before* teardown, and the bridge-loss case wants that same call.
+**Nothing has been built or watched, so this is a plan, not a fix.**
+
+Separately, if a ghost ever freezes while the client is still running, `meshghost.log` is the
+place to look — specifically for repeated `core: send state to relay failed`, which is how an
+oversized state message (`udpconn.MaxDatagramBytes`, 1200) would present on udp or quic.
+
+**Not yet exercised live:** sustained multi-minute load on udp/quic (the retransmit timer and
+dedup pruning only engage over time), two real machines over a network rather than loopback, and
+a room genuinely mixing transports between two live players.

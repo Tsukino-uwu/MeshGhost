@@ -48,13 +48,18 @@ internal/transport  — generic NDJSON/TCP framing. Defines its own Transport in
 internal/bridge     — adapter<->core message shapes (LocalState/RenderRemote/DespawnRemote).
                        Imports protocol only.
 internal/core       — snapshot buffer, interpolation, remote-player tracking. Imports
-                       protocol, transport, bridge.
+                       protocol, transport, bridge, netx.
 internal/relay      — room membership, forwarding, limits. Imports protocol, transport.
                        Never imports core or bridge — the relay stays ignorant of
                        adapter-side concerns, same as it's ignorant of games.
-cmd/meshghost       — desktop app entry point. Imports core only (the Phase 3 note here once
-                       predicted transport/bridge imports; they never arrived).
-cmd/meshghost-relay — standalone relay entry point. Imports relay.
+internal/netx       — transport selection (tcp|udp|quic) as net.Listener/net.Conn. Added
+                       2026-08-16. No internal deps, same leaf discipline as transport;
+                       subpackages netx/udpconn and netx/quicconn hold the datagram
+                       implementations. Deliberately NOT a second Transport implementation
+                       — see the transport ADR for why the seam sits at net.Conn.
+cmd/meshghost       — desktop app entry point. Imports core and netx (the Phase 3 note here
+                       once predicted transport/bridge imports; they never arrived).
+cmd/meshghost-relay — standalone relay entry point. Imports relay and netx.
 ```
 
 **Hard rule:** `internal/core` and `internal/relay` may never import anything under
@@ -1069,3 +1074,227 @@ Format: Date / Decision / Status / Context / Options considered / Resolution / C
   deadline is too tight" — was wrong and was disproved by raising it to 10s and watching the same
   tests fail at 10.00s; recorded because the wrong fix looked plausible and would have buried a
   real bug under a slower timeout.
+
+### 2026-08-16 — Selectable transport: `tcp` | `udp` | `quic`
+
+- **Decision:** The relay connection's transport is chosen in `config.json` (`"transport"`), with
+  three implementations behind the existing `Transport` interface. The relay may serve several at
+  once and a room may hold clients on different transports simultaneously. **Adapters are
+  unaffected and cannot observe the choice** — the bridge stays loopback TCP NDJSON permanently.
+- **Status:** Implemented.
+- **Context:** `brief.md` and `internal/transport`'s own doc comment both call `Transport` "the
+  swappable network boundary," but it had exactly one implementation, so the claim was untested and
+  nothing forced the boundary to hold. `contract.md`'s hard rule "Transport is swappable behind
+  `send(bytes)`/`on_receive(cb)` from day one" was likewise aspirational. The motivation is
+  modularity — and the expectation that a future game/adapter may suit one transport better than
+  another — explicitly **not** throughput. Two facts found while scoping shaped everything below:
+  UDP cannot be encrypted in Go (no DTLS in the standard library), and `NDJSONConn.Send` issued two
+  `Write` calls, which is invisible on a stream and fatal on a datagram.
+- **Options considered (where to put the seam):** (1) a second `Transport` implementation per
+  protocol — the obvious reading of "swappable transport", but it would have moved framing,
+  reconnect and callback handling into each one and left `internal/relay` needing a datagram-shaped
+  accept path; (2) expose every transport as a `net.Listener`/`net.Conn` pair and keep `NDJSONConn`
+  as the only `Transport` — more work inside the new packages, none anywhere else.
+- **Resolution:** Option 2. `relay.Serve` already takes any `net.Listener` and `handleConn` any
+  `net.Conn`, so **`internal/relay` gained no transport-aware line at all**, and — decisively — the
+  per-connection-goroutine model survived untouched. `Client.gateMu`'s comment states that
+  everything else in that struct needs no lock *because* "OnReceive is serial", which is true only
+  while each connection owns a goroutine; option 1 would have required re-auditing every concurrent
+  site in the relay to keep that claim honest. New packages: `internal/netx` (the `Kind` seam),
+  `internal/netx/udpconn`, `internal/netx/quicconn`.
+- **Resolution (framing):** One datagram carries exactly one NDJSON line. Framing is redundant on
+  udp/quic but harmless, and it keeps a single `Transport` implementation for all three. This is
+  what made `Send`'s two-`Write` split a real bug rather than a style point: over a datagram
+  transport it is two datagrams per message, splitting every line in half with nothing downstream
+  able to reassemble it. Fixed, with `TestSendIssuesExactlyOneWritePerMessage` (which fails against
+  the old version — verified by reverting it, not assumed).
+- **Options considered (reliability):** (1) make every transport fully reliable — simplest, but
+  QUIC then head-of-line blocks exactly like TCP and buys nothing but encryption, and UDP would need
+  retransmission on the 20Hz hot path; (2) make datagram transports fully unreliable — loses
+  `leave`/`welcome`, which are not recoverable at any higher layer; (3) reliable by default with an
+  explicit opt-out.
+- **Resolution (reliability):** Option 3. `Transport` gained `SendUnreliable`, and the polarity is
+  deliberate: `Send` stays reliable on every transport, so **any call site that never learns about
+  the new method remains correct**. Exactly two sites opt out — `core.sendState` and the relay's
+  `Room.ForwardUnreliable` — because `contract.md` already defines the state plane as lossy and
+  latest-wins. A retransmitted position would arrive stale and out of order, which is worse than the
+  gap it fills. `ForwardUnreliable` is a separate method rather than a flag on `Forward` so a caller
+  who forgets which they wanted gets the safe one. TCP implements it as `Send`; a `net.Conn` opts in
+  structurally via an unexported `unreliableWriter` interface, so `internal/transport` keeps its
+  no-internal-dependencies property.
+- **Resolution (UDP address validation):** A remote must echo back a cookie sent to the address it
+  claimed before it gets a `Conn`, which defeats blind spoofing and stops the relay being used as a
+  reflector. The cookie is **derived, not stored** — `HMAC(secret, addr || timeSlot)`, current and
+  previous slot accepted. A table of unvalidated addresses would itself have been the
+  vulnerability: one entry per forged hello is unbounded memory an unauthenticated stranger
+  controls. Same technique as a TCP SYN cookie and QUIC's Retry. It does **not** stop an on-path
+  attacker, which is the same bar TCP sequence numbers set.
+- **Resolution (ports):** TCP and UDP have independent port spaces, so `tcp` and `udp` share
+  `listen_on` — pinned by `TestTCPAndUDPShareAPortNumber` rather than left as a comment, because if
+  it were ever false the relay would fail to start in a shipped configuration for a non-obvious
+  reason. QUIC is carried over UDP and therefore **cannot** share a port with the plain `udp`
+  transport, so it gets its own `listen_quic`. A host serving all three forwards three router rules
+  across two port numbers.
+- **Resolution (defaults):** Both ends default to `tcp`, and the shipped `config.json` says so.
+  Considered and rejected: client `udp` with server `tcp`, which cannot connect at all out of the
+  box. `tcp` is also the safest default (the only encryptable-later one, and the only one readable
+  with netcat for debugging) and the only choice that changes nothing for existing users.
+- **Resolution (per-game preference):** Expressible **only as shipped configuration** — a per-game
+  `config.json` plus a note in that adapter's README. An adapter must not choose (it never learns a
+  relay address and never speaks the relay protocol), and the core must not choose either, because
+  branching on `game_id` in game-agnostic code is forbidden outright. Recorded here so the tempting
+  version does not get built later. `contract.md`'s adapter invariant was widened at the same time:
+  it previously forbade an adapter *doing* relay things but not *influencing* them, so a
+  `preferred_transport` field in the bridge `hello` would have violated no written rule.
+- **Consequences:** The `Transport` boundary is now load-bearing instead of decorative, and
+  `contract.md`'s day-one hard rule is finally true. **`udp` can never be encrypted** — the room
+  code crosses it in the clear with no fix available, which is recorded in `risks.md` and stated in
+  the flag's own help text. QUIC is the encrypted option, and its `tls.ConnectionState` does expose
+  a working `ExportKeyingMaterial` (checked, not assumed — `TestHandshakeIsTLS13`), so the shelved
+  room-code channel-binding work in `ideas.md` would drop straight into it. **First third-party
+  dependency in the repo** (`quic-go`, MIT, plus three `golang.org/x/*` at BSD-3-Clause), which
+  brings a `THIRD-PARTY-NOTICES` obligation for the Go binaries and may shift the antivirus
+  false-positive baseline. `go get` also raised the module's Go directive from 1.22 to 1.25.0.
+  Clients still cannot discover which transports a relay offers — they must be told out of band.
+  Making `Welcome` advertise them, so a client can upgrade itself, is the natural follow-up and is
+  filed in `ideas.md`.
+
+### 2026-08-16 — Transport discovery: `transport: "auto"`
+
+- **Decision:** A client set to `auto` opens a short tcp connection, asks the relay which
+  transports it serves, disconnects **without joining**, then connects for real on the best of
+  them. The query is a `query_only` flag on `Hello`; the answer is a new `transports` message
+  carrying kind+port pairs. Shipped `config.json` sets the client to `auto`; the relay still
+  defaults to `tcp`.
+- **Status:** Implemented, same day as selectable transports.
+- **Context:** Selectable transports shipped with no way for a client to learn what a relay
+  offers, so a host had to say "use quic, port 7780" out of band and a mismatch produced a bare
+  timeout. The user's goal: if a relay enables all three, clients should end up on the best one
+  with no configuration.
+- **Options considered:** (1) **auto-probe** — impossible, and this is the crux: quic runs on a
+  *different port*, and a client only ever knows one address, so there is nowhere to probe;
+  (2) **advertise in `Welcome`, then reconnect** — one optional field, no new message type, but
+  the client has already joined by then, and `contract.md` guarantees no session resumption, so
+  every other player in the room watches it leave and rejoin; (3) **advertise in `Welcome` and
+  only log it** — cheapest, fixes the confusing timeout, but automates nothing; (4) **ask before
+  joining**.
+- **Resolution:** Option 4, chosen by the user for the reason that decides it — no console noise
+  and no visible churn, because nothing ever joins twice. Options 2 and 3 were the same protocol
+  change and could have been staged, but both leave a leave/rejoin flicker or leave the work
+  manual.
+- **Resolution (and the thing that made option 4 acceptable):** **the query answers only after
+  every check a real join passes — field lengths, protocol version, and the room code.** The
+  serious objection to asking first was that it would become the relay's only pre-auth endpoint,
+  a hole in exactly what the 2026-08-14 hardening pass closed. Running the checks first removes
+  it entirely: a caller learns nothing it could not have learned by joining.
+  `TestQueryOnlyStillRequiresTheRoomCode` pins it.
+- **Resolution (port, not address):** An offer carries kind and **port only**. A relay bound to
+  `0.0.0.0` has no idea which address reaches it from outside, whereas the client necessarily
+  knows one — it just connected to it. Sending only the port makes discovery work through NAT and
+  port forwarding without the relay ever learning its own public address.
+- **Resolution (preference order):** `quic`, then `tcp`, then `udp` — and **`auto` never selects
+  `udp` unless it is the only thing offered**, despite `udp` sharing quic's loss behaviour,
+  because it cannot be encrypted at all. Auto-selecting it would silently downgrade a user's room
+  code to plaintext on a relay that also offered quic. Naming `udp` explicitly still works;
+  nothing picks it on someone's behalf.
+- **Resolution (failure is never fatal):** Every failure path returns `(tcp, the configured
+  address)` — relay down, relay old, wrong room code, no reply, malformed reply. Discovery can
+  therefore only improve a connection, never prevent one, and the real connect attempt produces
+  the real error. `protocol.Version` stays at 1: `query_only` is an additive optional field, same
+  precedent as `room_code`.
+- **Consequences:** A host no longer has to explain ports to anyone, which was the actual
+  onboarding cost of having three transports. Costs one extra short-lived tcp connection per
+  startup. **Against a pre-2026-08-16 relay**, `query_only` is an unknown field, so that relay
+  joins the client for real and replies `Welcome`; the client recognises this, logs "older
+  build — using tcp", and closes — which such a relay reports to its room as one spurious
+  join/leave. That is the price of an additive field over a version bump, it affects old relays
+  only, and it is strictly better than the timeout it replaces. Relays still default to `tcp`, so
+  `auto` changes nothing until a host opts in.
+
+### 2026-08-16 — Revision: the handshake is always tcp; `transport` is the upgrade target
+
+- **Decision:** Supersedes the two ADRs above in one respect. A client **always** connects over
+  tcp first, and that is not configurable. `transport` in `config.json` no longer means "how to
+  connect" but "what to move to once connected": `tcp` stays put, `udp` (the shipped default) and
+  `quic` upgrade if the relay serves them, `auto` takes the best on offer. **tcp is now mandatory
+  on the relay too** — `netx.ParseKinds` prepends it whether or not the operator names it.
+- **Status:** Implemented, same day.
+- **Context:** The user's framing, and it is better than what shipped hours earlier: discovery
+  should be an unconditional property of connecting rather than a special `auto` mode. The first
+  design left `tcp`/`udp`/`quic` as three parallel ways to connect, which meant a client had to be
+  told which port a transport lived on and got a bare timeout when it guessed wrong.
+- **Resolution and what it buys:** (1) **a client never needs to know a port** — quic's differs
+  and is unguessable, so it is learned during the handshake and `connect_to` only ever needs the
+  tcp address; (2) **a wrong preference degrades to a working tcp session plus a log line**
+  instead of a timeout; (3) the one leg that must work is always the transport that works
+  everywhere and is readable while debugging.
+- **Resolution (tcp mandatory on the relay):** **Found by `internal/e2e`, not by reasoning** —
+  a udp-only relay became unreachable by every client the moment the handshake became
+  unconditional, including clients configured for udp. `ParseKinds` adds tcp silently rather than
+  refusing to start: the operator still gets exactly what they asked for, plus the leg that makes
+  it reachable. This is the clearest case yet for the e2e rig existing, since every package-level
+  test still passed.
+- **Resolution (an explicit preference does not rank):** A client asking for `quic` considers only
+  quic, and falls back to tcp if it is absent — it must never silently land on `udp`, which would
+  swap an encrypted session for one that cannot be encrypted. Only `auto` ranks.
+- **Resolution (default `udp`), and the tradeoff recorded plainly:** the shipped client default is
+  `udp`, chosen by the user so that a host who enables more than tcp automatically gets clients off
+  the head-of-line-blocking path. Two honest caveats, neither of which changes the decision but
+  both of which belong on the record: **`udp` is not lower latency on a link that is not losing
+  packets** — all three deliver identically there, and the benefit appears only under real loss;
+  and **`udp` cannot be encrypted**, so on a relay serving both udp and quic, a default client
+  takes the unencrypted one and its room code crosses in the clear where quic would have protected
+  it. `auto` exists precisely to prefer quic and is a one-word change in `config.json`. Relay
+  defaults remain tcp-only, so default-vs-default is unchanged and this only bites once a host
+  opts in.
+
+  **The full rationale, after the point was pressed three times — udp is the leanest transport,
+  and that is the real reason, not latency.** (1) **Overhead**: a raw udp datagram carries 10
+  bytes of framing here (2 control + 8 token), where a quic datagram adds a packet header plus a
+  16-byte AEAD tag — roughly 30-40 bytes more per packet, ~15-20% on a typical ~200-byte state
+  message, plus per-packet encryption CPU. udp is genuinely the cheapest option and quic is not
+  free. (2) **Ordering does not matter** to a latest-wins state plane, so udp gives up nothing
+  the state plane wanted. (3) **The usual counter-argument does not apply**: udp's headline
+  advantage is hole-punching for P2P, and this is a star topology through a relay, so that was
+  never on the table either way (`internal/README.md`'s own NAT note).
+
+  **What the default does NOT buy, recorded because it was the initial motivation and is false:**
+  lower latency. All three transports deliver at identical speed on a link that is not losing
+  packets; what udp and quic remove is head-of-line blocking *when a packet is actually lost*.
+  The choice is loss tolerance and low overhead versus confidentiality, not speed versus safety.
+- **Consequences:** Every connection now costs one extra short-lived tcp connection *unless* the
+  preference is tcp, which short-circuits. `netx.Auto` survives as a supported value rather than
+  the mechanism. The e2e transport tests now serve `tcp,<kind>` and point clients at the tcp
+  address for every kind, which is what a real deployment looks like.
+
+### 2026-08-16 — UDP per-connection token (the second half of the CelesteNet measure)
+
+- **Decision:** After admission, every udp application datagram carries an unpredictable 64-bit
+  per-connection token issued by the listener. Datagrams without it, or with the wrong one, are
+  dropped — including bare NDJSON lines, which were previously valid unreliable payloads.
+- **Status:** Implemented, same day, prompted by the user asking whether the CelesteNet UDP
+  measures were needed here.
+- **Context:** The transport shipped with an address-validation cookie, which gates **admission**
+  — it proves a source address is real, defeating blind spoofing and reflection. It does nothing
+  afterwards: a connection was identified by source address alone, so anyone able to spoof a live
+  client's ip:port could inject state into its session. `internal/README.md` had cited CelesteNet's
+  unpredictable token as precisely the reason TCP is safer by construction, and then the udp
+  transport shipped without it.
+- **Options considered:** (1) leave it and document the gap — defensible on threat modelling
+  alone, since exploiting it needs the victim's IP from outside MeshGhost (the relay never calls
+  `RemoteAddr`), source-IP spoofing that most ISPs filter, and pays out only in cosmetic griefing;
+  (2) add the token.
+- **Resolution:** Option 2, and the deciding argument was not the threat model but the
+  documentation: shipping a udp transport that omits the exact measure our own prior-art notes
+  cite as making TCP safer is a claim the code fails to honour. 64 bits clears the bar TCP's
+  32-bit sequence number sets. Cost is 8 bytes per datagram, ~4% on a typical state message.
+- **Resolution (bare payloads had to go):** Unframed NDJSON datagrams were dropped, because
+  leaving them accepted would have made the token optional in practice — a sender could simply not
+  use it. This cost the "a datagram is literally a greppable NDJSON line" property, which was
+  genuinely nice and is now gone on udp.
+- **Consequences:** Two distinct defences with two distinct jobs, documented as such: the cookie
+  gates admission, the token gates the session. **Neither is encryption** — an on-path attacker
+  reads both straight off the wire, the same limit TCP sequence numbers have, and the reason
+  `quic` exists. Covered by a forged-datagram regression test and a bypass test, with fuzz seeds
+  for every token-carrying frame shape. Technique taken from prior-art notes only; no CelesteNet
+  code was read or copied, per `licensing.md`'s facts-not-code rule.

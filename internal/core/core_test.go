@@ -852,10 +852,11 @@ func (ct *countingTransport) Send(payload []byte) error {
 	ct.mu.Unlock()
 	return nil
 }
-func (ct *countingTransport) OnReceive(func([]byte))   {}
-func (ct *countingTransport) OnDisconnect(func(error)) {}
-func (ct *countingTransport) OnError(func(error))      {}
-func (ct *countingTransport) Close() error             { return nil }
+func (ct *countingTransport) SendUnreliable(payload []byte) error { return ct.Send(payload) }
+func (ct *countingTransport) OnReceive(func([]byte))              {}
+func (ct *countingTransport) OnDisconnect(func(error))            {}
+func (ct *countingTransport) OnError(func(error))                 {}
+func (ct *countingTransport) Close() error                        { return nil }
 
 func (ct *countingTransport) count() int {
 	ct.mu.Lock()
@@ -1254,10 +1255,11 @@ func (rt *recordingTransport) Send(payload []byte) error {
 	rt.sent = append(rt.sent, cp)
 	return nil
 }
-func (rt *recordingTransport) OnReceive(func([]byte))   {}
-func (rt *recordingTransport) OnDisconnect(func(error)) {}
-func (rt *recordingTransport) OnError(func(error))      {}
-func (rt *recordingTransport) Close() error             { return nil }
+func (rt *recordingTransport) SendUnreliable(payload []byte) error { return rt.Send(payload) }
+func (rt *recordingTransport) OnReceive(func([]byte))              {}
+func (rt *recordingTransport) OnDisconnect(func(error))            {}
+func (rt *recordingTransport) OnError(func(error))                 {}
+func (rt *recordingTransport) Close() error                        { return nil }
 
 func (rt *recordingTransport) count() int {
 	rt.mu.Lock()

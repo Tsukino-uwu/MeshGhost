@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"meshghost/internal/core"
+	"meshghost/internal/netx"
 )
 
 // openLogFile creates (truncating any previous run's contents) meshghost.log next to
@@ -56,6 +57,18 @@ type fileConfig struct {
 	// means uncapped (the pre-existing behavior). Per-peer, not a total —
 	// see core.Core.MaxReceiveHz and the ADR in agent_docs/architecture.md.
 	MaxReceiveHzPerPlayer *int `json:"max_receive_hz_per_player"`
+	// Transport is what this client moves to AFTER connecting, not how it
+	// connects: the handshake is always tcp and no setting changes that.
+	// "tcp" stays put; "udp" (the shipped default) and "quic" upgrade if the
+	// relay serves them; "auto" takes the best on offer.
+	//
+	// Because the relay is asked what it serves during that tcp handshake,
+	// connect_to only ever needs the tcp port -- a client never has to be
+	// told where quic lives, and asking for a transport the relay does not
+	// serve degrades to a working tcp session rather than a timeout. See
+	// packaging/release/README.txt and the transport discovery ADR in
+	// agent_docs/architecture.md.
+	Transport *string `json:"transport"`
 }
 
 // rootConfig is the top-level shape of the config file: a "client" section
@@ -83,6 +96,7 @@ type configTargets struct {
 	roomCode     *string
 	gameVersion  *string
 	maxReceiveHz *int
+	transport    *string
 }
 
 // applyFileConfig loads path (if it exists -- silently doing nothing if not,
@@ -179,6 +193,9 @@ func applyFileConfig(path string, explicit map[string]bool, t configTargets) {
 	if fc.MaxReceiveHzPerPlayer != nil && !explicit["max-receive-hz-per-player"] {
 		*t.maxReceiveHz = *fc.MaxReceiveHzPerPlayer
 	}
+	if fc.Transport != nil && !explicit["transport"] {
+		*t.transport = *fc.Transport
+	}
 }
 
 // connectRelayWithRetry keeps calling Core.ConnectRelayOnAdapterHello until
@@ -259,10 +276,20 @@ func main() {
 			"35 updates/sec inbound, not 5. Only affects your own download and nobody else's view "+
 			"of you. Valid range 10-100 if set; values below ~10 will look stuttery unless you "+
 			"also raise -interp")
+	transportName := flag.String("transport", netx.UDP.String(),
+		"which transport to move to AFTER connecting. The handshake is always tcp and this "+
+			"cannot be changed -- so you never need to know which port a transport is on, and a "+
+			"preference the relay does not serve degrades to a working tcp session instead of a "+
+			"timeout. tcp: stay on tcp (reliable, and the only one readable with netcat while "+
+			"debugging). udp (the default): upgrade if the relay serves it -- better on a lossy "+
+			"connection, but CANNOT be encrypted (Go has no DTLS), so your room code crosses the "+
+			"wire in the clear. quic: same loss behaviour as udp but encrypted and hard to spoof. "+
+			"auto: take the best on offer, preferring quic, and never udp unless it is all there "+
+			"is")
 	configPath := flag.String("config", "config.json",
 		"path to an optional JSON config file with a \"client\" section "+
 			"(connect_to/local_game_bridge/game/room/name/interp/min_send/room_code/game_version/"+
-			"max_receive_hz_per_player) -- a friendlier alternative to flags for non-developer use; "+
+			"max_receive_hz_per_player/transport) -- a friendlier alternative to flags for non-developer use; "+
 			"silently ignored if it doesn't exist; any flag explicitly passed on the command line "+
 			"overrides the same field from this file")
 	flag.Parse()
@@ -282,9 +309,22 @@ func main() {
 		roomCode:     roomCode,
 		gameVersion:  gameVersion,
 		maxReceiveHz: maxReceiveHz,
+		transport:    transportName,
 	})
 
+	// Fatal on a bad value rather than clamping to tcp, deliberately
+	// departing from how send_hz and interp are handled: a typo in those
+	// costs a little smoothness, whereas silently falling back here would
+	// hand someone who asked for quic an unencrypted connection and never
+	// mention it. netx.Kind's zero value being tcp is exactly what makes a
+	// lenient parse dangerous.
+	transportKind, err := netx.ParseKind(*transportName)
+	if err != nil {
+		log.Fatalf("meshghost: %v", err)
+	}
+
 	c := core.New()
+	c.Transport = transportKind
 	c.InterpolationDelay = *interp
 	c.MinSendInterval = *minSend
 	c.MaxReceiveHz = *maxReceiveHz

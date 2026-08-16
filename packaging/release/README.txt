@@ -34,6 +34,15 @@ Setup, once:
                off by default. If they did set one, you must enter it
                exactly or you'll be refused.
      "name"  -- whatever you want your ghost to show as to others.
+     "transport" -- LEAVE THIS AS "auto". Your client asks the host what
+               they support and picks the best one automatically, so you
+               don't need to know what they're running or which port it's
+               on. If you'd rather pick yourself you can put "tcp", "udp",
+               or "quic" here instead -- but then it has to MATCH what your
+               host runs, and the port in "connect_to" has to match too, or
+               you'll just get a timeout with nothing explaining why.
+               There's a full pros/cons rundown in "Transports -- tcp vs
+               udp vs quic" near the bottom.
      "local_game_bridge" -- internal, on your own PC only. Leave this alone
                unless you're running two copies on the SAME machine (see
                below).
@@ -98,6 +107,15 @@ Setup, once:
      "listen_on" -- what port to accept connections on. "0.0.0.0:7777"
                (the default) means "accept from anywhere," which is what
                you want. Only change the port number if you need to.
+     "transport" -- "tcp" (the default), "udp", "quic", or a list like
+               "tcp,quic" to offer more than one at once. Players left on
+               "auto" (the default) will find whatever you turn on by
+               themselves, so you do NOT need to tell them which to use or
+               what port it's on. Pros/cons of each are in "Transports --
+               tcp vs udp vs quic" near the bottom, along with which ports
+               you need to forward for each.
+     "listen_quic" -- only used if you put "quic" in "transport". It needs
+               its own port number, different from "listen_on".
      "room_code" -- OPTIONAL. Leave as "" to keep the old behavior: anyone
                who has your address can join. Set it to a word or phrase
                to require everyone to also enter that same code in their
@@ -315,3 +333,73 @@ Common things to check:
   you loaded your game's mod/script? Double-check you loaded it from the
   right folder under games\, and that meshghost.exe was already running
   first.
+
+
+Transports -- tcp vs udp vs quic
+---------------------------------
+"transport" in config.json picks HOW meshghost.exe talks to the server.
+
+If you're a PLAYER: leave it on "auto" (the default) and stop reading --
+your client asks the host what they offer and picks the best one for you.
+The rest of this section is only useful if you're hosting, or if you want
+to override that choice.
+
+If you're HOSTING: "transport" is what you actually serve, and you can
+serve more than one at once. Players on "auto" will find whatever you turn
+on, so this is the only place the choice really matters.
+
+  tcp  (the default -- pick this unless you have a reason not to)
+    + Works everywhere, no surprises.
+    + The only one we can actually inspect when something goes wrong, so
+      it's the easiest to get help with.
+    - A lost packet holds up the positions queued behind it until it gets
+      resent, so a bad connection can look "stuttery then catch up".
+    - Not encrypted: your room_code travels in the clear.
+
+  udp
+    + Handles a bad/lossy connection better -- a dropped position is just
+      skipped instead of delaying the next one.
+    - NOT encrypted, and unlike tcp this can never be fixed. Your
+      room_code travels in the clear. If that matters, use quic instead.
+    - Harder to troubleshoot.
+    - On a healthy connection it is NOT faster (see the note below).
+
+  quic
+    + Same loss handling as udp, so the same benefit on a bad connection.
+    + Encrypted, and very hard to spoof. The only one where your room_code
+      is protected in transit.
+    - Needs its OWN port ("listen_quic" on the host's side) -- it cannot
+      share one with udp. That's one more port to forward.
+    - Harder to troubleshoot.
+
+"But isn't udp the fast one?"  Not really, and this is the most common
+misunderstanding: on a connection that isn't dropping packets, all three
+arrive at exactly the same speed. Same route, same physics. What udp and
+quic avoid is one lost packet holding up the ones behind it -- which only
+does anything when packets are actually being lost. And if you want that,
+quic gives you the same benefit AND keeps things encrypted, so there is
+rarely a good reason to pick plain udp.
+
+Short version:
+  Playing, not hosting?           auto (the default -- just leave it)
+  Hosting, keep it simple?        tcp
+  Hosting for a flaky group?      tcp,quic
+  Want room_codes encrypted?      tcp,quic
+
+Note "auto" prefers quic, then tcp, and will NOT pick udp for you even if
+you offer it -- udp can't be encrypted, so choosing it automatically would
+quietly expose room_codes. Anyone who genuinely wants udp can still ask for
+it by name.
+
+Hosting: "transport" accepts a list, so you can offer several at once --
+"tcp,udp,quic". Players still pick a single one each, and players on
+DIFFERENT transports still share a room and see each other normally.
+
+Port forwarding, if you host over the internet: you need a rule per
+transport you actually offer, and the protocol matters --
+  tcp  -> forward TCP  on 7777
+  udp  -> forward UDP  on 7777   (same number as tcp is fine, they don't
+                                  clash -- TCP and UDP are separate)
+  quic -> forward UDP  on 7780   (whatever "listen_quic" says)
+A player set to a transport you haven't forwarded just sees a timeout with
+nothing explaining it, so if someone can't connect, check this first.

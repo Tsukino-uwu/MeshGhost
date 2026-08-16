@@ -51,12 +51,46 @@ Full walkthrough: `packaging/release/README.txt` (ships in the zip) and
 - Reads game memory, never writes it — MeshGhost does not touch your save.
 - Up to 8 players per server by default, counted across all rooms — the host can raise it.
 - Bring your own legally-obtained copy of each game — no ROMs or game assets are shipped here.
-- `room` is a label, not a password. `room_code` is the optional actual secret, and it isn't
-  encrypted in transit yet — don't rely on it against a determined attacker.
+- `room` is a label, not a password. `room_code` is the optional actual secret, and on `tcp`
+  and `udp` it isn't encrypted in transit — don't rely on it there against a determined
+  attacker. `quic` does encrypt it (see below).
 - Archipelago and other mods/patches: a goal, not a tested guarantee. Emerald's adapter reads
   memory rather than patching the ROM, and TEVI's/Pseudoregalia's adapters were built alongside
   their AP mods — but an AP-patched Emerald ROM can shift where facing/running are read from,
   so treat it as "should work," not confirmed.
+
+### Transports: `tcp` vs `udp` vs `quic`
+
+`"transport"` in `config.json` picks how the client talks to the server. **Leave it on `auto`**
+— the shipped default. The client asks the server what it offers and picks the best of those, so
+you never need to know which transports a host runs or which port they're on. Relays default to
+`tcp`, so this changes nothing until a host opts in to more.
+
+If you'd rather pin it, name one explicitly — but then it must match a transport the host is
+actually serving, on the matching port, or you'll get a timeout with nothing explaining it.
+
+| | Good for | Costs you | Encrypted? |
+|---|---|---|---|
+| **`tcp`** *(default)* | Works everywhere. The only one you can read with `netcat` or a packet capture when something goes wrong. | A lost packet holds up the positions queued behind it until it's resent. | No |
+| **`udp`** | A lossy connection — a dropped position is skipped rather than delaying the next one. | **Can never be encrypted** (Go has no DTLS), so `room_code` travels in the clear. Not readable while debugging. | No, and not fixable |
+| **`quic`** | The same loss handling as `udp`, plus encryption and resistance to spoofing. | Needs its own port (`listen_quic`) — it can't share one with `udp`. Not readable while debugging. | Yes (TLS 1.3) |
+
+**`udp` is not "the fast one."** On a connection that isn't dropping packets, all three deliver
+at identical speed — same route, same physics. What `udp` and `quic` avoid is one lost packet
+stalling the newer positions behind it, which only matters when packets are actually being lost.
+If you want the loss behaviour, `quic` gives it to you *and* stays encrypted, so there's rarely
+a reason to pick plain `udp`.
+
+A host can offer several at once (`"transport": "tcp,udp,quic"`), and players on different
+transports still share a room and see each other normally. Each transport needs its own port
+forwarding rule.
+
+**`auto` prefers `quic`, then `tcp`, and never picks `udp` on your behalf** — `udp` shares quic's
+loss handling but can't be encrypted, so choosing it automatically would quietly downgrade your
+`room_code` to plaintext on a server that also offered quic. Ask for it by name if you want it.
+Discovery is refused unless you already have the right `room_code`, so it tells a stranger
+nothing they couldn't learn by just joining. Design rationale is in
+[agent_docs/architecture.md](agent_docs/architecture.md)'s transport and transport-discovery ADRs.
 
 ## How it works
 

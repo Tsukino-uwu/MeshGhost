@@ -36,8 +36,12 @@ Fixed-and-confirmed work is not listed here — see `verified.md` and the phase 
   started. `ideas.md`, `environment.md`.
 - **Receive rate cap** — `max_receive_hz_per_player` never watched live; needs two clients at
   different caps. (The send side was confirmed on screen 2026-08-15.) `architecture.md` ADR.
-- **Relay-safety follow-ups**: no TLS (room codes in plaintext), TEVI's `game_version` isn't a real
-  build number, adapters' parsing never got the adversarial audit. `internal/README.md`.
+- **Relay-safety follow-ups**: no TLS on `tcp`/`udp` (room codes in plaintext; `quic` is encrypted),
+  TEVI's `game_version` isn't real, adapters' parsing never got the adversarial audit. `internal/README.md`.
+- **Selectable transport shipped 2026-08-16**, all three confirmed live on Pseudoregalia — open:
+  no sustained-load or two-machine test, `udp` unencryptable, no per-IP cap. `verified.md`, `risks.md`.
+- **Suspected: Pseudoregalia mod may not clear ghosts when the bridge drops** — pre-existing, any
+  transport. Planned fix: `release_all_ghosts` on bridge loss, NOT parking. `verified.md` 2026-08-16.
 
 ## Links
 

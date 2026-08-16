@@ -93,7 +93,52 @@
   defend against a network-level attacker who can observe the connection — they can read the
   code in transit. Not attempted as part of the 2026-08-14 hardening pass (see that ADR's
   "Options considered (auth)" for why); a real, separately-scoped piece of future work if the
-  threat model ever requires it.
+  threat model ever requires it. **Scoped 2026-08-16 to a full design** — three-way
+  `off`/`auto`/`required` mode, an in-memory self-signed cert with no files anywhere, and
+  identity via TLS channel binding so the room code proves the relay automatically rather than
+  the user copying a fingerprint. Written up with its costs in `agent_docs/ideas.md`'s
+  "Relay/client — transport security (TLS)" section; **still unscheduled, and deliberately
+  sequenced after the code-signing work** — cert generation plus encrypted traffic would likely
+  worsen the existing antivirus false positives on the shipped exes. **Partly overtaken
+  2026-08-16 by selectable transports**: `quic` is encrypted (its handshake is TLS 1.3) and its
+  `tls.ConnectionState` exposes a working `ExportKeyingMaterial`, so the channel-binding design
+  would drop straight in there. TLS-over-`tcp` remains unbuilt.
+- **`udp` cannot be encrypted, ever, and this is not fixable** (added 2026-08-16 with selectable
+  transports). Go's standard library has no DTLS, so a client choosing `transport: "udp"` sends
+  its `room_code` in the clear with no option available to change that. Mitigated only by
+  documentation: `tcp` is the default on both ends, the flag's own help text says so outright,
+  and `quic` exists as the encrypted alternative. Anyone who needs confidentiality must not
+  choose `udp`.
+- **`udp` adds pre-auth attack surface that `tcp` did not have** (added 2026-08-16). The
+  demultiplexer in `internal/netx/udpconn` parses bytes from any stranger who knows the address,
+  *before* address validation, room code, or protocol version. Mitigations built in: a derived
+  (not stored) address-validation cookie, so a flood of forged hellos costs one HMAC and zero
+  memory; a hard datagram size cap; and a bounded per-connection receive queue that drops rather
+  than blocking the shared read loop. Covered by `FuzzListenerSurvivesArbitraryDatagrams`, whose
+  liveness check exists because a wedged listener looks exactly like "nobody is joining." **A
+  per-connection token was added the same day, after the user asked whether the CelesteNet UDP
+  measures were needed here**: address validation gates *admission* only, so without a token a
+  connection is identified by source address alone and anyone able to spoof a live client's
+  ip:port could inject state into its session. 64 unpredictable bits on every datagram clears the
+  same bar TCP's 32-bit sequence number does. Practical risk before the fix was narrow (it needs
+  the victim's IP from outside MeshGhost — the relay never calls `RemoteAddr` — plus source-IP
+  spoofing, which most ISPs filter, and pays out in cosmetic griefing), but `internal/README.md`
+  cited CelesteNet's token as the reason TCP is safer by construction, so shipping without it was
+  a claim the code did not honour. **Neither defence helps against an on-path attacker**, who can
+  read cookie and token straight off the wire — the same limit TCP sequence numbers have, and
+  the reason `quic` exists. **Still
+  open, and unchanged by any of this: there is no per-IP connection cap** — `MaxClients` (8,
+  global) is only reserved after a successful hello. A real cap would need `conn.RemoteAddr()`,
+  which `internal/README.md` currently asserts is never called anywhere as a privacy property, so
+  it needs its own decision rather than being folded into transport work.
+- **First third-party dependency, with two knock-on risks** (added 2026-08-16). `quic-go` (MIT)
+  plus three `golang.org/x/*` modules (BSD-3-Clause) are now compiled into the shipped binaries.
+  (1) Both licences require their notice to travel with a binary, so `THIRD-PARTY-NOTICES.txt`
+  for the Go executables must be re-checked whenever the pin moves — audit it against
+  `go version -m meshghost.exe`, which reports what actually linked, not against `go.mod`.
+  (2) A larger binary with a real dependency may shift the antivirus false-positive baseline
+  recorded above; unmeasured as of this entry. Also note `go get` raised the module's Go
+  directive from 1.22 to **1.25.0**, which raises the minimum toolchain for anyone building this.
 - **Stale relay silently disables room-code auth — found while scoping the 2026-08-14 pass,
   from the user asking what happens with an old client/server against new ones.** Room-code
   auth is enforced entirely by the relay (the host controls admission, not each joiner — the

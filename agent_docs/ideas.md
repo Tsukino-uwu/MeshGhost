@@ -701,6 +701,141 @@ protocol above is actually run and watched.
    easier to judge with two real players than in loopback — where, per idea 4's own note, both
    characters are the same person and "does this help me tell peers apart" cannot be answered.
 
+---
+
+## Relay/client — transport security (TLS)
+
+Not an adapter item and not on the depth ladder at all: this is the Go side, so it's
+confirmable with the tools rather than by watching a game (`CLAUDE.md`'s split). Researched
+2026-08-16 to the point of a full implementation plan; **deliberately not scheduled** — nothing
+is broken today, and one of the costs below argues for waiting.
+
+### What's actually missing
+
+Only confidentiality. The application layer is already hardened: server-stamped `player_id`
+(`internal/relay/relay.go:739`, never trusted from the payload), constant-time room-code compare
+(`:653-660`), hello timeout, per-connection flood cap, global client cap, `ValidateState` that
+drops rather than truncates, and a fuzz harness driving the relay over `net.Pipe`. What's left is
+that `internal/transport` is plaintext NDJSON over TCP, so `room_code` crosses the wire readable
+— already recorded at `risks.md:90`, `contract.md:151`, and the room-code ADR's own "TLS is a
+separate, larger piece of work" note at `architecture.md:483`.
+
+**Adapters are not affected by any of this, at all.** An adapter speaks only the *bridge*
+protocol to a local core on `127.0.0.1:7778` — a different socket from the relay one. The bridge
+stays plaintext loopback. Nothing in `adapters/` changes, now or later.
+
+### The shape it would take
+
+1. **Three-way mode**, `off` / `auto` / `required`, one config key and one flag on each binary.
+   `auto` sniffs the first byte of each accepted connection — `0x16` is a TLS ClientHello, `{` is
+   NDJSON — so one port serves both and hand-driving a relay with netcat still works. Releases
+   would ship `required` on both sides.
+2. **No files anywhere.** The relay generates an in-memory Ed25519 self-signed certificate once
+   per process. Nothing ever verifies it by fingerprint, so a file on disk would buy zero
+   security while putting a private key next to the exe in a zip people re-share.
+3. **Identity via TLS channel binding** (`tls-exporter`, RFC 9266), not certificates or pinned
+   fingerprints — because the end user configures nothing. After the handshake both ends derive
+   the same connection-unique secret via `tls.ConnectionState.ExportKeyingMaterial`; the client
+   sends `HMAC-SHA256(room_code, ekm)` in place of the raw code, the relay computes the same and
+   compares constant-time, and mirrors its own proof back in `Welcome` under a second label.
+   Someone terminating TLS in the middle sees *different* keying material on each leg, so they
+   can't forge or forward a valid proof. Net: the room code stops crossing the wire at all,
+   interception is blocked, and nobody copies a hex string.
+4. Structurally small. `relay.Serve` takes any `net.Listener` and `handleConn` any `net.Conn`
+   (proven by the `net.Pipe` fuzz harness), so framing, relay logic and core need no change —
+   the work is a new `internal/tlsx` leaf package, two optional `protocol` fields, and the two
+   `cmd/` binaries. `protocol.Version` stays at 1 (additive optional fields, same precedent as
+   the room-code ADR). Full plan, including the compatibility matrix and the test list, was
+   written 2026-08-16 and would need re-deriving — the design above is the durable part.
+
+### Why it's worth doing
+
+Anyone on the network path — shared wifi, a VPN provider, an ISP — currently reads the room code
+out of the third packet. This makes that impossible, and makes relay impersonation impossible
+too. It would also be the **first security setting a stale binary cannot silently disable**: a
+`required` client refuses to send anything to a plaintext relay, which is exactly what
+room-code auth could not do (`risks.md:97-107`).
+
+### Costs, honestly
+
+- **Antivirus, and this one is ours specifically.** The exes already draw false-positive trojan
+  flags. Certificate generation plus encrypted outbound traffic hits two classic heuristic
+  triggers, so this could plausibly make that worse. **This is the reason to sequence it after
+  the SignPath OSS code-signing work, not before** — it's the only cost here that would actually
+  reach users.
+- **Reading a real session off the wire stops working.** netcat-driving survives under `auto`,
+  but a packet capture between two real binaries goes opaque — the property
+  `internal/README.md:221` argues for. `tls: off` is the way back.
+- **~10-15% more traffic.** Roughly 25 bytes of TLS record overhead per message; at 20 Hz that's
+  about 1.8 MB/hour per direction against 150-250 byte packets. Post-handshake CPU is
+  immeasurable — AES-GCM moves gigabytes per second and this sends four kilobytes.
+- **A new way for a version mismatch to break a release.** Today a stale binary silently
+  downgrades; after this a `required` client hard-fails. That's the intent, but it's still a new
+  support case where mixed versions error instead of limping along.
+- **Bug risk in a path that currently works.** The room-code check splits into two branches, and
+  getting the split wrong would create a downgrade hole where none exists. The plan's answer is a
+  test asserting that a TLS connection sending a *raw* room code is refused, not accepted.
+
+### Two smaller, cheaper items found alongside it
+
+Both are independent of TLS and could land first.
+
+- **The shipped relay default is an open relay.** `packaging/release/config.json` has
+  `listen_on: "0.0.0.0:7777"` with `room_code: ""`. Keeping `0.0.0.0` is right — narrowing it
+  breaks the host-for-friends flow `packaging/release/README.txt` already walks through — but the
+  empty code deserves a louder warning than it currently gets. Auto-generating a random room code
+  when none is set would close it properly, at the cost of the zero-config "just give them the
+  address" flow; that's a product call, not a technical one.
+- **No per-IP connection cap.** `MaxClients` (8, global) is reserved only *after* a successful
+  Hello (`relay.go:678`), so N unauthenticated connections each hold a goroutine and a socket for
+  `HelloTimeout`. TLS would make each one cost real handshake CPU an unauthenticated stranger can
+  trigger, so a handshake timeout is part of the plan above. A real per-IP cap needs
+  `conn.RemoteAddr()`, which `internal/README.md:102` currently asserts is never called anywhere
+  as a privacy property — so it needs its own decision rather than being smuggled into a TLS
+  change.
+
+### Follow-up: let the relay advertise its transports — BUILT 2026-08-16, same day
+
+**Done, and no longer an idea.** Filed here in the morning and implemented the same day as
+`transport: "auto"` — see the transport discovery ADR in `architecture.md` and the entry in
+`verified.md`.
+
+Kept as a one-paragraph record because the *reasoning* is worth not re-deriving: auto-probing
+cannot work (quic is on a different port and a client knows only one address), advertising in
+`Welcome` would have meant joining first and then reconnecting — which every other player in the
+room would see as a leave and rejoin, since `contract.md` guarantees no session resumption — so
+the client asks *before* joining instead. The query answers only after the room-code check, which
+is what stops it becoming the relay's one pre-auth endpoint.
+
+### Prior art: how pseudoregalia-multiplayer splits reliable vs unreliable (checked 2026-08-16)
+
+Checked when the user asked whether MeshGhost needs WebSocket, having noticed that project using
+it for something beyond its Archipelago connection. Facts read from its own
+`docs/application-protocol.md` (MIT, approved read-only reference in `licensing.md`); no code
+read or copied.
+
+It uses **both WebSocket and UDP**: "Communication between client and server consists of both
+WebSocket messages and UDP packets." The author's stated reason is worth quoting, because it is
+the same problem MeshGhost hit and a different answer to it — "I like using UDP for the state
+updates, but I didn't want to write my own 'connection based, in order, guaranteed delivery'
+protocol on top of UDP. I can get that from WebSockets relatively easily."
+
+**Same split, different solution.** MeshGhost reached the identical conclusion — lossy for
+per-frame state, reliable for lifecycle — and expressed it as `Send`/`SendUnreliable` over one
+connection. Where they delegated the reliable half to a second protocol, we wrote the retransmit
+/ack/dedup layer in `internal/netx/udpconn` that they explicitly chose not to write. Their
+reasoning is sound and the cost of ours was real: that layer is where the one genuine bug of the
+day lived (acking before delivering, `verified.md` 2026-08-16), which delegating would have
+avoided.
+
+**Why we still don't want WebSocket.** QUIC is the better version of what they use it for: the
+same reliable-plus-unreliable split, but one connection rather than two, one path through NAT,
+standardised, and encrypted — WebSocket being an HTTP-derived framing layer whose reason for
+existing (browsers cannot open raw sockets) does not apply to a native client. The one case that
+would change this is hosting: some PaaS providers and restrictive networks route only HTTP(S), so
+a relay behind such a proxy is reachable over WSS on 443 and nothing else. If that ever comes up,
+`internal/netx` makes it a fourth `Kind` with no change to `internal/relay` or `internal/core`.
+
 ## Links
 
 - `agent_docs/plans.md` — the roadmap; move an idea here (with a phase number) once it's picked.
