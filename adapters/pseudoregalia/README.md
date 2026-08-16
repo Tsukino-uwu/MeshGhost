@@ -173,6 +173,17 @@ Roughly in order:
     nothing in its position ever changed — because the check was reading the position back right
     after writing it, which can't see anything that moves between frames. Reading it *before*
     showed plain gravity: the sword's own movement component, still falling. (7.6)
+35. Gave the ghost the glow you get when empty-handed near a save crystal. Instead of working out
+    the rule — nobody had guessed the crystal part — the mod just checks whether the real effect is
+    showing and copies that, so any condition we never noticed comes along for free. Found by
+    playing all 58 of the game's effects onto the ghost until one was recognised. (7.6)
+36. Worked out where the ultra hop's blue trail comes from, after it had been written off as
+    unsolvable. It was never a particle effect at all — an afterimage is a posed copy of the
+    character, and each one carries its own colour. Currently switched back off; see step 37. (7.6)
+37. Broke the slide trail and spent most of a night finding out we'd done it ourselves: the very
+    probes measuring it were spawning extra afterimages and stalling the game, so the real ones got
+    cut short. Every measurement said the ghost matched the player, because the images that survived
+    *were* right. Comparing old commits found it in three builds — a first for this project. (7.6)
 
 See [agent_docs/phases/phase7.md](../../agent_docs/phases/phase7.md) for the detailed, dated
 log, and [agent_docs/pitfalls.md](../../agent_docs/pitfalls.md) for the transferable lessons
@@ -183,14 +194,14 @@ bug behind the facing-direction fix).
 
 ### Further work past "good enough"
 
-The ghost passed "good enough" around step 18; steps 19–34 are all polish past that line. Still
-open as of 2026-08-15 — [agent_docs/status.md](../../agent_docs/status.md) is the authoritative
+The ghost passed "good enough" around step 18; steps 19–37 are all polish past that line. Still
+open as of 2026-08-16 — [agent_docs/status.md](../../agent_docs/status.md) is the authoritative
 list:
 
 - 7.7 itself, two real players. Also gates the keep-or-axe call on ghost collision.
-- Rotating around a climbing pole. The rotation itself is provably synced; a real second player
-  is needed to judge it, since loopback puts the ghost beside the pole rather than on it.
-- The blue ultra-hop trail (step 26). The empty-hand recall glow (step 28) is now worth retrying:
-  it needed a real thrown-weapon actor to exist, and step 33 makes one.
+- Rotating around a climbing pole, and a sword thrown near a save crystal. Both are provably
+  synced; loopback puts the ghost beside the geometry, so a second player is needed to judge them.
+- Switching the blue ultra trail back on (step 36) — the colour is known, the cheap way to read it
+  is written down in `status.md`.
 - Ghost vanishes while a peer is on a climbing pole, then returns stuck in a climb pose.
 - A `Fatal Error!` on game exit, seen once, never root-caused.

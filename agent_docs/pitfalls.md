@@ -163,7 +163,7 @@ know the incident, not just the rule, so you can judge when it applies.
   0%-completion save vs. a 100%-completion save, loaded within the same session so the ghost's
   spawn snapshot captures each cleanly) turned a guessing game into an exhaustive search: out of
   230 properties on an AnimBP instance, exactly one differed between an armed and unarmed spawn,
-  and a full 250-property sub-component dump proved a longtime prime suspect (`WeaponMesh`)
+  and a full 250-property sub-component dump proved the day's prime suspect (`WeaponMesh`)
   never differed at all — ruling it out completely, not just the handful of properties anyone
   had thought to check by name. Source: the Phase 7 Dream Breaker weapon-visibility
   investigation, 2026-08-15 (`agent_docs/verified.md`'s "cross-save" entries,
@@ -174,6 +174,36 @@ know the incident, not just the rule, so you can judge when it applies.
   without prior knowledge of the field's name, and normalizing out per-instance object
   IDs/level-path noise before diffing keeps the result from drowning in expected, irrelevant
   differences.
+
+- **A diagnostic can break the thing it measures — and then every reading agrees with itself.**
+  This is the hardest-won rule in the file; it cost the worst regression the project has had. Two
+  probes were left enabled while judging the effect they instrumented: one *spawned* an afterimage
+  onto the ghost every ~3s, and one enumerated every afterimage on the game thread ~50×/sec with a
+  string conversion and a log line per object. The game spawns that effect as a countdown across
+  ticks, so stalling the thread truncated real bursts. Four independent metrics then reported exact
+  parity, because every image that survived *was* correct — only the destroyed ones were missing.
+  So: **audit a probe's cost before trusting its output**, prefer edge-triggered logging over
+  per-tick, never leave a probe that *spawns* the same kind of object enabled while judging that
+  object, and re-run with probes off before believing a result. Treat numbers gathered while a
+  corrupting probe was live as retroactively suspect, not as evidence. Full incident below.
+- **"It measured correct" is not evidence** — the measurement counterpart of `CLAUDE.md`'s "it ran
+  without errors is not evidence". A clean build proves nothing about behaviour; a clean *metric*
+  proves nothing either if the instrument shares a blind spot with what it measures. The user's
+  framing, 2026-08-16: *"I trust the code, but I don't trust the output."*
+- **When instruments and a human observer disagree repeatedly, suspect the instruments.** Four
+  rounds of counters said "identical" while the user kept reporting a visibly thinner trail. The
+  user was right every time. A human reporting a difference your metrics deny is a reason to
+  re-examine the metric, not to re-explain the metric.
+- **A flag flip is not a revert.** A `constexpr bool` only reverts behaviour if it gates the
+  *work*, not merely the decision the work feeds. The trail regression's A/B set a flag to false,
+  concluded "this change is innocent", and was wrong: only the counter increment *inside* the
+  expensive scan was gated, so the scan still ran. If a flag exists as an off-switch, verify it
+  disables the cost too — or revert the commit instead.
+- **When a regression appears, bisect real commits early.** This project had never needed it before
+  2026-08-16, and inference had already burned hours by the time it was tried; the bisect then
+  located the cause in three builds. Check out the last-known-good commit's source, build, confirm
+  it is actually good, then halve. It is mechanical, needs no theory, and — unlike a flag flip —
+  cannot be fooled by a partial revert. Everything committed makes this cheap and risk-free.
 
 ## Failure signatures
 
@@ -752,6 +782,45 @@ Backing detail for `CLAUDE.md`'s public-repo rule. Two live cases, and they fail
   `cmake`, and from the same devkitPro MSYS2 install. Treat a tool's *config-dependent*
   output (not just its success/failure) as suspect until the binary is identified.
 
+### The diagnostics were the bug: probes that broke the effect they measured (2026-08-16)
+
+**The most serious regression this project has had, and the first to require comparing commits to
+diagnose.** Read this one before adding any probe to an adapter.
+
+- **Symptom**: the ghost's afterimage trail went intermittently sparse or missing. Sometimes a
+  slide produced a full trail, sometimes almost none, with no pattern the user could pin down.
+- **Why it survived four rounds of measurement**: every instrument reported *exact parity* between
+  the real player and the ghost — spawn count (32 vs 32, later 40 vs 40), burst spacing (18-21
+  ticks each side), position in X and Z (identical, correct loopback offset), opacity and fade
+  curve (the ghost's marginally *higher*), and colour. All of it was true and all of it was
+  irrelevant: **every image that survived was correct, and only the destroyed ones were missing.**
+  A counter cannot see an object that never existed.
+- **Cause — two of this session's own probes, both left enabled while judging the trail:**
+  1. `AFTERIMAGE_DISCOVERY` called the game's own spawn function on the ghost every ~3 seconds. A
+     probe that *creates* the same kind of object it is measuring is contaminating by construction.
+  2. `TRAIL_COLOR_TRACE` plus a 3-tick (~50Hz) scan added a second `FindAllOf`, a
+     `GetFullName()`/UTF-8 conversion and several name-keyed property lookups **per object per
+     scan**, against a pool that grows past 80, all on the **game thread**. The game spawns
+     afterimages as a countdown *across ticks*, so stalling that thread truncates bursts in flight.
+- **The wrong turn that cost the most**: an A/B set `AFTERIMAGE_TRIGGER_OBSERVED = false` and
+  concluded "the trigger revamp is innocent". It was not — only the counter increment *inside* the
+  scan was gated by that flag, so the expensive enumeration ran regardless. **A flag flip is not a
+  revert.** The conclusion drawn from it was wrong and sent the investigation further astray.
+- **What actually found it**: the user asked to check out the session-start commit and compare.
+  `8d10f67` (session start) good → `46c4d2c` good → `760b148` intermittent → `861e6cd` broken.
+  **Three builds**, after hours of measurement had produced only false parity.
+- **Fix**: heavy per-object tracing off; scan cadence 3 → 15 ticks; and structurally, the scan is
+  now gated by the flag that owns it, so that flag is a real off-switch. Confirmed live by the user
+  afterwards: dense repeating slide trail, ghost within 1-2 images of the real player.
+- **Generalizes to** — the rules extracted from this are in `## Diagnostic methodology` above, but
+  the short form: audit a probe's cost before trusting its output; never leave a spawning probe
+  enabled while judging what it spawns; re-test with probes off; a flag flip is not a revert; and
+  bisect real commits early rather than reasoning about a regression.
+- **One durable consequence**: any measurement taken while one of these probes was live is
+  retroactively suspect. The entries below that cite figures from those captures say so explicitly
+  rather than being quietly trusted.
+- Source: this session's `UE4SS.log` captures, the bisect above, and commit `83f30c1` for the fix.
+
 ### Pooled objects: detecting "spawned" by object identity silently undercounts (2026-08-16)
 
 - **Symptom**: a ghost's afterimage trail was visibly thinner than the real player's, while every
@@ -762,30 +831,33 @@ Backing detail for `CLAUDE.md`'s public-repo rule. Two live cases, and they fail
   pool is growing and then goes quiet. Established by a lifetime probe that produced **zero
   samples**: it only logged an entry when an image disappeared, and across 122 tracked afterimages
   not one ever did. The empty result was the finding — objects that never die are pooled objects.
-- **NOT the cause of the symptom, and the correction matters more than the theory.** Counting
-  re-use as a spawn was implemented on the strength of the above and then **reverted**: a census of
-  the world showed the ghost had produced roughly *twice* as many afterimages as the real player
-  (27 vs 54 attributed at one sample) while still looking thinner. So the thin trail was never a
-  spawn-count problem, and counting re-use only added spurious spawns. The remaining candidate is
-  visibility/fade, which is a different investigation — see `status.md`.
-- **Which is itself the lesson**: a correct, well-evidenced finding about the *mechanism* (pooling
-  is real) does not make it the *cause* of the symptom in front of you. The pooling discovery was
-  sound and the fix built on it was wrong, because nobody had yet measured whether spawn count was
-  the shortfall at all.
-- **Two traps worth carrying forward, both of which cost real time here:**
-  - **Agreement between two measured sides is not correctness** when the same instrument measures
-    both. Counting local and remote with one blind rule guarantees they agree and says nothing
-    about either. A human eye said "denser" for several rounds while four separate metrics said
-    "identical"; the eye was right and the metrics were measuring their own blind spot.
-  - **A probe returning nothing is data.** The instinct is to assume it is broken and widen it. Ask
-    first what a genuine zero would mean — here, "nothing ever dies" was the whole answer, and an
-    earlier version of this same probe had already hinted at pooling before that hint was talked
-    away because a different number kept rising.
+- **NOT the cause of the symptom — the real cause was the probes themselves** (see the entry
+  directly above). Counting re-use as a spawn was implemented on the strength of the pooling
+  finding and then **reverted**: a census showed the ghost had produced roughly *twice* as many
+  afterimages as the real player (27 vs 54 at one sample) while still looking thinner. The pooling
+  discovery was sound; the fix built on it was wrong, because nobody had yet established that
+  spawn count was the shortfall at all. It was not — the trail was being truncated by the
+  instrumentation.
+- **Which is the lesson worth keeping**: a correct, well-evidenced finding about a *mechanism* does
+  not make it the *cause* of the symptom in front of you. "Pooling is real" and "pooling explains
+  this bug" are separate claims needing separate evidence.
+- **A probe returning nothing is data.** The instinct is to assume it is broken and widen it. Ask
+  first what a genuine zero would mean — here "no object ever disappeared" *was* the finding, and
+  an earlier run of the same probe had already hinted at pooling before that hint was talked away
+  because a different number kept rising.
 - **Generalizes to**: particles, projectiles, decals, damage numbers, audio emitters — anything an
   engine recycles for performance. Before building a spawn counter on object identity, check
-  whether the objects ever actually disappear.
+  whether the objects ever actually disappear. Note that detecting pooling is useful for
+  *understanding* an effect even when, as here, it is not what needs fixing.
 
 ### Latch event payloads to the event; don't republish them as per-tick state (2026-08-16)
+
+> **Read with the caveat that this entry was written mid-investigation.** Its ratios were measured
+> through the probes later found to be corrupting the trail (see "The diagnostics were the bug"),
+> so treat the *numbers* as indicative rather than exact. The shape lesson below is independent of
+> them and still holds. The colour path it describes is **currently disabled** — the code that read
+> the observed colour rode on the expensive scan, so re-enabling it needs the cheaper read recorded
+> in `status.md` (compare `cachedMesh` by pointer, not by name).
 
 - **Symptom**: a peer's ultra-hop afterimage was blue, the ghost's was blue only sometimes. Ratios
   across four attempts: 2→1, 8→4, 10→4, then an over-correction to 6→98.
@@ -838,8 +910,8 @@ Backing detail for `CLAUDE.md`'s public-repo rule. Two live cases, and they fail
   inherits every lifetime rule the first one has, and those rules usually live somewhere
   non-obvious — a hook rather than the destructor. Grep for where the existing pointer is nulled and
   match it, rather than assuming the new field is like the old ones because it sits next to them.
-  The single-object version of this code was correct for a year; adding a companion object silently
-  broke it.
+  The single-object version of this code had been correct since the ghost was first spawned
+  (2026-08-13); adding a companion object two days later silently broke it.
 
 ### Cross-adapter issues that were fixed in the core, not the adapter
 

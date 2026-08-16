@@ -29,8 +29,9 @@ Internal documentation for MeshGhost: architecture, planning, licensing, and ver
   current-state summary.
 - [../internal/README.md](../internal/README.md) — lives with the code, not here on purpose
   (see that file). Security and privacy posture of the Go networking layer: what's already
-  checked-safe (e.g. no client ever learns a peer's IP) versus the known open gaps (no auth,
-  no version check).
+  checked-safe (no client ever learns a peer's IP; room-code auth, protocol- and game-version
+  checks, and bounded reads all shipped 2026-08-14) versus the gaps that remain — no TLS, so a
+  room code crosses the wire in plaintext.
 
 ## How to use this folder
 

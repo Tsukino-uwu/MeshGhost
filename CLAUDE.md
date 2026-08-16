@@ -98,6 +98,24 @@ proposing a plan that touches the core, an adapter, or the relay.
 - **Keep working through to completion; don't suggest stopping partway.** Only pause to ask if
   genuinely blocked — a real technical dead end, or a decision only the user can make — not as
   a default checkpoint.
+- **A diagnostic can break the thing it measures — and then every reading agrees with itself.**
+  Keep probes off by default, audit their cost before trusting their output, and re-run with them
+  off before believing a result. Never leave a probe that *spawns* an effect enabled while judging
+  that effect. Per-tick enumeration on the game thread is the expensive shape — especially with a
+  name lookup or string conversion per object; compare by pointer instead. Numbers gathered while a
+  heavy probe was live are retroactively suspect. **"It measured correct" is not evidence**, the
+  same way "it ran without errors" isn't; and if the user reports a difference the metrics deny,
+  the metrics are the suspect. Found live 2026-08-16 — the worst regression this project has had.
+- **A flag flip is not a revert.** A `constexpr bool` only reverts behaviour if it gates the *work*,
+  not merely the decision the work feeds — otherwise an A/B "proves" a change innocent while its
+  cost is still running, which is exactly what misdirected the 2026-08-16 investigation. Verify the
+  flag disables the cost, or revert the commit. **When a regression appears, bisect real commits
+  early**: build the last-known-good commit, confirm it is good, then halve. It is mechanical,
+  needs no theory, and can't be fooled by a partial revert.
+- **Cite dates, not durations.** Write "since 2026-08-15" or "the day before", never "for a year"
+  or "after months" — this repo is days old (first commit 2026-08-11; `LICENSE` carries the year),
+  and invented durations are both false on arrival and worse with age. Found live 2026-08-16: three
+  such claims in `pitfalls.md` and the adapter template, all describing five-day-old code.
 - **When giving the user test/local-testing instructions, use plain directions (up/down/
   left/right), never compass points.** User preference, specifically about talking to them —
   compass directions (north/south/east/west) remain fine anywhere in code/comments where

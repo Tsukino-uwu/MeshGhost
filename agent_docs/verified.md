@@ -4048,3 +4048,130 @@ Copy this block per fact:
   and moving to a different zone after a throw. Neither crashes.
 - Recorded in `pitfalls.md` with the generalizable form, including why a liveness check would not
   have helped (`IsUnreachable()` is only meaningful on an object that is still allocated).
+
+### Pseudoregalia thrown Dream Breaker: full hand → flight → bounce → ground → pickup, CONFIRMED LIVE
+
+- Date: 2026-08-15/16
+- Closes `ideas.md`'s Pseudoregalia idea 0 at its **full** scope (continuous flight sync), not the
+  MVP cut point that entry also offered. User watched flight, wall bounces, the resting sword, its
+  glow ring, and pickup.
+- **The thrown sword is a separate actor**, `/Game/ThirdPerson/Player/BP_looseWeapon.BP_looseWeapon_C`,
+  freshly spawned per throw, referenced by the pawn's `weaponRef`.
+- **Resolves two contradictory prior notes about `weaponRef`.** It does NOT go null on pickup — the
+  game parks a picked-up weapon at world origin and leaves the reference pointing at it. So "in
+  hand" reads as a transform of `(0,0,0)`, and `ideas.md`'s "non-null only while thrown" was wrong
+  while the throw-animation entry's "non-null while in hand" was right. Thrown is derived from
+  three things together: actor exists, `weaponEquipped?` false, transform not at origin.
+- **Flight needs no physics reproduction**: replaying position + rotation reproduces wall bounces
+  too, because the peer's own `ProjectileMovementComponent` already resolved them.
+- **Resting pose is `weaponState`**, measured 0 → 3 on touchdown, identical across five throws.
+  `isEmbedded?` never changes and the mesh's `RelativeLocation` is bit-identical in flight and at
+  rest — so this was NOT the slide floor-sinking bug's shape despite looking like it. Applied via
+  the class's own `Change Weapon State`, called before the raw property write.
+- **The "sinking while embedded" bug was gravity**, from the prop's own
+  `ProjectileMovementComponent` integrating velocity — which is why `SetSimulatePhysics(false)`
+  changed nothing. Two fixes failed first because the diagnostic read the position back
+  *immediately after our own write*, which proves the write landed but cannot see drift applied
+  between frames. Reading it BEFORE the write showed ~850 units/s². Fixed with `Deactivate` on that
+  component plus zeroing `Velocity`/`ProjectileGravityScale`.
+- **Collision is disabled on the prop, and the user confirmed on screen that the local player
+  cannot pick up a ghost's sword** — required, not cautious: `BP_looseWeapon_C` carries a real
+  `PlayerPickup` box. Note this is the opposite choice from the ghost PAWN, whose collision is
+  deliberately ON as a feature.
+- **Caution**: the stock engine bool block in this actor's dump is unreliable — `bHidden`,
+  `bActorIsBeingDestroyed` and `bIsEditorOnlyActor` all read `true` on a live, working actor in a
+  shipping build (UE bitfield packing vs a byte-wide read). Blueprint-defined bools
+  (`isEmbedded?`, `hasLight?`) read correctly.
+- Source: `UE4SS.log` 2026-08-15/16 (`WEAPONACTOR`, `WEAPONLAND`, `WEAPONPROP` traces and the
+  thrown-weapon dumps); user's direct visual confirmation for every visible claim. Code:
+  `Plugin.cpp`'s `tick_remote_weapon`, `call_change_weapon_state`, `stop_projectile_movement`.
+
+### Pseudoregalia empty-hand recall glow: FIXED by spawning the effect directly, confirmed live
+
+- Date: 2026-08-16
+- Closes a gap `status.md` had carried as blocked, and **the original diagnosis was wrong in an
+  instructive way**. It was recorded as blocked on a precondition: `manageRecallIdleFX` returned
+  cleanly while spawning nothing, and the theory was that its `IsValid` guards wanted a real
+  thrown-weapon actor. The thrown-weapon work provided exactly that — and it was never needed.
+  Spawning the effect directly requires no guards to pass at all.
+- **Found by enumeration, not by guessing a name**: a catalog probe cycled every loaded Niagara
+  system onto a ghost ~3s each; the user identified `/Game/VFX/Emitters/NS_WeaponCallReady` on
+  screen. 58 systems in the full catalog, narrowed to 10 by a name filter after the user reported
+  that tracking 58 mostly-level-dressing effects was the real obstacle.
+- **Placement measured, not adjusted by eye**: the real effect attaches to the pawn's `WeaponMesh`
+  at zero offset — i.e. exactly where the sword is held, which is why the user perceived it as an
+  outline of the sword. A first attempt attached it to the actor root and sat visibly wrong.
+- **The trigger is mirrored, not reimplemented.** The real glow only appears near a save crystal
+  (the sword can only be summoned there), which nobody had guessed. Rather than encode that rule,
+  the local side reports whether the real effect is currently *present* and the ghost mirrors that,
+  so the crystal rule and any other unnoticed condition come along for free. The presence test
+  checks `IsActive()` rather than mere existence — a Niagara component with `bAutoDestroy` off is
+  deactivated and kept, so an existence test never goes false again.
+- **Built but NOT verifiable in loopback**: a ghost constructs itself from the LOCAL save, so it can
+  spawn already glowing. A sweep clears any self-constructed glow at spawn. In loopback the peer is
+  the local player, so "shows the peer's state, not yours" cannot be distinguished — this joins the
+  Phase 7.7 list.
+- Source: `UE4SS.log` 2026-08-16 (`VFXPROBE` catalog/cycle, `VFXWATCH` with attachment data,
+  `RECALLGLOW` edges); user's visual confirmation of the glow appearing and clearing at a crystal.
+
+### Pseudoregalia: use-after-free crash on level transition after a throw, FIXED and confirmed live
+
+- Date: 2026-08-16
+- **Introduced by the thrown-weapon feature the same day**, not pre-existing. Distinct from the
+  `Fatal Error!`-on-game-exit entry in `status.md`, which has a different trigger and remains
+  un-root-caused — this does not close that one.
+- **Symptom**: `EXCEPTION_ACCESS_VIOLATION` returning to the main menu after throwing. Stack:
+  `game_thread_tick` → `handle_bridge_line` → `release_ghost` →
+  `call_set_actor_location_and_rotation`.
+- **Cause**: the level tore down and destroyed the prop while MeshGhost kept a raw pointer; a
+  `despawn_remote` arriving afterwards moved freed memory. The ghost pawn was immune only because
+  `release_all_ghosts` (LoadMap PRE hook, before teardown) nulls *its* pointer — the prop, added
+  later, never got the same treatment. A liveness check would not have helped: `IsUnreachable()` is
+  only meaningful on a still-allocated object.
+- **Fix**: clear every actor-shaped field for every remote at the top of `release_all_ghosts`,
+  before its "no ghost, skip" continue; destroy rather than move the prop elsewhere.
+- **CONFIRMED LIVE by the user on both transition paths**: main menu after a throw, and a zone
+  change after a throw. Neither crashes.
+
+### Pseudoregalia ultra-hop BLUE trail: source identified after being parked as unsolvable
+
+- Date: 2026-08-16
+- Un-parks `status.md`'s "not derivable from polled state; do not resume by guessing more property
+  names" entry — resumed without guessing any property names.
+- **What unlocked it**: the VFX catalog holds 58 game Niagara systems and none is an afterimage, so
+  the trail was never a particle effect and every colour guess had been aimed at the wrong kind of
+  object. Diffing the world around a deliberate `Spawn After Image` call on a ghost identified it:
+  an afterimage is a **`BP_AfterImage_C` actor carrying a `PoseableMeshComponent`** — a posed mesh
+  snapshot.
+- **The blue**: `BP_AfterImage_C` has its own `Color` (a StructProperty, which is why this project's
+  value dumper had always skipped it). Measured live: ordinary images `(1.000, 0.888, 0.260)`, ultra
+  images `(0.000, 0.787, 1.000)`. The pawn's `afterimageColor` genuinely never changes during an
+  ultra — that earlier finding was correct; it was simply the wrong object.
+- **Reproduced on a ghost** (blue written, ghost's own image read back blue, user saw blue), then
+  **switched off again**: the code that read the colour rode on a per-tick enumeration that broke
+  the trail (see `pitfalls.md`, "The diagnostics were the bug"). The cheap way to re-enable it is
+  recorded in `status.md` — compare `cachedMesh` by pointer rather than by name.
+- Source: `UE4SS.log` 2026-08-16 (`AFTERIMAGE`, `AFTERIMAGECOLOR`, `TRAILCOLOR` captures) plus the
+  `BP_AfterImage_C` schema dump.
+
+### Pseudoregalia afterimage trail regression: caused by this project's own diagnostics, FIXED
+
+- Date: 2026-08-16
+- **The worst regression the project has had, and the first to require comparing commits.** Full
+  incident and the transferable rules are in `pitfalls.md`, "The diagnostics were the bug"; this
+  entry records the confirmed facts only.
+- **Symptom**: the ghost's slide trail went intermittently sparse or absent.
+- **Cause**: two probes left enabled while judging the trail — one that *spawned* an afterimage onto
+  the ghost every ~3s, and a ~50Hz enumeration doing a `GetFullName()`/UTF-8 conversion and property
+  lookups per object on the game thread. The game spawns afterimages as a countdown across ticks,
+  so stalling that thread truncated real bursts.
+- **Why four measurement rounds missed it**: every metric (count, spacing, position in X and Z,
+  opacity, fade curve, colour) reported exact parity, because every image that survived WAS correct
+  and only the destroyed ones were missing.
+- **Located by bisecting real commits**, after a flag-flip A/B had produced the wrong conclusion:
+  `8d10f67` good → `46c4d2c` good → `760b148` intermittent → `861e6cd` broken. Three builds.
+- **Fix** (commit `83f30c1`): heavy tracing off, scan cadence 3 → 15 ticks, and the scan gated by
+  the flag that owns it so that flag is a real off-switch.
+- **CONFIRMED LIVE by the user**: dense repeating slide trail restored, ghost within 1-2 images of
+  the real player. Known cosmetic remainder: 1-2 extra images at the tail of a slide
+  (`SLIDE_REFIRE_WINDOW_TICKS`, recorded in `status.md`).

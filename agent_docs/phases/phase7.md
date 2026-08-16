@@ -1801,3 +1801,49 @@ the shape `manageRecallIdleFX` (empty-hand glow) was parked on.
 - **Reference checked, negative**: `attire-ui-overhaul`'s dash-colour feature touches only
   `afterimageColor` (name-table strings in `DashDataLib.uasset`) — no separate ultra/blue colour
   concept, so it doesn't help the parked blue-trail question. Licence posture per `licensing.md`.
+
+## 2026-08-16 — thrown Dream Breaker, the glows, and the trail regression
+
+A long session that shipped four features and then spent most of its length on a regression the
+session itself caused. Confirmed facts are in `verified.md`; the transferable rules are in
+`pitfalls.md` ("The diagnostics were the bug"). This is the narrative.
+
+**Shipped and user-confirmed**: the thrown Dream Breaker end to end (flight, wall bounces, resting
+pose, pickup, its glow ring, and confirmed un-pickupable by the local player); the empty-hand recall
+glow; a use-after-free crash on level transitions after a throw.
+
+**The blue trail, un-parked.** `status.md` had it as "not derivable from polled state; do not resume
+by guessing more property names." It was resumed without guessing any: the VFX catalog turned out to
+hold 58 Niagara systems and *none* is an afterimage, which meant the effect was never a particle
+system and every colour guess had been aimed at the wrong kind of object. Diffing the world around a
+deliberate spawn call identified `BP_AfterImage_C` + `PoseableMeshComponent`, and its own `Color`
+property carries the blue. The pawn's `afterimageColor` never changing was a correct finding all
+along — just about the wrong object.
+
+**The regression.** Replacing the trail trigger introduced a per-tick enumeration, and an earlier
+discovery probe was still spawning an afterimage onto the ghost every ~3s. Together they truncated
+real bursts, because the game spawns afterimages as a countdown *across ticks* and the probes stalled
+the game thread. The trail went intermittently sparse.
+
+**Why it took so long.** Four rounds of measurement — count, spacing, position in X and Z, opacity
+and fade, colour — all reported exact parity, because every image that survived was correct and only
+the destroyed ones were missing. Each round produced a confident wrong conclusion. Worse, an A/B that
+flipped the trigger flag to `false` "proved" the trigger innocent; only the counter increment inside
+the scan was gated, so the expensive work kept running.
+
+**What actually worked**, and the reason to write this down: the user asked to check out the
+session-start commit and compare. That located it in three builds — `8d10f67` good, `46c4d2c` good,
+`760b148` intermittent, `861e6cd` broken — after hours of inference had produced nothing but false
+parity. It is the first time this project has needed a commit bisect.
+
+**Two habits worth carrying forward from the user's side of this session**, both of which
+outperformed the tooling:
+
+- *Isolated single-action tests* (fresh session, one slide, stop) produced more signal in one run
+  than several minutes-long mixed captures, because nothing accumulated to be teased apart.
+- *Trusting the eyes over the metrics.* The report "the player has more afterimages" was correct and
+  was contradicted by four instruments for several rounds. The instruments were measuring their own
+  blind spot.
+
+The blue remains switched off, since the code reading it rode on the scan that caused the
+regression; `status.md` carries the cheap way to restore it.

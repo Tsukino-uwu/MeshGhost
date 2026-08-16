@@ -1,7 +1,7 @@
 # Adapter template
 
 **First written 2026-08-11**, at the end of Phase 5, and kept current since with what the three
-shipped adapters learned the hard way (last swept 2026-08-15). The core was proven to run against a fake
+shipped adapters learned the hard way (last swept 2026-08-16). The core was proven to run against a fake
 adapter (`cmd/meshghost-fakeadapter`, a ghost that walks in a circle, driven by
 `core.RunAdapter` — see [agent_docs/verified.md](../../agent_docs/verified.md)'s Phase 5 entry)
 with no game attached and no import of anything under `adapters/`. This folder is what that
@@ -77,7 +77,7 @@ same as any two unrelated games — grouping by franchise just keeps the top lev
 
 ## Ask the game what it has, before you guess at what it might have
 
-**Do this early — right after a ghost renders at all, not after months of polish.** It is the
+**Do this early — right after a ghost renders at all, not once you are deep into polish.** It is the
 single biggest time-saver this repo has found, and it was found late: Pseudoregalia's adapter
 spent multiple sessions guessing property and function names before anyone thought to simply
 enumerate what the game contained. User's own conclusion, 2026-08-16, and the reason this section
@@ -188,38 +188,58 @@ correct version has no window to size and no race to lose.
 candidate object types, trigger the effect, snapshot again, print what is new. Trigger it *on the
 ghost* if you can — being able to fire it on demand beats waiting to perform a hard trick in-game.
 That is how Pseudoregalia identified its afterimage as a spawned actor carrying a posed mesh
-snapshot, after months of assuming it was a particle effect and guessing colour properties.
+snapshot, after several sessions of assuming it was a particle effect and guessing colour
+properties — and that identification is what finally located the ultra hop's blue, which had been
+parked as unsolvable.
 
-**Check whether the objects are pooled before counting them.** Engines recycle particles,
-projectiles, decals and damage numbers rather than destroying them, so "an object I have not seen
-before" fires while the pool grows and then goes quiet — silently undercounting every re-use after
-that. The cheap test is to ask whether the objects ever disappear at all: track them and log a
-lifetime when one vanishes. If nothing ever vanishes, they are pooled, and the spawn signal has to
-be re-use instead — for a static snapshot-style effect, a position change works, since it cannot
-have moved on its own.
+**Know whether the objects are pooled.** Engines recycle particles, projectiles, decals and damage
+numbers rather than destroying them, so "an object I have not seen before" fires while the pool
+grows and then goes quiet. The cheap test is whether the objects ever disappear at all: track them
+and log a lifetime when one vanishes. If nothing ever vanishes, they are pooled.
 
-Two traps make this specific mistake very hard to see, and both cost real time in Pseudoregalia:
+Worth knowing, but note how it played out in Pseudoregalia: pooling was real, and re-writing the
+spawn detector around it was still **the wrong fix** and got reverted. The trail was not
+short of spawns at all — see the cost warning below for what was actually wrong. *"This mechanism
+is real"* and *"this mechanism explains my bug"* are separate claims and need separate evidence.
 
-- **Agreement between the two sides you are comparing is not correctness, when one instrument
-  measures both.** A blind spot in the detector undercounts local and remote identically, so the
-  numbers agree perfectly and describe neither. Four separate metrics said "identical" — count,
-  spacing, position, timing — while the user could plainly see a denser trail on the real player.
-  The eye was right. If a human keeps reporting a difference your metrics deny, suspect the metric.
+### The cost warning: a probe can break the effect you are measuring
+
+This is the single most expensive lesson in this repo, and it belongs here because it is a *method*
+failure, not a game-specific one. Full incident in
+[agent_docs/pitfalls.md](../../agent_docs/pitfalls.md), "The diagnostics were the bug".
+
+A per-tick enumeration of live objects, with a name lookup or string conversion per object, is far
+more expensive than it looks — and if the engine spawns the effect you are studying as a *countdown
+across ticks*, stalling the game thread truncates the very bursts you are trying to count. In
+Pseudoregalia that produced an intermittently missing trail while **four separate metrics reported
+exact parity**, because every object that survived was correct and only the destroyed ones were
+absent. A second probe made it worse by *spawning* the same kind of object it measured.
+
+So, when instrumenting an effect:
+
+- **Compare by pointer, not by name.** The enumeration itself was affordable; the per-object
+  `GetFullName()` and UTF-8 conversion were not. Comparing an object reference against a known
+  component pointer is nearly free.
+- **Keep probes off by default and re-test with them off** before believing any result. Never leave
+  a probe that *spawns* the effect enabled while judging that effect.
+- **Prefer edge-triggered logging** to per-tick, and treat any figure gathered while a heavy probe
+  was live as suspect afterwards.
+- **If a human keeps reporting a difference your metrics deny, suspect the metrics.** Agreement
+  between two sides measured by one instrument is not correctness — a shared blind spot makes them
+  agree and describes neither.
+
+### Two more probe traps
+
 - **A probe that returns nothing is a result, not a malfunction.** Ask what a genuine zero would
-  mean before widening the net. Here "no object ever disappeared" *was* the answer.
-
-**The other trap: a sampling window that is too narrow produces a false negative indistinguishable
-from a real one.** The first run of exactly that probe reported
-"0 new objects" every time and concluded the effect was pooled and reused. It was not — the objects
-were created slightly later than the sample and then persisted. What caught it was the *totals*
-printed alongside the diff, which climbed by exactly two every probe. So:
-
-- Always print a **total**, not only the difference. The number that shouldn't change is what
-  reveals that your window is wrong.
-- Widen the window and diff **across** probes, so anything appearing in a gap is still attributed.
-- Never let a probe write its conclusion into the log ("likely pooled") — write the observation and
-  conclude outside it. A wrong conclusion recorded in a log file outlives the run and gets believed
-  later.
+  mean before widening the net. Here, "no object ever disappeared" *was* the finding.
+- **A sampling window that is too narrow produces a false negative indistinguishable from a real
+  one.** One probe reported "0 new objects" every run and concluded the effect was pooled; the
+  objects were in fact created slightly later than the sample and then persisted. What caught it
+  was the *totals* printed beside the diff, climbing by exactly two each time. So: always print a
+  **total**, not only the difference; diff **across** probes so anything appearing in a gap is
+  still attributed; and never let a probe write its conclusion into the log ("likely pooled") —
+  log the observation and conclude outside it, because a wrong conclusion in a log file outlives
+  the run and gets believed later.
 
 ## Testing it
 
