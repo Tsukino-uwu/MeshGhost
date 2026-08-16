@@ -304,6 +304,10 @@ the game's own spawns, and pulse-shaped state mirrored as though it were continu
 If you are about to write a fix that *restores* or *remembers* a value rather than preventing
 whatever changed it, stop and log the change first. The observation usually renames the bug.
 
+And once you have looked: **a fix that compensates rather than prevents is not a finished feature**
+— see this folder's `README.md` for the rule and its one narrow exception. "Almost right" in an
+adapter has a habit of becoming the next bug rather than staying put.
+
 ## Reference implementations
 
 - `adapters/pokemon/emerald/meshghost_emerald.lua` — the shipped Emerald adapter, including the

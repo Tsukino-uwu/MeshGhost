@@ -344,6 +344,48 @@ the single fact that best explains why an adapter is the size and shape it is, i
 immediately how much of the code is discovery scaffolding versus feature work, and it sets
 expectations for anyone picking the adapter up later.
 
+## Hard rule: a bandage fix is not a finished feature
+
+**Default: no.** If the fix compensates for a value instead of causing it, forces state back after
+something else changes it, or leans on a constant tuned until the screen looked right, it is not
+done — however good it looks. **"Almost" and "good enough" are the words to watch for in your own
+reasoning**; they are usually the moment the real mechanism stopped being investigated.
+
+**The tell is mechanical, so you can check it without judgement:** does the fix *prevent* the wrong
+thing, or *correct* it afterwards? Correcting afterwards means the cause is still running, and
+something else will eventually read the state you patched.
+
+**Why this is a hard rule and not a preference — two worked examples, one day apart:**
+
+- **The camera fight-back outlived its cause and became the bug.** A ghost spawn made the game
+  re-pick its camera, so the mod forced the view target back. It worked for that case and blocked
+  every legitimate camera change forever after; players saw it as the ghost stealing the camera.
+  The real fix, once measured, was one line: refuse a switch to a rig whose `OwningActor` is a
+  ghost. Deleted 2026-08-16 — `verified.md`.
+- **Bandages spread.** The slide floor-sinking fix moves the ghost's render Z by +43 because the
+  ghost never runs the player's crouch logic. `Plugin.cpp` now describes a *second* bug, the thrown
+  weapon, as "structurally the same bug as the slide floor-sinking fix". One compensation taught
+  the next one to exist.
+
+**The narrow exception, and its price.** A temporary fix is allowed when it unblocks something else
+that must be tested now — early bring-up, or getting a camera usable so a different feature can be
+watched at all. When you take it:
+
+1. **Say it is temporary in the code**, in the comment, where the next person reads it. Not in a
+   commit message.
+2. **Record the measurement that would replace it.** The slide entry in `ideas.md` is worth copying
+   as a shape: it survived scrutiny because the comment already recorded what a slide does to the
+   capsule, so the real fix starts from evidence instead of a fresh investigation. A bandage with
+   *no* measurement behind it is the expensive kind — there is nothing to build the real fix on.
+3. **Log it as an open item**, not as a finished one. A feature resting on a compensation is not
+   done, and `status.md` should say so.
+
+**What this rule is not.** It does not mean every constant is suspect. A number measured from the
+game and documented (the loopback ghost's deliberate sideways offset; a reconnect interval chosen
+to match an observed cadence) is a design decision with evidence behind it. The difference is
+whether the number came from *measuring the mechanism* or from *trying values until it looked
+right*.
+
 ## Hard rule: find out how the GAME does it before you work around it
 
 **Before writing anything that overrides, forces, corrects, or fights the game, observe what the
