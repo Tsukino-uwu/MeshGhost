@@ -4966,3 +4966,33 @@ that settled this, behind `CAMERA_TRACE` (off by default) — which is also the 
 **Not claimed:** that no ghost can ever disturb the camera. This was one area, one session, with
 one stationary loopback ghost. If it reappears, the trace is already in place and the next fix
 should be aimed at what it shows.
+
+## 2026-08-16 — The through-walls outline is custom depth, and the ghost inherits it
+
+**Established by a read-only probe** (`OUTLINE_TRACE`), after the user asked whether the ghost's
+see-through-walls silhouette could be turned off and how one would even find it. Screenshot shows
+the ghost as a solid blue silhouette through a wall while the local player renders normally.
+
+Measured, both actors, one session:
+
+    local VisualMesh  bRenderCustomDepth=true  CustomDepthStencilValue=0  bRenderInMainPass=true
+    local WeaponMesh  bRenderCustomDepth=true  CustomDepthStencilValue=0  bRenderInMainPass=true
+    ghost VisualMesh  bRenderCustomDepth=true  CustomDepthStencilValue=0  bRenderInMainPass=true
+    ghost WeaponMesh  bRenderCustomDepth=true  CustomDepthStencilValue=0  bRenderInMainPass=true
+
+So it is the standard Unreal custom-depth outline: the component renders into the custom-depth
+buffer and a post-process pass draws the silhouette where those pixels sit behind scene depth. The
+ghost carries it because it is a clone of the player pawn, not because anything in this mod asked
+for it. **The weapon mesh carries it separately** — a fix covering only the body would have left a
+sword visible through a wall, which is the same information leak in a smaller shape.
+
+**Fix applied, not yet watched:** `SetRenderCustomDepth(false)` on the ghost's `VisualMesh` and
+`WeaponMesh` at spawn. The engine's own setter rather than writing `bRenderCustomDepth` directly,
+because the raw bool is render-thread state — assigning it on the game thread can leave an
+already-created render state untouched, so the flag would read false while the silhouette kept
+drawing. The trace now runs *after* the calls so it reads the component's state back rather than
+echoing what we wrote.
+
+**Why it is a fix and not an option:** knowing where another player is through geometry is
+information, and this project's line is visual-only with no gameplay effect. For a speedrunner
+that is a real advantage. The local player's own outline is untouched.

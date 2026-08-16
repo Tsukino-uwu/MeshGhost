@@ -1701,6 +1701,59 @@ namespace MeshGhostPseudo
             target->ProcessEvent(function, params_buffer.data());
         }
 
+        // Turns off the through-walls silhouette for one mesh component.
+        //
+        // CONFIRMED the mechanism before writing this (OUTLINE_TRACE, verified.md): both the local
+        // player's and the ghost's VisualMesh and WeaponMesh carry bRenderCustomDepth=true, which
+        // is what a post-process outline pass keys off. The ghost inherits it by being a clone of
+        // the player pawn.
+        //
+        // Calls the engine's own setter rather than writing bRenderCustomDepth directly, and that
+        // distinction is the whole point: the raw bool is render-thread state, and assigning it on
+        // the game thread can leave an already-created render state untouched -- the flag would
+        // read false while the silhouette kept drawing. SetRenderCustomDepth marks the render
+        // state dirty, which is the game doing the work rather than us imitating it.
+        //
+        // Same shape as call_set_collision_object_type above: size the buffer from the function's
+        // own PropertiesSize and write at the reflected offset, never a hand-rolled struct.
+        auto call_set_render_custom_depth(UObject* component, bool value) -> void
+        {
+            if (!component)
+            {
+                return;
+            }
+            UFunction* function = component->GetFunctionByNameInChain(STR("SetRenderCustomDepth"));
+            if (!function)
+            {
+                Output::send(STR("[MeshGhostPseudo] WARNING: SetRenderCustomDepth not reflected on {} -- ghost may still be visible through walls.\n"),
+                             component->GetFullName());
+                return;
+            }
+            int32_t parms_size = function->GetPropertiesSize();
+            if (parms_size < 1)
+            {
+                Output::send(STR("[MeshGhostPseudo] WARNING: SetRenderCustomDepth has an implausibly small PropertiesSize ({}) -- refusing to call it.\n"),
+                             parms_size);
+                return;
+            }
+            std::vector<uint8_t> params_buffer(static_cast<size_t>(parms_size), 0);
+            bool written = false;
+            for (FProperty* property : TFieldRange<FProperty>(function, EFieldIterationFlags::None))
+            {
+                if (property && !written)
+                {
+                    params_buffer[static_cast<size_t>(property->GetOffset_Internal())] = value ? 1 : 0;
+                    written = true;
+                }
+            }
+            if (!written)
+            {
+                Output::send(STR("[MeshGhostPseudo] WARNING: SetRenderCustomDepth reflected no parameters -- refusing to call it.\n"));
+                return;
+            }
+            component->ProcessEvent(function, params_buffer.data());
+        }
+
         auto call_set_collision_response_to_channel(UObject* target, UFunction* function, uint8_t channel, uint8_t response) -> void
         {
             if (!target || !function)
@@ -5051,11 +5104,24 @@ namespace MeshGhostPseudo
                      static_cast<void*>(world),
                      ghost->GetFullName());
 
+        // Stop the ghost being drawn through walls. Knowing where another player is behind
+        // geometry is information, and this project's line is visual-only with no gameplay effect
+        // -- for a speedrunner especially, that is a real advantage and not a cosmetic one. The
+        // local player keeps its own outline untouched; only the ghost loses it.
+        for (const wchar_t* mesh_name : {STR("VisualMesh"), STR("WeaponMesh")})
+        {
+            if (UObject** mesh = ghost->GetValuePtrByPropertyNameInChain<UObject*>(mesh_name); mesh && *mesh)
+            {
+                call_set_render_custom_depth(*mesh, false);
+            }
+        }
+
         if (OUTLINE_TRACE)
         {
-            // Both sides, once, so they can be compared: the ghost is a clone of the player pawn,
-            // so identical flags mean the outline is inherited and a ghost-side change is enough.
-            // Differing flags would mean something else drives it and the fix is elsewhere.
+            // Runs AFTER the calls above on purpose, so it reads the component's own state back
+            // rather than reporting what we intended -- an echo of our own write would prove
+            // nothing (CLAUDE.md). Both sides, once, so they can be compared: the ghost should now
+            // read false where the local player still reads true.
             log_outline_flags(ghost, STR("ghost"));
             if (auto [controller, local_pawn] = find_local_controller_and_pawn(); local_pawn)
             {
