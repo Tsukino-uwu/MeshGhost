@@ -1,6 +1,10 @@
 package relay
 
-import "time"
+import (
+	"time"
+
+	"meshghost/internal/protocol"
+)
 
 // Limits enforced starting Phase 3, per the "Limits" section of
 // agent_docs/contract.md. Originally these defended against only a
@@ -55,7 +59,10 @@ const (
 	// window, and a client that ignores the advertised rate outright — the
 	// flood cap is a resource guard, not enforcement of send_hz (nothing
 	// anywhere makes a client honor Welcome.SendHz).
-	RateLimitHeadroomMultiple = 6
+	// Derived, not a literal, so the stated relationship can't silently
+	// break if protocol.DefaultSendHz changes (found in a review pass
+	// 2026-08-16: all three were independent literals in two packages).
+	RateLimitHeadroomMultiple = MaxMessagesPerSecond / protocol.DefaultSendHz
 
 	// DefaultHelloTimeout bounds how long an unauthenticated connection may
 	// sit without completing a Hello and joining a room. Without this, a
@@ -85,6 +92,16 @@ const (
 // or deliberately ignores it, and none of them deserve to be dropped just
 // because the operator turned the room down.
 func maxMessagesPerSecond(sendHz int) int {
+	return MaxMessagesPerSecondFor(sendHz)
+}
+
+// MaxMessagesPerSecondFor is the exported form of maxMessagesPerSecond, so
+// a caller outside this package (cmd/meshghost-relay, which prints the cap
+// to the operator at startup) reports the same number the relay actually
+// enforces. It had hand-copied the formula, which would have made the
+// startup banner lie about the limit the moment this rule changed — found
+// in a review pass 2026-08-16.
+func MaxMessagesPerSecondFor(sendHz int) int {
 	if limit := sendHz * RateLimitHeadroomMultiple; limit > MaxMessagesPerSecond {
 		return limit
 	}

@@ -315,6 +315,13 @@ type Core struct {
 	autoRetryGameID             string
 	autoRetryAdapterGameVersion string
 	autoRetryBridgeConn         transport.Transport
+
+	// adapterGameVersion is the version the adapter last reported in its
+	// bridge Hello. Kept separate from the exported GameVersion (the user's
+	// override) so a reconnecting adapter reporting a different version is
+	// advertised under the new one — see ConnectRelay, which resolves the
+	// two per call rather than latching either.
+	adapterGameVersion string
 }
 
 // New creates an empty Core with no relay connection yet. Two ways to
@@ -349,14 +356,20 @@ func New() *Core {
 // roomCode, gameVersion, timeout) in a review pass: every parameter except
 // gameID already duplicated one of these fields — the same redundancy
 // applyFileConfig's own configTargets struct in cmd/meshghost was
-// introduced to avoid. GameVersion here is used as-is, unlike
-// ConnectRelayOnAdapterHello's adapter-reported-value-with-override
-// resolution — a caller with an adapter-reported version to consider
-// should go through that function instead, which itself resolves into
-// this field before calling ConnectRelay.
+// introduced to avoid. The version advertised is c.GameVersion when the
+// user set one, and otherwise whatever the adapter last reported through
+// ConnectRelayOnAdapterHello — resolved per call, so an adapter that
+// reconnects reporting a new version is advertised under the new one.
 func (c *Core) ConnectRelay(gameID string) error {
-	addr, room, displayName, roomCode, gameVersion, timeout :=
-		c.RelayAddr, c.Room, c.DisplayName, c.RoomCode, c.GameVersion, c.DialTimeout
+	addr, room, displayName, roomCode, timeout :=
+		c.RelayAddr, c.Room, c.DisplayName, c.RoomCode, c.DialTimeout
+
+	gameVersion := c.GameVersion
+	if gameVersion == "" {
+		c.mu.Lock()
+		gameVersion = c.adapterGameVersion
+		c.mu.Unlock()
+	}
 
 	// protocol.MaxLineBytes, not transport's generous 64KiB package
 	// default — found in a review pass: the relay already used its own
@@ -387,8 +400,15 @@ func (c *Core) ConnectRelay(gameID string) error {
 		// turns into a despawn_remote per id via its existing
 		// rendered-vs-current diff — no new wire message, no bridge
 		// change, just making sure this path actually fires.
-		c.dropAllRemotes()
-
+		//
+		// Moved inside the wasCurrent guard below in a review pass
+		// 2026-08-16: it was the one thing this callback did unguarded, so a
+		// stale connection's late OnDisconnect would have wiped the *live*
+		// connection's remotes, despawning and respawning every ghost. No
+		// reachable trigger was found (readLoop fires synchronously on
+		// Close, well before any retry path installs a replacement), so this
+		// is removing an asymmetry, not fixing an observed bug.
+		//
 		// Clear relay identity so a later bridge Hello (the adapter
 		// reconnecting, e.g. relaunching the game) can redial via
 		// ConnectRelayOnAdapterHello instead of finding c.relay non-nil and
@@ -410,6 +430,10 @@ func (c *Core) ConnectRelay(gameID string) error {
 		}
 		retryGameID, retryAdapterVersion, retryBridgeConn := c.autoRetryGameID, c.autoRetryAdapterGameVersion, c.autoRetryBridgeConn
 		c.mu.Unlock()
+
+		if wasCurrent {
+			c.dropAllRemotes()
+		}
 
 		// See autoRetryGameID's doc comment: only armed by a prior
 		// ConnectRelayOnAdapterHello success, so this is a no-op for
@@ -527,14 +551,17 @@ func (c *Core) ConnectRelayOnAdapterHello(gameID, adapterGameVersion string, bri
 		return &RejectError{Reason: cachedReason}
 	}
 
-	// Resolve into c.GameVersion itself (rather than a local variable) since
-	// ConnectRelay now reads it directly from the Core, no longer taking it
-	// as a parameter — an explicit override already set on c.GameVersion
-	// wins and is left alone; otherwise this adopts whatever the adapter
-	// reported, even if that's also empty.
-	if c.GameVersion == "" {
-		c.GameVersion = adapterGameVersion
-	}
+	// Record what the adapter reported in its own field rather than writing
+	// it into c.GameVersion. c.GameVersion is the *user's* override, and
+	// latching an adapter-reported value into it destroys the "not set"
+	// state for the rest of the process: an adapter that reconnects
+	// reporting a different version (the user enabled DLC and relaunched the
+	// game, say) would then be advertised to the relay under the first
+	// version it ever reported, with nothing in the log to explain it.
+	// Found in a review pass 2026-08-16; ConnectRelay resolves the two.
+	c.mu.Lock()
+	c.adapterGameVersion = adapterGameVersion
+	c.mu.Unlock()
 	err := c.ConnectRelay(gameID)
 	if err != nil {
 		reason, isReject := asRejectReason(err)
@@ -1027,7 +1054,9 @@ func (c *Core) tickRenders(rendered map[string]bool, render func(id string, st p
 	}
 }
 
-// sendHeartbeats sends a Ping on conn every DefaultHeartbeatInterval for as
+// sendHeartbeats sends a Ping on conn every Core.HeartbeatInterval
+// (DefaultHeartbeatInterval unless overridden; a value <= 0 disables
+// heartbeats entirely and this returns immediately) for as
 // long as conn remains this Core's current relay connection, so a relay
 // connection with no real traffic (no adapter attached, or one reporting
 // get_local_state()==nil for a stretch) doesn't get killed by the relay's

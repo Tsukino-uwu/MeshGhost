@@ -220,7 +220,7 @@ func main() {
 			*sendHz, protocol.MinSendHz, protocol.MaxSendHz, effectiveSendHz)
 	}
 	log.Printf("meshghost-relay: room send rate: %dHz (per-client message cap: %d/sec)",
-		effectiveSendHz, max(effectiveSendHz*relay.RateLimitHeadroomMultiple, relay.MaxMessagesPerSecond))
+		effectiveSendHz, relay.MaxMessagesPerSecondFor(effectiveSendHz))
 	if *loopback {
 		log.Printf("meshghost-relay: -loopback enabled — dev-only, do not use with real peers")
 	}

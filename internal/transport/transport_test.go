@@ -64,6 +64,83 @@ func TestEchoToSelf(t *testing.T) {
 	}
 }
 
+// TestMessagesBeforeOnReceiveAreNotLost covers the registration-order race
+// found 2026-08-16: FromConn/Dial start the read loop before returning, so
+// every caller has a window between "connection exists" and "callback
+// installed", and a message arriving in it used to be dropped silently —
+// no error, no log, nothing to debug from. It was the cause of an
+// intermittent failure across the whole suite (~9 of 12 `go test ./...`
+// runs, a different test each time, always a timeout waiting for a message
+// that had genuinely been sent). Reachable in production too: the relay
+// installs its callback after FromConnWithLimits, so a fast client's Hello
+// could go unanswered.
+//
+// This test deliberately sends first and registers second, and also checks
+// the backlog arrives in order rather than merely arriving.
+func TestMessagesBeforeOnReceiveAreNotLost(t *testing.T) {
+	ln, addr := listen(t)
+
+	serverUp := make(chan struct{})
+	go func() {
+		conn, err := ln.Accept()
+		if err != nil {
+			return
+		}
+		server := FromConn(conn)
+		server.OnReceive(func(payload []byte) {
+			_ = server.Send(payload)
+		})
+		close(serverUp)
+	}()
+
+	client, err := Dial(addr)
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer client.Close()
+	<-serverUp
+
+	want := []string{"first", "second", "third"}
+	for _, w := range want {
+		if err := client.Send([]byte(w)); err != nil {
+			t.Fatalf("send %q: %v", w, err)
+		}
+	}
+
+	// Give the echoes time to land while no callback is registered — the
+	// exact window that used to lose them.
+	time.Sleep(200 * time.Millisecond)
+
+	var mu sync.Mutex
+	var got []string
+	done := make(chan struct{})
+	client.OnReceive(func(payload []byte) {
+		mu.Lock()
+		got = append(got, string(payload))
+		n := len(got)
+		mu.Unlock()
+		if n == len(want) {
+			close(done)
+		}
+	})
+
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		mu.Lock()
+		defer mu.Unlock()
+		t.Fatalf("messages sent before OnReceive was registered were lost: got %v, want %v", got, want)
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	for i, w := range want {
+		if got[i] != w {
+			t.Fatalf("backlog message %d = %q, want %q (order not preserved)", i, got[i], w)
+		}
+	}
+}
+
 // TestMultipleMessagesPreserveOrder confirms NDJSON framing splits back
 // exactly the lines that were sent, in order, even when they arrive as one
 // burst of writes.

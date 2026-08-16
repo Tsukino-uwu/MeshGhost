@@ -126,6 +126,24 @@ type NDJSONConn struct {
 	onDisconnect func(err error)
 	onError      func(err error)
 
+	// deliverMu serializes actual callback delivery (not field access —
+	// that's cbMu) so a backlog flushed by OnReceive can't interleave with
+	// a payload readLoop is delivering concurrently. Held across the
+	// callback itself, which is safe because no callback re-registers
+	// OnReceive on its own connection.
+	deliverMu sync.Mutex
+	// pending holds payloads that arrived before OnReceive was registered.
+	// FromConn starts readLoop before it returns, so every caller has a
+	// window between "connection exists" and "callback installed" — and a
+	// message landing in that window used to be dropped on the floor with
+	// no error anywhere. Found 2026-08-16 while isolating an intermittent
+	// test failure: `go test ./...` failed in ~9 of 12 runs, a different
+	// test each time, always a timeout waiting for a message that was sent
+	// but never delivered. Real-world reachable, not just a test artifact:
+	// the relay installs its callback after FromConnWithLimits, so a client
+	// whose Hello arrives fast enough would never be welcomed.
+	pending [][]byte
+
 	closeOnce sync.Once
 }
 
@@ -223,12 +241,18 @@ func (c *NDJSONConn) readLoop() {
 		// downstream consumer.
 		payload := append([]byte(nil), bytes.TrimRight(scanner.Bytes(), "\r")...)
 
+		c.deliverMu.Lock()
 		c.cbMu.Lock()
 		onReceive := c.onReceive
 		c.cbMu.Unlock()
 		if onReceive != nil {
 			onReceive(payload)
+		} else {
+			// No callback yet — hold it for OnReceive to flush rather
+			// than dropping it. See the pending field's comment.
+			c.pending = append(c.pending, payload)
 		}
+		c.deliverMu.Unlock()
 	}
 }
 
@@ -284,10 +308,28 @@ func (c *NDJSONConn) Send(payload []byte) error {
 	return err
 }
 
+// OnReceive registers cb as this connection's message handler, then
+// delivers — in arrival order, before returning — anything that arrived
+// before it was registered. Without that flush, every message landing in
+// the window between FromConn/Dial starting the read loop and the caller
+// installing its callback was silently discarded; see the pending field.
 func (c *NDJSONConn) OnReceive(cb func(payload []byte)) {
 	c.cbMu.Lock()
-	defer c.cbMu.Unlock()
 	c.onReceive = cb
+	c.cbMu.Unlock()
+
+	// deliverMu (not cbMu) so readLoop can't interleave a newer payload
+	// into the middle of this backlog.
+	c.deliverMu.Lock()
+	defer c.deliverMu.Unlock()
+	backlog := c.pending
+	c.pending = nil
+	if cb == nil {
+		return
+	}
+	for _, payload := range backlog {
+		cb(payload)
+	}
 }
 
 func (c *NDJSONConn) OnDisconnect(cb func(err error)) {
