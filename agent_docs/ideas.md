@@ -836,6 +836,31 @@ would change this is hosting: some PaaS providers and restrictive networks route
 a relay behind such a proxy is reachable over WSS on 443 and nothing else. If that ever comes up,
 `internal/netx` makes it a fourth `Kind` with no change to `internal/relay` or `internal/core`.
 
+## VFX hunting — let the player mark the moment (untried)
+
+**User's idea, 2026-08-16.** Written up as a procedure step in
+`agent_docs/effect-investigation.md` §0b; this is the pointer and the scheduling note.
+
+Instead of logging every animation/VFX and guessing a name filter — which is where the
+Pseudoregalia trail investigation lost most of its time — log unfiltered, stand idle, and let the
+player press a mark key the instant the effect they mean appears. The person watching already knows
+which effect they want; that knowledge becomes the filter without ever being spelled as a string.
+
+**Why it is likely fast:** the marked windows intersect. Three or four marks and the candidate list
+collapses, with no theory about naming required. The idle periods double as a free ambient
+baseline.
+
+**Where it should be tried first:** the two VFX gaps still open — Pseudoregalia's remaining
+missing effects, and TEVI's charged-attack VFX that plays no effect while the animation runs
+(`status.md`). Both are exactly the "we know what it looks like, we cannot find what it is called"
+shape this addresses.
+
+**Design constraints that decide whether it works** (detail in the playbook): the mark key must be
+one the game does not use, or it pollutes what it measures; the buffer must capture the ~2s
+*before* the press, since human reaction time is many frames; and the buffer holds ids only, with
+name resolution deferred to the marked window — which also makes it cheaper than the per-tick
+name-lookup probes that caused this project's worst regression.
+
 ## Autostart — one core per game, so two games can run at once
 
 **Suggested by the Linux speedrunner 2026-08-16**, after Proton autostart was confirmed working:

@@ -344,6 +344,40 @@ did.**
   every instrument reported parity.
 - **Re-run the baseline check first on every build**, before looking at the feature.
 
+### 0b. Let the human be the filter — mark the moment instead of filtering the firehose
+
+**Untried as of 2026-08-16, user's idea, and it looks like the fastest route to the VFX still
+missing on Pseudoregalia and TEVI.** Recorded before use so it can be judged honestly afterwards.
+
+Every probe in Part 1 works the same way: log everything of some kind, then guess a filter to cut
+the noise down to the thing you meant. Guessing that filter is where this investigation lost most
+of its time — names lie (`AnimGraphNode_Trail` is cloth physics; Cling Gem has no "glide" anywhere).
+
+The inversion: **log unfiltered, and have the player mark the instant the right thing appears.**
+Stand idle, do nothing, watch. When the effect you are hunting shows up, press the mark key. The
+person watching already knows which effect they mean — that knowledge is the filter, and it never
+needed to be expressed as a name at all.
+
+Four things make or break it:
+
+- **The mark input must not itself cause the effect.** Marking with jump while hunting the jump
+  effect poisons the sample. Use a key the game does not bind (UE4SS can register a hotkey);
+  confirm what is actually free rather than assuming.
+- **Capture the window BEFORE the press, not at it.** Human reaction is a few hundred milliseconds,
+  which is many frames of spawns. Keep a rolling buffer of the last ~2s and dump *that* on the
+  mark. Marking "now" records the wrong frame, reliably.
+- **Repeat and intersect.** One mark is noisy; the same candidate appearing in the marked window
+  three or four times running is the answer. This is the step that makes it fast — not the first
+  mark, but the intersection.
+- **It is also the CHEAP shape, which is why it fits this project's hardest lesson.** The rolling
+  buffer stores pointers and ids only; names and strings get resolved for the ~2s that were marked,
+  not for every object every tick. Per-tick enumeration with a name lookup per object is exactly
+  what caused the worst regression this project has had (`pitfalls.md`, 2026-08-16) — this design
+  avoids it by construction rather than by discipline.
+
+The idle baseline is free evidence here too: whatever spawns while standing still is ambient, so a
+candidate that appears **only** in marked windows and never in idle ones is worth chasing first.
+
 ### 1. Find out what the thing IS, not what it is called
 
 Guessing from names failed every time here. `AnimGraphNode_Trail` is stock bone physics for dangling
