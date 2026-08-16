@@ -27,9 +27,15 @@ the relay and core client are game-agnostic and don't know which game an adapter
 The release zip ships the client and server for Windows, Linux, and macOS (amd64 and arm64),
 all in the one download — the Windows `.exe`s at the root plus `meshghost-linux-amd64`,
 `meshghost-macos-arm64`, and so on beside them. Only Windows is actually tested by anyone; the
-others are built and compile-checked by CI, and nothing more than that has been claimed. On
-Linux and macOS you'll need to `chmod +x` them first, since a `.zip` cannot carry the
-executable bit.
+others are built and compile-checked by CI, and nothing more than that has been claimed.
+
+On Linux and macOS there's one extra step, because a `.zip` can't record that a file is a
+program: you have to mark it as one before it will start, or it just says "permission denied".
+Run `sh make-executable.sh` in the unzipped folder to do all of them at once, or
+`chmod +x meshghost-linux-amd64` for a single file, then start it with
+`./meshghost-linux-amd64`. macOS additionally blocks the first run of anything unsigned —
+right-click the file, choose Open, and confirm, once. Both steps are spelled out in the
+release's own `README.txt`.
 
 Each game's adapter is its own platform story and does not follow: TEVI's and Pseudoregalia's
 mods are Windows DLLs (so on Linux they run inside the game's Proton prefix), while Emerald's

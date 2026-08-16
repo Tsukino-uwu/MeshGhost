@@ -396,17 +396,48 @@ amd64 is a normal Intel/AMD machine (including the Steam Deck); arm64 is an
 Apple Silicon Mac or an ARM Linux box. Use them exactly like the .exe versions
 -- same config.json, same settings, same everything.
 
-Two things to know:
+There are two extra steps on these systems that Windows doesn't need. Neither
+is a sign anything is wrong.
 
-1. You must make them executable first. A .zip cannot record that a file is a
-   program, so they arrive without that mark:
+STEP 1 -- mark the files as programs you're allowed to run.
 
-       chmod +x meshghost-linux-amd64
-       ./meshghost-linux-amd64
+  On Linux and macOS, a file is only allowed to run if it's marked as a
+  program. A .zip file has no way to record that mark (it's a Windows format,
+  and this is a Unix idea), so every file above arrives without it. Until you
+  add it, trying to start one just says "permission denied".
 
-2. On macOS the first run is blocked, because these aren't signed by an Apple
-   developer account. Right-click the file, choose Open, then confirm -- after
-   that it runs normally.
+  The easy way -- open a terminal in this folder and run:
+
+      sh make-executable.sh
+
+  That script ships in this folder and marks all of them at once. Note it's
+  run with "sh" in front, which sidesteps the obvious chicken-and-egg problem
+  of a script that would itself need marking.
+
+  The manual way -- if you'd rather do it yourself, "chmod +x" is the command
+  that adds the mark ("change mode, add executable"). Name the one file you
+  actually want:
+
+      chmod +x meshghost-linux-amd64
+
+  Either way, you only ever do this once, and you start it like this
+  afterwards -- the "./" just means "the one in this folder":
+
+      ./meshghost-linux-amd64
+
+  On most Linux desktops there's also a point-and-click route: right-click the
+  file, Properties, and tick something like "Allow executing file as program"
+  (the exact wording varies).
+
+STEP 2 -- macOS only: allow the first run.
+
+  macOS blocks programs that aren't signed by a paid Apple developer account,
+  and MeshGhost isn't signed by anyone. The first time only: right-click (or
+  Control-click) the file, choose Open, and confirm. After that it starts
+  normally like anything else.
+
+  If macOS says the file is "damaged", it isn't -- that's the same block
+  worded badly. The right-click-then-Open route still works.
 
 Honesty about testing: these are built and compile-checked automatically on
 every change, but only the Windows build has actually been used by anyone. If

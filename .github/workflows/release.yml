@@ -232,7 +232,11 @@ jobs:
           New-Item -ItemType Directory -Force packaging\release\games\pokemon\emerald | Out-Null
           Copy-Item adapters\pokemon\emerald\meshghost_emerald.lua packaging\release\games\pokemon\emerald\meshghost_emerald.lua
           Copy-Item -Recurse adapters\pokemon\emerald\lib packaging\release\games\pokemon\emerald\lib
-          Compress-Archive -Path packaging\release\* -DestinationPath "meshghost-$env:VERSION-windows-amd64.zip"
+          # Named without a platform now that the zip carries Windows, Linux, and macOS
+          # builds of the client and server. It was "-windows-amd64", which would actively
+          # mislead a Linux user into thinking there was nothing here for them -- and the
+          # whole point of one zip is that there is.
+          Compress-Archive -Path packaging\release\* -DestinationPath "meshghost-$env:VERSION.zip"
 
       - name: Create release
         uses: softprops/action-gh-release@v2
@@ -240,5 +244,5 @@ jobs:
           tag_name: ${{ inputs.version }}
           prerelease: ${{ inputs.prerelease }}
           files: |
-            meshghost-${{ inputs.version }}-windows-amd64.zip
+            meshghost-${{ inputs.version }}.zip
           generate_release_notes: true
