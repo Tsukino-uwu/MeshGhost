@@ -289,6 +289,21 @@ title screen or during an intro reads whatever was true then and keeps it for th
 happened twice, to a gender read (before character creation) and to an address-offset detection
 (during a cutscene). Gate on real gameplay and retry every frame until the read succeeds.
 
+## Observe before you override
+
+Protocol-adjacent restatement of the hard rule in this folder's `README.md`: **before writing
+anything that forces, corrects, or fights the game, log what the game does first, read-only, and
+prefer its own mechanism.**
+
+It belongs here as well as there because the tick loop is where the temptation lives. A ghost that
+looks wrong for one frame invites a correction written from a guess about what the game intended,
+and this project's longest-running adapter bugs are all that shape: the camera fight-back that ended
+up fighting every legitimate camera change, a trail reconstructed from predicted triggers instead of
+the game's own spawns, and pulse-shaped state mirrored as though it were continuous.
+
+If you are about to write a fix that *restores* or *remembers* a value rather than preventing
+whatever changed it, stop and log the change first. The observation usually renames the bug.
+
 ## Reference implementations
 
 - `adapters/pokemon/emerald/meshghost_emerald.lua` — the shipped Emerald adapter, including the

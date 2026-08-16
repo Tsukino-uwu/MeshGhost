@@ -344,6 +344,47 @@ the single fact that best explains why an adapter is the size and shape it is, i
 immediately how much of the code is discovery scaffolding versus feature work, and it sets
 expectations for anyone picking the adapter up later.
 
+## Hard rule: find out how the GAME does it before you work around it
+
+**Before writing anything that overrides, forces, corrects, or fights the game, observe what the
+game itself does — read-only — and prefer using its own mechanism.** A workaround written without
+that observation is a guess about a system you have not looked at, and in this project those have
+consistently held up in the one case they were written for and broken everything adjacent.
+
+The rule is not "never work around anything". It is: **the observation comes first, and the
+workaround has to be aimed at what you actually saw.** Sometimes the answer really is a targeted
+override — but you cannot target what you have not measured.
+
+**Three times this was paid for here, all recoverable from `agent_docs/`:**
+
+- **The Pseudoregalia camera.** Spawning a ghost made the game re-pick its camera. The fix forced
+  the view target back to a remembered "known good" one. It worked for the case it was written for
+  and nothing else: the game switches camera rigs *routinely* (three within milliseconds of
+  entering an area — `phase7.md`), so once a ghost exists the mod fights every legitimate change
+  the game makes, forever. Cutscenes and in-game resets were where it finally showed. The probe
+  that broke the ORIGINAL bug open was read-only — a hook that logged what the game chose without
+  overriding it — and that is the step that should have shaped the fix too.
+- **The ultra-hop trail.** Predicting when the game would trail, and spawning our own, produced
+  five rounds of nearly-right behaviour. What worked was giving up on predicting and letting the
+  game's own spawns drive it — see the adapter README's steps 38-41.
+- **`landed?` / `jumped?` vs `moveState`.** Mirroring these as if they were continuous state
+  produced a ghost stuck in an airborne pose. They are one-shot pulses; the continuous fields are
+  something else entirely. Nothing about the names said so — only watching the values did.
+
+**What "observe first" looks like in practice**, cheapest first:
+
+1. **Log what the game does, changing nothing.** A read-only hook on the function you were about
+   to override, printing what it was called with and what it chose.
+2. **Ask whether the game already has a mechanism** that does what you want (`README.md`'s "Ask the
+   game what it has, before you guess at what it might have").
+3. **Only then decide** whether to use its mechanism, or to override — and if you override, aim at
+   the specific condition you observed rather than at the symptom.
+
+**The tell that you are about to write a bandage:** the fix restores, forces, or remembers a value
+rather than preventing the thing that changed it. That is not automatically wrong, but it means you
+are treating a symptom, and it should be a deliberate choice you can defend — with the observation
+that justifies it — rather than the first thing that made the screen look right.
+
 ## Hard rules, restated (unchanged from [agent_docs/contract.md](../../agent_docs/contract.md))
 
 - The adapter may hold a socket to its own local core process (the bridge) and nothing else —
