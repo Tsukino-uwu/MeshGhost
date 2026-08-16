@@ -11,6 +11,11 @@ What's in this folder:
                             "server" section (only the host touches this).
 - games\                -- one folder per supported game. Only the folder
                             for the game you're playing matters to you.
+- meshghost-linux-amd64, meshghost-macos-arm64, and similar
+                         -- the SAME client and server, built for Linux and
+                            macOS. On Windows, ignore these entirely; they
+                            are here so there is one download rather than
+                            three. See "Linux and macOS" at the bottom.
 
 Status: Pokemon Emerald is tested and working. TEVI and Pseudoregalia are both
 EXPERIMENTAL. TEVI has been confirmed working with two real players (two local
@@ -375,6 +380,44 @@ program you double-clicked (the executables aren't code-signed yet). If
 yours removes or blocks it, you can set the environment variable
 MESHGHOST_NO_AUTOSTART to anything and start meshghost.exe yourself
 instead -- that path still works exactly as it always did.
+
+
+Linux and macOS
+---------------------------------
+The client and server are also built for Linux and macOS and sit in this same
+folder next to the Windows ones, so there's one download instead of three:
+
+  meshghost-linux-amd64          meshghost-server-linux-amd64
+  meshghost-linux-arm64          meshghost-server-linux-arm64
+  meshghost-macos-amd64          meshghost-server-macos-amd64
+  meshghost-macos-arm64          meshghost-server-macos-arm64
+
+amd64 is a normal Intel/AMD machine (including the Steam Deck); arm64 is an
+Apple Silicon Mac or an ARM Linux box. Use them exactly like the .exe versions
+-- same config.json, same settings, same everything.
+
+Two things to know:
+
+1. You must make them executable first. A .zip cannot record that a file is a
+   program, so they arrive without that mark:
+
+       chmod +x meshghost-linux-amd64
+       ./meshghost-linux-amd64
+
+2. On macOS the first run is blocked, because these aren't signed by an Apple
+   developer account. Right-click the file, choose Open, then confirm -- after
+   that it runs normally.
+
+Honesty about testing: these are built and compile-checked automatically on
+every change, but only the Windows build has actually been used by anyone. If
+one misbehaves, that's genuinely useful to hear about -- it isn't your setup.
+
+A note for Linux players of TEVI or Pseudoregalia: those two mods are Windows
+DLLs and run inside the game's Proton prefix, so Pseudoregalia's mod will start
+the WINDOWS meshghost.exe under Proton. That's expected to work, but is
+untested. If you'd rather use the native Linux client, just start it yourself
+before launching the game -- the mod checks whether one is already running and
+uses it instead of starting its own.
 
 
 Transports -- tcp vs udp vs quic

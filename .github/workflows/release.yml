@@ -66,6 +66,38 @@ jobs:
       - name: Build meshghost-server.exe
         run: go build -o meshghost-server.exe ./cmd/meshghost-relay
 
+      # Linux and macOS builds of the client and server, shipped in the SAME zip as the
+      # Windows ones rather than as separate downloads -- one download to hand someone,
+      # which matters more right now than a tidy layout. Only the client and server are
+      # cross-platform; adapters are per-game and follow their own platform story (TEVI and
+      # Pseudoregalia are Windows DLLs, run under Proton on Linux).
+      #
+      # CGO_ENABLED=0 explicitly: there is no C toolchain for darwin on a Windows runner,
+      # and nothing here needs cgo. Note the resulting files LOSE their executable bit in
+      # the zip (Compress-Archive stores no Unix permissions), so README.txt tells Linux and
+      # macOS users to chmod +x -- there is no way to preserve it in a .zip.
+      - name: Build the Linux and macOS client and server
+        shell: pwsh
+        env:
+          CGO_ENABLED: "0"
+        run: |
+          $targets = @(
+            @{ os = 'linux';  arch = 'amd64'; suffix = 'linux-amd64' },
+            @{ os = 'linux';  arch = 'arm64'; suffix = 'linux-arm64' },
+            @{ os = 'darwin'; arch = 'amd64'; suffix = 'macos-amd64' },
+            @{ os = 'darwin'; arch = 'arm64'; suffix = 'macos-arm64' }
+          )
+          foreach ($t in $targets) {
+            $env:GOOS = $t.os
+            $env:GOARCH = $t.arch
+            go build -o "packaging\release\meshghost-$($t.suffix)" ./cmd/meshghost
+            if ($LASTEXITCODE -ne 0) { exit 1 }
+            go build -o "packaging\release\meshghost-server-$($t.suffix)" ./cmd/meshghost-relay
+            if ($LASTEXITCODE -ne 0) { exit 1 }
+          }
+          $env:GOOS = ''
+          $env:GOARCH = ''
+
       - name: Verify the committed TEVI plugin isn't stale
         # MeshGhostTevi.dll is checked into packaging/release/games/tevi/MeshGhost/ (a
         # dedicated subfolder so the whole MeshGhost/ folder is a single drag-and-drop into

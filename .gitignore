@@ -5,6 +5,15 @@
 *.so
 *.dylib
 
+# The Linux/macOS client and server shipped alongside the Windows ones (release.yml builds
+# them straight into packaging/release/). They have NO file extension, so *.exe above does
+# not cover them, and a local dry run of the release steps would otherwise leave them
+# untracked in a directory that IS tracked -- one careless `git add -A` from being committed.
+/packaging/release/meshghost-linux-*
+/packaging/release/meshghost-macos-*
+/packaging/release/meshghost-server-linux-*
+/packaging/release/meshghost-server-macos-*
+
 # Exception: LuaSocket is a real vendored dependency for the Emerald BizHawk
 # adapter (agent_docs/licensing.md, agent_docs/architecture.md's Phase 3
 # ADR), not Go build output -- must actually be committed.
@@ -70,6 +79,9 @@ core.log
 relay.log
 meshghost.log
 meshghost-server.log
+# meshghost.log appends and rotates once at 1MiB (cmd/meshghost's openLogFile), so the
+# rotated generation needs ignoring too.
+meshghost.log.1
 
 # Backup-renamed binaries left behind when a running .exe couldn't be overwritten in place
 # (e.g. go build racing a still-running process on Windows) -- found live 2026-08-14,

@@ -24,9 +24,16 @@ TEVI and Pseudoregalia aren't personally confirmed online yet, but they're expec
 the relay and core client are game-agnostic and don't know which game an adapter is for, so
 "works locally" and "works online" are the same code path.
 
-Releases are Windows-amd64 only today. Linux/macOS builds of the client and server are a real
-goal (part of why the core is written in Go), though each game's adapter is its own platform
-story and may not all follow.
+The release zip ships the client and server for Windows, Linux, and macOS (amd64 and arm64),
+all in the one download — the Windows `.exe`s at the root plus `meshghost-linux-amd64`,
+`meshghost-macos-arm64`, and so on beside them. Only Windows is actually tested by anyone; the
+others are built and compile-checked by CI, and nothing more than that has been claimed. On
+Linux and macOS you'll need to `chmod +x` them first, since a `.zip` cannot carry the
+executable bit.
+
+Each game's adapter is its own platform story and does not follow: TEVI's and Pseudoregalia's
+mods are Windows DLLs (so on Linux they run inside the game's Proton prefix), while Emerald's
+is a Lua script that runs wherever BizHawk does.
 
 ## Setup
 
