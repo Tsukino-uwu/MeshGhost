@@ -11,18 +11,18 @@ Roadmap: `plans.md`. Per-phase log: `phases/`.
 
 Fixed-and-confirmed work is not listed here — see `verified.md` and the phase files.
 
-### Blocked on a real two-player session (Pseudoregalia 7.7)
+### Was blocked on a two-player session — now unblocked (7.7 confirmed 2026-08-16)
 
-- **7.7 itself** — untested; Steam single-instance behavior unconfirmed. Top unblock; gates
-  everything below.
+Two real players on two machines, confirmed on screen — `verified.md`. These need re-judging now
+that a peer's state genuinely differs from the local player's, which loopback could never show:
+
 - **A fresh ghost shows the LOCAL player's state, not the peer's.** Two fixes shipped 2026-08-16,
-  neither verifiable in loopback by construction — `verified.md` (recall glow entry).
-- **Ghost collision keep-or-axe.** Kept ON deliberately; run-ending risk fixed. Never judge with
-  `LOOPBACK_GHOST_OFFSET_X = 0` — reproduces the 7.4 drag bug. `risks.md`.
-- **Ghost vanishes while a peer is on a pole.** Cause unknown, three suspects ruled out; the
-  "stuck in a climb pose" half likely fixed. `phase7.md`.
-- **Pole rotation, and a thrown sword near a save crystal.** Both very likely the loopback offset,
-  not real bugs; pole sync PROVEN exact. `verified.md`.
+  never verifiable in loopback — `verified.md` (recall glow entry).
+- **Ghost collision keep-or-axe.** Kept ON deliberately; run-ending risk fixed. `risks.md`.
+- **Ghost vanishes while a peer is on a pole.** Cause unknown, three suspects ruled out;
+  `phase7.md`.
+- **Pole rotation, and a thrown sword near a save crystal.** Both suspected loopback-offset
+  artifacts rather than real bugs — a two-machine session is what settles it. `verified.md`.
 
 ### Open, not blocked
 

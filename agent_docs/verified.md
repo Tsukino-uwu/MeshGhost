@@ -4865,3 +4865,33 @@ sent back. This closes the last unknown from the autostart ADR.
 file, each naming its executable, working directory, and which `config.json` it read, from a
 machine nobody here can access. Recorded because it justifies the cost of that design, and because
 the relay was still truncating its own log every run until this entry (now fixed to match).
+
+## 2026-08-16 — Pseudoregalia 7.7: two real players, two machines, online (user-watched)
+
+**Confirmed by the user with a screenshot**: the Linux speedrunner got MeshGhost running on a
+laptop, and the two of them saw each other's goats in Pseudoregalia across two separate computers.
+This is the milestone the whole "Blocked on a real two-player session" list was waiting on, and it
+is the first time anything in this project has been confirmed between two machines rather than two
+processes on one.
+
+**What this proves, and it is not adapter-specific:** the client, relay, and transport stack works
+between real machines over a real network — a different game's adapter inherits that unchanged,
+because none of it knows which game it is serving. Together with the Proton result earlier the same
+day, the delivery path is now demonstrated end to end: unsigned zip → drag-and-drop mod → mod starts
+its own core → relay → a peer on another computer, on two different operating systems.
+
+**The standard this changes, per the user:** a two-machine test is **no longer a required
+verification step for a new game**. What it was proving lives in game-agnostic code that has now
+been proven once, and re-proving it per adapter is re-testing `internal/relay` with extra steps.
+
+**The one carve-out, and it comes from this repo's own record rather than caution in the abstract.**
+Loopback echoes *your own state back to you*, so anything whose correctness depends on the peer's
+state DIFFERING from yours is not exercised by it. `status.md` itself listed items as "neither
+verifiable in loopback by construction" — a fresh ghost showing the local player's state, and two
+findings suspected to be loopback-offset artifacts rather than real bugs. Also unexercised: real
+latency and jitter (loopback has ~none, and `contract.md` warns interpolation degrades silently
+under wall-clock skew between peers), a peer with a different `game_version`, and a peer whose
+appearance differs from yours. **So: loopback is sufficient for anything about rendering and
+movement that is symmetric between the two sides, and not sufficient for anything that depends on
+the two sides being different.** That distinction is narrower than "always needs two machines" and
+is what actually failed here before.

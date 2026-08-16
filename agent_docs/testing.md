@@ -19,6 +19,32 @@ change to `internal/` or `cmd/` done. It needs no game, no emulator, and nobody 
 **A green run here is not a green CI run.** Two checks deliberately only run in CI — the race
 detector and fuzzing. See below.
 
+## Does a new game need a two-machine test? No — with one carve-out
+
+**Settled 2026-08-16**, when Pseudoregalia was confirmed between two real computers (`verified.md`).
+
+A two-machine session proves the client, relay, and transport stack, and **none of that knows which
+game it is serving**. Making every new adapter re-prove it is re-testing `internal/relay` with a
+game attached, which is slower, needs two people, and answers a question already answered.
+
+So the default for a new game is: **loopback plus the Go suite is enough.**
+
+**The carve-out is narrow and comes from this repo's own misses, not from caution.** Loopback echoes
+your own state back to you, so it cannot exercise anything whose correctness depends on the peer
+being *different* from you. Four things fall in that gap:
+
+- a ghost initialised from local state rather than the peer's (this shipped, twice, undetectable
+  in loopback by construction)
+- a peer whose appearance, `game_version`, or area differs from yours
+- real latency and jitter — loopback has ~none, and `contract.md` notes interpolation degrades
+  *silently* under wall-clock skew between machines
+- anything judged against the loopback ghost's deliberate sideways offset, which has already
+  produced two suspected bugs that were probably the offset itself
+
+**Rule of thumb:** loopback settles anything symmetric between the two sides; only asymmetry needs
+two machines. That is a much smaller set than "every game needs a two-player session", and it is
+the set that actually went wrong.
+
 ## What runs where
 
 | Check | Local | CI (see below) | Release |
