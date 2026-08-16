@@ -63,7 +63,10 @@ namespace MeshGhostPseudo
     // reporting the old version, silently).
     constexpr auto ADAPTER_VERSION = "phase7.7";
     constexpr auto BRIDGE_HOST = "127.0.0.1";
-    constexpr uint16_t BRIDGE_PORT = 7778;
+    // The port is no longer a constant here: BridgeClient walks BRIDGE_BASE_PORT upward looking
+    // for a core that will have this game (see BridgeClient.hpp), so which one we end up on is a
+    // runtime answer. Two copies of Pseudoregalia, or Pseudoregalia alongside another game, each
+    // get their own core this way with nothing to configure.
 
     // Live loopback ghost offset -- NOT a test-mode flag (despite the visual proximity to the
     // dead-code block this used to sit next to; that block, including the similarly-named
@@ -4538,8 +4541,8 @@ namespace MeshGhostPseudo
     {
         Output::send(STR("[MeshGhostPseudo] on_unreal_init reached.\n"));
         unreal_ready = true;
-        bridge = std::make_unique<BridgeClient>(BRIDGE_HOST, BRIDGE_PORT);
-        core_launcher = std::make_unique<CoreLauncher>(BRIDGE_PORT);
+        bridge = std::make_unique<BridgeClient>(BRIDGE_HOST);
+        core_launcher = std::make_unique<CoreLauncher>();
 
         // Kept from the investigation: releases every remote's ghost reference synchronously
         // before a LoadMap-driven transition proceeds. This drops our own bookkeeping (a dangling-
@@ -8813,20 +8816,35 @@ namespace MeshGhostPseudo
 
         bridge->tick_connect();
 
-        bool now_connected = bridge->is_connected();
+        // Two states now, not one. A socket exists (is_connected) as soon as some core answers
+        // on some port -- that is when the hello goes out. Whether that core will HAVE us is a
+        // separate question it answers with bridge_ready or reject (agent_docs/contract.md), and
+        // only then is it safe to send frames: on a busy core the answer is a reject, and
+        // anything sent in between would be talking to a session about to be closed.
+        //
+        // Conflating the two deadlocks: the hello is what starts the handshake, so gating it on
+        // the handshake's result means it is never sent at all.
+        bool now_connected = bridge->is_ready();
         if (core_launcher)
         {
             // Driven off the connection state rather than called directly by tick_connect, so
             // BridgeClient stays what it says it is (a socket, nothing else) and the launcher
             // never runs unless a connect has actually failed -- which is what makes reusing an
             // already-running core the default rather than a special case.
-            if (now_connected)
+            if (bridge->is_connected())
             {
                 core_launcher->tick_connected();
             }
             else
             {
-                core_launcher->tick_disconnected();
+                // Only ever spawn where the sweep found NOTHING listening. A port that answered
+                // and said it was busy belongs to another game's core, and contract.md is
+                // explicit that an adapter only stops -- or starts over -- a core it owns.
+                uint16_t spawn_on = 0;
+                if (bridge->spawnable_port(spawn_on))
+                {
+                    core_launcher->tick_disconnected(spawn_on);
+                }
             }
         }
         if (bridge_was_connected && !now_connected)
@@ -8838,18 +8856,19 @@ namespace MeshGhostPseudo
         }
         bridge_was_connected = now_connected;
 
+        // Hello on CONNECTED, not on ready -- it is the message that asks the question.
+        if (bridge->is_connected() && !bridge->hello_sent())
+        {
+            std::string hello = std::string("{\"type\":\"hello\",\"payload\":{\"game_id\":\"") + GAME_ID +
+                "\",\"game_version\":\"" + ADAPTER_VERSION + "\"}}";
+            if (bridge->send_line(hello))
+            {
+                bridge->mark_hello_sent();
+            }
+        }
+
         if (now_connected)
         {
-            if (!bridge->hello_sent())
-            {
-                std::string hello = std::string("{\"type\":\"hello\",\"payload\":{\"game_id\":\"") + GAME_ID +
-                    "\",\"game_version\":\"" + ADAPTER_VERSION + "\"}}";
-                if (bridge->send_line(hello))
-                {
-                    bridge->mark_hello_sent();
-                }
-            }
-
             std::string local_state_to_send;
             {
                 std::lock_guard<std::mutex> lock(state_mutex);

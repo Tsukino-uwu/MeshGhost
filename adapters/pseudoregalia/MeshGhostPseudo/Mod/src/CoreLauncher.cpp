@@ -74,7 +74,7 @@ namespace MeshGhostPseudo
         }
     } // namespace
 
-    CoreLauncher::CoreLauncher(uint16_t bridge_port_) : bridge_port(bridge_port_)
+    CoreLauncher::CoreLauncher()
     {
         // Env var read once at construction: it's a launch-time decision, and re-reading it
         // every tick would be a syscall per tick for something that cannot change usefully
@@ -133,7 +133,7 @@ namespace MeshGhostPseudo
         }
     }
 
-    auto CoreLauncher::tick_disconnected() -> void
+    auto CoreLauncher::tick_disconnected(uint16_t spawn_port) -> void
     {
         if (spawn_disabled)
         {
@@ -148,7 +148,12 @@ namespace MeshGhostPseudo
         }
 
         uint64_t now = now_ms();
-        if (last_spawn_ms != 0 && now - last_spawn_ms < SPAWN_RETRY_INTERVAL_MS)
+        // The cooldown is per PORT, not global: if the sweep has moved on to a different free
+        // port, waiting out a previous port's cooldown would be waiting for nothing. This is the
+        // case two games starting at once produce -- both find the same free port, both spawn,
+        // and the loser's core exits immediately because it cannot bind, so its adapter needs to
+        // try the next port promptly rather than in ten seconds.
+        if (spawn_port == last_spawn_port && last_spawn_ms != 0 && now - last_spawn_ms < SPAWN_RETRY_INTERVAL_MS)
         {
             return;
         }
@@ -197,7 +202,7 @@ namespace MeshGhostPseudo
         // No relay settings here, on purpose -- see this class's header comment. The child reads
         // config.json out of the working directory set below.
         std::wstring command = L"\"" + exe + L"\" -exit-with-pid=" + std::to_wstring(GetCurrentProcessId()) +
-                               L" -bridge=127.0.0.1:" + std::to_wstring(bridge_port);
+                               L" -bridge=127.0.0.1:" + std::to_wstring(spawn_port);
 
         STARTUPINFOW startup{};
         startup.cb = sizeof(startup);
@@ -217,6 +222,7 @@ namespace MeshGhostPseudo
                                  &startup,
                                  &process);
         last_spawn_ms = now;
+        last_spawn_port = spawn_port;
 
         if (!ok)
         {

@@ -33,9 +33,17 @@ namespace MeshGhostPseudo
             }
         };
         WinsockGuard winsock_guard{};
+
+        // The core's reject reasons are plain ASCII, written by internal/core, never user text --
+        // a byte-widen is safe here and avoids pulling in a UTF-8 decoder for one log line. Same
+        // reasoning (and same shape) as Plugin.cpp's own to_wide_ascii.
+        auto to_wide_ascii(const std::string& s) -> RC::StringType
+        {
+            return RC::StringType(s.begin(), s.end());
+        }
     } // namespace
 
-    BridgeClient::BridgeClient(std::string host_, uint16_t port_) : host(std::move(host_)), port(port_), sock(static_cast<uintptr_t>(INVALID_SOCKET))
+    BridgeClient::BridgeClient(std::string host_) : host(std::move(host_)), sock(static_cast<uintptr_t>(INVALID_SOCKET))
     {
     }
 
@@ -53,7 +61,32 @@ namespace MeshGhostPseudo
         }
         connected = false;
         hello_sent_this_connection = false;
+        core_answered_ready = false;
+        hello_sent_at = {};
+        current_port = 0;
         recv_buffer.clear();
+    }
+
+    auto BridgeClient::mark_hello_sent() -> void
+    {
+        hello_sent_this_connection = true;
+        hello_sent_at = std::chrono::steady_clock::now();
+    }
+
+    auto BridgeClient::is_ready() const -> bool
+    {
+        if (!connected || !hello_sent_this_connection)
+        {
+            return false;
+        }
+        if (core_answered_ready)
+        {
+            return true;
+        }
+        // Silence past the timeout means a core older than bridge_ready/reject. Treat it as
+        // accepted rather than refusing it: that is exactly how every core behaved before this
+        // handshake existed, and a mixed setup is a normal thing for someone to end up with.
+        return std::chrono::steady_clock::now() - hello_sent_at > HELLO_ANSWER_TIMEOUT;
     }
 
     auto BridgeClient::tick_connect() -> void
@@ -74,12 +107,50 @@ namespace MeshGhostPseudo
         }
         last_connect_attempt = now;
 
+        // One sweep across the whole range per cooldown, not one port. Each candidate costs at
+        // most the 2ms select() below, so a sweep is still well under a frame -- whereas one port
+        // per 2s would take 16 seconds to discover a free core eight ports up.
+        have_spawnable_port = false;
+        for (uint16_t i = 0; i < BRIDGE_PORT_COUNT; ++i)
+        {
+            if (busy_until[i] > now)
+            {
+                continue; // a core that told us it was busy, still inside its cooldown
+            }
+
+            uint16_t candidate = static_cast<uint16_t>(BRIDGE_BASE_PORT + i);
+            bool refused = false;
+            if (try_port(candidate, refused))
+            {
+                current_port = candidate;
+                connected = true;
+                hello_sent_this_connection = false;
+                core_answered_ready = false;
+                Output::send(STR("[MeshGhostPseudo] bridge connected on port {}.\n"), candidate);
+                return;
+            }
+            if (refused && !have_spawnable_port)
+            {
+                // Nothing listening here at all. Remember the FIRST such port: starting a core on
+                // the lowest free one keeps a machine's ports predictable instead of drifting
+                // upward over a session. A port that answered and said "busy" is deliberately not
+                // a candidate -- that is someone else's core, and contract.md says an adapter only
+                // ever stops a core it started itself.
+                spawnable = candidate;
+                have_spawnable_port = true;
+            }
+        }
+    }
+
+    auto BridgeClient::try_port(uint16_t candidate, bool& refused) -> bool
+    {
+        refused = false;
         ++counters.connect_attempts;
 
         SOCKET new_sock = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
         if (new_sock == INVALID_SOCKET)
         {
-            return;
+            return false;
         }
 
         // Non-blocking mode: connect() below returns immediately with WSAEWOULDBLOCK, and we
@@ -91,7 +162,7 @@ namespace MeshGhostPseudo
 
         sockaddr_in addr{};
         addr.sin_family = AF_INET;
-        addr.sin_port = htons(port);
+        addr.sin_port = htons(candidate);
         inet_pton(AF_INET, host.c_str(), &addr.sin_addr);
 
         int result = connect(new_sock, reinterpret_cast<sockaddr*>(&addr), sizeof(addr));
@@ -99,17 +170,15 @@ namespace MeshGhostPseudo
         {
             // Connected immediately -- unusual for a non-blocking socket but valid (e.g. loopback).
             sock = static_cast<uintptr_t>(new_sock);
-            connected = true;
-            hello_sent_this_connection = false;
-            Output::send(STR("[MeshGhostPseudo] bridge connected (immediate).\n"));
-            return;
+            return true;
         }
 
         int err = WSAGetLastError();
         if (err != WSAEWOULDBLOCK)
         {
+            refused = (err == WSAECONNREFUSED);
             closesocket(new_sock);
-            return;
+            return false;
         }
 
         // In progress -- use select() with a short timeout to check for completion this same
@@ -117,9 +186,8 @@ namespace MeshGhostPseudo
         // connect resolves in well under a frame in practice. A zero timeout was found in a
         // review pass to risk a real false negative: a loopback connect that would have
         // succeeded within microseconds could be reported "not yet writable" and the socket
-        // aborted right as it was about to work. 2ms is still a bounded, negligible stall (this
-        // whole function now only runs once per RECONNECT_INTERVAL while disconnected, not every
-        // tick) and comfortably covers a same-machine loopback handshake.
+        // aborted right as it was about to work. 2ms is still a bounded, negligible stall and
+        // comfortably covers a same-machine loopback handshake.
         fd_set write_set{};
         FD_ZERO(&write_set);
         FD_SET(new_sock, &write_set);
@@ -133,14 +201,13 @@ namespace MeshGhostPseudo
             if (so_error == 0)
             {
                 sock = static_cast<uintptr_t>(new_sock);
-                connected = true;
-                hello_sent_this_connection = false;
-                Output::send(STR("[MeshGhostPseudo] bridge connected.\n"));
-                return;
+                return true;
             }
+            refused = (so_error == WSAECONNREFUSED);
         }
 
         closesocket(new_sock);
+        return false;
     }
 
     auto BridgeClient::send_line(const std::string& line) -> bool
@@ -238,6 +305,34 @@ namespace MeshGhostPseudo
                 if (line.front() != '{' || line.back() != '}')
                 {
                     ++counters.lines_malformed;
+                }
+                // The core's two answers to our hello are handled here rather than handed
+                // upward: they are about which core we are talking to, which is this class's
+                // job, and Plugin only ever wants ghost messages. Matched by substring, the
+                // same way every other line in this mod is read -- there is no JSON parser
+                // here, and adding one for two fixed shapes would be the larger change.
+                if (line.find("\"bridge_ready\"") != std::string::npos)
+                {
+                    core_answered_ready = true;
+                    Output::send(STR("[MeshGhostPseudo] core on port {} accepted us.\n"), current_port);
+                    start = newline_pos + 1;
+                    continue;
+                }
+                if (line.find("\"reject\"") != std::string::npos)
+                {
+                    // Somebody else's core. Skip this port for a while and let the next sweep
+                    // find another -- without the cooldown we would reconnect immediately, make
+                    // it log another refusal, and hang up, forever.
+                    if (current_port >= BRIDGE_BASE_PORT && current_port < BRIDGE_BASE_PORT + BRIDGE_PORT_COUNT)
+                    {
+                        busy_until[current_port - BRIDGE_BASE_PORT] = std::chrono::steady_clock::now() + BUSY_PORT_COOLDOWN;
+                    }
+                    Output::send(STR("[MeshGhostPseudo] core on port {} refused us ({}) -- trying another port.\n"),
+                                 current_port,
+                                 to_wide_ascii(line));
+                    close_socket();
+                    recv_buffer.clear();
+                    return lines;
                 }
                 lines.push_back(std::move(line));
             }

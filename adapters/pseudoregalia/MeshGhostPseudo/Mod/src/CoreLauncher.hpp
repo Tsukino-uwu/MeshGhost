@@ -38,21 +38,26 @@ namespace MeshGhostPseudo
     class CoreLauncher
     {
       public:
-        explicit CoreLauncher(uint16_t bridge_port);
+        CoreLauncher();
         ~CoreLauncher();
 
         CoreLauncher(const CoreLauncher&) = delete;
         auto operator=(const CoreLauncher&) -> CoreLauncher& = delete;
 
-        // Call on a tick where the bridge is NOT connected. Spawns a core if one doesn't
-        // seem to be running, subject to SPAWN_RETRY_INTERVAL_MS.
+        // Call on a tick where the bridge is NOT connected, passing a port where nothing is
+        // listening. Spawns a core there, subject to SPAWN_RETRY_INTERVAL_MS.
+        //
+        // The port is a per-call argument rather than a constructor value because it is now a
+        // runtime answer from BridgeClient's sweep: with two games running, the free port is not
+        // the same one every time, and a launcher holding a stale number would respawn into a
+        // collision forever (the core exits immediately if it cannot bind).
         //
         // Hanging this off the failure path is what makes "reuse a core that's already
         // running" free rather than a feature: we only ever get here after a connect attempt
         // failed, so a core the player started themselves -- or a native one on the Linux
         // side of a Proton prefix, which this mod could never have spawned or killed -- is
         // simply used, and never duplicated.
-        auto tick_disconnected() -> void;
+        auto tick_disconnected(uint16_t spawn_port) -> void;
 
         // Call on a tick where the bridge IS connected, so the next disconnection is treated
         // as fresh rather than as a continuation of an old spawn's cooldown.
@@ -65,7 +70,7 @@ namespace MeshGhostPseudo
         auto terminate_child() -> void;
         auto child_still_running() const -> bool;
 
-        uint16_t bridge_port;
+        uint16_t last_spawn_port{0};
         void* child_handle{nullptr}; // HANDLE, as void* so this header needs no <windows.h>
         uint32_t child_pid{};
         uint64_t last_spawn_ms{};
