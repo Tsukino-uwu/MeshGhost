@@ -212,7 +212,7 @@ namespace MeshGhostPseudo
 
     constexpr bool OUTLINE_TRACE = true;
 
-    constexpr bool CAMERA_TRACE = false;
+    constexpr bool CAMERA_TRACE = true;
 
     constexpr uint64_t SPAWN_DELAY_TICKS = 300;
 
@@ -5089,8 +5089,24 @@ namespace MeshGhostPseudo
         // DestroyComponent, so this is not a shot in the dark. call_ufunction_with_leading_actor_arg
         // sizes the Parms buffer from the function's own real GetPropertiesSize() rather than a
         // hand-guessed struct -- see that helper's comment for why that distinction matters.
+        // Only take control back if something actually took it. Since AutoPossessPlayer is now
+        // cleared around the spawn above, the usual case is that the controller never let go --
+        // and re-possessing a pawn the controller already holds is not free in Unreal: it runs the
+        // unpossess/possess path internally, which resets input state on a pawn that was working
+        // fine. That is the current suspect for the player being unable to move while the camera
+        // stays on them, now that the theft itself is fixed and the symptom survived.
+        UObject** currently_held = local_controller->GetValuePtrByPropertyNameInChain<UObject*>(STR("Pawn"));
+        bool controller_already_correct = currently_held && *currently_held == static_cast<UObject*>(local_pawn_actor);
+
         UFunction* possess_fn = local_controller->GetFunctionByNameInChain(STR("Possess"));
-        if (possess_fn)
+        if (controller_already_correct)
+        {
+            if (POSSESS_TRACE)
+            {
+                Output::send(STR("[MeshGhostPseudo] POSSESS_TRACE hand-back skipped -- controller already holds the local pawn.\n"));
+            }
+        }
+        else if (possess_fn)
         {
             call_ufunction_with_leading_actor_arg(local_controller, possess_fn, local_pawn_actor);
         }
