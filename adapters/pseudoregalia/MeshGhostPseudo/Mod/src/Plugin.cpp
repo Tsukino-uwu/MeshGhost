@@ -151,6 +151,23 @@ namespace MeshGhostPseudo
     // investigation catch the camera re-pick as a clean, isolated, ~2.6ms-after-spawn event
     // (agent_docs/phases/phase7.md's Phase 7.4 saga) instead of it being tangled up with level-
     // entry camera setup. ~300 ticks at a typical 60fps game thread ~= 5s.
+    // Logs which branch the camera fight-back hook takes on EVERY SetViewTargetWithBlend call,
+    // not just the one where it rewrites. Off by default; flip, rebuild, deploy, reproduce, read,
+    // flip back -- the same pattern as the other *_TRACE flags in this file.
+    //
+    // What it is for (2026-08-16): the camera goes wrong after an in-game cutscene or a "reset to
+    // last save", and today's logging cannot say why, because it prints only when the hook
+    // rewrites. That leaves three explanations indistinguishable -- the game asks for a camera
+    // change and we clobber it, the game asks and we accept it but something else is wrong, or the
+    // game does not use this function for cutscenes at all. Silence currently means all three.
+    //
+    // Cost is one line per view-target change, and this game changes rigs a handful of times per
+    // area -- not per tick. That distinction matters: per-tick logging with a name lookup per
+    // object is what caused this project's worst regression (pitfalls.md, 2026-08-16), and
+    // GetFullName() here is the same expensive call, just called a few times a minute instead of
+    // thousands. Do not move it into a tick loop.
+    constexpr bool CAMERA_TRACE = true;
+
     constexpr uint64_t SPAWN_DELAY_TICKS = 300;
 
     // User-requested toggle, 2026-08-13: try re-enabling ghost collision as a real fix for the
@@ -4627,11 +4644,21 @@ namespace MeshGhostPseudo
                 AActor* target = locals.NewViewTarget;
                 if (!target || target->IsUnreachable())
                 {
+                    if (CAMERA_TRACE)
+                    {
+                        Output::send(STR("[MeshGhostPseudo] CAMERA_TRACE tick={} branch=junk-target\n"), tick_count);
+                    }
                     return;
                 }
 
                 if (!any_ghost_ever_spawned)
                 {
+                    if (CAMERA_TRACE)
+                    {
+                        Output::send(STR("[MeshGhostPseudo] CAMERA_TRACE tick={} branch=learn target={}\n"),
+                                     tick_count,
+                                     target->GetFullName());
+                    }
                     last_known_good_view_target = target;
                     return;
                 }
@@ -4642,12 +4669,24 @@ namespace MeshGhostPseudo
                     // last_known_good_view_target permanently -- re-baseline on the first call
                     // after a transition instead of leaving the fight-back mechanism disabled
                     // forever (Lua's confirmed fix for the exact same failure mode).
+                    if (CAMERA_TRACE)
+                    {
+                        Output::send(STR("[MeshGhostPseudo] CAMERA_TRACE tick={} branch=rebaseline target={}\n"),
+                                     tick_count,
+                                     target->GetFullName());
+                    }
                     last_known_good_view_target = target;
                     return;
                 }
 
                 if (target == last_known_good_view_target)
                 {
+                    if (CAMERA_TRACE)
+                    {
+                        Output::send(STR("[MeshGhostPseudo] CAMERA_TRACE tick={} branch=same target={}\n"),
+                                     tick_count,
+                                     target->GetFullName());
+                    }
                     return;
                 }
 
@@ -8867,6 +8906,18 @@ namespace MeshGhostPseudo
             }
         }
 
+        // Read the socket whenever one EXISTS, not only once the core has accepted us: the
+        // acceptance (bridge_ready) arrives over this same socket, and poll_lines is what
+        // consumes it. Gating the read on readiness deadlocks -- the adapter connects, sends
+        // hello, never reads the answer, times out, blacklists the port, and loops. Found live
+        // 2026-08-16 as a 12s reconnect cycle in UE4SS.log, and it is the SAME mistake as
+        // gating the hello itself on readiness, one layer down.
+        std::vector<std::string> received_lines;
+        if (bridge->is_connected())
+        {
+            received_lines = bridge->poll_lines();
+        }
+
         if (now_connected)
         {
             std::string local_state_to_send;
@@ -8879,7 +8930,6 @@ namespace MeshGhostPseudo
                 bridge->send_line(local_state_to_send);
             }
 
-            std::vector<std::string> received_lines = bridge->poll_lines();
             if (!received_lines.empty())
             {
                 std::lock_guard<std::mutex> lock(state_mutex);

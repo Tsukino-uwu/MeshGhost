@@ -15,6 +15,37 @@ next game adapter starts from the lessons already paid for instead of re-learnin
   transferable lessons so a future adapter author doesn't have to re-read a whole phase's
   saga to find them.
 
+## Gating a handshake on its own result (deadlock, twice in one day)
+
+**Symptom:** the Pseudoregalia adapter reconnected to the bridge every ~12 seconds forever, logging
+`bridge connected on port 7778` and then `whatever is on port 7778 never answered our hello`, while
+the core's own log showed the adapter hanging up on it (`forcibly closed by the remote host`). No
+ghost ever appeared. Found live 2026-08-16.
+
+**Cause:** the bridge gained a handshake — the core answers a `hello` with `bridge_ready` or
+`reject`. The adapter grew an `is_ready()` state, and the existing tick code said
+`bool now_connected = bridge->is_ready();`. Two things were already inside `if (now_connected)`:
+
+1. **sending the hello** — so the message that *starts* the handshake waited on the handshake's
+   result. Caught by reading the code before shipping.
+2. **`poll_lines()`** — so the adapter would not *read the socket* until it was ready, but
+   readiness arrives over that socket. Not caught, and it is what produced the 12s loop: connect,
+   send hello, never read the answer, hit the 1.5s answer timeout, blacklist the port for 10s,
+   repeat.
+
+**Fix:** both belong on `is_connected()`, not `is_ready()`. Only *game* traffic — sending
+`local_state`, processing ghost messages — waits for readiness.
+
+**The transferable rule:** when adding a handshake to an existing loop, every step that *produces*
+the answer must be gated on the transport existing, never on the answer having arrived. Search for
+the old "are we connected" boolean and check each thing under it: some of those are handshake
+machinery and must move up, and the ones that don't move look completely fine until they hang.
+
+**Why it took a live run to find:** the Go side was fully tested and correct — `internal/core` and
+`internal/e2e` both proved the core answers a hello, and an e2e test walked real binaries. None of
+that could catch it, because the bug was the adapter never listening. This is the exact split
+CLAUDE.md draws: the Go side is verifiable with tools, an adapter is only verifiable by watching.
+
 ## Diagnostic methodology
 
 Rules that kept paying off across multiple sagas below. Each came from a specific incident —
