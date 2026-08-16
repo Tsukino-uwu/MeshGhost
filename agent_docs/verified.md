@@ -4906,3 +4906,36 @@ listed as "very likely the loopback offset, not a real bug", because loopback pu
 the geometry rather than on it, and a ghost standing next to a pole cannot demonstrate rotation
 around one. A real peer, actually on the pole, was the only thing that could tell those apart —
 and it is exactly the asymmetric case `testing.md`'s new rule keeps two machines for.
+
+## 2026-08-16 — The Pseudoregalia camera fight-back is what takes the camera
+
+**Established from a live trace** (user ran the session; `CAMERA_TRACE` in the mod), after the user
+reported the camera going wrong after a cutscene or an in-game "reset to last save", and observed
+on screen that **the ghost appeared to grab the camera after the cutscenes**.
+
+The log shows the opposite of the theory the mechanism was built on. Twice in one session, the
+game asked to switch to a *different* `BP_PlayerCam_C` rig and the mod forced it back:
+
+    game wants BP_PlayerCam_C_2147482134 -> forced back to ..._2147482171
+    game wants BP_PlayerCam_C_2147481633 -> forced back to ..._2147481681
+
+**Neither rewrite followed a ghost spawn.** The surrounding trace shows the loopback ghost standing
+still at a fixed position for seconds either side, with the player idle. This is the game's ordinary
+per-area rig switching — the curated multi-rig system `phase7.md` documented — and the mod blocks
+every instance of it once a ghost has ever existed. The camera then stays pinned to whichever rig
+was current just after the level load, which frames where the ghost is standing; from the player's
+seat that reads exactly as "the ghost grabbed the camera".
+
+**So the fight-back is not failing to re-grab the camera. It is the thing taking it.**
+
+Also confirmed by the same trace, and worth keeping: **cutscenes and area cameras do route through
+`SetViewTargetWithBlend`** (`branch=learn target=CameraActor …TitleScreen`, then `BP_PlayerCam_C`
+in `ZONE_Dungeon`). The "cutscenes use some other camera path" explanation is dead.
+
+**Next, not yet run:** the mechanism is now behind `CAMERA_FIGHTBACK = false` and the same session
+should be repeated with it off. Ghosts spawn with collision disabled now, so if rig switching is
+driven by overlap volumes, a ghost may no longer be able to trigger one — in which case the
+original 7.4 problem no longer exists and the mechanism should be deleted rather than tuned. If the
+camera misbehaves with it off, the original problem is still real and the fix has to be aimed at
+what the trace shows rather than at the symptom. Either answer is worth having; this is
+`pitfalls.md`'s "run the same test without the fix applied".

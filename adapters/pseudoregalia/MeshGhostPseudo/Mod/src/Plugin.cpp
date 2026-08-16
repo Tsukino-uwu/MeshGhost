@@ -166,6 +166,27 @@ namespace MeshGhostPseudo
     // object is what caused this project's worst regression (pitfalls.md, 2026-08-16), and
     // GetFullName() here is the same expensive call, just called a few times a minute instead of
     // thousands. Do not move it into a tick loop.
+    // Whether to force the view target back when the game changes it. OFF as of 2026-08-16, as
+    // an experiment, not a cleanup -- see agent_docs/phase7.md.
+    //
+    // This was written for a real problem (7.4): spawning a ghost made the game re-pick its
+    // camera ~2.6ms later. But it was aimed at the symptom, and a live trace showed what that
+    // costs. The game switches BP_PlayerCam_C rigs routinely as the player moves, and this
+    // rewrites EVERY such switch back to whichever rig existed just after the level load, forever
+    // -- the log caught it twice in one session, neither time near a ghost spawn. The player sees
+    // that as "the ghost grabbed the camera", because the pinned rig frames where the ghost is
+    // standing.
+    //
+    // The question this flag exists to answer: does the ORIGINAL problem still happen? Ghosts now
+    // spawn with collision disabled, so if rig switching is driven by overlap volumes, a ghost can
+    // no longer trigger one and there is nothing left to fight. If the camera behaves with this
+    // off, delete the mechanism rather than tuning it.
+    //
+    // Note this gates the WORK, not just the decision: with it false the engine's own
+    // NewViewTarget is left untouched, which is a real revert and not an A/B that leaves the cost
+    // running (CLAUDE.md).
+    constexpr bool CAMERA_FIGHTBACK = false;
+
     constexpr bool CAMERA_TRACE = true;
 
     constexpr uint64_t SPAWN_DELAY_TICKS = 300;
@@ -4687,6 +4708,21 @@ namespace MeshGhostPseudo
                                      tick_count,
                                      target->GetFullName());
                     }
+                    return;
+                }
+
+                if (!CAMERA_FIGHTBACK)
+                {
+                    // Experiment (2026-08-16): let the game have its camera and record what it
+                    // chose, so the log still shows every switch we would have blocked.
+                    if (CAMERA_TRACE)
+                    {
+                        Output::send(STR("[MeshGhostPseudo] CAMERA_TRACE tick={} branch=allowed-change from={} to={}\n"),
+                                     tick_count,
+                                     last_known_good_view_target->GetFullName(),
+                                     target->GetFullName());
+                    }
+                    last_known_good_view_target = target;
                     return;
                 }
 
