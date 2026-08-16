@@ -63,9 +63,10 @@ Full walkthrough: `packaging/release/README.txt` (ships in the zip) and
 ### Transports
 
 Every client connects over `tcp` first, then swaps to whatever `"transport"` in `config.json`
-says — `tcp`, `udp`, or `quic`. That's why nobody needs to know port numbers, and why asking for
-one the server doesn't serve still leaves you connected. Clients default to `udp`, servers to
-`tcp`, a room can mix all three, and `quic` is the only encrypted one.
+says — `tcp`, `udp`, or `quic`. So `connect_to` only ever needs the server's `tcp` address; the
+client is told the rest, and asking for one the server doesn't serve still leaves you connected.
+Clients default to `udp`, servers to `tcp`, a room can mix all three, and `quic` is the only
+encrypted one.
 
 Which to pick and which ports to forward: `packaging/release/README.txt`. Why it works this way:
 [agent_docs/architecture.md](agent_docs/architecture.md)'s transport ADRs.

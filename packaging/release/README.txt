@@ -35,11 +35,13 @@ Setup, once:
                exactly or you'll be refused.
      "name"  -- whatever you want your ghost to show as to others.
      "transport" -- LEAVE THIS AS "udp" unless you have a reason not to.
-               You do NOT need to know what your host is running or which
-               port anything is on: your client always makes contact over
-               tcp first, asks what they serve, and only then switches. If
-               they don't offer udp you simply stay on tcp and everything
-               still works.
+               "connect_to" above is still the only address you need -- and
+               it does need the port on the end, as shown. What you do NOT
+               need is to know which transports your host runs, or which
+               EXTRA ports they use for them: your client always makes
+               contact on that one address over tcp first, asks what they
+               serve, and only then switches. If they don't offer udp you
+               simply stay on tcp and everything still works.
                Put "quic" here instead if you want your room_code
                encrypted -- but your host has to be serving quic for that
                to happen (ask them). "tcp" keeps you on the plain, most
