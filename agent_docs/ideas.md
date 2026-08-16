@@ -846,9 +846,10 @@ Pseudoregalia trail investigation lost most of its time — log unfiltered, stan
 player press a mark key the instant the effect they mean appears. The person watching already knows
 which effect they want; that knowledge becomes the filter without ever being spelled as a string.
 
-**Why it is likely fast:** the marked windows intersect. Three or four marks and the candidate list
-collapses, with no theory about naming required. The idle periods double as a free ambient
-baseline.
+**Why it is likely fast, and why it tolerates a sloppy mark:** even a mistimed press leaves the
+previous, current, and next event — **3 candidates instead of 50+** — because what it captures is
+ordinal, not precise. Marks then intersect: three or four of them and the list collapses to one,
+with no theory about naming at any point. The idle periods double as a free ambient baseline.
 
 **Where it should be tried first:** the two VFX gaps still open — Pseudoregalia's remaining
 missing effects, and TEVI's charged-attack VFX that plays no effect while the animation runs

@@ -363,12 +363,19 @@ Four things make or break it:
 - **The mark input must not itself cause the effect.** Marking with jump while hunting the jump
   effect poisons the sample. Use a key the game does not bind (UE4SS can register a hotkey);
   confirm what is actually free rather than assuming.
-- **Capture the window BEFORE the press, not at it.** Human reaction is a few hundred milliseconds,
-  which is many frames of spawns. Keep a rolling buffer of the last ~2s and dump *that* on the
-  mark. Marking "now" records the wrong frame, reliably.
-- **Repeat and intersect.** One mark is noisy; the same candidate appearing in the marked window
-  three or four times running is the answer. This is the step that makes it fast — not the first
-  mark, but the intersection.
+- **Capture what came BEFORE the press, not what is at it.** Human reaction is a few hundred
+  milliseconds, which is many frames. Marking "now" records the wrong thing, reliably.
+- **Buffer the last N events, not the last N seconds.** A time window is scale-dependent — 2s
+  catches nothing when effects are sparse and forty when they are dense — while "the last 5 spawns"
+  holds either way, and matches how a person reasons about it anyway ("it was that one, or the one
+  just before").
+- **Precision is not required, which is the real point.** Even a badly-timed mark leaves the
+  previous, current, and next event: **3 candidates instead of 50+**. The technique degrades to
+  "roughly right" rather than to "wrong", so it is worth doing even by someone with slow hands on a
+  bad day.
+- **Repeat and intersect.** One mark leaves ~3; the same candidate showing up across three or four
+  marks leaves 1. The first mark does the big cut, the intersection does the rest — neither step
+  needs a theory about what anything is called.
 - **It is also the CHEAP shape, which is why it fits this project's hardest lesson.** The rolling
   buffer stores pointers and ids only; names and strings get resolved for the ~2s that were marked,
   not for every object every tick. Per-tick enumeration with a name lookup per object is exactly
