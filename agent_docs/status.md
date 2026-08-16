@@ -26,11 +26,10 @@ Fixed-and-confirmed work is not listed here — see `verified.md` and the phase 
 
 ### Open, not blocked
 
-- **Autostart: built for Pseudoregalia, never watched running.** Mod starts a hidden core; TEVI
-  and Emerald not converted until it's confirmed. ADR in `architecture.md`, risk in `risks.md`.
-- **Autostart under Proton is untested and needs the Linux tester**, who is the reporter this
-  came from. Two paths (Wine-hosted exe / native client reused) — the autostart ADR.
-
+- **Autostart: Windows fully watched; TEVI and Emerald not converted yet.** Cold start, cleanup,
+  reuse, and non-interference all confirmed — `verified.md` (2026-08-16).
+- **Autostart under Proton: untested, needs the Linux tester.** Ask specifically whether the
+  console window is still open after quitting the game — that is the orphan case, `verified.md`.
 - **Pseudoregalia: a `Fatal Error!` on game exit**, seen once, never root-caused. Not the
   2026-08-16 transition crash, which is fixed.
 - **TEVI: charged-attack VFX missing on the ghost** — animations play, effects don't.

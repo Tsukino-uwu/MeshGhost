@@ -4820,3 +4820,11 @@ it should only be invisible where we have actually watched it clean up after its
 **Untested, and the whole point of the change:** that the window actually appears under Proton, and
 whether the client there dies with the game at all. If it turns out cleanup works fine through
 Wine, this default becomes noise and should be reconsidered — noted in the code as well.
+
+**What to ask the Proton tester, specifically:** after quitting the game, is the MeshGhost console
+window still open? That single question separates the two outcomes that matter. Gone means the
+Wine-hosted client dies with the game and the whole autostart lifecycle holds there — at which
+point the visible console is noise and the default should be reconsidered. Still open means the
+orphan case is real under Wine, and `-exit-with-pid` does not survive that boundary; the window is
+then doing its job, and the fix belongs in the mod (a native client started by hand, per the
+reuse path, avoids the problem entirely). Either answer is worth having; "it worked" alone is not.
