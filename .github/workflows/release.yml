@@ -42,6 +42,24 @@ jobs:
             exit 1
           }
 
+      # A release used to go straight from "checkout" to "build and zip"
+      # without running a single test, so the one artifact real users
+      # download was the only Go build in this repo that nothing verified.
+      # These are the same checks ci.yml runs on every push -- repeated here
+      # because a release can be cut from any commit, including one that
+      # never had a green CI run, and because the packaging steps below are
+      # slow and irreversible-ish (they create a tag and a public release).
+      #
+      # No -race here: on Windows it needs a working cgo toolchain, and the
+      # race detector is covered on Linux by ci.yml's test job. -count=2
+      # because parts of this suite have failed intermittently rather than
+      # reliably (see CLAUDE.md).
+      - name: Vet
+        run: go vet ./...
+
+      - name: Test
+        run: go test -count=2 ./...
+
       - name: Build meshghost.exe
         run: go build -o meshghost.exe ./cmd/meshghost
 

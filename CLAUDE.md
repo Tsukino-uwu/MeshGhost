@@ -18,12 +18,13 @@ proposing a plan that touches the core, an adapter, or the relay.
   ask the user to watch it.** `internal/core`, `internal/relay`, `internal/transport`,
   `internal/bridge` and `cmd/` are deterministic code against a contract we own — nothing there
   rests on a guess about a game, which is exactly why the three are separated. Before calling a
-  change to them done, run: `go build ./...`, `go vet ./...`, `go test ./...` (repeat it — this
-  suite has caught a real race by failing intermittently), the headless rig
-  (`run-relay.bat` + `run-fakeadapter1/2.bat`, which covers relay/core over real TCP but
-  **not** the bridge, since the fake adapter is in-process), and — for anything touching the
-  bridge or transport — a throwaway adapter that speaks real NDJSON to the bridge port. A
-  behaviour change wants a regression test that fails without the fix.
+  change to them done, run `dev-scripts/run-gotests.bat` — build, vet, and the whole suite
+  twice, including `internal/e2e`, which launches the real binaries and drives a real adapter
+  over the bridge (no game, no watching). CI adds the race detector and a fuzz campaign on
+  every push; neither runs locally, so a green script is not a green CI. **Repeat the suite
+  when touching concurrency** — `-count=10` has caught what `-count=1` and `-count=2` both
+  miss, most recently 2026-08-16. A behaviour change wants a regression test that fails
+  without the fix.
 - **`agent_docs/verified.md` is append-only, and human-gated for anything visual.** A claim about
   what happens on screen or in gameplay goes in only after the user has watched it. A fact you
   established yourself from a log line, a console read, or the Go tools above may be recorded
@@ -215,6 +216,8 @@ reasoning, the rule stays here and the reasoning goes to a `.md` file in `agent_
 - `agent_docs/environment.md` is the toolchain/tool/mod version record, filled in as phases
   actually run.
 - `agent_docs/verified.md` is the append-only log for confirmed runtime facts.
+- `agent_docs/testing.md` is how to run every automated Go-side check, what CI adds, and the
+  testing traps worth not rediscovering. Read it before adding a test or chasing a flake.
 
 Use this file only for working notes and rules that must be immediately visible to the
 agent. Put longer design rationale, contract definitions, and phase planning into

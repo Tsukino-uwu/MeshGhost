@@ -10,6 +10,18 @@ root) — each script references them as `..\<name>.exe`. The one exception is
 `run-loopback-in-release-folder.bat` below, which is written to be copied *out* of here into a
 downloaded release folder and run against its `meshghost-server.exe` instead.
 
+- `run-gotests.bat` — **the one command to run before calling any change to `internal/` or
+  `cmd/` done**: `go build`, `go vet`, then the whole suite twice. Needs no game, no emulator,
+  and nobody watching — `internal/e2e` builds and launches the real `meshghost-server.exe` and
+  `meshghost.exe` and drives a real adapter over the bridge, which is what pairing
+  `run-relay-loopback.bat` with a `run-core-*.bat` used to check by hand.
+
+  Two checks it deliberately leaves to CI (`.github/workflows/ci.yml`, which runs on every
+  push): the **race detector**, because on Windows `-race` needs a working cgo toolchain and
+  this machine has neither a usable one nor WSL (the `gcc` on `PATH` resolves to a devkitPro
+  MSYS2 copy, and the real MSYS2 GCC 15 can't compile Go 1.22's `runtime/cgo`) — on Linux it
+  needs no setup at all; and **fuzzing**, which runs a short campaign per push against the
+  parsers. Both are also why a green run here is not the same as a green CI run.
 - `run-relay.bat` / `run-relay-loopback.bat` — a single relay, `-send-hz=100`. Deliberately NOT
   the relay's own 20Hz default: since the send/receive rate-control feature (see the ADR in
   agent_docs/architecture.md), a relay's advertised send_hz is prescriptive — a Core adopts it

@@ -1,0 +1,124 @@
+name: CI
+
+# Runs the Go client/server checks CLAUDE.md requires before any change to
+# internal/ or cmd/ is called done -- build, vet, the full test suite, and a
+# short fuzz campaign against the three parsing layers. Until this existed,
+# every one of those ran only when a human remembered to run them, and
+# release.yml shipped binaries without running a single test.
+#
+# This deliberately covers ONLY the Go side. Adapters are excluded on
+# purpose: CLAUDE.md's standard for an adapter is "was the expected thing
+# seen happening on screen in a running game", which no runner can do, and
+# two of the three mod DLLs can't even be built here (proprietary game DLLs
+# and a private UE4SS dependency -- see packaging/README.md). The staleness
+# gates in release.yml are what guard those.
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Build, vet, test (race)
+    # Linux, not Windows, specifically for the race detector: on Windows it
+    # needs a working cgo C toolchain, and a machine can easily have a `gcc`
+    # on PATH that is the wrong install (found live 2026-08-16 -- the dev
+    # box's `gcc` resolved to a devkitPro MSYS2 copy whose headers `-race`
+    # can't use). On Linux it just works with no toolchain setup at all.
+    # The Go code is platform-agnostic (net, encoding/json, no syscalls), so
+    # a race here is a race on Windows too; the windows job below covers the
+    # actual shipping target.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+
+      - name: Build
+        run: go build ./...
+
+      - name: Vet
+        run: go vet ./...
+
+      # -count=3 because this suite has caught a real race by failing
+      # intermittently rather than reliably (see CLAUDE.md and the pending-
+      # payload fix in internal/transport). The race detector is the
+      # deterministic version of the "run it repeatedly and watch" ritual
+      # that replaced; running both is belt and braces, and the whole suite
+      # is only a few seconds.
+      - name: Test with race detector
+        run: go test -race -count=3 ./...
+
+  fuzz:
+    name: Fuzz the parsers
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+
+      # A relay is a listening port strangers connect to, so every byte it
+      # parses is attacker-controlled. Each target gets a short campaign per
+      # push -- enough to catch a regression that makes previously-safe
+      # input crash, not a substitute for a long campaign when the parsing
+      # or limit code actually changes. Run one of those by hand with
+      # -fuzztime=10m; each target's doc comment carries the exact command.
+      #
+      # -run=XXX so the ordinary tests in these packages don't run three
+      # more times here; the test job above already ran them under -race.
+      - name: Fuzz protocol - state survives a relay forward unchanged
+        run: go test ./internal/protocol -run=XXX -fuzz=FuzzValidateStateIsStableAcrossTheWire -fuzztime=45s
+
+      - name: Fuzz protocol - accepted positions cannot overflow float32
+        run: go test ./internal/protocol -run=XXX -fuzz=FuzzValidPositionsSurviveNarrowingToFloat32 -fuzztime=30s
+
+      - name: Fuzz protocol - envelope decode never panics
+        run: go test ./internal/protocol -run=XXX -fuzz=FuzzEnvelopeUnmarshalNeverPanics -fuzztime=30s
+
+      - name: Fuzz transport - framing honours its line limit
+        run: go test ./internal/transport -run=XXX -fuzz=FuzzReadLoopNeverExceedsItsLineLimit -fuzztime=45s
+
+      - name: Fuzz relay - survives arbitrary bytes and still serves clients
+        run: go test ./internal/relay -run=XXX -fuzz=FuzzRelaySurvivesArbitraryLines -fuzztime=45s
+
+      # A fuzz failure writes the exact reproducing input to
+      # testdata/fuzz/<Target>/<hash>. Without this it exists only inside a
+      # deleted runner and the log shows a hash nobody can reproduce from;
+      # with it, the input can be downloaded and dropped straight into the
+      # repo, where `go test ./<pkg>` replays it as an ordinary test case.
+      - name: Upload the failing input
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-failure-corpus
+          path: internal/**/testdata/fuzz/**
+          if-no-files-found: ignore
+
+  windows:
+    name: Build and test on the shipping target
+    # The race detector doesn't run here (see the test job), but this is the
+    # platform every user actually runs, and it's the one that would catch a
+    # path-handling or line-ending assumption the Linux job can't.
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+
+      - name: Build the release binaries
+        run: |
+          go build -o meshghost.exe ./cmd/meshghost
+          go build -o meshghost-server.exe ./cmd/meshghost-relay
+          go build -o meshghost-fakeadapter.exe ./cmd/meshghost-fakeadapter
+
+      - name: Test
+        run: go test -count=2 ./...

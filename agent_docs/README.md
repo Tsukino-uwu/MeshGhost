@@ -21,6 +21,11 @@ Internal documentation for MeshGhost: architecture, planning, licensing, and ver
 - [environment.md](environment.md) — toolchain and environment notes, filled in as phases
   actually run.
 - [verified.md](verified.md) — append-only, human-gated log of confirmed runtime facts.
+- [testing.md](testing.md) — **how to run every automated check** for `internal/` and `cmd/`: the
+  one local command, what CI adds (race detector, fuzzing) and why neither runs locally, how to
+  run a real fuzz campaign, and the traps that otherwise get rediscovered. Read before adding a
+  test or diagnosing an intermittent failure. Covers the Go side only — adapters are watched, not
+  tested, per CLAUDE.md.
 - [pitfalls.md](pitfalls.md) — adapter-specific issues across all games: symptom, how it was
   diagnosed, root cause, fix. Not design decisions ([risks.md](risks.md)) or confirmed facts
   ([verified.md](verified.md)).

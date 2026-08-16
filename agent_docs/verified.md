@@ -4381,3 +4381,68 @@ Copy this block per fact:
 - **What this does NOT confirm, unchanged:** loopback cannot exercise 7.7 (two real players),
   cross-area filtering, join/leave, or despawn against a second real peer — it echoes the local
   player's own state back by construction. Those stay open in `status.md`.
+
+## Automated Go-side test/debug tooling, and a real intermittent-failure bug it found
+
+- Date: 2026-08-16
+- **Established by the agent with the Go tools, not watched by the user** — which is the standard
+  for `internal/`+`cmd/` per CLAUDE.md. Nothing here touches an adapter or a running game.
+
+### The bug this found (real, pre-existing, now fixed)
+
+- `internal/transport`'s `TestOversizedLineWithNoDelimiterClosesConnection` and
+  `TestIdleTimeoutClosesConnection` both did `server := FromConn(conn)` and *then* assigned
+  `server.MaxLineBytes` / `server.IdleTimeout`. `FromConn` starts the read loop **before it
+  returns**, so those assignments race `readLoop`'s own read of the same fields — precisely the
+  race `transport.go`'s `MaxLineBytes` doc comment already warned about and told callers to avoid
+  by using `FromConnWithLimits`. Production code had been fixed; these two tests had not.
+- Symptom when `readLoop` won the race: the limit stayed at the 64KiB/60s default, the test's
+  8192-byte write never tripped it, no disconnect arrived, and the test failed on its 2s timeout.
+- **Found by `go test -count=10 ./...`**, which failed once. `-count=1` and `-count=2` had both
+  passed repeatedly beforehand, including a `-count=3` full-suite run minutes earlier.
+- Fixed by switching both to `FromConnWithLimits`, which sets the fields before starting the
+  goroutine. Verified with `-count=60` on the package (clean) and a repeat of the original
+  `-count=10` full-suite run (clean). The package also got measurably faster, consistent with the
+  diagnosis: it no longer sometimes waits out a 2s timeout.
+
+### What was added
+
+- `.github/workflows/ci.yml` — build, vet, `go test -race -count=3` on Linux, a fuzz campaign, and
+  a Windows build+test job, on every push/PR. **Before this the repo had no CI for the Go code at
+  all**; `release.yml` was the only workflow.
+- `release.yml` now runs vet + tests before it builds and publishes. It previously went from
+  checkout straight to build-and-zip, so the one artifact users actually download was the only Go
+  build in the repo that nothing verified.
+- `internal/e2e` — builds and launches the real `meshghost-server.exe`/`meshghost.exe` and drives a
+  real adapter over the bridge. Covers `cmd/`'s flag/config wiring, which nothing else did, and
+  replaces the by-hand `run-relay-loopback.bat` + `run-core-*.bat` loopback check. Its adapter
+  reconnects, because `internal/core` deliberately closes a bridge connection when the relay is
+  unreachable (see `core.go`'s bridge `hello` handler) and every real adapter has that loop.
+- Fuzz targets for the three parsing layers, with the properties chosen to be non-tautological:
+  state validity is unchanged by a marshal/unmarshal forward, accepted positions cannot become
+  ±Inf when narrowed to float32, and the framing layer never delivers past its line limit.
+- `internal/relay/leak_test.go` — goroutine-leak and connection-slot-leak tests. Both pass; no leak
+  exists. Worth keeping because a relay holds sessions for hours and nothing else asserted teardown.
+- `dev-scripts/run-gotests.bat` — the whole local gate in one command.
+
+### Fuzz campaigns actually run (all clean, no failures)
+
+- `FuzzValidateStateIsStableAcrossTheWire`: 23.3M executions.
+- `FuzzValidPositionsSurviveNarrowingToFloat32`: 16.5M executions.
+- `FuzzReadLoopNeverExceedsItsLineLimit`: 8.7M executions.
+- `FuzzRelaySurvivesArbitraryLines`: 3.3M executions.
+- The e2e round-trip test was negative-controlled: dropping `-loopback` from the relay makes it
+  fail with its own diagnostic, so it can detect a break rather than merely passing.
+
+### Two environment facts worth not rediscovering
+
+- **`-race` cannot run on this machine.** `gcc` on `PATH` resolves to a devkitPro MSYS2 copy whose
+  headers cgo can't use, and the real MSYS2 GCC 15.1.0 can't compile Go 1.22's `runtime/cgo`
+  (its internal `-Werror` flags ignore `CGO_CFLAGS`). No WSL installed either. This is why the
+  race detector runs on `ubuntu-latest` in CI, where it needs no toolchain setup — the Go code is
+  platform-agnostic, so a race there is a race here. A second instance of CLAUDE.md's
+  "a build tool on `PATH` may silently resolve to the wrong install".
+- **The relay fuzz target must discard `log` output.** With logging on, the fuzzer finds valid
+  hellos quickly and the resulting log volume — not the relay — collapses throughput to zero for
+  ~18s at a stretch. Diagnosed by subtraction after two wrong guesses (a slot leak and a goroutine
+  leak, both disproven by the leak tests above).

@@ -255,8 +255,14 @@ func TestOversizedLineWithNoDelimiterClosesConnection(t *testing.T) {
 		if err != nil {
 			return
 		}
-		server := FromConn(conn)
-		server.MaxLineBytes = 1024
+		// FromConnWithLimits, not FromConn plus a field assignment: FromConn
+		// starts the read loop before it returns, so setting MaxLineBytes
+		// afterward races readLoop's own read of it (see the field's doc
+		// comment in transport.go). When readLoop won that race it kept the
+		// 64KiB default, the 8192-byte write below stayed under it, no
+		// disconnect ever came, and this test failed on the 2s timeout --
+		// caught 2026-08-16 by running the suite with -count=10.
+		FromConnWithLimits(conn, 1024, 0, 0)
 		close(serverUp)
 	}()
 
@@ -295,8 +301,12 @@ func TestIdleTimeoutClosesConnection(t *testing.T) {
 		if err != nil {
 			return
 		}
-		server := FromConn(conn)
-		server.IdleTimeout = 100 * time.Millisecond
+		// FromConnWithLimits for the same reason as
+		// TestOversizedLineWithNoDelimiterClosesConnection above: setting
+		// IdleTimeout after FromConn races the read loop that is already
+		// running, and losing that race leaves the real 60s default in
+		// place, well past this test's 2s patience.
+		FromConnWithLimits(conn, 0, 100*time.Millisecond, 0)
 		close(serverUp)
 	}()
 
