@@ -11,11 +11,23 @@ proposing a plan that touches the core, an adapter, or the relay.
   must be traceable to a specific file in a repo or a documentation page. If asked "where did
   this come from?" there must be an answer. Anything that looks suspiciously tidy is invented
   until confirmed against the actual source.
-- **"It ran without errors" is not evidence.** The standard is: was the expected thing seen
-  happening on screen in a running game? A wrong memory address returns a plausible number
-  instead of crashing.
-- **`agent_docs/verified.md` is append-only and human-gated.** Nothing goes in it until the
-  user has watched the behavior happen. Never write a "confirmed" entry on the strength of a
+- **"It ran without errors" is not evidence — for an adapter.** The standard there is: was the
+  expected thing seen happening on screen in a running game? A wrong memory address or a wrong
+  reflected name returns a plausible number instead of crashing, so only watching settles it.
+- **The Go client/server is the opposite case: confirm it with the tools, yourself, and don't
+  ask the user to watch it.** `internal/core`, `internal/relay`, `internal/transport`,
+  `internal/bridge` and `cmd/` are deterministic code against a contract we own — nothing there
+  rests on a guess about a game, which is exactly why the three are separated. Before calling a
+  change to them done, run: `go build ./...`, `go vet ./...`, `go test ./...` (repeat it — this
+  suite has caught a real race by failing intermittently), the headless rig
+  (`run-relay.bat` + `run-fakeadapter1/2.bat`, which covers relay/core over real TCP but
+  **not** the bridge, since the fake adapter is in-process), and — for anything touching the
+  bridge or transport — a throwaway adapter that speaks real NDJSON to the bridge port. A
+  behaviour change wants a regression test that fails without the fix.
+- **`agent_docs/verified.md` is append-only, and human-gated for anything visual.** A claim about
+  what happens on screen or in gameplay goes in only after the user has watched it. A fact you
+  established yourself from a log line, a console read, or the Go tools above may be recorded
+  without waiting — say which it was. Never write a "confirmed" entry on the strength of a
   successful build or a plausible-looking read.
 - **The core never touches the game.** No game memory access, no rendering primitives, no
   `if game == "emerald"` branching anywhere in `internal/core` or `internal/relay`.

@@ -1,5 +1,7 @@
 @echo off
-REM Tier 1 load test: N synthetic peers against run-loadtest-relay.bat, no game involved.
+REM Ceilings 1-2 load test: N synthetic peers against run-loadtest-relay.bat, no game involved.
+REM (Ceilings numbered as in dev-scripts/README.md: 1 relay fan-out, 2 per-client receive,
+REM 3 adapter render cost.)
 REM Measures the RELAY's own fan-out cost, which grows with the square of room size
 REM (internal/relay/limits.go's DefaultMaxClients). Watch the relay process's CPU and the
 REM stats line here; the "client0_remotes" number is the rig's self-check and should read

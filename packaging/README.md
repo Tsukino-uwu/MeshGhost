@@ -139,7 +139,7 @@ fresh by CI. TEVI is different because **CI cannot build it**: `MeshGhostTevi.cs
 against `adapters/tevi/MeshGhostTevi/lib/*.dll`, copies of the developer's own proprietary TEVI
 install that are gitignored and never committed
 ([agent_docs/licensing.md](../agent_docs/licensing.md)). Our own output —
-16 KB, `<Private>false</Private>` so no game DLL is embedded in it — is fine to distribute,
+~23 KB, `<Private>false</Private>` so no game DLL is embedded in it — is fine to distribute,
 it just has to be built on a machine that already has TEVI installed.
 
 The DLL is staged under a `MeshGhost/` subfolder rather than flat in `games/tevi/` so the whole

@@ -4364,3 +4364,20 @@ Copy this block per fact:
   argues for: a mirrored effect is only correct when it also stays absent exactly when the real one
   is absent. Every earlier "finished" moment in this saga had tested only the presence half.
 - Full investigation and the transferable procedure: `effect-investigation.md`.
+
+## Pseudoregalia loopback still works after the 2026-08-16 project-wide refactor
+
+- Date: 2026-08-16
+- **CONFIRMED LIVE by the user**: a Pseudoregalia loopback session run against the rebuilt Go
+  binaries — "tested with pseudoregalia loopback, its working fine".
+- What this covers: the whole live path end to end, with the refactor in place — the UE4SS C++
+  adapter → bridge → `internal/core` → relay (`-loopback`) → core → bridge → adapter, ghost
+  rendering included. No adapter source was changed in that refactor (no `.lua`/`.cs`/`.cpp`/
+  `.hpp`), so this is confirmation that the **Go-side** changes did not regress a real adapter.
+- The Go changes it exercises: the `transport.NDJSONConn` pre-registration buffering fix (an
+  adapter's `hello` arrives on exactly the race window it closes), `Core.GameVersion` no longer
+  being latched by the first adapter hello, and the `dropAllRemotes` guard move. See
+  `architecture.md`'s two 2026-08-16 ADRs.
+- **What this does NOT confirm, unchanged:** loopback cannot exercise 7.7 (two real players),
+  cross-area filtering, join/leave, or despawn against a second real peer — it echoes the local
+  player's own state back by construction. Those stay open in `status.md`.

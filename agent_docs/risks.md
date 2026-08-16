@@ -472,13 +472,16 @@
   real case in a single-player game. Fixing that would require modifying the **real player's
   own live collision component**, not just the ghost's — a materially bigger risk than anything
   tried so far, layered on top of the still-unresolved melee-death danger above. **Reverted
-  same-day** (`GHOST_COLLISION_ENABLED` toggle in `Plugin.cpp`, currently `false`). Do not
-  re-enable, and do not attempt modifying the real player's own collision setup, without
-  explicit go-ahead given the accumulated risk.
+  same-day** (`GHOST_COLLISION_ENABLED` toggle in `Plugin.cpp`).
+  **Superseded 2026-08-15 — see the resolution entry at the end of this collision group.** Do not
+  attempt modifying the real player's own collision setup without explicit go-ahead, given the
+  accumulated risk; that half of this entry still stands.
 - **Open question, raised by the user 2026-08-13, not yet investigated**: does *any* in-world
   damage source reach the ghost and propagate to the real player the same way melee did, or was
-  that specific to collision-enabled melee hit detection? With collision back off (current
-  state), the ghost should be undetectable by most world hazards, but this hasn't been checked
+  that specific to collision-enabled melee hit detection? **Substantially answered 2026-08-15 —
+  see the resolution entry below: enemy damage did reach the ghost and propagate, and was fixed
+  via the collision object type.** At the time of writing, with collision off, the ghost was
+  assumed undetectable by most world hazards, but that had not been checked
   — some UE trigger volumes (hazards, out-of-bounds kill-Z, scripted death triggers) fire on
   overlap events that may not depend on the same collision toggle just tested. Needs its own
   grounded investigation (what actually caused the real-player death above) before any future
@@ -489,8 +492,9 @@
   animate all confirmed working, see `verified.md`), the user did a flip, gained height, and
   spammed attacks; the ghost appeared to land hits back — the real player's hit/hurt (red flash)
   animation played, though the player didn't die, and this reproduced a few times under the same
-  conditions (airborne + rapid attack spam). `GHOST_COLLISION_ENABLED` is confirmed still `false`
-  in the current build (`Plugin.cpp:143`, unchanged by this session's fixes), so the mechanism is
+  conditions (airborne + rapid attack spam). `GHOST_COLLISION_ENABLED` was confirmed `false`
+  in the build of that date (it is `true` since 2026-08-15 — see the resolution entry below), so
+  at the time of this observation the mechanism was
   unclear — this is the same open question above (does something other than the disabled
   collision toggle let a hit register?), just observed from the other direction: the *ghost's*
   attack reaching the player, not the player's damage reaching the ghost. Two real possibilities,
@@ -506,6 +510,19 @@
   real damage taken), but should be investigated with the same rigor as the collision work above
   before any future combat/animation-adjacent change, since it points at the same
   "two live instances of a class the game never expected to duplicate" risk class.
+- **RESOLVED 2026-08-15 — collision is ON as a deliberate feature, and the run-ending vector is
+  fixed.** `GHOST_COLLISION_ENABLED = true` (`Plugin.cpp:200`). This supersedes the "reverted,
+  do not re-enable" verdict in the entries above, on the user's explicit call. What changed: the
+  genuinely dangerous case turned out to be *enemy* damage, not player melee — an enemy hitting a
+  ghost hurt and could kill the real player during ordinary play, with no visible cause. Fixed by
+  giving the ghost capsule the `ECC_WorldDynamic` object type instead of `ECC_Pawn`, so enemy
+  targeting never queries it. Confirmed live: the ghost takes no enemy damage and can still shove
+  enemies around. **Residual, accepted, unchanged**: a player can still deliberately melee a ghost
+  and take damage (`bCanBeDamaged = false` was tried and provably did not stop it — this game's
+  melee doesn't use UE's standard damage path). **Still hard-forbidden**: setting
+  `LOOPBACK_GHOST_OFFSET_X = 0` while collision is on, which reproduces the Phase 7.4 drag/pull
+  bug immediately. Whether collision is actually *fun* stays open until Phase 7.7. Full record:
+  `agent_docs/ideas.md` item 5, and `verified.md`'s enemy-damage entry.
 
 - **`send_hz` is prescriptive but unenforced — a non-compliant client can legitimately run at up
   to 6x the room's configured rate before it's disconnected.** Built 2026-08-15 (see the ADR in

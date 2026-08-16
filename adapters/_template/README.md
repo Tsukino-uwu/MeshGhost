@@ -12,15 +12,16 @@ to run as-is.
 
 - [PROTOCOL.md](PROTOCOL.md) — the three-function contract (`get_local_state` /
   `render_remote` / `despawn_remote`) and the tick model, written language-agnostically
-  (pseudocode, wire envelope examples), because the next game (TEVI, Phase 6) is Unity/C#, not
-  BizHawk Lua — a Lua-specific stub would not transfer. Every real adapter, in any language,
+  (pseudocode, wire envelope examples), because the game it was written for next (TEVI,
+  Phase 6) was Unity/C#, not BizHawk Lua — a Lua-specific stub would not have transferred, and
+  Pseudoregalia's UE4SS C++ mod after it proved the point twice. Every real adapter, in any language,
   implements this same shape by speaking the bridge wire protocol (`internal/bridge/bridge.go`);
   nothing here is Go-specific.
 - The `core.Adapter` Go interface (`internal/core/core.go`) is a *different* thing: an
   in-process shortcut used only by `cmd/meshghost-fakeadapter` and Go tests
   (`internal/core/core_test.go`'s `TestRunAdapterInProcess`) to drive the core without a socket
   at all. A real adapter — including TEVI's — never implements it; it dials the bridge and
-  speaks NDJSON, exactly like `adapters/pokemon/emerald/phase4_multiplayer.lua` does. See
+  speaks NDJSON, exactly like `adapters/pokemon/emerald/meshghost_emerald.lua` does. See
   [PROTOCOL.md](PROTOCOL.md) for why this distinction matters and where to look for a worked
   example of each.
 
@@ -65,7 +66,9 @@ same as any two unrelated games — grouping by franchise just keeps the top lev
    ADR'd revision (rare), or the adapter is trying to do something the boundary doesn't allow
    (much more likely).
 9. When the adapter is actually ready to ship, add it to the release: give it its own step in
-   `.github/workflows/release.yml`'s assemble job, under `games/<publisher>/<game>/` — nothing
+   `.github/workflows/release.yml`'s "Assemble release package" step, under
+   `packaging/release/games/<game>/` (or `games/<franchise>/<game>/` if the game is grouped, as
+   `games/pokemon/emerald/` is — the layout mirrors `adapters/`) — nothing
    under `adapters/` is picked up automatically. See
    [packaging/README.md](../../packaging/README.md)'s "Adding a game to the release" for the
    pattern (and its TEVI section if the adapter needs a build step, not just a file copy,
@@ -306,7 +309,7 @@ the expensive way:
   needs `-send-hz=100` or it silently overrides every core's fast `-min-send`.)
 - **Solo-test through `run-relay-loopback.bat`**, which echoes your own state back as
   `<id>-ghost`, and give loopback ghosts a **render-only** offset so you can tell the ghost from
-  your own character — all three adapters do this (Emerald 1-2 tiles, TEVI 160 units,
+  your own character — all three adapters do this (Emerald 2 tiles, TEVI 160 units,
   Pseudoregalia 150). Offset for judging render quality, zero for verifying exact tracking;
   either way it never touches what goes on the wire.
 - **Loopback cannot exercise cross-area filtering, join/leave, or despawn** — it always echoes

@@ -192,7 +192,8 @@ file of its own, which is what was happening before this file existed.
 - [ ] **VRAM/sprite injection investigation** (`agent_docs/ideas.md`) — draw-via-VRAM-write
       instead of `gui.drawPixel` overlay, found via the `GBA-PK-multiplayer` reference project
       (CC BY-NC 4.0, `licensing.md`). A 5-stage test plan is agreed; Stage 1 (read-only vanilla
-      probe) not started. Per `agent_docs/ideas.md`'s own stated convention, an idea is
+      probe) ran 2026-08-14 and is written up in `agent_docs/environment.md`; Stages 2-5 not
+      started. Per `agent_docs/ideas.md`'s own stated convention, an idea is
       committed by moving it into `agent_docs/plans.md` with a phase number, not directly into
       a phase file's task list — this item is listed here as a forward-looking note for what
       Phase 8 will pick up next, not a claim that it has already graduated.

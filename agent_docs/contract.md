@@ -98,11 +98,11 @@ signal joins/leaves — `despawn_remote(id)` has nothing to trigger it without a
 | `hello` | client → relay | protocol version, `game_id`, room name, display name, `room_code`, `game_version`, `features`, `max_receive_hz_per_player` |
 | `welcome` | relay → client | assigned `player_id`, current room roster, room send rate (`send_hz`) |
 | `reject` | relay → client | a reason string — sent immediately before the relay closes a connection, either refusing a `hello` at handshake or, since the send/receive rate-control feature (see the ADR in `architecture.md`), closing an already-joined connection for exceeding the per-client message cap |
-| `join` | relay → client | a peer's `player_id` (and initial `state`, if available) |
+| `join` | relay → client | a peer's `player_id`. The schema reserves an optional initial `state`, but no relay populates it today — every `Join` the relay sends has `State == nil`, so treat it as absent. |
 | `leave` | relay → client | a peer's `player_id` — this is what drives `despawn_remote` |
 | `state` | both directions | the packet schema above |
 | `event` | both directions | **reserved, not implemented.** See Extensibility below. |
-| `ping` / `pong` | both directions | keeps an otherwise-quiet connection from going idle; see below |
+| `ping` / `pong` | client → relay / relay → client | keeps an otherwise-quiet connection from going idle. Each carries a `nonce` (uint64). Despite the pair being symmetric on paper, the implementation is one-directional per type: the core sends `ping`, the relay answers `pong`, and the core ignores an inbound `ping`. See below |
 
 ### `features`
 
@@ -404,8 +404,10 @@ alongside room-code auth (see the architecture.md ADR) — treat the numbers bel
   exactly the historical flat **120** — unchanged for an unconfigured relay. The cap **only ever
   scales up**, never down: a relay turned *down* to a slower room rate must not start
   disconnecting older clients still sending at their own built-in 20Hz default.
-  **Client-side enforced since Phase 6** (TEVI): `internal/core.Core.MinSendInterval` (default
-  50ms / 20Hz, `DefaultMinSendInterval`) caps how often `forwardLocalState` actually sends to the
+  **Client-side enforced since Phase 6** (TEVI): `internal/core.Core.MinSendInterval` (left at
+  zero by `core.New()` since the rate-control ADR, so the relay's advertised rate wins by
+  default; `DefaultMinSendInterval`, 50ms / 20Hz, is the last-resort fallback when neither a
+  local preference nor a relay advertisement exists) caps how often `forwardLocalState` actually sends to the
   relay, independent of how often the adapter calls in — since the rate-control feature, the
   actual cap is `effectiveSendInterval()`, the slower of this and the relay's advertised
   `send_hz` (see the subsection above). Found live: a Unity adapter's `Update()` runs uncapped

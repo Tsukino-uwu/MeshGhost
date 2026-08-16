@@ -120,6 +120,16 @@ See [phase8.md](../../../agent_docs/phases/phase8.md) for the full record.
   session and reports which tiles were never touched, cross-checked against the game's own
   sprite-tile allocator bookkeeping. Load it in BizHawk's Lua Console like any other probe;
   see its own header for the full address citation trail and what a session should cover.
+- `shadow_ghost_probe.lua` — draws a second ghost at a fixed tile offset beside the real player,
+  driven by the *same* local-state read, smoothing, and animation code as the real remote path
+  but with no bridge/relay/core in the picture. Isolates "is the rendering wrong?" from "is the
+  network wrong?" — see its own header for the 2026-08-14 incident that motivated it.
+- `surf_bike_probe.lua` — read-only probe for the still-open surf/Mach Bike/Acro Bike work
+  (item 15 above): checks whether the `PLAYER_AVATAR_FLAG_*` bits behave as `pokeemerald`
+  documents them, and measures real per-tile timing. Its findings aren't live-verified yet.
+- `sprite_ghost_test.lua` — the Phase 5.5 step that drew a decoded Brendan frame beside the
+  local player with no networking, proving the decode-then-draw path on screen before it was
+  wired into real remote rendering.
 - `battle_probe.lua` / `sprite_probe.lua` — small throwaway diagnostics (see their own headers)
   now doubling as the reference implementation for the confirmed Archipelago
   `CB2_Overworld`/sprite-decode addresses cited in `meshghost_emerald.lua`.

@@ -21,16 +21,16 @@ own sections.
    list, since it's visible during normal play rather than only while the map is open.
 
 2. **Bug: the FullMap marker is update-driven, not frame-driven.** `UpdateRemoteMapMarker`
-   (`adapters/tevi/MeshGhostTevi/Plugin.cs:179-239`) only runs from inside `UpsertRemoteGhost`,
-   which only fires when a `render_remote` arrives (`Plugin.cs:406`). If a peer's state stops
+   (`adapters/tevi/MeshGhostTevi/Plugin.cs:195`) only runs from inside `UpsertRemoteGhost`,
+   which only fires when a `render_remote` arrives (`Plugin.cs:339`, invoked from `DrainInto`). If a peer's state stops
    arriving while the local player has the map open, the marker doesn't hide or refresh — it
    just sits wherever it was, stale, until the next `render_remote`. Real bug in shipped code,
    not a hypothetical.
 
 3. **Nameplates.** Genuinely blocked, not just unbuilt. `Hello.DisplayName` reaches the relay
-   (`internal/protocol/protocol.go:83`, sourced from `config.json`'s `"name"`) and is only
-   *logged* there (`internal/relay/relay.go:295`, `:537`) — never redistributed. `Welcome.Roster`
-   is `[]string` of ids (`protocol.go:107-110`); `Join` carries only `player_id` (+ optional,
+   (`internal/protocol/protocol.go:89`, sourced from `config.json`'s `"name"`) and is only
+   *logged* there (`internal/relay/relay.go:433`, `:706`) — never redistributed. `Welcome.Roster`
+   is `[]string` of ids (`protocol.go:125`); `Join` carries only `player_id` (+ optional,
    never-populated `State`). **No adapter can learn any peer's display name today.** Two routes:
    a roster/`join` shape revision to actually carry `display_name` (correct, needs an ADR per
    `contract.md:3-5`), or smuggling it through `extras` (cheap, but the wrong layer — `extras`
@@ -43,24 +43,25 @@ own sections.
    whatever the *viewer's* own character looks like. Needs a real per-character visual source,
    not just a config toggle.
 
-5. **Ghost depth sorting.** Ghost z is hardcoded to `0` (`Plugin.cs:364`) with no sorting-layer
+5. **Ghost depth sorting.** Ghost z is hardcoded to `0` (`Plugin.cs:371`, `:398`) with no sorting-layer
    handling against TEVI's own render layers — currently invisible only because it hasn't
    collided with a real layering bug yet.
 
 6. **Config surface.** Exactly one `BepInEx.Configuration.ConfigFile.Bind` call exists in the
-   whole adapter (`BridgePort`, `Plugin.cs:435-441`) — read once at `Awake`, no live re-read.
+   whole adapter (`BridgePort`, `Plugin.cs:471-472`) — read once at `Awake`, no live re-read.
    Any future toggle (map marker on/off, ghost opacity, nameplates, verbose logging, the
    collision experiment below) needs this pattern established for real, not assumed. Do this
    with whichever toggle ships first, not speculatively ahead of time.
 
 7. **Emotes / chat / area-entry pings.** Tier 1 per the depth ladder, and explicitly sanctioned
    as possible and write-free — but the right home is the **reserved `event` plane**
-   (`contract.md:152-198`), not new `state` fields. `contract.md:163-165` states plainly that
+   (`contract.md`'s "Extensibility — the event plane" section, from `:193`), not new `state`
+   fields. `contract.md:201-203` states plainly that
    the state plane "does not grow new fields for deeper features," and it's lossy/latest-wins —
    a one-shot emote sent as `state` would either never arrive or repeat every tick until
    overwritten. Building the event plane for real is its own scoped piece of work: relay
-   `to`-routing (already shaped for it per `contract.md:188-192`), a real `MaxEventBytes` limit
-   (currently just a reserved line in `contract.md:373`), new bridge message types each
+   `to`-routing (already shaped for it per `contract.md:212`), a real `MaxEventBytes` limit
+   (currently just a reserved line in `contract.md:443`), new bridge message types each
    direction, and the first real population of `Hello.Features`.
 
 ## TEVI — interaction ("test what's possible", scope stays visual-only)
@@ -302,7 +303,7 @@ of `ObjectEventSetGraphicsId` can get without literally calling it.
 
 ## Emerald: VRAM/sprite injection investigation (draw vs. inject)
 
-**Status: real staged test plan agreed, not started.** A separate idea from Union Room/spawning
+**Status: Stage 1 ran 2026-08-14; Stages 2–5 not started.** A separate idea from Union Room/spawning
 above — found while researching a reference project (`GBA-PK-multiplayer`, CC BY-NC 4.0, see
 `licensing.md`), which renders remote players by writing sprite pixel data directly into GBA
 VRAM tile memory (`emu:write32` on mGBA at a fixed tile-bank address) rather than an overlay,
@@ -320,7 +321,11 @@ entry for the full citation trail, including the previously-undocumented finding
 today's *shipping* draw-based sprite decode (`gObjectEventPic_Brendan*`/`May*`, fixed ROM
 addresses) has never actually been checked against a patched ROM either.
 
-**Staged test plan (agreed; Stage 1 script written 2026-08-14, not yet run)** — read-only
+**Staged test plan. Stage 1 was written AND run 2026-08-14** — real user sessions, findings
+written up in `agent_docs/environment.md`'s BizHawk section (a `VRAM` domain does exist on this
+core; `memory.hash_region` is documented in the DLL but is `nil` at runtime, so the probe fell
+back to its sampled tier; `getmemorydomainlist()` returns a table, not the newline-delimited
+string its own doc string claims). Stages 2–5 remain unstarted. The plan is read-only
 first, following this project's own "staged probe ladder must include sustained real traffic"
 lesson (`pitfalls.md`, from the Pseudoregalia LuaSocket saga, where a light one-shot test
 passed and a real corruption bug wasn't found until sustained traffic later):
@@ -416,10 +421,10 @@ protocol above is actually run and watched.
    ghost already has real movement-animation sync, including specific fixes for the
    falling-stuck and ledge-hang animation bugs (Phase 7.6, `adapters/pseudoregalia/README.md`
    steps 13/16/17), all live-verified. The real open gap on our side is narrower — ability
-   **VFX**, not animation: the cling-gem effect and empty-hand sword-glow don't render on the
-   ghost (`status.md`, found live 2026-08-15, not yet root-caused) — plus TEVI has an analogous
-   charged-attack VFX gap. Neither project has this solved; it's just not the same gap their
-   `todo.md` names.
+   **VFX**, not animation — and the two this entry named on 2026-08-15, the cling-gem effect
+   and the empty-hand sword glow, **have since been closed** (`adapters/pseudoregalia/README.md`
+   steps 25 and 35, both confirmed live). The remaining analogous gap is TEVI's charged-attack
+   VFX. Either way, it isn't the gap their `todo.md` names.
 
    **Worth stealing as an idea:** their ghost is a real Blueprint-authored actor
    (`Content/Mods/PseudoregaliaMultiplayerMod/BP_PM_Ghost.uasset`) with a per-player configurable
@@ -497,10 +502,12 @@ protocol above is actually run and watched.
    third-party-mod-dependent state after all — it's a plain first-party pawn property, syncable
    the same shape as `weaponEquipped?` (read `FLinearColor`, send, apply to the ghost's own pawn),
    with zero dependency on the other player having that color-picker mod installed; a default
-   color presumably exists even without it. Still genuinely blocked on the base trail effect
-   (`Spawn After Image`) actually working on the ghost first, and the exact `FLinearColor` value
-   hasn't been read live yet (property confirmed to exist, not confirmed to read/write correctly)
-   — not investigated further, not scheduled.
+   color presumably exists even without it. **DONE — this shipped.** Trail colour sync, modded
+   colours included, is README step 26; the ultra hop's separate blue trail, which this entry did
+   not anticipate, took steps 36–41 and is the hardest work in the adapter. `verified.md` records
+   player and ghost as indistinguishable, trailing and not trailing alike. Kept here as the
+   research trail that got there, not as an open idea. See
+   `agent_docs/effect-investigation.md` for the full investigation.
 
 3. **Design principle: let the ghost's own pawn logic do the work; only trigger it.** Raised by the
    user 2026-08-15 after the trail-VFX saga: "we are literally using the player model that is able

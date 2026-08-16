@@ -1,7 +1,8 @@
 # Phase 6 — Second game (TEVI)
 
 **Status: fully done, including 6.6 (two real players) and 6.7 (map markers)**, confirmed
-2026-08-13. Started 2026-08-11. Per `agent_docs/README.md`'s convention: a phase earns a file
+2026-08-13 — with one cosmetic gap still open, charged-attack VFX missing on the ghost (see
+Notes at the end of this file, and `status.md`). Started 2026-08-11. Per `agent_docs/README.md`'s convention: a phase earns a file
 when it's live, folded back into `agent_docs/plans.md` once done — kept here (rather than folded
 back) for the task-by-task record, matching `agent_docs/plans.md`'s own Phase 6 section.
 
@@ -156,7 +157,8 @@ point of picking a second, structurally different game.
         session**: user retested both real instances — pausing still leaves the peer's ghost
         untouched, and both a main-menu return and a full game close now properly despawn it.
         See `verified.md`. 6.6's disconnect/reconnect behavior is gap-free; cross-area
-        filtering above is built but still needs a live in-game check.
+        filtering above was confirmed live the same session (see the bullet above) — this
+        sentence's "still needs a live check" was left behind stale and is corrected here.
       **No longer blocked on distribution** (2026-08-12): TEVI now ships in the single release
       zip (see `packaging/README.md`'s TEVI section), marked experimental/prerelease.
 - [x] 6.7 — Started 2026-08-13, built and confirmed live the same session: show remote
@@ -203,7 +205,8 @@ point of picking a second, structurally different game.
         This is the answer to "how to avoid a peer's marker leaking map layout the local
         player hasn't discovered themselves": gate every remote marker on this being true for
         the local save, not just on the remote's own state.
-      - **Built, 2026-08-13 — not yet confirmed live.** Implemented per the design above, wire
+      - **Built AND confirmed live, 2026-08-13** (the heading said "not yet confirmed live"
+        until 2026-08-16; the block's own conclusion below always said otherwise). Implemented per the design above, wire
         protocol needed zero core/Go changes (`protocol.State.Extras` was already embedded in
         both `bridge.LocalState`/`bridge.RenderRemote`; the gap was purely that
         `BridgeClient.cs`'s hand-rolled JSON didn't touch `extras` at all). What landed:

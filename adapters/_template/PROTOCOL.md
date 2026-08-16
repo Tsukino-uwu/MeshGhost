@@ -69,6 +69,8 @@ or, when `get_local_state()` returned nil:
 ```
 
 `player_id`, `seq`, and `timestamp` are stamped by the core, not the adapter — leave them out.
+They *are* present on the `state` you receive back in `render_remote` (the core forwards the
+full stamped state), so don't treat seeing them inbound as a protocol error.
 
 `orientation` is opaque *any-JSON* to the core (`agent_docs/contract.md`), not specifically a
 string — it's whatever shape your adapter needs: a compass string (Emerald), an angle, a
@@ -175,23 +177,31 @@ missing or wrong-typed value overwrite known-good state.
 
 ## Limits your adapter must respect
 
-Enforced by `internal/protocol/limits.go` (and the relay). Oversized values are dropped
-*silently* — the bridge itself doesn't enforce them, so a too-big `extras` sails across the
-bridge and disappears later, which is a miserable thing to debug:
+Enforced by `internal/protocol/limits.go` and the relay (`internal/relay/limits.go` for the two
+handshake fields). Oversized *values* are dropped *silently* — the bridge itself doesn't enforce
+them, so a too-big `extras` sails across the bridge and disappears later, which is a miserable
+thing to debug:
 
-| Field | Limit |
-| --- | --- |
-| `extras` | 1024 bytes (serialized) |
-| `position` | 8 elements |
-| `orientation` | 256 bytes |
-| `area_id`, `anim` | 256 bytes each |
-| whole line | 4096 bytes |
-| `game_id`, `game_version` | 128 bytes (refused at handshake) |
+| Field | Limit | Where |
+| --- | --- | --- |
+| `extras` | 1024 bytes (serialized) | `protocol.MaxExtrasBytes` |
+| `position` | 8 elements | `protocol.MaxPositionLen` |
+| `orientation` | 256 bytes | `protocol.MaxOrientationBytes` |
+| `area_id`, `anim` | 256 bytes each | `protocol.MaxAreaIDLen` / `MaxAnimLen` |
+| whole line | 4096 bytes | `protocol.MaxLineBytes` |
+| `game_id`, `game_version` | 128 bytes (refused at handshake) | `relay.MaxHelloFieldLen` |
+
+The whole-line limit is the one exception to "dropped silently": exceeding it kills the
+*connection*, not the message, because it trips `bufio.Scanner` at the read itself. In practice
+it is unreachable — the per-field caps above sum to well under 2KB.
 
 ## Updates are sparse: ~20 Hz, not per-frame
 
 The core throttles sending (default 20 Hz, `protocol.DefaultSendHz`; the effective rate is the
-slower of the relay's `send_hz` and your config's `max_receive_hz_per_player`). Calling
+slower of the relay's advertised `send_hz` and your own client's `min_send` — see
+`Core.effectiveSendInterval`). Separately and in the other direction,
+`max_receive_hz_per_player` caps how fast the relay forwards *each other player's* state to
+you; it has no effect on your own send rate. Calling
 `get_local_state()` every frame is correct and safe — but only ~20 samples/sec reach peers, so
 **peers never observe your intermediate states.** Two consequences that are protocol-level, not
 engine-level:

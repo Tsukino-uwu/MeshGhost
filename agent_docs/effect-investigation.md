@@ -12,7 +12,7 @@ part of it. It is deliberately separate from its neighbours:
   to instrument so a run can answer something, and how to tell which of your beliefs is load-bearing.
 
 Written 2026-08-16, immediately after Pseudoregalia's afterimage trail work concluded. The trail was
-the longest-running single thread in that adapter — roughly 2026-08-13 to 2026-08-16 across several
+the longest-running single thread in that adapter — roughly 2026-08-15 to 2026-08-16 across several
 sessions — and the ultra hop's blue afterimage was the hardest part of it. Every rule here is
 something that work either paid for or was rescued by.
 
@@ -90,7 +90,7 @@ fighting each other, which is exactly why more requests did not help.
 
 Two lasting consequences. First, a spawn window (`SLIDE_REFIRE_WINDOW_TICKS`) was added to stop
 re-fires partway through the slide, so the last images land near the slide's own end rather than
-~0.5-1s after it — the "tail overhang" that stayed an open cosmetic item for days afterwards.
+~0.5-1s after it — the "tail overhang" that stayed an open cosmetic item until 2026-08-16.
 Second, and more important, **this is the same across-ticks spawning that later made the probe in
 Stage 9 so destructive**: anything that stalls or interrupts the game thread truncates bursts in
 progress. The fragility was documented well before it caused the regression, and the connection was
@@ -107,7 +107,7 @@ that never touches `afterImagesToSpawn`.** A dedicated coverage capture found on
 inside the bubble that suspends you in the air, where the player's trail persists but
 `afterImagesToSpawn` reads 0 across all 2002 ticks of that state.
 
-That note sat in `verified.md` labelled "REMAINING GAP" for days. **It was the answer to Stage 10
+That note sat in `verified.md` labelled "REMAINING GAP" from 2026-08-15 until 2026-08-16. **It was the answer to Stage 10
 and Stage 11 the whole time** — the ultra hop is one of those paths, which is why it fired no
 trigger and why the capsule heuristic was silently carrying every slide. A known, written-down,
 unexplained gap is a debt; when a later symptom fits it exactly, check it before theorising.
@@ -270,7 +270,7 @@ The observation path was by then cheap, guarded and proven, so it became the tri
 reconstructed triggers were switched off rather than kept alongside, since both firing would
 double-count.
 
-**This also closed a separate long-standing complaint**: the ghost had consistently drawn 1-2 more
+**This also closed a separate complaint, open since 2026-08-15**: the ghost had consistently drawn 1-2 more
 afterimages than the player. It was never over-*drawing* — it was over-*firing*, on slides the game
 itself did not trail on. Density matched immediately, confirmed from a top-down camera.
 
@@ -289,7 +289,7 @@ appeared to.
 | Believed finished | What reopened it |
 | --- | --- |
 | Stage 2 — capsule trigger shipped, trail worked | Stage 11: it fires when the game itself decides *not* to trail |
-| Stage 3/4 — burst size and re-fire tuned, trail looked right | The ghost quietly ran 1-2 images ahead for days |
+| Stage 3/4 — burst size and re-fire tuned, trail looked right | The ghost quietly ran 1-2 images ahead from 2026-08-15 |
 | Stage 5 — mirroring measured **exact**, 6 detected / 6 applied | Exact for the path it watched; a whole other spawn path existed |
 | Stage 7 — colour synced, modded colours included | The ultra's blue does not come from that property; parked as unsolvable |
 | Stage 8 — blue found, written to a ghost, **seen blue on screen** | Switched straight back off; it rode on the probe that broke the trail |
@@ -446,4 +446,4 @@ Three builds found what hours of measurement had not.
   decision rather than a rule, and latching payloads to a counter.
 - [verified.md](verified.md) — the dated, confirmed findings behind every claim here.
 - [`adapters/pseudoregalia/README.md`](../adapters/pseudoregalia/README.md) — the same story as a
-  short build narrative (steps 23, 26, 28, 36-40).
+  short build narrative (steps 23, 26, 28, 36-41).

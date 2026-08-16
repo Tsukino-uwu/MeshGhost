@@ -171,6 +171,10 @@ Ori reasoning, kept for reference in case Ori is picked up again later:
 
 TEVI's own IL2CPP/Mono status is equally unverified — confirm at Phase 6, not from memory.
 
+> **Resolved 2026-08-11: confirmed Mono**, not IL2CPP (`Assembly-CSharp.dll` present, no
+> `GameAssembly.dll`, `doorstop_config.ini` has `[UnityMono]`). See
+> `agent_docs/phases/phase6.md` and `adapters/tevi/README.md`.
+
 ### Pseudoregalia (Unreal Engine 5) — LAST
 
 Worst starting point, best destination. Small game, movement-focused 3D platformer — the

@@ -22,7 +22,7 @@ TEVI replaced the brief's original Ori: Will of the Wisps pick.
 - No production binary encoding or performance optimization before the contract is stable.
 - No second-game adapter until Phase 5 validates the template.
 - ~~No relay authentication work before Phase 4 ships on no-auth~~ — **superseded 2026-08-13,
-  done 2026-08-14**: Phase 4 shipped long ago; relay/core safety became the explicit next
+  done 2026-08-14**: Phase 4 shipped 2026-08-11; relay/core safety became the explicit next
   priority and room-code auth is now built, see "Room codes / relay safety" below. Kept struck
   through, not deleted, so the original reasoning (don't build room codes early just because
   they're the eventual goal) stays legible as a past decision, not silently erased.
@@ -264,14 +264,21 @@ status TEVI shipped at before its own two-player test — see
 `packaging/release/games/pseudoregalia/README.txt`. 7.7 (real second player over a real
 network) is the one remaining gate before this can be called confirmed-working.
 
-Deferred idea, raised by the user during Phase 7.6 animation testing (2026-08-13), not
-scheduled: make ghost collision (currently always off, `ensure_ghost_spawned`'s
-`SetActorEnableCollision`, gated behind the `GHOST_COLLISION_ENABLED` toggle) an opt-in feature
-rather than permanently disabled. The user's own framing: physically sharing space with another
-player can make the game feel more interactable than a pure visual ghost.
+Ghost collision, raised by the user during Phase 7.6 animation testing (2026-08-13): make it a
+feature rather than permanently disabled. The user's own framing: physically sharing space with
+another player can make the game feel more interactable than a pure visual ghost.
 
-**Tried and reverted same-day, real risk found — see `agent_docs/risks.md`'s ghost-collision
-entry for the full record.** A blanket `SetActorEnableCollision(true)` test did *not* make the
+**SHIPPED 2026-08-15 — `GHOST_COLLISION_ENABLED = true` (`Plugin.cpp:200`) is now a deliberate
+feature, not a test flag.** The run-ending danger found along the way (an enemy hitting a ghost
+hurting and killing the *real* player) was fixed by giving the ghost capsule the
+`ECC_WorldDynamic` object type, so enemy targeting never queries it. Residual and accepted: a
+player can still deliberately melee a ghost and take damage. Hard rule: never set
+`LOOPBACK_GHOST_OFFSET_X = 0` while collision is on — it reproduces the 7.4 drag/pull bug.
+Whether it is actually *fun* is one of the things 7.7 decides. Full record: `agent_docs/ideas.md`
+item 5 and `agent_docs/risks.md`'s ghost-collision group.
+
+The history below is kept because it is the reasoning that got here, and it is dated 2026-08-13 —
+**it is superseded by the paragraph above.** Tried and reverted same-day, real risk found: A blanket `SetActorEnableCollision(true)` test did *not* make the
 ghost physically solid — the real player could still walk straight through it — but it could
 still be attacked and killed with melee, which killed the real player's own character, not just
 the ghost. Worst of both: no physical solidity (the actual goal) plus a new death risk.
@@ -283,9 +290,8 @@ needs to identify and disable the specific damage/hit collision channel via refl
 (not guessed), separately figure out what response-channel change would give real physical
 blocking, plus a real answer to the open question the user raised: does *any* other in-world
 damage source (hazards, out-of-bounds, enemies) reach the ghost and propagate to the real player
-the same way, or was that specific to melee's collision-based hit detection? Not investigated
-yet. This is a materially harder and riskier feature than it looked at first — treat as genuinely
-deferred, not a quick follow-up.
+the same way, or was that specific to melee's collision-based hit detection? (That last question
+was answered 2026-08-15 — it did, via enemies, and that is what the fix above addresses.)
 
 ### Phase 8 — Emerald, dedicated (post-5.5 ongoing work)
 
@@ -300,8 +306,9 @@ relocated `gObjectEvents`/`gPlayerAvatar`, and a timing bug in that last fix), a
 timing bug, local dev/testing tuned for instant feedback (`-interp=0ms`/new `-min-send` flag),
 and a real sub-tile movement-smoothing bug found once that tuning stopped a network buffer from
 hiding it. Not yet started: surf/Mach-Bike/Acro-Bike/ledge/rail movement support (detection
-source found, cited, not yet live-verified — `surf_bike_probe.lua` ready) and the
-VRAM/sprite-injection investigation (`agent_docs/ideas.md`, Stage 1 not started).
+source found, cited, not yet live-verified — `surf_bike_probe.lua` ready) and Stages 2–5 of the
+VRAM/sprite-injection investigation (`agent_docs/ideas.md`; Stage 1 ran 2026-08-14, written up in
+`agent_docs/environment.md`).
 
 ### Room codes / relay safety
 

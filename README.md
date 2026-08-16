@@ -49,7 +49,7 @@ Full walkthrough: `packaging/release/README.txt` (ships in the zip) and
 ### Good to know
 
 - Reads game memory, never writes it — MeshGhost does not touch your save.
-- Up to 8 players per room.
+- Up to 8 players per server by default, counted across all rooms — the host can raise it.
 - Bring your own legally-obtained copy of each game — no ROMs or game assets are shipped here.
 - `room` is a label, not a password. `room_code` is the optional actual secret, and it isn't
   encrypted in transit yet — don't rely on it against a determined attacker.
@@ -80,8 +80,10 @@ posture, what's already checked-safe vs. the known open gaps).
 MeshGhost/
 ├── cmd/                  # entry points: the desktop app, the standalone relay
 ├── internal/             # core, relay, protocol, transport, adapter bridge
-├── adapters/             # one folder per game; _template/ is the frozen stub (post-Phase 5)
+├── adapters/             # one folder per game; _template/ is the starting point for a new one
 ├── agent_docs/           # design brief, contract, architecture, roadmap, verified facts
+├── dev-scripts/          # local test rig: launchers, load tests, adapter build scripts
+├── packaging/            # what goes in the release zip, and how it's assembled
 ├── go.mod
 └── README.md
 ```

@@ -60,6 +60,8 @@ GBA memory). Started early relative to Phase 6's own two-player milestone (6.6) 
       Stage 3 entry and `agent_docs/verified.md`. **The adapter-language decision for
       Pseudoregalia is now Lua**, for both discovery and the shipping adapter; the C++/UEPseudo
       path is no longer being pursued unless something in 7.3+ forces a return to it.
+      **Superseded at 7.5 — the escape clause fired.** The shipping adapter is C++: Lua sockets
+      worked under light testing but corrupted memory under sustained real traffic. See 7.5.
 - [x] 7.1 — Lua probe. Deployed `adapters/pseudoregalia/probe/Scripts/main.lua` as the
       `MeshGhostProbe` UE4SS Lua mod (`ue4ss\Mods\MeshGhostProbe\`, added to `mods.txt`); also
       flipped `UE4SS-settings.ini`'s `[Debug] ConsoleEnabled` `0`→`1` (was off by default,
@@ -1845,5 +1847,27 @@ outperformed the tooling:
   was contradicted by four instruments for several rounds. The instruments were measuring their own
   blind spot.
 
-The blue remains switched off, since the code reading it rode on the scan that caused the
-regression; `status.md` carries the cheap way to restore it.
+The blue remained switched off at the end of that session, since the code reading it rode on the
+scan that caused the regression.
+
+## Superseded 2026-08-16 — the blue landed
+
+The paragraph above was this file's last word for one day. It is no longer true, and this section
+exists so a reader reaching the end doesn't stop on a stale conclusion.
+
+The ultra hop's blue trail is **on and confirmed on screen** (`AFTERIMAGE_OBSERVE_COLOR = true`,
+`Plugin.cpp:3705`; user's own verdict, *"looks perfect now"*, in `verified.md`). It took five more
+rounds, each fixing a real bug that exposed the next: the colour was read then thrown away, then
+arrived a whole slide late, then bled into the following slide, then the ghost drew two blue images
+where the game drew one.
+
+The trigger changed with it, and that is the more transferable half. The trail no longer fires on a
+reconstructed rule at all — not the `actionState` enums (three of them, each disproven live), and
+not the capsule-shrink physical fact that replaced them. It fires on **the game's own afterimage
+spawns**, observed (`AFTERIMAGE_TRIGGER_FROM_OBSERVATION = true`, `Plugin.cpp:3784`), with a
+birth-proximity check so a recycled pooled actor isn't counted as a new one. That also closed a
+complaint nothing was aimed at — the ghost had been drawing 1-2 more afterimages than the player —
+and fixed the ghost trailing on mistimed moves where the real player doesn't.
+
+Full narrative, and the method extracted from it: `agent_docs/effect-investigation.md`. Build-log
+form: `adapters/pseudoregalia/README.md` steps 36-41.

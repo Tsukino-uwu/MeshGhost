@@ -145,13 +145,14 @@ downloaded release folder and run against its `meshghost-server.exe` instead.
   noticed on the live run. Rate and smoothing are tuned in `config.json` (`send_hz`, `interp`),
   the same knobs a real player has — resist adding `-send-hz` back to this script.
 
-  Still unconfirmed: Emerald and TEVI. TEVI in particular has no loopback offset constant in
-  its source, so its ghost may sit directly on top of the player rather than beside it.
+  Still unconfirmed *through this script*: Emerald and TEVI.
 
   The loopback ghost renders a short distance to the side of the real player rather than
   exactly on top of it, so the two can be compared without overlapping — that offset is
   adapter-side, not in this script: `LOOPBACK_GHOST_OFFSET_TILES_X` in
-  `meshghost_emerald.lua`, `LOOPBACK_GHOST_OFFSET_X` in Pseudoregalia's `Plugin.cpp`.
+  `meshghost_emerald.lua` (2 tiles), `LOOPBACK_GHOST_OFFSET_X` in Pseudoregalia's `Plugin.cpp`
+  (150), and in TEVI an inline `160f` literal in `Plugin.cs`'s `UpsertRemoteGhost` rather than a
+  named constant.
 - `run-core-tevi.bat` / `run-core-tevi2.bat` — two TEVI core clients on distinct bridge ports
   (7778 / 7779), for real two-TEVI testing with a normal (non-loopback) `run-relay.bat` — same
   shape as the Emerald pair above, but for `-game=tevi`. Pair each with its own TEVI install

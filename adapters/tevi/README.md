@@ -1,6 +1,7 @@
 # TEVI
 
-**Status: second target game (chosen 2026-08-11, replacing Ori: Will of the Wisps).**
+**Status: second target game (chosen 2026-08-11, replacing Ori: Will of the Wisps), shipped —
+Phase 6 fully done 2026-08-13.**
 
 - Unity, 2D movement-focused platformer/metroidvania — the genre where ghost co-op is most
   visually satisfying, and the reason it was picked over Pseudoregalia for the second slot.
@@ -18,13 +19,17 @@
   has `[UnityMono]`). BepInEx/Harmony tooling applies directly; no IL2CPP interop/unhollowing
   step needed. BepInEx 5.4.23.3 is already installed on this machine's TEVI copy and confirmed
   loading a third-party plugin.
-- Phase 6 in progress. Phase 5 froze the adapter template (`adapters/_template/`) — see
+- Phase 6 is **fully done, confirmed 2026-08-13** (including 6.6, two real players, and 6.7,
+  the map marker) — see [agent_docs/plans.md](../../agent_docs/plans.md)'s Phase 6 entry and
+  [agent_docs/phases/phase6.md](../../agent_docs/phases/phase6.md). This adapter was built from
+  the template Phase 5 extracted (`adapters/_template/`) — see
   [agent_docs/phases/phase5.md](../../agent_docs/phases/phase5.md).
 
 ## Custom features
 
 Map marker for other player ghosts, shows a constantly tracking/updating tiny tevi bunny icon
-for where other players are in your current zone(as long as you have discovered/seen the maps before)
+for where other players are in your current zone (as long as you have discovered/seen the maps
+before).
 
 ## How this adapter was built
 

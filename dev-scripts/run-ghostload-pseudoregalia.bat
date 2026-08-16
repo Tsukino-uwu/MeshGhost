@@ -1,5 +1,6 @@
 @echo off
-REM Tier 2 load test: N synthetic peers that a REAL running Pseudoregalia client will render
+REM Ceiling 3 load test (numbering per dev-scripts/README.md): N synthetic peers that a REAL
+REM running Pseudoregalia client will render
 REM as N ghosts. This is the one that measures the ceiling that actually binds -- the
 REM adapter's per-ghost render cost -- without needing N copies of the game.
 REM

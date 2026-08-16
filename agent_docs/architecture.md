@@ -8,7 +8,7 @@ etc.) live in `CLAUDE.md`, not here — this file is reference, not rules.
 
 ```text
         Relay (internal/relay, cmd/meshghost-relay)
-             |  relay protocol: NDJSON/TCP, hello/welcome/join/leave/state/ping
+             |  relay protocol: NDJSON/TCP, hello/welcome/reject/join/leave/state/ping
         Core (internal/core, cmd/meshghost)
              |  adapter bridge: NDJSON/TCP, localhost-only
      [ Adapter contract ]
@@ -48,12 +48,12 @@ internal/transport  — generic NDJSON/TCP framing. Defines its own Transport in
 internal/bridge     — adapter<->core message shapes (LocalState/RenderRemote/DespawnRemote).
                        Imports protocol only.
 internal/core       — snapshot buffer, interpolation, remote-player tracking. Imports
-                       protocol, transport (bridge import arrives with the Phase 3 listener).
+                       protocol, transport, bridge.
 internal/relay      — room membership, forwarding, limits. Imports protocol, transport.
                        Never imports core or bridge — the relay stays ignorant of
                        adapter-side concerns, same as it's ignorant of games.
-cmd/meshghost       — desktop app entry point. Imports core (transport/bridge arrive with
-                       real wiring in Phase 3).
+cmd/meshghost       — desktop app entry point. Imports core only (the Phase 3 note here once
+                       predicted transport/bridge imports; they never arrived).
 cmd/meshghost-relay — standalone relay entry point. Imports relay.
 ```
 
@@ -610,10 +610,13 @@ Format: Date / Decision / Status / Context / Options considered / Resolution / C
 - **Resolution (retry vs. crash):** Option 3. `RejectError` (`internal/core`) wraps a relay
   `Reject`'s reason so it can be distinguished from a plain dial/timeout error without string-
   matching a formatted message. `isPermanentRejectReason` treats every reason except
-  `protocol.ReasonServerFull` as permanent — the only one of the current named reasons
+  `protocol.ReasonServerFull` as permanent — the only one of the named reasons *as of this ADR*
   (`ReasonProtocolVersionMismatch`, `ReasonHelloFieldTooLong`, `ReasonInvalidRoomCode`,
   `ReasonGameMismatch`, `ReasonGameVersionMismatch`, `ReasonServerFull`) that can resolve on its
-  own without a config change, if someone else leaves the room. `Core.permanentRejectGame`/
+  own without a config change, if someone else leaves the room. **Superseded by the 2026-08-15
+  rate-control ADR below**: the code now works from an explicit *retryable* set of two —
+  `ReasonServerFull` and `ReasonRateLimited` — and two more reasons exist that this list predates
+  (`ReasonGameNotAllowed`, `ReasonRateLimited`). `Core.permanentRejectGame`/
   `permanentRejectReason` cache a permanent rejection per `gameID`, checked before dialing;
   `IsPermanentRejectErr` is exported so `cmd/meshghost`'s new `connectRelayWithRetry` (backed
   off 1s→15s, doubling) can decide whether to keep retrying or `log.Fatalf` — a permanent
@@ -910,7 +913,7 @@ Format: Date / Decision / Status / Context / Options considered / Resolution / C
     matching the two adapters' own real outgoing payloads (Emerald: `adapters/pokemon/emerald/
     meshghost_emerald.lua`'s `encodeLocalState`, `:463-466`; Pseudoregalia: `adapters/
     pseudoregalia/MeshGhostPseudo/Mod/src/Plugin.cpp`'s local-state `std::format` call,
-    `:1538-1554`). Measured once via a throwaway `cmd/` program, run, and deleted — not committed,
+    `:7538-7592`). Measured once via a throwaway `cmd/` program, run, and deleted — not committed,
     since it exists only to produce this ADR's/README's numbers, not as a reusable tool. Result:
     a full NDJSON `state` line (envelope + newline) is **185 bytes** for Emerald's lighter
     2D/no-orientation/single-extras-field shape, **390 bytes** for Pseudoregalia's richer
@@ -923,11 +926,24 @@ Format: Date / Decision / Status / Context / Options considered / Resolution / C
     re-measured together this time, same method: Emerald **206**, TEVI **249** (never previously
     measured), Pseudoregalia **597**. Emerald's 206-vs-185 difference is methodology, not drift —
     this pass included its `orientation` field, which the original omitted.
-    **Maintenance rule this establishes: a change to any adapter's `extras` set is a change to
-    the published bandwidth table.** The wire size is a product of adapter feature work, so it
-    drifts silently whenever a game gains a synced field, with nothing in CI to catch it — the
-    dated-fact caveat in `CLAUDE.md` applies directly. Re-run the measurement when extras change,
-    and update `packaging/release/README.txt`'s hosting section with it.
+    **Maintenance rule, relaxed 2026-08-16 on the user's call — the earlier version of this
+    paragraph made it a rule that any `extras` change is a change to the published table, and that
+    is stricter than the numbers need to be.** The table exists to give a host a rough sense of
+    what hosting costs, not to be a 1:1 accounting of the current wire format. Treat the figures as
+    a ballpark that ages slowly, in the spirit of `CLAUDE.md`'s dated-fact caveat: right order of
+    magnitude, not right to the byte. **Re-measure when asked, not reflexively on every adapter
+    change.** For reference, the extras set has grown since the 597-byte measurement (Pseudoregalia
+    was 14 keys then, 25 as of 2026-08-16), so the real figure is somewhat higher — treat 597 as a
+    floor rather than a current reading. The one thing that *was* worth an actual check, being a
+    correctness question rather than a documentation one — whether the grown extras shape still
+    fits inside `MaxExtrasBytes = 1024` — was done 2026-08-16 by costing the real `std::format`
+    string against the longest object paths seen in this repo (56 chars, `BP_looseWeapon_C`) plus
+    25% headroom: **worst case ~826 bytes, so it fits, with roughly 200 bytes spare.** That is
+    real but not generous — the four unbounded object-path strings (`outfit_mesh`, `montage`,
+    `weapon_class`, `weapon_glow`) are what would consume it, so a future feature adding a fifth
+    path field is the case to re-check. Oversized extras are dropped silently by
+    `protocol/limits.go:172`, which is exactly the kind of failure that looks like a broken
+    feature rather than a limit.
   - **Hosting guidance added to `packaging/release/README.txt` (2026-08-15):** the table is now
     explicitly Pseudoregalia-based and labelled as a worst case, since it is the heaviest of the
     three by more than 2x — a host sizing a room off it can only be surprised in the good
@@ -988,3 +1004,68 @@ Format: Date / Decision / Status / Context / Options considered / Resolution / C
   `packaging/README.md` records the resulting maintenance rule (the ids are listed literally in
   `packaging/release/README.txt` and the top-level `README.md`, and adding a game means adding
   it to both).
+
+---
+
+- **Date:** 2026-08-16
+- **Decision:** Keep building `UE4SS.dll` from our own pinned RE-UE4SS submodule rather than
+  shipping upstream's published release zip; ship third-party notices alongside it.
+- **Status:** accepted
+- **Context:** A full-repo licence audit found `licensing.md` covered RE-UE4SS's own MIT code but
+  not what RE-UE4SS *statically links into* the `UE4SS.dll` this repo builds and redistributes —
+  about a dozen MIT/BSD-2/zlib libraries whose terms each require their notice to travel with a
+  binary. The audit also established what the Epic-account-gated `UEPseudo` submodule actually
+  is: ~200 headers carrying `// Copyright Epic Games, Inc. All Rights Reserved.`, which is why
+  that repo is private and carries no licence. We compile against those headers; we do not
+  redistribute them.
+- **Options considered:** (1) status quo, unexamined; (2) keep building our own but close the
+  notice gap; (3) ship upstream's published `UE4SS_v3.0.1.zip` so the Epic-headers compilation is
+  upstream's arrangement rather than ours; (4) stop shipping UE4SS and make users install it.
+- **Resolution:** Option 2. Option 3 was investigated with real measurements and rejected: no
+  published upstream artifact matches our pinned commit (`733e5969` is **938 commits ahead** of
+  the `v3.0.1` tag, 300 files changed, built 2024-02-14), our own `main.dll` is *linked against*
+  UE4SS so the mismatch would be ABI-level rather than cosmetic, that zip predates the `ue4ss/`
+  folder layout, and it contains no LICENSE file — meaning our staged tree is already more
+  complete than upstream's own. Crucially the licence benefit is also narrower than it first
+  looked: we remain the redistributor either way, so the notice obligation does not move. Option
+  4 was never seriously on the table — it breaks the adapter for no gain. The measured detail
+  lives in `agent_docs/licensing.md`; it is not duplicated here.
+- **Consequences:** `packaging/release/.../Binaries/Win64/ue4ss/THIRD-PARTY-NOTICES.txt` now ships
+  and is hand-maintained — `stage-ue4ss-runtime.bat` does not generate it and carries a comment
+  saying so, since nothing there deletes the folder. It must be re-checked whenever the RE-UE4SS
+  pin moves, because the dependency set can move with it. The `UEPseudo` question stays open and
+  is recorded rather than resolved: what is fact (we ship only a compiled binary; upstream
+  publicly ships the equivalent) is separated from what is a legal question this project will not
+  assert either way. Revisit only on a concrete concern, not on general tidiness. One dependency,
+  `patternsleuth`, has no licence text anywhere upstream — only a `Cargo.toml` declaration — so
+  that declaration is quoted verbatim rather than expanded into boilerplate with an invented
+  copyright line.
+
+---
+
+- **Date:** 2026-08-16
+- **Decision:** `transport.NDJSONConn` guarantees no message is lost between construction and
+  `OnReceive` registration — payloads arriving in that window are buffered and flushed, in order,
+  when the callback is installed.
+- **Status:** accepted
+- **Context:** `FromConn`/`Dial` start `readLoop` before returning, so every caller has a window
+  between "connection exists" and "callback installed". Anything arriving in it was **silently
+  discarded** — no error, no log. Found while isolating an intermittent test failure: `go test
+  ./...` failed in 9 of 12 runs, a different test each time, always a timeout waiting for a
+  message that had genuinely been sent. Reachable in production, not only in tests: the relay
+  installs its callback after `FromConnWithLimits`, so a fast client's `hello` could go
+  unanswered, and the same applies to an adapter's `hello` on the bridge.
+- **Options considered:** require every caller to register callbacks before any data can arrive
+  (unenforceable, and the existing `FromConnWithLimits` already exists because callers got the
+  analogous field-ordering wrong); start the read loop lazily on first registration (changes
+  connection semantics and breaks connections that legitimately never register one); buffer and
+  flush.
+- **Resolution:** Buffer and flush. Delivery is serialized on a dedicated mutex, held across the
+  callback, so a flushed backlog cannot interleave with a payload `readLoop` is delivering
+  concurrently. Safe because no callback re-registers `OnReceive` on its own connection.
+- **Consequences:** A guarantee the bridge and relay both quietly depended on is now real rather
+  than accidental. Covered by `TestMessagesBeforeOnReceiveAreNotLost`, which fails without the
+  fix. The suite went from 9 failures in 12 runs to 0 in 12. First diagnosis — "the 2s test
+  deadline is too tight" — was wrong and was disproved by raising it to 10s and watching the same
+  tests fail at 10.00s; recorded because the wrong fix looked plausible and would have buried a
+  real bug under a slower timeout.

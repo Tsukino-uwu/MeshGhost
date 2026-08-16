@@ -75,7 +75,8 @@ telling its host that.** A `room_code` field in an old relay's `config.json` is 
 unrecognized JSON field to that binary — silently ignored, not rejected. This isn't a client
 problem and can't be fixed client-side: the whole point of enforcing auth at the relay (the
 host controls admission, not each joiner) means the protection only exists if the *relay*
-process is current. If you're hosting: update `meshghost-relay.exe`, not just the client, before
+process is current. If you're hosting: update the relay binary (`meshghost-server.exe` in a release zip,
+`meshghost-relay.exe` when built from this repo), not just the client, before
 relying on a room code. See the ADR in
 [agent_docs/architecture.md](../agent_docs/architecture.md) for the full reasoning.
 
@@ -86,8 +87,9 @@ relay (`internal/relay`), a hub, not a mesh. A client has no mechanism to learn 
 another player's network state, because no channel to another player's machine exists at all.
 
 **No message type carries an IP address or other network-identifying field.**
-`internal/protocol/protocol.go`'s complete message set (`Hello`, `Welcome`, `Join`, `Leave`,
-`State`, `Event`, `Ping`/`Pong`) has no address field anywhere. A client only ever learns a
+`internal/protocol/protocol.go`'s complete message set (`Hello`, `Welcome`, `Reject`, `Join`,
+`Leave`, `State`, `Event`, `Ping`/`Pong`) has no address field anywhere — `Reject` carries only a
+reason string. A client only ever learns a
 peer's `player_id` and cosmetic state (position/area/anim/extras) — not even a chosen
 `display_name`: `Hello.DisplayName` reaches the relay but is only logged there, never
 redistributed to other clients (`Welcome.Roster` is just a list of ids, `Join` carries no name
@@ -114,7 +116,9 @@ player's machine — it would have to compromise the core itself first, a separa
 during the read itself, not after), `MaxExtrasBytes` (1024), `MaxPositionLen` (8),
 `MaxOrientationBytes` (256), `MaxAreaIDLen`/`MaxAnimLen` (256), `MaxHelloFieldLen` (128),
 `DefaultMaxClients` (8, server-wide across all rooms, configurable per relay),
-`MaxMessagesPerSecond` (120), `DefaultHelloTimeout` (10s). Originally
+`MaxMessagesPerSecond` (120 at the default 20Hz — a floor, not a flat cap: the real per-client
+limit is `max(120, send_hz * RateLimitHeadroomMultiple)`, and that multiple is 6),
+`DefaultHelloTimeout` (10s). Originally
 generous rather than tight (no-auth was the accepted state through Phase 4); audited with an
 adversarial peer in mind as of the 2026-08-14 hardening pass — see "What changed" above and the
 ADR in [agent_docs/architecture.md](../agent_docs/architecture.md).
@@ -170,7 +174,7 @@ writing any of this — findings below are cited to real files, not memory.
   `CelesteNet-TeapotVersion` header, server responds `409 Version Mismatch` on anything but an
   exact match (`HandshakerRole.cs`'s `TeapotHandshake`). We already do the direct equivalent
   for our own wire protocol (`protocol.Version`, checked in `hello` at
-  [relay.go:489](relay/relay.go#L489)) — and, since 2026-08-14, the same reject-at-handshake
+  [relay.go:643](relay/relay.go#L643)) — and, since 2026-08-14, the same reject-at-handshake
   shape for each adapter's own `game_version` too (see "What changed" above).
 - **Unpredictable per-connection tokens** (`CelesteNet.Shared/TokenGenerator.cs`, a Galois
   LFSR) specifically prevent a third party from hijacking someone else's *UDP* connection by

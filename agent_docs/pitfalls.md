@@ -687,9 +687,13 @@ three gets re-tried blind:
   `SetViewTargetWithBlend` camera hook in the same file is fine. For a **Blueprint** function the
   pointer is the shared `ProcessInternal` bytecode entry point, not a per-function routine;
   swapping it neither intercepts the call nor leaves execution intact.
-- **Fix**: don't hook Blueprint functions on this build. The feature reverted to polling a property
-  (`actionState`) each tick and edge-detecting it — less accurate (it can't distinguish a real
-  slide from a quick turn-around that shares the same state value) but stable.
+- **Fix**: don't hook Blueprint functions on this build. The feature first fell back to polling
+  `actionState` each tick and edge-detecting it — less accurate (it can't distinguish a real slide
+  from a quick turn-around that shares the same state value) but stable. That was then replaced by
+  a physical fact, the capsule shrinking 65→22, because the enums overlap between moves and the
+  shrink doesn't. **Both are superseded as of 2026-08-16**: the trigger is now the game's own
+  observed afterimage spawns (`AFTERIMAGE_TRIGGER_FROM_OBSERVATION`), which is the only version
+  that stops the ghost trailing on a mistimed move. See `agent_docs/effect-investigation.md`.
 - **Generalizes to**: before reaching for a UFunction hook on any UE target, check whether the
   function is native or Blueprint (the reflection dump's `FUNC_Native` flag, or simply: is it a
   `/Script/Engine.*` engine function, or a `_C` Blueprint class member?). A hook that *registers
@@ -735,7 +739,7 @@ three gets re-tried blind:
   the *other* core (`p2`) really was receiving and storing it. The bug wasn't in any of that.
   - **Actual cause**: the second BizHawk instance was launched by double-clicking `EmuHawk.exe`
     directly, rather than through a wrapper that sets `MESHGHOST_BRIDGE_PORT=7779` first. The
-    Lua adapter (`meshghost_emerald.lua:132`) reads that env var and silently falls back to 7778
+    Lua adapter (`meshghost_emerald.lua:134`) reads that env var and silently falls back to 7778
     (the same default `meshghost.exe -bridge` uses) if it's unset — so *both* BizHawk instances
     connected to the *same* core process's bridge. The second core (the real, correctly-running
     peer on port 7779) sat there with no adapter ever talking to it, so it had nothing of its
@@ -846,6 +850,9 @@ characterised, will keep turning into that system's other problems.
 - **Fix**: heavy per-object tracing off; scan cadence 3 → 15 ticks; and structurally, the scan is
   now gated by the flag that owns it, so that flag is a real off-switch. Confirmed live by the user
   afterwards: dense repeating slide trail, ghost within 1-2 images of the real player.
+  (**Cadence note, 2026-08-16**: that 15 is `AFTERIMAGE_COLOR_SCAN_INTERVAL_TICKS`, which now
+  belongs to the disabled `AFTERIMAGE_TRIGGER_OBSERVED` path. The live cost knobs are
+  `AFTERIMAGE_OBSERVE_SCAN_INTERVAL_TICKS = 6` and an idle scan at 10 — tune those, not the 15.)
 - **Generalizes to** — the rules extracted from this are in `## Diagnostic methodology` above, but
   the short form: audit a probe's cost before trusting its output; never leave a spawning probe
   enabled while judging what it spawns; re-test with probes off; a flag flip is not a revert; and
@@ -892,7 +899,7 @@ characterised, will keep turning into that system's other problems.
 > them and still holds. The colour path it describes was disabled along with the scan it rode on,
 > and was **re-enabled 2026-08-16 as a separate, colour-only path** (`AFTERIMAGE_OBSERVE_COLOR`):
 > ownership is a pointer compare rather than a name match, and it runs once per burst instead of on
-> a cadence. Unwatched as yet — `status.md`.
+> a cadence. **Confirmed on screen the same day** — `verified.md`'s blue-afterimage entry.
 
 - **Symptom**: a peer's ultra-hop afterimage was blue, the ghost's was blue only sometimes. Ratios
   across four attempts: 2→1, 8→4, 10→4, then an over-correction to 6→98.
@@ -993,7 +1000,7 @@ next adapter author doesn't re-diagnose them as adapter bugs:
 
 Recurring adapter tasks, and how differently each engine/game has answered them so far:
 
-| Task | Pokemon Emerald (GBA, BizHawk/Lua) | Pseudoregalia (UE5, UE4SS/Lua) | TEVI (Unity/Mono) |
+| Task | Pokemon Emerald (GBA, BizHawk/Lua) | Pseudoregalia (UE5, UE4SS/C++) | TEVI (Unity/Mono) |
 | --- | --- | --- | --- |
 | Represent the remote player visually | 2D overlay sprite drawn every frame (`gui.*`) | Spawned/duplicated 3D actor | World-space `GameObject` with `SpriteRenderer` |
 | Drive an animation | N/A (2D overlay) | Two layers: continuous poses mirror via state properties (`moveState`/`actionState`), one-shot animations via a **montage mirror** — send whatever `AnimMontage` the peer plays, call stock `Montage_Play` on the ghost's anim instance (2026-08-15, `verified.md`). The game's own `CustomPlayMontage` wrapper silently no-ops on a ghost | Send the real clip name (`GetAnimationTrueName()`) and let the engine's own `Animator` play it |
