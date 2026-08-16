@@ -5035,3 +5035,31 @@ hand-back reported the local pawn every time and hid it completely.
 **Still open:** the duplicate spawn (two ghosts per level load, the `remotes` entry going from
 present to absent within three ticks, leaving an orphan). The camera hook is now registered
 unconditionally, since it carries a fix rather than only a probe; the three trace flags are off.
+
+## 2026-08-16 — Ghosts no longer render through walls (user-watched)
+
+**Confirmed on screen by the user**, with two screenshots: standing beside a ghost, the blue
+through-walls silhouette appears for the **local player** and not for the ghost — including the
+second shot, where the player's own silhouette shows *through* the ghost's body. Ghost-only, which
+is the important half: a change that removed both would have taken a real game feature away.
+
+The read-back agrees, and it is the component's own state rather than an echo of the write:
+
+    ghost VisualMesh  bRenderCustomDepth=false
+    ghost WeaponMesh  bRenderCustomDepth=false
+    local VisualMesh  bRenderCustomDepth=true
+    local WeaponMesh  bRenderCustomDepth=true
+
+`SetRenderCustomDepth(false)` on the ghost's two mesh components at spawn, via the engine's own
+setter rather than a property write — the raw flag is render-thread state, so assigning it can
+leave an already-created render state drawing while the property reads false. That risk did not
+materialise, but the setter is why.
+
+**Treated as a fix rather than an option on purpose:** seeing another player through geometry is
+information, and this project's line is visual-only with no gameplay effect — for a speedrunner
+that is a real advantage. `WeaponMesh` carried the flag separately from the body, so a fix aimed
+only at the character would have left a sword visible through a wall.
+
+Found by a read-only probe first (`OUTLINE_TRACE`), which is what `adapters/_template`'s
+"observe before you override" rule asks for: the mechanism was confirmed as Unreal custom depth
+before anything was changed, rather than assumed from the way it looked.
