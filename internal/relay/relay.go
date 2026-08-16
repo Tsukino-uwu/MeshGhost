@@ -247,20 +247,6 @@ func (r *Room) roster() []string {
 	return ids
 }
 
-// allExcept returns every current member's player_id other than exclude —
-// the recipient set for "broadcast to the rest of the room".
-func (r *Room) allExcept(exclude string) []string {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	ids := make([]string, 0, len(r.members))
-	for id := range r.members {
-		if id != exclude {
-			ids = append(ids, id)
-		}
-	}
-	return ids
-}
-
 // stateRecipients returns which of the room's other members should receive
 // a State from sender right now, applying each recipient's own
 // maxReceiveHz cap (Client.allowStateFrom). Snapshots member pointers under
@@ -271,9 +257,9 @@ func (r *Room) allExcept(exclude string) []string {
 // deliberate: a Send failure means the recipient is gone or stalled, and
 // re-crediting it a slot would be work for a connection that's already on
 // its way out. Only ever called for state — join/leave/welcome/reject/pong
-// go through allExcept or a direct recipient list instead, so they are
-// never throttled (a throttled leave would strand a permanently frozen
-// ghost).
+// go through roster(), a roster captured atomically with a membership
+// change, or a direct recipient list instead, so they are never throttled (a
+// throttled leave would strand a permanently frozen ghost).
 func (r *Room) stateRecipients(sender string, now time.Time) []string {
 	r.mu.Lock()
 	members := make([]*Client, 0, len(r.members))
@@ -803,7 +789,20 @@ func (s *Server) handleConn(conn net.Conn) {
 
 			join, err := envelope(protocol.TypeJoin, protocol.Join{PlayerID: newID})
 			if err == nil {
-				joined.Forward(join, joined.allExcept(newID))
+				// rosterBeforeJoin, NOT allExcept(newID): the recipient set must be
+				// the one captured atomically with the add above, not whoever happens
+				// to be a member by the time this line runs.
+				//
+				// Caught by CI's race job 2026-08-16 as an intermittent
+				// TestOversizedPositionDropped failure ("c2 unexpectedly received
+				// join"). allExcept re-took the lock, so a client that joined in the
+				// window between this client's add and this broadcast was included --
+				// and it had already been told about this client in its OWN welcome
+				// roster. It therefore got a duplicate, late join for a player it
+				// already knew about. The window is normally microseconds, which is
+				// why 300 local runs never reproduced it and the race detector's much
+				// slower scheduling did.
+				joined.Forward(join, rosterBeforeJoin)
 			}
 			return
 		}

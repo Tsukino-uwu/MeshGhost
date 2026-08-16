@@ -26,8 +26,19 @@ detector and fuzzing. See below.
 | `go build` / `go vet` | yes | yes | yes |
 | Unit + integration suite | yes (`-count=2`) | yes (`-count=3`, Linux; `-count=2`, Windows) | yes (`-count=2`) |
 | End-to-end, real binaries (`internal/e2e`) | yes | yes | yes |
-| **Race detector** | **no — can't** | yes (Linux) | no |
+| **Race detector** | **no — can't** (`run-gotests-race.bat` says why) | yes (Linux) | no |
+| Concurrency stress (`-shuffle`, `-cpu`, repeats) | yes (`run-gotests-stress.bat`) | no | no |
 | **Fuzzing** | seed corpus only | yes, short campaign per target | no |
+
+**The race detector is the one real hole, and it has already cost a round trip.** CI caught a
+relay race on 2026-08-16 (a join broadcast computed its recipients under a *second* lock
+acquisition, so a client that joined in the window got a duplicate join it had already been told
+about in its welcome) that 300 local runs of the same test never reproduced. The loop is
+necessarily: push → CI fails → fix. `run-gotests-stress.bat` shortens that loop by repeating the
+concurrency packages under shuffled order and two GOMAXPROCS values; it does not close it. The
+durable lesson from that bug is cheaper than any tooling: **a test that asserts an invariant under
+concurrent clients found it locally in 100 runs once written**, where the test that failed in CI
+only failed by accident, in a misleading place.
 
 CI is `.github/workflows/ci.yml`. **It only runs when a `.go` file, `go.mod`/`go.sum`, or the
 workflow itself changed** — every tracked `.go` file lives under `internal/` or `cmd/`, so that

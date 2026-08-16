@@ -2,6 +2,7 @@ package relay
 
 import (
 	"encoding/json"
+	"fmt"
 	"net"
 	"strings"
 	"sync"
@@ -388,6 +389,153 @@ func TestServerStampsPlayerID(t *testing.T) {
 	}
 	if st.PlayerID != w1.PlayerID {
 		t.Fatalf("forwarded player_id = %q, want %q (server-stamped, not client-claimed)", st.PlayerID, w1.PlayerID)
+	}
+}
+
+// TestJoinIsNeverSentForAPlayerAlreadyInTheWelcomeRoster is the regression
+// test for a race CI's race detector caught 2026-08-16, surfacing as an
+// intermittent, misleading failure in TestOversizedPositionDropped ("c2
+// unexpectedly received join").
+//
+// The relay captured rosterBeforeJoin atomically with adding a client, then
+// broadcast that client's join to allExcept(newID) — a SECOND, later lock
+// acquisition. A client that joined in the window between another client's
+// add and its broadcast was therefore included in that broadcast, despite
+// having already been told about it in its own welcome roster: a duplicate,
+// late join for a player it already knew about. Fixed by forwarding to the
+// roster captured with the add.
+//
+// This test states the invariant rather than the mechanism — nothing a
+// client already has in its welcome roster may then arrive as a join — so it
+// still means something if the implementation changes shape. Clients join
+// concurrently to make the window as wide as this can make it; the race
+// detector's slower scheduling is what actually made it reproduce, which is
+// why the local suite never saw it in 300 runs.
+func TestJoinIsNeverSentForAPlayerAlreadyInTheWelcomeRoster(t *testing.T) {
+	addr := startServer(t)
+
+	const clients = 6
+	type observation struct {
+		roster map[string]bool
+		client *testClient
+	}
+	observations := make([]*observation, clients)
+
+	// The goroutines below only dial and collect; every assertion and every
+	// t.Fatal happens on the test goroutine after wg.Wait(). testClient's own
+	// helpers (dialTestClient, expectWelcome) call t.Fatal internally, which is
+	// not valid from a non-test goroutine and would make this test flaky under
+	// load rather than failing honestly -- so this dials at the transport level
+	// directly and reports problems through a channel.
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	failures := make(chan error, clients)
+	for i := 0; i < clients; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+
+			conn, err := transport.Dial(addr)
+			if err != nil {
+				failures <- fmt.Errorf("client %d: dial: %w", i, err)
+				return
+			}
+			tc := &testClient{t: t, conn: conn, envs: make(chan protocol.Envelope, 64)}
+			conn.OnReceive(func(payload []byte) {
+				var env protocol.Envelope
+				if err := json.Unmarshal(payload, &env); err == nil {
+					tc.envs <- env
+				}
+			})
+
+			hello, _ := json.Marshal(protocol.Hello{
+				ProtocolVersion: protocol.Version,
+				GameID:          "emerald",
+				Room:            "room1",
+				DisplayName:     fmt.Sprintf("p%d", i),
+			})
+			env, _ := json.Marshal(protocol.Envelope{Type: protocol.TypeHello, Payload: hello})
+			if err := conn.Send(env); err != nil {
+				failures <- fmt.Errorf("client %d: send hello: %w", i, err)
+				return
+			}
+
+			// The welcome is NOT necessarily the first message: the relay adds
+			// a client to the room before sending its welcome, so a player
+			// joining in that window has its join forwarded here first. That
+			// is real, was found by this test, and is handled in
+			// internal/core (Welcome merges into the roster rather than
+			// replacing it) rather than by serialising a network write under
+			// the room lock. So skip past anything that arrives early, and
+			// count it as already-known so the assertion below stays honest.
+			deadline := time.After(timeout)
+			early := make(map[string]bool)
+			for observations[i] == nil {
+				select {
+				case e := <-tc.envs:
+					if e.Type == protocol.TypeJoin {
+						var j protocol.Join
+						if err := json.Unmarshal(e.Payload, &j); err == nil {
+							early[j.PlayerID] = true
+						}
+						continue
+					}
+					if e.Type != protocol.TypeWelcome {
+						failures <- fmt.Errorf("client %d: got %q before welcome", i, e.Type)
+						return
+					}
+					var w protocol.Welcome
+					if err := json.Unmarshal(e.Payload, &w); err != nil {
+						failures <- fmt.Errorf("client %d: unmarshal welcome: %w", i, err)
+						return
+					}
+					seen := early
+					for _, id := range w.Roster {
+						seen[id] = true
+					}
+					mu.Lock()
+					observations[i] = &observation{roster: seen, client: tc}
+					mu.Unlock()
+				case <-deadline:
+					failures <- fmt.Errorf("client %d: timed out waiting for welcome", i)
+					return
+				}
+			}
+		}(i)
+	}
+	wg.Wait()
+	close(failures)
+	for err := range failures {
+		t.Fatal(err)
+	}
+
+	// Let every join that is going to be delivered arrive before judging.
+	time.Sleep(200 * time.Millisecond)
+
+	for i, obs := range observations {
+		if obs == nil {
+			continue
+		}
+		defer obs.client.conn.Close()
+	drain:
+		for {
+			select {
+			case env := <-obs.client.envs:
+				if env.Type != protocol.TypeJoin {
+					continue
+				}
+				var j protocol.Join
+				if err := json.Unmarshal(env.Payload, &j); err != nil {
+					t.Fatalf("unmarshal join: %v", err)
+				}
+				if obs.roster[j.PlayerID] {
+					t.Fatalf("client %d received a join for %q, which was already in its welcome roster",
+						i, j.PlayerID)
+				}
+			default:
+				break drain
+			}
+		}
 	}
 }
 

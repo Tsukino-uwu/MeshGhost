@@ -4705,3 +4705,38 @@ the user spotting the line in a relay window and asking for it to be checked rat
 
 Cosmetic in effect, but it put an error line at the top of the very log a remote tester is now
 asked to send back — which is why it was worth chasing rather than explaining away.
+
+## 2026-08-16 — CI's race job found a relay race, and chasing it found a worse bug in the core
+
+**Established with the tools.** CI run 31949407557 failed the race job on an intermittent
+`TestOversizedPositionDropped` ("c2 unexpectedly received join") — a test that had nothing to do
+with joins, which is what made it misleading.
+
+- **Bug 1, the relay (pre-existing).** A joining client's roster was captured atomically with the
+  add (`tryAddAndSnapshotRoster`), but its join was then broadcast to `allExcept(newID)` — a
+  SECOND, later lock acquisition. A client that joined in the window between another client's add
+  and its broadcast was therefore included, despite already having been told about that client in
+  its own welcome roster. Fixed by forwarding to the roster captured with the add; `allExcept` had
+  no other callers and was removed.
+- **Bug 2, the core (worse, found by the test written for bug 1).** The relay adds a client to the
+  room *before* sending that client's welcome, so a concurrent joiner's `join` can arrive ahead of
+  our own `welcome`. `Welcome` assigned `c.roster` outright, erasing that peer — and states from
+  anyone outside the roster are dropped by design, so **two players starting at the same moment
+  could simply never see each other for the whole session.** Welcome now merges; the roster is
+  cleared explicitly on disconnect instead (it was relying on Welcome's replace as its reset).
+- **Not reproducible locally by luck, reproducible by construction.** 300 local runs of the
+  failing test, then 50+ full-package runs and 100+ targeted runs, never reproduced bug 1. A test
+  asserting the *invariant* under concurrent clients
+  (`TestJoinIsNeverSentForAPlayerAlreadyInTheWelcomeRoster`) reproduced bug 2 within 100 runs on
+  the first try. Regression tests for both, plus `TestJoinArrivingBeforeWelcomeIsNotErased` in
+  `internal/core`.
+- **Local tooling gap re-measured** (Go 1.25): `-race` still cannot run here — the `gcc` on PATH is
+  devkitPro's (fails on `stddef.h`), MSYS2's own GCC 15.1 fails inside `runtime/cgo`, and
+  `wsl.exe` is present with no distro installed. `dev-scripts/run-gotests-race.bat` now probes for
+  a usable compiler and reports the gap instead of it being invisible;
+  `run-gotests-stress.bat` (`-count=10 -shuffle=on -cpu=1,4`, ~3-4 min, e2e excluded) is what
+  works today. Full suite green after both fixes.
+
+**Caveat kept deliberately:** a `join` arriving before `welcome` is still possible on the wire.
+Fixing that relay-side would mean holding the room lock across a network write to a brand-new
+connection; tolerating it in the core is cheaper and robust to any relay that behaves this way.

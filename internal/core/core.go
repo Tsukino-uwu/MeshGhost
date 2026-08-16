@@ -454,6 +454,14 @@ func (c *Core) ConnectRelay(gameID string) error {
 			// "nothing advertised yet" fallback instead of inheriting this
 			// connection's now-stale rate.
 			c.serverSendInterval = 0
+			// Roster is per-connection: player_ids are only meaningful within
+			// the connection that assigned them. Welcome used to be the de
+			// facto reset (it replaced the map wholesale), but it no longer
+			// does -- see the Welcome case, which now merges so a Join that
+			// arrives first isn't erased -- so the reset has to be explicit
+			// here, or a stale id could outlive the connection that named it
+			// and pass the trust check on the next one.
+			c.roster = make(map[string]struct{})
 		}
 		retryGameID, retryAdapterVersion, retryBridgeConn := c.autoRetryGameID, c.autoRetryAdapterGameVersion, c.autoRetryBridgeConn
 		c.mu.Unlock()
@@ -702,7 +710,23 @@ func (c *Core) handleRelayMessage(payload []byte, welcome chan<- protocol.Welcom
 		var w protocol.Welcome
 		if err := json.Unmarshal(env.Payload, &w); err == nil {
 			c.mu.Lock()
-			c.roster = make(map[string]struct{}, len(w.Roster))
+			// MERGED into the roster, not assigned over it. The relay adds a
+			// joining client to the room before it sends that client's
+			// Welcome, so another player joining in that window has its Join
+			// forwarded to us first -- our very first message can be someone
+			// else's Join, ahead of our own Welcome. Replacing the map here
+			// (which this did until 2026-08-16) erased that player, and since
+			// states from anyone outside the roster are dropped by design
+			// (see the roster field's comment), we would never render them
+			// again for the whole session: two people starting at the same
+			// moment could simply never see each other. Found by a relay test
+			// written for a different race, in the CI race job.
+			//
+			// Safe against a stale id outliving its connection because the
+			// roster is now cleared explicitly on disconnect.
+			if c.roster == nil {
+				c.roster = make(map[string]struct{}, len(w.Roster))
+			}
 			for _, id := range w.Roster {
 				c.roster[id] = struct{}{}
 			}

@@ -1024,6 +1024,65 @@ func TestStateForUnknownPlayerIDIsIgnored(t *testing.T) {
 	}
 }
 
+// TestJoinArrivingBeforeWelcomeIsNotErased is the regression test for a bug
+// with real gameplay consequences, found 2026-08-16 by a relay test written
+// for a different race.
+//
+// The relay adds a joining client to the room BEFORE sending that client's
+// Welcome, so a player joining in that window has its Join forwarded to us
+// ahead of our own Welcome. Welcome used to assign the roster map outright,
+// which erased that player — and because states from anyone outside the
+// roster are dropped by design (see Core.roster), we would never render them
+// again for the rest of the session. Two people launching at the same moment
+// could therefore simply never see each other, which is exactly the "both
+// happen to have it on" case the whole thing exists for.
+//
+// Welcome now merges instead. The ordering itself is left alone deliberately:
+// fixing it relay-side would mean holding the room lock across a network
+// write to a brand-new connection, and tolerating the order here is both
+// cheaper and more robust to any relay that does the same.
+func TestJoinArrivingBeforeWelcomeIsNotErased(t *testing.T) {
+	c := New()
+	welcome := make(chan protocol.Welcome, 1)
+	reject := make(chan protocol.Reject, 1)
+
+	// The peer's join lands first, before this Core has been told who it is.
+	joinPayload, err := json.Marshal(protocol.Join{PlayerID: "p-early"})
+	if err != nil {
+		t.Fatalf("marshal join: %v", err)
+	}
+	joinEnv, err := json.Marshal(protocol.Envelope{Type: protocol.TypeJoin, Payload: joinPayload})
+	if err != nil {
+		t.Fatalf("marshal envelope: %v", err)
+	}
+	c.handleRelayMessage(joinEnv, welcome, reject)
+
+	// Our own welcome follows, and its roster does not mention that peer --
+	// it was snapshotted before they joined.
+	welcomePayload, err := json.Marshal(protocol.Welcome{PlayerID: "self", Roster: []string{"p-other"}})
+	if err != nil {
+		t.Fatalf("marshal welcome: %v", err)
+	}
+	welcomeEnv, err := json.Marshal(protocol.Envelope{Type: protocol.TypeWelcome, Payload: welcomePayload})
+	if err != nil {
+		t.Fatalf("marshal envelope: %v", err)
+	}
+	c.handleRelayMessage(welcomeEnv, welcome, reject)
+
+	c.mu.Lock()
+	_, early := c.roster["p-early"]
+	_, fromWelcome := c.roster["p-other"]
+	c.mu.Unlock()
+
+	if !early {
+		t.Error("a Join that arrived before Welcome was erased by it — that peer's states " +
+			"would be dropped for the rest of the session")
+	}
+	if !fromWelcome {
+		t.Error("Welcome's own roster was not applied")
+	}
+}
+
 // TestSecondWelcomeIgnored confirms a second Welcome mid-connection doesn't
 // reset this Core's roster or get pushed to the handshake's welcome
 // channel — Welcome is protocol-illegal outside the initial handshake, and

@@ -21,7 +21,20 @@ downloaded release folder and run against its `meshghost-server.exe` instead.
   this machine has neither a usable one nor WSL (the `gcc` on `PATH` resolves to a devkitPro
   MSYS2 copy, and the real MSYS2 GCC 15 can't compile Go 1.22's `runtime/cgo`) — on Linux it
   needs no setup at all; and **fuzzing**, which runs a short campaign per push against the
-  parsers. Both are also why a green run here is not the same as a green CI run.
+  parsers. Both are also why a green run here is not the same as a green CI run. Re-confirmed
+  2026-08-16 against Go 1.25: the devkitPro `gcc` fails on `stddef.h`, MSYS2's own GCC 15.1 fails
+  in `runtime/cgo`, and `wsl.exe` exists with no distro installed.
+- `run-gotests-race.bat` — the race detector, the exact `go test -race -count=3 ./...` CI runs.
+  **Probes for a C compiler Go can actually use** rather than assuming one, since two different
+  installed `gcc`s both fail, and prints what to install if none works. Currently that is what it
+  does on this machine — it is here so the gap is visible and so it starts working the day a
+  usable toolchain (mingw-w64 GCC 12-14, or a WSL distro) exists.
+- `run-gotests-stress.bat` — what you *can* run locally instead: `-count=10 -shuffle=on -cpu=1,4`
+  over the concurrency packages. Repeats, randomised order, and two different GOMAXPROCS values,
+  each of which changes interleavings. ~3-4 minutes. `internal/e2e` is excluded on purpose (it
+  launches real binaries per test and blew past `go test`'s 10-minute limit when included). **Not
+  a substitute for `-race`, and it must never be reported as one** — CI caught a real relay race
+  on 2026-08-16 that 300 local runs of the same test never reproduced.
 - `run-relay.bat` / `run-relay-loopback.bat` — a single relay, `-send-hz=100`. Deliberately NOT
   the relay's own 20Hz default: since the send/receive rate-control feature (see the ADR in
   agent_docs/architecture.md), a relay's advertised send_hz is prescriptive — a Core adopts it
