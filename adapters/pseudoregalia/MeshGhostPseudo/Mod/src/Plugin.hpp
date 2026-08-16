@@ -813,6 +813,10 @@ namespace MeshGhostPseudo
         // POSSESS_TRACE: keep reporting who holds the controller until this tick, so an
         // auto-possess that fires a frame or two after a ghost spawn is still caught.
         uint64_t possess_watch_until_tick{0};
+        // The last camera target the GAME chose that was not a ghost's own rig. Used only to
+        // undo a ghost-owned switch -- deliberately not the old "last known good" cache, which
+        // was applied to every change and became the bug it was meant to prevent.
+        RC::Unreal::AActor* last_non_ghost_view_target{nullptr};
         std::unique_ptr<BridgeClient> bridge;
         // Starts meshghost.exe if one isn't already running, so the player doesn't have to.
         // Declared after bridge so it is destroyed first, stopping the core before the socket

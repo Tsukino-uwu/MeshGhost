@@ -4783,9 +4783,68 @@ namespace MeshGhostPseudo
             [this](UnrealScriptFunctionCallableContext& ctx, void*) {
                 SetViewTargetWithBlendLocals& locals = ctx.GetParams<SetViewTargetWithBlendLocals>();
                 AActor* target = locals.NewViewTarget;
-                Output::send(STR("[MeshGhostPseudo] CAMERA_TRACE tick={} target={}\n"),
+                if (!target)
+                {
+                    return;
+                }
+
+                // Who does this rig belong to? Every load shows the camera switching to a
+                // different BP_PlayerCam_C ~4ms after a ghost spawns, which is the 7.4 finding
+                // again -- the ghost is a clone of the player pawn, so it brings its own camera
+                // rig and the game targets it. If that rig's Owner is one of our ghosts, this can
+                // be rejected precisely, instead of the old fight-back's "block every change
+                // forever", which is what made it worse than the bug.
+                UObject** owner = target->GetValuePtrByPropertyNameInChain<UObject*>(STR("Owner"));
+                UObject* owner_obj = (owner && *owner) ? *owner : nullptr;
+
+                bool owned_by_ghost = false;
+                if (owner_obj)
+                {
+                    std::lock_guard<std::mutex> lock(state_mutex);
+                    for (const auto& [id, remote] : remotes)
+                    {
+                        if (remote.ghost && static_cast<UObject*>(remote.ghost) == owner_obj)
+                        {
+                            owned_by_ghost = true;
+                            break;
+                        }
+                    }
+                }
+
+                Output::send(STR("[MeshGhostPseudo] CAMERA_TRACE tick={} target={} owner={} owned_by_ghost={}\n"),
                              tick_count,
-                             target ? target->GetFullName() : STR("(null)"));
+                             target->GetFullName(),
+                             owner_obj ? owner_obj->GetFullName() : STR("(none)"),
+                             owned_by_ghost ? STR("YES") : STR("no"));
+
+                if (!owned_by_ghost)
+                {
+                    // Remember the last target the game chose for itself. Only ever used to undo a
+                    // ghost's rig below -- unlike the old fight-back, which treated this as the one
+                    // true camera forever and fought every legitimate switch with it.
+                    last_non_ghost_view_target = target;
+                    return;
+                }
+
+                // The one switch worth refusing: a camera rig belonging to a ghost. Everything
+                // else -- cutscenes, area rigs, the game's own routine switching -- passes through
+                // untouched, which is exactly what the old mechanism got wrong.
+                //
+                // Self-validating: if a rig turns out NOT to be ghost-owned this never fires, and
+                // the trace above says so, so nothing is blocked on a guess.
+                //
+                // Redirected to the last target the game itself picked rather than to nullptr: a
+                // null view target is not "no change", it is "no camera".
+                if (last_non_ghost_view_target && !last_non_ghost_view_target->IsUnreachable())
+                {
+                    Output::send(STR("[MeshGhostPseudo] refusing a camera switch to a GHOST's own rig -- keeping {}\n"),
+                                 last_non_ghost_view_target->GetFullName());
+                    locals.NewViewTarget = last_non_ghost_view_target;
+                }
+                else
+                {
+                    Output::send(STR("[MeshGhostPseudo] a GHOST's rig was chosen but no earlier camera is known -- letting it through rather than guessing.\n"));
+                }
             },
             nullptr);
     }
