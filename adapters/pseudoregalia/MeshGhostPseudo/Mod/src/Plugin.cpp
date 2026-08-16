@@ -42,6 +42,23 @@ namespace MeshGhostPseudo
     // PROTOCOL.md's tick loop ("send local_state every frame, state may be nil"), not throttled.
     constexpr uint64_t LOG_INTERVAL_TICKS = 120;
 
+    // Slide mesh-offset probe -- the "START HERE" step of ideas.md's plan to replace the slide
+    // render-Z compensation (the +43 in slide_z_comp) with whatever the game's own crouch logic
+    // actually does. Question it answers: the ghost's VisualMesh sits at a FIXED -65 set at
+    // construction, so what does the REAL player's mesh read mid-slide?
+    //
+    // Why it does not reuse LOG_INTERVAL_TICKS: a plain slide is exactly 87 ticks (measured, four
+    // runs, verified.md), which is SHORTER than the 120-tick cadence -- a whole slide can fall
+    // between two samples and log nothing at all. At 10 ticks (~67ms on this build's ~150Hz) a
+    // slide yields ~13 samples.
+    //
+    // Cost, per CLAUDE.md's "a diagnostic can break the thing it measures": two property lookups
+    // on two already-known components. No enumeration, no name-to-string per object, no
+    // ProcessEvent -- this is not the expensive shape. Flip OFF once the capture is read, and
+    // record here what it produced (see OBJECT_REFLECTION_DUMP for the shape).
+    constexpr bool SLIDE_MESH_PROBE = true;
+    constexpr uint64_t SLIDE_MESH_PROBE_INTERVAL_TICKS = 10;
+
     // How often the montage divergence check asks the ghost what it's playing (see its call site in
     // tickRenders). Every tick would be a ProcessEvent getter call per ghost per frame for a
     // correction that only matters on the timescale an eye can see; 4 ticks is ~27ms on this
@@ -7134,13 +7151,20 @@ namespace MeshGhostPseudo
                 {
                     FRotator* vm_rot = (*vm_ptr)->GetValuePtrByPropertyNameInChain<FRotator>(STR("RelativeRotation"));
                     FVector* vm_scale = (*vm_ptr)->GetValuePtrByPropertyNameInChain<FVector>(STR("RelativeScale3D"));
-                    Output::send(STR("[MeshGhostPseudo] TRACE local VisualMesh: rot=(pitch={},yaw={},roll={}) scale=(x={},y={},z={})\n"),
+                    // RelativeLocation added for the slide mesh-offset question (SLIDE_MESH_PROBE's
+                    // own comment). Kept on this slow cadence too, so the standing baseline stays
+                    // in the log once the fast probe is switched back off.
+                    FVector* vm_loc = (*vm_ptr)->GetValuePtrByPropertyNameInChain<FVector>(STR("RelativeLocation"));
+                    Output::send(STR("[MeshGhostPseudo] TRACE local VisualMesh: rot=(pitch={},yaw={},roll={}) scale=(x={},y={},z={}) loc=(x={},y={},z={})\n"),
                                  vm_rot ? vm_rot->GetPitch() : -9999.0,
                                  vm_rot ? vm_rot->GetYaw() : -9999.0,
                                  vm_rot ? vm_rot->GetRoll() : -9999.0,
                                  vm_scale ? vm_scale->X() : -9999.0,
                                  vm_scale ? vm_scale->Y() : -9999.0,
-                                 vm_scale ? vm_scale->Z() : -9999.0);
+                                 vm_scale ? vm_scale->Z() : -9999.0,
+                                 vm_loc ? vm_loc->X() : -9999.0,
+                                 vm_loc ? vm_loc->Y() : -9999.0,
+                                 vm_loc ? vm_loc->Z() : -9999.0);
                 }
                 // Missing cross-check: does the REAL PLAYER's own capsule RelativeRotation change
                 // correctly with turning? Only the ghost's capsule rotation was ever confirmed
@@ -7174,6 +7198,41 @@ namespace MeshGhostPseudo
                     if (UObject** outfit_vm_ptr = pawn->GetValuePtrByPropertyNameInChain<UObject*>(STR("VisualMesh")); outfit_vm_ptr && *outfit_vm_ptr)
                     {
                         dump_object_property_values(*outfit_vm_ptr, STR("local pawn VisualMesh"));
+                    }
+                }
+            }
+
+            // Slide mesh-offset probe. DELIBERATELY OUTSIDE the LOG_INTERVAL_TICKS block above --
+            // inside it, it would inherit the 120-tick cadence and an 87-tick slide could produce
+            // zero samples, which is the whole reason this exists. See SLIDE_MESH_PROBE's comment.
+            //
+            // CapsuleHalfHeight and actionState ride along so every sample classifies ITSELF:
+            // half==65 is standing, half==22 is a plain slide (measured, verified.md). Without
+            // them a bare Z is uninterpretable and the capture would rest on the tester's timing.
+            if constexpr (SLIDE_MESH_PROBE)
+            {
+                if (tick_count % SLIDE_MESH_PROBE_INTERVAL_TICKS == 0)
+                {
+                    if (UObject** probe_vm_ptr = pawn->GetValuePtrByPropertyNameInChain<UObject*>(STR("VisualMesh")); probe_vm_ptr && *probe_vm_ptr)
+                    {
+                        FVector* probe_loc = (*probe_vm_ptr)->GetValuePtrByPropertyNameInChain<FVector>(STR("RelativeLocation"));
+
+                        float probe_half = -1.0f;
+                        if (UObject** probe_cap_ptr = pawn->GetValuePtrByPropertyNameInChain<UObject*>(STR("CapsuleComponent")); probe_cap_ptr && *probe_cap_ptr)
+                        {
+                            if (float* probe_half_ptr = (*probe_cap_ptr)->GetValuePtrByPropertyNameInChain<float>(STR("CapsuleHalfHeight")))
+                            {
+                                probe_half = *probe_half_ptr;
+                            }
+                        }
+
+                        Output::send(STR("[MeshGhostPseudo] TRACE slideMesh: meshLoc=(x={},y={},z={}) capsuleHalf={} actionState={} moveState={}\n"),
+                                     probe_loc ? probe_loc->X() : -9999.0,
+                                     probe_loc ? probe_loc->Y() : -9999.0,
+                                     probe_loc ? probe_loc->Z() : -9999.0,
+                                     probe_half,
+                                     action_state_ptr ? static_cast<int>(*action_state_ptr) : -1,
+                                     move_state_ptr ? static_cast<int>(*move_state_ptr) : -1);
                     }
                 }
             }
