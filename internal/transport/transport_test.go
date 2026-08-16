@@ -236,6 +236,60 @@ func TestCloseFiresDisconnect(t *testing.T) {
 	}
 }
 
+// TestLocalCloseDoesNotReportAnError is the regression test for a real log
+// line that looked like a bug and wasn't: on the shipped default transport
+// (udp), every successful join was preceded in the relay's log by
+//
+//	relay: connection error: read tcp ...: use of closed network connection
+//
+// The relay closes the tcp connection itself once it has answered a
+// query_only transport-discovery hello (internal/relay), and this read loop
+// was parked in Scan() at the time, so our own Close() came back as
+// net.ErrClosed and got reported through OnError as if a peer had done
+// something. Reproduced against the real binaries 2026-08-16, then fixed
+// here rather than in the relay, because every deliberate Close() in the
+// codebase had the same problem.
+//
+// OnDisconnect must still fire: suppressing the error must not make a
+// connection ending invisible, only stop it being called an error.
+func TestLocalCloseDoesNotReportAnError(t *testing.T) {
+	ln, addr := listen(t)
+
+	go func() {
+		conn, err := ln.Accept()
+		if err != nil {
+			return
+		}
+		FromConn(conn)
+	}()
+
+	client, err := Dial(addr)
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+
+	errs := make(chan error, 4)
+	client.OnError(func(err error) { errs <- err })
+	disconnected := make(chan error, 1)
+	client.OnDisconnect(func(err error) { disconnected <- err })
+
+	if err := client.Close(); err != nil {
+		t.Fatalf("close: %v", err)
+	}
+
+	select {
+	case <-disconnected:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for disconnect after a local Close")
+	}
+
+	select {
+	case err := <-errs:
+		t.Fatalf("OnError fired for our own Close(): %v", err)
+	default:
+	}
+}
+
 // TestOversizedLineWithNoDelimiterClosesConnection confirms a line
 // exceeding MaxLineBytes is rejected during the read itself, not after
 // being fully buffered. Found while scoping relay-safety hardening

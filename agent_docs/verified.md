@@ -4679,3 +4679,29 @@ path). Nothing under Proton. TEVI and Emerald not converted.
 Noted in passing from the same relay log, NOT investigated and NOT attributed to this change: a
 `relay: connection error: read tcp ...: use of closed network connection` line immediately before
 the join, which is the shape of the tcp handshake connection closing after the upgrade to udp.
+
+## 2026-08-16 — "use of closed network connection" in the relay log was ours, and is fixed
+
+**Established with the tools** (real binaries, reproduced then re-run after the fix), prompted by
+the user spotting the line in a relay window and asking for it to be checked rather than assumed.
+
+- **Reproduced deterministically.** A client on `-transport=udp` (the shipped default) made the
+  relay log `relay: connection error: read tcp ...: use of closed network connection` immediately
+  before **every** successful join. On `-transport=tcp` it never appeared.
+- **Cause, ours entirely.** The relay closes the tcp connection itself after answering a
+  `query_only` transport-discovery hello (`internal/relay/relay.go`). Its read loop was parked in
+  `scanner.Scan()`, so that Close came back as `net.ErrClosed` — and `transport.fail()` only
+  special-cased `io.EOF`, so it reported our own deliberate close through `OnError`.
+- **Fixed in `internal/transport`, not the relay**, because every deliberate `Close()` in the
+  codebase had the same problem (rejected hello, hello timeout, oversized line, rate-limit trip) —
+  each already logs its own reason, then got a second, scarier line about it. `net.ErrClosed` can
+  only be produced by this process closing the socket, never by a peer or the network.
+- **Verified after the fix, against rebuilt binaries:** a udp client now joins with no error line
+  at all, and — the control that matters — a client killed outright is *still* reported
+  (`wsarecv: An existing connection was forcibly closed by the remote host`). Suppressing our own
+  close did not suppress real ones. `OnDisconnect` still fires in both cases.
+- Regression test: `TestLocalCloseDoesNotReportAnError` (`internal/transport`). Full suite green,
+  plus `-count=10` on transport/relay/core/netx since this touches a read loop.
+
+Cosmetic in effect, but it put an error line at the top of the very log a remote tester is now
+asked to send back — which is why it was worth chasing rather than explaining away.

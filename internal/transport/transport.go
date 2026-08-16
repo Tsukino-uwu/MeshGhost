@@ -11,6 +11,7 @@ package transport
 import (
 	"bufio"
 	"bytes"
+	"errors"
 	"io"
 	"net"
 	"sync"
@@ -276,7 +277,23 @@ func (c *NDJSONConn) readLoop() {
 // connection (an oversized line, an idle timeout) with no offending message
 // ever reaching a caller's OnReceive to trigger its own Close() call.
 func (c *NDJSONConn) fail(err error) {
-	if err != io.EOF {
+	// net.ErrClosed is not a failure to report: it can only be produced by
+	// THIS process calling Close() on the connection, never by the peer or by
+	// the network. Every place that closes deliberately -- the relay answering
+	// a query_only transport-discovery hello (internal/relay), a rejected
+	// hello, a hello timeout, an oversized line, a rate-limit trip -- already
+	// logs its own reason, so passing this to OnError only ever adds a second,
+	// scarier-looking line about the close it just decided on.
+	//
+	// Found 2026-08-16 by reproducing it: a client on the shipped default
+	// transport (udp) made the relay log
+	// "connection error: read tcp ...: use of closed network connection"
+	// immediately before every successful join, because discovery closes the
+	// tcp connection while this read loop is parked in Scan(). Harmless, but
+	// it put an error line at the top of the log a remote tester is asked to
+	// send back. OnDisconnect still fires either way, so nothing that reacts
+	// to a connection ending is affected.
+	if err != io.EOF && !errors.Is(err, net.ErrClosed) {
 		c.cbMu.Lock()
 		onError := c.onError
 		c.cbMu.Unlock()
