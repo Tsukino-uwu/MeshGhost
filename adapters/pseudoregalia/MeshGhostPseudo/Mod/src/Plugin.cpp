@@ -203,7 +203,7 @@ namespace MeshGhostPseudo
     //
     // Read-back, not an echo: it asks the CONTROLLER which pawn it holds rather than reporting
     // what we asked for, which would prove nothing (CLAUDE.md).
-    constexpr bool POSSESS_TRACE = true;
+    constexpr bool POSSESS_TRACE = false;
 
     // How many redraw ticks after a spawn to keep checking who holds the controller. Long enough
     // to catch a possess that lands a frame or two later, short enough not to become per-tick
@@ -216,9 +216,9 @@ namespace MeshGhostPseudo
     // fight-back did.
     constexpr uint64_t GHOST_SPAWN_CAMERA_GUARD_TICKS = 10;
 
-    constexpr bool OUTLINE_TRACE = true;
+    constexpr bool OUTLINE_TRACE = false;
 
-    constexpr bool CAMERA_TRACE = true;
+    constexpr bool CAMERA_TRACE = false;
 
     constexpr uint64_t SPAWN_DELAY_TICKS = 300;
 
@@ -4765,13 +4765,10 @@ namespace MeshGhostPseudo
     // tick needed -- the corrected value is simply what the engine's own call uses.
     auto Plugin::register_camera_fightback_hook() -> void
     {
-        // Read-only as of 2026-08-16. This used to force the view target back to a remembered
-        // "known good" one whenever the game changed it; that mechanism is gone, and what remains
-        // is the probe that proved it had to go.
-        if (!CAMERA_TRACE)
-        {
-            return;
-        }
+        // Registered unconditionally: this hook no longer only observes. It refuses a camera
+        // switch to a rig owned by one of our ghosts, which is the fix for the player losing
+        // camera control after a ghost spawns -- so gating it on a trace flag would turn the probe
+        // switch into a feature switch, and turning logging off would silently reinstate the bug.
 
         svtwb_function = UObjectGlobals::StaticFindObject<UFunction*>(nullptr, nullptr, STR("/Script/Engine.PlayerController:SetViewTargetWithBlend"));
         if (!svtwb_function)
@@ -4800,8 +4797,19 @@ namespace MeshGhostPseudo
                 // rig and the game targets it. If that rig's Owner is one of our ghosts, this can
                 // be rejected precisely, instead of the old fight-back's "block every change
                 // forever", which is what made it worse than the bug.
-                UObject** owner = target->GetValuePtrByPropertyNameInChain<UObject*>(STR("Owner"));
-                UObject* owner_obj = (owner && *owner) ? *owner : nullptr;
+                // OwningActor, not Owner. The engine's Owner is (none) on every one of these rigs
+                // -- measured -- but a property dump of a rig caught mid-steal showed
+                // BP_PlayerCam_C carries its own Blueprint property pointing at the pawn it
+                // serves: "OwningActor (ObjectProperty) = BP_PlayerGoatMain_C_...". That is the
+                // exact test this needed, and it replaces the timing correlation that stood in for
+                // it. Owner is still read as a fallback in case some rig uses it instead.
+                UObject** owning_actor = target->GetValuePtrByPropertyNameInChain<UObject*>(STR("OwningActor"));
+                UObject* owner_obj = (owning_actor && *owning_actor) ? *owning_actor : nullptr;
+                if (!owner_obj)
+                {
+                    UObject** engine_owner = target->GetValuePtrByPropertyNameInChain<UObject*>(STR("Owner"));
+                    owner_obj = (engine_owner && *engine_owner) ? *engine_owner : nullptr;
+                }
 
                 bool owned_by_ghost = false;
                 if (owner_obj)
@@ -4845,7 +4853,10 @@ namespace MeshGhostPseudo
                     dump_object_property_values(target, STR("camera rig taken during a ghost spawn"));
                 }
 
-                if (!owned_by_ghost && !inside_ghost_spawn_window)
+                // The window is now only a fallback for a rig that cannot be identified at all --
+                // if OwningActor resolved, believe it rather than a correlation.
+                bool reject = owned_by_ghost || (owner_obj == nullptr && inside_ghost_spawn_window);
+                if (!reject)
                 {
                     // Remember the last target the game chose for itself. Only ever used to undo a
                     // ghost's rig below -- unlike the old fight-back, which treated this as the one

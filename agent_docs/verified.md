@@ -4996,3 +4996,42 @@ echoing what we wrote.
 **Why it is a fix and not an option:** knowing where another player is through geometry is
 information, and this project's line is visual-only with no gameplay effect. For a speedrunner
 that is a real advantage. The local player's own outline is untouched.
+
+## 2026-08-16 — A ghost brings its own camera rig, and that is what took the camera
+
+**Confirmed by the user**: *"its working now, didn't lose control of my camera / not stuck
+anymore"*, after several sessions where loading a save left the player able to walk but unable to
+turn the camera.
+
+**The mechanism, measured rather than reasoned:** every ghost spawn is followed 3-4ms later by
+`SetViewTargetWithBlend` switching to a **different** `BP_PlayerCam_C`, on every load, and never at
+any other time. The ghost is a clone of the player pawn, so it arrives with its own camera rig and
+the game targets it. A rig that serves a ghost does not answer the player's input — hence movement
+working while the camera was dead.
+
+**This vindicates the 7.4 fight-back's premise and confirms its rule was the bug.** Blocking *every*
+view-target change once any ghost existed is why removing it fixed one session and broke the next;
+both behaviours were wrong in opposite directions.
+
+**Identification, after one clean negative.** The engine's `Owner` is `(none)` on these rigs, so the
+first ownership test could not fire — the log said `owned_by_ghost=no` while the camera still broke,
+which is the negative result the probe was built to give. A property dump of a rig caught mid-steal
+then found the real link:
+
+    OwningActor (ObjectProperty) = BP_PlayerGoatMain_C_...
+
+So the shipped rule is: **refuse a view-target change to a rig whose `OwningActor` is one of our
+ghosts, and let everything else through** — cutscenes, area rigs, and the game's own routine
+switching are untouched. Rejection redirects to the last target the game itself chose, never to
+`nullptr`, which is not "no change" but "no camera". A spawn-window correlation remains only as a
+fallback for a rig that cannot be identified at all.
+
+**Also fixed along the way, and real but unrelated to the reported symptom:** the ghost auto-possessed
+on spawn (`AutoPossessPlayer = 1`, confirmed), stealing the controller every time; it is now cleared
+on the class default object around `SpawnActor`, and the hand-back is skipped when nothing took
+control. Bracketing the spawn is what made the theft visible — a probe reading only *after* the
+hand-back reported the local pawn every time and hid it completely.
+
+**Still open:** the duplicate spawn (two ghosts per level load, the `remotes` entry going from
+present to absent within three ticks, leaving an orphan). The camera hook is now registered
+unconditionally, since it carries a fix rather than only a probe; the three trace flags are off.
