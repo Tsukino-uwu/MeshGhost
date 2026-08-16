@@ -376,6 +376,14 @@ Four things make or break it:
 - **Repeat and intersect.** One mark leaves ~3; the same candidate showing up across three or four
   marks leaves 1. The first mark does the big cut, the intersection does the rest — neither step
   needs a theory about what anything is called.
+
+**Then hand the 3 to the catalog probe (§1), which is the decisive half.** Play each candidate onto
+a ghost, one at a time, numbered — and the person watching just says which of 1/2/3 was it. That
+probe was never wrong, only unusable: at 58 particle systems it was an afternoon, at 3 it is a
+minute. Marking narrows without naming anything; the catalog then *confirms by watching the effect
+play*, which is the standard this project holds visual claims to anyway ("was the expected thing
+seen happening on screen"). Neither half is sufficient alone — one filters cheaply but only to
+"probably", the other proves but does not scale. Run them back to back.
 - **It is also the CHEAP shape, which is why it fits this project's hardest lesson.** The rolling
   buffer stores pointers and ids only; names and strings get resolved for the ~2s that were marked,
   not for every object every tick. Per-tick enumeration with a name lookup per object is exactly

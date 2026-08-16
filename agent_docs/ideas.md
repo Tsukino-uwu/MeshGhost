@@ -851,6 +851,12 @@ previous, current, and next event — **3 candidates instead of 50+** — becaus
 ordinal, not precise. Marks then intersect: three or four of them and the list collapses to one,
 with no theory about naming at any point. The idle periods double as a free ambient baseline.
 
+**It is the first half of a two-pass method, not a whole one.** The marks narrow 50+ to ~3 without
+naming anything; the existing catalog probe then plays those 3 onto a ghost, numbered, and the
+watcher says which. That probe already exists and was never wrong — it was just unusable at 58
+candidates. The pairing fixes each one's weakness: marking is cheap but only gets to "probably",
+the catalog proves but does not scale.
+
 **Where it should be tried first:** the two VFX gaps still open — Pseudoregalia's remaining
 missing effects, and TEVI's charged-attack VFX that plays no effect while the animation runs
 (`status.md`). Both are exactly the "we know what it looks like, we cannot find what it is called"
