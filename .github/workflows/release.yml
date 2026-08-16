@@ -84,8 +84,8 @@ jobs:
           # out 0644). That is precisely why this job runs on ubuntu-latest, and it also means
           # the first real release is where it gets proven. If a Linux user reports "permission
           # denied", this is the line to look at.
-          tar -czf "MeshGhost-$VERSION-linux.tar.gz" -C stage/linux .
-          tar -czf "MeshGhost-$VERSION-macos.tar.gz" -C stage/macos .
+          tar -czf "MeshGhost-linux-$VERSION.tar.gz" -C stage/linux .
+          tar -czf "MeshGhost-macos-$VERSION.tar.gz" -C stage/macos .
 
       - uses: actions/upload-artifact@v4
         with:
@@ -274,16 +274,20 @@ jobs:
           New-Item -ItemType Directory -Force packaging\release\games\pokemon\emerald | Out-Null
           Copy-Item adapters\pokemon\emerald\meshghost_emerald.lua packaging\release\games\pokemon\emerald\meshghost_emerald.lua
           Copy-Item -Recurse adapters\pokemon\emerald\lib packaging\release\games\pokemon\emerald\lib
-          # No platform in the name, because this one IS the download: client, server, and
-          # every game's mod. The Linux and macOS builds (see the unix-binaries job) carry a
-          # platform in theirs precisely because they are the extras -- naming this one
-          # "-windows" too would have put all three on an equal footing and left someone
-          # wondering which they were supposed to pick.
+          # "full" rather than "windows", for two reasons. It says what is actually in here
+          # (client, server, and every game's mod) instead of naming a platform, and GitHub
+          # sorts release assets ALPHABETICALLY BY FILENAME -- upload order is ignored, and
+          # there is no manual ordering. "full" sorts above "linux" and "macos", which is what
+          # puts the download almost everyone wants at the top of the Assets list.
+          #
+          # This is also why the version moved to the end: '-' sorts before '.', so anything
+          # named MeshGhost-<version>-something would always sort ABOVE MeshGhost-<version>.zip,
+          # no matter what the extras were called.
           #
           # The version stays because the file outlives the page it came from: once it's in
           # someone's Downloads folder, the tag that would have identified it is gone, and
           # "which version are you running?" is the first question any bug report needs.
-          Compress-Archive -Path packaging\release\* -DestinationPath "MeshGhost-$env:VERSION.zip"
+          Compress-Archive -Path packaging\release\* -DestinationPath "MeshGhost-full-$env:VERSION.zip"
 
       - name: Collect the Linux and macOS packages
         uses: actions/download-artifact@v4
@@ -300,7 +304,7 @@ jobs:
           # the client and server. The two tarballs contain no adapters on purpose -- every
           # shipped adapter is for a Windows game, so a native Unix build has nothing to hook.
           files: |
-            MeshGhost-${{ inputs.version }}.zip
-            MeshGhost-${{ inputs.version }}-linux.tar.gz
-            MeshGhost-${{ inputs.version }}-macos.tar.gz
+            MeshGhost-full-${{ inputs.version }}.zip
+            MeshGhost-linux-${{ inputs.version }}.tar.gz
+            MeshGhost-macos-${{ inputs.version }}.tar.gz
           generate_release_notes: true

@@ -25,9 +25,18 @@ the way "tevi" and "pseudoregalia" already are; TEVI and Pseudoregalia sit direc
 
 ## …and then two more, for Linux and macOS (added 2026-08-16)
 
-A release now publishes three assets: `MeshGhost-<version>.zip` (the one above — Windows client,
-server, and every game's mod) plus `MeshGhost-<version>-linux.tar.gz` and `-macos.tar.gz`, holding
-native builds of **only the client and server**. Hand-written parts live in `packaging/unix/`.
+A release now publishes three assets: `MeshGhost-full-<version>.zip` (the one above — Windows
+client, server, and every game's mod) plus `MeshGhost-linux-<version>.tar.gz` and
+`MeshGhost-macos-<version>.tar.gz`, holding native builds of **only the client and server**.
+Hand-written parts live in `packaging/unix/`.
+
+**The names are load-bearing, not decorative.** GitHub sorts a release's assets alphabetically by
+filename — upload order is ignored and there is no manual ordering — so `full` < `linux` < `macos`
+is what puts the download almost everyone wants at the top of the list. It is also why the version
+sits at the END: `-` sorts before `.`, so any `MeshGhost-<version>-something` would have sorted
+above `MeshGhost-<version>.zip` no matter what the extras were called. (The two `Source code`
+archives GitHub attaches on its own cannot be reordered or removed at all; that is a long-standing
+open feature request, not something this workflow adds.)
 
 This does not contradict "why one zip". That section is about not making a downloader choose
 between two files that are both for them; here the main zip stays the unambiguous default (hence
