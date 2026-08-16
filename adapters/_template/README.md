@@ -75,6 +75,28 @@ same as any two unrelated games — grouping by franchise just keeps the top lev
    build these), its own staleness-verification step in `release.yml`, and a hand-written
    `README.txt` for the game folder that nothing generates.
 
+## First, work out what you will be able to READ
+
+Do this before estimating anything. The three shipped adapters differed enormously in difficulty,
+and the best predictor was not the engine, the language or the modding framework — it was **how much
+readable source existed about the game before work started.**
+
+| Adapter | Access model |
+| --- | --- |
+| Emerald | External source decompilation (`pokeemerald`) |
+| TEVI | Self-documenting artifact (`Assembly-CSharp.dll` via ILSpy) — the easiest, and by far the fastest adapter |
+| Pseudoregalia | Runtime reflection only, no readable source anywhere — the largest and hardest by a wide margin |
+
+**Full reference: [agent_docs/access-models.md](../../agent_docs/access-models.md)** — the other
+approaches that exist, a checklist for working out what a new game offers, and the axis that
+actually predicts pain (does a wrong input *tell* you it is wrong, or return something plausible?).
+
+The short version, because it is what the next section rests on: with a decompile you can look up
+the truth, and a wrong name is a build error. With runtime reflection only, every name is a string
+resolved live and **a wrong one does not fail to compile — it returns nothing, or something
+plausible.** On those games, enumerating what the game contains is not a debugging technique. It is
+the substitute for having source.
+
 ## Ask the game what it has, before you guess at what it might have
 
 **Do this early — right after a ghost renders at all, not once you are deep into polish.** It is the
@@ -241,6 +263,37 @@ So, when instrumenting an effect:
   log the observation and conclude outside it, because a wrong conclusion in a log file outlives
   the run and gets believed later.
 
+### If you are about to start effect work, read the playbook first
+
+The two sections above tell you *what to build*: enumerate before guessing, mirror the decision
+rather than the rule. They do not tell you how to run the hunt — what order to do things in, how to
+instrument a run so it can answer something, or how to tell when you are actually finished.
+
+That is [agent_docs/effect-investigation.md](../../agent_docs/effect-investigation.md), and it is
+worth the read **before** starting, not after something goes wrong. It follows one investigation —
+Pseudoregalia's afterimage trail and the ultra hop's blue afterimage, the hardest and longest single
+piece of work in that adapter — from the first wrong guess to the working version, and then extracts
+the procedure.
+
+**Why it earns a whole file.** That effect looked like one property on one object. It became: three
+wrong triggers, a fourth that shipped and was still wrong, a fatal crash from hooking the wrong kind
+of function, bursts that truncated each other, a coverage gap that sat written down and unread for
+days, a probe that broke the very thing it measured badly enough to need this project's first commit
+bisection, an engine object pool that made a naive detector both under- and over-count, and **seven
+separate points at which the whole thing was confirmed working and then reopened.**
+
+The three findings most likely to save you time on a different game:
+
+1. **When a plausible property provably never changes, that is evidence about which OBJECT holds the
+   state — not evidence that the problem is unsolvable.** This one wrong inference parked the feature
+   for days.
+2. **When a count looks wrong, log identity, not more counts.** "The game produced two" and "one was
+   counted twice" produce identical numbers and need opposite fixes. A pointer separated them in one
+   line.
+3. **Test the move performed *badly*, and test that the effect stays absent.** A reconstructed
+   trigger agrees with the real one on the clean case and diverges on the messy one, so the clean
+   case can never tell them apart.
+
 ## Testing it
 
 The local rig already exists — read [dev-scripts/README.md](../../dev-scripts/README.md) before
@@ -280,6 +333,13 @@ language. See `adapters/pseudoregalia/README.md` for the worked example. Keep th
 `verified.md`, and `pitfalls.md`, and link to them — a step that has grown into paragraphs of
 caveats belongs there with a one-line pointer left behind. See [CLAUDE.md](../../CLAUDE.md)'s
 hard rule on this.
+
+**Also state the access model up top**, as a bullet alongside platform and adapter language:
+**"How the game is read: ..."** — decompilation, self-documenting artifact, runtime reflection,
+modding API, and so on, per the section above. All three shipped adapters carry this bullet. It is
+the single fact that best explains why an adapter is the size and shape it is, it tells a reader
+immediately how much of the code is discovery scaffolding versus feature work, and it sets
+expectations for anyone picking the adapter up later.
 
 ## Hard rules, restated (unchanged from [agent_docs/contract.md](../../agent_docs/contract.md))
 

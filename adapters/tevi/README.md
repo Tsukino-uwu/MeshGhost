@@ -4,6 +4,12 @@
 
 - Unity, 2D movement-focused platformer/metroidvania — the genre where ghost co-op is most
   visually satisfying, and the reason it was picked over Pseudoregalia for the second slot.
+- **How the game is read: the shipped artifact documents itself.** `Assembly-CSharp.dll` is managed
+  Mono bytecode, decompiled locally with ILSpy to read real class and field names, and the adapter
+  compiles against it — so a wrong name is a build error, not a silent runtime nothing. A little C#
+  reflection reaches non-public members. This is the easiest of the three access models the project
+  has used, and it is why this adapter was by far the fastest. See
+  [agent_docs/access-models.md](../../agent_docs/access-models.md).
 - Owned by the project author, unlike the Ori titles (see
   [adapters/oribf/README.md](../oribf/README.md)), which was the deciding factor.
 - IL2CPP vs Mono build status: **confirmed Mono** (2026-08-11) — see
@@ -16,6 +22,7 @@
   [agent_docs/phases/phase5.md](../../agent_docs/phases/phase5.md).
 
 ## Custom features
+
 Map marker for other player ghosts, shows a constantly tracking/updating tiny tevi bunny icon
 for where other players are in your current zone(as long as you have discovered/seen the maps before)
 

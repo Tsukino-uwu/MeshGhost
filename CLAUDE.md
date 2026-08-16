@@ -24,6 +24,21 @@ proposing a plan that touches the core, an adapter, or the relay.
   sends bytes off-machine directly. See `agent_docs/contract.md` for the bridge/relay split.
 - **`area_id` and `anim` are opaque to the core.** Compare by equality only. Never build a
   universal animation vocabulary or branch on area contents in game-agnostic code.
+- **Nothing goes in this repo that couldn't be published. The test is not "does a license permit
+  this?" but "is this fine sitting in a public repo forever?"** If the answer is no, or unclear, it
+  doesn't go in — even where a license would arguably allow it. **This is deliberately stricter than
+  the licenses require**, and it's the same instinct as the no-usernames rule below: the repo
+  contains only what may be public, full stop. Consulting a reference for *facts* stays allowed (next
+  rule); containing its *expression* does not — which is why the `pokeemerald` decompilation can be
+  read but nothing of it exists in this repo. Applies to decompiler output, disassembly, game
+  binaries, assets, ROMs, symbol files, and verbatim reflection dumps alike. **It also filters which
+  approaches to adopt at all: don't take one that needs unpublishable material present in the repo to
+  work.** Where an approach needs a user-owned artifact only at *build* time (TEVI compiling against
+  the game's own DLL), that artifact stays out and the build output is committed instead — which is
+  what costs us CI builds for those two adapters. **Clean isn't enough: the public repo must also
+  WORK for a user who has only it plus what they legitimately own** (their own game/ROM/emulator) —
+  nothing disallowed may be required to install or run it. Consulting any reference we need stays
+  fine; it just never ends up here. Per-approach detail: `agent_docs/access-models.md`.
 - **Read a project's license before reading its source.** See `agent_docs/licensing.md`.
   Consulting a reference project (e.g. the `pokeemerald` decompilation) to learn a fact —
   an address, a function name, a data layout — is normal; copying its source or assets is
@@ -131,7 +146,10 @@ proposing a plan that touches the core, an adapter, or the relay.
   enough", not "~10 hours in") — the three existing adapter READMEs all read that way, and it's
   the number a reader is actually asking for. Found live 2026-08-15:
   Pseudoregalia's steps 19-22 had each grown to 15-20 dense lines while 1-18 stayed at 2-4,
-  making the file hard to read for exactly the audience it's for.
+  making the file hard to read for exactly the audience it's for. **One standing exception, granted
+  by the user 2026-08-16: Pseudoregalia's steps 38-41 (the ultra-hop blue trail) run ~6 lines each
+  and must not be trimmed to match the rest** — it was the adapter's hardest and longest piece of
+  work. A note at the bottom of that list says so too; don't "fix" either.
 - **`agent_docs/status.md` is an index of what's open, not a record: two lines per item, maximum —
   what is open, and where the detail lives.** A third line means it belongs in `verified.md`,
   `pitfalls.md`, or `phases/phaseN.md`; move it and leave a pointer. Delete an item the moment it's
@@ -177,6 +195,10 @@ reasoning, the rule stays here and the reasoning goes to a `.md` file in `agent_
   outside project.
 - `agent_docs/risks.md` is the assumptions and risk register.
 - `agent_docs/pitfalls.md` is the adapter-specific issues log — symptom, diagnosis, fix.
+- `agent_docs/effect-investigation.md` is the how-to-search playbook for a game's visual effects —
+  read before starting effect/VFX work on a new adapter, not after it goes wrong.
+- `agent_docs/access-models.md` records what can be read about each game (decompilation, managed
+  bytecode, runtime reflection, …) and why that predicts an adapter's difficulty.
 - `agent_docs/phases/` holds a file per phase, kept as an archive after the phase ends.
 - `agent_docs/environment.md` is the toolchain/tool/mod version record, filled in as phases
   actually run.

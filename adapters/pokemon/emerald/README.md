@@ -7,6 +7,11 @@ and the "Further work past 'good enough'" section below for what's still open.
 
 - Platform: GBA, played via BizHawk.
 - Adapter language: Lua (BizHawk's scripting host).
+- **How the game is read: an external source decompilation.** Fixed memory addresses, looked up in
+  [`pokeemerald`](https://github.com/pret/pokeemerald) and cited — nothing is discovered at runtime.
+  Addresses are unknowable but authoritative: you cannot invent one, and once the decomp gives it to
+  you it is right. See [agent_docs/access-models.md](../../../agent_docs/access-models.md) for what
+  each access model costs and what the other adapters used.
 - Reading local state is trivial — the `pokeemerald` decompilation documents player X/Y,
   map bank/number, and camera offset rather than requiring reverse engineering. See
   [agent_docs/licensing.md](../../../agent_docs/licensing.md) for the rule on how that decomp

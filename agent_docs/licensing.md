@@ -4,6 +4,31 @@ The brief is explicit and loud about this: everything in MeshGhost is our own co
 here is copied from the prior-art projects the brief points at. This file exists so that
 claim stays checkable instead of resting on memory.
 
+**Standing rule, and the one the others serve: this repo contains only what may be public.**
+The test applied here is not "does some license permit this?" but **"is this fine sitting in a
+public repo forever?"** — and anything that is no, or merely unclear, stays out even where a
+license would arguably allow it. That is **deliberately stricter than the licenses require**, on
+purpose: it means the repo never depends on a judgement call about someone else's terms holding up
+later. Reading a reference to learn facts is unaffected; what is constrained is what the repo
+*contains*. `pokeemerald` is the worked example — consulted throughout Emerald's development, and
+not one byte of it is here.
+
+**How to check that rule still holds** — mechanical, and worth running before a release or after
+adding any binary. Both must come back clean:
+
+```sh
+# 1. Nothing game-derived tracked. Must print nothing.
+git ls-files | grep -Ei '\.(rom|gba|gbc|nds|iso|pak|uasset|umap|pdb|dmp|sav)$|assembly-csharp'
+
+# 2. Every tracked DLL must be our own build output or a permissive dependency
+#    shipping its LICENSE alongside. Read the list; there is no rule that can check intent.
+git ls-files '*.dll'
+```
+
+As of 2026-08-16 that second list is six files: two LuaSocket/Lua binaries, UE4SS's `UE4SS.dll` and
+`dwmapi.dll` (MIT, `LICENSE` committed beside them), and our own `MeshGhostTevi.dll` and
+Pseudoregalia `main.dll`. No game-derived binary has ever been tracked.
+
 **Standing rule: read a project's license before reading its source, and record the result
 here before consulting that project for anything.** If a project isn't in the table below,
 its license hasn't been checked yet — do not use it as a reference until it is.
@@ -15,6 +40,11 @@ this kind of project gets built. Copying source text, data tables, asset files, 
 structurally-identical code is a different act and is not permitted regardless of a
 project's license terms, unless that license explicitly allows redistribution and the
 copied portion is attributed per its terms.
+
+[access-models.md](access-models.md)'s "What any of this means for a PUBLIC repo" applies that rule
+per approach — what may be committed and what may not, for each way of reading a game — plus the two
+things that sit outside copyright entirely (EULA reverse-engineering clauses, and anti-circumvention
+rules where DRM is involved). Read it when starting a new game; this file stays the authority.
 
 **Standing rule: every entry below is a snapshot, not a permanent guarantee.** Each row
 records what a project's license *was, as of the date noted in that row* — not a fact that

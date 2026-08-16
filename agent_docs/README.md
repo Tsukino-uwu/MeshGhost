@@ -24,6 +24,15 @@ Internal documentation for MeshGhost: architecture, planning, licensing, and ver
 - [pitfalls.md](pitfalls.md) — adapter-specific issues across all games: symptom, how it was
   diagnosed, root cause, fix. Not design decisions ([risks.md](risks.md)) or confirmed facts
   ([verified.md](verified.md)).
+- [access-models.md](access-models.md) — **what you can read about a game**, which predicts an
+  adapter's difficulty better than its engine does. What each shipped adapter used (decompilation /
+  self-documenting artifact / runtime reflection), the other approaches that exist, and a checklist
+  for working out what a new game offers. Read before starting a new adapter.
+- [effect-investigation.md](effect-investigation.md) — **how to search**: the procedure for finding,
+  mirroring and confirming a game's visual effect, told through the Pseudoregalia afterimage/trail
+  investigation start to finish. Complements the other two rather than repeating them —
+  [pitfalls.md](pitfalls.md) is what went wrong, `_template/README.md` is what to build, this is how
+  to go looking. Read it before starting effect/VFX work on a new game.
 - `phases/` — a file per phase. Kept around after the phase ends as a work log/archive
   rather than folded away — [status.md](status.md) and [plans.md](plans.md) stay the
   current-state summary.
