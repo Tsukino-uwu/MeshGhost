@@ -369,12 +369,40 @@ Common things to check:
   actually read. With a mod that starts MeshGhost for you, that's the copy
   in the MOD's folder, not the one next to this README.
 
-A note on antivirus: because the Pseudoregalia mod starts meshghost.exe by
-itself, some antivirus software may be more suspicious of it than of a
-program you double-clicked (the executables aren't code-signed yet). If
-yours removes or blocks it, you can set the environment variable
-MESHGHOST_NO_AUTOSTART to anything and start meshghost.exe yourself
-instead -- that path still works exactly as it always did.
+If your antivirus flags MeshGhost
+---------------------------------
+It may, and it is a false positive. meshghost.exe and meshghost-server.exe
+are unsigned programs written in Go, and two separate things react to that:
+scanners often don't recognise the shape of Go binaries (Go's own FAQ says
+this is common and almost always wrong -- go.dev/doc/faq), and Microsoft
+Defender may show a name ending in "!ml", which means a machine-learning
+guess rather than a match against anything known.
+
+What you can do:
+
+1. Check the file is the one we published. Every release asset lists a
+   SHA-256 on the Releases page; if yours matches, it is exactly what the
+   build produced, and the build is public.
+
+2. If it is specifically the Pseudoregalia mod STARTING meshghost.exe that
+   your scanner objects to, set the environment variable
+   MESHGHOST_NO_AUTOSTART to anything and start meshghost.exe yourself
+   instead. That path is unchanged and fully supported.
+
+3. If a file has already been quarantined or deleted, that is worth knowing:
+   the mod's log (ue4ss\UE4SS.log for Pseudoregalia) will say it could not
+   find meshghost.exe, which looks identical to never having installed it.
+
+4. Reporting it to your antivirus vendor as a false positive genuinely helps
+   -- it is what Go's FAQ asks people to do, and it is the only thing that
+   makes scanners stop.
+
+We intend to get the binaries code-signed (via SignPath's free offering for
+open-source projects), which should reduce this. It has not been done yet,
+and it is unlikely to remove the problem entirely straight away -- a new
+certificate has no reputation built up, and reputation is part of what these
+detections weigh. The main README on the project page explains this in more
+detail if you want the long version.
 
 
 Playing on Linux or macOS

@@ -78,6 +78,17 @@
 - **macOS distribution friction**: an unsigned Go binary will trip Gatekeeper on first run.
   Not a blocker for early phases, but worth planning for before a public release. Autostart
   (below) would make this worse there in the same way it does on Windows, whenever Mac builds land.
+- **The shipped exes draw antivirus false positives, from two separate causes.** Recorded as its
+  own entry 2026-08-16 — until then this was asserted as a premise inside four other entries
+  (autostart, TLS, quic-go, macOS) with nowhere stating it. **(1)** Scanners that do not recognise
+  Go binary structure; not ours and not specific to this project, and Go's own FAQ documents it
+  (`go.dev/doc/faq`), which is why the public README cites upstream rather than reassuring in our
+  own voice. **(2)** A Defender detection ending in `!ml`, meaning a machine-learning verdict
+  rather than a signature match. The profile it fires on is accurate about us: unsigned, almost no
+  download reputation, opens network connections, and now started by a game mod rather than a
+  person. **Signing is expected to reduce this, not end it** — an ML verdict weighs reputation too,
+  and a new certificate has none. Explained to users in `README.md`'s "My antivirus flagged it" and
+  `packaging/release/README.txt`; the intended fix has its own entry in `ideas.md`.
 - **Autostart makes the antivirus false positives more likely, not less** (added 2026-08-16 with
   the autostart ADR). The shipped exes already draw false-positive trojan flags, and a game mod
   silently starting a hidden, unsigned executable is the literal shape of a dropper — a materially

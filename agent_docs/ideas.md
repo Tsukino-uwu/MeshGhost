@@ -836,6 +836,40 @@ would change this is hosting: some PaaS providers and restrictive networks route
 a relay behind such a proxy is reachable over WSS on 443 and nothing else. If that ever comes up,
 `internal/netx` makes it a fourth `Kind` with no change to `internal/relay` or `internal/core`.
 
+## Code signing the Windows binaries (SignPath OSS)
+
+**Named publicly as the intended fix 2026-08-16**, when `README.md` gained a "My antivirus flagged
+it" section, so it needs an entry of its own rather than the single sequencing mention it had
+inside the TLS idea. Unstarted.
+
+**What it is:** SignPath offers free code-signing certificates and a signing service to open-source
+projects. The build would sign `meshghost.exe` and `meshghost-server.exe` in
+`.github/workflows/release.yml` before they are packaged.
+
+**What it addresses, and what it does not** — worth separating, because they are three different
+mechanisms and signing only fully solves one:
+
+- **Authenticode** — "who published this, and has it been altered since". Signing answers this
+  outright. This is the part that is simply fixed.
+- **SmartScreen reputation** — a per-publisher score built from how many people have downloaded and
+  run your signed files. A *new* certificate starts with none, so the first releases can still warn.
+  An EV certificate is granted reputation immediately; SignPath's OSS offering is not EV, so this
+  is earned over time rather than granted.
+- **Defender's `!ml` verdicts** — a machine-learning judgement over a profile, of which signing and
+  reputation are two inputs among several (prevalence, network behaviour, whether a process was
+  started by a person or by another program). Signing improves the odds. It does not guarantee an
+  outcome, and `README.md` deliberately does not promise one.
+
+**Cost:** an application to SignPath's OSS programme, a project/artifact configuration on their
+side, and a CI change with a signing step and a secret. The signing itself is a service call, not a
+certificate file sitting in the repo — which matters here, since a private key in a public repo
+would be exactly the sort of thing `CLAUDE.md`'s "nothing that couldn't be published" rule forbids.
+
+**Why it keeps coming up:** it is now the mitigation named by three separate entries in
+`risks.md` — the general false-positive one, the autostart one (a mod starting an unsigned exe is
+dropper-shaped), and TLS (which would add cert generation plus encrypted traffic on top). It is the
+only one of those where the work is bounded and the benefit reaches users directly.
+
 ## VFX hunting — let the player mark the moment (untried)
 
 **User's idea, 2026-08-16.** Written up as a procedure step in
