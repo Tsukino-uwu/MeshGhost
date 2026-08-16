@@ -210,6 +210,12 @@ namespace MeshGhostPseudo
     // logging.
     constexpr uint32_t POSSESS_TRACE_TICKS = 20;
 
+    // How long after OUR ghost spawn a camera switch is treated as the ghost's own rig taking
+    // over. Measured at 3-4ms (2-3 ticks) every time; a handful of ticks covers it with margin
+    // while staying far away from "block everything forever", which is what the removed
+    // fight-back did.
+    constexpr uint64_t GHOST_SPAWN_CAMERA_GUARD_TICKS = 10;
+
     constexpr bool OUTLINE_TRACE = true;
 
     constexpr bool CAMERA_TRACE = true;
@@ -4817,7 +4823,29 @@ namespace MeshGhostPseudo
                              owner_obj ? owner_obj->GetFullName() : STR("(none)"),
                              owned_by_ghost ? STR("YES") : STR("no"));
 
-                if (!owned_by_ghost)
+                // Owner is (none) on every one of these rigs -- measured, not assumed -- so
+                // ownership cannot identify them. What CAN: we know exactly when we spawned a
+                // ghost, and every observed steal happens within a few ticks of that, never at any
+                // other time. So the window is the signal, and it is a window we create.
+                //
+                // Deliberately narrow: a handful of ticks after OUR OWN spawn, not a permanent
+                // state. Outside it the game keeps every camera decision it makes, which is the
+                // property the old fight-back lacked.
+                bool inside_ghost_spawn_window = ghost_spawn_camera_guard_tick != 0 &&
+                                                 tick_count >= ghost_spawn_camera_guard_tick &&
+                                                 tick_count <= ghost_spawn_camera_guard_tick + GHOST_SPAWN_CAMERA_GUARD_TICKS;
+
+                if (inside_ghost_spawn_window && !camera_rig_dumped)
+                {
+                    // One-shot: dump the rig that steals the camera, so the property that actually
+                    // links it to its pawn can be found and this timing rule replaced with a
+                    // precise test. Once per session -- a dump per switch would be its own
+                    // problem.
+                    camera_rig_dumped = true;
+                    dump_object_property_values(target, STR("camera rig taken during a ghost spawn"));
+                }
+
+                if (!owned_by_ghost && !inside_ghost_spawn_window)
                 {
                     // Remember the last target the game chose for itself. Only ever used to undo a
                     // ghost's rig below -- unlike the old fight-back, which treated this as the one
@@ -4826,7 +4854,7 @@ namespace MeshGhostPseudo
                     return;
                 }
 
-                // The one switch worth refusing: a camera rig belonging to a ghost. Everything
+                // The one switch worth refusing: a camera taken during our own ghost spawn. Everything
                 // else -- cutscenes, area rigs, the game's own routine switching -- passes through
                 // untouched, which is exactly what the old mechanism got wrong.
                 //
@@ -5173,6 +5201,9 @@ namespace MeshGhostPseudo
         {
             Output::send(STR("[MeshGhostPseudo] WARNING: Controller has no reflected Possess function -- the real player may lose control.\n"));
         }
+
+        // Arm the camera guard: the game re-picks a camera within a few ticks of this spawn.
+        ghost_spawn_camera_guard_tick = tick_count;
 
         if (POSSESS_TRACE)
         {

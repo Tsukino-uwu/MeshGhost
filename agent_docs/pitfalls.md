@@ -15,6 +15,35 @@ next game adapter starts from the lessons already paid for instead of re-learnin
   transferable lessons so a future adapter author doesn't have to re-read a whole phase's
   saga to find them.
 
+## A symptom word can name more than one subsystem — confirm which before probing
+
+**Symptom:** four live test cycles spent chasing the wrong subsystem, while every probe returned
+true findings that looked like progress.
+
+**What happened, 2026-08-16.** The user reported the Pseudoregalia camera acting wrong, and
+clarified: *"it was focused on the player, but I couldn't move/control it."* That was read as
+**movement** loss. Two probes and a fix followed, aimed at the ghost stealing possession from the
+player pawn. The user's actual meaning was *"I can walk around, the camera won't rotate"* — a
+different subsystem entirely.
+
+**Why it survived several rounds.** The wrong reading produced *correct* findings. The ghost really
+did auto-possess and steal the controller on every spawn, so each probe confirmed something real
+and each fix changed something real. Nothing failed in a way that pointed back at the
+misunderstanding. A probe built on a misread symptom can be right about the wrong thing, and that
+reads exactly like being on the right track.
+
+**What actually resolved it:** the user saying "I never lost movement". One sentence, after four
+build-deploy-replay cycles.
+
+**The rule:** when a report could reasonably mean two things — "move", "stuck", "frozen", "lost
+control", "not responding" — ask which, and say what each would imply so the answer is one word.
+The user confirmed this explicitly: *"its fine to ask if you are unsure."* A question costs a
+sentence; a wrong reading costs a test cycle, and the person paying it is the one who has to
+replay the save.
+
+**The tell:** you are about to instrument a subsystem the reporter never named. Here the report
+said "camera" three times and the probes all went to possession.
+
 ## Gating a handshake on its own result (deadlock, twice in one day)
 
 **Symptom:** the Pseudoregalia adapter reconnected to the bridge every ~12 seconds forever, logging

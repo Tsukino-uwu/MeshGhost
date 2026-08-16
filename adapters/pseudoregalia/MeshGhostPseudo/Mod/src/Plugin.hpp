@@ -817,6 +817,10 @@ namespace MeshGhostPseudo
         // undo a ghost-owned switch -- deliberately not the old "last known good" cache, which
         // was applied to every change and became the bug it was meant to prevent.
         RC::Unreal::AActor* last_non_ghost_view_target{nullptr};
+        // Tick at which a ghost last spawned, arming a short camera guard -- see
+        // GHOST_SPAWN_CAMERA_GUARD_TICKS.
+        uint64_t ghost_spawn_camera_guard_tick{0};
+        bool camera_rig_dumped{false};
         std::unique_ptr<BridgeClient> bridge;
         // Starts meshghost.exe if one isn't already running, so the player doesn't have to.
         // Declared after bridge so it is destroyed first, stopping the core before the socket
