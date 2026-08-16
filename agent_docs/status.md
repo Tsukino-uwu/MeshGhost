@@ -40,6 +40,8 @@ Fixed-and-confirmed work is not listed here — see `verified.md` and the phase 
   TEVI's `game_version` isn't real, adapters' parsing never got the adversarial audit. `internal/README.md`.
 - **Selectable transport shipped 2026-08-16**, all three confirmed live on Pseudoregalia — open:
   no sustained-load or two-machine test, `udp` unencryptable, no per-IP cap. `verified.md`, `risks.md`.
+- **A served-but-unforwarded transport strands a client** — discovery knows what a relay offers,
+  not whether the path works, so it retries instead of falling back to tcp. Docs-only for now.
 - **Suspected: Pseudoregalia mod may not clear ghosts when the bridge drops** — pre-existing, any
   transport. Planned fix: `release_all_ghosts` on bridge loss, NOT parking. `verified.md` 2026-08-16.
 

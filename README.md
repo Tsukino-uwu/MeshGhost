@@ -61,13 +61,14 @@ Full walkthrough: `packaging/release/README.txt` (ships in the zip) and
 
 ### Transports: `tcp` vs `udp` vs `quic`
 
-`"transport"` in `config.json` picks how the client talks to the server. **Leave it on `auto`**
-— the shipped default. The client asks the server what it offers and picks the best of those, so
-you never need to know which transports a host runs or which port they're on. Relays default to
-`tcp`, so this changes nothing until a host opts in to more.
+`"transport"` in `config.json` is not *how* you connect but what you move to **once** connected.
+**Every client makes first contact over `tcp`, always** — it asks the server what it serves and
+only then switches. So you never need to know which port a transport is on, and asking for
+something the server doesn't offer leaves you on a working `tcp` session rather than failing.
 
-If you'd rather pin it, name one explicitly — but then it must match a transport the host is
-actually serving, on the matching port, or you'll get a timeout with nothing explaining it.
+The shipped client default is **`udp`**; servers default to `tcp` only, so nothing changes until
+a host opts in to more. Pick `quic` instead if you want your `room_code` encrypted — that needs
+the host to be serving it.
 
 | | Good for | Costs you | Encrypted? |
 |---|---|---|---|
@@ -85,11 +86,15 @@ A host can offer several at once (`"transport": "tcp,udp,quic"`), and players on
 transports still share a room and see each other normally. Each transport needs its own port
 forwarding rule.
 
-**`auto` prefers `quic`, then `tcp`, and never picks `udp` on your behalf** — `udp` shares quic's
-loss handling but can't be encrypted, so choosing it automatically would quietly downgrade your
-`room_code` to plaintext on a server that also offered quic. Ask for it by name if you want it.
-Discovery is refused unless you already have the right `room_code`, so it tells a stranger
-nothing they couldn't learn by just joining. Design rationale is in
+There is also **`auto`**, which takes the best on offer: it prefers `quic`, then `tcp`, and
+deliberately never selects `udp` for you, since picking an unencryptable transport on someone's
+behalf isn't a decision a default should make. Discovery is refused unless you already have the
+right `room_code`, so it tells a stranger nothing they couldn't learn by just joining.
+
+**One misconfiguration to know about:** if a host *serves* a transport but hasn't forwarded its
+port, clients will discover it, try it, and fail — discovery only knows what the server offers,
+not whether the path actually works — so they retry rather than falling back. Forward a rule per
+transport you offer. Design rationale is in
 [agent_docs/architecture.md](agent_docs/architecture.md)'s transport and transport-discovery ADRs.
 
 ## How it works
