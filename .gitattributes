@@ -10,14 +10,11 @@ adapters/pseudoregalia/MeshGhostPseudo/Mod/src/*.cpp text eol=lf
 adapters/pseudoregalia/MeshGhostPseudo/Mod/src/*.hpp text eol=lf
 adapters/pseudoregalia/MeshGhostPseudo/Mod/CMakeLists.txt text eol=lf
 
-# Shell scripts must be LF for a related reason: make-executable.sh ships in the release zip,
-# which is assembled on a windows-latest runner, so with core.autocrlf=true the checkout would
-# rewrite it to CRLF before it is zipped. A CRLF shell script is the classic "$'\r': command
-# not found" failure on Linux and macOS -- on a script whose entire job is to be the easy path
-# for exactly those users.
-#
-# Stated as the known hazard, not as something reproduced here: Git Bash's sh on Windows
-# tolerates CRLF happily (checked 2026-08-16, the CRLF copy ran fine), so this machine CANNOT
-# demonstrate the failure. That is an argument for the rule, not against it -- it means a
-# broken script would look perfectly healthy in local testing and only fail for the user.
+# Shell scripts are pinned LF as a standing rule rather than for a file that exists today:
+# nothing currently ships one (the release's Linux/macOS packages are tarred on a Linux runner,
+# which keeps the executable bit and removed the need for a chmod helper). The rule stays
+# because a CRLF shell script is the classic "$'\r': command not found" failure on Linux and
+# macOS, and this machine CANNOT demonstrate it -- Git Bash's sh tolerates CRLF happily
+# (checked 2026-08-16). A broken script would therefore look perfectly healthy in local
+# testing and only fail for the user, which is an argument for the rule, not against it.
 *.sh text eol=lf

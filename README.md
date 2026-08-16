@@ -24,18 +24,21 @@ TEVI and Pseudoregalia aren't personally confirmed online yet, but they're expec
 the relay and core client are game-agnostic and don't know which game an adapter is for, so
 "works locally" and "works online" are the same code path.
 
-The release zip ships the client and server for Windows, Linux, and macOS (amd64 and arm64),
-all in the one download — the Windows `.exe`s at the root plus `meshghost-linux-amd64`,
-`meshghost-macos-arm64`, and so on beside them. Only Windows is actually tested by anyone; the
-others are built and compile-checked by CI, and nothing more than that has been claimed.
+A release publishes three downloads. **`MeshGhost-<version>.zip` is the one nearly
+everyone wants** — client, server, and every game's mod, for Windows. Alongside it,
+`-linux.tar.gz` and `-macos.tar.gz` hold native builds of just the client and server (amd64 and
+arm64), ready to run: they're built on Linux and tarred, so they keep their executable bit
+instead of needing a `chmod` first.
 
-On Linux and macOS there's one extra step, because a `.zip` can't record that a file is a
-program: you have to mark it as one before it will start, or it just says "permission denied".
-Run `sh make-executable.sh` in the unzipped folder to do all of them at once, or
-`chmod +x meshghost-linux-amd64` for a single file, then start it with
-`./meshghost-linux-amd64`. macOS additionally blocks the first run of anything unsigned —
-right-click the file, choose Open, and confirm, once. Both steps are spelled out in the
-release's own `README.txt`.
+The native builds are optional, and often unnecessary. Every game supported today is a Windows
+game, so a Linux player is already running it through Proton — and the Windows client runs in
+that same prefix, which for Pseudoregalia happens by itself. They're worth having for hosting a
+relay (no game involved, so no reason to go through Wine) or if you'd simply rather the client
+were a native process. Only Windows has actually been played on; the others are compiled and
+tested by CI on Linux, and macOS has no test machine at all.
+
+Each game's adapter is its own platform story and does not follow: TEVI's and Pseudoregalia's
+mods are Windows DLLs, while Emerald's is a Lua script that runs wherever BizHawk does.
 
 Each game's adapter is its own platform story and does not follow: TEVI's and Pseudoregalia's
 mods are Windows DLLs (so on Linux they run inside the game's Proton prefix), while Emerald's

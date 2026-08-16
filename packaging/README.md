@@ -23,6 +23,32 @@ subfolder — `games/pokemon/emerald/` — since "emerald" alone isn't a unique-
 the way "tevi" and "pseudoregalia" already are; TEVI and Pseudoregalia sit directly under
 `games/`.) See `packaging/release/` for the actual layout.
 
+## …and then two more, for Linux and macOS (added 2026-08-16)
+
+A release now publishes three assets: `MeshGhost-<version>.zip` (the one above — Windows client,
+server, and every game's mod) plus `MeshGhost-<version>-linux.tar.gz` and `-macos.tar.gz`, holding
+native builds of **only the client and server**. Hand-written parts live in `packaging/unix/`.
+
+This does not contradict "why one zip". That section is about not making a downloader choose
+between two files that are both for them; here the main zip stays the unambiguous default (hence
+no `-windows` in its name — it *is* the download), and the tarballs are labelled extras that most
+people should ignore. They were bundled into the single zip first and split back out the same day:
+39 MB compressed of binaries that a Windows player would never open, for a case that mostly does
+not arise, since every supported game is a Windows game and the Windows client runs in the same
+Proton prefix the game already needs.
+
+Two decisions worth keeping:
+
+- **Built on `ubuntu-latest`, not cross-built on the Windows runner.** Only so `chmod +x` means
+  something and `tar` can record it, so the packages unpack ready to run. The Windows runner has
+  no executable bit to set, and `.zip` cannot store one — that combination is what forced a
+  "now run `chmod +x`" instruction into the README when these shipped in the main zip, and
+  deleting that instruction is most of the point. It also means the dev machine cannot verify this
+  part: a local dry run got the packaging right and the mode bits wrong, on NTFS, unavoidably.
+- **No adapters in them.** Every shipped adapter targets a Windows game, so a native Unix build
+  has nothing to hook. Emerald's Lua script is the one that could plausibly run elsewhere (BizHawk
+  is cross-platform), and it stays in the main zip rather than being duplicated.
+
 ## No launcher `.bat` files
 
 An earlier version of this packaging shipped `run-client.bat`/`run-server.bat` alongside the

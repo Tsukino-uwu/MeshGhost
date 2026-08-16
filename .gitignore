@@ -5,10 +5,12 @@
 *.so
 *.dylib
 
-# The Linux/macOS client and server shipped alongside the Windows ones (release.yml builds
-# them straight into packaging/release/). They have NO file extension, so *.exe above does
-# not cover them, and a local dry run of the release steps would otherwise leave them
-# untracked in a directory that IS tracked -- one careless `git add -A` from being committed.
+# The Linux/macOS client and server (their own release downloads, built by release.yml's
+# unix-binaries job into stage/). They have NO file extension, so *.exe above does not cover
+# them, and a local dry run of those steps would otherwise leave them untracked -- in
+# packaging/release/'s case, inside a directory that IS tracked, one careless `git add -A`
+# from being committed.
+/stage/
 /packaging/release/meshghost-linux-*
 /packaging/release/meshghost-macos-*
 /packaging/release/meshghost-server-linux-*

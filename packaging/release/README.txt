@@ -11,11 +11,6 @@ What's in this folder:
                             "server" section (only the host touches this).
 - games\                -- one folder per supported game. Only the folder
                             for the game you're playing matters to you.
-- meshghost-linux-amd64, meshghost-macos-arm64, and similar
-                         -- the SAME client and server, built for Linux and
-                            macOS. On Windows, ignore these entirely; they
-                            are here so there is one download rather than
-                            three. See "Linux and macOS" at the bottom.
 
 Status: Pokemon Emerald is tested and working. TEVI and Pseudoregalia are both
 EXPERIMENTAL. TEVI has been confirmed working with two real players (two local
@@ -382,73 +377,28 @@ MESHGHOST_NO_AUTOSTART to anything and start meshghost.exe yourself
 instead -- that path still works exactly as it always did.
 
 
-Linux and macOS
+Playing on Linux or macOS
 ---------------------------------
-The client and server are also built for Linux and macOS and sit in this same
-folder next to the Windows ones, so there's one download instead of three:
+This zip is the Windows build, plus every game's mod. Native Linux and macOS
+builds of the client and server are SEPARATE downloads on the same release
+page (MeshGhost-<version>-linux.tar.gz and -macos.tar.gz), and each has its
+own README explaining what it's for.
 
-  meshghost-linux-amd64          meshghost-server-linux-amd64
-  meshghost-linux-arm64          meshghost-server-linux-arm64
-  meshghost-macos-amd64          meshghost-server-macos-amd64
-  meshghost-macos-arm64          meshghost-server-macos-arm64
+You may well not need them. Every game MeshGhost supports today is a Windows
+game, so on Linux you're already running the game through Proton/Wine -- and
+the Windows client in this zip runs there too, inside the same prefix. For
+Pseudoregalia that happens by itself: the mod starts meshghost.exe for you.
 
-amd64 is a normal Intel/AMD machine (including the Steam Deck); arm64 is an
-Apple Silicon Mac or an ARM Linux box. Use them exactly like the .exe versions
--- same config.json, same settings, same everything.
+The native builds are worth grabbing when you want a real Linux or macOS
+process rather than a Wine one -- above all for HOSTING, since a server has no
+game attached and no reason to go through Wine at all. If you'd rather your
+client be native too, start it before launching the game: Pseudoregalia's mod
+checks whether one is already running and uses it instead of starting its own.
 
-There are two extra steps on these systems that Windows doesn't need. Neither
-is a sign anything is wrong.
-
-STEP 1 -- mark the files as programs you're allowed to run.
-
-  On Linux and macOS, a file is only allowed to run if it's marked as a
-  program. A .zip file has no way to record that mark (it's a Windows format,
-  and this is a Unix idea), so every file above arrives without it. Until you
-  add it, trying to start one just says "permission denied".
-
-  The easy way -- open a terminal in this folder and run:
-
-      sh make-executable.sh
-
-  That script ships in this folder and marks all of them at once. Note it's
-  run with "sh" in front, which sidesteps the obvious chicken-and-egg problem
-  of a script that would itself need marking.
-
-  The manual way -- if you'd rather do it yourself, "chmod +x" is the command
-  that adds the mark ("change mode, add executable"). Name the one file you
-  actually want:
-
-      chmod +x meshghost-linux-amd64
-
-  Either way, you only ever do this once, and you start it like this
-  afterwards -- the "./" just means "the one in this folder":
-
-      ./meshghost-linux-amd64
-
-  On most Linux desktops there's also a point-and-click route: right-click the
-  file, Properties, and tick something like "Allow executing file as program"
-  (the exact wording varies).
-
-STEP 2 -- macOS only: allow the first run.
-
-  macOS blocks programs that aren't signed by a paid Apple developer account,
-  and MeshGhost isn't signed by anyone. The first time only: right-click (or
-  Control-click) the file, choose Open, and confirm. After that it starts
-  normally like anything else.
-
-  If macOS says the file is "damaged", it isn't -- that's the same block
-  worded badly. The right-click-then-Open route still works.
-
-Honesty about testing: these are built and compile-checked automatically on
-every change, but only the Windows build has actually been used by anyone. If
-one misbehaves, that's genuinely useful to hear about -- it isn't your setup.
-
-A note for Linux players of TEVI or Pseudoregalia: those two mods are Windows
-DLLs and run inside the game's Proton prefix, so Pseudoregalia's mod will start
-the WINDOWS meshghost.exe under Proton. That's expected to work, but is
-untested. If you'd rather use the native Linux client, just start it yourself
-before launching the game -- the mod checks whether one is already running and
-uses it instead of starting its own.
+One exception worth knowing: Pokemon Emerald's adapter is a BizHawk Lua script
+(games\pokemon\emerald\ in this zip), and BizHawk itself runs natively on
+Linux and macOS. Nothing about that script is Windows-specific -- though
+nobody has yet tried it off Windows.
 
 
 Transports -- tcp vs udp vs quic
