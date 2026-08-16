@@ -7,6 +7,15 @@ package cut 2026-08-13, marked experimental/pre-release pending 7.7. See
 
 - Unreal Engine 5, small movement-focused 3D platformer. Worst starting point (no source, no
   BepInEx) but best genre fit for ghost co-op, per the brief.
+- **How the game is read: runtime reflection only — no readable source exists anywhere.** A Shipping
+  build with Blueprints compiled to bytecode, so there is no decompilation, no symbols, and no
+  source text even in the one reference mod available (it is Blueprint-only). Every property, class
+  and function is a **name string resolved live** through UE4SS, and a wrong name does not fail to
+  compile — it returns nothing, or something plausible. Everything had to be discovered by
+  enumerating the running game, which is why this adapter is far and away the largest and hardest of
+  the three, and why it produced most of the project's tooling and lessons. See
+  [agent_docs/access-models.md](../../agent_docs/access-models.md) and
+  [agent_docs/effect-investigation.md](../../agent_docs/effect-investigation.md).
 - Tooling: **confirmed 2026-08-12** — UE 5.1 (`++UE5+Release-5.1-CL-23901901`, read from
   `pseudoregalia-Win64-Shipping.exe`); UE4SS **v3.0.1 Beta, Git SHA `733e5969`**, installed
   under the newer `Binaries\Win64\ue4ss\` layout. See
@@ -179,11 +188,44 @@ Roughly in order:
     playing all 58 of the game's effects onto the ghost until one was recognised. (7.6)
 36. Worked out where the ultra hop's blue trail comes from, after it had been written off as
     unsolvable. It was never a particle effect at all — an afterimage is a posed copy of the
-    character, and each one carries its own colour. Currently switched back off; see step 37. (7.6)
+    character, and each one carries its own colour. Switched back off at the time; see steps 37–40
+    for why, and for how long it then took to actually land. (7.6)
 37. Broke the slide trail and spent most of a night finding out we'd done it ourselves: the very
     probes measuring it were spawning extra afterimages and stalling the game, so the real ones got
     cut short. Every measurement said the ghost matched the player, because the images that survived
     *were* right. Comparing old commits found it in three builds — a first for this project. (7.6)
+38. Got the ultra hop's blue trail actually working on the ghost — **the hardest single thing to
+    sync in this adapter, and the longest.** Perfect-timing hops trail blue instead of yellow, and
+    copying that one colour turned out to touch nearly everything about how afterimages work. It was
+    never really one feature: the blue sat on top of the trail system, so it kept becoming the
+    trail's other problems instead — what makes a burst fire, how the game recycles the images,
+    how many the ghost ends up drawing. Step 37's regression and this project's first commit
+    bisection were both hit on the way here. (7.6)
+39. Five rounds to land it, each fixing a real bug that only exposed the next one. The colour was
+    read and then thrown away; then it arrived a whole slide late; then it bled into the slide
+    afterwards; then the ghost drew two blue images where the game drew one. Every round the ghost
+    was wrong in a new way, and every answer came from a log line rather than a theory — twice the
+    fix that looked obvious would have hidden the cause instead of fixing it, which is worse,
+    because it would have looked right on the day. (7.6)
+40. What finally worked was giving up on predicting the game. Each fix swapped a guess for something
+    observed: read the colour off the afterimage itself rather than off the player, trail when the
+    game really spawns images rather than when we reckon it should, and check that an image was born
+    where the player is, so a recycled one isn't counted as a new one. The last of those is the same
+    trigger question as step 23, rebuilt a fourth time — three earlier attempts all re-derived a
+    rule that was never ours to own. (7.6)
+41. Fixed the ghost trailing when the real player doesn't — a mistimed slide or hop is meant to leave
+    you neutral, and the ghost trailed anyway. Same cause as step 40's third guess: our trigger fired
+    on the move being *attempted*, the game's fires on what it decided to draw. Switching to the
+    game's own spawns also closed a separate complaint nothing was aimed at — the ghost had been
+    drawing 1-2 more afterimages than the player, which turned out to be the same bug seen from the
+    other side. Player and ghost are now indistinguishable, trailing and not trailing alike. (7.6)
+
+> **Steps 38–41 are deliberately longer than the rest of this list — please leave them that way.**
+> The house style for these steps is 2–4 lines each (see `CLAUDE.md`), and that rule is a good one:
+> it exists because steps 19–22 once grew to 15–20 dense lines and made the list unreadable. These
+> four are the one intentional exception, at the user's request, because the ultra-hop blue trail
+> was the hardest and longest-running piece of work in the adapter. Trimming them back to match the
+> others would be a reasonable-looking edit that loses the point on purpose.
 
 See [agent_docs/phases/phase7.md](../../agent_docs/phases/phase7.md) for the detailed, dated
 log, and [agent_docs/pitfalls.md](../../agent_docs/pitfalls.md) for the transferable lessons
@@ -194,14 +236,12 @@ bug behind the facing-direction fix).
 
 ### Further work past "good enough"
 
-The ghost passed "good enough" around step 18; steps 19–37 are all polish past that line. Still
+The ghost passed "good enough" around step 18; steps 19–41 are all polish past that line. Still
 open as of 2026-08-16 — [agent_docs/status.md](../../agent_docs/status.md) is the authoritative
 list:
 
 - 7.7 itself, two real players. Also gates the keep-or-axe call on ghost collision.
 - Rotating around a climbing pole, and a sword thrown near a save crystal. Both are provably
   synced; loopback puts the ghost beside the geometry, so a second player is needed to judge them.
-- Switching the blue ultra trail back on (step 36) — the colour is known, the cheap way to read it
-  is written down in `status.md`.
 - Ghost vanishes while a peer is on a climbing pole, then returns stuck in a climb pose.
 - A `Fatal Error!` on game exit, seen once, never root-caused.

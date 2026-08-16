@@ -4175,3 +4175,192 @@ Copy this block per fact:
 - **CONFIRMED LIVE by the user**: dense repeating slide trail restored, ghost within 1-2 images of
   the real player. Known cosmetic remainder: 1-2 extra images at the tail of a slide
   (`SLIDE_REFIRE_WINDOW_TICKS`, recorded in `status.md`).
+
+### Pseudoregalia colour-only afterimage observation does NOT regress the slide trail
+
+- Date: 2026-08-16
+- Re-enables the ultra-blue colour read that was switched off as collateral when the scan it rode on
+  was found to be breaking the trail (see the two entries above). Split into its own flag,
+  `AFTERIMAGE_OBSERVE_COLOR`, independent of `AFTERIMAGE_TRIGGER_OBSERVED`, which stays off.
+- **What changed, and why it should be cheap**: the scan runs once per burst rather than on a fixed
+  cadence, so it costs nothing while the player is not trailing; ownership of an afterimage is a
+  single pointer compare (`cachedMesh`'s Outer against the pawn) instead of a `GetFullName()`/UTF-8
+  conversion and substring search per object per scan, which was half of the original cost; and
+  per-object tracing stays off. The wire event is emitted 4 ticks after the burst so the counter and
+  the colour are written together and describe one burst.
+- **CONFIRMED LIVE by the user**: normal slides only — trail looks correct, no sparseness or
+  drop-out. This is the regression check for the change, i.e. the risk that re-enabling any
+  per-object scan would repeat the 2026-08-16 incident.
+- **What this specifically does NOT establish**: that the blue works. A normal slide's colour IS the
+  pawn baseline, so "the colour path observed it correctly" and "the colour path read nothing and
+  fell through to the baseline" produce an identical picture. Only a perfect-timing ultra hop
+  separates them, and that has not been watched yet. The `AFTERIMAGE_COLOR:` log lines (bounded to
+  5 per session) carry the `ours=`/`new=` counts that would settle it from the log side.
+
+### Pseudoregalia ultra-hop BLUE reaches the ghost — but attributed one burst late
+
+- Date: 2026-08-16
+- **CONFIRMED LIVE by the user**: after performing an ultra hop, the ghost's trail did go blue — on
+  the first afterimage of the *next slide*, not on the ultra hop itself.
+- **What this establishes, which is most of the feature**: the entire colour pipeline works
+  end-to-end. The blue is detected off `BP_AfterImage_C`'s own `Color`, survives the tie-break, is
+  latched, crosses the wire, is written to the ghost's pawn before its burst, and renders visibly
+  blue on the ghost. None of those stages is in doubt any more.
+- **What is wrong is attribution, not colour**: a burst spawns its images over many ticks, and the
+  first implementation scanned once, 4 ticks after the trigger. The log showed `new=1` against
+  `n=5`, so a single scan saw only the leading image. Every image appearing after that scan was
+  still unknown at the next burst's scan, and a first sighting is indistinguishable from a fresh
+  spawn — so the ultra's later blue images were counted as new by the following slide and won its
+  tie-break. The blue was therefore always one burst behind.
+- **Fix**: observe across a window (`AFTERIMAGE_COLOR_OBSERVE_WINDOW_TICKS`, scans strided by
+  `AFTERIMAGE_COLOR_OBSERVE_STRIDE_TICKS`) instead of at one instant, accumulate the tie-break over
+  the whole burst, and emit the wire event when the burst's full count has been seen or the window
+  expires. Per-burst accumulators reset at burst start so one burst's colour cannot carry into the
+  next. NOT yet re-watched.
+- Source: user's live report, plus `UE4SS.log` 2026-08-16 `AFTERIMAGE_COLOR` lines
+  (`found=`/`ours=`/`new=` across five bursts).
+
+### Pseudoregalia ultra hop fires NO local afterimage trigger — the real cause of the late blue
+
+- Date: 2026-08-16
+- **Root cause of "the blue appears on the slide after the ultra, not during it"**, replacing the
+  earlier window-sizing theory, which was wrong.
+- **Evidence, identical across both ultras in one capture**: `AFTERIMAGE_SPECIAL: off=4 new=4
+  newTotal=4 scan=(0.000, 0.787, 1.000)` — the blue found on the FIRST scan of a burst, with four
+  images at once, against `new=1` for a genuinely fresh burst. The surrounding `AFTERIMAGE_BURST`
+  lines sit 12 ticks apart, i.e. slide re-fires. Four-at-once on a first scan is a backlog being
+  discovered, not a burst spawning.
+- **Therefore**: the ultra's afterimages are already spawned and unseen before the slide begins. No
+  `burst_edge` fires during an ultra, so no observation window ever opens for it, and the images are
+  first sighted by the following slide's opening scan — exactly when the ghost turns blue.
+- **Confirms the "REMAINING GAP" already recorded here**: some afterimages come from a path that
+  never touches `afterImagesToSpawn`, and the ultra hop is that path. Also confirms the old code
+  comment that an ultra "produced NO ghost trail at all", which had been read as self-contradictory.
+- **Not fixable by window tuning**, and identifying the ultra by state is a closed dead end
+  (`ultraCap`, `fullUltraModifier`, `cappedUltraModifier`, `animJumpType` all ruled out live).
+- **Fix built, NOT yet watched**: `AFTERIMAGE_OBSERVE_SPECIAL_TRIGGER` — a coarse idle scan
+  (`AFTERIMAGE_IDLE_SCAN_INTERVAL_TICKS`, only while no burst is pending) that emits a burst when it
+  finds new images the game coloured differently from its own baseline. Restricted to a divergent
+  colour so ordinary gold stragglers cannot double-trail. Additive: it fires only where the existing
+  trigger found nothing, unlike the reverted `AFTERIMAGE_TRIGGER_OBSERVED`.
+- Source: `UE4SS.log` 2026-08-16, `AFTERIMAGE_SPECIAL`/`AFTERIMAGE_BURST` lines at ticks 2780 and
+  3781, plus the user's live report on three consecutive builds.
+
+### Pseudoregalia ultra blue now lands on the ultra — two remaining defects, one diagnosed
+
+- Date: 2026-08-16
+- **CONFIRMED LIVE by the user**: with the idle observed-spawn trigger
+  (`AFTERIMAGE_OBSERVE_SPECIAL_TRIGGER`), the ghost's blue now appears at the end of the ultra hop
+  itself rather than one slide later. Slide trail unaffected across every build in this sequence.
+- **Defect 1 — two blue images where the real player shows one.** The capture shows the idle scan
+  emitting TWICE per ultra, ~60 ticks apart (ticks 7690/7752 and 8768/8828), each with `new=1` and
+  the blue colour. Cause not yet established; the counts alone cannot distinguish "the game spawned
+  two" from "the pool handed the same actor back". `img=` (the actor pointer) and `sinceLast=` were
+  added to the idle log to settle exactly that, and are NOT a fix.
+- **Defect 2 — the slide after an ultra also came out blue, and this one is diagnosed and fixed.**
+  The blue was not re-detected: the capture contains no `AFTERIMAGE_SPECIAL` line for that burst at
+  all. It was **inherited**. A burst that observed no images of its own kept the previously latched
+  colour, which made the latch mean "the last colour ever seen" rather than "this burst's colour".
+  Fixed by falling back to the pawn's baseline instead, at both emit sites.
+- **Note on the confirmation method**: the user judges trail density from a TOP-DOWN camera, because
+  at the default behind-the-player angle the offset ghost's trail and the player's blend together —
+  see `pitfalls.md`'s Diagnostic methodology. Density confirmations in this file rest on that.
+- Source: `UE4SS.log` 2026-08-16 `AFTERIMAGE_IDLE` lines, plus the user's live report.
+
+### Pseudoregalia double-blue: ONE image counted twice, not two spawned (2026-08-16)
+
+- Date: 2026-08-16
+- **CONFIRMED LIVE by the user, this build**: the slide after an ultra no longer comes out blue (the
+  inherited-latch fix held), and the slide trail itself is unaffected.
+- **Cause of the two blue images, established from the actor pointer**: every ultra logged two
+  detections carrying the **identical** `img=` pointer, 60-72 ticks apart, across eight ultras
+  (ticks 2730/2792, 3180/3241, 3556/3617, 3938/4010, 4654/4714, 6740/6810, 7438/7499, 8681/8743).
+  The game spawns one blue image; the pool reclaims and MOVES it about one fade lifetime later, and
+  a mover was being counted as a new spawn.
+- **Not an off-by-one**, which is what it looked like from the symptom: counts alone cannot separate
+  "two spawned" from "one counted twice", and both readings were live until the pointer settled it.
+- **Fix, NOT yet watched**: `AFTERIMAGE_REQUIRE_SPAWN_PROXIMITY` — an image only counts as newly
+  spawned if it appears within `AFTERIMAGE_SPAWN_PROXIMITY_UNITS` of the player, since an afterimage
+  is a snapshot of the player and is therefore born where the player is. Threshold derived from how
+  far the player can move between scans, not picked. `rejFar=`/`farNew=` added to the logs so the
+  threshold is checkable from a capture.
+- **Open and separate**: the ghost still runs 1-2 afterimages ahead of the player generally (the
+  slide tail overhang, `SLIDE_REFIRE_WINDOW_TICKS`). Whether this fix also reduces that is exactly
+  what the next run shows — they may share a cause or may not, and that is not yet established.
+- Source: `UE4SS.log` 2026-08-16 `AFTERIMAGE_IDLE` lines with `img=`.
+
+### Pseudoregalia ultra BLUE afterimage: CONFIRMED CORRECT ON SCREEN
+
+- Date: 2026-08-16
+- **CONFIRMED LIVE by the user**: "ultra hop/blue after image looks perfect now" — one blue image,
+  on the ultra hop itself, correct colour. Slide trail unaffected. Closes the feature that had been
+  parked as "not derivable from polled state; do not resume by guessing more property names".
+- The working combination, for the record: colour read off `BP_AfterImage_C`'s own `Color` rather
+  than the pawn's `afterimageColor`; observation triggered by the game's real spawns; a pool-
+  retirement guard (birth-position test) so one image is not counted twice; and the colour latched
+  to its event with a baseline fallback so it cannot be inherited by the next burst.
+- Verification method: top-down camera (see `pitfalls.md`, Diagnostic methodology).
+
+### Pseudoregalia ghost trails where the real player does not — reconstructed trigger, not the game's
+
+- Date: 2026-08-16
+- **Reported live by the user**: the ghost plays afterimages when none should appear — a slide into
+  a backflip with bad timing is meant to be neutral, and the ghost trailed yellow regardless.
+- **Cause, visible in the earlier captures once looked for**: every `AFTERIMAGE_BURST` line logged
+  `n=5`, which is the hardcoded fallback, not a real `afterImagesToSpawn` value. So `burst_edge` --
+  the only trigger that reads the game's own decision and cannot false-positive -- never fired for
+  slides. Every slide trail came from the capsule-shrink heuristic, which detects "a slide is
+  happening" rather than "the game decided to trail". Those diverge exactly when a move is performed
+  badly, which is the reported case.
+- **Fix, NOT yet watched**: `AFTERIMAGE_TRIGGER_FROM_OBSERVATION` makes the observation scan the sole
+  trigger, so the ghost trails only where the game really spawned images. The reconstructed triggers
+  are switched off rather than kept alongside, since both firing would double-count a burst. `false`
+  is an exact revert.
+- **Fourth attempt at this trigger, and the first that does not re-derive the game's rule**: three
+  actionState heuristics, then the capsule shrink, all failed the same way. Same lesson as the throw
+  animation and the bubble flash -- see `pitfalls.md`, "The game already knows".
+
+### Pseudoregalia ghost afterimage density now matches the player — observation-driven trigger
+
+- Date: 2026-08-16
+- **CONFIRMED LIVE by the user**, judged from the top-down camera: "after images are identical now
+  between the player & ghost, at least i can't notice any difference during normal slides anymore."
+- **Closes the long-running density gap**, where the ghost consistently ran 1-2 afterimages ahead of
+  the real player. Nothing was aimed at it — it fell out of `AFTERIMAGE_TRIGGER_FROM_OBSERVATION`.
+- **Which explains what it actually was**: the ghost was never over-DRAWING, it was over-FIRING. The
+  capsule-shrink heuristic fired on slides the game itself did not trail on, and every spurious
+  burst added images. Mirroring the game's real spawns removed the extra bursts rather than the
+  extra images.
+- **Worth noting against the fix that was nearly taken**: subtracting one from the spawn count had
+  been proposed, on the strength of the same observation. It would have hidden this instead, and
+  broken every burst whose count was already correct. See `pitfalls.md`, "A count that is off by a
+  constant is a reason to suspect the COUNTER".
+- **Still unconfirmed on this build**: the case the change was actually written for — a badly-timed
+  slide into a backflip should leave the ghost neutral rather than trailing yellow.
+
+### Pseudoregalia afterimage/trail sync: COMPLETE — player and ghost indistinguishable
+
+- Date: 2026-08-16
+- **CONFIRMED LIVE by the user**, judged from the top-down camera: "looks perfect / identical between
+  player and ghost now for all the after image/trails", exercised with slides and several ultra hops.
+- Closes the longest-running thread in this adapter (roughly 2026-08-13 to 2026-08-16). What is now
+  confirmed together, on one build: slide trail present and dense, density matching the real player,
+  ultra hop trailing BLUE as one image on the hop itself, ordinary slides staying gold, and no trail
+  bleeding between the two.
+- **The working design, for the record** — every part replaced a guess with an observation:
+  - Colour read off `BP_AfterImage_C`'s own `Color`, not the pawn's `afterimageColor`.
+  - The trigger is the game's real spawns (`AFTERIMAGE_TRIGGER_FROM_OBSERVATION`), not a
+    reconstruction of when a slide is happening. This removed both the false-positive trails and the
+    long-standing 1-2 image density gap, which turned out to be the same bug.
+  - A pool-retirement guard (`AFTERIMAGE_REQUIRE_SPAWN_PROXIMITY`): an afterimage is a snapshot of
+    the player, so it is born where the player is — a moved actor being recycled is not a new spawn.
+  - Colour latched to its burst, with the pawn baseline as fallback, so it can never be inherited.
+- **The false-positive case is confirmed too**: on a deliberately badly-timed hop the ghost showed
+  nothing ("when i did a bad timed hop, it didn't show anything i think"). That is the case the
+  trigger change was written for — the reconstructed trigger fired on the move being *attempted*,
+  the observation trigger fires only when the game actually spawned images. Reported with a slight
+  hedge ("i think"), so if a spurious trail is ever seen again, reproduce a mistimed move first.
+- **Absence is now confirmed as well as presence**, which is the standard `effect-investigation.md`
+  argues for: a mirrored effect is only correct when it also stays absent exactly when the real one
+  is absent. Every earlier "finished" moment in this saga had tested only the presence half.
+- Full investigation and the transferable procedure: `effect-investigation.md`.

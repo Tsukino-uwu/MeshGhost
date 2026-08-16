@@ -25,6 +25,31 @@ know the incident, not just the rule, so you can judge when it applies.
   guard) makes it impossible to tell which one mattered. Source: the Phase 7.5 LuaSocket
   investigation (`phase7.md`), which narrowed a "ghost teleports instead of following" bug
   through five sequential, single-variable probes before finding the real cause.
+- **A count that is off by a constant is a reason to suspect the COUNTER, not to subtract the
+  constant.** When something consistently produces one or two too many, adjusting the number by one
+  or two makes the symptom go away while leaving the cause in place — and it breaks every case where
+  the count was legitimately right, which is usually the majority. Near-miss, 2026-08-16: the ghost
+  showed two blue afterimages against the real player's one, and the ghost ran 1-2 images ahead
+  generally, so "just emit one fewer" looked reasonable and would have worked on the day. Logging the
+  actor pointer showed the real cause in one line — a single image counted twice, once at spawn and
+  once when the pool moved it to retire it (full entry below). A `-1` would have hidden that
+  permanently, and the double-count would have gone on corrupting every other count it touched.
+  **The tell is that the error is CONSTANT.** A miscount produces a fixed offset; a genuine
+  difference in what the game did varies with what happened. So before tuning a number, ask what
+  would have to be true for the count itself to be wrong, and log identity rather than quantity to
+  find out. Same family as "a probe returning nothing is data" — believe the instrument only after
+  checking what it actually measures.
+- **Judge trail/afterimage density from a TOP-DOWN camera, not from behind the player.** User's own
+  method, 2026-08-16, and it is what every "the trail looks right" confirmation in this file now
+  rests on. The loopback ghost stands a couple of tiles to the side, so from the default
+  behind-the-player angle the two trails overlap and blend — especially sliding left or right, where
+  it becomes genuinely impossible to tell which afterimage belongs to whom. Swinging the camera to
+  look down from above separates them into two distinct lines and makes per-image density directly
+  countable by eye. **This matters because comparing the ghost's trail against the real player's is
+  the primary check for the whole afterimage feature**, and the incident below ("The diagnostics were
+  the bug") turned on a density difference that instrumentation reported as exact parity. If the
+  human check is being done from an angle where the two blend, a real difference can be looked at
+  and not seen. Applies to any paired local/ghost VFX comparison, not just the trail.
 - **Read an effect back in the SAME tick before theorising about the call.** When a call on a
   ghost looks like it did nothing, the first probe is an immediate readback right after it —
   not a hypothesis about the call. Source: the 2026-08-15 ledge-climb-up saga, where "our
@@ -787,6 +812,15 @@ Backing detail for `CLAUDE.md`'s public-repo rule. Two live cases, and they fail
 **The most serious regression this project has had, and the first to require comparing commits to
 diagnose.** Read this one before adding any probe to an adapter.
 
+**Context worth keeping**: this did not happen in isolation — every probe involved was added while
+chasing Pseudoregalia's ultra-hop BLUE trail, and the bisection came out of that same effort. The
+blue looked like a small cosmetic feature and instead reached into the whole afterimage system:
+what makes a burst fire, how the engine pools the images, and how many the ghost draws. Three
+separate entries below (this one, the pooling pair, and the latch) are all from that one
+investigation. The transferable warning is about the *shape* of the work, not the feature: a change
+that appears to be one property on one object, but sits on top of a system nobody has fully
+characterised, will keep turning into that system's other problems.
+
 - **Symptom**: the ghost's afterimage trail went intermittently sparse or missing. Sometimes a
   slide produced a full trail, sometimes almost none, with no pattern the user could pin down.
 - **Why it survived four rounds of measurement**: every instrument reported *exact parity* between
@@ -855,9 +889,10 @@ diagnose.** Read this one before adding any probe to an adapter.
 > **Read with the caveat that this entry was written mid-investigation.** Its ratios were measured
 > through the probes later found to be corrupting the trail (see "The diagnostics were the bug"),
 > so treat the *numbers* as indicative rather than exact. The shape lesson below is independent of
-> them and still holds. The colour path it describes is **currently disabled** — the code that read
-> the observed colour rode on the expensive scan, so re-enabling it needs the cheaper read recorded
-> in `status.md` (compare `cachedMesh` by pointer, not by name).
+> them and still holds. The colour path it describes was disabled along with the scan it rode on,
+> and was **re-enabled 2026-08-16 as a separate, colour-only path** (`AFTERIMAGE_OBSERVE_COLOR`):
+> ownership is a pointer compare rather than a name match, and it runs once per burst instead of on
+> a cadence. Unwatched as yet — `status.md`.
 
 - **Symptom**: a peer's ultra-hop afterimage was blue, the ghost's was blue only sometimes. Ratios
   across four attempts: 2→1, 8→4, 10→4, then an over-correction to 6→98.
@@ -886,6 +921,32 @@ diagnose.** Read this one before adding any probe to an adapter.
 - **Generalizes to**: any adapter sending event-plus-payload over a lossy, rate-limited channel —
   a hit type with a hit counter, a colour or asset with a spawn counter, a sound id with a footstep
   counter. Latch the payload where the event is detected, and let nothing else write it.
+
+### Sampling a multi-tick spawn once attributes its stragglers to the NEXT event (2026-08-16)
+
+- **Symptom**: the ultra hop's blue trail reached the ghost correctly, but appeared on the first
+  afterimage of the *next slide* rather than on the ultra itself. Consistently one burst late.
+- **Diagnosis**: the observation scanned once, at a fixed delay after the burst fired. But the game
+  spawns a burst as a countdown **across many ticks** — the log showed `new=1` against a burst size
+  of `n=5`, so the single scan saw only the leading image. The other four appeared afterwards, and
+  since "new" was defined as "an object this scan had not seen before", they were first sighted by
+  the *following* burst's scan and counted as its own. A late blue image then won that burst's
+  colour tie-break.
+- **Why it was hard to see from the code**: the detection, the tie-break, the latch, the send and
+  the ghost-side write were all individually correct, and each had been separately confirmed. The
+  defect was entirely in *which event* a correctly-read value was filed under. Both bursts looked
+  equally well-synced at every call site.
+- **Fix**: observe across a window covering the whole spawn rather than at one instant; accumulate
+  the tie-break over the burst; emit the wire event once the burst's full count has been seen or the
+  window expires; reset the per-burst accumulators at burst start.
+- **Generalizes to**: any engine effect that produces its objects over several frames — particle
+  bursts, projectile volleys, multi-hit attacks, footstep clusters. **A first sighting is not a
+  creation time.** If the producer runs across N ticks and the observer samples at one tick, the
+  remainder does not vanish; it silently reappears attributed to whatever samples next. Before
+  keying anything on "objects I have not seen before", ask how long the thing being observed takes
+  to finish producing them, and cover that span. Note this is a distinct failure from the pooling
+  entry above: pooling makes re-used objects look old, this makes late objects look new, and a
+  detector can suffer both at once.
 
 ### A raw actor pointer added to a tracking struct must also be dropped in the pre-teardown hook (2026-08-16)
 
@@ -939,3 +1000,28 @@ Recurring adapter tasks, and how differently each engine/game has answered them 
 | Avoid drawing over menus/UI | Explicit gate on the overworld callback state (`gui.drawImage` is a raw overlay) | Not yet needed the same way | Not needed — a world-space object under the game's own camera naturally renders under UI layers |
 | Survive area/level/scene transitions | Re-read relocatable pointers every frame; debounce reads for one frame around a detected map change | Re-acquire pawn/camera references after transition; treat cached "last known good" state as invalidated, not fatal | Recreate the ghost lazily after scene unload rather than trying to preserve it across the transition |
 | Version/build stability | Real drift risk, not immune: a ROM patch (Archipelago's base recompile) relocates addresses relative to a byte-identical-verified vanilla build — found live for `gObjectEvents`/`gPlayerAvatar`, `CB2_Overworld`, and sprite/palette data, each a separate offset; each patch version needs its own live-detected offsets, see `verified.md`'s Archipelago-relocation entries | Build-specific: reflection availability and rendering-on-spawn behavior are tied to the exact installed engine/mod-loader build | Steam can auto-update the game; also blocks two simultaneous instances (confirmed by testing, not assumed) |
+
+### Pooling cuts both ways: a retirement move reads as a birth (2026-08-16)
+
+- **Symptom**: the ghost showed two blue afterimages on an ultra hop where the real player showed
+  one. Every other colour behaviour was correct by then.
+- **Diagnosis, settled by one field in a log line**: the detector treated "this image moved" as "this
+  image is newly spawned", because these actors are pooled and never destroyed. Logging the actor
+  POINTER showed both detections carrying the **identical** pointer, ~60 ticks (~400ms, about one
+  fade lifetime) apart, across all eight ultras in the capture. One image, counted twice — once when
+  spawned and again when the pool reclaimed and moved it.
+- **This is the exact inverse of the pooling entry above**, and they were live in the same detector
+  at the same time: re-use makes an object look OLD (undercount), retirement makes it look NEW
+  (overcount). Guarding one end does nothing for the other, so a pooled-object detector needs both.
+- **Fix**: use a property of a real birth that a retirement cannot fake. An afterimage is a snapshot
+  of the player, so it is born at the player's position; anything appearing far away is the pool
+  moving something. The threshold is derived from how far the player can move between scans (~100
+  units worst case, so 400 gives a 4x margin) rather than picked, and the log reports both the
+  furthest mover seen and the rejection count so it can be checked instead of trusted.
+- **The transferable part**: `counts` could never have settled this — "the game spawned two" and
+  "one was counted twice" produce identical numbers. **Identity did, immediately.** When a count is
+  suspect and the objects are pooled, log the pointer before theorising about the count.
+- **And the user's own reading was the right instinct with the wrong mechanism**: they proposed
+  subtracting one, having noticed the ghost consistently ran 1-2 images ahead. That would have
+  masked this rather than fixed it, and broken every case where the count was legitimately right —
+  but the observation that something systematically over-produced is what pointed at the detector.

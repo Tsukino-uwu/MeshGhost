@@ -727,6 +727,59 @@ namespace MeshGhostPseudo
         // afterimageColor is used as a startup fallback; afterwards the latched per-burst colour
         // stands on its own and no timer or per-tick read may overwrite it.
         bool afterimage_have_observed_color{false};
+        // The latched per-burst colour itself, kept across ticks. Written ONLY by the observe block
+        // in tickLocal, together with afterimage_count, because the two describe one burst -- see
+        // pitfalls.md's "Latch event payloads to the event". A per-tick read into the serialized
+        // value instead of a latch is what capped blue reproduction at roughly a third.
+        float latched_afterimage_color[3]{};
+
+        // AFTERIMAGE_OBSERVE_COLOR state: a burst has fired and is waiting a few ticks for the game
+        // to actually spawn its images, so the wire event can carry the colour the game really used.
+        bool afterimage_color_burst_pending{false};
+        uint64_t afterimage_color_burst_tick{0};
+        uint64_t afterimage_color_burst_next_scan_tick{0};
+        int32_t afterimage_color_burst_n{0};
+        // Accumulated across the burst's observation window, and reset when a burst STARTS. A burst
+        // spawns over many ticks, so a single scan sees only part of it and the rest gets attributed
+        // to whatever scans next -- confirmed live 2026-08-16, when an ultra's blue turned up on the
+        // following slide instead. These carry the running tie-break winner for the current burst
+        // only; they must never survive into the next one.
+        float afterimage_color_burst_color[3]{};
+        bool afterimage_color_burst_have{false};
+        bool afterimage_color_burst_special{false};
+        int afterimage_color_burst_new_total{0};
+        int afterimage_color_burst_rejected_far{0};
+        int afterimage_color_burst_scans{0};
+        // Last known position per pooled afterimage, keyed by POINTER rather than by name. These
+        // actors are never destroyed, only re-used, so a position change is the real spawn signal;
+        // keying by pointer avoids building a name string per object per scan, which is half of what
+        // made the old scan expensive enough to break the trail it was measuring. Keys are never
+        // dereferenced, only compared, and the map is cleared on level transition so a recycled
+        // address cannot make a fresh actor look stale.
+        std::map<RC::Unreal::UObject*, std::tuple<double, double, double>> afterimage_pos_by_ptr;
+        // Bounded logging budgets for the observation above. Three separate counters on purpose: a
+        // single shared budget was spent by routine sliding in the first seconds of a session, which
+        // hid the ultra hop the run was for. The per-burst and special-colour budgets are the ones
+        // that make a session readable; the per-scan one is deliberately the smallest.
+        int afterimage_color_observe_logged{0};
+        int afterimage_color_burst_logged{0};
+        int afterimage_color_special_logged{0};
+        int afterimage_color_idle_logged{0};
+
+        // Idle-scan state -- see AFTERIMAGE_OBSERVE_SPECIAL_TRIGGER. The ultra hop never sets
+        // afterImagesToSpawn, so no burst window ever opens for it and its images go unseen until
+        // the next slide scans; this catches that spawn on its own. `primed` exists because on the
+        // very first scan the entire pool is unseen and would read as one huge spawn.
+        uint64_t afterimage_idle_next_scan_tick{0};
+        uint64_t afterimage_idle_last_emit_tick{0};
+        bool afterimage_pos_primed{false};
+
+        // The pawn's ordinary trail colour as of the last successful read. Needed because the emit
+        // in the trigger block runs earlier in the tick than the pawn read, and a burst that
+        // observed nothing of its own must fall back to this rather than inherit the previous
+        // burst's colour -- which is what made the slide after an ultra come out blue.
+        float last_pawn_baseline_color[3]{};
+        bool last_pawn_baseline_color_valid{false};
         uint64_t afterimage_probe_tick{0};
         bool afterimage_probe_pending{false};
 

@@ -2607,6 +2607,187 @@ namespace MeshGhostPseudo
             return true;
         }
 
+        // **Reject a pool retirement being mistaken for a spawn -- see the birth-position note in
+        // observe_local_afterimage_colors below.** Its own flag because it is the one rule here that
+        // can SUPPRESS images: if the assumption were wrong it would thin the ghost's trail, which is
+        // the symptom this area has already regressed on, so it needs a real off-switch rather than
+        // being baked into the detector.
+        constexpr bool AFTERIMAGE_REQUIRE_SPAWN_PROXIMITY = true;
+
+        // How far from the player an image may appear and still count as freshly spawned.
+        //
+        // Derived rather than guessed: an afterimage is placed at the player, so the only thing that
+        // can separate the two by the time a scan sees it is how far the player moved in between.
+        // That is bounded by the scan gap -- at most 10 ticks (AFTERIMAGE_IDLE_SCAN_INTERVAL_TICKS)
+        // on this build's ~150Hz, i.e. ~67ms, so even at a brisk 1500 units/s that is ~100 units.
+        // 400 leaves roughly a 4x margin over the fastest case; for scale, the player capsule's own
+        // half-height is 65.
+        //
+        // The log reports `farNew=` (the furthest mover seen) and `rejFar=` (how many were rejected),
+        // so a mis-sized threshold shows up in the capture instead of quietly changing the effect.
+        constexpr double AFTERIMAGE_SPAWN_PROXIMITY_UNITS = 400.0;
+
+        // Result of one colour-only afterimage observation -- see AFTERIMAGE_OBSERVE_COLOR.
+        struct AfterimageColorObservation
+        {
+            LinearColorRGBA color{};
+            int images_found{0};   // every BP_AfterImage_C in the world, ours or a ghost's
+            int images_ours{0};    // those whose cachedMesh belongs to the local pawn
+            int images_new{0};     // of ours, those the pool handed out since the last scan
+            bool have_color{false};
+            bool have_special{false}; // at least one new image differed from the pawn's baseline
+            // The actual actor the special colour was read from. Logged, never dereferenced after
+            // the scan -- it exists to answer whether two detections are two distinct spawns or the
+            // pool handing the SAME actor back, which the counts alone cannot distinguish.
+            UObject* special_image{nullptr};
+            int images_rejected_far{0};      // moved, but nowhere near the player -- a pool retirement
+            double farthest_new_dist_sq{0.0}; // how far the furthest mover was, for tuning the threshold
+        };
+
+        // **The ultra hop's blue: observe it off the AFTERIMAGE, not off the pawn.** The pawn's
+        // `afterimageColor` provably never changes during a real ultra (verified.md) -- the ultra
+        // path colours each BP_AfterImage_C actor's own `Color` and bypasses the pawn field. Normal
+        // images measure (1.000, 0.888, 0.260), ultra images (0.000, 0.787, 1.000).
+        //
+        // This mirrors whatever colour the game actually used rather than trying to detect an ultra.
+        // That distinction is the whole reason it works: every earlier attempt tried to identify the
+        // ultra STATE and failed, and this needs no such test -- ultra, a future variant or a mod all
+        // come out right. Same principle as the recall-glow presence mirror.
+        //
+        // **Cost is the point of this function's shape**, because a per-object scan on the game
+        // thread is what caused this project's worst regression (pitfalls.md, "The diagnostics were
+        // the bug"): a `GetFullName()` + UTF-8 conversion + substring search PER OBJECT PER SCAN,
+        // against a pool that grows past 80, at ~50Hz. So ownership is a single pointer compare here
+        // -- `cachedMesh` is a component of the character it was snapshotted from, and a component's
+        // Outer is its owning actor, which is exactly what the old name-substring test was
+        // approximating. No strings are built, and the position map is keyed by pointer rather than
+        // by name. The caller runs this ONCE PER BURST rather than on a fixed cadence, so it costs
+        // nothing at all while the player is not trailing.
+        auto observe_local_afterimage_colors(UObject* pawn,
+                                             const LinearColorRGBA& baseline,
+                                             std::map<UObject*, std::tuple<double, double, double>>& last_pos)
+            -> AfterimageColorObservation
+        {
+            AfterimageColorObservation obs{};
+            if (!pawn)
+            {
+                return obs;
+            }
+            // **An afterimage is a snapshot of the player, so it is BORN WHERE THE PLAYER IS.** That
+            // fact is what separates a spawn from a pool retirement, and without it the detector
+            // counts one blue image twice -- proven live 2026-08-16, where every ultra logged two
+            // detections carrying the IDENTICAL actor pointer about 60 ticks (~400ms, roughly one
+            // fade lifetime) apart. The pool moves an actor when it reclaims it, and "did it
+            // teleport?" cannot tell that from a fresh placement.
+            //
+            // Note this is the exact inverse of the pooling entry in pitfalls.md: there, re-use made
+            // objects look OLD and undercounted; here, retirement makes them look NEW and
+            // overcounts. Same pooling, opposite error, so a detector needs guarding at both ends.
+            const FVector pawn_loc = static_cast<AActor*>(pawn)->K2_GetActorLocation();
+
+            std::vector<UObject*> afterimages;
+            UObjectGlobals::FindAllOf(STR("BP_AfterImage_C"), afterimages);
+            obs.images_found = static_cast<int>(afterimages.size());
+
+            for (UObject* image : afterimages)
+            {
+                if (!image)
+                {
+                    continue;
+                }
+                // Must be OUR afterimage: a ghost's images are in this same list, and letting one
+                // through would feed the ghost's own colour back into itself.
+                UObject** cached_ptr = image->GetValuePtrByPropertyNameInChain<UObject*>(STR("cachedMesh"));
+                if (!cached_ptr || !*cached_ptr || (*cached_ptr)->GetOuterPrivate() != pawn)
+                {
+                    continue;
+                }
+                ++obs.images_ours;
+
+                // **A reused image betrays itself by TELEPORTING.** These actors are pooled and never
+                // destroyed (measured: across 122 tracked images, not one ever disappeared), so "a
+                // pointer I have not seen" goes quiet once the pool stops growing. An afterimage is a
+                // frozen snapshot that never moves after placement, so any position change means the
+                // pool handed it back out at the player's current spot. This matters for COLOUR even
+                // though the trail trigger does not use it: after an ultra, blue images sit in the
+                // pool indefinitely, and a later gold slide burst would otherwise keep seeing them
+                // and latch blue forever.
+                //
+                // The threshold only needs to clear read noise: the alternative to a jump is exactly
+                // zero movement, not a small one. (Declared here rather than shared with the trail
+                // trigger's own copy of this value -- that one lives further down the file, outside
+                // this namespace, and the two are independent knobs.)
+                constexpr double REUSE_MOVE_THRESHOLD = 5.0;
+                const FVector image_loc = static_cast<AActor*>(image)->K2_GetActorLocation();
+                auto known = last_pos.find(image);
+                bool is_new = true;
+                if (known != last_pos.end())
+                {
+                    const double dx = image_loc.X() - std::get<0>(known->second);
+                    const double dy = image_loc.Y() - std::get<1>(known->second);
+                    const double dz = image_loc.Z() - std::get<2>(known->second);
+                    is_new = (dx * dx + dy * dy + dz * dz) > (REUSE_MOVE_THRESHOLD * REUSE_MOVE_THRESHOLD);
+                }
+                last_pos[image] = {image_loc.X(), image_loc.Y(), image_loc.Z()};
+                if (!is_new)
+                {
+                    continue;
+                }
+
+                // Reject the retirement move: a real spawn is at the player, a reclaimed actor is
+                // wherever the pool put it. The distance is recorded either way so the threshold can
+                // be judged from measurement rather than defended as a guess.
+                const double pdx = image_loc.X() - pawn_loc.X();
+                const double pdy = image_loc.Y() - pawn_loc.Y();
+                const double pdz = image_loc.Z() - pawn_loc.Z();
+                const double dist_sq = pdx * pdx + pdy * pdy + pdz * pdz;
+                if (dist_sq > obs.farthest_new_dist_sq)
+                {
+                    obs.farthest_new_dist_sq = dist_sq;
+                }
+                if (AFTERIMAGE_REQUIRE_SPAWN_PROXIMITY &&
+                    dist_sq > (AFTERIMAGE_SPAWN_PROXIMITY_UNITS * AFTERIMAGE_SPAWN_PROXIMITY_UNITS))
+                {
+                    ++obs.images_rejected_far;
+                    continue;
+                }
+                ++obs.images_new;
+
+                LinearColorRGBA image_color{};
+                if (!read_linear_color(image, STR("Color"), image_color))
+                {
+                    continue;
+                }
+
+                // **Tie-break within a burst, and it is load-bearing.** A burst can hold one blue
+                // ultra image and several gold ones, and simply taking the last meant whichever the
+                // enumeration returned last won -- a coin flip, which is the whole of the original
+                // "blue sometimes, yellow other times" report. An image whose colour differs from the
+                // pawn's own afterimageColor wins, because that field is by definition the baseline
+                // an ordinary trail uses, so a divergence from it is the game deliberately colouring
+                // one image differently. Losing a gold image among blues is invisible; losing the
+                // blue is exactly what was reported. This compares two OBSERVED values -- it never
+                // asks whether an ultra is happening.
+                constexpr float COLOR_MATCH_EPSILON = 0.01f;
+                const bool differs_from_baseline =
+                    std::fabs(image_color.r - baseline.r) > COLOR_MATCH_EPSILON ||
+                    std::fabs(image_color.g - baseline.g) > COLOR_MATCH_EPSILON ||
+                    std::fabs(image_color.b - baseline.b) > COLOR_MATCH_EPSILON;
+
+                if (!obs.have_color || (differs_from_baseline && !obs.have_special))
+                {
+                    obs.color = image_color;
+                    obs.have_color = true;
+                    if (differs_from_baseline)
+                    {
+                        obs.special_image = image;
+                    }
+                }
+                obs.have_special = obs.have_special || differs_from_baseline;
+            }
+            return obs;
+        }
+
         // Cling-gem (wall-ride) VFX attempt, 2026-08-15 -- third application of the "trigger the
         // pawn's own system" pattern. Same zero-filled-buffer shape as call_spawn_num_afterimages:
         // 'doWallRun' reports PropertiesSize=768, but that size is Blueprint-internal temporaries
@@ -3502,6 +3683,157 @@ namespace MeshGhostPseudo
     // old burst-shaped triggering plus the measured colour -- not one or the other.
     constexpr bool AFTERIMAGE_TRIGGER_OBSERVED = false;
 
+    // **Re-enable the ultra hop's BLUE trail, colour only -- deliberately NOT the trigger revamp.**
+    // 2026-08-16. The blue was solved and seen working on a ghost, then switched off as collateral:
+    // the code that read it rode inside the AFTERIMAGE_TRIGGER_OBSERVED scan above, and that scan is
+    // what broke the trail. Both halves went off together even though only one was at fault.
+    //
+    // This separates them. The trigger stays exactly as it was before the revamp (burst_edge /
+    // slide edges, above), and only the COLOUR is observed off the game's real afterimages. That is
+    // the end state the flag above already describes as intended: "the old burst-shaped triggering
+    // plus the measured colour -- not one or the other."
+    //
+    // Three things make this cheap enough to leave on, against the version that regressed:
+    //   1. It runs ONCE PER BURST, not on a fixed cadence -- zero cost when not trailing, where the
+    //      old scan ran every few ticks forever.
+    //   2. No strings. Ownership is one pointer compare (see observe_local_afterimage_colors); the
+    //      old test built a full object name and UTF-8 string per object per scan.
+    //   3. Heavy per-object tracing (TRAIL_COLOR_TRACE) stays off and is not needed by this path.
+    // If the trail ever looks sparse again, this flag is a REAL off-switch -- it gates the
+    // enumeration itself, not just the decision it feeds. That distinction is the one the earlier
+    // A/B got wrong, and it is why a flag flip proved nothing then.
+    constexpr bool AFTERIMAGE_OBSERVE_COLOR = true;
+
+    // When to start looking at what the game actually spawned. Not zero: the game counts
+    // `afterImagesToSpawn` DOWN over several ticks, so on the tick the burst is DETECTED its images
+    // do not exist yet.
+    constexpr uint64_t AFTERIMAGE_COLOR_OBSERVE_DELAY_TICKS = 4;
+
+    // **A burst must be observed ACROSS its spawn, not at one instant -- confirmed live 2026-08-16.**
+    //
+    // The first version scanned once, 4 ticks after the trigger. The user saw the blue appear on the
+    // first afterimage of the NEXT slide instead of on the ultra hop itself: exactly one burst late.
+    // The mechanism is plain once stated. A burst spawns over many ticks, so a single scan sees only
+    // the images that exist at that moment (the log showed new=1 against n=5). Every image that
+    // appears AFTER that scan is still unknown when the next burst scans, and a first sighting is
+    // indistinguishable from a fresh spawn -- so the ultra's late blue images were counted as new by
+    // the following slide's scan and won its tie-break. Nothing was wrong with the detection or the
+    // colour; the images were simply attributed to the wrong burst.
+    //
+    // So the window covers the whole spawn, and the wire event is emitted at its end (or as soon as
+    // the burst's full count has been seen, whichever comes first). Sized generously on purpose --
+    // the log's `off=`/`new=` pair reports the real drain profile, so this can be tightened from
+    // measurement rather than from another guess.
+    constexpr uint64_t AFTERIMAGE_COLOR_OBSERVE_WINDOW_TICKS = 20;
+
+    // **The ultra hop fires NO local trigger -- proven live 2026-08-16, and this is why the blue kept
+    // landing on the following slide.**
+    //
+    // The log settled it. Both ultras produced the identical pattern: the blue was found at off=4 --
+    // the FIRST scan of a burst -- with FOUR images appearing at once, against new=1 for a genuinely
+    // fresh burst. Four-at-once on a first scan is a backlog being discovered, not a burst spawning.
+    // The bursts around it were 12 ticks apart, i.e. slide re-fires. So the ultra's afterimages had
+    // already been spawned, unseen, and were only picked up by the next slide's first scan, which is
+    // precisely when the ghost turned blue.
+    //
+    // The cause is the gap verified.md already records: some afterimages come from a path that never
+    // touches `afterImagesToSpawn`, and the ultra is that path. `burst_edge` therefore never fires,
+    // no window opens, and nothing scans during the ultra at all. No window size can fix that.
+    // Identifying the ultra by STATE is a closed dead end -- ultraCap, fullUltraModifier,
+    // cappedUltraModifier and animJumpType were each ruled out with live captures.
+    //
+    // So the trigger comes from the same place the colour does: observing what the game really
+    // spawned. This scans at a coarse cadence while no burst is pending, and emits a burst only when
+    // it finds new images the game coloured DIFFERENTLY from its own baseline. Restricting it to a
+    // divergent colour is what keeps it from double-trailing: an ordinary gold straggler is absorbed
+    // silently, and the only thing that can fire this is the game deliberately colouring something
+    // -- which is the event being mirrored. Same principle as the recall-glow presence mirror, and
+    // the reason neither needs to know the game's rule.
+    //
+    // NOT the old AFTERIMAGE_TRIGGER_OBSERVED, which replaced the slide trigger wholesale and ran an
+    // expensive scan unconditionally. This is additive and only fires where the existing trigger
+    // found nothing.
+    constexpr bool AFTERIMAGE_OBSERVE_SPECIAL_TRIGGER = true;
+
+    // (AFTERIMAGE_REQUIRE_SPAWN_PROXIMITY and AFTERIMAGE_SPAWN_PROXIMITY_UNITS are declared up in
+    // the anonymous namespace beside observe_local_afterimage_colors, the only code that uses them.)
+
+    // **Trail the ghost from what the game REALLY spawned, not from our reconstruction of when it
+    // probably would have. 2026-08-16.**
+    //
+    // The user reported the ghost trailing where the real player shows nothing at all -- a slide
+    // into a backflip with bad timing is meant to be neutral, and the ghost trailed yellow anyway.
+    // The capture had already hinted at why without it being read: EVERY burst logged `n=5`, which
+    // is the hardcoded fallback rather than a real `afterImagesToSpawn` value. So `burst_edge` --
+    // the one trigger that reads the game's own decision and cannot false-positive -- was never
+    // firing for slides at all. Every slide trail came from the capsule-shrink heuristic, which
+    // detects "a slide is happening", not "the game decided to trail". Those differ exactly when a
+    // move is performed badly, which is precisely the case reported.
+    //
+    // No fourth heuristic is worth writing. This is the pattern CLAUDE.md and this file's own
+    // "the game already knows" entry keep landing on, and every prior attempt here failed the same
+    // way: three actionState guesses, then the capsule shrink, each a re-derivation of a rule that
+    // was never ours to own. The observation path is now cheap enough to be the trigger itself, and
+    // it already carries the two guards this took to get right -- the pool-retirement rejection and
+    // the birth-position test.
+    //
+    // With this on, the reconstructed triggers (burst_edge / slide_edge / slide_refire) are switched
+    // off entirely rather than kept alongside, because BOTH firing would double-count the same
+    // burst. `false` restores the previous behaviour exactly, and is a real revert: it re-enables
+    // the old trigger block and puts the scan back to special-colours-only.
+    constexpr bool AFTERIMAGE_TRIGGER_FROM_OBSERVATION = true;
+
+    // Scan cadence when observation IS the trigger, and the main cost knob for this feature.
+    //
+    // Chosen between two cadences already proven live not to regress the trail: the in-burst stride
+    // of 5 and the idle interval of 10, both of which have been running in confirmed-good builds.
+    // It also bounds how late the ghost's trail can be, since a burst is not seen until the next
+    // scan -- 6 ticks is ~40ms on this build's ~150Hz, under one send interval. Finer tracks the
+    // real burst shape more faithfully; coarser is cheaper. **If the trail ever looks sparse again,
+    // raise this before anything else** -- a per-tick enumeration on the game thread is what caused
+    // this project's worst regression (pitfalls.md, "The diagnostics were the bug").
+    constexpr uint64_t AFTERIMAGE_OBSERVE_SCAN_INTERVAL_TICKS = 6;
+
+    // Cadence of that idle scan, and **the cost knob to reach for first if the trail ever looks
+    // sparse again** -- this is the only part of the feature that runs when the player is not
+    // trailing. At 10 ticks (~15Hz on this build's ~150Hz) it is well under a third of the ~50Hz
+    // enumeration that caused the regression, and each scan here does no per-object name building,
+    // UTF-8 conversion or substring search, which was the bulk of that cost.
+    constexpr uint64_t AFTERIMAGE_IDLE_SCAN_INTERVAL_TICKS = 10;
+
+    // Gap between scans inside that window. **This is the cost knob, and it is the one to reach for
+    // if the trail ever looks sparse again**, because a per-tick enumeration on the game thread is
+    // precisely what caused this project's worst regression (pitfalls.md, "The diagnostics were the
+    // bug"). At 5 ticks a burst costs about 4 scans, and because slide re-fires arrive every 12
+    // ticks the sustained rate during a slide is roughly one scan per 6 ticks -- half the 3-tick
+    // cadence that contributed to the regression, and each scan here is far cheaper than that one
+    // was (no per-object name building, no UTF-8 conversion, no substring search, no tracing).
+    // Still zero while the player is not trailing.
+    constexpr uint64_t AFTERIMAGE_COLOR_OBSERVE_STRIDE_TICKS = 5;
+
+    // **Per-SCAN logging, and it must stay small.** Five lines was the original budget and it was
+    // useless: the first seconds of ordinary sliding spent all five (log timestamps 03:02:00, ticks
+    // 1752-1775), so the ultra hop the run existed to capture was never recorded at all and the
+    // session could not be diagnosed. Raised, but only enough to cover the opening of a focused
+    // test -- per-scan lines are the ones that could get noisy, so the real coverage comes from the
+    // per-burst summary and the unconditional special line below, not from this.
+    constexpr int AFTERIMAGE_COLOR_OBSERVE_LOG_COUNT = 40;
+
+    // One line per BURST at the moment it is emitted, which is the granularity a session actually
+    // needs to be readable: how long the burst was observed for, how many images it saw, what colour
+    // it settled on, and whether that colour diverged from the baseline. Bursts only happen while
+    // the player is trailing, so this is bounded by real activity rather than by tick rate, and one
+    // Output::send per burst is nothing next to the per-object-per-tick logging that caused the
+    // regression. The cap is a runaway backstop, not an expected limit.
+    constexpr int AFTERIMAGE_COLOR_BURST_LOG_COUNT = 400;
+
+    // **The blue moment itself, logged whenever it happens regardless of the budgets above.** This
+    // is the single observation the whole feature turns on, and the last run proved that a shared
+    // budget spent by routine sliding will hide it. A divergence from the baseline is rare by
+    // construction -- it only occurs when the game deliberately colours an image differently -- so
+    // this cannot become chatty without that itself being the finding.
+    constexpr int AFTERIMAGE_COLOR_SPECIAL_LOG_COUNT = 200;
+
     // The ghost trails on a slide now (trigger confirmed live) but still never blue on an ultra.
     // Colour crosses three hands, and this logs all three so the one that drops it is named rather
     // than guessed -- there are exactly three places it can be lost and they need different fixes:
@@ -4175,6 +4507,17 @@ namespace MeshGhostPseudo
             remote.ghost = nullptr;
             remote.owning_world = nullptr;
         }
+
+        // Afterimage pool bookkeeping is per-level: the level's teardown destroys these actors, and
+        // the next level's allocator can hand the same addresses back. Keys here are only ever
+        // compared, never dereferenced, so a stale one is not a crash risk -- but a recycled address
+        // sitting at a remembered position would make a genuinely fresh image look like an untouched
+        // one and lose its colour. Clearing costs nothing and removes the case entirely.
+        afterimage_pos_by_ptr.clear();
+        afterimage_color_burst_pending = false;
+        // Clearing the map makes every image in the next level unseen again, so the idle scan has to
+        // re-prime or it would read the whole new pool as one enormous untriggered spawn.
+        afterimage_pos_primed = false;
     }
 
     auto Plugin::release_all_ghosts_parked(const wchar_t* reason) -> void
@@ -5890,13 +6233,90 @@ namespace MeshGhostPseudo
                 // Kept behind the flag rather than deleted only until the observed path has been
                 // watched live; a reconstruction that fires at the wrong time is not a useful
                 // fallback for one that mirrors the real thing, so this should go once confirmed.
-                if (!AFTERIMAGE_TRIGGER_OBSERVED && (burst_edge || slide_edge || slide_refire))
+                if (!AFTERIMAGE_TRIGGER_OBSERVED && !AFTERIMAGE_TRIGGER_FROM_OBSERVATION &&
+                    (burst_edge || slide_edge || slide_refire))
                 {
-                    ++afterimage_count;
                     // Prefer the game's own count when it actually supplied one; otherwise use the
                     // real observed burst size (5, measured -- the previously hardcoded 6 left
                     // extra afterimages lingering).
-                    afterimage_spawn_n = burst_edge ? to_spawn_now : 5;
+                    const int32_t burst_n = burst_edge ? to_spawn_now : 5;
+                    if constexpr (AFTERIMAGE_OBSERVE_COLOR)
+                    {
+                        // Hold the wire event back by a few ticks so it can carry the colour the
+                        // game actually used -- see AFTERIMAGE_COLOR_OBSERVE_DELAY_TICKS. The
+                        // increment happens in the observe block in tickLocal, not here.
+                        //
+                        // If a previous burst is still waiting, emit it now rather than dropping it:
+                        // a lost burst is a visibly shorter trail, which is the exact symptom this
+                        // area has already regressed on once.
+                        //
+                        // **This is the COMMON path, not the rare one, and forgetting to latch the
+                        // colour here made the blue disappear entirely (found 2026-08-16 from the
+                        // log's `off=` column: bursts were being cut short at 4-10 ticks against a
+                        // 20-tick window, because the next trigger kept arriving first).** An
+                        // earlier version incremented the counter here without applying the colour
+                        // the window had already observed, so on every truncated burst -- i.e. very
+                        // nearly all of them -- the observation was thrown away.
+                        //
+                        // Emitting must therefore be ONE operation wherever it happens. The two
+                        // sites diverging is precisely how the colour got dropped, so this
+                        // deliberately mirrors the emit in the observe block: latch first, then
+                        // increment, and never one without the other.
+                        if (afterimage_color_burst_pending)
+                        {
+                            // Same rule as the observe block's emit: this burst's own colour if it
+                            // saw one, otherwise the baseline -- NEVER the previous burst's colour.
+                            // Uses the baseline captured on the last tick because this runs before
+                            // this tick's pawn read; that value is the game's constant normal trail
+                            // colour, so a one-tick-old copy is equivalent.
+                            if (afterimage_color_burst_have)
+                            {
+                                latched_afterimage_color[0] = afterimage_color_burst_color[0];
+                                latched_afterimage_color[1] = afterimage_color_burst_color[1];
+                                latched_afterimage_color[2] = afterimage_color_burst_color[2];
+                                afterimage_have_observed_color = true;
+                            }
+                            else if (last_pawn_baseline_color_valid)
+                            {
+                                latched_afterimage_color[0] = last_pawn_baseline_color[0];
+                                latched_afterimage_color[1] = last_pawn_baseline_color[1];
+                                latched_afterimage_color[2] = last_pawn_baseline_color[2];
+                                afterimage_have_observed_color = true;
+                            }
+                            if (afterimage_color_burst_logged < AFTERIMAGE_COLOR_BURST_LOG_COUNT)
+                            {
+                                ++afterimage_color_burst_logged;
+                                Output::send(STR("[MeshGhostPseudo] AFTERIMAGE_BURST: cut off={} scans={} newTotal={} color=({:.3f}, {:.3f}, {:.3f}) have={} special={} n={} tick={}\n"),
+                                             tick_count - afterimage_color_burst_tick,
+                                             afterimage_color_burst_scans, afterimage_color_burst_new_total,
+                                             afterimage_color_burst_color[0], afterimage_color_burst_color[1],
+                                             afterimage_color_burst_color[2], afterimage_color_burst_have,
+                                             afterimage_color_burst_special, afterimage_color_burst_n, tick_count);
+                            }
+                            ++afterimage_count;
+                            afterimage_spawn_n = afterimage_color_burst_n;
+                        }
+                        afterimage_color_burst_pending = true;
+                        afterimage_color_burst_tick = tick_count;
+                        afterimage_color_burst_next_scan_tick = tick_count + AFTERIMAGE_COLOR_OBSERVE_DELAY_TICKS;
+                        afterimage_color_burst_n = burst_n;
+                        // Per-burst accumulators start empty, so one burst's colour can never carry
+                        // into the next -- which is the bug this window exists to fix. The colour
+                        // array is cleared too, not just its validity flag, so a log line can never
+                        // show a stale colour beside have=false and read as though it meant it.
+                        afterimage_color_burst_have = false;
+                        afterimage_color_burst_special = false;
+                        afterimage_color_burst_new_total = 0;
+                        afterimage_color_burst_scans = 0;
+                        afterimage_color_burst_color[0] = 0.0f;
+                        afterimage_color_burst_color[1] = 0.0f;
+                        afterimage_color_burst_color[2] = 0.0f;
+                    }
+                    else
+                    {
+                        ++afterimage_count;
+                        afterimage_spawn_n = burst_n;
+                    }
                     if constexpr (TRAIL_TRIGGER_TRACE)
                     {
                         Output::send(STR("[MeshGhostPseudo] TRACE trailTrigger: burst_edge={} slide_edge={} slide_refire={} n={} count={} actionState={} animJumpType={} moveState={}\n"),
@@ -6413,12 +6833,219 @@ namespace MeshGhostPseudo
             // real, but this line overwrote its result further down the same tick.
             LinearColorRGBA pawn_afterimage_color{};
             bool local_color_read_ok = read_linear_color(pawn, STR("afterimageColor"), pawn_afterimage_color);
+            // Kept for the emit path in the trigger block, which runs earlier in the tick than this
+            // read -- see its use there. The game's ordinary trail colour, i.e. what a burst that
+            // observed nothing of its own should fall back to.
+            if (local_color_read_ok)
+            {
+                last_pawn_baseline_color[0] = pawn_afterimage_color.r;
+                last_pawn_baseline_color[1] = pawn_afterimage_color.g;
+                last_pawn_baseline_color[2] = pawn_afterimage_color.b;
+                last_pawn_baseline_color_valid = true;
+            }
             // The pawn's value is only a STARTUP fallback, used until a real afterimage has been
             // observed. After that the latched per-burst colour stands until the next burst
-            // replaces it -- see the latch in the scan below for why nothing else may touch it.
-            if (!afterimage_have_observed_color)
+            // replaces it -- see the latch in the observe block below for why nothing else may
+            // touch it.
+            //
+            // **The latch is a MEMBER, and re-read here every tick.** local_afterimage_color is a
+            // fresh zero-initialised local each tick while an observation only happens once per
+            // burst, so without this the packet would carry black on every tick in between. The
+            // mirror-image of that bug is what capped blue reproduction at a third before: the
+            // baseline was republished into the serialized value every tick, so the ~20Hz send
+            // sampled whichever tick it landed on. Read the latch, never overwrite it.
+            if (afterimage_have_observed_color)
+            {
+                local_afterimage_color.r = latched_afterimage_color[0];
+                local_afterimage_color.g = latched_afterimage_color[1];
+                local_afterimage_color.b = latched_afterimage_color[2];
+                local_color_read_ok = true;
+            }
+            else
             {
                 local_afterimage_color = pawn_afterimage_color;
+            }
+
+            // **Observe the burst's real colour, once, a few ticks after it fired.** This is the
+            // colour half of the ultra-blue work, deliberately split from the trail TRIGGER -- see
+            // AFTERIMAGE_OBSERVE_COLOR for why they are separate flags now.
+            if constexpr (AFTERIMAGE_OBSERVE_COLOR)
+            {
+                if (afterimage_color_burst_pending &&
+                    tick_count >= afterimage_color_burst_next_scan_tick)
+                {
+                    const AfterimageColorObservation obs =
+                        observe_local_afterimage_colors(pawn, pawn_afterimage_color, afterimage_pos_by_ptr);
+
+                    // Accumulate ACROSS the window rather than judging one instant -- see
+                    // AFTERIMAGE_COLOR_OBSERVE_WINDOW_TICKS for why a single sample attributed the
+                    // blue to the wrong burst. Same tie-break as within a scan: a colour that
+                    // differs from the pawn's baseline outranks one that matches it.
+                    if (obs.have_color &&
+                        (!afterimage_color_burst_have || (obs.have_special && !afterimage_color_burst_special)))
+                    {
+                        afterimage_color_burst_color[0] = obs.color.r;
+                        afterimage_color_burst_color[1] = obs.color.g;
+                        afterimage_color_burst_color[2] = obs.color.b;
+                        afterimage_color_burst_have = true;
+                    }
+                    afterimage_color_burst_special = afterimage_color_burst_special || obs.have_special;
+                    afterimage_color_burst_new_total += obs.images_new;
+                    afterimage_color_burst_rejected_far += obs.images_rejected_far;
+                    afterimage_color_burst_scans += 1;
+
+                    const uint64_t age = tick_count - afterimage_color_burst_tick;
+
+                    // Bounded evidence, and the drain profile in one. `off=` is ticks since the
+                    // trigger and `new=` how many images appeared by then, so the log says directly
+                    // how long a burst really takes to finish spawning -- which is the number the
+                    // window should be sized against, rather than another guess. A silent zero on
+                    // `ours=` would otherwise be indistinguishable from "no burst yet", the failure
+                    // mode CLAUDE.md calls out for a probe that reads nothing.
+                    if (afterimage_color_observe_logged < AFTERIMAGE_COLOR_OBSERVE_LOG_COUNT)
+                    {
+                        ++afterimage_color_observe_logged;
+                        Output::send(STR("[MeshGhostPseudo] AFTERIMAGE_COLOR: off={} found={} ours={} new={} newTotal={} scan=({:.3f}, {:.3f}, {:.3f}) special={} burstSoFar=({:.3f}, {:.3f}, {:.3f}) burstSpecial={} baseline=({:.3f}, {:.3f}, {:.3f}) n={} tick={}\n"),
+                                     age, obs.images_found, obs.images_ours, obs.images_new,
+                                     afterimage_color_burst_new_total,
+                                     obs.color.r, obs.color.g, obs.color.b, obs.have_special,
+                                     afterimage_color_burst_color[0], afterimage_color_burst_color[1],
+                                     afterimage_color_burst_color[2], afterimage_color_burst_special,
+                                     pawn_afterimage_color.r, pawn_afterimage_color.g, pawn_afterimage_color.b,
+                                     afterimage_color_burst_n, tick_count);
+                    }
+
+                    // **The blue moment, on its own budget.** Logged the instant a scan sees an image
+                    // whose colour diverges from the baseline, so it can never be crowded out by
+                    // routine sliding the way the shared budget was last run.
+                    if (obs.have_special && afterimage_color_special_logged < AFTERIMAGE_COLOR_SPECIAL_LOG_COUNT)
+                    {
+                        ++afterimage_color_special_logged;
+                        Output::send(STR("[MeshGhostPseudo] AFTERIMAGE_SPECIAL: off={} scan=({:.3f}, {:.3f}, {:.3f}) new={} newTotal={} baseline=({:.3f}, {:.3f}, {:.3f}) n={} tick={}\n"),
+                                     age, obs.color.r, obs.color.g, obs.color.b,
+                                     obs.images_new, afterimage_color_burst_new_total,
+                                     pawn_afterimage_color.r, pawn_afterimage_color.g, pawn_afterimage_color.b,
+                                     afterimage_color_burst_n, tick_count);
+                    }
+
+                    // Emit once the burst is fully accounted for, or when the window runs out.
+                    // The early exit is what keeps an ordinary slide's trail prompt: a 5-image burst
+                    // that finishes spawning quickly does not sit waiting for a window sized for the
+                    // worst case.
+                    const bool burst_fully_seen = afterimage_color_burst_n > 0 &&
+                                                  afterimage_color_burst_new_total >= afterimage_color_burst_n;
+                    if (burst_fully_seen || age >= AFTERIMAGE_COLOR_OBSERVE_WINDOW_TICKS)
+                    {
+                        // **A burst that observed nothing falls back to the BASELINE, never to the
+                        // previous burst's colour.** Confirmed live 2026-08-16: the slide after an
+                        // ultra came out blue even though no blue was detected during it (the
+                        // capture has no AFTERIMAGE_SPECIAL line for that burst at all). The blue
+                        // was not being re-detected -- it was being inherited. Holding the last
+                        // latched colour across a burst that saw nothing makes the latch describe
+                        // "the last colour ever seen" instead of "this burst's colour", which is
+                        // exactly the property pitfalls.md's latch entry says it must not have.
+                        // A burst with no observation is an ordinary one, so it gets the ordinary
+                        // colour.
+                        if (afterimage_color_burst_have)
+                        {
+                            latched_afterimage_color[0] = afterimage_color_burst_color[0];
+                            latched_afterimage_color[1] = afterimage_color_burst_color[1];
+                            latched_afterimage_color[2] = afterimage_color_burst_color[2];
+                        }
+                        else
+                        {
+                            latched_afterimage_color[0] = pawn_afterimage_color.r;
+                            latched_afterimage_color[1] = pawn_afterimage_color.g;
+                            latched_afterimage_color[2] = pawn_afterimage_color.b;
+                        }
+                        afterimage_have_observed_color = true;
+                        local_afterimage_color.r = latched_afterimage_color[0];
+                        local_afterimage_color.g = latched_afterimage_color[1];
+                        local_afterimage_color.b = latched_afterimage_color[2];
+                        local_color_read_ok = true;
+
+                        if (afterimage_color_burst_logged < AFTERIMAGE_COLOR_BURST_LOG_COUNT)
+                        {
+                            ++afterimage_color_burst_logged;
+                            Output::send(STR("[MeshGhostPseudo] AFTERIMAGE_BURST: {} off={} scans={} newTotal={} rejFar={} color=({:.3f}, {:.3f}, {:.3f}) have={} special={} n={} tick={}\n"),
+                                         burst_fully_seen ? STR("complete") : STR("window"),
+                                         age, afterimage_color_burst_scans, afterimage_color_burst_new_total,
+                                         afterimage_color_burst_rejected_far,
+                                         afterimage_color_burst_color[0], afterimage_color_burst_color[1],
+                                         afterimage_color_burst_color[2], afterimage_color_burst_have,
+                                         afterimage_color_burst_special, afterimage_color_burst_n, tick_count);
+                        }
+
+                        // The wire event and its colour are written together, here, and nothing else
+                        // touches either afterwards -- so whichever tick the send samples, it sees
+                        // the pair belonging to the latest burst.
+                        ++afterimage_count;
+                        afterimage_spawn_n = afterimage_color_burst_n;
+                        afterimage_color_burst_pending = false;
+                    }
+                    else
+                    {
+                        afterimage_color_burst_next_scan_tick = tick_count + AFTERIMAGE_COLOR_OBSERVE_STRIDE_TICKS;
+                    }
+                }
+                // **Observation scan.** With AFTERIMAGE_TRIGGER_FROM_OBSERVATION this is the ONLY
+                // trigger: it fires on images the game really spawned, so the ghost trails exactly
+                // when the player does. Without it, it runs only while no reconstructed burst is
+                // pending, and fires just for deliberately-coloured images (the ultra's blue).
+                else if ((AFTERIMAGE_TRIGGER_FROM_OBSERVATION || AFTERIMAGE_OBSERVE_SPECIAL_TRIGGER) &&
+                         (AFTERIMAGE_TRIGGER_FROM_OBSERVATION || !afterimage_color_burst_pending) &&
+                         tick_count >= afterimage_idle_next_scan_tick)
+                {
+                    afterimage_idle_next_scan_tick = tick_count + (AFTERIMAGE_TRIGGER_FROM_OBSERVATION
+                                                                       ? AFTERIMAGE_OBSERVE_SCAN_INTERVAL_TICKS
+                                                                       : AFTERIMAGE_IDLE_SCAN_INTERVAL_TICKS);
+                    const AfterimageColorObservation obs =
+                        observe_local_afterimage_colors(pawn, pawn_afterimage_color, afterimage_pos_by_ptr);
+
+                    // **The first scan of a session only PRIMES the position map.** Every image in
+                    // the pool is unseen at that point, so it would otherwise look like one enormous
+                    // spawn and fire a spurious burst on the ghost.
+                    if (!afterimage_pos_primed)
+                    {
+                        afterimage_pos_primed = true;
+                    }
+                    else if (AFTERIMAGE_TRIGGER_FROM_OBSERVATION ? (obs.images_new > 0) : obs.have_special)
+                    {
+                        // The game spawned images and coloured them deliberately, with no local
+                        // trigger accounting for them. Mirror it: latch the colour and emit the wire
+                        // event together, exactly as the burst path does -- one operation, never a
+                        // counter without its colour.
+                        latched_afterimage_color[0] = obs.color.r;
+                        latched_afterimage_color[1] = obs.color.g;
+                        latched_afterimage_color[2] = obs.color.b;
+                        afterimage_have_observed_color = true;
+                        local_afterimage_color = obs.color;
+                        local_color_read_ok = true;
+
+                        // Carry the real burst size the game produced rather than a guess, matching
+                        // how the ghost side already consumes the counter/N pair.
+                        ++afterimage_count;
+                        afterimage_spawn_n = obs.images_new;
+
+                        if (afterimage_color_idle_logged < AFTERIMAGE_COLOR_SPECIAL_LOG_COUNT)
+                        {
+                            ++afterimage_color_idle_logged;
+                            // `img=` and `sinceLast=` are the pair that answered why an ultra emitted
+                            // twice: the same pointer means the pool handed one actor back, two
+                            // pointers mean the game really spawned two. `rejFar=` is how many
+                            // movers were rejected as pool retirements rather than births.
+                            Output::send(STR("[MeshGhostPseudo] AFTERIMAGE_IDLE: observed spawn found={} ours={} new={} rejFar={} farNew={:.0f} color=({:.3f}, {:.3f}, {:.3f}) img={} sinceLast={} baseline=({:.3f}, {:.3f}, {:.3f}) tick={}\n"),
+                                         obs.images_found, obs.images_ours, obs.images_new,
+                                         obs.images_rejected_far, std::sqrt(obs.farthest_new_dist_sq),
+                                         obs.color.r, obs.color.g, obs.color.b,
+                                         static_cast<void*>(obs.special_image),
+                                         afterimage_idle_last_emit_tick == 0 ? 0 : tick_count - afterimage_idle_last_emit_tick,
+                                         pawn_afterimage_color.r, pawn_afterimage_color.g, pawn_afterimage_color.b,
+                                         tick_count);
+                        }
+                        afterimage_idle_last_emit_tick = tick_count;
+                    }
+                }
             }
 
             // **The ultra hop's blue, solved 2026-08-16 -- read the colour off the AFTERIMAGE, not

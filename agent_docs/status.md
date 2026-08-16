@@ -25,10 +25,6 @@ Fixed-and-confirmed work is not listed here — see `verified.md` and the phase 
 
 ### Open, not blocked
 
-- **Pseudoregalia: re-enable the ultra hop's BLUE trail.** Colour solved, currently OFF. Read
-  `verified.md` and `pitfalls.md`'s "The diagnostics were the bug" before touching it.
-- **Pseudoregalia: slide trail tail overhang.** 1-2 extra ghost images at a slide's end; one
-  constant, `SLIDE_REFIRE_WINDOW_TICKS`. Cosmetic.
 - **Pseudoregalia: a `Fatal Error!` on game exit**, seen once, never root-caused. Not the
   2026-08-16 transition crash, which is fixed.
 - **TEVI: charged-attack VFX missing on the ghost** — animations play, effects don't.
