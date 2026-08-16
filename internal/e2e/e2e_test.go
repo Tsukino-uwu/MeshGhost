@@ -66,14 +66,41 @@ func buildBinary(t *testing.T, dir, pkg, base string) string {
 // is parsing an address out of the relay's log output, which would couple
 // this test to a log line's exact wording. On a loopback-only test machine
 // the window is not a practical problem.
+//
+// It checks the port is free for UDP as well as TCP, and retries if it isn't.
+// Asking for a TCP port only proves a TCP port is free, and the relay binds
+// the SAME number for udp (and another for quic, which is udp underneath), so
+// the two were never the same question. On Windows they can differ outright:
+// Hyper-V/WinNAT reserve blocks of the ephemeral range, and a udp bind inside
+// one fails with "An attempt was made to access a socket in a way forbidden by
+// its access permissions" (WSAEACCES) on a number TCP handed out happily.
+//
+// Found 2026-08-16 when a release build failed on exactly that, three tests at
+// once, on ports 63503/63536/63555. It is luck-of-the-draw, which is worse than
+// a reliable failure: it had passed on the same code minutes earlier, so
+// re-running would have "fixed" it and taught us nothing.
 func freePort(t *testing.T) int {
 	t.Helper()
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatalf("reserve port: %v", err)
+	const attempts = 20
+	for i := 0; i < attempts; i++ {
+		ln, err := net.Listen("tcp", "127.0.0.1:0")
+		if err != nil {
+			t.Fatalf("reserve port: %v", err)
+		}
+		port := ln.Addr().(*net.TCPAddr).Port
+		ln.Close()
+
+		// Probe udp on the same number. Closed immediately: this only answers
+		// "is this number usable", the same way the tcp listen above does.
+		pc, err := net.ListenPacket("udp", net.JoinHostPort("127.0.0.1", strconv.Itoa(port)))
+		if err != nil {
+			continue // reserved or taken for udp -- ask for a different one
+		}
+		pc.Close()
+		return port
 	}
-	defer ln.Close()
-	return ln.Addr().(*net.TCPAddr).Port
+	t.Fatalf("could not find a port free for both tcp and udp after %d attempts", attempts)
+	return 0
 }
 
 // start launches a binary with cwd set to dir. cwd matters: both binaries

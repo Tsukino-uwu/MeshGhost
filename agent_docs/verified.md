@@ -4770,3 +4770,31 @@ Incidental, from the same logs, neither a fault: `run-relay.bat` serves tcp only
 -transport), so the client correctly logged `this relay does not offer udp ... staying on tcp`
 rather than failing; and a relay restart between the two script launches produced a
 `will keep retrying` reconnect that recovered on its own three seconds later.
+
+## 2026-08-16 — A release failed on a port that was free for tcp but forbidden for udp
+
+**Established with the tools**, from the failed Release run's own log. Three e2e tests failed at
+once on the windows-latest runner — both udp and quic subtests of
+`TestReleaseBinariesRoundTripAGhostOnEveryTransport`, plus `TestAutoTransportUpgradesToQUIC`.
+
+The relay said exactly why, and it was not our code:
+
+    listen udp on 127.0.0.1:63503: bind: An attempt was made to access a socket
+    in a way forbidden by its access permissions.
+
+That is Windows `WSAEACCES` on a **udp** bind, for a port the test had obtained seconds earlier by
+listening on **tcp**. `e2e_test.go`'s `freePort` asked the OS for a tcp port and handed the number
+to the relay, which binds the same number for udp (and another for quic, udp underneath) — two
+different questions that were being treated as one. Windows can answer them differently:
+Hyper-V/WinNAT reserve blocks of the ephemeral range, and a udp bind inside one is refused outright.
+
+`freePort` now probes udp on the candidate number as well and asks for another if it fails.
+
+**Not reproducible on the dev machine, and the reason is worth recording:**
+`netsh int ipv4 show excludedportrange udp` lists no exclusions here, so a udp bind never fails on
+a tcp-free port. The failure needs a machine that reserves ranges, which the runner does and this
+one does not.
+
+**Luck-of-the-draw, which is worse than a reliable failure**: the same code had passed on the
+Windows job minutes earlier (CI run 31952340980), so re-running the release would have "fixed" it
+and taught us nothing. Full suite green after the fix, e2e repeated at `-count=3`.
