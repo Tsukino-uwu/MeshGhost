@@ -181,6 +181,19 @@ downloaded release folder and run against its `meshghost-server.exe` instead.
 - `run-core-pseudoregalia.bat` — a single core client wired for Pseudoregalia
   (`-game=pseudoregalia`, bridge port 7778) — see
   [agent_docs/phases/phase7.md](../agent_docs/phases/phase7.md).
+- `run-core-pseudoregalia-tcp.bat` / `-udp.bat` / `-quic.bat` — the same client pinned to one
+  transport each, for live-testing the 2026-08-16 selectable-transport work. Pair any of them
+  with `run-relay-loopback.bat`, which now serves all three at once, so switching protocol means
+  running a different one of these rather than restarting the relay.
+  **Confirm which transport was actually used** — every connection handshakes over tcp and only
+  then upgrades, and a preference the relay does not serve degrades quietly to a working tcp
+  session, so a run that "works" proves nothing on its own. `meshghost.log` carries
+  `core: relay offers ... — using <transport> at ...`; if that names something else, that run did
+  not test what you meant. Two things worth watching that the automated tests cannot reach: a
+  state message over `udpconn.MaxDatagramBytes` (1200) is refused rather than sent, which shows
+  up as `core: send state to relay failed` rather than as silence; and the retransmit timer and
+  dedup pruning only get exercised over minutes at 20Hz, not over one round trip — see CLAUDE.md's
+  rule about light tests not closing load-dependent risks.
 - `build-pseudoregalia.bat` — not a launcher, a build step: compiles the Pseudoregalia UE4SS
   C++ mod (`main.dll`) via its local CMake build tree and stages it into
   `packaging/release/games/pseudoregalia/`. Re-run and commit the result whenever
