@@ -132,11 +132,15 @@ proposing a plan that touches the core, an adapter, or the relay.
   the number a reader is actually asking for. Found live 2026-08-15:
   Pseudoregalia's steps 19-22 had each grown to 15-20 dense lines while 1-18 stayed at 2-4,
   making the file hard to read for exactly the audience it's for.
-- **Keep `agent_docs/status.md` to one screen (~50 lines).** It drifted to 628 lines once before
-  (Found live 2026-08-15) by accreting a "Current focus:" bullet per session instead of updating
-  the existing one — when the active phase changes, overwrite the relevant line/section instead
-  of appending a new one, and move anything narrative into the relevant
-  `agent_docs/phases/phaseN.md` instead.
+- **`agent_docs/status.md` is an index of what's open, not a record: two lines per item, maximum —
+  what is open, and where the detail lives.** A third line means it belongs in `verified.md`,
+  `pitfalls.md`, or `phases/phaseN.md`; move it and leave a pointer. Delete an item the moment it's
+  fixed and confirmed, and overwrite in place when the active phase changes rather than appending.
+  **This replaced a flat ~50-line cap on 2026-08-16, because the cap was on the wrong variable**:
+  it bounded the file but nothing bounded per-item verbosity, so each item arrived carrying its own
+  rationale (averaging 3 lines, one reaching 6) and the total crept back — 628 lines once
+  (2026-08-15), then 106 the next day even with the cap in force. Size now tracks the *number* of
+  open items, which is real signal, instead of how much context each one drags along.
 
 ## This file is capped at 300 lines
 
