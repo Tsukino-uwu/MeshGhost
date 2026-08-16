@@ -63,6 +63,10 @@ type fakeAdapter struct {
 	mu       sync.Mutex
 	rendered map[string]protocol.State
 	despawns chan string
+	// ready/rejects capture the Core's two possible answers to a hello. Buffered
+	// so a test that never reads them cannot wedge the receive callback.
+	ready   chan struct{}
+	rejects chan string
 }
 
 func dialFakeAdapter(t *testing.T, bridgeAddr string) *fakeAdapter {
@@ -76,6 +80,8 @@ func dialFakeAdapter(t *testing.T, bridgeAddr string) *fakeAdapter {
 		conn:     conn,
 		rendered: make(map[string]protocol.State),
 		despawns: make(chan string, 16),
+		ready:    make(chan struct{}, 4),
+		rejects:  make(chan string, 4),
 	}
 	conn.OnReceive(func(payload []byte) {
 		var env bridge.Envelope
@@ -103,6 +109,21 @@ func dialFakeAdapter(t *testing.T, bridgeAddr string) *fakeAdapter {
 			delete(fa.rendered, dr.PlayerID)
 			fa.mu.Unlock()
 			fa.despawns <- dr.PlayerID
+		case bridge.TypeBridgeReady:
+			select {
+			case fa.ready <- struct{}{}:
+			default:
+			}
+		case bridge.TypeReject:
+			var rj bridge.Reject
+			if err := json.Unmarshal(env.Payload, &rj); err != nil {
+				t.Errorf("unmarshal reject: %v", err)
+				return
+			}
+			select {
+			case fa.rejects <- rj.Reason:
+			default:
+			}
 		}
 	})
 	return fa
@@ -225,6 +246,126 @@ func TestBridgeHelloConnectsToRelay(t *testing.T) {
 	adapter.hello("emerald")
 
 	waitForPlayerID(t, c)
+}
+
+// awaitReady fails the test unless the Core answers this adapter's hello with
+// bridge_ready inside testTimeout.
+func (fa *fakeAdapter) awaitReady() {
+	fa.t.Helper()
+	select {
+	case <-fa.ready:
+	case reason := <-fa.rejects:
+		fa.t.Fatalf("hello was rejected (%q), want it accepted", reason)
+	case <-time.After(testTimeout):
+		fa.t.Fatal("timed out waiting for bridge_ready")
+	}
+}
+
+// awaitReject returns the reason, failing unless the Core rejects this
+// adapter's hello inside testTimeout.
+func (fa *fakeAdapter) awaitReject() string {
+	fa.t.Helper()
+	select {
+	case reason := <-fa.rejects:
+		return reason
+	case <-fa.ready:
+		fa.t.Fatal("hello was accepted, want it rejected")
+	case <-time.After(testTimeout):
+		fa.t.Fatal("timed out waiting for a reject")
+	}
+	return ""
+}
+
+// TestSecondAdapterForTheSameGameIsRejected is the important one, and it covers
+// a bug rather than a feature. Two adapters running the SAME game_id both used
+// to get a successful hello -- ConnectRelayOnAdapterHello returns nil early when
+// the game already matches -- and nothing limited adapters per Core, so both
+// then drove ONE relay session: one playerID, one seq, one send-rate budget, one
+// localAreaID, two games fighting over a single ghost. Neither side logged
+// anything unusual.
+//
+// It matters most in exactly the case that motivated the port walk: two copies
+// of one game on one machine, which is also how nearly every adapter in this
+// repo got tested.
+func TestSecondAdapterForTheSameGameIsRejected(t *testing.T) {
+	relayAddr := startRelay(t)
+	c, bridgeAddr := startCoreLazy(t, relayAddr, "room1", "alice")
+
+	first := dialFakeAdapter(t, bridgeAddr)
+	first.hello("emerald")
+	first.awaitReady()
+	waitForPlayerID(t, c)
+	idBefore := c.PlayerID()
+
+	second := dialFakeAdapter(t, bridgeAddr)
+	second.hello("emerald")
+	if reason := second.awaitReject(); reason == "" {
+		t.Error("rejected with an empty reason, want one an adapter can log")
+	}
+
+	// The first adapter must be entirely undisturbed -- the old failure mode
+	// was not an error but a silent hijack of its session.
+	if got := c.PlayerID(); got != idBefore {
+		t.Errorf("player_id changed to %q after a second adapter attached, want %q kept", got, idBefore)
+	}
+	first.frame(&protocol.State{AreaID: "a", Position: []float64{1, 2}, Anim: "idle"})
+}
+
+// TestSecondAdapterForADifferentGameIsRejectedWithAReason covers the case that
+// merely failed rather than corrupting: a Core serves one game, and a second
+// game's hello was answered by closing the socket with no explanation. An
+// adapter cannot tell that apart from a crashed core, a core still binding its
+// port, or an unrelated program, which is why "two games at once" failed
+// invisibly and why the reason now goes over the wire.
+func TestSecondAdapterForADifferentGameIsRejectedWithAReason(t *testing.T) {
+	relayAddr := startRelay(t)
+	c, bridgeAddr := startCoreLazy(t, relayAddr, "room1", "alice")
+
+	first := dialFakeAdapter(t, bridgeAddr)
+	first.hello("emerald")
+	first.awaitReady()
+	waitForPlayerID(t, c)
+
+	second := dialFakeAdapter(t, bridgeAddr)
+	second.hello("pseudoregalia")
+	if reason := second.awaitReject(); reason == "" {
+		t.Error("rejected with an empty reason, want one an adapter can log")
+	}
+}
+
+// TestCoreAcceptsANewAdapterAfterTheFirstLeaves is the other half of admission
+// control, and the one that keeps autostart's reuse working: a Core whose
+// adapter has gone must be available again. Without this a relaunched game
+// would walk to a new port every time and leave a trail of dead cores behind
+// it, each still holding its own port.
+func TestCoreAcceptsANewAdapterAfterTheFirstLeaves(t *testing.T) {
+	relayAddr := startRelay(t)
+	_, bridgeAddr := startCoreLazy(t, relayAddr, "room1", "alice")
+
+	first := dialFakeAdapter(t, bridgeAddr)
+	first.hello("emerald")
+	first.awaitReady()
+	first.conn.Close()
+
+	// The Core frees the slot in its bridge OnDisconnect, which runs
+	// asynchronously, so retry rather than assuming instant.
+	deadline := time.Now().Add(testTimeout)
+	for {
+		second := dialFakeAdapter(t, bridgeAddr)
+		second.hello("emerald")
+		select {
+		case <-second.ready:
+			return
+		case <-second.rejects:
+			if time.Now().After(deadline) {
+				t.Fatal("core still refusing adapters after the first one left")
+			}
+			second.conn.Close()
+			time.Sleep(20 * time.Millisecond)
+		case <-time.After(testTimeout):
+			t.Fatal("timed out waiting for the core to accept a new adapter")
+		}
+	}
 }
 
 // TestLocalStateBeforeHelloDoesNotSendOrCrash confirms local_state frames

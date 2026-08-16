@@ -33,6 +33,12 @@ const (
 	TypeLocalState    MessageType = "local_state"
 	TypeRenderRemote  MessageType = "render_remote"
 	TypeDespawnRemote MessageType = "despawn_remote"
+	// TypeBridgeReady and TypeReject are the core's two possible answers to a
+	// Hello, added 2026-08-16 so an adapter can tell whether a core is actually
+	// available to it -- see BridgeReady's doc comment for why silence was not
+	// good enough.
+	TypeBridgeReady MessageType = "bridge_ready"
+	TypeReject      MessageType = "reject"
 )
 
 // Envelope is the outer shape of every bridge message, one per NDJSON
@@ -62,6 +68,35 @@ type Hello struct {
 	// a caller with no real adapter attached force a game_id. Added
 	// alongside room-code auth — see the ADR in agent_docs/architecture.md.
 	GameVersion string `json:"game_version,omitempty"`
+}
+
+// BridgeReady is sent core -> adapter as the answer to an accepted Hello:
+// this core is available and is now yours.
+//
+// It exists because the bridge had no positive acknowledgement at all. A core
+// only ever sent RenderRemote/DespawnRemote, and only once a peer existed, so
+// an adapter could not tell "accepted" from "still starting up" from "wrong
+// program listening on this port" -- it could only infer success from silence
+// over time. That guess became unaffordable once adapters started walking a
+// range of ports looking for a free core (agent_docs/architecture.md's
+// probe-upward ADR): silence is exactly what a busy core used to answer with.
+//
+// Deliberately carries no payload fields. It answers one question -- may I use
+// you -- and anything else worth knowing (the game, the relay) is already
+// either the adapter's own input or none of its business.
+type BridgeReady struct{}
+
+// Reject is sent core -> adapter when a Hello cannot be accepted, immediately
+// before the core closes the connection. Reason is human-readable and meant for
+// the adapter's log, not for branching on: an adapter's correct response to any
+// rejection is the same, which is to try the next port.
+//
+// Before this, a refused Hello was answered by closing the socket with no
+// explanation, which an adapter could not distinguish from a crashed core, a
+// core still binding its port, or an unrelated program. That silence is what
+// made "two games at once" fail invisibly.
+type Reject struct {
+	Reason string `json:"reason"`
 }
 
 // LocalState is sent adapter -> core once per adapter frame tick, the wire

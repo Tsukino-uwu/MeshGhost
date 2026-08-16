@@ -304,6 +304,93 @@ func newRig(t *testing.T) rig {
 // and a real adapter on the bridge. A state sent in must come back as a
 // render_remote, which means it crossed the bridge, the client's relay
 // connection, the relay's forwarding path, and all the way back.
+// TestSecondAdapterIsRejectedByTheRealBinary is the end-to-end half of the
+// core's admission-control tests: against the ACTUAL shipped meshghost.exe, a
+// second adapter attaching to a core that already has one is told why and hung
+// up on, rather than silently joining and sharing the first one's relay session.
+//
+// Worth having at this level as well as in internal/core because the failure it
+// guards is invisible by nature -- both adapters used to log a normal
+// "connected" -- so a unit test passing while the real binary misbehaved would
+// look exactly like success.
+//
+// Both adapters are dialed by hand rather than through startAdapter, because
+// startAdapter connects asynchronously and reconnects on drop: which of the two
+// reached the core first would be a coin toss, and the test would sometimes
+// assert against whichever one lost.
+func TestSecondAdapterIsRejectedByTheRealBinary(t *testing.T) {
+	r := newRig(t)
+	startRelay(t, r.dir, r.relayBin, r.relayAddr)
+	startClient(t, r.dir, r.clientBin, r.relayAddr, r.bridgeAddr)
+
+	// answers watches one bridge connection for the core's reply to a hello:
+	// "" for bridge_ready, or the reason for a reject.
+	answers := func(conn *transport.NDJSONConn) <-chan string {
+		out := make(chan string, 1)
+		conn.OnReceive(func(payload []byte) {
+			var env bridge.Envelope
+			if json.Unmarshal(payload, &env) != nil {
+				return
+			}
+			switch env.Type {
+			case bridge.TypeBridgeReady:
+				select {
+				case out <- "":
+				default:
+				}
+			case bridge.TypeReject:
+				var rj bridge.Reject
+				if json.Unmarshal(env.Payload, &rj) == nil {
+					select {
+					case out <- rj.Reason:
+					default:
+					}
+				}
+			}
+		})
+		return out
+	}
+
+	// The first adapter must be fully attached before the second dials, and
+	// bridge_ready is exactly that signal -- it is why the core sends one.
+	first, err := transport.Dial(r.bridgeAddr)
+	if err != nil {
+		t.Fatalf("first adapter dial: %v", err)
+	}
+	defer first.Close()
+	firstAnswer := answers(first)
+	if !sendBridge(first, bridge.TypeHello, bridge.Hello{GameID: "e2egame"}) {
+		t.Fatal("first adapter could not send hello")
+	}
+	select {
+	case reason := <-firstAnswer:
+		if reason != "" {
+			t.Fatalf("first adapter was rejected (%q), want it accepted", reason)
+		}
+	case <-time.After(testTimeout):
+		t.Fatal("first adapter never got bridge_ready")
+	}
+
+	second, err := transport.Dial(r.bridgeAddr)
+	if err != nil {
+		t.Fatalf("second adapter dial: %v", err)
+	}
+	defer second.Close()
+	secondAnswer := answers(second)
+	if !sendBridge(second, bridge.TypeHello, bridge.Hello{GameID: "e2egame"}) {
+		t.Fatal("second adapter could not send hello")
+	}
+	select {
+	case reason := <-secondAnswer:
+		if reason == "" {
+			t.Fatal("second adapter was ACCEPTED -- the real binary still lets two adapters " +
+				"share one core, which silently corrupts both sessions")
+		}
+	case <-time.After(testTimeout):
+		t.Fatal("second adapter got no answer at all, want a reject with a reason")
+	}
+}
+
 func TestReleaseBinariesRoundTripAGhost(t *testing.T) {
 	if testing.Short() {
 		t.Skip("builds and launches real binaries; skipped under -short")

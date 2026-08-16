@@ -185,6 +185,24 @@ type Core struct {
 	// working relay session out from under the real adapter.
 	relayOwner transport.Transport
 
+	// attachedAdapter is the one bridge connection currently allowed to drive
+	// this Core, and is NOT the same thing as relayOwner above. relayOwner
+	// answers "whose disconnect may tear down the relay"; this answers "may you
+	// attach at all", which is an admission question asked at Hello time.
+	// Conflating the two is how the stale-callback bug relayOwner exists to
+	// prevent got written in the first place, so they stay separate.
+	//
+	// A Core serves at most ONE adapter. This was always the intent -- the
+	// contract describes "the bridge connection" in the singular throughout --
+	// but nothing enforced it, and the gap was not theoretical: two adapters
+	// running the SAME game_id both got a successful Hello (see
+	// ConnectRelayOnAdapterHello's early "already connected as this game"
+	// return) and then silently shared one relay session, fighting over one
+	// playerID, one seq, one send-rate budget, and one localAreaID. Two games,
+	// one ghost, both logging a normal "connected". Found 2026-08-16 while
+	// designing the port walk that makes two instances a normal thing to do.
+	attachedAdapter transport.Transport
+
 	// RelayAddr, Room, DisplayName, and DialTimeout are used by
 	// ConnectRelayOnAdapterHello to dial the relay lazily, the first time an
 	// adapter's bridge.Hello arrives with a game_id, for callers that don't
@@ -907,6 +925,13 @@ func (c *Core) handleBridgeConn(netConn net.Conn) {
 		c.mu.Lock()
 		relay := c.relay
 		owns := c.relayOwner == nd
+		// Free the admission slot whether or not this connection owned the
+		// relay: a Core whose adapter has gone is available again, which is
+		// what lets a relaunched game reuse it instead of walking to a new
+		// port every time.
+		if c.attachedAdapter == nd {
+			c.attachedAdapter = nil
+		}
 		if owns {
 			// Disarm auto-retry (see autoRetryGameID's doc comment) before
 			// closing — this Close is the adapter/game intentionally going
@@ -940,14 +965,42 @@ func (c *Core) handleBridgeConn(netConn net.Conn) {
 			if err := json.Unmarshal(env.Payload, &h); err != nil {
 				return
 			}
-			if err := c.ConnectRelayOnAdapterHello(h.GameID, h.GameVersion, nd); err != nil {
-				// Already logged, with dedup, inside
-				// ConnectRelayOnAdapterHello — just close this bridge
-				// connection so the adapter's own reconnect loop tries
-				// again later, per adapters/_template/PROTOCOL.md's
-				// "non-blocking, retry next frame on failure".
-				_ = nd.Close()
+
+			// Admission first, before the relay is touched at all. A Core
+			// serves one adapter; a second one attaching would share this
+			// one's playerID and seq and corrupt both sessions rather than
+			// fail (see the attachedAdapter field). Answering with a reason
+			// instead of a bare Close is what lets an adapter walk to the
+			// next port knowing WHY, rather than guessing from a silent
+			// hangup that could equally be a crash.
+			c.mu.Lock()
+			busy := c.attachedAdapter != nil && c.attachedAdapter != nd
+			if !busy {
+				c.attachedAdapter = nd
 			}
+			c.mu.Unlock()
+			if busy {
+				rejectBridge(nd, "busy: this core already has a game attached")
+				return
+			}
+
+			if err := c.ConnectRelayOnAdapterHello(h.GameID, h.GameVersion, nd); err != nil {
+				// Release the slot claimed above: this connection never
+				// became the adapter, so holding it would make the Core
+				// permanently unavailable to anyone else.
+				c.mu.Lock()
+				if c.attachedAdapter == nd {
+					c.attachedAdapter = nil
+				}
+				c.mu.Unlock()
+				// The reason reaches the adapter now, where it used to be
+				// logged only in the core's own log (and, for the
+				// "already connected as another game" case, not even
+				// there — that path returns before the dedup logging).
+				rejectBridge(nd, err.Error())
+				return
+			}
+			sendBridgeEnvelope(nd, bridge.TypeBridgeReady, bridge.BridgeReady{})
 		case bridge.TypeLocalState:
 			var msg bridge.LocalState
 			if err := json.Unmarshal(env.Payload, &msg); err != nil {
@@ -1357,6 +1410,21 @@ func (c *Core) sendRenderRemote(nd transport.Transport, playerID string, st prot
 
 func (c *Core) sendDespawnRemote(nd transport.Transport, playerID string) {
 	sendBridgeEnvelope(nd, bridge.TypeDespawnRemote, bridge.DespawnRemote{PlayerID: playerID})
+}
+
+// rejectBridge tells an adapter why it cannot have this Core, then closes the
+// connection. Both halves matter: the reason is what an adapter puts in its log
+// (and what a player ends up pasting into a bug report), and the close is what
+// frees it to go looking elsewhere without waiting on a timeout.
+//
+// Send-before-close is deliberate and load-bearing: transport.Send is
+// synchronous, so the line is written to the socket before Close, and a
+// reject that raced its own hangup would put us right back to a silent
+// disconnect -- the thing this exists to remove.
+func rejectBridge(nd transport.Transport, reason string) {
+	log.Printf("core: refused an adapter: %s", reason)
+	sendBridgeEnvelope(nd, bridge.TypeReject, bridge.Reject{Reason: reason})
+	_ = nd.Close()
 }
 
 func sendBridgeEnvelope(nd transport.Transport, t bridge.MessageType, payload any) {

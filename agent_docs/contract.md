@@ -56,6 +56,31 @@ setting) is forbidden and would break this invariant**, which is why the mechani
 directory rather than a command line. An adapter must also only ever stop a core it started
 itself; a core it merely found belongs to whoever started it.
 
+**A core serves exactly one adapter at a time** (added 2026-08-16 with the port walk). A second
+bridge connection is answered with `reject` and closed. This was always the intent — everything
+below says "the bridge connection" in the singular — but nothing enforced it, and the gap was not
+theoretical: two adapters running the *same* `game_id` both got an accepted `hello` and then shared
+one relay session, fighting over one `player_id`, one `seq`, one send-rate budget and one
+`area_id`, with both sides logging a normal connect. Two copies of one game on one machine is a
+normal thing to do — it is how most adapters here were tested — so the rule is now explicit and
+enforced rather than assumed.
+
+**A `hello` is always answered**, with exactly one of:
+
+| Message | Meaning |
+|---|---|
+| `bridge_ready` | accepted; this core is yours |
+| `reject` (with a `reason`) | not available — the core closes immediately after |
+
+The acknowledgement exists because silence used to be ambiguous. A core only ever sent
+`render_remote`/`despawn_remote`, and only once a peer existed, so an adapter could not distinguish
+"accepted" from "still starting" from "wrong program on this port" — it could only infer success
+from the absence of a hangup. That was affordable when there was one fixed port and unaffordable
+once adapters started walking a range looking for a free core. `reason` is for the adapter's log,
+not for branching on: the correct response to any rejection is the same, which is to try the next
+port. **An adapter that receives neither is talking to a core older than this rule** and should
+carry on as before rather than refuse it.
+
 **Bridge lifecycle is tied to the relay connection:** if the bridge connection ends (the
 adapter/game closes, or its socket otherwise drops), the core closes its relay connection too,
 which the relay reports to the rest of the room as a real `leave` — see the 2026-08-13 ADR in

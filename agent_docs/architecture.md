@@ -1364,3 +1364,35 @@ Format: Date / Decision / Status / Context / Options considered / Resolution / C
   **The general lesson is the one worth keeping**: a mitigation written for an unmeasured risk
   should carry its own removal condition, because the measurement usually arrives later and
   quietly — this one did, in a tester's log, and would otherwise have stayed forever.
+
+### 2026-08-16 — One adapter per core, answered explicitly (groundwork for the port walk)
+
+- **Decision:** A core admits exactly one adapter at a time, and answers every `hello` with either
+  `bridge_ready` or `reject{reason}` instead of silence-or-hangup.
+- **Status:** Core, bridge, and tests done. The adapter-side port walk that consumes it is next,
+  Pseudoregalia first.
+- **Context:** The Linux tester asked for a way to run a second game — "start it anyway with an
+  increased port until a free one is found" — so each game could use a different relay. Checking
+  what happens today found the reported failure (a second *different* game is refused with a silent
+  socket close, and its mod reconnects forever) plus a worse one nobody had seen: two adapters with
+  the *same* `game_id` were both **accepted**, because `ConnectRelayOnAdapterHello` returns early
+  when the game already matches and nothing anywhere limited adapters per core. They then shared
+  one `player_id`, `seq`, send-rate budget and `localAreaID` — two games driving one ghost, both
+  logging a normal connect.
+- **Options considered:** (1) distinct default bridge port per adapter — no protocol change, but it
+  needs a port registry kept in sync with the docs and does nothing for two instances of one game,
+  which is the case that actually corrupts; (2) the port walk, which needs an adapter to be able to
+  tell a busy core from an empty port.
+- **Resolution:** Option 2, and admission control is the half that makes it a bug fix rather than a
+  feature. Occupancy is a **separate field from `relayOwner`**, deliberately: `relayOwner` answers
+  "whose disconnect may tear down the relay", this answers "may you attach at all", and conflating
+  them is precisely how the stale-callback bug `relayOwner` exists to prevent was written.
+- **Resolution (why an ack, not just a reject):** with only a reject, "accepted" is inferred from
+  silence over time — indistinguishable from a core still binding its port, or from an older core
+  that ignored an unknown message type (bridge dispatch has no `default` case). A positive
+  `bridge_ready` makes success observable instead of assumed, which is the same reason this project
+  refuses to treat "it ran without errors" as evidence. An adapter that gets neither is on an older
+  core and proceeds as before, so mixed versions still work.
+- **Consequences:** Two copies of one game on one machine stop corrupting each other. A refused
+  adapter now learns why, in its own log, rather than seeing a hangup it cannot tell from a crash.
+  The contract states the 1:1 rule outright instead of implying it through singular phrasing.
