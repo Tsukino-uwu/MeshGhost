@@ -166,6 +166,29 @@ namespace MeshGhostPseudo
     // object is what caused this project's worst regression (pitfalls.md, 2026-08-16), and
     // GetFullName() here is the same expensive call, just called a few times a minute instead of
     // thousands. Do not move it into a tick loop.
+    // One-shot dump of the render flags that decide whether a character is drawn THROUGH walls,
+    // for the local player and for each ghost, so the two can be compared.
+    //
+    // The question (user, 2026-08-16): Pseudoregalia outlines the player when they stand behind
+    // geometry, the ghost inherits it because it is a clone of the player pawn, and seeing a peer
+    // through walls is an information advantage a visual-only mod should not hand out.
+    //
+    // In Unreal that outline is almost always custom depth -- bRenderCustomDepth on the mesh
+    // component plus a CustomDepthStencilValue, with a post-process material drawing the
+    // silhouette where those pixels sit behind scene depth. Almost always is not confirmed, which
+    // is what this prints. If the player's mesh shows bRenderCustomDepth=true then that is the
+    // mechanism and disabling it on the ghost is a one-line fix; if it shows false, the outline is
+    // something else (a separate outline mesh, or a material with depth testing off) and the fix
+    // has to be aimed at whatever that turns out to be.
+    //
+    // Read-only, per adapters/_template's "observe before you override" rule -- this deliberately
+    // changes nothing on the first run.
+    //
+    // One line per actor per session (see outline_traced_*), not per tick: the same
+    // per-tick-with-a-name-lookup shape that caused this project's worst regression is exactly what
+    // to avoid here.
+    constexpr bool OUTLINE_TRACE = true;
+
     constexpr bool CAMERA_TRACE = false;
 
     constexpr uint64_t SPAWN_DELAY_TICKS = 300;
@@ -1226,6 +1249,41 @@ namespace MeshGhostPseudo
             if (bool* ptr = (*abp)->GetValuePtrByPropertyNameInChain<bool>(name))
             {
                 *ptr = value;
+            }
+        }
+
+        // Prints the render flags that control drawing-through-walls for one actor's mesh
+        // components. Read-only. See OUTLINE_TRACE for what question this answers.
+        //
+        // Checks VisualMesh and WeaponMesh separately because they are separate components and an
+        // outline could be on either -- a fix that only covered the body would leave a sword
+        // hovering through a wall, which is the same information leak in a smaller shape.
+        auto log_outline_flags(UObject* actor, const wchar_t* label) -> void
+        {
+            if (!actor)
+            {
+                return;
+            }
+            for (const wchar_t* mesh_name : {STR("VisualMesh"), STR("WeaponMesh")})
+            {
+                UObject** mesh = actor->GetValuePtrByPropertyNameInChain<UObject*>(mesh_name);
+                if (!mesh || !*mesh)
+                {
+                    Output::send(STR("[MeshGhostPseudo] OUTLINE_TRACE {} {}=<not found>\n"), label, mesh_name);
+                    continue;
+                }
+
+                bool* custom_depth = (*mesh)->GetValuePtrByPropertyNameInChain<bool>(STR("bRenderCustomDepth"));
+                bool* main_pass = (*mesh)->GetValuePtrByPropertyNameInChain<bool>(STR("bRenderInMainPass"));
+                int32_t* stencil = (*mesh)->GetValuePtrByPropertyNameInChain<int32_t>(STR("CustomDepthStencilValue"));
+
+                Output::send(STR("[MeshGhostPseudo] OUTLINE_TRACE {} {} obj={} bRenderCustomDepth={} CustomDepthStencilValue={} bRenderInMainPass={}\n"),
+                             label,
+                             mesh_name,
+                             (*mesh)->GetFullName(),
+                             custom_depth ? (*custom_depth ? STR("true") : STR("false")) : STR("<absent>"),
+                             stencil ? std::to_wstring(*stencil) : STR("<absent>"),
+                             main_pass ? (*main_pass ? STR("true") : STR("false")) : STR("<absent>"));
             }
         }
 
@@ -4992,6 +5050,18 @@ namespace MeshGhostPseudo
                      to_wide_ascii(player_id),
                      static_cast<void*>(world),
                      ghost->GetFullName());
+
+        if (OUTLINE_TRACE)
+        {
+            // Both sides, once, so they can be compared: the ghost is a clone of the player pawn,
+            // so identical flags mean the outline is inherited and a ghost-side change is enough.
+            // Differing flags would mean something else drives it and the fix is elsewhere.
+            log_outline_flags(ghost, STR("ghost"));
+            if (auto [controller, local_pawn] = find_local_controller_and_pawn(); local_pawn)
+            {
+                log_outline_flags(local_pawn, STR("local"));
+            }
+        }
 
         // Dream Breaker spawn-snapshot investigation, see DUMP_GHOST_SPAWN_VALUES's own comment.
         // Dumps the ghost right after every field above has already been set up (mesh/rotation/
