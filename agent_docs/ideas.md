@@ -1002,9 +1002,21 @@ have set, instead of making the game set it.
    `RelativeLocation` is still closer to the truth than moving the whole actor: it changes the
    thing that is actually wrong, rather than hiding it by moving everything.
 
-**Probe first, as always:** the *player's* mesh `RelativeLocation` during a slide versus standing
-answers what the game's own logic sets it to. That number is the target, and it also says whether
-the -65/+43 pair is the whole story or an approximation that happens to look right in one pose.
+**START HERE — the probe is one line, in a block that already runs.** `Plugin.cpp:7133-7140`
+already dumps the LOCAL player's `VisualMesh` on the existing trace cadence, but only
+`RelativeRotation` and `RelativeScale3D`. Add `RelativeLocation` to that same `Output::send`, build,
+and capture two states: **standing, then mid-slide.**
+
+That single number answers the whole question. The ghost's mesh sits at a fixed `-65` set at
+construction; whatever the player's mesh reads during a slide is what the game's own crouch logic
+moves it to, and that is the value to reproduce on the ghost — by calling whatever sets it, not by
+moving the actor. It also says whether the `-65`/`+43` pair is the whole story or an approximation
+that only looks right in one pose.
+
+Then, in order: does `slideTick`/`slideOverheadCheck` (already captured by an earlier reflection
+dump, noted in `Plugin.cpp` as "captured for later, not yet used") move the mesh? Is
+`OnStartCrouch` reflected and does `BP_PlayerGoatMain_C` override it? Failing both, set the mesh
+component's own `RelativeLocation` — still the right object, unlike moving the whole actor.
 
 **Why this matters beyond tidiness:** the ghost's Z is being moved for a reason that has nothing to
 do with position, so anything else reading that Z inherits the lie. `Plugin.cpp` already notes a
