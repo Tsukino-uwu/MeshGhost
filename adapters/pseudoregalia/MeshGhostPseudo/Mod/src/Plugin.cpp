@@ -3421,7 +3421,18 @@ namespace MeshGhostPseudo
     // once has to choose one colour for them, and the fewer images share a batch, the less often
     // that choice has to be made at all. Still class-scoped, so each scan enumerates only
     // afterimages rather than every actor.
-    constexpr uint64_t AFTERIMAGE_COLOR_SCAN_INTERVAL_TICKS = 3;
+    // **Back to 15 from 3.** A bisect against real commits (not a flag flip) pinned the trail
+    // regression to the commit that introduced this scan, and the cost is the mechanism: a
+    // FindAllOf over every afterimage, with a GetFullName + UTF-8 conversion and several
+    // name-keyed property lookups PER IMAGE, against a pool that grows past 80 -- executed on the
+    // game thread. At every 3 ticks (~50Hz) that is a large amount of string work per second.
+    //
+    // The game spawns its afterimages as a countdown ACROSS ticks, so stalling the game thread
+    // truncates bursts still in flight. That produces exactly the reported symptom: intermittently
+    // missing images, with every image that does appear perfectly correct in count, colour,
+    // position and opacity -- which is why four count-based instruments all reported parity while
+    // the trail was visibly wrong. A diagnostic heavy enough to disturb the thing it measures.
+    constexpr uint64_t AFTERIMAGE_COLOR_SCAN_INTERVAL_TICKS = 15;
 
     // How long a non-baseline afterimage colour is held so it cannot be overwritten before the
     // ~20Hz send samples it. At this build's ~150Hz that send interval is ~7-8 ticks, so 15 covers
@@ -3480,7 +3491,16 @@ namespace MeshGhostPseudo
     // That makes the next step concrete and NOT another counter: measure how many images one
     // single request actually yields, with no second request anywhere near it, before changing any
     // trigger. See `status.md`.
-    constexpr bool AFTERIMAGE_TRIGGER_OBSERVED = true;
+    // **FALSE — and this time it is a real revert.** The earlier A/B with this flag was worthless:
+    // the expensive scan it was supposed to disable ran regardless, because only the counter
+    // increment inside it was gated. Now that the scan is gated too, false restores the old
+    // capsule-shrink trigger AND removes the per-tick enumeration, which together are everything
+    // commit 861e6cd changed about the trail.
+    //
+    // Keeping it here rather than reverting the commit, because 861e6cd also carries the ultra
+    // BLUE work, which is independently confirmed and worth keeping. The intended end state is the
+    // old burst-shaped triggering plus the measured colour -- not one or the other.
+    constexpr bool AFTERIMAGE_TRIGGER_OBSERVED = false;
 
     // The ghost trails on a slide now (trigger confirmed live) but still never blue on an ultra.
     // Colour crosses three hands, and this logs all three so the one that drops it is named rather
@@ -3497,7 +3517,11 @@ namespace MeshGhostPseudo
     //                 afterimage actors directly -- which is now possible, since they are findable.
     // Every new afterimage is logged with the character it came from, so local and ghost images can
     // be told apart in one stream.
-    constexpr bool TRAIL_COLOR_TRACE = true;
+    // OFF: this was the single most expensive thing in the scan -- a second FindAllOf, a lifetime
+    // map, per-image GetFullName conversions and a log line per image, all on the game thread. It
+    // did its job (it produced the observed/chosen/written/resulting split that located the colour
+    // loss), but leaving a diagnostic of this weight enabled is what made the trail intermittent.
+    constexpr bool TRAIL_COLOR_TRACE = false;
 
     // How often the local side checks whether the real recall glow is currently showing. This is a
     // full Niagara-component enumeration, so it is deliberately not per-tick: at ~10Hz it is well
@@ -6420,7 +6444,14 @@ namespace MeshGhostPseudo
             // burst) and coverage (it only knew about slides, which is why an ultra hop produced no
             // ghost trail at all -- confirmed in the capture, where every ghost afterimage was gold
             // and only the local player had blue ones).
-            if (tick_count % AFTERIMAGE_COLOR_SCAN_INTERVAL_TICKS == 0)
+            // **Gated by the flag that owns it.** Previously only the counter increment INSIDE this
+            // block was gated, so setting AFTERIMAGE_TRIGGER_OBSERVED=false left the entire scan --
+            // the expensive part -- still running every few ticks. That is why the earlier "revert"
+            // A/B changed nothing and produced the wrong conclusion that the trigger revamp was
+            // innocent: a flag flip was not a revert, and only a bisect against real commits caught
+            // it. If a flag is meant to be an off-switch, it has to disable the work, not just the
+            // decision the work feeds.
+            if (AFTERIMAGE_TRIGGER_OBSERVED && tick_count % AFTERIMAGE_COLOR_SCAN_INTERVAL_TICKS == 0)
             {
                 std::vector<UObject*> afterimages;
                 UObjectGlobals::FindAllOf(STR("BP_AfterImage_C"), afterimages);
