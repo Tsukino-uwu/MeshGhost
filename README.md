@@ -62,23 +62,13 @@ Full walkthrough: `packaging/release/README.txt` (ships in the zip) and
 
 ### Transports
 
-The relay connection runs over **`tcp`**, **`udp`**, or **`quic`**, set by `"transport"` in
-`config.json`. A server can offer several at once, and players on different transports share a
-room and see each other normally.
+Every client connects over `tcp` first, then swaps to whatever `"transport"` in `config.json`
+says — `tcp`, `udp`, or `quic`. That's why nobody needs to know port numbers, and why asking for
+one the server doesn't serve still leaves you connected. Clients default to `udp`, servers to
+`tcp`, a room can mix all three, and `quic` is the only encrypted one.
 
-It is not *how* you connect but what you move to **once** connected: every client makes first
-contact over `tcp`, asks what the server offers, and only then switches. So nobody needs to know
-which port a transport is on, and asking for one the server doesn't serve leaves you on a working
-`tcp` session rather than failing.
-
-Clients default to `udp` (leanest, and a lost position is skipped rather than delaying the next);
-servers default to `tcp` only, so nothing changes until a host opts in. `quic` is the encrypted
-one — worth picking if you care about `room_code` confidentiality, since `tcp` and `udp` both
-carry it in the clear and `udp` can never do otherwise.
-
-Which to choose and how to forward ports: `packaging/release/README.txt`. Why it is built this
-way: [agent_docs/architecture.md](agent_docs/architecture.md)'s transport and transport-discovery
-ADRs.
+Which to pick and which ports to forward: `packaging/release/README.txt`. Why it works this way:
+[agent_docs/architecture.md](agent_docs/architecture.md)'s transport ADRs.
 
 ## How it works
 
