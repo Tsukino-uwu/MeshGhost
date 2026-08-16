@@ -187,6 +187,29 @@ namespace MeshGhostPseudo
     // One line per actor per session (see outline_traced_*), not per tick: the same
     // per-tick-with-a-name-lookup shape that caused this project's worst regression is exactly what
     // to avoid here.
+    // Logs who the local controller is actually possessing, for several ticks after a ghost
+    // spawns, plus why a spawn was allowed at all.
+    //
+    // The question (user, 2026-08-16): after loading a different save, the camera stayed on the
+    // player but the player could not be moved. That is not a camera fault -- it is the controller
+    // driving something else. BP_PlayerGoatMain_C auto-possesses on spawn (pitfalls.md), which is
+    // why ensure_ghost_spawned re-possesses the local pawn immediately afterwards; if the
+    // auto-possess is deferred to BeginPlay it would land AFTER that hand-back and quietly keep
+    // control.
+    //
+    // The same session logged TWO ghosts spawned for one peer 23ms apart in one world, so the
+    // second half of this prints what the spawn guard saw -- a duplicate leaves an orphaned pawn
+    // nobody tracks, and an orphan that auto-possessed is exactly the shape of "cannot move".
+    //
+    // Read-back, not an echo: it asks the CONTROLLER which pawn it holds rather than reporting
+    // what we asked for, which would prove nothing (CLAUDE.md).
+    constexpr bool POSSESS_TRACE = true;
+
+    // How many redraw ticks after a spawn to keep checking who holds the controller. Long enough
+    // to catch a possess that lands a frame or two later, short enough not to become per-tick
+    // logging.
+    constexpr uint32_t POSSESS_TRACE_TICKS = 20;
+
     constexpr bool OUTLINE_TRACE = true;
 
     constexpr bool CAMERA_TRACE = false;
@@ -4784,6 +4807,15 @@ namespace MeshGhostPseudo
         {
             return;
         }
+        if (POSSESS_TRACE)
+        {
+            // Why was a spawn allowed? A duplicate means this said "entry present, ghost null"
+            // moments after a successful spawn -- i.e. something invalidated it in between.
+            Output::send(STR("[MeshGhostPseudo] POSSESS_TRACE spawn-allowed remote={} entry={} ghost=null tick={}\n"),
+                         to_wide_ascii(player_id),
+                         existing != remotes.end() ? STR("present") : STR("absent"),
+                         tick_count);
+        }
         if (!local_pawn)
         {
             return;
@@ -5005,6 +5037,20 @@ namespace MeshGhostPseudo
         else
         {
             Output::send(STR("[MeshGhostPseudo] WARNING: Controller has no reflected Possess function -- the real player may lose control.\n"));
+        }
+
+        if (POSSESS_TRACE)
+        {
+            // Ask the controller what it actually holds now, rather than trusting the call above.
+            // possess_watch_until_tick keeps this running for a few ticks, because an auto-possess
+            // that fires on the ghost's BeginPlay would land AFTER this line and be invisible here.
+            UObject** held = local_controller->GetValuePtrByPropertyNameInChain<UObject*>(STR("Pawn"));
+            Output::send(STR("[MeshGhostPseudo] POSSESS_TRACE after-handback tick={} controller_pawn={} local_pawn={} ghost={}\n"),
+                         tick_count,
+                         (held && *held) ? (*held)->GetFullName() : STR("(none)"),
+                         local_pawn_actor->GetFullName(),
+                         ghost->GetFullName());
+            possess_watch_until_tick = tick_count + POSSESS_TRACE_TICKS;
         }
 
         // Facing-direction bisection, 2026-08-13: rotation is confirmed correct immediately after
@@ -8941,6 +8987,18 @@ namespace MeshGhostPseudo
 
         ++tick_count;
         ++ticks_since_ready;
+
+        if (POSSESS_TRACE && tick_count <= possess_watch_until_tick)
+        {
+            // Bounded window after a spawn, never a permanent per-tick log.
+            if (auto [watch_controller, watch_pawn] = find_local_controller_and_pawn(); watch_controller)
+            {
+                UObject** held = watch_controller->GetValuePtrByPropertyNameInChain<UObject*>(STR("Pawn"));
+                Output::send(STR("[MeshGhostPseudo] POSSESS_TRACE watch tick={} controller_pawn={}\n"),
+                             tick_count,
+                             (held && *held) ? (*held)->GetFullName() : STR("(none)"));
+            }
+        }
 
         if (!bridge)
         {

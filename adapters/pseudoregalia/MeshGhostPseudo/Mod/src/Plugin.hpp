@@ -810,6 +810,9 @@ namespace MeshGhostPseudo
         // camera: let the player's own camera settle on a real target before any ghost exists,
         // so the moment it swaps away is a clean, isolated, observable event.
         uint64_t ticks_since_pawn_valid{0};
+        // POSSESS_TRACE: keep reporting who holds the controller until this tick, so an
+        // auto-possess that fires a frame or two after a ghost spawn is still caught.
+        uint64_t possess_watch_until_tick{0};
         std::unique_ptr<BridgeClient> bridge;
         // Starts meshghost.exe if one isn't already running, so the player doesn't have to.
         // Declared after bridge so it is destroyed first, stopping the core before the socket

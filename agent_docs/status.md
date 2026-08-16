@@ -27,6 +27,9 @@ that a peer's state genuinely differs from the local player's, which loopback co
 
 ### Open, not blocked
 
+- **Player loses control after loading a save with a ghost present** (user-reported 2026-08-16).
+  Camera stays on the player; input does not. Suspect a ghost auto-possess landing after our
+  hand-back, plus a duplicate spawn leaving an orphan. `POSSESS_TRACE` probe deployed.
 - **Two different games at once is broken** — both mods use bridge port 7778, and a core serves
   one game only, so the second reconnects forever in silence. Fix options in `ideas.md`.
 - **Autostart: TEVI and Emerald not converted yet.** Windows and Proton both fully confirmed;
