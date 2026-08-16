@@ -5063,3 +5063,73 @@ only at the character would have left a sword visible through a wall.
 Found by a read-only probe first (`OUTLINE_TRACE`), which is what `adapters/_template`'s
 "observe before you override" rule asks for: the mechanism was confirmed as Unreal custom depth
 before anything was changed, rather than assumed from the way it looked.
+
+## udp's reliable path was reliable but NOT ordered — found and fixed 2026-08-16
+
+**Established with the Go tools, not by watching a game** — `internal/netx/udpconn` and
+`internal/core` are deterministic code against a contract we own, which is exactly the case
+CLAUDE.md says to confirm with tests rather than a live session.
+
+- **The claim that was wrong.** `contract.md` promised the reserved event plane would be "reliable,
+  ordered", and `udpconn.Write`'s doc comment told callers they "get TCP-like semantics". The
+  receive path delivered every payload the moment it arrived and deduped by seq, with no
+  resequencing buffer — so retransmission bought delivery, never order. `udp` is the client default.
+- **Confirmed before anything was changed, in two places.** At the wire level, arming the lossy
+  proxy to drop exactly one datagram made `leave` overtake `join`: delivered `{"type":"leave"}` then
+  `{"type":"join"}`, the reverse of the write order. At the consumer level, driving
+  `handleRelayMessage` with that same reordering left the departed peer sitting in the roster —
+  `delete` on an absent key is a no-op, so the late `join` re-adds someone already gone and nothing
+  will ever remove them again. **Their ghost would stay on screen for the rest of the session.**
+- **Reachability**: needs a join's first datagram lost *and* the peer leaving inside the ~6s
+  retransmit budget (`retryInterval` 250ms × `maxRetries` 24). Rare, not theoretical — and silent,
+  since every layer reports success.
+- **Fixed at the transport, not the consumer.** A guard in `internal/core` would have been smaller
+  but would have *corrected* the symptom while the cause kept running, which is the shape
+  `adapters/_template`'s no-bandage rule names. `udpconn` now holds out-of-order payloads in a
+  bounded window and releases them in sequence. Detail and the rejected options: the ADR in
+  `architecture.md`.
+- **Verification**: `dev-scripts/run-gotests.bat` green (build, vet, full suite twice, including
+  `internal/e2e`), plus `-count=10` on `udpconn`, `core`, `relay` and `transport`. The race detector
+  could not run locally — no C toolchain on this machine — so that remains CI's job, as CLAUDE.md
+  already states.
+- **Two pre-existing properties deliberately kept**: a buffered payload is not acked until actually
+  delivered (the "ack only what was delivered" rule, which exists because `deliver` drops on a full
+  queue), and window overflow declines to hold rather than dropping, leaving the sender's retransmit
+  to cover it.
+
+## quic became the default path, and shares the relay's port — 2026-08-16
+
+**Established with the tools, not by watching a game.** Confirmed against real binaries on this
+machine; no adapter or game involved.
+
+- **The mismatch that prompted it**: the client's `-transport` defaulted to `udp` while the relay
+  served `tcp` only, so *every* default session asked for something it could not have and fell back
+  to tcp. The client's stated default was never honourable by a default relay.
+- **Now**: client defaults to `auto`, relay to `tcp,quic`. Confirmed live —
+  `core: relay offers tcp:7796, quic:7796 — using quic at 127.0.0.1:7796`, with the loopback ghost
+  rendering throughout.
+- **quic shares `-addr`'s port number** (`tcp:7796` and `quic:7796` above, tcp and udp being
+  separate port spaces). This was a NAT decision: serving quic by default would otherwise have
+  turned hosting from "forward 7777" into "forward 7777 and 7780". The relay now also prints
+  `to accept players from outside this machine, forward: 7796/tcp (tcp), 7796/udp (quic)` at
+  startup, protocol by protocol, because those are two separate rules on most routers.
+- **Serving `udp` and `quic` together refuses to start**, with the actionable message rather than
+  quietly relocating quic to a port nobody forwarded. Confirmed: *"serving both udp and quic needs a
+  port for quic: udp has already taken 127.0.0.1:7794's udp port... Pass -listen-quic (e.g.
+  127.0.0.1:7780)"*. `dev-scripts/run-relay-loopback.bat` is that case and now passes the flag.
+- **What this does and does not buy.** Encryption against a passive observer, including the room
+  code — but **not authentication**: `quicconn` uses a self-signed in-memory cert with
+  `InsecureSkipVerify`. Also the only transport where `contract.md`'s lossy state plane is actually
+  lossy, since on tcp `SendUnreliable` *is* `Send`. Both recorded in the ADR.
+- **Verification**: `dev-scripts/run-gotests.bat` green (build, vet, full suite twice, including
+  `internal/e2e`, whose transport tests set `-listen-quic` explicitly and were unaffected).
+
+## The synthetic-peer rig could only ever test tcp — fixed 2026-08-16
+
+`cmd/meshghost-fakeadapter` never set `core.Core.Transport` at all, so every synthetic peer
+inherited `netx.Kind`'s tcp zero value. **Both load-test tiers in `dev-scripts/README.md` were
+therefore tcp-only**, which is why the transports shipped that same day had no sustained-load
+coverage — the rig structurally could not produce it. Added `-transport tcp|udp|quic|auto`, parsed
+strictly like `cmd/meshghost`'s (a typo must not silently downgrade to the tcp zero value).
+Confirmed: `-transport udp` through the new fault proxy logged `using udp`, dropped 43 of ~366
+datagrams at a 10% loss setting, and kept rendering ghosts.

@@ -378,7 +378,14 @@ watched at all. When you take it:
    capsule, so the real fix starts from evidence instead of a fresh investigation. A bandage with
    *no* measurement behind it is the expensive kind — there is nothing to build the real fix on.
 3. **Log it as an open item**, not as a finished one. A feature resting on a compensation is not
-   done, and `status.md` should say so.
+   done. It goes in this adapter's own `BANDAGES.md` (copy this folder's), and `status.md` should
+   say so.
+
+**You will not always know at the time**, which is why the register is a living file rather than a
+thing you fill in once. `BANDAGES.md` in this folder lists the tells that only surface afterwards —
+a fix whose cause got fixed elsewhere, a second bug described as "structurally the same bug as X",
+a compensation that outlived its purpose and became the bug. Read it when auditing, not just when
+writing.
 
 **What this rule is not.** It does not mean every constant is suspect. A number measured from the
 game and documented (the loopback ghost's deliberate sideways offset; a reconnect interval chosen

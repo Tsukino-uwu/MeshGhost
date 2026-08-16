@@ -870,102 +870,12 @@ would be exactly the sort of thing `CLAUDE.md`'s "nothing that couldn't be publi
 dropper-shaped), and TLS (which would add cert generation plus encrypted traffic on top). It is the
 only one of those where the work is bounded and the benefit reaches users directly.
 
-## The bandage register (audited 2026-08-16)
+## The bandage register (audited 2026-08-16) — moved
 
-Every shipped compensation, found by auditing the whole repo against
-`adapters/_template`'s rule: **a fix that restores, forces, compensates for, or remembers a value
-rather than preventing whatever changed it.** Ranked by how likely each is to cause a real bug.
-
-**The audit's own headline is worth keeping:** most things that *looked* like bandages are not.
-The great majority carry the live incident, the rejected alternative, and the derivation next to
-them. See "deliberate, do not 'fix' these" at the end — mislabelling those would cause churn.
-
-### 1. TEVI force-enables all five sprite layers, having measured one
-
-`adapters/tevi/MeshGhostTevi/Plugin.cs:330-333` sets `enabled = true` on every child
-`SpriteRenderer` of a cloned ghost, working around `Instantiate()` deep-copying a transient
-zone-load fade that the logic-less clone can never clear by itself.
-
-**Forcing is defensible here** — the clone carries no animation logic, so nothing else will ever set
-it. **The defect is scope.** The live log measured only `basesprite`; the code enables all five
-(`basesprite, outlinesprite, effectsprite, flashsprite, supportsprite`). `flashsprite` is a hit-flash
-overlay and `supportsprite` similar — layers that are *normally off*, so forcing them on likely
-paints a permanent overlay on every ghost. `pitfalls.md:526-528` already states the lesson this
-violates: *"only reset the field actually confirmed broken, not everything that plausibly could
-be"*, learned from the earlier `color = Color.white` mis-fix that broke `outlinesprite`.
-
-**Fix:** narrow to `basesprite`, or log all five layers' inherited state on a real repro first.
-
-### 2. Emerald proceeds on known-wrong addresses for an unrecognised ROM
-
-`adapters/pokemon/emerald/meshghost_emerald.lua:304-307` (sprite data) and `:359-379` / `:1060-1062`
-(avatar offset). When neither the vanilla nor the known Archipelago-shifted address verifies, both
-warn and **carry on with vanilla addresses**.
-
-**This is the one that puts wrong data on the wire.** Nothing gates *sending* on
-`avatarAddrConfirmed`, so `getLocalState()` reads `GPLAYERAVATAR_ADDR + 0` every frame until
-detection succeeds — on a future Archipelago recompile that never happens, and the adapter
-transmits garbage facing/anim to real peers while drawing remotes at a garbage screen position.
-
-The two *known* offsets are exceptionally well measured (byte-level ROM diffs, multi-stage live
-probes). What was never observed is what the fallback path actually renders or sends.
-
-**Fix:** on "not found", stop sending (`ENCODED_NO_SEND`) and stop drawing remotes. A visibly
-disabled adapter beats silent wrong data.
-
-### 3. Emerald's blanket per-frame `pcall` with a 300-frame log gag
-
-`meshghost_emerald.lua:1133-1142`. The resilience posture is right for a Lua script that would
-otherwise die for the session — but it cannot tell one malformed line from every frame failing.
-A systematically broken read reports once per ~5s and the ghost silently stops updating.
-
-**Fix:** a consecutive-failure counter that logs loudly and disables the offending subsystem, rather
-than a constant chosen to protect the console.
-
-### 4. `DefaultInterpolationDelay` is an admitted guess that is now load-bearing
-
-`internal/core/core.go:88-93` says it outright: *"100ms is a starting guess for tile-grid movement,
-not a measured value."* Since then `internal/protocol/limits.go:79-83` built the `MinSendHz = 10`
-protocol floor **on top of it**. So a guess underpins a protocol constant — and a client using the
-documented, supported `min_send: 150ms` lands silently in exactly the degraded regime that floor
-exists to prevent.
-
-**Fix:** derive it from `effectiveSendInterval()`, the way `DefaultMinSendInterval` is already
-rederived from `protocol.DefaultSendHz` specifically "so the two numbers cannot drift apart".
-
-### 5. `DefaultHeartbeatInterval` is a hand-picked margin against another package's constant
-
-`internal/core/core.go:120-132`. The heartbeat itself is the correct fix for a real, live-diagnosed
-bug (idle timeout → fresh `player_id` every minute → every peer sees a despawn/respawn). The
-**constant** is the bandage: 20s was chosen as "comfortable margin" under `transport`'s 60s, but
-`relay.Server.IdleTimeout` is a per-server override, so a relay configured below ~20s silently
-reintroduces the exact churn this was chosen to prevent.
-
-**Fix:** `DefaultIdleTimeout / 3`. The same file already does this correctly elsewhere —
-`relay/limits.go:65` derives its headroom "so the stated relationship can't silently break".
-
-### Borderline, noted but not urgent
-
-- `udpconn.go:130-133` — retry budget asserted to fit inside `relay.DefaultHelloTimeout` in prose
-  only, not derived. Same drift shape as #5, lower impact.
-- `Plugin.cs:528` — `cloneTemplate` literally remembers a value across the thing that invalidated
-  it; saved in practice by Unity's fake-null comparison, but it is the pattern the rule names.
-- `meshghost_emerald.lua:675` — `FACING[facingRaw] or "south"` turns a bad memory read into a
-  plausible value with no counter or log, which is the failure mode CLAUDE.md warns about. (The
-  neighbouring gender/direction defaults are documented forward-compat and fine.)
-- `parent_windows.go:31-43` — Windows PID reuse could make a dead parent look alive forever; not
-  called out anywhere.
-
-### Deliberate, do NOT "fix" these
-
-Recorded so a future audit does not churn them: `ClampSendHz`/`ClampReceiveHz` (clamping a cosmetic
-knob so a typo cannot stop a relay starting, per `contract.md`); the deliberate `log.Fatalf` on a
-bad `-transport` (a silent fallback would hand someone who asked for quic an unencrypted session);
-`relay/limits.go`'s derived constants; Emerald's `STEP_DURATION_FRAMES` (measured live twice with
-zero variance, and two "smarter" self-correcting alternatives were built, traced, proven worse and
-reverted with the evidence inline — the reference case for how this repo justifies a constant);
-`stripBOM`/`applyDespiteBadValue`; `connectionGeneration`; the `net.ErrClosed` suppression; and the
-`relayOwner`/`attachedAdapter` split.
+Split into one file per adapter, so each game's compensations sit next to its own `README.md`:
+`adapters/pseudoregalia/BANDAGES.md`, `adapters/tevi/BANDAGES.md`,
+`adapters/pokemon/emerald/BANDAGES.md`, and `agent_docs/bandages-core.md` for the Go side.
+The rule itself lives in `adapters/_template/README.md`, with a blank register beside it.
 
 ## Slide: replace the render-Z bandage with the game's own crouch handling
 
@@ -1022,6 +932,33 @@ component's own `RelativeLocation` — still the right object, unlike moving the
 do with position, so anything else reading that Z inherits the lie. `Plugin.cpp` already notes a
 second bug (the thrown-weapon prop) as "structurally the same bug as the slide floor-sinking fix",
 which is what a bandage looks like when it starts to spread.
+
+## Relay-steered transport per game — possible, but the wrong lever (Tier 0, no blockers)
+
+**User's idea, 2026-08-16**, asked as: if a future feature needs players actually in sync (a VS
+battle in Emerald), could the relay *force* a client onto a particular transport based on
+`game_id`?
+
+**Mechanically yes, with no protocol change at all.** The `QueryOnly` discovery Hello already
+carries `game_id`, and the relay answers it with a `Transports` offer list before it touches the
+room table. Filtering that list per game would steer the client invisibly — no redirect, no
+reconnect, and therefore none of the leave/rejoin churn every other player in the room would
+otherwise see. There is no redirect mechanism today (`Reject` carries a reason string and nothing
+else), so this is the only cheap way to do it.
+
+**Two constraints if it is ever built:** it must be *operator config compared by equality*, like the
+existing `Server.OnlyGame` gate — a hardcoded game table in `internal/relay` would break CLAUDE.md's
+no-branching-on-`game_id` rule. And the handshake is always tcp and cannot be changed, so this gates
+the *upgrade*, not the dial.
+
+**But it is a fallback, not the answer, and the reason matters.** `send` is reliable **and ordered**
+on every transport (ordering added 2026-08-16 — see `verified.md`), so an adapter that needs
+guaranteed delivery or ordering simply uses the reliable plane and needs no transport policy at all.
+The general rule is in `beyond-cosmetic.md`: **capability is adapter-opt-in via `features`, never
+relay-imposed via `game_id`.** Steering from the server is the same idea pushed to the wrong layer.
+
+Worth keeping recorded anyway: if a future transport ever gains a property the others lack and an
+adapter genuinely depends on it, this is the mechanism, and it is cheaper than it looks.
 
 ## VFX hunting — let the player mark the moment (untried)
 

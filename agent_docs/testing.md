@@ -166,6 +166,32 @@ artifact. Download it, drop it into the matching `testdata/fuzz/<Target>/` direc
   binaries into a temp dir every run, deliberately — a test silently exercising yesterday's build
   is worse than no test.)
 
+## Running a session over a bad network
+
+Everything above runs over a perfect loopback. `dev-scripts/run-netsim.bat`
+(`cmd/meshghost-netsim`) is the way to run a **real** session — relay, client, adapter, game —
+under loss, latency, jitter, reordering, duplication or partitions.
+
+Added 2026-08-16, because the gap was already written down twice in this file (jitter and
+clock skew untested; interpolation degrading *silently*) and the only fault injection in the
+repo was a package-private drop counter inside `internal/netx/udpconn`'s tests. That counter is
+what found the lifecycle-ordering bug the same day — a `leave` overtaking its own `join`, which
+stranded a peer's ghost for the whole session. The proxy is that idea at session scope.
+
+Two things about it are easy to get wrong:
+
+- **Point the client at `127.0.0.2`, not a different port.** The proxy mirrors the relay's port
+  *numbers* on a second loopback address on purpose: discovery sends the port but not the host,
+  so a client upgrading to udp/quic reuses the host it first connected to. A different port
+  number routes the upgrade around the proxy, and the run looks healthy while testing nothing.
+- **Keep the seed.** It is printed at startup and replays the fault sequence. Without it a
+  failure is an anecdote. (The seed fixes the draws, not the interleaving of concurrent flows —
+  the tool's own doc comment is careful about that and so should any bug report be.)
+
+`-loss`/`-duplicate`/`-reorder` are udp-only and are refused rather than ignored when tcp is
+being mirrored, because dropping bytes out of a proxied tcp stream corrupts it rather than
+simulating loss — the kernel's retransmission is below where the proxy sits.
+
 ## Confirming a test can actually fail
 
 A passing test is not evidence until it has been shown to fail when the thing it checks is

@@ -35,8 +35,8 @@ that a peer's state genuinely differs from the local player's, which loopback co
 
 ### Open, not blocked
 
-- **Slide is a render-Z bandage (+43 units), not the game's own crouch handling** — user-flagged
-  2026-08-16. Leads and the probe to run first: `ideas.md`.
+- **Slide is a render-Z bandage (+43 units), not the game's own crouch handling** — the
+  `SLIDE_MESH_PROBE` capture is built and deployed, **not yet run**. `ideas.md`, `BANDAGES.md`.
 - **Duplicate ghost spawn on every level load** — two ghosts per peer, the `remotes` entry going
   present -> absent within three ticks, leaving an orphaned pawn nobody tracks. `verified.md`.
 - **Two different games at once is broken** — both mods use bridge port 7778, and a core serves
@@ -53,10 +53,10 @@ that a peer's state genuinely differs from the local player's, which loopback co
   started. `ideas.md`, `environment.md`.
 - **Receive rate cap** — `max_receive_hz_per_player` never watched live; needs two clients at
   different caps. (The send side was confirmed on screen 2026-08-15.) `architecture.md` ADR.
-- **Relay-safety follow-ups**: no TLS on `tcp`/`udp` (room codes in plaintext; `quic` is encrypted),
-  TEVI's `game_version` isn't real, adapters' parsing never got the adversarial audit. `internal/README.md`.
-- **Selectable transport shipped 2026-08-16**, all three confirmed live on Pseudoregalia — open:
-  no sustained-load or two-machine test, `udp` unencryptable, no per-IP cap. `verified.md`, `risks.md`.
+- **Relay-safety follow-ups**: `quic` is now the default so room codes are encrypted by default but
+  still **not authenticated**; TEVI's `game_version` isn't real; adapters' parsing never audited. `internal/README.md`.
+- **Transports: quic is now the default path** (client `auto`, relay `tcp,quic`, shared port).
+  Open: no sustained-load or two-machine test yet, no per-IP cap. `verified.md`, `risks.md`.
 - **A served-but-unforwarded transport strands a client** — discovery knows what a relay offers,
   not whether the path works, so it retries instead of falling back to tcp. Docs-only for now.
 - **Suspected: Pseudoregalia mod may not clear ghosts when the bridge drops** — pre-existing, any

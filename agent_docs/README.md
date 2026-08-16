@@ -29,6 +29,14 @@ Internal documentation for MeshGhost: architecture, planning, licensing, and ver
 - [pitfalls.md](pitfalls.md) — adapter-specific issues across all games: symptom, how it was
   diagnosed, root cause, fix. Not design decisions ([risks.md](risks.md)) or confirmed facts
   ([verified.md](verified.md)).
+- [beyond-cosmetic.md](beyond-cosmetic.md) — **the concept layer under the depth ladder**: sync
+  models, the four authority models and which of them need game knowledge, the readiness gaps a
+  fuller online mode would have to close, and the rule that keeps the door open (capability is
+  adapter-opt-in via `features`, never relay-imposed via `game_id`). Nothing in it is scheduled.
+- [bandages-core.md](bandages-core.md) — shipped compensations in the Go side (core, relay,
+  transport), and the ones deliberately left alone. **Per-adapter bandages live in each adapter's
+  own `BANDAGES.md`**, next to its `README.md`; the rule and the how-to-spot-one guide are in
+  `adapters/_template/`.
 - [access-models.md](access-models.md) — **what you can read about a game**, which predicts an
   adapter's difficulty better than its engine does. What each shipped adapter used (decompilation /
   self-documenting artifact / runtime reflection), the other approaches that exist, and a checklist

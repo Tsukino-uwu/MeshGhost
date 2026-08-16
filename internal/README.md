@@ -35,11 +35,13 @@ STEP 1 — the handshake. ALWAYS tcp. Not configurable.
 
 STEP 2 — the session. Whatever "transport" asked for.
 
+    transport: "auto"   ──►  best on offer (THE DEFAULT; prefers quic,
+                             never udp unless it is the only thing there)
     transport: "tcp"    ──►  stay put            client ◄═══ tcp  ═══► relay
     transport: "udp"    ──►  reconnect :7777     client ◄═══ udp  ═══► relay
-    transport: "quic"   ──►  reconnect :7780     client ◄═══ quic ═══► relay
-    transport: "auto"   ──►  best on offer (prefers quic; never udp unless
-                             it is the only thing there)
+    transport: "quic"   ──►  reconnect :7777     client ◄═══ quic ═══► relay
+                             (quic shares -addr's port number; it moves only
+                             when plain udp is served and has taken it)
 
     relay does not serve what you asked for?
                         ──►  stay on tcp, and say so in the log
@@ -47,9 +49,10 @@ STEP 2 — the session. Whatever "transport" asked for.
 
 Three things follow from that shape, and they are the reason for it:
 
-- **A client never needs to know a port.** quic listens on a different one (it runs over udp, so
-  it cannot share with the plain udp transport), and guessing is impossible — so it is told.
-  `connect_to` only ever needs the tcp address.
+- **A client never needs to know a port.** quic normally shares `-addr`'s port number, but moves
+  when the plain udp transport is served and takes that udp port first — so its port is not
+  guessable in general, and is told rather than assumed. `connect_to` only ever needs the tcp
+  address.
 - **A wrong preference degrades instead of failing.** Ask for quic from a relay that does not
   serve it and you get a working tcp session plus a log line, not a timeout with no explanation.
 - **tcp is mandatory on the relay too.** `netx.ParseKinds` adds it whether or not the operator
@@ -253,9 +256,11 @@ problem MeshGhost doesn't have. **Implemented 2026-08-14** — see "What changed
 
 ## Why TCP is the default (recorded 2026-08-13; UDP and QUIC became selectable 2026-08-16)
 
-**Update 2026-08-16:** the transport is now a `config.json` setting — `tcp` (default), `udp`, or
-`quic` — see the transport ADR in [agent_docs/architecture.md](../agent_docs/architecture.md). The
-reasoning below is why `tcp` remains the *default*, not why it is the only option. Two things it
+**Update 2026-08-16:** the transport is a `config.json` setting — `auto`, `tcp`, `udp`, or `quic`.
+**Superseded later the same day**: the client now defaults to `auto` and the relay serves
+`tcp,quic`, so quic is the common path and tcp the fallback — see the two transport ADRs in
+[agent_docs/architecture.md](../agent_docs/architecture.md). tcp is still the *handshake* and still
+what everything degrades to. The reasoning below is why it holds those roles. Two things it
 did not anticipate: `udp` cannot be encrypted at all in Go (no DTLS in the standard library), and
 QUIC gets the loss behaviour and encryption together, so it is the one to reach for rather than
 plain UDP if either matters.

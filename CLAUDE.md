@@ -216,6 +216,12 @@ reasoning, the rule stays here and the reasoning goes to a `.md` file in `agent_
   outside project.
 - `agent_docs/risks.md` is the assumptions and risk register.
 - `agent_docs/pitfalls.md` is the adapter-specific issues log — symptom, diagnosis, fix.
+- `agent_docs/beyond-cosmetic.md` is the concept layer under `plans.md`'s depth ladder — sync
+  models, the authority taxonomy, and what a deeper-than-cosmetic mode would need. Nothing in it
+  is scheduled or approved; read it before proposing anything past Tier 2.
+- `agent_docs/bandages-core.md` is the Go side's shipped-compensation register. Each adapter has
+  its own `BANDAGES.md` next to its `README.md`; `adapters/_template/BANDAGES.md` holds the
+  how-to-tell-a-bandage guide, including the tells that only appear after the fact.
 - `agent_docs/effect-investigation.md` is the how-to-search playbook for a game's visual effects —
   read before starting effect/VFX work on a new adapter, not after it goes wrong.
 - `agent_docs/access-models.md` records what can be read about each game (decompilation, managed

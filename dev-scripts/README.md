@@ -4,8 +4,8 @@ Developer/testing launchers used while building MeshGhost itself — not what an
 wanting to play needs. If you just want to play with friends, use the pre-built release
 instead: see [packaging/README.md](../packaging/README.md) and the repo's Releases page.
 
-These assume `meshghost.exe`, `meshghost-relay.exe`, and `meshghost-fakeadapter.exe` are
-built at the repo root (e.g. `go build -o meshghost.exe ./cmd/meshghost`, run from the repo
+These assume `meshghost.exe`, `meshghost-relay.exe`, `meshghost-fakeadapter.exe`, and
+`meshghost-netsim.exe` are built at the repo root (e.g. `go build -o meshghost.exe ./cmd/meshghost`, run from the repo
 root) — each script references them as `..\<name>.exe`. The one exception is
 `run-loopback-in-release-folder.bat` below, which is written to be copied *out* of here into a
 downloaded release folder and run against its `meshghost-server.exe` instead.
@@ -96,6 +96,14 @@ downloaded release folder and run against its `meshghost-server.exe` instead.
 - `run-fakeadapter1.bat` / `run-fakeadapter2.bat` — two headless `cmd/meshghost-fakeadapter`
   instances (circle-motion fake ghosts, no game) for testing the core/relay without BizHawk at
   all — see [agent_docs/phases/phase5.md](../agent_docs/phases/phase5.md).
+
+  **`-transport tcp|udp|quic|auto`, added 2026-08-16.** Until then the rig never set `Transport`
+  at all, so every synthetic peer inherited `netx.Kind`'s tcp zero value and **the load tiers
+  below could only ever exercise tcp** — which is why the transports shipped that same day had no
+  sustained-load coverage. Pair it with `run-netsim.bat` to load-test udp or quic under real
+  packet loss. Confirm which transport was actually used from the client's own
+  `core: relay offers ... — using <transport>` line; a preference the relay does not serve
+  degrades quietly to tcp.
 - `run-loadtest-relay.bat` / `run-loadtest-peers.bat` / `run-ghostload-pseudoregalia.bat` — the
   synthetic-peer load rig, for answering "how many players can this actually hold?". The
   shipped `max_clients` of 8 is a policy default, not a technical limit (see
@@ -127,6 +135,28 @@ downloaded release folder and run against its `meshghost-server.exe` instead.
 
   `meshghost-fakeadapter.exe` knows nothing about any game: the per-game specifics live in
   these launchers and in `loadtest-extras-pseudoregalia.json`, passed via `-extras`.
+- `run-netsim.bat` — **the adverse-network rig** (`cmd/meshghost-netsim`): a fault-injecting proxy
+  between clients and a relay, adding loss, latency, jitter, reordering, duplication and
+  partitions. Everything else here runs over a perfect loopback, which is the gap this closes —
+  `agent_docs/testing.md` notes that real latency and jitter are untested and that interpolation
+  degrades *silently* under clock skew, and the only fault injection that existed before this was
+  a package-private drop counter inside `internal/netx/udpconn`'s own tests, which cannot touch a
+  running session. That injector is what found the 2026-08-16 lifecycle-ordering bug; this is the
+  same idea at session scope.
+
+  It mirrors the relay's **port numbers** on `127.0.0.2`, and that detail is load-bearing rather
+  than cosmetic: transport discovery sends the port but deliberately *not* the host
+  (`agent_docs/contract.md`), so a client upgrading to udp/quic reuses whatever host it first
+  connected to. Same numbers on a second loopback address therefore keeps the whole
+  handshake-then-upgrade path inside the proxy — a different port number would silently route the
+  upgrade *around* it, and the session would look perfectly healthy while testing nothing.
+
+  Start a relay as usual, run this, then point a client at `127.0.0.2:7777`. **The seed is printed
+  at startup** — pass it back with `-seed` to replay a fault sequence, which is the difference
+  between a bug report and an anecdote. Note `-loss`/`-duplicate`/`-reorder` are udp-only and are
+  *refused* rather than ignored while mirroring tcp: dropping bytes out of a proxied tcp stream
+  corrupts it instead of simulating loss, and silently ignoring the flag would let a clean run be
+  reported as evidence the stack survives loss.
 - `run-relay-loopback.bat` — a relay that echoes a lone client's own state back as
   `<id>-ghost`. Pair with any single core (`run-core-emerald.bat`, `run-core-tevi.bat`,
   `run-core-pseudoregalia.bat`) to see a real network round trip and your own ghost with only

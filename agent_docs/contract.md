@@ -293,8 +293,12 @@ ends and the next begins.
   debugging — the same "debuggability beats bandwidth" reasoning the brief already applies
   to choosing JSON over binary.
 - **Selectable transport** (added 2026-08-16 — ADR in `architecture.md`): the relay connection
-  runs over `tcp` (default), `udp`, or `quic`, chosen by `"transport"` in `config.json` on each
-  end. The relay may serve several at once, and **one room may hold clients on different
+  runs over `tcp`, `udp`, or `quic`, chosen by `"transport"` in `config.json` on each end.
+  **Defaults changed the same day (second ADR)**: the client defaults to `auto` and the relay to
+  serving `tcp,quic`, so a default session is quic — encrypted against a passive observer, and the
+  only transport on which this document's lossy state plane is actually lossy. quic shares the
+  relay's `-addr` port number so hosting still means forwarding one number; only serving plain
+  `udp` alongside it forces quic elsewhere. The relay may serve several at once, and **one room may hold clients on different
   transports simultaneously** — the relay forwards through the `Transport` interface and never
   learns which is which. None of this reaches an adapter: the bridge is always loopback TCP
   NDJSON.
@@ -327,8 +331,13 @@ ends and the next begins.
     offered**, since it cannot be encrypted. Any failure falls back to `tcp` at the configured
     address, so discovery can only improve a connection, never prevent one.
 - **Transport interface, expanded:**
-  - `send(bytes)` — unchanged from the brief. **Reliable on every transport**, so a caller that
-    knows nothing about `send_unreliable` below is always correct.
+  - `send(bytes)` — unchanged from the brief. **Reliable AND ordered on every transport**, so a
+    caller that knows nothing about `send_unreliable` below is always correct. Ordering is stated
+    explicitly because it is a separate property from delivery and is *not* implied by
+    retransmission: `tcp` and `quic` get it from an ordered stream, while `udp` has to resequence
+    for it. Until 2026-08-16 `udpconn` did not, and delivered a retransmitted payload after a later
+    one that was never lost — which strands a ghost when a `leave` overtakes its own `join`. See
+    the ADR in `architecture.md` and `verified.md`.
   - `send_unreliable(bytes)` — added 2026-08-16, for the `state` plane and nothing else. Delivery
     is not guaranteed: on `udp` the datagram is sent once, on `quic` it rides a QUIC datagram, and
     on `tcp` it is exactly `send`. Correct precisely because this document already defines the
