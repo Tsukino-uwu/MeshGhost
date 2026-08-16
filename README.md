@@ -34,7 +34,8 @@ story and may not all follow.
 2. Edit `config.json`: `connect_to` (the host's address), `room` (must match everyone else's),
    and `name`. If the host set a `room_code`, enter that too.
 3. Run `meshghost.exe` — everyone does this. Whoever's hosting also runs
-   `meshghost-server.exe` and forwards a TCP port. A host who wants their server to be for one
+   `meshghost-server.exe` and forwards a port (TCP 7777 by default; see Transports below if
+   you enable `udp` or `quic`, which need their own rules). A host who wants their server to be for one
    game only sets `server.only_game` to that game's id from the list above; left blank (the
    default) the server hosts any game, including several at once in different rooms.
 4. Load your game's mod from `games\<publisher>\<game>\` (BizHawk Lua Console for Emerald,
@@ -59,43 +60,25 @@ Full walkthrough: `packaging/release/README.txt` (ships in the zip) and
   their AP mods — but an AP-patched Emerald ROM can shift where facing/running are read from,
   so treat it as "should work," not confirmed.
 
-### Transports: `tcp` vs `udp` vs `quic`
+### Transports
 
-`"transport"` in `config.json` is not *how* you connect but what you move to **once** connected.
-**Every client makes first contact over `tcp`, always** — it asks the server what it serves and
-only then switches. So you never need to know which port a transport is on, and asking for
-something the server doesn't offer leaves you on a working `tcp` session rather than failing.
+The relay connection runs over **`tcp`**, **`udp`**, or **`quic`**, set by `"transport"` in
+`config.json`. A server can offer several at once, and players on different transports share a
+room and see each other normally.
 
-The shipped client default is **`udp`**; servers default to `tcp` only, so nothing changes until
-a host opts in to more. Pick `quic` instead if you want your `room_code` encrypted — that needs
-the host to be serving it.
+It is not *how* you connect but what you move to **once** connected: every client makes first
+contact over `tcp`, asks what the server offers, and only then switches. So nobody needs to know
+which port a transport is on, and asking for one the server doesn't serve leaves you on a working
+`tcp` session rather than failing.
 
-| | Good for | Costs you | Encrypted? |
-|---|---|---|---|
-| **`tcp`** *(default)* | Works everywhere. The only one you can read with `netcat` or a packet capture when something goes wrong. | A lost packet holds up the positions queued behind it until it's resent. | No |
-| **`udp`** | A lossy connection — a dropped position is skipped rather than delaying the next one. | **Can never be encrypted** (Go has no DTLS), so `room_code` travels in the clear. Not readable while debugging. | No, and not fixable |
-| **`quic`** | The same loss handling as `udp`, plus encryption and resistance to spoofing. | Needs its own port (`listen_quic`) — it can't share one with `udp`. Not readable while debugging. | Yes (TLS 1.3) |
+Clients default to `udp` (leanest, and a lost position is skipped rather than delaying the next);
+servers default to `tcp` only, so nothing changes until a host opts in. `quic` is the encrypted
+one — worth picking if you care about `room_code` confidentiality, since `tcp` and `udp` both
+carry it in the clear and `udp` can never do otherwise.
 
-**`udp` is not "the fast one."** On a connection that isn't dropping packets, all three deliver
-at identical speed — same route, same physics. What `udp` and `quic` avoid is one lost packet
-stalling the newer positions behind it, which only matters when packets are actually being lost.
-If you want the loss behaviour, `quic` gives it to you *and* stays encrypted, so there's rarely
-a reason to pick plain `udp`.
-
-A host can offer several at once (`"transport": "tcp,udp,quic"`), and players on different
-transports still share a room and see each other normally. Each transport needs its own port
-forwarding rule.
-
-There is also **`auto`**, which takes the best on offer: it prefers `quic`, then `tcp`, and
-deliberately never selects `udp` for you, since picking an unencryptable transport on someone's
-behalf isn't a decision a default should make. Discovery is refused unless you already have the
-right `room_code`, so it tells a stranger nothing they couldn't learn by just joining.
-
-**One misconfiguration to know about:** if a host *serves* a transport but hasn't forwarded its
-port, clients will discover it, try it, and fail — discovery only knows what the server offers,
-not whether the path actually works — so they retry rather than falling back. Forward a rule per
-transport you offer. Design rationale is in
-[agent_docs/architecture.md](agent_docs/architecture.md)'s transport and transport-discovery ADRs.
+Which to choose and how to forward ports: `packaging/release/README.txt`. Why it is built this
+way: [agent_docs/architecture.md](agent_docs/architecture.md)'s transport and transport-discovery
+ADRs.
 
 ## How it works
 
@@ -108,7 +91,9 @@ transport you offer. Design rationale is in
   [Emerald](adapters/pokemon/emerald/README.md), [TEVI](adapters/tevi/README.md),
   [Pseudoregalia](adapters/pseudoregalia/README.md).
 
-Full detail: [agent_docs/contract.md](agent_docs/contract.md) (schema and interfaces),
+Full detail: [internal/documentation.md](internal/documentation.md) (how the relay and client
+actually work — the life of a connection and of a state message, traced through the real code),
+[agent_docs/contract.md](agent_docs/contract.md) (schema and interfaces),
 [agent_docs/architecture.md](agent_docs/architecture.md) (system shape and design rationale), and
 [internal/README.md](internal/README.md) (the relay/core's own networking-layer doc — security
 posture, what's already checked-safe vs. the known open gaps).
@@ -137,8 +122,8 @@ MeshGhost/
 - [agent_docs/status.md](agent_docs/status.md) — one-screen summary of where things stand.
 - [agent_docs/pitfalls.md](agent_docs/pitfalls.md) — adapter-specific issues found while
   building each game's adapter, and how they were diagnosed and fixed.
-- [agent_docs/risks.md](agent_docs/risks.md) — known risks and open assumptions (e.g. no TLS
-  on the wire yet).
+- [agent_docs/risks.md](agent_docs/risks.md) — known risks and open assumptions (e.g. `tcp` and
+  `udp` carry the `room_code` unencrypted; `udp` can never do otherwise).
 - [agent_docs/verified.md](agent_docs/verified.md) — append-only log of facts actually
   confirmed against a running game, not just "it built."
 - [agent_docs/licensing.md](agent_docs/licensing.md) — what prior-art projects were checked
