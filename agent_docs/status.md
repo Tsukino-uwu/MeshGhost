@@ -35,6 +35,8 @@ that a peer's state genuinely differs from the local player's, which loopback co
 
 ### Open, not blocked
 
+- **Slide is a render-Z bandage (+43 units), not the game's own crouch handling** — user-flagged
+  2026-08-16. Leads and the probe to run first: `ideas.md`.
 - **Duplicate ghost spawn on every level load** — two ghosts per peer, the `remotes` entry going
   present -> absent within three ticks, leaving an orphaned pawn nobody tracks. `verified.md`.
 - **Two different games at once is broken** — both mods use bridge port 7778, and a core serves

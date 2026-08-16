@@ -870,6 +870,50 @@ would be exactly the sort of thing `CLAUDE.md`'s "nothing that couldn't be publi
 dropper-shaped), and TLS (which would add cert generation plus encrypted traffic on top). It is the
 only one of those where the work is bounded and the benefit reaches users directly.
 
+## Slide: replace the render-Z bandage with the game's own crouch handling
+
+**Flagged by the user 2026-08-16** as a temporary fix that should be replaced by finding out how
+the game itself does it — the case `adapters/_template`'s "observe before you override" rule exists
+for, and the same shape as the camera fight-back that had to be deleted the same day.
+
+**What ships today** (`Plugin.cpp`, the `slide_z_comp` block at the receive site): during a slide
+the ghost's render target Z is raised by `GHOST_STANDING_CAPSULE_HALF - peer_capsule_half`, i.e.
+**+43 units**, so it stops sinking into the floor.
+
+**It is not a guess, and that is why it survived** — the mechanism underneath it was measured, and
+the comment records it honestly: a real slide shrinks the player's capsule 65 -> 22 and drops its
+origin 567.2 -> 524.2, keeping the feet planted. Mirroring `CapsuleHalfHeight` onto the ghost was
+tried, confirmed to apply (read back 22), and did **not** fix the visual, because the skeletal mesh
+hangs off the capsule at a fixed relative offset (-65) set at construction. **The thing that
+adjusts that offset is the player's own crouch logic, which an unpossessed ghost never runs.**
+
+So the bandage is precisely the tell the rule names: it *compensates* for a value the game would
+have set, instead of making the game set it.
+
+**Leads, in order of promise:**
+
+1. **The game's own slide functions.** `slideTick` and `slideOverheadCheck` were already captured
+   by the reflection dump (`OBJECT_REFLECTION_DUMP`, noted in `Plugin.cpp`'s own comment as
+   "captured for later, not yet used"). If one of those is what moves the mesh, calling it on the
+   ghost is the whole fix — the same pattern as `call_manage_recall_idle_fx` and
+   `call_update_weapon_equip`, both of which already drive the game's own functions on a ghost.
+2. **The engine's crouch path.** `ACharacter::OnStartCrouch`/`OnEndCrouch` receive the half-height
+   adjustment and are what normally moves the mesh. A ghost never gets them because nothing calls
+   `Crouch()` on it. Worth checking whether they are reflected and whether BP_PlayerGoatMain_C
+   overrides them.
+3. **The mesh offset directly.** If neither is callable, setting the mesh component's own
+   `RelativeLocation` is still closer to the truth than moving the whole actor: it changes the
+   thing that is actually wrong, rather than hiding it by moving everything.
+
+**Probe first, as always:** the *player's* mesh `RelativeLocation` during a slide versus standing
+answers what the game's own logic sets it to. That number is the target, and it also says whether
+the -65/+43 pair is the whole story or an approximation that happens to look right in one pose.
+
+**Why this matters beyond tidiness:** the ghost's Z is being moved for a reason that has nothing to
+do with position, so anything else reading that Z inherits the lie. `Plugin.cpp` already notes a
+second bug (the thrown-weapon prop) as "structurally the same bug as the slide floor-sinking fix",
+which is what a bandage looks like when it starts to spread.
+
 ## VFX hunting — let the player mark the moment (untried)
 
 **User's idea, 2026-08-16.** Written up as a procedure step in
