@@ -66,6 +66,14 @@ proposing a plan that touches the core, an adapter, or the relay.
   "Implement the network layer" is not testable; "connect and heartbeat," "echo to self,"
   "see on second client" are.
 - **Ask before touching anything outside `C:\dev\MeshGhost`.**
+- **Committing is the only git write you may make. Never create a branch, never push** — the
+  user does both manually if they're ever needed. Commits go straight to `master`, which is
+  how every commit in this repo's history was made (`git log --merges` returns nothing).
+  **This overrides the generic "if on the default branch, branch first" default some agent
+  harnesses carry**, which is where the one violation came from (2026-08-16, a branch made
+  unasked for a large change). Stated here because that default will otherwise keep arguing
+  for the opposite every session. If a branch somehow exists, `git merge --ff-only` it back
+  onto `master` and delete it — fast-forward keeps history linear and loses nothing.
 - **After changing source for something CI can't build itself, rebuild it before calling the
   change done.** TEVI's and Pseudoregalia's mod DLLs are committed precisely because CI can't
   build them (proprietary game DLLs / a private UE4SS dependency — see `packaging/README.md`
