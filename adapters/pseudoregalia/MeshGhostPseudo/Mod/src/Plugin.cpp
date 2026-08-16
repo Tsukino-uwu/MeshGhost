@@ -4807,15 +4807,7 @@ namespace MeshGhostPseudo
         {
             return;
         }
-        if (POSSESS_TRACE)
-        {
-            // Why was a spawn allowed? A duplicate means this said "entry present, ghost null"
-            // moments after a successful spawn -- i.e. something invalidated it in between.
-            Output::send(STR("[MeshGhostPseudo] POSSESS_TRACE spawn-allowed remote={} entry={} ghost=null tick={}\n"),
-                         to_wide_ascii(player_id),
-                         existing != remotes.end() ? STR("present") : STR("absent"),
-                         tick_count);
-        }
+
         if (!local_pawn)
         {
             return;
@@ -4948,6 +4940,19 @@ namespace MeshGhostPseudo
             return;
         }
 
+        if (POSSESS_TRACE)
+        {
+            // Why was a spawn allowed at all? Two ghosts per level load have been observed, which
+            // means this reported a null ghost pointer moments after a successful spawn -- so
+            // something invalidates it in between, and the loser is left orphaned in the world.
+            UObject** before = local_controller->GetValuePtrByPropertyNameInChain<UObject*>(STR("Pawn"));
+            Output::send(STR("[MeshGhostPseudo] POSSESS_TRACE spawn-allowed remote={} entry={} tick={} controller_pawn_before={}\n"),
+                         to_wide_ascii(player_id),
+                         existing != remotes.end() ? STR("present") : STR("absent"),
+                         tick_count,
+                         (before && *before) ? (*before)->GetFullName() : STR("(none)"));
+        }
+
         FVector spawn_loc = local_pawn_actor->K2_GetActorLocation();
         FRotator spawn_rot = local_pawn_actor->K2_GetActorRotation();
 
@@ -5018,6 +5023,19 @@ namespace MeshGhostPseudo
                     *spawn_orient_ptr = false;
                 }
             }
+        }
+
+        if (POSSESS_TRACE)
+        {
+            // The window nothing has ever looked at: between the ghost existing and us taking
+            // control back. If the ghost auto-possessed, the controller is holding IT right here,
+            // which also means the player's pawn was unpossessed -- and an unpossess/re-possess
+            // cycle can restore the pawn without restoring whatever input the game bound to it.
+            // That would look exactly like "camera is on me, I cannot move".
+            UObject** mid = local_controller->GetValuePtrByPropertyNameInChain<UObject*>(STR("Pawn"));
+            Output::send(STR("[MeshGhostPseudo] POSSESS_TRACE pre-handback tick={} controller_pawn={}\n"),
+                         tick_count,
+                         (mid && *mid) ? (*mid)->GetFullName() : STR("(none)"));
         }
 
         // Auto-possess safety fix (Phase 7.4, agent_docs/pitfalls.md's "Spawned actors
