@@ -391,6 +391,199 @@ func TestSecondAdapterIsRejectedByTheRealBinary(t *testing.T) {
 	}
 }
 
+// TestPortWalkFindsAFreeCore models the port walk each adapter performs
+// (Pseudoregalia's BridgeClient today, TEVI and Emerald later) against REAL
+// core processes, so the sequence the C++ implements is checked even though the
+// C++ itself cannot run here without the game.
+//
+// It exists because the interesting cases cannot be produced by hand: Steam
+// refuses a second Pseudoregalia, so "two instances" is untestable on the dev
+// machine, and a foreign program squatting on a bridge port is not something
+// anyone can arrange on demand either. Both are just listeners, so a test can
+// hold them.
+//
+// Three ports, one of each kind the walk must tell apart:
+//
+//	P1  a real core WITH an adapter attached -> answers reject, skip it
+//	P2  something else entirely, accepting connections and never speaking
+//	P3  a real core with nothing attached    -> answers bridge_ready, use it
+func TestPortWalkFindsAFreeCore(t *testing.T) {
+	r := newRig(t)
+	startRelay(t, r.dir, r.relayBin, r.relayAddr)
+
+	busyAddr := net.JoinHostPort("127.0.0.1", strconv.Itoa(freePort(t)))
+	squatAddr := net.JoinHostPort("127.0.0.1", strconv.Itoa(freePort(t)))
+	freeAddr := net.JoinHostPort("127.0.0.1", strconv.Itoa(freePort(t)))
+
+	// P1: a core with an adapter already on it.
+	startClient(t, r.dir, r.clientBin, r.relayAddr, busyAddr)
+	_, stopAdapter := startAdapter(t, busyAddr, "e2egame")
+	defer stopAdapter()
+
+	// P3: a core with nobody on it.
+	startClient(t, r.dir, r.clientBin, r.relayAddr, freeAddr)
+
+	// P2: the squatter. Accepts, reads nothing, answers nothing -- the shape of
+	// an unrelated program that happens to hold a port in our range.
+	squatLn, err := net.Listen("tcp", squatAddr)
+	if err != nil {
+		t.Fatalf("squatter listen: %v", err)
+	}
+	defer squatLn.Close()
+	go func() {
+		var held []net.Conn
+		defer func() {
+			for _, c := range held {
+				c.Close()
+			}
+		}()
+		for {
+			c, err := squatLn.Accept()
+			if err != nil {
+				return
+			}
+			held = append(held, c) // hold it open, say nothing
+		}
+	}()
+
+	waitForListener(t, busyAddr)
+	waitForListener(t, freeAddr)
+	// The busy core is only busy once its adapter has actually said hello;
+	// without this the first candidate is a race rather than a known state.
+	time.Sleep(2 * time.Second)
+
+	chosen, spawnable := walkPorts(t, []string{busyAddr, squatAddr, freeAddr})
+
+	if chosen != freeAddr {
+		t.Errorf("walk landed on %q, want the free core at %q", chosen, freeAddr)
+	}
+	if spawnable != "" {
+		t.Errorf("walk offered %q as somewhere to start a core, want none -- every port "+
+			"had a listener, so starting one would collide", spawnable)
+	}
+}
+
+// TestPortWalkOffersAFreePortToSpawnOn is the other half: when nothing in range
+// will have the adapter, the walk must report a port where NOTHING is listening,
+// which is where the mod starts a core. It must never offer a port that answered
+// and said it was busy -- that is another game's core, and contract.md is
+// explicit that an adapter only ever starts or stops a core it owns.
+func TestPortWalkOffersAFreePortToSpawnOn(t *testing.T) {
+	r := newRig(t)
+	startRelay(t, r.dir, r.relayBin, r.relayAddr)
+
+	busyAddr := net.JoinHostPort("127.0.0.1", strconv.Itoa(freePort(t)))
+	emptyAddr := net.JoinHostPort("127.0.0.1", strconv.Itoa(freePort(t)))
+
+	startClient(t, r.dir, r.clientBin, r.relayAddr, busyAddr)
+	_, stopAdapter := startAdapter(t, busyAddr, "e2egame")
+	defer stopAdapter()
+	waitForListener(t, busyAddr)
+	time.Sleep(2 * time.Second)
+
+	chosen, spawnable := walkPorts(t, []string{busyAddr, emptyAddr})
+
+	if chosen != "" {
+		t.Errorf("walk settled on %q, want nothing usable", chosen)
+	}
+	if spawnable != emptyAddr {
+		t.Errorf("walk offered %q to start a core on, want the empty port %q", spawnable, emptyAddr)
+	}
+}
+
+// TestPortWalkSkipsSeveralBusyCores is the same question with no fakes at all:
+// every port here holds a REAL meshghost.exe, the first two with real adapters
+// attached, and the walk has to step past both to reach the free one.
+//
+// This is the scenario the dev machine cannot produce by hand -- Steam refuses
+// a second Pseudoregalia, so "two games already running, start a third" only
+// exists here. TestPortWalkFindsAFreeCore covers the one case real cores cannot
+// simulate (something that is not MeshGhost at all holding a port); this covers
+// the case that needs no simulation.
+func TestPortWalkSkipsSeveralBusyCores(t *testing.T) {
+	r := newRig(t)
+	startRelay(t, r.dir, r.relayBin, r.relayAddr)
+
+	busy1 := net.JoinHostPort("127.0.0.1", strconv.Itoa(freePort(t)))
+	busy2 := net.JoinHostPort("127.0.0.1", strconv.Itoa(freePort(t)))
+	free := net.JoinHostPort("127.0.0.1", strconv.Itoa(freePort(t)))
+
+	for _, addr := range []string{busy1, busy2, free} {
+		startClient(t, r.dir, r.clientBin, r.relayAddr, addr)
+		waitForListener(t, addr)
+	}
+	for _, addr := range []string{busy1, busy2} {
+		_, stop := startAdapter(t, addr, "e2egame")
+		defer stop()
+	}
+	// Both adapters need to have said hello before either core counts as busy.
+	time.Sleep(2 * time.Second)
+
+	chosen, spawnable := walkPorts(t, []string{busy1, busy2, free})
+
+	if chosen != free {
+		t.Errorf("walk landed on %q, want the only free core at %q", chosen, free)
+	}
+	if spawnable != "" {
+		t.Errorf("walk offered %q to start a core on, want none -- all three ports were taken", spawnable)
+	}
+}
+
+// walkPorts is the adapter-side algorithm from agent_docs/contract.md, written
+// in Go: for each candidate, connect; nothing listening marks a port a core
+// could be started on; a reject means somebody else's core; bridge_ready means
+// this one is ours. Returns the address it settled on ("" for none) and the
+// first port worth starting a core on.
+func walkPorts(t *testing.T, addrs []string) (chosen, spawnable string) {
+	t.Helper()
+	const answerTimeout = 1500 * time.Millisecond
+
+	for _, addr := range addrs {
+		conn, err := transport.Dial(addr)
+		if err != nil {
+			if spawnable == "" {
+				spawnable = addr
+			}
+			continue
+		}
+
+		answer := make(chan bridge.MessageType, 1)
+		conn.OnReceive(func(payload []byte) {
+			var env bridge.Envelope
+			if json.Unmarshal(payload, &env) != nil {
+				return
+			}
+			if env.Type == bridge.TypeBridgeReady || env.Type == bridge.TypeReject {
+				select {
+				case answer <- env.Type:
+				default:
+				}
+			}
+		})
+		if !sendBridge(conn, bridge.TypeHello, bridge.Hello{GameID: "e2egame"}) {
+			conn.Close()
+			continue
+		}
+
+		select {
+		case got := <-answer:
+			if got == bridge.TypeBridgeReady {
+				return addr, spawnable
+			}
+			conn.Close() // rejected -- somebody else's core
+		case <-time.After(answerTimeout):
+			// Silence is NOT acceptance. Something that accepts a connection and
+			// then never speaks is far more likely an unrelated program than a
+			// MeshGhost core, and committing to it strands the adapter with no
+			// ghosts and no explanation -- the exact silent failure this whole
+			// change exists to remove. Skipping an older core costs nothing by
+			// comparison: the walk simply starts its own on a free port.
+			conn.Close()
+		}
+	}
+	return "", spawnable
+}
+
 func TestReleaseBinariesRoundTripAGhost(t *testing.T) {
 	if testing.Short() {
 		t.Skip("builds and launches real binaries; skipped under -short")

@@ -79,21 +79,43 @@ namespace MeshGhostPseudo
         {
             return false;
         }
-        if (core_answered_ready)
-        {
-            return true;
-        }
-        // Silence past the timeout means a core older than bridge_ready/reject. Treat it as
-        // accepted rather than refusing it: that is exactly how every core behaved before this
-        // handshake existed, and a mixed setup is a normal thing for someone to end up with.
-        return std::chrono::steady_clock::now() - hello_sent_at > HELLO_ANSWER_TIMEOUT;
+        // Only an explicit bridge_ready counts. Silence is NOT acceptance: something that
+        // accepts a connection and then never answers is far more likely an unrelated program
+        // holding a port in our range than a MeshGhost core, and committing to it strands this
+        // adapter with no ghosts and no explanation -- the exact silent failure the handshake
+        // exists to remove.
+        //
+        // This was the other way round for one build, treating silence as an older core and
+        // carrying on. A test that squats a port with a listener that never speaks
+        // (internal/e2e's TestPortWalkFindsAFreeCore) showed that trade is backwards: skipping an
+        // old core costs nothing, because the walk just starts its own on a free port and
+        // everything works, while committing to a squatter costs the whole session.
+        return core_answered_ready;
     }
 
     auto BridgeClient::tick_connect() -> void
     {
         if (connected)
         {
-            return;
+            // A connection that never got an answer is not a connection worth keeping: drop it
+            // and let the sweep below try somewhere else. Without this the adapter would sit
+            // attached to a silent port forever, which is what a squatting program looks like.
+            if (hello_sent_this_connection && !core_answered_ready &&
+                std::chrono::steady_clock::now() - hello_sent_at > HELLO_ANSWER_TIMEOUT)
+            {
+                if (current_port >= BRIDGE_BASE_PORT && current_port < BRIDGE_BASE_PORT + BRIDGE_PORT_COUNT)
+                {
+                    busy_until[current_port - BRIDGE_BASE_PORT] = std::chrono::steady_clock::now() + BUSY_PORT_COOLDOWN;
+                }
+                Output::send(STR("[MeshGhostPseudo] whatever is on port {} never answered our hello -- "
+                                 "not a MeshGhost core we can use, trying another port.\n"),
+                             current_port);
+                close_socket();
+            }
+            else
+            {
+                return;
+            }
         }
 
         // RECONNECT_INTERVAL cooldown -- found in a review pass. Without this, a caller ticking

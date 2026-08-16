@@ -78,8 +78,12 @@ The acknowledgement exists because silence used to be ambiguous. A core only eve
 from the absence of a hangup. That was affordable when there was one fixed port and unaffordable
 once adapters started walking a range looking for a free core. `reason` is for the adapter's log,
 not for branching on: the correct response to any rejection is the same, which is to try the next
-port. **An adapter that receives neither is talking to a core older than this rule** and should
-carry on as before rather than refuse it.
+port. **An adapter that receives neither must move on to the next port**, not assume acceptance.
+Silence looks identical to an unrelated program holding a port in the range, and committing to one
+strands the adapter with no ghosts and no explanation. Skipping a core that is merely old costs
+nothing by comparison: the adapter starts its own on a free port and everything works. This was
+briefly the other way round, and a test that squats a port with a listener that never speaks
+(`internal/e2e`'s `TestPortWalkFindsAFreeCore`) showed the trade was backwards.
 
 **Bridge lifecycle is tied to the relay connection:** if the bridge connection ends (the
 adapter/game closes, or its socket otherwise drops), the core closes its relay connection too,
