@@ -26,6 +26,8 @@ Fixed-and-confirmed work is not listed here — see `verified.md` and the phase 
 
 ### Open, not blocked
 
+- **Two different games at once is broken** — both mods use bridge port 7778, and a core serves
+  one game only, so the second reconnects forever in silence. Fix options in `ideas.md`.
 - **Autostart: TEVI and Emerald not converted yet.** Windows and Proton both fully confirmed;
   Emerald needs a spawn-mechanism spike (BizHawk Lua has no hidden-process API). `verified.md`.
 - **Pseudoregalia: a `Fatal Error!` on game exit**, seen once, never root-caused. Not the

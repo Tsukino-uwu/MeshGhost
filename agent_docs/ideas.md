@@ -836,6 +836,46 @@ would change this is hosting: some PaaS providers and restrictive networks route
 a relay behind such a proxy is reachable over WSS on 443 and nothing else. If that ever comes up,
 `internal/netx` makes it a fourth `Kind` with no change to `internal/relay` or `internal/core`.
 
+## Autostart — one core per game, so two games can run at once
+
+**Suggested by the Linux speedrunner 2026-08-16**, after Proton autostart was confirmed working:
+*"on detecting that a client already exists somewhere, have a setting to start it anyway with an
+increased (unused) port until a free one is found — would enable having each game connect to
+different servers."*
+
+**This is a bug report wearing a feature request's clothes.** Running two different games at once
+is broken today, and quietly. Both mods connect to `127.0.0.1:7778`; the first game's core owns
+that process, and a second game's hello is refused —
+`core: already connected to the relay as game %q, cannot also serve %q on the same process`
+(`internal/core/core.go`) — after which `handleBridgeConn` closes the bridge connection. The second
+game's mod then reconnects every 2s forever, with no ghost and nothing on screen explaining why.
+The reuse-before-spawn rule that makes autostart safe is exactly what causes this: it cannot tell
+"a core I can use" from "a core that belongs to someone else".
+
+Per-game *configuration* is already solved and needs nothing: each mod folder has its own
+`config.json`, and a spawned core reads the one in its own working directory. So Pseudoregalia
+already points at whatever relay its own config names. **The only thing colliding is the port.**
+
+**Option A — distinct default port per adapter** (Pseudoregalia 7778, TEVI 7779, Emerald 7780).
+Deterministic, no protocol change, fixes two-games-at-once outright, and a manual core is still
+findable because the number is fixed and documented. Does not help two instances of the SAME game
+(the local two-player testing case), and adds a small port registry that must not drift from the
+docs.
+
+**Option B — probe upward, as suggested.** The mod tries 7778, and moves to 7779 if that core
+refuses its game. Handles every case including two instances of one game, and needs no registry.
+**Its cost is a contract change**: the bridge has no way to say *why* it closed, so an adapter
+cannot currently distinguish "wrong game, try elsewhere" from "the core died". Inferring it from
+timing (connected, sent hello, closed quickly) would be exactly the kind of guess this project
+avoids. Doing it properly means a bridge-level reject message with a reason, mirroring the relay
+protocol's own `Reject` — an ADR and a `contract.md` revision, plus every adapter learning to walk
+the port range.
+
+**Recommendation:** A first, then B if the same-game case ever matters. A is a day's work and
+removes a silent failure; B is the complete answer but should not be smuggled in as a bug fix.
+Either way the docs must say which port each game uses, since `MESHGHOST_NO_AUTOSTART` users need
+to know what to bind.
+
 ## Links
 
 - `agent_docs/plans.md` — the roadmap; move an idea here (with a phase number) once it's picked.
