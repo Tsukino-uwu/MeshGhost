@@ -750,6 +750,31 @@ and the other had a stale assumption nobody had tested. **Know which of those yo
    `BANDAGES.md`, not only as a code comment. Then, **when the design changes, re-test the
    constraint**: that is the step this project missed.
 
+## A new game gets its own `agent_docs/phases/phaseN.md` — and you ASK for the number
+
+**Create the phase file when the adapter folder is created, not when the work is finished.** Every
+game so far has one, and it is the file that indexes a game's work: what is settled, what is open,
+and the method notes that only make sense in that game's context. Without it, findings scatter into
+`verified.md` with nothing tying them together, and the next session has to reconstruct the state
+of the work from a dated log.
+
+**Ask the user which number to use. Do not infer it.** The numbering is not simply "highest + 1":
+phases 1–5.5 bundled the first game's adapter work together with building the core, server and
+client, Phase 5.5 exists as a fraction, and Phase 8 was created for a game that already had phases,
+because it was a *new stream of work on an old game*. Which of those a new piece of work resembles
+is the user's call. Found live 2026-08-18: Crystal ran a full session of real findings with no
+phase file at all, and the user had to point it out.
+
+**What belongs in it** (see `phase9.md` for a worked example, and `phase8.md` for the "new stream
+on an existing game" shape):
+
+- **Purpose** — why this game, and what makes it different from the ones before it.
+- **What is settled** — summary only, with the evidence staying in `verified.md`.
+- **The shape of the thing** — what the game's model actually turned out to be, especially where it
+  cost several attempts to learn. This is the section a future reader gets the most from.
+- **Open** — a checklist, including what is deliberately out of scope and why.
+- **Method notes** — what worked as a way of investigating this particular game.
+
 ## Hard rule: never let a ghost exist before the player is actually in the game
 
 **Find the game's own "I am in play" signal early, gate every spawn on it, and do that before the
