@@ -5538,3 +5538,32 @@ in `CLAUDE.md` is filename-only. Append-only means they stay; new entries should
   enumeration suspects, so a recurrence is genuinely informative about MeshGhost rather than
   ambiguous. Especially worth having for the Linux tester, who is a speedrunner — a cheat manager
   and a console are not things to put in a runner's game uninvited.
+
+### The loopback offset manufactures positions real multiplayer never produces
+
+- Date: 2026-08-17
+- Observed: user, live, while investigating the crash above — the ghost behaved oddly on a
+  downward ramp mid-slide, and they identified the cause themselves as the loopback offset rather
+  than as a sync fault.
+- **The insight, which outlives the incident:** a peer's coordinates in a real session are always a
+  position that peer was actually standing in, so a ghost placed there is by construction somewhere
+  the game considers valid. The loopback offset breaks that. It takes a valid position and shifts
+  it 150 units sideways (`LOOPBACK_GHOST_OFFSET_X`) **without re-grounding it**, so over any sloped
+  or uneven geometry the ghost lands buried in the floor or hanging above it.
+- **Why that is not a harmless rendering artefact here.** The ghost is a real pawn clone with
+  collision deliberately enabled and the game's own movement systems running on it (`slideTick`,
+  the crouch path, the capsule mirror). So the game is being asked to resolve a moving body inside
+  world geometry — depenetration, ground checks, slide physics — in a state it would never
+  otherwise be put in. That is a plausible source of instability that **exists only in the test
+  rig**, and the user's own reading is that the game "dislikes being inside/under the ground".
+- **Consequence for how loopback evidence is weighed:** an anomaly seen only in loopback, in a
+  position that only the offset could have produced, is a rig artefact until shown otherwise. It
+  should not be chased as a sync or adapter bug, and it must not be used to judge whether ghosts
+  behave correctly. This applies to the crash recorded above, which was hit immediately after
+  exactly such a moment and remains unexplained and not reproducible.
+- Notes: `LOOPBACK_GHOST_OFFSET_Z` already exists as an alternative (vertical separation, currently
+  0.0; tried at 220.0 on 2026-08-15 and reverted for a different reason — pole-orbit comparison).
+  Offsetting UP rather than sideways would keep a self-ghost clear of geometry instead of inside
+  it, and is the obvious candidate if this is worth removing as a confounder. **Not changed**: the
+  sideways offset is what the user finds most useful for spotting things, and swapping it costs a
+  rebuild, a deploy and a session to judge.

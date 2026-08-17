@@ -48,6 +48,8 @@ that a peer's state genuinely differs from the local player's, which loopback co
   `bridge_ready`; Pseudoregalia has all three. Emerald needs a spawn spike. `_template/PROTOCOL.md`.
 - **Pseudoregalia: a ghost's slide pose cycles instead of holding** — start/end crouch ~every
   0.8s through one continuous slide; not latency, not the new Go work. `verified.md` 2026-08-17.
+- **Loopback offset puts the ghost inside/above sloped geometry** — a rig artefact, since a real
+  peer's position is always valid. Weigh loopback-only anomalies accordingly. `verified.md`.
 - **Pseudoregalia: a hard crash mid-session after the pause menu opened twice** — not root-caused,
   not attributable to MeshGhost on the evidence. `verified.md` 2026-08-17.
 - **Pseudoregalia: a `Fatal Error!` on game exit**, seen once, never root-caused. Not the
