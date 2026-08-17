@@ -6721,3 +6721,28 @@ scheduled. All established by the agent with local tools; nothing here is a visu
 - **What is left is no longer about the game.** Networking (bridge, socket, `get_local_state`),
   the lifecycle (re-spawn on every map load and every battle), and showing a peer's *own* gender
   rather than the local player's. Emerald's socket layer transfers wholesale for the first.
+
+### Crystal: a spawned ghost is solid, TALKABLE, and can be knocked off its tile (2026-08-18)
+
+- Date: 2026-08-18
+- Observed: **watched by the user**, with a screenshot, during `walk_test.lua`. Three behaviours,
+  all consequences of the ghost being a genuine object event:
+  1. **It has collision** — the player cannot walk through it.
+  2. **It inherited the template NPC's dialogue.** Talking to it produced that NPC's line
+     (*"Oh! Your POKéMON is adorable!"*).
+  3. **Talking to it broke its tile alignment** — afterwards it sat slightly left of the grid.
+- Source: live session.
+- Notes on each, because they are three different kinds of thing:
+  1. **Collision is arguably a feature, not a bug**, and matches the position Pseudoregalia reached
+     — a ghost you can bump into reads as present rather than as a projection. Left on
+     deliberately; if it ever needs disabling, `OBJECT_FLAGS1` carries `NOCLIP_OBJS`.
+  2. **The dialogue is a real bug and is fixed.** Copying an NPC wholesale copies
+     `MAPOBJECT_SCRIPT_POINTER` and `MAPOBJECT_EVENT_FLAG` as well, so the ghost was a fully
+     functioning NPC wearing the player's face. **A peer's ghost must never run another
+     character's script.** Both fields are now zeroed after the copy. Worth noting the shape of the
+     mistake: "copy a known-good template" is a good technique that quietly carries *everything*,
+     including things that are not appearance or behaviour.
+  3. **The alignment break is unexplained and is the open item.** Interacting with an object makes
+     the game turn it to face the player, which plausibly collides with a step this script
+     initiated — the idle check only tests `STEP_DURATION`, and an interaction may leave other step
+     state part-set. Needs a capture with the step watcher running during an interaction.

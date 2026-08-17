@@ -41,3 +41,25 @@ NPC does, the engine has taken it.
   f=2441   ours: map=10,9 step=8     |   template NPC: map=10,12 step=1    <<< OURS MOVED ON ITS OWN
   f=2498   initiated step right -> map 11,9 (walking=7 dir=12)
   f=2498   ours: map=11,9 step=0     |   template NPC: map=10,12 step=1  
+  f=2715   initiated step right -> map 12,9 (walking=7 dir=12)
+  f=2715   ours: map=12,9 step=8     |   template NPC: map=10,12 step=1    <<< OURS MOVED ON ITS OWN
+  f=2830   initiated step right -> map 13,9 (walking=7 dir=12)
+  f=2830   ours: map=13,9 step=0     |   template NPC: map=10,12 step=1    <<< OURS MOVED ON ITS OWN
+  f=3018   initiated step left -> map 12,9 (walking=6 dir=8)
+  f=3018   ours: map=12,9 step=9     |   template NPC: map=10,12 step=1    <<< OURS MOVED ON ITS OWN
+  f=3144   initiated step left -> map 11,9 (walking=6 dir=8)
+  f=3144   ours: map=11,9 step=0     |   template NPC: map=10,12 step=1  
+  f=3277   initiated step left -> map 10,9 (walking=6 dir=8)
+  f=3277   ours: map=10,9 step=8     |   template NPC: map=10,12 step=1    <<< OURS MOVED ON ITS OWN
+  f=3493   initiated step left -> map 9,9 (walking=6 dir=8)
+  f=3493   ours: map=9,9 step=0     |   template NPC: map=10,12 step=1    <<< OURS MOVED ON ITS OWN
+  f=3608   initiated step right -> map 10,9 (walking=7 dir=12)
+  f=3608   ours: map=10,9 step=8     |   template NPC: map=10,12 step=1    <<< OURS MOVED ON ITS OWN
+  f=3738   initiated step right -> map 11,9 (walking=7 dir=12)
+  f=3738   ours: map=11,9 step=0     |   template NPC: map=10,12 step=1  
+  f=3921   initiated step right -> map 12,9 (walking=7 dir=12)
+  f=3921   ours: map=12,9 step=8     |   template NPC: map=10,12 step=1    <<< OURS MOVED ON ITS OWN
+  f=4113   initiated step right -> map 13,9 (walking=7 dir=12)
+  f=4113   ours: map=13,9 step=0     |   template NPC: map=10,12 step=1    <<< OURS MOVED ON ITS OWN
+  f=4186   initiated step left -> map 12,9 (walking=6 dir=8)
+  f=4186   ours: map=12,9 step=8     |   template NPC: map=10,12 step=1    <<< OURS MOVED ON ITS OWN

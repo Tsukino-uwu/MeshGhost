@@ -249,6 +249,17 @@ local function tick()
 			w8(our_st_base + off, u8(src_st_base + off) or 0)
 		end
 
+		-- STRIP THE TEMPLATE'S SCRIPT. Copying an NPC wholesale copies its MAPOBJECT_SCRIPT_POINTER
+		-- and MAPOBJECT_EVENT_FLAG too, so the ghost inherits that NPC's dialogue and can be talked
+		-- to — found live 2026-08-18, when talking to the ghost produced an aide's line about the
+		-- player's Pokémon. A peer's ghost must not run somebody else's script.
+		--
+		-- Zeroed rather than pointed somewhere harmless: a null script is the state the engine
+		-- already handles for objects with nothing to say.
+		for _, off in ipairs({ 0x0A, 0x0B, 0x0C, 0x0D }) do
+			w8(our_mo_base + off, 0)
+		end
+
 		-- Then change ONLY position and the cross-references.
 		w8(our_mo_base + M_X_COORD, gx)
 		w8(our_mo_base + M_Y_COORD, gy)
