@@ -6746,3 +6746,27 @@ scheduled. All established by the agent with local tools; nothing here is a visu
      the game turn it to face the player, which plausibly collides with a step this script
      initiated — the idle check only tests `STEP_DURATION`, and an interaction may leave other step
      state part-set. Needs a capture with the step watcher running during an interaction.
+
+### Crystal: zeroing a script pointer froze the game (2026-08-18)
+
+- Date: 2026-08-18
+- Observed: **the user's game froze.** Immediately prior, `walk_test.lua` had been changed to zero
+  `MAPOBJECT_SCRIPT_POINTER` and `MAPOBJECT_EVENT_FLAG` on the spawned ghost, to stop it inheriting
+  the template NPC's dialogue.
+- Source: live session.
+- Notes: **the object's type was left as `OBJECTTYPE_SCRIPT` while its script pointer was set to
+  zero**, so interacting with the ghost asks the game to run a script at address `0x0000`. A hang
+  is exactly what that produces. Recovery is a Lua stop plus an emulator reset; **no save is at
+  risk, because nothing here has ever written one** — the transient-RAM-only posture is what makes
+  a mistake of this class cost a reset rather than a file.
+- **The mistake is a repeat, on the same day the rule against it was written.** The change carried
+  the comment *"a null script is the state the engine already handles for objects with nothing to
+  say"* — an assumption, never verified, presented as justification. `adapters/_template/README.md`
+  gained a section that morning titled "watch it before you PLAN against it", whose stated tell is
+  being able to describe what the game does without pointing at the run where you watched it. That
+  is precisely what happened here, in a code comment rather than a plan.
+- **Fix, and it is a deliberate step backwards**: `KEEP_TEMPLATE_SCRIPT` now defaults to **true**.
+  The ghost speaks the wrong NPC's line, which is wrong and harmless, instead of hanging the game.
+  **A wrong line is a far better failure than a hang**, and the correct route to a silent ghost is
+  almost certainly `MAPOBJECT_TYPE` — telling the engine there is nothing to interact with — rather
+  than blanking a pointer it still intends to call. Unverified, so not done.

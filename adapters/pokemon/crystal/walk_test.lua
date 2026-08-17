@@ -77,11 +77,19 @@ local F_SPRITE_X, F_SPRITE_Y = 0x17, 0x18
 
 local FLAG1_WONT_DELETE = 0x02
 
--- PROBE FLAG, default OFF. Keeps the template NPC's script pointer so the ghost can be talked to.
--- Off means the ghost is silent, which is correct behaviour; on means it speaks whichever NPC it
--- was copied from, which is wrong but demonstrates that interaction is possible at all.
+-- DEFAULT ON, AND DELIBERATELY SO — changed 2026-08-18 after the alternative froze the game.
+--
+-- Keeping the template NPC's script means the ghost speaks that NPC's lines, which is wrong but
+-- harmless. The first attempt at "silent" instead ZEROED MAPOBJECT_SCRIPT_POINTER while leaving
+-- the object's type as OBJECTTYPE_SCRIPT — so talking to the ghost told the game to run a script
+-- at address 0x0000, and the game froze. The comment justifying it said "a null script is the
+-- state the engine already handles", which was an assumption, never checked.
+--
+-- **A wrong line of dialogue is a far better failure than a hang.** So the safe, known-valid
+-- pointer stays until there is a *verified* way to make an object non-interactive — most likely
+-- via MAPOBJECT_TYPE rather than by blanking a pointer the engine still intends to call.
 -- See agent_docs/ideas.md, "Crystal: a ghost you can talk to".
-local KEEP_TEMPLATE_SCRIPT = false
+local KEEP_TEMPLATE_SCRIPT = true
 local SPAWN_AFTER_FRAMES = 120
 local UNASSIGNED = 0xFF
 local MAPSTATUS_HANDLE = 2
