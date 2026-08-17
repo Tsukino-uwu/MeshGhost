@@ -111,6 +111,10 @@ jobs:
           # dependencies and setup-go had nothing to key on.
           cache: true
 
+      # Invoked via `bash ...` rather than executed directly: the executable bit is a file mode
+      # git only tracks if it is set at the time of `git add`, and getting that wrong fails the
+      # step with a bare "Permission denied" (exit 126) that says nothing about fuzzing. Calling
+      # the interpreter explicitly makes the mode irrelevant, on Windows checkouts too.
       # Each target runs through dev-scripts/ci-fuzz.sh rather than `go test` directly.
       # `go test -fuzz` can exit non-zero with only "context deadline exceeded" when its
       # own -fuzztime elapses mid-execution -- no crashing input, nothing written to
@@ -129,35 +133,35 @@ jobs:
       # -run=XXX so the ordinary tests in these packages don't run three
       # more times here; the test job above already ran them under -race.
       - name: Fuzz protocol - state survives a relay forward unchanged
-        run: dev-scripts/ci-fuzz.sh ./internal/protocol FuzzValidateStateIsStableAcrossTheWire 45s
+        run: bash dev-scripts/ci-fuzz.sh ./internal/protocol FuzzValidateStateIsStableAcrossTheWire 45s
       - name: Fuzz protocol - accepted positions cannot overflow float32
-        run: dev-scripts/ci-fuzz.sh ./internal/protocol FuzzValidPositionsSurviveNarrowingToFloat32 30s
+        run: bash dev-scripts/ci-fuzz.sh ./internal/protocol FuzzValidPositionsSurviveNarrowingToFloat32 30s
       - name: Fuzz protocol - envelope decode never panics
-        run: dev-scripts/ci-fuzz.sh ./internal/protocol FuzzEnvelopeUnmarshalNeverPanics 30s
+        run: bash dev-scripts/ci-fuzz.sh ./internal/protocol FuzzEnvelopeUnmarshalNeverPanics 30s
       # The three planes past cosmetic (2026-08-17) parse their own
       # attacker-controlled shapes: an event payload is opaque bytes forwarded
       # to other players, and a lease key or escrow id becomes a map key in the
       # relay's own state. Same exposure as the state plane above, so the same
       # treatment.
       - name: Fuzz protocol - events survive a relay forward unchanged
-        run: dev-scripts/ci-fuzz.sh ./internal/protocol FuzzValidateEventIsStableAcrossTheWire 30s
+        run: bash dev-scripts/ci-fuzz.sh ./internal/protocol FuzzValidateEventIsStableAcrossTheWire 30s
       - name: Fuzz protocol - lease and escrow bounds never panic
-        run: dev-scripts/ci-fuzz.sh ./internal/protocol FuzzValidateLeaseAndEscrowNeverPanic 30s
+        run: bash dev-scripts/ci-fuzz.sh ./internal/protocol FuzzValidateLeaseAndEscrowNeverPanic 30s
       # Room feature stickiness compares normalized capability lists by string
       # equality, so a normalizer that is not idempotent would refuse two
       # clients a shared room for no reason -- a handshake failure with no
       # legible cause.
       - name: Fuzz protocol - feature normalization is idempotent
-        run: dev-scripts/ci-fuzz.sh ./internal/protocol FuzzNormalizeFeaturesIsIdempotent 30s
+        run: bash dev-scripts/ci-fuzz.sh ./internal/protocol FuzzNormalizeFeaturesIsIdempotent 30s
       - name: Fuzz transport - framing honours its line limit
-        run: dev-scripts/ci-fuzz.sh ./internal/transport FuzzReadLoopNeverExceedsItsLineLimit 45s
+        run: bash dev-scripts/ci-fuzz.sh ./internal/transport FuzzReadLoopNeverExceedsItsLineLimit 45s
       - name: Fuzz relay - survives arbitrary bytes and still serves clients
-        run: dev-scripts/ci-fuzz.sh ./internal/relay FuzzRelaySurvivesArbitraryLines 45s
+        run: bash dev-scripts/ci-fuzz.sh ./internal/relay FuzzRelaySurvivesArbitraryLines 45s
       # udp parses stranger datagrams *before* address validation, room code or
       # protocol version -- the most exposed pre-auth surface in the project,
       # and since 2026-08-16 it is also on the fallback path rather than opt-in.
       - name: Fuzz udpconn - listener survives arbitrary datagrams
-        run: dev-scripts/ci-fuzz.sh ./internal/netx/udpconn FuzzListenerSurvivesArbitraryDatagrams 45s
+        run: bash dev-scripts/ci-fuzz.sh ./internal/netx/udpconn FuzzListenerSurvivesArbitraryDatagrams 45s
       # A fuzz failure writes the exact reproducing input to
       # testdata/fuzz/<Target>/<hash>. Without this it exists only inside a
       # deleted runner and the log shows a hash nobody can reproduce from;
