@@ -5947,3 +5947,38 @@ scheduled. All established by the agent with local tools; nothing here is a visu
   as a WIP decompilation**, unlike the complete-and-matching pokered/pokecrystal/pokeemerald/
   pokefirered — so symbol coverage may be partial even after a successful build, and that should be
   checked before assuming a Platinum adapter is a tier-2 lookup.
+
+### Archipelago's Crystal patch rearranges WRAM, non-uniformly (2026-08-17)
+
+- Date: 2026-08-17
+- Observed: `gerbiljames/Archipelago-Crystal` (branch `pokecrystal-develop`) ships
+  `worlds/pokemon_crystal_prerelease/data/data.json`, which publicly contains both `rom_addresses`
+  and `ram_addresses` — the Crystal equivalent of Emerald's `extracted_data.json`. Comparing its
+  `ram_addresses` against the vanilla `pokecrystal.sym` from our own verified build, **the spacing
+  between labels differs**, which is a base-independent comparison and so does not rest on any
+  assumption about how the addresses are based:
+
+  | Label | Offset from `wMapGroup`, vanilla | Same, Archipelago |
+  | --- | --- | --- |
+  | `wMapNumber` | +1 | +1 |
+  | `wUnownDex` | +548 | +548 |
+  | `wEventFlags` | -579 | -567 |
+  | `wStatusFlags` | -1129 | -1184 |
+  | `wMapEventStatus` | -2178 | -2181 |
+
+- Source: `Archipelago-Crystal` `worlds/pokemon_crystal_prerelease/data/data.json` (MIT, licence
+  row added to `licensing.md` 2026-08-17); vanilla addresses from our own hash-verified
+  `pokecrystal.sym`.
+- Notes: **the practical consequence is that a Crystal adapter needs a per-ROM address table, and
+  cannot derive the patched addresses by applying a constant offset to the vanilla ones.** The
+  patch inserts its own `wArchipelago*` variables at several points rather than appending them in
+  one block. **The encouraging half:** the neighbourhood around `wMapGroup` is internally
+  consistent (`wMapNumber` +1, `wUnownDex` +548 both agree exactly), so the map/coordinate block
+  appears to move as a unit rather than being broken up — which is what an adapter actually reads.
+  This is the same class of hazard that broke Emerald's sprite decode under a patched seed
+  (`risks.md`, confirmed live 2026-08-14), found this time **before** writing any adapter code
+  rather than after.
+- Not yet checked: whether `wYCoord`/`wXCoord` themselves appear in Archipelago's table (they are
+  absent from the entries read, which lists mainly flags and Archipelago's own variables), and
+  whether the V1.0 and V1.1 basepatches (`basepatch.bsdiff4`, `basepatch11.bsdiff4`) differ in
+  layout from each other.
