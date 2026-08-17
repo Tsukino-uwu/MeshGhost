@@ -19,7 +19,9 @@ binaries, so it is deliberately absent here.
 
 ----------------------------------------------------------------------
 github.com/quic-go/quic-go v0.61.0 -- MIT
-  Used for the "quic" transport (see README.txt's Transports section).
+  Used for the "quic" transport (see the Transports section in the Windows
+  download's README.txt; the Linux and macOS tarballs ship a shorter
+  platform-specific README.txt instead).
 ----------------------------------------------------------------------
 
 Copyright (c) 2016 the quic-go authors & Google, Inc.

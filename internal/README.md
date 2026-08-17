@@ -1,7 +1,7 @@
 # internal/ — security and privacy posture
 
 This file describes what the Go networking layer (`core`, `relay`, `bridge`, `protocol`,
-`transport`) does and does not protect against, and why. It exists so "is this safe to use
+`transport`, `netx`) does and does not protect against, and why. It exists so "is this safe to use
 with people I don't know" has a real, checkable answer instead of a guess — see
 [CLAUDE.md](../CLAUDE.md)'s "no addresses or APIs from memory" rule applied to security
 claims, not just game memory.
@@ -148,8 +148,10 @@ another player's network state, because no channel to another player's machine e
 
 **No message type carries an IP address or other network-identifying field.**
 `internal/protocol/protocol.go`'s complete message set (`Hello`, `Welcome`, `Reject`, `Join`,
-`Leave`, `State`, `Event`, `Ping`/`Pong`) has no address field anywhere — `Reject` carries only a
-reason string. A client only ever learns a
+`Leave`, `State`, `Event`, `Ping`/`Pong`, `Transports`) has no address field anywhere — `Reject`
+carries only a reason string, and `Transports` (the transport-discovery reply, added 2026-08-16)
+carries a kind and a **port** per offer, never a host: the client already knows an address, and a
+relay bound to `0.0.0.0` doesn't. A client only ever learns a
 peer's `player_id` and cosmetic state (position/area/anim/extras) — not even a chosen
 `display_name`: `Hello.DisplayName` reaches the relay but is only logged there, never
 redistributed to other clients (`Welcome.Roster` is just a list of ids, `Join` carries no name
@@ -159,8 +161,11 @@ either). See `agent_docs/ideas.md`'s nameplates entry if that's ever wired up fo
 (`fmt.Sprintf("p%d", n)`, `internal/relay/relay.go`'s `nextPlayerID`) — `p1`, `p2`, ... per
 process lifetime, carrying no information about the connection it came from.
 
-**The relay itself doesn't currently read or log a client's IP.** `conn.RemoteAddr()` is not
-called anywhere in `internal/` or `cmd/` (grepped, zero hits). The relay is still the one party
+**The relay itself doesn't currently read or log a client's IP.** `internal/relay`, `internal/core`
+and `cmd/` contain no `RemoteAddr()` call site (grepped); the only occurrences in `internal/` are
+the `net.Conn` method that `netx/udpconn` and `netx/quicconn` must implement, plus `udpconn`'s own
+internal keying of its connection map by remote address — which is how a single shared UDP socket
+is demultiplexed at all, and is never surfaced upward or logged. The relay is still the one party
 that *could* see a real IP — it's the actual TCP endpoint every client connects to, which is
 unavoidable for any relay architecture — but right now it doesn't even use that information.
 
@@ -241,7 +246,7 @@ writing any of this — findings below are cited to real files, not memory.
   `CelesteNet-TeapotVersion` header, server responds `409 Version Mismatch` on anything but an
   exact match (`HandshakerRole.cs`'s `TeapotHandshake`). We already do the direct equivalent
   for our own wire protocol (`protocol.Version`, checked in `hello` at
-  [relay.go:643](relay/relay.go#L643)) — and, since 2026-08-14, the same reject-at-handshake
+  [relay.go:702](relay/relay.go#L702)) — and, since 2026-08-14, the same reject-at-handshake
   shape for each adapter's own `game_version` too (see "What changed" above).
 - **Unpredictable per-connection tokens** (`CelesteNet.Shared/TokenGenerator.cs`, a Galois
   LFSR) specifically prevent a third party from hijacking someone else's *UDP* connection by
@@ -272,8 +277,9 @@ did not anticipate: `udp` cannot be encrypted at all in Go (no DTLS in the stand
 QUIC gets the loss behaviour and encryption together, so it is the one to reach for rather than
 plain UDP if either matters.
 
-`internal/transport` is TCP-only (NDJSON framing,
-[agent_docs/contract.md](../agent_docs/contract.md)'s Transport section). This was never
+`internal/transport` was TCP-only when this was written (NDJSON framing,
+[agent_docs/contract.md](../agent_docs/contract.md)'s Transport section — it now applies that same
+framing to whatever `net.Conn` `internal/netx` hands it). This was never
 actually written down as a deliberate choice against UDP until now — it fell out of "stdlib
 TCP/JSON, debuggability beats bandwidth"
 ([agent_docs/architecture.md](../agent_docs/architecture.md)'s Go-decision ADR) rather than a

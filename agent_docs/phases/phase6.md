@@ -304,7 +304,7 @@ point of picking a second, structurally different game.
 - **Found live 2026-08-15, not yet fixed: charged-attack VFX missing on the ghost.** Holding the
   attack button does a couple of quick attacks then a charged big attack; the ghost's *animations*
   play correctly for all of it (base sprite/Animator state is mirrored, per the outline/effect/
-  flash/support-sprite flip sync at `Plugin.cs:417-426`), but the extra visual effects that go
+  flash/support-sprite flip sync at `Plugin.cs:424-428`), but the extra visual effects that go
   with the charged attack (the burst/slash-style VFX distinct from the character sprite itself —
   see the screenshot in the session this was found) do not render on the ghost. Not yet
   root-caused; flagged here so a future session doesn't rediscover it from scratch. Working

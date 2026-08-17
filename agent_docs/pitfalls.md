@@ -423,10 +423,19 @@ Misleading symptoms that mean something other than their surface reading:
     performed zero repositioning, logging only object addresses and `controller.Pawn` each
     tick — confirmed `controller.Pawn == ghost` immediately after spawn.
   - **Cause**: the spawned class auto-possesses on spawn (`AutoPossessPlayer` or equivalent).
-  - **Fix**: capture the original pawn/controller *before* spawning, and call
-    `controller:Possess(originalPawn)` immediately after every spawn — including subsequent
-    ghosts, not just the first (the bug recurred identically when a second ghost was added
-    without re-possessing).
+  - **Fix (first version, superseded)**: capture the original pawn/controller *before*
+    spawning, and call `controller:Possess(originalPawn)` immediately after every spawn —
+    including subsequent ghosts, not just the first (the bug recurred identically when a second
+    ghost was added without re-possessing). Still what the Lua probe scripts do.
+  - **Fix (current in the shipping C++ mod, 2026-08-16): stop the clone taking the controller at
+    all, rather than taking it back afterwards.** `POSSESS_TRACE` bracketing a spawn showed the
+    controller holding the local pawn before, the ghost immediately after, and the local pawn
+    again after the hand-back — so every spawn was putting the player through an
+    unpossess/re-possess cycle, and re-possessing restores the pawn without necessarily
+    restoring whatever input the game bound to it. `AutoPossessPlayer` is a stock `APawn`
+    UPROPERTY read *during* spawn, so it is cleared on the pawn class's **class default object**
+    before `SpawnActor` and restored immediately after — the whole window is one synchronous
+    call on the game thread. Setting it on the instance afterwards is already too late.
   - **Generalizes to**: any engine/framework where a controllable actor class may
     auto-possess. Treat a spawned controllable-class actor as "may steal control" until
     proven otherwise for that specific class, and re-possess defensively right after every
@@ -453,10 +462,21 @@ Misleading symptoms that mean something other than their surface reading:
     controller targets), not a pawn-owned camera component — every attempt had been poking
     the wrong object. The re-pick was most likely triggered by the spawned ghost briefly
     sharing collision/proximity with the player before collision was disabled.
-  - **Fix**: a post-hook on the game's own view-target-setting call that captures the
-    "last known good" target the first time it fires with no ghost present, then re-forces
-    that target (deferred, with a same-target short-circuit to avoid a hook loop) whenever a
-    later call moves away from it while a ghost exists.
+  - **Fix (first version, since DELETED — do not rebuild it)**: a post-hook that captured the
+    "last known good" target and re-forced it whenever a later call moved away from it while a
+    ghost existed. That "block every change forever" shape was itself found to be the thing
+    taking the camera, and was removed 2026-08-16. **This is the dangerous kind of fix**: it
+    worked on the case it was written for and broke every legitimate camera switch.
+  - **Fix (current, 2026-08-16)**: a `RegisterPreHook` on
+    `/Script/Engine.PlayerController:SetViewTargetWithBlend` that identifies *whose* camera rig
+    is being switched to and refuses **only** a rig owned by one of our own ghosts. A ghost is a
+    clone of the player pawn, so it brings its own `BP_PlayerCam_C`; the engine's `Owner` reads
+    `(none)` on every one of those rigs, but the Blueprint carries its own `OwningActor` property
+    pointing at the pawn it serves, and that pointer compared against the tracked ghosts is the
+    precise test. A narrow "a few ticks after our own spawn" window survives only as a fallback
+    for a rig that resolves no owner at all. Everything else — cutscenes, area rigs, the game's
+    own routine switching — passes through untouched. See `register_camera_fightback_hook`
+    (`adapters/pseudoregalia/MeshGhostPseudo/Mod/src/Plugin.cpp`), which keeps the old name.
   - **Generalizes to**: before assuming a pawn owns its own camera, check whether the game
     uses a dedicated camera-rig/controller-driven system instead — especially in
     third-person/platformer engines with curated per-area camera framing.
@@ -547,7 +567,7 @@ Misleading symptoms that mean something other than their surface reading:
   in the code. Source: the Phase 7 Dream Breaker weapon-visibility fix, 2026-08-15
   (`agent_docs/verified.md`'s "animBPref cross-save diff" entry, confirmed live).
 
-### UE4SS C++ mod threading -- on_update() is not the game thread
+### UE4SS C++ mod threading -- on_update() is not the game thread (2026-08-13)
 
 - **Symptom**: an actor's position was repositioned every tick from `CppUserModBase::on_update()`.
   Every read-back of the position immediately after the write matched exactly, on every single
@@ -799,7 +819,10 @@ three gets re-tried blind:
   language — check every return value of `send`/`receive` against the full requested length, and
   never assume a documented "timeout" or "partial" result means "nothing happened."
 
-### Vendored RE-UE4SS SDK marshals `FRotator` as `float` regardless of engine version (UE5 games)
+### Vendored RE-UE4SS SDK marshals `FRotator` as `float` regardless of engine version (UE5 games) (2026-08-13)
+
+*Facts about the SDK below are as of the pinned submodule commit on that date — `licensing.md`'s
+RE-UE4SS entry records the pin. Re-check before relying on them after a pin bump.*
 
 - **Symptom**: writing a ghost's rotation via `K2_SetActorLocationAndRotation` or
   `K2_SetActorRotation` had position stick correctly but rotation read back as an implausible
@@ -843,7 +866,7 @@ three gets re-tried blind:
     term versus UE's real formula — harmless when pitch and roll are both zero (true for this
     game's pawn), but would corrupt a spawn-time rotation for a pawn with non-zero pitch/roll.
 
-### UFunction hooks work on native functions but CRASH on Blueprint functions (RE-UE4SS)
+### UFunction hooks work on native functions but CRASH on Blueprint functions (RE-UE4SS) (2026-08-15)
 
 - **Symptom**: `UFunction::RegisterPostHook` on two Blueprint functions of the Pseudoregalia player
   pawn (`Spawn After Image`, `spawnNumAfterimages`) registered successfully — real callback IDs

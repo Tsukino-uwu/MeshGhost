@@ -62,7 +62,7 @@ changes about them syncs for free between two peers who both have that mod.
 
 Third game, and by far the hardest: roughly 15-20 hours to reach "good enough" — a ghost that
 follows, animates, and faces the right way (the end of step 18 below). Everything after that is
-polish, and Phase 7.7 (a real two-player test) still hasn't happened. Started in Lua, then had to
+polish; Phase 7.7 (a real two-player test) was confirmed 2026-08-16. Started in Lua, then had to
 be substantially remade in C++ partway through once Lua proved unable to reliably send everything
 the adapter needed.
 
@@ -154,7 +154,7 @@ Roughly in order:
     a separate mechanism and is parked — it isn't derivable from any polled state. (7.6)
 27. Fixed enemies damaging a ghost hurting and killing the *real* player, by moving the ghost's
     capsule off the collision channel enemy targeting queries. Ghost collision is now kept ON as a
-    deliberate feature; whether it's actually fun stays open until a real two-player test. (7.6)
+    deliberate feature; whether it's actually fun is still an open keep-or-axe call. (7.6)
 28. Two negatives worth not re-walking: hooking Blueprint functions crashes this build (native
     ones are fine), and the empty-hand recall glow needs a real thrown-weapon actor to exist
     before it will do anything — you can only trigger the game's own systems when their
@@ -274,4 +274,6 @@ list:
   geometry, so a second player is needed to judge it. (Pole rotation, same suspicion, came back
   fine on the two-machine session.)
 - Ghost vanishes while a peer is on a climbing pole, then returns stuck in a climb pose.
+- Duplicate ghost spawn on every level load — two ghosts per peer, leaving an orphaned pawn.
+- Suspected: the mod may not clear ghosts when the bridge drops.
 - A `Fatal Error!` on game exit, seen once, never root-caused.

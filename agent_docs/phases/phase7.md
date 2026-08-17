@@ -553,7 +553,7 @@ GBA memory). Started early relative to Phase 6's own two-player milestone (6.6) 
       called immediately, the camera stayed on the ghost. User asked directly whether fixing the
       camera or fixing non-Pawn rendering is the easier path -- went to plan mode given no
       remaining lead on the non-Pawn side (recorded plan:
-      `~/.claude/plans/still-nothing-no-greedy-horizon.md`). Chose to keep the
+      `still-nothing-no-greedy-horizon.md`, outside this repo). Chose to keep the
       Pawn-class design (needed for 7.6's real skeletal-mesh ghost anyway) and fix the camera,
       rather than resume chasing StaticMeshActor rendering with no new leads.
 
@@ -936,7 +936,7 @@ GBA memory). Started early relative to Phase 6's own two-player milestone (6.6) 
       code at all. Two guess-based fixes in a row failing identically is a signal the guesses
       were both wrong in the same way — assuming the *positioning math* was the problem. Went
       to plan mode rather than trying a fifth guess; new leading theory recorded in
-      `~/.claude/plans/nope-i-was-still-cryptic-horizon.md`: `BP_PlayerGoatMain_C`
+      `nope-i-was-still-cryptic-horizon.md` (outside this repo): `BP_PlayerGoatMain_C`
       may have "Auto Possess Player" set to Player 0 (a common pawn-Blueprint default), meaning
       `SpawnActor` may silently swap `PlayerController.Pawn` to the new ghost — which would
       explain both the identical-looking drag regardless of which mutation-target fix was
@@ -1085,7 +1085,7 @@ GBA memory). Started early relative to Phase 6's own two-player milestone (6.6) 
 
       **Went to plan mode rather than a third blind guess** -- two guessed fixes failing
       identically is the exact "signal, not bad luck" pattern already in `agent_docs/pitfalls.md`.
-      Recorded plan: `~/.claude/plans/lowlevelfatalerror-file-d-build-ue5-sync-zazzy-star.md`
+      Recorded plan: `lowlevelfatalerror-file-d-build-ue5-sync-zazzy-star.md` (outside this repo)
       -- diagnostic-first (granular logging + a `LoadMapPreCallback`/`PostCallback` hook to confirm
       whether a real `LoadMap` call correlates with the crash, plus an isolate-by-subtraction
       fallback test disabling the `Possess` call entirely) before attempting a targeted fix.
@@ -1632,9 +1632,16 @@ GBA memory). Started early relative to Phase 6's own two-player milestone (6.6) 
       at before its own untested-with-a-second-player release — this is packaging, not a claim
       that two-player works; that's 7.7 below.
 - [x] 7.7 — Two real players. **Confirmed 2026-08-16**: two players on two separate machines,
-      one of them the Linux/Proton tester. Cleared the items that had been blocked on it,
-      including pole rotation (came back fine). Evidence in `verified.md`; the one item it did
-      not settle is the thrown sword near a save crystal.
+      one of them the Linux/Proton tester. Cleared pole rotation specifically (came back fine).
+      Evidence in `verified.md`. It did **not** settle three items that are still open in
+      `agent_docs/status.md`: the thrown sword near a save crystal, the pole-*vanish* bug (a
+      different item from pole rotation, and easy to conflate with it), and the ghost-collision
+      keep-or-axe call, which no session has recorded a judgement on.
+- [x] 7.8 — Slide pose via the game's own crouch path (2026-08-17). Retired the `+43` render-Z
+      bandage: the ghost is now posed by driving the game's crouch, so the capsule and the mesh
+      agree instead of being corrected apart. Evidence in `verified.md`; build-log form:
+      `adapters/pseudoregalia/README.md` steps 43-44; the retired bandage is struck through in
+      `adapters/pseudoregalia/BANDAGES.md`. Commit `7f7399a`.
 - [x] Release packaging restructured (2026-08-13): both this entry's `MeshGhostPseudo/` path
       and `ue4ss-runtime/` (from the earlier UE4SS-bundling ADR) moved to
       `packaging/release/games/pseudoregalia/pseudoregalia/Binaries/Win64/...`, mirroring the
@@ -1725,6 +1732,10 @@ GBA memory). Started early relative to Phase 6's own two-player milestone (6.6) 
      there sat 43 under the floor. Mirroring the ghost's capsule provably applied and did nothing
      (the mesh offset is fixed at construction, and the crouch logic that adjusts it never runs on
      an unpossessed ghost); fixed by compensating render Z instead.
+     **Superseded 2026-08-17**: the +43 render-Z compensation was removed and replaced with the
+     game's own crouch path (Timeline drive + crouch input/events + `bIsCrouched`) — see
+     `adapters/pseudoregalia/BANDAGES.md` entry 1 and `adapters/pseudoregalia/README.md` steps
+     43-44. The paragraph above describes what shipped on 2026-08-15, not current behaviour.
   3. **Cling-gem (wall-ride) VFX** — `moveState==4` was already the confirmed marker and already
      on the wire, so no new sync: call the pawn's own `doWallRun` on the ghost on entry,
      `Deactivate` `wallRideVFX` on the falling edge, suppress the paired SFX entirely (ghosts are
@@ -1858,7 +1869,7 @@ The paragraph above was this file's last word for one day. It is no longer true,
 exists so a reader reaching the end doesn't stop on a stale conclusion.
 
 The ultra hop's blue trail is **on and confirmed on screen** (`AFTERIMAGE_OBSERVE_COLOR = true`,
-`Plugin.cpp:3705`; user's own verdict, *"looks perfect now"*, in `verified.md`). It took five more
+`Plugin.cpp:4231`; user's own verdict, *"looks perfect now"*, in `verified.md`). It took five more
 rounds, each fixing a real bug that exposed the next: the colour was read then thrown away, then
 arrived a whole slide late, then bled into the following slide, then the ghost drew two blue images
 where the game drew one.
@@ -1866,10 +1877,20 @@ where the game drew one.
 The trigger changed with it, and that is the more transferable half. The trail no longer fires on a
 reconstructed rule at all — not the `actionState` enums (three of them, each disproven live), and
 not the capsule-shrink physical fact that replaced them. It fires on **the game's own afterimage
-spawns**, observed (`AFTERIMAGE_TRIGGER_FROM_OBSERVATION = true`, `Plugin.cpp:3784`), with a
+spawns**, observed (`AFTERIMAGE_TRIGGER_FROM_OBSERVATION = true`, `Plugin.cpp:4310`), with a
 birth-proximity check so a recycled pooled actor isn't counted as a new one. That also closed a
 complaint nothing was aimed at — the ghost had been drawing 1-2 more afterimages than the player —
 and fixed the ghost trailing on mistimed moves where the real player doesn't.
 
 Full narrative, and the method extracted from it: `agent_docs/effect-investigation.md`. Build-log
 form: `adapters/pseudoregalia/README.md` steps 36-41.
+
+## Pseudoregalia work after this file's last entry (pointer, added 2026-08-17)
+
+This file's narrative stops at the blue trail. Later Pseudoregalia work is real but recorded
+elsewhere, so a reader reaching the end doesn't take that as "nothing since": autostart (the mod
+starts the client itself, Windows and Proton), the ghost's camera rig identified by `OwningActor`,
+ghosts no longer rendering through walls, the bridge port walk, and the slide pose moving from the
++43 render-Z bandage to the game's own crouch path (2026-08-17). Evidence: `agent_docs/verified.md`;
+build-log form: `adapters/pseudoregalia/README.md` steps 42-44; what is still open:
+`agent_docs/status.md`.

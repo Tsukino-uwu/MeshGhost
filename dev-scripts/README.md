@@ -6,7 +6,8 @@ instead: see [packaging/README.md](../packaging/README.md) and the repo's Releas
 
 These assume `meshghost.exe`, `meshghost-relay.exe`, `meshghost-fakeadapter.exe`, and
 `meshghost-netsim.exe` are built at the repo root (e.g. `go build -o meshghost.exe ./cmd/meshghost`, run from the repo
-root) — each script references them as `..\<name>.exe`. The one exception is
+root) — each script reaches them one level up, as `..\<name>.exe` or, where the script has to
+work from any working directory, `"%~dp0..\<name>.exe"`. The one exception is
 `run-loopback-in-release-folder.bat` below, which is written to be copied *out* of here into a
 downloaded release folder and run against its `meshghost-server.exe` instead.
 

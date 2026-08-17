@@ -4,7 +4,8 @@ What actually goes in a release, and why it's laid out the way it is. Consumed b
 `.github/workflows/release.yml` — this folder holds the hand-written parts (the config
 template, player-facing READMEs, and the committed TEVI/Pseudoregalia plugins); the workflow
 adds the freshly-built Go `.exe`s and the Emerald adapter files on top, stages a copy of the
-client beside each game's mod along with `client-config-template.json` renamed to `config.json`,
+client beside the Pseudoregalia mod (the only one that starts a client for you) along with
+`client-config-template.json` renamed to `config.json`,
 and zips the whole `packaging/release/` folder as the Windows release asset. Two more assets go
 out beside it — the Linux and macOS client+server tarballs; see "Three assets" below.
 

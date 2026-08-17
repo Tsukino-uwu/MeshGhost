@@ -66,7 +66,7 @@ reintroduces the exact churn this was chosen to prevent.
 
 - **`udpconn.go:127-133`.** Retry budget asserted to fit inside `relay.DefaultHelloTimeout` in
   prose only, not derived. Same drift shape as #2, lower impact.
-- **`parent_windows.go:31-43`.** Windows PID reuse could make a dead parent look alive forever; not
+- **`cmd/meshghost/parent_windows.go:31-43`.** Windows PID reuse could make a dead parent look alive forever; not
   called out anywhere.
 
 ## Deliberate — do NOT "fix" these

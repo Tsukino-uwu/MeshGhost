@@ -74,7 +74,7 @@ own sections.
 
 10. **Seamless adjacent-map ghosts.** A ghost standing in a visually contiguous connected
     route/town simply isn't drawn — any different `area_id` is treated identically, seamless
-    connection or not (`plans.md:167-174`). Would need real `pokeemerald` map-connection offset
+    connection or not (`plans.md`'s Phase 4 "deferred idea" note). Would need real `pokeemerald` map-connection offset
     data (new, currently unverified addresses) and an extended screen-position formula near the
     boundary. Adapter-side only; doesn't touch the core's `area_id`-opaque rule.
 
@@ -410,9 +410,11 @@ protocol above is actually run and watched.
    YouTube video of it in actual use 2026-08-15 (not independently verified by this project,
    consistent with `CLAUDE.md`'s evidence standard for *our own* claims — this is the user's own
    observation, recorded as such) — real evidence of it working for real players over a real
-   network. MeshGhost's own Pseudoregalia adapter has **not** cleared that bar yet: Phase 7.7 (a
-   real two-player network test) hasn't been run, so "code-complete" is the accurate status, not
-   "confirmed working online." Their last real commit is 2026-03-16 though — inactive, not
+   network. **MeshGhost's own Pseudoregalia adapter has since cleared that bar too**: Phase 7.7,
+   a real two-player session on two machines, was confirmed 2026-08-16 (`status.md`,
+   `verified.md`) — an earlier version of this entry said it "hasn't been run" and that
+   "code-complete" was the accurate status, which is no longer true. Their last real commit is
+   2026-03-16 though — inactive, not
    currently being iterated on, which is a different axis from "has it ever worked."
 
    **Not actually behind on animation** — their `docs/todo.md` has animation sync as an open
@@ -429,7 +431,7 @@ protocol above is actually run and watched.
    (`Content/Mods/PseudoregaliaMultiplayerMod/BP_PM_Ghost.uasset`) with a per-player configurable
    color and a name tag above the head — visibly nicer than this project's current ghost, which
    has neither. (Our ghost is spawned fresh as a clone of the player's own pawn class, not a
-   hijacked level actor — `SPAWN_BASED_GHOSTS = true`, `Plugin.cpp:78/1078-1084`; a hijack
+   hijacked level actor — `SPAWN_BASED_GHOSTS = true`, `Plugin.cpp:387`; a hijack
    fallback exists in code but is dead, unused.) Their C++ side does no actor work at all — it
    only bridges data into a hand-authored Blueprint (`BP_PM_Manager_C`/`BP_PM_Ghost_C`) that owns
    spawning, confirmed by reading `dllmain.cpp`/`Client.hpp` directly — which is *why* they never
@@ -454,6 +456,15 @@ protocol above is actually run and watched.
    | Complexity | Two channels, two message shapes to keep in sync | One channel, one schema (`contract.md`) |
    | Player-count ceiling | Real one, tied to fitting all updates in one UDP packet (22) | None inherent to the transport |
    | Implementation/debugging cost | Packed binary, harder to eyeball on the wire | Plain JSON, greppable/typeable over `netcat` (`contract.md`'s own stated reason for choosing it) |
+
+   **Overtaken 2026-08-16 — read the table as of 2026-08-15.** Transports became selectable
+   (`tcp`/`udp`/`quic`) with a reliable *and* an unreliable plane on each, and the shipped default
+   is now `auto` on the client against `tcp,quic` on the relay, so a default session runs on
+   **quic**, not tcp. That closes the head-of-line-blocking row (per-frame state rides
+   `SendUnreliable`) and the forgeable-packets row (quic's handshake is TLS 1.3) without needing a
+   second channel — see `architecture.md`'s transport ADRs and the "how pseudoregalia-multiplayer
+   splits reliable vs unreliable" section further down this file. The row that still stands is
+   debugging cost: plaintext tcp remains the readable-on-the-wire option.
 
    Net: their UDP-for-state instinct is the conventionally correct one for real-time position
    data — dropping a stale update beats delaying a fresh one, which is exactly what a
@@ -653,10 +664,11 @@ protocol above is actually run and watched.
    push/actual collision between players and ghosts might be fine. but this does need proper 2 real
    players/online testing before i say yay/nay about axing the collision feature itself." So the
    feature stays ON as-is for now, and the yes/no decision is explicitly gated on a real
-   two-player session — **not** on any further loopback result, which cannot answer it. This makes
-   Phase 7.7 (the never-yet-run real two-player test, see `status.md`) the blocking item for this
-   feature, alongside everything else it already gates. Do not re-open this question from loopback
-   evidence.
+   two-player session — **not** on any further loopback result, which cannot answer it. Do not
+   re-open this question from loopback evidence. **Phase 7.7 — the blocking item this entry
+   named — was run and confirmed 2026-08-16** (two players, two machines), so the yes/no call is
+   now unblocked and simply hasn't been re-judged; `status.md` lists it under "was blocked on a
+   two-player session".
 
 6. **Custom feature: build cosmetic features out of the game's own VFX catalog.** User's idea
    (2026-08-15), raised while watching the `VFX_CATALOG_PROBE` cycle: "we could use these to make
@@ -698,10 +710,11 @@ protocol above is actually run and watched.
      bounded, consensual interaction, which is exactly what `contract.md`'s reserved-but-unbuilt
      event plane is for. Don't grow the state plane into that.
 
-   **Not scheduled, and deliberately downstream of Phase 7.7.** The open Pseudoregalia items are all
-   blocked on a real two-player session, and authored cosmetics are the kind of thing that is much
-   easier to judge with two real players than in loopback — where, per idea 4's own note, both
-   characters are the same person and "does this help me tell peers apart" cannot be answered.
+   **Not scheduled, and deliberately downstream of Phase 7.7** — which has since been run and
+   confirmed (2026-08-16), so the sequencing reason no longer holds it back; it remains unscheduled
+   on its own merits. Authored cosmetics are the kind of thing that is much easier to judge with two
+   real players than in loopback — where, per idea 4's own note, both characters are the same person
+   and "does this help me tell peers apart" cannot be answered.
 
 ---
 
@@ -712,6 +725,17 @@ confirmable with the tools rather than by watching a game (`CLAUDE.md`'s split).
 2026-08-16 to the point of a full implementation plan; **deliberately not scheduled** — nothing
 is broken today, and one of the costs below argues for waiting.
 
+> **Largely overtaken later the same day (2026-08-16) by selectable transports and the quic
+> default.** `quic`'s handshake is TLS 1.3, and the shipped pair is `auto` on the client against
+> `tcp,quic` on the relay, so a default session is already encrypted and the room code no longer
+> crosses the wire in the clear. **What this section still describes accurately is the
+> authentication half**: quic's certificate is unverified, so it stops a passive eavesdropper and
+> not an active man-in-the-middle — and the channel-binding design in point 3 below is exactly
+> what would close that, since `tls.ConnectionState.ExportKeyingMaterial` is confirmed working on
+> the quic path. TLS-over-`tcp` remains unbuilt, and `tcp`/`udp` are still plaintext when named
+> explicitly. Read the "what's actually missing" and "why it's worth doing" paragraphs below as
+> written before that change. Mirrors `risks.md`'s TLS entry.
+
 ### What's actually missing
 
 Only confidentiality. The application layer is already hardened: server-stamped `player_id`
@@ -719,8 +743,9 @@ Only confidentiality. The application layer is already hardened: server-stamped 
 (`:653-660`), hello timeout, per-connection flood cap, global client cap, `ValidateState` that
 drops rather than truncates, and a fuzz harness driving the relay over `net.Pipe`. What's left is
 that `internal/transport` is plaintext NDJSON over TCP, so `room_code` crosses the wire readable
-— already recorded at `risks.md:111`, `contract.md:195`, and the room-code ADR's own "TLS is a
-separate, larger piece of work" note at `architecture.md:483`.
+— already recorded at `risks.md:111`, `contract.md:195`, and the room-code ADR's own "a separate,
+larger piece of work" note at `architecture.md:494`. (True of `tcp`; see the note at the top of
+this section for what the quic default changed.)
 
 **Adapters are not affected by any of this, at all.** An adapter speaks only the *bridge*
 protocol to a local core on `127.0.0.1:7778` — a different socket from the relay one. The bridge
@@ -767,7 +792,7 @@ room-code auth could not do (`risks.md:101-110`).
   reach users.
 - **Reading a real session off the wire stops working.** netcat-driving survives under `auto`,
   but a packet capture between two real binaries goes opaque — the property
-  `internal/README.md:320` argues for. `tls: off` is the way back.
+  `internal/README.md`'s "Why TCP is the default" section argues for. `tls: off` is the way back.
 - **~10-15% more traffic.** Roughly 25 bytes of TLS record overhead per message; at 20 Hz that's
   about 1.8 MB/hour per direction against 150-250 byte packets. Post-handshake CPU is
   immeasurable — AES-GCM moves gigabytes per second and this sends four kilobytes.
@@ -792,7 +817,7 @@ Both are independent of TLS and could land first.
   Hello (`relay.go:753`), so N unauthenticated connections each hold a goroutine and a socket for
   `HelloTimeout`. TLS would make each one cost real handshake CPU an unauthenticated stranger can
   trigger, so a handshake timeout is part of the plan above. A real per-IP cap needs
-  `conn.RemoteAddr()`, which `internal/README.md:156` currently asserts is never called anywhere
+  `conn.RemoteAddr()`, which `internal/README.md:162` currently asserts is never called anywhere
   as a privacy property — so it needs its own decision rather than being smuggled into a TLS
   change.
 
@@ -898,9 +923,12 @@ instructive way: each lead was tested alone, and the answer was their union.
 the game itself does it — the case `adapters/_template`'s "observe before you override" rule exists
 for, and the same shape as the camera fight-back that had to be deleted the same day.
 
-**What ships today** (`Plugin.cpp`, the `slide_z_comp` block at the receive site): during a slide
-the ghost's render target Z is raised by `GHOST_STANDING_CAPSULE_HALF - peer_capsule_half`, i.e.
-**+43 units**, so it stops sinking into the floor.
+**What shipped until 2026-08-17** (`Plugin.cpp`, the `slide_z_comp` block at the receive site):
+during a slide the ghost's render target Z was raised by
+`GHOST_STANDING_CAPSULE_HALF - peer_capsule_half`, i.e. **+43 units**, so it stopped sinking into
+the floor. That block is now gated off — `constexpr bool GHOST_SLIDE_Z_COMP = false` — and the
+pose comes from the game's own crouch path instead. The code is retained, disabled, with the
+measurement below in its comment.
 
 **It is not a guess, and that is why it survived** — the mechanism underneath it was measured, and
 the comment records it honestly: a real slide shrinks the player's capsule 65 -> 22 and drops its

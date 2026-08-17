@@ -4,14 +4,14 @@ REM run-gotests-race.bat for why this project's dev machine can't).
 REM
 REM This is NOT a substitute for -race and must not be reported as one. It changes three things
 REM the normal suite holds fixed, each of which has a real chance of shaking out a timing bug:
-REM   -count=20   repeats, because a race that needs an unlucky interleaving needs attempts.
+REM   -count=10   repeats, because a race that needs an unlucky interleaving needs attempts.
 REM               CLAUDE.md already records -count=10 catching what -count=2 missed.
 REM   -shuffle=on randomises test order, catching tests that only pass after some other test
 REM               happened to leave the world in a particular state.
-REM   -cpu=1,2,8  runs everything at three different GOMAXPROCS values. Single-P scheduling and
-REM               heavily-parallel scheduling produce genuinely different interleavings, and a
-REM               bug that only appears under one of them is invisible if you only test the
-REM               machine's default.
+REM   -cpu=1,4    runs everything at two different GOMAXPROCS values. Single-P scheduling and
+REM               parallel scheduling produce genuinely different interleavings, and a bug that
+REM               only appears under one of them is invisible if you only test the machine's
+REM               default.
 REM
 REM Scoped to the packages where the concurrency actually lives -- relay rooms, transport read
 REM loops, core's tick/relay goroutines, and the two net transports. internal/e2e is deliberately

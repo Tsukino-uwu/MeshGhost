@@ -101,6 +101,9 @@ file of its own, which is what was happening before this file existed.
         — not a real game/DLC build number, since no cited memory address exists for one in any
         of the three games. Real gap this still leaves open for TEVI specifically: two peers on
         different Steam patch levels or DLC states still aren't caught — see `risks.md`.
+        (Those two version strings are the 2026-08-14 values and have since been bumped, as
+        designed: Emerald reports `"phase8"` and Pseudoregalia `"phase7.7"` as of 2026-08-17 —
+        `ADAPTER_VERSION` in each adapter is the live source.)
       - **Malicious-peer hardening**: a real remote-OOM in `internal/transport` (unbounded read
         buffer, fixed via `bufio.Scanner` with a real max-token-size enforced during the read),
         read/write deadlines and a relay hello-timeout (none existed before), `Room.Forward` no

@@ -16,7 +16,9 @@ TEVI replaced the brief's original Ori: Will of the Wisps pick.
 
 ## Non-goals for early work
 
-- No shared gameplay state, physics, or collision synchronization.
+- No shared gameplay state, physics, or collision *synchronization*. (Pseudoregalia's ghost has
+  been physically solid since 2026-08-15 — see Phase 7 — but that is a purely local capsule on a
+  cosmetic ghost; nothing about collision is negotiated or replicated between peers.)
 - No game-specific rendering logic inside the core.
 - No adapter transport or socket handling — adapters speak only to the local bridge.
 - No production binary encoding or performance optimization before the contract is stable.
@@ -54,8 +56,10 @@ Depth ladder — what MeshGhost can support, per game:
 | 3 — consensual interaction | trading, battling | yes | the cliff — a category jump, not a bigger Tier 2. Needs its own ADR, per-game, opt-in. |
 
 Tier 1 items are recorded here as things that are possible and cheap (they need no game
-writes), specifically **not scheduled** — phase discipline means finishing the two-player
-milestone (Phase 4) before adding anything else, cosmetic or not.
+writes), specifically **not scheduled** — phase discipline means finishing the phase that is
+actually live before adding anything else, cosmetic or not. (Written when Phase 4's two-player
+milestone was the gate; that closed 2026-08-11, and the rule is what carried forward, not the
+particular phase number.)
 
 See `agent_docs/ideas.md` for the researched backlog this ladder feeds — including a first
 investigation of Emerald's Union Room (spawn-based rendering vs. today's overlay drawing) and
@@ -113,8 +117,10 @@ a real relay/core round trip confirmed trailing a ghost on screen, after finding
 three real bugs along the way (see `agent_docs/phases/phase3.md`). Phase 4 (two players) is
 also complete (2026-08-11) — two real BizHawk/Emerald instances confirmed rendering each
 other's ghosts, joining, and despawning correctly on both clean and unclean disconnects (see
-`agent_docs/phases/phase4.md`). One follow-up carried forward, not a Phase 4 blocker:
-battle-skip gating needs a verified `pokeemerald` battle-state address. Phase 5 (extract the
+`agent_docs/phases/phase4.md`). The one follow-up it carried — battle-skip gating needing a
+verified `pokeemerald` battle-state signal — was closed the same day with
+`gMain.callback2 == CB2_Overworld`, confirmed live and per-viewer (`agent_docs/verified.md`).
+Phase 5 (extract the
 template) is also complete (2026-08-11) — the core was confirmed running standalone against an
 in-process fake adapter (a ghost walking in a circle, no game attached), and
 `adapters/_template/` is now frozen with a language-agnostic protocol stub for Phase 6 to build
@@ -127,10 +133,11 @@ file. See `agent_docs/status.md` for the current one-screen summary of active wo
 ### Phase 0 — Contract on paper
 
 Visible outcome: documented schema and interface, plus an empty `agent_docs/verified.md`.
-**Status: mostly done, not complete.** The contract structure (schema, message types,
-adapter interface, transport, tick model) is written in `agent_docs/contract.md`. What
-remains is genuinely Emerald-specific and can only be closed by Phase 1 work — see that
-file's "Open questions" section.
+**Status: complete.** The contract structure (schema, message types, adapter interface,
+transport, tick model) is written in `agent_docs/contract.md`, and every item in that file's
+"Open questions carried from the original Phase 0 backlog" list is now closed with a live
+citation (the last of them by Phase 1/2 work in 2026-08-11, plus the snapshot-frequency
+question re-answered by the 2026-08-15 rate-control ADR).
 
 ### Phase 1 — Emerald read-only verification
 
@@ -251,8 +258,9 @@ the "Status" line at the top of this section.
 ### Phase 7 — Third game (Pseudoregalia)
 
 Visible outcome: repeat phases 1–4 for Pseudoregalia (UE5) using the frozen template. **Status:
-7.0–7.7 done — 7.7 confirmed 2026-08-16, two real players on two machines with the Linux
-tester** — see `agent_docs/phases/phase7.md` for
+7.0–7.8 done — 7.7 confirmed 2026-08-16, two real players on two machines with the Linux
+tester; 7.8 (slide pose via the game's own crouch path) landed 2026-08-17** — see
+`agent_docs/phases/phase7.md` for
 the full task record. Started early relative to Phase 6's own two-player milestone (6.6) — see
 Phase 6's status note above for why that's a deliberate, recorded tradeoff rather than an
 oversight.
@@ -279,7 +287,9 @@ hurting and killing the *real* player) was fixed by giving the ghost capsule the
 `ECC_WorldDynamic` object type, so enemy targeting never queries it. Residual and accepted: a
 player can still deliberately melee a ghost and take damage. Hard rule: never set
 `LOOPBACK_GHOST_OFFSET_X = 0` while collision is on — it reproduces the 7.4 drag/pull bug.
-Whether it is actually *fun* is one of the things 7.7 decides. Full record: `agent_docs/ideas.md`
+Whether it is actually *fun* was expected to be one of the things 7.7 decides; **7.7 closed
+2026-08-16 without a recorded judgement on that**, so the keep-or-axe call stays open — it is
+listed in `agent_docs/status.md`. Full record: `agent_docs/ideas.md`
 item 5 and `agent_docs/risks.md`'s ghost-collision group.
 
 The history below is kept because it is the reasoning that got here, and it is dated 2026-08-13 —
@@ -300,8 +310,8 @@ was answered 2026-08-15 — it did, via enemies, and that is what the fix above 
 
 ### Phase 8 — Emerald, dedicated (post-5.5 ongoing work)
 
-**Status: in progress, started 2026-08-14** — see `agent_docs/phases/phase8.md` for the full
-record. Numbered next in sequence rather than folded back into 1–5.5 (which bundled Emerald
+**Status: in progress, started 2026-08-14, and idle since** (Phases 6/7 work has had the
+attention) — see `agent_docs/phases/phase8.md` for the full record. Numbered next in sequence rather than folded back into 1–5.5 (which bundled Emerald
 with building the server/client/core themselves) — those stay as-is to avoid breaking their
 many existing citations elsewhere. A dedicated home for real Emerald-specific work that keeps
 happening after Phase 5.5's "good enough" milestone: a review/refactor sweep (real
@@ -312,8 +322,10 @@ timing bug, local dev/testing tuned for instant feedback (`-interp=0ms`/new `-mi
 and a real sub-tile movement-smoothing bug found once that tuning stopped a network buffer from
 hiding it. Not yet started: surf/Mach-Bike/Acro-Bike/ledge/rail movement support (detection
 source found, cited, not yet live-verified — `surf_bike_probe.lua` ready) and Stages 2–5 of the
-VRAM/sprite-injection investigation (`agent_docs/ideas.md`; Stage 1 ran 2026-08-14, written up in
-`agent_docs/environment.md`).
+VRAM/sprite-injection investigation (`agent_docs/ideas.md`; Stage 1 — read-only probing — ran
+2026-08-14, written up in `agent_docs/environment.md`). Note that any stage of that investigation
+which actually *writes* emulator memory is gated by the no-memory-writes non-goal above, and needs
+its own ADR before it starts.
 
 ### Room codes / relay safety
 
@@ -372,8 +384,12 @@ per-connection-goroutine concurrency model survived untouched. `Send` is reliabl
 
 **Adapters are unaffected and cannot observe any of it** — the bridge stays loopback TCP NDJSON.
 
-**Since built (2026-08-16)**: transport discovery. The relay answers what it serves during the
-tcp handshake, so a client only ever needs the tcp port and the host says nothing out of band.
+**Since built, all 2026-08-16**: transport discovery — the relay answers what it serves during the
+tcp handshake, so a client only ever needs the tcp port and the host says nothing out of band;
+**quic became the shipped default** off the back of it, sharing the relay's port number (see the
+paragraph above); `udp`'s reliable path became ordered as well as reliable (it deduped but never
+resequenced — ADR in `architecture.md`); and `cmd/meshghost-netsim` landed as a fault-injecting
+proxy so loss/latency can be exercised against real binaries.
 
 **Open, and deliberately not attempted here**: `udp` can never be encrypted; there is still no
 per-IP connection cap. Full detail in the ADR,

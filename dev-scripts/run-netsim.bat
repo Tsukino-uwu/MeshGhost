@@ -22,10 +22,12 @@ REM
 REM The seed is printed at startup -- pass it back with -seed to replay the
 REM same fault sequence when something breaks.
 REM
-REM NOTE -loss/-duplicate/-reorder are udp-only and the tool refuses them
-REM while mirroring tcp: dropping bytes out of a proxied tcp stream corrupts
-REM it rather than simulating loss. Use -tcp= to mirror udp only when you
-REM want those.
+REM NOTE -loss/-duplicate/-reorder are udp-only -- dropping bytes out of a
+REM proxied tcp stream corrupts it rather than simulating loss, so they are
+REM applied to the udp/quic flows and skipped on tcp. Combining them with a
+REM mirrored tcp port is fine and is the normal case: the handshake is ALWAYS
+REM tcp, so every real session needs tcp mirrored. The tool only refuses the
+REM combination that does nothing at all -- those flags with NO udp ports.
 setlocal
 if "%~1"=="" (
   "%~dp0..\meshghost-netsim.exe" -tcp= -udp=7777,7780 -loss 0.02 -latency 40ms -jitter 20ms

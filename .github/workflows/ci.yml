@@ -2,7 +2,8 @@ name: CI
 
 # Runs the Go client/server checks CLAUDE.md requires before any change to
 # internal/ or cmd/ is called done -- build, vet, the full test suite, and a
-# short fuzz campaign against the three parsing layers. Until this existed,
+# short fuzz campaign against six targets across four packages (protocol,
+# transport, relay, netx/udpconn). Until this existed,
 # every one of those ran only when a human remembered to run them, and
 # release.yml shipped binaries without running a single test.
 #

@@ -76,11 +76,13 @@ const (
 	// joined, no player_id is assigned, nothing is announced to anyone.
 	//
 	// It exists so a client set to "auto" can discover that a relay also
-	// speaks quic (which is on a DIFFERENT port and therefore impossible to
-	// find by probing) before it joins, rather than joining over tcp and
+	// speaks quic, and on which port, before it joins — rather than joining
+	// over tcp and
 	// then reconnecting — which would make every other player in the room
-	// watch it leave and rejoin. Added 2026-08-16; see the transport
-	// discovery ADR in agent_docs/architecture.md.
+	// watch it leave and rejoin. The port is told rather than assumed:
+	// since 2026-08-16 quic shares the relay's own port by default and
+	// only moves when plain udp is also served. Added 2026-08-16; see the
+	// transport discovery ADR in agent_docs/architecture.md.
 	TypeTransports MessageType = "transports"
 )
 

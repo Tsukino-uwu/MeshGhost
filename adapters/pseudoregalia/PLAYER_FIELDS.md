@@ -40,13 +40,14 @@ afterimage actor's own `Color` (the trail, ultra-hop blue included), the mirrore
 `CapsuleHalfHeight`, and the `land_count`/`jump_count`/`afterimage_count` pulse counters.
 
 **No known state gaps today** (`agent_docs/status.md` is the authoritative open list). The
-empty-hand recall glow and the ultra hop's blue trail — the two long-standing gaps this file used
+empty-hand recall glow and the ultra hop's blue trail — the two gaps this file used
 to name — are both done, as are the cling-gem effect and the thrown sword's own glow. This file's
 second half is the field-discovery work originally aimed at the (now-fixed) outfit/weapon gaps.
 
 Worth noting for the recall glow specifically: it was blocked on a *precondition* — the `IsValid`
 guards in `manageRecallIdleFX` most plausibly want a real thrown-weapon actor, which the ghost had
-none of. The thrown-Dream-Breaker work below now provides exactly that, so it is worth retrying.
+none of. The thrown-Dream-Breaker work below provided exactly that, and the retry landed: the mod
+now copies the real effect rather than re-deriving the rule (`RECALL_GLOW_ENABLED`, README step 35).
 
 ## Ability → internal field map (schema only, not yet synced or behavior-confirmed)
 
@@ -71,7 +72,7 @@ exist," not "confirmed to do what the name suggests."
 | Cling Gem (internal name differs from both the community name and an obvious guess — no "glide" string exists anywhere in the dump) | `wallRide*`/`wallRun*` cluster: `obtainedWallRide?`, `wallRideButtonHeld?`, `wallRideVFX`, `wallRideSFX` |
 | Sun Greaves | `wallKick*`/`airKick*` cluster: `wallKickActive`, `tryWeaponKick?`, `obtainedAirKick?`, `currentAirKicks`, and one literally named `'wall event kick thing'` |
 | Ascendant Light | `obtainedLight?` |
-| Costumes (not on the trending-pages list; found because a real player-visual feature, same category as the outfit-swap this doc exists partly to support) | `outfitDataTable`, `changeActiveOutfit`, `tryAddOutfitToUnlockedList`. **Turned out to be a genuinely separate gap from Dream Breaker visibility, not the same one** — both looked identical at first (spawn-time snapshot, no live update), but the weapon bug's real cause (a call-order bug specific to `changeEquippedWeapon`/`updateWeaponEquip`) doesn't generalize: a live costume change still didn't propagate to the ghost even after that fix shipped (screenshot-confirmed, 2026-08-15). No sync code exists for outfit at all — this is unstarted work, not a known-cause bug waiting on the same fix. |
+| Costumes (not on the trending-pages list; found because a real player-visual feature, same category as the outfit-swap this doc exists partly to support) | `outfitDataTable`, `changeActiveOutfit`, `tryAddOutfitToUnlockedList`. **Turned out to be a genuinely separate gap from Dream Breaker visibility, not the same one** — both looked identical at first (spawn-time snapshot, no live update), but the weapon bug's real cause (a call-order bug specific to `changeEquippedWeapon`/`updateWeaponEquip`) doesn't generalize: a live costume change still didn't propagate to the ghost even after that fix shipped (screenshot-confirmed, 2026-08-15). It needed its own investigation, and got one — outfit sync now ships (`RemoteGhost::target_outfit_mesh`, README step 22), via a different route again: the mesh asset's object path, resolved by name and applied with `SetSkeletalMeshAsset` before the raw write. |
 
 ## Turning a mapped field into a real synced feature
 
@@ -102,8 +103,9 @@ evidence instead of a guess.
 ## Dream Breaker (weapon) visibility: FIXED, 2026-08-15 — worked example of why this was genuinely hard
 
 Full history in `verified.md`'s five "Dream Breaker weapon-visibility" entries — summarized here as
-a worked example for whoever picks up the next field (cling-gem VFX, empty-hand glow, or outfit
-sync are all still open). Bucket 3 above ("needs real new sync code") turned out to undersell it:
+a worked example for whoever picks up the next field. (The three that were open when this was
+written — cling-gem VFX, empty-hand glow, outfit sync — have all shipped since.) Bucket 3 above
+("needs real new sync code") turned out to undersell it:
 
 1. Mirroring `weaponEquipped?`/`animEquippedWeapon` continuously (bucket 1 shape) shipped as real
    code, and the ghost's sword *did* show/hide correctly on spawn — but never updated again after
@@ -148,15 +150,17 @@ if it isn't, the 0%/100%-save value-diff technique above can then find the *actu
 field directly, rather than guessing property names one at a time. Fields with no
 persistent-ownership angle (moveState, landed?, wall-ride) don't have the confound problem in the
 first place. **Caution, learned from outfit**: two fields sharing the same symptom (spawn
-snapshot, no live update) does not mean they share the same root cause — outfit still doesn't
-propagate live even after the weapon fix shipped, so it needs its own investigation from scratch,
-not an assumption that the same reorder will fix it too.
+snapshot, no live update) does not mean they share the same root cause — outfit did not propagate
+live even after the weapon fix shipped, and needed its own investigation from scratch rather than an
+assumption that the same reorder would fix it. It got one, and shipped separately (README step 22).
 
-## Slide/ultra-hop trail (afterimage) VFX: investigated 2026-08-15, not yet built
+## Slide/ultra-hop trail (afterimage) VFX: investigated 2026-08-15, SHIPPED since
 
-User-confirmed live: the ghost currently has **zero VFX/particles for anything**, not just the
-cling-gem/glow gap — a systemic gap, not case-by-case. Two negative results and one real lead
-this session (all via `OBJECT_REFLECTION_DUMP`/`ABILITY_FIELD_TRACE`, see their own comments):
+The investigation record, kept because the negative results are the valuable part. At the time it
+was written the ghost had **zero VFX/particles for anything** — a systemic gap, not case-by-case;
+the trail, its colour and the ultra hop's blue have all shipped since (README steps 23, 26, 38–41).
+Two negative results and one real lead that session (all via
+`OBJECT_REFLECTION_DUMP`/`ABILITY_FIELD_TRACE`, see their own comments):
 
 1. **Ruled out**: `spawnTrackingParticles?` (bool, on the pawn). Looked like a promising bucket-1
    candidate by name, but a live edge-triggered trace showed it goes `false→true` once at pawn
@@ -171,9 +175,8 @@ this session (all via `OBJECT_REFLECTION_DUMP`/`ABILITY_FIELD_TRACE`, see their 
    Prototyped calling `Spawn After Image` on the ghost (`call_spawn_after_image`, gated behind
    `AFTERIMAGE_CALL_TEST`, fixed ~3s test cadence, decoupled from any real trigger) — user watched
    the afterimage/trail effect actually appear on the ghost. See `verified.md`'s "Pseudoregalia
-   ghost trail (afterimage) VFX" entry. **Not yet production code**: still needs a real
-   edge-detected trigger (see point 4 below) in place of the fixed test cadence, and
-   `AFTERIMAGE_CALL_TEST` flipped back to `false` once that's wired up.
+   ghost trail (afterimage) VFX" entry. **Now production code**: a real trigger replaced the fixed
+   test cadence (see point 4 below) and `AFTERIMAGE_CALL_TEST` is back to `false`.
 4. **TRIGGER — three wrong answers before the right one. Read this before touching it again.**
    The trail trigger is **NOT** `actionState`-based, despite that being the obvious candidate and
    the one three separate attempts used. All were disproven live:
@@ -183,10 +186,15 @@ this session (all via `OBJECT_REFLECTION_DUMP`/`ABILITY_FIELD_TRACE`, see their 
    - `afterImagesToSpawn` increases alone — the game never sets it during a plain slide at all
      (zero across 12k ticks), so this covered almost nothing.
    - **The correct signal, measured**: a plain slide is `actionState == 1` with the **capsule shrunk
-     from 65 to 22**, running a consistent 87 ticks. The shipped trigger keys on that capsule shrink
-     (plus `afterImagesToSpawn` increases as a second, authoritative-but-rare path). Keying on the
-     capsule is deliberate: the shrink is a *physical fact* of the move, whereas the state enums
-     demonstrably overlap between moves.
+     from 65 to 22**, running a consistent 87 ticks. That capsule shrink became the fourth trigger
+     (plus `afterImagesToSpawn` increases as a second, authoritative-but-rare path), because the
+     shrink is a *physical fact* of the move whereas the state enums demonstrably overlap.
+   - **Superseded — the shipped trigger no longer reconstructs the rule at all.**
+     `AFTERIMAGE_TRIGGER_FROM_OBSERVATION` is on, so the ghost trails when the game is *seen* to
+     spawn `BP_AfterImage_C` actors, and the reconstructed triggers (`burst_edge`/`slide_edge`/
+     `slide_refire`, and with them `SLIDE_REFIRE_WINDOW_TICKS`) are switched off entirely to avoid
+     double-counting a burst. The capsule shrink is still read, but for the *pose*, not the trail.
+     README steps 40–41.
 
 5. **Color — DONE, synced and confirmed live.** `afterimageColor` (an `FLinearColor` on the pawn) is
    read live each tick, sent through `extras`, and written to the ghost immediately before each

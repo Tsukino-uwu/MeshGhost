@@ -140,6 +140,14 @@ Three functions. That is the entire surface.
   BizHawk uses a Lua socket; native games use an in-process client.
 - JSON until it hurts. Debuggability beats bandwidth at this scale.
 
+> Two of these read differently in the shipped implementation, and `contract.md` is the
+> authority on both. **"Adapters never touch a socket"** became "adapters never speak the
+> *relay* protocol": every adapter holds a plain TCP socket to its own local core process (the
+> bridge), and only that. **"native games use an in-process client"** never happened — Go was
+> chosen for the core (see `architecture.md`'s decision log), so the core is out-of-process for
+> every adapter, including the native ones. The swappable-transport rule itself did come true,
+> at the relay leg: `tcp`/`udp`/`quic` since 2026-08-16.
+
 ---
 
 ## 4. Target games

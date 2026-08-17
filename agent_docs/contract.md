@@ -139,8 +139,9 @@ signal joins/leaves — `despawn_remote(id)` has nothing to trigger it without a
 
 | Message | Direction | Carries |
 |---|---|---|
-| `hello` | client → relay | protocol version, `game_id`, room name, display name, `room_code`, `game_version`, `features`, `max_receive_hz_per_player` |
+| `hello` | client → relay | protocol version, `game_id`, room name, display name, `room_code`, `game_version`, `features`, `max_receive_hz_per_player`, `query_only` |
 | `welcome` | relay → client | assigned `player_id`, current room roster, room send rate (`send_hz`) |
+| `transports` | relay → client | the transports this relay actually serves, as `kind` + `port` pairs (never a host). The reply to a `hello` carrying `query_only: true` — sent *instead of* `welcome`, with no room joined and no `player_id` assigned, and the relay closes immediately after. See Transport below |
 | `reject` | relay → client | a reason string — sent immediately before the relay closes a connection, either refusing a `hello` at handshake or, since the send/receive rate-control feature (see the ADR in `architecture.md`), closing an already-joined connection for exceeding the per-client message cap |
 | `join` | relay → client | a peer's `player_id`. The schema reserves an optional initial `state`, but no relay populates it today — every `Join` the relay sends has `State == nil`, so treat it as absent. |
 | `leave` | relay → client | a peer's `player_id` — this is what drives `despawn_remote` |
@@ -213,7 +214,7 @@ in either direction against an older peer.
   the **slower** of the two, so a peer on a poor connection can decline to go faster than it
   wants, but the relay can never speed a client up past a rate it explicitly chose. Zero on the
   wire (only possible from an older relay that predates this field) means "nothing advertised";
-  a client reading that falls back to `Core.DefaultMinSendInterval`. Prescriptive, not
+  a client reading that falls back to `core.DefaultMinSendInterval`. Prescriptive, not
   enforced: nothing makes a client actually honor `send_hz` — the only hard limit is the
   per-client flood cap below, which scales from it.
 - `max_receive_hz_per_player` (on `hello`) is the highest rate, **per other player**, at which
@@ -296,7 +297,8 @@ ends and the next begins.
   runs over `tcp`, `udp`, or `quic`, chosen by `"transport"` in `config.json` on each end.
   **Defaults changed the same day (second ADR)**: the client defaults to `auto` and the relay to
   serving `tcp,quic`, so a default session is quic — encrypted against a passive observer, and the
-  only transport on which this document's lossy state plane is actually lossy. quic shares the
+  only one of those two on which this document's lossy state plane is actually lossy (`udp` is
+  too, for anyone who asks for it). quic shares the
   relay's `-addr` port number so hosting still means forwarding one number; only serving plain
   `udp` alongside it forces quic elsewhere. The relay may serve several at once, and **one room may hold clients on different
   transports simultaneously** — the relay forwards through the `Transport` interface and never
@@ -326,9 +328,11 @@ ends and the next begins.
   - **Discovery:** a client may send `hello`
     with `query_only: true`; the relay replies `transports` (kind + **port only**, never a host —
     the client already knows one, and a relay bound to `0.0.0.0` does not) and closes, **without
-    joining a room, assigning a `player_id`, or announcing anything**. The query passes every
-    check a real join does *first*, room code included, so it discloses nothing to anyone who
-    could not simply have joined — that is what keeps the relay free of any pre-auth endpoint.
+    joining a room, assigning a `player_id`, or announcing anything**. Every authentication check
+    runs *first* — hello-field lengths, protocol version, and above all the room code — so it
+    discloses nothing to anyone who could not simply have joined; only the checks that need the
+    room table (`only_game`, `game_id`/`game_version` stickiness, the client cap) come after, and
+    a query never reaches them. That is what keeps the relay free of any pre-auth endpoint.
     Preference order is `quic`, `tcp`, `udp`; **`auto` never picks `udp` unless nothing else is
     offered**, since it cannot be encrypted. Any failure falls back to `tcp` at the configured
     address, so discovery can only improve a connection, never prevent one.
@@ -542,10 +546,13 @@ alongside room-code auth (see the architecture.md ADR) — treat the numbers bel
 - An unknown message `type` is ignored, not treated as an error — same forward-compatibility
   posture as the existing unknown-*field* rule above.
 
-## Open questions carried from the original Phase 0 backlog
+## Open questions carried from the original Phase 0 backlog (all now closed)
 
-Not yet closed — genuinely open until Phase 1/2 answers them against a running game, per the
-verification standard in `CLAUDE.md`. Do not answer these from memory.
+All six were answered against a running game, per the verification standard in `CLAUDE.md` —
+each carries its decision and the `verified.md` entry that settled it below. Kept as dated
+history rather than deleted, because the answers are the contract. Nothing here is still open;
+a *new* question of this kind gets closed the same way it was then, against a running game and
+never from memory.
 
 - [x] Exact Emerald `area_id` encoding: map bank + map number, concatenated how? **Decided:**
       `"{mapGroup}:{mapNum}"`, e.g. `"0:9"`, `"1:4"` — plain decimal pair joined by `:`.
@@ -565,7 +572,7 @@ verification standard in `CLAUDE.md`. Do not answer these from memory.
       `gObjectEvents[gPlayerAvatar.objectEventId].facingDirection`. See `agent_docs/
       verified.md` (`gObjectEvents`/facing-direction entry).
 - [x] Local snapshot frequency: **answered, not by confirming the brief's 10Hz hypothesis, but
-      by superseding it.** The real enforced rate is `Core.DefaultMinSendInterval` = 50ms / 20Hz,
+      by superseding it.** The real enforced rate is `core.DefaultMinSendInterval` = 50ms / 20Hz,
       live-confirmed across all three shipped games (Emerald, TEVI, Pseudoregalia) — see the
       "Limits" section above. 20Hz was chosen for headroom under the relay's 120 msg/sec cap
       (found live: TEVI's frame-driven `Update()` runs uncapped well above 120Hz with no

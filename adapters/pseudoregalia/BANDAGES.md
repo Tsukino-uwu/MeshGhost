@@ -43,6 +43,10 @@ is driven with the peer's own `slide_t` through `Timeline_1__UpdateFunc`, the Bl
 input and crouch events are fired, and `bIsCrouched` is set and cleared on the peer's edges.
 User-watched: *"everything works now, and looks identical to the player."*
 
+No longer shipped: `GHOST_SLIDE_Z_COMP` is `false` in `Plugin.cpp`, so nothing is added to the
+ghost's Z any more. The disabled code path is still in the file alongside the dated comments that
+explain why it went — retiring it fully is a tidy-up, not an open compensation.
+
 **Kept as a struck-through entry, not deleted**, because the register's job is to show that entries
 here are expected to leave — see the standing position in `../_template/BANDAGES.md`. The full
 mechanism, the two findings that cracked it, and the nine dead ends are in
@@ -74,7 +78,7 @@ inside.
 **And it looked perfect.** The replacement looked worse for most of ~15 test cycles. See
 `../_template/BANDAGES.md`, "The bandage will usually look BETTER than the proper fix".
 
-### 1. The camera guard's 10-tick fallback window
+### 2. The camera guard's 10-tick fallback window
 
 `Plugin.cpp`, `GHOST_SPAWN_CAMERA_GUARD_TICKS = 10` and the camera-switch hook that consults it.
 
@@ -130,9 +134,8 @@ Recorded so a future audit does not churn them.
 
 - **The loopback ghost's sideways offset.** A deliberate render-only displacement so a test ghost
   never overlaps the player. Measured design decision, not a tuned value.
-- **`SLIDE_REFIRE_WINDOW_TICKS`.** Cuts off new slide-trail spawns ~40 ticks into the 87-tick
-  slide, because images spawned late outlive the move. Left deliberately loose — tightening further
-  risks visibly truncating the trail, which reads worse than a slightly long tail. `verified.md`.
-- **Keying the slide trail on the capsule shrink rather than a state enum.** Three enum-based
-  triggers were tried and all fired on the wrong moves; the shrink is a *physical fact* of the move.
-  The reasoning is inline and in `verified.md`.
+- **`SLIDE_REFIRE_WINDOW_TICKS`, and keying the slide trail on the capsule shrink.** Both were
+  deliberate, and both are now **dormant**: `AFTERIMAGE_TRIGGER_FROM_OBSERVATION` is on, so the
+  ghost trails when the game is *seen* to spawn afterimages, and the reconstructed triggers those
+  two belong to are switched off to avoid double-counting a burst. Left in place as a real revert
+  path — the flag gates the enumeration, not just the decision it feeds. `verified.md`.

@@ -1,7 +1,8 @@
 # Adapter template
 
 **First written 2026-08-11**, at the end of Phase 5, and kept current since with what the three
-shipped adapters learned the hard way (last swept 2026-08-17). The core was proven to run against a fake
+shipped adapters learned the hard way (last swept 2026-08-17, against `agent_docs/contract.md`,
+`internal/bridge`, and the three shipped adapters' own docs). The core was proven to run against a fake
 adapter (`cmd/meshghost-fakeadapter`, a ghost that walks in a circle, driven by
 `core.RunAdapter` — see [agent_docs/verified.md](../../agent_docs/verified.md)'s Phase 5 entry)
 with no game attached and no import of anything under `adapters/`. This folder is what that
@@ -137,6 +138,12 @@ deliberately no template, since a stub with no content would go stale immediatel
    writes a `built-from.txt` SHA-256 record, the build output committed to the repo (CI can't
    build these), its own staleness-verification step in `release.yml`, and a hand-written
    `README.txt` for the game folder that nothing generates.
+   **If the adapter autostarts a core** (see [PROTOCOL.md](PROTOCOL.md)), check where it installs
+   first: a mod that drag-and-drops *into the game's own directory tree* has nothing pointing back
+   at the unzipped release folder, so `meshghost.exe` and a client-only `config.json` have to ride
+   along in the mod folder — TEVI and Pseudoregalia both do. An adapter loaded from the release
+   folder itself (Emerald) reaches the root exe and config with no second copy. The duplication is
+   forced by the install model, not chosen; don't copy it to an adapter that doesn't need it.
 
 ## First, work out what you will be able to READ
 
@@ -397,13 +404,21 @@ The three findings most likely to save you time on a different game:
 ## Testing it
 
 The local rig already exists — read [dev-scripts/README.md](../../dev-scripts/README.md) before
-inventing your own. Three things about it are worth knowing up front, because each was learned
+inventing your own. Four things about it are worth knowing up front, because each was learned
 the expensive way:
 
 - **Give each game a `run-core-<game>.bat`, and test with `-interp=0ms -min-send=10ms`.** The
-  core's default 200ms interpolation buffer smooths over real local timing bugs — treat "looks
-  fine with the buffer on" as untested, not confirmed. (If you also start a relay locally, it
-  needs `-send-hz=100` or it silently overrides every core's fast `-min-send`.)
+  core's default interpolation buffer (`core.DefaultInterpolationDelay`, 100ms) smooths over real
+  local timing bugs — treat "looks fine with the buffer on" as untested, not confirmed. (If you
+  also start a relay locally, it needs `-send-hz=100` or it silently overrides every core's fast
+  `-min-send`.)
+- **A run over the wrong transport looks exactly like a run over the right one.** The client
+  default is `auto` and the shipped relay serves `tcp,quic`, so a default session lands on quic —
+  but every connection handshakes over tcp first and only then upgrades, and a preference the
+  relay does not serve degrades quietly to a working tcp session. Confirm from the client's own
+  `core: relay offers ... — using <transport> at ...` line which one a run actually used; a run
+  that "works" proves nothing on its own. Pseudoregalia keeps a `run-core-<game>-tcp/-udp/-quic.bat`
+  per transport for this, paired with `run-netsim.bat` for real packet loss.
 - **Solo-test through `run-relay-loopback.bat`**, which echoes your own state back as
   `<id>-ghost`, and give loopback ghosts a **render-only** offset so you can tell the ghost from
   your own character — all three adapters do this (Emerald 2 tiles, TEVI 160 units,
@@ -451,8 +466,9 @@ expectations for anyone picking the adapter up later.
   file: anything still open goes here, not into a step. All three carry it.
 - **"Custom features"** — anything this adapter does that isn't required of an adapter (TEVI and
   Pseudoregalia both have one). Keeps game-specific extras out of the build story.
-- **"Dev tools"** — an index of the probe scripts the adapter accumulated. Emerald's ten probes
-  are only findable because its README lists them; write this the moment you have more than two.
+- **"Dev tools"** — an index of the probe scripts the adapter accumulated. Emerald's dozen-plus
+  probes are only findable because its README lists them; write this the moment you have more
+  than two.
 
 ## Hard rule: a bandage fix is not a finished feature
 

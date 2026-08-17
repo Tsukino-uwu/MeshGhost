@@ -11,7 +11,8 @@
 - **Closed 2026-08-11 (Phase 2), but corrected, not simply confirmed:** Lua overlay rendering
   (`gui.drawImage`) is the fastest practical approach for Emerald ghost drawing. The
   no-flicker half of this assumption was **wrong as originally stated** — BizHawk's `gui.*`
-  overlay does NOT auto-clear between frames (found live; see `agent_docs/plans.md:158-160` and
+  overlay does NOT auto-clear between frames (found live; see `agent_docs/plans.md`'s Phase 2
+  entry and
   `agent_docs/pitfalls.md`'s overlay-rendering entry), contradicting `contract.md`'s original
   tick-model assumption. The actual fix (unconditionally clear the overlay at the top of every
   frame) is what's now implemented and confirmed live, not the original assumption itself.
@@ -368,7 +369,7 @@
     just recording the constraint so a future session doesn't rebuild the wrong version check.
 - **BepInEx/Harmony coexistence with an already-installed mod, surfaced by TEVI (Phase 6)**: this
   machine's TEVI already runs `Tevi_Randomizer` (the Archipelago integration mod) under the same
-  BepInEx. Same shape as the Emerald/Archipelago coexistence risk below: if the randomizer
+  BepInEx. Same shape as the Emerald/Archipelago coexistence risk above: if the randomizer
   Harmony-patches the same methods MeshGhost's adapter wants to read, the two could conflict.
   Mitigation planned the same way — confirm the position read works both with the randomizer
   enabled and disabled, prefer reads that survive patching, record which was tested in
@@ -407,7 +408,7 @@
   UE4SS version before resuming any Pseudoregalia work in a new session, the same standard
   applied to TEVI's Steam updates.
 - **UE4SS mod-load-order coexistence with `AP_Randomizer`, surfaced at Phase 7 start**: same
-  shape as TEVI's BepInEx/Harmony-vs-`Tevi_Randomizer` risk below — confirm the adapter's
+  shape as TEVI's BepInEx/Harmony-vs-`Tevi_Randomizer` risk above — confirm the adapter's
   reads/hooks work with `AP_Randomizer` both enabled and disabled, record which was tested.
   **Confirmed live, both directions, 2026-08-12**: a mismatched `UE4SS.dll` build (83 commits
   ahead of the installed one) broke `AP_Randomizer` outright (`0x7f`, a missing exported
@@ -598,8 +599,10 @@
   and take damage (`bCanBeDamaged = false` was tried and provably did not stop it — this game's
   melee doesn't use UE's standard damage path). **Still hard-forbidden**: setting
   `LOOPBACK_GHOST_OFFSET_X = 0` while collision is on, which reproduces the Phase 7.4 drag/pull
-  bug immediately. Whether collision is actually *fun* stays open until Phase 7.7. Full record:
-  `agent_docs/ideas.md` item 5, and `verified.md`'s enemy-damage entry.
+  bug immediately. Whether collision is actually *fun* was gated on Phase 7.7, which is **done
+  (2026-08-16, two players on two machines)** — so the keep-or-axe call is now unblocked and
+  simply un-re-judged; see `status.md`. Full record: `agent_docs/ideas.md` item 5, and
+  `verified.md`'s enemy-damage entry.
 
 - **`send_hz` is prescriptive but unenforced — a non-compliant client can legitimately run at up
   to 6x the room's configured rate before it's disconnected.** Built 2026-08-15 (see the ADR in
@@ -634,6 +637,6 @@
   more than a documentation reference.
 - Re-verify a `Closed` risk before trusting it if the conditions that closed it could have
   changed (a mod/tool update, exercising it under new load/scale) — a closure is a point-in-time
-  test result, not permanent. Real precedent: the `lua_State`-mismatch risk below closed under a
+  test result, not permanent. Real precedent: the `lua_State`-mismatch risk above closed under a
   light round trip, then reopened the same day once real 10Hz sustained traffic exposed an
   83-98% corruption rate that the light test never exercised.

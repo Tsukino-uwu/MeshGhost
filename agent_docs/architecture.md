@@ -59,10 +59,14 @@ internal/netx       — transport selection (tcp|udp|quic) as net.Listener/net.C
                        subpackages netx/udpconn and netx/quicconn hold the datagram
                        implementations. Deliberately NOT a second Transport implementation
                        — see the transport ADR for why the seam sits at net.Conn.
-cmd/meshghost       — desktop app entry point. Imports core and netx (the Phase 3 note here
-                       once predicted transport/bridge imports; they never arrived).
-cmd/meshghost-relay — standalone relay entry point. Imports relay and netx.
-cmd/meshghost-fakeadapter — the test rig's ghost-that-walks-in-a-circle. Imports core.
+internal/e2e        — test-only. Launches the real binaries and drives a real adapter over
+                       the bridge; imports bridge, netx, protocol, transport. Ships no
+                       production code, so nothing imports it.
+cmd/meshghost       — desktop app entry point. Imports core, netx and protocol (the Phase 3
+                       note here once predicted transport/bridge imports; they never arrived).
+cmd/meshghost-relay — standalone relay entry point. Imports relay, netx and protocol.
+cmd/meshghost-fakeadapter — the test rig's ghost-that-walks-in-a-circle. Imports core, netx
+                       and protocol.
 cmd/meshghost-netsim — fault-injecting proxy for real sessions. Imports NOTHING under
                        internal/, deliberately: it must be able to mangle the wire without
                        inheriting any of the code whose behaviour it is testing.
@@ -167,7 +171,8 @@ Format: Date / Decision / Status / Context / Options considered / Resolution / C
 - **Date:** 2026-08-11
 - **Decision:** Relay runs without authentication through Phases 3–4; room code + shared
   secret is the recorded end goal for later.
-- **Status:** accepted
+- **Status:** superseded 2026-08-14 by the room-code/version-check ADR below, which built the
+  recorded end goal. Kept as the record of why no-auth was right for Phases 3–4.
 - **Context:** Phase 4 puts a relay on the open internet with no connection or auth model
   defined anywhere in the original docs.
 - **Options considered:** no-auth self-hosted (simplest, least friction for proving the
@@ -303,7 +308,9 @@ Format: Date / Decision / Status / Context / Options considered / Resolution / C
 - **Decision:** Cap `internal/core.Core`'s actual send rate to the relay
   (`Core.MinSendInterval`, default 50ms / 20Hz) independent of how often an adapter calls in,
   rather than relying on the relay's `MaxMessagesPerSecond` limit alone.
-- **Status:** accepted
+- **Status:** accepted; the *default* is superseded by the 2026-08-15 rate-control ADR below —
+  `MinSendInterval` now defaults to the zero value, meaning "follow the relay's `send_hz`", and
+  50ms/20Hz survives as `DefaultMinSendInterval`, the fallback. The cap itself is unchanged.
 - **Context:** Phase 6 (TEVI) hit this live: TEVI's `Update()` calls the bridge every real game
   frame with no engine-level cap, and `forwardLocalState` previously sent to the relay on every
   such call. The relay's `MaxMessagesPerSecond = 120` (`agent_docs/contract.md`'s Limits
@@ -460,9 +467,10 @@ Format: Date / Decision / Status / Context / Options considered / Resolution / C
   `TestCrossAreaFiltersRemote` in `internal/core/core_test.go` drives a remote through
   same-area → different-area (must despawn) → same-area-again (must reappear).
 - **Consequences:** Game-agnostic, benefits every adapter with no per-adapter change — closes
-  the `plans.md`/`phase6.md` "genuinely unbuilt" gap. Not yet watched live in-game; next TEVI
-  session should confirm a remote in a different zone is no longer rendered at all (not just
-  coincidentally off-screen), and reappears cleanly on returning to the same zone.
+  the `plans.md`/`phase6.md` "genuinely unbuilt" gap. Since **confirmed live on TEVI** — a remote
+  in a different zone is no longer rendered at all and reappears cleanly on return; the same
+  session found and fixed a reactivation animation freeze. See `verified.md`'s "TEVI cross-area
+  filtering confirmed live" entry.
 
 ---
 
@@ -719,10 +727,11 @@ Format: Date / Decision / Status / Context / Options considered / Resolution / C
   affects Go code calling `internal/core` directly, not the wire protocol or any adapter. The
   Pseudoregalia rebuild was hash-diff-confirmed deployed to the in-repo packaging copy; the live
   Steam install and the TEVI DLL rebuild remain manual follow-ups outside this repo's automated
-  reach (packaging/README.md's existing staleness-check note covers the latter). Live in-game
-  verification of the Pseudoregalia despawn-visual change and the finiteness/lerp fixes' observed
-  behavior is still pending — nothing above is entered in `verified.md` until watched happening
-  on screen, per `CLAUDE.md`.
+  reach (packaging/README.md's existing staleness-check note covers the latter). The
+  Pseudoregalia despawn-visual/area-transition half has since been watched live (`verified.md`,
+  2026-08-14 — and it took a further real fix to pass); the finiteness/lerp fixes' observed
+  behaviour has no live entry, per `CLAUDE.md`'s rule that nothing goes in `verified.md` until it
+  has been watched on screen.
 
 ---
 
@@ -911,7 +920,7 @@ Format: Date / Decision / Status / Context / Options considered / Resolution / C
     recommendation to leave both settings at their defaults unless the operator has a concrete
     reason not to.
   - **This silently broke the project's own dev-testing setup, caught and fixed in the same
-    change:** all six `dev-scripts/run-core-*.bat` scripts pass `-min-send=10ms`, faster than the
+    change:** every `dev-scripts/run-core-*.bat` script passes `-min-send=10ms`, faster than the
     (now-fallback-only) 20Hz default — under "slower wins," an unconfigured 20Hz relay would have
     quietly capped every one of them back down to 50ms, a 5× regression in exactly the timing-bug-
     surfacing setup Phase 8 chose deliberately (`agent_docs/phases/phase8.md`). Both
@@ -1177,7 +1186,9 @@ Format: Date / Decision / Status / Context / Options considered / Resolution / C
   them. The query is a `query_only` flag on `Hello`; the answer is a new `transports` message
   carrying kind+port pairs. Shipped `config.json` sets the client to `auto`; the relay still
   defaults to `tcp`.
-- **Status:** Implemented, same day as selectable transports.
+- **Status:** Implemented, same day as selectable transports. **The relay default is superseded
+  by the quic-default ADR at the end of this file** — the relay now ships `tcp,quic`, so `auto`
+  lands on quic out of the box. The client's `auto` and the discovery mechanism itself stand.
 - **Context:** Selectable transports shipped with no way for a client to learn what a relay
   offers, so a host had to say "use quic, port 7780" out of band and a mismatch produced a bare
   timeout. The user's goal: if a relay enables all three, clients should end up on the best one
@@ -1219,17 +1230,21 @@ Format: Date / Decision / Status / Context / Options considered / Resolution / C
   joins the client for real and replies `Welcome`; the client recognises this, logs "older
   build — using tcp", and closes — which such a relay reports to its room as one spurious
   join/leave. That is the price of an additive field over a version bump, it affects old relays
-  only, and it is strictly better than the timeout it replaces. Relays still default to `tcp`, so
-  `auto` changes nothing until a host opts in.
+  only, and it is strictly better than the timeout it replaces. *(As written, relays still
+  defaulted to `tcp`, so `auto` changed nothing until a host opted in — no longer true since the
+  quic-default ADR below moved the relay default to `tcp,quic`.)*
 
 ### 2026-08-16 — Revision: the handshake is always tcp; `transport` is the upgrade target
 
 - **Decision:** Supersedes the two ADRs above in one respect. A client **always** connects over
   tcp first, and that is not configurable. `transport` in `config.json` no longer means "how to
-  connect" but "what to move to once connected": `tcp` stays put, `udp` (the shipped default) and
-  `quic` upgrade if the relay serves them, `auto` takes the best on offer. **tcp is now mandatory
-  on the relay too** — `netx.ParseKinds` prepends it whether or not the operator names it.
-- **Status:** Implemented, same day.
+  connect" but "what to move to once connected": `tcp` stays put, `udp` (the shipped default at
+  the time) and `quic` upgrade if the relay serves them, `auto` takes the best on offer. **tcp is
+  now mandatory on the relay too** — `netx.ParseKinds` prepends it whether or not the operator
+  names it.
+- **Status:** Implemented, same day. **The `udp` shipped default is superseded by the quic-default
+  ADR at the end of this file** (the client ships `auto`); everything else here — the mandatory tcp
+  handshake, `transport` as the upgrade target, tcp mandatory on the relay — is current.
 - **Context:** The user's framing, and it is better than what shipped hours earlier: discovery
   should be an unconditional property of connecting rather than a special `auto` mode. The first
   design left `tcp`/`udp`/`quic` as three parallel ways to connect, which meant a client had to be
@@ -1318,8 +1333,9 @@ Format: Date / Decision / Status / Context / Options considered / Resolution / C
 - **Decision:** A game adapter may spawn `meshghost.exe` itself, hidden, when a bridge connect
   attempt finds nothing listening — and passes it no relay settings, only a working directory.
 - **Status:** Implemented for Pseudoregalia the same day (`CoreLauncher.cpp`, plus
-  `-exit-with-pid`/`show_console` on the client). **Not yet watched running** — TEVI and Emerald
-  deliberately not converted until it is.
+  `-exit-with-pid`/`show_console` on the client). **Since watched running on both Windows and
+  Proton** — cold start, reuse of an existing core, and cleanup on game exit are all user-confirmed
+  (`verified.md`, 2026-08-16). TEVI and Emerald are still not converted (`status.md`).
 - **Context:** A Pseudoregalia speedrunner tried MeshGhost and reported that having to launch a
   second program defeats the point: the interactions worth having were the unplanned ones, both
   people just having it on while practising, and nobody starts a separate client for an encounter
@@ -1383,8 +1399,11 @@ Format: Date / Decision / Status / Context / Options considered / Resolution / C
 
 - **Decision:** A core admits exactly one adapter at a time, and answers every `hello` with either
   `bridge_ready` or `reject{reason}` instead of silence-or-hangup.
-- **Status:** Core, bridge, and tests done. The adapter-side port walk that consumes it is next,
-  Pseudoregalia first.
+- **Status:** Core, bridge, and tests done. The adapter-side port walk that consumes it has since
+  shipped for Pseudoregalia (`BridgeClient` walks `BRIDGE_BASE_PORT..+BRIDGE_PORT_COUNT` and
+  requires an explicit `bridge_ready`, covered by `internal/e2e`'s `TestPortWalkFindsAFreeCore`);
+  TEVI and Emerald still connect to a single fixed port. **One resolution below is reversed** —
+  silence is no longer treated as an older core, see the note on that bullet.
 - **Context:** The Linux tester asked for a way to run a second game — "start it anyway with an
   increased port until a free one is found" — so each game could use a different relay. Checking
   what happens today found the reported failure (a second *different* game is refused with a silent
@@ -1407,6 +1426,14 @@ Format: Date / Decision / Status / Context / Options considered / Resolution / C
   `bridge_ready` makes success observable instead of assumed, which is the same reason this project
   refuses to treat "it ran without errors" as evidence. An adapter that gets neither is on an older
   core and proceeds as before, so mixed versions still work.
+  *(**Reversed** — that last sentence shipped for one build and was itself the bug. Current
+  behaviour, in `contract.md` and in `BridgeClient.cpp`'s `is_ready`: **silence is not acceptance**,
+  and an adapter that gets neither answer moves on to the next port. Silence is indistinguishable
+  from an unrelated program squatting a port in the range, and committing to one strands the
+  adapter with no ghosts and no explanation, where skipping a merely-old core costs nothing —
+  the walk just starts its own on a free port. Caught by `internal/e2e`'s
+  `TestPortWalkFindsAFreeCore`, which squats a port with a listener that never speaks;
+  `adapters/_template/PROTOCOL.md` documents the reversed rule as standard for new adapters.)*
 - **Consequences:** Two copies of one game on one machine stop corrupting each other. A refused
   adapter now learns why, in its own log, rather than seeing a hangup it cannot tell from a crash.
   The contract states the 1:1 rule outright instead of implying it through singular phrasing.

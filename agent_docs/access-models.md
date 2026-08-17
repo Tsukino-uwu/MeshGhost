@@ -135,7 +135,9 @@ Reverse engineer the stripped native binary yourself, and locate code by byte-pa
 - **Cons** — Slow and skill-intensive. A wrong match yields plausible garbage rather than an error.
   Brittle across updates and expensive to maintain. No names — you invent your own for everything.
 - **Here** — Only indirectly: UE4SS uses `patternsleuth` internally to find engine functions, so
-  Pseudoregalia benefits without the adapter doing any of it.
+  Pseudoregalia benefits without the adapter doing any of it (confirmed 2026-08-16 against the
+  pinned RE-UE4SS submodule — see [licensing.md](licensing.md); its pattern coverage is
+  engine-version-specific, so a pin bump can change what resolves).
 
 ### 8. Blind memory scanning / black box
 
@@ -232,7 +234,8 @@ UE4SS does its own pattern scanning internally, which is its code and its proble
 
 **Assets are absolute, and separate from all of the above.** No ROMs, sprites, audio, models, `.pak`
 or game binaries, ever — `.gitignore` blocks `*.dll`, `*.rom` and `*.gba` with a deliberate
-allow-list for only our own build outputs and MIT-licensed UE4SS files. Emerald's adapter *decodes*
+allow-list for only our own build outputs, the MIT-licensed UE4SS runtime files, and Emerald's
+vendored MIT-licensed Lua/LuaSocket pair (see [licensing.md](licensing.md) for each). Emerald's adapter *decodes*
 the real Brendan/May sprite out of the player's own ROM at runtime; it does not ship one.
 
 ### The part that is genuinely unsettled

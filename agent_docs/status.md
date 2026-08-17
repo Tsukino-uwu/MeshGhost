@@ -3,20 +3,14 @@
 ## Active status
 
 **Phase 7 (Pseudoregalia) is the live one, and 7.7 is DONE** — two real players on two machines,
-confirmed 2026-08-16 with the Linux tester, which also cleared the items that were blocked on it.
+confirmed 2026-08-16 with the Linux tester. It cleared pole rotation; the rest of the
+two-player-blocked list below is now testable but not yet re-judged.
 Phase 8 (Emerald) is open but idle since 2026-08-14; Phase 6 (TEVI) is done.
 
-**Also landed 2026-08-16**, all confirmed on screen unless noted: autostart (the game's mod starts
-the client itself, Windows and Proton), v0.7.0 shipped with Linux/macOS client+server builds as
-separate downloads, one-adapter-per-core admission control with the port walk (Pseudoregalia side
-built, **not yet watched live**), the camera fix (a ghost brings its own rig — identified by the
-rig's `OwningActor`), ghosts no longer rendering through walls, and the ghost no longer stealing
-the controller on spawn. Go side the same day: quic became the shipped default (negotiated over
-the tcp handshake, sharing the relay's port), udp's reliable path became ordered, and
-`cmd/meshghost-netsim` landed as a fault-injecting proxy for real sessions.
-
-**Landed 2026-08-17**: a sliding ghost is now posed through the game's own crouch path instead of
-a +43 render-Z offset, retiring that bandage — `adapters/pseudoregalia/BANDAGES.md`.
+**Landed 2026-08-16** (autostart on Windows+Proton, v0.7.0, admission control, the camera/rig fix,
+no more through-wall ghosts; Go side: quic default, ordered udp, `cmd/meshghost-netsim`) and
+**2026-08-17** (a sliding ghost posed via the game's own crouch path, retiring the +43 render-Z
+bandage) — full record in `verified.md`, `plans.md` and `adapters/pseudoregalia/BANDAGES.md`.
 
 Roadmap: `plans.md`. Per-phase log: `phases/`. Evidence for all of the above: `verified.md`.
 
@@ -32,8 +26,8 @@ that a peer's state genuinely differs from the local player's, which loopback co
 - **A fresh ghost shows the LOCAL player's state, not the peer's.** Two fixes shipped 2026-08-16,
   never verifiable in loopback — `verified.md` (recall glow entry).
 - **Ghost collision keep-or-axe.** Kept ON deliberately; run-ending risk fixed. `risks.md`.
-- **Ghost vanishes while a peer is on a pole.** Cause unknown, three suspects ruled out;
-  `phase7.md`.
+- **Ghost vanishes while a peer is on a pole**, then returns stuck in a climb pose. Cause unknown,
+  two suspects ruled out; `phase7.md`. (Pole *rotation* was the separate item, cleared 2026-08-16.)
 - **A thrown sword near a save crystal.** Suspected a loopback-offset artifact rather than a real
   bug; a two-machine session settles it. `verified.md`.
 
@@ -41,12 +35,12 @@ that a peer's state genuinely differs from the local player's, which loopback co
 
 - **Duplicate ghost spawn on every level load** — two ghosts per peer, the `remotes` entry going
   present -> absent within three ticks, leaving an orphaned pawn nobody tracks. `verified.md`.
-- **Two different games at once: half fixed.** Pseudoregalia walks bridge ports 7778-7785 on a
-  reject; TEVI and Emerald are still pinned to 7778 and don't walk. `ideas.md`.
+- **Two different games at once: half fixed** — the user-visible symptom of the bridge-shape gap
+  below. Pseudoregalia's port walk is built but **not yet watched live**. `ideas.md`.
 - **TEVI's FullMap marker goes stale** — it only refreshes on a `render_remote`, so a peer who
   stops sending leaves a marker frozen where it was. Shipped bug, not hypothetical. `ideas.md`.
-- **Autostart: TEVI and Emerald not converted yet.** Windows and Proton both fully confirmed;
-  Emerald needs a spawn-mechanism spike (BizHawk Lua has no hidden-process API). `verified.md`.
+- **TEVI and Emerald lag the template's bridge shape** — no autostart, no port walk, no
+  `bridge_ready`; Pseudoregalia has all three. Emerald needs a spawn spike. `_template/PROTOCOL.md`.
 - **Pseudoregalia: a `Fatal Error!` on game exit**, seen once, never root-caused. Not the
   2026-08-16 transition crash, which is fixed.
 - **TEVI: charged-attack VFX missing on the ghost** — animations play, effects don't.

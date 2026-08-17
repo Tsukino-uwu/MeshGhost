@@ -70,14 +70,14 @@ group, never individually. *Found 2026-08-17.*
 
 ## The state fields
 
-Four `uint8` enums on the pawn carry nearly everything. These are the values we have actually seen;
-each enum certainly has more.
+Four `uint8` enums carry nearly everything — three on the pawn, one on her movement component.
+These are the values we have actually seen; each enum certainly has more.
 
 | Field | Confirmed values |
 | --- | --- |
 | `moveState` | `0` grounded/default · `1` airborne · `2` **crouch** · `3` pole hang · `4` **wall ride** · `7` bubble |
 | `actionState` | `0` none · `1` **slide** · `17`, `18` other moves — `18` also fires on a turn-around skid |
-| `movementMode` | `5` **flying**, used by poles and bubbles · `1` walking, `3` falling *(inferred)* |
+| `MovementMode` (on `CharacterMovement`, not the pawn) | `5` **flying**, used by poles and bubbles · `1` walking, `3` falling *(inferred)* |
 | `animJumpType` | `13 → 11 → 0` over a backflip · `2` bubble boost · `6` drop-down · `0` neutral |
 
 Alongside them: `CapsuleHalfHeight`, `horizontalSpeed`/`verticalSpeed`, `afterImagesToSpawn`,
@@ -158,9 +158,10 @@ Three pieces, and they are only separable in principle:
 - **`bIsCrouched` is the state the maintenance reads.** Set it and the mesh follows to the crouched
   offset; clear it and the mesh returns. Everything else downstream — capsule size, `BaseEyeHeight`
   — moves with it.
-- **The crouch input is the normal entry point.** `InpActEvt_IA_Crouch_K2Node_EnhancedInputActionEvent_16`
-  is the Blueprint's own handler for the crouch button, and it is what starts the pose in ordinary
-  play.
+- **The crouch input is the normal entry point.** `InpActEvt_IA_Crouch_K2Node_EnhancedInputActionEvent_15`
+  and `_16` are the Blueprint's own Enhanced Input handlers for the crouch button — two of them
+  because an input action fires separate press and release events — and they are what start and end
+  the pose in ordinary play.
 - **`Timeline_1` is the slide's motion, not the pose.** Its track carries an eased curve applied by
   `Timeline_1__UpdateFunc`, the Blueprint's own per-frame handler. A stationary crouch never moves
   it — which is exactly how we know the timeline belongs to the slide and not to the shape.
@@ -205,7 +206,9 @@ measure `(1.000, 0.888, 0.260)`, ultra images `(0.000, 0.787, 1.000)`.
 
 Unusually direct, as game mechanisms go. `afterImagesToSpawn` is counted **down** by the game's own
 timer loop as it spawns, so any *increase* is the game starting a fresh burst and its value is the
-true burst size. `spawnNumAfterimages` performs the burst, spawning a Niagara system.
+true burst size. `spawnNumAfterimages` performs the burst, spawning `BP_AfterImage_C` actors — the
+trail is **not** a particle system: the build's VFX catalog holds 58 Niagara systems and none of
+them is an afterimage.
 
 `afterimageColor` is the base, customisable trail colour — measured yellow at
 `(1.000, 0.888, 0.260)`. It is the same field the third-party attire-ui-overhaul dash-colour picker
@@ -223,7 +226,7 @@ searching for "cling" or "glide" and finding nothing.
 
 ## Bubble
 
-> **Fields** `moveState 7` with `movementMode 5`, `actionState 0`, `animJumpType 0`, capsule 65
+> **Fields** `moveState 7` with `MovementMode 5`, `actionState 0`, `animJumpType 0`, capsule 65
 > **Functions** `StartBubbleJumpFlash(Condition)` · `changeBubbleChargedJump(hasBubbleChargedJump)` — `Plugin.cpp`, the bubble-jump flash helpers
 
 The boost out of it is `animJumpType == 2`, which also moves `moveState` to 4. The visual is the
@@ -232,9 +235,9 @@ effect and exactly that state, so no inference was needed to find them.
 
 ## Pole hang
 
-> **Fields** `moveState 3` with `movementMode 5`
+> **Fields** `moveState 3` with `MovementMode 5`
 
-Leaving a pole moves to `moveState 1` / `movementMode 3`. A brief
+Leaving a pole moves to `moveState 1` / `MovementMode 3`. A brief
 `moveState 1, actionState 0, animJumpType 6` window of ~0.4s is a drop-down.
 
 ---

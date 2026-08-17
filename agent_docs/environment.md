@@ -16,6 +16,15 @@ UE4SS entry below for that last one specifically, which is currently unresolved)
   not yet built or tested on the latter two.
 - Go toolchain: **confirmed installed**, `go1.26.5 windows/amd64` (`go version`, 2026-08-11).
   `go build ./...` and `go vet ./...` both pass clean on the current type skeleton.
+  **Re-confirmed 2026-08-17**: still `go1.26.5 windows/amd64`.
+- Go module pins (read from `go.mod`, 2026-08-17): language directive `go 1.25.0` — raised from
+  1.22 by `go get` when quic-go was adopted (see `agent_docs/licensing.md`) — and one direct
+  dependency, `github.com/quic-go/quic-go v0.61.0`, with `golang.org/x/crypto v0.54.0`,
+  `golang.org/x/net v0.56.0` and `golang.org/x/sys v0.47.0` indirect. Both GitHub workflows pin
+  `setup-go` to `1.25`, which is the directive's floor rather than the locally installed version;
+  `GOTOOLCHAIN=auto` is what let CI pass while it was still pinned to 1.22. Which of these
+  actually *link* into the shipped binaries is a separate (smaller) list — see
+  `packaging/release/THIRD-PARTY-NOTICES.txt`.
 - Python: **confirmed installed**, 3.12.10 (`python --version`, 2026-08-11), at the standard
   per-user install location (`%LOCALAPPDATA%\Programs\Python\Python312\python.exe`). Invoke as
   `python`, not `python3` — only `python` is on `PATH` (both in a normal shell and in the

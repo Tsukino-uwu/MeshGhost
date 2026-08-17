@@ -220,6 +220,11 @@ Fix: heavy tracing off, scan cadence 3 → 15 ticks, and structurally, the scan 
 owns it so that flag is a real off-switch. Trail restored and confirmed. **The blue went off with
 it**, since the code that read it rode on the same scan.
 
+(That 15 is `AFTERIMAGE_COLOR_SCAN_INTERVAL_TICKS`, which now sits on the *disabled* colour-scan
+path — accurate as history, but not the knob to tune today. The live cadence since the trigger
+moved to observation is `AFTERIMAGE_OBSERVE_SCAN_INTERVAL_TICKS = 6`, plus an idle scan at 10;
+see `agent_docs/pitfalls.md`.)
+
 ### Stage 10 — Re-enabling the colour, five rounds
 
 Each round fixed a real bug that only exposed the next. Every diagnosis came from a log line; the

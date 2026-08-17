@@ -50,6 +50,7 @@ the set that actually went wrong.
 | Check | Local | CI (see below) | Release |
 |---|---|---|---|
 | `go build` / `go vet` | yes | yes | yes |
+| Cross-compile the other shipped platforms | no | yes — compile only (`linux/arm64`, `darwin/amd64`, `darwin/arm64`) | yes — these are the tarballs' real binaries |
 | Unit + integration suite | yes (`-count=2`) | yes (`-count=3`, Linux; `-count=2`, Windows) | yes (`-count=2`) |
 | End-to-end, real binaries (`internal/e2e`) | yes | yes | yes |
 | **Race detector** | **no — can't** (`run-gotests-race.bat` says why) | yes (Linux) | no |
@@ -72,9 +73,18 @@ filter is exactly "the client/server changed". A push touching only adapters, `p
 `agent_docs/` produces no CI run at all, which is correct: nothing in CI tests an adapter. If you
 want a run anyway, Actions → CI → Run workflow is unfiltered.
 
+CI's cross-compile step is compile-only and exists for one narrow thing: a build-tag mistake in
+the small per-OS seam (`cmd/meshghost`'s `parentGone` and `consoleWriter`), which compiles on the
+OS you wrote it on and nowhere else. `darwin` has no runner at all, so this is its only coverage.
+
 The release workflow gained its vet/test steps at the same time; before that it went from
 checkout straight to build-and-zip, so the one artifact users download was the only Go build in
-the repo that nothing verified. Note it is `workflow_dispatch` only — it cannot start on its own,
+the repo that nothing verified. It vets and tests twice over — once on `ubuntu-latest` for the
+Unix tarballs, once on `windows-latest` for the zip — and then runs three checks CI has no
+equivalent of: the staleness gates that rehash the TEVI plugin's sources, the Pseudoregalia
+plugin's sources, and the committed UE4SS runtime plus its submodule pin, failing the release
+rather than shipping a DLL older than the source that produced it (see `packaging/README.md`).
+Note it is `workflow_dispatch` only — it cannot start on its own,
 and its `contents: write` permission is the reason CI is deliberately `contents: read`.
 
 ## The suites, and what each is actually for

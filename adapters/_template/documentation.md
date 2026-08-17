@@ -91,7 +91,10 @@ you catch yourself writing "so we…", stop: that sentence belongs in `BANDAGES.
 `README.md`.
 
 **Finish with known unknowns.** Searches that came up empty, so nobody repeats them, and inferences
-that have never been confirmed.
+that have never been confirmed. When one gets answered, **strike it through and point at the
+section that answered it** rather than deleting the line — the list is then also a record of which
+questions turned out to be answerable, which is what makes the remaining ones worth trusting. (Same
+reason `BANDAGES.md` keeps a removed compensation as a struck-through entry.)
 
 ## Why it earns its place
 

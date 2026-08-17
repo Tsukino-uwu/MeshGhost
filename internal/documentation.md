@@ -19,7 +19,7 @@ It deliberately does not overlap the two documents that already exist:
   dated ADRs saying why each choice was made at the time it was made. This file summarises
   conclusions and links; it never restates an ADR.
 
-Line references are `file.go:123` against the code as of 2026-08-16. They will drift; the
+Line references are `file.go:123` against the code as of 2026-08-17. They will drift; the
 function names won't.
 
 ---
@@ -54,12 +54,12 @@ and a TEVI room side by side and never notice. What keeps them apart is `game_id
 ## 2. The life of a connection
 
 Everything below happens on one goroutine per connection. `Serve` accepts and spawns
-(`relay.go:435`); `handleConn` (`relay.go:532`) then drives that connection for its entire
+(`relay.go:433`); `handleConn` (`relay.go:543`) then drives that connection for its entire
 life.
 
 **Wrap the socket.** `transport.FromConnWithLimits(conn, protocol.MaxLineBytes, s.IdleTimeout, 0)`
-at `relay.go:544`. The limits go in *at construction*, not as field assignments afterwards,
-because `FromConnWithLimits` (`transport.go:205`) sets them before starting the read goroutine
+at `relay.go:555`. The limits go in *at construction*, not as field assignments afterwards,
+because `FromConnWithLimits` (`transport.go:206`) sets them before starting the read goroutine
 — setting them after would race the loop's own read of them, which is exactly the bug that
 made this constructor exist.
 
@@ -69,48 +69,48 @@ own idle timeout does not cover this: it resets on *any* successfully read line,
 could ping forever without ever joining and stay under it indefinitely.
 
 **Resolve the rate cap once.** `sendHz := s.resolveSendHz()` and
-`msgLimit := maxMessagesPerSecond(sendHz)` at `relay.go:575-576`, before `OnReceive` is
+`msgLimit := maxMessagesPerSecond(sendHz)` at `relay.go:586-587`, before `OnReceive` is
 registered. Deliberately not re-read per message: the cap the relay *enforces* has to be the
 one this connection's own `welcome` *advertised*, and re-reading `s.SendHz` mid-session would
 let the relay start enforcing a limit it never told this client about.
 
 **Then the checks, in this order** — all inside the `r == nil` branch of `OnReceive`
-(`relay.go:660`), which is the "not in a room yet" state. Only a `hello` is accepted here;
+(`relay.go:671`), which is the "not in a room yet" state. Only a `hello` is accepted here;
 anything else this early is silently ignored.
 
-1. **Field lengths** (`relay.go:679`). Every `hello` string field against `MaxHelloFieldLen`
+1. **Field lengths** (`relay.go:690`). Every `hello` string field against `MaxHelloFieldLen`
    (128, `relay/limits.go:84`). This runs *first*, before even the version check, and its
    rejection logs without echoing the field values — the normal rejection path prints them,
    and printing an unbounded attacker-controlled field into the host's own log is precisely
    what bounding the field was for.
-2. **Protocol version** (`relay.go:691`). A mismatch is refused outright rather than guessed
+2. **Protocol version** (`relay.go:702`). A mismatch is refused outright rather than guessed
    at. Everything below can now safely log the fields, since they're known short.
-3. **Room code** (`relay.go:701`). `subtle.ConstantTimeCompare`, so a wrong guess can't be
+3. **Room code** (`relay.go:712`). `subtle.ConstantTimeCompare`, so a wrong guess can't be
    refined byte by byte. An empty configured `Server.RoomCode` means auth is off — the original
    friend-hosted posture.
-4. **Transport discovery** (`relay.go:718`). If `hello.QueryOnly` is set, reply with the
+4. **Transport discovery** (`relay.go:729`). If `hello.QueryOnly` is set, reply with the
    `transports` offer list and hang up. The placement is the point: *after* the room code and
    *before* the room table is touched. No room is joined, no `player_id` assigned, no slot
    reserved, nobody is told anything — so a query discloses nothing to anyone who could not
    simply have joined instead. That is what keeps discovery from adding any pre-auth surface.
-5. **`only_game`** (`relay.go:731`). A server-wide, operator-declared restriction to a single
+5. **`only_game`** (`relay.go:742`). A server-wide, operator-declared restriction to a single
    `game_id`, with its own reason (`ReasonGameNotAllowed`) distinct from the per-room mismatch —
    because a client refused for this one cannot fix it by picking another room.
-6. **Room join** (`relay.go:735` → `joinOrCreateRoom`, `relay.go:490`). Creates the room if it
+6. **Room join** (`relay.go:746` → `joinOrCreateRoom`, `relay.go:488`). Creates the room if it
    doesn't exist; otherwise checks `game_id` and (if both sides declared one) `game_version`.
-7. **Slot reservation** (`relay.go:741` → `tryReserveSlot`, `relay.go:402`). The capacity check
+7. **Slot reservation** (`relay.go:752` → `tryReserveSlot`, `relay.go:400`). The capacity check
    and the increment happen in one critical section; a `count()`-then-increment pair would race
    two simultaneous joins past `MaxClients`. If the reservation fails, `dropIfEmpty` cleans up
    the room this attempt may just have created.
 
-Every one of those refusals goes through `rejectAndClose` (`relay.go:480`): send a `reject`
+Every one of those refusals goes through `rejectAndClose` (`relay.go:478`): send a `reject`
 with a reason string, log one line, then close. Not a bare hangup — a hangup is
 indistinguishable from "the relay is down" or "the relay is slow", and the client can't tell
 its user anything useful about it.
 
-**Admission.** `nextPlayerID` (`relay.go:524`) hands out `p1`, `p2`, … from an atomic counter;
+**Admission.** `nextPlayerID` (`relay.go:522`) hands out `p1`, `p2`, … from an atomic counter;
 ids are never reused, and carry nothing about the connection. Then
-`tryAddAndSnapshotRoster` (`relay.go:192`) adds the member *and* returns the roster as it stood
+`tryAddAndSnapshotRoster` (`relay.go:204`) adds the member *and* returns the roster as it stood
 immediately before the add, under one lock. That combination matters: two clients joining
 concurrently through separate `roster()` + `tryAdd()` calls could each snapshot before either
 had added itself, and neither would ever learn about the other — which, since the core now
@@ -118,13 +118,16 @@ drops state from unrostered ids (section 3), means a permanently invisible peer 
 cosmetic gap.
 
 **Welcome, then announce.** `welcome` goes to the joiner with its id, the pre-join roster, and
-the room's `send_hz` (`relay.go:771`); a `join` goes to everyone else via
-`allExcept` (`relay.go:779`). Order matters — the joiner learns the room from its own
-`welcome`, the room learns the joiner from the `join`.
+the room's `send_hz` (`relay.go:784`); a `join` goes to everyone else via
+`Forward` to that same `rosterBeforeJoin` snapshot (`relay.go:805`) — not to whoever happens to
+be a member by the time the broadcast runs, which CI's race job caught 2026-08-16 delivering a
+duplicate, late `join` for a player the newcomer's own `welcome` roster had already named. Order
+matters — the joiner learns the room from its own `welcome`, the room learns the joiner from the
+`join`.
 
 **Steady state.** Section 3.
 
-**Leave.** `OnDisconnect` (`relay.go:603`) stops the hello timer, removes the member, releases
+**Leave.** `OnDisconnect` (`relay.go:614`) stops the hello timer, removes the member, releases
 the slot, forwards a `leave` to the remaining roster, and drops the room if it is now empty.
 There is no session resumption anywhere: a reconnect is a new connection with a new
 `player_id`, full stop. That single fact is why `queryTransports` on the client side goes out
@@ -136,34 +139,34 @@ watch this one leave and rejoin.
 Adapter → bridge → core → relay → other cores → their adapters. What happens at each hop:
 
 **Adapter → core.** Once per game frame the adapter sends a bridge `local_state`
-(`bridge.go:71`). `handleBridgeConn` (`core.go:863`) decodes it and calls `onAdapterFrame`
-(`core.go:941`). The adapter always drives; the core never calls into it uninvited.
+(`bridge.go:106`). `handleBridgeConn` (`core.go:905`) decodes it and calls `onAdapterFrame`
+(`core.go:1018`). The adapter always drives; the core never calls into it uninvited.
 
-**Core → relay.** `forwardLocalState` (`core.go:1023`) does four things worth knowing:
+**Core → relay.** `forwardLocalState` (`core.go:1100`) does four things worth knowing:
 
 - It records `c.localAreaID` on *every* real frame, before any throttling and whether or not a
   relay connection even exists — the cross-area render filter needs the adapter's actual
   current area, not the last one that happened to get sent.
-- It throttles to `effectiveSendInterval()` (`core.go:1000`), which is the **slower** of the
+- It throttles to `effectiveSendInterval()` (`core.go:1077`), which is the **slower** of the
   relay's advertised rate and this core's own `MinSendInterval`, falling back to
   `DefaultMinSendInterval` (50ms/20Hz) when neither exists. Slower, always: the relay's rate is
   prescriptive for a client with no opinion, but a client that deliberately configured a floor
   did so because of its own connection, and the relay has no business overriding that upward.
 - A throttled frame is dropped *before* being stamped, so it never consumes a `seq`.
-- `sendState` (`core.go:1306`) uses `SendUnreliable`, not `Send`. This is the state plane,
+- `sendState` (`core.go:1383`) uses `SendUnreliable`, not `Send`. This is the state plane,
   which the contract defines as lossy and latest-wins. On tcp there is no difference at all; on
   a datagram transport it means a lost sample is superseded by the next one ~50ms later rather
   than retransmitted — and a retransmitted position arrives stale and out of order, which is
   worse than the gap it filled.
 
-**At the relay.** The `TypeState` case (`relay.go:785`): decode, `protocol.ValidateState`
+**At the relay.** The `TypeState` case (`relay.go:811`): decode, `protocol.ValidateState`
 (`protocol/limits.go:166`) — drop the whole message rather than truncate it, so a client sees
 silence instead of a confusing half-message — then **stamp `st.PlayerID = id` from the
-connection's own assigned id** (`relay.go:802`), never trusting the payload's. A peer could
+connection's own assigned id** (`relay.go:828`), never trusting the payload's. A peer could
 otherwise claim someone else's id. Then
-`r.ForwardUnreliable(stateEnv, r.stateRecipients(id, time.Now()))` (`relay.go:807`).
+`r.ForwardUnreliable(stateEnv, r.stateRecipients(id, time.Now()))` (`relay.go:833`).
 
-**The per-recipient receive cap.** `stateRecipients` (`relay.go:265`) asks each *other* member
+**The per-recipient receive cap.** `stateRecipients` (`relay.go:263`) asks each *other* member
 whether it currently wants a sample from this sender, via `Client.allowStateFrom`
 (`relay.go:73`). The cap is per-recipient and per-sender: two recipients can receive the same
 sender at two different effective rates simultaneously, decided entirely by each recipient's
@@ -178,7 +181,7 @@ Note `allowStateFrom` is a minimum-interval gate, not a token bucket, so the ach
 quantized: a 15Hz cap against a 20Hz sender yields 10Hz, not 15. Documented at the function,
 and acceptable for the same "it's cosmetic" reason.
 
-**Receiving core.** `handleRelayMessage` (`core.go:683`) → `storeRemoteState` (`core.go:773`),
+**Receiving core.** `handleRelayMessage` (`core.go:709`) → `storeRemoteState` (`core.go:815`),
 which applies the *same* `protocol.ValidateState`, ignores state for its own id, and then
 checks `c.roster` — the set of ids this core actually saw announced via `welcome` or `join`.
 A state for an id it never saw is dropped. That is a deliberate trust boundary against the
@@ -187,9 +190,9 @@ state was accepted, so a hostile or compromised relay could inject state for an 
 player. Surviving states are appended to that remote's `remoteBuffer` (`interp.go:13`), which
 keeps the last 8 snapshots — enough to smooth a couple of dropped packets, not a replay log.
 
-**Core → adapter.** Every adapter frame, `tickRenders` (`core.go:1068`) computes
+**Core → adapter.** Every adapter frame, `tickRenders` (`core.go:1145`) computes
 `renderTime = now - InterpolationDelay` (100ms by default) and asks `remoteStatesAt`
-(`core.go:832`) for each remote's state at that moment. `remoteBuffer.at` (`interp.go:36`)
+(`core.go:874`) for each remote's state at that moment. `remoteBuffer.at` (`interp.go:36`)
 finds the two snapshots bracketing `renderTime` and lerps position between them; `area_id`,
 `anim`, `orientation` and `extras` are opaque and are never interpolated — they're taken from
 the older snapshot and hold until the next real sample passes. Outside the buffered range it
@@ -211,19 +214,19 @@ game is exactly the leak the core/adapter split exists to prevent.
 ## 4. Rooms and membership
 
 A room is created lazily by the first `hello` that names it and destroyed by `dropIfEmpty`
-(`relay.go:514`) when its last member leaves, so abandoned rooms don't accumulate for the life
+(`relay.go:512`) when its last member leaves, so abandoned rooms don't accumulate for the life
 of the process.
 
 `game_id` and `game_version` are **sticky on first join**. The room takes both from whoever
-created it (`newRoom`, `relay.go:101`); a later `hello` with a different `game_id` is refused
+created it (`newRoom`, `relay.go:113`); a later `hello` with a different `game_id` is refused
 with `ReasonGameMismatch`. `game_version` is checked only when *both* the room and the joiner
-have declared one (`relay.go:506`) — an adapter that reports no version must never be refused,
+have declared one (`relay.go:504`) — an adapter that reports no version must never be refused,
 and a room whose first member reported none simply has no version to compare against yet. This
 is server-wide `only_game`'s counterpart, not its duplicate: `only_game` is one operator
 decision covering the whole relay, room stickiness is per room and emergent.
 
-`player_id` is a per-process monotonic counter (`relay.go:524`), never reused. Never reusing
-matters beyond hygiene: `Client.forgetSender` (`relay.go:95`) exists precisely because ids are
+`player_id` is a per-process monotonic counter (`relay.go:522`), never reused. Never reusing
+matters beyond hygiene: `Client.forgetSender` (`relay.go:107`) exists precisely because ids are
 unique forever, so without purging a departed sender's entry from every remaining member's
 receive gate, a long-lived relay with real churn would accumulate one stale map entry per
 departed player, per surviving player.
@@ -239,11 +242,11 @@ This is the subtlest part of the relay, and most of it is an argument for why th
 little locking.
 
 **One goroutine per connection, and `OnReceive` is serial.** `transport.readLoop`
-(`transport.go:216`) reads lines from one connection on one goroutine and calls `onReceive`
+(`transport.go:217`) reads lines from one connection on one goroutine and calls `onReceive`
 inline, one at a time. So everything reachable only from inside `handleConn`'s `OnReceive`
 callback is single-threaded by construction and needs no mutex: `rateWindow`/`rateCount`
-(`relay.go:558`), `loopbackGhostSent` (`relay.go:566`), the resolved `sendHz`/`msgLimit`. The
-comment at `relay.go:551` records that a `rateMu` guarding the rate counters was *removed* in a
+(`relay.go:569`), `loopbackGhostSent` (`relay.go:577`), the resolved `sendHz`/`msgLimit`. The
+comment at `relay.go:562` records that a `rateMu` guarding the rate counters was *removed* in a
 review as genuinely unnecessary rather than kept as defence in depth — that's the intended
 posture. `room`/`playerID` are the exception within `handleConn`, guarded by a local `mu`,
 because the hello timer's separate `AfterFunc` goroutine reads `room` too (`relay.go:589`).
@@ -254,7 +257,7 @@ handing out ordinary `net.Conn`s, so the per-connection-goroutine model survives
 none of this concurrency needed re-auditing. Both package docs say so explicitly
 (`netx.go:1`, `udpconn.go:1`).
 
-**`Client.gateMu` is the one real exception** (`relay.go:57`). `lastStateTo` maps a *sender's*
+**`Client.gateMu` is the one real exception** (`relay.go:62`). `lastStateTo` maps a *sender's*
 id to the last time that sender's state was forwarded *to this client*. It is per-recipient,
 but it is read and written from the *sender's* `OnReceive` goroutine — so every other member of
 the room can touch one recipient's gate concurrently. That breaks the "serial, so no lock"
@@ -262,44 +265,44 @@ invariant and nothing else in `Client` does; hence a mutex on exactly that field
 else. `maxReceiveHz` sits next to it unguarded, because it's written once before the `Client` is
 published into `Room.members` and never mutated after.
 
-**`Room.Forward` snapshots targets before sending** (`relay.go:150-157`). It copies the
+**`Room.Forward` snapshots targets before sending** (`relay.go:149-157`). It copies the
 recipient `(id, conn)` pairs under `r.mu`, releases the lock, and only then sends. This used to
 send while holding the lock for the whole loop. Once `Send` gained a write deadline and could
 legitimately block for seconds against a stalled peer (`DefaultWriteTimeout`, 10s,
-`transport.go:51`), holding `r.mu` across every recipient's `Send` meant **one stalled member
+`transport.go:52`), holding `r.mu` across every recipient's `Send` meant **one stalled member
 could freeze every other room operation** — joins, leaves, roster reads, other forwards — for
-the same duration. The same snapshot-then-act shape appears in `Room.remove` (`relay.go:203`,
-purging receive gates after unlocking) and `stateRecipients` (`relay.go:265`, consulting each
+the same duration. The same snapshot-then-act shape appears in `Room.remove` (`relay.go:215`,
+purging receive gates after unlocking) and `stateRecipients` (`relay.go:263`, consulting each
 recipient's gate after unlocking), which also keeps `r.mu` and `gateMu` from ever nesting.
 
 `Forward` vs `ForwardUnreliable` are separate methods rather than one method with a flag
-(`relay.go:110`, `relay.go:124`) so that a caller who forgets which it wanted gets the safe
+(`relay.go:122`, `relay.go:136`) so that a caller who forgets which it wanted gets the safe
 one. Same reasoning as `Transport.Send` being reliable everywhere: reliability is opt-*out*.
 
 **On the core side**, `Core.mu` guards the remote map, roster, `localAreaID`, send-throttle
 state, and the relay identity fields; `relayConnectMu` separately serialises dial attempts so a
 retry loop and a real adapter's bridge `hello` can't race into two simultaneous connects
-(`core.go:554`). The `OnDisconnect` handler at `core.go:418` checks `c.relay == conn` before
+(`core.go:580`). The `OnDisconnect` handler at `core.go:436` checks `c.relay == conn` before
 clearing anything, so a stale connection's late callback can't wipe a newer live one's state.
 
-**In `internal/transport`**, `deliverMu` (`transport.go:147`) serialises actual callback
+**In `internal/transport`**, `deliverMu` (`transport.go:148`) serialises actual callback
 delivery, distinct from `cbMu` which only guards the callback *fields*. It exists because of
-`pending` (`transport.go:158`): `FromConn` starts the read loop before returning, so every
+`pending` (`transport.go:159`): `FromConn` starts the read loop before returning, so every
 caller has a window between "connection exists" and "callback installed", and a message landing
 in it used to be dropped silently. That was not theoretical — the relay installs its callback
 after `FromConnWithLimits`, so a fast-enough client `hello` would never be welcomed. It surfaced
 as `go test ./...` failing in ~9 of 12 runs, a different test each time, always a timeout on a
-message that was sent and never delivered. `OnReceive` (`transport.go:386`) now flushes the
+message that was sent and never delivered. `OnReceive` (`transport.go:403`) now flushes the
 backlog in arrival order under `deliverMu`, so the read loop can't interleave a newer payload
 into the middle of it.
 
 ## 6. Transports
 
 **The handshake is always tcp, and no setting changes that.** `Core.Transport` is not "how to
-connect" — it is "what to move to *once* connected". `resolveTransport` (`core.go:1152`) states
+connect" — it is "what to move to *once* connected". `resolveTransport` (`core.go:1229`) states
 this at length and is worth reading directly. A `tcp` preference short-circuits immediately
 (there's nothing to upgrade to, and asking would cost a round trip to learn nothing); anything
-else runs `queryTransports` (`core.go:1175`) first.
+else runs `queryTransports` (`core.go:1252`) first.
 
 That inversion buys three things at once:
 
@@ -318,7 +321,7 @@ joining is the whole point (see section 2's note on session resumption). It retu
 itself, so it's passed up; everything else (an old relay, a refused room code, a malformed
 answer) yields "nothing to upgrade to" and lets the real connect attempt surface the real
 problem with its real reason. An older relay that doesn't know `query_only` treats the message
-as a real join and replies `welcome`; `core.go:1224` recognises that, logs it, and falls back
+as a real join and replies `welcome`; `core.go:1301` recognises that, logs it, and falls back
 to tcp. That costs one spurious join/leave against pre-2026-08-16 relays only, and is the price
 of the field being additive rather than a version bump.
 
@@ -330,9 +333,9 @@ for quic must never silently land on udp, which would swap an encrypted session 
 cannot be encrypted at all. Only `auto` ranks, over `netx.AutoPreference` (`netx.go:75`):
 QUIC, TCP, UDP — **udp last deliberately**, even though it shares QUIC's loss behaviour.
 
-On the relay side, `cmd/meshghost-relay/main.go:260` opens one listener per selected transport,
+On the relay side, `cmd/meshghost-relay/main.go:373` opens one listener per selected transport,
 all feeding the same `Server`, and builds the offer list from the listeners that actually came
-up rather than the configured list (`main.go:279`) so a transport that failed to bind is never
+up rather than the configured list (`main.go:392`) so a transport that failed to bind is never
 advertised. `netx.ParseKinds` (`netx.go:102`) silently *prepends* tcp if the operator left it
 out (`netx.go:136`), because a relay without tcp would be unreachable by every client —
 including ones configured for the transports it does serve. That was found by `internal/e2e`,
@@ -353,23 +356,26 @@ The three implementations:
 - **tcp** — `net.Listen`/`net.DialTimeout`, plain NDJSON over a stream. Readable with netcat.
   `SendUnreliable` is exactly `Send`.
 - **udp** (`internal/netx/udpconn`) — one shared socket presented as a `net.Listener`,
-  demultiplexed by remote address. One datagram carries exactly one NDJSON line. Control
-  datagrams are marked by a leading `0xFF`, which can neither start a JSON object nor be a legal
-  UTF-8 lead byte, so data and control can never be confused (`udpconn.go:87`). Admission
+  demultiplexed by remote address. One datagram carries exactly one NDJSON line. *Every*
+  datagram — payload as much as control — is framed with a leading `0xFF` plus a type byte,
+  which can neither start a JSON object nor be a legal UTF-8 lead byte, so data and control can
+  never be confused and an unframed datagram is simply dropped (`udpconn.go:87`). Payloads were
+  bare NDJSON lines once, which was greppable but became untenable when the token below turned
+  mandatory: an unwrapped datagram would have been a way to not carry it. Admission
   requires echoing back a **derived, not stored** cookie — `HMAC(secret, addr || timeSlot)`,
   checked against the current and previous slot (`cookieFor`/`validCookie`,
-  `udpconn.go:169`/`184`). Deriving is the point: a table of unvalidated addresses would itself
+  `udpconn.go:178`/`193`). Deriving is the point: a table of unvalidated addresses would itself
   be the vulnerability, one map entry per forged hello, unbounded memory an unauthenticated
   stranger controls. Same trick as a TCP SYN cookie or QUIC's Retry packet. After admission,
   every application datagram must carry an unpredictable 8-byte **per-connection token**
   (`udpconn.go:125`), because address validation only gates admission — without the token, a
   connection is identified by source address alone and anyone who can guess a client's ip:port
-  can inject into its session. `Write` (`udpconn.go:294`) is reliable **and ordered** via sequence
+  can inject into its session. `Write` (`udpconn.go:325`) is reliable **and ordered** via sequence
   numbers, acks, a retry loop, and a receive-side reorder window (`reorderWindow`, 64) — ordering
   added 2026-08-16, and `internal/core` now depends on it rather than merely on delivery. It does
   not block waiting for the ack (blocking would stall the relay's forward loop for every other
   recipient behind one slow peer). `WriteUnreliable`
-  (`udpconn.go:332`) is a bare token-prefixed datagram, sent once. `MaxDatagramBytes` is 1200
+  (`udpconn.go:363`) is one framed, token-carrying datagram, sent once. `MaxDatagramBytes` is 1200
   (`udpconn.go:148`) — below the Ethernet MTU, because a datagram large enough to fragment is
   lost whole when any one fragment is lost.
 - **quic** (`internal/netx/quicconn`) — one bidirectional stream plus datagrams. `Send` goes to
@@ -380,17 +386,17 @@ The three implementations:
   (`streamLoop`, `quicconn.go:169`) — merging naively would splice a datagram into the middle
   of a half-delivered line and produce something no parser can recover. The handshake *is* TLS
   1.3, so the session is encrypted with no configuration; the certificate is self-signed and
-  in-memory and the client sets `InsecureSkipVerify` (`quicconn.go:117`) because `connect_to` is
+  in-memory and the client sets `InsecureSkipVerify` (`quicconn.go:125`) because `connect_to` is
   a bare IP with no CA and no hostname to check. That is encryption against someone watching the
   network, not proof of who is on the other end — see `internal/README.md`.
 
 The seam between "reliable" and "lossy" is a **type assertion**, not a field:
-`NDJSONConn.SendUnreliable` (`transport.go:346`) checks whether its `net.Conn` implements
-`unreliableWriter` (`transport.go:377`) and falls back to `Send` if not. That's how
+`NDJSONConn.SendUnreliable` (`transport.go:363`) checks whether its `net.Conn` implements
+`unreliableWriter` (`transport.go:394`) and falls back to `Send` if not. That's how
 `internal/transport` keeps its no-internal-dependencies property — it must not import
 `internal/netx` — while a `net.Conn` that knows nothing about any of this still works.
 
-One framing detail with teeth: `Send` (`transport.go:302`) joins payload and `'\n'` into **one**
+One framing detail with teeth: `Send` (`transport.go:319`) joins payload and `'\n'` into **one**
 `Write`. Over TCP the split was invisible, since the kernel coalesces a byte stream either way.
 On a datagram transport, two writes are two datagrams and every line arrives cut in half. There
 is a regression test for exactly this.
@@ -402,11 +408,11 @@ are `internal/relay/limits.go` and `internal/protocol/limits.go`. What matters h
 happens when each one trips*.
 
 - **Line length** — `protocol.MaxLineBytes` (4096) is enforced *during* the read, as
-  `bufio.Scanner`'s max token size (`transport.go:228-233`), not as a check on an
+  `bufio.Scanner`'s max token size (`transport.go:229-234`), not as a check on an
   already-buffered line. The earlier `ReadBytes` approach grew its buffer without bound until it
   found a newline, so a peer streaming bytes with no newline could force unbounded memory
-  growth. Trips → the read loop fails, `fail` (`transport.go:278`) reports and closes.
-- **Flood cap** — a tumbling one-second window at `relay.go:629`. Over
+  growth. Trips → the read loop fails, `fail` (`transport.go:279`) reports and closes.
+- **Flood cap** — a tumbling one-second window at `relay.go:641`. Over
   `max(120, send_hz × 6)` (`MaxMessagesPerSecondFor`, `relay/limits.go:104`) the relay sends a
   `reject` with `ReasonRateLimited` and **closes**, rather than silently dropping the excess: a
   client flooding the relay isn't behaving as this project's own adapters do, and there's
@@ -419,18 +425,18 @@ happens when each one trips*.
   someone may leave.
 - **Hello timeout** — 10s (section 2). Trips → logged and closed, no reject (there is no
   established protocol conversation to reject *within*).
-- **Idle timeout** — `DefaultIdleTimeout` (60s, `transport.go:44`), refreshed after every
-  complete line. This is what makes `Core.sendHeartbeats` (`core.go:1094`) necessary: a core
+- **Idle timeout** — `DefaultIdleTimeout` (60s, `transport.go:45`), refreshed after every
+  complete line. This is what makes `Core.sendHeartbeats` (`core.go:1171`) necessary: a core
   with no adapter attached sends nothing at all, got closed as idle, and the auto-reconnect
   handed out a fresh `player_id` every cycle — which every other peer saw as a despawn/respawn
   once a minute. The 20s `ping` exists only to keep the connection non-idle. It is **not**
   liveness detection; nothing reads the `pong` back.
-- **Write timeout** — `DefaultWriteTimeout` (10s, `transport.go:51`). Bounds one `Send` so a
+- **Write timeout** — `DefaultWriteTimeout` (10s, `transport.go:52`). Bounds one `Send` so a
   peer that stops reading can't block the writer forever. `Room.Forward` depends on this
   returning in bounded time (section 5).
 - **Datagram size** — `udpconn.MaxDatagramBytes` (1200) is *below* `MaxLineBytes` (4096), so a
   state message with large `extras` can exceed it. That is **refused with an error**
-  (`ErrDatagramTooLarge`, `udpconn.go:162`), never truncated — a half-written JSON line is a
+  (`ErrDatagramTooLarge`, `udpconn.go:171`), never truncated — a half-written JSON line is a
   parse error at the far end with no clue why. Such a client should use tcp.
 - **Read queue** — 64 datagrams per connection (`udpconn.go:155`, `quicconn.go:81`), dropped
   when full rather than blocked. Blocking would let one slow reader stall the demultiplexer for
@@ -459,7 +465,7 @@ mode of every one of these is a slightly less smooth ghost, not a wrong one.
 - **It never calls `RemoteAddr()`.** `internal/relay` and `internal/core` contain no call site
   (the only definitions are the `net.Conn` methods `udpconn`/`quicconn` must implement). One
   nuance worth knowing on udp specifically: `udpconn.Listener` necessarily *keys* its connection
-  map by `remote.String()` (`udpconn.go:614`), because that is how a shared socket is
+  map by `remote.String()` (`udpconn.go:703`), because that is how a shared socket is
   demultiplexed at all — the address is used internally, just never surfaced upward or logged.
   Whether that matters is a question for [`internal/README.md`](README.md), which is the
   authority on privacy posture.

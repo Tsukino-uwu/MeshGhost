@@ -21,7 +21,8 @@ anything — do not hardcode it.** Two copies of the same game on one machine is
 in this repo got tested, and two instances sharing one default port fail silently, with both
 logging a normal "connected" line: it cost a full debugging session once
 (`dev-scripts/README.md`). Emerald uses `MESHGHOST_BRIDGE_PORT`, TEVI a BepInEx `BridgePort`
-entry. Log the port you actually resolved when you connect.
+entry; Pseudoregalia walks a small range instead of taking one port, which is the better shape and
+is described below. Log the port you actually resolved when you connect.
 
 The very first message on a fresh bridge connection, before any `local_state`:
 
@@ -47,6 +48,83 @@ at), and an adapter-script version is the more useful signal anyway: it catches 
 running different revisions of *this adapter*, the most likely real source of a silent protocol
 mismatch. Leave it empty (or omit the field) if you have no version concept at all — an empty
 `game_version` is never treated as a mismatch against a room that already has one declared.
+
+### Every `hello` is answered — `bridge_ready` or `reject`
+
+Added 2026-08-16 (`internal/bridge/bridge.go`, ADR in `agent_docs/architecture.md`). The core
+replies with exactly one of:
+
+| Message | Meaning |
+| --- | --- |
+| `{"type":"bridge_ready","payload":{}}` | accepted; this core is yours |
+| `{"type":"reject","payload":{"reason":"..."}}` | not available — the core closes immediately after |
+
+`reason` is for your log, **not for branching on**: the correct response to any rejection is the
+same one, which is to try the next port.
+
+**Silence is not acceptance, and this is the trap worth taking on faith.** Before the ack existed,
+an adapter could only infer success from the absence of a hangup — indistinguishable from a core
+still binding its port, from a crashed core, or from an unrelated program holding a port in your
+range. **An adapter that gets neither answer within a short window (Pseudoregalia allows 1.5s) must
+drop that socket and move on**, not assume it worked. This shipped the other way round for one
+build, treating silence as an old core and committing to it, and a test that squats a port with a
+listener that never speaks (`internal/e2e`'s `TestPortWalkFindsAFreeCore`) showed the trade was
+backwards: skipping a core that is merely old costs nothing, because you then start your own on a
+free port and everything works, while committing to a squatter costs the whole session.
+
+### One core per adapter, so walk a range rather than taking one port
+
+**A core serves exactly one adapter at a time** (`agent_docs/contract.md`) — a second bridge
+connection is answered with `reject` and closed. This is enforced because it was not, and the gap
+was not theoretical: two adapters on the *same* `game_id` were both accepted and then shared one
+relay session, fighting over one `player_id`, one `seq`, one send-rate budget and one `area_id`,
+with both sides logging a normal connect. Two copies of one game on one machine is a normal thing
+to do — it is how most adapters here were tested.
+
+So the shape to copy is a **port walk**: probe `7778` upward across a small range (Pseudoregalia
+sweeps 8 ports) and take the first core that answers `bridge_ready`. Three things it got wrong
+first:
+
+- **Sweep the whole range per cooldown, not one port per cooldown.** Each candidate costs a couple
+  of milliseconds, so a full sweep still fits inside a frame — whereas one port per 2s reconnect
+  interval takes 16 seconds to find a free core eight ports up.
+- **Remember a port that said `reject`, and skip it for a while** (Pseudoregalia: 10s). It is a
+  live core that simply is not yours; re-probing it every sweep is noise.
+- **Log which port you landed on.** With a walk, "connected" no longer implies a known port, and
+  the port is the first thing you need when two instances behave as one.
+
+### Starting a core yourself (autostart)
+
+**An adapter MAY start its own local core process** (added 2026-08-16, ADR in
+`agent_docs/architecture.md`) — hang it off the connect-failure path, so a core that is already
+running is *found and reused*, never duplicated. That is a lifecycle act, not a protocol one, and
+the bridge invariant is unchanged by it. Three rules, each of which is the whole point:
+
+- **Pass no relay settings. Ever.** Not the address, not the transport, not the rate. `-relay` on
+  the command line would be the obvious implementation and would break the contract's "an adapter
+  has no say in how the core reaches the relay" — the same shape as a rejected `preferred_transport`
+  bridge field. Set the child's **working directory** instead, and it reads its own `config.json`
+  there exactly as if a human had launched it in that folder. The only arguments that are yours to
+  pass are ones that were already your business: your bridge port, and a pid for the core to exit
+  with.
+- **Only ever stop a core you started yourself.** One you merely found belongs to whoever started
+  it. For the same reason, spawn on the lowest port that had *nothing listening*, never on one that
+  answered and said it was busy.
+- **Give the user an escape hatch and expect antivirus trouble.** A game mod silently starting an
+  unsigned exe is the literal shape of a dropper. `MESHGHOST_NO_AUTOSTART` skips the spawn, and the
+  manual path stays unchanged. See `agent_docs/risks.md`.
+
+Because the core is then hidden, its log becomes the only channel a remote tester can send back:
+append to it rather than truncating, and say which `config.json` was actually loaded.
+
+### The bridge is always loopback TCP, whatever the relay is doing
+
+The relay connection is selectable (`tcp`, `udp`, `quic`) and, since 2026-08-16, defaults to
+**quic** — every connection still handshakes over tcp and only then upgrades, and quic shares the
+relay's own port number so hosting means forwarding one port. **None of that reaches an adapter.**
+The bridge is loopback TCP NDJSON in every configuration, and nothing you send across it may
+influence which transport the core picks. If a new game seems to want one, that is shipped
+configuration on the core side, never a bridge field.
 
 ## The three functions
 
@@ -117,10 +195,16 @@ loop, once per real game frame:
 
     if not connected to bridge:
         if at least ~2s since the last attempt:      # NOT every frame — see below
-            try to connect (non-blocking)
-            on success: clear the remote-ghost map, then send hello(game_id)
+            sweep the port range (non-blocking connects), taking the first that accepts
+            on connect: clear the remote-ghost map, then send hello(game_id)
+            if nothing was listening anywhere, optionally start a core yourself
 
-    if connected:
+    else if no bridge_ready yet:
+        drain messages looking for the core's answer
+        on reject, or ~1.5s with no answer at all:
+            drop the socket, mark that port busy, and sweep again next time
+
+    if connected AND the core answered bridge_ready:
         state = get_local_state()
         send local_state(state)               # state may be nil — send it anyway
         drain all buffered render_remote / despawn_remote messages, updating the
@@ -139,7 +223,11 @@ skipped — see `agent_docs/contract.md`'s tick model section for the full reaso
 `adapters/pokemon/emerald/phase3_loopback.lua`'s header for the specific bug this project hit live
 before that rule was written down.
 
-Four things in that loop are there because a shipped adapter got them wrong first:
+Five things in that loop are there because a shipped adapter got them wrong first:
+
+- **Do not start sending `local_state` until `bridge_ready` arrives.** "The socket connected" is
+  not "a core accepted me" — see the handshake section above for what silence actually turns out to
+  be.
 
 - **Throttle reconnects (~2s), don't retry every frame.** A per-frame connect against a dead
   core is on the order of 200 socket create/connect/abort cycles per second. TEVI and
@@ -325,7 +413,9 @@ adapter has a habit of becoming the next bug rather than staying put.
   adapter also does networking off the main thread.
 - `adapters/pseudoregalia/MeshGhostPseudo/Mod/src/BridgeClient.cpp` / `.hpp` and `Plugin.cpp` —
   the same shape again in plain C++/Winsock over a UE4SS mod, no Lua or managed runtime
-  involved. Worth reading for the raw-socket version of the partial-send/partial-receive framing
+  involved. **The only shipped adapter that implements the port walk and the `bridge_ready`
+  handshake**, so read it for those; `CoreLauncher.cpp` beside it is the reference for autostart.
+  Also worth reading for the raw-socket version of the partial-send/partial-receive framing
   concerns this file's tick loop glosses over, and for `Plugin.cpp`'s "move offscreen, never
   destroy" ghost-lifecycle workaround (`agent_docs/pitfalls.md`) if your engine also has no
   reliable runtime actor-destroy call.

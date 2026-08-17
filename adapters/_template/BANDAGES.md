@@ -98,7 +98,11 @@ work*.
 
 **In the code** — the fix *restores*, *forces*, *remembers*, *re-applies*, *clamps back*, or
 *offsets* a value. Also: a value rewritten every tick to keep it; a fallback that continues on data
-it knows is wrong; a constant that appeared during a test session rather than from a capture.
+it knows is wrong; a constant that appeared during a test session rather than from a capture; and
+**a fix applied more broadly than the measurement that justified it** — one layer was measured
+broken, five get forced, and the four nobody looked at are now a second bug wearing the first one's
+clothes (`adapters/tevi/BANDAGES.md`'s open entry, and `agent_docs/pitfalls.md`'s "only reset the
+field actually confirmed broken").
 
 **In the evidence** — you can describe the *symptom* precisely but not the *mechanism*. "The ghost
 sits 43 units too low" is a symptom. "The mesh hangs off the capsule at a fixed offset the crouch
@@ -169,7 +173,9 @@ missing at every other rotation write in the SDK.
 
 Everything below the line goes into a new `adapters/<game>/BANDAGES.md`. Fill in the game name and
 the cross-links; leave the three section headings in place even when empty — an empty register
-says "audited, nothing found", an absent one says nothing at all.
+says "audited, nothing found", an absent one says nothing at all. **Check the relative depth of
+every cross-link**: a franchise-grouped adapter sits one level deeper than the stub assumes
+(`adapters/pokemon/emerald/` needs `../../_template/`, not `../_template/`).
 
 ```markdown
 # Bandages — <Game>

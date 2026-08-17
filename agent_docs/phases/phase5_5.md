@@ -38,6 +38,9 @@ state for dashing at all. So a visually distinct "running pose" is not expected 
 data — what reads as one during real play is most likely the faster cadence plus the camera
 panning faster, not a different sprite; a ghost has no camera of its own to reproduce that
 second part. Not chased further; logged here rather than guessed at again.
+**Disproven the same day by Step 4 below**: real Emerald running does use a genuinely separate pic
+table (`gObjectEventPic_BrendanRunning`/`_MayRunning`) with its own asymmetric timing, confirmed
+live. The paragraph above is kept as the reasoning that was believed at the time.
 
 ## Key research facts (citations, not yet verified — verification happens per task below)
 
