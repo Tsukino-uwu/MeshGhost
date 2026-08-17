@@ -5561,9 +5561,11 @@ in `CLAUDE.md` is filename-only. Append-only means they stay; new entries should
   should not be chased as a sync or adapter bug, and it must not be used to judge whether ghosts
   behave correctly. This applies to the crash recorded above, which was hit immediately after
   exactly such a moment and remains unexplained and not reproducible.
-- Notes: `LOOPBACK_GHOST_OFFSET_Z` already exists as an alternative (vertical separation, currently
-  0.0; tried at 220.0 on 2026-08-15 and reverted for a different reason — pole-orbit comparison).
-  Offsetting UP rather than sideways would keep a self-ghost clear of geometry instead of inside
-  it, and is the obvious candidate if this is worth removing as a confounder. **Not changed**: the
-  sideways offset is what the user finds most useful for spotting things, and swapping it costs a
-  rebuild, a deploy and a session to judge.
+- **The obvious "fix" is rejected, by the user, the same day it was proposed.** Offsetting UP
+  instead (`LOOPBACK_GHOST_OFFSET_Z`, which exists and is 0.0) would keep a self-ghost clear of
+  geometry and remove this confounder — and it is still the wrong trade: *"moving the ghost up/down
+  would only make it worse/harder to spot 1:1 differences."* A sideways offset puts ghost and
+  player side by side **at the same ground level**, which is what makes pose and timing directly
+  comparable; vertical separation puts them at different heights and obscures exactly the
+  differences the rig exists to reveal. The horizontal offset stays as it is. See
+  `adapters/pseudoregalia/BANDAGES.md`'s do-not-fix list.

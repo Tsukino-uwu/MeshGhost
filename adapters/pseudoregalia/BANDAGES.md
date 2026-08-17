@@ -153,6 +153,16 @@ Recorded so a future audit does not churn them.
 
 - **The loopback ghost's sideways offset.** A deliberate render-only displacement so a test ghost
   never overlaps the player. Measured design decision, not a tuned value.
+  **Do not "improve" it into a vertical offset.** `LOOPBACK_GHOST_OFFSET_Z` exists and the idea
+  comes up on its own merits — a sideways offset shifts a valid position without re-grounding it,
+  so over sloped geometry the ghost ends up buried or floating, and since the ghost is a real pawn
+  with collision and the game's own movement running on it, that is a genuine source of oddities
+  (`verified.md`, 2026-08-17). Offsetting up would remove that entirely. **It is still refused**,
+  by the user, for a better reason than the one it solves: side by side **at the same ground
+  level** is what makes pose and timing directly comparable, and vertical separation puts the two
+  at different heights and hides exactly the 1:1 differences the loopback rig exists to reveal.
+  The rig artefact is the accepted cost; judge loopback-only oddities in impossible positions
+  accordingly rather than fixing the offset.
 - **`SLIDE_REFIRE_WINDOW_TICKS`, and keying the slide trail on the capsule shrink.** Both were
   deliberate, and both are now **dormant**: `AFTERIMAGE_TRIGGER_FROM_OBSERVATION` is on, so the
   ghost trails when the game is *seen* to spawn afterimages, and the reconstructed triggers those
