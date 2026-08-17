@@ -145,8 +145,13 @@ end
 -- this one. This gate asks "does the world exist and is it stable", and wMapStatus answers it
 -- alone: HANDLE throughout all movement, ENTER through both door transitions, START before the
 -- world is built. Keep the others as diagnostics; do not gate on them.
+-- REVISED AGAIN 2026-08-18, after a wild battle: wMapStatus stays HANDLE for the whole battle, so
+-- the gate said SPAWN-OK while the player was fighting. wBattleMode is a genuinely independent
+-- signal and has to be its own term -- it could not have been deduced from the map state machine,
+-- which is the argument for walking the entire lifecycle rather than reasoning about it.
 local function would_spawn(v)
 	return v.wMapStatus == 2 -- MAPSTATUS_HANDLE: the world exists and is stable
+		and v.wBattleMode == 0 -- not in a wild or trainer battle
 		and not (v.wMapGroup == 0 and v.wMapNumber == 0)
 		and v.slots > 0 -- the player object exists
 end

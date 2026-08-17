@@ -6268,3 +6268,31 @@ scheduled. All established by the agent with local tools; nothing here is a visu
   a bad write costs a door transition, not a corrupted file. It is also the flip side of the ADR's
   accepted consequence that a ghost must be re-spawned on every map load: the same rebuild that
   cleans up our mistakes also erases our ghosts.
+
+### Crystal: `wMapStatus` stays HANDLE through a battle — the gate needs `wBattleMode` (2026-08-18)
+
+- Date: 2026-08-18
+- Observed: `ingame_gate_probe.lua` running into a wild battle on Route 29:
+
+  ```
+  [SPAWN-OK] f=21430 mapStatus=HANDLE battle=wild map=24/3 structs= 2 mapObjs= 9 (events=0 script=255 paused=0)
+  ```
+
+- Source: live run, `ingame_gate_20260818_003132.log`.
+- Notes: **the gate as previously settled is wrong for battles.** `wMapStatus` remains
+  `MAPSTATUS_HANDLE` for the entire battle, so a gate reading it alone reports `SPAWN-OK` while the
+  player is fighting. `wBattleMode` is an **independent** signal, not derivable from the map state
+  machine, and must be its own term. Gate is now `wMapStatus == HANDLE` **and**
+  `wBattleMode == 0`, plus the map-identity and player-object checks.
+  **This is the second time walking the full lifecycle overturned a gate that looked settled** —
+  the first was `wMapEventStatus`/`wScriptRunning` flickering every step. Neither was deducible by
+  reading; both needed the timeline. `wScriptRunning` also reads `255` during a battle, but it is
+  already known to be unusable as a gate term.
+  **Object structs are NOT wiped on battle entry** — `structs` held at 2 across the transition. Not
+  yet observed: the state after the battle *ends*, which is the half that decides whether a ghost
+  needs re-spawning per encounter.
+- **First outdoor map-object count**: Route 29 (`24/3`) shows **9 map objects in use** of 16,
+  against 4 in the player's house. **Caveat on attribution: `spawn_test3.lua` was running at the
+  same time and injects one map object**, so the real figure is 8 or 9 — good enough to establish
+  that outdoor maps consume roughly half the array and that free slots exist, but it should be
+  re-measured with only one script running before any budget rests on it.
