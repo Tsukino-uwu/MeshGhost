@@ -754,9 +754,33 @@ and the other had a stale assumption nobody had tested. **Know which of those yo
 
 **Find the game's own "I am in play" signal early, gate every spawn and every draw on it, and do
 that before the ghost is otherwise finished.** Menus, title screens, intros, loading steps, warps,
-cutscenes and battles are all states where a peer's ghost must not appear. Every adapter meets
-this; it is one of the most common bugs in the category, and it is far cheaper to build the gate in
-than to retrofit one after a ghost has been seen floating over a title screen.
+cutscenes and battles are all states where a peer's ghost must not appear **on your screen**. Every
+adapter meets this; it is one of the most common bugs in the category, and it is far cheaper to
+build the gate in than to retrofit one after a ghost has been seen floating over a title screen.
+
+> **Two different questions, and this section only answers the first.** They are easy to conflate
+> and the wording above did until it was caught, 2026-08-18:
+>
+> 1. **"*I* am not in the overworld"** — a menu, battle or cutscene on **this** machine. Then no
+>    peer's ghost may be drawn or spawned here, full stop. That is this section.
+> 2. **"*a peer* is not in the overworld"** — they entered a battle or a menu in **their** game.
+>    That is a **design decision, not a safety rule**, and it belongs with the adapter's presence
+>    semantics rather than here. Their ghost is not dangerous; the question is what it should
+>    honestly represent.
+>
+> **Question 2 has a known failure mode already shipped in this repo**, so decide it deliberately:
+> if a peer simply stops sending while unavailable, the last thing you drew stays exactly where it
+> was, forever, looking like a player standing still. That is `status.md`'s TEVI FullMap entry —
+> the marker only refreshes on a `render_remote`, so a peer who stops sending leaves it frozen.
+> **A frozen ghost is a lie about where someone is**, and in a game with frequent multi-minute
+> battles it is a lie told often.
+>
+> Options, none of which is automatically right: keep the ghost where it was (simple, and honest
+> enough if peers stay in the same area), hide it while they are away (truthful, but ghosts
+> flickering in and out is its own annoyance), or keep it and mark it as away — which needs the
+> peer to *say* they are unavailable rather than merely going quiet. **Whichever you choose,
+> "stopped sending" must be distinguishable from "standing still"**, because the two look
+> identical to the receiver and only one of them is true.
 
 **It is not only cosmetic, which is the part that gets underestimated.** In those states the game
 is frequently *rebuilding* the very structures an adapter touches — object tables, sprite slots,
