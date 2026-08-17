@@ -5882,3 +5882,68 @@ seen on screen, and none of it needed the user to watch.
 - Source: `pret/pokecrystal` `ram/wram.asm`.
 - Notes: a structural difference from `pokeemerald`, where reading the C plus a built `.map` were
   both options. For GB titles the build is not optional. Toolchain details in `environment.md`.
+
+## Pokémon Red/Blue, FireRed, Platinum — access-model groundwork (2026-08-17)
+
+Same scoping pass as the Crystal section above, extended to the rest of the user's Pokémon ROMs so
+the facts exist before any of them is picked up. No adapter exists for any of these and none is
+scheduled. All established by the agent with local tools; nothing here is a visual claim.
+
+### Red and Blue: both ROMs match, and one build produces both
+
+- Date: 2026-08-17
+- Observed: the user's `Pokemon - Red Version (USA, Europe) (SGB Enhanced).gb` hashes to
+  `ea9bcae617fdf159b045185467ae58b2e4a48b9a` and `...Blue Version...gb` to
+  `d7037c83e1ae5b39bde3c30787637ba1d4c48ce2`. A single local `make` of `pret/pokered` at `master`
+  produced `pokered.gbc` and `pokeblue.gbc` with exactly those two hashes, and `pokered`'s own
+  `README.md` documents both.
+- Source: `pret/pokered` `README.md` L7-L8; `sha1sum`.
+- Notes: same rgbds v1.0.3 toolchain as pokecrystal, no extra setup. Build ~2 min.
+
+### Red and Blue are byte-identical in RAM — one adapter covers both
+
+- Date: 2026-08-17
+- Observed: comparing `pokered.sym` and `pokeblue.sym` from the verified builds above — of 21,128
+  symbols each, 20,460 are identical and 668 per side differ. Restricting to **WRAM** labels
+  (`00:c***`/`00:d***`), **all 2,624 are identical, with zero differences.** The key four agree
+  exactly: `wCurMap` `00:d35e`, `wYCoord` `00:d361`, `wXCoord` `00:d362`,
+  `wPlayerDirection` `00:d52a`. Also `wSpriteStateData1` `00:c100`, `wWalkCounter` `00:cfc5`,
+  `wPlayerMovingDirection` `00:d528`, `wCurMapHeight`/`wCurMapWidth` `00:d368`/`00:d369`.
+- Source: `pret/pokered` build artifacts `pokered.sym` and `pokeblue.sym`.
+- Notes: **this answers whether Red and Blue need separate handling: for our purposes, no.** The
+  668 differing symbols are all ROM-side (species data, sprites, text) — the parts a *randomizer*
+  cares about and a presence adapter does not. One address table, no per-version branching.
+  Independently corroborated by Archipelago's own structure: `worlds/pokemon_rb` is a single world
+  with logic shared, but ships **two** patch files (`basepatch_red.bsdiff4`,
+  `basepatch_blue.bsdiff4`) — separate ROM patches, shared everything else, exactly the split the
+  symbol diff predicts.
+
+### FireRed: ROM matches, decomp builds byte-identical with the existing agbcc
+
+- Date: 2026-08-17
+- Observed: the user's `1636 - Pokemon Fire Red (U)(Squirrels).gba` hashes to
+  `41cb23d8dccc8ebd7c649cd8fbb58eeace6e2fdc`, which `pokefirered`'s `README.md` documents as its
+  primary target (`pokefirered.gba`). A local build produced that exact hash. `make syms` then
+  produced `pokefirered.sym`; `gPlayerAvatar` is `0x02037078` and `gObjectEvents` is `0x02036e38`.
+- Source: `pret/pokefirered` `README.md` L7; build artifacts `pokefirered.map`/`.sym`.
+- Notes: **needed no new tooling** — the already-built `C:\dev\agbcc` installed into the FireRed
+  tree with its own `install.sh`. Build ~3.5 min with `-j8`. **The addresses differ from Emerald's**
+  (Emerald's `gObjectEvents` is `0x02037350`), so despite both being GBA Pokémon with similar
+  structures, FireRed needs its own table — the symbol names transfer, the addresses do not.
+  `pokefirered` also builds LeafGreen and rev1/switch variants, each with its own hash.
+
+### Platinum: ROM matches the decomp's Rev 1 target, but nothing is built
+
+- Date: 2026-08-17
+- Observed: the user's `Pokemon - Platinum Version (USA) (Rev 1).nds` hashes to
+  `0862ec35b24de5c7e2dcb88c9eea0873110d755c`, which `pokeplatinum`'s `README.md` documents as its
+  **Rev 1** target.
+- Source: `pret/pokeplatinum` `README.md`.
+- Notes: **not built, and it is the only one of the four that cannot be with what is installed.**
+  Its `INSTALL.md` needs `bison flex gcc git make ninja python arm-none-eabi-gcc p7zip libpng`;
+  devkitPro's msys2 supplies the first several from its `msys` repo but has **no mingw64/ucrt64
+  repos**, so `mingw-w64-ucrt-x86_64-arm-none-eabi-gcc` and `mingw-w64-x86_64-libpng` are
+  unavailable there. Needs a standalone MSYS2 or WSL. **Also note `pokeplatinum` describes itself
+  as a WIP decompilation**, unlike the complete-and-matching pokered/pokecrystal/pokeemerald/
+  pokefirered — so symbol coverage may be partial even after a successful build, and that should be
+  checked before assuming a Platinum adapter is a tier-2 lookup.

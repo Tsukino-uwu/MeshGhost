@@ -165,10 +165,35 @@ V1.0 ROM — see `agent_docs/verified.md` for the hashes and the addresses thems
   `f4cd194bdee0d04ca4eac29e09b8e4e9d818c133`. `pokecrystal` also builds V1.1, an Australian
   release and two PS3 VC images, each with a different hash — **addresses do not transfer between
   revisions**.
-- Repo location: **not yet decided.** The scoping build was done in a scratch directory and is
-  disposable. If Crystal becomes real work, the natural home is `C:\dev\pokecrystal`, a sibling of
-  the existing `C:\dev\pokeemerald` and `C:\dev\agbcc` and outside `C:\dev\MeshGhost` for the same
-  reason — keeping unlicensed Nintendo-derived source out of this repo's tree.
+- Repo location: `C:\dev\pokecrystal` — see the shared layout note below.
+
+## Pokémon decomp workspace layout — 2026-08-17
+
+All decomps are **siblings under `C:\dev`, outside `C:\dev\MeshGhost` on purpose**, keeping
+unlicensed Nintendo-derived source out of this repo's tree (`agent_docs/licensing.md`). Placed
+there on the user's explicit instruction, 2026-08-17.
+
+| Path | Game(s) | Toolchain | Built & hash-verified |
+| --- | --- | --- | --- |
+| `C:\dev\pokeemerald` | Emerald | agbcc | yes (2026-08-11) |
+| `C:\dev\pokecrystal` | Crystal | rgbds | yes (2026-08-17) |
+| `C:\dev\pokered` | **Red and Blue both** | rgbds | yes (2026-08-17) |
+| `C:\dev\pokefirered` | FireRed (also builds LeafGreen) | agbcc | yes (2026-08-17) |
+| `C:\dev\agbcc` | — (GBA compiler) | — | prebuilt, shared |
+| `C:\dev\rgbds` | — (GB assembler, v1.0.3) | — | portable, no install |
+
+- **`rgbds` is portable and shared** — unzipped, not installed. Put `C:\dev\rgbds\bin` on `PATH`
+  for a build; it changes nothing globally.
+- **`agbcc` is shared and already built.** To use it for a new GBA decomp, run
+  `./install.sh ../<decomp>` from `C:\dev\agbcc` inside the msys2 shell — it copies into that
+  tree's `tools/agbcc`. Done for pokefirered 2026-08-17; no rebuild of agbcc was needed.
+- **Everything above builds in devkitPro's msys2 shell**, and the wrong-shell trap described in the
+  pokecrystal section applies to all of them equally.
+- Build times with `-j8`: pokered ~2 min, pokecrystal ~1.5 min, pokefirered ~3.5 min.
+- **`pokeplatinum` (Platinum, NDS) is deliberately absent** — it is the one that cannot be built
+  with what is installed. Its deps need a standalone MSYS2 or WSL, since devkitPro's msys2 carries
+  no mingw64/ucrt64 repos. It is also a WIP decompilation rather than a complete one. See
+  `verified.md` for the detail; decide before installing anything for it.
 
 ## Unity / TEVI, UE5 / Pseudoregalia (Phase 6 onward)
 
