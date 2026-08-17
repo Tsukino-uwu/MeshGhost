@@ -236,6 +236,32 @@ Two sub-answers, because the two spawn mechanisms differ:
   not a save-file corruption in the strict sense (nothing here touches SRAM), but it's the same
   category of risk `plans.md`'s no-writes non-goal exists to avoid.
 
+### The question this investigation never asked — raised 2026-08-17, still open
+
+**Can the Lua adapter CALL the game's own spawn function, instead of writing what it would have
+written?** Q6 above goes straight to "direct write, bypassing the template system" and enumerates
+a write set. Nothing in this entry asks whether the function could be invoked — it was treated as
+given that imitation is the only option.
+
+That is the difference between two tiers (see `adapters/_template/README.md`'s create/borrow/draw
+table). Pseudoregalia does not write an actor into memory: it calls the engine's own
+`SpawnActor`/`ProcessEvent` and lets the game do its own writing, which is why it gets animation
+and lifetime for free and why the no-writes rule was never in tension there. Emerald's equivalent
+would be invoking `TrySpawnObjectEvent` — which this entry already identifies as **a generic
+engine function, not Union-Room-specific** — rather than reproducing its effects byte by byte.
+
+**Unknown, and the thing to settle first:** whether BizHawk's Lua API can invoke a GBA ROM
+function safely at all (set up arguments, jump, return, without corrupting the frame the core is
+mid-way through). UE4SS hands us a real call mechanism; BizHawk may simply not have one, in which
+case "imitate the writes" is correct and this entry's recommendation stands unchanged — but it
+would then stand on a *stated capability limit* rather than on an assumption nobody examined.
+
+**Why the framing was wrong to begin with.** This whole entry studies Union Room because it is the
+game's *multiplayer* feature. The user's later observation is the better one: the game spawns the
+player character every time a save loads, so the general mechanism runs constantly and is far
+easier to observe than an obscure link-cable mode. Union Room was a special case of a thing that
+happens every session — the reason to look at it was thematic, not technical.
+
 ### Recommendation
 
 **Do not build a Union-Room-based spawn adapter as currently conceived.** The specific feature
