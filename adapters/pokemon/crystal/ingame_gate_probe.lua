@@ -109,11 +109,19 @@ end
 
 -- The gate this probe exists to validate. Stated here so the log shows what it WOULD have
 -- decided at every moment, which is the only way to tell whether it is right before trusting it.
+--
+-- REVISED 2026-08-18 after the first full run, and the revision is the point of having run it.
+-- The original also required wMapEventStatus == MAPEVENTS_ON and wScriptRunning == 0. Both toggle
+-- on EVERY WALKING STEP: the log flipped between blocked and SPAWN-OK dozens of times while the
+-- player simply walked across a room (events=1 or script=9, with mapStatus steady at HANDLE the
+-- whole time). As a spawn/despawn gate that would have made a ghost flicker once per footstep.
+--
+-- Those two flags answer "is the player free to act right now", which is a real question but NOT
+-- this one. This gate asks "does the world exist and is it stable", and wMapStatus answers it
+-- alone: HANDLE throughout all movement, ENTER through both door transitions, START before the
+-- world is built. Keep the others as diagnostics; do not gate on them.
 local function would_spawn(v)
-	return v.wMapStatus == 2 -- MAPSTATUS_HANDLE: the steady overworld state
-		and v.wMapEventStatus == 0 -- MAPEVENTS_ON: player is free to act
-		and v.wScriptRunning == 0 -- no script or cutscene driving things
-		and v.wGameLogicPaused == 0
+	return v.wMapStatus == 2 -- MAPSTATUS_HANDLE: the world exists and is stable
 		and not (v.wMapGroup == 0 and v.wMapNumber == 0)
 		and v.slots > 0 -- the player object exists
 end

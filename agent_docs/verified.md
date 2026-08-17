@@ -6137,3 +6137,34 @@ scheduled. All established by the agent with local tools; nothing here is a visu
   gate reports during a battle or the START menu. Neither is pass/fail — per
   `adapters/_template/README.md` only the pre-game case is an absolute block, and the rest is a
   per-state design decision.
+
+### Crystal: the gate must be `wMapStatus` ALONE — the other flags flicker every step (2026-08-18)
+
+- Date: 2026-08-18
+- Observed: a full `ingame_gate_probe.lua` run — title screen, save load, walking, downstairs and
+  back up. The proposed gate (`wMapStatus == HANDLE` **and** `wMapEventStatus == MAPEVENTS_ON`
+  **and** `wScriptRunning == 0` …) **flipped between `blocked` and `SPAWN-OK` dozens of times
+  while the player was simply walking across a room**, e.g. f=2545 through f=4360. In every one of
+  those lines `wMapStatus` was steady at `HANDLE`; what changed was `wMapEventStatus` going to `1`
+  (`MAPEVENTS_OFF`) or `wScriptRunning` reading `9`.
+- Source: live run, `ingame_gate_20260818_002003.log` (committed).
+- Notes: **`wMapEventStatus` and `wScriptRunning` toggle on every walking step and must not be used
+  as a spawn gate.** A ghost gated on them would flicker in and out once per footstep. They answer
+  *"is the player free to act right now"* — a real question, and the one Crystal itself uses to
+  decide whether to run map events — but not *"may a ghost exist"*.
+  **`wMapStatus` answers this correctly on its own**, across every state seen:
+  `START` before the world is built, `HANDLE` steady through all movement, `ENTER` through both
+  door transitions. The gate is now `wMapStatus == MAPSTATUS_HANDLE`, plus a map-identity and
+  player-object sanity check.
+  **This is what "log what the gate WOULD have decided" is for.** The composite gate looked
+  perfectly reasonable when written, and reads as *more* careful than the simple one. It was worse,
+  and only a timeline of real play showed it.
+- **Map transition captured, first time.** Leaving the bedroom: `mapStatus` -> `ENTER` with
+  `wScriptRunning` = 5, map identity switching from 24/7 to 24/6 *during* the `ENTER` window, and
+  the object slots repopulating (1 -> 3) before `HANDLE` returns. Returning upstairs mirrored it
+  (24/6 -> 24/7, slots 3 -> 1). **So object state really is rebuilt per map**, confirming the
+  consequence the spawn ADR accepted: a spawned ghost will need re-spawning on every map load, and
+  `ENTER` is the signal to stop trusting anything previously spawned.
+- **Slot budget, two data points:** `PLAYERS_HOUSE_2F` (bedroom) uses 1 of 13; `PLAYERS_HOUSE_1F`
+  (downstairs) uses 3. Still both small indoor maps — a populated outdoor map is untested and is
+  the number that actually constrains the design.

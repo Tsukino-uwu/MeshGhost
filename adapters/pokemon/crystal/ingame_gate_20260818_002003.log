@@ -133,3 +133,45 @@ The 'gate' column is what a spawn guard would decide at that moment.
 [blocked ] f=4060    mapStatus=HANDLE events=0 script=9 paused=0 map=24/7 slots=1
 [SPAWN-OK] f=4065    mapStatus=HANDLE events=0 script=0 paused=0 map=24/7 slots=1
 [blocked ] f=4070    mapStatus=HANDLE events=1 script=0 paused=0 map=24/7 slots=1
+[SPAWN-OK] f=4115    mapStatus=HANDLE events=0 script=0 paused=0 map=24/7 slots=1
+[blocked ] f=4120    mapStatus=HANDLE events=1 script=0 paused=0 map=24/7 slots=1
+[SPAWN-OK] f=4130    mapStatus=HANDLE events=0 script=0 paused=0 map=24/7 slots=1
+[blocked ] f=4135    mapStatus=HANDLE events=1 script=0 paused=0 map=24/7 slots=1
+[SPAWN-OK] f=4150    mapStatus=HANDLE events=0 script=0 paused=0 map=24/7 slots=1
+[blocked ] f=4155    mapStatus=HANDLE events=0 script=9 paused=0 map=24/7 slots=1
+[SPAWN-OK] f=4160    mapStatus=HANDLE events=0 script=0 paused=0 map=24/7 slots=1
+[blocked ] f=4165    mapStatus=HANDLE events=1 script=0 paused=0 map=24/7 slots=1
+[SPAWN-OK] f=4225    mapStatus=HANDLE events=0 script=0 paused=0 map=24/7 slots=1
+[blocked ] f=4230    mapStatus=HANDLE events=1 script=0 paused=0 map=24/7 slots=1
+[SPAWN-OK] f=4240    mapStatus=HANDLE events=0 script=0 paused=0 map=24/7 slots=1
+[blocked ] f=4245    mapStatus=HANDLE events=1 script=0 paused=0 map=24/7 slots=1
+[SPAWN-OK] f=4305    mapStatus=HANDLE events=0 script=0 paused=0 map=24/7 slots=1
+[blocked ] f=4310    mapStatus=HANDLE events=1 script=0 paused=0 map=24/7 slots=1
+[SPAWN-OK] f=4320    mapStatus=HANDLE events=0 script=0 paused=0 map=24/7 slots=1
+[blocked ] f=4340    mapStatus=HANDLE events=0 script=9 paused=0 map=24/7 slots=1
+[SPAWN-OK] f=4345    mapStatus=HANDLE events=0 script=0 paused=0 map=24/7 slots=1
+[blocked ] f=4350    mapStatus=HANDLE events=1 script=0 paused=0 map=24/7 slots=1
+[SPAWN-OK] f=4360    mapStatus=HANDLE events=0 script=0 paused=0 map=24/7 slots=1
+[blocked ] f=6395    mapStatus=HANDLE events=0 script=9 paused=0 map=24/7 slots=1
+[SPAWN-OK] f=6400    mapStatus=HANDLE events=0 script=0 paused=0 map=24/7 slots=1
+[blocked ] f=6405    mapStatus=HANDLE events=1 script=0 paused=0 map=24/7 slots=1
+[SPAWN-OK] f=6435    mapStatus=HANDLE events=0 script=0 paused=0 map=24/7 slots=1
+[blocked ] f=6440    mapStatus=HANDLE events=1 script=0 paused=0 map=24/7 slots=1
+[SPAWN-OK] f=6450    mapStatus=HANDLE events=0 script=0 paused=0 map=24/7 slots=1
+[blocked ] f=6455    mapStatus=HANDLE events=1 script=0 paused=0 map=24/7 slots=1
+[SPAWN-OK] f=6515    mapStatus=HANDLE events=0 script=0 paused=0 map=24/7 slots=1
+[blocked ] f=6520    mapStatus=HANDLE events=1 script=0 paused=0 map=24/7 slots=1
+[blocked ] f=6530    mapStatus=ENTER  events=0 script=5 paused=0 map=24/7 slots=1
+[blocked ] f=6540    mapStatus=ENTER  events=0 script=5 paused=0 map=24/6 slots=1
+[blocked ] f=6555    mapStatus=ENTER  events=0 script=5 paused=0 map=24/6 slots=3
+[SPAWN-OK] f=6565    mapStatus=HANDLE events=0 script=0 paused=0 map=24/6 slots=3
+[blocked ] f=6570    mapStatus=HANDLE events=1 script=0 paused=0 map=24/6 slots=3
+[SPAWN-OK] f=6580    mapStatus=HANDLE events=0 script=0 paused=0 map=24/6 slots=3
+[blocked ] f=6625    mapStatus=HANDLE events=0 script=9 paused=0 map=24/6 slots=3
+[SPAWN-OK] f=6630    mapStatus=HANDLE events=0 script=0 paused=0 map=24/6 slots=3
+[blocked ] f=6635    mapStatus=HANDLE events=1 script=0 paused=0 map=24/6 slots=3
+[blocked ] f=6650    mapStatus=ENTER  events=0 script=5 paused=0 map=24/6 slots=3
+[blocked ] f=6655    mapStatus=ENTER  events=0 script=5 paused=0 map=24/7 slots=1
+[SPAWN-OK] f=6680    mapStatus=HANDLE events=0 script=0 paused=0 map=24/7 slots=1
+[blocked ] f=6685    mapStatus=HANDLE events=1 script=0 paused=0 map=24/7 slots=1
+[SPAWN-OK] f=6700    mapStatus=HANDLE events=0 script=0 paused=0 map=24/7 slots=1
