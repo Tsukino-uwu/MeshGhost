@@ -6538,3 +6538,42 @@ scheduled. All established by the agent with local tools; nothing here is a visu
   value: copying an NPC's tile index would draw that NPC's graphics. Making a ghost look like the
   player requires the player's sprite to have tiles loaded for that map, which is decided at map
   load. That is now the central rendering question for this adapter.
+
+### Crystal: the engine IS driving our object — it was invisible, not unowned (2026-08-18)
+
+- Date: 2026-08-18
+- Observed: `spawn_test5.lua` (NPC template) with an ownership metric that could finally
+  distinguish. **Our object's `STEP_FRAME` advanced on its own: 1 -> 2 -> 3**, across a run in which
+  nothing of ours wrote that field after the initial copy:
+
+  ```
+  f=121  ours: map=7,6 step=1  |  template NPC: map=9,6 step=1
+  f=442  ours: map=7,6 step=2  |  template NPC: map=9,6 step=1
+  f=897  ours: map=7,6 step=3  |  template NPC: map=9,6 step=1
+  ```
+
+- Source: live run, `spawn_test5_*.log`.
+- Notes: **`DoStepsForAllObjects` iterates every object struct with a sprite and calls
+  `HandleObjectStep` on it.** Our object has a sprite, so it is being stepped and animated. **It
+  was never unowned.** Every earlier "the engine is not driving it" conclusion was wrong, and wrong
+  for the same reason three times over: `OBJECT_SPRITE_X`/`Y` were chosen as the ownership signal,
+  and they cannot serve as one — `ApplyBGMapAnchorToObjects` only *adds a delta* to them, which is
+  zero when the camera is still, so a stationary object's screen coordinates hold whether it is
+  driven or not.
+- **The real fault is that the screen coordinates were never initialised.** Adoption does not
+  inherit them; `CopyTempObjectToObjectStruct` **computes** them from the map position
+  (`engine/overworld/player_object.asm`, `.InitYCoord`/`.InitXCoord`):
+
+  ```
+  OBJECT_SPRITE_Y = ((map_y - wYCoord) & $0F) * 16 - wPlayerBGMapOffsetY
+  OBJECT_SPRITE_X = ((map_x - wXCoord) & $0F) * 16 - wPlayerBGMapOffsetX
+  ```
+
+  Masking to the low nibble is what makes it a position *within the visible window*; the BG map
+  offset is the sub-tile scroll. Copying a template's screen coordinates instead put ours at
+  `sprite_y = 176`, below a 144-pixel screen — **invisible, while being perfectly well driven.**
+  `wPlayerBGMapOffsetX`/`Y` are `01:d14c`/`01:d14d`, read on day one and never used until now.
+- **Method note worth more than the finding**: three different metrics were tried before one could
+  separate owned from unowned, and each of the first three had an innocent explanation for its
+  reading. The one that worked was picked by asking *what could only happen if the engine were
+  driving it* — an object nobody drives cannot animate.

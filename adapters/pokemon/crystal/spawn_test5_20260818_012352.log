@@ -1,0 +1,8 @@
+=== MeshGhost Crystal spawn test 5 — NPC as template (WRITES RAM) ===
+ROM guard passed: vanilla Crystal V1.0
+Template: NPC map object 1 -> struct 4 (sprite 16), engine-driven.
+Ours: map object 7 <-> struct 5 at 6,6 (player at 4,6).
+It will look like that NPC, not like you. Appearance is the next problem, not this one.
+>>> WALK AROUND. <<< Watch the two columns below: if ours starts tracking the way the
+NPC does, the engine has taken it.
+  f=121    ours: map=6,6 step=1     |   template NPC: map=9,6 step=1  
