@@ -195,8 +195,9 @@ namespace MeshGhostPseudo
     // the one run that ever posed a ghost (capsule mirror + crouch input + THIS + the base-offset
     // mirror) had all four live. Alone-negative does not mean useless when a system has
     // preconditions -- which is the whole lesson of this investigation.
-    // OFF 2026-08-17, same reason as the input call: redundant once the Timeline drives the pose,
-    // and redundant writers are how a pose lands a frame late.
+    // Was switched OFF 2026-08-17 as redundant once the Timeline drove the pose -- and that is the
+    // stale line, kept only so the reversal is legible: it went straight back ON the same day when
+    // the ghost sank. See the ALL FIVE note above; adapters/pseudoregalia/FLAGS.md is the register.
     constexpr bool GHOST_CROUCH_EVENT_CALL = true;
 
     // **Press the ghost's own crouch button.**
@@ -217,9 +218,10 @@ namespace MeshGhostPseudo
     // Risk, stated plainly: a 48-byte parameter buffer whose layout we do not know, zero-filled.
     // Same risk profile as call_do_wall_run, which worked -- but this one drives INPUT, so watch
     // for a ghost that starts moving under its own power rather than merely posing.
-    // OFF 2026-08-17 once the Timeline drive worked. It was the first thing that ever posed a
-    // ghost, but it is a SECOND author for the same pose and fires on an edge, so it can re-pose a
-    // frame after the curve has already been applied -- the shape of the leftover snap.
+    // Was switched OFF 2026-08-17 once the Timeline drive worked, on the theory that a SECOND author
+    // firing on an edge could re-pose a frame after the curve -- the shape of the leftover snap.
+    // Reverted the same day: with this off the ghost sank. It is the first thing that ever posed a
+    // ghost and it is still required. See the ALL FIVE note above, and FLAGS.md.
     constexpr bool GHOST_CROUCH_INPUT_CALL = true;
 
     // Measured on this build across 692 samples: 65 standing, 22 in a slide or a crouch. Used only
@@ -271,13 +273,16 @@ namespace MeshGhostPseudo
     // If the restore writes our value instead of -66, there is no fight left to lose -- which is
     // also why this is preferred over simply out-writing the reverter every tick, a race that is
     // visibly lost often enough to look worse than the bandage.
-    // OFF 2026-08-17: the restore now comes from the game's own curve, so writing the value the
-    // restore reads is one more author for a number that already has one.
+    // Was switched OFF 2026-08-17 on the reasoning that the restore now comes from the game's own
+    // curve, so writing the value the restore reads is one more author for a number that already
+    // has one. Reverted the same day with the other two: the ghost sank without it. See the ALL
+    // FIVE note above, and FLAGS.md.
     constexpr bool GHOST_BASE_TRANSLATION_OFFSET_MIRROR = true;
 
-    // The +43 render-Z compensation. OFF while GHOST_CAPSULE_MIRROR is being tested: with the
-    // ghost's own capsule the right size, the peer's Z is already correct for it and compensating
-    // on top would float the ghost by exactly the amount it used to sink.
+    // The +43 render-Z compensation. RETIRED 2026-08-17, not merely off-while-testing: the ghost is
+    // now posed by the game's own crouch path, so the peer's Z is already correct and compensating
+    // on top would float the ghost by exactly the amount it used to sink. The block is kept gated
+    // off as an instant revert. See adapters/pseudoregalia/BANDAGES.md and FLAGS.md.
     constexpr bool GHOST_SLIDE_Z_COMP = false;
 
     // Three attempts to give a ghost the peer's slide/crouch pose, all 2026-08-16, all negative.
@@ -5198,14 +5203,17 @@ namespace MeshGhostPseudo
                              owner_obj ? owner_obj->GetFullName() : STR("(none)"),
                              owned_by_ghost ? STR("YES") : STR("no"));
 
-                // Owner is (none) on every one of these rigs -- measured, not assumed -- so
-                // ownership cannot identify them. What CAN: we know exactly when we spawned a
-                // ghost, and every observed steal happens within a few ticks of that, never at any
-                // other time. So the window is the signal, and it is a window we create.
+                // SUPERSEDED, kept because it explains why the window exists at all: the original
+                // finding was that Owner is (none) on every one of these rigs -- measured, not
+                // assumed -- so ownership could not identify them, leaving the spawn window as the
+                // only signal. That was later overturned. The Blueprint property `OwningActor` DOES
+                // resolve the rig to its pawn, so ownership is now the primary test and the window
+                // is only the fallback for a rig that resolves to nothing (see the `reject` line
+                // below, which is the authority on the current rule).
                 //
-                // Deliberately narrow: a handful of ticks after OUR OWN spawn, not a permanent
-                // state. Outside it the game keeps every camera decision it makes, which is the
-                // property the old fight-back lacked.
+                // The window stays deliberately narrow: a handful of ticks after OUR OWN spawn, not
+                // a permanent state. Outside it the game keeps every camera decision it makes,
+                // which is the property the old fight-back lacked.
                 bool inside_ghost_spawn_window = ghost_spawn_camera_guard_tick != 0 &&
                                                  tick_count >= ghost_spawn_camera_guard_tick &&
                                                  tick_count <= ghost_spawn_camera_guard_tick + GHOST_SPAWN_CAMERA_GUARD_TICKS;

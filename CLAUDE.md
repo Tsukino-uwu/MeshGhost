@@ -264,6 +264,10 @@ stays here, its reasoning goes to `agent_docs/`, with a one-line pointer. Full e
 - `agent_docs/bandages-core.md` is the Go side's shipped-compensation register. Each adapter has
   its own `BANDAGES.md` next to its `README.md`; `adapters/_template/BANDAGES.md` holds the
   how-to-tell-a-bandage guide, including the tells that only appear after the fact.
+- Each adapter's `FLAGS.md` is its compile-time flag register — every switch sorted into shipped
+  **behaviour**, **probe** (off, and a probe can break what it measures), or **dormant** negative.
+  **When a flag's comment and its value disagree, the register and the value win.** Flags that only
+  work as a set are marked there; do not switch one off alone.
 - Each adapter's `documentation.md` records **how that GAME works** — per mechanic: the fields, the
   components, what it actually does. **Hard rule: no bandages in it, ever** — only behaviour the
   game itself properly handles, so it reads as a description of the game to someone who has never

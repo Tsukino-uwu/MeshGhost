@@ -6,9 +6,19 @@ game. See `CLAUDE.md` for the full rule; summary:
 - No inferred or speculative values are allowed.
 - Every entry must include a source, such as a memory address, API, or documentation
   reference.
-- This file is append-only and human-gated: an entry goes in only after the user has
-  personally watched the behavior happen. A successful build or a plausible-looking number
-  is not sufficient grounds for an entry. **Append-only means don't rewrite or delete an
+- This file is append-only, and gated on evidence whose standard depends on what is being
+  claimed. There are two tracks, and **every entry must say which one it is**:
+  - **Anything visual or gameplay-facing — how it looks, how it feels, whether it works in
+    the game — is human-gated**: it goes in only after the user has personally watched the
+    behavior happen. This is the whole adapter surface, and the user is the only one who can
+    close it.
+  - **Go-side facts — `internal/`, `cmd/`, the relay, the transports — are agent-confirmed**,
+    established by running the tools (`dev-scripts/run-gotests.bat`, a log line, a console
+    read) and recorded without waiting on the user. That code is deterministic against a
+    contract we own, which is exactly why `CLAUDE.md` separates the three.
+
+  In neither track is a successful build or a plausible-looking number sufficient grounds for
+  an entry. **Append-only means don't rewrite or delete an
   existing entry's original observation** — it does not forbid adding newly confirmed detail
   to an existing entry (e.g. extending it with a later live-confirmed edge case), which has
   happened before (see the TEVI fog-of-war entry's own edit history) and is a legitimate use,

@@ -43,6 +43,10 @@ The counterpart rule for content lives in each file: `BANDAGES.md` for compensat
 - [BANDAGES.md](BANDAGES.md) — the shipped-compensation register, plus the canonical
   how-to-tell-a-bandage guide and the user's standing position that a bandage is a state to leave,
   never a resting place.
+- [FLAGS.md](FLAGS.md) — the compile-time flag register: every switch sorted into shipped
+  **behaviour**, **probe**, or **dormant** negative. Write it once you have more than a handful of
+  flags; Pseudoregalia reached 56 without one and paid for it. It is the tie-breaker when a flag's
+  comment and its value disagree, and the place where flags that only work as a *set* are marked.
 - [PROTOCOL.md](PROTOCOL.md) — the three-function contract (`get_local_state` /
   `render_remote` / `despawn_remote`) and the tick model, written language-agnostically
   (pseudocode, wire envelope examples), because the game it was written for next (TEVI,
@@ -75,6 +79,7 @@ same as any two unrelated games — grouping by franchise just keeps the top lev
 | `README.md` | Immediately — the build story, one numbered step per thing that happened | see "Writing the new adapter's own README" below |
 | `documentation.md` | As soon as you learn how one mechanic works | [documentation.md](documentation.md) |
 | `BANDAGES.md` | The first time you ship a compensation — and it starts empty, not absent | [BANDAGES.md](BANDAGES.md) |
+| `FLAGS.md` | Once you pass a handful of compile-time switches — sooner than feels necessary | [FLAGS.md](FLAGS.md) |
 
 `README.md` and `BANDAGES.md` are expected of every adapter. **`documentation.md` is expected only
 when the game has no readable source of its own** — the same reasoning as the state inventory
