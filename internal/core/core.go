@@ -519,9 +519,17 @@ func (c *Core) ConnectRelay(gameID string) error {
 		// 2026-08-16: it was the one thing this callback did unguarded, so a
 		// stale connection's late OnDisconnect would have wiped the *live*
 		// connection's remotes, despawning and respawning every ghost. No
-		// reachable trigger was found (readLoop fires synchronously on
-		// Close, well before any retry path installs a replacement), so this
-		// is removing an asymmetry, not fixing an observed bug.
+		// reachable trigger was found at the time, so it was recorded as
+		// removing an asymmetry rather than fixing an observed bug.
+		//
+		// The reason then given for it being unreachable — "readLoop fires
+		// synchronously on Close" — is WRONG, and believing it caused a real
+		// bug: readLoop runs on its own goroutine (transport.FromConn starts
+		// it), so Close only unblocks its Scan and this callback lands
+		// whenever that goroutine is next scheduled. See
+		// clearRelayIfCurrent, which exists because ConnectRelay's failure
+		// paths cannot wait for it. The wasCurrent guard is load-bearing,
+		// not tidiness.
 		//
 		// Clear relay identity so a later bridge Hello (the adapter
 		// reconnecting, e.g. relaunching the game) can redial via
@@ -639,15 +647,54 @@ func (c *Core) ConnectRelay(gameID string) error {
 		return nil
 	case r := <-reject:
 		_ = conn.Close()
+		c.clearRelayIfCurrent(conn)
 		return &RejectError{Reason: r.Reason}
 	case <-time.After(timeout):
-		// Close conn so the existing OnDisconnect handler above clears
-		// c.relay/playerID/relayGame — without this, a later
-		// ConnectRelayOnAdapterHello sees c.relay still non-nil with
-		// relayGame=="" and returns "already connected as game ''"
-		// forever, wedging retries. Found in a review pass.
 		_ = conn.Close()
+		c.clearRelayIfCurrent(conn)
 		return fmt.Errorf("core: timed out waiting for welcome from relay")
+	}
+}
+
+// clearRelayIfCurrent drops a half-established relay connection from the
+// Core's state, so a handshake that failed leaves nothing behind that looks
+// like a live session.
+//
+// ConnectRelay assigns c.relay as soon as the dial succeeds, well before it
+// knows whether the relay will answer Welcome or Reject. Both failure paths
+// Close the connection, and this used to be left entirely to the
+// OnDisconnect callback installed above. That callback does NOT run
+// synchronously: Close unblocks readLoop's Scan, but readLoop is a separate
+// goroutine (transport.FromConn starts it), so onDisconnect fires whenever
+// that goroutine is next scheduled. Until it does, c.relay is non-nil while
+// c.relayGame is still "" — and ConnectRelayOnAdapterHello's
+// already-connected guard reads exactly those two fields, so a caller
+// retrying inside that window gets
+//
+//	core: already connected to the relay as game "", cannot also serve "x"
+//
+// instead of the real reject reason, and a permanent rejection stops being
+// reported as one (IsPermanentRejectErr is false for that error, so
+// reconnectWithBackoff keeps dialing something it has already been told is
+// hopeless).
+//
+// Found by CI's race job 2026-08-17 as an intermittent
+// TestConnectRelayOnAdapterHelloCachesPermanentReject failure. The window is
+// normally microseconds, which is why -count=20 locally never reproduced it
+// and the race detector's much slower scheduling did — the same shape as the
+// join-broadcast race recorded in internal/relay/relay.go.
+//
+// Guarded on c.relay == conn so a late call can never clear a NEWER
+// connection's state, matching OnDisconnect's own wasCurrent check. Only
+// c.relay is touched: a handshake that never reached Welcome never set
+// playerID or relayGame, and the retry fields are armed only after a
+// successful ConnectRelayOnAdapterHello, so there is nothing else here to
+// unwind. OnDisconnect still runs afterwards and correctly no-ops.
+func (c *Core) clearRelayIfCurrent(conn transport.Transport) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.relay == conn {
+		c.relay = nil
 	}
 }
 

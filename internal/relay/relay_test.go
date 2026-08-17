@@ -1827,3 +1827,71 @@ func TestRoomDroppedWhileAClientIsJoiningIt(t *testing.T) {
 			"two can never see each other", "x")
 	}
 }
+
+// TestForwardHoldsTrafficUntilWelcomeIsWritten pins the protocol's one
+// ordering guarantee: Welcome is the FIRST message a client receives.
+//
+// handleConn has to add a client to the room before it can send that client's
+// Welcome, because the Welcome carries the roster captured atomically with the
+// add. That leaves a window in which the client is a full room member — and
+// Room.forward, running on some other connection's goroutine, will write to
+// it. If the room's last other occupant leaves in that window, its Leave beats
+// the Welcome onto the socket. internal/core reads its own player_id and
+// roster out of Welcome, so anything arriving first refers to a session the
+// client does not yet believe it has.
+//
+// Checked here at the Room level rather than end to end on purpose: the live
+// version of this needs an unlucky scheduler (CI's race job caught it as an
+// intermittent TestJoinRacingTheLastLeaveIsNotOrphaned failure, "got message
+// type \"leave\", want \"welcome\"", on 2026-08-17). Driving forward and the
+// flush directly makes the same claim without depending on timing at all.
+func TestForwardHoldsTrafficUntilWelcomeIsWritten(t *testing.T) {
+	r := newRoom("emerald", "", "churn", nil)
+	rt := &recordingTransport{}
+	r.tryAdd(&Client{PlayerID: "p1", Conn: rt, holdUntilWelcome: true})
+
+	leave, err := envelope(protocol.TypeLeave, protocol.Leave{PlayerID: "p2"})
+	if err != nil {
+		t.Fatalf("build leave: %v", err)
+	}
+	r.Forward(leave, []string{"p1"})
+
+	if got := rt.received(t); len(got) != 0 {
+		t.Fatalf("a client that has not been sent its Welcome yet received %d message(s) "+
+			"(first type %q); nothing may reach a client ahead of its own Welcome",
+			len(got), got[0].Type)
+	}
+
+	// Lossy state is dropped rather than held: the state plane is
+	// latest-wins by contract, and a joiner is seeded with everyone's
+	// current state separately, so queueing a sample only delivers one that
+	// is already stale.
+	state, err := envelope(protocol.TypeState, protocol.State{AreaID: "a", Position: []float64{1, 2}})
+	if err != nil {
+		t.Fatalf("build state: %v", err)
+	}
+	r.ForwardUnreliable(state, []string{"p1"})
+
+	// Welcome has now been written, so the hold lifts and what was held is
+	// delivered.
+	r.markWelcomedAndFlush("p1")
+
+	got := rt.received(t)
+	if len(got) != 1 {
+		types := make([]string, 0, len(got))
+		for _, e := range got {
+			types = append(types, string(e.Type))
+		}
+		t.Fatalf("after the Welcome the client received %v, want exactly one held leave", types)
+	}
+	if got[0].Type != protocol.TypeLeave {
+		t.Fatalf("held message was %q, want %q", got[0].Type, protocol.TypeLeave)
+	}
+
+	// And the hold is genuinely over — later traffic goes straight through.
+	r.Forward(leave, []string{"p1"})
+	if got := rt.received(t); len(got) != 2 {
+		t.Fatalf("after the flush the client received %d message(s), want 2 — the hold "+
+			"should be released, not permanent", len(got))
+	}
+}

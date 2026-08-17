@@ -985,6 +985,11 @@ func (s *Server) resumeInto(nd transport.Transport, transportName string, r *Roo
 		maxReceiveHz: protocol.ClampReceiveHz(hello.MaxReceiveHz),
 		transport:    transportName,
 		features:     protocol.NormalizeFeatures(hello.Features),
+		// Same window as a fresh join: this Client is published into
+		// r.members below and only then sent its Welcome, so without the
+		// hold a broadcast in between reaches the socket first. See
+		// Client.holdUntilWelcome.
+		holdUntilWelcome: true,
 	}
 
 	r.mu.Lock()
@@ -1014,6 +1019,10 @@ func (s *Server) resumeInto(nd transport.Transport, transportName string, r *Roo
 		Resumed:      true,
 		ServerTimeMs: time.Now().UnixMilli(),
 	})
+
+	// Welcome is on the wire; release the hold and deliver anything the room
+	// produced while this resumption was being wired up.
+	r.markWelcomedAndFlush(sess.playerID)
 
 	// Close the connection being taken over, if it was still open. Its
 	// OnDisconnect then finds r.members[id] is no longer its own Client and

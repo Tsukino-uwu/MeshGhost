@@ -1504,6 +1504,62 @@ func TestConnectRelayOnAdapterHelloCachesPermanentReject(t *testing.T) {
 	}
 }
 
+// TestRejectedConnectLeavesNoRelayBehind pins the invariant that makes the
+// test above reliable: when ConnectRelay returns a rejection, the Core must
+// ALREADY hold no relay connection by the time it returns — not "shortly
+// after, once a goroutine gets scheduled".
+//
+// ConnectRelay assigns c.relay right after the dial, before it knows whether
+// the answer will be Welcome or Reject. The failure paths used to just Close
+// the connection and leave the cleanup to the OnDisconnect callback, which
+// runs on readLoop's own goroutine. In the gap, c.relay is non-nil while
+// c.relayGame is still "", which is precisely the state
+// ConnectRelayOnAdapterHello's already-connected guard reads — so a retry
+// landing in that gap is told it is "already connected to the relay as game
+// \"\"" instead of being given the real, permanent reject reason.
+//
+// Asserted with no sleep and no polling on purpose. A sleep here would pass
+// with or without the fix and prove nothing; checking synchronously is what
+// makes this fail against the unfixed code, where the readLoop goroutine has
+// had no opportunity to run. CI's race job caught the original as an
+// intermittent failure of the test above on 2026-08-17; this is the
+// deterministic version of the same claim.
+func TestRejectedConnectLeavesNoRelayBehind(t *testing.T) {
+	s := relay.NewServer()
+	s.RoomCode = "letmein"
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	defer ln.Close()
+	go s.Serve(ln)
+
+	c := New()
+	c.RelayAddr = ln.Addr().String()
+	c.Room = "room1"
+	c.DisplayName = "alice"
+	c.RoomCode = "wrong-code"
+	c.DialTimeout = testTimeout
+
+	err = c.ConnectRelay("emerald")
+	if err == nil {
+		t.Fatal("expected a rejection for the wrong room code, got nil")
+	}
+	if !IsPermanentRejectErr(err) {
+		t.Fatalf("wrong room code should be a permanent rejection, got: %v", err)
+	}
+
+	c.mu.Lock()
+	leftBehind := c.relay
+	game := c.relayGame
+	c.mu.Unlock()
+	if leftBehind != nil {
+		t.Fatalf("a rejected connect left c.relay set (relayGame=%q); the next "+
+			"ConnectRelayOnAdapterHello would report %q instead of the reject reason",
+			game, "already connected to the relay as game")
+	}
+}
+
 // recordingTransport is a transport.Transport stand-in that records every
 // sent envelope's raw bytes, for tests that need to inspect what was sent
 // (not just count calls, unlike countingTransport above).

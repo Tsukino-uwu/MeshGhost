@@ -176,6 +176,41 @@ type Client struct {
 	// above, because it is flipped after the Client is published.
 	suspended bool
 
+	// holdUntilWelcome reports that this client's own Welcome has not been
+	// written to its connection yet, so nothing may be sent to it before
+	// then; pending holds the reliable messages waiting behind it.
+	//
+	// handleConn adds a client to Room.members (tryAddAndSnapshotRoster) and
+	// only then sends its Welcome, because the Welcome carries the roster
+	// captured atomically with that add. Between those two lines the client
+	// is a full member, so Room.forward — running on some OTHER connection's
+	// goroutine — will happily write to it. If the room's last other occupant
+	// disconnects in that window, its Leave reaches the socket BEFORE the
+	// Welcome, and the protocol's one ordering guarantee ("Welcome is the
+	// first message a client receives") is broken. internal/core reads its
+	// player_id and roster out of Welcome, so anything arriving first refers
+	// to a session the client does not yet believe it has.
+	//
+	// Skipping such a client instead of queueing would be worse than the
+	// race: rosterBeforeJoin is snapshotted at the add, so a Leave that lands
+	// in the window is one the newcomer's roster still contains — drop it and
+	// that peer is a ghost it never despawns.
+	//
+	// Guarded by Room.mu, like suspended, because both are written after the
+	// Client is published into Room.members.
+	//
+	// Deliberately phrased as a HOLD rather than as "welcomed", so the zero
+	// value means "deliver normally". Clients are also built directly in
+	// tests and by the resume path, and none of those owe anyone a Welcome;
+	// a "welcomed bool" would silently hold their traffic forever.
+	// handleConn is the one place that opts in.
+	//
+	// Found by CI's race job 2026-08-17 as an intermittent
+	// TestJoinRacingTheLastLeaveIsNotOrphaned failure ("got message type
+	// \"leave\", want \"welcome\"").
+	holdUntilWelcome bool
+	pending          [][]byte
+
 	// gateMu guards lastStateTo, which maps a *sender's* player_id to the
 	// last time a State from that sender was forwarded *to this client*.
 	// This is the one piece of per-connection state that does not inherit
@@ -289,9 +324,36 @@ func (r *Room) forward(msg protocol.Envelope, to []string, unreliable bool) {
 		// but has no connection to write to — skipped silently rather than
 		// attempted, since a Send against a nil/closed conn would log a
 		// failure per message per second for the whole grace window.
-		if c, ok := r.members[id]; ok && !c.suspended && c.Conn != nil {
-			targets = append(targets, target{id: id, conn: c.Conn})
+		c, ok := r.members[id]
+		if !ok || c.suspended || c.Conn == nil {
+			continue
 		}
+
+		// A member whose Welcome has not been written yet must not be sent
+		// anything ahead of it — see Client.welcomed. Reliable traffic is
+		// held and flushed in order by markWelcomedAndFlush; lossy state is
+		// dropped instead of queued, because the state plane is
+		// latest-wins by contract and this client is about to be seeded
+		// with everyone's current state by joinSnapshot anyway. Queueing it
+		// would only deliver a sample that is already stale on arrival.
+		if c.holdUntilWelcome {
+			if !unreliable {
+				if len(c.pending) < maxPendingBeforeWelcome {
+					c.pending = append(c.pending, payload)
+				} else {
+					// Only reachable if this client's own Welcome write is
+					// blocked for as long as it takes the room to produce 64
+					// lifecycle messages, which means the connection is
+					// already failing. Logged rather than grown without
+					// bound, so one stalled joiner cannot be used to make the
+					// relay allocate.
+					log.Printf("relay: %s has not been welcomed after %d queued messages — dropping further ones until its Welcome completes", id, maxPendingBeforeWelcome)
+				}
+			}
+			continue
+		}
+
+		targets = append(targets, target{id: id, conn: c.Conn})
 	}
 	r.mu.Unlock()
 
@@ -328,6 +390,46 @@ func (r *Room) tryAdd(c *Client) {
 // peer, since a State for an unrostered id is dropped outright. Found in a
 // review pass. Like tryAdd, capacity is already reserved server-wide by
 // the caller, so this cannot fail.
+// maxPendingBeforeWelcome bounds Client.pending. The window it covers is
+// normally microseconds — the gap between a client being added to a room and
+// its own Welcome being written — so this is a backstop against a stalled
+// write, not a working queue depth.
+const maxPendingBeforeWelcome = 64
+
+// markWelcomedAndFlush ends the pre-Welcome hold for playerID: from here on
+// Room.forward writes to it directly, and anything that arrived while it was
+// held is delivered now, in the order it was produced.
+//
+// Must be called immediately after the client's Welcome has been written and
+// before anything else is sent to it, so the ordering the protocol promises —
+// Welcome first, then the room's traffic in order — holds on the wire and not
+// merely in the code that produced it.
+//
+// Sends after releasing r.mu, matching Room.forward's own snapshot-then-send
+// shape: a stalled joiner must not freeze the room it is joining.
+func (r *Room) markWelcomedAndFlush(playerID string) {
+	r.mu.Lock()
+	c, ok := r.members[playerID]
+	if !ok {
+		r.mu.Unlock()
+		return
+	}
+	c.holdUntilWelcome = false
+	queued, conn := c.pending, c.Conn
+	c.pending = nil
+	r.mu.Unlock()
+
+	if conn == nil {
+		return
+	}
+	for _, payload := range queued {
+		if err := conn.Send(payload); err != nil {
+			log.Printf("relay: flushing queued message to %s failed: %v", playerID, err)
+			return
+		}
+	}
+}
+
 func (r *Room) tryAddAndSnapshotRoster(c *Client) (rosterBeforeJoin []string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -1028,6 +1130,11 @@ func (s *Server) handleConn(conn net.Conn) {
 				maxReceiveHz: protocol.ClampReceiveHz(hello.MaxReceiveHz),
 				transport:    transportName(conn),
 				features:     protocol.NormalizeFeatures(hello.Features),
+				// Set BEFORE the add below, so there is no instant at which
+				// this client is reachable by Room.forward without the hold
+				// in place. Cleared by markWelcomedAndFlush once its Welcome
+				// has been written — see Client.holdUntilWelcome.
+				holdUntilWelcome: true,
 			}
 			rosterBeforeJoin := joined.tryAddAndSnapshotRoster(newClient)
 
@@ -1076,6 +1183,12 @@ func (s *Server) handleConn(conn net.Conn) {
 				ResumeToken:  newToken,
 				ServerTimeMs: time.Now().UnixMilli(),
 			})
+
+			// Welcome is on the wire, so this client may now be written to
+			// directly — and anything the room produced while it was being
+			// added is delivered here, still ahead of the seeding below.
+			// See Client.welcomed for the race this closes.
+			joined.markWelcomedAndFlush(newID)
 
 			// Seed the newcomer with what everyone else looks like right now,
 			// and with the room's world, so both appear immediately instead
