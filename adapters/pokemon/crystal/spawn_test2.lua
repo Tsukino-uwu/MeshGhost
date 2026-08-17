@@ -171,7 +171,9 @@ event.onframeend(function()
 			DST_MAPOBJ, frames, px, py, px + TILE_OFFSET_X, py
 		))
 		log("Slots now: [" .. occupancy() .. "]")
-		log("Waiting for the ENGINE to assign an object struct...")
+		log(">>> NOW WALK. <<< The engine only looks for unadopted map objects at the moment the")
+		log("player FINISHES a step: _CheckObjectEnteringVisibleRange returns immediately unless")
+		log("PLAYERSTEP_STOP_F is set in wPlayerStepFlags. Standing still, it never runs.")
 		return
 	end
 
@@ -191,13 +193,18 @@ event.onframeend(function()
 	end
 end)
 
+-- Cleanup, wrapped whole. An error thrown inside onexit can leave BizHawk's Lua Console unable
+-- to start or stop the script at all -- it shows a red icon and "0 active", and toggling does
+-- nothing. Found live 2026-08-18. Memory domains are not guaranteed valid while the emulator is
+-- tearing down, so nothing in here may be allowed to throw.
 event.onexit(function()
-	-- Leave nothing behind: clear the map object, and the struct the engine may have assigned.
-	local id = u8(dst + M_OBJECT_STRUCT_ID)
-	if id and id ~= UNASSIGNED and id < NUM_OBJECT_STRUCTS then
-		w8(OBJECT_STRUCTS + (id * OBJECT_LENGTH), 0)
-	end
-	for off = 0, MAPOBJECT_LENGTH - 1 do
-		w8(dst + off, 0)
-	end
+	pcall(function()
+		local id = u8(dst + M_OBJECT_STRUCT_ID)
+		if id and id ~= UNASSIGNED and id < NUM_OBJECT_STRUCTS then
+			w8(OBJECT_STRUCTS + (id * OBJECT_LENGTH), 0)
+		end
+		for off = 0, MAPOBJECT_LENGTH - 1 do
+			w8(dst + off, 0)
+		end
+	end)
 end)

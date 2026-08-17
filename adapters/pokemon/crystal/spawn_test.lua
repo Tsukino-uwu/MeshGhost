@@ -196,6 +196,9 @@ event.onframeend(function()
 	end
 end)
 
+-- Wrapped whole: an error thrown in onexit can wedge BizHawk's Lua Console so the script cannot
+-- be started or stopped at all (red icon, "0 active"). Found live 2026-08-18. Memory domains are
+-- not guaranteed valid during teardown.
 event.onexit(function()
-	clear_slot()
+	pcall(clear_slot)
 end)
