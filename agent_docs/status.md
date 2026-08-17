@@ -46,6 +46,8 @@ that a peer's state genuinely differs from the local player's, which loopback co
   stops sending leaves a marker frozen where it was. Shipped bug, not hypothetical. `ideas.md`.
 - **TEVI and Emerald lag the template's bridge shape** — no autostart, no port walk, no
   `bridge_ready`; Pseudoregalia has all three. Emerald needs a spawn spike. `_template/PROTOCOL.md`.
+- **Pseudoregalia: a ghost's slide pose cycles instead of holding** — start/end crouch ~every
+  0.8s through one continuous slide; not latency, not the new Go work. `verified.md` 2026-08-17.
 - **Pseudoregalia: a `Fatal Error!` on game exit**, seen once, never root-caused. Not the
   2026-08-16 transition crash, which is fixed.
 - **TEVI: charged-attack VFX missing on the ghost** — animations play, effects don't.

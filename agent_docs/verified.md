@@ -5446,3 +5446,32 @@ in `CLAUDE.md` is filename-only. Append-only means they stay; new entries should
   close paths had changed under it since. Worth recording as a methodology point, not just a bug:
   **a confirmation is against a build, not against a project**, and it goes stale the moment the
   code it covered changes.
+
+### Pseudoregalia: a ghost's slide pose CYCLES instead of holding, and it is not a latency problem
+
+- Date: 2026-08-17
+- Observed: user-watched across two loopback sessions — "it did feel like slides were a bit
+  slow/delayed", and then, at a lower interpolation delay, "still feels like slide lags behind a
+  bit / delayed". Position and facing felt instant in both.
+- **The symptom is not lag, it is repetition.** Measured from the mod's own log: across one
+  continuous player slide (local `actionState=1` sampled four times between 12:54:46 and
+  12:54:50), the ghost fired `K2_OnStartCrouch` **and** `K2_OnEndCrouch` four times — starting a
+  crouch roughly every 0.75-0.9s and ending it in between. The ghost is re-entering the pose
+  repeatedly rather than holding it for the duration of the slide, which reads as "late" or "not
+  quite right" rather than as flicker.
+- **Not caused by interpolation.** The cycle period was materially the same at `-interp=250ms` and
+  at `-interp=100ms`. A delay would scale with that setting; this does not.
+- **Not caused by any of the 2026-08-17 Go work.** The installed mod DLL dates from 04:56 that
+  day and its source was last committed at 03:57 — both before the online-primitives work began.
+  The clock-sync capability was ON for the second session and shifts every timestamp uniformly, so
+  it cannot single out one animation either. Position and facing ride the same state message and
+  were reported instant.
+- Likely mechanism, NOT confirmed: the game's own crouch/slide is a timed action driven by a
+  Blueprint Timeline (`SLIDE_TIMELINE_TRACK`, `Timeline_1`), so it runs to completion and ends on
+  its own; the adapter then re-asserts it, producing the cycle. That would make holding a ghost in
+  a slide a fight with the game's own timeline rather than a missing input.
+- Notes: deliberately not "fixed" on this evidence. The slide pose is the adapter's hardest
+  feature, its five pose mechanisms are documented as required *together* ("do not simplify this"),
+  and the neighbourhood already has a `BANDAGES.md` "do NOT fix these" entry. A change here costs a
+  DLL rebuild, a deploy, and another live session, so it wants a stated hypothesis and one
+  measurement, not a guess.
