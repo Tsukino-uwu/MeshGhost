@@ -641,6 +641,32 @@ protocol above is actually run and watched.
    property on this build, so finding where health actually lives is step zero. See `verified.md`
    2026-08-17 and `status.md`.
 
+   **Wanted end state (user, 2026-08-17): attacking a ghost is a pure toy.** You can swing at a
+   ghost and it reacts — hurt/flinch animation, a red blink — but it cannot be killed and it cannot
+   cost you anything. No damage to the real player, no death, no respawn. The attack does something
+   visible and means nothing, which is the whole point.
+
+   This is on-brief rather than a stretch: the project is a visual-only layer, so a hit reaction
+   with no gameplay consequence is Tier 1 cosmetic work, not the shared-combat-state question that
+   `beyond-cosmetic.md` gates. Two parts, and they are independent:
+
+   - **Separate the health** (the prerequisite, and probably the current bug). Until the ghost stops
+     sharing health state, "cannot cost you anything" is not achievable by any amount of animation
+     work. This is the same investigation as the lead above.
+   - **Play the reaction.** Largely proven machinery already: stock `Montage_Play` on the ghost's
+     `animBPref` works (`Plugin.cpp:897`), and the 2026-08-15 montage-mirror session confirmed the
+     mirror already carries **attacks, flinch and knockback** among others (`Plugin.cpp:909`). So a
+     flinch on demand is a call this codebase has already made work, not new ground. The red blink
+     is the genuinely unknown half — no hit-flash material has been identified on this game, and the
+     nearest solved analogues are the recall glow and the afterimage colour work
+     (`effect-investigation.md` is the playbook for that search).
+
+   **Design decision worth making up front: keep the reaction LOCAL.** The ghost flinching when you
+   hit it should be a local visual event, not something sent to the peer. If it were networked, the
+   peer's character would be reacting to a remote player's action and it stops being cosmetic — that
+   is a sync-model change and belongs behind `beyond-cosmetic.md`, not here. Local-only keeps it a
+   toy, keeps the peer authoritative over their own character, and needs no protocol change at all.
+
    **Found dangerous, then FIXED, 2026-08-15 — the feature now stands on its own.** The untested
    vector flagged here (enemy damage) turned out to be real and run-ending: an enemy hitting a ghost
    hurt and could kill the real player, during ordinary play, with no visible cause. Fixed by
