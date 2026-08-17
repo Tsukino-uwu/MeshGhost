@@ -76,6 +76,7 @@ local F_INIT_X, F_INIT_Y = 0x14, 0x15
 local F_SPRITE_X, F_SPRITE_Y = 0x17, 0x18
 
 local FLAG1_WONT_DELETE = 0x02
+local STANDING = 255 -- OBJECT_WALKING value when the object is not mid-step
 
 -- DEFAULT ON, AND DELIBERATELY SO — changed 2026-08-18 after the alternative froze the game.
 --
@@ -387,11 +388,33 @@ local function tick()
 	--
 	-- Only initiate when the ghost is idle (STEP_DURATION back to 0), or we would interrupt a step
 	-- half-played and produce exactly the teleporting-while-animating artefact this avoids.
-	if (u8(mine.st_base + F_STEP_DURATION) or 0) ~= 0 then
+	-- IDLE TEST. Originally this checked STEP_DURATION == 0, which is wrong: that field is a
+	-- COUNTDOWN, and an interrupted step can leave it at zero while the sprite is still part-way
+	-- between tiles. Starting a new step from there moves the destination on but leaves the sprite
+	-- offset, and the error accumulates — which is the "ghost sits slightly off the tile" the user
+	-- reproduced twice by talking to it (2026-08-18).
+	--
+	-- WALKING is the authoritative signal, straight from the captured step: 255 (STANDING) when
+	-- idle, 4+dir for the whole of a step, back to 255 on completion.
+	local walking = u8(mine.st_base + F_WALKING)
+	if walking ~= STANDING or (u8(mine.st_base + F_STEP_DURATION) or 0) ~= 0 then
 		return
 	end
 	if frames < (mine.next_step or 0) then
 		return
+	end
+
+	-- Report misalignment rather than silently correcting it. The screen position should be a whole
+	-- number of tiles from the window origin when the object is idle; anything else means a step
+	-- ended somewhere it should not have. Logging it keeps the cause visible instead of papering
+	-- over it with a re-align, which would be a compensation for something not yet understood.
+	local sx = u8(mine.st_base + F_SPRITE_X) or 0
+	local sy = u8(mine.st_base + F_SPRITE_Y) or 0
+	if (sx % 16) ~= 0 or (sy % 16) ~= 0 then
+		log(string.format(
+			"  f=%-6d MISALIGNED while idle: sprite_x=%d sprite_y=%d (not multiples of 16)",
+			frames, sx, sy
+		))
 	end
 
 	-- Pace back and forth so the walk is obvious on screen and returns to where it started.
@@ -410,6 +433,24 @@ local function tick()
 	w8(mine.st_base + F_ACTION, 2)
 	w8(mine.st_base + F_MAP_X, x)
 	w8(mine.st_base + F_MAP_Y, y)
+
+	-- THE FIRST 2 PIXELS ARE OURS TO APPLY. Measured 2026-08-18 by watching our step beside a real
+	-- one, frame for frame:
+	--
+	--   player:  SPRITE_X 160 ->162->164->...->176   16px over 8 increments
+	--   ours:    SPRITE_X 204    ->206->...  ->218   14px over 7 — two short
+	--
+	-- When the engine initiates a step it applies the first increment in the SAME frame; when we
+	-- initiate one, the engine only starts sliding on the NEXT frame. So every step we start lands
+	-- 2px short, and the error accumulates until the ghost is visibly off its tile.
+	--
+	-- This was originally blamed on talking to the ghost, because that is when it was noticed. The
+	-- interaction had nothing to do with it — the drift builds on every step regardless, and a
+	-- frame-by-frame comparison against a known-good step is what showed it.
+	local sdx = (dir == 3) and 2 or (dir == 2) and -2 or 0
+	local sdy = (dir == 0) and 2 or (dir == 1) and -2 or 0
+	w8(mine.st_base + F_SPRITE_X, ((u8(mine.st_base + F_SPRITE_X) or 0) + sdx) & 0xFF)
+	w8(mine.st_base + F_SPRITE_Y, ((u8(mine.st_base + F_SPRITE_Y) or 0) + sdy) & 0xFF)
 
 	mine.next_step = frames + 24 -- a step takes ~16 frames; leave a beat between them
 	log(string.format("  f=%-6d initiated step %s -> map %d,%d (walking=%d dir=%d)",

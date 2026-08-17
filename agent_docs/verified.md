@@ -6770,3 +6770,34 @@ scheduled. All established by the agent with local tools; nothing here is a visu
   **A wrong line is a far better failure than a hang**, and the correct route to a silent ghost is
   almost certainly `MAPOBJECT_TYPE` — telling the engine there is nothing to interact with — rather
   than blanking a pointer it still intends to call. Unverified, so not done.
+
+### Crystal: the ghost drifted 2px per step, and the interaction was innocent (2026-08-18)
+
+- Date: 2026-08-18
+- Observed: the ghost sat *"slightly off"* its tile, reproducibly, after talking to it. Running
+  `walk_test.lua` and `step_watch_probe.lua` together identified the ghost as map object 4, and the
+  comparison against the player's own step is exact:
+
+  ```
+  PLAYER:  SPRITE_X 160 ->162->164->166->168->170->172->174->176   16px, 8 increments
+  OURS:    SPRITE_X 204     ->206->208->210->212->214->216->218    14px, 7 increments
+  ```
+
+- Source: live run, `step_watch_20260818_015100.log` alongside `walk_test_*.log`.
+- Notes: **when the engine initiates a step it applies the first 2px increment in the SAME frame;
+  when we initiate one, the engine only begins sliding on the NEXT frame.** So every step we start
+  falls 2 pixels short, and the error accumulates — seven steps is nearly a whole tile.
+  **Fix**: apply that first increment ourselves at initiation, in the step direction. Now part of
+  the movement recipe in `phases/phase9.md`.
+- **The interaction was innocent, and blaming it was a mistake worth recording.** The drift builds
+  on *every* step regardless of whether anything is talked to; the interaction was simply when it
+  was first noticed, because that is when the user stopped and looked closely. Two hypotheses were
+  built on that coincidence — that interaction turns an object to face the player mid-step, and
+  that the idle check was letting a new step start during an old one. **Neither was tested and
+  neither was the cause.**
+  **What settled it was a frame-by-frame comparison against a known-good example of the same
+  action**, in the same run, on the same map — the template's known-good-control rule. Nothing about
+  our own numbers looked wrong in isolation; only the side-by-side showed one increment missing.
+- **A separate correction from the same log**: the earlier idle check used `STEP_DURATION == 0`,
+  which is a countdown rather than a state. `OBJECT_WALKING` is the authoritative signal — `255`
+  (`STANDING`) when idle, `4 + dir` throughout a step. Changed, and correct regardless of the drift.
