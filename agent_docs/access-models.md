@@ -77,6 +77,23 @@ Someone else has reverse engineered the game to readable source.
   Confirmed 2026-08-17 by building `pokecrystal` — see [environment.md](environment.md) for the
   toolchain and its one non-obvious trap, and [verified.md](verified.md) for the addresses. Budget
   a decomp build as a required first step for any Game Boy title, not an optional one.
+- **A WIP or partial decompilation still beats no decompilation, and by a wide margin.** The
+  user's framing, 2026-08-17, and it is right — but the reasons are worth stating so the
+  expectation is calibrated rather than optimistic:
+  - **For a C decomp, the source is useful immediately, unbuilt.** Struct layouts, field names and
+    function names all read straight off. Only *absolute addresses* need the link step. (This is
+    where GB differs — see the bullet above — because its RAM labels carry no layout information in
+    the source at all.)
+  - **Partial naming is partial, not uniform.** Expect properly-named subsystems sitting directly
+    beside undecompiled ones. `pokeplatinum` shows both in the same headers: `FieldSystem`,
+    `BerryPatchManager` and `TownMapContext` are named, while `sub_0209BA18` is not.
+  - **The unnamed functions are themselves a source of addresses.** A `sub_<address>` name embeds
+    the very thing you would otherwise be hunting for. An undecompiled region is a *labelled* gap,
+    which is far better than an unlabelled one — you know where it is and can watch it directly.
+  - **What it costs you is the top row of the pain table below**: the guarantee that a wanted fact
+    exists at all. A complete decomp answers "where is player position" definitionally; a WIP one
+    might not, so **check coverage for the specific fields an adapter needs before treating the
+    game as tier 2**, rather than after committing to a toolchain install.
 - **Approved pattern — do not read the strictness above as discouragement.** Consulting a
   decompilation for facts is explicitly fine and is how Emerald was built. The unclear licence
   constrains what may be *committed*, not whether it may be *read*. Read it, cite the fact, write

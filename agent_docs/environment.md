@@ -179,6 +179,7 @@ there on the user's explicit instruction, 2026-08-17.
 | `C:\dev\pokecrystal` | Crystal | rgbds | yes (2026-08-17) |
 | `C:\dev\pokered` | **Red and Blue both** | rgbds | yes (2026-08-17) |
 | `C:\dev\pokefirered` | FireRed (also builds LeafGreen) | agbcc | yes (2026-08-17) |
+| `C:\dev\pokeplatinum` | Platinum (**WIP decomp**) | blocked — see below | **no, cloned only** |
 | `C:\dev\agbcc` | — (GBA compiler) | — | prebuilt, shared |
 | `C:\dev\rgbds` | — (GB assembler, v1.0.3) | — | portable, no install |
 
@@ -190,7 +191,11 @@ there on the user's explicit instruction, 2026-08-17.
 - **Everything above builds in devkitPro's msys2 shell**, and the wrong-shell trap described in the
   pokecrystal section applies to all of them equally.
 - Build times with `-j8`: pokered ~2 min, pokecrystal ~1.5 min, pokefirered ~3.5 min.
-- **`pokeplatinum` (Platinum, NDS) is deliberately absent** — it is the one that cannot be built
+- **`C:\dev\pokeplatinum` (Platinum, NDS) is cloned but NOT built** (2026-08-17, 236 MB), on the
+  user's call that a WIP decomp is worth having on disk regardless. Being C, its headers are
+  readable as-is for struct layouts and names — a spot check found `FieldSystem`,
+  `BerryPatchManager` and `TownMapContext` properly named, alongside undecompiled `sub_<address>`
+  functions. **Absolute addresses still need a build**, which is what is blocked — it cannot be built
   with what is installed. Its deps need a standalone MSYS2 or WSL, since devkitPro's msys2 carries
   no mingw64/ucrt64 repos. It is also a WIP decompilation rather than a complete one. See
   `verified.md` for the detail; decide before installing anything for it.
