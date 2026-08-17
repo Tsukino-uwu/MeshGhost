@@ -6001,7 +6001,7 @@ scheduled. All established by the agent with local tools; nothing here is a visu
   | 00 | `OBJECT_SPRITE` | `01` | `SPRITE_CHRIS` |
   | 03 | `OBJECT_MOVEMENT_TYPE` | `0B` | `SPRITEMOVEDATA_PLAYER` |
   | 04 | `OBJECT_FLAGS1` | `02` | |
-  | 06 | `OBJECT_PALETTE` | `00` | male; the female path would differ |
+  | 06 | `OBJECT_PALETTE` | `00` | **unexplained — see below. Do not read this as "male".** |
   | 07 | `OBJECT_WALKING` | `FF` | not walking |
   | 08 | `OBJECT_DIRECTION` | `00` | |
   | 09 | `OBJECT_STEP_TYPE` | `01` | |
@@ -6015,8 +6015,27 @@ scheduled. All established by the agent with local tools; nothing here is a visu
 
 - Source: live capture (`object_slot_probe.lua`, read-only, no writes); field offsets and constant
   names from `pret/pokecrystal`.
-- Notes: **this is the ground truth the spawn ADR asked for** — what a correctly-initialised object
-  looks like, to verify against if the engine routine can be called, or to imitate if it cannot.
+- **CORRECTION, same day, before this was relied on: the dump above is NOT a finished object.**
+  A second run captured the same event with materially different bytes — `OBJECT_PALETTE` `01` not
+  `00`, `OBJECT_WALKING` `00` not `FF`, `OBJECT_STEP_TYPE` `00` not `01`, and different coordinates.
+  The probe fires on the **first frame the slot is non-zero, which is during initialisation**, so
+  the two runs caught different sub-steps of the same process. Neither is "what a correct object
+  looks like", and the original wording here claimed exactly that.
+  **What survives unchanged** is the ordering fact below, the slot accounting, and the confirmation
+  that the fields carry `SPRITE_CHRIS` and `SPRITEMOVEDATA_PLAYER` — those agree across both runs.
+  **`OBJECT_SPRITE` is `01` (`SPRITE_CHRIS`) in both runs regardless of the save**, which is
+  consistent with the decomp rather than surprising: `PlayerObjectTemplate` hardcodes that sprite,
+  and the gender-correct one is written afterwards from the `ChrisStateSprites`/`KrisStateSprites`
+  tables (`data/sprites/player_sprites.asm`), keyed by `wPlayerState`. **So the spawn-time struct
+  does not describe the player's final appearance**, and an adapter must not copy it expecting one.
+  The probe now takes follow-up dumps at +1/+4/+16/+64 frames so the settling can be *seen*; until
+  a settled capture exists, treat every byte above as provisional except where noted.
+  **`OBJECT_PALETTE` is specifically unresolved**: `PAL_NPC_RED` is 8 and `PAL_NPC_BLUE` is 9, but
+  the observed values were `00` and `01`, so the encoding in the object struct differs from the map
+  object's packed nibble and has not been worked out.
+- Notes: this was gathered as the ground truth the spawn ADR asked for — an object to verify
+  against if the engine routine can be called, or to imitate if it cannot — and it will be, once
+  a settled capture replaces the provisional one above.
   **It corroborates the decomp independently**: `SPRITE_CHRIS` and `SPRITEMOVEDATA_PLAYER` are
   exactly what `PlayerObjectTemplate` specifies in `engine/overworld/player_object.asm`, arrived at
   from live bytes rather than from reading it.

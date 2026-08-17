@@ -136,6 +136,8 @@ local frames = 0
 -- like. If the engine routine can be called, it is what to verify against; if it has to be
 -- imitated, it is what to imitate. See the ADR's call-vs-imitate question.
 local occupied = {}
+local pending = {} -- follow-up dumps, so a settling struct is visible rather than guessed at
+local spawn_frame = {}
 
 local function dump_struct(i, why)
 	local base = OBJECT_STRUCTS + (i * OBJECT_LENGTH)
@@ -163,11 +165,28 @@ event.onframeend(function()
 		local now = (sprite ~= nil and sprite ~= 0)
 		if now ~= (occupied[i] or false) then
 			if now then
-				dump_struct(i, "SPAWNED")
+				-- The first frame a slot is non-zero is DURING initialisation, not after it.
+				-- Two runs on 2026-08-17 produced different bytes for the same event, because
+				-- they caught different sub-steps. So schedule follow-up dumps and let the log
+				-- show when the struct stops changing, rather than trusting the first sight of
+				-- it. The settled dump is the one that describes a real object.
+				spawn_frame[i] = frames
+				dump_struct(i, "SPAWNED (first frame, still initialising)")
+				pending[#pending + 1] = { slot = i, at = frames + 1 }
+				pending[#pending + 1] = { slot = i, at = frames + 4 }
+				pending[#pending + 1] = { slot = i, at = frames + 16 }
+				pending[#pending + 1] = { slot = i, at = frames + 64 }
 			else
 				log(string.format("*** CLEARED: slot %d at frame %d ***", i, frames))
 			end
 			occupied[i] = now
+		end
+	end
+
+	for n = #pending, 1, -1 do
+		if frames >= pending[n].at then
+			dump_struct(pending[n].slot, string.format("+%d frames", frames - spawn_frame[pending[n].slot]))
+			table.remove(pending, n)
 		end
 	end
 
