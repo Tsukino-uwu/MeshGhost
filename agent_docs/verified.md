@@ -5494,8 +5494,17 @@ in `CLAUDE.md` is filename-only. Append-only means they stay; new entries should
   because a player's mesh is animation-blended through the seams while a ghost is posed discretely
   through the game's crouch system, which cannot complete a transition inside 14ms.
 - The fix shipped is `SLIDE_SEAM_HOLD_MS` (200ms, in the empty band between the two populations),
-  recorded as a bandage in `adapters/pseudoregalia/BANDAGES.md`. **Not yet watched on screen** —
-  the measurement is confirmed, the improvement is not.
+  recorded as a bandage in `adapters/pseudoregalia/BANDAGES.md`.
+- **CONFIRMED on screen, user-watched, and at a clean baseline**: *"the slide was fine now during
+  the run that crashed, felt 1:1 to the player again."* That run was the `-interp=0ms` session, so
+  the judgement was made with **no interpolation delay in the way** — which matters more than
+  usual here, because every earlier report of the slide "feeling delayed" was made through 100ms
+  or 250ms that the launcher had introduced (see the dev-script 1:1 rule). This is the first read
+  of the slide against an honest baseline, and it passes.
+- The instrumented side agreed independently in the same build: crouch durations went from a
+  uniform ~600ms to 813/2360/819/1459ms, i.e. consecutive slides merging into one held pose, with
+  the remaining start/end pairs corresponding to genuine stand-ups (an 84ms gap between ghost
+  events implies a ~284ms real stand-up, above the measured 244ms floor).
 - Notes: the Go side had already been cleared by test rather than by argument
   (`TestOpaqueFieldsNeverFlapAcrossInterpolation` — an opaque field that changes once across
   interpolation changes once), which is what narrowed this to a single question with two opposite
