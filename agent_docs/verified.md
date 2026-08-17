@@ -6577,3 +6577,34 @@ scheduled. All established by the agent with local tools; nothing here is a visu
   separate owned from unowned, and each of the first three had an innocent explanation for its
   reading. The one that worked was picked by asking *what could only happen if the engine were
   driving it* — an object nobody drives cannot animate.
+
+### Crystal: A REAL SPAWNED CHARACTER — visible, engine-driven, correctly rendered (2026-08-18)
+
+- Date: 2026-08-18
+- Observed: **watched on screen by the user, with a screenshot.** `spawn_test6.lua` — an NPC used as
+  the template, plus screen coordinates **computed** with the engine's own formula rather than
+  copied — produced **a second, correctly drawn character**. It wears Professor Elm's appearance
+  because Elm was the template object, which is exactly what the test intended. User: *"it
+  duplicated an npc, 4 tiles left of Elm, and it also looks like elm"*.
+- Source: live session; `adapters/pokemon/crystal/spawn_test6.lua`.
+- Notes: **this closes the mechanism question the 2026-08-17 ADR opened.** A character can be
+  created at an arbitrary position, without waiting for the engine's map-load or screen-edge
+  adoption paths, by writing a linked map object + object struct copied from a live NPC and
+  computing the screen coordinates as `CopyTempObjectToObjectStruct` does. It is drawn by the
+  game's own renderer, animated by `DoStepsForAllObjects`, and needs no drawing code from us.
+  **The missing ingredient was never ownership** — it was that adoption *computes* screen position
+  from map position, and we had been copying a template's instead.
+- **The placement error is itself an important finding: `wXCoord`/`wYCoord` are NOT the player's
+  map coordinates.** They are the **origin of the visible window**. The ghost landed next to Elm
+  rather than next to the player because it was placed at `wXCoord + 2`, i.e. two tiles from the
+  top-left of the screen. This had been assumed to be the player's position all session, and every
+  earlier placement inherited the mistake — including test 3's `wYCoord + 9`, which worked only
+  because `CheckObjectEnteringVisibleRange` uses the same window origin.
+  Corroborating evidence that was visible earlier and not read correctly: the player's own map
+  object showed coordinates like `8,15` while `wXCoord`/`wYCoord` read much smaller numbers, and
+  `CheckObjectStillVisible` compares object coordinates against `wXCoord .. wXCoord + 12`.
+  **The player's real map position is in its own object struct** (slot 0, `OBJECT_MAP_X`/`MAP_Y`).
+  So: use the player's struct for *placement*, and `wXCoord`/`wYCoord` only as the window origin in
+  the screen-coordinate formula. Two different quantities that had been conflated into one.
+- **Still open, and unchanged by this**: making the ghost wear the *player's* appearance rather than
+  a copied NPC's, which is the `SPRITE_TILE` allocation problem — an allocation rather than a value.
