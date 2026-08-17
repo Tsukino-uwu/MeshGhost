@@ -6489,10 +6489,17 @@ scheduled. All established by the agent with local tools; nothing here is a visu
 ### Crystal: a VALID struct diff — nine differences, and two explain everything (2026-08-18)
 
 - Date: 2026-08-18
-- Observed: `struct_diff_probe.lua` run alone, outdoors, against a genuine engine-driven NPC
-  (`SPRITE` 60, not the player's 1 — the guard added after the retraction did its job).
+- Observed: `struct_diff_probe.lua` run alone, **in Elm's lab** (corrected — an earlier draft of
+  this entry said outdoors, which was wrong), against a genuine engine-driven NPC (`SPRITE` 60, not
+  the player's 1 — the guard added after the retraction did its job).
   **The control held this time**: the engine's object moved (`sprite_x` 32 -> 0) while ours stayed
-  at 80. Nine unexpected field differences:
+  at 80. **And it held for a better reason than the one predicted.** The plan was to move somewhere
+  the camera scrolls, on the theory that screen coordinates cannot change in a static room. The
+  actual fix was simpler: **the reference NPC walks around by itself.** A moving *object* is all
+  the control needs — a moving *camera* was never required, and Elm's aides pace on their own. So
+  the earlier failed control was not caused by the room being indoors; it was caused by the
+  reference being one of our own frozen ghosts, which by construction could never move.
+  Nine unexpected field differences:
 
   | Off | Field | engine NPC | ours |
   | --- | --- | --- | --- |
