@@ -28,10 +28,23 @@ mod's folder.
 - **Pseudoregalia** (Unreal Engine 5) — game id `pseudoregalia`. Tested online with two real
   players on two machines.
 
-The game id is what an adapter announces itself as. You never set it yourself as a player —
-it's picked up automatically from whichever game's mod you load — but a host running a
-dedicated single-game server types one of those exact strings into `server.only_game` (see
-Setup below).
+**One server hosts every game at once, by default.** It is not per-game and does not need to be
+told which game it is for: the relay never learns what a `game_id` means, so a single
+`meshghost-server.exe` can carry an Emerald session, a TEVI session and a Pseudoregalia session
+simultaneously, on one port. Nothing needs configuring for that — it is what you get out of the
+box.
+
+**But a room is one game.** Rooms are how the server keeps sessions apart, and a room takes its
+game from whoever joins it first; anyone arriving with a different game is refused with a "game
+mismatch" message rather than mixed in. Since `room` defaults to `default` for everybody, **two
+different games both left on the defaults will collide** — the second group cannot get in. Give
+each game its own room name (`emerald`, `tevi`, anything, as long as it matches within the group)
+and they coexist happily.
+
+The game id is what an adapter announces itself as. You never set it yourself as a player — it is
+picked up automatically from whichever game's mod you load. A host who deliberately wants their
+server locked to a single game types one of those exact strings into `server.only_game` (see Setup
+below); that is a restriction to opt into, not the normal setup.
 
 TEVI isn't personally confirmed online yet, but it's expected to work — the relay and core
 client are game-agnostic and don't know which game an adapter is for, so "works locally" and
@@ -64,9 +77,9 @@ is a Lua script that runs wherever BizHawk does.
    beside it). Whoever's hosting also runs
    `meshghost-server.exe` and forwards port 7777 — **both `tcp` and `udp`, which are two separate
    rules on most routers**, since sessions run on quic over that same number (see Transports
-   below; the server prints exactly what to forward when it starts). A host who wants their server to be for one
-   game only sets `server.only_game` to that game's id from the list above; left blank (the
-   default) the server hosts any game, including several at once in different rooms.
+   below; the server prints exactly what to forward when it starts). Left as it ships, the server hosts
+   any game, and several at once — see the note under Games about giving each game its own
+   `room` name. `server.only_game` locks it to one game if you actually want that.
 4. Load your game's mod from `games\<publisher>\<game>\` (BizHawk Lua Console for Emerald,
    BepInEx for TEVI, UE4SS for Pseudoregalia) — for Emerald and TEVI, **after** `meshghost.exe`
    is already running. For Pseudoregalia there's no order to get right: starting the game is the
