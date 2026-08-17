@@ -51,6 +51,8 @@ that a peer's state genuinely differs from the local player's, which loopback co
   started. `ideas.md`, `environment.md`.
 - **Receive rate cap** — `max_receive_hz_per_player` never watched live; needs two clients at
   different caps. (The send side was confirmed on screen 2026-08-15.) `architecture.md` ADR.
+- **TLS for TCP, toggleable** — `tcp` is plaintext NDJSON while `quic` is encrypted. **Off in dev**
+  (plaintext is how a session gets debugged: netcat, capture, netsim), **on for release**. `ideas.md`.
 - **Relay-safety follow-ups**: `quic` is now the default so room codes are encrypted by default but
   still **not authenticated**; TEVI's `game_version` isn't real; adapters' parsing never audited. `internal/README.md`.
 - **Transports: quic default confirmed with a real game attached** (2026-08-16, shared port, no
