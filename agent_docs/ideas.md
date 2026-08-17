@@ -1341,6 +1341,61 @@ the game**, or you end up with an adapter that can read perfectly and cannot sho
 adapter is ever built, the emulator is chosen first and the game second — and `access-models.md`
 argues Dolphin is the strongest candidate of the emulators surveyed.
 
+## Carrion (MonoGame, PC) — candidate adapter, and possibly this project's first tier-1 game
+
+**Status: surfaced 2026-08-17 as a side-track while scoping Crystal, parked immediately.** Two
+public sources were read (the wiki's modding guide and the Workshop item below); the game itself
+has **not** been opened, no binary inspected, and nothing here is a runtime finding.
+
+**Why it stands out: it appears to have real, first-party mod support.** Per
+<https://carrion.wiki.gg/wiki/Guide:Modding>, Carrion ships a **Mod Loader** driven by project
+directories — the game looks in `UserContent\<projectname>` before `Content`, so levels, scripts,
+templates, audio and textures all override by path. And **Carrion Dev Tools**
+(<https://steamcommunity.com/sharedfiles/filedetails/?id=2258772789>) is published by the game's own
+developers, described there as "an essential selection of tools used by the developers of Carrion to
+build the base game's content" — not a community reverse-engineering effort.
+
+If that holds up, it is **approach 1 in `access-models.md`, which is currently an empty row** — no
+game this project has touched has had official mod support. It also has a tier-3 fallback beneath
+it: the engine is custom but built on **MonoGame**, i.e. .NET/C#, so the game assembly should be
+managed and readable with ILSpy exactly as TEVI's `Assembly-CSharp.dll` was.
+
+**The catch, and it is the thing to check first: the mod loader may be the wrong door entirely.**
+An adapter needs two capabilities — a socket to its local core (the bridge) and a way to draw an
+overlay. A **content-override** system gives assets and scripts, neither of which is obviously
+either one. So the likely real route is the TEVI shape, a .NET loader, and the question that
+decides the whole approach is **whether BepInEx (or an equivalent) supports non-Unity MonoGame
+games**. Unanswered; do not assume it from BepInEx's Unity support.
+
+**Checks to run, in this order:**
+
+1. **The loader question above.** Nothing else matters until it has an answer, the same way the
+   Dolphin drawing question gates Sunshine below.
+2. **What the scripting system can actually do** — is it sandboxed content scripting, or can it
+   reach a socket and draw? If it can do both, the adapter gets radically simpler and the
+   dependency story is the cleanest this project has ever had.
+3. **What kind of binary it is**, per `access-models.md`'s "how to find out" list — MonoGame is
+   .NET, but confirm managed rather than AOT/obfuscated before relying on it.
+4. **Only then** the ordinary adapter questions: position, orientation, what stands in for an
+   animation tag.
+
+**Licensing, checked 2026-08-17 so it doesn't gate later work:**
+
+- **`xnbcli`** (<https://github.com/LeonBlade/xnbcli>) is **GPL-3.0**, via `gh api`. The wiki marks
+  it "not required". Treat as a **read-only local tool at most, never a dependency and never
+  vendored** — the same posture as ILSpy, but with copyleft terms that make the "never vendored"
+  half load-bearing rather than incidental. It has no `licensing.md` row yet; add one before it is
+  used for anything.
+- **Nothing else here has been licence-checked**, including the Dev Tools item. The standing rule
+  applies: no project may be read as a reference until its licence has been.
+
+**The usual asset line applies and is worth stating for this game specifically**, since the whole
+mod system is asset overrides: extracted `.xnb` content is game assets, so **none of it may ever be
+committed**, the same as ROMs and sprites. A Carrion adapter would be our own code plus, at most, a
+runtime read of the user's own installed files.
+
+**Not scheduled.** The install lives under the ordinary Steam library path (`steamapps\common\Carrion`).
+
 ## Links
 
 - `agent_docs/plans.md` — the roadmap; move an idea here (with a phase number) once it's picked.

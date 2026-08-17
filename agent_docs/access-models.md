@@ -67,6 +67,16 @@ Someone else has reverse engineered the game to readable source.
   the copy you are running, and it drifts if the game is patched.
 - **Here** — **Emerald**, via `pokeemerald`. Player X/Y, map bank/number and camera offset were
   looked up rather than discovered, and every address in [verified.md](verified.md) cites it.
+- **The Pokémon family is one org, and one posture covers all of it.** `pret` maintains
+  `pokered`, `pokecrystal`, `pokeemerald`, `pokefirered`, `pokeplatinum` and more; all carry **no
+  licence file at all**, so a new title needs a date-check rather than a fresh assessment
+  ([licensing.md](licensing.md)).
+- **GB/GBC differs structurally from GBA: the decomp must be BUILT to yield any address.** Emerald
+  could be read as C; Crystal cannot be read for addresses at all, because its RAM labels sit in
+  *floating* sections (`SECTION "More WRAM 1", WRAMX`) that only get addresses at link time.
+  Confirmed 2026-08-17 by building `pokecrystal` — see [environment.md](environment.md) for the
+  toolchain and its one non-obvious trap, and [verified.md](verified.md) for the addresses. Budget
+  a decomp build as a required first step for any Game Boy title, not an optional one.
 - **Approved pattern — do not read the strictness above as discouragement.** Consulting a
   decompilation for facts is explicitly fine and is how Emerald was built. The unclear licence
   constrains what may be *committed*, not whether it may be *read*. Read it, cite the fact, write

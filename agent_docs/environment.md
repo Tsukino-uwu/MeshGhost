@@ -138,6 +138,38 @@ Built once to extract real RAM addresses via a `make compare`-verified build —
   must hold for any address pulled from this build to be trustworthy; a `make modern`
   (devkitARM-only, no agbcc) build would NOT match and must not be used for addresses.
 
+## pokecrystal decomp (address source for any Crystal work) — 2026-08-17
+
+Built once during scoping to extract RAM addresses. Verified byte-identical to the user's own
+V1.0 ROM — see `agent_docs/verified.md` for the hashes and the addresses themselves.
+
+- **Nothing new had to be installed.** The devkitPro installer has **no Game Boy component** —
+  GB/GBC does not use devkitPro at all — so re-running it would not have helped. The host
+  `gcc` (15.3.0) and `make` already present with msys2 are the only compiler needed.
+- Toolchain: **rgbds v1.0.3**, the version `pokecrystal`'s own `INSTALL.md` pins. Distributed as a
+  portable `rgbds-win64.zip` on `gbdev/rgbds` releases — **no installer, no PATH changes**; unzip
+  it and put its `bin/` on `PATH` for the build only.
+- **Build must run inside the msys2 shell**, the same one the pokeemerald section above describes.
+  This is the single trap worth knowing, because **its symptom looks like a broken compiler rather
+  than a wrong shell**: run from Git Bash, `gcc` fails with `no include path in which to search for
+  stdio.h` on every standard header, because msys2's `gcc` resolves `/usr/include` against
+  whichever shell's root it is running under. `pokecrystal` builds host tools from `tools/*.c`
+  before it assembles anything, so this failure surfaces indirectly as ~2000 `INCBIN` errors about
+  missing `.2bpp` graphics — the real cause is several steps upstream of the visible error.
+- Build: plain `make`. Takes ~80 s. **`make -j8` is fine** — parallelism was briefly suspected of
+  racing the graphics generation, and it does not.
+- Output: `pokecrystal.gbc` and `pokecrystal.sym` (~1.9 MB) in the repo root. Grep the `.sym` for a
+  label to get its address, in `bank:offset` form since GB WRAM is banked. No rebuild is needed to
+  look up a further symbol from an already-built tree.
+- Verification gate: the built ROM's SHA1 must equal the ROM being played. For V1.0 that is
+  `f4cd194bdee0d04ca4eac29e09b8e4e9d818c133`. `pokecrystal` also builds V1.1, an Australian
+  release and two PS3 VC images, each with a different hash — **addresses do not transfer between
+  revisions**.
+- Repo location: **not yet decided.** The scoping build was done in a scratch directory and is
+  disposable. If Crystal becomes real work, the natural home is `C:\dev\pokecrystal`, a sibling of
+  the existing `C:\dev\pokeemerald` and `C:\dev\agbcc` and outside `C:\dev\MeshGhost` for the same
+  reason — keeping unlicensed Nintendo-derived source out of this repo's tree.
+
 ## Unity / TEVI, UE5 / Pseudoregalia (Phase 6 onward)
 
 - TEVI IL2CPP vs Mono: **confirmed Mono**, originally 2026-08-11, **re-confirmed 2026-08-12
