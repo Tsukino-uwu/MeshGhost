@@ -58,10 +58,14 @@ own sections.
    fields. `contract.md:247` states plainly that
    the state plane "does not grow new fields for deeper features," and it's lossy/latest-wins —
    a one-shot emote sent as `state` would either never arrive or repeat every tick until
-   overwritten. Building the event plane for real is its own scoped piece of work: relay
-   `to`-routing (already shaped for it per `contract.md:275`), a real `MaxEventBytes` limit
-   (currently just a reserved line in `contract.md:539`), new bridge message types each
-   direction, and the first real population of `Hello.Features`.
+   overwritten.
+
+   **The plane itself is ~~its own scoped piece of work~~ BUILT, 2026-08-17.** Everything this
+   entry listed as remaining — relay `to`-routing, a real `MaxEventBytes`, new bridge message types
+   each direction, and the first real population of `Hello.Features` — now exists and is tested
+   (`contract.md`'s Extensibility section, the ADR in `architecture.md`). What is left is purely
+   per-adapter: nothing sends or renders an emote yet, and no adapter asks for `event.v1`. So this
+   stays open as an *adapter* idea, with the transport half struck off.
 
 ## TEVI — interaction ("test what's possible", scope stays visual-only)
 
@@ -749,8 +753,8 @@ protocol above is actually run and watched.
      deserves an explicit opt-in the way ghost collision did (idea 5), not a default.
    - **Peer-triggered effects would need the event plane.** Cosmetic state that rides along with
      normal sync fits `extras` fine; "player A causes an effect on player B's screen" is a
-     bounded, consensual interaction, which is exactly what `contract.md`'s reserved-but-unbuilt
-     event plane is for. Don't grow the state plane into that.
+     bounded, consensual interaction, which is exactly what `contract.md`'s event plane is for
+     (built 2026-08-17, opt-in, used by no adapter yet). Don't grow the state plane into that.
 
    **Not scheduled, and deliberately downstream of Phase 7.7** — which has since been run and
    confirmed (2026-08-16), so the sequencing reason no longer holds it back; it remains unscheduled
@@ -1119,4 +1123,4 @@ they do, two games at once works only if Pseudoregalia is one of them. Option A 
   would go.
 - `agent_docs/risks.md` — Pseudoregalia's full ghost-collision incident history, required
   reading before touching TEVI's collision idea.
-- `agent_docs/contract.md` — the event plane's reserved design, needed before emotes/chat/pings.
+- `agent_docs/contract.md` — the event plane (built 2026-08-17), needed before emotes/chat/pings.

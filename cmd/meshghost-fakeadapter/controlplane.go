@@ -446,7 +446,27 @@ func summarize(planes []*controlPlane, elapsed time.Duration) {
 		// that is indistinguishable from a real pass without saying so.
 		log.Printf("meshghost-fakeadapter: world summary: %d entity writes sent, %d world(s) adopted "+
 			"across handovers", writes, adoptions)
+		// **Zero writes is a VIOLATION, not a warning**, and this is the one
+		// counter that had to become one.
+		//
+		// A holder refuses to write until its adoption snapshot has landed (see
+		// world.go's isHolder — a host that writes before seeing what it is
+		// overwriting rolls the world back for everyone). So a relay that stopped
+		// sending an adoption snapshot for an EMPTY world does not make this rig
+		// fail: it makes every client wait forever, write nothing, and report a
+		// clean run. Demonstrated 2026-08-17 against a deliberately regressed
+		// relay: exit 0, "no invariant violations", and not one entity written.
+		// A checker that reports success for a run it never started is worse
+		// than no checker, so silence is now failure.
+		if writes == 0 {
+			reportViolation("the world plane was on and not one entity write was sent -- " +
+				"nothing was exercised, so this run proves nothing. The usual cause is a holder " +
+				"never being cleared to write, which happens if an adoption snapshot never arrives")
+		}
 		if adoptions == 0 {
+			// Still only a warning: a run with no -migrate-every legitimately
+			// never hands off, and that is a configuration choice rather than a
+			// broken relay.
 			log.Printf("meshghost-fakeadapter: warning: no handover ever happened -- pass -migrate-every " +
 				"to make a holder give the authority up, or this tested custody without testing migration")
 		}

@@ -49,6 +49,14 @@ running different revisions of *this adapter*, the most likely real source of a 
 mismatch. Leave it empty (or omit the field) if you have no version concept at all — an empty
 `game_version` is never treated as a mismatch against a room that already has one declared.
 
+`features` is the third optional field, and the only way an adapter opts into anything past cosmetic
+ghosts (`internal/bridge`'s `Hello.Features`, merged into whatever the core itself was configured
+with and forwarded to the relay). **Omit it unless you have actually implemented a plane.** A room's
+feature set is matched *exactly* and is sticky for that room's life, so advertising a capability you
+do not use is not a spare ability — it makes your adapter unable to share a room with any adapter
+that did not advertise the identical list. All three shipped adapters omit it. What the planes are:
+"Beyond cosmetic" at the bottom of this file.
+
 ### Every `hello` is answered — `bridge_ready` or `reject`
 
 Added 2026-08-16 (`internal/bridge/bridge.go`, ADR in `agent_docs/architecture.md`). The core
@@ -185,6 +193,11 @@ enums to their valid range before an unchecked numeric cast (`static_cast<uint8_
 checks `extras.room_x`/`room_y` before they reach a map-lookup call. Write the equivalent for
 whatever your engine's own render call would otherwise do with an unbounded value.
 
+Those four types are the whole cosmetic contract, and three of them are the three functions above.
+The bridge defines **nine more** (`internal/bridge/bridge.go`), every one of them inert unless your
+`hello` asked for the matching plane: `bridge_ready`/`reject` are the handshake pair above, and the
+other seven are in "Beyond cosmetic" at the bottom of this file.
+
 ## The tick loop (the part every real adapter gets wrong the first time)
 
 ```text
@@ -271,8 +284,8 @@ missing or wrong-typed value overwrite known-good state.
 
 ## Limits your adapter must respect
 
-Enforced by `internal/protocol/limits.go` and the relay (`internal/relay/limits.go` for the two
-handshake fields). Oversized *values* are dropped *silently* — the bridge itself doesn't enforce
+Enforced by `internal/protocol/limits.go` and `online.go`, and the relay (`internal/relay/limits.go`
+for the two handshake fields). Oversized *values* are dropped *silently* — the bridge itself doesn't enforce
 them, so a too-big `extras` sails across the bridge and disappears later, which is a miserable
 thing to debug:
 
@@ -288,6 +301,9 @@ thing to debug:
 The whole-line limit is the one exception to "dropped silently": exceeding it kills the
 *connection*, not the message, because it trips `bufio.Scanner` at the read itself. In practice
 it is unreachable — the per-field caps above sum to well under 2KB.
+
+Each deeper plane brings its own bounds, with the same silent-drop behaviour and one extra hazard —
+see "Beyond cosmetic" below.
 
 ## Updates are sparse: ~20 Hz, not per-frame
 
@@ -402,8 +418,78 @@ And once you have looked: **a fix that compensates rather than prevents is not a
 — see this folder's `README.md` for the rule and its one narrow exception. "Almost right" in an
 adapter has a habit of becoming the next bug rather than staying put.
 
+## Beyond cosmetic: seven more message types, all opt-in, none of them used yet
+
+Read this section when you actually want one of these, not before. **No shipped adapter uses any of
+them**, the core forwards nothing it never receives, and an adapter that omits `features` behaves
+exactly as if none of it existed. `agent_docs/contract.md` is authoritative for what each plane
+*means*; what follows is the bridge-side vocabulary and the rules that bite an adapter author.
+
+| Type | Direction | Needs | What it is |
+| --- | --- | --- | --- |
+| `event` | **both ways** | `event.v1` | one addressed, reliably-ordered message to another player. The only bridge message that travels in both directions. |
+| `lease` | adapter → core | `lease.v1` | claim / renew / release an exclusive, *timed* grant over an opaque key. |
+| `lease_state` | core → adapter | `lease.v1` | who holds a key right now, and until when. |
+| `escrow` | adapter → core | `escrow.v1` | one step of a both-or-neither exchange: open / deposit / commit / abort. |
+| `escrow_state` | core → adapter | `escrow.v1` | what the exchange actually is now. |
+| `world` | adapter → core | `world.v1` **and** `lease.v1` | `set` or `drop` one entity's opaque blob, under an authority lease you already hold. |
+| `world_state` | core → adapter | `world.v1` **and** `lease.v1` | a live write from the current host, the whole world on adoption or join, or a refusal. |
+
+Asking for them is one field on the `hello` you already send:
+
+```json
+{"type":"hello","payload":{"game_id":"emerald","game_version":"phase5.5","features":["lease.v1","world.v1"]}}
+```
+
+**`world.v1` needs `lease.v1` named separately in the same list.** Neither implies the other and the
+relay will not add it for you — implying it would change the sticky feature-set string and silently
+stop matching rooms that already agreed on the old one. A room with `world.v1` and no `lease.v1`
+denies every world write and says so once, in the relay's own log, which you cannot see.
+
+Five rules, each of which fails silently rather than loudly:
+
+- **Ask before acting, never announce after.** A `lease` is a request; the answer is a `lease_state`,
+  asynchronously. An adapter that acts locally and then claims has put the refusal *after* the effect
+  is already on screen, and this project does not solve rollback.
+- **A request and a fact are separate types on purpose.** Never treat your own unanswered request as
+  the room's state.
+- **Apply an exchange on phase `committed` and on no other phase.** Every other phase, including
+  "both sides deposited", can still end in an abort.
+- **Apply `world_state` in `seq` order, and ignore anything older than what you already applied for a
+  key.** The relay guarantees a total order, but reliable and lossy delivery to one peer are
+  independent, so a lossy write can land ahead of the reliable snapshot meant to seed it. And **never
+  roster-filter a `world_state`** — a world entry legitimately outlives the player who wrote it, and
+  `holder` may name someone who has already left.
+- **A world write that creates a key must be `reliable`, and a lossy write replaces the whole blob.**
+  So never put a continuously-superseded field and one that must never regress in the same blob: an
+  inbound reorder drags the whole thing backwards, the relay's copy becomes the stale one, and the
+  next snapshot spreads the regression instead of repairing it. Discrete state on its own key,
+  reliable; position on another, lossy.
+
+Bounds (`internal/protocol/online.go`), dropped silently like the cosmetic ones — and derived from
+the **datagram** limit rather than `MaxLineBytes`, because an oversized datagram is refused *even on
+the reliable plane* and reported only as a line in the relay's log:
+
+| Field | Limit | Where |
+| --- | --- | --- |
+| `event` payload | 1024 bytes | `protocol.MaxEventBytes` |
+| `event` `corr_id` | 64 bytes | `protocol.MaxCorrIDLen` |
+| lease `key`, world `authority` | 128 bytes | `protocol.MaxLeaseKeyLen` |
+| escrow `id` / one escrow blob | 64 / 1024 bytes | `protocol.MaxEscrowIDLen` / `MaxEscrowBlobBytes` |
+| world `key` | 64 bytes | `protocol.MaxWorldKeyLen` |
+| world `blob` | 768 bytes | `protocol.MaxWorldBlobBytes` |
+| entities per room | 64 | `protocol.MaxWorldKeysPerRoom` |
+| `features` | 16 names, 64 bytes each | `protocol.MaxFeatures` / `MaxFeatureLen` |
+
+**And custody is not permission to write a save.** The relay handing you a canonical world makes "I
+am the host now, so write it in" the most plausible-sounding version of the one thing this project
+never does — see this folder's `README.md`.
+
 ## Reference implementations
 
+- `cmd/meshghost-fakeadapter/world.go` — the only worked example of the planes above: it drives a
+  shared world through repeated host handovers and checks five invariants while doing it. Read it
+  before writing an adapter that uses `world.v1`, not after.
 - `adapters/pokemon/emerald/meshghost_emerald.lua` — the shipped Emerald adapter, including the
   hello send right after connecting (search for `GAME_ID`). Its connection/tick-loop shape
   transfers to a new game; its game-memory reads do not.

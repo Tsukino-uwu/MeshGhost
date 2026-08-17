@@ -129,3 +129,49 @@ func TestNoSlotLeak(t *testing.T) {
 		}
 	}
 }
+
+// TestRoomIsDroppedEvenWhenItHeldAWorld pins the inverse of world custody's
+// "never tie world lifetime to lease lifetime".
+//
+// A world deliberately outlives its authority lease and the client that wrote
+// it, so that a successor can adopt it. The cap that keeps that from being a
+// leak (protocol.MaxWorldKeysPerRoom) is only a cap if the ROOM still goes away
+// when its last member leaves — otherwise a long-lived relay accumulates one
+// pinned room per session that ever used the plane, each holding up to ~58KB,
+// and it keeps serving clients perfectly while it does. That is the shape the
+// first real relay DoS would take, and no liveness probe can see it.
+//
+// Deterministic on purpose: this was first written as an assertion inside
+// FuzzRelaySurvivesArbitraryPostJoinMessages and does not belong there — see
+// that target's own note on why both a per-iteration deadline and a cumulative
+// ceiling were unusable. Here it is exact.
+func TestRoomIsDroppedEvenWhenItHeldAWorld(t *testing.T) {
+	s := NewServer()
+
+	r, _ := worldRoom(t, worldFeatures, "p1")
+	r.key = roomKey(r.GameID, r.Name)
+	s.mu.Lock()
+	s.rooms[r.key] = r
+	s.mu.Unlock()
+
+	// A held authority and a populated world: exactly the state that must not
+	// pin the room.
+	r.handleLease("p1", protocol.Lease{Op: protocol.LeaseClaim, Key: "sim"})
+	setWorld(r, "p1", "sim", "boss", "alive")
+	r.mu.Lock()
+	entities := len(r.world)
+	r.mu.Unlock()
+	if entities != 1 {
+		t.Fatalf("world held %d entities before the leave, want 1", entities)
+	}
+
+	s.finishLeave(r, "p1")
+
+	s.mu.Lock()
+	_, present := s.rooms[r.key]
+	s.mu.Unlock()
+	if present {
+		t.Fatal("the room outlived its last member because it was still holding a world -- " +
+			"MaxWorldKeysPerRoom is only a cap if the room itself is still dropped")
+	}
+}

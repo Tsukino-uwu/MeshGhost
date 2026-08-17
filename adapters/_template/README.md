@@ -461,6 +461,38 @@ the single fact that best explains why an adapter is the size and shape it is, i
 immediately how much of the code is discovery scaffolding versus feature work, and it sets
 expectations for anyone picking the adapter up later.
 
+**If the game is emulated, also carry a one-line bullet naming the exact roms or isos confirmed
+working.** Use this layout verbatim — user-facing and direct, quoted names, nothing else:
+
+```markdown
+- Confirmed working roms: "Vanilla", "Archipelago 0.6.7".
+```
+
+(`isos` where that is what the platform uses.) `adapters/pokemon/emerald/README.md` carries the live
+one. **Keep it a bare list of names**: a player checks their own copy against it at a glance, and
+turning it into prose defeats the entire point.
+
+**Name them the way a player thinks of them, not the way a file system does.** `"Vanilla"` means the
+unpatched base game, and the axis that actually matters to a reader is base-versus-patched — so
+`"Vanilla", "Archipelago 0.6.7"` reads instantly, where a region code or a full file name
+(`(USA, Europe)`) invites the reader to check the wrong thing and makes the line harder to scan.
+Region variants, exact file names and hashes are a separate question and belong in
+[agent_docs/environment.md](../../agent_docs/environment.md).
+
+- **Emulated games need this most, because their players arrive with randomizer, translation and
+  region variants** — "will my copy work?" is otherwise a question only the adapter's author can
+  answer and no reader can look up.
+- **For a PC game, silence means Steam.** Store builds are not truly identical — Steam, Epic and
+  GOG releases can differ in version and behaviour — so the convention is: **list nothing when only
+  Steam has been confirmed** (which is why TEVI and Pseudoregalia carry no such line), and list the
+  platforms explicitly the moment another one is — `"steam", "epic", "gog"`. An absent line reads as
+  "Steam, or works whatever you have"; a present one is a real claim about each platform named.
+- **Only list what was watched running**, per [CLAUDE.md](../../CLAUDE.md)'s standard for an
+  adapter — a patch that merely booted without errors is not a confirmation.
+- **It is for the player, not for us.** Keep `game_id`/`game_version` and any other protocol
+  versioning out of it: those are ours, they mean something different, and mixing them in turns the
+  one line a player can actually use into something they have to interpret.
+
 **The other sections every shipped README carries**, and which the build story alone doesn't cover:
 
 - **A bold `**Status:**` line as line 3** — the phase, what's done, what the last live
@@ -648,12 +680,17 @@ Two reasons, and the second is the one that will actually be tested:
    anyone asks about installing something into a game they care about, and a single incident is
    unrecoverable reputationally in a way a crash is not.
 2. **The temptation arrives with capability, not with intent.** The relay now offers reliable
-   ordered events, exclusive locks and both-or-neither exchanges
+   ordered events, exclusive locks, both-or-neither exchanges, and — since 2026-08-17 — **custody
+   of a room's world**: it holds the latest opaque blob per entity and hands the whole set to
+   whoever takes the authority lease next
    ([agent_docs/beyond-cosmetic.md](../../agent_docs/beyond-cosmetic.md)). The moment an adapter
    wants a trade, "the exchange committed, so just write the item into the save" looks like the
-   obvious last step. It is the exact step this rule forbids. An exchange completing is a fact
-   about the *relay*; what a game does with that fact is a per-game decision that has to pass the
-   memory-write gate in [agent_docs/plans.md](../../agent_docs/plans.md), on its own, with an ADR.
+   obvious last step. It is the exact step this rule forbids. **Custody is the sharper form of it,
+   and the one to watch**: the relay hands a new host a *canonical* world, so "I am the host now, so
+   write it in" reads less like cheating than like correctness — and it is the same forbidden step.
+   An exchange committing, or a world being adopted, is a fact about the *relay*; what a game does
+   with that fact is a per-game decision that has to pass the memory-write gate in
+   [agent_docs/plans.md](../../agent_docs/plans.md), on its own, with an ADR.
 
 Reading is unrestricted, and so is drawing: spawn actors, draw overlays, pose clones, play
 animations. The line is at persistence and at authoritative game state, not at pixels.

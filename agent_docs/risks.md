@@ -51,6 +51,17 @@
   choice). The assertion test written for the world plane
   (`internal/netx/udpconn/world_bounds_test.go`) is the shape to retrofit onto events and escrow
   when it is taken; `MaxWorldBlobBytes` was derived this way from the start and does fit.
+- **A lossy world write over quic is bounded by the path MTU, not by our own constants.** quic's
+  `SendUnreliable` is a real datagram path (RFC 9221) and quic-go refuses a datagram larger than the
+  connection's *current* path MTU rather than fragmenting it — a dynamic value that can sit below
+  `udpconn.MaxDatagramBytes` (1200), which is what `MaxWorldBlobBytes` was derived against. **quic is
+  the default transport**, and the refusal reaches the adapter only as a logged error, so an
+  undersized path would make lossy world writes quietly stop working while reliable ones (which ride
+  the stream and have no such limit) kept going. A maximal world message round-trips as a quic
+  datagram today (`internal/netx/quicconn`'s `TestMaximalWorldStateFitsAQuicDatagram`, 2026-08-17) —
+  on loopback, which is the generous case. Not closed: an undersized real-world path has never been
+  tested, and per CLAUDE.md a clean light test does not close a risk that depends on the real
+  environment.
 - Changing the adapter contract after Phase 5 may create compatibility issues across
   already-built adapters.
 - The TEVI and Pseudoregalia targets may require substantially different adapter behavior

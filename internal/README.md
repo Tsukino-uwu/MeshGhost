@@ -1,5 +1,75 @@
 # internal/ — security and privacy posture
 
+## The whole shape, in one picture
+
+```text
+        YOUR MACHINE                                       A FRIEND'S MACHINE
+ ┌──────────────────────────┐                          ┌──────────────────────────┐
+ │  game + MeshGhost mod    │                          │  game + MeshGhost mod    │
+ │            │             │                          │            │             │
+ │            │  BRIDGE     │  never leaves the box    │            │  BRIDGE     │
+ │            │  127.0.0.1  │  ── plaintext, loopback  │            │  127.0.0.1  │
+ │            ▼  NDJSON     │     only, by design      │            ▼  NDJSON     │
+ │  meshghost.exe  (core)   │                          │  meshghost.exe  (core)   │
+ └────────────┬─────────────┘                          └─────────────┬────────────┘
+              │                                                      │
+              │        RELAY PROTOCOL — tcp / quic / udp             │
+              │        (handshake is ALWAYS tcp, then upgrades)      │
+              │                                                      │
+              └──────────────────►  ┌─────────────────┐  ◄───────────┘
+                                    │  meshghost-     │
+              ┌──────────────────►  │  server.exe     │  ◄───────────┐
+              │                     │  (the relay)    │              │
+       ┌──────┴───────┐             └─────────────────┘       ┌───────┴──────┐
+       │  another     │                                       │  another     │
+       │  player      │      A STAR, NOT A MESH:              │  player      │
+       └──────────────┘      no client ever connects          └──────────────┘
+                             to another client, ever.
+```
+
+**Two separate protocols, and the split is load-bearing.** The **bridge** is the mod talking to its
+own local core over loopback — an adapter never learns a relay address and never sends a byte off the
+machine. The **relay protocol** is core-to-relay. Everything a peer sees about you crosses the second
+one, so everything below is about that.
+
+### Why a relay and not peer-to-peer
+
+Not a shortcut — a trade, with real costs on both sides.
+
+| | Relay / star (what MeshGhost does) | Peer-to-peer / mesh |
+| --- | --- | --- |
+| **Your IP** | Only the relay's host sees it. Peers never learn it — the protocol has no field that could carry it. | Every peer learns every other peer's address by construction. Unavoidable: that *is* how they connect. |
+| **Setup** | One person forwards one port. Everyone else only makes outbound connections. | NAT traversal — hole punching, UPnP, STUN — which fails often enough that most "P2P" games ship a relay anyway. |
+| **Ordering** | One place stamps one total order, which is what makes leases and world custody possible at all. | No natural arbiter. Getting one means electing a peer, which is a relay with extra steps and a worse failure mode. |
+| **Latency** | **Two hops.** Every message goes client → relay → client, so roughly double a direct link. | One hop. Genuinely better, and the main reason to want it. |
+| **Bandwidth** | **Concentrated on the host.** The relay receives from everyone and re-sends to everyone, so its uplink carries the room. | Spread across players. |
+| **Failure** | **Single point.** Relay down, session over. | No single point; degrades per-link instead. |
+| **Who can watch** | The relay's operator sees timing, volume, and who is in which room — though not meaning, since payloads are opaque to it by hard rule. | Each peer sees only its own links. |
+
+For a handful of friends playing a singleplayer game, the top three rows are worth the next three.
+That is the whole argument, and it is a judgement, not a fact.
+
+### What is and is not secure, per transport
+
+| Transport | Encrypted? | Authenticated? | Notes |
+| --- | --- | --- | --- |
+| **tcp** | **No** — plaintext NDJSON | No | Deliberate: greppable with netcat, which is how a session gets debugged. Always carries the handshake. |
+| **quic** (default) | **Yes**, TLS 1.3 | **No** — the certificate is self-signed and unverified | Stops a passive eavesdropper. Does **not** stop an active man-in-the-middle, who presents their own certificate and is accepted. |
+| **udp** | **No** | No | Go's standard library has no DTLS, so this one cannot be fixed the same way. |
+
+So the honest summary is **encrypted-by-default, authenticated-nowhere**. A room code raises the bar
+from "anyone with the address" to "anyone with the address and the code" — not to "safe against a
+network-level attacker". What would close the authentication gap is TLS channel binding rather than
+certificates; it is designed but unbuilt (`agent_docs/ideas.md`, transport security).
+
+**What plain `udp` does have**, since it is otherwise the weakest of the three: an HMAC cookie so an
+unauthenticated stranger cannot make the listener allocate memory for a spoofed address, a
+per-connection token so guessing an `ip:port` is not enough to inject into someone's session, and an
+ordered reliable path for lifecycle messages alongside the lossy one that state rides. Those are
+anti-abuse measures, not encryption, and they do not make it private.
+
+---
+
 This file describes what the Go networking layer (`core`, `relay`, `bridge`, `protocol`,
 `transport`, `netx`) does and does not protect against, and why. It exists so "is this safe to use
 with people I don't know" has a real, checkable answer instead of a guess — see
@@ -148,7 +218,8 @@ another player's network state, because no channel to another player's machine e
 
 **No message type carries an IP address or other network-identifying field.**
 `internal/protocol/protocol.go`'s complete message set (`Hello`, `Welcome`, `Reject`, `Join`,
-`Leave`, `State`, `Event`, `Ping`/`Pong`, `Transports`) has no address field anywhere — `Reject`
+`Leave`, `State`, `Event`, `Lease`/`LeaseState`, `Escrow`/`EscrowState`, `World`/`WorldState`,
+`Ping`/`Pong`, `Transports`) has no address field anywhere — `Reject`
 carries only a reason string, and `Transports` (the transport-discovery reply, added 2026-08-16)
 carries a kind and a **port** per offer, never a host: the client already knows an address, and a
 relay bound to `0.0.0.0` doesn't. A client only ever learns a
@@ -183,13 +254,28 @@ during the read itself, not after), `MaxExtrasBytes` (1024), `MaxPositionLen` (8
 `DefaultMaxClients` (8, server-wide across all rooms, configurable per relay),
 `MaxMessagesPerSecond` (120 at the default 20Hz — a floor, not a flat cap: the real per-client
 limit is `max(120, send_hz * RateLimitHeadroomMultiple)`, and that multiple is 6),
-`DefaultHelloTimeout` (10s). Originally
+`DefaultHelloTimeout` (10s). The opt-in planes carry their own, in `internal/protocol/online.go`
+rather than `limits.go`: `MaxEventBytes` (1024), `MaxLeaseKeyLen` (128), `MaxEscrowBlobBytes`
+(1024), `MaxWorldKeyLen` (64), `MaxWorldBlobBytes` (768) — all **derived from the datagram limit
+rather than `MaxLineBytes`**, because an oversized datagram is refused even on the reliable plane
+and reported only as a log line — plus
+`MaxLeasesPerRoom`/`MaxEscrowsPerRoom`/`MaxWorldKeysPerRoom`, which are per-room **memory** bounds
+rather than per-message ones and are the only limits here of that kind. Originally
 generous rather than tight (no-auth was the accepted state through Phase 4); audited with an
 adversarial peer in mind as of the 2026-08-14 hardening pass — see "What changed" above and the
 ADR in [agent_docs/architecture.md](../agent_docs/architecture.md).
 
 ## What is not yet true — known gaps
 
+- **Since `world.v1` (2026-08-17) the relay RETAINS one client's opaque bytes and hands them to
+  another, after the sender has gone.** Every earlier plane forwards and forgets, so a peer's bytes
+  only ever reached someone connected at the time. World custody deliberately holds the latest blob
+  per entity for a room's lifetime and hands the whole set to whoever takes the authority lease
+  next — which is the entire point, and also the first mechanism by which a departed client's
+  content reaches a stranger who arrived later. Bounded (`MaxWorldKeysPerRoom` x
+  `MaxWorldBlobBytes`, ~58KB per room, freed with the room) and opt-in per room, so it is not a
+  resource gap; what it is, is a new place a client could smuggle something into, and it is not
+  inspected because by hard rule it cannot be. Same posture as `extras`, with a longer lifetime.
 - **No TLS on `tcp` or `udp`.** Both are plaintext NDJSON — deliberate on `tcp`, for the
   "greppable with netcat" debuggability property (see "Why TCP is the default" below), and
   *unavoidable* on `udp`, since Go's standard library has no DTLS. A room code therefore crosses
@@ -218,6 +304,10 @@ client to learn another client's IP or other real identity through the relay pro
 Server-side logging of IPs (for the relay operator's own moderation/debugging) is a different
 and acceptable thing; anything that *echoes* connection info back to clients — e.g. a "room
 member list" feature built naively — would break an invariant that currently holds for free.
+
+That now covers a **world blob** as well as `extras`: it is opaque, retained for a room's lifetime,
+and handed to clients its author never met, so anything an adapter puts in one should be treated as
+published to the room's future members rather than sent to its current ones.
 
 ## Prior art: how CelesteNet handles this (researched 2026-08-13)
 

@@ -39,9 +39,13 @@ There are three things running, and they are separate on purpose:
   never connect to each other.
 
 The relay's whole job is: accept a connection, decide whether to admit it, hand it an id, and
-copy the bytes it sends to the other members of its room. That's it. It holds no world state,
-no positions, no history — a `Room` is a name, a `game_id`, a `game_version`, and a map of
-members (`relay.go:28`). It does not know what a position *means*, and by hard rule it never
+copy the bytes it sends to the other members of its room. That's it. It holds no *positions* and no
+history — a `Room` is a name, a `game_id`, a `game_version`, and a map of members (`relay.go:28`),
+plus the opt-in bookkeeping the planes past cosmetic need: leases, escrows, a last-state-per-member
+snapshot, and — since `world.v1`, 2026-08-17 — a **world** of opaque per-entity blobs it holds on a
+room's behalf and hands to whoever takes an authority lease next (`world.go`). None of that changes
+what it *understands*: every one of those is an opaque string or an opaque blob, and none of it runs
+for a room that did not ask for it. It does not know what a position *means*, and by hard rule it never
 will: `area_id`, `anim`, `orientation` and `extras` are opaque, compared by equality if at all,
 and there is no `if game == "emerald"` anywhere in `internal/relay` or `internal/core`. The
 relay never imports `internal/core` or `internal/bridge` — see the package doc at
@@ -438,15 +442,33 @@ happens when each one trips*.
   state message with large `extras` can exceed it. That is **refused with an error**
   (`ErrDatagramTooLarge`, `udpconn.go:171`), never truncated — a half-written JSON line is a
   parse error at the far end with no clue why. Such a client should use tcp.
+- **Plane bounds** — the planes past cosmetic carry their own, in `protocol/online.go` rather than
+  `limits.go`: `MaxEventBytes` (1024), `MaxLeaseKeyLen` (128), `MaxEscrowBlobBytes` (1024),
+  `MaxWorldKeyLen` (64), `MaxWorldBlobBytes` (768). **These are derived from the datagram limit
+  above, not from `MaxLineBytes`**, because `checkWritable` refuses an oversized datagram
+  *including a reliable one* and reports it only as a log line — so an oversized message on a
+  decision-carrying plane is lost for that recipient and never superseded. `MaxWorldKeysPerRoom`
+  (64) is the odd one out: it is a per-room **memory** bound rather than a per-message one, and it
+  equals `udpconn`'s reorder window because a reliable burst wider than that window goes unacked
+  and is retried until the connection closes. Asserted in
+  `internal/netx/udpconn/world_bounds_test.go`. Two pre-existing constants do NOT satisfy this and
+  are recorded in `agent_docs/risks.md`.
 - **Read queue** — 64 datagrams per connection (`udpconn.go:155`, `quicconn.go:81`), dropped
   when full rather than blocked. Blocking would let one slow reader stall the demultiplexer for
   every other connection on the shared socket.
 
 Backpressure, in short: there isn't any, on purpose. Nothing queues on behalf of a slow peer.
 Excess is dropped (receive cap, full read queue), refused (oversized datagram), or the
-connection is closed (flood, idle, oversized line). That's coherent only because the state plane
-is defined as lossy and latest-wins — a dropped sample is superseded ~50ms later, so the failure
-mode of every one of these is a slightly less smooth ghost, not a wrong one.
+connection is closed (flood, idle, oversized line). That's coherent for the **state** plane because
+it is defined as lossy and latest-wins — a dropped sample is superseded ~50ms later, so the failure
+mode is a slightly less smooth ghost, not a wrong one.
+
+It does not extend to the planes past cosmetic, and that asymmetry is deliberate rather than
+overlooked: those carry decisions, so they ride the reliable path and are bounded before they are
+ever accepted rather than dropped afterwards. The one exception is a lossy `world` write, which the
+adapter opts into per write precisely because it *is* superseded by its own next update — and even
+there the relay stores the latest, so a snapshot stays complete. What has no backpressure anywhere
+is a peer that stops reading: that is the write timeout's job, not a queue's.
 
 ## 8. What the relay deliberately does not do
 
@@ -469,11 +491,14 @@ mode of every one of these is a slightly less smooth ghost, not a wrong one.
   demultiplexed at all — the address is used internally, just never surfaced upward or logged.
   Whether that matters is a question for [`internal/README.md`](README.md), which is the
   authority on privacy posture.
-- **No event routing.** `protocol.Event` exists as a reserved type with no routing at all —
-  see `agent_docs/contract.md`'s Extensibility section. `Room.Forward` already takes an explicit
-  recipient set rather than hardcoding room-wide broadcast, so wiring addressed routing in later
-  is a localised change rather than a rewrite of the forward path. That shape decision cost
-  nothing to make early.
+- **No *simulation* authority, which is not the same as no authority.** This bullet used to read
+  "no event routing", and that stopped being true on 2026-08-17: addressed events, a room
+  sequencer, leases, escrow and world custody all shipped that day, and `Room.Forward` already
+  taking an explicit recipient set is why it was a localised change rather than a rewrite. What the
+  relay still refuses to do is judge *content* — who really had the item, whether that damage was
+  real. It orders and it stores; it never simulates, because that is the one job that requires
+  understanding the game. See `agent_docs/contract.md`'s Extensibility section and
+  `agent_docs/beyond-cosmetic.md`.
 
 ## Where to go next
 

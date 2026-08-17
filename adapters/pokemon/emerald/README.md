@@ -6,6 +6,7 @@ live-tested with real two-player sessions. See
 and the "Further work past 'good enough'" section below for what's still open.
 
 - Platform: GBA, played via BizHawk.
+- Confirmed working roms: "Vanilla", "Archipelago 0.6.7".
 - Adapter language: Lua (BizHawk's scripting host).
 - **How the game is read: an external source decompilation.** Fixed memory addresses, looked up in
   [`pokeemerald`](https://github.com/pret/pokeemerald) and cited — nothing is discovered at runtime.

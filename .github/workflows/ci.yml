@@ -2,7 +2,7 @@ name: CI
 
 # Runs the Go client/server checks CLAUDE.md requires before any change to
 # internal/ or cmd/ is called done -- build, vet, the full test suite, and a
-# short fuzz campaign against nine targets across four packages (protocol,
+# short fuzz campaign against eleven targets across four packages (protocol,
 # transport, relay, netx/udpconn). Until this existed,
 # every one of those ran only when a human remembered to run them, and
 # release.yml shipped binaries without running a single test.
@@ -138,7 +138,7 @@ jobs:
         run: bash dev-scripts/ci-fuzz.sh ./internal/protocol FuzzValidPositionsSurviveNarrowingToFloat32 30s
       - name: Fuzz protocol - envelope decode never panics
         run: bash dev-scripts/ci-fuzz.sh ./internal/protocol FuzzEnvelopeUnmarshalNeverPanics 30s
-      # The three planes past cosmetic (2026-08-17) parse their own
+      # The four planes past cosmetic (2026-08-17) parse their own
       # attacker-controlled shapes: an event payload is opaque bytes forwarded
       # to other players, and a lease key or escrow id becomes a map key in the
       # relay's own state. Same exposure as the state plane above, so the same
@@ -155,8 +155,24 @@ jobs:
         run: bash dev-scripts/ci-fuzz.sh ./internal/protocol FuzzNormalizeFeaturesIsIdempotent 30s
       - name: Fuzz transport - framing honours its line limit
         run: bash dev-scripts/ci-fuzz.sh ./internal/transport FuzzReadLoopNeverExceedsItsLineLimit 45s
+      # world.v1 (2026-08-17) retains attacker-chosen opaque bytes for a room's
+      # lifetime and hands them to whoever takes a lease next, and an authority
+      # string is compared for equality against a lease key -- a non-UTF-8 one
+      # becomes a DIFFERENT string across JSON, so every write is silently
+      # denied while the client's own validation passed. This target was written
+      # with the plane and left out of CI, the same omission
+      # FuzzListenerSurvivesArbitraryDatagrams had; it had therefore never run.
+      - name: Fuzz protocol - world writes survive a relay forward unchanged
+        run: bash dev-scripts/ci-fuzz.sh ./internal/protocol FuzzValidateWorldIsStableAcrossTheWire 30s
       - name: Fuzz relay - survives arbitrary bytes and still serves clients
         run: bash dev-scripts/ci-fuzz.sh ./internal/relay FuzzRelaySurvivesArbitraryLines 45s
+      # The relay's POST-JOIN dispatch had no fuzz coverage at all until
+      # 2026-08-17: the target above dials, writes one line and hangs up, so the
+      # switch reaching handleEvent/handleLease/handleEscrow/handleWorld -- where
+      # a lease key, an escrow id and a worldKey all become keys in the relay's
+      # own maps -- was only ever exercised by hand-written, well-formed tests.
+      - name: Fuzz relay - survives arbitrary post-join messages
+        run: bash dev-scripts/ci-fuzz.sh ./internal/relay FuzzRelaySurvivesArbitraryPostJoinMessages 45s
       # udp parses stranger datagrams *before* address validation, room code or
       # protocol version -- the most exposed pre-auth surface in the project,
       # and since 2026-08-16 it is also on the fallback path rather than opt-in.

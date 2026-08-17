@@ -30,7 +30,7 @@ Internal documentation for MeshGhost: architecture, planning, licensing, and ver
   diagnosed, root cause, fix. Not design decisions ([risks.md](risks.md)) or confirmed facts
   ([verified.md](verified.md)).
 - [beyond-cosmetic.md](beyond-cosmetic.md) — **the concept layer under the depth ladder**: sync
-  models, the four authority models and which of them need game knowledge, the readiness gaps a
+  models, the five authority models and which of them need game knowledge, the readiness gaps a
   fuller online mode would have to close, and the rule that keeps the door open (capability is
   adapter-opt-in via `features`, never relay-imposed via `game_id`). Nothing in it is scheduled.
 - [bandages-core.md](bandages-core.md) — shipped compensations in the Go side (core, relay,

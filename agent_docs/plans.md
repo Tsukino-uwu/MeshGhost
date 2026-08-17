@@ -19,7 +19,11 @@ TEVI replaced the brief's original Ori: Will of the Wisps pick.
 
 - No shared gameplay state, physics, or collision *synchronization*. (Pseudoregalia's ghost has
   been physically solid since 2026-08-15 — see Phase 7 — but that is a purely local capsule on a
-  cosmetic ghost; nothing about collision is negotiated or replicated between peers.)
+  cosmetic ghost; nothing about collision is negotiated or replicated between peers. Narrowed
+  2026-08-17: `world.v1` gives the relay a place to *hold* shared opaque entity state and hand it to
+  a successor host, which is mechanism rather than gameplay — it neither simulates nor interprets
+  anything, and no adapter uses it. The non-goal still stands as written: nothing about physics or
+  collision is negotiated between peers.)
 - No game-specific rendering logic inside the core.
 - No adapter transport or socket handling — adapters speak only to the local bridge.
 - No production binary encoding or performance optimization before the contract is stable.
@@ -41,8 +45,11 @@ TEVI replaced the brief's original Ori: Will of the Wisps pick.
 MeshGhost's default is and stays cosmetic. But the architecture doesn't trap it
 there for a specific game if that's wanted later — see the Extensibility section of
 `agent_docs/contract.md` and the matching ADR in `agent_docs/architecture.md` for the
-mechanism (an opaque, per-adapter event plane, built 2026-08-17 and opt-in — see
-`beyond-cosmetic.md`; primitives only, and no adapter uses any of it).
+mechanism. What was built on 2026-08-17, all opt-in per room and used by no adapter: an opaque
+addressed **event** plane, a room **sequencer**, **leases** over opaque keys, **escrow** for
+both-or-neither exchanges, and **world custody** (`world.v1`) — the relay holding the latest opaque
+blob per entity and handing it to whoever takes an authority lease next. See `beyond-cosmetic.md`;
+primitives only, and none of it is a licence to use them.
 
 The concept layer under this ladder — sync models, the authority taxonomy, and what a
 deeper-than-cosmetic mode would actually have to close — is `agent_docs/beyond-cosmetic.md`.
@@ -56,6 +63,12 @@ Depth ladder — what MeshGhost can support, per game:
 | 1 — cosmetic+ | nameplates, emotes, text chat, "friend entered Route 103" pings, shared timers | none | cheap; possible, deliberately not scheduled |
 | 2 — read-only shared context | see a friend's party/badges/progress in an overlay | none | moderate; still no risk |
 | 3 — consensual interaction | trading, battling | yes | the cliff — a category jump, not a bigger Tier 2. Needs its own ADR, per-game, opt-in. |
+
+**The ladder describes what a GAME does, not what the relay offers**, and the two moved apart on
+2026-08-17. The planes above are mechanism at every tier: a room can hold a whole world of opaque
+entity state without any game writing a byte, because the relay stores and orders it and the adapter
+decides what — if anything — to render. So none of them is a rung, and reaching a higher rung still
+costs exactly what this table says it costs.
 
 Tier 1 items are recorded here as things that are possible and cheap (they need no game
 writes), specifically **not scheduled** — phase discipline means finishing the phase that is
@@ -85,9 +98,12 @@ in a menu and the other isn't.
 
 Three concrete blockers, none of them about how much time it would take:
 
-- **No authority model, by design.** The relay is a dumb forwarder; each client is
-  authoritative over only itself. Continuous co-op needs an arbiter MeshGhost deliberately
-  doesn't have.
+- **No *simulation* authority, by design** — sharpened 2026-08-17, because the relay is no longer
+  a pure forwarder and the original wording ("no authority model") is now contradicted by
+  `internal/relay/world.go`'s own opening paragraph. It does arbitrate *order* (the sequencer),
+  *designation* (who holds a key) and *custody* (what a successor inherits), all by comparing
+  opaque strings. What it will never do is decide whether an action was legitimate — items,
+  combat, RNG — and continuous co-op needs exactly that arbiter.
 - **Any arbiter would have to be game-aware** — items, combat, RNG — which breaks the single
   most important invariant in this project: `internal/core` and `internal/relay` never know
   game specifics.

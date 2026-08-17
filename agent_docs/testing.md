@@ -55,7 +55,7 @@ the set that actually went wrong.
 | End-to-end, real binaries (`internal/e2e`) | yes | yes | yes |
 | **Race detector** | **no — can't** (`run-gotests-race.bat` says why) | yes (Linux) | no |
 | Concurrency stress (`-shuffle`, `-cpu`, repeats) | yes (`run-gotests-stress.bat`) | no | no |
-| **Fuzzing** | seed corpus only | yes, short campaign per target (all six) | no |
+| **Fuzzing** | seed corpus only | yes, short campaign per target (all eleven) | no |
 
 **The race detector is the one real hole, and it has already cost a round trip.** CI caught a
 relay race on 2026-08-16 (a join broadcast computed its recipients under a *second* lock
@@ -187,9 +187,18 @@ checks):
 | `FuzzReadLoopNeverExceedsItsLineLimit` | The framing layer never delivers a payload past its line limit, however the input is shaped. |
 | `FuzzRelaySurvivesArbitraryLines` | A live relay fed arbitrary bytes still serves legitimate clients afterwards. |
 | `FuzzListenerSurvivesArbitraryDatagrams` | A `udpconn` listener fed arbitrary datagrams — malformed headers, bad tokens, wrong sequence numbers — keeps accepting real sessions. |
+| `FuzzValidateEventIsStableAcrossTheWire` | An event's validity cannot change across the relay's forward, so nothing passes the gate and arrives invalid at a peer. |
+| `FuzzValidateLeaseAndEscrowNeverPanic` | The two arbitration planes' bounds checks never panic, and a resolved lease TTL always lands inside the honoured range. |
+| `FuzzNormalizeFeaturesIsIdempotent` | Normalizing twice equals normalizing once, so two clients advertising the same capabilities are never refused a shared room. |
+| `FuzzValidateWorldIsStableAcrossTheWire` | A world write survives the wire unchanged — including its `authority`, which is compared for equality against a lease key, so a string that mutates in transit means every write silently denied. |
+| `FuzzRelaySurvivesArbitraryPostJoinMessages` | A live relay fed arbitrary messages *after* a real join still serves clients — the only coverage of the dispatch reaching `handleEvent`/`handleLease`/`handleEscrow`/`handleWorld`. |
 
-`FuzzListenerSurvivesArbitraryDatagrams` was written but left out of CI until 2026-08-17. It is the
-most exposed target of the six: udp parses a stranger's bytes *before* address validation, room
+**Two targets have now shipped written-but-unwired**, which makes it a pattern rather than a slip:
+`FuzzListenerSurvivesArbitraryDatagrams` (fixed 2026-08-17) and
+`FuzzValidateWorldIsStableAcrossTheWire` (written with `world.v1`, wired later the same day, having
+never once run). **Adding a target is not done until `.github/workflows/ci.yml` has a step for it**,
+and this table is where the next session checks. The udp one is the
+most exposed of them: udp parses a stranger's bytes *before* address validation, room
 code, or protocol version, and since the transport defaults changed it sits on the fallback path
 rather than being opt-in.
 

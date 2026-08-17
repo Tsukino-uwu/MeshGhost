@@ -5,6 +5,7 @@ package core
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 
@@ -358,4 +359,65 @@ func waitWorld(t *testing.T, ch chan protocol.WorldState, reason string) protoco
 			t.Fatalf("timed out waiting for a world state with reason %q", reason)
 		}
 	}
+}
+
+// TestHostileWorldStateIsDroppedOnReceive is the receive-side half of the
+// two-enforcement-point discipline: a compromised or simply buggy relay is not
+// trusted to have enforced its own limits.
+//
+// Worth having specifically for this plane, because a world entry is the one
+// thing the relay RETAINS and re-sends: an oversized blob accepted here would be
+// handed to the adapter on every adoption and every join, not just once.
+func TestHostileWorldStateIsDroppedOnReceive(t *testing.T) {
+	oversized := json.RawMessage(`"` + strings.Repeat("x", protocol.MaxWorldBlobBytes) + `"`)
+	cases := map[string]protocol.WorldState{
+		"oversized blob": {Authority: "sim", Seq: 1, Reason: protocol.WorldSnapshot,
+			Entries: []protocol.WorldEntry{{Key: "e0", Blob: oversized}}},
+		"over-length key": {Authority: "sim", Seq: 1, Reason: protocol.WorldSnapshot,
+			Entries: []protocol.WorldEntry{{Key: strings.Repeat("k", protocol.MaxWorldKeyLen+1)}}},
+		"empty key": {Authority: "sim", Seq: 1, Reason: protocol.WorldSnapshot,
+			Entries: []protocol.WorldEntry{{Key: ""}}},
+		"over-length authority": {Authority: strings.Repeat("a", protocol.MaxLeaseKeyLen+1), Seq: 1},
+		"too many entries": {Authority: "sim", Seq: 1,
+			Entries: make([]protocol.WorldEntry, protocol.MaxWorldKeysPerRoom+1)},
+	}
+
+	for name, st := range cases {
+		t.Run(name, func(t *testing.T) {
+			c := New()
+			delivered := false
+			c.OnWorldState = func(protocol.WorldState) { delivered = true }
+
+			payload, err := json.Marshal(st)
+			if err != nil {
+				t.Fatalf("marshal: %v", err)
+			}
+			if handled := c.handleOnlineMessage(protocol.Envelope{
+				Type: protocol.TypeWorldState, Payload: payload,
+			}); !handled {
+				t.Fatal("handleOnlineMessage did not claim a world_state at all")
+			}
+			if delivered {
+				t.Fatalf("a world_state with an %s was passed to the adapter instead of dropped", name)
+			}
+		})
+	}
+
+	// The converse, so the check is not simply refusing everything.
+	t.Run("a valid one is delivered", func(t *testing.T) {
+		c := New()
+		delivered := false
+		c.OnWorldState = func(protocol.WorldState) { delivered = true }
+		payload, err := json.Marshal(protocol.WorldState{
+			Authority: "sim", Holder: "p1", Seq: 4, Reason: protocol.WorldSnapshot,
+			Entries: []protocol.WorldEntry{{Key: "e0", Blob: json.RawMessage(`{"hp":1}`)}},
+		})
+		if err != nil {
+			t.Fatalf("marshal: %v", err)
+		}
+		c.handleOnlineMessage(protocol.Envelope{Type: protocol.TypeWorldState, Payload: payload})
+		if !delivered {
+			t.Fatal("a valid world_state was dropped")
+		}
+	})
 }

@@ -397,6 +397,44 @@ func TestWorldWriteWithoutTheLeaseIsDenied(t *testing.T) {
 	}
 }
 
+// TestAdoptionIntoAnEmptyWorldStillSendsOneSnapshot is the assertion whose
+// absence would let a regression pass EVERYTHING.
+//
+// A new holder has to know when it may start writing. Until its adoption has
+// landed it cannot tell "there is nothing to adopt" from "what I am about to
+// overwrite has not arrived yet", and a host that guesses wrong writes
+// generation 1 over a world already at generation 2 — a rollback, silent, and
+// permanent. So an adoption sends exactly one snapshot even when the world is
+// empty, and "empty" is the case an implementation naturally optimises away.
+//
+// **Nothing else catches that.** Every other test in this file uses a non-empty
+// world, so all of them would still pass. Worse, the soak rig would report zero
+// invariant violations rather than a failure, because
+// cmd/meshghost-fakeadapter's isHolder refuses to write until its adoption has
+// landed — so it would simply never write anything, and a run that exercised
+// nothing looks exactly like a run that passed. Same shape as CLAUDE.md's rule
+// about a diagnostic that breaks the thing it measures.
+func TestAdoptionIntoAnEmptyWorldStillSendsOneSnapshot(t *testing.T) {
+	r, rts := worldRoom(t, worldFeatures, "p1")
+	r.handleLease("p1", protocol.Lease{Op: protocol.LeaseClaim, Key: "sim"})
+
+	states := rts["p1"].worldStates(t)
+	if len(states) != 1 {
+		t.Fatalf("taking an authority over an empty world produced %d world messages, want exactly "+
+			"1 -- without it a new host cannot tell an empty world from an adoption still in "+
+			"flight, and writes over a world it has not seen", len(states))
+	}
+	if states[0].Reason != protocol.WorldSnapshot {
+		t.Fatalf("got reason %q, want %q", states[0].Reason, protocol.WorldSnapshot)
+	}
+	if len(states[0].Entries) != 0 {
+		t.Fatalf("the snapshot carried %+v, want nothing", states[0].Entries)
+	}
+	if states[0].Holder != "p1" {
+		t.Fatalf("the snapshot named holder %q, want p1", states[0].Holder)
+	}
+}
+
 // TestHandoverSnapshotIsSentOnlyWhenTheHolderChanges. A renew, and a re-claim
 // by the current holder, must produce none — otherwise the busiest client's
 // whole world goes back on the wire at its own renew rate.
@@ -405,7 +443,13 @@ func TestHandoverSnapshotIsSentOnlyWhenTheHolderChanges(t *testing.T) {
 	r.handleLease("p1", protocol.Lease{Op: protocol.LeaseClaim, Key: "sim"})
 	setWorld(r, "p1", "sim", "boss", "alive")
 
+	// One already, from the grant above: the adoption snapshot into what was
+	// then an empty world. Asserted rather than merely used as a baseline, so
+	// this test cannot silently start measuring from zero.
 	before := len(rts["p1"].worldStates(t))
+	if before != 1 {
+		t.Fatalf("expected exactly the adoption snapshot before the renew, got %d messages", before)
+	}
 	r.handleLease("p1", protocol.Lease{Op: protocol.LeaseRenew, Key: "sim"})
 	r.handleLease("p1", protocol.Lease{Op: protocol.LeaseClaim, Key: "sim"})
 	if after := len(rts["p1"].worldStates(t)); after != before {
@@ -612,10 +656,18 @@ func TestWriterIsExcludedFromItsOwnWorldBroadcast(t *testing.T) {
 	r.handleLease("p1", protocol.Lease{Op: protocol.LeaseClaim, Key: "sim"})
 	setWorld(r, "p1", "sim", "boss", "alive")
 
-	// p1 does get one message: the adoption snapshot its own grant produced,
+	// p1 gets exactly one message: the adoption snapshot its own grant produced,
 	// which is empty because the world was empty at that point. What it must
-	// never get is its own write echoed back.
-	for _, st := range rts["p1"].worldStates(t) {
+	// never get is its own write echoed back. The count is asserted as well as
+	// the contents — a bare loop over the messages would pass just as happily on
+	// zero of them, which is the regression
+	// TestAdoptionIntoAnEmptyWorldStillSendsOneSnapshot exists to catch.
+	own := rts["p1"].worldStates(t)
+	if len(own) != 1 {
+		t.Fatalf("the writer received %d world messages, want exactly its own adoption snapshot",
+			len(own))
+	}
+	for _, st := range own {
 		if st.Reason != protocol.WorldSnapshot {
 			t.Fatalf("the writer received a %q message about its own write, want only its "+
 				"adoption snapshot", st.Reason)

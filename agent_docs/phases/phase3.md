@@ -201,7 +201,8 @@ emulator:
 - **Archipelago-patched ROM.** Vanilla only this phase; `agent_docs/risks.md` already records
   the `gPlayerAvatar`/`gObjectEvents` invalidation and its planned `dx`/`dy` mitigation,
   explicitly deferred until after the vanilla path is proven.
-- **The event plane and `features`.** Reserved here; both built 2026-08-17 (`architecture.md`).
+- **The event plane and `features`.** Reserved here; both built 2026-08-17, along with leases,
+  escrow and world custody on top of them (`architecture.md`).
 - **`internal/transport`-level line-size cap** (the one known gap in the Limits work above) —
   real risk only once Phase 4 puts untrusted peers on the wire.
 - **Noisy `core: send state to relay failed` log spam after a relay disconnect.** `onAdapterFrame`

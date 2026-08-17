@@ -64,8 +64,8 @@ stays here, its reasoning goes to `agent_docs/`, with a one-line pointer. Full e
   successful build or a plausible-looking read.
 - **Never write a save — anyone's, ever, not even as a feature.** MeshGhost reads memory and
   draws; it does not modify game state or save files, and that holds whatever gets added later —
-  the event/lease/escrow planes make "just write the item in" newly tempting. It is the promise
-  players judge a mod on; `plans.md`'s memory-write non-goal carries the detail.
+  the event/lease/escrow/world planes make "just write the item in" newly tempting — world custody
+  worst, since an adopted world reads as authoritative. `plans.md`'s non-goal carries the detail.
 - **The core never touches the game.** No game memory access, no rendering primitives, no
   `if game == "emerald"` branching anywhere in `internal/core` or `internal/relay`.
 - **Adapters never speak the relay protocol.** An adapter may hold a socket to its own local

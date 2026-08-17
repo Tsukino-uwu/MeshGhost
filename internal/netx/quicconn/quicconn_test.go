@@ -2,7 +2,10 @@ package quicconn
 
 import (
 	"crypto/tls"
+	"encoding/json"
+	"meshghost/internal/protocol"
 	"net"
+	"strings"
 	"testing"
 	"time"
 )
@@ -280,4 +283,59 @@ func readFull(c net.Conn, buf []byte) (int, error) {
 		}
 	}
 	return total, nil
+}
+
+// TestMaximalWorldStateFitsAQuicDatagram is the quic half of the world plane's
+// size derivation, and it exists because **quic is the default transport** while
+// the bounds were derived against udpconn.
+//
+// SendUnreliable here is a REAL datagram path (RFC 9221), not a fallback to the
+// stream, and quic-go refuses a datagram larger than the connection's current
+// path MTU rather than fragmenting it. That limit is dynamic and can sit below
+// udpconn.MaxDatagramBytes, so "it fits a 1200-byte datagram" does not by itself
+// prove a lossy world write is deliverable over quic. A refusal surfaces to the
+// caller as an error that internal/relay only logs, so an undersized path would
+// make lossy writes quietly stop working while reliable ones (which ride the
+// stream and have no such limit) kept going.
+//
+// Round-tripped rather than merely size-checked, because the number that matters
+// is the one quic-go itself accepts.
+func TestMaximalWorldStateFitsAQuicDatagram(t *testing.T) {
+	l := listenTest(t)
+	client, server := connect(t, l, `{"type":"hello"}`+"\n")
+	readOne(t, server)
+
+	// The largest single-entry world message the protocol permits, built the way
+	// the relay builds it. Kept in step with internal/netx/udpconn's
+	// TestMaximalWorldStateFitsAUDPDatagram, which owns the udp arithmetic.
+	blob := json.RawMessage(`"` + strings.Repeat("x", protocol.MaxWorldBlobBytes-2) + `"`)
+	payload, err := json.Marshal(protocol.WorldState{
+		Authority: strings.Repeat("a", protocol.MaxLeaseKeyLen),
+		Holder:    strings.Repeat("p", 16),
+		Seq:       ^uint64(0),
+		Reason:    protocol.WorldSnapshot,
+		Entries:   []protocol.WorldEntry{{Key: strings.Repeat("k", protocol.MaxWorldKeyLen), Blob: blob}},
+	})
+	if err != nil {
+		t.Fatalf("marshal world_state: %v", err)
+	}
+	line, err := json.Marshal(protocol.Envelope{Type: protocol.TypeWorldState, Payload: payload})
+	if err != nil {
+		t.Fatalf("marshal envelope: %v", err)
+	}
+	line = append(line, '\n')
+
+	uw, ok := client.(interface {
+		WriteUnreliable(p []byte) (int, error)
+	})
+	if !ok {
+		t.Fatal("quicconn.Conn does not implement WriteUnreliable")
+	}
+	if _, err := uw.WriteUnreliable(line); err != nil {
+		t.Fatalf("a maximal world_state (%d bytes) was refused as a quic datagram: %v -- lossy "+
+			"world writes would silently stop working on the default transport", len(line), err)
+	}
+	if got := readOne(t, server); got != string(line) {
+		t.Errorf("server read %d bytes from the datagram, want %d", len(got), len(line))
+	}
 }
