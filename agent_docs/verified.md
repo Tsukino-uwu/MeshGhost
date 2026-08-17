@@ -6608,3 +6608,30 @@ scheduled. All established by the agent with local tools; nothing here is a visu
   the screen-coordinate formula. Two different quantities that had been conflated into one.
 - **Still open, and unchanged by this**: making the ghost wear the *player's* appearance rather than
   a copied NPC's, which is the `SPRITE_TILE` allocation problem — an allocation rather than a value.
+
+### Crystal: spawned beside the player, on demand — mechanism complete (2026-08-18)
+
+- Date: 2026-08-18
+- Observed: **watched by the user.** After correcting placement to read the player's own object
+  struct rather than `wXCoord`/`wYCoord`, `spawn_test6.lua` put a character **two tiles to the
+  right of the player**, exactly where asked. User: *"yes, placed 2 tiles to the right of me"*.
+- Source: live session; `adapters/pokemon/crystal/spawn_test6.lua`.
+- Notes: **this completes the mechanism the 2026-08-17 ADR set out to establish.** A character can
+  be created at an arbitrary chosen position, at any time during play, and the game renders and
+  animates it with no drawing code from us. The recipe, all of it necessary and none of it
+  guessable without the decomp:
+  1. Copy a **live NPC** — both its map object and its object struct. Not the player: the player's
+     `MOVEMENT_TYPE` is `SPRITEMOVEDATA_PLAYER`, meaning "driven by input".
+  2. Cross-link the pair (`MAPOBJECT_OBJECT_STRUCT_ID` <-> `OBJECT_MAP_OBJECT_INDEX`).
+  3. Set map coordinates relative to the **player's own struct**, which is where the player's map
+     position lives.
+  4. **Compute** `OBJECT_SPRITE_X`/`Y` with the engine's formula, relative to the **window origin**
+     `wXCoord`/`wYCoord` and the BG map offsets. Never copy them.
+  5. Set `WONT_DELETE`, or the engine culls it when both its current and spawn tiles leave the
+     visible window.
+- **Remaining: appearance.** The ghost wears the template NPC's face. The obstacle is
+  `OBJECT_SPRITE_TILE`, a per-map VRAM allocation rather than a value.
+  **A promising route, not yet tested: borrow the PLAYER's `SPRITE` and `SPRITE_TILE`.** The
+  player's sprite graphics are resident on every map by construction — the player is always there —
+  so no allocation problem arises, and the result is an NPC-behaviour object wearing the player's
+  appearance. That is exactly the combination a ghost wants.
