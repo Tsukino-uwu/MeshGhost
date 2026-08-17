@@ -6421,3 +6421,36 @@ scheduled. All established by the agent with local tools; nothing here is a visu
   which, and both need different fixes. The player's own struct was observed carrying
   `FLAGS1 = 0x02`, i.e. `WONT_DELETE` already set — so if our copy preserved that faithfully,
   deletion should not have applied, which is itself a reason to measure rather than assume.
+
+### Crystal: the struct diff is clean — and the "half-owned" conclusion is now suspect (2026-08-18)
+
+- Date: 2026-08-18
+- Observed: `struct_diff_probe.lua` in Elm's lab, comparing a hand-built object against an NPC the
+  engine built and drives on the same map. **Exactly one unexpected field difference:**
+
+  ```
+  >>> 0C STEP_FRAME    engine=3  ours=0   <<< INTERESTING
+  ```
+
+  Everything else matched, including `FLAGS1 = 0x02` (**`WONT_DELETE` already set on ours**),
+  `MOVEMENT_TYPE`, `PALETTE`, `DIRECTION`, `STEP_TYPE`, `ACTION`, `FACING` and `SPRITE_TILE`.
+- Source: live run, `struct_diff_*.log`.
+- Notes: **`STEP_FRAME` is an animation frame counter** — that NPC's walk cycle mid-stride. A
+  transient, not a structural difference. So the honest reading is **there is no meaningful field
+  difference between what the engine builds and what we build.** That is the probe's second
+  designed outcome, and it points away from "a field we forgot" entirely.
+- **THE CONTROL FAILED, AND IT INVALIDATES MORE THAN THIS RUN.** The probe watches
+  `OBJECT_SPRITE_X`/`Y`, which are **screen** coordinates, and prints on change. It printed once and
+  never again — **for the engine's own NPC as well as ours.** Elm's lab is small enough that the
+  camera never scrolls, so no object's screen coordinates changed. Per the probe's own stated rule,
+  a run where neither moves measured nothing.
+  **The consequence reaches backwards**: tests 1 and 4 both concluded "screen coordinates frozen,
+  therefore the engine is not driving our object", and **both were run indoors**. If the camera was
+  not scrolling in those either, frozen coordinates were never evidence of anything. **The
+  half-owned-object conclusion is not withdrawn, but it is no longer supported by the measurement
+  that produced it** — the visible symptom in test 1 (collision two tiles from the sprite) is
+  independent evidence and still stands; the "engine is not driving it" inference is not.
+  **This is the second time a metric that agreed with itself was mistaken for a result.** The
+  correction both times came from the screen, not the numbers.
+- **Next measurement must be somewhere the camera actually scrolls** — an outdoor route, not a
+  room — with the same control. Only there does a frozen-versus-tracking comparison mean anything.
