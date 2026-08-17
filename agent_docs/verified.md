@@ -5351,3 +5351,33 @@ in `CLAUDE.md` is filename-only. Append-only means they stay; new entries should
   routed around by re-typing the capsule, but the player's own attack resolves against the
   character directly. Not root-caused; this is the observation plus the lead. Ghost collision is
   being kept ON deliberately for further testing rather than switched off.
+
+### The 2026-08-17 online-primitives work does not regress the cosmetic path (Pseudoregalia)
+
+- Date: 2026-08-17
+- Observed: user-watched, reported live — "the ghost appears fine, seems things still work
+  properly" in a loopback session over quic, with the game's own mod build unchanged and the Go
+  client/server built from `e3b924a` (the commit adding the event, lease, escrow, snapshot,
+  resumption and clock-sync planes, plus the UTF-8 identifier fix).
+- What this settles: the whole of that work is **inert by default**, on screen and not just in
+  principle. The claim needed a real game because the changes touch code every ghost depends on —
+  `forwardLocalState`'s timestamp is now `nowMs()`, `tickRenders`' render time is derived from the
+  same clock, and `ValidateState` gained a UTF-8 check — so "opt-in" had to be demonstrated rather
+  than asserted.
+- Source, agent-read from the logs alongside the user's own observation:
+  - The core logged **no** "negotiated capabilities" line at connect. That line prints whenever a
+    room agrees on any capability, so its absence is the positive evidence that the room negotiated
+    the empty set and every new code path stayed unreachable for the whole session.
+  - The mod's own counters at teardown: `connected=true send_ok=5403 send_fail=0
+    lines_received=5386 lines_malformed=0`. Zero malformed lines matters specifically because the
+    UTF-8 check now runs on every `area_id` and `anim`; a mangled or rejected state would have
+    shown up here.
+  - `remote p1-ghost redraw: intended=(...) actual=(...)` with the two equal, and the slide/crouch
+    pose path (`K2_OnStartCrouch` / `K2_OnEndCrouch`, `fired=true`) still firing — so the ghost was
+    not merely present but posing through the game's own systems.
+- Notes: loopback, so this confirms one client's full core -> relay -> core -> adapter round trip,
+  not a two-machine session. Clock sync in particular is **untested against a real peer with a
+  genuinely skewed clock** — it is off unless a room negotiates `clock.v1`, which nothing does, so
+  what this session shows is that leaving it off costs nothing. The heavy per-frame TRACE probes
+  were on in this build; per CLAUDE.md's probe rule that makes the *timing* here unrepresentative,
+  which is fine because nothing about timing was being claimed.
