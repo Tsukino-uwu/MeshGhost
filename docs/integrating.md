@@ -319,7 +319,7 @@ were.
 
 **What is not promised.** This is pre-1.0 and there is **no API stability guarantee**: any of
 these may change shape in a later release, we do not test third-party use, and we will not know
-we broke you. Tags up to `v0.8.5` were cut under the old module name and cannot be fetched at
+we broke you. `v0.9.0` is the first fetchable tag; `v0.8.5` and earlier cannot be fetched at
 all — only tags after the rename resolve. The packages are on pkg.go.dev only because someone
 fetched them, not because they are curated for outside readers.
 

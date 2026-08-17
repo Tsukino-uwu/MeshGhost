@@ -1,7 +1,8 @@
 // Pre-1.0, and no API stability is promised: these packages may change shape in any
 // release, third-party use is unsupported and untested, and we will not know we broke
 // you. See the README's "Using this from your own game" section before importing.
-// Tags up to v0.8.5 were cut under the old local-only module name and are not fetchable.
+// v0.9.0 is the first fetchable tag; v0.8.5 and earlier were cut under the old local-only
+// module name and cannot be resolved.
 module github.com/Tsukino-uwu/MeshGhost
 
 go 1.25.0

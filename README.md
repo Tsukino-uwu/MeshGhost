@@ -126,10 +126,11 @@ go get github.com/Tsukino-uwu/MeshGhost
 ```
 
 **Nothing here is promised.** Pre-1.0, **no API stability guarantee** — these packages may change
-shape in any release, we do not test third-party use, and we will not know if we break you. Tags
-up to `v0.8.5` were cut under the old module name and cannot be fetched. If you need something
-that cannot move under you, fork or vendor it; [MIT](LICENSE) allows that outright. None of this
-affects adapters, which speak a socket rather than a Go API.
+shape in any release, we do not test third-party use, and we will not know if we break you.
+`v0.9.0` is the first fetchable tag — `v0.8.5` and earlier were cut under the old module name and
+cannot be resolved at all. If you need something that cannot move under you, fork or vendor it;
+[MIT](LICENSE) allows that outright. None of this affects adapters, which speak a socket rather
+than a Go API.
 
 ## Repo layout
 

@@ -1804,7 +1804,8 @@ Format: Date / Decision / Status / Context / Options considered / Resolution / C
   a potential breaking change for people we cannot contact. **The mitigation is an explicit
   refusal to promise stability, not restraint in refactoring** — stated in the README, in
   `docs/integrating.md`, in `go.mod`'s header, and in `core`/`relay`'s package comments, which
-  is the version pkg.go.dev renders. Also: tags up to `v0.8.5` carry the old module path and are
+  is the version pkg.go.dev renders. Also: `v0.9.0` is the first fetchable tag, cut immediately
+  after this change for exactly that reason — tags up to `v0.8.5` carry the old module path and are
   **not fetchable**; only tags cut after this resolve. The packages appear on pkg.go.dev the
   first time anyone fetches them, so package doc comments are now published prose. `internal/`
   keeps its meaning because `e2e` still lives there. **No adapter was opened** — their sources

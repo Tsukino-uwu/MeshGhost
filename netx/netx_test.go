@@ -1,6 +1,7 @@
 package netx
 
 import (
+	"fmt"
 	"net"
 	"testing"
 	"time"
@@ -126,27 +127,54 @@ func TestTCPListenAndDialRoundTrip(t *testing.T) {
 // Verified here rather than asserted in a comment, because if it were ever
 // false the relay would fail to start in its shipped tcp,udp configuration
 // and the reason would not be obvious from the error.
+// Retried rather than attempted once, because the OS gets to choose the port
+// and some of its choices are unusable through no fault of this claim. Windows
+// reserves scattered UDP ranges (Hyper-V/WinNAT), and a TCP port drawn from the
+// ephemeral pool can land inside one — the UDP bind then fails with
+// "an attempt was made to access a socket in a way forbidden by its access
+// permissions" even though TCP and UDP port spaces really are independent.
+// Found on CI's Windows runner 2026-08-17, where this failed the release gate
+// twice in one afternoon on a claim that was never actually in doubt.
+//
+// A retry keeps the assertion exactly as strong: if the two port spaces were
+// NOT independent, every attempt would fail, not merely some.
 func TestTCPAndUDPShareAPortNumber(t *testing.T) {
-	tcpLn, err := Listen(TCP, "127.0.0.1:0")
-	if err != nil {
-		t.Fatalf("tcp listen: %v", err)
-	}
-	defer tcpLn.Close()
+	const attempts = 20
+	var lastErr error
 
-	_, port, err := net.SplitHostPort(tcpLn.Addr().String())
-	if err != nil {
-		t.Fatalf("split host/port: %v", err)
+	for i := 0; i < attempts; i++ {
+		tcpLn, err := Listen(TCP, "127.0.0.1:0")
+		if err != nil {
+			t.Fatalf("tcp listen: %v", err)
+		}
+
+		_, port, err := net.SplitHostPort(tcpLn.Addr().String())
+		if err != nil {
+			tcpLn.Close()
+			t.Fatalf("split host/port: %v", err)
+		}
+
+		udpLn, err := Listen(UDP, net.JoinHostPort("127.0.0.1", port))
+		if err != nil {
+			// Almost certainly an OS-reserved range. Draw another port.
+			lastErr = fmt.Errorf("port %s: %w", port, err)
+			tcpLn.Close()
+			continue
+		}
+
+		got, want := udpLn.Addr().String(), tcpLn.Addr().String()
+		udpLn.Close()
+		tcpLn.Close()
+
+		if got != want {
+			t.Fatalf("udp bound %s, want the same address as tcp (%s)", got, want)
+		}
+		return // the claim holds: one port number served both.
 	}
 
-	udpLn, err := Listen(UDP, net.JoinHostPort("127.0.0.1", port))
-	if err != nil {
-		t.Fatalf("udp listen on the same port %s as tcp: %v", port, err)
-	}
-	defer udpLn.Close()
-
-	if got := udpLn.Addr().String(); got != tcpLn.Addr().String() {
-		t.Fatalf("udp bound %s, want the same address as tcp (%s)", got, tcpLn.Addr())
-	}
+	t.Fatalf("no port in %d attempts could be bound on both tcp and udp; last: %v — "+
+		"if this is every port rather than an unlucky few, tcp and udp are not sharing a "+
+		"port space and the relay's one-port scheme is broken", attempts, lastErr)
 }
 
 // TestParseKindsAlwaysIncludesTCP pins the rule that keeps a relay
