@@ -5578,3 +5578,28 @@ in `CLAUDE.md` is filename-only. Append-only means they stay; new entries should
   comparable; vertical separation puts them at different heights and obscures exactly the
   differences the rig exists to reveal. The horizontal offset stays as it is. See
   `adapters/pseudoregalia/BANDAGES.md`'s do-not-fix list.
+
+### A client could be orphaned into a room that had already been dropped
+
+- Date: 2026-08-17
+- Observed: agent-found and reproduced deterministically in
+  `TestRoomDroppedWhileAClientIsJoiningIt`, after the user asked whether dropping a room could
+  affect other rooms and described a real churn pattern (start emerald, start tevi, start
+  pseudoregalia, drop tevi, drop emerald, start emerald, ...).
+- **The defect:** `handleConn` finds or creates a room under `Server.mu`, releases it, reserves a
+  slot and mints a player_id, and only then adds the client under `Room.mu`. If the room's last
+  existing member left inside that window, `finishLeave` -> `dropIfEmpty` saw an empty room and
+  removed it from `Server.rooms` — and the joining client then added itself to a room nothing
+  could reach, because the next client asking for that name got a freshly created one. Both
+  clients are "connected", neither sees an error, and the ghosts simply never appear.
+- **Same class as the roster-snapshot race, and just as silent.** Timing alone did not reproduce
+  it: 200 paired join/leave races passed. It was proved by driving the two critical sections in
+  the order `handleConn` can actually interleave them, which is a stronger demonstration than a
+  flaky reproduction anyway.
+- **Fix:** `Room.joining` counts clients handed the room but not yet added, guarded by `Server.mu`
+  (the lock `dropIfEmpty` already holds), and `dropIfEmpty` declines to sweep while it is non-zero.
+  `handleConn` releases the hold with a `defer`, so every exit from the hello path — joined,
+  refused for a full server, resumed — is covered, and `finishJoin` re-runs the sweep so a room
+  held only by a joiner that gave up is still collected rather than pinned forever.
+- Confirmed by the suite at `-count=10`, and by the leak tests specifically: a fix that pinned
+  rooms in the table would have been worse than the bug it replaced.

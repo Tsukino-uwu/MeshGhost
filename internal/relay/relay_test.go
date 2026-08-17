@@ -1602,3 +1602,228 @@ func TestReceiveGateForgetsASenderThatLeft(t *testing.T) {
 		t.Fatal("departed sender's entry was not purged from the remaining member's receive gate")
 	}
 }
+
+// TestRoomsAreIndependentAcrossTheirWholeLifecycle is the generic version of the
+// multi-game question: can the server create a room, keep it, create another,
+// drop one, and leave every survivor untouched — in whatever order that happens.
+//
+// Real usage is not a tidy sequence. Rooms come and go while others are mid-
+// session, in arbitrary interleavings, and a server that only works when rooms
+// are created and destroyed in order is a server that works until the day two
+// groups play at once. This walks one such interleaving and asserts isolation at
+// every step, because the failure mode is silent: a room that is dropped, or
+// dropped-and-recreated, or reached through the wrong key, does not error — it
+// just stops delivering, or starts delivering to strangers.
+//
+// It matters most immediately because rooms are keyed by game_id AND name
+// (roomKey), so "the same name in another game" and "a different name" are two
+// distinct axes and dropIfEmpty has to delete exactly one entry.
+func TestRoomsAreIndependentAcrossTheirWholeLifecycle(t *testing.T) {
+	s := &Server{rooms: make(map[string]*Room), MaxClients: DefaultMaxClients}
+	addr := startServerWith(t, s)
+
+	roomCount := func() int {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		return len(s.rooms)
+	}
+
+	// 1. A room is created on first join.
+	a1 := dialTestClient(t, addr, "emerald", "alpha", "a1")
+	defer a1.conn.Close()
+	a1.expectWelcome(timeout)
+	if roomCount() != 1 {
+		t.Fatalf("after the first join there are %d rooms, want 1", roomCount())
+	}
+
+	// 2. A second client joins the SAME room and finds the first there.
+	a2 := dialTestClient(t, addr, "emerald", "alpha", "a2")
+	defer a2.conn.Close()
+	if w := a2.expectWelcome(timeout); len(w.Roster) != 1 {
+		t.Fatalf("second client's roster = %v, want the first client", w.Roster)
+	}
+	a1.nextOfType(protocol.TypeJoin, timeout)
+	if roomCount() != 1 {
+		t.Fatalf("joining an existing room created a new one: %d rooms", roomCount())
+	}
+
+	// 3. A DIFFERENT room name, same game. The first room keeps working.
+	b1 := dialTestClient(t, addr, "emerald", "beta", "b1")
+	defer b1.conn.Close()
+	if w := b1.expectWelcome(timeout); len(w.Roster) != 0 {
+		t.Fatalf("new room's roster = %v, want empty", w.Roster)
+	}
+	if roomCount() != 2 {
+		t.Fatalf("%d rooms, want 2", roomCount())
+	}
+	a1.expectNothingOfType(protocol.TypeJoin, 200*time.Millisecond)
+
+	// 4. The SAME room name in another game. Also independent.
+	c1 := dialTestClient(t, addr, "tevi", "alpha", "c1")
+	defer c1.conn.Close()
+	if w := c1.expectWelcome(timeout); len(w.Roster) != 0 {
+		t.Fatalf("same-name-other-game roster = %v, want empty", w.Roster)
+	}
+	if roomCount() != 3 {
+		t.Fatalf("%d rooms, want 3", roomCount())
+	}
+
+	// 5. Traffic stays in its own room, in every direction.
+	a1.sendState(protocol.State{AreaID: "alpha-zone", Position: []float64{1, 1}})
+	if st := a2.nextOfType(protocol.TypeState, timeout); st.Type != protocol.TypeState {
+		t.Fatal("state did not reach the other member of the same room")
+	}
+	b1.expectNothingOfType(protocol.TypeState, 200*time.Millisecond)
+	c1.expectNothingOfType(protocol.TypeState, 200*time.Millisecond)
+
+	// 6. Emptying one room must not disturb the others. Drain "alpha" (emerald)
+	//    completely — the room being dropped is the one that shares its NAME with
+	//    a live room in another game, which is precisely where deleting by name
+	//    instead of by key would evict the wrong entry.
+	a1.conn.Close()
+	a2.conn.Close()
+	deadline := time.Now().Add(3 * time.Second)
+	for roomCount() != 2 {
+		if time.Now().After(deadline) {
+			t.Fatalf("emptied room was not dropped: %d rooms remain", roomCount())
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	// The survivors are still live and still separate.
+	b2 := dialTestClient(t, addr, "emerald", "beta", "b2")
+	defer b2.conn.Close()
+	if w := b2.expectWelcome(timeout); len(w.Roster) != 1 {
+		t.Fatalf("surviving room lost its member: roster = %v", w.Roster)
+	}
+	c1.sendState(protocol.State{AreaID: "tevi-zone", Position: []float64{2, 2}})
+	b1.expectNothingOfType(protocol.TypeState, 200*time.Millisecond)
+
+	// 7. Re-creating a dropped room gives a fresh, empty one — not a revived
+	//    corpse still holding its old members.
+	a3 := dialTestClient(t, addr, "emerald", "alpha", "a3")
+	defer a3.conn.Close()
+	if w := a3.expectWelcome(timeout); len(w.Roster) != 0 {
+		t.Fatalf("recreated room's roster = %v, want empty", w.Roster)
+	}
+	if roomCount() != 3 {
+		t.Fatalf("%d rooms after recreating one, want 3", roomCount())
+	}
+
+	// And it is genuinely wired up, not just present in the map.
+	a4 := dialTestClient(t, addr, "emerald", "alpha", "a4")
+	defer a4.conn.Close()
+	a4.expectWelcome(timeout)
+	a3.nextOfType(protocol.TypeJoin, timeout)
+	a4.sendState(protocol.State{AreaID: "alpha-zone", Position: []float64{3, 3}})
+	a3.nextOfType(protocol.TypeState, timeout)
+	c1.expectNothingOfType(protocol.TypeState, 200*time.Millisecond)
+}
+
+// TestJoinRacingTheLastLeaveIsNotOrphaned targets the window between being
+// handed a room and actually joining it.
+//
+// handleConn calls joinOrCreateRoom (which takes s.mu, finds or creates the
+// room, and releases it), then reserves a slot, mints an id, and only then adds
+// the client under r.mu. If the room's last existing member disconnects inside
+// that window, finishLeave -> dropIfEmpty sees size 0 and removes the room from
+// s.rooms — and the joining client then adds itself to a room nobody can reach.
+// The next client asking for that same name creates a fresh one, so the two are
+// permanently invisible to each other despite both being "connected".
+//
+// That is the same class of failure the roster snapshot already fixed for a
+// different window, and it fails silently: everyone gets a Welcome, nothing
+// errors, the ghosts just never appear.
+//
+// Churn is what makes it reachable — a room emptying while someone joins is
+// exactly the start/drop/start pattern of real use.
+func TestJoinRacingTheLastLeaveIsNotOrphaned(t *testing.T) {
+	s := &Server{rooms: make(map[string]*Room), MaxClients: DefaultMaxClients}
+	addr := startServerWith(t, s)
+
+	for i := 0; i < 40; i++ {
+		// The sole occupant, whose departure can empty the room.
+		leaver := dialTestClient(t, addr, "emerald", "churn", "leaver")
+		leaver.expectWelcome(timeout)
+
+		// A joiner racing that departure.
+		var wg sync.WaitGroup
+		var joiner *testClient
+		var joinerID string
+		wg.Add(2)
+		go func() {
+			defer wg.Done()
+			leaver.conn.Close()
+		}()
+		go func() {
+			defer wg.Done()
+			joiner = dialTestClient(t, addr, "emerald", "churn", "joiner")
+			joinerID = joiner.expectWelcome(timeout).PlayerID
+		}()
+		wg.Wait()
+
+		// A third client asks for the same room. If the joiner was orphaned, this
+		// one lands in a different room object and never sees it.
+		witness := dialTestClient(t, addr, "emerald", "churn", "witness")
+		w := witness.expectWelcome(timeout)
+
+		found := false
+		for _, id := range w.Roster {
+			if id == joinerID {
+				found = true
+			}
+		}
+		if !found {
+			t.Fatalf("iteration %d: a client that joined room %q was invisible to the next "+
+				"client to join it (roster %v, missing %s) — it was left in a room that had "+
+				"already been dropped", i, "churn", w.Roster, joinerID)
+		}
+
+		joiner.conn.Close()
+		witness.conn.Close()
+		// Let the room settle back to empty before the next iteration.
+		deadline := time.Now().Add(2 * time.Second)
+		for {
+			s.mu.Lock()
+			n := len(s.rooms)
+			s.mu.Unlock()
+			if n == 0 || time.Now().After(deadline) {
+				break
+			}
+			time.Sleep(5 * time.Millisecond)
+		}
+	}
+}
+
+// TestRoomDroppedWhileAClientIsJoiningIt drives the orphaning hazard directly,
+// in the order handleConn can actually interleave it, rather than hoping a
+// timing race reproduces. The steps below are exactly what two goroutines do:
+// one is handed a room by joinOrCreateRoom and has not added itself yet, while
+// the other's last member leaves and dropIfEmpty removes the room.
+func TestRoomDroppedWhileAClientIsJoiningIt(t *testing.T) {
+	s := &Server{rooms: make(map[string]*Room), MaxClients: DefaultMaxClients}
+
+	// A joiner is handed the room. It has NOT added itself yet -- that happens
+	// several statements later in handleConn.
+	joining, reason := s.joinOrCreateRoom("emerald", "", "x", nil)
+	if reason != "" {
+		t.Fatalf("join refused: %s", reason)
+	}
+
+	// Meanwhile the room's last member departs and the room is swept.
+	s.dropIfEmpty(joining)
+
+	// The joiner now completes its join, into whatever it was handed.
+	joining.tryAdd(&Client{PlayerID: "p1"})
+
+	// A later client asks for the same room.
+	later, reason := s.joinOrCreateRoom("emerald", "", "x", nil)
+	if reason != "" {
+		t.Fatalf("second join refused: %s", reason)
+	}
+	if later != joining {
+		t.Fatalf("a client that joined room %q was left in a room that had already been "+
+			"dropped: the next client asking for the same room got a different one, so the "+
+			"two can never see each other", "x")
+	}
+}

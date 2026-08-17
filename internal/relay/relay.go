@@ -32,6 +32,23 @@ type Room struct {
 	GameVersion string
 	Name        string
 
+	// joining counts clients that have been handed this room by
+	// joinOrCreateRoom but have not added themselves to it yet.
+	//
+	// It exists because those are two separate critical sections: a joiner takes
+	// s.mu to find or create the room, releases it, reserves a slot and mints an
+	// id, and only then takes r.mu to add itself. If the room's last existing
+	// member leaves inside that window, dropIfEmpty sees an empty room and
+	// removes it from Server.rooms -- and the joiner then adds itself to a room
+	// nobody can reach, because the next client asking for that name gets a
+	// fresh one. Both are "connected", neither errors, and the ghosts simply
+	// never appear. Same class as the roster-snapshot race, and just as silent.
+	//
+	// Guarded by Server.mu, NOT Room.mu: dropIfEmpty is the reader and it holds
+	// Server.mu, so this has to live under the same lock as the rooms map it
+	// protects an entry in.
+	joining int
+
 	// key is this room's identity in Server.rooms — game_id and name together,
 	// see roomKey. Stored so dropIfEmpty can find its own entry without
 	// recomputing, and so nothing is tempted to delete by name alone.
@@ -620,6 +637,10 @@ func (s *Server) joinOrCreateRoom(gameID, gameVersion, name string, features []s
 		r = newRoom(gameID, gameVersion, name, features)
 		r.key = key
 		s.rooms[key] = r
+		// Held against being swept until the caller has actually joined; see
+		// Room.joining. Every path that returns a room does this, and every
+		// caller must pair it with finishJoin.
+		r.joining++
 		return r, ""
 	}
 	// No game_id check: a room is now reached only through its own game's key,
@@ -650,7 +671,24 @@ func (s *Server) joinOrCreateRoom(gameID, gameVersion, name string, features []s
 	if r.GameVersion != "" && gameVersion != "" && r.GameVersion != gameVersion {
 		return nil, protocol.ReasonGameVersionMismatch
 	}
+	r.joining++
 	return r, ""
+}
+
+// finishJoin releases the hold joinOrCreateRoom took, once the caller has
+// either joined the room or given up on it. Every successful joinOrCreateRoom
+// must be paired with exactly one of these -- handleConn does it with a defer,
+// so every early return in the hello path is covered.
+func (s *Server) finishJoin(r *Room) {
+	s.mu.Lock()
+	if r.joining > 0 {
+		r.joining--
+	}
+	s.mu.Unlock()
+	// A room held only by this pending join, whose joiner then gave up (a
+	// refused slot, a failed resume), would otherwise sit in the table empty
+	// forever -- dropIfEmpty declined to sweep it precisely because of the hold.
+	s.dropIfEmpty(r)
 }
 
 // dropIfEmpty removes r from the room table if it currently has no
@@ -658,7 +696,9 @@ func (s *Server) joinOrCreateRoom(gameID, gameVersion, name string, features []s
 func (s *Server) dropIfEmpty(r *Room) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if r.size() == 0 {
+	// joining > 0 means a client has been handed this room and is about to add
+	// itself; sweeping now would strand it somewhere unreachable.
+	if r.size() == 0 && r.joining == 0 {
 		// Keyed by r.key, not r.Name: two games can hold a room of the same
 		// name, and deleting by name would evict the wrong one.
 		if cur, ok := s.rooms[r.key]; ok && cur == r {
@@ -922,6 +962,12 @@ func (s *Server) handleConn(conn net.Conn) {
 				rejectAndClose(nd, hello, reason)
 				return
 			}
+			// Releases the hold joinOrCreateRoom took (Room.joining), whichever
+			// way this callback returns -- joined, refused for a full server, or
+			// resumed. A defer rather than a call per exit precisely because
+			// there are several exits and missing one would pin a room in the
+			// table for the life of the process.
+			defer s.finishJoin(joined)
 
 			// Session resumption, before a slot is reserved or an id
 			// assigned: a resuming client's slot was never released and its
