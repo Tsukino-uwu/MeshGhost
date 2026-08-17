@@ -1142,6 +1142,88 @@ walks the range: `BridgeClient.hpp`'s `BRIDGE_BASE_PORT = 7778` sweeping up thro
 (`meshghost_emerald.lua`, `BRIDGE_PORT`) are both still pinned to 7778 and do not walk. Until
 they do, two games at once works only if Pseudoregalia is one of them. Option A is moot.
 
+## Unmoddable games — a scanner and an overlay, NOT our own mod loader
+
+**Status: scoped 2026-08-17 in conversation, nothing built, nothing scheduled.** Raised as "could
+we add multiplayer to a game nobody can mod". The answer is yes, at a specific and limited tier,
+and the shape is smaller than it first looks.
+
+### The question that decides everything: what does the engine keep about itself?
+
+Getting code into a process is engine-agnostic and already solved (a proxy DLL named after a
+system DLL the game loads — exactly how UE4SS gets in via `dwmapi.dll`). **What you can do once
+inside is not.** Reflection is a property of the ENGINE, not of how you got in:
+
+| Engine | After injection |
+|---|---|
+| Unreal | full reflection — names, properties, callable functions (UE keeps `UClass`/`UProperty` live because Blueprints and GC need them) |
+| Unity + Mono | full type metadata via the Mono API |
+| Unity + IL2CPP | partial; metadata largely stripped |
+| Custom C++ engine | **code execution and nothing else** — names were destroyed at compile time |
+
+### Why we should NOT build our own BepInEx/UE4SS
+
+A loader is only needed where none exists — i.e. custom engines. And on a custom engine a loader
+buys code execution and no type information, so you end up memory-scanning and overlay-drawing
+anyway. **The loader has near-zero value exactly where it would be needed**, and where it would
+have value (Unity, Unreal) mature loaders already exist and we already use them.
+
+Building one means writing per-engine reflection backends — reimplementing two mature projects to
+reach somewhere we can already reach for free. Note also what UE4SS actually is: `UE4SS.dll` is
+~16 MB and pulls in PolyHook, Zydis, asmjit, patternsleuth, Lua and ImGui. The injection is
+perhaps 1% of it; the other 99% is per-engine work.
+
+### What the useful version actually is
+
+Three pieces, none of them a framework:
+
+1. **An external memory scanner** (`cmd/meshghost-scan`, Go). Enumerates a process's committed
+   regions (`VirtualQueryEx`) and samples them (`ReadProcessMemory`) — the mechanism Cheat Engine
+   wraps in a GUI. **The trick worth building in:** rather than the manual scan/narrow cycle,
+   sample at ~10 Hz while the player walks a known route, then correlate every candidate float
+   triple against that trace. We have a strong prior — three contiguous floats that move smoothly
+   like a position — so one pass replaces many rounds.
+2. **A ~100-line proxy DLL** to get our overlay into the process. This is "our own loader" only in
+   the sense that it loads one thing; nobody would call it a BepInEx, and that is the point.
+3. **An overlay renderer** — hook the swapchain (D3D11/12, GL, Vulkan) and draw peers, ideally
+   with the depth buffer so ghosts do not show through walls. This is the real work.
+
+**It is an adapter, not a new architecture.** It would speak the same bridge, and `relay`/`core`
+would never know the difference — the same reason three adapters in three languages already share
+no code.
+
+### What it can and cannot deliver, honestly
+
+This is the template's **"draw over the top"** tier, the one Emerald sits in — and it is *harder*
+than Emerald in 3D, on three counts:
+
+- **A camera matrix is needed, not just a position.** Emerald is 2D: world → screen is an offset,
+  which is why its adapter needed only player X/Y and a camera offset. In 3D you need the
+  view-projection matrix — 16 floats, changing every frame, and a second thing to find.
+- **Depth.** Emerald's overlay drawing over a dialogue box is tolerable. A 3D ghost with no depth
+  test is visible through walls and terrain permanently, which reads as broken rather than rough.
+- **The ghost will not look native.** Emerald draws the game's own character sprites decoded from
+  the ROM. Without engine access there is no way to get a character model, so we would ship our
+  own — every peer a foreign mesh in someone else's art style.
+
+**So the honest product is a presence marker, not a ghost of your friend.** Still a real feature —
+"where is everyone" in a game with no mod scene — but it should be named as what it is rather
+than sold as parity with Pseudoregalia.
+
+### First step if it is ever picked up
+
+**Validate the scanner against a game where the answer is already known.** Point it at
+Pseudoregalia and see whether it independently finds the position `STATE_SEND_TRACE` already
+prints. A scanner that cannot rediscover a known-correct address is not one to trust on a game
+where nothing can be checked.
+
+### Boundary
+
+Single-player games only. Every game this project targets qualifies. Anything with anti-cheat is
+out — not because the technique differs, but because reading another process's memory is precisely
+what those systems detect, and shipping something that gets users banned is not a trade this
+project makes.
+
 ## Links
 
 - `agent_docs/plans.md` — the roadmap; move an idea here (with a phase number) once it's picked.

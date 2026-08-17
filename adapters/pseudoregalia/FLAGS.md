@@ -1,6 +1,6 @@
 # Pseudoregalia — compile-time flag register
 
-`Plugin.cpp` carries 56 `constexpr bool` switches. They look alike and they are not alike, and
+`Plugin.cpp` carries 58 `constexpr bool` switches. They look alike and they are not alike, and
 mistaking one class for another has already cost this adapter real time — most recently 2026-08-17,
 when three load-bearing pose flags were read as leftover debug switches because their comments
 still said "OFF" from a sweep that had been reverted.
@@ -21,7 +21,7 @@ whole point is to be the thing you trust when a comment and a value disagree.
 | **Probe** | `false` | A diagnostic: tracing, dumping, or measuring. Off in every build a user runs. |
 | **Dormant** | `false` | A recorded negative or a retired approach, kept as evidence and as an instant revert. |
 
-## Behaviour — the 14 that are `true`
+## Behaviour — the 15 that are `true`
 
 Everything here ships. The value in the code is the value a player gets.
 
@@ -54,10 +54,11 @@ The full reasoning lives in the comments above each flag in `Plugin.cpp`, in
 | `AFTERIMAGE_OBSERVE_SPECIAL_TRIGGER` | Additive: fires only where the existing trigger found nothing. Not the old `AFTERIMAGE_TRIGGER_OBSERVED`, which replaced the trigger wholesale and scanned unconditionally. |
 | `AFTERIMAGE_REQUIRE_SPAWN_PROXIMITY` | Birth-proximity check, so a recycled pooled actor is not counted as a new afterimage. |
 | `RECALL_GLOW_ENABLED` | Mirrors whether the real glow is present rather than reimplementing "empty-handed AND near a save crystal". Whatever rule the game actually applies is mirrored for free and cannot drift. |
+| `STATE_SEND_TRACE` | **The one `_TRACE` flag deliberately `true` — do not "fix" it to `false`.** Logs the `area_id` and world position actually sent, every ~300 ticks (~5s). It is here because aiming any synthetic-peer rig needs both values from a live session (`cmd/meshghost-fakeadapter`'s `-center` and `-area-id`, which must match exactly or nothing renders), and on 2026-08-17 neither was readable anywhere — `dev-scripts/run-ghostload-pseudoregalia.bat`'s own header tells you to read them "from the mod's log" and that line did not exist. Cost is one throttled formatted line, no enumeration and no per-object work, so it is the same shape as the always-on bridge counter line rather than the per-tick enumeration the probe rule below is about. |
 
 ## Probes — off, and they must stay off
 
-41 flags. Names ending `_TRACE`, `_PROBE`, `_DIFF`, `_DUMP`, `_SEARCH`, `_WATCH`, plus
+40 flags. Names ending `_TRACE`, `_PROBE`, `_DIFF`, `_DUMP`, `_SEARCH`, `_WATCH`, plus
 `POSE_WINDOW_TRACE`, `VFX_CATALOG_PROBE`, `OBJECT_REFLECTION_DUMP`, `AFTERIMAGE_CALL_TEST`,
 `DUMP_GHOST_SPAWN_VALUES`, `DUMP_VISUALMESH_FUNCTIONS`.
 
@@ -68,6 +69,10 @@ conversion per object — compare by pointer instead. Before believing any measu
 the probe off. Numbers gathered while a heavy probe was live are retroactively suspect.
 
 Never leave a probe that *spawns* an effect enabled while judging that effect.
+
+**One `_TRACE` flag is deliberately on**: `STATE_SEND_TRACE`, listed under Behaviour above with
+its reasoning. It is a throttled log line, not a probe, and an audit that flips it to `false` on
+name alone breaks the ability to aim a synthetic-peer rig.
 
 `MONTAGE_PROBES_SUPPRESS_ADAPTER_STOPS` is derived, not set: it is true whenever either montage
 probe is on, and exists so a probe run does not fight the adapter's own montage stops.
