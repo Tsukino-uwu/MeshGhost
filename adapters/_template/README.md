@@ -750,6 +750,52 @@ and the other had a stale assumption nobody had tested. **Know which of those yo
    `BANDAGES.md`, not only as a code comment. Then, **when the design changes, re-test the
    constraint**: that is the step this project missed.
 
+## Hard rule: never let a ghost exist before the player is actually in the game
+
+**Find the game's own "I am in play" signal early, gate every spawn and every draw on it, and do
+that before the ghost is otherwise finished.** Menus, title screens, intros, loading steps, warps,
+cutscenes and battles are all states where a peer's ghost must not appear. Every adapter meets
+this; it is one of the most common bugs in the category, and it is far cheaper to build the gate in
+than to retrofit one after a ghost has been seen floating over a title screen.
+
+**It is not only cosmetic, which is the part that gets underestimated.** In those states the game
+is frequently *rebuilding* the very structures an adapter touches — object tables, sprite slots,
+the map. Writing into them mid-rebuild corrupts rather than merely embarrasses, and an adapter that
+only draws can still read half-initialised data and render nonsense from it.
+
+**Ask the game what state it is in. Do not infer it from whether the data looks plausible.** This
+is [CLAUDE.md](../../CLAUDE.md)'s "a wrong read returns a plausible number" applied to program
+state: on a menu, the position and object data are usually just *stale*, so they look perfectly
+reasonable and a data-shape check sails through. The signal you want is the game's own state
+machine or mode variable.
+
+Worked examples, both real:
+
+- **Emerald** reads the current callback pointer (`gMain.callback2`) and compares it against
+  `CB2_Overworld` — literally "which state machine is the game running right now". Its
+  `inOverworld()` gate exists because reading save-block pointers outside the overworld returned
+  plausible garbage.
+- **Crystal** has `wMapStatus` (`START`/`ENTER`/`HANDLE`/`DONE`), plus `wMapEventStatus`,
+  `wScriptRunning` and `wGameLogicPaused` — a map state machine and separate "is the player free to
+  act" flags. Characterised with a dedicated probe rather than assumed
+  (`adapters/pokemon/crystal/ingame_gate_probe.lua`).
+
+**How to establish it for a new game:**
+
+1. **Write a change-only probe and start it on the title screen**, before loading anything. That
+   state is the one you most need characterised and the one you cannot return to without a reset.
+2. **Walk the whole lifecycle in one run**: menu → load → intro → overworld → open a menu → change
+   area → battle → back. A gate is only trustworthy once you have seen it *refuse* correctly, not
+   just accept correctly.
+3. **Log what the proposed gate WOULD have decided at each moment**, alongside the raw values. That
+   turns "does my gate work?" into something readable rather than something argued about.
+4. **Prefer several cheap signals combined** over one clever one, and state what each is for.
+5. Note this is *related to but distinct from* `get_local_state()` returning "don't send this
+   frame" (see [PROTOCOL.md](PROTOCOL.md)). That one suppresses your own outbound state; this one
+   governs whether a peer's ghost may exist locally at all. **You need both**, and they can differ:
+   it is reasonable to stop sending the moment a menu opens while leaving an already-spawned ghost
+   alone until something more disruptive happens.
+
 ## Read the working adapter for the same host before writing a new script
 
 **If another adapter already runs on the host you are targeting — the same emulator, mod loader or
