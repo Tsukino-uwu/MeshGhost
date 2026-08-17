@@ -174,6 +174,31 @@ step below is necessary and none was guessable; each cost a live test.
    by construction — so this needs no allocation, and **inherits the correct gender for free**,
    since Crystal picks the player's sprite from the Chris/Kris tables keyed on `wPlayerState`.
 
+### Moving it — also solved, 2026-08-18
+
+**A step is initiated in one frame; the engine plays out the other ~16.** Write this set once per
+tile, only while the object is idle (`STEP_DURATION == 0`), and let go:
+
+| Field | Value |
+| --- | --- |
+| `WALKING` | `4 + dir` |
+| `DIRECTION`, `FACING` | `dir * 4` |
+| `STEP_TYPE` | `2` |
+| `STEP_DURATION` | `7` |
+| `ACTION` | `2` |
+| `MAP_X`/`MAP_Y` | **the destination** |
+
+`dir` is `0` down, `1` up, `2` left, `3` right — derived from `InitStep`, which stores the value in
+`OBJECT_WALKING` and computes `DIRECTION = (walking << 2) & $0C`.
+
+**`MAP_X`/`MAP_Y` are the destination, written at the START**, with the sprite sliding to catch up
+at 2px every 2 frames. This is the reverse of what the movement work was planned around, and one
+read-only capture overturned it before any code was written — see the template's
+"watch it before you PLAN against it".
+
+**Interrupting a half-played step** is what produces a character that teleports while animating.
+Hence the idle check.
+
 ## Open
 
 - [ ] **A ghost looks like THIS machine's player, not like the peer.** Showing a peer's own gender

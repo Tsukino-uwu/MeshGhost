@@ -19,9 +19,10 @@ resumption, clock sync, and world custody, all opt-in and unused by any adapter)
 and the six library packages moved out of `internal/` to the repo root under the module's real
 path — importable from outside, with no stability promised. See the ADR in `architecture.md`.
 
-**Phase 9 (Crystal): the spawn mechanism is DONE, confirmed on screen 2026-08-18** — a
-player-looking character, created on demand at a chosen position, drawn and animated by the game
-with no drawing code. Networking is the largest remaining piece. `phases/phase9.md`.
+**Phase 9 (Crystal): the whole cosmetic mechanism is DONE, confirmed on screen 2026-08-18** — a
+player-looking character spawned on demand anywhere, that WALKS with the game's own step
+animation, with the adapter drawing, animating and interpolating nothing. Networking is the
+largest remaining piece. `phases/phase9.md`.
 
 Roadmap: `plans.md`. Per-phase log: `phases/`. Evidence for all of the above: `verified.md`.
 
