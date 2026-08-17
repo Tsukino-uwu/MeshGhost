@@ -6229,11 +6229,23 @@ scheduled. All established by the agent with local tools; nothing here is a visu
   | 2 (an NPC) | `structId=1 at 6,13` | `structId=2 at 6,13` |
   | 3 (an NPC) | `structId=3 at 10,7` | **`structId=255`** at 10,7 |
 
-  1. **An NPC went invisible**: map object 3 was *pushed out of the object-struct pool* and
-     reverted to unadopted. **This is the slot-exhaustion failure mode the ADR listed as an
-     accepted consequence — but it appeared with only ~6 objects on the map, not near the 13-struct
-     limit**, so the effective budget is smaller than the raw count and the reason is not yet
-     established. **Do not assume 12 ghosts are available.**
+  1. **An NPC went invisible**: map object 3 reverted to unadopted (`structId` 3 -> 255).
+     **CORRECTED same day — this is NOT slot exhaustion, which is how it was first written up.**
+     Reading the before/after assignment properly:
+
+     ```
+     BEFORE:  0->0,  2->1,  3->3,  4->4,  5->5,  6->255
+     AFTER:   0->0,  1->1,  2->2,  3->255, 4->4,  5->5,  6->255
+     ```
+
+     **Struct 3 is free and unused afterwards**, so the pool did not run out — there was room the
+     whole time. What happened is a *reassignment*: our object took struct 1, the NPC that held it
+     moved to struct 2, and map object 3 was bumped out and then simply never re-adopted, because
+     adoption only fires at map load or when a row scrolls in at the screen edge (neither happened
+     for it afterwards). **The claim that the effective budget is smaller than 13 is withdrawn; no
+     evidence here supports it.** The real lesson is narrower and more useful: **inserting an object
+     can cause the engine to re-shuffle struct assignments, and an object bumped in that shuffle
+     stays invisible until something re-triggers its adoption.**
   2. **The ghost spawned on top of an NPC**: `wYCoord + 9` happened to be the exact tile map object
      2 occupies. **The free-slot check tested whether the SLOT was free and never whether the TILE
      was** — different questions, and only the first was asked.
@@ -6242,3 +6254,17 @@ scheduled. All established by the agent with local tools; nothing here is a visu
   game's objects. That was written before the adoption line appeared in the log and before the user
   clarified that the ghost had spawned *over* an NPC rather than replacing one. The game's data was
   not corrupted; a struct was reallocated and a sprite was drawn over another.
+
+### Crystal: a map reload restores objects a spawn disturbed (2026-08-18)
+
+- Date: 2026-08-18
+- Observed: **watched by the user.** After `spawn_test3.lua` left an NPC unadopted and therefore
+  invisible, leaving the room and re-entering brought it back — user, verbatim: *"yee re entering
+  the room made the npc show up again"*.
+- Source: live session.
+- Notes: confirms empirically what was previously only reasoned: **object state is rebuilt from ROM
+  on map load, so a map reload undoes anything a spawn disturbed.** Nothing persisted, and no save
+  was written. This is the property that makes the whole spawn line of work cheap to be wrong in —
+  a bad write costs a door transition, not a corrupted file. It is also the flip side of the ADR's
+  accepted consequence that a ghost must be re-spawned on every map load: the same rebuild that
+  cleans up our mistakes also erases our ghosts.
