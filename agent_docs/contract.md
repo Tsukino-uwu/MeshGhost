@@ -152,6 +152,7 @@ signal joins/leaves — `despawn_remote(id)` has nothing to trigger it without a
 | `event` | both directions | an opaque payload, a `to` addressee (or absent for room broadcast), a relay-stamped `from`, a room-wide `seq`, and an optional `corr_id`. **Implemented 2026-08-17**; requires `event.v1`. See Extensibility below |
 | `lease` / `lease_state` | client → relay / relay → client | exclusive hold of an opaque key: `claim`/`renew`/`release`, answered with the current holder and expiry. Requires `lease.v1` |
 | `escrow` / `escrow_state` | client → relay / relay → client | two-sided atomic exchange: `open`/`deposit`/`commit`/`abort`, answered with the phase and — only once committed — both opaque blobs. Requires `escrow.v1` |
+| `world` / `world_state` | client → relay / relay → client | custody of a world the relay holds but cannot read: `set`/`drop` against an opaque entity key under a named authority lease, answered with the change, the whole world on adoption or join, or a refusal. Requires `world.v1` **and** `lease.v1`. See Extensibility below |
 | `ping` / `pong` | client → relay / relay → client | keeps an otherwise-quiet connection from going idle, and carries clock sync. Each carries a `nonce` (uint64); `pong` also carries `server_time_ms`. Despite the pair being symmetric on paper, the implementation is one-directional per type: the core sends `ping`, the relay answers `pong`, and the core ignores an inbound `ping`. See below |
 
 ### `features`
@@ -171,6 +172,7 @@ do (`internal/protocol/online.go`):
 | `event.v1` | addressed event routing |
 | `lease.v1` | exclusive hold of opaque keys |
 | `escrow.v1` | two-sided atomic exchange |
+| `world.v1` | the relay holds custody of a world and hands it to the next authority holder (requires `lease.v1`) |
 | `snapshot.v1` | seeding a joining client via `join.state` |
 | `resume.v1` | session resumption after an unexpected drop |
 | `clock.v1` | timestamps stamped in the relay's clock domain |
@@ -181,7 +183,7 @@ wrong in a way that only showed up when trying to actually use one:
 
 | Scope | Capabilities | Compared between members? |
 |---|---|---|
-| **Room-scoped** | `event.v1`, `lease.v1`, `escrow.v1`, `clock.v1` | **Yes — must match exactly** |
+| **Room-scoped** | `event.v1`, `lease.v1`, `escrow.v1`, `world.v1`, `clock.v1` | **Yes — must match exactly** |
 | **Client-scoped** | `resume.v1`, `snapshot.v1` | No — honoured per client |
 
 A room-scoped capability describes something *shared*: `event`/`lease`/`escrow` are protocols
@@ -432,6 +434,67 @@ this is a separate mechanism rather than a use of that one.
   fails in testing and always fails in the field. This is why resumption and escrow were built
   together.
 
+### World custody — the relay holds the world, not the simulation
+
+`set` / `drop` against an opaque entity key, under a named authority **lease key**. The relay keeps
+the latest opaque blob per entity and hands the whole set to whoever takes that lease next, and to
+whoever joins. Requires `lease.v1` in the same room; the two are deliberately not merged, and
+neither implies the other, because implying one would change the sticky feature-set key and
+silently stop matching rooms that already agreed on the old string.
+
+**This answers "who is the host, and what happens when they leave?"** — which is three jobs, not
+one. *Designation* (who is authoritative) was already `lease.v1`. *Custody* (holding the world so a
+successor can adopt it) is this. *Simulation* (running the AI, resolving damage) stays on a client
+and is excluded by architecture, because it is the only one that needs to understand the game.
+Without custody a new host adopts from its own last-known view, every peer's view is slightly
+different and slightly stale, and so *which* peer takes over changes what the world becomes.
+
+- **Writes are lease-gated.** A write names an `authority` lease key and is accepted only from that
+  lease's current holder — a pure string comparison, which is how the relay gates it while learning
+  nothing. It prevents the specific failure custody exists to survive: a departing host's in-flight
+  packets overwriting the new host's world after handover. A write from anyone else is answered
+  with `denied`, naming the real holder, rather than dropped.
+- **The adoption snapshot is part of the grant**, in the same total order — never dispatched after
+  it. Otherwise a new holder could receive its grant, legally start writing, and *then* be handed a
+  snapshot built before its own writes. A renew, and a re-claim by the current holder, produce no
+  snapshot. **An empty world still produces one**, so a new host can tell "nothing to adopt" from
+  "my adoption has not arrived yet" — a host that guesses wrong renumbers from a stale view and
+  rolls the world back for everyone.
+- **World lifetime is never tied to lease lifetime.** An expiry, a clean release and a holder
+  disconnecting all leave the world untouched, waiting for the next claimant; only the room being
+  dropped discards it. Freeing it with the lease would destroy the world in exactly the case the
+  feature exists for.
+- **The writer is excluded from its own broadcast**, unlike an event: the host is by definition the
+  authoritative source, and it learns of failure by an explicit denial and of success by silence.
+- **Delivery is chosen per write.** `reliable: false` for continuous motion that the next update
+  supersedes, `true` for a change that must not be missed. The relay stores the latest either way,
+  so a snapshot is always complete. **Reliable selects the delivery variant only, never the
+  serialization**: every write is stamped and delivered under the same lock, so a lossy write may
+  be lost and can never be reordered against another *by the relay*.
+- **A write that creates a key must be reliable.** A lossy one on a key the relay does not hold is
+  ignored. The lossy and reliable planes are independent on a datagram transport, so a create
+  dispatched before a drop can arrive after it and resurrect an entity permanently.
+- **A lossy write replaces the whole blob, so do not mix two kinds of state in one.** A blob
+  carrying both a continuously-superseded field and one that must never regress can be dragged
+  backwards wholesale by an inbound reorder, and nothing corrects it: the relay's copy becomes the
+  stale one, so the next snapshot propagates the regression. Keep discrete state on its own key
+  written reliably, and continuous position on another written lossily —
+  `cmd/meshghost-fakeadapter/world.go` is the worked example.
+- **A receiver applies world messages in `seq` order and ignores anything older than what it has
+  already applied for a key.** The relay guarantees a total order, but reliable and lossy delivery
+  to one peer are independent, so a lossy write can still land ahead of the reliable snapshot meant
+  to seed it.
+- **Never roster-filter a `world_state`.** A world entry legitimately outlives the player who wrote
+  it, and `holder` may name someone who has already left.
+
+Bounds are derived from the datagram limit rather than from `MaxLineBytes`, because
+`udpconn.checkWritable` refuses an oversized datagram *including a reliable one* and reports it only
+as a line in the relay's log: authority ≤ 128 (the lease-key bound, since it names one), key ≤ 64,
+blob ≤ 768, ≤ 64 entities per room, and a batching budget of 1100 bytes per message. The 64 is
+derived, not chosen: it is `udpconn`'s reorder window, and a reliable burst wider than that window
+goes unacked and is retried until the connection closes. A snapshot too large for one message is
+**batched, never fragmented** — every message is independently complete and no entry is ever split.
+
 ### What none of this buys
 
 Stated because it is where an enthusiastic later session would overreach:
@@ -443,8 +506,8 @@ Stated because it is where an enthusiastic later session would overreach:
   ordered log to different local state still diverge. It *is* sufficient for bounded, consensual
   interactions between two specific players — a trade offer, a battle turn — which is the scope
   limit, not a stage on the way to continuous authoritative sync.
-- **Not persistence.** The relay writes nothing to disk. Rooms, leases, exchanges and identities
-  all die with the process, deliberately: a persistent relay needs storage, backups, migrations
+- **Not persistence.** The relay writes nothing to disk. Rooms, leases, exchanges, worlds and
+  identities all die with the process, deliberately: a persistent relay needs storage, backups, migrations
   and corruption handling, and stops being a thing a user runs from a `.bat` file.
 
 **What still gates going deeper:** anything past Tier 2 on `plans.md`'s depth ladder requires

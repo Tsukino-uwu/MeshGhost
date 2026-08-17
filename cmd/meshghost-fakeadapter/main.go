@@ -309,6 +309,16 @@ func main() {
 	tradeEvery := flag.Duration("trade-every", 0, "if set (and escrow.v1 is in -features), peers pair "+
 		"off and run a full two-sided exchange this often, checking that every one reaches committed "+
 		"or aborted and that an abort never delivers a deposit")
+	worldAuthority := flag.String("world-authority", "sim", "the lease key world writes are made under "+
+		"(see -host-entities); opaque, and a different key from -lease-key")
+	hostEntities := flag.Int("host-entities", 0, "if set (and world.v1 and lease.v1 are both in "+
+		"-features), every peer contends for -world-authority and whichever wins drives this many "+
+		"synthetic entities into the world the relay holds custody of")
+	entityHz := flag.Int("entity-hz", 10, "how often per second the holder writes each entity's position "+
+		"(lossily -- discrete changes are written reliably regardless)")
+	migrateEvery := flag.Duration("migrate-every", 0, "if set, the holder releases -world-authority this "+
+		"often, forcing a real handover into contention. Without it the run tests custody but never "+
+		"migration, which is the half that can actually go wrong")
 	duration := flag.Duration("duration", 0, "stop and print the summary after this long. 0 (the "+
 		"default) means run until interrupted, which is right when a human is watching and wrong "+
 		"for a script -- a soak or CI job needs the process to end on its own and report, and "+
@@ -370,9 +380,30 @@ func main() {
 		tradeEvery:  *tradeEvery,
 		statsEvery:  *statsEvery,
 		featureList: featureList,
+		world: worldConfig{
+			on:        *hostEntities > 0,
+			authority: *worldAuthority,
+			entities:  *hostEntities,
+			entityHz:  *entityHz,
+			migrate:   *migrateEvery,
+		},
+	}
+	// Two keys per entity: a reliable one for discrete state, a lossy one for
+	// position. See world.go's entityKey for why they must not be one blob.
+	if cpCfg.world.on && cpCfg.world.entities*2 > protocol.MaxWorldKeysPerRoom {
+		// Refused rather than clamped: a run that silently drove fewer entities
+		// than asked for would report a green result for a workload nobody
+		// chose, and the cap is a protocol bound rather than a preference.
+		log.Fatalf("meshghost-fakeadapter: -host-entities %d needs %d world keys (two per entity), "+
+			"over protocol.MaxWorldKeysPerRoom (%d)",
+			cpCfg.world.entities, cpCfg.world.entities*2, protocol.MaxWorldKeysPerRoom)
+	}
+	if cpCfg.world.on && !protocol.HasFeature(featureList, protocol.FeatureWorldV1) {
+		log.Fatalf("meshghost-fakeadapter: -host-entities needs %q in -features (and %q with it)",
+			protocol.FeatureWorldV1, protocol.FeatureLeaseV1)
 	}
 	cpCfg.anyPlaneOn = len(featureList) > 0 &&
-		(*eventEvery > 0 || *leaseEvery > 0 || *tradeEvery > 0)
+		(*eventEvery > 0 || *leaseEvery > 0 || *tradeEvery > 0 || cpCfg.world.on)
 	if len(featureList) > 0 && !cpCfg.anyPlaneOn {
 		// Advertising a capability and then never using it is a real and
 		// confusing state: the room negotiates it, every cosmetic client is
@@ -470,6 +501,10 @@ func main() {
 	if cpCfg.anyPlaneOn {
 		for i, c := range cores {
 			cp := newControlPlane(i)
+			if cpCfg.world.on {
+				// Built before attach, which is what registers its OnWorldState.
+				cp.world = newWorldChecker(cpCfg.world, "", reportViolation)
+			}
 			cp.attach(c)
 			planes = append(planes, cp)
 		}
@@ -479,6 +514,10 @@ func main() {
 		for _, cp := range planes {
 			wg.Add(1)
 			go cp.run(stop, &wg, cpCfg)
+			if cpCfg.world.on {
+				wg.Add(1)
+				go cp.runWorld(stop, &wg, cpCfg.world)
+			}
 		}
 	}
 

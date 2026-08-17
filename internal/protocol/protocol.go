@@ -69,8 +69,16 @@ const (
 	// this is a separate mechanism from leases rather than a use of them.
 	TypeEscrow      MessageType = "escrow"
 	TypeEscrowState MessageType = "escrow_state"
-	TypePing        MessageType = "ping"
-	TypePong        MessageType = "pong"
+	// TypeWorld and TypeWorldState are world custody: the relay holds the
+	// latest opaque blob per entity and hands the same canonical set to
+	// whoever takes the authority lease next, so a host leaving does not take
+	// the world with it. Gated on FeatureWorldV1, which requires
+	// FeatureLeaseV1 in the same room — every write names a lease key and is
+	// accepted only from that lease's holder.
+	TypeWorld      MessageType = "world"
+	TypeWorldState MessageType = "world_state"
+	TypePing       MessageType = "ping"
+	TypePong       MessageType = "pong"
 	// TypeReject is the relay's reply to a Hello it refuses — wrong protocol
 	// version, mismatched game_id/game_version for the room, a wrong room
 	// code, or a full room — or, since the send/receive rate-control feature

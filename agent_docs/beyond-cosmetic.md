@@ -38,6 +38,7 @@ A future session should not re-derive any of this. It exists today:
 | `send` reliable **and ordered** on every transport | `contract.md`, `udpconn` | built (ordering added 2026-08-16) |
 | Room sequencer, one total order | `relay/online.go` | **BUILT 2026-08-17** |
 | Lease / escrow / snapshot / resumption / clock sync | `relay/online.go`, `core/online.go` | **BUILT 2026-08-17** |
+| World custody (`world` / `world_state`, latest opaque blob per entity, handed to whoever takes the authority lease) | `relay/world.go`, `core/online.go` | **BUILT 2026-08-17** — gated on `world.v1`, requires `lease.v1` |
 
 The single most valuable one is `features`: it had to exist *before* clients shipped, because a
 client built without it has no way to say what it supports. That one field is most of why deeper
@@ -128,7 +129,8 @@ what the lease already does:
 - **Nobody left** is fine: an empty room is dropped, and whoever arrives next claims the key
   uncontested.
 
-**2. Custody of the world — the relay should hold it too, and this is the better answer.** The
+**2. Custody of the world — the relay should hold it too, and this is the better answer. BUILT
+2026-08-17 as `world.v1`.** The
 tempting design is for the incoming host to adopt from its own last-known view, but every peer has
 a slightly different and slightly stale one, so which peer takes over changes what the world
 becomes. Instead let the relay keep the latest **opaque** blob per entity and hand it to whoever
@@ -142,6 +144,17 @@ host to re-describe it.
 actually do is the one excluded model, because it is the point where the relay would have to
 understand the game. That is the line the whole architecture rests on and none of the above moves
 it: the relay decides *who* simulates and stores *what they last said*, and never simulates.
+
+What shipping it actually cost was four corrections to that paragraph's obvious implementation,
+each of which would have produced silent permanent divergence — two clients looking at different
+worlds, with no error anywhere. They are recorded as an ADR in `architecture.md` and asserted by
+tests in `relay/world_test.go` that fail without them: a lossy write may not skip the sequencer's
+lock; the adoption snapshot must be built *inside* the lease grant; world lifetime must never be
+tied to lease lifetime; and the pre-existing late-join seed had the same missing lock, which only
+state's own self-correction was hiding. A fifth arrived from the soak rig rather than from reading:
+**a lossy write replaces the whole blob**, so a blob mixing a continuously-superseded field with
+one that must not regress can be dragged backwards by an inbound reorder — the two kinds of state
+belong on separate keys.
 
 **What is still genuinely hard is the handover, not the bookkeeping.** Whatever the old host knew
 and never sent — RNG state, AI internals, half-finished timers — is gone at migration, and shows up

@@ -11,7 +11,7 @@ Phase 8 (Emerald) is open but idle since 2026-08-14; Phase 6 (TEVI) is done.
 no more through-wall ghosts; Go side: quic default, ordered udp, `cmd/meshghost-netsim`) and
 **2026-08-17** (a sliding ghost posed via the game's own crouch path, retiring the +43 render-Z
 bandage; Go side: the planes past cosmetic — events, sequencer, leases, escrow, snapshots,
-resumption, clock sync, all opt-in and unused by any adapter) — full record in `verified.md`,
+resumption, clock sync, and world custody, all opt-in and unused by any adapter) — full record in `verified.md`,
 `plans.md`, `architecture.md` and `adapters/pseudoregalia/BANDAGES.md`.
 
 Roadmap: `plans.md`. Per-phase log: `phases/`. Evidence for all of the above: `verified.md`.
@@ -68,8 +68,12 @@ that a peer's state genuinely differs from the local player's, which loopback co
   flags). Open: no sustained-load or two-machine test yet, no per-IP cap. `verified.md`, `risks.md`.
 - **A served-but-unforwarded transport strands a client** — discovery knows what a relay offers,
   not whether the path works, so it retries instead of falling back to tcp. Docs-only for now.
-- **The planes past cosmetic have no live consumer.** Built and Go-tested 2026-08-17; no adapter
-  asks for any capability yet. `beyond-cosmetic.md`, `architecture.md` ADR.
+- **The planes past cosmetic have no live consumer.** Built and Go-tested 2026-08-17 (world custody
+  added the same day); no adapter asks for any capability yet. `beyond-cosmetic.md`, `architecture.md` ADR.
+- **A maximal `event`/committed `escrow_state` exceeds a udp datagram and is silently dropped** —
+  pre-existing, unreached today, and its own decision to fix. `risks.md`.
+- **An adapter's declared `features` are ignored when the core is started with `-game`**, since it
+  connects to the relay before any adapter speaks. Lazy path only. `internal/core/core.go`.
 - **udp signals nothing on close, so a dropped udp peer freezes for up to 60s** — tcp is instant,
   quic ~17s. Fix is a token-carrying control frame. `internal/netx/conformance_test.go`.
 - **`clock.v1` never tested against a genuinely skewed peer** — needs two machines with

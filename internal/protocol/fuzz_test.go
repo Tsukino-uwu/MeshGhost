@@ -198,3 +198,44 @@ func FuzzNormalizeFeaturesIsIdempotent(f *testing.F) {
 		}
 	})
 }
+
+// FuzzValidateWorldIsStableAcrossTheWire is FuzzValidateEventIsStableAcrossTheWire
+// applied to the world plane, and the Authority field is the reason it exists.
+//
+// A non-UTF-8 string round-trips through JSON as a DIFFERENT string, because
+// encoding/json replaces each invalid byte with U+FFFD. For an authority that
+// is uniquely nasty: the relay compares it for equality against a lease key, so
+// a client whose own validation passed would have every single write silently
+// denied, with nothing anywhere able to explain why. The replacement also
+// expands, so the length check can pass before marshaling and fail after.
+func FuzzValidateWorldIsStableAcrossTheWire(f *testing.F) {
+	f.Add("set", "sim", "e0", []byte(`{"gen":1}`))
+	f.Add("drop", "sim", "e0", []byte(``))
+	f.Add("set", "\xff\xfe", "e0", []byte(`null`))
+
+	f.Fuzz(func(t *testing.T, op, authority, key string, blob []byte) {
+		w := World{Op: WorldOp(op), Authority: authority, Key: key}
+		if json.Valid(blob) {
+			w.Blob = json.RawMessage(blob)
+		}
+		if !ValidateWorld(w) {
+			return
+		}
+		b, err := json.Marshal(w)
+		if err != nil {
+			t.Fatalf("a valid world write failed to marshal: %v", err)
+		}
+		var back World
+		if err := json.Unmarshal(b, &back); err != nil {
+			t.Fatalf("a valid world write failed to round trip: %v", err)
+		}
+		if !ValidateWorld(back) {
+			t.Fatalf("world write validated before the wire and not after: %+v -> %+v", w, back)
+		}
+		if back.Authority != w.Authority || back.Key != w.Key {
+			t.Fatalf("an opaque identifier changed across the wire: %q/%q -> %q/%q "+
+				"-- equality against the lease key it names would silently stop working",
+				w.Authority, w.Key, back.Authority, back.Key)
+		}
+	})
+}

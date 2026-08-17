@@ -1,7 +1,9 @@
 package protocol
 
 import (
+	"encoding/json"
 	"math"
+	"strings"
 	"testing"
 )
 
@@ -144,5 +146,63 @@ func TestOpaqueIdentifiersMustBeValidUTF8(t *testing.T) {
 	if !ValidateEvent(Event{CorrID: ok}) || !ValidateLease(Lease{Op: LeaseClaim, Key: ok}) ||
 		!ValidateState(State{AreaID: ok, Anim: ok}) {
 		t.Errorf("valid identifiers were rejected by the new UTF-8 check")
+	}
+}
+
+// TestValidateWorldBounds covers the world plane's refusals. Both identifiers
+// go through ValidOpaqueString, so both are length- and UTF-8-checked.
+func TestValidateWorldBounds(t *testing.T) {
+	ok := World{Op: WorldSet, Authority: "sim", Key: "e0", Blob: json.RawMessage(`{"gen":1}`)}
+	if !ValidateWorld(ok) {
+		t.Fatal("a plain world write was rejected")
+	}
+	if ValidateWorld(World{Op: "nonsense", Authority: "sim", Key: "e0"}) {
+		t.Fatal("an unknown op was accepted")
+	}
+	if ValidateWorld(World{Op: WorldSet, Key: "e0"}) {
+		t.Fatal("a write with no authority was accepted -- it could never be lease-gated")
+	}
+	if ValidateWorld(World{Op: WorldSet, Authority: "sim"}) {
+		t.Fatal("a write with no key was accepted")
+	}
+	long := World{Op: WorldSet, Authority: strings.Repeat("a", MaxLeaseKeyLen+1), Key: "e0"}
+	if ValidateWorld(long) {
+		t.Fatal("an over-length authority was accepted")
+	}
+	if ValidateWorld(World{Op: WorldSet, Authority: "sim", Key: strings.Repeat("k", MaxWorldKeyLen+1)}) {
+		t.Fatal("an over-length key was accepted")
+	}
+	big := World{Op: WorldSet, Authority: "sim", Key: "e0",
+		Blob: json.RawMessage(strings.Repeat("x", MaxWorldBlobBytes+1))}
+	if ValidateWorld(big) {
+		t.Fatal("an oversized blob was accepted")
+	}
+	// The UTF-8 half, which is the one that fails silently rather than loudly.
+	if ValidateWorld(World{Op: WorldSet, Authority: "\xff", Key: "e0"}) {
+		t.Fatal("a non-UTF-8 authority was accepted -- it would compare unequal to the " +
+			"lease key it names once JSON replaced the invalid bytes")
+	}
+}
+
+// TestValidateWorldStateBounds is the receive-side check: a hostile relay is
+// not trusted to have enforced its own limits.
+func TestValidateWorldStateBounds(t *testing.T) {
+	if !ValidateWorldState(WorldState{Authority: "sim", Holder: "p1", Seq: 1,
+		Entries: []WorldEntry{{Key: "e0", Blob: json.RawMessage(`1`)}}}) {
+		t.Fatal("a plain world state was rejected")
+	}
+	if ValidateWorldState(WorldState{Authority: "sim", Entries: []WorldEntry{{Key: ""}}}) {
+		t.Fatal("an entry with no key was accepted")
+	}
+	if ValidateWorldState(WorldState{Authority: "sim", Entries: []WorldEntry{
+		{Key: "e0", Blob: json.RawMessage(strings.Repeat("x", MaxWorldBlobBytes+1))}}}) {
+		t.Fatal("an oversized blob was accepted from the relay")
+	}
+	too := make([]WorldEntry, MaxWorldKeysPerRoom+1)
+	for i := range too {
+		too[i] = WorldEntry{Key: "e"}
+	}
+	if ValidateWorldState(WorldState{Authority: "sim", Entries: too}) {
+		t.Fatal("more entries than a room may hold were accepted")
 	}
 }

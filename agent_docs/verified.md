@@ -5603,3 +5603,50 @@ in `CLAUDE.md` is filename-only. Append-only means they stay; new entries should
   held only by a joiner that gave up is still collected rather than pinned forever.
 - Confirmed by the suite at `-count=10`, and by the leak tests specifically: a fix that pinned
   rooms in the table would have been worse than the bug it replaced.
+
+### World custody (`world.v1`) — the relay holds a world it cannot read, and hands it on
+
+- Date: 2026-08-17
+- Established with the Go tools, not on screen: no adapter uses this plane and no game was
+  involved. Recorded under CLAUDE.md's "the Go client/server is the opposite case" rule.
+- **What was confirmed.** `dev-scripts/run-gotests.bat` green (build, vet, the whole suite twice,
+  including `internal/e2e`), plus `internal/relay` and `internal/core` at `-count=10`. The race
+  detector could not run locally (no cgo toolchain here, as CLAUDE.md already notes); CI covers it.
+- **The end-to-end proof is `TestWorldSurvivesTheHostProcessDyingAndSeedsALateJoiner`**, which
+  drives the real `meshghost.exe` and `meshghost-relay.exe`: a host writes two entities, its
+  PROCESS is killed outright (no goodbye, no release), a second client claims the authority and is
+  handed the same world byte-for-byte, and a third client that was never present joins and sees the
+  current world. That is the scenario the feature exists for and the one no in-process test can
+  reach.
+- **Soaked under real loss.** `cmd/meshghost-fakeadapter` with `-host-entities 5 -migrate-every 2s`
+  through `cmd/meshghost-netsim` at 5% loss / 5% reorder / 20ms latency over udp: 4 clients, all
+  four planes on at once (events, leases, escrow, world), 2 minutes, 40 handovers, ~5000 entity
+  writes, **no invariant violations**. The same run on tcp and on lossless udp was also clean.
+- **The soak found two things reading did not**, both adapter-facing rules rather than relay bugs,
+  and both of which passed cleanly on tcp first — the shape of thing that ships:
+  1. **A lossy write replaces the whole blob**, so a blob mixing a continuously-superseded field
+     with one that must not regress gets dragged backwards wholesale by an inbound reorder, and the
+     relay's copy becomes the stale one that later snapshots propagate. Discrete state and
+     continuous position belong on separate keys. The rig now models that.
+  2. **An adoption must always send exactly one snapshot, empty world included**, or a new host
+     cannot tell "nothing to adopt" from "my adoption has not landed yet" — and a host that guesses
+     wrong renumbers from a stale view and rolls the world back for everyone.
+- Two checker bugs were also found and fixed, both of which had accused a correctly-behaving relay:
+  a lease *renew* re-broadcasts `granted` (so arming adoption on any grant was wrong), and the
+  rig's exclusivity check tracked one holder across all keys, which only worked while one key
+  existed.
+- Detail: the ADR in `architecture.md` (2026-08-17, world custody), `contract.md`'s World custody
+  section, and `internal/relay/world_test.go`, whose four "corrections" tests fail against the
+  obvious implementation.
+
+### A maximal event and a committed escrow are too large for a udp datagram (pre-existing, not fixed)
+
+- Date: 2026-08-17
+- Established by measurement while deriving the world plane's bounds, not by a failure in the
+  field: a maximal `Event` marshals to **1321 bytes** and a committed `EscrowState` carrying two
+  1024-byte blobs to **2294**, against 1182 usable (`udpconn.MaxDatagramBytes` 1200 minus 18 bytes
+  of framing). Both fail `udpconn.checkWritable` — reliable plane included — and the refusal is
+  only a `relay: send to pX failed:` log line, so the message is lost for that recipient and never
+  superseded.
+- Unreached today: nothing uses these planes at all. Recorded in `risks.md` as its own decision
+  rather than fixed here, because shrinking the constants is a contract change.

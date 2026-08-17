@@ -108,6 +108,28 @@ type Room struct {
 	// lastState is each member's most recent valid state, for seeding a
 	// late joiner via Join.State. nil unless FeatureSnapshotV1 is on.
 	lastState map[string]protocol.State
+	// world is this room's custody map: the latest opaque blob per entity,
+	// namespaced by the authority lease it was written under. nil until first
+	// use, and deliberately outlives the lease and the client that wrote it —
+	// see freeLeaseLocked and world.go.
+	world map[worldKey]*worldEntry
+
+	// Two once-per-room complaints about adapter misconfiguration, each of
+	// which would otherwise repeat at the world plane's own message rate.
+	// sync.Once carries its own synchronization, so neither is under mu — and
+	// neither must be, since one of them fires from a path that already holds
+	// it.
+	//
+	// worldWithoutLeaseOnce: this room negotiated world.v1 without lease.v1, so
+	// every write names an authority that cannot exist. Logged rather than
+	// rejected at the handshake, because making one feature imply the other in
+	// NormalizeFeatures would change the sticky FeatureSetKey and silently stop
+	// matching rooms that already agreed on the old string.
+	//
+	// worldLossyCreateOnce: an adapter tried to create a world key with a lossy
+	// write. See world.go.
+	worldWithoutLeaseOnce sync.Once
+	worldLossyCreateOnce  sync.Once
 }
 
 // Client is one connected relay peer.
@@ -1050,21 +1072,18 @@ func (s *Server) handleConn(conn net.Conn) {
 				// capabilities this particular client asked for and got — so
 				// what a client reads back is what is actually in force for
 				// it, not a room-wide answer to a per-client question.
-				Features: effectiveFeatures(joined, newClient),
+				Features:     effectiveFeatures(joined, newClient),
 				ResumeToken:  newToken,
 				ServerTimeMs: time.Now().UnixMilli(),
 			})
 
 			// Seed the newcomer with what everyone else looks like right now,
-			// so an existing player appears immediately instead of only on
-			// its next update. Sent after Welcome — the client's roster comes
-			// from Welcome, and it drops state for any id it has not been
-			// told about (the roster-trust rule) — and only to this
+			// and with the room's world, so both appear immediately instead
+			// of only on their next update. Sent after Welcome — the client's
+			// roster comes from Welcome, and it drops state for any id it has
+			// not been told about (the roster-trust rule) — and only to this
 			// connection, since nobody else needs it.
-			joined.mu.Lock()
-			seedOuts := joined.stateSnapshotLocked(newID)
-			joined.mu.Unlock()
-			joined.deliver(seedOuts)
+			joined.joinSnapshot(newID)
 
 			join, err := envelope(protocol.TypeJoin, protocol.Join{PlayerID: newID})
 			if err == nil {
@@ -1200,6 +1219,33 @@ func (s *Server) handleConn(conn net.Conn) {
 				return
 			}
 			r.handleEscrow(id, req)
+		case protocol.TypeWorld:
+			if !r.hasFeature(protocol.FeatureWorldV1) {
+				return
+			}
+			if !r.hasFeature(protocol.FeatureLeaseV1) {
+				// world.v1 without lease.v1 is an incoherent combination: every
+				// write names an authority lease key, and a room with no leases
+				// has none, so every write would be denied. Said once, in words,
+				// rather than silently — a host staring at a world that never
+				// appears has no other way to find this out.
+				r.worldWithoutLeaseOnce.Do(func() {
+					log.Printf("relay: room %q negotiated world.v1 without lease.v1 -- every world write "+
+						"will be denied, because a write is only accepted from the holder of the lease "+
+						"it names and this room has no leases", r.Name)
+				})
+				return
+			}
+			var req protocol.World
+			if err := json.Unmarshal(env.Payload, &req); err != nil {
+				return
+			}
+			if !protocol.ValidateWorld(req) {
+				// Dropped, not truncated and not fragmented — the same answer an
+				// oversized event gets, for the same reason.
+				return
+			}
+			r.handleWorld(id, req)
 		case protocol.TypeLeave:
 			// A voluntary goodbye (protocol.Leave): this client is going on
 			// purpose, so its identity must NOT be held for a reconnect.

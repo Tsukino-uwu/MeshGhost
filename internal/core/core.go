@@ -409,6 +409,10 @@ type Core struct {
 	OnEvent       func(ev protocol.Event)
 	OnLeaseState  func(st protocol.LeaseState)
 	OnEscrowState func(st protocol.EscrowState)
+	// OnWorldState receives the world-custody plane. Same role as the three
+	// above: nil for every cosmetic caller, and the messages still reach an
+	// attached adapter over the bridge either way.
+	OnWorldState func(st protocol.WorldState)
 
 	// adapterGameVersion is the version the adapter last reported in its
 	// bridge Hello. Kept separate from the exported GameVersion (the user's
@@ -1162,6 +1166,12 @@ func (c *Core) handleBridgeConn(netConn net.Conn) {
 				return
 			}
 			c.reportBridgeSendErr(nd, bridge.TypeEscrow, c.SendEscrow(msg.Escrow))
+		case bridge.TypeWorld:
+			var msg bridge.World
+			if err := json.Unmarshal(env.Payload, &msg); err != nil {
+				return
+			}
+			c.reportBridgeSendErr(nd, bridge.TypeWorld, c.sendWorld(msg.World))
 		}
 	})
 }

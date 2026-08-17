@@ -230,3 +230,132 @@ func TestClockNeverMovesBackwardsWhenTheOffsetIsRevisedDown(t *testing.T) {
 		high = got
 	}
 }
+
+// TestWorldSendPathsRefuseARoomWithoutCustody is the world plane's half of
+// opt-in: the same visible error every other plane gives, rather than a write
+// that silently goes nowhere.
+func TestWorldSendPathsRefuseARoomWithoutCustody(t *testing.T) {
+	addr := startRelay(t)
+
+	c := New()
+	c.RelayAddr, c.Room, c.DisplayName = addr, "room1", "alice"
+	if err := c.ConnectRelay("emerald"); err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	if err := c.SetWorld("sim", "e0", json.RawMessage(`1`), true); err != ErrFeatureNotEnabled {
+		t.Fatalf("SetWorld error = %v, want %v", err, ErrFeatureNotEnabled)
+	}
+	if err := c.DropWorld("sim", "e0"); err != ErrFeatureNotEnabled {
+		t.Fatalf("DropWorld error = %v, want %v", err, ErrFeatureNotEnabled)
+	}
+}
+
+// TestOversizedWorldBlobIsRefusedBeforeItIsSent. No chunking fallback, by
+// design: an entity that does not fit means the blob should carry a reference
+// to the data rather than the data.
+func TestOversizedWorldBlobIsRefusedBeforeItIsSent(t *testing.T) {
+	c := New()
+	blob, err := json.Marshal(string(make([]byte, protocol.MaxWorldBlobBytes)))
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if err := c.SetWorld("sim", "e0", blob, true); err == nil {
+		t.Fatal("an oversized world blob was accepted")
+	}
+}
+
+// TestCoreAdoptsAWorldThroughARealRelay is the client-side end-to-end: alice
+// hosts and writes, bob takes the authority over and is handed the same world
+// without either of them having agreed on anything but a lease key.
+func TestCoreAdoptsAWorldThroughARealRelay(t *testing.T) {
+	addr := startRelay(t)
+
+	newCore := func(name string, leases chan protocol.LeaseState, worlds chan protocol.WorldState) *Core {
+		c := New()
+		c.RelayAddr, c.Room, c.DisplayName = addr, "room1", name
+		c.Features = []string{protocol.FeatureLeaseV1, protocol.FeatureWorldV1}
+		c.OnLeaseState = func(st protocol.LeaseState) { leases <- st }
+		c.OnWorldState = func(st protocol.WorldState) { worlds <- st }
+		if err := c.ConnectRelay("emerald"); err != nil {
+			t.Fatalf("connect %s: %v", name, err)
+		}
+		return c
+	}
+
+	aliceLeases := make(chan protocol.LeaseState, 16)
+	aliceWorlds := make(chan protocol.WorldState, 16)
+	bobLeases := make(chan protocol.LeaseState, 16)
+	bobWorlds := make(chan protocol.WorldState, 16)
+	alice := newCore("alice", aliceLeases, aliceWorlds)
+	bob := newCore("bob", bobLeases, bobWorlds)
+
+	if err := alice.ClaimLease("sim", 30*time.Second); err != nil {
+		t.Fatalf("claim: %v", err)
+	}
+	waitLease(t, aliceLeases, protocol.LeaseGranted)
+
+	if err := alice.SetWorld("sim", "boss", json.RawMessage(`{"hp":100}`), true); err != nil {
+		t.Fatalf("set world: %v", err)
+	}
+	// bob is a peer, so it sees the live write.
+	if st := waitWorld(t, bobWorlds, protocol.WorldWritten); st.Holder != alice.PlayerID() {
+		t.Fatalf("live write named holder %q, want alice", st.Holder)
+	}
+
+	// Alice hands off. Bob takes the authority and is handed the world with it.
+	if err := alice.ReleaseLease("sim"); err != nil {
+		t.Fatalf("release: %v", err)
+	}
+	waitLease(t, bobLeases, protocol.LeaseReleased)
+	if err := bob.ClaimLease("sim", 30*time.Second); err != nil {
+		t.Fatalf("bob claim: %v", err)
+	}
+	waitLease(t, bobLeases, protocol.LeaseGranted)
+
+	adopted := waitWorld(t, bobWorlds, protocol.WorldSnapshot)
+	if len(adopted.Entries) != 1 || adopted.Entries[0].Key != "boss" {
+		t.Fatalf("bob adopted %+v, want the one entity alice created", adopted.Entries)
+	}
+	if string(adopted.Entries[0].Blob) != `{"hp":100}` {
+		t.Fatalf("adopted blob = %s, want it byte-identical -- the relay must not interpret it",
+			adopted.Entries[0].Blob)
+	}
+
+	// And alice, now stale, is refused rather than silently ignored.
+	if err := alice.SetWorld("sim", "boss", json.RawMessage(`{"hp":1}`), true); err != nil {
+		t.Fatalf("stale set: %v", err)
+	}
+	if st := waitWorld(t, aliceWorlds, protocol.WorldDenied); st.Holder != bob.PlayerID() {
+		t.Fatalf("denial named holder %q, want bob", st.Holder)
+	}
+}
+
+func waitLease(t *testing.T, ch chan protocol.LeaseState, reason string) protocol.LeaseState {
+	t.Helper()
+	deadline := time.After(3 * time.Second)
+	for {
+		select {
+		case st := <-ch:
+			if st.Reason == reason {
+				return st
+			}
+		case <-deadline:
+			t.Fatalf("timed out waiting for a lease state with reason %q", reason)
+		}
+	}
+}
+
+func waitWorld(t *testing.T, ch chan protocol.WorldState, reason string) protocol.WorldState {
+	t.Helper()
+	deadline := time.After(3 * time.Second)
+	for {
+		select {
+		case st := <-ch:
+			if st.Reason == reason {
+				return st
+			}
+		case <-deadline:
+			t.Fatalf("timed out waiting for a world state with reason %q", reason)
+		}
+	}
+}

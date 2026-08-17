@@ -82,6 +82,21 @@ type EscrowSnapshot struct {
 	Reason   string
 }
 
+// WorldSnapshot is one entity the relay holds custody of. The blob is
+// deliberately absent — same posture as escrow blobs (see the file comment),
+// plus its size, which is the part a host debugging "why is this room's world
+// so big" actually needs.
+type WorldSnapshot struct {
+	Authority string
+	Key       string
+	// Holder is whoever currently holds the authority lease, or empty for
+	// nobody. Empty is a normal, expected state rather than a fault: the world
+	// deliberately outlives its authority, waiting for a successor to adopt it.
+	Holder    string
+	BlobBytes int
+	Seq       uint64
+}
+
 // RoomSnapshot is one room's whole visible state.
 type RoomSnapshot struct {
 	Name        string
@@ -95,6 +110,7 @@ type RoomSnapshot struct {
 	Members []MemberSnapshot
 	Leases  []LeaseSnapshot
 	Escrows []EscrowSnapshot
+	World   []WorldSnapshot
 }
 
 // Snapshot is the whole relay's visible state at one moment.
@@ -204,10 +220,29 @@ func (r *Room) snapshot(now time.Time) RoomSnapshot {
 		}
 		out.Escrows = append(out.Escrows, es)
 	}
+	for wk, e := range r.world {
+		holder := ""
+		if l := r.leases[wk.authority]; l != nil {
+			holder = l.holder
+		}
+		out.World = append(out.World, WorldSnapshot{
+			Authority: wk.authority,
+			Key:       wk.key,
+			Holder:    holder,
+			BlobBytes: len(e.blob),
+			Seq:       e.seq,
+		})
+	}
 
 	sort.Slice(out.Members, func(i, j int) bool { return out.Members[i].PlayerID < out.Members[j].PlayerID })
 	sort.Slice(out.Leases, func(i, j int) bool { return out.Leases[i].Key < out.Leases[j].Key })
 	sort.Slice(out.Escrows, func(i, j int) bool { return out.Escrows[i].ID < out.Escrows[j].ID })
+	sort.Slice(out.World, func(i, j int) bool {
+		if out.World[i].Authority != out.World[j].Authority {
+			return out.World[i].Authority < out.World[j].Authority
+		}
+		return out.World[i].Key < out.World[j].Key
+	})
 	return out
 }
 
@@ -255,6 +290,24 @@ func (s Snapshot) String() string {
 		for _, l := range r.Leases {
 			fmt.Fprintf(&b, "\n    lease %q held by %s, expires in %s", l.Key, l.Holder, l.ExpiresIn)
 		}
+		// Rolled up per authority rather than one line per entity: a room with
+		// a full world has MaxWorldKeysPerRoom of them, and 64 lines of
+		// "entity, 300 bytes" would bury the members and leases above. The
+		// question this answers is "is a world being held, how big, and does
+		// anyone own it" -- the individual keys are the adapter's business.
+		for _, w := range rollUpWorld(r.World) {
+			fmt.Fprintf(&b, "\n    world %q: %d entit%s, %d bytes held",
+				w.Authority, w.Entities, plural(w.Entities), w.Bytes)
+			if w.Holder == "" {
+				// Worth spelling out: this is what an orphaned world looks
+				// like, and it is the state custody exists to produce rather
+				// than a fault. Someone reading this while wondering why nobody
+				// is simulating needs the difference stated.
+				b.WriteString(" -- NOBODY holds this authority, waiting for a successor to adopt it")
+			} else {
+				fmt.Fprintf(&b, ", held by %s", w.Holder)
+			}
+		}
 		for _, e := range r.Escrows {
 			fmt.Fprintf(&b, "\n    exchange %q between %s: %s (deposited %d/2, committed %d/2)",
 				e.ID, strings.Join(e.Parties, " and "), e.Phase, len(e.Deposited), len(e.Committed))
@@ -265,6 +318,36 @@ func (s Snapshot) String() string {
 		}
 	}
 	return b.String()
+}
+
+// worldRollup is one authority's world summarized for the log.
+type worldRollup struct {
+	Authority string
+	Holder    string
+	Entities  int
+	Bytes     int
+}
+
+// rollUpWorld groups a room's entities by authority, preserving the sorted
+// order snapshot already put them in.
+func rollUpWorld(entries []WorldSnapshot) []worldRollup {
+	var out []worldRollup
+	for _, w := range entries {
+		if len(out) == 0 || out[len(out)-1].Authority != w.Authority {
+			out = append(out, worldRollup{Authority: w.Authority, Holder: w.Holder})
+		}
+		cur := &out[len(out)-1]
+		cur.Entities++
+		cur.Bytes += w.BlobBytes
+	}
+	return out
+}
+
+func plural(n int) string {
+	if n == 1 {
+		return "y"
+	}
+	return "ies"
 }
 
 func reasonSuffix(reason string) string {

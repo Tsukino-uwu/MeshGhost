@@ -51,14 +51,29 @@ import (
 type outgoing struct {
 	env protocol.Envelope
 	to  []string
+	// unreliable asks deliver for the lossy variant. Set by exactly one
+	// caller — a lossy world write in world.go — and false everywhere else.
+	unreliable bool
 }
 
-// deliver sends each outgoing on the reliable plane. Reliable, always:
-// everything in this file carries a decision — who holds a key, whether a
-// trade completed — and unlike a cosmetic position sample, a dropped one is
-// never superseded by the next. There is no unreliable variant on purpose.
+// deliver sends each outgoing, reliably unless it asked otherwise. Reliable is
+// the default and covers everything in this file: it all carries a decision —
+// who holds a key, whether a trade completed — and unlike a cosmetic position
+// sample, a dropped one is never superseded by the next.
+//
+// This used to say there was no unreliable variant on purpose. That was right
+// while the control plane was only decisions; world.v1 added a plane where a
+// write can be a continuous position sample that the next update supersedes, so
+// the exception is now real. **It selects the delivery variant only.** Every
+// outgoing here, lossy ones included, is still stamped and delivered under
+// sendMu, so a lossy message may be lost and can never be reordered against
+// another — see world.go's handleWorld and protocol.World.Reliable.
 func (r *Room) deliver(outs []outgoing) {
 	for _, o := range outs {
+		if o.unreliable {
+			r.ForwardUnreliable(o.env, o.to)
+			continue
+		}
 		r.Forward(o.env, o.to)
 	}
 }
@@ -271,12 +286,32 @@ func (r *Room) handleLease(from string, req protocol.Lease) {
 }
 
 // grantLeaseLocked gives key to holder for ttl, (re)arming its expiry timer,
-// and returns the broadcast announcing it. Caller holds r.mu.
+// and returns the broadcast announcing it — followed, when the holder actually
+// CHANGED and this room has world.v1, by the world that holder now inherits.
+//
+// Caller holds **both** sendMu and r.mu. Today only handleLease calls this and
+// it holds both; the requirement is stated because a future caller holding only
+// r.mu would break the handover silently rather than loudly.
+//
+// **The adoption snapshot is built here, in the same critical section as the
+// grant, and not dispatched afterwards.** If it were dispatched afterwards the
+// new holder could receive its grant, legally begin writing (it holds the lease
+// now), and only then receive a snapshot built before its own writes — reverting
+// itself, with the relay's map correct and the new host stale. Building it here
+// and delivering it in the same sendMu window makes "grant, then snapshot" a
+// fact of the total order rather than a hope.
 func (r *Room) grantLeaseLocked(key, holder string, ttl time.Duration, to []string) []outgoing {
 	l := r.leases[key]
+	// Captured before the assignment below. A renew, and a re-claim by the
+	// current holder, must produce NO snapshot: nothing was adopted, and
+	// re-sending the world on every renew would put the busiest client's whole
+	// world back on the wire at its renew rate.
+	previousHolder := ""
 	if l == nil {
 		l = &lease{}
 		r.leases[key] = l
+	} else {
+		previousHolder = l.holder
 	}
 	if l.timer != nil {
 		l.timer.Stop()
@@ -292,14 +327,28 @@ func (r *Room) grantLeaseLocked(key, holder string, ttl time.Duration, to []stri
 		Key: key, Holder: holder, Seq: r.nextSeq(),
 		ExpiresAt: l.expiresAt.UnixMilli(), Reason: protocol.LeaseGranted,
 	}
+	var outs []outgoing
 	if o, ok := out(protocol.TypeLeaseState, st, to); ok {
-		return []outgoing{o}
+		outs = append(outs, o)
 	}
-	return nil
+	if holder != previousHolder {
+		outs = append(outs, r.worldSnapshotLocked(key, holder)...)
+	}
+	return outs
 }
 
 // freeLeaseLocked drops key and returns the broadcast announcing it. Caller
 // holds r.mu.
+//
+// **The world this key was authority over is deliberately NOT freed here.**
+// Tying world lifetime to lease lifetime would destroy the world in exactly the
+// case custody exists for: a host crashing arrives here via expireSuspended →
+// finishLeave → releaseLeasesOfLocked, and a clean handoff arrives here too. A
+// host that deliberately hands off still wants the world to survive to its
+// successor. The world waits, un-owned, for the next claimant; the only thing
+// that discards it is the room itself going away (dropIfEmpty), and what
+// accumulates in the meantime is bounded by protocol.MaxWorldKeysPerRoom —
+// a cap, not a leak.
 func (r *Room) freeLeaseLocked(key, reason string, to []string) []outgoing {
 	l := r.leases[key]
 	if l == nil {
@@ -1005,6 +1054,35 @@ func (r *Room) resumeSnapshot(to string) {
 	outs := r.stateSnapshotLocked(to)
 	outs = append(outs, r.leaseSnapshotLocked(to)...)
 	outs = append(outs, r.escrowSnapshotLocked(to)...)
+	// A resuming client that is NOT the host has missed every lossy world write
+	// sent while it was away, and nothing else will ever resend them — a lossy
+	// write is superseded by the next one, not retried.
+	outs = append(outs, r.worldSnapshotAllLocked(to)...)
+	r.mu.Unlock()
+	r.deliver(outs)
+}
+
+// joinSnapshot is what a newly-joined client is seeded with: every other
+// member's last known state, and the room's whole world.
+//
+// **It takes sendMu, which the seed it replaced did not.** The old inline block
+// in handleConn locked mu, built the state snapshot, unlocked and delivered,
+// with no serialization against a concurrent broadcast. State got away with
+// that because a stale seed self-corrects within 50ms — the next sample from
+// that player overwrites it. A WORLD seed does not: delivered after a
+// concurrently-broadcast newer write, it leaves the joiner permanently stale
+// with nothing to correct it. Factored into the same shape as resumeSnapshot,
+// which already took sendMu for the same reason.
+//
+// The converse ordering is already safe: a broadcast that wins the race
+// finishes first, so a snapshot built afterwards is newer by construction.
+func (r *Room) joinSnapshot(to string) {
+	r.sendMu.Lock()
+	defer r.sendMu.Unlock()
+
+	r.mu.Lock()
+	outs := r.stateSnapshotLocked(to)
+	outs = append(outs, r.worldSnapshotAllLocked(to)...)
 	r.mu.Unlock()
 	r.deliver(outs)
 }

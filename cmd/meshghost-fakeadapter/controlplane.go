@@ -71,9 +71,14 @@ type controlPlane struct {
 	// share one room counter, so a single client's view of all three must be
 	// strictly increasing even though it sees only a subset of the messages.
 	lastSeq uint64
-	// leaseHolder is who this client currently believes holds the shared key,
-	// and holdCount/held track its own successful claims for the summary.
-	leaseHolder string
+	// leaseHolder is who this client currently believes holds each key.
+	//
+	// **Per key, not one holder overall.** It was a single string while the rig
+	// only ever contended for one key; once the world plane added a second
+	// (its authority), grants for the two keys alternated and invariant 2
+	// reported "two holders of one key" about a relay behaving perfectly.
+	// Found 2026-08-17 the first time both planes ran together.
+	leaseHolder map[string]string
 	// peers is every other player_id this client has heard from, learned from
 	// event senders rather than the roster — the core deliberately does not
 	// expose a roster, and learning peers from traffic exercises the event
@@ -82,6 +87,12 @@ type controlPlane struct {
 	// openExchanges maps an exchange id to when it started, so invariant 3 can
 	// notice one that never finished.
 	openExchanges map[string]time.Time
+
+	// world is the world-custody checker, or nil when that plane is off. Its
+	// own type in world.go rather than more fields here: it has five
+	// invariants of its own and shares nothing with the three above beyond
+	// the sequencer stamp, which checkSeq already covers for every plane.
+	world *worldChecker
 
 	eventsSeen  atomic.Uint64
 	claimsWon   atomic.Uint64
@@ -99,6 +110,7 @@ func newControlPlane(index int) *controlPlane {
 	return &controlPlane{
 		index:         index,
 		peers:         make(map[string]bool),
+		leaseHolder:   make(map[string]string),
 		openExchanges: make(map[string]time.Time),
 	}
 }
@@ -112,6 +124,10 @@ func (cp *controlPlane) attach(c *core.Core) {
 	c.OnEvent = cp.onEvent
 	c.OnLeaseState = cp.onLeaseState
 	c.OnEscrowState = cp.onEscrowState
+	if cp.world != nil {
+		cp.world.self = cp.selfID
+		c.OnWorldState = cp.world.onWorldState
+	}
 }
 
 // checkSeq is invariant 1. Caller must not hold cp.mu.
@@ -147,6 +163,11 @@ func (cp *controlPlane) onEvent(ev protocol.Event) {
 
 func (cp *controlPlane) onLeaseState(st protocol.LeaseState) {
 	cp.checkSeq("lease_state", st.Seq)
+	if cp.world != nil {
+		// The world authority is a different key from the contended one below,
+		// and its grants are what invariants 5, 6 and 8 are judged against.
+		cp.world.onLeaseState(st)
+	}
 
 	cp.mu.Lock()
 	defer cp.mu.Unlock()
@@ -156,17 +177,17 @@ func (cp *controlPlane) onLeaseState(st protocol.LeaseState) {
 		// believes a different holder has it means the key was handed out
 		// twice — unless the previous holder released it, which arrives as its
 		// own message and clears leaseHolder first.
-		if cp.leaseHolder != "" && cp.leaseHolder != st.Holder {
+		if held := cp.leaseHolder[st.Key]; held != "" && held != st.Holder {
 			reportViolation("client %d saw key %q granted to %s while %s still held it "+
 				"-- two holders of one key",
-				cp.index, st.Key, st.Holder, cp.leaseHolder)
+				cp.index, st.Key, st.Holder, held)
 		}
-		cp.leaseHolder = st.Holder
+		cp.leaseHolder[st.Key] = st.Holder
 		if st.Holder == cp.selfID {
 			cp.claimsWon.Add(1)
 		}
 	case protocol.LeaseReleased, protocol.LeaseExpired, protocol.LeaseHolderLeft:
-		cp.leaseHolder = ""
+		delete(cp.leaseHolder, st.Key)
 	case protocol.LeaseDenied, protocol.LeaseTooMany:
 		// A denial is addressed to the asker alone and says nothing about the
 		// room beyond who currently holds the key, so it must NOT be treated
@@ -320,7 +341,7 @@ func (cp *controlPlane) run(stop <-chan struct{}, wg *sync.WaitGroup, cfg contro
 					return
 				}
 				cp.mu.Lock()
-				mine := cp.leaseHolder == cp.selfID
+				mine := cp.leaseHolder[cfg.leaseKey] == cp.selfID
 				cp.mu.Unlock()
 				if mine {
 					_ = cp.core.ReleaseLease(cfg.leaseKey)
@@ -349,6 +370,7 @@ type controlPlaneConfig struct {
 	eventEvery  time.Duration
 	leaseEvery  time.Duration
 	leaseKey    string
+	world       worldConfig
 	leaseHold   time.Duration
 	tradeEvery  time.Duration
 	statsEvery  time.Duration
@@ -406,6 +428,29 @@ func summarize(planes []*controlPlane, elapsed time.Duration) {
 	log.Printf("meshghost-fakeadapter: control-plane summary after %s: "+
 		"%d events received, %d claims won / %d denied, %d exchanges committed / %d aborted",
 		elapsed.Truncate(time.Second), events, won, lost, done, gone)
+	var writes, adoptions uint64
+	worldOn := false
+	for _, cp := range planes {
+		if cp.world == nil {
+			continue
+		}
+		worldOn = true
+		cp.world.mu.Lock()
+		writes += cp.world.writes
+		adoptions += cp.world.adopted
+		cp.world.mu.Unlock()
+	}
+	if worldOn {
+		// Printed for the same reason the counts above are: a run with zero
+		// adoptions exercised custody's happy path and none of its point, and
+		// that is indistinguishable from a real pass without saying so.
+		log.Printf("meshghost-fakeadapter: world summary: %d entity writes sent, %d world(s) adopted "+
+			"across handovers", writes, adoptions)
+		if adoptions == 0 {
+			log.Printf("meshghost-fakeadapter: warning: no handover ever happened -- pass -migrate-every " +
+				"to make a holder give the authority up, or this tested custody without testing migration")
+		}
+	}
 	if v := violations.Load(); v > 0 {
 		log.Printf("meshghost-fakeadapter: %d INVARIANT VIOLATION(S) -- see the lines above", v)
 		return

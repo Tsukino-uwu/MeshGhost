@@ -35,6 +35,22 @@
 
 ## Known risks
 
+- **A maximal `event`, and a committed `escrow_state`, are silently undeliverable to any udp peer
+  — pre-existing, found 2026-08-17 while sizing the world plane, and NOT fixed.** Measured:
+  a maximal `Event` (payload 1024 + `to` 128 + `corr_id` 64 + scaffolding) renders to **1321
+  bytes**, and a committed `EscrowState` carrying two 1024-byte blobs to **2294**, against
+  `udpconn.MaxDatagramBytes` (1200) minus 18 bytes of framing = **1182 usable**. Both fail
+  `udpconn.checkWritable` — *including on the reliable plane* — and the refusal surfaces only as a
+  `relay: send to pX failed:` line, so the message is lost for that recipient and never superseded.
+  `MaxEventBytes`' own doc comment claims it was sized to keep an event "comfortably under"
+  the datagram limit; it was sized against the payload alone, not the envelope. Reachable only by a
+  client that actually uses the full ceiling, which nothing does yet — no adapter uses these planes
+  at all — which is why this is recorded rather than hot-fixed: **shrinking those constants is a
+  contract change with its own trade-offs and should be its own decision**, weighed against the
+  alternative of making the bound transport-dependent (`beyond-cosmetic.md` §9 lays out that
+  choice). The assertion test written for the world plane
+  (`internal/netx/udpconn/world_bounds_test.go`) is the shape to retrofit onto events and escrow
+  when it is taken; `MaxWorldBlobBytes` was derived this way from the start and does fit.
 - Changing the adapter contract after Phase 5 may create compatibility issues across
   already-built adapters.
 - The TEVI and Pseudoregalia targets may require substantially different adapter behavior

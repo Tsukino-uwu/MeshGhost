@@ -191,9 +191,32 @@ var ErrFeatureNotEnabled = fmt.Errorf("core: this room did not negotiate that ca
 var ErrNotConnected = fmt.Errorf("core: not connected to a relay")
 
 // sendControl marshals and sends one non-state message on the RELIABLE plane.
-// Reliable, always: everything here carries a decision, and unlike a position
+// Reliable is the default and is what every plane but one uses: a lease grant,
+// an escrow step and an event all carry a decision, and unlike a position
 // sample a lost one is never superseded by the next.
+//
+// The one exception is a lossy world write, which goes through
+// sendControlUnreliable below. That is a delivery choice the ADAPTER makes per
+// write, not a property of the plane — see protocol.World.Reliable.
 func (c *Core) sendControl(t protocol.MessageType, feature string, payload any) error {
+	return c.sendControlOn(t, feature, payload, false)
+}
+
+// sendControlUnreliable is sendControl for a message the caller has declared
+// superseded by its own next update. Named distinctly rather than added as a
+// bool on sendControl, the same reasoning transport.SendUnreliable and
+// Room.ForwardUnreliable already follow: reliability is opt-OUT, so a call site
+// that never learns this exists stays correct.
+//
+// **Losing reliability does not lose ordering.** The relay stamps and delivers
+// every world write under one lock regardless of which of these sent it, so a
+// message that arrives is never out of order with respect to another that
+// arrived; it can only be missing. On tcp there is no difference at all.
+func (c *Core) sendControlUnreliable(t protocol.MessageType, feature string, payload any) error {
+	return c.sendControlOn(t, feature, payload, true)
+}
+
+func (c *Core) sendControlOn(t protocol.MessageType, feature string, payload any, unreliable bool) error {
 	c.mu.Lock()
 	relay := c.relay
 	enabled := protocol.HasFeature(c.activeFeatures, feature)
@@ -211,6 +234,9 @@ func (c *Core) sendControl(t protocol.MessageType, feature string, payload any) 
 	env, err := json.Marshal(protocol.Envelope{Type: t, Payload: b})
 	if err != nil {
 		return err
+	}
+	if unreliable {
+		return relay.SendUnreliable(env)
 	}
 	return relay.Send(env)
 }
@@ -284,6 +310,50 @@ func (c *Core) SendEscrow(req protocol.Escrow) error {
 	return c.sendControl(protocol.TypeEscrow, protocol.FeatureEscrowV1, req)
 }
 
+// SetWorld writes one entity's opaque state into the world the relay holds
+// custody of, under an authority lease this Core must already hold. Like every
+// other send here it returns when the request went out, never when it was
+// accepted — a refusal arrives asynchronously as a WorldState carrying
+// protocol.WorldDenied.
+//
+// reliable selects the delivery variant: false for continuous motion that the
+// next write supersedes, true for a change that must not be missed. **A write
+// that CREATES a key must be reliable** — a lossy one on a key the relay does
+// not yet hold is ignored, because the lossy and reliable planes cannot be
+// ordered against each other and a create that raced a drop would resurrect an
+// entity permanently. See protocol.WorldSet.
+//
+// **This Core keeps no world of its own.** It forwards writes up and states
+// down and holds nothing in between, exactly as it does for leases. A map of
+// entities in here would be the core holding game state, which is the one thing
+// the core/adapter split exists to prevent — and it would be wrong as well as
+// forbidden, since the relay's copy is the authoritative one.
+func (c *Core) SetWorld(authority, key string, blob json.RawMessage, reliable bool) error {
+	return c.sendWorld(protocol.World{
+		Op: protocol.WorldSet, Authority: authority, Key: key, Blob: blob, Reliable: reliable,
+	})
+}
+
+// DropWorld removes one entity from the world. Always reliable: a drop is by
+// definition not superseded by anything, and a lost one leaves an entity
+// standing for everyone who missed it with no later message to correct them.
+func (c *Core) DropWorld(authority, key string) error {
+	return c.sendWorld(protocol.World{
+		Op: protocol.WorldDrop, Authority: authority, Key: key, Reliable: true,
+	})
+}
+
+func (c *Core) sendWorld(req protocol.World) error {
+	if !protocol.ValidateWorld(req) {
+		return fmt.Errorf("core: invalid world write (authority max %d bytes, key max %d, blob max %d)",
+			protocol.MaxLeaseKeyLen, protocol.MaxWorldKeyLen, protocol.MaxWorldBlobBytes)
+	}
+	if req.Reliable {
+		return c.sendControl(protocol.TypeWorld, protocol.FeatureWorldV1, req)
+	}
+	return c.sendControlUnreliable(protocol.TypeWorld, protocol.FeatureWorldV1, req)
+}
+
 // handleOnlineMessage dispatches the event/lease/escrow planes to whichever
 // consumers exist: the in-process callbacks, and the attached adapter over
 // the bridge. Both, not either — an in-process host may want to observe
@@ -324,6 +394,25 @@ func (c *Core) handleOnlineMessage(env protocol.Envelope) bool {
 			c.OnEscrowState(st)
 		}
 		c.pushToAdapter(bridge.TypeEscrowState, bridge.EscrowState{EscrowState: st})
+	case protocol.TypeWorldState:
+		var st protocol.WorldState
+		if err := json.Unmarshal(env.Payload, &st); err != nil {
+			return true
+		}
+		if !protocol.ValidateWorldState(st) {
+			// Mirrors the relay's own check, the hostile-relay posture the
+			// event and state planes already take on this side.
+			return true
+		}
+		// **Deliberately NOT filtered against the roster**, unlike
+		// storeRemoteState. A world entry legitimately outlives the player who
+		// wrote it, and Holder may name someone who has already left — so a
+		// roster check here would silently discard exactly the adopted world
+		// custody exists to preserve. See protocol.WorldState.Holder.
+		if c.OnWorldState != nil {
+			c.OnWorldState(st)
+		}
+		c.pushToAdapter(bridge.TypeWorldState, bridge.WorldState{WorldState: st})
 	case protocol.TypePong:
 		var pong protocol.Pong
 		if err := json.Unmarshal(env.Payload, &pong); err != nil {

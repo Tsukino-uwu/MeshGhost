@@ -7,9 +7,9 @@ default there are no synced items, enemies, health or progression, and desync is
 fine. If a friend kills a boss, it stays alive in your world, and that's okay.
 
 That default is a choice rather than a ceiling. The protocol underneath also carries reliable,
-ordered, addressed events between specific players, exclusive locks over opaque keys, and
-both-or-neither exchanges — built and tested, off unless every member of a room opts in, and used
-by no shipped game today. They exist so a game's adapter *could* go further; none currently does,
+ordered, addressed events between specific players, exclusive locks over opaque keys,
+both-or-neither exchanges, and custody of a shared world the server holds but cannot read — built
+and tested, off unless every member of a room opts in, and used by no shipped game today. They exist so a game's adapter *could* go further; none currently does,
 and shipping one is a per-game decision nobody has taken.
 
 **So where is the ceiling, concretely?** There are two different ceilings, and they are worth not
@@ -25,6 +25,14 @@ that also means there is no anti-cheat here: a lying client still lies. And arbi
 round trip, because an adapter must ask before acting rather than announce afterwards, which is
 unnoticeable in a trade menu and unusable in a fight.
 
+**The server also answers "who is the host, and what happens when they leave?"** — which turns out
+to be three jobs, and it holds two of them. It *designates* the authority, handing an opaque key to
+one client and refusing the rest. And it holds *custody*: the latest opaque blob per entity, handed
+as one canonical set to whoever takes that key next, so a host quitting does not take the world
+with it and a player arriving late is shown the same world as everyone else. What it never does is
+*simulate* — running the AI and resolving damage stays on a client, because that is the one job
+that requires understanding the game.
+
 **What a single game's adapter could reach is much higher, and it is not a permission problem.** A
 mod can already spawn and drive real entities — that is exactly what a ghost is, a real player pawn
 clone posed by its own game's systems. Take that to its conclusion and you get actual co-op: mod
@@ -35,7 +43,8 @@ one of them is deciding. None of it involves touching a save — spawning and dr
 runtime state, the same as the ghost.
 
 The relay does not change for any of that. It keeps forwarding opaque blobs and understanding
-nothing. What the work actually costs is all inside the game:
+nothing — and since custody landed, it also keeps them, so "one client owning them" no longer means
+"and the world dies with that client". What the work actually costs is all inside the game:
 
 - **Switching off the game's own authority, comprehensively.** Every native spawn, trigger and AI
   tick for a peer-owned entity has to stop running locally, or both copies simulate and neither

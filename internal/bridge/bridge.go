@@ -60,6 +60,14 @@ const (
 	TypeLeaseState  MessageType = "lease_state"
 	TypeEscrow      MessageType = "escrow"
 	TypeEscrowState MessageType = "escrow_state"
+	// TypeWorld is an adapter -> core write against one entity the relay holds
+	// custody of; TypeWorldState is the core -> adapter report. Same
+	// request/fact split as lease above, and for the same reason: a write is
+	// this adapter's intent, a WorldState is what the room actually agreed on,
+	// and an adapter that conflated them would draw an entity its own write
+	// was denied.
+	TypeWorld      MessageType = "world"
+	TypeWorldState MessageType = "world_state"
 )
 
 // Envelope is the outer shape of every bridge message, one per NDJSON
@@ -145,6 +153,26 @@ type Escrow struct {
 // other one can still end in an abort.
 type EscrowState struct {
 	protocol.EscrowState
+}
+
+// World is an adapter -> core write against one entity, under an authority
+// lease this adapter must already hold. Accepted only from that lease's
+// holder, so an adapter that has not claimed (or has just lost) the authority
+// gets a WorldState carrying protocol.WorldDenied rather than silence.
+type World struct {
+	protocol.World
+}
+
+// WorldState is the core -> adapter report: a live write from the current
+// host, the whole world on adoption or join, or a refusal.
+//
+// **An adapter applies these in Seq order and ignores anything older than what
+// it already applied for a key.** The relay guarantees a total order, but the
+// reliable and lossy planes are independent on a datagram transport, so a lossy
+// write can still land ahead of the reliable snapshot meant to seed it. The
+// stamp is what makes that recoverable rather than silently wrong.
+type WorldState struct {
+	protocol.WorldState
 }
 
 // BridgeReady is sent core -> adapter as the answer to an accepted Hello:

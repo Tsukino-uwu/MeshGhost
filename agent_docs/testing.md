@@ -108,6 +108,12 @@ and its `contents: write` permission is the reason CI is deliberately `contents:
   then drives a real adapter over the bridge and asserts a ghost completes the round trip. This
   is the only thing covering `cmd/`'s flag parsing and config wiring, and it is the automated
   form of the loopback check that used to mean launching two `.bat` files and watching.
+- **`internal/relay/world_test.go`** — world custody, and the file worth reading before touching
+  that plane: four of its tests exist because the OBVIOUS implementation is wrong in four separate
+  ways, each producing silent permanent divergence (two clients looking at different worlds, no
+  error anywhere). They fail against that obvious version. `internal/netx/udpconn/world_bounds_test.go`
+  is the other half — the world plane's bounds are derived from udpconn's own constants, and the
+  assertion lives in the only package that can see them.
 - **`internal/relay/online_test.go`, `internal/core/online_test.go`** — the planes past cosmetic
   (events, sequencer, leases, escrow, snapshots, resumption, clock sync). **The concurrency tests
   there are the point of the file, not decoration**, and are the invariant harness

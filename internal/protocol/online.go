@@ -80,6 +80,24 @@ const (
 	// unexpectedly and reconnects with its resume token keeps its player_id,
 	// and the rest of the room is never told it left at all.
 	FeatureResumeV1 = "resume.v1"
+	// FeatureWorldV1 asks the relay to hold custody of a room's world: the
+	// latest opaque blob per entity, handed as a canonical set to whoever
+	// takes the authority lease next, and to anyone who joins.
+	//
+	// **Custody is not designation.** lease.v1 already answers "who is
+	// authoritative" and hands the key to the next claimant when a holder
+	// leaves. What it cannot do is say what that successor inherits: without
+	// custody a new host adopts from its OWN last-known view, every peer's
+	// view is slightly different and slightly stale, and so *which* peer takes
+	// over changes what the world becomes. This closes that, and fixes late
+	// joins by the same mechanism.
+	//
+	// Requires FeatureLeaseV1 in the same room — every write names a lease key
+	// and is accepted only from that lease's holder. The two are deliberately
+	// NOT merged and neither implies the other in NormalizeFeatures: implying
+	// one from the other would change the sticky FeatureSetKey and silently
+	// stop matching rooms that already agreed on the old string.
+	FeatureWorldV1 = "world.v1"
 	// FeatureClockV1 is purely informational — clock sync is a pairwise
 	// client/relay measurement that needs no room agreement and no relay
 	// state, and a relay that has never heard of it still answers Pong. It
@@ -520,6 +538,228 @@ func ValidateEvent(e Event) bool {
 		return false
 	}
 	return len(e.Payload) <= MaxEventBytes
+}
+
+// ---------------------------------------------------------------------------
+// World custody
+// ---------------------------------------------------------------------------
+
+// Bounds for the world plane. Unlike every other limit in this file, these are
+// derived from udpconn.MaxDatagramBytes rather than from MaxLineBytes, and the
+// difference is not cosmetic: udpconn.checkWritable refuses any datagram over
+// 1200 bytes minus its framing, INCLUDING a reliable one, and the refusal
+// surfaces only as a "relay: send to pX failed:" log line. A message that does
+// not fit is therefore lost for that recipient and — being a custody message —
+// never superseded. See agent_docs/contract.md for the arithmetic, and §9 of
+// the same file for the pre-existing constants that do NOT satisfy this.
+const (
+	// MaxWorldKeyLen bounds one entity key. 64 matches MaxEscrowIDLen, the
+	// closest existing analogue: an opaque per-object id, not a payload.
+	MaxWorldKeyLen = 64
+
+	// MaxWorldBlobBytes bounds one entity's opaque state. Derived: 1182 usable
+	// datagram bytes, minus MaxLeaseKeyLen (128) for the authority, minus
+	// MaxWorldKeyLen (64), minus ~130 of JSON scaffolding, leaves ~860. 768
+	// takes that with ~90 bytes of slack rather than sitting on the edge.
+	MaxWorldBlobBytes = 768
+
+	// MaxWorldKeysPerRoom bounds how many entities one room's world may hold.
+	//
+	// **Derived, not chosen**, the same discipline as RateLimitHeadroomMultiple:
+	// udpconn's reorderWindow is 64, and a reliable burst wider than that
+	// window is not held by the receiver, is therefore not acked, retries at
+	// 250ms x maxRetries and can eventually close the connection. 64 is the
+	// pathological worst case of a snapshot that packs exactly one maximal
+	// entry per message. The relationship is asserted by a test in package
+	// udpconn, which is the only place that can see the unexported constant.
+	//
+	// ~58KB per room at the maximum, which is a CAP, not a leak: entries are
+	// bounded, and the only thing that discards them automatically is the room
+	// itself going away. See relay/world.go on why lifetime is deliberately not
+	// tied to the lease.
+	MaxWorldKeysPerRoom = 64
+
+	// MaxWorldMessageBytes is the batching budget for one WorldState carrying
+	// several entries. It is a THRESHOLD, not a hard bound: a batch stops
+	// growing once the next entry would cross it, but a single entry is always
+	// emitted even if it alone exceeds this (a maximal one renders to ~1115
+	// bytes, which still fits a datagram with its framing). The hard guarantee
+	// — one maximal entry plus framing under MaxDatagramBytes — is what the
+	// udpconn test asserts.
+	MaxWorldMessageBytes = 1100
+)
+
+// WorldOp is what a client is asking the relay to do with an entity key.
+type WorldOp string
+
+const (
+	// WorldSet stores (or replaces) the latest opaque blob for a key.
+	//
+	// **A set that CREATES a key must be sent reliably.** A lossy set on a key
+	// the relay does not currently hold is ignored, and that rule exists to
+	// close a reordering hole one hop earlier than the relay: the lossy and
+	// reliable planes are independent on a datagram transport, so a lossy set
+	// dispatched before a reliable drop can arrive after it, resurrecting an
+	// entity permanently — the relay's map has it deleted, so no snapshot ever
+	// contradicts the resurrection and a late joiner sees a different world
+	// from an existing member. Requiring the creating write to be reliable
+	// makes creation and deletion travel the same ordered plane, so they can
+	// never overtake each other. It costs nothing real: a spawn is a discrete
+	// transition, which is already what Reliable is for.
+	WorldSet WorldOp = "set"
+	// WorldDrop removes a key. Always broadcast; the relay forgets the blob.
+	WorldDrop WorldOp = "drop"
+)
+
+// World is one write against one entity (client → relay).
+type World struct {
+	Op WorldOp `json:"op"`
+	// Authority names the lease key this write is made under. The relay
+	// accepts it only from that lease's current holder — a pure string
+	// comparison, teaching the relay nothing about the game, and the thing
+	// that prevents the specific failure custody exists to survive: a
+	// departing host's in-flight packets overwriting the new host's world
+	// after handover.
+	//
+	// Bounded by MaxLeaseKeyLen rather than a constant of its own, because it
+	// must be able to name any lease key and a second bound would drift.
+	Authority string `json:"authority"`
+	// Key identifies the entity, opaque and compared only by equality.
+	Key string `json:"key"`
+	// Blob is the entity's opaque state, on a set. The relay stores the bytes
+	// and never looks inside, exactly like an escrow deposit.
+	Blob json.RawMessage `json:"blob,omitempty"`
+	// Reliable selects the DELIVERY VARIANT of this write and nothing else.
+	//
+	// False for continuous motion, which the next update supersedes; true for
+	// a change that must not be missed (an enemy dying, a door opening, and
+	// every write that creates a key — see WorldSet). The relay stores the
+	// latest either way, so a snapshot is always complete regardless.
+	//
+	// **It never selects the serialization.** Every world write is stamped and
+	// delivered under the relay's sendMu, lossy ones included, so a lossy write
+	// may be LOST but is never REORDERED against another write. Skipping that
+	// would let a stale set land after a newer one with nothing to correct it,
+	// since snapshots only go to joiners and a key may never be written again.
+	// The reasoning is in the ADR in agent_docs/architecture.md.
+	Reliable bool `json:"reliable,omitempty"`
+}
+
+// WorldEntry is one entity's state inside a WorldState. A message carries a
+// LIST so one type serves both a single live write and a batched snapshot.
+//
+// That is batching, not fragmentation: no entry is ever split, every message is
+// independently complete and applicable, and there is no reassembly or chunk
+// index anywhere. EscrowState.Blobs already carries a map of opaque blobs in
+// one message, so the precedent is established.
+type WorldEntry struct {
+	Key string `json:"key"`
+	// Blob is absent for a drop.
+	Blob json.RawMessage `json:"blob,omitempty"`
+	// Dropped marks this key as removed rather than updated.
+	Dropped bool `json:"dropped,omitempty"`
+}
+
+// WorldState is the relay's report about one authority's world (relay →
+// client): a live write, a handover or join snapshot, or a refusal.
+type WorldState struct {
+	Authority string `json:"authority"`
+	// Holder is the lease holder the relay considers authoritative for this
+	// authority right now, or empty for none.
+	//
+	// **Never filter a WorldState against your roster.** internal/core drops
+	// State for an id it was never told about, and applying the same instinct
+	// here would be silently wrong: a world entry legitimately outlives the
+	// player who wrote it, and Holder may name someone who has already left
+	// by the time a snapshot is read. A "helpful" roster check would discard
+	// exactly the adopted world that custody exists to preserve.
+	Holder string `json:"holder,omitempty"`
+	// Seq is this room's monotonic sequencer stamp, the same total order as
+	// Event and LeaseState.
+	//
+	// **A receiver must use it.** The relay guarantees a total order, and it
+	// delivers every world message under one lock so that order is real — but
+	// the reliable and lossy planes are independent on a datagram transport,
+	// so two messages to ONE peer can still land out of order between them. An
+	// adapter therefore ignores a WorldState older than what it has already
+	// applied for a key. Without that, a lossy write can overtake the reliable
+	// snapshot that was meant to seed it and then be reverted by it.
+	Seq uint64 `json:"seq"`
+	// Entries is what changed, or the whole world for a snapshot.
+	Entries []WorldEntry `json:"entries,omitempty"`
+	// Reason is one of the World* constants below.
+	Reason string `json:"reason,omitempty"`
+}
+
+// WorldState reasons. Plain text on the wire, like every other Reason here.
+const (
+	// WorldWritten is a live write being broadcast to the rest of the room.
+	WorldWritten = "written"
+	// WorldSnapshot is the whole world for one authority, sent to a client
+	// that just took the lease or just joined.
+	WorldSnapshot = "snapshot"
+	// WorldDenied is a write from someone who does not hold the named
+	// authority lease. Sent only to the writer.
+	//
+	// Explicit rather than silent, and it leaks nothing: lease holdership is
+	// already broadcast to the whole room, the amplification is 1:1, and the
+	// sender is inbound-flood-capped. Silence here would leave a stale host
+	// believing its writes are landing.
+	WorldDenied = "denied"
+	// WorldTooMany is a write refused because the room already holds
+	// MaxWorldKeysPerRoom entities. Sent only to the writer — silence would
+	// leave a host believing it spawned an entity nobody has.
+	WorldTooMany = "too many world keys in room"
+)
+
+// ValidateWorld reports whether a world write is within bounds and names a
+// real op. Checked at the relay on receive and at the core before send, the
+// same two-enforcement-point discipline as ValidateState.
+//
+// ValidOpaqueString applies to BOTH Authority and Key, and its UTF-8 half is
+// load-bearing for the first of those specifically: a non-UTF-8 string
+// round-trips through JSON as a *different* string, so an invalid authority
+// would compare unequal to the lease key it names at the relay while the
+// client's own validation passed — every write silently denied, with nothing
+// anywhere reporting why.
+func ValidateWorld(w World) bool {
+	switch w.Op {
+	case WorldSet, WorldDrop:
+	default:
+		return false
+	}
+	if w.Authority == "" || !ValidOpaqueString(w.Authority, MaxLeaseKeyLen) {
+		return false
+	}
+	if w.Key == "" || !ValidOpaqueString(w.Key, MaxWorldKeyLen) {
+		return false
+	}
+	return len(w.Blob) <= MaxWorldBlobBytes
+}
+
+// ValidateWorldState reports whether a relay's world report is within bounds.
+// Checked by internal/core on receive: a hostile or compromised relay is not
+// trusted to have enforced its own limits, the same posture ValidateState and
+// ValidateEvent already take on that side.
+func ValidateWorldState(st WorldState) bool {
+	if !ValidOpaqueString(st.Authority, MaxLeaseKeyLen) {
+		return false
+	}
+	if !ValidOpaqueString(st.Holder, MaxHelloFieldLenForID) {
+		return false
+	}
+	if len(st.Entries) > MaxWorldKeysPerRoom {
+		return false
+	}
+	for _, e := range st.Entries {
+		if e.Key == "" || !ValidOpaqueString(e.Key, MaxWorldKeyLen) {
+			return false
+		}
+		if len(e.Blob) > MaxWorldBlobBytes {
+			return false
+		}
+	}
+	return true
 }
 
 // DefaultResumeGrace is how long the relay holds a dropped client's identity

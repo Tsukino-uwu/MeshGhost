@@ -139,16 +139,18 @@ downloaded release folder and run against its `meshghost-server.exe` instead.
   `meshghost-fakeadapter.exe` knows nothing about any game: the per-game specifics live in
   these launchers and in `loadtest-extras-pseudoregalia.json`, passed via `-extras`.
 - `run-controlplane-soak.bat` — **the invariant soak for the planes past cosmetic** (events,
-  leases, escrow). Starts its own relay plus 6 synthetic peers that contend for one key, broadcast
-  events, and run two-sided exchanges for 60s, while every peer continuously checks that sequencer
-  stamps strictly increase, that a key is never held by two clients at once, and that every
-  exchange terminates without an abort delivering a deposit. Exits non-zero if any of that fails,
+  leases, escrow, world custody). Starts its own relay plus 6 synthetic peers that contend for one
+  key, broadcast events, run two-sided exchanges, and drive a shared world through repeated host
+  handovers for 60s, while every peer continuously checks that sequencer stamps strictly increase,
+  that a key is never held by two clients at once, that every exchange terminates without an abort
+  delivering a deposit, and that the world never goes backwards, loses an entity across a handover,
+  resurrects a dropped one, or accepts a stale host's write. Exits non-zero if any of that fails,
   so it can go in a script rather than needing someone to watch. Point its `-relay` at
   `run-netsim.bat` to soak the same thing under loss and jitter, and run the relay with
   `-introspect` to see what it believed while it ran.
 
-  **Read the summary even on a pass** — a run with 0 claims denied or 0 exchanges committed is a
-  green result that exercised nothing. And know its measured limit: against a deliberately broken
+  **Read the summary even on a pass** — a run with 0 claims denied, 0 exchanges committed, or 0
+  worlds adopted is a green result that exercised nothing. And know its measured limit: against a deliberately broken
   relay it saw 51,000 events without noticing, where the in-process total-order test caught the
   same defect immediately. It complements `internal/relay`'s tests; it does not replace them. See
   `agent_docs/testing.md`.
