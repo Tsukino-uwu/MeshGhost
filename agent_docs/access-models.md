@@ -321,6 +321,86 @@ If a game has no decompile and no symbols, expect this shape, based on Pseudoreg
   reflection dumps and the log-design discipline are all game-agnostic and would apply to the next
   Unreal title on day one — see [effect-investigation.md](effect-investigation.md).
 
+## Emulated platforms — a category of their own, and the halves swap over
+
+**Scoped 2026-08-17 in conversation. Nothing here is built or scheduled, and every API named
+below needs confirming against its project's own documentation before anyone relies on it** — per
+`CLAUDE.md`, an API from memory is not a fact.
+
+Emulators do not fit the tier table above cleanly, because they split the problem in two and the
+two halves have different answers.
+
+**Reading is tractable on all of them, and that is a property of emulation itself.** The guest
+machine's RAM is a contiguous buffer inside the host process — 32 MB for PS2, 24 MB MEM1 (+64 MB
+MEM2 on Wii), 288 KB for GBA. No ASLR chase inside it, no GC moving objects, no packers. Compared
+with scanning a native modern game this is the easy case.
+
+**But what the bytes MEAN is still the ordinary tier question**, decided by the specific game's
+reverse-engineering scene, not by the emulator. Emerald is tier 2 (looked up in `pokeemerald`,
+every address cited). A well-studied GameCube title with a decomp could be equally cheap. An
+obscure one is tier 8 and a differential hunt.
+
+### The inversion worth knowing before picking one
+
+**BizHawk solves both halves. The others solve only reading.**
+
+| Emulator | Platform | Reading | Drawing | Licence note |
+|---|---|---|---|---|
+| **BizHawk** | GBA etc. | Lua memory API | **`gui.*` primitives** | Why Emerald exists at all |
+| **PCSX2** | PS2 | **PINE** IPC — sanctioned external read/write (verify) | no equivalent API | GPL — a distributed fork carries obligations |
+| **Dolphin** | GC / Wii | proven by **Dolphin Memory Engine** (separate open-source tool) | no mainline equivalent (verify) | GPL |
+| **Cemu** | **Wii U**, not Switch | route unknown (verify) | unknown | open-sourced 2022, MPL (verify) |
+
+So for anything but BizHawk, **the adapter's hard problem is rendering, not finding data** — the
+opposite of every adapter this project has written. Options are hooking the emulator's renderer
+(PCSX2 and Dolphin draw their own ImGui overlays, so there is something to hook), an external
+transparent overlay window, or a fork. All three are real work, and the fork option collides with
+GPL in a way the MIT/permissive tools we bundle today do not. `licensing.md`'s rule applies first:
+read the licence before the source.
+
+### Dolphin has a wrinkle none of the others do: netplay already exists
+
+Dolphin ships deterministic-lockstep netplay. That is the alternative `beyond-cosmetic.md` §7
+describes, and §7 notes it is plausible *specifically* for emulated games because they are
+deterministic where a modern engine is not. So for GC/Wii, "multiplayer" is not an open problem —
+and a MeshGhost adapter there would be a **different product**, not a better one:
+
+| | Dolphin netplay | MeshGhost |
+|---|---|---|
+| Worlds | one shared session, lockstep | independent copies |
+| Requires | everyone in the same game, in sync | nothing; desync is expected and fine |
+| Delivers | real co-op / versus | presence — where a friend is in *their own* run |
+
+Two people doing separate single-player runs who want to see each other is something netplay
+cannot do at all, because it is one session. That is the honest pitch, and it should be made in
+those words rather than as "GameCube multiplayer", which sounds solved and is.
+
+### Switch emulation fails this repo's own test, and not on difficulty
+
+Yuzu shut down in 2024 after legal action, and Ryujinx was taken down later the same year. Forks
+circulate; there is no maintained upstream in the sense BizHawk, Dolphin and PCSX2 have one.
+
+The blocker is `CLAUDE.md`'s standing test — **"is this fine sitting in a public repo forever?"**
+An adapter targeting an actively-litigated emulator with no upstream fails it twice: built against
+something that can vanish, and it ties a public repo to a dispute it has no part in. The RE-scene
+advantage also inverts — Switch titles are newer and less documented, so the per-game half lands
+nearer blind scanning, the expensive tier.
+
+### If an emulator adapter is ever picked up
+
+**Dolphin looks strongest**: openly developed, long-lived, external memory access already proven
+by a real tool, and genuinely deep per-game documentation for the titles anyone would want. PCSX2
+next. Cemu plausible once its API question is answered. Switch: no.
+
+Order of work, cheapest question first:
+
+1. **Licence check** on the emulator, before reading any of its source (`licensing.md`).
+2. **Confirm the memory API** exists and is supported — PINE, or whatever the equivalent is.
+3. **Answer the drawing question before anything else**, because it is the hard half here and the
+   one with no precedent in this repo. An adapter that can read perfectly and cannot draw is not
+   an adapter.
+4. Only then the per-game tier question: does this title have a decomp or documented addresses?
+
 ## See also
 
 - [`adapters/_template/README.md`](../adapters/_template/README.md) — what to build, and the
