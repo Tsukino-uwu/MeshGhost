@@ -68,7 +68,7 @@ local NUM_MAP_OBJECTS = 16
 
 local M_OBJECT_STRUCT_ID, M_SPRITE, M_Y_COORD, M_X_COORD = 0x00, 0x01, 0x02, 0x03
 local F_SPRITE, F_MAP_OBJECT_INDEX = 0x00, 0x01
-local F_FLAGS1 = 0x04
+local F_FLAGS1, F_STEP_FRAME = 0x04, 0x0C
 local F_MAP_X, F_MAP_Y = 0x10, 0x11
 local F_LAST_MAP_X, F_LAST_MAP_Y = 0x12, 0x13
 local F_INIT_X, F_INIT_Y = 0x14, 0x15
@@ -270,12 +270,26 @@ local function tick()
 		return
 	end
 
+	-- OWNERSHIP TEST, third attempt at choosing one, and the first that can actually distinguish.
+	--
+	-- The two previous choices were both wrong in the same way. OBJECT_SPRITE_X/Y are SCREEN
+	-- coordinates, and ApplyBGMapAnchorToObjects only ADDS A DELTA to them -- which is zero in a
+	-- room whose camera does not move. The template NPC's changed because the NPC WALKS, not
+	-- because it is owned. A stationary object's screen coordinates stay put whether the engine
+	-- owns it or not, so that comparison never distinguished anything.
+	--
+	-- What does distinguish: the template NPC wanders (MOVEMENT_TYPE 3, RADIUS 17). If the engine
+	-- owns our copy, it will wander too -- so its MAP coordinates will change ON THEIR OWN, and its
+	-- STEP_FRAME will advance as it animates. Neither can happen to an object nobody is driving.
 	local gone = u8(W_MAPGROUP) ~= mine.group or u8(W_MAPNUMBER) ~= mine.number
 		or (u8(our_st_base + F_SPRITE) or 0) == 0
-	local ox, oy = u8(our_st_base + F_SPRITE_X), u8(our_st_base + F_SPRITE_Y)
-	local nx, ny = u8(src_st_base + F_SPRITE_X), u8(src_st_base + F_SPRITE_Y)
-	local key = string.format("%s|%s|%s|%s|%s", tostring(gone), tostring(ox), tostring(oy),
-		tostring(nx), tostring(ny))
+	local omx, omy = u8(our_st_base + F_MAP_X), u8(our_st_base + F_MAP_Y)
+	local ostep = u8(our_st_base + F_STEP_FRAME)
+	local nmx, nmy = u8(src_st_base + F_MAP_X), u8(src_st_base + F_MAP_Y)
+	local nstep = u8(src_st_base + F_STEP_FRAME)
+	local key = string.format("%s|%s,%s,%s|%s,%s,%s", tostring(gone),
+		tostring(omx), tostring(omy), tostring(ostep),
+		tostring(nmx), tostring(nmy), tostring(nstep))
 	if key == last_key then
 		return
 	end
@@ -285,9 +299,14 @@ local function tick()
 		log(string.format("  f=%-6d ours GONE (culled, map change, or slot reused).", frames))
 		return
 	end
+	if mine.mx == nil then
+		mine.mx, mine.my = omx, omy
+	end
+	local moved = (omx ~= mine.mx or omy ~= mine.my) and "  <<< OURS MOVED ON ITS OWN" or ""
 	log(string.format(
-		"  f=%-6d ours: sprite_x=%-3s sprite_y=%-3s   |   template NPC: sprite_x=%-3s sprite_y=%-3s",
-		frames, tostring(ox), tostring(oy), tostring(nx), tostring(ny)
+		"  f=%-6d ours: map=%s,%s step=%-3s   |   template NPC: map=%s,%s step=%-3s%s",
+		frames, tostring(omx), tostring(omy), tostring(ostep),
+		tostring(nmx), tostring(nmy), tostring(nstep), moved
 	))
 end
 
