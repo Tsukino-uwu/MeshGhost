@@ -27,8 +27,8 @@ that a peer's state genuinely differs from the local player's, which loopback co
   never verifiable in loopback — `verified.md` (recall glow entry).
 - **Ghost collision: keeping it ON, still WIP.** Enemies can no longer hit the ghost (confirmed
   2026-08-17); the player still can. `risks.md`, `verified.md`.
-- **Killing a ghost strands the player at 0 health with no health bar** — player melee only.
-  Suspect the health/HUD element is shared between player and ghost. `verified.md` 2026-08-17.
+- **Killing a ghost leaves the player respawning at 0/empty health** — player melee only; the HUD
+  is fine, the value isn't. Suspect shared health state. `verified.md` 2026-08-17.
 - **Ghost vanishes while a peer is on a pole**, then returns stuck in a climb pose. Cause unknown,
   two suspects ruled out; `phase7.md`. (Pole *rotation* was the separate item, cleared 2026-08-16.)
 - **A thrown sword near a save crystal.** Suspected a loopback-offset artifact rather than a real

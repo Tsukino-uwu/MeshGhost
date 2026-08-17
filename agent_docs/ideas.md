@@ -626,14 +626,17 @@ protocol above is actually run and watched.
    (still unidentified per `GHOST_COLLISION_ENABLED`'s own comment).
 
    **New lead, 2026-08-17 — it may not be a trace problem at all.** The user reports that killing a
-   ghost leaves the real player stuck at 0 health with the health bar gone from the HUD, and
-   suspects the health element is shared or tied between player and ghost. If that is right, it
+   ghost leaves the real player respawning with 0/empty health, and suspects shared health state
+   between player and ghost. The HUD is explicitly *not* the problem — the bar renders fine, the
+   value behind it is 0 — so this is a health-state bug, not a UI one. If that is right, it
    reframes everything above: `bCanBeDamaged = false` landing and doing nothing is exactly what you
    would expect when the damage never travelled through the ghost's damage path to begin with,
-   because both characters resolve to the same health state (or the HUD binds to whichever
-   character it finds rather than the possessed one). That would make "find the bespoke melee
-   trace" the wrong search. **The cheap discriminating test: read the ghost's and the player's
-   health property identity — same object/address or two — before swinging at anything.** Note
+   because both characters resolve to the same health state. That would make "find the bespoke
+   melee trace" the wrong search. It also explains the respawn half: respawn restores health on
+   something that isn't what the bar reads, or the shared value is never reset — both of which are
+   what one health state driven to 0 by the ghost's death would look like. **The cheap
+   discriminating test: read the ghost's and the player's health property identity — same
+   object/address or two — before swinging at anything.** Note
    `HEALTH_TRACE` (`Plugin.cpp:668`) was flipped off precisely because it never resolved a health
    property on this build, so finding where health actually lives is step zero. See `verified.md`
    2026-08-17 and `status.md`.

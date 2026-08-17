@@ -5331,19 +5331,23 @@ in `CLAUDE.md` is filename-only. Append-only means they stay; new entries should
      confirmed open on 2026-08-15 (an enemy hitting a ghost could hurt and kill the real player).
      The fix that achieved it is re-typing the ghost's capsule as `WorldDynamic` so enemy
      targeting, which queries the Pawn object type, stops seeing it.
-  2. **The real player can still hit the ghost, and killing it leaves the player stuck at 0 health
-     with the health bar element gone from the HUD** — not returned to a normal alive state. Still
-     WIP; deliberate player-on-ghost melee remains an accepted footgun for now.
+  2. **The real player can still hit the ghost, and killing it leaves the player respawning with 0
+     / empty health.** The HUD itself is fine — the health bar is present and rendering normally,
+     it is the health *value* that is 0 and stays 0 through the respawn. So this is a health-state
+     problem, not a UI teardown problem. Still WIP; deliberate player-on-ghost melee remains an
+     accepted footgun for now.
 - Source: user observation on screen. `GHOST_COLLISION_ENABLED` (`Plugin.cpp:535`);
   the enemy-targeting fix is `call_set_collision_object_type` (`Plugin.cpp:1963`, `ECC_WorldDynamic
   = 1`); the hurtbox gate is `bCanBeDamaged = false` (`Plugin.cpp:5645-5647`).
-- Notes: **The user's hypothesis is that the health element / HUD is tied or shared between the
-  player and the ghost.** It fits a standing puzzle: `bCanBeDamaged = false` is already shipped on
-  the ghost and was found not to stop damage reaching the real player (`Plugin.cpp:1954`). If the
-  ghost and the player resolve to the same health state, or the HUD binds to whichever character it
-  finds rather than specifically the possessed one, then a gate on the ghost's own `TakeDamage`
-  path is irrelevant by construction — the damage never needed to travel through the ghost's damage
-  path at all. That the surviving vector is *player* melee rather than enemy damage is consistent
-  with it: the player's own attack resolves against a character the HUD already considers its
-  subject. Not root-caused; this is the observation plus the lead. Ghost collision is being kept ON
-  deliberately for further testing rather than switched off.
+- Notes: **The user's hypothesis is that the health itself is tied or shared between the player and
+  the ghost.** It fits a standing puzzle: `bCanBeDamaged = false` is already shipped on the ghost
+  and was found not to stop damage reaching the real player (`Plugin.cpp:1954`). If the ghost and
+  the player resolve to the same health state, then a gate on the ghost's own `TakeDamage` path is
+  irrelevant by construction — the damage never needed to travel through the ghost's damage path at
+  all. The respawn detail sharpens it further: respawn evidently restores health on something that
+  is not what the bar reads, or the shared value is simply never reset, which is what a single
+  health state written to 0 by the ghost's death would look like. That the surviving vector is
+  *player* melee rather than enemy damage is consistent too — enemy targeting was successfully
+  routed around by re-typing the capsule, but the player's own attack resolves against the
+  character directly. Not root-caused; this is the observation plus the lead. Ghost collision is
+  being kept ON deliberately for further testing rather than switched off.
