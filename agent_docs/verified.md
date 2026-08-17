@@ -6201,3 +6201,44 @@ scheduled. All established by the agent with local tools; nothing here is a visu
   will ever pick up an object placed next to the player mid-map**, which is exactly what a ghost
   needs — so a general solution has to either invoke the path directly or complete the linkage by
   hand. That is the ADR's call-vs-imitate question, now with the cost of each side visible.
+
+### Crystal: the engine ADOPTED our map object — the create tier works properly (2026-08-18)
+
+- Date: 2026-08-18
+- Observed: `spawn_test3.lua` wrote a map object into a free slot at `wYCoord + 9`, left
+  `MAPOBJECT_OBJECT_STRUCT_ID` as `-1`, and waited. After the player eventually walked so that row
+  scrolled toward the screen edge:
+
+  ```
+  *** ADOPTED at +4789 frames: engine assigned object struct 1 ***
+  ```
+
+- Source: live run, `spawn_test3_20260818_003144.log` (committed).
+- Notes: **this is the decisive result for the 2026-08-17 spawn ADR.** The engine replaced a value
+  we did not write — `-1` became a real struct id — which is the game stating in its own terms that
+  it accepted our object and took ownership. **Our map object bytes are legitimate**, copied from
+  the player's, and the engine's own adoption path (`CheckObjectEnteringVisibleRange`) processed
+  them like any other object. The ADR's "use the engine's own path" branch is proven; imitation is
+  no longer the fallback it looked like after the first two tests.
+- **Two side effects, both observed on screen by the user, and both consequences of joining a
+  shared pool rather than data damage.** The before/after dump shows exactly what happened:
+
+  | Map object | Before | After |
+  | --- | --- | --- |
+  | 1 (ours) | — | `sprite=1 structId=1 at 6,13` |
+  | 2 (an NPC) | `structId=1 at 6,13` | `structId=2 at 6,13` |
+  | 3 (an NPC) | `structId=3 at 10,7` | **`structId=255`** at 10,7 |
+
+  1. **An NPC went invisible**: map object 3 was *pushed out of the object-struct pool* and
+     reverted to unadopted. **This is the slot-exhaustion failure mode the ADR listed as an
+     accepted consequence — but it appeared with only ~6 objects on the map, not near the 13-struct
+     limit**, so the effective budget is smaller than the raw count and the reason is not yet
+     established. **Do not assume 12 ghosts are available.**
+  2. **The ghost spawned on top of an NPC**: `wYCoord + 9` happened to be the exact tile map object
+     2 occupies. **The free-slot check tested whether the SLOT was free and never whether the TILE
+     was** — different questions, and only the first was asked.
+- **Recovery is a map reload**; objects rebuild from ROM on map load. No save was written.
+- **Supersedes the framing in commit `2c0dd31`**, which called this borrow-tier damage to the
+  game's objects. That was written before the adoption line appeared in the log and before the user
+  clarified that the ghost had spawned *over* an NPC rather than replacing one. The game's data was
+  not corrupted; a struct was reallocated and a sprite was drawn over another.

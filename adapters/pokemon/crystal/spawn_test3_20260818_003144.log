@@ -20,3 +20,19 @@ and only while a step is in progress. Beside the player it would never be seen.
   +2400 frames: still unadopted. player now at 5,3, ghost row is 13.
   +2700 frames: still unadopted. player now at 5,3, ghost row is 13.
   +3000 frames: still unadopted. player now at 5,3, ghost row is 13.
+  +3300 frames: still unadopted. player now at 5,3, ghost row is 13.
+  +3600 frames: still unadopted. player now at 5,3, ghost row is 13.
+  +3900 frames: still unadopted. player now at 5,3, ghost row is 13.
+  +4200 frames: still unadopted. player now at 5,3, ghost row is 13.
+  +4500 frames: still unadopted. player now at 5,3, ghost row is 13.
+*** ADOPTED at +4789 frames: engine assigned object struct 1 ***
+The game changed a value we did not write. Our map object is legitimate.
+Map objects after adoption:
+   0: sprite=  1 structId=  0 at 8,15
+   1: sprite=  1 structId=  1 at 6,13
+   2: sprite= 60 structId=  2 at 6,13
+   3: sprite= 84 structId=255 at 10,7
+   4: sprite= 84 structId=  4 at 11,7
+   5: sprite= 84 structId=  5 at 12,7
+   6: sprite= 67 structId=255 at 9,7
+LOOK AT THE SCREEN: a character should be there, and it should behave like an NPC.
