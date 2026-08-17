@@ -6485,3 +6485,49 @@ scheduled. All established by the agent with local tools; nothing here is a visu
   previous run and not followed through when a second script was added.
 - **Practical guard added**: a reference object whose `SPRITE` matches the player's is now rejected
   and warned about, since our ghosts copy the player's sprite id and real NPCs do not use it.
+
+### Crystal: a VALID struct diff — nine differences, and two explain everything (2026-08-18)
+
+- Date: 2026-08-18
+- Observed: `struct_diff_probe.lua` run alone, outdoors, against a genuine engine-driven NPC
+  (`SPRITE` 60, not the player's 1 — the guard added after the retraction did its job).
+  **The control held this time**: the engine's object moved (`sprite_x` 32 -> 0) while ours stayed
+  at 80. Nine unexpected field differences:
+
+  | Off | Field | engine NPC | ours |
+  | --- | --- | --- | --- |
+  | 02 | `SPRITE_TILE` | 24 | **0** |
+  | 03 | `MOVEMENT_TYPE` | 3 | **11** |
+  | 04 | `FLAGS1` | 0 | 2 |
+  | 09 | `STEP_TYPE` | 3 | 1 |
+  | 0A | `STEP_DURATION` | 1 | 0 |
+  | 0C | `STEP_FRAME` | 1 | 0 |
+  | 16 | `RADIUS` | 17 | 0 |
+  | 1D | `OBJECT_1D` | 0 | 12 |
+  | 1F | `JUMP_HEIGHT` | 0 | 32 |
+
+- Source: live run, `struct_diff_*.log`.
+- Notes: **the half-owned-object conclusion is now properly supported.** The earlier evidence for it
+  was an artifact of a non-scrolling room; here the engine's own object demonstrably tracked while
+  ours did not, in the same run, on the same map.
+- **Two differences explain the behaviour, and both come from the same root cause — we copied the
+  PLAYER as our template:**
+  1. **`MOVEMENT_TYPE` = 11 is `SPRITEMOVEDATA_PLAYER`.** We told the engine this object is driven
+     by the player's input system, so it does not drive it. A real NPC uses an ordinary movement
+     type (3 here). **This is the strongest single candidate for "the engine does not maintain
+     it".**
+  2. **`SPRITE_TILE` = 0 against the NPC's 24.** That field indexes the per-map VRAM tile
+     allocation (`wUsedSprites`, arranged at map load). Ours has no graphics slot, which is a
+     rendering problem independent of ownership — and consistent with the earlier session where
+     injecting a sprite disturbed other objects' graphics.
+  The rest follow from the same mistake: `RADIUS` 0 (an NPC's wander radius), `JUMP_HEIGHT` 32 and
+  `OBJECT_1D` 12 (player state that is meaningless on an NPC), and the step fields being a stopped
+  object versus a mid-stride one.
+- **Consequence: the template is wrong, not the technique.** Copying the player was justified when
+  the player was the only known-good object available; now that a real NPC can be read on any map,
+  **an NPC is the correct template for a ghost** — it fixes `MOVEMENT_TYPE`, `RADIUS`,
+  `JUMP_HEIGHT`, `OBJECT_1D` and the step fields in one move.
+  **`SPRITE_TILE` remains the genuinely hard one**, because it is an allocation rather than a
+  value: copying an NPC's tile index would draw that NPC's graphics. Making a ghost look like the
+  player requires the player's sprite to have tiles loaded for that map, which is decided at map
+  load. That is now the central rendering question for this adapter.
