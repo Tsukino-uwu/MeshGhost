@@ -1217,6 +1217,71 @@ Pseudoregalia and see whether it independently finds the position `STATE_SEND_TR
 prints. A scanner that cannot rediscover a known-correct address is not one to trust on a game
 where nothing can be checked.
 
+### How the proxy DLL actually works, since "bundle a DLL" hides the mechanics
+
+It is **not** named after our project, and it **replaces nothing**. Both matter:
+
+- **The filename must be exactly the DLL it impersonates** — `dwmapi.dll`, `version.dll`,
+  `winmm.dll`, `dinput8.dll`, `d3d9.dll`. The game asks for that name; a file called
+  `meshghost.dll` would never be loaded, because nothing asks for it. Which name works is
+  per-game: read the exe's import table first.
+- **Nothing of the game's or Windows' is overwritten.** The real DLL stays in
+  `C:\Windows\System32`. Ours wins only because Windows searches **the exe's own directory before
+  System32**. That is why the whole technique is non-destructive and undone by deleting one file.
+
+The sequence: game starts → its import table asks for `dwmapi.dll` → Windows finds ours first →
+`DllMain` runs → we `LoadLibrary` the real System32 copy and **forward every export** to it so the
+game's actual calls still work → we spawn a thread and do our own work.
+
+This is exactly what is in the Pseudoregalia install today: a 61,952-byte `dwmapi.dll` next to
+`pseudoregalia-Win64-Shipping.exe`, which is UE4SS wearing the name. Renaming it is also the clean
+way to get a **vanilla** run for A/B testing (used when ruling MeshGhost in or out of a bug).
+
+Caveats before assuming it always works: the game must import a DLL you can impersonate, every
+export must be forwarded or the game breaks oddly, `DllMain` runs before the engine exists (so
+wait for a renderer on your own thread), and packers/DRM/anti-cheat or a UWP sandbox can defeat it
+entirely.
+
+### The antivirus question, and the split that answers it
+
+**The APIs that alarm scanners are the ones for reaching into ANOTHER process.** Once our code is
+inside, reading memory is a pointer dereference in our own address space — no `OpenProcess`, no
+`ReadProcessMemory`, no handles, nothing to flag. That single fact decides the architecture.
+
+Rough exposure, worst last:
+
+| Component | Exposure | Why |
+|---|---|---|
+| Proxy DLL, loaded by the game | mild | The game loads it voluntarily |
+| …named after a system DLL | moderate | Search-order hijacking is a catalogued technique (MITRE T1574.001) |
+| API hooking (PolyHook/Detours) | moderate-high | `VirtualProtect` + patching live code pages |
+| Swapchain overlay | moderate | Same technique cheat overlays use |
+| External scanner (`OpenProcess`/`ReadProcessMemory`) | **high** | Cheat Engine is classified outright as a hacktool, deliberately, not as a false positive |
+| `CreateRemoteThread` injection | **highest** | The canonical signature |
+
+Not theoretical: UE4SS, BepInEx and ReShade are all flagged periodically despite being mature and
+widely installed. We would have the same behaviour with none of their reputation, on top of the
+false positives this project already documents in `docs/antivirus.md` — where "no download
+reputation" is already named as one of the two causes, and code signing is still unstarted.
+
+**So the mitigation is a packaging decision, not a technical one:**
+
+| | Ships? | Does what |
+|---|---|---|
+| `meshghost-scan.exe` — external, out-of-process | **never** | Discovery only, during development. High exposure, and irrelevant because only we run it |
+| the proxy DLL | yes | Reads at already-known offsets in-process and draws. No scanning in the shipped artifact at all |
+
+The external tool exists for **iteration speed**, not capability: out-of-process it can be re-run
+against a live game repeatedly, where in-process means rebuild → relaunch → walk back to the spot
+for every experiment. That loop cost real time on 2026-08-17 and is worth designing away.
+
+This is the same shape the repo already uses — probes are dev-only and off, shipped code does the
+known thing, and `cmd/meshghost-fakeadapter`/`cmd/meshghost-netsim` never appear in a release.
+
+**One caveat that will bite otherwise:** fixed offsets break on every game update. The shipped DLL
+should find things by **byte-pattern scan** rather than hardcoded address — still just reading its
+own memory, so still not AV-interesting. UE4SS bundles `patternsleuth` for exactly this.
+
 ### Boundary
 
 Single-player games only. Every game this project targets qualifies. Anything with anti-cheat is
