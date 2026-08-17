@@ -227,12 +227,34 @@ Roughly in order:
     rather than duplicated. It passes no relay settings, only a working directory, so the core still
     reads its own config and the adapter still knows nothing about the relay. (7.7)
 
-> **Steps 38–41 are deliberately longer than the rest of this list — please leave them that way.**
+43. Stopped a sliding ghost sinking into the floor — the quick way, and the wrong object. A slide
+    halves the character's capsule and drops its centre by the same amount, so a ghost teleported to
+    that lowered position buried itself 43 units. Raising the ghost's render Z by exactly that
+    amount looked perfect immediately, and it was still a compensation: it moved the whole actor to
+    fix a mesh problem, so the ghost's position became a lie that anything reading it inherited. It
+    did, once — the thrown-sword prop picked up the same bug. It also handled a stationary crouch
+    correctly by pure accident, because a crouch shrinks the same capsule. (7.8)
+
+44. Replaced it with the game's own crouch path, which took ~15 live test cycles and was the
+    adapter's hardest fix alongside the ultra hop. Nine plausible levers each applied cleanly and
+    changed nothing — the capsule, `bIsCrouched`, `bWantsToCrouch`, the mesh offset itself. What
+    finally worked came from dumping all 473 of the pawn's functions instead of a filtered subset,
+    which revealed the slide is driven by a Blueprint Timeline whose update handler can be called
+    directly. The fix needs five mechanisms **together**, every one of which tests negative alone:
+    mirror the peer's capsule, drive the timeline with the peer's own curve position (a new
+    `slide_t` field), fire the crouch input and crouch events, and set/clear `bIsCrouched` on the
+    peer's edges. The ghost now poses itself the way the game poses the player, its position is
+    honest again, and the compensation is deleted. (7.8)
+
+> **Steps 38–41 and 43–44 are deliberately longer than the rest of this list — please leave them
+> that way.**
 > The house style for these steps is 2–4 lines each (see `CLAUDE.md`), and that rule is a good one:
 > it exists because steps 19–22 once grew to 15–20 dense lines and made the list unreadable. These
-> four are the one intentional exception, at the user's request, because the ultra-hop blue trail
-> was the hardest and longest-running piece of work in the adapter. Trimming them back to match the
-> others would be a reasonable-looking edit that loses the point on purpose.
+> are the intentional exceptions, at the user's request: 38–41 because the ultra-hop blue trail was
+> the hardest and longest-running piece of work in the adapter, and 43–44 because the slide pose is
+> its equal and only makes sense told as a pair — the easy fix that looked perfect, then the real
+> one that replaced it. Trimming them back to match the others would be a reasonable-looking edit
+> that loses the point on purpose.
 
 See [agent_docs/phases/phase7.md](../../agent_docs/phases/phase7.md) for the detailed, dated
 log, and [agent_docs/pitfalls.md](../../agent_docs/pitfalls.md) for the transferable lessons

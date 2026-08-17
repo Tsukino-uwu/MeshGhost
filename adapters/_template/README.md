@@ -8,8 +8,40 @@ with no game attached and no import of anything under `adapters/`. This folder i
 phase promised to leave behind: a reusable starting point for the next game's adapter, not code
 to run as-is.
 
+## Hard rule: this folder is the gold standard, and it is never allowed to go stale
+
+**Anything a shipped adapter learns belongs here too.** A new rule, a new file convention, a hard-won
+trap, a new per-adapter document — when it lands in `pokemon/emerald/`, `tevi/` or `pseudoregalia/`,
+back-port it to `_template/` in the same pass, not "later". The next game starts from this folder,
+so whatever is missing here is a lesson the next adapter gets to learn the hard way a second time.
+
+**The rule lives here, in the template itself, deliberately** — not only in `CLAUDE.md` — because
+the failure mode is drift, and drift is exactly the case where the other copy of the rule is the
+one that got forgotten. Found live 2026-08-16: `documentation.md` was created for Pseudoregalia and
+this README did not mention it at all until the next day.
+
+Three things that make it concrete:
+
+- **Adding a file to an adapter?** Add its template (or at minimum a line in "What's here" and
+  "Folder convention" saying what it is and when to create one).
+- **Adding a rule to an adapter's own doc?** Copy the rule text here, generalised — same wording
+  where it can be, so the two don't quietly diverge into different rules.
+- **Sweeping this folder?** Update the date on the line above, and say what you swept against.
+
+The counterpart rule for content lives in each file: `BANDAGES.md` for compensations,
+`documentation.md` for how the game works, and neither may hold the other's material.
+
 ## What's here
 
+- [documentation.md](documentation.md) — **how the GAME works**, per mechanic: the fields, the
+  components, what each move actually does. Copy it into the adapter folder and fill it in as you
+  learn. It carries two hard rules of its own: no adapter workarounds may be described in it (those
+  belong in `BANDAGES.md`), and everything in it must be publishable — facts observed from a running
+  copy, never source, decompiled output, asset content or verbatim dumps. The licensing assessment
+  behind that is in [agent_docs/licensing.md](../../agent_docs/licensing.md).
+- [BANDAGES.md](BANDAGES.md) — the shipped-compensation register, plus the canonical
+  how-to-tell-a-bandage guide and the user's standing position that a bandage is a state to leave,
+  never a resting place.
 - [PROTOCOL.md](PROTOCOL.md) — the three-function contract (`get_local_state` /
   `render_remote` / `despawn_remote`) and the tick model, written language-agnostically
   (pseudocode, wire envelope examples), because the game it was written for next (TEVI,
@@ -34,6 +66,27 @@ games get added; it's not a code-sharing boundary. A hypothetical Platinum adapt
 different console/engine than Emerald's GBA) would share essentially no code with Emerald's,
 same as any two unrelated games — grouping by franchise just keeps the top level of
 `adapters/` from getting crowded by one series' many entries.
+
+**The files a mature adapter folder carries**, so a new one knows what it is aiming at:
+
+| File | When to create it | Template |
+| --- | --- | --- |
+| `README.md` | Immediately — the build story, one numbered step per thing that happened | see "Writing the new adapter's own README" below |
+| `documentation.md` | As soon as you learn how one mechanic works | [documentation.md](documentation.md) |
+| `BANDAGES.md` | The first time you ship a compensation — and it starts empty, not absent | [BANDAGES.md](BANDAGES.md) |
+
+The first three are expected of every adapter. **A state inventory is not** — it is worth a file
+only when the game gives you far more readable state than you sync, and its form is completely
+game-specific: memory addresses for Emerald, C# class fields for TEVI, reflected UE properties for
+Pseudoregalia. Only Pseudoregalia has one (`PLAYER_FIELDS.md`), because UE reflection hands you
+hundreds of properties and an inventory with sync status pays for itself. Emerald's addresses are
+few and each was its own research project, so they live in `agent_docs/verified.md` and that is the
+right call — **don't create an inventory file for a game whose readable surface is small.**
+
+Where one does exist, it answers a different question from `documentation.md` and the two should
+not merge: the inventory is *which state exists and which we sync*, `documentation.md` is *how the
+game's mechanics work*. Copy the shape from `adapters/pseudoregalia/PLAYER_FIELDS.md`; there is
+deliberately no template, since a stub with no content would go stale immediately.
 
 ## Starting a new game's adapter
 
@@ -141,10 +194,12 @@ neither substitutes for the other.
   the resulting ghost glow sat visibly in the wrong spot.
 - **A known-good control in the cycle.** Include one entry you have already confirmed. If the
   control doesn't look right, the probe is broken and every other result that session is worthless.
-- **A shortlist, not everything.** 58 effects at 3s each is three minutes of mostly level dressing,
-  and a person cannot track that. Filter by name substring to something under about a dozen. The
-  filter should be widenable, not a hardcoded list of names you already picked — the entire point
-  is finding things nobody has named.
+- **A shortlist, not everything — for a probe a HUMAN has to watch, and only there.** 58 effects at
+  3s each is three minutes of mostly level dressing, and a person cannot track that. Filter by name
+  substring to something under about a dozen, widenable, never a hardcoded list of names you already
+  picked. **This does not apply to a name dump you read yourself — see "Dump everything" below,
+  where filtering first cost a whole night.** The distinction is who consumes the output: a person
+  watching in real time needs a shortlist; a text file you grep does not.
 - **Stable ordering** (sort the catalog), so "the seventh one" still means the same thing after a
   relaunch. That is the note a human watching will actually take.
 - **One at a time.** Retire the previous item before starting the next, or a look cannot be
@@ -167,6 +222,41 @@ before you theorise about what it might contain.
 local machine has installed*. Pseudoregalia's enumeration turned up a custom effect from a
 third-party mod. Anything built on such an asset silently does nothing for peers who lack it, so
 prefer base-game assets and treat a failed asset lookup as an expected case, not an error.
+
+### Dump everything. A filter is a guess about the answer
+
+**When you dump a class's functions or properties to read yourself, do not filter first.** The
+needle list you would filter by is a guess about what the answer is called, made before you know
+what the answer is — and if the guess is wrong the dump still looks complete, so nothing tells you.
+
+Found the expensive way, 2026-08-17: a filtered function dump (`slide|crouch|duck|mesh`) hid the
+one function that mattered — a Blueprint Timeline update handler — through nine failed attempts.
+The unfiltered dump was **473 functions**, which is one screen of scrolling and under a minute to
+read. The noise costs less than a single wasted build-deploy-play cycle.
+
+Filter while reading, never before. Same for property dumps and log greps.
+
+### When several mechanisms each "do nothing", try them together
+
+One-variable-at-a-time is the right way to attribute an effect and it is **blind to systems with
+preconditions**, where the effect exists only for the union. The Pseudoregalia slide pose needed
+**five mechanisms simultaneously**, every one of which tested negative alone — and two were
+switched off as proven no-ops and had to be restored when removing them broke a working build.
+
+**After about three single-variable negatives, run the union of everything plausible.** If it
+works, subtract from there: that direction is safe, because you always have a working state to
+compare against. Full case study: `agent_docs/pitfalls.md`.
+
+### Log a window, not an event
+
+An on-change trace tells you what a value became; it cannot tell you *when*, and "when" is often the
+whole answer. When something looks intermittent, ordering-dependent, or "mostly fine", log a fixed
+window of consecutive ticks across the transition, with the source state and the result side by
+side. One such capture collapsed three apparently separate Pseudoregalia bugs into one latch.
+
+Related, when a write of yours keeps getting undone: something is **maintaining** that value. Ask
+what state *it* reads rather than writing harder — re-asserting every tick just loses the race
+visibly.
 
 ## When a mirrored effect's timing is slightly off, stop reconstructing the trigger
 

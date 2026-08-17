@@ -56,7 +56,252 @@ namespace MeshGhostPseudo
     // on two already-known components. No enumeration, no name-to-string per object, no
     // ProcessEvent -- this is not the expensive shape. Flip OFF once the capture is read, and
     // record here what it produced (see OBJECT_REFLECTION_DUMP for the shape).
-    constexpr bool SLIDE_MESH_PROBE = true;
+    //
+    // RAN 2026-08-16, and it answered the question outright. 692 samples across one session:
+    //
+    //     capsuleHalf 65, actionState 0, moveState 0  (standing)      meshZ = -66   x410
+    //     capsuleHalf 22, actionState 1, moveState 0  (plain slide)   meshZ = -23   x43
+    //     capsuleHalf 22, actionState 0, moveState 2  (crouch, still) meshZ = -23   x227
+    //     capsuleHalf 65, actionState 17/18           (other moves)   meshZ = -66   x12
+    //
+    // meshZ is exactly -(capsuleHalf + 1) in every single sample, with zero variance inside a state.
+    // Two findings neither the code nor the earlier measurements had:
+    //   * the offset is CROUCH-driven, not slide-specific -- a stationary crouch moves the mesh
+    //     identically to a slide, so slideTick was never the lever and was never tried.
+    //   * standing is -66, not the -65 recorded up to then; the docs were off by one.
+    // The fix that came out of it is the GHOST_MESH_Z_CAPSULE_GAP block in tickRenders, which
+    // replaced the +43 render-Z compensation. Flipped OFF the same day.
+    constexpr bool SLIDE_MESH_PROBE = false;
+
+    // Why the crouch mesh offset above is not visibly working on a GHOST, when the value it
+    // reproduces was measured on the player to the unit.
+    //
+    // Symptom, user-watched 2026-08-16: with the +43 actor compensation removed and the mesh write
+    // in its place, the ghost sinks during a slide exactly as it did before either fix existed --
+    // and ONLY during a slide, so it is not a wrong value, it is no effect at all.
+    //
+    // Three candidates, and this separates them in one capture rather than by guessing (CLAUDE.md:
+    // two guessed fixes failing the same way is a signal, and one has already failed here):
+    //   * target_capsule_half never arrives -> no write is even attempted. Unlikely: the removed
+    //     compensation read the same parsed value and worked, so the data provably crosses.
+    //   * the property lookup fails on the ghost -> resolved= says so outright.
+    //   * the write lands and does nothing visible -> readback holds -23 while the ghost is buried,
+    //     which means RelativeLocation is not what drives this component's rendered position and
+    //     the lever is somewhere else entirely.
+    //
+    // Readback is a FRESH lookup taken AFTER the teleport, not the local we just wrote -- per
+    // CLAUDE.md, echoing your own write back proves only that your code ran. Logged on change, so a
+    // whole session prints a handful of lines.
+    //
+    // Back ON 2026-08-17 for the capsule mirror: its ghostHalf and readback columns are exactly
+    // the two numbers that decide whether the mesh follows the capsule on its own. If it does,
+    // readback tracks -(ghostHalf + 1) with nothing writing the mesh at all.
+    constexpr bool GHOST_MESH_Z_TRACE = false;
+
+    // Diffs the LOCAL pawn's whole property set, standing versus mid-slide and standing versus
+    // crouching, to identify what actually drives the pose. See its block in tickLocal for why a
+    // diff rather than another guessed lever. Flip OFF once the driver is named.
+    //
+    // **RAN 2026-08-17, and its most important result is what it did NOT find.** Three slides and
+    // three crouches against a fresh standing baseline, and there is no isSliding, no target
+    // height, no pose field anywhere on the pawn. What actually differs:
+    //   * both poses: bIsCrouched, and BaseEyeHeight 64 -> 32.
+    //   * slide only: actionState 0 -> 1, a Blueprint Timeline track 1.0 -> ~0.17, horizontalSpeed.
+    //   * crouch only: moveState 0 -> 2.
+    // The capsule and the mesh never appear, because both live on COMPONENTS and this snapshot
+    // only walks the pawn -- which is the clue: nothing on the pawn stores the shape.
+    //
+    // **Bitfield warning, found here and worth more than the diff itself.** bIsCrouched,
+    // bPressedJump, bClientUpdating, bClientWasFalling, bClientResimulateRootMotion(Sources),
+    // bSimGravityDisabled and bProxyIsJumpForceApplied are `uint32 :1` bitfields sharing one byte
+    // on ACharacter, and GetValuePtrByPropertyNameInChain<bool> hands back the whole BYTE. So all
+    // seven read true together when only bIsCrouched flipped -- and a `*ptr = true` write stamps
+    // the byte, clearing the other six. Never write a bitfield bool through that helper.
+    constexpr bool SLIDE_PROPERTY_DIFF = false;
+
+    // The ghost-side half of that diff -- see its block in tickRenders. Run the two together: the
+    // player list minus the ghost list is the state a ghost is missing.
+    constexpr bool GHOST_SLIDE_DIFF = false;
+
+    // Per-tick 'slideTick' call. Tried 2026-08-17: the ghost looked slightly better mid-slide and
+    // was still in the floor, and a crouch was unaffected -- consistent with slideTick being the
+    // slide's own per-frame routine rather than what poses the mesh. OFF, kept as a named negative.
+    constexpr bool GHOST_SLIDE_CALL = false;
+
+    // One-shot dump of EVERY UFunction on a ghost's pawn -- see dump_pose_function_names. Flip OFF
+    // once read; it is a few hundred lines per session.
+    constexpr bool GHOST_ALL_FUNCTIONS_DUMP = false;
+
+    // **The slide pose's actual driver: a Blueprint Timeline.**
+    //
+    // Found by dumping all 473 UFunctions on the pawn (the filtered dump that preceded it could
+    // never have shown this -- the names contain none of slide/crouch/duck/mesh). `Timeline_1` is
+    // the slide timeline: the property diff caught its track running 1.0 -> ~0.17 through a slide
+    // and sitting still through a crouch, and `Timeline_1__UpdateFunc` is the Blueprint's own
+    // per-frame handler that APPLIES that value -- i.e. the code that poses the character.
+    //
+    // So a ghost is driven the way the game drives itself: write the peer's own track value, then
+    // call the update function. No endpoint is guessed -- `slide_t` carries the peer's exact point
+    // on the curve, so the ghost runs the same curve at the same place.
+    //
+    // The GUID suffix is Blueprint-generated and stable for a build; a game update that recompiles
+    // this Blueprint would change it, and the write simply no-ops if the name stops resolving.
+    constexpr const wchar_t* SLIDE_TIMELINE_TRACK = STR("Timeline_1_NewTrack_0_0AEDA7BA4192BCE0E33EF9B34BF1FB91");
+    constexpr const wchar_t* SLIDE_TIMELINE_UPDATE = STR("Timeline_1__UpdateFunc");
+    constexpr bool GHOST_SLIDE_TIMELINE_DRIVE = true;
+
+    // Logs every tick for a short window after a pose transition, so the LAG is visible rather
+    // than just the values. Two symptoms point at one: the first slide of a session poses not at
+    // all, and every pose lingers past the peer's stand-up (both user-watched 2026-08-17).
+    // **Clear the ghost's crouch state on stand-up.**
+    //
+    // What the pose window finally showed: the crouch pose applies ONCE, at the first stand-up, and
+    // the mesh then reads -23 for the entire rest of the session. Later slides only look correct
+    // because the ghost is permanently crouched, and standing sits 43 too high -- the "snap".
+    //
+    // The lever this suggests is new, and is the mirror image of the failed attempt. Writing
+    // bIsCrouched=TRUE early on did nothing, because the ghost was not crouched and nothing
+    // downstream read it. But the game demonstrably MAINTAINS the mesh from its own crouch state --
+    // it restored -66 every tick before we triggered a crouch, and holds -23 now -- so with the
+    // ghost genuinely in that state, clearing the flag is a write to state the maintenance is
+    // actively reading, not to a value nobody consults.
+    //
+    // Bitfield caution (see SLIDE_PROPERTY_DIFF): bIsCrouched shares a byte with six other
+    // ACharacter flags, so this zeroes bPressedJump and friends too. Harmless on a ghost, which
+    // never jumps under its own power, but it is a deliberate cost rather than an oversight.
+    constexpr bool GHOST_CROUCH_CLEAR_ON_STAND = true;
+
+    // Flipped OFF 2026-08-17, job done: it is what showed the pose applying exactly ONCE, at the
+    // first stand-up, which is what cracked this. Kept as the tool for the next pose question.
+    constexpr bool POSE_WINDOW_TRACE = false;
+    constexpr uint32_t POSE_WINDOW_TICKS = 14;
+
+    // **ALL FIVE pose mechanisms are required together -- do not "simplify" this.** Tried
+    // 2026-08-17: with the Timeline drive working, the crouch input, the K2 crouch events and the
+    // base-offset mirror were switched off as redundant, and the ghost went straight back into the
+    // floor. Turned back on, the poses are correct again. Every single-mechanism test in this
+    // investigation was negative and the working configuration is the union of them; that is a
+    // fact about this game's pose path, not an accident worth tidying.
+
+    // K2_OnStartCrouch/K2_OnEndCrouch. Tried 2026-08-17: both fire (fired=true, adjust=43) and the
+    // mesh never moves. **The reasoning behind it was wrong, and worth recording so it is not
+    // retried**: those names appearing in a function dump proves nothing, because `ACharacter`
+    // DECLARES them on every character in the engine. This Blueprint evidently does not implement
+    // them, and calling an unimplemented BlueprintImplementableEvent is a no-op. Filtering the same
+    // dump for what is actually THIS GAME's leaves slideTick, slideOverheadCheck, meshReset, and
+    // the Enhanced Input crouch handlers below. OFF, kept as a named negative.
+    // **BACK ON -- and switching it off is what stopped the only working configuration from
+    // reproducing.** It was filed as a no-op because it did nothing on its own, then dropped; but
+    // the one run that ever posed a ghost (capsule mirror + crouch input + THIS + the base-offset
+    // mirror) had all four live. Alone-negative does not mean useless when a system has
+    // preconditions -- which is the whole lesson of this investigation.
+    // OFF 2026-08-17, same reason as the input call: redundant once the Timeline drives the pose,
+    // and redundant writers are how a pose lands a frame late.
+    constexpr bool GHOST_CROUCH_EVENT_CALL = true;
+
+    // **Press the ghost's own crouch button.**
+    //
+    // The last lever, and the geometry says it is the only one left: with the mesh pinned at -66
+    // from the capsule centre, aligning a ghost's feet requires centre = peerZ + 43, which IS the
+    // render-Z compensation. So either the game itself crouches the ghost -- putting the mesh where
+    // it belongs through its own code, with nothing to fight -- or a compensation is arithmetically
+    // the only remaining way to make it look right.
+    //
+    // `InpActEvt_IA_Crouch_K2Node_EnhancedInputActionEvent_15`/`_16` are the Blueprint's own
+    // Enhanced Input handlers for the crouch action -- game-authored, unlike the stock ACharacter
+    // names above, and the entry point the real player's button press goes through. Two of them
+    // because an input action fires separate events (press and release); which index is which is
+    // unknown, so _16 is tried on the way down and _15 on the way up, and the CROUCHINPUT log line
+    // says what fired so a swap costs a flag, not a build.
+    //
+    // Risk, stated plainly: a 48-byte parameter buffer whose layout we do not know, zero-filled.
+    // Same risk profile as call_do_wall_run, which worked -- but this one drives INPUT, so watch
+    // for a ghost that starts moving under its own power rather than merely posing.
+    // OFF 2026-08-17 once the Timeline drive worked. It was the first thing that ever posed a
+    // ghost, but it is a SECOND author for the same pose and fires on an edge, so it can re-pose a
+    // frame after the curve has already been applied -- the shape of the leftover snap.
+    constexpr bool GHOST_CROUCH_INPUT_CALL = true;
+
+    // Measured on this build across 692 samples: 65 standing, 22 in a slide or a crouch. Used only
+    // to ask "is the peer shorter than standing?", never as an offset added to anything.
+    constexpr double GHOST_STANDING_CAPSULE_HALF = 65.0;
+
+    // **Mirror the peer's CAPSULE onto the ghost, every tick, and let the game move the mesh.**
+    //
+    // The hypothesis the diff above points to, and it fits every result this investigation has
+    // produced: the game recomputes the mesh offset from the capsule each tick as
+    // meshZ = -(CapsuleHalfHeight + 1) -- the exact law measured across 692 samples. On the real
+    // player, the slide shrinks the capsule and the mesh follows for free. On a ghost the capsule
+    // stays 65, so that same per-tick recompute is what shoves the mesh back to -66 about a tick
+    // after we write -23. Nothing is "fighting" us; we were writing the output of a formula whose
+    // input we had left alone.
+    //
+    // Asserted against a fresh READ every tick, never a cached "already applied" value -- that
+    // mistake has now cost this investigation twice, once on the mesh write and, most likely, once
+    // in the 2026-08-15 attempt that mirrored the capsule, confirmed a readback of 22, and
+    // concluded it did nothing.
+    //
+    // **RESULT 2026-08-17: the mirror itself WORKS -- and the hypothesis was wrong.** The trace
+    // reads ghostHalf=22 through a peer's slide, so the ghost's capsule really does shrink; the
+    // mesh stayed at -66 regardless. So the game does NOT derive the mesh offset from the capsule,
+    // and with no compensation the ghost sinks consistently (user-watched) rather than flickering,
+    // which is itself the tell that nothing is fighting us any more. Kept ON: it is correct on its
+    // own terms -- a ghost mid-slide genuinely is short now -- and it is a precondition for
+    // anything that later poses the mesh to be geometrically consistent.
+    // **Back ON, and it is REQUIRED, not redundant.** Turning it off was a mistake -- and worse, a
+    // mistake made in the same build as an input change, which is the one-variable rule this repo
+    // has for exactly this reason. With the mirror off, the crouch input posed nothing at all
+    // (readback -66 throughout, ghostCrouched=0); with it on, the same input posed the mesh to -23.
+    // Neither piece works alone: the capsule mirror by itself never moved the mesh either. The
+    // model that fits all of it is that the game's crouch handler poses the mesh from the capsule
+    // it finds, so the ghost needs the shrunken capsule AND the input event.
+    constexpr bool GHOST_CAPSULE_MIRROR = true;
+
+    // **`BaseTranslationOffset` -- the input the reverter reads.**
+    //
+    // What the evidence now says, taken together: a mesh write LANDS and is undone about a tick
+    // later, and the capsule is not what the undoing reads. In Unreal, the value a character's mesh
+    // is restored *to* is `ACharacter::BaseTranslationOffset` -- the construction-time relative
+    // location, cached once and written back by the engine and by any game code that "puts the mesh
+    // back". That makes it the input to the restore, where `RelativeLocation` is its output.
+    //
+    // This project has now paid three times for writing outputs (CapsuleHalfHeight, bIsCrouched,
+    // and the mesh's own RelativeLocation, each of which applied and achieved nothing lasting). The
+    // pattern is the finding: **when a write is silently undone, look for what the undoing reads.**
+    // If the restore writes our value instead of -66, there is no fight left to lose -- which is
+    // also why this is preferred over simply out-writing the reverter every tick, a race that is
+    // visibly lost often enough to look worse than the bandage.
+    // OFF 2026-08-17: the restore now comes from the game's own curve, so writing the value the
+    // restore reads is one more author for a number that already has one.
+    constexpr bool GHOST_BASE_TRANSLATION_OFFSET_MIRROR = true;
+
+    // The +43 render-Z compensation. OFF while GHOST_CAPSULE_MIRROR is being tested: with the
+    // ghost's own capsule the right size, the peer's Z is already correct for it and compensating
+    // on top would float the ghost by exactly the amount it used to sink.
+    constexpr bool GHOST_SLIDE_Z_COMP = false;
+
+    // Three attempts to give a ghost the peer's slide/crouch pose, all 2026-08-16, all negative.
+    // Recorded here because the next person to look at the render-Z compensation will arrive with
+    // one of these ideas; full evidence in verified.md and BANDAGES.md.
+    //
+    //   1. Mirror CapsuleHalfHeight (2026-08-15). Applied -- readback 22 -- mesh never moved.
+    //   2. Mirror bIsCrouched. Applied -- readback ghostCrouched=1 -- and the SAME trace line still
+    //      read ghostHalf=65 with the mesh at -66. The flag flipped and nothing followed it.
+    //   3. Set bWantsToCrouch, the INPUT that ACharacter::Crouch() itself sets, after 1 and 2
+    //      showed both earlier targets were merely OUTPUTS of the crouch machinery. Refused:
+    //      **bCanEverCrouch reads false on a ghost's movement component**, so the request is
+    //      correctly ignored and nothing downstream can run.
+    //
+    // What (3) actually settles, and it is the durable finding: **this game's slide is not an
+    // engine crouch at all.** It is the game's own logic writing the capsule and the mesh offset
+    // directly, which is why every engine-level lever above is inert on a pawn nobody possesses.
+    // Driving it would mean finding and satisfying that logic's own preconditions -- the
+    // PRECONDITION CLAUSE in ideas.md -- not calling another engine function.
+    //
+    // Writing the mesh offset ourselves is the fourth option and it DOES land, but something
+    // re-imposes -66 about a tick later; re-asserting per tick loses the race visibly (a ghost at
+    // varying heights, user-watched). It was tried and deliberately not shipped -- worse than the
+    // compensation it was meant to replace.
     constexpr uint64_t SLIDE_MESH_PROBE_INTERVAL_TICKS = 10;
 
     // How often the montage divergence check asks the ghost what it's playing (see its call site in
@@ -2989,6 +3234,109 @@ namespace MeshGhostPseudo
             pawn->ProcessEvent(function, params_buffer.data());
         }
 
+        // **Slide pose, 2026-08-17: call the game's own slide function on the ghost.** Fourth
+        // application of the "trigger the pawn's own system" pattern, after call_spawn_num_afterimages,
+        // call_manage_recall_idle_fx and call_do_wall_run above.
+        //
+        // Why a CALL and not a property write, which is the whole story of this investigation: the
+        // diff-of-diffs (see GHOST_SLIDE_DIFF) showed a real player changes 19 pawn fields through a
+        // slide while its ghost changes 3 -- and the ghost already carries actionState==1, the one
+        // field that plausibly means "sliding", with its mesh still at the standing offset. Since the
+        // pose does not follow the state on a pawn that HAS the state, nothing tick-driven is reading
+        // it; the pose is written by event-driven code that fires when a slide starts. That cannot be
+        // reached by writing any property, which is exactly what the four failed attempts have been.
+        //
+        // Same zero-filled-buffer shape as call_do_wall_run: whatever PropertiesSize reports is
+        // Blueprint-internal temporaries on every function inspected in this file so far.
+        auto call_named_no_arg(UObject* pawn, const wchar_t* function_name) -> bool
+        {
+            if (!pawn)
+            {
+                return false;
+            }
+            UFunction* function = pawn->GetFunctionByNameInChain(function_name);
+            if (!function)
+            {
+                return false;
+            }
+            int32_t parms_size = function->GetPropertiesSize();
+            std::vector<uint8_t> params_buffer(static_cast<size_t>(parms_size > 0 ? parms_size : 0), 0);
+            pawn->ProcessEvent(function, params_buffer.data());
+            return true;
+        }
+
+        // **The game's own crouch pose handlers, called with the measured adjustment.**
+        //
+        // `K2_OnStartCrouch`/`K2_OnEndCrouch` are the Blueprint events Unreal fires on a character
+        // when it crouches, and the pose-function dump proved this pawn implements both with
+        // parmsSize=8 -- the stock `(float HalfHeightAdjust, float ScaledHalfHeightAdjust)`
+        // signature. The engine never fires them here because `bCanEverCrouch` is false, so the
+        // handler that moves the mesh sits there fully written and never invoked on a ghost.
+        // Nothing stops us invoking it with the adjustment we measured: 65 - 22 = 43.
+        //
+        // This is why it is preferred over everything tried before it: the four property writes all
+        // aimed at values the pose routine SETS, and this calls the routine itself, which is the
+        // same "trigger the pawn's own system" pattern that already drives afterimages, the recall
+        // glow and the cling gem. Edge-called, never per tick -- these are start/end events, and
+        // hammering an event every frame is how you get a retrigger instead of a state.
+        auto call_two_float_event(UObject* pawn, const wchar_t* function_name, float a, float b) -> bool
+        {
+            if (!pawn)
+            {
+                return false;
+            }
+            UFunction* function = pawn->GetFunctionByNameInChain(function_name);
+            if (!function)
+            {
+                return false;
+            }
+            int32_t parms_size = function->GetPropertiesSize();
+            // Refuse rather than guess if the shape is not what the dump showed: writing two floats
+            // into a buffer that is not two floats is how a plausible-looking call corrupts a pawn.
+            if (parms_size < static_cast<int32_t>(sizeof(float) * 2))
+            {
+                return false;
+            }
+            std::vector<uint8_t> params_buffer(static_cast<size_t>(parms_size), 0);
+            std::memcpy(params_buffer.data(), &a, sizeof(float));
+            std::memcpy(params_buffer.data() + sizeof(float), &b, sizeof(float));
+            pawn->ProcessEvent(function, params_buffer.data());
+            return true;
+        }
+
+        // One-shot: what slide/crouch-shaped functions does this pawn actually expose? Printed once
+        // per session so that if the call above is aimed at the wrong name, the same run still says
+        // what the right names would have been -- rather than costing another build to find out.
+        auto dump_pose_function_names(UObject* pawn) -> void
+        {
+            if (!pawn)
+            {
+                return;
+            }
+            UClass* pawn_class = pawn->GetClassPrivate();
+            if (!pawn_class)
+            {
+                return;
+            }
+            for (UFunction* function : TFieldRange<UFunction>(pawn_class, EFieldIterationFlags::IncludeSuper))
+            {
+                if (!function)
+                {
+                    continue;
+                }
+                // **No filter. Dump everything.** The filtered version
+                // (slide|crouch|duck|mesh) is what found meshReset -- and also what would have
+                // hidden a release named standUp, exitSlide, toggleCrouch or anything else not
+                // using those four words. Four candidate release paths have now been tried and all
+                // do nothing, which is exactly the point at which sampling should stop and the
+                // whole list should be read: 2026-08-17, after ~15 live runs, the user's call was
+                // "just dump everything, we might have been looking in the wrong place all along".
+                Output::send(STR("[MeshGhostPseudo] POSEFN: {} (parmsSize={})\n"),
+                             function->GetName(), function->GetPropertiesSize());
+            }
+            Output::send(STR("[MeshGhostPseudo] POSEFN: end of pose-function dump.\n"));
+        }
+
         // Cling-gem VFX stop, 2026-08-15. Calling doWallRun on the ghost successfully STARTS the
         // cling-gem effect (confirmed live) but nothing ever ends it -- the effect persisted after
         // the peer left the wall and while walking around. On the real player the same component
@@ -4671,6 +5019,8 @@ namespace MeshGhostPseudo
             remote.last_synced_weapon_equipped = false;
             remote.last_synced_outfit_mesh.clear();
             remote.last_failed_outfit_mesh.clear();
+            remote.crouch_event_shrunk = false;
+            remote.crouch_input_shrunk = false;
 
             if (!remote.ghost)
             {
@@ -5454,6 +5804,8 @@ namespace MeshGhostPseudo
             json_number_field(line, "afterimage_n", afterimage_n);
             double capsule_half = 0;
             json_number_field(line, "capsule_half", capsule_half);
+            double slide_t = 1.0;
+            json_number_field(line, "slide_t", slide_t);
             // Trail colour -- absent for a peer on an older build, in which case the ghost simply
             // keeps whatever colour its own construction gave it (see afterimage_color_valid).
             double afterimage_color_r = 0, afterimage_color_g = 0, afterimage_color_b = 0;
@@ -5543,26 +5895,36 @@ namespace MeshGhostPseudo
                 }
                 it->second.target_x = x + loopback_offset_x;
                 it->second.target_y = y;
-                // Slide floor-sinking fix, 2026-08-15 -- applied here as a pure render-target
-                // adjustment, exactly like loopback_offset_x above (target_x/y/z are only ever a
-                // local render target and never change what goes on the wire).
+                // Slide floor-sinking fix -- a pure render-target adjustment, exactly like
+                // loopback_offset_x above (target_x/y/z are only ever a local render target and
+                // never change what goes on the wire).
                 //
-                // Measured mechanism, after a first fix attempt failed: a real slide shrinks the
-                // player's capsule 65 -> 22 and drops its origin 567.2 -> 524.2, keeping the feet
-                // planted. Mirroring the ghost's CapsuleHalfHeight was tried and CONFIRMED to apply
-                // (readback showed 22) but did NOT fix the visual -- because the skeletal mesh
-                // hangs off the capsule at a FIXED relative offset set at construction (-65), and
-                // it's the real player's own crouch logic, which an unpossessed ghost never runs,
-                // that adjusts that offset. So the mesh stayed 65 below a centre now at 524.
+                // **Still a compensation, and still here on purpose after a full attempt to
+                // replace it, 2026-08-16.** The mechanism is measured, not guessed: a real slide
+                // shrinks the player's capsule 65 -> 22 and drops its origin 567.2 -> 524.2, feet
+                // planted. Compensating the render Z puts the ghost's fixed-offset mesh back at the
+                // peer's feet: ghost_z = peer_z + (STANDING_HALF - peer_half), i.e. +43 sliding, 0
+                // standing.
                 //
-                // Compensating the render Z instead puts the ghost's fixed-offset mesh at the same
-                // world height as the peer's feet: ghost_z = peer_z + (STANDING_HALF - peer_half),
-                // i.e. +43 during a slide, 0 when standing.
-                constexpr double GHOST_STANDING_CAPSULE_HALF = 65.0;
+                // What the replacement attempt established, so nobody repeats it (full write-up in
+                // verified.md and BANDAGES.md; probe data from SLIDE_MESH_PROBE, 692 samples):
+                //   * the real player's mesh sits at exactly -(CapsuleHalfHeight + 1) -- -66
+                //     standing, -23 sliding AND crouching. The +43 here is that delta exactly.
+                //   * writing that offset onto the ghost's own mesh WORKS, and something re-imposes
+                //     -66 about a tick later; re-asserting it every tick then loses the race often
+                //     enough to be visible as a ghost at varying heights (user-watched). Worse than
+                //     this compensation, which is why that version was not shipped.
+                //   * the pawn's own crouch machinery cannot be driven on a ghost. Its INPUT is
+                //     refused -- `bCanEverCrouch=false` on the ghost's movement component -- so
+                //     this game's slide is its own bespoke logic, not an engine crouch, and
+                //     CapsuleHalfHeight/bIsCrouched/bWantsToCrouch are all inert on a ghost.
                 double slide_z_comp = 0.0;
-                if (capsule_half > 0.0 && capsule_half < GHOST_STANDING_CAPSULE_HALF)
+                if constexpr (GHOST_SLIDE_Z_COMP)
                 {
-                    slide_z_comp = GHOST_STANDING_CAPSULE_HALF - capsule_half;
+                    if (capsule_half > 0.0 && capsule_half < GHOST_STANDING_CAPSULE_HALF)
+                    {
+                        slide_z_comp = GHOST_STANDING_CAPSULE_HALF - capsule_half;
+                    }
                 }
                 it->second.target_z = z + slide_z_comp + loopback_offset_z;
                 it->second.target_pitch = pitch;
@@ -5579,6 +5941,7 @@ namespace MeshGhostPseudo
                 it->second.target_afterimage_count = afterimage_count;
                 it->second.target_afterimage_spawn_n = afterimage_n;
                 it->second.target_capsule_half = capsule_half;
+                it->second.target_slide_t = slide_t;
                 if (has_afterimage_color)
                 {
                     it->second.target_afterimage_color[0] = static_cast<float>(afterimage_color_r);
@@ -6513,6 +6876,15 @@ namespace MeshGhostPseudo
             // RemoteGhost::target_capsule_half). Measured values on this build: 65 standing,
             // 22 while sliding.
             constexpr float SLIDE_CAPSULE_THRESHOLD = 50.0f;
+
+            // The slide Timeline's track value -- the peer's exact point on the game's own pose
+            // curve. See SLIDE_TIMELINE_TRACK. 1.0 is standing; a slide runs it down toward 0.
+            float local_slide_t = 1.0f;
+            if (float* slide_t_ptr = pawn->GetValuePtrByPropertyNameInChain<float>(SLIDE_TIMELINE_TRACK))
+            {
+                local_slide_t = *slide_t_ptr;
+            }
+
             float local_capsule_half = 0.0f;
             if (UObject** local_cap_ptr = pawn->GetValuePtrByPropertyNameInChain<UObject*>(STR("CapsuleComponent")); local_cap_ptr && *local_cap_ptr)
             {
@@ -6520,6 +6892,66 @@ namespace MeshGhostPseudo
                 {
                     local_capsule_half = *half_ptr;
                 }
+            }
+
+            // **Find what DRIVES the slide pose.** Everything known so far says what the pose IS
+            // (capsule 22, mesh -23, feet planted) and nothing says what writes it. Three levers
+            // have been tried on a ghost and all three did nothing, because all three were guesses
+            // at a mechanism nobody had identified: CapsuleHalfHeight and bIsCrouched are outputs,
+            // and bWantsToCrouch is refused outright since bCanEverCrouch is false on this game's
+            // character. The engine's crouch is not involved at all, so the driver is one of this
+            // pawn's OWN fields -- and a diff finds it without guessing which.
+            //
+            // Snapshot the standing pawn, then diff against a snapshot taken a few ticks into the
+            // shrunk pose. Whatever the game sets to perform a slide is in that diff by
+            // construction. Crouch is captured separately with the same baseline, because the two
+            // poses are geometrically identical and the fields that differ BETWEEN them are what
+            // separate "held pose" from "timed move".
+            //
+            // Cost, per CLAUDE.md's rule about probes breaking what they measure: an enumeration of
+            // ~389 properties, but only every 30th tick while standing and at most six times total
+            // while shrunk -- never per tick, and never while judging anything visual.
+            if constexpr (SLIDE_PROPERTY_DIFF)
+            {
+                const bool shrunk_now = (local_capsule_half > 0.0f && local_capsule_half < SLIDE_CAPSULE_THRESHOLD);
+                const bool captures_remain = (slide_diff_slides_left > 0 || slide_diff_crouches_left > 0);
+                const uint8_t diff_move_state = move_state_ptr ? *move_state_ptr : 0;
+
+                if (!shrunk_now)
+                {
+                    // Refresh the standing baseline. Deliberately kept current rather than taken
+                    // once at startup: a baseline from a different room, outfit or weapon state
+                    // would diff on all of that and bury the three lines that matter.
+                    if (captures_remain && (tick_count % 30 == 0))
+                    {
+                        slide_diff_standing_snapshot = snapshot_object_values(pawn);
+                    }
+                    slide_diff_capture_at = 0;
+                }
+                else if (captures_remain && !slide_diff_standing_snapshot.empty())
+                {
+                    if (!slide_diff_prev_shrunk)
+                    {
+                        slide_diff_pending_is_crouch = (diff_move_state == 2);
+                        slide_diff_capture_at = tick_count + 5;
+                    }
+                    else if (slide_diff_capture_at != 0 && tick_count >= slide_diff_capture_at)
+                    {
+                        const bool is_crouch = slide_diff_pending_is_crouch;
+                        int& budget = is_crouch ? slide_diff_crouches_left : slide_diff_slides_left;
+                        if (budget > 0)
+                        {
+                            --budget;
+                            std::map<std::wstring, std::wstring> shrunk_snapshot = snapshot_object_values(pawn);
+                            log_value_snapshot_diff(slide_diff_standing_snapshot,
+                                                    shrunk_snapshot,
+                                                    is_crouch ? STR("slideDiff STANDING->CROUCH") : STR("slideDiff STANDING->SLIDE"),
+                                                    tick_count);
+                        }
+                        slide_diff_capture_at = 0;
+                    }
+                }
+                slide_diff_prev_shrunk = shrunk_now;
             }
 
             // Trail-VFX pulse trigger -- see afterimage_count's own comment in Plugin.hpp. Mirrors
@@ -7960,7 +8392,11 @@ namespace MeshGhostPseudo
                 "\"extras\":{{\"move_state\":{},\"action_state\":{},\"h_speed\":{},\"v_speed\":{},\"anim_jump_type\":{},\"movement_mode\":{},"
                 "\"land_count\":{},\"jump_count\":{},\"weapon_equipped\":{},\"outfit_mesh\":\"{}\",\"afterimage_count\":{},"
                 "\"montage\":\"{}\",\"montage_count\":{},\"montage_stop_count\":{},"
-                "\"afterimage_n\":{},\"capsule_half\":{:.1f},\"bubble_charged\":{},"
+                // slide_t: the slide Timeline's own track value (see SLIDE_TIMELINE_TRACK). Sent so
+                // a ghost can run the game's own pose curve at the peer's exact point in it rather
+                // than at a guessed endpoint. Two decimals -- the curve spans 0..1 and extras are
+                // capped at MaxExtrasBytes.
+                "\"afterimage_n\":{},\"capsule_half\":{:.1f},\"slide_t\":{:.2f},\"bubble_charged\":{},"
                 "\"afterimage_color\":[{:.4f},{:.4f},{:.4f}],"
                 // Thrown Dream Breaker -- see the local read above. Only the flag is always
                 // present; the class path and transform are sent as fixed one-decimal values
@@ -7994,6 +8430,7 @@ namespace MeshGhostPseudo
                 montage_stop_count,
                 afterimage_spawn_n,
                 local_capsule_half,
+                local_slide_t,
                 local_bubble_charged ? 1 : 0,
                 local_afterimage_color.r,
                 local_afterimage_color.g,
@@ -8093,6 +8530,8 @@ namespace MeshGhostPseudo
             remote.last_synced_weapon_equipped = false;
             remote.last_synced_outfit_mesh.clear();
             remote.last_failed_outfit_mesh.clear();
+            remote.crouch_event_shrunk = false;
+            remote.crouch_input_shrunk = false;
                 remote.ghost = nullptr;
                 remote.owning_world = nullptr;
                 continue;
@@ -8126,9 +8565,269 @@ namespace MeshGhostPseudo
             remote.last_synced_weapon_equipped = false;
             remote.last_synced_outfit_mesh.clear();
             remote.last_failed_outfit_mesh.clear();
+            remote.crouch_event_shrunk = false;
+            remote.crouch_input_shrunk = false;
                 remote.ghost = nullptr;
                 remote.owning_world = nullptr;
                 continue;
+            }
+            // **The diff-of-diffs.** SLIDE_PROPERTY_DIFF captured what changes on the real PLAYER
+            // through a slide. This captures what changes on a GHOST while its peer slides, against
+            // the same kind of fresh standing baseline. Neither list is interesting alone; the
+            // SUBTRACTION is: every field that moves on the player and not on the ghost is state
+            // the ghost does not have, and whatever poses the mesh must be in that set -- or it is
+            // not a pawn property at all, which is itself the answer and ends the search.
+            //
+            // Chosen over guessing at the slide-only Blueprint Timeline the player diff turned up:
+            // four inputs have now been written successfully and changed nothing (capsule half,
+            // bIsCrouched, bWantsToCrouch, BaseTranslationOffset), and a fifth guess costs the same
+            // live run as a measurement that covers every remaining candidate at once.
+            if constexpr (GHOST_SLIDE_DIFF)
+            {
+                const bool peer_shrunk = (remote.target_capsule_half > 0.0 &&
+                                          remote.target_capsule_half < GHOST_STANDING_CAPSULE_HALF);
+                if (!peer_shrunk)
+                {
+                    if (ghost_diff_left > 0 && (tick_count % 30 == 0))
+                    {
+                        ghost_diff_standing_snapshot = snapshot_object_values(remote.ghost);
+                    }
+                    ghost_diff_capture_at = 0;
+                }
+                else if (ghost_diff_left > 0 && !ghost_diff_standing_snapshot.empty())
+                {
+                    if (!ghost_diff_prev_shrunk)
+                    {
+                        ghost_diff_capture_at = tick_count + 5;
+                    }
+                    else if (ghost_diff_capture_at != 0 && tick_count >= ghost_diff_capture_at)
+                    {
+                        --ghost_diff_left;
+                        std::map<std::wstring, std::wstring> ghost_shrunk = snapshot_object_values(remote.ghost);
+                        log_value_snapshot_diff(ghost_diff_standing_snapshot,
+                                                ghost_shrunk,
+                                                STR("ghostDiff PEER-STANDING->PEER-SLIDE"),
+                                                tick_count);
+                        ghost_diff_capture_at = 0;
+                    }
+                }
+                ghost_diff_prev_shrunk = peer_shrunk;
+            }
+
+            // Mirror the peer's capsule onto the ghost so the game's own per-tick recompute poses
+            // the mesh for us -- see GHOST_CAPSULE_MIRROR's comment for the evidence and for the
+            // three levers that failed before it.
+            //
+            // Re-read and re-asserted every tick on purpose: whatever restores a ghost's standing
+            // shape does so continuously, so a one-shot write or a cached "already applied" check
+            // is exactly how the two previous attempts convinced themselves they had failed.
+            if constexpr (GHOST_CAPSULE_MIRROR)
+            {
+                if (remote.target_capsule_half > 0.0)
+                {
+                    if (UObject** ghost_capsule = remote.ghost->GetValuePtrByPropertyNameInChain<UObject*>(STR("CapsuleComponent")); ghost_capsule && *ghost_capsule)
+                    {
+                        if (float* ghost_half = (*ghost_capsule)->GetValuePtrByPropertyNameInChain<float>(STR("CapsuleHalfHeight")))
+                        {
+                            const float desired_half = static_cast<float>(remote.target_capsule_half);
+                            if (*ghost_half != desired_half)
+                            {
+                                *ghost_half = desired_half;
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Trigger the pawn's own slide, rather than writing any of the values it sets.
+            // Called every tick while the peer is shrunk: 'slideTick' is named like a per-tick
+            // routine, and the pose is re-imposed per tick anyway, so a one-shot call on the edge
+            // would be undone by the very writer this is trying to enlist.
+            if constexpr (GHOST_SLIDE_CALL)
+            {
+                if (remote.target_capsule_half > 0.0 &&
+                    remote.target_capsule_half < GHOST_STANDING_CAPSULE_HALF)
+                {
+                    call_named_no_arg(remote.ghost, STR("slideTick"));
+                }
+
+            }
+
+            // Drive the ghost's own crouch INPUT on the edge of the peer's pose change.
+            if constexpr (GHOST_CROUCH_INPUT_CALL)
+            {
+                const bool peer_shrunk_input = (remote.target_capsule_half > 0.0 &&
+                                                remote.target_capsule_half < GHOST_STANDING_CAPSULE_HALF);
+                if (peer_shrunk_input != remote.crouch_input_shrunk)
+                {
+                    remote.crouch_input_shrunk = peer_shrunk_input;
+                    // **_16 going down, meshReset coming back up.** 2026-08-17: _16 is the first
+                    // thing in this whole investigation that actually moved a ghost's mesh -- the
+                    // readback went to -23 with ghostCrouched=1, i.e. the game's own crouch path
+                    // ran on the ghost. Its counterpart _15 does NOT undo it: the mesh stayed at
+                    // -23 while standing, which is the old bug inverted (the ghost floats by the
+                    // same 43 it used to sink). `meshReset` is this game's own no-arg function
+                    // named for exactly that job, from the same pose-function dump, so the way back
+                    // up is its code too rather than a value we force.
+                    // **_16 is the press; _15 does nothing. So _16 both ways, on the toggle
+                    // hypothesis.** Three runs, one explanation: shrink->_16 crouched the ghost and
+                    // it STAYED crouched (so _16 poses, _15 does not release); shrink->_15 never
+                    // crouched at all (same conclusion from the other side). The two nodes are most
+                    // likely two input bindings for the same press rather than a press/release
+                    // pair, so the release has to come from somewhere else -- and if the Blueprint
+                    // node toggles, pressing again is that somewhere.
+                    //
+                    // If this run leaves the ghost stuck crouched, the toggle idea is dead and the
+                    // next candidates are UnCrouch (stock, one bool) and meshReset -- the latter
+                    // needs explaining either way, since the run that used it never crouched at all.
+                    // **Press with _16; ROTATE the release candidate.** _16 is the only thing that
+                    // has ever posed a ghost's mesh, and only with the capsule mirror on; _15
+                    // provably does not release it. The three remaining release candidates are
+                    // INDEPENDENT trials, so spending a live launch per candidate wastes the user's
+                    // time -- each stand-up takes the next in rotation and logs the mesh either
+                    // side of the call, so one session ranks all three.
+                    //
+                    // meshReset is LAST deliberately: the run that used it never crouched again
+                    // afterwards, making it the candidate most likely to poison what follows.
+                    static constexpr const wchar_t* RELEASE_CANDIDATES[] = {
+                        STR("InpActEvt_IA_Crouch_K2Node_EnhancedInputActionEvent_16"), // toggle?
+                        STR("UnCrouch"),                                               // stock ACharacter
+                        STR("meshReset"),                                              // game's own; poisons?
+                    };
+                    const wchar_t* fn = STR("InpActEvt_IA_Crouch_K2Node_EnhancedInputActionEvent_16");
+                    if (!peer_shrunk_input)
+                    {
+                        // p7's mapping restored: _15 on the way up. It did nothing on its own
+                        // there, but "on its own" is exactly the reasoning that has been wrong all
+                        // night -- with the crouch events and base-offset mirror back, the release
+                        // path is a different question. Rotation kept below for when this is a
+                        // working baseline to test against, not a broken one.
+                        fn = STR("InpActEvt_IA_Crouch_K2Node_EnhancedInputActionEvent_15");
+                        (void)RELEASE_CANDIDATES;
+                    }
+
+                    // The mesh either side of the call, both fresh reads -- whether the call moved
+                    // it is the whole question, and echoing our own local could never show that.
+                    auto read_ghost_mesh_z = [&]() -> double {
+                        if (UObject** vm = remote.ghost->GetValuePtrByPropertyNameInChain<UObject*>(STR("VisualMesh")); vm && *vm)
+                        {
+                            if (FVector* rel = (*vm)->GetValuePtrByPropertyNameInChain<FVector>(STR("RelativeLocation")))
+                            {
+                                return rel->Z();
+                            }
+                        }
+                        return -999999.0;
+                    };
+                    const double mesh_before = read_ghost_mesh_z();
+                    const bool fired = call_named_no_arg(remote.ghost, fn);
+                    const double mesh_after = read_ghost_mesh_z();
+                    Output::send(STR("[MeshGhostPseudo] CROUCHINPUT {}: shrunk={} fn={} fired={} mesh {:.1f} -> {:.1f}\n"),
+                                 to_wide_ascii(id), peer_shrunk_input, fn, fired, mesh_before, mesh_after);
+                }
+            }
+
+            // Clear the crouch state when the peer stands -- see GHOST_CROUCH_CLEAR_ON_STAND.
+            if constexpr (GHOST_CROUCH_CLEAR_ON_STAND)
+            {
+                const bool peer_shrunk_clear = (remote.target_capsule_half > 0.0 &&
+                                                remote.target_capsule_half < GHOST_STANDING_CAPSULE_HALF);
+                // Symmetric: SET it while the peer is short, CLEAR it once they stand. Clearing
+                // alone fixed the snap (2026-08-17, user-watched) which proved the game's mesh
+                // maintenance reads this flag -- so the first slide sinking is the same bug from
+                // the other side: on a freshly spawned ghost the input trigger does not take, and
+                // nothing else sets the state the maintenance is waiting on. Writing it true early
+                // in this investigation did nothing, but that was before anything had made the
+                // ghost genuinely crouch; the maintenance is now demonstrably live and reading it.
+                if (bool* ghost_crouched_flag = remote.ghost->GetValuePtrByPropertyNameInChain<bool>(STR("bIsCrouched")))
+                {
+                    if (*ghost_crouched_flag != peer_shrunk_clear)
+                    {
+                        *ghost_crouched_flag = peer_shrunk_clear;
+                    }
+                }
+            }
+
+            // Fire the pawn's own crouch pose handlers on the EDGE of the peer's pose change.
+            if constexpr (GHOST_CROUCH_EVENT_CALL)
+            {
+                const bool peer_shrunk_now = (remote.target_capsule_half > 0.0 &&
+                                              remote.target_capsule_half < GHOST_STANDING_CAPSULE_HALF);
+                if (peer_shrunk_now != remote.crouch_event_shrunk)
+                {
+                    remote.crouch_event_shrunk = peer_shrunk_now;
+                    // The engine's own convention: how much shorter the capsule got. Measured
+                    // 65 -> 22, and the mesh law -(half + 1) says the mesh moves by the same 43.
+                    // **Remember the adjustment from the way DOWN and reuse it on the way UP.**
+                    // Real bug, visible in the 2026-08-17 log as `K2_OnEndCrouch adjust=0.0`: on
+                    // stand-up the peer is already back to 65, so computing the delta live gives
+                    // 65-65 = 0 and the un-crouch is told to restore nothing. The engine's own
+                    // convention is that both events carry the SAME magnitude -- how much shorter
+                    // the capsule got -- so the value has to be latched when the crouch starts.
+                    if (peer_shrunk_now)
+                    {
+                        remote.crouch_half_height_adjust =
+                            static_cast<float>(GHOST_STANDING_CAPSULE_HALF - remote.target_capsule_half);
+                    }
+                    const float half_height_adjust = remote.crouch_half_height_adjust;
+                    const bool fired = peer_shrunk_now
+                                           ? call_two_float_event(remote.ghost, STR("K2_OnStartCrouch"), half_height_adjust, half_height_adjust)
+                                           : call_two_float_event(remote.ghost, STR("K2_OnEndCrouch"), half_height_adjust, half_height_adjust);
+                    Output::send(STR("[MeshGhostPseudo] CROUCHEVT {}: {} adjust={:.1f} fired={}\n"),
+                                 to_wide_ascii(id),
+                                 peer_shrunk_now ? STR("K2_OnStartCrouch") : STR("K2_OnEndCrouch"),
+                                 half_height_adjust,
+                                 fired);
+                }
+            }
+
+            if constexpr (GHOST_ALL_FUNCTIONS_DUMP)
+            {
+                if (!ghost_pose_fns_dumped)
+                {
+                    ghost_pose_fns_dumped = true;
+                    dump_pose_function_names(remote.ghost);
+                }
+            }
+
+            // **Ordered AFTER the capsule mirror, deliberately.** Running first made the pose
+            // one frame stale: the Blueprint's update handler reads the capsule it finds, so with
+            // the capsule still last frame's size the mesh and the actor moved on different
+            // frames -- and a one-frame gap between them is a visible 43-unit snap at the end of
+            // a slide (user-watched 2026-08-17).
+            // **Run the game's own slide pose curve on the ghost.** Write the peer's track value,
+            // then call the Blueprint's own Timeline update handler -- the function that applies
+            // it. Per tick, because an update handler is per-frame by nature and the peer's point
+            // on the curve moves every frame.
+            if constexpr (GHOST_SLIDE_TIMELINE_DRIVE)
+            {
+                if (float* ghost_slide_t = remote.ghost->GetValuePtrByPropertyNameInChain<float>(SLIDE_TIMELINE_TRACK))
+                {
+                    const float desired_t = static_cast<float>(remote.target_slide_t);
+                    if (*ghost_slide_t != desired_t)
+                    {
+                        *ghost_slide_t = desired_t;
+                    }
+                    call_named_no_arg(remote.ghost, SLIDE_TIMELINE_UPDATE);
+                }
+            }
+
+            // Give the restore the value we want it to restore. See
+            // GHOST_BASE_TRANSLATION_OFFSET_MIRROR's comment: this is the input, the mesh's own
+            // RelativeLocation is the output, and writing the output has already been shown to be
+            // undone within a tick.
+            if constexpr (GHOST_BASE_TRANSLATION_OFFSET_MIRROR)
+            {
+                if (remote.target_capsule_half > 0.0)
+                {
+                    const double desired_base_z = -(remote.target_capsule_half + 1.0);
+                    if (FVector* ghost_base_offset = remote.ghost->GetValuePtrByPropertyNameInChain<FVector>(STR("BaseTranslationOffset")))
+                    {
+                        if (ghost_base_offset->Z() != desired_base_z)
+                        {
+                            ghost_base_offset->SetZ(desired_base_z);
+                        }
+                    }
+                }
             }
             FVector target_loc(remote.target_x, remote.target_y, remote.target_z);
             FRotator target_rot(remote.target_pitch, remote.target_yaw, remote.target_roll);
@@ -8139,6 +8838,141 @@ namespace MeshGhostPseudo
             // is still true here, matching the local-test path and the "this is a teleport, not a
             // physics move" reasoning below -- just no longer the fix itself.
             call_set_actor_location_and_rotation(remote.ghost, target_loc, target_rot);
+
+            // Per-tick window across a pose transition -- see POSE_WINDOW_TRACE. Placed after the
+            // teleport so each line is the FINAL state of that frame, which is what renders.
+            if constexpr (POSE_WINDOW_TRACE)
+            {
+                const bool win_shrunk = (remote.target_capsule_half > 0.0 &&
+                                         remote.target_capsule_half < GHOST_STANDING_CAPSULE_HALF);
+                if (win_shrunk != remote.pose_window_prev_shrunk)
+                {
+                    remote.pose_window_prev_shrunk = win_shrunk;
+                    remote.pose_window_ticks_left = POSE_WINDOW_TICKS;
+                }
+                if (remote.pose_window_ticks_left > 0)
+                {
+                    remote.pose_window_ticks_left--;
+                    double win_mesh = -999999.0;
+                    if (UObject** vm = remote.ghost->GetValuePtrByPropertyNameInChain<UObject*>(STR("VisualMesh")); vm && *vm)
+                    {
+                        if (FVector* rel = (*vm)->GetValuePtrByPropertyNameInChain<FVector>(STR("RelativeLocation")))
+                        {
+                            win_mesh = rel->Z();
+                        }
+                    }
+                    float win_half = -1.0f;
+                    if (UObject** cap = remote.ghost->GetValuePtrByPropertyNameInChain<UObject*>(STR("CapsuleComponent")); cap && *cap)
+                    {
+                        if (float* h = (*cap)->GetValuePtrByPropertyNameInChain<float>(STR("CapsuleHalfHeight")))
+                        {
+                            win_half = *h;
+                        }
+                    }
+                    float win_ghost_t = -1.0f;
+                    if (float* t = remote.ghost->GetValuePtrByPropertyNameInChain<float>(SLIDE_TIMELINE_TRACK))
+                    {
+                        win_ghost_t = *t;
+                    }
+                    Output::send(STR("[MeshGhostPseudo] POSEWIN {} n={}: peerHalf={:.1f} peerT={:.2f} ghostT={:.2f} ghostHalf={:.1f} mesh={:.1f} z={:.1f}\n"),
+                                 to_wide_ascii(id),
+                                 POSE_WINDOW_TICKS - remote.pose_window_ticks_left,
+                                 remote.target_capsule_half,
+                                 remote.target_slide_t,
+                                 win_ghost_t,
+                                 win_half,
+                                 win_mesh,
+                                 remote.target_z);
+                }
+            }
+
+            // See GHOST_MESH_Z_TRACE's comment. Deliberately AFTER the teleport and via a fresh
+            // lookup: this must be able to show a write being reverted, which reading our own
+            // local back could never do.
+            if constexpr (GHOST_MESH_Z_TRACE)
+            {
+                bool vm_resolved = false;
+                bool rel_resolved = false;
+                double readback_z = -999999.0;
+                if (UObject** trace_vm = remote.ghost->GetValuePtrByPropertyNameInChain<UObject*>(STR("VisualMesh")); trace_vm && *trace_vm)
+                {
+                    vm_resolved = true;
+                    if (FVector* trace_rel = (*trace_vm)->GetValuePtrByPropertyNameInChain<FVector>(STR("RelativeLocation")))
+                    {
+                        rel_resolved = true;
+                        readback_z = trace_rel->Z();
+                    }
+                }
+                const double traced_desired = remote.target_capsule_half > 0.0
+                                                  ? -(remote.target_capsule_half + 1.0)
+                                                  : -999999.0;
+                if (readback_z != remote.last_traced_mesh_z || traced_desired != remote.last_traced_desired_z)
+                {
+                    remote.last_traced_mesh_z = readback_z;
+                    remote.last_traced_desired_z = traced_desired;
+
+                    // The GHOST's own crouch state, to name what puts the mesh back. If it reads
+                    // half=65 / crouched=false while the peer is at 22, then the ghost's character
+                    // is maintaining a STANDING pose and the mesh offset is downstream of that --
+                    // which would make "mirror the crouch state" the real fix and this write a
+                    // per-tick fight to stop having. Read here rather than in the write block so it
+                    // costs nothing on the ticks that print nothing.
+                    double ghost_half = -1.0;
+                    if (UObject** trace_cap = remote.ghost->GetValuePtrByPropertyNameInChain<UObject*>(STR("CapsuleComponent")); trace_cap && *trace_cap)
+                    {
+                        if (float* trace_half = (*trace_cap)->GetValuePtrByPropertyNameInChain<float>(STR("CapsuleHalfHeight")))
+                        {
+                            ghost_half = *trace_half;
+                        }
+                    }
+                    bool* ghost_crouched = remote.ghost->GetValuePtrByPropertyNameInChain<bool>(STR("bIsCrouched"));
+
+                    // The whole crouch chain in one line: wants (the input we set) -> half (the
+                    // capsule the component shrinks) -> crouched (the flag it publishes) -> mesh.
+                    // Whichever link stops changing is where the machinery is not running.
+                    int wants_crouch_state = -1;
+                    bool can_ever_crouch = false;
+                    if (UObject** trace_move = remote.ghost->GetValuePtrByPropertyNameInChain<UObject*>(STR("CharacterMovement")); trace_move && *trace_move)
+                    {
+                        if (bool* trace_wants = (*trace_move)->GetValuePtrByPropertyNameInChain<bool>(STR("bWantsToCrouch")))
+                        {
+                            wants_crouch_state = *trace_wants ? 1 : 0;
+                        }
+                        // If the component was never allowed to crouch at all, nothing downstream
+                        // can happen and no amount of asking will change that.
+                        if (bool* trace_can = (*trace_move)->GetValuePtrByPropertyNameInChain<bool>(STR("bCanEverCrouch")))
+                        {
+                            can_ever_crouch = *trace_can;
+                        }
+                    }
+
+                    // Does BaseTranslationOffset even exist on this pawn, and does our write to it
+                    // survive? baseResolved=false would mean the whole hypothesis is untestable
+                    // this way rather than wrong -- a distinction worth being able to make.
+                    double base_offset_z = -999999.0;
+                    bool base_resolved = false;
+                    if (FVector* trace_base = remote.ghost->GetValuePtrByPropertyNameInChain<FVector>(STR("BaseTranslationOffset")))
+                    {
+                        base_resolved = true;
+                        base_offset_z = trace_base->Z();
+                    }
+
+                    Output::send(STR("[MeshGhostPseudo] TRACE ghostMeshZ {}: peerHalf={:.1f} desired={:.1f} readback={:.1f} baseZ={:.1f} baseResolved={} vmResolved={} relResolved={} ghostTargetZ={:.1f} ghostHalf={:.1f} ghostCrouched={} ghostWantsCrouch={} canEverCrouch={}\n"),
+                                 to_wide_ascii(id),
+                                 remote.target_capsule_half,
+                                 traced_desired,
+                                 readback_z,
+                                 base_offset_z,
+                                 base_resolved,
+                                 vm_resolved,
+                                 rel_resolved,
+                                 remote.target_z,
+                                 ghost_half,
+                                 ghost_crouched ? (*ghost_crouched ? 1 : 0) : -1,
+                                 wants_crouch_state,
+                                 can_ever_crouch);
+                }
+            }
 
             // Thrown Dream Breaker -- a second, independent actor with its own lifetime. Placed
             // here, after the ghost's own staleness checks have run, so it never spawns a loose

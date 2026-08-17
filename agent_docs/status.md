@@ -35,8 +35,6 @@ that a peer's state genuinely differs from the local player's, which loopback co
 
 ### Open, not blocked
 
-- **Slide is a render-Z bandage (+43 units), not the game's own crouch handling** — the
-  `SLIDE_MESH_PROBE` capture is built and deployed, **not yet run**. `ideas.md`, `BANDAGES.md`.
 - **Duplicate ghost spawn on every level load** — two ghosts per peer, the `remotes` entry going
   present -> absent within three ticks, leaving an orphaned pawn nobody tracks. `verified.md`.
 - **Two different games at once is broken** — both mods use bridge port 7778, and a core serves
@@ -55,8 +53,8 @@ that a peer's state genuinely differs from the local player's, which loopback co
   different caps. (The send side was confirmed on screen 2026-08-15.) `architecture.md` ADR.
 - **Relay-safety follow-ups**: `quic` is now the default so room codes are encrypted by default but
   still **not authenticated**; TEVI's `game_version` isn't real; adapters' parsing never audited. `internal/README.md`.
-- **Transports: quic is now the default path** (client `auto`, relay `tcp,quic`, shared port).
-  Open: no sustained-load or two-machine test yet, no per-IP cap. `verified.md`, `risks.md`.
+- **Transports: quic default confirmed with a real game attached** (2026-08-16, shared port, no
+  flags). Open: no sustained-load or two-machine test yet, no per-IP cap. `verified.md`, `risks.md`.
 - **A served-but-unforwarded transport strands a client** — discovery knows what a relay offers,
   not whether the path works, so it retries instead of falling back to tcp. Docs-only for now.
 - **Suspected: Pseudoregalia mod may not clear ghosts when the bridge drops** — pre-existing, any

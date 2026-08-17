@@ -3,7 +3,7 @@
   "_comment_no_bridge_here": "local_game_bridge is deliberately absent: the mod passes its own bridge port when it starts the client, so there is one owner of that value instead of two settings that can disagree. Adding it here would have no effect.",
   "client": {
     "connect_to": "127.0.0.1:7777",
-    "transport": "udp",
+    "transport": "auto",
     "room": "default",
     "room_code": "",
     "name": "player",

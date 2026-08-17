@@ -129,8 +129,11 @@ know the incident, not just the rule, so you can judge when it applies.
     us being wrong.
   - *The slide trail.* Three `actionState` heuristics failed; what worked was keying on a physical
     fact of the move (the capsule shrinking 65 → 22) rather than an enum whose meanings overlap.
-  **The move that keeps paying: dump the class's own function/property names, filtered by a needle
-  list, and read what they are called.** That single step produced `Montage_Play` and then
+  **The move that keeps paying: dump the class's own function/property names and read what they are
+  called.** **Dump them ALL — do not filter first.** An earlier version of this line recommended
+  filtering by a needle list, and that advice cost most of a night on 2026-08-17: the filter is
+  itself a guess about what the answer is called, and the one it hid was the answer (see "Dump
+  everything" below). That single step produced `Montage_Play` and then
   `StartBubbleJumpFlash`/`changeBubbleChargedJump` — both named for exactly the effect and exactly
   the state, after hours of inference had failed. Do it EARLY, not after the guesses run out.
   Two specific tells that you are reconstructing instead of asking:
@@ -289,6 +292,112 @@ know the incident, not just the rule, so you can judge when it applies.
   located the cause in three builds. Check out the last-known-good commit's source, build, confirm
   it is actually good, then halve. It is mechanical, needs no theory, and — unlike a flag flip —
   cannot be fooled by a partial revert. Everything committed makes this cheap and risk-free.
+
+### Case study: the slide pose — how to track down something the game does for itself
+
+**2026-08-17, ~15 live test cycles.** The hardest single fix in the Pseudoregalia adapter alongside
+the ultra-hop blue trail, and worth reading as *method* rather than as a Pseudoregalia fact. The
+mechanism itself is in `adapters/pseudoregalia/documentation.md`; the evidence trail is in
+`verified.md`. This entry is only about how it was found, and about the four ways it was nearly not
+found.
+
+**The problem.** A ghost sank 43 units into the floor during a peer's slide, because the game poses
+a sliding character by shrinking its capsule *and* moving its mesh, and a ghost never runs that
+code. It had shipped with a `+43` render-Z compensation. Replacing that with the real mechanism is
+what took the night.
+
+#### 1. Dump everything. The filter is a guess too
+
+Nine candidate levers were tried and every one applied cleanly and changed nothing visible. The
+answer was a Blueprint Timeline update handler — `Timeline_1__UpdateFunc` — and it was invisible for
+hours because the function dump had been **filtered** by a needle list (`slide|crouch|duck|mesh`).
+That filter was a guess about what the answer would be called, made *before* knowing what the answer
+was, and it excluded the answer by construction.
+
+The unfiltered dump was **473 functions**: one screen of scrolling, read in under a minute. The
+noise this repo had been carefully avoiding was cheaper than a single wasted test cycle, let alone
+several.
+
+**Rule: dump everything first; filter while reading, never before.** The same applies to property
+dumps and to log greps. If you are choosing a needle before you have seen the haystack, you are
+guessing, and you will not be told when the guess is wrong — the dump will simply look complete.
+
+#### 2. "A alone does nothing" is not evidence that A is useless
+
+The working configuration turned out to be **five mechanisms together**, every one of which tested
+**negative in isolation**: mirror the capsule; drive the game's own pose curve; fire the crouch
+input; fire the crouch events; set and clear the crouch state. Tested one at a time — correctly, by
+the one-variable rule — each produced a clean negative.
+
+Worse, two of them were switched off *as proven no-ops* and had to be restored: removing them broke
+a working build, which is how the precondition structure was finally noticed.
+
+**One-variable-at-a-time is necessary but not sufficient.** It is the right way to attribute an
+effect, and it is blind to systems with preconditions, where the effect only exists for the union.
+The practical addition: **after ~3 single-variable negatives, run the union of everything plausible
+before concluding any of it is wrong.** If the union works, subtract from it — that direction is
+safe, because you always have a working state to compare against.
+
+#### 3. Measure the lag, not just the value
+
+An on-change trace of the ghost's mesh offset showed the right values and hid the bug for several
+cycles. Replacing it with a **per-tick window across each transition** — 14 consecutive ticks
+logging the peer's state and the ghost's state side by side, read *after* the frame's writes —
+showed in one capture that the pose applied **exactly once, at the first stand-up**, and never
+again.
+
+That single measurement collapsed three symptoms that had been treated as three separate bugs: the
+first slide sank, later slides looked fine, and every stand-up snapped. All three were the one
+latch. **When something looks intermittent or ordering-dependent, log a window, not an event** — an
+on-change trace can only tell you what a value became, never when, and "when" was the whole answer.
+
+#### 4. A write that gets undone means something is MAINTAINING that value
+
+Writing the mesh offset landed every time and was reverted within about a tick. The instinct is to
+write harder — re-assert per tick — and that produced a visible flicker as it lost the race some
+frames.
+
+The question that actually helps is **"what state does the thing overwriting me read?"** Here the
+game maintains the mesh continuously from the character's crouch state, so the fix was to move that
+state and let the maintenance do the work. Writing the *output* lost every time; writing the *input*
+won immediately.
+
+Related, and general: **outputs of a system look exactly like inputs from outside.** `bIsCrouched`,
+`CapsuleHalfHeight` and `BaseEyeHeight` all change during a crouch, and none of them causes one.
+
+#### 5. Once one direction works, check the other before looking elsewhere
+
+Clearing the crouch state fixed the snap — which also *proved* the maintenance reads that state. The
+remaining bug (the first slide still sinking) was the same bug from the other side: nothing was
+*setting* the state on the way down. Writing it symmetrically finished the job in one build.
+
+**When a fix works in one direction, the next thing to try is the mirror of it**, not a new theory.
+
+#### 6. Two small traps found on the way
+
+- **UE bitfield bools share a byte.** `bIsCrouched`, `bPressedJump`, `bClientUpdating`,
+  `bClientWasFalling`, `bClientResimulateRootMotion(Sources)`, `bSimGravityDisabled` and
+  `bProxyIsJumpForceApplied` are `uint32 :1` on `ACharacter`, and UE4SS's
+  `GetValuePtrByPropertyNameInChain<bool>` hands back the containing **byte**. All seven read `true`
+  when any one is set, and writing one stamps the byte and clears the rest. A property diff will
+  show seven fields changing when one did.
+- **Latch an event's magnitude when the event starts.** `K2_OnEndCrouch` was being called with
+  `adjust=0.0`, because the delta was recomputed on stand-up when the peer had already returned to
+  standing height. Engine convention is that both ends carry the same magnitude; compute it at the
+  start and store it.
+
+#### 7. What the user contributed, recorded as method
+
+Two interventions moved this more than any single test, and both were corrections to *how* it was
+being searched, not to what was being searched for:
+
+- *"Have we tried a run with everything put together, if they need each other to work to begin
+  with?"* — the working run had four mechanisms live; three were being tested.
+- *"Just dump everything, we might have been looking in the wrong place all along."* — which
+  produced the 473-function list and the answer inside it.
+
+The shared shape: when a search stalls, suspect the *shape of the search* before adding another
+candidate to it.
 
 ## Failure signatures
 

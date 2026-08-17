@@ -7,6 +7,12 @@ NDJSON — see
 authoritative spec. This file is a condensed, copy-from starting point, not a replacement for
 reading that file first.
 
+**Keep this template current.** Anything a shipped adapter learns about speaking the bridge — a
+retry rule, a framing trap, a field an adapter must send — belongs back here in the same pass.
+`_template/` is the gold standard the next game starts from; see `README.md`'s standing rule at the
+top. (Contract *changes* themselves are a different act: they are ADRs against
+`agent_docs/contract.md`, and this file follows that file rather than leading it.)
+
 ## Connecting: where, and send hello first
 
 The bridge listens on `127.0.0.1:7778` by default (`packaging/release/config.json`'s

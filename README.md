@@ -49,8 +49,9 @@ is a Lua script that runs wherever BizHawk does.
 3. Run `meshghost.exe` — everyone does this, **except for Pseudoregalia, where the mod starts it
    for you with no window** (its settings then live in the mod's own folder, in the `config.json`
    beside it). Whoever's hosting also runs
-   `meshghost-server.exe` and forwards a port (TCP 7777 by default; see Transports below if
-   you enable `udp` or `quic`, which need their own rules). A host who wants their server to be for one
+   `meshghost-server.exe` and forwards port 7777 — **both `tcp` and `udp`, which are two separate
+   rules on most routers**, since sessions run on quic over that same number (see Transports
+   below; the server prints exactly what to forward when it starts). A host who wants their server to be for one
    game only sets `server.only_game` to that game's id from the list above; left blank (the
    default) the server hosts any game, including several at once in different rooms.
 4. Load your game's mod from `games\<publisher>\<game>\` (BizHawk Lua Console for Emerald,
@@ -69,23 +70,39 @@ Full walkthrough: `packaging/release/README.txt` (ships in the zip) and
 - Reads game memory, never writes it — MeshGhost does not touch your save.
 - Up to 8 players per server by default, counted across all rooms — the host can raise it.
 - Bring your own legally-obtained copy of each game — no ROMs or game assets are shipped here.
-- `room` is a label, not a password. `room_code` is the optional actual secret, and on `tcp`
-  and `udp` it isn't encrypted in transit — don't rely on it there against a determined
-  attacker. `quic` does encrypt it (see below).
+- `room` is a label, not a password. `room_code` is the optional actual secret. By default it is
+  encrypted in transit, since sessions run on `quic` — but it crosses in the clear on `tcp` and
+  `udp`, so don't rely on it there against a determined attacker (see Transports below).
 - Archipelago and other mods/patches: a goal, not a tested guarantee. Emerald's adapter reads
   memory rather than patching the ROM, and TEVI's/Pseudoregalia's adapters were built alongside
   their AP mods — but an AP-patched Emerald ROM can shift where facing/running are read from,
   so treat it as "should work," not confirmed.
 
-### Transports
+### Transports — quic by default, tcp as the handshake and the fallback
 
-Every client connects over `tcp` first, then swaps to whatever `"transport"` in `config.json`
-says — `tcp`, `udp`, or `quic`. So `connect_to` only ever needs the server's `tcp` address; the
-client is told the rest, and asking for one the server doesn't serve still leaves you connected.
-Clients default to `udp`, servers to `tcp`, a room can mix all three, and `quic` is the only
-encrypted one.
+**Out of the box a session runs on `quic`.** Every connection still *starts* on `tcp`: the client
+connects there, asks the server what it serves, and swaps to the best answer. So `connect_to` only
+ever needs the server's `tcp` address — the client is told the rest — and if the swap isn't
+available it simply stays on tcp and keeps working. Nothing to configure for either.
 
-Which to pick and which ports to forward: `packaging/release/README.txt`. Why it works this way:
+| | Default | What it's for |
+| --- | --- | --- |
+| `quic` | **yes** — what you actually run on | Encrypted, and drops a stale position instead of delaying the ones behind it |
+| `tcp` | **yes** — always the handshake, and the fallback | Works everywhere, readable on the wire when debugging |
+| `udp` | no — opt in | Same loss behaviour as quic but **cannot be encrypted**; there if quic is blocked |
+
+`quic` shares the server's port *number* (`7777/udp` alongside `7777/tcp`), so hosting still means
+forwarding one number — but they are two separate router rules, and the server prints exactly what
+to forward when it starts. Turning on plain `udp` as well is the one case needing a second port.
+
+Set `"transport"` in `config.json` to override: `auto` (the default — prefers quic, never silently
+picks the unencrypted one), or `tcp`/`udp`/`quic` to pin it. A room can mix all three, and asking
+for something the server doesn't serve leaves you connected rather than failing.
+
+Encrypted is not authenticated: quic hides your traffic and your `room_code` from anyone watching
+the network, but the server's certificate isn't verified, so it isn't proof of *who* you reached.
+
+Which ports to forward: `packaging/release/README.txt`. Why it works this way:
 [agent_docs/architecture.md](agent_docs/architecture.md)'s transport ADRs.
 
 ## How it works
@@ -130,8 +147,9 @@ MeshGhost/
 - [agent_docs/status.md](agent_docs/status.md) — one-screen summary of where things stand.
 - [agent_docs/pitfalls.md](agent_docs/pitfalls.md) — adapter-specific issues found while
   building each game's adapter, and how they were diagnosed and fixed.
-- [agent_docs/risks.md](agent_docs/risks.md) — known risks and open assumptions (e.g. `tcp` and
-  `udp` carry the `room_code` unencrypted; `udp` can never do otherwise).
+- [agent_docs/risks.md](agent_docs/risks.md) — known risks and open assumptions (e.g. the default
+  `quic` path encrypts the `room_code` but does not authenticate the server; `udp` can never
+  encrypt it at all).
 - [agent_docs/verified.md](agent_docs/verified.md) — append-only log of facts actually
   confirmed against a running game, not just "it built."
 - [agent_docs/licensing.md](agent_docs/licensing.md) — what prior-art projects were checked

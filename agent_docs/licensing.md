@@ -46,6 +46,41 @@ per approach — what may be committed and what may not, for each way of reading
 things that sit outside copyright entirely (EULA reverse-engineering clauses, and anti-circumvention
 rules where DRM is involved). Read it when starting a new game; this file stays the authority.
 
+**Standing rule: an adapter's `documentation.md` is facts-from-observation, and is cleared for a
+public repo on that basis.** Assessed 2026-08-17, on the user's question, for
+`adapters/pseudoregalia/documentation.md`; the finding generalises to every adapter's copy, and the
+rule is restated at the top of that file and in `adapters/_template/documentation.md`.
+
+- **What it may contain**: values measured from a running copy of a game the reader owns — numbers,
+  timings, field and function *names*, which component moves what, how states relate. **Facts are
+  not copyrightable**, and short identifiers carry no copyright of their own. This is the same
+  "facts, never code" posture as the rows below, applied to the game itself rather than to a
+  third-party project, and it is what every modding wiki consists of.
+- **What it may never contain**: game source, decompiled or disassembled output, asset content or
+  extracted strings, or **verbatim reflection/memory dumps**. The dump is the line that matters and
+  it is a real one: a dump is bulk copying of the game's own data, where a hand-written description
+  of the same mechanism is an independent work. `CLAUDE.md` already forbids dumps repo-wide; this
+  says why it also matters for prose.
+- **Trademark**: naming a game or character in order to describe it is ordinary nominative use.
+- **What is NOT settled by any of the above, and is not a copyright question at all**: a game's own
+  EULA may restrict reverse engineering, which is contract rather than copyright — see
+  `access-models.md`. Documenting behaviour adds no exposure beyond running the adapter that
+  observes it, so this file never *creates* that question; it inherits whatever answer the adapter
+  already has.
+- **Audit check** (the same shape as the two greps above — verifies content, not intent):
+
+```bash
+# An adapter's documentation.md must carry a provenance line and no dump-shaped content.
+# Scoped to adapters/ deliberately: internal/documentation.md is the Go side's own doc,
+# describes code we wrote, and none of this applies to it.
+git ls-files 'adapters/**/documentation.md' | xargs grep -LiE 'measured from a running game'
+git ls-files 'adapters/**/documentation.md' | xargs grep -nE '[0-9A-F]{16,}|\.uasset|Assembly-CSharp'
+```
+
+Both must print nothing. The second is a heuristic, not a proof: long hex runs catch pasted GUIDs
+and dumped identifiers, and the two filenames catch asset/assembly content pasted in. A clean run
+means nothing obviously dump-shaped got in; reading the file is still what confirms it.
+
 **Standing rule: every entry below is a snapshot, not a permanent guarantee.** Each row
 records what a project's license *was, as of the date noted in that row* — not a fact that
 holds forever. A project can relicense upstream at any time. Being listed here means "checked

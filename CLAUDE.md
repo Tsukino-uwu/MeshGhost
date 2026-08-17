@@ -5,6 +5,31 @@ MeshGhost is a visual-only multiplayer layer for singleplayer games — see
 implemented contract (packet schema, adapter interface, transport). Read both before
 proposing a plan that touches the core, an adapter, or the relay.
 
+## RULE 0 — THE 300-LINE CAP. Outranks every other rule in this file, without exception.
+
+**This is the single most important rule in the project. Every rule below exists only because this
+one is kept.**
+
+**Before adding a single line here, run `wc -l CLAUDE.md`.** If the result would exceed 300,
+**you may not add it** — first remove or relocate something, verify the count, then add. There is
+no version of this where the file goes over "temporarily". Not "trim later", not "just this once",
+not "this rule is important enough to justify it" — that last one is how every over-cap file in
+history got that way. **A change that breaks the cap is not a change, it is a regression**, and it
+is reverted like one.
+
+**The question is never "can I add this?" It is "what comes out to make room?"** Answer that first,
+in the same edit. If nothing can come out, the new rule is not important enough to be here.
+
+**Why this outranks everything:** past roughly 150-200 followable instructions, obedience degrades
+*uniformly* — every rule gets followed slightly worse, including the ones that exist because
+something already went wrong once. So an over-cap file does not enforce more, it enforces
+everything less. **A 400-line CLAUDE.md is a weaker CLAUDE.md.** Adding a rule past the cap does
+not add a rule; it silently damages all the others.
+
+Adding a rule is nearly always right; adding an *explanation* of a rule usually isn't — the rule
+stays here, its reasoning goes to `agent_docs/`, with a one-line pointer. Full evidence:
+`agent_docs/claude-md-cap.md`.
+
 ## Hard rules
 
 - **No addresses or APIs from memory.** Every memory offset, hook, and third-party API call
@@ -25,6 +50,13 @@ proposing a plan that touches the core, an adapter, or the relay.
   when touching concurrency** — `-count=10` has caught what `-count=1` and `-count=2` both
   miss, most recently 2026-08-16. A behaviour change wants a regression test that fails
   without the fix.
+- **After any `.go` commit, go look at what CI did with it — `gh run list -L 5` — and at the start
+  of a session, before anything else, if the recent commits touch `.go` files.** The user commits,
+  pushes, and then opens a fresh chat, so a session usually begins with a run already finished
+  that nobody has read. An unread red run is the race detector or the fuzzer reporting the exact
+  class of bug local runs cannot catch. `gh run view <id> --log-failed` gets the detail; a fuzz
+  failure's reproducing input downloads as the `fuzz-failure-corpus` artifact and belongs in
+  `testdata/fuzz/<Target>/` as a regression test.
 - **`agent_docs/verified.md` is append-only, and human-gated for anything visual.** A claim about
   what happens on screen or in gameplay goes in only after the user has watched it. A fact you
   established yourself from a log line, a console read, or the Go tools above may be recorded
@@ -38,20 +70,12 @@ proposing a plan that touches the core, an adapter, or the relay.
 - **`area_id` and `anim` are opaque to the core.** Compare by equality only. Never build a
   universal animation vocabulary or branch on area contents in game-agnostic code.
 - **Nothing goes in this repo that couldn't be published. The test is not "does a license permit
-  this?" but "is this fine sitting in a public repo forever?"** If the answer is no, or unclear, it
-  doesn't go in — even where a license would arguably allow it. **This is deliberately stricter than
-  the licenses require**, and it's the same instinct as the no-usernames rule below: the repo
-  contains only what may be public, full stop. Consulting a reference for *facts* stays allowed (next
-  rule); containing its *expression* does not — which is why the `pokeemerald` decompilation can be
-  read but nothing of it exists in this repo. Applies to decompiler output, disassembly, game
-  binaries, assets, ROMs, symbol files, and verbatim reflection dumps alike. **It also filters which
-  approaches to adopt at all: don't take one that needs unpublishable material present in the repo to
-  work.** Where an approach needs a user-owned artifact only at *build* time (TEVI compiling against
-  the game's own DLL), that artifact stays out and the build output is committed instead — which is
-  what costs us CI builds for those two adapters. **Clean isn't enough: the public repo must also
-  WORK for a user who has only it plus what they legitimately own** (their own game/ROM/emulator) —
-  nothing disallowed may be required to install or run it. Consulting any reference we need stays
-  fine; it just never ends up here. Per-approach detail: `agent_docs/access-models.md`.
+  this?" but "is this fine sitting in a public repo forever?"** No/unclear means it doesn't go in,
+  even where a license would allow it. Consulting a reference for *facts* is fine; containing its
+  *expression* is not — decompiler output, disassembly, game binaries, assets, ROMs, symbol files,
+  verbatim reflection dumps. **It also filters which approaches to adopt at all**, and **clean isn't
+  enough: the repo must WORK for a user who has only it plus what they legitimately own.** Why, and
+  the build-time-artifact carve-out: `agent_docs/access-models.md`.
 - **Read a project's license before reading its source.** See `agent_docs/licensing.md`.
   Consulting a reference project (e.g. the `pokeemerald` decompilation) to learn a fact —
   an address, a function name, a data layout — is normal; copying its source or assets is
@@ -66,8 +90,10 @@ proposing a plan that touches the core, an adapter, or the relay.
   "Implement the network layer" is not testable; "connect and heartbeat," "echo to self,"
   "see on second client" are.
 - **Ask before touching anything outside `C:\dev\MeshGhost`.**
-- **Committing is the only git write you may make. Never create a branch, never push** — the
-  user does both manually if they're ever needed. Commits go straight to `master`, which is
+- **Commit freely; never create a branch; push only with explicit permission, asked for every
+  time.** The user normally pushes themselves. Pushing is allowed when they say so in that
+  moment — a past yes is not a standing one, and "commit this" never implies it. Commits go
+  straight to `master`, which is
   how every commit in this repo's history was made (`git log --merges` returns nothing).
   **This overrides the generic "if on the default branch, branch first" default some agent
   harnesses carry**, which is where the one violation came from (2026-08-16, a branch made
@@ -116,6 +142,19 @@ proposing a plan that touches the core, an adapter, or the relay.
 - **Two guessed fixes failing with the identical symptom is a signal, not bad luck.** Stop
   guessing and isolate by subtraction (one diagnostic, one variable, at a time) instead of
   trying a third.
+- **After ~3 failed live-test iterations, STOP and write the results as a table (config vs
+  outcome) before building anything else — and try the untested COMBINATION.** "A alone does
+  nothing, B alone does nothing" never implies A+B does nothing; game code is full of
+  preconditions. Every live cycle costs the user a real game launch, so grinding one-variable
+  changes at them is expensive in *their* time. Found live 2026-08-17: ten cycles into the slide
+  pose, the user asked "have we tried a run with everything put together, if they need each other
+  to work?" — and the one run with both the capsule mirror and the crouch input on was the only
+  one that ever worked. It had been sitting in my own results for several cycles.
+- **Never go quiet for a long stretch.** The user cannot tell a loop from long thinking — both
+  read as stuck, and they had to interrupt to break it (2026-08-17). Say what you are about to do,
+  keep turns short while investigating, and never let a `/loop`, a monitor, or more deliberation
+  stand in for making a decision. If you are thrashing, say so with the table and the remaining
+  candidates.
 - **A clean light test does not close a risk that depends on sustained load.** Exercise the
   real rate/duration before marking it closed — a one-shot round trip and a real sustained
   stream can behave completely differently. Found live: a single successful round trip closed
@@ -134,6 +173,12 @@ proposing a plan that touches the core, an adapter, or the relay.
 - **Keep working through to completion; don't suggest stopping partway.** Only pause to ask if
   genuinely blocked — a real technical dead end, or a decision only the user can make — not as
   a default checkpoint.
+- **NEVER suggest stopping, pausing, or resuming later**, and never invoke the clock, the session
+  length, or the attempt count. Banned: "it's late", "good place to stop", "pick it up fresh", and
+  every variation. **Silence means keep going until it actually works** — the user says explicitly
+  when to stop. If genuinely blocked, name the blocker and the next measurement instead. Stated
+  2026-08-17, after recurring across sessions; that day's own "good place to stop" came two steps
+  from the fix.
 - **A diagnostic can break the thing it measures — and then every reading agrees with itself.**
   Keep probes off by default, audit their cost before trusting their output, and re-run with them
   off before believing a result. Never leave a probe that *spawns* an effect enabled while judging
@@ -156,6 +201,22 @@ proposing a plan that touches the core, an adapter, or the relay.
   left/right), never compass points.** User preference, specifically about talking to them —
   compass directions (north/south/east/west) remain fine anywhere in code/comments where
   that's the clearer choice.
+- **You run the scaffolding for a live test; the user only opens and closes the game.** Start the
+  relay, the core, and any `dev-scripts` launcher yourself, confirm from the logs that they came
+  up and that the right transport/bridge was actually chosen, and hand over a game that is ready
+  to play. Never ask the user to run a `.bat`. **Then close every process you started, and verify
+  they are gone** — leaving relays alive is how a later run silently binds the wrong port. If the
+  test is still pending after a long wait, or has just been confirmed, **use `/loop` to re-check
+  and close them** rather than trusting that you will remember. User preference, 2026-08-16.
+- **The game process is the session signal — watch it, don't ask.** `EmuHawk`, `TEVI`,
+  `pseudoregalia` appearing means the test has started; **it exiting means the user is done or the
+  game crashed, and either way the scaffolding above should be shut down.** Poll with
+  `Get-Process`, or arm a `Monitor` on it so the exit wakes you. Do not sit waiting to be told a
+  run has finished when the process list already says so. User preference, 2026-08-16.
+- **Report the handoff, not the plumbing: "deployed, the scaffolding is running, launch the game"
+  plus what to look for.** Monitors, loops, hash checks, port checks and process restarts are your
+  business — do them, don't narrate them. The user needs one line telling them it is their turn.
+  User preference, 2026-08-16.
 - **An adapter's `README.md` is a short build story, not a log.** Its "How this adapter was
   built" list stays plain and skimmable: **one numbered step per thing that happened, ~2-4 lines
   each**, saying what was done and why it worked, in the language you'd use explaining it out
@@ -175,26 +236,7 @@ proposing a plan that touches the core, an adapter, or the relay.
   what is open, and where the detail lives.** A third line means it belongs in `verified.md`,
   `pitfalls.md`, or `phases/phaseN.md`; move it and leave a pointer. Delete an item the moment it's
   fixed and confirmed, and overwrite in place when the active phase changes rather than appending.
-  **This replaced a flat ~50-line cap on 2026-08-16, because the cap was on the wrong variable**:
-  it bounded the file but nothing bounded per-item verbosity, so each item arrived carrying its own
-  rationale (averaging 3 lines, one reaching 6) and the total crept back — 628 lines once
-  (2026-08-15), then 106 the next day even with the cap in force. Size now tracks the *number* of
-  open items, which is real signal, instead of how much context each one drags along.
-
-## This file is capped at 300 lines
-
-**Treat the cap as a rule, not a target.**
-
-Research cited by the humanlayer guide puts frontier thinking models at ~150–200 followable
-instructions, and finds degradation is uniform, not tail-first. More instructions doesn't
-mean the bottom of the file gets ignored; it means every rule above gets followed slightly
-worse, including the ones that exist because something went wrong once. Source:
-<https://www.humanlayer.dev/blog/writing-a-good-claude-md>
-
-**So when this file would exceed 300 lines, something moves to `agent_docs/` — the question
-is never "can I add this?" but "what comes out to make room?"** Adding a rule is nearly
-always right; adding an explanation of a rule usually isn't. If a rule needs a paragraph of
-reasoning, the rule stays here and the reasoning goes to a `.md` file in `agent_docs/`.
+  Why per-item and not a flat line cap: `agent_docs/claude-md-cap.md`.
 
 ## Internal docs conventions
 
@@ -222,6 +264,16 @@ reasoning, the rule stays here and the reasoning goes to a `.md` file in `agent_
 - `agent_docs/bandages-core.md` is the Go side's shipped-compensation register. Each adapter has
   its own `BANDAGES.md` next to its `README.md`; `adapters/_template/BANDAGES.md` holds the
   how-to-tell-a-bandage guide, including the tells that only appear after the fact.
+- Each adapter's `documentation.md` records **how that GAME works** — per mechanic: the fields, the
+  components, what it actually does. **Hard rule: no bandages in it, ever** — only behaviour the
+  game itself properly handles, so it reads as a description of the game to someone who has never
+  seen our code. Everything in it must also be publishable: facts observed from a running copy,
+  never source, decompiled output, asset content or verbatim dumps (`licensing.md`).
+- **`adapters/_template/` is the gold standard and may never lag behind a shipped adapter.** A new
+  rule, file, or hard-won trap added to `emerald`/`tevi`/`pseudoregalia` gets back-ported in the
+  same pass — whatever is missing there is a lesson the next game re-learns the hard way. The rule
+  is also stated inside `_template/README.md` itself, because drift is exactly the case where the
+  other copy is the one that got forgotten.
 - `agent_docs/effect-investigation.md` is the how-to-search playbook for a game's visual effects —
   read before starting effect/VFX work on a new adapter, not after it goes wrong.
 - `agent_docs/access-models.md` records what can be read about each game (decompilation, managed

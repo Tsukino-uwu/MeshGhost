@@ -3,6 +3,10 @@
 Copy this file into your adapter folder, next to its `README.md`, and log every shipped
 compensation here as you take it.
 
+**Keep this template current.** Anything an adapter's own register learns — a new tell, a new rule,
+a category that keeps recurring — belongs back here in the same pass. `_template/` is the gold
+standard the next game starts from; see `README.md`'s standing rule at the top.
+
 **What belongs here:** a fix that *restores, forces, compensates for, or remembers* a value rather
 than preventing whatever changed it. The rule, the mechanical tell (does it **prevent** the wrong
 thing, or **correct** it afterwards?), its one narrow exception and the exception's price, and —
@@ -17,6 +21,54 @@ replace it. The long evidence trail goes to `agent_docs/phases/phaseN.md`, `veri
 `pitfalls.md` — link, don't inline. Same discipline as the README's build-story steps.
 
 ---
+
+## The standing position on bandages — user, 2026-08-16
+
+**A bandage is a state this project is passing through, never where it stops.** The user's words,
+after a slide fix was measured, understood, and then kept anyway: *"I wanted the bandaid ripped off
+and fixed, not another temp/bandaid fix for it"* — and *"I don't like bandaid fixes, I prefer real
+fixes."*
+
+What that means in practice, because it changes how an investigation ends:
+
+- **Understanding why a bandage is hard is not permission to keep it.** Ruling out three
+  replacements narrows the search; it does not close it. Say what is still unknown and keep going.
+- **"I have tried N things, so I will stop" is the agent's own rule, not the user's.** Do not
+  announce a stopping rule as if it settles the matter. If a real fix is genuinely blocked, name
+  the *specific* unknown that blocks it — not the count of attempts.
+- **A visually perfect result does not make it fixed**, and must never be reported as fixed. Say
+  plainly that the compensation is still in place, or the register here quietly becomes a lie.
+- **The question that actually moves an investigation forward is "what is doing this?"** — the
+  cause, identified. Every failed replacement in the slide case was a guess at a *lever*; nobody
+  had yet found the *writer*. Find the writer.
+
+Logging a bandage is therefore an admission with a debt attached, not a resting place. Entries here
+are expected to leave.
+
+### The bandage will usually look BETTER than the proper fix — for a while
+
+The most seductive fact about a bandage, and the reason "it looks fine" must never be the test.
+
+**Worked example, 2026-08-17 (Pseudoregalia's slide pose).** The compensation — offset the ghost's
+render Z by the amount its capsule shrank — was **visually perfect**. Nobody could see anything
+wrong with it. Replacing it with the game's own mechanism took ~15 live test cycles, and for nearly
+all of them the ghost looked *worse* than the bandage had: sunk into the floor, floating above it,
+flickering between the two, snapping at the end of every slide. Judged on appearance at any point
+in that sequence, the honest answer was "the old way was better".
+
+Two things follow, and they pull in the same direction:
+
+- **"It looks right" is not evidence of a proper fix.** The bandage looked right precisely because
+  it was tuned against appearance.
+- **"The replacement looks worse right now" is not evidence the replacement is wrong.** A bandage is
+  a local optimum; the path out of one goes downhill before it goes up. Expect the intermediate
+  states to look bad, and do not let that end the attempt.
+
+**What was actually gained**, none of it visible on the day it landed: the ghost's position stopped
+being a lie that other code could inherit (it already had, once), its collision capsule started
+matching its pose, and the behaviour now comes from the game — so cases nobody thought to test are
+handled because the game handles them. That last one is the real return, and it is invisible by
+definition.
 
 ## How to tell a bandage from a proper fix
 

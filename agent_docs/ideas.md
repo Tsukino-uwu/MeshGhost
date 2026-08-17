@@ -877,7 +877,20 @@ Split into one file per adapter, so each game's compensations sit next to its ow
 `adapters/pokemon/emerald/BANDAGES.md`, and `agent_docs/bandages-core.md` for the Go side.
 The rule itself lives in `adapters/_template/README.md`, with a blank register beside it.
 
-## Slide: replace the render-Z bandage with the game's own crouch handling
+## ~~Slide: replace the render-Z bandage with the game's own crouch handling~~ — DONE 2026-08-17
+
+**DONE, and the bandage is deleted.** The ghost is now posed by the game itself — user-confirmed
+"looks identical to the player", re-checked with every probe off. It needs five mechanisms
+**together**, each of which tests negative alone: mirror the peer's capsule, drive the slide
+Blueprint Timeline with the peer's own curve position via `Timeline_1__UpdateFunc`, fire the crouch
+input and the crouch events, and set/clear `bIsCrouched` on the peer's edges. Full evidence:
+`verified.md` (2026-08-17). How the game does it: `adapters/pseudoregalia/documentation.md`. How it
+was found, as method: `pitfalls.md`'s slide case study.
+
+**Kept below: the ruled-out list.** It is the valuable part — nine levers that apply cleanly and do
+nothing — and reads correctly as history now that the answer is known. Note that its central
+conclusion at the time ("every lead is closed, the bandage stays") was **wrong**, and wrong in an
+instructive way: each lead was tested alone, and the answer was their union.
 
 **Flagged by the user 2026-08-16** as a temporary fix that should be replaced by finding out how
 the game itself does it — the case `adapters/_template`'s "observe before you override" rule exists
@@ -897,36 +910,30 @@ adjusts that offset is the player's own crouch logic, which an unpossessed ghost
 So the bandage is precisely the tell the rule names: it *compensates* for a value the game would
 have set, instead of making the game set it.
 
-**Leads, in order of promise:**
+**ATTEMPTED 2026-08-16 — every lead below is now closed, and the bandage stays.** Full evidence in
+`verified.md` and `adapters/pseudoregalia/BANDAGES.md`; this section is kept as the record of what
+was ruled out, not as work still to do.
 
-1. **The game's own slide functions.** `slideTick` and `slideOverheadCheck` were already captured
-   by the reflection dump (`OBJECT_REFLECTION_DUMP`, noted in `Plugin.cpp`'s own comment as
-   "captured for later, not yet used"). If one of those is what moves the mesh, calling it on the
-   ghost is the whole fix — the same pattern as `call_manage_recall_idle_fx` and
-   `call_update_weapon_equip`, both of which already drive the game's own functions on a ghost.
-2. **The engine's crouch path.** `ACharacter::OnStartCrouch`/`OnEndCrouch` receive the half-height
-   adjustment and are what normally moves the mesh. A ghost never gets them because nothing calls
-   `Crouch()` on it. Worth checking whether they are reflected and whether BP_PlayerGoatMain_C
-   overrides them.
-3. **The mesh offset directly.** If neither is callable, setting the mesh component's own
-   `RelativeLocation` is still closer to the truth than moving the whole actor: it changes the
-   thing that is actually wrong, rather than hiding it by moving everything.
+The probe ran (692 samples) and answered the question exactly: the player's mesh sits at
+**`-(CapsuleHalfHeight + 1)`** — -66 standing, -23 sliding *and* crouching, zero variance. Standing
+is -66, not the -65 recorded here before. Then:
 
-**START HERE — the probe is one line, in a block that already runs.** `Plugin.cpp:7133-7140`
-already dumps the LOCAL player's `VisualMesh` on the existing trace cadence, but only
-`RelativeRotation` and `RelativeScale3D`. Add `RelativeLocation` to that same `Output::send`, build,
-and capture two states: **standing, then mid-slide.**
+1. **The game's own slide functions — never tried, and correctly so.** The probe showed a
+   stationary crouch moves the mesh identically to a slide, so the offset is not slide-specific and
+   `slideTick`/`slideOverheadCheck` were never the lever.
+2. **The engine's crouch path — dead.** `CapsuleHalfHeight` and `bIsCrouched` are both *outputs*:
+   each was written successfully and neither changed anything. The input `bWantsToCrouch` is
+   refused outright, because **`bCanEverCrouch` reads false on a ghost's movement component**.
+3. **The mesh offset directly — works, and is worse.** The write lands, something re-imposes -66
+   about a tick later, and re-asserting it every tick loses the race visibly (user-watched: a ghost
+   at varying heights). Not shipped.
 
-That single number answers the whole question. The ghost's mesh sits at a fixed `-65` set at
-construction; whatever the player's mesh reads during a slide is what the game's own crouch logic
-moves it to, and that is the value to reproduce on the ghost — by calling whatever sets it, not by
-moving the actor. It also says whether the `-65`/`+43` pair is the whole story or an approximation
-that only looks right in one pose.
-
-Then, in order: does `slideTick`/`slideOverheadCheck` (already captured by an earlier reflection
-dump, noted in `Plugin.cpp` as "captured for later, not yet used") move the mesh? Is
-`OnStartCrouch` reflected and does `BP_PlayerGoatMain_C` override it? Failing both, set the mesh
-component's own `RelativeLocation` — still the right object, unlike moving the whole actor.
+**What that leaves, for anyone picking this up.** The finding under all three is that **this game's
+slide is not an engine crouch** — it is the game's own logic writing capsule and mesh directly. So
+the only remaining route is finding what state that logic reads and whether a ghost can be given
+it, which is the PRECONDITION CLAUSE question in this file's Pseudoregalia item 3, not another
+engine call. Identifying what re-imposes -66 each tick is the concrete first step, and
+`GHOST_MESH_Z_TRACE` (in `Plugin.cpp`, off) already prints the whole chain per tick.
 
 **Why this matters beyond tidiness:** the ghost's Z is being moved for a reason that has nothing to
 do with position, so anything else reading that Z inherits the lie. `Plugin.cpp` already notes a

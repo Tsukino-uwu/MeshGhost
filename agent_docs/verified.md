@@ -5133,3 +5133,151 @@ coverage — the rig structurally could not produce it. Added `-transport tcp|ud
 strictly like `cmd/meshghost`'s (a typo must not silently downgrade to the tcp zero value).
 Confirmed: `-transport udp` through the new fault proxy logged `using udp`, dropped 43 of ~366
 datagrams at a 10% loss setting, and kept rendering ghosts.
+
+## The slide mesh offset is the engine's crouch path, and it is -(capsuleHalf + 1) — 2026-08-16
+
+**Agent-established from a log read of a user's real session** (`SLIDE_MESH_PROBE`, 692 samples),
+not watched on screen. The visual claims that follow from it are tracked separately.
+
+This is the "START HERE" capture `ideas.md` specified for replacing the slide render-Z bandage.
+The local player's `VisualMesh.RelativeLocation` against its `CapsuleHalfHeight`:
+
+| State | `capsuleHalf` | `actionState`/`moveState` | mesh Z | samples |
+|---|---|---|---|---|
+| standing | 65 | 0 / 0 | **-66** | 410 |
+| plain slide | 22 | 1 / 0 | **-23** | 43 |
+| crouch, stationary | 22 | 0 / 2 | **-23** | 227 |
+| other moves | 65 | 17 or 18 | **-66** | 12 |
+
+**`meshZ == -(capsuleHalf + 1)` in every single sample, with zero variance inside a state.**
+
+Three findings, none of them guessable from the code:
+
+- **It is the engine's CROUCH path, not anything slide-specific.** A stationary crouch moves the
+  mesh identically to a slide. `slideTick`/`slideOverheadCheck` — `ideas.md`'s lead 1 — were
+  therefore never the lever, and were never tried.
+- **Standing is -66, not -65.** The figure recorded up to now (`BANDAGES.md`, `ideas.md`, the
+  `slide_z_comp` comment) was off by one. The +43 delta those documents cite is still exactly
+  right: `-23 - (-66) = 43`.
+- **The bandage had the right number on the wrong object.** It moved the ghost's whole actor to
+  compensate for a mesh offset, which is why `Plugin.cpp` could describe a second bug as
+  "structurally the same bug".
+
+### Following it: the ghost fights back — 2026-08-16, same session
+
+Reproducing that offset on the ghost's own mesh **works and is then undone**. `GHOST_MESH_Z_TRACE`,
+reading back through a fresh lookup after the teleport rather than echoing the write:
+
+```
+peerHalf=22.0 desired=-23.0 readback=-23.0    <- the write lands
+peerHalf=22.0 desired=-23.0 readback=-66.0    <- reverted, ~7ms (one tick) later
+```
+
+- **The first version of the fix cached what it had written and skipped re-writing when it
+  matched** — so after the revert it saw "already -23" and never re-applied, and the ghost spent
+  the whole slide at the standing offset. The optimisation was the bug, not the write.
+- **The reverter is the ghost's own pawn maintaining a standing pose**: through every peer slide
+  the ghost reads `ghostHalf=65 ghostCrouched=0` while the peer is at 22. That also explains the
+  older failed attempt cleanly — it mirrored `CapsuleHalfHeight`, which is a *result* of crouching
+  rather than the state that drives it.
+
+### Three ways to pose a ghost's crouch, all NEGATIVE — 2026-08-16
+
+Agent-established from trace reads; the two visual judgements are marked as the user's.
+
+1. **Mirror `CapsuleHalfHeight`** (2026-08-15). Applied, readback 22, mesh never moved.
+2. **Mirror `bIsCrouched`.** Applied — the same trace line read `ghostCrouched=1` — while still
+   reading `ghostHalf=65` with the mesh at `-66`. The flag flipped and nothing followed it.
+   **User-watched: still sinking.**
+3. **Set `bWantsToCrouch`**, the input `ACharacter::Crouch()` itself sets, chosen because 1 and 2
+   had both written *outputs* of the crouch machinery. **Refused: `bCanEverCrouch` reads false on
+   the ghost's movement component**, so the request is correctly ignored and nothing downstream
+   runs. **User-watched: still sinking.**
+
+**The durable finding is (3): this game's slide is not an engine crouch at all.** It is the game's
+own logic writing the capsule and the mesh offset directly — which is why every engine-level lever
+is inert on a pawn nobody possesses, and why `slideTick`-style game logic, not another engine
+function, is where any future attempt has to go (satisfying that logic's own preconditions, per
+`ideas.md`'s PRECONDITION CLAUSE).
+
+**A fourth option exists and was deliberately not shipped.** Writing the mesh offset ourselves
+every tick does land, but something re-imposes `-66` about a tick later and the per-tick
+re-assertion loses the race often enough to be visible — **user-watched: "the crouch was at varying
+heights"**. That is worse than the compensation it was meant to replace, so the `+43` render-Z
+compensation stays, now with its mechanism measured to the unit and its alternatives ruled out.
+`SLIDE_MESH_PROBE` and `GHOST_MESH_Z_TRACE` are both off; the shipped runtime behaviour is
+identical to before the investigation apart from the probe being disabled.
+
+## The Pseudoregalia mod reconnects to a core started AFTER the game — 2026-08-17
+
+**User-watched live AND agent-confirmed from logs** — the user ran the session specifically to see
+whether it happened at all, and watched it connect in a running game; the log numbers below are the
+same event measured. Noted because neither of us had seen this tested before and launch order was
+reasonably assumed to matter.
+
+The game was launched with no core and no relay running. The mod's bridge client retried in the
+background, and when a core was started ~1 minute later it connected and ran normally:
+
+```
+bridge: connected=true connect_attempts=89 send_ok=9833 send_fail=0 lines_received=9831 lines_malformed=0
+```
+
+89 failed attempts, then a clean two-way round trip — sends *and* `lines_received` climbing together,
+zero failures, zero malformed.
+
+**Not luck, but not previously demonstrated either.** `adapters/_template/PROTOCOL.md` requires an
+adapter to keep retrying, and `testing.md`'s trap list warns that an adapter missing that loop
+"appears to work whenever the relay happens to start first and silently never recovers otherwise" —
+this is the first time the recovery path itself was exercised end to end rather than assumed. It
+also means the autostart path (`CoreLauncher`) and a hand-started core are interchangeable from the
+mod's point of view: the launcher only spawns on a failed connect, so a core that appears by any
+route is simply used.
+
+Scope of the visual confirmation: the user watched the late connect take effect in the running
+game. Nothing here claims a judgement about ghost *quality* through that connect — smoothness and
+pose were not what this run was looking at.
+
+## Slide/crouch pose: the render-Z bandage is GONE, replaced by the game's own path — 2026-08-17
+
+**User-watched: "everything works now, and looks identical to the player."** The +43 render-Z
+compensation is switched off (`GHOST_SLIDE_Z_COMP = false`) and the ghost is posed by the game.
+
+### What the mechanism actually is
+
+Five things, and **every one of them tested negative on its own** — the working configuration is
+their union, which is the single most important fact here:
+
+1. `GHOST_CAPSULE_MIRROR` — the peer's `CapsuleHalfHeight` on the ghost, re-read every tick.
+2. `GHOST_SLIDE_TIMELINE_DRIVE` — `slide_t` (new wire field) carries the peer's point on the slide
+   Blueprint Timeline's curve; the ghost's own track is written and `Timeline_1__UpdateFunc`, the
+   Blueprint's own apply handler, is called.
+3. `GHOST_CROUCH_INPUT_CALL` — `InpActEvt_IA_Crouch_..._16`, the Blueprint's own crouch input.
+4. `GHOST_CROUCH_EVENT_CALL` — `K2_OnStartCrouch`/`K2_OnEndCrouch`, with the adjustment **latched
+   when the crouch starts** (computing it on stand-up gives 0 and restores nothing).
+5. `GHOST_CROUCH_CLEAR_ON_STAND` — `bIsCrouched` written symmetrically: set while the peer is
+   short, cleared when they stand.
+
+### The two findings that actually cracked it
+
+- **The game maintains the mesh continuously from its own crouch state.** It forced -66 every tick
+  before anything made the ghost crouch, and pinned -23 afterwards. That is why writing the mesh
+  itself always lost, and why the fix is to move the *state* it reads.
+- **The pose applied exactly ONCE, at the first stand-up**, then never changed — so later slides
+  only looked right because the ghost was permanently crouched, standing sat 43 too high (the
+  "snap"), and the first slide sank. One bug, three symptoms. Setting *and* clearing `bIsCrouched`
+  on the peer's edges fixed all three.
+
+### Dead ends, so nobody repeats them
+
+Each of these applied successfully and changed nothing visible: `CapsuleHalfHeight` alone,
+`bIsCrouched` alone *before* the ghost had ever crouched, `bWantsToCrouch` (refused —
+`bCanEverCrouch` is false), `BaseTranslationOffset`, `slideTick` per tick, `UnCrouch`, `meshReset`,
+`K2_OnEndCrouch` with a live-computed adjustment, and writing the mesh's `RelativeLocation`
+directly (lands, then is overwritten within a tick; re-asserting it every tick loses the race
+visibly).
+
+**Method note.** Two user interventions did more than any single test: *"have we tried a run with
+everything put together, if they need each other to work?"* — the working run had four mechanisms
+live while I was testing three — and *"just dump everything"*, which produced all 473 pawn
+functions and with them `Timeline_1__UpdateFunc`, a name no keyword filter of mine would ever have
+matched. Recorded as a rule in `CLAUDE.md`.

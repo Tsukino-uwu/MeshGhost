@@ -330,16 +330,42 @@ namespace MeshGhostPseudo
         // extra afterimages lingering after a slide (user-observed).
         double target_afterimage_spawn_n{};
 
-        // Capsule half-height mirror, 2026-08-15. Fixes the "ghost sinks into the floor during a
-        // slide" bug, whose mechanism is now measured rather than guessed: a UE Character's actor
-        // location is its CAPSULE CENTRE, and a real slide shrinks the player's capsule from 65 to
-        // 22 while dropping its origin 567.2 -> 524.2. Teleporting a still-65-tall ghost to that
-        // lowered origin buries it exactly 65-22 = 43 units. Mirroring the half-height makes the
-        // ghost's capsule shrink the same way, so the lowered origin is correct for it too.
-        // Doubles as the real slide signal -- see target_capsule_half's use in tickRenders.
+        // The peer's own capsule half-height. A UE Character's actor location is its CAPSULE CENTRE,
+        // and a real slide (or a crouch) shrinks the player's capsule from 65 to 22 while dropping
+        // its origin 567.2 -> 524.2, feet planted. Teleporting a still-65-tall ghost to that lowered
+        // origin is what used to bury it 43 units into the floor.
+        //
+        // This is the input to the ghost's mesh offset below, and it doubles as the real slide
+        // signal -- see the GHOST_MESH_Z_CAPSULE_GAP block in tickRenders.
         double target_capsule_half{};
-        double last_applied_capsule_half{};
-        bool prev_remote_sliding{false};
+        // The peer's point on the slide Timeline's curve (1.0 standing, toward 0 mid-slide).
+        // Driven onto the ghost with the Blueprint's own Timeline update function -- see
+        // SLIDE_TIMELINE_TRACK in Plugin.cpp.
+        double target_slide_t{1.0};
+
+        // POSE_WINDOW_TRACE: ticks left to log after a pose transition. A per-tick window is the
+        // only thing that can show WHICH of peer half / slide_t / ghost capsule / ghost mesh moves
+        // late, and by how many frames -- the on-change trace shows the values but not the lag.
+        uint32_t pose_window_ticks_left{0};
+        bool pose_window_prev_shrunk{false};
+
+        // Edge state for GHOST_CROUCH_EVENT_CALL: K2_OnStartCrouch/K2_OnEndCrouch are start/end
+        // events, so they fire once per pose change, never per tick. Reset with the other
+        // per-ghost latches when a ghost goes away -- a replacement pawn starts standing.
+        bool crouch_event_shrunk{false};
+        // Latched when the crouch STARTS, so K2_OnEndCrouch gets the same magnitude on the way up.
+        // Computing it live on stand-up yields 0 and restores nothing -- found 2026-08-17.
+        float crouch_half_height_adjust{0.0f};
+        // Same edge, for GHOST_CROUCH_INPUT_CALL.
+        bool crouch_input_shrunk{false};
+        // Rotates the release candidate per stand-up so one session tests all three.
+        uint32_t release_candidate_index{0};
+
+        // Last values GHOST_MESH_Z_TRACE printed, so it logs on change instead of every tick.
+        // Both, because "what we asked for" and "what the property reads back" changing
+        // independently is exactly the distinction the trace exists to draw.
+        double last_traced_mesh_z{-999999.0};
+        double last_traced_desired_z{-999999.0};
         // Ghost's own last-seen health, for the enemy-damage test (see HEALTH_TRACE in Plugin.cpp).
         double last_seen_ghost_health{-1.0};
 
@@ -598,6 +624,37 @@ namespace MeshGhostPseudo
         // header free of the Unreal SDK's string typedef; they are the same type on this build.
         std::map<std::wstring, std::wstring> bubble_fx_prev_snapshot;
         uint64_t bubble_fx_last_sample_tick{0};
+
+        // SLIDE_PROPERTY_DIFF state. Finding what DRIVES the slide pose, rather than guessing at
+        // levers: hold a fresh snapshot of the standing pawn, then diff it against one taken a few
+        // ticks into a slide (or a crouch). Whatever the game flips to shrink her is in that diff
+        // by construction -- the same technique that found the outfit mirror and the bubble flash.
+        // Same std::wstring-not-StringType reasoning as bubble_fx_prev_snapshot above.
+        std::map<std::wstring, std::wstring> slide_diff_standing_snapshot;
+        // 0 = nothing pending; otherwise the tick at which to take the shrunk sample. Delayed a few
+        // ticks past the edge so the pose is fully established rather than mid-transition.
+        uint64_t slide_diff_capture_at{0};
+        bool slide_diff_pending_is_crouch{false};
+        bool slide_diff_prev_shrunk{false};
+        // Bounded so a long session can't fill the log: three of each is enough to tell a real
+        // driver from a value that merely happened to differ once.
+        int slide_diff_slides_left{3};
+        int slide_diff_crouches_left{3};
+
+        // GHOST_SLIDE_DIFF state: the same diff, taken on a GHOST while its peer slides.
+        // The point is the comparison, not either list alone — whatever changes on the real player
+        // but NOT on the ghost is state the ghost is missing, and the thing that poses the mesh has
+        // to be in that gap (or unreachable from properties at all).
+        std::map<std::wstring, std::wstring> ghost_diff_standing_snapshot;
+        uint64_t ghost_diff_capture_at{0};
+        bool ghost_diff_prev_shrunk{false};
+        int ghost_diff_left{3};
+
+        // One-shot latch for the pose-function name dump (GHOST_SLIDE_CALL).
+        bool ghost_pose_fns_dumped{false};
+
+        // One-shot latch for the pose-function name dump (GHOST_SLIDE_CALL).
+
 
         // POLE_ROTATION_TRACE state: previous quantised sample, so the trace logs one line per real
         // change rather than one per tick. Reset on leaving the flying movement mode so each pole

@@ -35,27 +35,46 @@ to stay correct.
 
 ## Open compensations
 
-### 1. The slide render-Z compensation (+43 units)
+### ~~1. The slide render-Z compensation (+43 units)~~ — REMOVED 2026-08-17
 
-`MeshGhostPseudo/Mod/src/Plugin.cpp`, the `slide_z_comp` block at the receive site. During a peer's
-slide the ghost's render target Z is raised by `GHOST_STANDING_CAPSULE_HALF - peer_capsule_half`,
-so it stops sinking into the floor.
+**Gone, and replaced by the game's own pose path rather than a better compensation.** The ghost is
+now posed by the game itself: its capsule mirrors the peer's, the slide Blueprint Timeline's curve
+is driven with the peer's own `slide_t` through `Timeline_1__UpdateFunc`, the Blueprint's crouch
+input and crouch events are fired, and `bIsCrouched` is set and cleared on the peer's edges.
+User-watched: *"everything works now, and looks identical to the player."*
 
-**It is not a guess, and that is why it survived.** The mechanism was measured (`verified.md`): a
-slide shrinks the player's capsule 65 → 22 and drops its origin 567.2 → 524.2, feet planted.
-Mirroring the ghost's `CapsuleHalfHeight` was tried, confirmed to apply (read back 22), and fixed
-nothing — the skeletal mesh hangs off the capsule at a **fixed −65 offset set at construction**,
-and it is the player's own crouch logic, which an unpossessed ghost never runs, that adjusts it.
+**Kept as a struck-through entry, not deleted**, because the register's job is to show that entries
+here are expected to leave — see the standing position in `../_template/BANDAGES.md`. The full
+mechanism, the two findings that cracked it, and the nine dead ends are in
+`../../agent_docs/verified.md` (2026-08-17); how the game does it is in `documentation.md`.
 
-So it is precisely the tell the rule names: it *compensates* for a value the game would have set,
-instead of making the game set it. **And it has already started to spread** — `Plugin.cpp`
-describes a second bug, the thrown-weapon prop, as "structurally the same bug as the slide
-floor-sinking fix".
+**The durable lesson**: every one of the five mechanisms tested NEGATIVE on its own, and the
+working configuration is their union. "A alone does nothing" never meant "A is useless" — this
+game's pose path has preconditions, and testing one lever at a time could not have found it.
 
-**Replacement, leads and the probe to run first:** `../../agent_docs/ideas.md`, the slide entry.
-User-flagged 2026-08-16.
+#### What the bandage did, versus what the game does
 
-### 2. The camera guard's 10-tick fallback window
+| | Bandage (`+43` render Z) | The game's own path |
+| --- | --- | --- |
+| What moved | the ghost's **whole actor**, every tick a peer was short | the **mesh**, by the game's own maintenance |
+| Who decided the number | our arithmetic, `65 − peer half` | the game — we set state, it computes |
+| Ghost's actor Z | 43 units wrong for the whole slide | truthful; matches the peer exactly |
+| Collision capsule | standing-size while the pose was crouched | mirrors the peer, matches the pose |
+| Crouch (not slide) | worked **by accident** — same capsule shrink, never reasoned about | handled because the game handles it |
+| A future move that shrinks the capsule | silently inherits the guess | follows for free |
+| Anything reading the ghost's Z | inherits the lie — and it had already spread once, to the thrown-weapon prop | reads the truth |
+| Cost | ~10 lines | 5 mechanisms plus one wire field (`slide_t`) |
+
+**The row that matters most is the accidental one.** The bandage handled a stationary crouch
+correctly without anyone knowing why — crouch happens to shrink the same capsule, so the same
+offset happened to be right. That is the difference between a fix and a coincidence that has not
+failed yet, and it is exactly what "worked for the case it was written for" looks like from the
+inside.
+
+**And it looked perfect.** The replacement looked worse for most of ~15 test cycles. See
+`../_template/BANDAGES.md`, "The bandage will usually look BETTER than the proper fix".
+
+### 1. The camera guard's 10-tick fallback window
 
 `Plugin.cpp:213-217` (`GHOST_SPAWN_CAMERA_GUARD_TICKS = 10`) and `:4842-4858`.
 
