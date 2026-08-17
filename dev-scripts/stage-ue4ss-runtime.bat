@@ -52,7 +52,22 @@ copy /y "%BUILDBIN%\dwmapi.dll" "%DEST%\dwmapi.dll" >nul
 copy /y "%BUILDBIN%\UE4SS.dll" "%DEST%\ue4ss\UE4SS.dll" >nul
 copy /y "%SUB%\assets\UE4SS-settings.ini" "%DEST%\ue4ss\UE4SS-settings.ini" >nul
 copy /y "%SUB%\LICENSE" "%DEST%\ue4ss\LICENSE" >nul
-xcopy /y /e /i "%SUB%\assets\Mods" "%DEST%\ue4ss\Mods" >nul
+rem The stock Mods folder is deliberately NOT staged. RE-UE4SS ships a set of Lua mods
+rem alongside its runtime -- a cheat manager, a console, console commands, keybind hooks, an
+rem actor dumper, a line-trace tool, a profiler, a splitscreen mod -- and MeshGhost needs
+rem exactly none of them: MeshGhostPseudo is a C++ mod loaded from its own folder, listed in
+rem neither mods.txt nor mods.json.
+rem
+rem This used to be `xcopy /y /e /i "%SUB%\assets\Mods"`, which shipped all of them ENABLED.
+rem A user installing a visual-only ghost overlay was silently also installing a cheat manager
+rem and a console into their game -- and, for the Linux tester, into a speedrunners game.
+rem Two of those hook keyboard input and one enumerates actors, which made them live suspects
+rem when a hard crash was investigated 2026-08-17 (verified.md) and cost real time to rule out.
+rem The staged mods.txt/mods.json are hand-written and empty of entries; see mods.txt itself.
+rem
+rem **Ship only what the adapter requires.** Not specific to this game -- see
+rem adapters/_template/README.md, which states it for every future adapter.
+if not exist "%DEST%\ue4ss\Mods" mkdir "%DEST%\ue4ss\Mods"
 
 rem RE-UE4SS's own stock UE4SS-settings.ini ships with its debug console/overlay enabled by
 rem default (ConsoleEnabled/GuiConsoleEnabled/GuiConsoleVisible all = 1) -- fine for a UE4SS

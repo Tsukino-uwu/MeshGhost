@@ -567,6 +567,75 @@ rather than preventing the thing that changed it. That is not automatically wron
 are treating a symptom, and it should be a deliberate choice you can defend — with the observation
 that justifies it — rather than the first thing that made the screen look right.
 
+## Hard rule: ship the bare minimum, and nothing else
+
+**A release contains exactly what the adapter needs to run, and not one file more.** TEVI is the
+model — it ships a single DLL. If a modding framework, runtime or SDK comes with extras, stage the
+parts your adapter actually loads and leave the rest behind.
+
+This is not tidiness or download size. Anything bundled is something **installed into a stranger's
+game by someone who only asked for a visual ghost overlay**, and it is your responsibility whether
+or not you wrote it.
+
+Found live 2026-08-17, in Pseudoregalia. Its packaging staged RE-UE4SS's whole stock `Mods` folder
+with a blanket `xcopy`, which shipped — **enabled** — a cheat manager, a console, console commands,
+keybind hooks, an actor dumper, a line-trace tool. None were used by the adapter, which is a C++
+mod loaded from its own folder and listed in neither loader file. Three costs, in increasing order
+of seriousness:
+
+1. The user believed those mods came with the game. They did not; the game ships no modding
+   framework at all. **Our package was the source, and nobody could tell** — including, for a
+   while, the person who packaged it.
+2. Two of them hook keyboard input and one enumerates actors, so when a hard crash was investigated
+   they were live suspects that had to be ruled out. **Bundled extras become confounders in every
+   later bug hunt**, and you pay that cost repeatedly.
+3. A cheat manager and a console went into a speedrunner's game uninvited. For some users that is
+   worse than a bug.
+
+**The same rule has a second half: install ADDITIVELY.** A package should go on top of whatever
+the player already has, never through it. Two failure modes, and the first is easy to miss:
+
+- **Never ship a framework's mod list or registry.** If the framework keeps a central list of
+  enabled mods, shipping your own copy overwrites the player's and silently unlists everything else
+  they had. Check whether your mod even needs an entry — a C++ UE4SS mod does not, because the
+  loader discovers it by scanning for a `dlls` folder — and if it does not, ship no list at all.
+- **Be explicit about what you DO overwrite.** Bundling the framework runtime so a fresh install
+  works in one drag also means replacing that runtime, and its settings file, for someone who
+  already had it. That is a fair trade only if it is stated: say which files those are, and give
+  the one folder a player with an existing setup can copy instead.
+
+**And a third half, at runtime rather than install time: work whether you load before or after
+anything else.** Coexistence is not only about files. An adapter must not depend on being first,
+last, or alone:
+
+- **Do not rely on load order.** If the framework has one, your mod must behave the same at any
+  position in it. Needing a particular slot means needing every other mod to cooperate, which they
+  will not.
+- **Do not assume you are the only thing touching the game.** Another mod may already have hooked
+  the function you want, spawned actors into the world you enumerate, or changed the very menus and
+  values you read. Read defensively and fail quietly rather than asserting the world is untouched.
+- **Restore anything you temporarily change**, in the same call if possible. Pseudoregalia clears
+  `AutoPossessPlayer` on a class default object to stop a spawned ghost stealing the controller,
+  and puts it straight back — the whole window is one synchronous call — precisely so any other mod
+  spawning that class is unaffected.
+- **Leave no trace when removed.** Deleting your folder should return the game to how it was.
+
+The test to apply: *if a player installs a randomiser tomorrow, does anything I did stop it
+working — and does anything it does stop me working?* Both directions matter, and the second is the
+one that gets discovered by a confused user rather than by you.
+
+Practical checks when packaging a new game:
+
+- **Whatever the framework's own installer or `assets/` folder gives you is a starting point, not a
+  manifest.** Copy deliberately, file by file, never `xcopy /e` over a directory you did not audit.
+- **Work out how your own mod is actually loaded**, and ship only that path. If it loads without
+  being listed in a config, do not ship the framework's populated config — ship an empty one with a
+  comment saying why.
+- **Turn off developer-facing defaults.** Frameworks ship consoles and overlays enabled because
+  their audience is mod developers; your audience is players.
+- **State what you did NOT stage, in the staging script**, so the next person does not "fix" the
+  omission by restoring a blanket copy.
+
 ## Hard rules, restated (unchanged from [agent_docs/contract.md](../../agent_docs/contract.md))
 
 - The adapter may hold a socket to its own local core process (the bridge) and nothing else —

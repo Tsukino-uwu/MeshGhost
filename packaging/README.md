@@ -219,6 +219,12 @@ Two dev scripts stage this folder, and they're independent of each other:
   `pseudoregalia/Binaries/Win64/ue4ss/Mods/MeshGhostPseudo/`, recording source hashes to
   `MeshGhostPseudo-built-from.txt` — same staleness-gate pattern as TEVI's `built-from.txt`
   above.
+- **Ship the bare minimum.** A release contains exactly what an adapter needs to run and nothing
+  more — TEVI is the model, shipping a single DLL. Anything else bundled is software installed into
+  a stranger's game by someone who only asked for a ghost overlay. Stated as a hard rule for every
+  future adapter in [adapters/_template/README.md](../adapters/_template/README.md), after
+  Pseudoregalia was found on 2026-08-17 to be shipping RE-UE4SS's stock Lua mods — a cheat manager,
+  a console, keybind hooks, an actor dumper — **enabled**, none of them used.
 - `dev-scripts/stage-ue4ss-runtime.bat` stages the RE-UE4SS runtime itself (`UE4SS.dll`,
   settings, stock `Mods/`) from the pinned RE-UE4SS submodule, recording its own provenance to
   `ue4ss-runtime-built-from.txt`. This one is a deliberate exception to the project's normal

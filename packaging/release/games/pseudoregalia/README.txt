@@ -14,15 +14,37 @@ What you need, once:
 What's in this folder:
 - pseudoregalia\ -- the mod, already in the folder shape your game install expects.
   Drag this whole pseudoregalia folder into your Steam install's Pseudoregalia folder.
+  It contains the mod itself plus a UE4SS runtime to load it, and nothing else -- none of
+  the stock UE4SS extras (cheat manager, debug console, keybind hooks, actor dumper) are
+  included, because this mod does not use them and a ghost overlay has no business adding
+  them to your game.
 
 Setup, once:
 1. Drag the `pseudoregalia` folder from this folder directly into your Steam install's
    Pseudoregalia folder -- the one Steam created, typically
    `...\Steam\steamapps\common\Pseudoregalia\` (NOT the `pseudoregalia` subfolder already
    inside it -- drop this one ON TOP of that outer folder so the two merge).
-2. Windows will ask about merging folders and replacing files -- say yes to all of it. This
-   only adds/updates mod files; it won't touch or remove anything else already in your
-   install (including Archipelago's own files, if installed).
+2. Windows will ask about merging folders and replacing files -- say yes to all of it.
+   Nothing already in your install is deleted, and no other mod is unlisted or disabled.
+
+ALREADY USING OTHER MODS? Read this one paragraph.
+   MeshGhost is built to go on TOP of an existing setup, and it deliberately ships no mod
+   list of its own: UE4SS finds this mod by scanning folders, so it never needs an entry,
+   and shipping our own mods.txt/mods.json would have overwritten yours and silently
+   unlisted every Lua or Blueprint mod you already had. Your lists are left untouched and
+   you do not need to add MeshGhost to them.
+
+   The one thing step 1 DOES replace, if you already have UE4SS installed for another mod,
+   is UE4SS itself -- UE4SS.dll, dwmapi.dll and UE4SS-settings.ini. That is usually fine
+   (it is a normal UE4SS build), but it means a different UE4SS version and any settings
+   you had tuned in that .ini are overwritten. If you would rather keep your own UE4SS,
+   copy just this one folder instead of the whole thing:
+
+       pseudoregalia\Binaries\Win64\ue4ss\Mods\MeshGhostPseudo\
+
+   That folder is entirely MeshGhost's own and overlaps nothing. It is all the mod actually
+   needs; the rest of what is bundled exists only so someone with no UE4SS at all can
+   install in one drag.
 
 Setup, once more -- where your settings live:
 3. Open config.json in the MeshGhostPseudo mod folder you just installed
