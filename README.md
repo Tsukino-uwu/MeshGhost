@@ -6,7 +6,17 @@ while the worlds themselves stay separate. Nothing is shared unless a game's mod
 default there are no synced items, enemies, health or progression, and desync is expected and
 fine. If a friend kills a boss, it stays alive in your world, and that's okay.
 
-That default is a choice rather than a ceiling. The protocol underneath also carries reliable,
+## Games
+
+- **Pokémon Emerald** (GBA, via BizHawk) — game id `emerald`. Tested online with two real
+  players. Animated, correctly-gendered Brendan/May ghosts with live position, facing, walking,
+  and running.
+- **TEVI** (Unity) — game id `tevi`. Adapter confirmed working (two clients / client +
+  loopback), not yet tested online.
+- **Pseudoregalia** (Unreal Engine 5) — game id `pseudoregalia`. Tested online with two real
+  players on two machines.
+
+Cosmetic-only is a choice rather than a ceiling. The protocol underneath also carries reliable,
 ordered, addressed events between specific players, exclusive locks over opaque keys,
 both-or-neither exchanges, and custody of a shared world the server holds but cannot read — built
 and tested, off unless every member of a room opts in, and used by no shipped game today. They exist so a game's adapter *could* go further; none currently does,
@@ -73,15 +83,7 @@ anyone you play with. That is a rule the project holds itself to rather than a h
 the current features, and it stays true of anything added later. Uninstalling is deleting the
 mod's folder.
 
-## Games
-
-- **Pokémon Emerald** (GBA, via BizHawk) — game id `emerald`. Tested online with two real
-  players. Animated, correctly-gendered Brendan/May ghosts with live position, facing, walking,
-  and running.
-- **TEVI** (Unity) — game id `tevi`. Adapter confirmed working (two clients / client +
-  loopback), not yet tested online.
-- **Pseudoregalia** (Unreal Engine 5) — game id `pseudoregalia`. Tested online with two real
-  players on two machines.
+## One server, every game
 
 **One server hosts every game at once, and there is nothing to set up for it.** A single
 `meshghost-server.exe` carries an Emerald session, a TEVI session and a Pseudoregalia session
@@ -194,8 +196,8 @@ Full detail: [docs/networking.md](docs/networking.md) (how the relay and client
 actually work — the life of a connection and of a state message, traced through the real code),
 [agent_docs/contract.md](agent_docs/contract.md) (schema and interfaces),
 [agent_docs/architecture.md](agent_docs/architecture.md) (system shape and design rationale), and
-[docs/security.md](docs/security.md) (the relay/core's own networking-layer doc — security
-posture, what's already checked-safe vs. the known open gaps).
+[docs/security.md](docs/security.md) (security and privacy posture — what's already
+checked-safe vs. the known open gaps).
 
 ## Repo layout
 
@@ -247,13 +249,30 @@ this affects adapters, which speak a socket rather than a Go API.
 
 ## Docs
 
+Two folders, split by who they are for. **`docs/` is for people using MeshGhost**;
+`agent_docs/` is the internal working record of how it got built.
+
+### `docs/` — using it
+
+- [docs/integrating.md](docs/integrating.md) — **own your game's source and want MeshGhost built
+  in?** Every route, in any language: run the client beside your game and talk to it over a
+  socket (least work, and what the shipped adapters do), import the Go packages, or reimplement
+  the relay protocol yourself. Includes a conformance checklist and a worked example.
+  Unsupported and untested by us, but it is all written down.
+- [docs/security.md](docs/security.md) — **the security and privacy posture.** What is already
+  checked-safe (no client ever learns a peer's IP; room-code auth, protocol- and game-version
+  checks, bounded reads) versus the gaps that remain — the `quic` default encrypts the room code
+  but does not authenticate the server, and `tcp`/`udp` are plaintext. Every "is this safe"
+  question belongs here.
+- [docs/networking.md](docs/networking.md) — **how the relay and client actually work**, traced
+  through the real code: the life of a connection, the life of a state message, the concurrency
+  model, the transports, and the limits. Read this before changing any of it.
+
+### `agent_docs/` — how it was built
+
 - [agent_docs/README.md](agent_docs/README.md) — **full internal documentation index.** Start
   here if what you're looking for isn't in the shortlist below — it covers everything from
   system design to risk tracking to what's actually been confirmed running.
-- [docs/integrating.md](docs/integrating.md) — **own your
-  game's source and want this built in rather than shipped beside it?** How to reimplement the
-  client, or embed the relay, without writing an adapter. Unsupported and untested, but it is all
-  written down.
 - [agent_docs/brief.md](agent_docs/brief.md) — the full design brief and reasoning.
 - [agent_docs/plans.md](agent_docs/plans.md) — the phase-by-phase roadmap.
 - [agent_docs/status.md](agent_docs/status.md) — one-screen summary of where things stand.

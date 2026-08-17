@@ -4,6 +4,9 @@
 // This package has no internal dependencies — it is the lowest layer, pure
 // data types and JSON tags. Nothing here has behavior; framing, transport,
 // and dispatch live in other packages.
+//
+// How this package fits the whole -- the life of a connection and of a state
+// message, traced across all of them -- is docs/networking.md.
 package protocol
 
 import "encoding/json"

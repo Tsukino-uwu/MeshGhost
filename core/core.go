@@ -15,6 +15,9 @@
 // release, third-party use is untested and unsupported, and running
 // meshghost.exe beside your game and speaking the bridge is the route we
 // actually test. See the repo README and docs/integrating.md.
+//
+// How this package fits the whole -- the life of a connection and of a state
+// message, traced across all of them -- is docs/networking.md.
 package core
 
 import (

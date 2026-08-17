@@ -12,6 +12,9 @@
 // release, and third-party use is untested and unsupported. Running the
 // shipped meshghost-server binary unmodified is the route we actually test.
 // See the repo README and docs/integrating.md.
+//
+// How this package fits the whole -- the life of a connection and of a state
+// message, traced across all of them -- is docs/networking.md.
 package relay
 
 import (
@@ -335,25 +338,32 @@ func (r *Room) forward(msg protocol.Envelope, to []string, unreliable bool) {
 		}
 
 		// A member whose Welcome has not been written yet must not be sent
-		// anything ahead of it — see Client.welcomed. Reliable traffic is
-		// held and flushed in order by markWelcomedAndFlush; lossy state is
-		// dropped instead of queued, because the state plane is
-		// latest-wins by contract and this client is about to be seeded
-		// with everyone's current state by joinSnapshot anyway. Queueing it
-		// would only deliver a sample that is already stale on arrival.
+		// anything ahead of it — see Client.holdUntilWelcome. Held and
+		// flushed in order by markWelcomedAndFlush.
+		//
+		// State is held too, NOT dropped, even though the state plane is
+		// lossy and latest-wins. Dropping it looks safe and is not: the
+		// seeding that would cover the gap (joinSnapshot) only runs for a
+		// room that negotiated snapshot.v1, so in an ordinary cosmetic room
+		// a sample discarded here is simply lost, and the peer that sent it
+		// stays invisible until it happens to send another. There is also a
+		// window on the wire — the Welcome is written before this flag is
+		// cleared, so a client can legitimately have been welcomed from its
+		// own point of view while forward still sees the hold. Dropping in
+		// that window cost TestRateLimitScalesWithConfiguredSendRate a
+		// message it was entitled to (CI race job, 2026-08-17). Holding
+		// costs at most a few duplicated-then-superseded samples, which
+		// latest-wins absorbs by construction.
 		if c.holdUntilWelcome {
-			if !unreliable {
-				if len(c.pending) < maxPendingBeforeWelcome {
-					c.pending = append(c.pending, payload)
-				} else {
-					// Only reachable if this client's own Welcome write is
-					// blocked for as long as it takes the room to produce 64
-					// lifecycle messages, which means the connection is
-					// already failing. Logged rather than grown without
-					// bound, so one stalled joiner cannot be used to make the
-					// relay allocate.
-					log.Printf("relay: %s has not been welcomed after %d queued messages — dropping further ones until its Welcome completes", id, maxPendingBeforeWelcome)
-				}
+			if len(c.pending) < maxPendingBeforeWelcome {
+				c.pending = append(c.pending, payload)
+			} else {
+				// Only reachable if this client's own Welcome write is
+				// blocked for as long as it takes the room to produce 64
+				// messages, which means the connection is already failing.
+				// Logged rather than grown without bound, so one stalled
+				// joiner cannot be used to make the relay allocate.
+				log.Printf("relay: %s has not been welcomed after %d queued messages — dropping further ones until its Welcome completes", id, maxPendingBeforeWelcome)
 			}
 			continue
 		}

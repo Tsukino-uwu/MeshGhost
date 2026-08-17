@@ -6,6 +6,9 @@
 // section — both use this same framing, over different sockets).
 //
 // This package has no internal dependencies.
+//
+// How this package fits the whole -- the life of a connection and of a state
+// message, traced across all of them -- is docs/networking.md.
 package transport
 
 import (

@@ -1862,36 +1862,45 @@ func TestForwardHoldsTrafficUntilWelcomeIsWritten(t *testing.T) {
 			len(got), got[0].Type)
 	}
 
-	// Lossy state is dropped rather than held: the state plane is
-	// latest-wins by contract, and a joiner is seeded with everyone's
-	// current state separately, so queueing a sample only delivers one that
-	// is already stale.
+	// Lossy state is held too, not dropped. Dropping it looks safe — the
+	// state plane is latest-wins — but the seeding that would cover the gap
+	// (joinSnapshot) only runs for a room that negotiated snapshot.v1, so in
+	// an ordinary cosmetic room a discarded sample is simply lost and its
+	// sender stays invisible until it sends another. An earlier version of
+	// this fix dropped it and cost
+	// TestRateLimitScalesWithConfiguredSendRate a message it was entitled
+	// to, which is what this half of the test pins.
 	state, err := envelope(protocol.TypeState, protocol.State{AreaID: "a", Position: []float64{1, 2}})
 	if err != nil {
 		t.Fatalf("build state: %v", err)
 	}
 	r.ForwardUnreliable(state, []string{"p1"})
 
-	// Welcome has now been written, so the hold lifts and what was held is
-	// delivered.
+	if got := rt.received(t); len(got) != 0 {
+		t.Fatalf("state reached the client before its Welcome (%d message(s))", len(got))
+	}
+
+	// Welcome has now been written, so the hold lifts and everything held is
+	// delivered, in the order it was produced.
 	r.markWelcomedAndFlush("p1")
 
 	got := rt.received(t)
-	if len(got) != 1 {
+	if len(got) != 2 {
 		types := make([]string, 0, len(got))
 		for _, e := range got {
 			types = append(types, string(e.Type))
 		}
-		t.Fatalf("after the Welcome the client received %v, want exactly one held leave", types)
+		t.Fatalf("after the Welcome the client received %v, want the held leave then the held state", types)
 	}
-	if got[0].Type != protocol.TypeLeave {
-		t.Fatalf("held message was %q, want %q", got[0].Type, protocol.TypeLeave)
+	if got[0].Type != protocol.TypeLeave || got[1].Type != protocol.TypeState {
+		t.Fatalf("held messages arrived as %q,%q — want %q then %q, the order they were produced in",
+			got[0].Type, got[1].Type, protocol.TypeLeave, protocol.TypeState)
 	}
 
 	// And the hold is genuinely over — later traffic goes straight through.
 	r.Forward(leave, []string{"p1"})
-	if got := rt.received(t); len(got) != 2 {
-		t.Fatalf("after the flush the client received %d message(s), want 2 — the hold "+
+	if got := rt.received(t); len(got) != 3 {
+		t.Fatalf("after the flush the client received %d message(s), want 3 — the hold "+
 			"should be released, not permanent", len(got))
 	}
 }

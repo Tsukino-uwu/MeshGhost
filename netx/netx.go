@@ -19,6 +19,9 @@
 // Note for datagram transports: one datagram carries exactly one NDJSON
 // line. NDJSON framing is redundant there but harmless, and keeping it
 // means a single Transport implementation covers all three.
+//
+// How this package fits the whole -- the life of a connection and of a state
+// message, traced across all of them -- is docs/networking.md.
 package netx
 
 import (

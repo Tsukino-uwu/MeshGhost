@@ -13,6 +13,9 @@
 // scoped to the Phase 5 in-process test adapter only, not to real adapters.
 // The fourth, Hello, is connection setup: it comes first, before any
 // LocalState, and declares which game this adapter is for.
+//
+// How this package fits the whole -- the life of a connection and of a state
+// message, traced across all of them -- is docs/networking.md.
 package bridge
 
 import (
