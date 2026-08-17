@@ -2,9 +2,10 @@
 
 ## Overview
 
-MeshGhost is a visual-only multiplayer layer for single-player games. Each player runs an
-independent copy of the game, and the only networked state is enough information to render
-a cosmetic ghost: location, area, and animation state. Full rationale in `agent_docs/brief.md`.
+MeshGhost is an online multiplayer layer for single-player games. Each player runs an
+independent copy of the game, and the state networked *by default* is enough to render a
+cosmetic ghost: location, area, and animation. Deeper planes exist as of 2026-08-17 but are
+opt-in and used by no adapter — see `beyond-cosmetic.md`. Rationale in `agent_docs/brief.md`.
 
 The architecture is split into: relay server (game-agnostic), core client (game-agnostic),
 adapter contract (thin boundary), per-game adapters (game-specific rewrite). Full contract
@@ -37,7 +38,7 @@ TEVI replaced the brief's original Ori: Will of the Wisps pick.
 
 ## Depth beyond the cosmetic ghost (reserved, not scheduled)
 
-MeshGhost's default is and stays a visual-only mod. But the architecture doesn't trap it
+MeshGhost's default is and stays cosmetic. But the architecture doesn't trap it
 there for a specific game if that's wanted later — see the Extensibility section of
 `agent_docs/contract.md` and the matching ADR in `agent_docs/architecture.md` for the
 mechanism (an opaque, per-adapter event plane, built 2026-08-17 and opt-in — see

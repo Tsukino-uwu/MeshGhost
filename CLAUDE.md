@@ -1,9 +1,9 @@
 # Working notes for Claude
 
-MeshGhost is a visual-only multiplayer layer for singleplayer games — see
-`agent_docs/brief.md` for the full design vision and `agent_docs/contract.md` for the
-implemented contract (packet schema, adapter interface, transport). Read both before
-proposing a plan that touches the core, an adapter, or the relay.
+MeshGhost is an online multiplayer layer for singleplayer games; its shipped default is
+cosmetic ghosts, and deeper planes exist but are opt-in and unused — see `agent_docs/brief.md`
+for the design vision and `agent_docs/contract.md` for the implemented contract. Read both
+before proposing a plan that touches the core, an adapter, or the relay.
 
 ## RULE 0 — THE 300-LINE CAP. Outranks every other rule in this file, without exception.
 
@@ -62,6 +62,10 @@ stays here, its reasoning goes to `agent_docs/`, with a one-line pointer. Full e
   established yourself from a log line, a console read, or the Go tools above may be recorded
   without waiting — say which it was. Never write a "confirmed" entry on the strength of a
   successful build or a plausible-looking read.
+- **Never write a save — anyone's, ever, not even as a feature.** MeshGhost reads memory and
+  draws; it does not modify game state or save files, and that holds whatever gets added later —
+  the event/lease/escrow planes make "just write the item in" newly tempting. It is the promise
+  players judge a mod on; `plans.md`'s memory-write non-goal carries the detail.
 - **The core never touches the game.** No game memory access, no rendering primitives, no
   `if game == "emerald"` branching anywhere in `internal/core` or `internal/relay`.
 - **Adapters never speak the relay protocol.** An adapter may hold a socket to its own local

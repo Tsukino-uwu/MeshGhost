@@ -331,7 +331,7 @@ exact clamping table.
 
 ## Extensibility — the event plane and the arbitration planes
 
-MeshGhost's default is, and stays, a visual-only mod: cosmetic position/area/anim, no shared
+MeshGhost's default is, and stays, cosmetic: position/area/anim, no shared
 world state, no game writes. **Everything in this section is off unless a room's members all
 ask for it**, and no shipped adapter does. It exists because the architecture must never *trap*
 a specific game's adapter at cosmetic — reserved 2026-08-11, built 2026-08-17 (ADR in

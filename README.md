@@ -1,9 +1,22 @@
 # MeshGhost
 
-MeshGhost is a visual-only multiplayer layer for single-player games. Everyone runs their own
-fully independent copy of the game; friends show up as cosmetic "ghosts" with no shared world
-state — no synced items, enemies, health, or progression. Desync is expected and fine: if a
-friend kills a boss, it stays alive in your world, and that's okay.
+MeshGhost is an online multiplayer layer for single-player games. Everyone runs their own fully
+independent copy of the game; friends show up as "ghosts" — live position, facing and animation —
+while the worlds themselves stay separate. Nothing is shared unless a game's mod asks for it: by
+default there are no synced items, enemies, health or progression, and desync is expected and
+fine. If a friend kills a boss, it stays alive in your world, and that's okay.
+
+That default is a choice rather than a ceiling. The protocol underneath also carries reliable,
+ordered, addressed events between specific players, exclusive locks over opaque keys, and
+both-or-neither exchanges — built and tested, off unless every member of a room opts in, and used
+by no shipped game today. They exist so a game's adapter *could* go further; none currently does,
+and shipping one is a per-game decision nobody has taken.
+
+**Your save is never touched.** MeshGhost reads the game's memory and draws ghosts over the top;
+it does not write game state and does not modify save files — not your own, and not the save of
+anyone you play with. That is a rule the project holds itself to rather than a happy accident of
+the current features, and it stays true of anything added later. Uninstalling is deleting the
+mod's folder.
 
 ## Games
 
@@ -67,7 +80,7 @@ Full walkthrough: `packaging/release/README.txt` (ships in the zip) and
 
 ### Good to know
 
-- Reads game memory, never writes it — MeshGhost does not touch your save.
+- Reads game memory, never writes it — see the save promise at the top of this page.
 - Up to 8 players per server by default, counted across all rooms — the host can raise it.
 - Bring your own legally-obtained copy of each game — no ROMs or game assets are shipped here.
 - `room` is a label, not a password. `room_code` is the optional actual secret. By default it is

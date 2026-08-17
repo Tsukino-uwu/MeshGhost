@@ -636,6 +636,28 @@ Practical checks when packaging a new game:
 - **State what you did NOT stage, in the staging script**, so the next person does not "fix" the
   omission by restoring a blanket copy.
 
+## Hard rule: never write a save, and never write game state
+
+**Read the game; do not change it.** No save writes, no save-state editing, no writing values back
+into the running game to "make the ghost work". That holds for your own player and for every peer,
+and it holds for features not yet imagined.
+
+Two reasons, and the second is the one that will actually be tested:
+
+1. **It is the promise players judge a mod on.** "Will this corrupt my save" is the first question
+   anyone asks about installing something into a game they care about, and a single incident is
+   unrecoverable reputationally in a way a crash is not.
+2. **The temptation arrives with capability, not with intent.** The relay now offers reliable
+   ordered events, exclusive locks and both-or-neither exchanges
+   ([agent_docs/beyond-cosmetic.md](../../agent_docs/beyond-cosmetic.md)). The moment an adapter
+   wants a trade, "the exchange committed, so just write the item into the save" looks like the
+   obvious last step. It is the exact step this rule forbids. An exchange completing is a fact
+   about the *relay*; what a game does with that fact is a per-game decision that has to pass the
+   memory-write gate in [agent_docs/plans.md](../../agent_docs/plans.md), on its own, with an ADR.
+
+Reading is unrestricted, and so is drawing: spawn actors, draw overlays, pose clones, play
+animations. The line is at persistence and at authoritative game state, not at pixels.
+
 ## Hard rules, restated (unchanged from [agent_docs/contract.md](../../agent_docs/contract.md))
 
 - The adapter may hold a socket to its own local core process (the bridge) and nothing else —

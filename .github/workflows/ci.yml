@@ -111,6 +111,14 @@ jobs:
           # dependencies and setup-go had nothing to key on.
           cache: true
 
+      # Each target runs through dev-scripts/ci-fuzz.sh rather than `go test` directly.
+      # `go test -fuzz` can exit non-zero with only "context deadline exceeded" when its
+      # own -fuzztime elapses mid-execution -- no crashing input, nothing written to
+      # testdata, and a pass on the next run. Seen 2026-08-17 (45s, 3.98M execs, 273 new
+      # interesting inputs, no failing input, and the same target green locally). The
+      # wrapper forgives ONLY that bare deadline, and still fails on a real find, on a
+      # failing seed-corpus entry, and on anything else non-zero. See its own header.
+      #
       # A relay is a listening port strangers connect to, so every byte it
       # parses is attacker-controlled. Each target gets a short campaign per
       # push -- enough to catch a regression that makes previously-safe
@@ -121,44 +129,35 @@ jobs:
       # -run=XXX so the ordinary tests in these packages don't run three
       # more times here; the test job above already ran them under -race.
       - name: Fuzz protocol - state survives a relay forward unchanged
-        run: go test ./internal/protocol -run=XXX -fuzz=FuzzValidateStateIsStableAcrossTheWire -fuzztime=45s
-
+        run: dev-scripts/ci-fuzz.sh ./internal/protocol FuzzValidateStateIsStableAcrossTheWire 45s
       - name: Fuzz protocol - accepted positions cannot overflow float32
-        run: go test ./internal/protocol -run=XXX -fuzz=FuzzValidPositionsSurviveNarrowingToFloat32 -fuzztime=30s
-
+        run: dev-scripts/ci-fuzz.sh ./internal/protocol FuzzValidPositionsSurviveNarrowingToFloat32 30s
       - name: Fuzz protocol - envelope decode never panics
-        run: go test ./internal/protocol -run=XXX -fuzz=FuzzEnvelopeUnmarshalNeverPanics -fuzztime=30s
-
+        run: dev-scripts/ci-fuzz.sh ./internal/protocol FuzzEnvelopeUnmarshalNeverPanics 30s
       # The three planes past cosmetic (2026-08-17) parse their own
       # attacker-controlled shapes: an event payload is opaque bytes forwarded
       # to other players, and a lease key or escrow id becomes a map key in the
       # relay's own state. Same exposure as the state plane above, so the same
       # treatment.
       - name: Fuzz protocol - events survive a relay forward unchanged
-        run: go test ./internal/protocol -run=XXX -fuzz=FuzzValidateEventIsStableAcrossTheWire -fuzztime=30s
-
+        run: dev-scripts/ci-fuzz.sh ./internal/protocol FuzzValidateEventIsStableAcrossTheWire 30s
       - name: Fuzz protocol - lease and escrow bounds never panic
-        run: go test ./internal/protocol -run=XXX -fuzz=FuzzValidateLeaseAndEscrowNeverPanic -fuzztime=30s
-
+        run: dev-scripts/ci-fuzz.sh ./internal/protocol FuzzValidateLeaseAndEscrowNeverPanic 30s
       # Room feature stickiness compares normalized capability lists by string
       # equality, so a normalizer that is not idempotent would refuse two
       # clients a shared room for no reason -- a handshake failure with no
       # legible cause.
       - name: Fuzz protocol - feature normalization is idempotent
-        run: go test ./internal/protocol -run=XXX -fuzz=FuzzNormalizeFeaturesIsIdempotent -fuzztime=30s
-
+        run: dev-scripts/ci-fuzz.sh ./internal/protocol FuzzNormalizeFeaturesIsIdempotent 30s
       - name: Fuzz transport - framing honours its line limit
-        run: go test ./internal/transport -run=XXX -fuzz=FuzzReadLoopNeverExceedsItsLineLimit -fuzztime=45s
-
+        run: dev-scripts/ci-fuzz.sh ./internal/transport FuzzReadLoopNeverExceedsItsLineLimit 45s
       - name: Fuzz relay - survives arbitrary bytes and still serves clients
-        run: go test ./internal/relay -run=XXX -fuzz=FuzzRelaySurvivesArbitraryLines -fuzztime=45s
-
+        run: dev-scripts/ci-fuzz.sh ./internal/relay FuzzRelaySurvivesArbitraryLines 45s
       # udp parses stranger datagrams *before* address validation, room code or
       # protocol version -- the most exposed pre-auth surface in the project,
       # and since 2026-08-16 it is also on the fallback path rather than opt-in.
       - name: Fuzz udpconn - listener survives arbitrary datagrams
-        run: go test ./internal/netx/udpconn -run=XXX -fuzz=FuzzListenerSurvivesArbitraryDatagrams -fuzztime=45s
-
+        run: dev-scripts/ci-fuzz.sh ./internal/netx/udpconn FuzzListenerSurvivesArbitraryDatagrams 45s
       # A fuzz failure writes the exact reproducing input to
       # testdata/fuzz/<Target>/<hash>. Without this it exists only inside a
       # deleted runner and the log shows a hash nobody can reproduce from;
