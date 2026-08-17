@@ -137,6 +137,17 @@ event.onframeend(function()
 	local map_key = string.format("%d/%d", group or -1, number or -1)
 	local key = map_key .. " " .. marks
 
+	-- Heartbeat. Without this, a run in a quiet map (the player's bedroom has no NPCs at all)
+	-- produces one line and looks like a broken probe rather than an empty room. Found live
+	-- 2026-08-17 on this probe's first run.
+	if frames % 300 == 0 and key == last_key then
+		local p = slot(0)
+		log(string.format(
+			"  [alive] map=%s slots [%s] %d used   player x=%d y=%d",
+			map_key, marks, used, p.x or -1, p.y or -1
+		))
+	end
+
 	if key ~= last_key then
 		if map_key ~= last_map then
 			log(string.format("--- map changed -> group=%s ---", map_key))

@@ -1,0 +1,7 @@
+=== MeshGhost Crystal object-slot probe (READ-ONLY) ===
+Logging to ./object_slot_probe_20260817_234842.log
+13 slots of 40 bytes at flat 0x14D6 (01:d4d6). Slot 0 is the player.
+Walk around, pass NPCs, and enter/leave a building.
+--- map changed -> group=24/7 ---
+slots [X............]  1 used, 12 free
+  slot  0: sprite=  1 mapobj=  0 pal=  0 dir=0 x=  5 y=  7   <- player
