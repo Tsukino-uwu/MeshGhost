@@ -49,18 +49,26 @@ Internal documentation for MeshGhost: architecture, planning, licensing, and ver
 - `phases/` — a file per phase. Kept around after the phase ends as a work log/archive
   rather than folded away — [status.md](status.md) and [plans.md](plans.md) stay the
   current-state summary.
-- [../docs/security.md](../docs/security.md) — lives with the code, not here on purpose
-  (see that file). Security and privacy posture of the Go networking layer: what's already
+**`../docs/` is the other half of the documentation, and it is not this folder's job.** It is
+written for people *using* MeshGhost; `agent_docs/` is the internal record of how it was built.
+Four files, all one level up:
+
+- [../docs/security.md](../docs/security.md) — security and privacy posture: what's already
   checked-safe (no client ever learns a peer's IP; room-code auth, protocol- and game-version
   checks, and bounded reads all shipped 2026-08-14) versus the gaps that remain. Since
   2026-08-16 `quic` is the default, so a room code is encrypted by default — but the certificate
   is unverified, so encrypted is not authenticated, and `tcp`/`udp` are still plaintext.
-- [../docs/integrating.md](../docs/integrating.md) — also lives
-  with the code. How someone who owns their own game's source could reimplement the client, or
-  embed the relay, instead of writing an adapter. **Unsupported and untested by us** — we test the
-  relay, the client and our own adapters, nothing else — but it records the things only the Go
-  source knew: the QUIC rules an implementer must match exactly, a real captured wire transcript,
-  what the relay answers versus drops in silence, and why `go get` cannot work on this module.
+- [../docs/networking.md](../docs/networking.md) — how the relay and client actually work,
+  traced through the real code: the life of a connection, the life of a state message, the
+  concurrency model, the transports, the limits. Read it before changing any of them.
+- [../docs/integrating.md](../docs/integrating.md) — putting MeshGhost into a game whose source
+  you own, in any language: the sidecar bridge (least work, and what every shipped adapter
+  does), importing the Go packages, or reimplementing the relay protocol. **Unsupported and
+  untested by us** — we test the relay, the client and our own adapters, nothing else — but it
+  records the things only the Go source knew: the QUIC rules an implementer must match exactly,
+  a real captured wire transcript, and what the relay answers versus drops in silence.
+- [../docs/antivirus.md](../docs/antivirus.md) — why the unsigned Go binaries get flagged, the
+  two separate causes, and what a user can verify instead of taking our word for it.
 - [claude-md-cap.md](claude-md-cap.md) — why `CLAUDE.md` holds a hard 300-line cap, and why
   `status.md`'s cap is per-item rather than a flat line count. The evidence behind two rules
   that otherwise read as arbitrary.

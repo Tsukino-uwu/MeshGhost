@@ -911,9 +911,9 @@ a relay behind such a proxy is reachable over WSS on 443 and nothing else. If th
 
 ## Code signing the Windows binaries (SignPath OSS)
 
-**Named publicly as the intended fix 2026-08-16**, when `README.md` gained a "My antivirus flagged
-it" section, so it needs an entry of its own rather than the single sequencing mention it had
-inside the TLS idea. Unstarted.
+**Named publicly as the intended fix 2026-08-16**, in the "My antivirus flagged it" text that now
+lives at `docs/antivirus.md`, so it needs an entry of its own rather than the single sequencing
+mention it had inside the TLS idea. Unstarted.
 
 **What it is:** SignPath offers free code-signing certificates and a signing service to open-source
 projects. The build would sign `meshghost.exe` and `meshghost-server.exe` in

@@ -115,7 +115,7 @@
   rather than a signature match. The profile it fires on is accurate about us: unsigned, almost no
   download reputation, opens network connections, and now started by a game mod rather than a
   person. **Signing is expected to reduce this, not end it** — an ML verdict weighs reputation too,
-  and a new certificate has none. Explained to users in `README.md`'s "My antivirus flagged it" and
+  and a new certificate has none. Explained to users in `docs/antivirus.md` and
   `packaging/release/README.txt`; the intended fix has its own entry in `ideas.md`.
 - **Autostart makes the antivirus false positives more likely, not less** (added 2026-08-16 with
   the autostart ADR). The shipped exes already draw false-positive trojan flags, and a game mod

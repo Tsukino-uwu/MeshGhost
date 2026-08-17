@@ -336,7 +336,7 @@ writing any of this — findings below are cited to real files, not memory.
   `CelesteNet-TeapotVersion` header, server responds `409 Version Mismatch` on anything but an
   exact match (`HandshakerRole.cs`'s `TeapotHandshake`). We already do the direct equivalent
   for our own wire protocol (`protocol.Version`, checked in `hello` at
-  [relay.go:702](relay/relay.go#L702)) — and, since 2026-08-14, the same reject-at-handshake
+  [relay.go:702](../relay/relay.go#L702)) — and, since 2026-08-14, the same reject-at-handshake
   shape for each adapter's own `game_version` too (see "What changed" above).
 - **Unpredictable per-connection tokens** (`CelesteNet.Shared/TokenGenerator.cs`, a Galois
   LFSR) specifically prevent a third party from hijacking someone else's *UDP* connection by
