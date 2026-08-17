@@ -1,5 +1,26 @@
 # How `<game>` works
 
+## Before adding anything to this file
+
+**KEEP THIS SECTION when you copy this file.** It is repeated verbatim at the top of every
+adapter's `documentation.md` on purpose — the rule has to be visible at the moment someone is about
+to paste something in, not one link away in a file they have not opened. Rule and reasoning:
+`adapters/_template/README.md`.
+
+**Explain facts; never reproduce expression.** Measured numbers, timings, field/function/type
+*names*, and behaviour described in your own sentences are all fine. Source text in any language,
+decompiler or disassembler output, asset content or extracted strings, verbatim reflection or memory
+dumps, and data tables copied wholesale are never fine — **regardless of what a licence permits**.
+
+**The test: could someone re-derive this by owning the game and watching it?** If yes, it is a fact
+and may be explained; whatever you learned it from only saved you the time, and is not the source of
+your right to know it. If the only way to have it is to copy something, it stays out.
+
+This is `CLAUDE.md`'s standing rule — *is this fine sitting in a public repo forever?* — applied to
+prose. No, or merely unclear, means out.
+
+---
+
 Copy this file into your adapter folder next to its `README.md`, and fill it in as you learn how
 the game does things.
 

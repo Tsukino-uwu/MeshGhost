@@ -127,6 +127,18 @@ usually fine, but a table that *is* the entire content of a source file is the c
 to the line, so make it a considered call and prefer prose when in doubt. And every copy must carry
 the provenance sentence at the top — `agent_docs/licensing.md`'s audit greps for it.
 
+**The rule above is repeated verbatim at the top of every adapter's `documentation.md`, and must
+stay there.** Not a link to it — the text itself. A rule that lives one click away is read once,
+when the file is created, and then not again at the moment it matters: someone pasting something in
+months later. `_template/documentation.md` carries it as a `## Before adding anything to this file`
+section, marked KEEP; copying that file forward is what propagates it. All four shipped adapters
+carry it (added 2026-08-18, on the user's instruction: *"so we always guarantee that we don't
+accidently add something wrong/bad anywhere"*).
+
+**A new adapter's `documentation.md` therefore starts with three things**, before a single fact
+about the game: that section, the provenance sentence, and the no-workarounds rule. Delete none of
+them.
+
 **A state inventory is not expected either** — it is worth a file
 only when the game gives you far more readable state than you sync, and its form is completely
 game-specific: memory addresses for Emerald, C# class fields for TEVI, reflected UE properties for

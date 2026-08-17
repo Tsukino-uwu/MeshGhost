@@ -1,5 +1,20 @@
 # How Pseudoregalia works
 
+## Before adding anything to this file
+
+**Explain facts; never reproduce expression.** Measured numbers, timings, field/function/type
+*names*, and behaviour described in your own sentences are all fine. Source text in any language,
+decompiler or disassembler output, asset content or extracted strings, verbatim reflection or memory
+dumps, and data tables copied wholesale are never fine — **regardless of what a licence permits**.
+
+**The test: could someone re-derive this by owning the game and watching it?** If yes, it is a fact
+and may be explained; whatever you learned it from only saved you the time, and is not the source of
+your right to know it. If the only way to have it is to copy something, it stays out.
+
+This is [CLAUDE.md](../../CLAUDE.md)'s standing rule — *is this fine sitting in a public repo
+forever?* — applied to prose. No, or merely unclear, means out. Full guidance and the two edge cases
+worth knowing: [adapters/_template/README.md](../_template/README.md).
+
 **What this file is: how *the game* does things.** Slide, crouch, wall ride, the trail — what each
 move actually does to the character, which fields carry it, and which components it moves. Written
 down so the next person can read "oh, *that's* how a slide works" instead of rediscovering it by
