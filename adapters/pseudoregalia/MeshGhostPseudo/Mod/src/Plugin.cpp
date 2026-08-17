@@ -4,6 +4,7 @@
 #include <array>
 #include <bit>
 #include <cctype>
+#include <chrono>
 #include <cmath>
 #include <cstdio>
 #include <map>
@@ -116,7 +117,13 @@ namespace MeshGhostPseudo
     // Cheap enough to trust its own output: it logs on CHANGE, not per tick (see
     // last_traced_mesh_z), so a session prints a handful of lines and cannot distort the timing it
     // is measuring the way a per-tick enumeration would.
-    constexpr bool GHOST_MESH_Z_TRACE = true;
+    //
+    // **OFF again the same evening: it answered.** The 53 transitions it captured are what
+    // SLIDE_SEAM_HOLD_MS is derived from, and they are recorded in verified.md and
+    // documentation.md, so the number survives without the probe. Turn it back on to re-measure
+    // the slide duration against a new game build, which is the one thing that would invalidate
+    // that constant.
+    constexpr bool GHOST_MESH_Z_TRACE = false;
 
     // Diffs the LOCAL pawn's whole property set, standing versus mid-slide and standing versus
     // crouching, to identify what actually drives the pose. See its block in tickLocal for why a
@@ -247,6 +254,24 @@ namespace MeshGhostPseudo
     // Measured on this build across 692 samples: 65 standing, 22 in a slide or a crouch. Used only
     // to ask "is the peer shorter than standing?", never as an offset added to anything.
     constexpr double GHOST_STANDING_CAPSULE_HALF = 65.0;
+
+    // **How long a peer may appear to stand before the ghost believes it.**
+    //
+    // A held slide is not one continuous crouch. Measured 2026-08-17 with GHOST_MESH_Z_TRACE in
+    // loopback -- where the peer IS the player, so that column reads a real player's own capsule --
+    // the game's slide is a fixed ~600ms action that re-triggers while held, and the capsule
+    // genuinely returns to standing in between. Across 53 transitions the standing gaps were
+    // sharply bimodal: 14, 20, 36, 70, 70 and 153ms, then NOTHING until 244ms and up. The short
+    // group is the seam between two repeats of one slide; the long group is a real stand-up.
+    //
+    // 200ms sits in the empty band between the two populations, with ~50ms of margin on each side.
+    // That makes it a measured separation rather than a tuned value -- and if a future game build
+    // changes the slide duration, the honest response is to re-measure, not to nudge this.
+    //
+    // The cost of being wrong is bounded and asymmetric, which is why the hold is worth having: too
+    // long and a ghost stays in a slide pose for up to 200ms after a genuine stand-up; too short
+    // and every seam becomes a visible pose bounce, which is the behaviour this replaces.
+    constexpr uint64_t SLIDE_SEAM_HOLD_MS = 200;
 
     // **Mirror the peer's CAPSULE onto the ghost, every tick, and let the game move the mesh.**
     //
@@ -5968,7 +5993,57 @@ namespace MeshGhostPseudo
                 it->second.target_jump_count = jump_count;
                 it->second.target_afterimage_count = afterimage_count;
                 it->second.target_afterimage_spawn_n = afterimage_n;
-                it->second.target_capsule_half = capsule_half;
+                // Milliseconds on a monotonic clock. steady_clock, not the wall clock, because
+                // this measures an interval and a wall-clock adjustment mid-session must not
+                // widen or collapse a seam.
+                const auto now_ms = static_cast<uint64_t>(
+                    std::chrono::duration_cast<std::chrono::milliseconds>(
+                        std::chrono::steady_clock::now().time_since_epoch())
+                        .count());
+
+                // **Hold a shrunk capsule across the micro-gaps between repeated slides.**
+                //
+                // Measured 2026-08-17 with GHOST_MESH_Z_TRACE in loopback, where the peer IS the
+                // player, so this column reads a real player's own capsule: a HELD slide is not one
+                // continuous crouch. The game's slide is a fixed ~600ms action that re-triggers
+                // while the input is held, and the capsule genuinely returns to standing in
+                // between. Across 53 transitions the standing gaps were sharply bimodal --
+                // 14, 20, 36, 70, 70, 153ms, then nothing at all until 244ms and up. The short
+                // group is the seam between two repeats of one slide; the long group is a real
+                // stand-up.
+                //
+                // The ghost was mirroring that faithfully, and looked wrong for it. A player does
+                // not see those seams because their mesh is animation-blended through them,
+                // whereas a ghost is posed discretely through the game's crouch system, which
+                // cannot start and finish a pose transition inside 14ms. So every seam became a
+                // visible pose bounce, which the user reported as the slide feeling "delayed" --
+                // the symptom was churn, not latency.
+                //
+                // Held at the single point the value arrives rather than at each of the five
+                // consumers (capsule mirror, slideTick, crouch input, crouch event, pose window),
+                // so they cannot disagree about whether a slide is in progress -- which is exactly
+                // the class of bug the ALL FIVE note warns about.
+                //
+                // The threshold sits in the empty band between the two populations, so it is a
+                // measured separation and not a tuned value; if a future build changes the slide
+                // duration, re-measure rather than nudge it.
+                if (capsule_half > 0.0 && capsule_half < GHOST_STANDING_CAPSULE_HALF)
+                {
+                    it->second.last_shrunk_ms = now_ms;
+                    it->second.target_capsule_half = capsule_half;
+                }
+                else if (it->second.last_shrunk_ms != 0 &&
+                         now_ms - it->second.last_shrunk_ms < SLIDE_SEAM_HOLD_MS &&
+                         it->second.target_capsule_half > 0.0 &&
+                         it->second.target_capsule_half < GHOST_STANDING_CAPSULE_HALF)
+                {
+                    // Inside the seam: keep the previous (shrunk) value, so no consumer ever sees
+                    // the peer stand up for a frame or two.
+                }
+                else
+                {
+                    it->second.target_capsule_half = capsule_half;
+                }
                 it->second.target_slide_t = slide_t;
                 if (has_afterimage_color)
                 {

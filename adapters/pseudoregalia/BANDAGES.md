@@ -128,6 +128,25 @@ pawn — pitch and roll are confirmed always zero — and was left unfixed delib
 
 None currently recorded for this adapter.
 
+## Shipped compensations
+
+- **`SLIDE_SEAM_HOLD_MS` — holding a ghost's slide pose across the seams between repeated slides.**
+  A held slide is a ~600ms action that re-triggers, and the capsule really does return to standing
+  for 14-153ms in between (`documentation.md`). The ghost mirrored that faithfully and looked wrong
+  for it, because a player's mesh is animation-blended through those seams while a ghost is posed
+  discretely through the game's crouch system, which cannot start and finish a transition inside
+  14ms. Every seam became a visible pose bounce, reported as the slide feeling "delayed".
+  **Why it is a bandage and not a fix:** it makes the ghost show something the peer's capsule was
+  not doing at that instant, to compensate for the pose mechanism being slower than the data. The
+  real fix is a ghost posed by the same animation path the player uses, which nothing here has
+  found. **The tell that it is still a bandage:** the threshold is a duration, and durations
+  compensating for a mechanism's latency are exactly the shape that quietly stops matching when the
+  mechanism or the game changes.
+  Bounded and asymmetric on purpose: too long costs up to 200ms of stale pose after a genuine
+  stand-up, too short restores the bounce. Derived from the empty band between two measured
+  populations, so **re-measure with `GHOST_MESH_Z_TRACE` rather than nudging it** if a game update
+  changes the slide.
+
 ## Deliberate — do NOT "fix" these
 
 Recorded so a future audit does not churn them.

@@ -338,6 +338,10 @@ namespace MeshGhostPseudo
         // This is the input to the ghost's mesh offset below, and it doubles as the real slide
         // signal -- see the GHOST_MESH_Z_CAPSULE_GAP block in tickRenders.
         double target_capsule_half{};
+        // Monotonic-clock time this peer was last seen shrunk, for the slide-seam hold applied
+        // where target_capsule_half is assigned. 0 means "never seen shrunk", which must not be
+        // treated as "shrunk a very long time ago".
+        uint64_t last_shrunk_ms{};
         // The peer's point on the slide Timeline's curve (1.0 standing, toward 0 mid-slide).
         // Driven onto the ghost with the Blueprint's own Timeline update function -- see
         // SLIDE_TIMELINE_TRACK in Plugin.cpp.

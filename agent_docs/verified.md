@@ -5475,3 +5475,28 @@ in `CLAUDE.md` is filename-only. Append-only means they stay; new entries should
   and the neighbourhood already has a `BANDAGES.md` "do NOT fix these" entry. A change here costs a
   DLL rebuild, a deploy, and another live session, so it wants a stated hypothesis and one
   measurement, not a guess.
+
+### Pseudoregalia: a held slide re-triggers every ~600ms, and the capsule really does stand up between repeats
+
+- Date: 2026-08-17
+- Observed: agent-read from `GHOST_MESH_Z_TRACE`'s `peerHalf` column during a user-played loopback
+  session. **In loopback the peer is the player** — the ghost's state is the player's own, echoed
+  back — so that column reads a real player's own capsule directly, which is what made this
+  measurable at all without a second machine.
+- **The measurement**, 53 transitions in one session:
+  - Capsule at the sliding value (22.0): mean **624ms**, tightly clustered around ~600ms.
+  - Capsule at standing (65.0): **sharply bimodal** — 14, 20, 36, 70, 70, 153ms, then nothing
+    whatsoever until 244ms and up.
+  - So a held slide is a fixed ~600ms action that re-triggers, with a genuine few-tens-of-ms
+    stand-up in the seam between repeats.
+- **This settles the fork** left open earlier the same day: the local capsule genuinely oscillates,
+  and the adapter's read of it is correct. The ghost was mirroring reality and looked wrong for it,
+  because a player's mesh is animation-blended through the seams while a ghost is posed discretely
+  through the game's crouch system, which cannot complete a transition inside 14ms.
+- The fix shipped is `SLIDE_SEAM_HOLD_MS` (200ms, in the empty band between the two populations),
+  recorded as a bandage in `adapters/pseudoregalia/BANDAGES.md`. **Not yet watched on screen** —
+  the measurement is confirmed, the improvement is not.
+- Notes: the Go side had already been cleared by test rather than by argument
+  (`TestOpaqueFieldsNeverFlapAcrossInterpolation` — an opaque field that changes once across
+  interpolation changes once), which is what narrowed this to a single question with two opposite
+  answers and made one probe enough.

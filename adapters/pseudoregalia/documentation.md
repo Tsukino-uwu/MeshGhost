@@ -266,3 +266,24 @@ does and how confident you are, and link the evidence in `verified.md` instead o
 
 If you catch yourself writing "so we…", stop — that sentence belongs in `BANDAGES.md` or the
 `README.md`.
+
+## Sliding
+
+A held slide is **not one continuous crouch**. The slide is a fixed-duration action of roughly
+**600ms** that re-triggers for as long as the input is held, and the character's capsule genuinely
+returns to its standing half-height (65.0) in the seam between two repeats before dropping back to
+the sliding value (22.0).
+
+Measured 2026-08-17 across 53 capsule transitions in one session. The two populations are sharply
+separated, with nothing at all in between:
+
+| | Observed |
+|---|---|
+| Slide (capsule 22.0) | ~600ms, tightly clustered (mean 624ms over 26 samples) |
+| Seam between repeats (capsule 65.0) | 14, 20, 36, 70, 70, 153ms |
+| A real stand-up (capsule 65.0) | 244ms and longer |
+
+The seams are invisible to the player because their mesh is animation-blended through them — the
+capsule is a physics shape, not what is drawn. That distinction matters for anything that mirrors a
+character's pose rather than its animation: the capsule tells you what the game *is doing*, not
+what the player *sees*.
