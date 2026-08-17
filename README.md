@@ -25,26 +25,37 @@ that also means there is no anti-cheat here: a lying client still lies. And arbi
 round trip, because an adapter must ask before acting rather than announce afterwards, which is
 unnoticeable in a trade menu and unusable in a fight.
 
-**What a single game's adapter could reach is higher, and it is not a permission problem.** A mod
-can already spawn and drive real entities — that is exactly what a ghost is, a real player pawn
-clone posed by its own game's systems. Nothing stops that being extended to enemies, pickups or
-doors, with one side authoritative and the other showing what it is told, and none of it involves
-touching a save. What decides whether that is achievable is the *game*, not this project:
+**What a single game's adapter could reach is much higher, and it is not a permission problem.** A
+mod can already spawn and drive real entities — that is exactly what a ghost is, a real player pawn
+clone posed by its own game's systems. Take that to its conclusion and you get actual co-op: mod
+the game so nothing dynamic is placed by the level at all, and the player, the enemies and the
+pickups all arrive from the network instead, one client owning them and the rest displaying what
+they are told. The two copies then never have to independently agree about anything, because only
+one of them is deciding. None of it involves touching a save — spawning and driving things is
+runtime state, the same as the ghost.
 
-- **Can the two copies be made to agree?** An emulated game is deterministic by construction, so
-  agreement can come from replaying the same inputs — the way emulator netplay already works.
-  A modern engine cannot: float drift, frame-rate-dependent physics and non-deterministic update
-  ordering mean two copies diverge on their own.
-- **Can the local game be told to stop deciding?** If a peer owns the enemies, your copy must not
-  also run their AI, or both simulate and neither matches. Suppressing a game's own systems is
-  deep, per-game work.
-- **Does it survive the round trip?** Remote-driven entities arrive late. Real co-op games hide
-  that with prediction and rollback, which is a substantial project in its own right.
+The relay does not change for any of that. It keeps forwarding opaque blobs and understanding
+nothing. What the work actually costs is all inside the game:
 
-So the ceiling is genuinely movable, per game, by whoever writes that adapter — but at that point
-it is a game-specific netcode project that happens to reuse this relay and transport, rather than a
-bigger version of MeshGhost, and this repo records it as architecturally separate rather than
-merely unscheduled. Full reasoning, including which of the shipped games could and could not:
+- **Switching off the game's own authority, comprehensively.** Every native spawn, trigger and AI
+  tick for a peer-owned entity has to stop running locally, or both copies simulate and neither
+  matches. This is the deep part, it is per-game, and it is all-or-nothing per entity type.
+- **Volume.** Today one snapshot per *player*; this needs one per *entity*, which is a different
+  scale of traffic even though the relay still cannot read any of it.
+- **Latency, with nothing to hide it behind.** A remotely-owned enemy is always as old as the round
+  trip. Real co-op games spend prediction and rollback on exactly that, which is a substantial
+  project by itself.
+- **Trust becomes total.** The owning client's word is final for everything it owns, so it is a
+  model for playing with friends, not a security boundary.
+
+(There is a second route — replay identical inputs on both sides, the way emulator netplay does —
+but it needs the game to be deterministic, so it is plausible for an emulated game and not for a
+modern engine that drifts on floats and update ordering.)
+
+So the ceiling really is movable, per game, by whoever writes that adapter. What it stops being at
+that point is a MeshGhost feature: it is a game-specific netcode project reusing this relay and
+transport, which this repo records as architecturally separate rather than merely unscheduled. Full
+reasoning, including which of the shipped games could and could not:
 [agent_docs/beyond-cosmetic.md](agent_docs/beyond-cosmetic.md).
 
 **Your save is never touched.** MeshGhost reads the game's memory and draws ghosts over the top;

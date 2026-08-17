@@ -65,11 +65,56 @@ server authority is impossible here. It isn't.
 | **Client authority** (today) | forwards; each client owns only itself | no |
 | **Sequencer authority** | stamps a total order on opaque events | **no** |
 | **Lease authority** | grants an opaque key to the first asker, refuses the rest | **no** |
-| **Simulation authority** | runs game logic, validates actions | **yes — excluded** |
+| **Simulation authority** *(in the relay)* | runs game logic, validates actions | **yes — excluded** |
+| **Peer authority** *(in a client)* | forwards one client's entity state to the rest | **no** |
 
 Sequencer and lease authority are *real* server authority in the practically useful sense, and both
 keep the relay completely dumb. They are the same trick `area_id` and `anim` already use: an opaque
 string compared by equality, nothing more.
+
+### Peer authority, added 2026-08-17 — the model this table was missing
+
+The fifth row came out of a user question — *"a full online would require even the player to spawn
+in online, so nothing is bound/placed in the game itself, same for enemies… disabled by default,
+but spawned in online"* — and it is worth its own note, because the original four rows quietly
+implied that anything past lease authority needed a game-aware relay. It does not.
+
+**Nothing says the simulation has to run in the relay.** Let one *client* own the enemies, spawn
+them, run their AI, and stream their state; every other client suppresses its own spawning and
+renders what it is told. The relay forwards opaque per-entity blobs and understands exactly as
+little as it does today. That is the ordinary dedicated-host model, and it is how most co-op games
+actually work.
+
+**Why this matters: it sidesteps determinism entirely.** §7's lockstep answer is per-game and
+mostly negative — Unity and Unreal drift on floats and update ordering, so two copies cannot be
+made to agree by replaying inputs. Peer authority never asks them to agree: only one copy decides
+anything, and the rest are displays. So the constraint that rules lockstep out for the two modern
+games does not apply here at all.
+
+What it costs instead, and none of it is relay work:
+
+- **Suppressing the local game's own authority, comprehensively.** Every native spawn, trigger and
+  AI tick for a peer-owned entity has to stop running locally, or both copies simulate and neither
+  matches. That is the deepest per-game work in the list, and it is all-or-nothing per entity type.
+- **Volume.** The state plane carries one snapshot per *player*. This needs one per *entity*, which
+  is a different scale of traffic — still opaque to the relay, but a real protocol sizing question
+  rather than a free extension of what exists.
+- **Latency, with no arbitration to hide behind.** A remotely-owned enemy is always as old as the
+  round trip. Real games spend prediction and rollback on exactly this, and that is a substantial
+  project of its own.
+- **Trust becomes total.** The owning peer's word is final for everything it owns, so a modified
+  client is not merely lying about itself. Fine among friends, which is this project's setting;
+  worth being explicit that it is not a security model.
+
+**It does not need a save write**, which is worth stating because the instinct is to assume it
+does: spawning and driving entities is runtime state, exactly like the ghost pawn the Pseudoregalia
+adapter already clones and poses through the game's own systems. `CLAUDE.md`'s save rule is
+untouched by any of this.
+
+So the honest position is that the ceiling is **movable by a game's adapter**, not by the relay,
+and that the thing which decides it is how much of a game's own authority can be switched off
+rather than anything in this repo. At that point it is a game-specific netcode project reusing this
+transport — §11's line, unchanged.
 
 ### Why it stays dumb: the relay never judges merit, only arrival
 
