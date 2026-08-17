@@ -408,12 +408,28 @@ local function tick()
 	-- number of tiles from the window origin when the object is idle; anything else means a step
 	-- ended somewhere it should not have. Logging it keeps the cause visible instead of papering
 	-- over it with a re-align, which would be a compensation for something not yet understood.
+	-- COLLISION vs VISUAL. Collision follows the MAP coordinates; the sprite is drawn from the
+	-- SCREEN coordinates. If the two disagree, the ghost blocks a tile it does not appear to
+	-- occupy — the user's "hitbox is a bit off visually", and a smaller version of the two-tile
+	-- gap seen in the very first spawn test.
+	--
+	-- Measure it rather than eyeball it: recompute where the sprite SHOULD be from the map
+	-- coordinates, using the engine's own formula, and report the difference in pixels.
 	local sx = u8(mine.st_base + F_SPRITE_X) or 0
 	local sy = u8(mine.st_base + F_SPRITE_Y) or 0
-	if (sx % 16) ~= 0 or (sy % 16) ~= 0 then
+	local mx = u8(mine.st_base + F_MAP_X) or 0
+	local my = u8(mine.st_base + F_MAP_Y) or 0
+	local wx, wy = u8(W_XCOORD) or 0, u8(W_YCOORD) or 0
+	local bx, by = u8(W_BGMAPOFFSETX) or 0, u8(W_BGMAPOFFSETY) or 0
+	local want_x = (((mx - wx) & 0x0F) * 16 - bx) & 0xFF
+	local want_y = (((my - wy) & 0x0F) * 16 - by) & 0xFF
+	if sx ~= want_x or sy ~= want_y then
+		local dx = ((sx - want_x + 128) & 0xFF) - 128 -- signed
+		local dy = ((sy - want_y + 128) & 0xFF) - 128
 		log(string.format(
-			"  f=%-6d MISALIGNED while idle: sprite_x=%d sprite_y=%d (not multiples of 16)",
-			frames, sx, sy
+			"  f=%-6d OFFSET while idle: sprite is (%d,%d), map %d,%d says it should be (%d,%d) "
+				.. "— out by (%d,%d) px",
+			frames, sx, sy, mx, my, want_x, want_y, dx, dy
 		))
 	end
 
