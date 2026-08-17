@@ -625,6 +625,19 @@ protocol above is actually run and watched.
    collidable-but-unhittable — no response on whatever channel the damage/weapon trace queries
    (still unidentified per `GHOST_COLLISION_ENABLED`'s own comment).
 
+   **New lead, 2026-08-17 — it may not be a trace problem at all.** The user reports that killing a
+   ghost leaves the real player stuck at 0 health with the health bar gone from the HUD, and
+   suspects the health element is shared or tied between player and ghost. If that is right, it
+   reframes everything above: `bCanBeDamaged = false` landing and doing nothing is exactly what you
+   would expect when the damage never travelled through the ghost's damage path to begin with,
+   because both characters resolve to the same health state (or the HUD binds to whichever
+   character it finds rather than the possessed one). That would make "find the bespoke melee
+   trace" the wrong search. **The cheap discriminating test: read the ghost's and the player's
+   health property identity — same object/address or two — before swinging at anything.** Note
+   `HEALTH_TRACE` (`Plugin.cpp:668`) was flipped off precisely because it never resolved a health
+   property on this build, so finding where health actually lives is step zero. See `verified.md`
+   2026-08-17 and `status.md`.
+
    **Found dangerous, then FIXED, 2026-08-15 — the feature now stands on its own.** The untested
    vector flagged here (enemy damage) turned out to be real and run-ending: an enemy hitting a ghost
    hurt and could kill the real player, during ordinary play, with no visible cause. Fixed by

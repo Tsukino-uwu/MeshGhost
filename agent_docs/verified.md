@@ -5321,3 +5321,29 @@ filename only, never with an absolute path. Several older entries here carry abs
 external checkouts (a `pokeemerald` decomp, an Archipelago install, a Steam library, a CMake
 install). They are harmless — no username in any of them — but unusable to a reader, and the rule
 in `CLAUDE.md` is filename-only. Append-only means they stay; new entries should not add more.
+
+### Pseudoregalia: killing a ghost leaves the real player at 0 health with no health bar
+
+- Date: 2026-08-17
+- Observed: user-watched, reported live. Two separate facts, both with
+  `GHOST_COLLISION_ENABLED = true`:
+  1. **Enemies can no longer hit the ghost.** This closes the enemy-damage vector that was
+     confirmed open on 2026-08-15 (an enemy hitting a ghost could hurt and kill the real player).
+     The fix that achieved it is re-typing the ghost's capsule as `WorldDynamic` so enemy
+     targeting, which queries the Pawn object type, stops seeing it.
+  2. **The real player can still hit the ghost, and killing it leaves the player stuck at 0 health
+     with the health bar element gone from the HUD** — not returned to a normal alive state. Still
+     WIP; deliberate player-on-ghost melee remains an accepted footgun for now.
+- Source: user observation on screen. `GHOST_COLLISION_ENABLED` (`Plugin.cpp:535`);
+  the enemy-targeting fix is `call_set_collision_object_type` (`Plugin.cpp:1963`, `ECC_WorldDynamic
+  = 1`); the hurtbox gate is `bCanBeDamaged = false` (`Plugin.cpp:5645-5647`).
+- Notes: **The user's hypothesis is that the health element / HUD is tied or shared between the
+  player and the ghost.** It fits a standing puzzle: `bCanBeDamaged = false` is already shipped on
+  the ghost and was found not to stop damage reaching the real player (`Plugin.cpp:1954`). If the
+  ghost and the player resolve to the same health state, or the HUD binds to whichever character it
+  finds rather than specifically the possessed one, then a gate on the ghost's own `TakeDamage`
+  path is irrelevant by construction — the damage never needed to travel through the ghost's damage
+  path at all. That the surviving vector is *player* melee rather than enemy damage is consistent
+  with it: the player's own attack resolves against a character the HUD already considers its
+  subject. Not root-caused; this is the observation plus the lead. Ghost collision is being kept ON
+  deliberately for further testing rather than switched off.
