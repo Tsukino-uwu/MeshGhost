@@ -27,10 +27,10 @@ import (
 	"testing"
 	"time"
 
-	"meshghost/internal/bridge"
-	"meshghost/internal/netx"
-	"meshghost/internal/protocol"
-	"meshghost/internal/transport"
+	"github.com/Tsukino-uwu/MeshGhost/bridge"
+	"github.com/Tsukino-uwu/MeshGhost/netx"
+	"github.com/Tsukino-uwu/MeshGhost/protocol"
+	"github.com/Tsukino-uwu/MeshGhost/transport"
 )
 
 const (
@@ -143,7 +143,7 @@ func waitForListener(t *testing.T, addr string) {
 // returns the render_remote messages it receives.
 //
 // It reconnects, which is not incidental: when the client cannot reach the
-// relay, internal/core deliberately closes the bridge connection so the
+// relay, core deliberately closes the bridge connection so the
 // adapter retries later (see core.go's bridge Hello handler and
 // adapters/_template/PROTOCOL.md's "non-blocking, retry next frame on
 // failure"). Every real adapter -- the BizHawk Lua, TEVI's plugin,
@@ -291,8 +291,8 @@ func newRig(t *testing.T) rig {
 	dir := t.TempDir()
 	return rig{
 		dir:        dir,
-		relayBin:   buildBinary(t, dir, "meshghost/cmd/meshghost-relay", "meshghost-server"),
-		clientBin:  buildBinary(t, dir, "meshghost/cmd/meshghost", "meshghost"),
+		relayBin:   buildBinary(t, dir, "github.com/Tsukino-uwu/MeshGhost/cmd/meshghost-relay", "meshghost-server"),
+		clientBin:  buildBinary(t, dir, "github.com/Tsukino-uwu/MeshGhost/cmd/meshghost", "meshghost"),
 		relayAddr:  net.JoinHostPort("127.0.0.1", strconv.Itoa(freePort(t))),
 		bridgeAddr: net.JoinHostPort("127.0.0.1", strconv.Itoa(freePort(t))),
 	}
@@ -309,7 +309,7 @@ func newRig(t *testing.T) rig {
 // second adapter attaching to a core that already has one is told why and hung
 // up on, rather than silently joining and sharing the first one's relay session.
 //
-// Worth having at this level as well as in internal/core because the failure it
+// Worth having at this level as well as in core because the failure it
 // guards is invisible by nature -- both adapters used to log a normal
 // "connected" -- so a unit test passing while the real binary misbehaved would
 // look exactly like success.

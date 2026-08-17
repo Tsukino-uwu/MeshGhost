@@ -5,7 +5,7 @@ package main
 // holder periodically hands off so migration happens under real traffic rather
 // than only in a unit test.
 //
-// **The point is the handover, not the writes.** internal/relay's tests already
+// **The point is the handover, not the writes.** relay's tests already
 // prove a snapshot is built inside the grant and that a stale host is refused.
 // What they cannot reach is a handover that happens while lossy writes are in
 // flight, over a real transport, through cmd/meshghost-netsim's loss and
@@ -40,7 +40,7 @@ import (
 	"sync"
 	"time"
 
-	"meshghost/internal/protocol"
+	"github.com/Tsukino-uwu/MeshGhost/protocol"
 )
 
 // worldBlob is what this rig stores per entity. Entirely made up, and entirely

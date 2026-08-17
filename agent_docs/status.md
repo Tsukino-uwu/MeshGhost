@@ -14,6 +14,11 @@ bandage; Go side: the planes past cosmetic — events, sequencer, leases, escrow
 resumption, clock sync, and world custody, all opt-in and unused by any adapter) — full record in `verified.md`,
 `plans.md`, `architecture.md` and `adapters/pseudoregalia/BANDAGES.md`.
 
+**Also 2026-08-17, Go side:** two handshake races CI's race job caught and local runs never did
+(a message could beat a client's own Welcome; a rejected connect left a half-open relay behind),
+and the six library packages moved out of `internal/` to the repo root under the module's real
+path — importable from outside, with no stability promised. See the ADR in `architecture.md`.
+
 Roadmap: `plans.md`. Per-phase log: `phases/`. Evidence for all of the above: `verified.md`.
 
 ## Genuinely open items
@@ -63,7 +68,7 @@ that a peer's state genuinely differs from the local player's, which loopback co
 - **TLS for TCP, toggleable** — `tcp` is plaintext NDJSON while `quic` is encrypted. **Off in dev**
   (plaintext is how a session gets debugged: netcat, capture, netsim), **on for release**. `ideas.md`.
 - **Relay-safety follow-ups**: `quic` is now the default so room codes are encrypted by default but
-  still **not authenticated**; TEVI's `game_version` isn't real; adapters' parsing never audited. `internal/README.md`.
+  still **not authenticated**; TEVI's `game_version` isn't real; adapters' parsing never audited. `docs/security.md`.
 - **Transports: quic default confirmed with a real game attached** (2026-08-16, shared port, no
   flags). Open: no sustained-load or two-machine test yet, no per-IP cap. `verified.md`, `risks.md`.
 - **A served-but-unforwarded transport strands a client** — discovery knows what a relay offers,
@@ -73,9 +78,9 @@ that a peer's state genuinely differs from the local player's, which loopback co
 - **A maximal `event`/committed `escrow_state` exceeds a udp datagram and is silently dropped** —
   pre-existing, unreached today, and its own decision to fix. `risks.md`.
 - **An adapter's declared `features` are ignored when the core is started with `-game`**, since it
-  connects to the relay before any adapter speaks. Lazy path only. `internal/core/core.go`.
+  connects to the relay before any adapter speaks. Lazy path only. `core/core.go`.
 - **udp signals nothing on close, so a dropped udp peer freezes for up to 60s** — tcp is instant,
-  quic ~17s. Fix is a token-carrying control frame. `internal/netx/conformance_test.go`.
+  quic ~17s. Fix is a token-carrying control frame. `netx/conformance_test.go`.
 - **`clock.v1` never tested against a genuinely skewed peer** — needs two machines with
   deliberately different clocks. `dev-scripts/run-core-pseudoregalia-online.bat` step 3.
 - **quic's drop detection (~17s) dominates any resume grace** — `quicConfig` sets no

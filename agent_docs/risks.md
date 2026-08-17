@@ -49,7 +49,7 @@
   contract change with its own trade-offs and should be its own decision**, weighed against the
   alternative of making the bound transport-dependent (`beyond-cosmetic.md` §9 lays out that
   choice). The assertion test written for the world plane
-  (`internal/netx/udpconn/world_bounds_test.go`) is the shape to retrofit onto events and escrow
+  (`netx/udpconn/world_bounds_test.go`) is the shape to retrofit onto events and escrow
   when it is taken; `MaxWorldBlobBytes` was derived this way from the start and does fit.
 - **A lossy world write over quic is bounded by the path MTU, not by our own constants.** quic's
   `SendUnreliable` is a real datagram path (RFC 9221) and quic-go refuses a datagram larger than the
@@ -58,7 +58,7 @@
   the default transport**, and the refusal reaches the adapter only as a logged error, so an
   undersized path would make lossy world writes quietly stop working while reliable ones (which ride
   the stream and have no such limit) kept going. A maximal world message round-trips as a quic
-  datagram today (`internal/netx/quicconn`'s `TestMaximalWorldStateFitsAQuicDatagram`, 2026-08-17) —
+  datagram today (`netx/quicconn`'s `TestMaximalWorldStateFitsAQuicDatagram`, 2026-08-17) —
   on loopback, which is the generous case. Not closed: an undersized real-world path has never been
   tested, and per CLAUDE.md a clean light test does not close a risk that depends on the real
   environment.
@@ -129,16 +129,16 @@
 - **No-auth relay window — closed 2026-08-14, with two real limits.** Room-code auth shipped
   (`protocol.Hello.RoomCode`, constant-time-checked against `Server.RoomCode`; empty/unset
   means auth stays off, unchanged default). See the ADR in `agent_docs/architecture.md` and
-  `internal/README.md`'s "What changed" section for the full record, including the design
+  `docs/security.md`'s "What changed" section for the full record, including the design
   options considered (a plain shared secret was chosen over an HMAC challenge-response or a
   per-room lobby code). Two things this does **not** close: (1) **no TLS** — the code crosses
   the wire in plaintext, so this raises the bar from "anyone with the address" to "anyone with
   the address and the code," not to "safe against a network-level attacker"; tracked as its own
   entry below. (2) **the new "stale relay" risk**, also below — auth is enforced entirely by
   the relay, so it only works if the relay binary is current.
-- **No TLS on the relay/bridge connection.** `internal/transport` is plaintext NDJSON over TCP,
+- **No TLS on the relay/bridge connection.** `transport` is plaintext NDJSON over TCP,
   deliberately, for the "greppable with netcat" debuggability property (see
-  `internal/README.md`'s "Why TCP, not UDP" section). This means room-code auth (above) doesn't
+  `docs/security.md`'s "Why TCP, not UDP" section). This means room-code auth (above) doesn't
   defend against a network-level attacker who can observe the connection — they can read the
   code in transit. Not attempted as part of the 2026-08-14 hardening pass (see that ADR's
   "Options considered (auth)" for why); a real, separately-scoped piece of future work if the
@@ -166,7 +166,7 @@
   unencryptable transport for someone is not a decision a default should make. udp is reachable
   only by naming it explicitly on both ends. Anyone who needs confidentiality must not choose it.
 - **`udp` adds pre-auth attack surface that `tcp` did not have** (added 2026-08-16). The
-  demultiplexer in `internal/netx/udpconn` parses bytes from any stranger who knows the address,
+  demultiplexer in `netx/udpconn` parses bytes from any stranger who knows the address,
   *before* address validation, room code, or protocol version. Mitigations built in: a derived
   (not stored) address-validation cookie, so a flood of forged hellos costs one HMAC and zero
   memory; a hard datagram size cap; and a bounded per-connection receive queue that drops rather
@@ -178,14 +178,14 @@
   ip:port could inject state into its session. 64 unpredictable bits on every datagram clears the
   same bar TCP's 32-bit sequence number does. Practical risk before the fix was narrow (it needs
   the victim's IP from outside MeshGhost — the relay never calls `RemoteAddr` — plus source-IP
-  spoofing, which most ISPs filter, and pays out in cosmetic griefing), but `internal/README.md`
+  spoofing, which most ISPs filter, and pays out in cosmetic griefing), but `docs/security.md`
   cited CelesteNet's token as the reason TCP is safer by construction, so shipping without it was
   a claim the code did not honour. **Neither defence helps against an on-path attacker**, who can
   read cookie and token straight off the wire — the same limit TCP sequence numbers have, and
   the reason `quic` exists. **Still
   open, and unchanged by any of this: there is no per-IP connection cap** — `MaxClients` (8,
   global) is only reserved after a successful hello. A real cap would need `conn.RemoteAddr()`,
-  which `internal/README.md` currently asserts is never called anywhere as a privacy property, so
+  which `docs/security.md` currently asserts is never called anywhere as a privacy property, so
   it needs its own decision rather than being folded into transport work.
 - **First third-party dependency, with two knock-on risks** (added 2026-08-16). `quic-go` (MIT)
   plus three `golang.org/x/*` modules (BSD-3-Clause) are now compiled into the shipped binaries.
@@ -204,7 +204,7 @@
   room code, believe their session is protected, and be completely wrong, with nothing telling
   them so. Not a client-side problem and can't be fixed client-side. See the ADR in
   `agent_docs/architecture.md`'s "Consequences" for the full reasoning. Follow-up done:
-  `internal/README.md`/`packaging/README.md` both say plainly that room-code auth requires an
+  `docs/security.md`/`packaging/README.md` both say plainly that room-code auth requires an
   updated *relay*, not just an updated client.
 - **Archipelago coexistence, confirmed with a real gap**: tested 2026-08-11 with the real
   `connector_bizhawk_generic.lua` against a real `.apemerald`-patched ROM (see
@@ -413,8 +413,8 @@
 
   - **Not the verification standard.** The standard is "was the expected thing seen happening on
     screen" *for an adapter*, because a wrong memory address returns a plausible number instead of
-    crashing. None of this touches a game: it is `internal/relay`, `internal/core` and
-    `internal/protocol`, which CLAUDE.md puts on the opposite footing — confirm with the tools,
+    crashing. None of this touches a game: it is `relay`, `core` and
+    `protocol`, which CLAUDE.md puts on the opposite footing — confirm with the tools,
     don't ask the user to watch. That was done (invariant tests over racing clients, three fuzz
     targets, the suite at `-count=10`, `internal/e2e` green), and it immediately caught a real
     ordering defect. So this is unproven *in a game*, not unproven.
@@ -667,7 +667,7 @@
   *updated* client cap its own inbound rate per peer, but an older client (or one whose config
   file hasn't been updated) is uncapped and simply receives whatever the room's configured rate
   produces. Combined with the pre-existing O(n²) room fan-out
-  (`internal/relay.DefaultMaxClients`'s own doc comment), a host who raises `send_hz` without
+  (`relay.DefaultMaxClients`'s own doc comment), a host who raises `send_hz` without
   telling their players is imposing a real, potentially unwanted bandwidth cost on everyone in
   the room. Mitigated by documentation only (`packaging/release/README.txt`'s Hz section states
   the concrete cost and recommends leaving the defaults alone) — there is no protocol-level

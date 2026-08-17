@@ -1,6 +1,6 @@
 // Command meshghost-relay is the standalone relay process: it accepts
 // relay-protocol connections and forwards state between clients in a room.
-// See internal/relay for the implementation and agent_docs/contract.md for
+// See relay for the implementation and agent_docs/contract.md for
 // the wire protocol.
 package main
 
@@ -19,9 +19,9 @@ import (
 	"strings"
 	"time"
 
-	"meshghost/internal/netx"
-	"meshghost/internal/protocol"
-	"meshghost/internal/relay"
+	"github.com/Tsukino-uwu/MeshGhost/netx"
+	"github.com/Tsukino-uwu/MeshGhost/protocol"
+	"github.com/Tsukino-uwu/MeshGhost/relay"
 )
 
 // maxLogBytes is the size at which meshghost-server.log is rotated to
@@ -391,7 +391,7 @@ func main() {
 
 	// One listener per selected transport, all feeding the same Server.
 	// relay.Serve takes any net.Listener and handleConn any net.Conn, so
-	// nothing in internal/relay knows or cares which is which -- and a
+	// nothing in relay knows or cares which is which -- and a
 	// single room can hold clients arriving over different transports,
 	// because Room.Forward sends through the transport.Transport interface.
 	type boundListener struct {

@@ -7,7 +7,7 @@ REM is told it left. The built-in default is 20s, which is tuned for "a blip mus
 REM not cost a despawn" and pays for it at the other end -- a crash or alt-F4 also
 REM leaves a frozen ghost standing there for the whole window, because the relay
 REM cannot tell a crash from a bad connection. 8s keeps a real network blip
-REM invisible (internal/core.reconnectWithBackoff retries at 1s, 2s, 4s, so it
+REM invisible (core.reconnectWithBackoff retries at 1s, 2s, 4s, so it
 REM gets three attempts inside that) while making a genuine crash clear up in a
 REM couple of seconds rather than twenty. A clean game-close is unaffected either
 REM way -- the core deliberately discards its resume token when the adapter goes,
@@ -20,7 +20,7 @@ REM default transport -- took about 17 seconds, because a killed peer sends no
 REM close frame and the connection sits there until quic's own idle timeout. So a
 REM crash on quic freezes that ghost for roughly 17s + the grace, not the grace
 REM alone. Tightening quic's idle timeout is a real follow-up (quicConfig in
-REM internal/netx/quicconn sets no MaxIdleTimeout at all today); until then, do
+REM netx/quicconn sets no MaxIdleTimeout at all today); until then, do
 REM not read this number as the whole story.
 REM
 REM -introspect=30s: logs what the relay currently believes -- who is in the room,

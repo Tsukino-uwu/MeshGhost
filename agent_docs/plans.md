@@ -100,12 +100,12 @@ Three concrete blockers, none of them about how much time it would take:
 
 - **No *simulation* authority, by design** — sharpened 2026-08-17, because the relay is no longer
   a pure forwarder and the original wording ("no authority model") is now contradicted by
-  `internal/relay/world.go`'s own opening paragraph. It does arbitrate *order* (the sequencer),
+  `relay/world.go`'s own opening paragraph. It does arbitrate *order* (the sequencer),
   *designation* (who holds a key) and *custody* (what a successor inherits), all by comparing
   opaque strings. What it will never do is decide whether an action was legitimate — items,
   combat, RNG — and continuous co-op needs exactly that arbiter.
 - **Any arbiter would have to be game-aware** — items, combat, RNG — which breaks the single
-  most important invariant in this project: `internal/core` and `internal/relay` never know
+  most important invariant in this project: `core` and `relay` never know
   game specifics.
 - **Two independent simulations is the founding premise** (the brief accepts desync as
   correct behavior). Full co-op needs the simulations to agree, which means either lockstep
@@ -183,7 +183,7 @@ guards the relay yet. **Status: complete** (2026-08-11) — confirmed on screen:
 the player by ~200ms with `TILE = 16` correct, holding steady across walking/running and
 route/house transitions, with no flicker, over the real relay/core/bridge round trip
 (loopback flag on, not a same-process shortcut). Three real bugs were found via live testing
-and fixed: `internal/core` didn't despawn remotes when its own relay connection dropped, the
+and fixed: `core` didn't despawn remotes when its own relay connection dropped, the
 Lua adapter didn't detect its own bridge connection dying, and — the one that made both of
 those look worse than they were — BizHawk's `gui.*` overlay does not auto-clear between
 frames (corrected a wrong assumption stated in `contract.md`'s tick model since Phase 2). See
@@ -212,11 +212,11 @@ touch the core's `area_id`-is-opaque rule), not attempted.
 
 Visible outcome: the core runs independently of the Emerald adapter against a fake adapter
 that moves a ghost in a circle, with no game attached. If it doesn't run cleanly, something
-leaked — check for `if game ==`-style branches in `internal/core` and `internal/relay`.
+leaked — check for `if game ==`-style branches in `core` and `relay`.
 Freeze `adapters/_template/` as the reusable adapter stub — this is the real deliverable of
 this phase, not the Emerald adapter itself. **Status: complete** (2026-08-11) — see
 `agent_docs/phases/phase5.md` for the full task-by-task record and `agent_docs/verified.md`
-for the confirmed fact. No `internal/core`/`internal/relay` changes were needed beyond adding
+for the confirmed fact. No `core`/`relay` changes were needed beyond adding
 `Core.RunAdapter`, an in-process driver alongside the existing bridge-wire path — both share
 one diff implementation, so there's no game-specific or protocol-specific branching in either.
 
@@ -244,7 +244,7 @@ confirmed 2026-08-13** — see `agent_docs/phases/phase6.md` for the full record
 Mono (not IL2CPP), real player position/facing/anim/area reading, a real bridge→relay→core
 round trip through both the relay's `-loopback` flag and a real non-loopback relay with two
 distinct local players, and a real character-visual ghost (correct anchor, facing, animation)
-that doesn't intrude on TEVI's menus. Three real bugs found and fixed in `internal/core`
+that doesn't intrude on TEVI's menus. Three real bugs found and fixed in `core`
 (game-agnostic, benefiting every adapter): `Core.MinSendInterval` (2026-08-12 ADR — TEVI's
 uncapped `Update()` tripped the relay's 120 msg/sec limit); closing a bridge connection now
 disconnects the relay too (2026-08-13 ADR — a player's ghost was staying frozen in a peer's
@@ -261,10 +261,10 @@ fog-of-war-gated, and confirmed live the same session.
 
 **Deliberately not blocking a third game on 6.6** (decided 2026-08-12): adapters are
 structurally isolated (`contract.md`'s hard rules — an adapter only ever talks to its own local
-core, `internal/core`/`internal/relay` never branch on game), so there's no technical coupling
+core, `core`/`relay` never branch on game), so there's no technical coupling
 that makes starting Pseudoregalia risky to TEVI. The honest tradeoff, recorded rather than
 ignored: 6.6 specifically tests things solo-testing can't (real join/leave, cross-area
-filtering — the latter genuinely unbuilt, not just untested, since `internal/core` currently
+filtering — the latter genuinely unbuilt, not just untested, since `core` currently
 sends every known remote regardless of area). Emerald's own Phase 4 caught two real bugs
 Phase 3's solo loopback hadn't surfaced, so something similar in TEVI once a second machine is
 available is a real possibility, not just a formality — accepted as a small risk of later
@@ -348,7 +348,7 @@ its own ADR before it starts.
 ### Room codes / relay safety
 
 **Set as the current/next priority 2026-08-13; core work done 2026-08-14.** Full record: the
-ADR in `agent_docs/architecture.md` (search "room-code/version ADR") and `internal/README.md`'s
+ADR in `agent_docs/architecture.md` (search "room-code/version ADR") and `docs/security.md`'s
 "What changed" section. Short version — the three pieces originally scoped, plus what each
 still leaves open:
 
@@ -365,11 +365,11 @@ still leaves open:
   games), so this doesn't fully close the original TEVI concern about differing Steam patch
   levels or DLC state — see `risks.md`'s updated entry.
 - **Malicious-peer hardening** — done as a real audit against concrete findings, not a
-  hypothetical checklist: a real remote-OOM in `internal/transport` (unbounded read buffer),
+  hypothetical checklist: a real remote-OOM in `transport` (unbounded read buffer),
   missing read/write deadlines, a relay hello-timeout, `Room.Forward` holding a lock across a
   potentially-blocking `Send`, and the core trusting the relay's `player_id`s completely
   (`welcome.roster` was discarded) are all fixed. Not claimed exhaustive — see
-  `internal/README.md`'s "known gaps" for what wasn't attempted.
+  `docs/security.md`'s "known gaps" for what wasn't attempted.
 
 `cmd/meshghost`/`cmd/meshghost-relay` both gained `-room-code`/`-game-version` flags and
 matching `config.json` fields (`room_code` on both client and server sections, `game_version`
@@ -395,8 +395,8 @@ in the brief and in its own doc comment while having exactly one implementation,
 untested. Three implementations behind one interface, selected by `"transport"` in `config.json`,
 with the relay able to serve several at once and a room able to mix them freely.
 
-The seam sits at `net.Listener`/`net.Conn` (`internal/netx`), not at a second `Transport`
-implementation, which is why `internal/relay` gained no transport-aware line and its
+The seam sits at `net.Listener`/`net.Conn` (`netx`), not at a second `Transport`
+implementation, which is why `relay` gained no transport-aware line and its
 per-connection-goroutine concurrency model survived untouched. `Send` is reliable everywhere and
 `SendUnreliable` is the explicit opt-out, used only by the two state hot paths.
 
@@ -482,9 +482,9 @@ experimental.
 reviewing the config fields above, the user pointed out that the adapter already knows which
 game it's running (it's the script/mod the user loaded) — typing it a second time into
 `config.json` was a redundant, typo-prone step. Real contract revision, ADR'd in
-`architecture.md`: `internal/bridge.Hello` (a new bridge message, `{"type":"hello","payload":
+`architecture.md`: `bridge.Hello` (a new bridge message, `{"type":"hello","payload":
 {"game_id":"..."}}`) is now sent by the adapter as the first message on a fresh bridge
-connection; `internal/core.Core.ConnectRelayOnAdapterHello` connects to the relay lazily on
+connection; `core.Core.ConnectRelayOnAdapterHello` connects to the relay lazily on
 that first hello instead of requiring `-game`/`config.json`'s `"game"` up front. Both shipped
 adapters updated (`adapters/pokemon/emerald/phase5_5_sprite.lua`,
 `adapters/tevi/MeshGhostTevi/BridgeClient.cs` + `Plugin.cs`, TEVI's DLL rebuilt and

@@ -13,7 +13,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	"meshghost/internal/protocol"
+	"github.com/Tsukino-uwu/MeshGhost/protocol"
 )
 
 // withCleanViolationCount runs fn with the process-wide counter reset, and

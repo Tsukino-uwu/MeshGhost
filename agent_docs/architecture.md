@@ -7,10 +7,10 @@ etc.) live in `CLAUDE.md`, not here — this file is reference, not rules.
 ## System shape
 
 ```text
-        Relay (internal/relay, cmd/meshghost-relay)
+        Relay (relay, cmd/meshghost-relay)
              |  relay protocol: NDJSON over tcp|udp|quic (via netx),
              |  hello/welcome/reject/join/leave/state/ping
-        Core (internal/core, cmd/meshghost)
+        Core (core, cmd/meshghost)
              |  adapter bridge: NDJSON/TCP, localhost-only
      [ Adapter contract ]
         /    |    \
@@ -40,39 +40,50 @@ adapter, checked for real at Phase 5 rather than discovered as a mismatch then. 
 ## Package boundaries
 
 Enforced dependency graph for the Go module, added as a compiling type skeleton (zero logic,
-`go build ./...` and `go vet ./...` both pass clean) on 2026-08-11:
+`go build ./...` and `go vet ./...` both pass clean) on 2026-08-11. The six library packages
+moved out of `internal/` to the repo root on 2026-08-17 and are now a public API surface —
+same graph, same rules, see that ADR below. Module path:
+`github.com/Tsukino-uwu/MeshGhost`.
 
 ```text
-internal/protocol   — message types + JSON shapes. No internal deps. Lowest layer.
-internal/transport  — generic NDJSON framing over any net.Conn. Defines its own Transport
-                       interface;
-                       no internal deps (byte-level only, doesn't know message shapes).
-internal/bridge     — adapter<->core message shapes (LocalState/RenderRemote/DespawnRemote).
+PUBLIC — importable by anyone, and therefore a contract:
+protocol   — message types + JSON shapes. No deps on our own packages. Lowest layer.
+transport  — generic NDJSON framing over any net.Conn. Defines its own Transport
+                       interface; no deps on our own packages (byte-level only, doesn't
+                       know message shapes).
+bridge     — adapter<->core message shapes (LocalState/RenderRemote/DespawnRemote).
                        Imports protocol only.
-internal/core       — snapshot buffer, interpolation, remote-player tracking. Imports
+core       — snapshot buffer, interpolation, remote-player tracking. Imports
                        protocol, transport, bridge, netx.
-internal/relay      — room membership, forwarding, limits. Imports protocol, transport.
+relay      — room membership, forwarding, limits. Imports protocol, transport.
                        Never imports core or bridge — the relay stays ignorant of
                        adapter-side concerns, same as it's ignorant of games.
-internal/netx       — transport selection (tcp|udp|quic) as net.Listener/net.Conn. Added
-                       2026-08-16. No internal deps, same leaf discipline as transport;
-                       subpackages netx/udpconn and netx/quicconn hold the datagram
-                       implementations. Deliberately NOT a second Transport implementation
-                       — see the transport ADR for why the seam sits at net.Conn.
+netx       — transport selection (tcp|udp|quic) as net.Listener/net.Conn. Added
+                       2026-08-16. No deps on our own packages, same leaf discipline as
+                       transport; subpackages netx/udpconn and netx/quicconn hold the
+                       datagram implementations. Deliberately NOT a second Transport
+                       implementation — see the transport ADR for why the seam sits at
+                       net.Conn.
+
+NOT PUBLIC — internal/ still means what it always did:
 internal/e2e        — test-only. Launches the real binaries and drives a real adapter over
                        the bridge; imports bridge, netx, protocol, transport. Ships no
-                       production code, so nothing imports it.
+                       production code, so nothing imports it. The one thing left under
+                       internal/, deliberately: keeping it non-empty is what makes the six
+                       above a chosen set rather than the residue of deleting a directory.
+
+cmd/* are package main and were never importable:
 cmd/meshghost       — desktop app entry point. Imports core, netx and protocol (the Phase 3
                        note here once predicted transport/bridge imports; they never arrived).
 cmd/meshghost-relay — standalone relay entry point. Imports relay, netx and protocol.
 cmd/meshghost-fakeadapter — the test rig's ghost-that-walks-in-a-circle. Imports core, netx
                        and protocol.
-cmd/meshghost-netsim — fault-injecting proxy for real sessions. Imports NOTHING under
-                       internal/, deliberately: it must be able to mangle the wire without
+cmd/meshghost-netsim — fault-injecting proxy for real sessions. Imports NONE of our own
+                       packages, deliberately: it must be able to mangle the wire without
                        inheriting any of the code whose behaviour it is testing.
 ```
 
-**Hard rule:** `internal/core` and `internal/relay` may never import anything under
+**Hard rule:** `core` and `relay` may never import anything under
 `adapters/`. There's no Go code under `adapters/` today (BizHawk is Lua), but the rule holds
 regardless — it's the Go-level enforcement of "the core never touches the game," parallel to
 the existing "no `if game == \"emerald\"`" rule. Checked manually at time of writing; a
@@ -81,7 +92,7 @@ second package under `adapters/` to violate it.
 
 The one Go interface in the skeleton, `core.Adapter`, is deliberately scoped in its doc
 comment to the Phase 5 in-process fake/test adapter only — real adapters (BizHawk Lua, any
-future host) speak the `internal/bridge` wire protocol and never implement it. Conflating the
+future host) speak the `bridge` wire protocol and never implement it. Conflating the
 two would wrongly suggest Lua adapters need Go bindings.
 
 ## Decision log (ADRs)
@@ -268,7 +279,7 @@ Format: Date / Decision / Status / Context / Options considered / Resolution / C
   option 2 doesn't have.
 - **Options considered (loopback):** (1) relay-side `-loopback` flag, echoing under a
   synthetic ghost id — exercises the real relay round trip and real interpolation, zero
-  `internal/core` changes since the ghost id is simply a different id than the client's own;
+  `core` changes since the ghost id is simply a different id than the client's own;
   (2) core-side flag, feeding local state into the core's own remote buffer directly — simpler
   but the data never actually crosses the relay, and requires loosening the core's own
   "ignore my own player_id" guard; (3) a separate `meshghost-echo` dev client, a second real
@@ -305,7 +316,7 @@ Format: Date / Decision / Status / Context / Options considered / Resolution / C
 ---
 
 - **Date:** 2026-08-12
-- **Decision:** Cap `internal/core.Core`'s actual send rate to the relay
+- **Decision:** Cap `core.Core`'s actual send rate to the relay
   (`Core.MinSendInterval`, default 50ms / 20Hz) independent of how often an adapter calls in,
   rather than relying on the relay's `MaxMessagesPerSecond` limit alone.
 - **Status:** accepted; the *default* is superseded by the 2026-08-15 rate-control ADR below —
@@ -324,7 +335,7 @@ Format: Date / Decision / Status / Context / Options considered / Resolution / C
   not the cause, and does nothing for a still-faster future adapter (144Hz+ displays); (2) push
   the cap into every adapter individually — repeats the same throttling logic per adapter,
   exactly the kind of duplicated "genuinely hard, genuinely reusable" work `contract.md`'s tick
-  model section already argues against; (3) cap it once in `internal/core`, where the relay
+  model section already argues against; (3) cap it once in `core`, where the relay
   connection is actually owned.
 - **Resolution:** Option 3. `Core.MinSendInterval` (default `DefaultMinSendInterval = 50ms`,
   overridable per-`Core` the same way `InterpolationDelay` is) gates `forwardLocalState`: a
@@ -334,7 +345,7 @@ Format: Date / Decision / Status / Context / Options considered / Resolution / C
   rate, and does not claim to be the "right" sync rate — the brief's 10Hz hypothesis and the
   contract's two still-open questions (snapshot frequency, `seq`/`timestamp` semantics) are
   unaffected by this change. Regression-tested: `TestForwardLocalStateRespectsMinSendInterval`
-  in `internal/core/core_test.go` drives 1000 calls in a tight loop against a counting fake
+  in `core/core_test.go` drives 1000 calls in a tight loop against a counting fake
   transport and asserts the send count stays capped, not 1:1 with the call count.
 - **Consequences:** Every current and future adapter is protected from this failure mode
   without needing its own rate-limiting logic — game-agnostic, matches the core's existing
@@ -362,9 +373,9 @@ Format: Date / Decision / Status / Context / Options considered / Resolution / C
   adapter connects to — would need one bridge port per game, more moving parts than the
   problem justifies; (3) the adapter states `game_id` itself, over the bridge, as connection
   setup.
-- **Resolution:** Option 3. `internal/bridge.Hello` (`{"type":"hello","payload":{"game_id":
+- **Resolution:** Option 3. `bridge.Hello` (`{"type":"hello","payload":{"game_id":
   "..."}}`) is a fourth bridge message, sent by the adapter as the first message on a fresh
-  connection. `internal/core.Core` no longer requires a `game_id` before `ServeBridge` starts;
+  connection. `core.Core` no longer requires a `game_id` before `ServeBridge` starts;
   `Core.ConnectRelayOnAdapterHello` connects to the relay lazily, the first time a `hello`
   arrives, using new `RelayAddr`/`Room`/`DisplayName`/`DialTimeout` fields set by the caller
   up front. `game_id` stays opaque to the core throughout — forwarded verbatim into the relay
@@ -407,7 +418,7 @@ Format: Date / Decision / Status / Context / Options considered / Resolution / C
   (3) tie the Core's relay connection lifecycle to its bridge connection lifecycle, so an
   adapter going away for any reason (game closes, bridge socket drops) reads as a real
   disconnect to the relay, the same as a network blip already does.
-- **Resolution:** Option 3. `handleBridgeConn` (`internal/core/core.go`) now closes `c.relay`
+- **Resolution:** Option 3. `handleBridgeConn` (`core/core.go`) now closes `c.relay`
   when the bridge connection ends. `ConnectRelay`'s existing relay-`OnDisconnect` handler
   (previously only `dropAllRemotes()`, added for the unrelated "own relay died" case — see the
   ADR below) now also clears `c.relay`/`c.playerID`/`c.relayGame`, guarded by comparing against
@@ -417,7 +428,7 @@ Format: Date / Decision / Status / Context / Options considered / Resolution / C
   a third despawn mechanism. Regression-tested: `TestBridgeDisconnectDespawnsForPeer` (the bug
   as reported — closing the bridge, not the relay, must still despawn for the peer) and
   `TestReconnectAfterBridgeDisconnectGetsFreshPlayerID` (a disconnected Core must be able to
-  redial and get a new `player_id`, not stay wedged) in `internal/core/core_test.go`.
+  redial and get a new `player_id`, not stay wedged) in `core/core_test.go`.
 - **Consequences:** Game-agnostic — every adapter's game-close/reconnect now cleans up for
   free, no per-adapter change. Deliberately scoped to the bridge socket's actual lifecycle:
   TEVI's `Plugin.cs` keeps its bridge connection open across a return to the main menu (it only
@@ -436,7 +447,7 @@ Format: Date / Decision / Status / Context / Options considered / Resolution / C
 - **Status:** accepted
 - **Context:** Found live in the same real two-player TEVI test session as the bridge-
   disconnect fix above, once the two players moved through genuinely different zones (not just
-  different rooms within one always-loaded zone). `internal/core` sends every known remote
+  different rooms within one always-loaded zone). `core` sends every known remote
   regardless of `area_id` — a documented, previously-untested gap (`plans.md`). The remote's
   ghost kept rendering the whole time, using the peer's raw world coordinates from their own
   zone, with no relationship to the local zone's coordinate space. It only looked correct
@@ -450,7 +461,7 @@ Format: Date / Decision / Status / Context / Options considered / Resolution / C
 - **Options considered:** (1) leave it — rejected, this session's own log evidence shows it's
   not actually benign, only luck-dependent; (2) filter in each adapter individually — repeats
   per-adapter logic for something `area_id` equality already makes trivial to do once,
-  centrally; (3) filter once in `internal/core`, at the same point `remoteStatesAt` already
+  centrally; (3) filter once in `core`, at the same point `remoteStatesAt` already
   builds the per-tick render set.
 - **Resolution:** Option 3. Added `Core.localAreaID`, updated in `forwardLocalState` on every
   real local frame (`state != nil`) regardless of `MinSendInterval` throttling or whether a
@@ -464,7 +475,7 @@ Format: Date / Decision / Status / Context / Options considered / Resolution / C
   `tickRenders` for free: a remote dropping out of `remoteStatesAt`'s filtered result is
   indistinguishable from one that actually left, so it already gets a real `despawn_remote`,
   and reappears via the normal render path once areas match again. Regression-tested:
-  `TestCrossAreaFiltersRemote` in `internal/core/core_test.go` drives a remote through
+  `TestCrossAreaFiltersRemote` in `core/core_test.go` drives a remote through
   same-area → different-area (must despawn) → same-area-again (must reappear).
 - **Consequences:** Game-agnostic, benefits every adapter with no per-adapter change — closes
   the `plans.md`/`phase6.md` "genuinely unbuilt" gap. Since **confirmed live on TEVI** — a remote
@@ -478,7 +489,7 @@ Format: Date / Decision / Status / Context / Options considered / Resolution / C
 - **Decision:** Add room-code auth and a peer game-version check to `hello`
   (`protocol.Hello.RoomCode`/`GameVersion`), a `reject` message so a refusal carries a reason
   instead of a bare hangup, and a broader malicious-peer hardening pass across
-  `internal/transport`, `internal/relay`, and `internal/core`. Supersedes the 2026-08-11
+  `transport`, `relay`, and `core`. Supersedes the 2026-08-11
   no-auth ADR above (kept, not deleted, as the historical record of why no-auth was the right
   call for Phases 3–4).
 - **Status:** accepted
@@ -487,7 +498,7 @@ Format: Date / Decision / Status / Context / Options considered / Resolution / C
   no-auth and safe only for a friend you hand an address to, not for people you don't
   personally know, including someone actively trying to be malicious with the server/client.
   Two named gaps (no auth, no peer game-version check) plus a broader malicious-peer audit.
-  Researched CelesteNet's own prior art first (`internal/README.md`'s prior-art section, MIT,
+  Researched CelesteNet's own prior art first (`docs/security.md`'s prior-art section, MIT,
   approved reference per `licensing.md`) rather than designing from scratch — its self-hosted
   default is no-auth too (mirroring our own starting posture), and its version-check pattern
   (reject outright at handshake, before any state exchange) is the shape this ADR reuses for
@@ -496,7 +507,7 @@ Format: Date / Decision / Status / Context / Options considered / Resolution / C
   internet) MeshGhost doesn't have.
 - **Options considered (auth):** (1) a shared secret in `hello`, compared constant-time,
   reject before any state flows — simple, no crypto to design, but the secret crosses the wire
-  in plaintext since `internal/transport` has no TLS; (2) an HMAC challenge-response (relay
+  in plaintext since `transport` has no TLS; (2) an HMAC challenge-response (relay
   sends a nonce, client returns `HMAC(secret, nonce)`) — the secret itself never crosses the
   wire, but costs a new handshake round-trip and two new message types, and still doesn't stop
   a MITM relaying the whole session, which a real TLS layer would (a separate, larger piece of
@@ -538,20 +549,20 @@ Format: Date / Decision / Status / Context / Options considered / Resolution / C
   across a potentially-slow `Send`, no hello timeout) but not the core-side trust gaps; (3)
   everything found, relay-side and core-side.
 - **Resolution (hardening scope):** Option 3, per explicit user direction. Fixed:
-  `internal/transport.NDJSONConn`'s unbounded `bufio.Reader.ReadBytes` read (switched to
+  `transport.NDJSONConn`'s unbounded `bufio.Reader.ReadBytes` read (switched to
   `bufio.Scanner` with a real max-token-size, enforced during the read, not after — the
-  previous `internal/relay.MaxLineBytes` check ran too late to prevent the allocation), added
+  previous `relay.MaxLineBytes` check ran too late to prevent the allocation), added
   read/write deadlines and a dial timeout (none existed before), fixed
-  `internal/relay.Room.Forward` holding `r.mu` across every recipient's `Send` (a stalled peer
+  `relay.Room.Forward` holding `r.mu` across every recipient's `Send` (a stalled peer
   could freeze joins/leaves/roster reads for the whole room once `Send` could legitimately
   block for seconds against it), and added `Server.HelloTimeout` (an unauthenticated connection
   that never completes a `hello` was previously held open forever). On the trust side:
-  `internal/core` now keeps its own roster (seeded from `welcome`, maintained by `join`/
+  `core` now keeps its own roster (seeded from `welcome`, maintained by `join`/
   `leave`) and drops `state` for any `player_id` it never actually saw announced — previously a
   hostile or compromised relay could inject state for an arbitrary id, since `welcome.roster`
   was discarded entirely and any incoming `player_id` was trusted outright. The relay's own
   `MaxPositionLen`/`MaxExtrasBytes` caps are now mirrored on the core's receive side too
-  (`internal/protocol/limits.go` holds the shared constants so the two enforcement points can't
+  (`protocol/limits.go` holds the shared constants so the two enforcement points can't
   drift apart), plus new caps on `orientation`, `area_id`, `anim`, and every `hello` string
   field, none of which were bounded anywhere before.
 - **Consequences:** `protocol.Version` stays at `1` — every new field is optional/additive, and
@@ -561,7 +572,7 @@ Format: Date / Decision / Status / Context / Options considered / Resolution / C
   stale (pre-this-ADR) relay binary silently provides zero protection regardless of what any
   client sends or believes it configured** — a `room_code` field in an old relay's `config.json`
   is invisible to it (unknown JSON fields are ignored the same way), with no error to tell the
-  host their room is actually wide open. Worth a follow-up: `internal/README.md` and
+  host their room is actually wide open. Worth a follow-up: `docs/security.md` and
   `packaging/README.md` should say plainly that room-code auth requires the *relay* to be
   current, not just the client. Every new size/length limit is a real, if small, behavior
   change: a legitimately-oversized field that was previously silently truncated-by-forwarding
@@ -585,7 +596,7 @@ Format: Date / Decision / Status / Context / Options considered / Resolution / C
   1. The user asked how a host or player would actually find out a `hello` was refused. Answer,
      checked against the code: **nowhere adequate.** `rejectAndClose` (added by the ADR above)
      sent the reason to the client, but never logged anything server-side — a host had zero
-     visibility that anyone was ever refused. The reason did reach `internal/core`'s own log,
+     visibility that anyone was ever refused. The reason did reach `core`'s own log,
      but no further: all three shipped adapters, on a closed bridge connection, just log a
      generic "lost, will retry" and loop silently forever with no reason ever reaching the
      player. Separately, the relay's own log had never recorded a successful join or leave
@@ -610,10 +621,10 @@ Format: Date / Decision / Status / Context / Options considered / Resolution / C
   per-message-content dedup on the *core* side specifically, since a retrying adapter can
   legitimately hit the *same* connect failure many times in a row where the relay's own
   lifecycle events (each a genuinely new occurrence) don't have that problem.
-- **Resolution (logging):** Options 2 and 3 together. `internal/relay.rejectAndClose` now logs
+- **Resolution (logging):** Options 2 and 3 together. `relay.rejectAndClose` now logs
   the reason plus the offending `hello`'s `game_id`/`room`/`display_name` before closing; a
   successful join logs the assigned `player_id`, display name, room, and game; a disconnect
-  logs the leaving `player_id` and room. `internal/core.ConnectRelayOnAdapterHello` logs a
+  logs the leaving `player_id` and room. `core.ConnectRelayOnAdapterHello` logs a
   connect failure only when the message actually changes from the last one logged
   (`Core.lastConnectErr`), so a long wait for the relay to come up, or a room stuck full for a
   while, produces one line per *actual* state change, not one per retry.
@@ -626,7 +637,7 @@ Format: Date / Decision / Status / Context / Options considered / Resolution / C
   (3) route the eager path's retry loop through `ConnectRelayOnAdapterHello` itself instead of
   `ConnectRelay` directly, so both entry points serialize on the same lock and share the same
   permanent/transient classification and logging.
-- **Resolution (retry vs. crash):** Option 3. `RejectError` (`internal/core`) wraps a relay
+- **Resolution (retry vs. crash):** Option 3. `RejectError` (`core`) wraps a relay
   `Reject`'s reason so it can be distinguished from a plain dial/timeout error without string-
   matching a formatted message. `isPermanentRejectReason` treats every reason except
   `protocol.ReasonServerFull` as permanent — the only one of the named reasons *as of this ADR*
@@ -667,14 +678,14 @@ Format: Date / Decision / Status / Context / Options considered / Resolution / C
      `[1e400,...]` on the wire — syntactically valid JSON that overflows to `+Inf` on decode, or
      `1e308` that overflows to `+Inf` when narrowed to `float32` — and nothing anywhere checked
      for it (zero `math.IsInf`/`IsNaN` calls existed in `internal/`). This reaches Pseudoregalia's
-     `sscanf`/`FRotator` and TEVI's `Transform` unfiltered. `internal/core.storeRemoteState` now
+     `sscanf`/`FRotator` and TEVI's `Transform` unfiltered. `core.storeRemoteState` now
      drops (not clamps — same "drop, don't store" posture as the existing size caps) any `State`
      whose `Position` contains a `NaN`, `Inf`, or `|x| > protocol.MaxPositionComponent` (new
      const, `1e7` — generous, not a measured game bound, chosen only to reject "obviously not a
      real coordinate" magnitudes). `orientation` stays opaque JSON the core cannot parse this way;
      each adapter is documented (`adapters/_template/PROTOCOL.md`) as responsible for bounding
      whatever numbers it pulls out of its own `orientation`/`extras`.
-  2. **`internal/core/interp.lerp` no longer blends across an `area_id` change.** Two bracketing
+  2. **`core/interp.lerp` no longer blends across an `area_id` change.** Two bracketing
      snapshots with different `AreaID` previously had their raw world coordinates linearly
      blended and stamped with the older snapshot's `AreaID` — a phantom-midpoint result, the
      exact failure shape the 2026-08-13 cross-area-filtering ADR (above) exists to prevent, just
@@ -724,7 +735,7 @@ Format: Date / Decision / Status / Context / Options considered / Resolution / C
 - **Consequences:** `protocol.Version` is unaffected — every change above is either server-side
   validation (already-permitted values still round-trip identically; only `NaN`/`Inf`/absurd
   magnitudes are newly dropped) or adapter-internal. The `ConnectRelay` signature change only
-  affects Go code calling `internal/core` directly, not the wire protocol or any adapter. The
+  affects Go code calling `core` directly, not the wire protocol or any adapter. The
   Pseudoregalia rebuild was hash-diff-confirmed deployed to the in-repo packaging copy; the live
   Steam install and the TEVI DLL rebuild remain manual follow-ups outside this repo's automated
   reach (packaging/README.md's existing staleness-check note covers the latter). The
@@ -781,7 +792,7 @@ Format: Date / Decision / Status / Context / Options considered / Resolution / C
   address — see `verified.md`. `meshghost.exe`/`meshghost-relay.exe`/
   `meshghost-fakeadapter.exe` at the repo root were rebuilt from current source as part of this
   fix; there is no automated step that keeps them fresh across a session — rebuild explicitly
-  after any `internal/core`/`cmd/meshghost` change before testing via the `dev-scripts/*.bat`
+  after any `core`/`cmd/meshghost` change before testing via the `dev-scripts/*.bat`
   files, the same discipline already documented for the Pseudoregalia/TEVI adapter builds.
 
 ---
@@ -891,11 +902,11 @@ Format: Date / Decision / Status / Context / Options considered / Resolution / C
     discarded by `handleRelayMessage`'s non-blocking channel send with no log line at all — the
     user would have seen only a bare "relay disconnected" with the actual reason lost. Now logged
     when it happens post-connect.
-- **Resolution:** All of the above, implemented across `internal/protocol` (shared `DefaultSendHz`/
+- **Resolution:** All of the above, implemented across `protocol` (shared `DefaultSendHz`/
   `MinSendHz`/`MaxSendHz`/`ClampSendHz`/`ClampReceiveHz`, `Hello.MaxReceiveHz`, `Welcome.SendHz`,
-  `ReasonRateLimited`), `internal/relay` (`Server.SendHz`, `resolveSendHz`, `maxMessagesPerSecond`,
+  `ReasonRateLimited`), `relay` (`Server.SendHz`, `resolveSendHz`, `maxMessagesPerSecond`,
   the per-`Client` receive gate, `Room.stateRecipients`, the `Room.remove` gate purge),
-  `internal/core` (`effectiveSendInterval`, `serverSendInterval`, `Core.MaxReceiveHz`, the
+  `core` (`effectiveSendInterval`, `serverSendInterval`, `Core.MaxReceiveHz`, the
   `isPermanentRejectReason` fix, mid-session reject logging), and both `cmd/` binaries
   (`-send-hz`/`send_hz`, `-max-receive-hz-per-player`/`max_receive_hz_per_player`, `-min-send`'s
   default changed from `core.DefaultMinSendInterval` to `0`). `cmd/meshghost-relay`'s
@@ -971,7 +982,7 @@ Format: Date / Decision / Status / Context / Options considered / Resolution / C
     internet plan is actually sold in) against a "budget half your measured upload" rule, plus
     the note that per-ghost *render* cost is a separate ceiling the network numbers say nothing
     about. `max_clients`'s default of 8 is presented as a safe-for-most-connections choice
-    rather than a technical limit, which is what `internal/relay/limits.go` already says.
+    rather than a technical limit, which is what `relay/limits.go` already says.
   - **Not done, deliberately, in this change:** advertising `max_receive_hz_per_player` back to
     the sender (a sender has no way to know a given recipient is receiving it throttled) and
     deriving `InterpolationDelay` automatically from the effective rate (a room or cap set below
@@ -1001,13 +1012,13 @@ Format: Date / Decision / Status / Context / Options considered / Resolution / C
   different control -- it gates *who*, not *what*, and a host handing the code to friends who
   play several games still can't say "not on this box."
 
-  Enforced in `internal/relay`, checked in `handleConn` after the field-length and
+  Enforced in `relay`, checked in `handleConn` after the field-length and
   protocol-version checks (so the refused `game_id` is already bounded before it is logged) and
   **before** the room table is touched or a client slot reserved -- the same "reject at
   handshake, before any state flows" shape as the room-code and version checks. Refused with a
   new `reject` reason, `ReasonGameNotAllowed`, kept distinct from the per-room
   `ReasonGameMismatch`: the two mean genuinely different things to a player, since no room they
-  could pick would fix this one. `internal/core.isPermanentRejectReason` classifies unknown
+  could pick would fix this one. `core.isPermanentRejectReason` classifies unknown
   reasons as permanent already, so the client does not retry-loop against a relay that will
   never accept it, with no core change needed.
 
@@ -1097,7 +1108,7 @@ Format: Date / Decision / Status / Context / Options considered / Resolution / C
   once and a room may hold clients on different transports simultaneously. **Adapters are
   unaffected and cannot observe the choice** — the bridge stays loopback TCP NDJSON permanently.
 - **Status:** Implemented.
-- **Context:** `brief.md` and `internal/transport`'s own doc comment both call `Transport` "the
+- **Context:** `brief.md` and `transport`'s own doc comment both call `Transport` "the
   swappable network boundary," but it had exactly one implementation, so the claim was untested and
   nothing forced the boundary to hold. `contract.md`'s hard rule "Transport is swappable behind
   `send(bytes)`/`on_receive(cb)` from day one" was likewise aspirational. The motivation is
@@ -1107,16 +1118,16 @@ Format: Date / Decision / Status / Context / Options considered / Resolution / C
   `Write` calls, which is invisible on a stream and fatal on a datagram.
 - **Options considered (where to put the seam):** (1) a second `Transport` implementation per
   protocol — the obvious reading of "swappable transport", but it would have moved framing,
-  reconnect and callback handling into each one and left `internal/relay` needing a datagram-shaped
+  reconnect and callback handling into each one and left `relay` needing a datagram-shaped
   accept path; (2) expose every transport as a `net.Listener`/`net.Conn` pair and keep `NDJSONConn`
   as the only `Transport` — more work inside the new packages, none anywhere else.
 - **Resolution:** Option 2. `relay.Serve` already takes any `net.Listener` and `handleConn` any
-  `net.Conn`, so **`internal/relay` gained no transport-aware line at all**, and — decisively — the
+  `net.Conn`, so **`relay` gained no transport-aware line at all**, and — decisively — the
   per-connection-goroutine model survived untouched. `Client.gateMu`'s comment states that
   everything else in that struct needs no lock *because* "OnReceive is serial", which is true only
   while each connection owns a goroutine; option 1 would have required re-auditing every concurrent
-  site in the relay to keep that claim honest. New packages: `internal/netx` (the `Kind` seam),
-  `internal/netx/udpconn`, `internal/netx/quicconn`.
+  site in the relay to keep that claim honest. New packages: `netx` (the `Kind` seam),
+  `netx/udpconn`, `netx/quicconn`.
 - **Resolution (framing):** One datagram carries exactly one NDJSON line. Framing is redundant on
   udp/quic but harmless, and it keeps a single `Transport` implementation for all three. This is
   what made `Send`'s two-`Write` split a real bug rather than a style point: over a datagram
@@ -1135,7 +1146,7 @@ Format: Date / Decision / Status / Context / Options considered / Resolution / C
   latest-wins. A retransmitted position would arrive stale and out of order, which is worse than the
   gap it fills. `ForwardUnreliable` is a separate method rather than a flag on `Forward` so a caller
   who forgets which they wanted gets the safe one. TCP implements it as `Send`; a `net.Conn` opts in
-  structurally via an unexported `unreliableWriter` interface, so `internal/transport` keeps its
+  structurally via an unexported `unreliableWriter` interface, so `transport` keeps its
   no-internal-dependencies property.
 - **Resolution (UDP address validation):** A remote must echo back a cookie sent to the address it
   claimed before it gets a `Conn`, which defeats blind spoofing and stops the relay being used as a
@@ -1285,7 +1296,7 @@ Format: Date / Decision / Status / Context / Options considered / Resolution / C
   free. (2) **Ordering does not matter** to a latest-wins state plane, so udp gives up nothing
   the state plane wanted. (3) **The usual counter-argument does not apply**: udp's headline
   advantage is hole-punching for P2P, and this is a star topology through a relay, so that was
-  never on the table either way (`internal/README.md`'s own NAT note).
+  never on the table either way (`docs/security.md`'s own NAT note).
 
   **What the default does NOT buy, recorded because it was the initial motivation and is false:**
   lower latency. All three transports deliver at identical speed on a link that is not losing
@@ -1306,7 +1317,7 @@ Format: Date / Decision / Status / Context / Options considered / Resolution / C
 - **Context:** The transport shipped with an address-validation cookie, which gates **admission**
   — it proves a source address is real, defeating blind spoofing and reflection. It does nothing
   afterwards: a connection was identified by source address alone, so anyone able to spoof a live
-  client's ip:port could inject state into its session. `internal/README.md` had cited CelesteNet's
+  client's ip:port could inject state into its session. `docs/security.md` had cited CelesteNet's
   unpredictable token as precisely the reason TCP is safer by construction, and then the udp
   transport shipped without it.
 - **Options considered:** (1) leave it and document the gap — defensible on threat modelling
@@ -1441,7 +1452,7 @@ Format: Date / Decision / Status / Context / Options considered / Resolution / C
 ---
 
 - **Date:** 2026-08-16
-- **Decision:** `send` is **ordered** as well as reliable on every transport. `internal/netx/udpconn`
+- **Decision:** `send` is **ordered** as well as reliable on every transport. `netx/udpconn`
   resequences: a reliable payload that arrives ahead of an earlier one is held until the gap fills,
   instead of being delivered on arrival.
 - **Status:** accepted
@@ -1455,7 +1466,7 @@ Format: Date / Decision / Status / Context / Options considered / Resolution / C
   is a no-op, so the late `join` re-adds a peer who has already gone and nothing will ever remove
   them again. Their ghost stays on screen for the rest of the session. Reachable whenever a join's
   first datagram is lost and the peer leaves inside the ~6s retransmit budget.
-- **Options considered:** (1) guard in `internal/core` — ignore a `join` for a `player_id` already
+- **Options considered:** (1) guard in `core` — ignore a `join` for a `player_id` already
   seen leaving, safe because relay ids are never reused; small and low-risk, but it *corrects* the
   symptom while the cause keeps running, and every future consumer of lifecycle ordering inherits
   the same bug. That is the shape `adapters/_template`'s no-bandage rule names. (2) resequence in
@@ -1471,7 +1482,7 @@ Format: Date / Decision / Status / Context / Options considered / Resolution / C
   kept: with in-order delivery a duplicate is exactly `seq < wantSeq`.
 - **Consequences:** Head-of-line blocking now exists on the reliable path — correct here, since only
   lifecycle messages ride it (a handful per session) while the state plane rides `SendUnreliable` and
-  is unaffected. `internal/core` still has no guard of its own and deliberately depends on this
+  is unaffected. `core` still has no guard of its own and deliberately depends on this
   guarantee; `TestCoreDependsOnOrderedLifecycleDelivery` pins that coupling from the other side so it
   is visible rather than implicit. The contract now states ordering explicitly instead of leaving it
   to be inferred from "reliable".
@@ -1531,10 +1542,10 @@ Format: Date / Decision / Status / Context / Options considered / Resolution / C
   two-sided atomic escrow, late-join state snapshots, relay-served clock sync, stable identity via
   session resumption, and `features` negotiation with per-room stickiness. **Everything is off
   unless every member of a room asks for it, and no shipped adapter does.**
-- **Status:** Done, in `internal/protocol/online.go`, `internal/relay/online.go`,
-  `internal/core/online.go`, plus bridge message types and config plumbing on both binaries.
-  Verified with the Go tools per CLAUDE.md — `internal/relay/online_test.go` and
-  `internal/core/online_test.go`, three new fuzz targets, the full suite at `-count=10`, and
+- **Status:** Done, in `protocol/online.go`, `relay/online.go`,
+  `core/online.go`, plus bridge message types and config plumbing on both binaries.
+  Verified with the Go tools per CLAUDE.md — `relay/online_test.go` and
+  `core/online_test.go`, three new fuzz targets, the full suite at `-count=10`, and
   `internal/e2e` unchanged and green. **No live game test, and none is owed**: nothing here
   touches a game, which is exactly the split that makes the deterministic side self-verifiable.
 - **Context:** Asked for directly — implement what full/proper online needs, ahead of any game
@@ -1741,3 +1752,65 @@ Format: Date / Decision / Status / Context / Options considered / Resolution / C
   is recorded in `risks.md`: a maximal `Event` renders to 1321 bytes and a committed `EscrowState`
   with two blobs to 2294, against 1182 usable — both undeliverable to a udp peer today, despite
   `MaxEventBytes`' own comment claiming it was sized to fit.
+
+---
+
+### 2026-08-17 — The Go packages leave `internal/` and the module takes its real path
+
+- **Decision:** Rename the module from `meshghost` to `github.com/Tsukino-uwu/MeshGhost` and
+  move the six library packages — `protocol`, `transport`, `bridge`, `core`, `relay`, `netx`
+  (with `netx/udpconn`, `netx/quicconn`) — from `internal/` to the repo root, making them
+  importable from outside. `internal/` survives holding `e2e` alone. `cmd/*` are unmoved and
+  remain `package main`. **No API stability is promised**: pre-1.0, and these packages may
+  change shape in any release.
+- **Status:** Done. A pure import-path change — no logic, no wire format, no bridge change, no
+  adapter change. Verified by `dev-scripts/run-gotests.bat` green, `-count=10 -shuffle=on` green
+  on the concurrency packages, and a throwaway module outside the repo that imports all six by
+  their new paths and runs. That last one is the only check that actually demonstrates the goal;
+  the existing suite passes just as happily with the packages still private.
+- **Context:** A Go game wanting MeshGhost compiled in could not import any of it, for two
+  independent reasons: `module meshghost` is a local-only name that resolves to nothing, and
+  every library package sat under `internal/`, which the toolchain refuses from outside the
+  owning module. `docs/integrating.md` documented that as deliberate, and `ideas.md` recorded
+  the change as "deliberately not scheduled" — the cost being commitment rather than risk, since
+  `internal/` is exactly how a Go project says "I reserve the right to reshape this freely".
+  **The trigger was the user deciding to do it anyway, not an outside embedder asking.** That is
+  worth stating plainly, because the ideas entry had named "a real user asking, not neatness" as
+  the bar and this did not clear it; the decision was made with that trade in view.
+- **Options considered:**
+  1. **Leave it.** Fork-or-vendor stays the only route. MIT permits it outright, and nothing
+     outside this repo had asked.
+  2. **Export `protocol` only.** Cheap, no dependencies, the most stable code here — but an
+     embedder would still write their own framing, transports and client logic. It buys perhaps
+     a third of the work while creating a permanent surface anyway.
+  3. **A `pkg/` umbrella.** Keeps the repo root uncluttered at the cost of a dead path segment
+     in every import line, forever.
+  4. **The repo root.**
+  5. **A cgo `-buildmode=c-shared` library**, so non-Go games could link it in too.
+- **Resolution:** Option 4. The half-measure (2) creates the surface without the payoff, and
+  `pkg/` (3) is a convention from an unofficial layout repo the Go team does not endorse —
+  `github.com/Tsukino-uwu/MeshGhost/core` is the form a Go reader expects.
+  **Option 5 was rejected outright**, and not on effort: every Go build here sets
+  `CGO_ENABLED: "0"`, and `release.yml` cross-compiles four targets from one Linux runner
+  *because* pure Go cross-compiles for free — `c-shared` needs cgo and a native toolchain per
+  target, collapsing that into a per-OS matrix. It would also put the Go runtime inside the game
+  process, which is precisely what "Why the core is out-of-process" decided against, and a DLL
+  is a worse offender than an exe for the AV false-positive problem this project already has.
+  The cross-language need it would serve is **already met by the bridge**: any language can run
+  the binary as a sidecar and speak one JSON object per line, which is exactly what the three
+  shipped adapters do in three unrelated languages. That answer was under-documented rather than
+  missing, so the fix was documentation (`docs/integrating.md`), not a build target.
+- **Consequences:** These six packages are a public API surface now, and every later refactor is
+  a potential breaking change for people we cannot contact. **The mitigation is an explicit
+  refusal to promise stability, not restraint in refactoring** — stated in the README, in
+  `docs/integrating.md`, in `go.mod`'s header, and in `core`/`relay`'s package comments, which
+  is the version pkg.go.dev renders. Also: tags up to `v0.8.5` carry the old module path and are
+  **not fetchable**; only tags cut after this resolve. The packages appear on pkg.go.dev the
+  first time anyone fetches them, so package doc comments are now published prose. `internal/`
+  keeps its meaning because `e2e` still lives there. **No adapter was opened** — their sources
+  still carry `internal/…` path comments, left stale on purpose: they are `eol=lf`-pinned and
+  hashed by `release.yml`'s staleness gate, so correcting a comment would force a DLL rebuild
+  and a re-baked `*-built-from.txt` or the next release goes red claiming a fresh DLL is stale.
+  Fix them the next time those files change for a real reason. `agent_docs/verified.md` and
+  `agent_docs/phases/` were deliberately not swept: they are dated records, and entries before
+  2026-08-17 naming `internal/<pkg>/…` map 1:1 to `<pkg>/…`.

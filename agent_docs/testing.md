@@ -1,7 +1,7 @@
 # Testing the Go client/server
 
 How to run every automated check this project has, what each one actually proves, and the traps
-that will otherwise be rediscovered. **This file is only about `internal/` and `cmd/`** — the
+that will otherwise be rediscovered. **This file is only about the Go packages and `cmd/`** — the
 deterministic Go code. Adapters are a different standard entirely (see the bottom of this file).
 
 Written 2026-08-16, when the tooling below was added; see `verified.md`'s entry of that date for
@@ -14,7 +14,7 @@ dev-scripts\run-gotests.bat
 ```
 
 That is build + vet + the whole suite twice, and it is what CLAUDE.md requires before calling a
-change to `internal/` or `cmd/` done. It needs no game, no emulator, and nobody watching.
+change to the Go client/server done. It needs no game, no emulator, and nobody watching.
 
 **A green run here is not a green CI run.** Two checks deliberately only run in CI — the race
 detector and fuzzing. See below.
@@ -24,7 +24,7 @@ detector and fuzzing. See below.
 **Settled 2026-08-16**, when Pseudoregalia was confirmed between two real computers (`verified.md`).
 
 A two-machine session proves the client, relay, and transport stack, and **none of that knows which
-game it is serving**. Making every new adapter re-prove it is re-testing `internal/relay` with a
+game it is serving**. Making every new adapter re-prove it is re-testing `relay` with a
 game attached, which is slower, needs two people, and answers a question already answered.
 
 So the default for a new game is: **loopback plus the Go suite is enough.**
@@ -68,7 +68,7 @@ concurrent clients found it locally in 100 runs once written**, where the test t
 only failed by accident, in a misleading place.
 
 CI is `.github/workflows/ci.yml`. **It only runs when a `.go` file, `go.mod`/`go.sum`, or the
-workflow itself changed** — every tracked `.go` file lives under `internal/` or `cmd/`, so that
+workflow itself changed** — no tracked `.go` file belongs to an adapter, so that
 filter is exactly "the client/server changed". A push touching only adapters, `packaging/`, or
 `agent_docs/` produces no CI run at all, which is correct: nothing in CI tests an adapter. If you
 want a run anyway, Actions → CI → Run workflow is unfiltered.
@@ -89,17 +89,17 @@ and its `contents: write` permission is the reason CI is deliberately `contents:
 
 ## The suites, and what each is actually for
 
-- **`internal/protocol`, `internal/transport`, `internal/relay`, `internal/core`** — the ordinary
+- **`protocol`, `transport`, `relay`, `core`** — the ordinary
   suite. Real TCP throughout, including the adapter bridge: `core_test.go`'s `dialFakeAdapter`
   dials the core's bridge listener with `transport.Dial` and speaks real bridge NDJSON. The
   bridge is therefore *not* an untested seam, despite `cmd/meshghost-fakeadapter` using an
   in-process shortcut.
-- **`internal/netx`, `internal/netx/udpconn`, `internal/netx/quicconn`** — the transport
+- **`netx`, `netx/udpconn`, `netx/quicconn`** — the transport
   implementations behind the `net.Listener`/`net.Conn` seam. `udpconn` carries the most, since it
   is the only one that hand-rolls reliability and ordering: sequence numbers, acks, the retry
   loop, the reorder window, and the per-connection token.
-- **`internal/bridge`** — **no test files of its own.** It is types and limits only, and it is
-  covered where it is used: `internal/core`'s `dialFakeAdapter` speaks real bridge NDJSON, and
+- **`bridge`** — **no test files of its own.** It is types and limits only, and it is
+  covered where it is used: `core`'s `dialFakeAdapter` speaks real bridge NDJSON, and
   `internal/e2e` drives a real adapter across it. Worth knowing before assuming a bridge change
   is unguarded.
 - **`cmd/meshghost`, `cmd/meshghost-relay`, `cmd/meshghost-netsim`** — each has its own tests,
@@ -108,13 +108,13 @@ and its `contents: write` permission is the reason CI is deliberately `contents:
   then drives a real adapter over the bridge and asserts a ghost completes the round trip. This
   is the only thing covering `cmd/`'s flag parsing and config wiring, and it is the automated
   form of the loopback check that used to mean launching two `.bat` files and watching.
-- **`internal/relay/world_test.go`** — world custody, and the file worth reading before touching
+- **`relay/world_test.go`** — world custody, and the file worth reading before touching
   that plane: four of its tests exist because the OBVIOUS implementation is wrong in four separate
   ways, each producing silent permanent divergence (two clients looking at different worlds, no
-  error anywhere). They fail against that obvious version. `internal/netx/udpconn/world_bounds_test.go`
+  error anywhere). They fail against that obvious version. `netx/udpconn/world_bounds_test.go`
   is the other half — the world plane's bounds are derived from udpconn's own constants, and the
   assertion lives in the only package that can see them.
-- **`internal/relay/online_test.go`, `internal/core/online_test.go`** — the planes past cosmetic
+- **`relay/online_test.go`, `core/online_test.go`** — the planes past cosmetic
   (events, sequencer, leases, escrow, snapshots, resumption, clock sync). **The concurrency tests
   there are the point of the file, not decoration**, and are the invariant harness
   `beyond-cosmetic.md` predicted would be the highest-value tool for this work: many clients race
@@ -128,8 +128,8 @@ and its `contents: write` permission is the reason CI is deliberately `contents:
   ghosts, but of the control-plane invariant CHECKERS it grew 2026-08-17. A checker with no test
   of its own passes forever, including on every run where the thing it was watching was broken,
   which is the worst failure available to a tool whose whole job is to notice.
-- **`internal/netx/conformance_test.go`** — **the transport conformance suite: one set of
-  behavioural assertions run against tcp, udp AND quic.** The point of `internal/netx` is that the
+- **`netx/conformance_test.go`** — **the transport conformance suite: one set of
+  behavioural assertions run against tcp, udp AND quic.** The point of `netx` is that the
   three are interchangeable behind one interface, so a behaviour that holds on one and not another
   breaks a documented guarantee while every per-transport test still passes — each of those only
   asks whether its own transport is self-consistent.
@@ -143,7 +143,7 @@ and its `contents: write` permission is the reason CI is deliberately `contents:
   run it found a second divergence nobody was looking for: udp signals nothing at all on close, so
   a peer waits out the full 60s idle timeout. That one is a documented skip with the consequence
   named, not a deleted assertion.
-- **`internal/relay/leak_test.go`** — goroutine and connection-slot teardown. Both pass; these
+- **`relay/leak_test.go`** — goroutine and connection-slot teardown. Both pass; these
   exist because a relay holds sessions for hours and nothing else asserted that a closed
   connection actually releases anything.
 
@@ -170,7 +170,7 @@ platform-agnostic (`net`, `encoding/json`, no syscalls), so a race there is a ra
 Only the seed corpus runs during a normal `go test`. To run a real campaign:
 
 ```
-go test ./internal/protocol -run=XXX -fuzz=FuzzValidateStateIsStableAcrossTheWire -fuzztime=10m
+go test ./protocol -run=XXX -fuzz=FuzzValidateStateIsStableAcrossTheWire -fuzztime=10m
 ```
 
 Each target's doc comment carries its own command. `-run=XXX` matches no ordinary test, so only
@@ -214,17 +214,17 @@ artifact. Download it, drop it into the matching `testdata/fuzz/<Target>/` direc
   misdiagnosed twice (as a slot leak, then a goroutine leak) before being isolated by subtraction.
 - **Don't fuzz over real TCP.** A fuzzer opening sockets at that rate exhausts the Windows
   ephemeral port range and fails with a dial error that says nothing about the code under test.
-  `internal/relay/fuzz_test.go` uses an in-memory `net.Pipe` listener instead; the relay has no
+  `relay/fuzz_test.go` uses an in-memory `net.Pipe` listener instead; the relay has no
   TCP-specific code, so `Serve` accepts it unchanged.
 - **A shared fuzz server needs a raised `MaxClients`.** At the shipped default of 8, a dozen fuzz
   workers contend for slots and spend their time queueing rather than exploring inputs.
-- **A test adapter must reconnect.** `internal/core` deliberately closes a bridge connection when
+- **A test adapter must reconnect.** `core` deliberately closes a bridge connection when
   the relay is unreachable, so the adapter's own loop retries later (see `core.go`'s bridge
   `hello` handler and `adapters/_template/PROTOCOL.md`). An adapter without that loop appears to
   work whenever the relay happens to start first and silently never recovers otherwise.
 - **A client can receive a `Leave` before its own `Welcome`.** The relay adds a joining client to
   the room before sending its Welcome, so a peer departing at that instant gets its Leave
-  forwarded to the newcomer first. This is harmless in production (`internal/core` ignores a
+  forwarded to the newcomer first. This is harmless in production (`core` ignores a
   Leave for a player it never knew), but a test that asserts the Welcome is the *first* message —
   as `relay_test.go`'s `expectWelcome` does — will fail on a busy room. Use a helper that skips
   ahead to the Welcome, like `leak_test.go`'s `awaitWelcome`. Found 2026-08-16 by CI: it failed
@@ -251,7 +251,7 @@ apart from a real pass.
 
 **The measured limit, which is the important part.** With the relay's per-room send lock
 deliberately removed — a real ordering defect — this rig ran **51,000 events across 8 peers and
-reported no violations**, while `internal/relay/online_test.go`'s total-order test caught the
+reported no violations**, while `relay/online_test.go`'s total-order test caught the
 same defect on its first run. The checkers are not broken; they have their own tests. A
 ticker-driven rig simply produces far less contention per second than a tight burst of
 goroutines, and Go's mutex handoff tends to preserve the very order the defect needs disturbed.
@@ -269,7 +269,7 @@ under loss, latency, jitter, reordering, duplication or partitions.
 
 Added 2026-08-16, because the gap was already written down twice in this file (jitter and
 clock skew untested; interpolation degrading *silently*) and the only fault injection in the
-repo was a package-private drop counter inside `internal/netx/udpconn`'s tests. That counter is
+repo was a package-private drop counter inside `netx/udpconn`'s tests. That counter is
 what found the lifecycle-ordering bug the same day — a `leave` overtaking its own `join`, which
 stranded a peer's ghost for the whole session. The proxy is that idea at session scope.
 

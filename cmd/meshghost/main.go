@@ -1,5 +1,5 @@
 // Command meshghost is the desktop core process: it connects to a relay
-// and listens for a local adapter over the bridge. See internal/core for
+// and listens for a local adapter over the bridge. See core for
 // the implementation and agent_docs/contract.md for the protocol.
 package main
 
@@ -18,9 +18,9 @@ import (
 	"strings"
 	"time"
 
-	"meshghost/internal/core"
-	"meshghost/internal/netx"
-	"meshghost/internal/protocol"
+	"github.com/Tsukino-uwu/MeshGhost/core"
+	"github.com/Tsukino-uwu/MeshGhost/netx"
+	"github.com/Tsukino-uwu/MeshGhost/protocol"
 )
 
 // maxLogBytes is the size at which meshghost.log is rotated to meshghost.log.1
@@ -122,7 +122,7 @@ type fileConfig struct {
 	MaxReceiveHzPerPlayer *int `json:"max_receive_hz_per_player"`
 	// Features turns on capabilities beyond the cosmetic ghost overlay --
 	// the event plane, leases, escrow, late-join snapshots, session
-	// resumption, clock sync (see internal/protocol's Feature* constants and
+	// resumption, clock sync (see protocol's Feature* constants and
 	// agent_docs/beyond-cosmetic.md). Absent or empty, the default, means
 	// cosmetic only.
 	//
@@ -421,7 +421,7 @@ const parentPollInterval = 2 * time.Second
 //
 // Note this is about the process, not about peers seeing you leave: when a game
 // dies its bridge socket closes, and the core already drops the relay connection
-// on that (internal/core.Core.handleBridgeConn), so a real leave is sent either
+// on that (core.Core.handleBridgeConn), so a real leave is sent either
 // way. What survives is the empty core process, and that is what this reaps.
 //
 // pid <= 0 means "not asked for" and returns immediately -- the guard lives here
@@ -467,7 +467,7 @@ func main() {
 	relayAddr := flag.String("relay", "127.0.0.1:7777", "relay address to connect to")
 	bridgeAddr := flag.String("bridge", "127.0.0.1:7778", "address to listen on for the adapter bridge")
 	gameID := flag.String("game", "", "game_id to advertise to the relay -- optional now that a "+
-		"real adapter's own Hello declares it (internal/bridge.Hello); set this to connect at "+
+		"real adapter's own Hello declares it (bridge.Hello); set this to connect at "+
 		"startup instead of waiting for one, e.g. for dev/testing scripts with no adapter attached")
 	room := flag.String("room", "default", "room name to join")
 	name := flag.String("name", "player", "display name to advertise to the relay")

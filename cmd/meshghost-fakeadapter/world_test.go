@@ -22,7 +22,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	"meshghost/internal/protocol"
+	"github.com/Tsukino-uwu/MeshGhost/protocol"
 )
 
 // testWorldChecker builds a checker for authority "sim" belonging to "self",

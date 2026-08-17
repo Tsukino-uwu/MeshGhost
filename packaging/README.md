@@ -76,7 +76,7 @@ files stopped doing anything a user couldn't already get by double-clicking the 
 
 `server.room_code` (host-set) and `client.room_code` (must match) in `config.json` — see
 [agent_docs/architecture.md](../agent_docs/architecture.md)'s room-code/version ADR and
-[internal/README.md](../internal/README.md). **Optional and off by default**: an empty
+[docs/security.md](../docs/security.md). **Optional and off by default**: an empty
 `server.room_code` means the relay still accepts anyone with the address, the original
 no-auth posture. `packaging/release/README.txt` should tell a host to set one before treating
 a session as safe for people they don't personally know — see that file's own note.

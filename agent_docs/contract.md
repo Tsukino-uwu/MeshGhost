@@ -102,7 +102,7 @@ Unchanged from the brief, restated exactly:
 |---|---|
 | `player_id` | assigned by the relay at `hello` |
 | `seq` | monotonic, per-client, for ordering |
-| `timestamp` | numeric, for interpolation. Milliseconds, wall-clock (`time.Now().UnixMilli()` on whichever side stamps it). **Peers' wall clocks must actually agree, not just be internally consistent** — `internal/core/interp.go`'s `remoteBuffer.at()` compares a *local* wall-clock render time directly against a *remote's* wall-clock timestamps. Meaningful clock skew between peers silently falls back to an edge snapshot every tick (interpolation stops, no error anywhere) rather than failing loudly. **A room that negotiates `clock.v1` closes that gap**: every member stamps in the *relay's* clock domain instead of its own, and renders against the same shifted clock, so nobody has to be correct about the real time — they only have to agree. Off by default, so an unnegotiated room is byte-for-byte the original behaviour. See Transport below. |
+| `timestamp` | numeric, for interpolation. Milliseconds, wall-clock (`time.Now().UnixMilli()` on whichever side stamps it). **Peers' wall clocks must actually agree, not just be internally consistent** — `core/interp.go`'s `remoteBuffer.at()` compares a *local* wall-clock render time directly against a *remote's* wall-clock timestamps. Meaningful clock skew between peers silently falls back to an edge snapshot every tick (interpolation stops, no error anywhere) rather than failing loudly. **A room that negotiates `clock.v1` closes that gap**: every member stamps in the *relay's* clock domain instead of its own, and renders against the same shifted clock, so nobody has to be correct about the real time — they only have to agree. Off by default, so an unnegotiated room is byte-for-byte the original behaviour. See Transport below. |
 | `area_id` | opaque string. Map bank for Emerald, scene name for TEVI/Unity. |
 | `position` | variable-length float array. 2 for Emerald, 3 for 3D games. |
 | `orientation` | optional. Facing direction, angle, or quaternion. Opaque to the core. |
@@ -165,7 +165,7 @@ supports, so the first feature addition would have silently broken every already
 client.
 
 The defined capabilities, each of which switches on one thing the relay would otherwise never
-do (`internal/protocol/online.go`):
+do (`protocol/online.go`):
 
 | Capability | Turns on |
 |---|---|
@@ -299,13 +299,13 @@ both opaque to the core and relay (never parsed, compared only where noted below
 - `room_code` is a shared secret the relay compares (`crypto/subtle.ConstantTimeCompare`)
   against its own configured code before accepting a join. An empty configured code (the
   default) means auth is off — the original friend-hosted posture. **Crosses the wire in
-  plaintext** — `internal/transport` has no TLS — so this raises the bar from "anyone with the
+  plaintext** — `transport` has no TLS — so this raises the bar from "anyone with the
   address" to "anyone with the address and the code," not to "safe against a network-level
-  attacker." See `internal/README.md`.
+  attacker." See `docs/security.md`.
 
 Both are refused with `reject` (see the message table above) before any `state` is exchanged,
 the same "reject at handshake" shape the protocol-version check already used — researched
-against CelesteNet's own version-check pattern (`internal/README.md`'s prior-art section) before
+against CelesteNet's own version-check pattern (`docs/security.md`'s prior-art section) before
 building this.
 
 ### `send_hz` and `max_receive_hz_per_player`
@@ -316,7 +316,7 @@ in either direction against an older peer.
 
 - `send_hz` (on `welcome`) is the room-wide state send rate the relay is configured for. A
   client adopts it as its own actual send rate **unless** it has deliberately configured a
-  slower rate of its own (`internal/core.Core.MinSendInterval`) — the effective rate is always
+  slower rate of its own (`core.Core.MinSendInterval`) — the effective rate is always
   the **slower** of the two, so a peer on a poor connection can decline to go faster than it
   wants, but the relay can never speed a client up past a rate it explicitly chose. Zero on the
   wire (only possible from an older relay that predates this field) means "nothing advertised";
@@ -539,7 +539,7 @@ ends and the next begins.
   - **Framing is identical on all three: one datagram carries exactly one NDJSON line.** The
     consequence worth knowing is that `send` must emit payload and its newline in a *single*
     write — two writes are two datagrams and split every line in half.
-  - **Datagram size:** `internal/netx/udpconn.MaxDatagramBytes` (1200) bounds one message on
+  - **Datagram size:** `netx/udpconn.MaxDatagramBytes` (1200) bounds one message on
     `udp`, below `MaxLineBytes` (4096). A message over that is refused, not fragmented, because
     a fragmented datagram is lost whole when any one fragment is lost. Large `extras` therefore
     means `tcp`.
@@ -586,11 +586,11 @@ ends and the next begins.
   - `on_receive(callback)` — unchanged from the brief.
   - `on_disconnect(reason)`, `on_error(err)` — the brief's version had no way to report a
     dropped or failed connection. (`on_connect()` was in this list too until a review pass
-    removed it 2026-08-14: `internal/transport`'s implementation started its read loop before
+    removed it 2026-08-14: `transport`'s implementation started its read loop before
     a caller could register the callback, so it fired from a goroutine racing that
     registration — unusable as specified, and nothing in the codebase ever registered one.)
   - Reconnect with exponential backoff on unexpected disconnect.
-  - Heartbeat and clock sync: `internal/core.Core.sendHeartbeats` sends a short burst of
+  - Heartbeat and clock sync: `core.Core.sendHeartbeats` sends a short burst of
     `ping`s at connect and then one every `DefaultHeartbeatInterval` (20s) on an otherwise-quiet
     connection; the relay replies with `pong`, echoing the `nonce` and adding its own
     `server_time_ms`. Since 2026-08-17 the core *does* read that back: it records each ping's
@@ -612,7 +612,7 @@ ends and the next begins.
 - **Versioning:** `hello` carries a protocol version. A relay that sees a mismatched major
   version refuses the connection outright rather than guessing at compatibility.
 - **Bounded reads and timeouts** (added 2026-08-14, relay-safety hardening — ADR in
-  `architecture.md`): `internal/transport.NDJSONConn` enforces `MaxLineBytes` *during* the read
+  `architecture.md`): `transport.NDJSONConn` enforces `MaxLineBytes` *during* the read
   itself (a `bufio.Scanner` max-token-size, not a length check after the line is already fully
   buffered — the earlier `bufio.Reader.ReadBytes` approach let a peer streaming bytes with no
   newline grow memory without bound before any check could run), plus a per-line idle read
@@ -694,7 +694,7 @@ asks for a capability will ever see.
 forwarded verbatim into the relay's own `hello.game_id` (the packet-schema table above). This
 is what lets the core defer connecting to the relay until an adapter actually shows up and
 says which game it is, instead of requiring the user to also type `"game"` into a config file
-(`internal/core.Core.ConnectRelayOnAdapterHello`). A caller that already knows the game
+(`core.Core.ConnectRelayOnAdapterHello`). A caller that already knows the game
 upfront (dev/testing scripts with no adapter attached, e.g. `dev-scripts/run-core-emerald.bat`'s
 `-game` flag) can still connect immediately at startup instead — both paths are supported,
 and are mutually exclusive per process: once a Core is connected to the relay for one
@@ -727,14 +727,14 @@ relay connection actually exists.
 
 Untrusted peers are on the wire the moment Phase 4 happens, so these are specified at the
 same time as the schema rather than bolted on later. Values chosen and enforced at the relay
-(`internal/relay/limits.go`), and — as of the relay-safety hardening pass — mirrored on
-receive by `internal/core` too (`internal/protocol/limits.go` holds the shared ones, so the
+(`relay/limits.go`), and — as of the relay-safety hardening pass — mirrored on
+receive by `core` too (`protocol/limits.go` holds the shared ones, so the
 two enforcement points can't silently drift apart). Originally generous rather than tight,
 since the relay was no-auth through Phase 4; audited with an adversarial peer in mind
 alongside room-code auth (see the architecture.md ADR) — treat the numbers below as tight now:
 
 - Max line length per NDJSON message: **4096 bytes** (`MaxLineBytes`). Enforced *during* the
-  read itself since 2026-08-14 (`internal/transport`'s bounded-read fix, see "Transport"
+  read itself since 2026-08-14 (`transport`'s bounded-read fix, see "Transport"
   above) — no longer just a check after the line is already fully buffered.
 - Max serialized size of `extras`: **1024 bytes** (`MaxExtrasBytes`).
 - Max length of `position`: **8** (`MaxPositionLen`) — headroom above the largest known real
@@ -750,13 +750,13 @@ alongside room-code auth (see the architecture.md ADR) — treat the numbers bel
   `game_version`): **128 bytes** (`MaxHelloFieldLen`), checked at the relay before any of them
   are used to create or look up a room.
 - Per-client rate limit: **`max(120, send_hz × 6)` messages/second** (`maxMessagesPerSecond`,
-  `internal/relay/limits.go`) — the relay closes, rather than throttles, a connection that
+  `relay/limits.go`) — the relay closes, rather than throttles, a connection that
   exceeds it, sending a `reject` (`ReasonRateLimited`) first since the send/receive rate-control
   feature (see the ADR in `architecture.md`). At the default `send_hz` (20), this computes to
   exactly the historical flat **120** — unchanged for an unconfigured relay. The cap **only ever
   scales up**, never down: a relay turned *down* to a slower room rate must not start
   disconnecting older clients still sending at their own built-in 20Hz default.
-  **Client-side enforced since Phase 6** (TEVI): `internal/core.Core.MinSendInterval` (left at
+  **Client-side enforced since Phase 6** (TEVI): `core.Core.MinSendInterval` (left at
   zero by `core.New()` since the rate-control ADR, so the relay's advertised rate wins by
   default; `DefaultMinSendInterval`, 50ms / 20Hz, is the last-resort fallback when neither a
   local preference nor a relay advertisement exists) caps how often `forwardLocalState` actually sends to the
@@ -784,7 +784,7 @@ alongside room-code auth (see the architecture.md ADR) — treat the numbers bel
   "Transport" above for why the idle read deadline alone doesn't cover this case.
 - The relay stamps `player_id` on every `state` message from the connection's own
   relay-assigned id, server-side — never trusted from the client's payload, since a peer could
-  otherwise claim someone else's id. `internal/core` mirrors this trust boundary on receive:
+  otherwise claim someone else's id. `core` mirrors this trust boundary on receive:
   it keeps its own roster (seeded from `welcome`, maintained by `join`/`leave`) and drops any
   `state` for a `player_id` it never actually saw announced, rather than trusting the relay
   completely — a hostile or compromised relay was previously able to inject state for an

@@ -11,7 +11,7 @@ work from any working directory, `"%~dp0..\<name>.exe"`. The one exception is
 `run-loopback-in-release-folder.bat` below, which is written to be copied *out* of here into a
 downloaded release folder and run against its `meshghost-server.exe` instead.
 
-- `run-gotests.bat` — **the one command to run before calling any change to `internal/` or
+- `run-gotests.bat` — **the one command to run before calling any change to the Go client/server or
   `cmd/` done**: `go build`, `go vet`, then the whole suite twice. Needs no game, no emulator,
   and nobody watching — `internal/e2e` builds and launches the real `meshghost-server.exe` and
   `meshghost.exe` and drives a real adapter over the bridge, which is what pairing
@@ -110,7 +110,7 @@ downloaded release folder and run against its `meshghost-server.exe` instead.
 - `run-loadtest-relay.bat` / `run-loadtest-peers.bat` / `run-ghostload-pseudoregalia.bat` — the
   synthetic-peer load rig, for answering "how many players can this actually hold?". The
   shipped `max_clients` of 8 is a policy default, not a technical limit (see
-  `internal/relay/limits.go`), and there are three separate ceilings behind it:
+  `relay/limits.go`), and there are three separate ceilings behind it:
 
   1. **Relay fan-out**, which grows with the *square* of room size — `Room.Forward` sends every
      state to every other member. Measured on the real structs, one Pseudoregalia state line is
@@ -129,7 +129,7 @@ downloaded release folder and run against its `meshghost-server.exe` instead.
   `run-ghostload-pseudoregalia.bat [count]` is tier 3: the same synthetic peers, but wearing a
   real game's `game_id`/`area_id` so **one** running copy of Pseudoregalia renders N ghosts. It
   needs `MG_AREA` and `MG_CENTER` set from a live session first — `area_id` is matched by
-  equality in `internal/core`, so a wrong value renders nothing and looks exactly like a broken
+  equality in `core`, so a wrong value renders nothing and looks exactly like a broken
   rig rather than a mismatch. Ramp the count and read a real frame-time number (`stat unit`)
   off the game each step; add `-churn-every` to exercise ghost spawn/despawn (a full pawn-clone
   construction each time), which may cost more than steady-state rendering. Note this is a
@@ -152,7 +152,7 @@ downloaded release folder and run against its `meshghost-server.exe` instead.
   **Read the summary even on a pass** — a run with 0 claims denied, 0 exchanges committed, or 0
   worlds adopted is a green result that exercised nothing. And know its measured limit: against a deliberately broken
   relay it saw 51,000 events without noticing, where the in-process total-order test caught the
-  same defect immediately. It complements `internal/relay`'s tests; it does not replace them. See
+  same defect immediately. It complements `relay`'s tests; it does not replace them. See
   `agent_docs/testing.md`.
 ### Interp is PAIRED with the loopback offset — pick the matching one
 
@@ -194,7 +194,7 @@ default silently drags every dev client back down, and a ghost updating at 20Hz 
   partitions. Everything else here runs over a perfect loopback, which is the gap this closes —
   `agent_docs/testing.md` notes that real latency and jitter are untested and that interpolation
   degrades *silently* under clock skew, and the only fault injection that existed before this was
-  a package-private drop counter inside `internal/netx/udpconn`'s own tests, which cannot touch a
+  a package-private drop counter inside `netx/udpconn`'s own tests, which cannot touch a
   running session. That injector is what found the 2026-08-16 lifecycle-ordering bug; this is the
   same idea at session scope.
 

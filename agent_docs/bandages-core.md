@@ -42,8 +42,8 @@ to stay correct.
 
 ### 1. `DefaultInterpolationDelay` is an admitted guess that is now load-bearing
 
-`internal/core/core.go:88-93` says it outright: *"100ms is a starting guess for tile-grid movement,
-not a measured value."* Since then `internal/protocol/limits.go:79-83` built the `MinSendHz = 10`
+`core/core.go:88-93` says it outright: *"100ms is a starting guess for tile-grid movement,
+not a measured value."* Since then `protocol/limits.go:79-83` built the `MinSendHz = 10`
 protocol floor **on top of it**. So a guess underpins a protocol constant — and a client using the
 documented, supported `min_send: 150ms` lands silently in exactly the degraded regime that floor
 exists to prevent.
@@ -53,7 +53,7 @@ rederived from `protocol.DefaultSendHz` specifically "so the two numbers cannot 
 
 ### 2. `DefaultHeartbeatInterval` is a hand-picked margin against another package's constant
 
-`internal/core/core.go:120-132`. The heartbeat itself is the correct fix for a real, live-diagnosed
+`core/core.go:120-132`. The heartbeat itself is the correct fix for a real, live-diagnosed
 bug (idle timeout → fresh `player_id` every minute → every peer sees a despawn/respawn). The
 **constant** is the bandage: 20s was chosen as "comfortable margin" under `transport`'s 60s, but
 `relay.Server.IdleTimeout` is a per-server override, so a relay configured below ~20s silently

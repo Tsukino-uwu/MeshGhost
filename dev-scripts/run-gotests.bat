@@ -1,6 +1,6 @@
 @echo off
 REM The whole Go client/server gate in one command -- the checks CLAUDE.md requires before a
-REM change to internal/ or cmd/ is called done. Run this instead of remembering four commands.
+REM change to the Go client/server is called done. Run this instead of remembering four commands.
 REM
 REM Nothing here needs a game, an emulator, or a human watching: internal/e2e builds and
 REM launches the real meshghost-server.exe and meshghost.exe and drives a real adapter over the

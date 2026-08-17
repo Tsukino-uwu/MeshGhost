@@ -19,9 +19,9 @@ import (
 	"testing"
 	"time"
 
-	"meshghost/internal/bridge"
-	"meshghost/internal/protocol"
-	"meshghost/internal/transport"
+	"github.com/Tsukino-uwu/MeshGhost/bridge"
+	"github.com/Tsukino-uwu/MeshGhost/protocol"
+	"github.com/Tsukino-uwu/MeshGhost/transport"
 )
 
 // worldAdapter is a bridge adapter that drives the world plane: it declares the

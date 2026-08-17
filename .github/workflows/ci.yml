@@ -14,9 +14,11 @@ name: CI
 # and a private UE4SS dependency -- see packaging/README.md). The staleness
 # gates in release.yml are what guard those.
 #
-# Only runs when the Go client/server actually changed. Every tracked .go file
-# in this repo lives under internal/ or cmd/ (verified 2026-08-16), so "**.go"
-# is precisely "server/client files" -- an adapter, packaging, or agent_docs
+# Only runs when the Go client/server actually changed. No tracked .go file in
+# this repo belongs to an adapter -- they are Lua, C# and C++ -- so "**.go" is
+# precisely "server/client files" whatever directory they sit in (they moved out
+# of internal/ on 2026-08-17; the filter needed no change, which is the point of
+# matching on extension rather than path). An adapter, packaging, or agent_docs
 # push produces no run at all, rather than spending minutes re-proving code it
 # cannot have affected. The workflow file itself is included so a change to
 # these checks still gets exercised by them.
@@ -133,28 +135,28 @@ jobs:
       # -run=XXX so the ordinary tests in these packages don't run three
       # more times here; the test job above already ran them under -race.
       - name: Fuzz protocol - state survives a relay forward unchanged
-        run: bash dev-scripts/ci-fuzz.sh ./internal/protocol FuzzValidateStateIsStableAcrossTheWire 45s
+        run: bash dev-scripts/ci-fuzz.sh ./protocol FuzzValidateStateIsStableAcrossTheWire 45s
       - name: Fuzz protocol - accepted positions cannot overflow float32
-        run: bash dev-scripts/ci-fuzz.sh ./internal/protocol FuzzValidPositionsSurviveNarrowingToFloat32 30s
+        run: bash dev-scripts/ci-fuzz.sh ./protocol FuzzValidPositionsSurviveNarrowingToFloat32 30s
       - name: Fuzz protocol - envelope decode never panics
-        run: bash dev-scripts/ci-fuzz.sh ./internal/protocol FuzzEnvelopeUnmarshalNeverPanics 30s
+        run: bash dev-scripts/ci-fuzz.sh ./protocol FuzzEnvelopeUnmarshalNeverPanics 30s
       # The four planes past cosmetic (2026-08-17) parse their own
       # attacker-controlled shapes: an event payload is opaque bytes forwarded
       # to other players, and a lease key or escrow id becomes a map key in the
       # relay's own state. Same exposure as the state plane above, so the same
       # treatment.
       - name: Fuzz protocol - events survive a relay forward unchanged
-        run: bash dev-scripts/ci-fuzz.sh ./internal/protocol FuzzValidateEventIsStableAcrossTheWire 30s
+        run: bash dev-scripts/ci-fuzz.sh ./protocol FuzzValidateEventIsStableAcrossTheWire 30s
       - name: Fuzz protocol - lease and escrow bounds never panic
-        run: bash dev-scripts/ci-fuzz.sh ./internal/protocol FuzzValidateLeaseAndEscrowNeverPanic 30s
+        run: bash dev-scripts/ci-fuzz.sh ./protocol FuzzValidateLeaseAndEscrowNeverPanic 30s
       # Room feature stickiness compares normalized capability lists by string
       # equality, so a normalizer that is not idempotent would refuse two
       # clients a shared room for no reason -- a handshake failure with no
       # legible cause.
       - name: Fuzz protocol - feature normalization is idempotent
-        run: bash dev-scripts/ci-fuzz.sh ./internal/protocol FuzzNormalizeFeaturesIsIdempotent 30s
+        run: bash dev-scripts/ci-fuzz.sh ./protocol FuzzNormalizeFeaturesIsIdempotent 30s
       - name: Fuzz transport - framing honours its line limit
-        run: bash dev-scripts/ci-fuzz.sh ./internal/transport FuzzReadLoopNeverExceedsItsLineLimit 45s
+        run: bash dev-scripts/ci-fuzz.sh ./transport FuzzReadLoopNeverExceedsItsLineLimit 45s
       # world.v1 (2026-08-17) retains attacker-chosen opaque bytes for a room's
       # lifetime and hands them to whoever takes a lease next, and an authority
       # string is compared for equality against a lease key -- a non-UTF-8 one
@@ -163,21 +165,21 @@ jobs:
       # with the plane and left out of CI, the same omission
       # FuzzListenerSurvivesArbitraryDatagrams had; it had therefore never run.
       - name: Fuzz protocol - world writes survive a relay forward unchanged
-        run: bash dev-scripts/ci-fuzz.sh ./internal/protocol FuzzValidateWorldIsStableAcrossTheWire 30s
+        run: bash dev-scripts/ci-fuzz.sh ./protocol FuzzValidateWorldIsStableAcrossTheWire 30s
       - name: Fuzz relay - survives arbitrary bytes and still serves clients
-        run: bash dev-scripts/ci-fuzz.sh ./internal/relay FuzzRelaySurvivesArbitraryLines 45s
+        run: bash dev-scripts/ci-fuzz.sh ./relay FuzzRelaySurvivesArbitraryLines 45s
       # The relay's POST-JOIN dispatch had no fuzz coverage at all until
       # 2026-08-17: the target above dials, writes one line and hangs up, so the
       # switch reaching handleEvent/handleLease/handleEscrow/handleWorld -- where
       # a lease key, an escrow id and a worldKey all become keys in the relay's
       # own maps -- was only ever exercised by hand-written, well-formed tests.
       - name: Fuzz relay - survives arbitrary post-join messages
-        run: bash dev-scripts/ci-fuzz.sh ./internal/relay FuzzRelaySurvivesArbitraryPostJoinMessages 45s
+        run: bash dev-scripts/ci-fuzz.sh ./relay FuzzRelaySurvivesArbitraryPostJoinMessages 45s
       # udp parses stranger datagrams *before* address validation, room code or
       # protocol version -- the most exposed pre-auth surface in the project,
       # and since 2026-08-16 it is also on the fallback path rather than opt-in.
       - name: Fuzz udpconn - listener survives arbitrary datagrams
-        run: bash dev-scripts/ci-fuzz.sh ./internal/netx/udpconn FuzzListenerSurvivesArbitraryDatagrams 45s
+        run: bash dev-scripts/ci-fuzz.sh ./netx/udpconn FuzzListenerSurvivesArbitraryDatagrams 45s
       # A fuzz failure writes the exact reproducing input to
       # testdata/fuzz/<Target>/<hash>. Without this it exists only inside a
       # deleted runner and the log shows a hash nobody can reproduce from;
@@ -188,7 +190,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: fuzz-failure-corpus
-          path: internal/**/testdata/fuzz/**
+          path: '**/testdata/fuzz/**'
           if-no-files-found: ignore
 
   windows:

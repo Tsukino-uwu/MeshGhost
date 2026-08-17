@@ -26,7 +26,7 @@ REM 0 exchanges committed is a green result that exercised nothing.
 REM
 REM HONEST LIMIT, measured 2026-08-17 rather than assumed: this did NOT catch a deliberately
 REM broken relay (the per-room send lock removed) in 51,000 events, while
-REM internal/relay/online_test.go's total-order test caught the same defect on its first run.
+REM relay/online_test.go's total-order test caught the same defect on its first run.
 REM A ticker-driven rig produces far less contention per second than a tight burst of
 REM goroutines. **This complements the unit tests; it does not replace them.** Its real value
 REM is duration and the transports/faults a unit test cannot reach -- point it at

@@ -25,7 +25,7 @@ setlocal
 cd /d "%~dp0\.."
 
 echo === go test -count=10 -shuffle=on -cpu=1,4 (concurrency packages) ===
-go test -count=10 -shuffle=on -cpu=1,4 ./internal/relay/... ./internal/core/... ./internal/transport/... ./internal/netx/...
+go test -count=10 -shuffle=on -cpu=1,4 ./relay/... ./core/... ./transport/... ./netx/...
 if errorlevel 1 (
     echo.
     echo STRESS FAILURE -- a real one. Do not re-run hoping it passes; a test that fails

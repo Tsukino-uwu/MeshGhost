@@ -9,7 +9,7 @@
 // With -clients N it instead runs N independent Cores in one process, each
 // its own relay connection, which is the load-test rig: N synthetic peers
 // against a relay measures the relay's own N^2 fan-out cost (Room.Forward
-// sends every state to every other member — see internal/relay/limits.go's
+// sends every state to every other member — see relay/limits.go's
 // DefaultMaxClients), and N synthetic peers joining a room a REAL game client
 // is also in puts N ghosts on that client's screen without needing N copies
 // of the game. That second mode is the only way to measure an adapter's
@@ -20,7 +20,7 @@
 // game's peers you pass its game_id, its area_id, its position
 // dimensionality, and a blob of game-specific extras as flags — the
 // per-game values live in dev-scripts launchers, not in this file, for the
-// same reason internal/core has no game branching.
+// same reason core has no game branching.
 package main
 
 import (
@@ -37,9 +37,9 @@ import (
 	"sync/atomic"
 	"time"
 
-	"meshghost/internal/core"
-	"meshghost/internal/netx"
-	"meshghost/internal/protocol"
+	"github.com/Tsukino-uwu/MeshGhost/core"
+	"github.com/Tsukino-uwu/MeshGhost/netx"
+	"github.com/Tsukino-uwu/MeshGhost/protocol"
 )
 
 // circleAdapter satisfies core.Adapter. It has no game to read from: local
@@ -70,7 +70,7 @@ type circleAdapter struct {
 	center []float64
 
 	// areaID must equal the real client's own area_id for that client to
-	// render these ghosts at all — internal/core filters remote states by
+	// render these ghosts at all — core filters remote states by
 	// area_id equality (Core.remoteStatesAt), so a mismatch silently
 	// renders nothing and looks exactly like a broken harness.
 	areaID string

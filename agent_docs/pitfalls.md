@@ -70,7 +70,7 @@ the answer must be gated on the transport existing, never on the answer having a
 the old "are we connected" boolean and check each thing under it: some of those are handshake
 machinery and must move up, and the ones that don't move look completely fine until they hang.
 
-**Why it took a live run to find:** the Go side was fully tested and correct — `internal/core` and
+**Why it took a live run to find:** the Go side was fully tested and correct — `core` and
 `internal/e2e` both proved the core answers a hello, and an e2e test walked real binaries. None of
 that could catch it, because the bug was the adapter never listening. This is the exact split
 CLAUDE.md draws: the Go side is verifiable with tools, an adapter is only verifiable by watching.
@@ -931,7 +931,7 @@ RE-UE4SS entry records the pin. Re-check before relying on them after a pin bump
   adapter) showed both BizHawk instances' `MeshGhost TRACE` diagnostic stuck at
   `knownRemotes=0` forever, even with a stable relay connection, matching area_ids, and no
   connection churn. A long diagnostic session — checking cross-area filtering, adding
-  throttled trace logging in both the Lua adapter and `internal/core` at every hop
+  throttled trace logging in both the Lua adapter and `core` at every hop
   (send → relay forward → roster → receive → store) — proved the entire Go pipeline was
   correct: one core (`p1`) really was sending state, the relay really was forwarding it, and
   the *other* core (`p2`) really was receiving and storing it. The bug wasn't in any of that.
@@ -1181,7 +1181,7 @@ characterised, will keep turning into that system's other problems.
 
 ### Cross-adapter issues that were fixed in the core, not the adapter
 
-Found while building an adapter, but the fix belonged in `internal/core` — listed here so the
+Found while building an adapter, but the fix belonged in `core` — listed here so the
 next adapter author doesn't re-diagnose them as adapter bugs:
 
 - An adapter sending updates at its natural uncapped rate exceeded the relay's rate limit and

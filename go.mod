@@ -1,9 +1,8 @@
-// Module path is local-only ("meshghost") rather than a github.com/<owner>/... path.
-// The repo does have a real remote (github.com/Tsukino-uwu/MeshGhost), but this is a
-// deliberate choice to leave as-is, not an oversight: renaming would touch every import
-// path under cmd/ and internal/ for no functional gain, since nothing outside this repo
-// currently imports this module as a library.
-module meshghost
+// Pre-1.0, and no API stability is promised: these packages may change shape in any
+// release, third-party use is unsupported and untested, and we will not know we broke
+// you. See the README's "Using this from your own game" section before importing.
+// Tags up to v0.8.5 were cut under the old local-only module name and are not fetchable.
+module github.com/Tsukino-uwu/MeshGhost
 
 go 1.25.0
 

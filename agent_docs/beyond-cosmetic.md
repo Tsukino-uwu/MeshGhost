@@ -346,7 +346,7 @@ predicts an adapter's difficulty — here, what you can *reproduce* predicts how
   ceiling than a stream transport could carry, paid so there is one number rather than a
   capability difference that only shows up in the field.
 - **`seq` is inert.** `protocol.State.seq` is documented "for ordering", written by
-  `internal/core`, and read by nothing. **Still true, and now deliberately so**: the event plane
+  `core`, and read by nothing. **Still true, and now deliberately so**: the event plane
   got its own room-wide `Event.Seq` rather than reusing this one, because a per-client counter on a
   lossy plane means nothing across senders and a total order has to come from the relay. The two
   are different things that happen to share a word.
@@ -382,7 +382,7 @@ problem. It is on the wrong plane.
 
 > **A field earns top-level status only if game-agnostic code must act on it.**
 
-Not "if it is important" — if `internal/core` or `internal/relay` must *read* it. On the event
+Not "if it is important" — if `core` or `relay` must *read* it. On the event
 plane that is `to` (the relay routes on it, already reserved) and plausibly a correlation id (to
 match a reply to its request). Everything else belongs in the opaque payload.
 
@@ -435,10 +435,10 @@ What is missing splits cleanly by **which bug class it catches**:
 | Tool | Catches | Status |
 |---|---|---|
 | **Adverse-network proxy** | anything that only breaks under loss/latency/jitter/reorder/partition | **BUILT 2026-08-16** — `cmd/meshghost-netsim` |
-| **Invariant harness over N clients** | concurrency bugs (one lease holder, no dupe/loss, consistent order) | **BUILT 2026-08-17** — `internal/relay/online_test.go` |
+| **Invariant harness over N clients** | concurrency bugs (one lease holder, no dupe/loss, consistent order) | **BUILT 2026-08-17** — `relay/online_test.go` |
 | **Divergence detector** | two peers silently disagreeing about shared state | reserved |
 | **Record / replay** | a desync seen once and never again | reserved |
-| **Crash injection at protocol points** | atomicity — the half-finished trade | **BUILT 2026-08-17** — `internal/relay/online_test.go`'s crash-mid-exchange tests |
+| **Crash injection at protocol points** | atomicity — the half-finished trade | **BUILT 2026-08-17** — `relay/online_test.go`'s crash-mid-exchange tests |
 | **Relay introspection** | "what does the server think is true right now" | **BUILT 2026-08-17** — `Server.Snapshot`, `meshghost-relay -introspect` |
 
 **The second was built the moment it had something to be an invariant about**, and immediately

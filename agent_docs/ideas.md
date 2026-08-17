@@ -28,8 +28,8 @@ own sections.
    not a hypothetical.
 
 3. **Nameplates.** Genuinely blocked, not just unbuilt. `Hello.DisplayName` reaches the relay
-   (`internal/protocol/protocol.go:101`, sourced from `config.json`'s `"name"`) and is only
-   *logged* there (`internal/relay/relay.go:479`, `:782`) — never redistributed. `Welcome.Roster`
+   (`protocol/protocol.go:101`, sourced from `config.json`'s `"name"`) and is only
+   *logged* there (`relay/relay.go:479`, `:782`) — never redistributed. `Welcome.Roster`
    is `[]string` of ids (`protocol.go:170`); `Join` carries only `player_id` (+ optional,
    never-populated `State`). **No adapter can learn any peer's display name today.** Two routes:
    a roster/`join` shape revision to actually carry `display_name` (correct, needs an ADR per
@@ -764,37 +764,6 @@ protocol above is actually run and watched.
 
 ---
 
-## Relay/client — make the Go packages importable by an outside program
-
-Not an adapter item and not on the depth ladder. Raised 2026-08-17 while writing
-`internal/PROTOCOL-without-adapter.md`, and **deliberately not scheduled** — recorded so the
-decision is a decision rather than something rediscovered.
-
-**The situation.** A Go game that wants MeshGhost compiled in cannot import any of it, for two
-independent reasons: the module is declared `module meshghost`, a local-only name that resolves to
-nothing, and every library package lives under `internal/`, which Go refuses to import from outside
-the owning module. `cmd/*` are all `package main`. So the only routes today are forking/vendoring
-(MIT permits it) or running our binary and speaking the bridge.
-
-**Making it importable is mechanically trivial and behaviourally free.** Rename the module to the
-real remote path and move the wanted packages out of `internal/`. Both are pure import-path renames:
-the code is byte-identical, the binaries build the same, the wire protocol is untouched, and
-**adapters are completely unaffected** — they speak a socket, not a Go API, so no adapter has an
-import path to update.
-
-**The cost is not risk, it is commitment.** `internal/` is precisely how a Go project says "I
-reserve the right to reshape this freely". Moving `core`/`relay`/`transport` out makes them a public
-API surface, so every later refactor becomes a potential breaking change for strangers we cannot
-contact — against a project whose whole posture is that third-party use is unsupported and untested.
-
-**The half-measure does not earn its keep.** Exporting only `internal/protocol` (pure wire structs
-and validation, no dependencies, the most stable code here) is tempting and cheap, but an embedder
-would still write their own framing, transports and client logic — it saves maybe a third of the
-work while creating a permanent surface. Either export enough to be genuinely useful, or none.
-
-**If it is ever picked up**, the trigger should be a real user asking, not neatness, and it wants an
-ADR — a public API is a contract revision in everything but name.
-
 ## Relay/client — transport security (TLS)
 
 Not an adapter item and not on the depth ladder at all: this is the Go side, so it's
@@ -816,10 +785,10 @@ is broken today, and one of the costs below argues for waiting.
 ### What's actually missing
 
 Only confidentiality. The application layer is already hardened: server-stamped `player_id`
-(`internal/relay/relay.go:825`, never trusted from the payload), constant-time room-code compare
+(`relay/relay.go:825`, never trusted from the payload), constant-time room-code compare
 (`:653-660`), hello timeout, per-connection flood cap, global client cap, `ValidateState` that
 drops rather than truncates, and a fuzz harness driving the relay over `net.Pipe`. What's left is
-that `internal/transport` is plaintext NDJSON over TCP, so `room_code` crosses the wire readable
+that `transport` is plaintext NDJSON over TCP, so `room_code` crosses the wire readable
 — already recorded at `risks.md:111`, `contract.md:195`, and the room-code ADR's own "a separate,
 larger piece of work" note at `architecture.md:494`. (True of `tcp`; see the note at the top of
 this section for what the quic default changed.)
@@ -847,7 +816,7 @@ stays plaintext loopback. Nothing in `adapters/` changes, now or later.
    interception is blocked, and nobody copies a hex string.
 4. Structurally small. `relay.Serve` takes any `net.Listener` and `handleConn` any `net.Conn`
    (proven by the `net.Pipe` fuzz harness), so framing, relay logic and core need no change —
-   the work is a new `internal/tlsx` leaf package, two optional `protocol` fields, and the two
+   the work is a new `tlsx` leaf package, two optional `protocol` fields, and the two
    `cmd/` binaries. `protocol.Version` stays at 1 (additive optional fields, same precedent as
    the room-code ADR). Full plan, including the compatibility matrix and the test list, was
    written 2026-08-16 and would need re-deriving — the design above is the durable part.
@@ -869,7 +838,7 @@ room-code auth could not do (`risks.md:101-110`).
   reach users.
 - **Reading a real session off the wire stops working.** netcat-driving survives under `auto`,
   but a packet capture between two real binaries goes opaque — the property
-  `internal/README.md`'s "Why TCP is the default" section argues for. `tls: off` is the way back.
+  `docs/security.md`'s "Why TCP is the default" section argues for. `tls: off` is the way back.
 - **~10-15% more traffic.** Roughly 25 bytes of TLS record overhead per message; at 20 Hz that's
   about 1.8 MB/hour per direction against 150-250 byte packets. Post-handshake CPU is
   immeasurable — AES-GCM moves gigabytes per second and this sends four kilobytes.
@@ -894,7 +863,7 @@ Both are independent of TLS and could land first.
   Hello (`relay.go:753`), so N unauthenticated connections each hold a goroutine and a socket for
   `HelloTimeout`. TLS would make each one cost real handshake CPU an unauthenticated stranger can
   trigger, so a handshake timeout is part of the plan above. A real per-IP cap needs
-  `conn.RemoteAddr()`, which `internal/README.md:162` currently asserts is never called anywhere
+  `conn.RemoteAddr()`, which `docs/security.md:162` currently asserts is never called anywhere
   as a privacy property — so it needs its own decision rather than being smuggled into a TLS
   change.
 
@@ -927,7 +896,7 @@ protocol on top of UDP. I can get that from WebSockets relatively easily."
 **Same split, different solution.** MeshGhost reached the identical conclusion — lossy for
 per-frame state, reliable for lifecycle — and expressed it as `Send`/`SendUnreliable` over one
 connection. Where they delegated the reliable half to a second protocol, we wrote the retransmit
-/ack/dedup layer in `internal/netx/udpconn` that they explicitly chose not to write. Their
+/ack/dedup layer in `netx/udpconn` that they explicitly chose not to write. Their
 reasoning is sound and the cost of ours was real: that layer is where the one genuine bug of the
 day lived (acking before delivering, `verified.md` 2026-08-16), which delegating would have
 avoided.
@@ -938,7 +907,7 @@ standardised, and encrypted — WebSocket being an HTTP-derived framing layer wh
 existing (browsers cannot open raw sockets) does not apply to a native client. The one case that
 would change this is hosting: some PaaS providers and restrictive networks route only HTTP(S), so
 a relay behind such a proxy is reachable over WSS on 443 and nothing else. If that ever comes up,
-`internal/netx` makes it a fourth `Kind` with no change to `internal/relay` or `internal/core`.
+`netx` makes it a fourth `Kind` with no change to `relay` or `core`.
 
 ## Code signing the Windows binaries (SignPath OSS)
 
@@ -1061,7 +1030,7 @@ otherwise see. There is no redirect mechanism today (`Reject` carries a reason s
 else), so this is the only cheap way to do it.
 
 **Two constraints if it is ever built:** it must be *operator config compared by equality*, like the
-existing `Server.OnlyGame` gate — a hardcoded game table in `internal/relay` would break CLAUDE.md's
+existing `Server.OnlyGame` gate — a hardcoded game table in `relay` would break CLAUDE.md's
 no-branching-on-`game_id` rule. And the handshake is always tcp and cannot be changed, so this gates
 the *upgrade*, not the dial.
 
@@ -1117,7 +1086,7 @@ different servers."*
 is broken today, and quietly. Both mods connect to `127.0.0.1:7778`; the first game's core owns
 that process, and a second game's hello is refused —
 `core: already connected to the relay as game %q, cannot also serve %q on the same process`
-(`internal/core/core.go`) — after which `handleBridgeConn` closes the bridge connection. The second
+(`core/core.go`) — after which `handleBridgeConn` closes the bridge connection. The second
 game's mod then reconnects every 2s forever, with no ghost and nothing on screen explaining why.
 The reuse-before-spawn rule that makes autostart safe is exactly what causes this: it cannot tell
 "a core I can use" from "a core that belongs to someone else".
@@ -1138,7 +1107,7 @@ Its cost was a contract change: the bridge had no way to say *why* it closed, so
 not distinguish "wrong game, try elsewhere" from "the core died".
 
 **Option B was chosen and built 2026-08-16, so most of this entry is now history.** The contract
-change landed — `internal/bridge` gained `TypeReject` and `Reject{Reason}` (see
+change landed — `bridge` gained `TypeReject` and `Reject{Reason}` (see
 `agent_docs/contract.md`, "A core serves exactly one adapter at a time"), so a core now says why
 it refused and the correct answer to any rejection is simply to try the next port. Pseudoregalia
 walks the range: `BridgeClient.hpp`'s `BRIDGE_BASE_PORT = 7778` sweeping up through 7785.

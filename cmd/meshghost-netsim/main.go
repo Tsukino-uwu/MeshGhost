@@ -8,7 +8,7 @@
 // latency and jitter -- loopback has ~none", and interpolation degrades
 // *silently* under wall-clock skew -- and dev-scripts/README.md says the
 // same of the launchers. The only fault injection that existed before this
-// was a package-private drop counter inside internal/netx/udpconn's own
+// was a package-private drop counter inside netx/udpconn's own
 // tests, which cannot touch a running session. That injector found a real
 // ordering bug on 2026-08-16 (a leave overtaking its own join, stranding a
 // ghost permanently); this is the same idea at session scope.
@@ -68,7 +68,7 @@ func (d direction) String() string {
 // faults is the shared, seeded fault model. One instance is shared by every
 // flow so a single -seed describes the whole run.
 //
-// Seeded rather than freely random for the same reason internal/netx/udpconn's
+// Seeded rather than freely random for the same reason netx/udpconn's
 // own proxy arms loss explicitly: a failure nobody can reproduce is barely a
 // failure report. The seed is logged at startup and can be fed back in. Note
 // the honest limit -- with several concurrent flows the *interleaving* is

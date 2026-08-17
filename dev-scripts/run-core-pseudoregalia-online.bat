@@ -8,7 +8,7 @@ REM                relay's clock domain instead of each machine's own.
 REM
 REM                Why it matters here and not in loopback: agent_docs/testing.md
 REM                records that interpolation degrades SILENTLY under clock skew.
-REM                internal/core/interp.go compares a LOCAL wall-clock render time
+REM                core/interp.go compares a LOCAL wall-clock render time
 REM                against a REMOTE's wall-clock timestamps, so if the two machines'
 REM                clocks differ by more than -interp, interpolation stops entirely
 REM                and every ghost falls back to an edge snapshot each tick. No

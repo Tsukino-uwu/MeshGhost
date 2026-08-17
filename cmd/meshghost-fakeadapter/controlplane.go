@@ -5,7 +5,7 @@ package main
 // checking the invariants those planes exist to provide.
 //
 // **This is a checker, not just a traffic generator, and that distinction is
-// the whole point.** internal/relay's tests already prove the invariants hold
+// the whole point.** relay's tests already prove the invariants hold
 // for a handful of clients over a few seconds on loopback. What they cannot
 // reach is a long run, at real client counts, over a real transport, through
 // cmd/meshghost-netsim's loss and jitter — which is exactly the shape of bug
@@ -41,8 +41,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"meshghost/internal/core"
-	"meshghost/internal/protocol"
+	"github.com/Tsukino-uwu/MeshGhost/core"
+	"github.com/Tsukino-uwu/MeshGhost/protocol"
 )
 
 // violations counts invariant failures across every synthetic client in this

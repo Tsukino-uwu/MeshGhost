@@ -1,0 +1,180 @@
+package core
+
+import (
+	"testing"
+
+	"github.com/Tsukino-uwu/MeshGhost/protocol"
+)
+
+func TestRemoteBufferEmpty(t *testing.T) {
+	var b remoteBuffer
+	if _, ok := b.at(1000); ok {
+		t.Fatal("at() on empty buffer returned ok=true")
+	}
+}
+
+func TestRemoteBufferSingleSnapshotSnaps(t *testing.T) {
+	var b remoteBuffer
+	b.add(protocol.State{PlayerID: "p2", Timestamp: 1000, Position: []float64{5, 5}, AreaID: "a", Anim: "idle"})
+
+	got, ok := b.at(5000)
+	if !ok {
+		t.Fatal("at() returned ok=false")
+	}
+	if got.Position[0] != 5 || got.Position[1] != 5 {
+		t.Fatalf("position = %v, want [5 5] (single snapshot, no extrapolation)", got.Position)
+	}
+}
+
+func TestRemoteBufferInterpolatesBetweenSnapshots(t *testing.T) {
+	var b remoteBuffer
+	b.add(protocol.State{PlayerID: "p2", Timestamp: 1000, Position: []float64{0, 0}, AreaID: "a", Anim: "walking"})
+	b.add(protocol.State{PlayerID: "p2", Timestamp: 2000, Position: []float64{10, 20}, AreaID: "a", Anim: "walking"})
+
+	got, ok := b.at(1500)
+	if !ok {
+		t.Fatal("at() returned ok=false")
+	}
+	if got.Position[0] != 5 || got.Position[1] != 10 {
+		t.Fatalf("position at midpoint = %v, want [5 10]", got.Position)
+	}
+	if got.Timestamp != 1500 {
+		t.Fatalf("timestamp = %d, want 1500", got.Timestamp)
+	}
+	if got.AreaID != "a" || got.Anim != "walking" {
+		t.Fatalf("opaque fields = %q/%q, want unchanged from older snapshot", got.AreaID, got.Anim)
+	}
+}
+
+func TestRemoteBufferOpaqueFieldsHoldFromOlderSnapshot(t *testing.T) {
+	var b remoteBuffer
+	b.add(protocol.State{PlayerID: "p2", Timestamp: 1000, Position: []float64{0}, Anim: "idle"})
+	b.add(protocol.State{PlayerID: "p2", Timestamp: 2000, Position: []float64{10}, Anim: "running"})
+
+	got, _ := b.at(1999)
+	if got.Anim != "idle" {
+		t.Fatalf("anim = %q, want %q (holds until the newer sample's timestamp is reached)", got.Anim, "idle")
+	}
+}
+
+func TestRemoteBufferClampsBeforeFirstAndAfterLast(t *testing.T) {
+	var b remoteBuffer
+	b.add(protocol.State{PlayerID: "p2", Timestamp: 1000, Position: []float64{1}})
+	b.add(protocol.State{PlayerID: "p2", Timestamp: 2000, Position: []float64{2}})
+
+	before, _ := b.at(0)
+	if before.Position[0] != 1 {
+		t.Fatalf("before first snapshot: position = %v, want [1] (clamp, no extrapolation)", before.Position)
+	}
+
+	after, _ := b.at(999999)
+	if after.Position[0] != 2 {
+		t.Fatalf("after last snapshot: position = %v, want [2] (clamp, no extrapolation)", after.Position)
+	}
+}
+
+func TestRemoteBufferEvictsOldSnapshots(t *testing.T) {
+	var b remoteBuffer
+	for i := 0; i < maxSnapshots+5; i++ {
+		b.add(protocol.State{PlayerID: "p2", Timestamp: int64(i * 100), Position: []float64{float64(i)}})
+	}
+	if len(b.snapshots) != maxSnapshots {
+		t.Fatalf("buffer length = %d, want %d", len(b.snapshots), maxSnapshots)
+	}
+	if b.snapshots[0].Position[0] != 5 {
+		t.Fatalf("oldest retained snapshot position = %v, want [5] (first 5 evicted)", b.snapshots[0].Position)
+	}
+}
+
+func TestRemoteBufferMismatchedPositionLengthFallsBackToOlder(t *testing.T) {
+	var b remoteBuffer
+	b.add(protocol.State{PlayerID: "p2", Timestamp: 1000, Position: []float64{1, 2}})
+	b.add(protocol.State{PlayerID: "p2", Timestamp: 2000, Position: []float64{1, 2, 3}})
+
+	got, _ := b.at(1500)
+	if len(got.Position) != 2 || got.Position[0] != 1 || got.Position[1] != 2 {
+		t.Fatalf("position = %v, want [1 2] (fallback to older on length mismatch)", got.Position)
+	}
+}
+
+// TestRemoteBufferMismatchedAreaIDFallsBackToOlder is a regression test for
+// a bug found in a review pass: without an AreaID check, lerp blended two
+// bracketing snapshots' raw world coordinates even when they belonged to
+// different areas (a remote crossing a zone boundary mid-interpolation-
+// window), rendering at a meaningless midpoint between two unrelated
+// coordinate spaces — the same phantom-ghost failure the cross-area
+// filtering ADR (agent_docs/architecture.md) exists to prevent, just
+// reached via a different path than the one that ADR actually closed.
+func TestRemoteBufferMismatchedAreaIDFallsBackToOlder(t *testing.T) {
+	var b remoteBuffer
+	b.add(protocol.State{PlayerID: "p2", Timestamp: 1000, Position: []float64{1, 2}, AreaID: "zone-a"})
+	b.add(protocol.State{PlayerID: "p2", Timestamp: 2000, Position: []float64{100, 200}, AreaID: "zone-b"})
+
+	got, _ := b.at(1500)
+	if got.AreaID != "zone-a" || got.Position[0] != 1 || got.Position[1] != 2 {
+		t.Fatalf("state = %+v, want unchanged from older snapshot (zone-a, [1 2]) on an area_id change between bracketing snapshots", got)
+	}
+}
+
+// TestOpaqueFieldsNeverFlapAcrossInterpolation is the Go side's answer to a
+// question raised by a live session: a Pseudoregalia ghost was seen entering
+// and leaving its slide pose repeatedly during one continuous player slide,
+// and the adapter fires that pose on the EDGE of an opaque value it receives
+// (the peer's capsule height crossing a standing threshold). So the question
+// was whether interpolation could manufacture those edges.
+//
+// It cannot, and this pins that: non-position fields come from the OLDER of
+// the two bracketing snapshots, and renderTime advances monotonically, so a
+// value that changes once in the source changes once in the output. Anything
+// else would mean the core was inventing state transitions in a field it is
+// forbidden to interpret at all.
+func TestOpaqueFieldsNeverFlapAcrossInterpolation(t *testing.T) {
+	// A peer that stands, then crouches once and stays crouched — the shape a
+	// held slide should produce.
+	const standing, crouched = 65.0, 22.0
+	// Kept inside maxSnapshots so nothing is trimmed: the invariant is about
+	// interpolation, and a buffer that dropped the standing samples would
+	// report "no transitions" for a reason that has nothing to do with it.
+	const samples = 8
+	var b remoteBuffer
+	for i := 0; i < samples; i++ {
+		half := standing
+		if i >= 4 {
+			half = crouched
+		}
+		b.add(protocol.State{
+			Timestamp: int64(1000 + i*50),
+			AreaID:    "zone",
+			Position:  []float64{float64(i), 0, 0},
+			Anim:      "slide",
+			Extras:    map[string]any{"capsule_half": half},
+		})
+	}
+
+	// Walk the render clock forward one millisecond at a time across the whole
+	// buffer and count how many times the opaque value changes.
+	transitions := 0
+	last := -1.0
+	for rt := int64(1000); rt <= 1000+(samples-1)*50; rt++ {
+		st, ok := b.at(rt)
+		if !ok {
+			t.Fatalf("no state at renderTime %d", rt)
+		}
+		got, isFloat := st.Extras["capsule_half"].(float64)
+		if !isFloat {
+			t.Fatalf("opaque value came back as %T, not the float64 that went in", st.Extras["capsule_half"])
+		}
+		if last >= 0 && got != last {
+			transitions++
+		}
+		last = got
+	}
+	if transitions != 1 {
+		t.Fatalf("an opaque value that changed ONCE in the source changed %d times across "+
+			"interpolation — the core is manufacturing edges in a field it must not interpret",
+			transitions)
+	}
+	if last != crouched {
+		t.Fatalf("final opaque value = %v, want %v", last, crouched)
+	}
+}

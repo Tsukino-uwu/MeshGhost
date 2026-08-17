@@ -6,7 +6,7 @@ REM adapter's per-ghost render cost -- without needing N copies of the game.
 REM
 REM YOU MUST SET TWO THINGS FIRST, from a live session, or nothing will appear on screen:
 REM
-REM   MG_AREA  -- the area_id the real client is currently in. internal/core filters remote
+REM   MG_AREA  -- the area_id the real client is currently in. core filters remote
 REM               states by area_id EQUALITY, so a wrong value renders nothing and looks
 REM               exactly like a broken rig. Read it from the mod's own log line in
 REM               UE4SS.log (Pseudoregalia's area_id is the level's full name).

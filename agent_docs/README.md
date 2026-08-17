@@ -21,7 +21,7 @@ Internal documentation for MeshGhost: architecture, planning, licensing, and ver
 - [environment.md](environment.md) — toolchain and environment notes, filled in as phases
   actually run.
 - [verified.md](verified.md) — append-only, human-gated log of confirmed runtime facts.
-- [testing.md](testing.md) — **how to run every automated check** for `internal/` and `cmd/`: the
+- [testing.md](testing.md) — **how to run every automated check** for the Go client/server: the
   one local command, what CI adds (race detector, fuzzing) and why neither runs locally, how to
   run a real fuzz campaign, and the traps that otherwise get rediscovered. Read before adding a
   test or diagnosing an intermittent failure. Covers the Go side only — adapters are watched, not
@@ -49,13 +49,13 @@ Internal documentation for MeshGhost: architecture, planning, licensing, and ver
 - `phases/` — a file per phase. Kept around after the phase ends as a work log/archive
   rather than folded away — [status.md](status.md) and [plans.md](plans.md) stay the
   current-state summary.
-- [../internal/README.md](../internal/README.md) — lives with the code, not here on purpose
+- [../docs/security.md](../docs/security.md) — lives with the code, not here on purpose
   (see that file). Security and privacy posture of the Go networking layer: what's already
   checked-safe (no client ever learns a peer's IP; room-code auth, protocol- and game-version
   checks, and bounded reads all shipped 2026-08-14) versus the gaps that remain. Since
   2026-08-16 `quic` is the default, so a room code is encrypted by default — but the certificate
   is unverified, so encrypted is not authenticated, and `tcp`/`udp` are still plaintext.
-- [../internal/PROTOCOL-without-adapter.md](../internal/PROTOCOL-without-adapter.md) — also lives
+- [../docs/integrating.md](../docs/integrating.md) — also lives
   with the code. How someone who owns their own game's source could reimplement the client, or
   embed the relay, instead of writing an adapter. **Unsupported and untested by us** — we test the
   relay, the client and our own adapters, nothing else — but it records the things only the Go
@@ -67,8 +67,8 @@ Internal documentation for MeshGhost: architecture, planning, licensing, and ver
 
 ## How to use this folder
 
-- [contract.md](contract.md) is the first thing to read before touching `internal/core`,
-  `internal/relay`, or any adapter.
+- [contract.md](contract.md) is the first thing to read before touching `core`,
+  `relay`, or any adapter.
 - Keep confirmed implementation facts in [verified.md](verified.md) — nowhere else, and never
   before the user has watched them work.
 - Create `phases/phaseN.md` when phase N starts; leave it in place as a historical record

@@ -40,8 +40,8 @@ stays here, its reasoning goes to `agent_docs/`, with a one-line pointer. Full e
   expected thing seen happening on screen in a running game? A wrong memory address or a wrong
   reflected name returns a plausible number instead of crashing, so only watching settles it.
 - **The Go client/server is the opposite case: confirm it with the tools, yourself, and don't
-  ask the user to watch it.** `internal/core`, `internal/relay`, `internal/transport`,
-  `internal/bridge` and `cmd/` are deterministic code against a contract we own — nothing there
+  ask the user to watch it.** `core`, `relay`, `transport`,
+  `bridge` and `cmd/` are deterministic code against a contract we own — nothing there
   rests on a guess about a game, which is exactly why the three are separated. Before calling a
   change to them done, run `dev-scripts/run-gotests.bat` — build, vet, and the whole suite
   twice, including `internal/e2e`, which launches the real binaries and drives a real adapter
@@ -67,7 +67,7 @@ stays here, its reasoning goes to `agent_docs/`, with a one-line pointer. Full e
   the event/lease/escrow/world planes make "just write the item in" newly tempting — world custody
   worst, since an adopted world reads as authoritative. `plans.md`'s non-goal carries the detail.
 - **The core never touches the game.** No game memory access, no rendering primitives, no
-  `if game == "emerald"` branching anywhere in `internal/core` or `internal/relay`.
+  `if game == "emerald"` branching anywhere in `core` or `relay`.
 - **Adapters never speak the relay protocol.** An adapter may hold a socket to its own local
   core process (the bridge) and nothing else — it never learns a relay address and never
   sends bytes off-machine directly. See `agent_docs/contract.md` for the bridge/relay split.

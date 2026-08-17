@@ -12,7 +12,7 @@ game. See `CLAUDE.md` for the full rule; summary:
     the game — is human-gated**: it goes in only after the user has personally watched the
     behavior happen. This is the whole adapter surface, and the user is the only one who can
     close it.
-  - **Go-side facts — `internal/`, `cmd/`, the relay, the transports — are agent-confirmed**,
+  - **Go-side facts — the Go packages, `cmd/`, the relay, the transports — are agent-confirmed**,
     established by running the tools (`dev-scripts/run-gotests.bat`, a log line, a console
     read) and recorded without waiting on the user. That code is deterministic against a
     contract we own, which is exactly why `CLAUDE.md` separates the three.
@@ -5650,3 +5650,36 @@ in `CLAUDE.md` is filename-only. Append-only means they stay; new entries should
   superseded.
 - Unreached today: nothing uses these planes at all. Recorded in `risks.md` as its own decision
   rather than fixed here, because shrinking the constants is a contract change.
+
+## 2026-08-17 — The Go packages moved out of `internal/` and the module took its real path
+
+**Track: agent-confirmed** (Go side — established with the tools, no game and no watching, per
+this file's own two-track rule).
+
+**What is now true.** The module is `github.com/Tsukino-uwu/MeshGhost`, and `protocol`,
+`transport`, `bridge`, `core`, `relay` and `netx` (with `netx/udpconn`, `netx/quicconn`) live at
+the repo root and are importable from outside. `internal/` holds `e2e` and nothing else. Design
+and rationale: the 2026-08-17 ADR in `architecture.md`.
+
+**How it was confirmed.**
+- `go build ./...`, `go vet ./...`, and `go test -count=2 ./...` all clean, including
+  `internal/e2e` (68.7s), which builds and launches the real `meshghost-server.exe` and
+  `meshghost.exe` **by package path** — the only check that exercises the two build-path string
+  literals, since those are not compile-checked.
+- `go test -count=10 -shuffle=on -cpu=1,4` clean across `relay`, `core`, `transport`, `netx`
+  (relay alone: 254s), per `CLAUDE.md`'s repeat-the-suite rule.
+- **A throwaway module outside the repo**, with a `replace` directive, imported all six packages
+  by their new paths, compiled, and ran — printing `protocol.Version`, a `core.Core` field, a
+  `relay.Server` field and a `netx` kind. This is the only check that actually demonstrates the
+  goal; the existing suite passes identically with the packages still private, so a green suite
+  is not evidence for this claim.
+- `git diff -M -C` showed the change as renames plus one-line import edits: 472 insertions
+  against 471 deletions across 76 files, with no logic hunk anywhere.
+
+**Reading older entries in this file.** Entries dated before 2026-08-17 name packages as
+`internal/<pkg>/…`. Those map 1:1 to `<pkg>/…` — drop the `internal/` segment. **`internal/e2e`
+did not move.** This file was deliberately not swept: it is a dated record, and rewriting a past
+observation to match a later layout would falsify it. The same applies to `agent_docs/phases/`.
+
+**Not covered by this entry.** Nothing about behaviour changed, so nothing here is a claim about
+runtime behaviour beyond "the same tests still pass". No adapter was touched, built, or run.

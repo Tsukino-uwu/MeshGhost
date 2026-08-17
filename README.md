@@ -190,11 +190,11 @@ Which ports to forward: `packaging/release/README.txt`. Why it works this way:
   [Emerald](adapters/pokemon/emerald/README.md), [TEVI](adapters/tevi/README.md),
   [Pseudoregalia](adapters/pseudoregalia/README.md).
 
-Full detail: [internal/documentation.md](internal/documentation.md) (how the relay and client
+Full detail: [docs/networking.md](docs/networking.md) (how the relay and client
 actually work — the life of a connection and of a state message, traced through the real code),
 [agent_docs/contract.md](agent_docs/contract.md) (schema and interfaces),
 [agent_docs/architecture.md](agent_docs/architecture.md) (system shape and design rationale), and
-[internal/README.md](internal/README.md) (the relay/core's own networking-layer doc — security
+[docs/security.md](docs/security.md) (the relay/core's own networking-layer doc — security
 posture, what's already checked-safe vs. the known open gaps).
 
 ## Repo layout
@@ -203,8 +203,18 @@ posture, what's already checked-safe vs. the known open gaps).
 MeshGhost/
 ├── cmd/                  # entry points: the desktop app, the standalone relay, and the test
 │                         #   rig's fake adapter and network simulator
-├── internal/             # core, relay, protocol, transport, adapter bridge
+│
+│                         # the library, importable from outside (see below):
+├── core/                 # game-agnostic client: relay connection, buffering, interpolation
+├── relay/                # game-agnostic server: rooms, forwarding, limits
+├── protocol/             # the wire messages both speak
+├── transport/            # NDJSON framing over any net.Conn
+├── bridge/               # the adapter <-> local core messages
+├── netx/                 # transport selection: tcp | udp | quic
+│
+├── internal/             # e2e tests only — deliberately not importable
 ├── adapters/             # one folder per game; _template/ is the starting point for a new one
+├── docs/                 # for people using MeshGhost: integrating, security, networking
 ├── agent_docs/           # design brief, contract, architecture, roadmap, verified facts
 ├── dev-scripts/          # local test rig: launchers, load tests, adapter build scripts
 ├── packaging/            # what goes in the release zip, and how it's assembled
@@ -212,12 +222,35 @@ MeshGhost/
 └── README.md
 ```
 
+## Using this from your own game
+
+**Any language: run it beside your game.** `meshghost.exe` does all the networking as its own
+process; your game connects a TCP socket to it on localhost and exchanges one JSON object per
+line. There is no library to link and nothing of ours to compile — which is why the three
+shipped adapters are written in three unrelated languages (Lua, C#, C++) and share no code.
+Rust, Python, Godot, Java, anything with a socket works the same way.
+[docs/integrating.md](docs/integrating.md) is the guide, including a conformance checklist and
+a worked example.
+
+**Go only: compile it in.** The packages above are importable:
+
+```text
+go get github.com/Tsukino-uwu/MeshGhost
+```
+
+**Nothing here is promised.** This is pre-1.0 and there is **no API stability guarantee** —
+these packages may change shape in any release, we do not test third-party use, and we will not
+know if we break you. Tags up to `v0.8.5` were cut under the old module name and cannot be
+fetched at all. If you need something that cannot move under you, fork or vendor it; the licence
+([MIT](LICENSE)) allows that outright and it is an honest answer rather than a fallback. None of
+this affects adapters, which speak a socket rather than a Go API.
+
 ## Docs
 
 - [agent_docs/README.md](agent_docs/README.md) — **full internal documentation index.** Start
   here if what you're looking for isn't in the shortlist below — it covers everything from
   system design to risk tracking to what's actually been confirmed running.
-- [internal/PROTOCOL-without-adapter.md](internal/PROTOCOL-without-adapter.md) — **own your
+- [docs/integrating.md](docs/integrating.md) — **own your
   game's source and want this built in rather than shipped beside it?** How to reimplement the
   client, or embed the relay, without writing an adapter. Unsupported and untested, but it is all
   written down.

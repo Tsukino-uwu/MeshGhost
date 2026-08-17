@@ -71,7 +71,7 @@ rule is restated at the top of that file and in `adapters/_template/documentatio
 
 ```bash
 # An adapter's documentation.md must carry a provenance line and no dump-shaped content.
-# Scoped to adapters/ deliberately: internal/documentation.md is the Go side's own doc,
+# Scoped to adapters/ deliberately: docs/networking.md is the Go side's own doc,
 # describes code we wrote, and none of this applies to it.
 git ls-files 'adapters/**/documentation.md' | xargs grep -LiE 'measured from a running game'
 git ls-files 'adapters/**/documentation.md' | xargs grep -nE '[0-9A-F]{16,}|\.uasset|Assembly-CSharp'
