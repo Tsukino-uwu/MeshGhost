@@ -1,0 +1,22 @@
+=== MeshGhost Crystal spawn test 3 — placed on the row the engine scans (WRITES RAM) ===
+ROM guard passed: vanilla Crystal V1.0
+Map objects before writing:
+   0: sprite=  1 structId=  0 at 8,15
+   2: sprite= 60 structId=  1 at 6,13
+   3: sprite= 84 structId=  3 at 10,7
+   4: sprite= 84 structId=  4 at 11,7
+   5: sprite= 84 structId=  5 at 12,7
+   6: sprite= 67 structId=255 at 9,7
+Wrote map object 1: sprite copied from player, at 6,13 (player is at 6,4).
+>>> WALK DOWN. <<< The engine scans the row at wYCoord+9 as it scrolls into view,
+and only while a step is in progress. Beside the player it would never be seen.
+  +300 frames: still unadopted. player now at 6,4, ghost row is 13.
+  +600 frames: still unadopted. player now at 6,4, ghost row is 13.
+  +900 frames: still unadopted. player now at 5,3, ghost row is 13.
+  +1200 frames: still unadopted. player now at 5,3, ghost row is 13.
+  +1500 frames: still unadopted. player now at 5,3, ghost row is 13.
+  +1800 frames: still unadopted. player now at 5,3, ghost row is 13.
+  +2100 frames: still unadopted. player now at 5,3, ghost row is 13.
+  +2400 frames: still unadopted. player now at 5,3, ghost row is 13.
+  +2700 frames: still unadopted. player now at 5,3, ghost row is 13.
+  +3000 frames: still unadopted. player now at 5,3, ghost row is 13.
