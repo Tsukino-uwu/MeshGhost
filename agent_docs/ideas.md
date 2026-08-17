@@ -1316,9 +1316,19 @@ the game**, or you end up with an adapter that can read perfectly and cannot sho
 
 **Checks to run, in this order, before treating this as real work:**
 
-1. **Prior art.** Does an SMS online/co-op mod already exist? If so it is both a reference for
-   facts and a reason to reconsider the pitch. Read its licence before its source
-   (`licensing.md`), same posture as every other reference project in that table.
+1. **Prior art — two candidates already found, neither examined.** Supplied 2026-08-17 and
+   deliberately **not opened**, so nothing below is a claim about them:
+   - <https://gamebanana.com/mods/697699>
+   - <https://github.com/TheAzack9/SMSCoop>
+
+   **Unknown for both: whether they work, what state they are in, what they actually do
+   (co-op? presence? lockstep?), and their licences.** Neither has a `licensing.md` row, so
+   under this repo's standing rule **neither may be read as a reference until its licence has
+   been checked** — and the check reads the project's own `LICENSE` file, not a GitHub badge,
+   per the Archipelago and GBA-PK entries where badge and file disagreed. If either turns out
+   to be a real working co-op mod, that is both a source of facts and a reason to revisit the
+   pitch, since "presence between independent runs" is a different product from co-op and the
+   difference should be stated rather than assumed.
 2. **The Dolphin drawing question** (the blocker above). Nothing else matters until it has an
    answer.
 3. **Does a decompilation or a documented address set exist** for SMS — decomp project, practice
