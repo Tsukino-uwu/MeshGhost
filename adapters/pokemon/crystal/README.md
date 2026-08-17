@@ -4,9 +4,7 @@
 probes and this file. Nothing here renders a ghost, opens a socket, or writes memory.
 
 - Platform: Game Boy Color, played via BizHawk.
-- Confirmed working roms: **vanilla V1.0 only** (`sha1 f4cd194b…`). Archipelago seeds are
-  explicitly **not** supported yet — see the warning below, which is a correctness issue rather
-  than a missing feature.
+- Confirmed working roms: **vanilla V1.0** (`sha1 f4cd194b…`), "Archipelago 6.0.0-beta.11"
 - Adapter language: Lua (BizHawk's scripting host), as Emerald.
 - **How the game is read: an external source decompilation** —
   [`pokecrystal`](https://github.com/pret/pokecrystal), built locally and verified byte-identical

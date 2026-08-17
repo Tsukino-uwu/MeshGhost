@@ -6801,3 +6801,13 @@ scheduled. All established by the agent with local tools; nothing here is a visu
 - **A separate correction from the same log**: the earlier idle check used `STEP_DURATION == 0`,
   which is a countdown rather than a state. `OBJECT_WALKING` is the authoritative signal — `255`
   (`STANDING`) when idle, `4 + dir` throughout a step. Changed, and correct regardless of the drift.
+
+### Crystal: the 2px-per-step fix holds — movement is correct (2026-08-18)
+
+- Date: 2026-08-18
+- Observed: **watched by the user.** After applying the first 2px increment at initiation,
+  `walk_test.lua`'s ghost paces without drifting — *"yee it looks/stay perfect now"*. It stays on
+  the tile grid across repeated steps, where before it lost 2 pixels per step.
+- Source: live session.
+- Notes: closes the last known defect in Crystal's movement. The full recipe — spawn, appearance,
+  and walking — is in `phases/phase9.md` and is now confirmed end to end on screen.
