@@ -6635,3 +6635,28 @@ scheduled. All established by the agent with local tools; nothing here is a visu
   player's sprite graphics are resident on every map by construction — the player is always there —
   so no allocation problem arises, and the result is an NPC-behaviour object wearing the player's
   appearance. That is exactly the combination a ghost wants.
+
+### Crystal: a ghost that looks like the player, spawned on demand — Phase 9's goal reached (2026-08-18)
+
+- Date: 2026-08-18
+- Observed: **watched by the user.** `spawn_test7.lua` — NPC template for behaviour, plus the
+  player's `SPRITE`, `SPRITE_TILE` and `PALETTE` — produced a second **player-looking character**
+  standing two tiles to the right of the player. User: *"yes, looks like the player"*.
+- Source: live session; `adapters/pokemon/crystal/spawn_test7.lua`.
+- Notes: **this is what the 2026-08-17 ADR set out to prove, complete.** A peer can be represented
+  by a real in-game object event, created at any position at any time, rendered and animated by
+  Crystal's own engine, with **no drawing code in the adapter at all** — the thing Emerald has to
+  do by hand and which broke under a ROM patch.
+  **Gender is inherited rather than computed.** Crystal selects the player's sprite from
+  `ChrisStateSprites`/`KrisStateSprites` keyed on `wPlayerState`, so copying the player's already-
+  loaded sprite gets the correct character without reading `wPlayerGender`, and follows the same
+  table if the player is on a bike or surfing.
+  **The VRAM allocation problem was side-stepped, not solved**: the player's sprite is resident on
+  every map by construction, so borrowing its tile index needs no new allocation.
+- **The limit, and the next real problem: a ghost currently looks like THIS machine's player.** If
+  the local player is Chris and the peer plays Kris, the peer's ghost still appears as Chris,
+  because showing Kris needs Kris's tiles loaded on the local map. That is the `wUsedSprites`
+  allocation question, deferred deliberately and worth attacking only once there is a peer to
+  represent.
+- **Still nothing networked.** No bridge, no socket, no `get_local_state`. Emerald's socket layer
+  transfers wholesale; the mechanism half of Phase 9 is what was unknown and is now closed.

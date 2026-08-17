@@ -151,14 +151,39 @@ Worth stating plainly because three tests were spent discovering it:
 - **Map objects and object structs are different arrays** (16 vs 13). Reading one and reasoning
   about the other made an occupied slot look free.
 
+## The recipe — how to spawn a character, complete
+
+**Solved 2026-08-18, confirmed on screen.** A player-looking character, created at a chosen
+position at any time, drawn and animated by Crystal's own engine with **no drawing code**. Every
+step below is necessary and none was guessable; each cost a live test.
+
+1. **Copy a live NPC** — its map object *and* its object struct. **Not the player**: the player's
+   `MOVEMENT_TYPE` is `SPRITEMOVEDATA_PLAYER`, meaning "driven by input", so the engine treats it
+   as the input system's business.
+2. **Cross-link the pair**: `MAPOBJECT_OBJECT_STRUCT_ID` <-> `OBJECT_MAP_OBJECT_INDEX`.
+3. **Place relative to the player's own object struct.** `wXCoord`/`wYCoord` are the **visible
+   window's origin**, not the player's position — conflating the two put a ghost next to Professor
+   Elm.
+4. **Compute `OBJECT_SPRITE_X`/`Y`; never copy them.** Adoption computes them, and copying a
+   template's drew our object off the bottom of the screen while the engine drove it perfectly:
+   `((map - window_origin) & $0F) * 16 - BGMapOffset`.
+5. **Set `WONT_DELETE`**, or the engine culls the object once both its current and spawn tiles
+   leave the visible window.
+6. **For appearance, borrow the PLAYER's `SPRITE`, `SPRITE_TILE` and `PALETTE`.** `SPRITE_TILE` is
+   a per-map VRAM allocation rather than a value, and the player's sprite is resident on every map
+   by construction — so this needs no allocation, and **inherits the correct gender for free**,
+   since Crystal picks the player's sprite from the Chris/Kris tables keyed on `wPlayerState`.
+
 ## Open
 
-- [ ] **The central unsolved problem: trigger adoption at an arbitrary position.** Both known entry
-      points are map-load or screen-edge. A ghost must be able to appear anywhere. Options not yet
-      explored: invoke the engine's routine directly (the ADR's call branch, needs a decision about
-      whether BizHawk Lua can usefully call into GB code — **check against BizHawk's own docs, not
-      from memory**), or complete the map-object/struct linkage by hand now that both arrays and
-      their cross-references are understood.
+- [ ] **A ghost looks like THIS machine's player, not like the peer.** Showing a peer's own gender
+      needs their sprite's tiles loaded on the local map — the `wUsedSprites` allocation question,
+      deliberately deferred. Worth attacking once there is a real peer to represent.
+- [ ] **Nothing networked exists yet** — no bridge, no socket, no `get_local_state`. Emerald's
+      socket layer transfers wholesale. This is now the largest remaining piece, and the
+      best-understood one.
+- [ ] **Lifecycle: re-spawn on every map load AND every battle**, since a battle exit is also a map
+      re-entry. Understood, not yet implemented.
 - [ ] **Does a ghost survive a battle?** Set up twice and answered neither time — the first run
       confounded by two scripts, the second by a false-positive adoption. Needs one script, one
       variable, watching a *specific* object rather than a count.
