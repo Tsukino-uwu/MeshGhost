@@ -198,6 +198,15 @@ time. Worse, having gone to the special case, the investigation went on to ask h
 what it writes, and never asked whether the generic function could simply be **called** — the
 question the common-path framing produces immediately. See `agent_docs/ideas.md`.
 
+**The feeling is the tell.** Picking the thematically-matching feature does not feel like a
+mistake while you are doing it — it feels *clever*, because "reuse the game's own multiplayer code
+to do multiplayer" is good reasoning that often works. This is the same bias the naming section
+below records one level down (*"a plausible name makes you confident while you're wrong"*), applied
+to features instead of identifiers. Treat a plan that feels particularly neat as a prompt to check
+whether the boring, frequent path would answer the same question, not as a reason to skip that
+check. Nothing about the Emerald case was visible in advance; it only resolved once someone asked
+where a character gets spawned *normally*.
+
 **The sequence, and it is short:**
 
 1. **Name the thing in the game's own terms** — "a character appears", not "spawn a remote ghost".
