@@ -39,6 +39,14 @@ TEVI replaced the brief's original Ori: Will of the Wisps pick.
   Archipelago-coexistence test, not decided in the abstract. Until that test happens and a
   specific feature is deliberately approved via an ADR in `architecture.md`, this rule holds
   without exception.
+  **First exception granted 2026-08-17, by exactly that route** — the Crystal adapter spawns a
+  real object event rather than drawing an overlay, approved by the user and recorded as an ADR in
+  `architecture.md`. It is **narrow**: Crystal only, vanilla V1.0 only, live RAM only, cosmetic
+  only, and the adapter must positively identify the ROM before writing and refuse otherwise —
+  because Archipelago's Crystal patch rearranges WRAM non-uniformly, so a write to a moved address
+  corrupts rather than fails (`verified.md`). The Archipelago-coexistence test is **deferred, not
+  waived**; it is what a patched-ROM version of this feature is still gated on. Every other
+  adapter remains read-only, and "never write a save" is untouched and absolute.
 
 ## Depth beyond the cosmetic ghost (reserved, not scheduled)
 

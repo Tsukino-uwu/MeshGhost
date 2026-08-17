@@ -278,11 +278,12 @@ stays here, its reasoning goes to `agent_docs/`, with a one-line pointer. Full e
   game itself properly handles, so it reads as a description of the game to someone who has never
   seen our code. Everything in it must also be publishable: facts observed from a running copy,
   never source, decompiled output, asset content or verbatim dumps (`licensing.md`).
-- **`adapters/_template/` is the gold standard and may never lag behind a shipped adapter.** A new
-  rule, file, or hard-won trap added to `emerald`/`tevi`/`pseudoregalia` gets back-ported in the
-  same pass — whatever is missing there is a lesson the next game re-learns the hard way. The rule
-  is also stated inside `_template/README.md` itself, because drift is exactly the case where the
-  other copy is the one that got forgotten.
+- **Read `adapters/_template/README.md` IN FULL before starting a new game's adapter — first, and
+  not partway through.** It holds the folder convention, the access-model question, and the "where
+  does the game already do this normally?" framing. Skipping it cost a wrong framing on Crystal's
+  spawn ADR within a day of that section being written (2026-08-17). **`_template/` is also the
+  gold standard and may never lag**: a rule, file or trap added to `emerald`/`tevi`/`pseudoregalia`
+  is back-ported in the same pass, since whatever is missing there the next game re-learns the hard way.
 - `agent_docs/effect-investigation.md` is the how-to-search playbook for a game's visual effects —
   read before starting effect/VFX work on a new adapter, not after it goes wrong.
 - `agent_docs/access-models.md` records what can be read about each game (decompilation, managed

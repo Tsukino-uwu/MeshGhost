@@ -199,22 +199,53 @@ event.onframeend(function()
 			end
 		end
 
-		if #movers == 1 then
+		-- More than one surviving candidate is NOT necessarily ambiguity. A GB core exposes the
+		-- same bytes through more than one domain -- "System Bus" addresses them as the CPU does,
+		-- while "WRAM" is the raw array -- so several candidates agreeing exactly is mutual
+		-- corroboration. Only genuine DISAGREEMENT is ambiguous. Found live 2026-08-17, when the
+		-- first run reported "ambiguous" while actually having succeeded twice over.
+		local function agree(a, b)
+			for i = 1, 4 do
+				if a.last[i] ~= b.last[i] then
+					return false
+				end
+			end
+			return true
+		end
+
+		local unanimous = #movers > 0
+		for i = 2, #movers do
+			if not agree(movers[1], movers[i]) then
+				unanimous = false
+				break
+			end
+		end
+
+		if unanimous then
 			local c = movers[1]
 			log("=== MATCH ===")
 			log(string.format(
-				"domain=%q mapping=%s  wMapGroup at 0x%04X",
-				c.domain, c.mapping, c.addr
-			))
-			log(string.format(
-				"  group=%d number=%d  y=%d x=%d",
+				"group=%d number=%d  y=%d x=%d",
 				c.last[1], c.last[2], c.last[3], c.last[4]
 			))
+			if #movers > 1 then
+				log(string.format(
+					"%d domains expose these same bytes and agree exactly:", #movers
+				))
+			end
+			for _, m in ipairs(movers) do
+				log(string.format(
+					"  domain=%q mapping=%s  wMapGroup at 0x%04X",
+					m.domain, m.mapping, m.addr
+				))
+			end
+			log("Prefer the raw WRAM domain if offered: it addresses bank 1 unconditionally,")
+			log("whereas the CPU-addressed view follows whatever bank is currently selected.")
 			log("Record this in agent_docs/verified.md, noting which core is loaded.")
 			reported = true
 		elseif #movers > 1 then
 			log(string.format(
-				"%d candidates still moving -- ambiguous, keep walking:", #movers
+				"%d candidates moving and they DISAGREE -- genuinely ambiguous:", #movers
 			))
 			for _, c in ipairs(movers) do
 				log(string.format(
