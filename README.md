@@ -12,26 +12,39 @@ both-or-neither exchanges — built and tested, off unless every member of a roo
 by no shipped game today. They exist so a game's adapter *could* go further; none currently does,
 and shipping one is a per-game decision nobody has taken.
 
-**So where is the ceiling, concretely?** Not an MMO, and not "everything synced". The realistic
-top end is **bounded, consensual interactions between two specific players** — a trade, a battle
-turn, an emote: something with a clear beginning, two willing participants, and an outcome both
-sides can be told about and agree on. Two limits put it there, and neither is a matter of effort:
+**So where is the ceiling, concretely?** There are two different ceilings, and they are worth not
+confusing.
 
-- **The server never understands the game.** It can put actions in a definite order and hand out
-  exclusive claims, because both are just comparing opaque strings — that is genuinely enough to
-  settle "who picked this up first" or "did this trade complete". It can never judge *content*.
-  "You did not really have that item" or "that move was illegal" needs a server that simulates the
-  game, which this one deliberately is not, and which would be a different project rather than a
-  bigger version of this one. That also means no anti-cheat: a lying client still lies.
-- **Arbitration costs a round trip.** An adapter has to ask before acting, not announce afterwards,
-  or a refusal arrives after the result is already on screen. So anything arbitrated waits for the
-  network before anything visible happens — unnoticeable for a trade menu, unusable for a fight.
+**What this layer gives any game for free** tops out at **bounded, consensual interactions between
+two specific players** — a trade, a battle turn, an emote: something with a clear beginning, two
+willing participants, and an outcome both sides can be told about. Two things put it there. The
+server never understands the game, so it can order actions and hand out exclusive claims (both are
+just comparisons of opaque strings, and that really does settle "who picked this up first") but can
+never judge *content* — "you did not really have that item" needs a server simulating the game, and
+that also means there is no anti-cheat here: a lying client still lies. And arbitration costs a
+round trip, because an adapter must ask before acting rather than announce afterwards, which is
+unnoticeable in a trade menu and unusable in a fight.
 
-Shared *world* state — enemies, physics, other players' progression — stays out of reach, since
-keeping two worlds genuinely identical needs exactly the authority above. Ordering is necessary
-for that and nowhere near sufficient: two clients applying the same ordered actions to different
-local state still drift apart. Full reasoning, including what it would take and why some of it is
-impossible rather than merely unbuilt:
+**What a single game's adapter could reach is higher, and it is not a permission problem.** A mod
+can already spawn and drive real entities — that is exactly what a ghost is, a real player pawn
+clone posed by its own game's systems. Nothing stops that being extended to enemies, pickups or
+doors, with one side authoritative and the other showing what it is told, and none of it involves
+touching a save. What decides whether that is achievable is the *game*, not this project:
+
+- **Can the two copies be made to agree?** An emulated game is deterministic by construction, so
+  agreement can come from replaying the same inputs — the way emulator netplay already works.
+  A modern engine cannot: float drift, frame-rate-dependent physics and non-deterministic update
+  ordering mean two copies diverge on their own.
+- **Can the local game be told to stop deciding?** If a peer owns the enemies, your copy must not
+  also run their AI, or both simulate and neither matches. Suppressing a game's own systems is
+  deep, per-game work.
+- **Does it survive the round trip?** Remote-driven entities arrive late. Real co-op games hide
+  that with prediction and rollback, which is a substantial project in its own right.
+
+So the ceiling is genuinely movable, per game, by whoever writes that adapter — but at that point
+it is a game-specific netcode project that happens to reuse this relay and transport, rather than a
+bigger version of MeshGhost, and this repo records it as architecturally separate rather than
+merely unscheduled. Full reasoning, including which of the shipped games could and could not:
 [agent_docs/beyond-cosmetic.md](agent_docs/beyond-cosmetic.md).
 
 **Your save is never touched.** MeshGhost reads the game's memory and draws ghosts over the top;
