@@ -11,7 +11,12 @@ the client itself, Windows and Proton), v0.7.0 shipped with Linux/macOS client+s
 separate downloads, one-adapter-per-core admission control with the port walk (Pseudoregalia side
 built, **not yet watched live**), the camera fix (a ghost brings its own rig — identified by the
 rig's `OwningActor`), ghosts no longer rendering through walls, and the ghost no longer stealing
-the controller on spawn.
+the controller on spawn. Go side the same day: quic became the shipped default (negotiated over
+the tcp handshake, sharing the relay's port), udp's reliable path became ordered, and
+`cmd/meshghost-netsim` landed as a fault-injecting proxy for real sessions.
+
+**Landed 2026-08-17**: a sliding ghost is now posed through the game's own crouch path instead of
+a +43 render-Z offset, retiring that bandage — `adapters/pseudoregalia/BANDAGES.md`.
 
 Roadmap: `plans.md`. Per-phase log: `phases/`. Evidence for all of the above: `verified.md`.
 
@@ -30,15 +35,16 @@ that a peer's state genuinely differs from the local player's, which loopback co
 - **Ghost vanishes while a peer is on a pole.** Cause unknown, three suspects ruled out;
   `phase7.md`.
 - **A thrown sword near a save crystal.** Suspected a loopback-offset artifact rather than a real
-  bug; a two-machine session settles it. (Pole rotation, same suspicion, confirmed FINE
-  2026-08-16.) `verified.md`.
+  bug; a two-machine session settles it. `verified.md`.
 
 ### Open, not blocked
 
 - **Duplicate ghost spawn on every level load** — two ghosts per peer, the `remotes` entry going
   present -> absent within three ticks, leaving an orphaned pawn nobody tracks. `verified.md`.
-- **Two different games at once is broken** — both mods use bridge port 7778, and a core serves
-  one game only, so the second reconnects forever in silence. Fix options in `ideas.md`.
+- **Two different games at once: half fixed.** Pseudoregalia walks bridge ports 7778-7785 on a
+  reject; TEVI and Emerald are still pinned to 7778 and don't walk. `ideas.md`.
+- **TEVI's FullMap marker goes stale** — it only refreshes on a `render_remote`, so a peer who
+  stops sending leaves a marker frozen where it was. Shipped bug, not hypothetical. `ideas.md`.
 - **Autostart: TEVI and Emerald not converted yet.** Windows and Proton both fully confirmed;
   Emerald needs a spawn-mechanism spike (BizHawk Lua has no hidden-process API). `verified.md`.
 - **Pseudoregalia: a `Fatal Error!` on game exit**, seen once, never root-caused. Not the

@@ -11,6 +11,10 @@ What's in this folder:
 - meshghost-server-macos-arm64  -- the server. Only the person HOSTING runs
 - meshghost-server-macos-amd64     this; everyone else only needs the client.
 - config.json                   -- the only file you should need to edit.
+- README.txt                    -- the full manual, shared with the Windows
+                                   bundle. Setup, hosting, and transports.
+- THIRD-PARTY-NOTICES.txt       -- licenses of the libraries these are built
+                                   from. Nothing to do unless you redistribute.
 
 They're ready to run as they are, with one first-time step macOS insists on
 (see below):

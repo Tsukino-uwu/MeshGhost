@@ -1,6 +1,7 @@
 # Phase 7 — Third game (Pseudoregalia)
 
-**Status: 7.0-7.6 done, 7.7 (real two-player test) not started**, started 2026-08-12. Per
+**Status: 7.0-7.8 done. 7.7 (real two-player test) confirmed 2026-08-16** — two real players on
+two machines, with the Linux tester. Started 2026-08-12. Per
 `agent_docs/README.md`'s convention: a phase
 earns a file when it's live, folded back into `agent_docs/plans.md` once done. Kept here for
 the task-by-task record.
@@ -1629,10 +1630,11 @@ GBA memory). Started early relative to Phase 6's own two-player milestone (6.6) 
       mirroring TEVI's staleness-gate pattern. `.github/workflows/release.yml` got a matching
       staleness-check step. Cut as **EXPERIMENTAL / pre-release**, the same status TEVI shipped
       at before its own untested-with-a-second-player release — this is packaging, not a claim
-      that two-player works; that's still 7.7 below, unstarted.
-- [ ] 7.7 — Two real players. Test explicitly and early rather than assuming Pseudoregalia
-      behaves like TEVI's Steam single-instance restriction (or doesn't) — record the result
-      either way, blocked or not.
+      that two-player works; that's 7.7 below.
+- [x] 7.7 — Two real players. **Confirmed 2026-08-16**: two players on two separate machines,
+      one of them the Linux/Proton tester. Cleared the items that had been blocked on it,
+      including pole rotation (came back fine). Evidence in `verified.md`; the one item it did
+      not settle is the thrown sword near a save crystal.
 - [x] Release packaging restructured (2026-08-13): both this entry's `MeshGhostPseudo/` path
       and `ue4ss-runtime/` (from the earlier UE4SS-bundling ADR) moved to
       `packaging/release/games/pseudoregalia/pseudoregalia/Binaries/Win64/...`, mirroring the

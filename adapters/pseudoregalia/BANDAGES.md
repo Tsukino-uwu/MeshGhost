@@ -76,7 +76,7 @@ inside.
 
 ### 1. The camera guard's 10-tick fallback window
 
-`Plugin.cpp:213-217` (`GHOST_SPAWN_CAMERA_GUARD_TICKS = 10`) and `:4842-4858`.
+`Plugin.cpp`, `GHOST_SPAWN_CAMERA_GUARD_TICKS = 10` and the camera-switch hook that consults it.
 
 **The primary test is real and precise, not a bandage**: a camera switch is rejected when the
 target rig's `OwningActor` is one of our ghosts — a property found by dumping a rig caught
@@ -101,7 +101,7 @@ reflected parameter buffer, unlike `FVector`, which correctly branches on engine
 `UE_COPY_VECTOR`. Pseudoregalia is UE 5.1, where those fields are `double` — so 4 bytes of float
 land in an 8-byte slot and the engine reads back a denormal near zero.
 
-`call_set_actor_location_and_rotation` (`Plugin.cpp:3164-3263`) fixes it with a local
+`call_set_actor_location_and_rotation` (`Plugin.cpp`) fixes it with a local
 version-branching helper, and its own comment says the scope plainly: *"this only covers
 `K2_SetActorLocationAndRotation`, the one rotation-writing function this file actually calls."*
 
@@ -111,7 +111,8 @@ bandage — silent, plausible-looking, and waiting for the next call site — ev
 fix is correct for the one place it covers.
 
 **Live trap:** the slide's lead 3 (write the mesh component's own `RelativeLocation`) is exactly
-such a call. Route any new transform write through a helper modelled on `:3229-3257`, or write
+such a call. Route any new transform write through a helper modelled on
+`call_set_actor_location_and_rotation`'s `UE_COPY_VECTOR` mirror, or write
 in place through the `GetValuePtrByPropertyNameInChain<FVector>` pointer — never a bare SDK
 `K2_SetRelative*`.
 

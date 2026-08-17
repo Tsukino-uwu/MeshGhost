@@ -312,15 +312,17 @@ ends and the next begins.
   - **`udp` cannot be encrypted.** Go's standard library has no DTLS, so `room_code` crosses
     that transport in the clear with no fix available. `quic` is the encrypted option — its
     handshake is TLS 1.3.
-  - **Ports:** `tcp` and `udp` share `listen_on` (independent port spaces); `quic` needs its own
-    `listen_quic`, because it is itself carried over UDP.
+  - **Ports:** `tcp` and `udp` share `listen_on` (independent port spaces), and `quic` shares
+    that port number too by default (`listen_quic: ""`). Because quic is itself carried over
+    UDP, it collides with plain `udp` — serving both at once therefore requires naming a
+    separate `listen_quic`, and the relay refuses to start otherwise.
   - **The handshake is always tcp, and is not configurable.** `transport` is not *how* a client
-    connects but what it moves to *once* connected: `tcp` stays put, `udp` (the shipped client
-    default) and `quic` upgrade if offered, `auto` takes the best available. **tcp is mandatory
-    on the relay too** — `netx.ParseKinds` adds it whether or not the operator names it, because
-    a relay without tcp is unreachable by every client. Note the shipped *relay* default is
-    tcp-only, so an out-of-the-box pair has the client ask for udp and degrade back to tcp with a
-    log line.
+    connects but what it moves to *once* connected: `tcp` stays put, `udp` and `quic` upgrade if
+    offered, and `auto` — the shipped client default — takes the best available. **tcp is
+    mandatory on the relay too** — `netx.ParseKinds` adds it whether or not the operator names
+    it, because a relay without tcp is unreachable by every client. The shipped relay default is
+    `tcp,quic`, so an out-of-the-box pair lands on quic and falls back to tcp only if quic
+    cannot be established.
   - **Discovery:** a client may send `hello`
     with `query_only: true`; the relay replies `transports` (kind + **port only**, never a host —
     the client already knows one, and a relay bound to `0.0.0.0` does not) and closes, **without

@@ -54,7 +54,7 @@ the set that actually went wrong.
 | End-to-end, real binaries (`internal/e2e`) | yes | yes | yes |
 | **Race detector** | **no — can't** (`run-gotests-race.bat` says why) | yes (Linux) | no |
 | Concurrency stress (`-shuffle`, `-cpu`, repeats) | yes (`run-gotests-stress.bat`) | no | no |
-| **Fuzzing** | seed corpus only | yes, short campaign per target | no |
+| **Fuzzing** | seed corpus only | yes, short campaign — five of the six targets | no |
 
 **The race detector is the one real hole, and it has already cost a round trip.** CI caught a
 relay race on 2026-08-16 (a join broadcast computed its recipients under a *second* lock
@@ -84,6 +84,16 @@ and its `contents: write` permission is the reason CI is deliberately `contents:
   dials the core's bridge listener with `transport.Dial` and speaks real bridge NDJSON. The
   bridge is therefore *not* an untested seam, despite `cmd/meshghost-fakeadapter` using an
   in-process shortcut.
+- **`internal/netx`, `internal/netx/udpconn`, `internal/netx/quicconn`** — the transport
+  implementations behind the `net.Listener`/`net.Conn` seam. `udpconn` carries the most, since it
+  is the only one that hand-rolls reliability and ordering: sequence numbers, acks, the retry
+  loop, the reorder window, and the per-connection token.
+- **`internal/bridge`** — **no test files of its own.** It is types and limits only, and it is
+  covered where it is used: `internal/core`'s `dialFakeAdapter` speaks real bridge NDJSON, and
+  `internal/e2e` drives a real adapter across it. Worth knowing before assuming a bridge change
+  is unguarded.
+- **`cmd/meshghost`, `cmd/meshghost-relay`, `cmd/meshghost-netsim`** — each has its own tests,
+  mostly around config/flag precedence and, for netsim, the fault injection itself.
 - **`internal/e2e`** — builds and launches the real `meshghost-server.exe` and `meshghost.exe`,
   then drives a real adapter over the bridge and asserts a ghost completes the round trip. This
   is the only thing covering `cmd/`'s flag parsing and config wiring, and it is the automated
@@ -99,7 +109,8 @@ and its `contents: write` permission is the reason CI is deliberately `contents:
 Local `-race` **does not work on this machine and is not worth retrying**:
 
 - `gcc` on `PATH` resolves to a devkitPro MSYS2 copy whose headers cgo cannot use.
-- The real MSYS2 GCC (15.1.0) cannot compile Go 1.22's `runtime/cgo` — its internal `-Werror`
+- The real MSYS2 GCC (15.1.0) cannot compile Go's `runtime/cgo` (first hit on Go 1.22,
+  re-confirmed 2026-08-16 on Go 1.25) — its internal `-Werror`
   flags ignore `CGO_CFLAGS`, so there is no flag to work around it with.
 - No WSL installed.
 
@@ -130,6 +141,12 @@ checks):
 | `FuzzEnvelopeUnmarshalNeverPanics` | The outermost decode fails cleanly on arbitrary bytes. |
 | `FuzzReadLoopNeverExceedsItsLineLimit` | The framing layer never delivers a payload past its line limit, however the input is shaped. |
 | `FuzzRelaySurvivesArbitraryLines` | A live relay fed arbitrary bytes still serves legitimate clients afterwards. |
+| `FuzzListenerSurvivesArbitraryDatagrams` | A `udpconn` listener fed arbitrary datagrams — malformed headers, bad tokens, wrong sequence numbers — keeps accepting real sessions. |
+
+**`FuzzListenerSurvivesArbitraryDatagrams` is the one target CI does not run** (`ci.yml`'s fuzz
+job names the other five). Its seed corpus runs in the ordinary suite, but it gets no campaign,
+which is a real gap on the transport that is now the universal fallback. Run it by hand with the
+campaign command below until CI covers it.
 
 If CI's fuzz job fails, the reproducing input is uploaded as the `fuzz-failure-corpus`
 artifact. Download it, drop it into the matching `testdata/fuzz/<Target>/` directory, and

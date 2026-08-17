@@ -28,14 +28,13 @@ own sections.
    not a hypothetical.
 
 3. **Nameplates.** Genuinely blocked, not just unbuilt. `Hello.DisplayName` reaches the relay
-   (`internal/protocol/protocol.go:89`, sourced from `config.json`'s `"name"`) and is only
-   *logged* there (`internal/relay/relay.go:433`, `:706`) — never redistributed. `Welcome.Roster`
-   is `[]string` of ids (`protocol.go:125`); `Join` carries only `player_id` (+ optional,
+   (`internal/protocol/protocol.go:101`, sourced from `config.json`'s `"name"`) and is only
+   *logged* there (`internal/relay/relay.go:479`, `:782`) — never redistributed. `Welcome.Roster`
+   is `[]string` of ids (`protocol.go:170`); `Join` carries only `player_id` (+ optional,
    never-populated `State`). **No adapter can learn any peer's display name today.** Two routes:
    a roster/`join` shape revision to actually carry `display_name` (correct, needs an ADR per
    `contract.md:3-5`), or smuggling it through `extras` (cheap, but the wrong layer — `extras`
-   is per-state free-form data, not identity). `internal/README.md:79` currently overstates this
-   ("chosen `display_name`") — corrected as part of this pass, see below.
+   is per-state free-form data, not identity).
 
 4. **Per-remote appearance.** Every ghost is a clone of the *local* player's own
    `spranim_prefer.pixel.gameObject` (`Plugin.cs:258-263, 265-321`) — there is only one
@@ -48,7 +47,7 @@ own sections.
    collided with a real layering bug yet.
 
 6. **Config surface.** Exactly one `BepInEx.Configuration.ConfigFile.Bind` call exists in the
-   whole adapter (`BridgePort`, `Plugin.cs:471-472`) — read once at `Awake`, no live re-read.
+   whole adapter (`BridgePort`, `Plugin.cs:469`) — read once at `Awake`, no live re-read.
    Any future toggle (map marker on/off, ghost opacity, nameplates, verbose logging, the
    collision experiment below) needs this pattern established for real, not assumed. Do this
    with whichever toggle ships first, not speculatively ahead of time.
@@ -56,12 +55,12 @@ own sections.
 7. **Emotes / chat / area-entry pings.** Tier 1 per the depth ladder, and explicitly sanctioned
    as possible and write-free — but the right home is the **reserved `event` plane**
    (`contract.md`'s "Extensibility — the event plane" section, from `:193`), not new `state`
-   fields. `contract.md:201-203` states plainly that
+   fields. `contract.md:247` states plainly that
    the state plane "does not grow new fields for deeper features," and it's lossy/latest-wins —
    a one-shot emote sent as `state` would either never arrive or repeat every tick until
    overwritten. Building the event plane for real is its own scoped piece of work: relay
-   `to`-routing (already shaped for it per `contract.md:212`), a real `MaxEventBytes` limit
-   (currently just a reserved line in `contract.md:443`), new bridge message types each
+   `to`-routing (already shaped for it per `contract.md:275`), a real `MaxEventBytes` limit
+   (currently just a reserved line in `contract.md:539`), new bridge message types each
    direction, and the first real population of `Hello.Features`.
 
 ## TEVI — interaction ("test what's possible", scope stays visual-only)
@@ -116,8 +115,8 @@ own sections.
 reusing Union Room's own code — the underlying primitives it's built from are usable, but only
 via a MeshGhost-authored spawn path that still crosses the no-writes non-goal.**
 
-Every claim below cites a specific file/line in the local `pokeemerald` decomp checkout
-(`C:\dev\pokeemerald`, outside the MeshGhost repo — read with the user's explicit go-ahead,
+Every claim below cites a specific file/line in a local `pokeemerald` decomp checkout
+(outside the MeshGhost repo — read with the user's explicit go-ahead,
 per `CLAUDE.md`'s "ask before touching anything outside `C:\dev\MeshGhost`" rule, and per
 `licensing.md`'s already-cleared "facts only, never code" posture for this project). No code
 was copied; every fact here is independently re-describable without pokeemerald's own text.
@@ -605,10 +604,13 @@ protocol above is actually run and watched.
    and did not stop it, despite the write provably landing (see `verified.md`) — this game's melee
    doesn't use UE's standard damage path, so the engine-level gate has no authority over it. A real
    fix must target whatever bespoke overlap/trace check the game's melee actually runs, which is
-   still unidentified. Deliberate player-on-ghost melee is judged an acceptable, unlikely footgun. **The genuinely untested vector is non-player damage**:
-   an enemy attack, AoE, or environmental hazard hitting the ghost was never tried, and the ghost
-   stands in the world where enemies fight. If a player ever dies for no visible reason near a
-   ghost, this is the first thing to check. The real fix, if it's ever wanted, is making the ghost
+   still unidentified. Deliberate player-on-ghost melee is judged an acceptable, unlikely footgun.
+   ~~**The genuinely untested vector is non-player damage**: an enemy attack, AoE, or
+   environmental hazard hitting the ghost was never tried, and the ghost stands in the world
+   where enemies fight. If a player ever dies for no visible reason near a ghost, this is the
+   first thing to check.~~ (Struck — it was tested, it was real, and it was fixed the same day;
+   see the next paragraph. Kept because the prediction was right.) The real fix, if it's ever
+   wanted, is making the ghost
    collidable-but-unhittable — no response on whatever channel the damage/weapon trace queries
    (still unidentified per `GHOST_COLLISION_ENABLED`'s own comment).
 
@@ -713,11 +715,11 @@ is broken today, and one of the costs below argues for waiting.
 ### What's actually missing
 
 Only confidentiality. The application layer is already hardened: server-stamped `player_id`
-(`internal/relay/relay.go:739`, never trusted from the payload), constant-time room-code compare
+(`internal/relay/relay.go:825`, never trusted from the payload), constant-time room-code compare
 (`:653-660`), hello timeout, per-connection flood cap, global client cap, `ValidateState` that
 drops rather than truncates, and a fuzz harness driving the relay over `net.Pipe`. What's left is
 that `internal/transport` is plaintext NDJSON over TCP, so `room_code` crosses the wire readable
-— already recorded at `risks.md:90`, `contract.md:151`, and the room-code ADR's own "TLS is a
+— already recorded at `risks.md:111`, `contract.md:195`, and the room-code ADR's own "TLS is a
 separate, larger piece of work" note at `architecture.md:483`.
 
 **Adapters are not affected by any of this, at all.** An adapter speaks only the *bridge*
@@ -754,7 +756,7 @@ Anyone on the network path — shared wifi, a VPN provider, an ISP — currently
 out of the third packet. This makes that impossible, and makes relay impersonation impossible
 too. It would also be the **first security setting a stale binary cannot silently disable**: a
 `required` client refuses to send anything to a plaintext relay, which is exactly what
-room-code auth could not do (`risks.md:97-107`).
+room-code auth could not do (`risks.md:101-110`).
 
 ### Costs, honestly
 
@@ -765,7 +767,7 @@ room-code auth could not do (`risks.md:97-107`).
   reach users.
 - **Reading a real session off the wire stops working.** netcat-driving survives under `auto`,
   but a packet capture between two real binaries goes opaque — the property
-  `internal/README.md:221` argues for. `tls: off` is the way back.
+  `internal/README.md:320` argues for. `tls: off` is the way back.
 - **~10-15% more traffic.** Roughly 25 bytes of TLS record overhead per message; at 20 Hz that's
   about 1.8 MB/hour per direction against 150-250 byte packets. Post-handshake CPU is
   immeasurable — AES-GCM moves gigabytes per second and this sends four kilobytes.
@@ -787,10 +789,10 @@ Both are independent of TLS and could land first.
   when none is set would close it properly, at the cost of the zero-config "just give them the
   address" flow; that's a product call, not a technical one.
 - **No per-IP connection cap.** `MaxClients` (8, global) is reserved only *after* a successful
-  Hello (`relay.go:678`), so N unauthenticated connections each hold a goroutine and a socket for
+  Hello (`relay.go:753`), so N unauthenticated connections each hold a goroutine and a socket for
   `HelloTimeout`. TLS would make each one cost real handshake CPU an unauthenticated stranger can
   trigger, so a handshake timeout is part of the plan above. A real per-IP cap needs
-  `conn.RemoteAddr()`, which `internal/README.md:102` currently asserts is never called anywhere
+  `conn.RemoteAddr()`, which `internal/README.md:156` currently asserts is never called anywhere
   as a privacy property — so it needs its own decision rather than being smuggled into a TLS
   change.
 
@@ -1027,17 +1029,18 @@ docs.
 
 **Option B — probe upward, as suggested.** The mod tries 7778, and moves to 7779 if that core
 refuses its game. Handles every case including two instances of one game, and needs no registry.
-**Its cost is a contract change**: the bridge has no way to say *why* it closed, so an adapter
-cannot currently distinguish "wrong game, try elsewhere" from "the core died". Inferring it from
-timing (connected, sent hello, closed quickly) would be exactly the kind of guess this project
-avoids. Doing it properly means a bridge-level reject message with a reason, mirroring the relay
-protocol's own `Reject` — an ADR and a `contract.md` revision, plus every adapter learning to walk
-the port range.
+Its cost was a contract change: the bridge had no way to say *why* it closed, so an adapter could
+not distinguish "wrong game, try elsewhere" from "the core died".
 
-**Recommendation:** A first, then B if the same-game case ever matters. A is a day's work and
-removes a silent failure; B is the complete answer but should not be smuggled in as a bug fix.
-Either way the docs must say which port each game uses, since `MESHGHOST_NO_AUTOSTART` users need
-to know what to bind.
+**Option B was chosen and built 2026-08-16, so most of this entry is now history.** The contract
+change landed — `internal/bridge` gained `TypeReject` and `Reject{Reason}` (see
+`agent_docs/contract.md`, "A core serves exactly one adapter at a time"), so a core now says why
+it refused and the correct answer to any rejection is simply to try the next port. Pseudoregalia
+walks the range: `BridgeClient.hpp`'s `BRIDGE_BASE_PORT = 7778` sweeping up through 7785.
+
+**Still open, and the only work left here:** TEVI (`Plugin.cs`, `DefaultBridgePort`) and Emerald
+(`meshghost_emerald.lua`, `BRIDGE_PORT`) are both still pinned to 7778 and do not walk. Until
+they do, two games at once works only if Pseudoregalia is one of them. Option A is moot.
 
 ## Links
 

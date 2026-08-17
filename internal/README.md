@@ -10,9 +10,12 @@ claims, not just game memory.
 game-version check, and the relay/core have been hardened against several concrete
 malicious-peer attack shapes (see "What changed" below). It is safer to use with people you
 don't personally know than it was — but two real limits remain, and neither is closed by this
-work: there is no TLS, so a room code crosses the wire in plaintext (raises the bar from
-"anyone with the address" to "anyone with the address and the code," not to "safe against a
-network-level attacker"); and room-code auth is enforced entirely by the relay, so it provides
+work: the wire is not authenticated. On `tcp` and `udp` there is no encryption at all, so a room
+code crosses in plaintext; on `quic`, the default path since 2026-08-16, the handshake is TLS 1.3
+but the certificate is unverified, so it stops a passive eavesdropper and not an active
+man-in-the-middle. Either way this raises the bar from "anyone with the address" to "anyone with
+the address and the code," not to "safe against a network-level attacker". And room-code auth is
+enforced entirely by the relay, so it provides
 zero protection if the relay itself is an outdated build, regardless of what any client sends
 or believes it configured — see "A new risk this creates" below.** Full record of this pass:
 the ADR in [agent_docs/architecture.md](../agent_docs/architecture.md) (search
@@ -28,7 +31,10 @@ client handshakes over tcp, always, and no config setting can change that.** `"t
 STEP 1 — the handshake. ALWAYS tcp. Not configurable.
 
     client  ───────  tcp connect + "what do you serve?"  ──────►  relay
-    client  ◄──────  "tcp:7777, udp:7777, quic:7780"     ───────  relay
+    client  ◄──────  "tcp:7777, quic:7777"               ───────  relay
+                     (a relay also serving plain udp answers
+                      "tcp:7777, udp:7777, quic:7780" — quic
+                      is the one that has to move)
 
     The relay answers only AFTER the room-code check, then hangs up.
     Nothing joins a room. No player_id is assigned. Nobody is told anything.
@@ -240,9 +246,10 @@ writing any of this — findings below are cited to real files, not memory.
 - **Unpredictable per-connection tokens** (`CelesteNet.Shared/TokenGenerator.cs`, a Galois
   LFSR) specifically prevent a third party from hijacking someone else's *UDP* connection by
   guessing or spamming its token. This defends against a UDP-specific weakness (UDP is
-  connectionless and trivially spoofable) that doesn't apply to us — `internal/transport` is
-  TCP-only, which already closes this class of attack by requiring a real handshake per
-  connection. Not something to port.
+  connectionless and trivially spoofable) that didn't apply to us while `internal/transport` was
+  TCP-only. **Update 2026-08-16: it applies now.** We added a udp transport and had to solve
+  exactly this — `internal/netx/udpconn` carries an 8-byte per-connection token, checked on every
+  datagram, for the same reason CelesteNet does. Ported after all, independently.
 - **Deliberately not a model to copy**: `CelesteNet.Server/ConPlus/ExtendedHandshake.cs`
   collects machine GUID / registry paths / MAC-derived identifiers as a hardware-fingerprint
   anti-ban-evasion check for their public server. That's real, invasive identity collection,
@@ -316,7 +323,11 @@ measurement**: nobody has run MeshGhost over a genuinely lossy link and watched.
 change the conclusion (100ms of interpolation absorbs a lot, and a ghost is cosmetic), but the
 number should be re-derived rather than cited if this comparison is ever re-opened.
 
-**Conclusion: TCP remains the right default**, and is what both ends ship with. It is the only
+**Conclusion (2026-08-16 revision): TCP remains the mandatory handshake leg and the universal
+fallback, but it is no longer the default session** — the client ships `auto` and the relay
+`tcp,quic`, so a default pair runs quic and drops to tcp only when quic cannot be established.
+The reasoning below is why tcp stayed the floor rather than why it stayed the default. It is the
+only
 transport that can be read with `netcat` or a packet capture while debugging, the only one that
 could gain TLS later, and the only choice that changes nothing for an existing user. `udp` and
 `quic` are there for the cases the reasoning above genuinely does not cover — a lossy connection,

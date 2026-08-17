@@ -34,8 +34,14 @@ pawn instance/AnimBP every redraw tick:
 `position`/`orientation` (top-level packet fields, not `extras`) come from `K2_GetActorLocation`/
 `K2_GetActorRotation`; `area_id` from `PersistentLevel`'s `GetFullName()`.
 
-**Not synced today, known gaps** (`agent_docs/status.md`): the empty-hand recall glow and the ultra
-hop's blue trail. The cling-gem effect and the thrown sword's own glow are both done. This file's
+Also synced, added after the table above was first written: `slide_t` (the peer's exact point along
+a slide, which drives the ghost through the game's own crouch path), `afterimageColor` and each
+afterimage actor's own `Color` (the trail, ultra-hop blue included), the mirrored
+`CapsuleHalfHeight`, and the `land_count`/`jump_count`/`afterimage_count` pulse counters.
+
+**No known state gaps today** (`agent_docs/status.md` is the authoritative open list). The
+empty-hand recall glow and the ultra hop's blue trail — the two long-standing gaps this file used
+to name — are both done, as are the cling-gem effect and the thrown sword's own glow. This file's
 second half is the field-discovery work originally aimed at the (now-fixed) outfit/weapon gaps.
 
 Worth noting for the recall glow specifically: it was blocked on a *precondition* — the `IsValid`
@@ -191,8 +197,9 @@ this session (all via `OBJECT_REFLECTION_DUMP`/`ABILITY_FIELD_TRACE`, see their 
    assumed (the vendored SDK only forward-declares `FLinearColor`); alpha deliberately never
    written. Write path proven with a deliberate magenta override.
    - **It does NOT carry the ultra hop's blue**: an every-tick trace showed `afterimageColor` never
-     changes during a real ultra. That variant comes from some other mechanism and is parked — see
-     `verified.md`, and do not resume by guessing more property names.
+     changes during a real ultra. **Answered since**: the colour lives on each afterimage actor,
+     not on the pawn — the ultra path colours those individually and bypasses this field. Mirrored
+     off the afterimage, so a mod or a future variant comes out right without detecting an ultra.
 
 6. **Ghost sinking into the floor during slides — FIXED, and the first fix was wrong in an
    instructive way.** The slide drops the player's capsule origin 567.2 → 524.2 as it shrinks
@@ -200,8 +207,15 @@ this session (all via `OBJECT_REFLECTION_DUMP`/`ABILITY_FIELD_TRACE`, see their 
    units under the floor. Mirroring the ghost's `CapsuleHalfHeight` **provably applied** (readback
    showed 22) and changed nothing visually — because the skeletal mesh hangs off the capsule at a
    *fixed* offset set at construction, and it is the player's own crouch logic, which an
-   unpossessed ghost never runs, that adjusts it. The working fix compensates the ghost's **render
+   unpossessed ghost never runs, that adjusts it. The second fix compensated the ghost's **render
    Z** instead: `ghost_z = peer_z + (65 - peer_half)`.
+
+   **Both are gone as of 2026-08-17.** The render-Z compensation was a bandage — it moved where
+   the ghost was *drawn* without the ghost ever actually crouching — and it has been replaced by
+   driving the game's own crouch path on the ghost, with `slide_t` carrying the peer's exact point
+   along the slide so no endpoint is guessed. The lesson above still stands: the capsule mirror
+   alone did nothing *because* nothing ran the crouch logic. It works now precisely because
+   something does. See `BANDAGES.md` and README step 44.
 
 ## Thrown Dream Breaker (the loose weapon actor): DONE, confirmed live 2026-08-15
 

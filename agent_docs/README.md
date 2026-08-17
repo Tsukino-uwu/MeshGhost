@@ -52,8 +52,12 @@ Internal documentation for MeshGhost: architecture, planning, licensing, and ver
 - [../internal/README.md](../internal/README.md) — lives with the code, not here on purpose
   (see that file). Security and privacy posture of the Go networking layer: what's already
   checked-safe (no client ever learns a peer's IP; room-code auth, protocol- and game-version
-  checks, and bounded reads all shipped 2026-08-14) versus the gaps that remain — no TLS, so a
-  room code crosses the wire in plaintext.
+  checks, and bounded reads all shipped 2026-08-14) versus the gaps that remain. Since
+  2026-08-16 `quic` is the default, so a room code is encrypted by default — but the certificate
+  is unverified, so encrypted is not authenticated, and `tcp`/`udp` are still plaintext.
+- [claude-md-cap.md](claude-md-cap.md) — why `CLAUDE.md` holds a hard 300-line cap, and why
+  `status.md`'s cap is per-item rather than a flat line count. The evidence behind two rules
+  that otherwise read as arbitrary.
 
 ## How to use this folder
 

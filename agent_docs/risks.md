@@ -120,16 +120,23 @@
   the user copying a fingerprint. Written up with its costs in `agent_docs/ideas.md`'s
   "Relay/client — transport security (TLS)" section; **still unscheduled, and deliberately
   sequenced after the code-signing work** — cert generation plus encrypted traffic would likely
-  worsen the existing antivirus false positives on the shipped exes. **Partly overtaken
-  2026-08-16 by selectable transports**: `quic` is encrypted (its handshake is TLS 1.3) and its
-  `tls.ConnectionState` exposes a working `ExportKeyingMaterial`, so the channel-binding design
-  would drop straight in there. TLS-over-`tcp` remains unbuilt.
+  worsen the existing antivirus false positives on the shipped exes. **Largely overtaken
+  2026-08-16 by selectable transports, then by the default change the same day**: `quic` is
+  encrypted (its handshake is TLS 1.3), and since the client ships `auto` and the relay
+  `tcp,quic`, a default session is encrypted without anyone configuring anything — so a room
+  code no longer crosses the wire in the clear by default. **The open residue is authentication,
+  not confidentiality**: the certificate is unverified, so quic stops a passive eavesdropper and
+  not an active man-in-the-middle. Its `tls.ConnectionState` exposes a working
+  `ExportKeyingMaterial`, so the channel-binding design that would close this drops straight in.
+  TLS-over-`tcp` remains unbuilt, and `tcp`/`udp` remain plaintext when chosen explicitly.
 - **`udp` cannot be encrypted, ever, and this is not fixable** (added 2026-08-16 with selectable
   transports). Go's standard library has no DTLS, so a client choosing `transport: "udp"` sends
-  its `room_code` in the clear with no option available to change that. Mitigated only by
-  documentation: `tcp` is the default on both ends, the flag's own help text says so outright,
-  and `quic` exists as the encrypted alternative. Anyone who needs confidentiality must not
-  choose `udp`.
+  its `room_code` in the clear with no option available to change that. **The real mitigation
+  since 2026-08-16 is structural, not documentary**: the client defaults to `auto` and the relay
+  to `tcp,quic`, so a default pair never touches udp at all — `netx.AutoPreference` is
+  QUIC/TCP/UDP and deliberately never picks udp on a user's behalf, because choosing an
+  unencryptable transport for someone is not a decision a default should make. udp is reachable
+  only by naming it explicitly on both ends. Anyone who needs confidentiality must not choose it.
 - **`udp` adds pre-auth attack surface that `tcp` did not have** (added 2026-08-16). The
   demultiplexer in `internal/netx/udpconn` parses bytes from any stranger who knows the address,
   *before* address validation, room code, or protocol version. Mitigations built in: a derived
@@ -326,8 +333,7 @@
     **Resolved, 2026-08-14, same day** — see `verified.md`'s "Archipelago-recompiled
     CB2_Overworld address found" entry for the full evidentiary trail. The vanilla-only
     `inOverworld()` check WAS the bug this predicted: `meshghost_emerald.lua` gates both
-    local-gender resolution (`:825`) and remote-ghost rendering itself (`:850`,
-    `drawRemotes(...)`) behind it, so with only the vanilla address checked, neither ever fired
+    local-gender resolution and remote-ghost rendering itself (`drawRemotes(...)`) behind it, so with only the vanilla address checked, neither ever fired
     on an Archipelago-patched ROM — ghosts would never draw at all, silently, no error. Found
     the real recompiled address (`0x080867F1`) live via `battle_probe.lua`, confirmed
     independently on a second unique seed, and added it to `inOverworld()` in
@@ -383,12 +389,17 @@
   named field the way `pokeemerald`'s C structs or TEVI's decompiled C# fields were. Highest
   single source of uncertainty in Phase 7; the 7.1 Lua probe exists specifically to resolve
   this empirically before committing to the C++ adapter's design.
+  **Resolved** — reflection through UE4SS turned out to be enough, the C++ adapter shipped on it,
+  and 7.7 closed 2026-08-16 with two players on two machines. `agent_docs/access-models.md`
+  records runtime reflection as this adapter's access model.
 - **No clip-name animation playback in UE5, surfaced at Phase 7 start**: TEVI's remote ghost
   works by calling `Animator.Play(clipName)` on a cloned GameObject using the real Animator
   clip name sent over the wire. UE5 has no direct equivalent for a cloned actor driven by an
   AnimBP/Blueprint-based character — likely needs either a montage-based approach or a
   simplified driven AnimBP. Unresolved design question, not just an implementation detail;
   expect this to be the hardest single task in Phase 7, not the local-state read.
+  **Resolved** — animation sync is live-confirmed; see `adapters/pseudoregalia/README.md` steps
+  13/16/17 for what it took. The prediction that it would be the hardest task held.
 - **UE4SS version drift already observed mid-Phase-7 (2026-08-12)**: the user updated their
   local UE4SS from v2.5.2 Beta to v3.0.1 Beta mid-session, following a Mar 2026 update to
   `pseudoregalia-archipelago`'s own `RE-UE4SS` submodule pin. Confirms the environment can
@@ -577,7 +588,7 @@
   before any future combat/animation-adjacent change, since it points at the same
   "two live instances of a class the game never expected to duplicate" risk class.
 - **RESOLVED 2026-08-15 — collision is ON as a deliberate feature, and the run-ending vector is
-  fixed.** `GHOST_COLLISION_ENABLED = true` (`Plugin.cpp:200`). This supersedes the "reverted,
+  fixed.** `GHOST_COLLISION_ENABLED = true` (`Plugin.cpp`). This supersedes the "reverted,
   do not re-enable" verdict in the entries above, on the user's explicit call. What changed: the
   genuinely dangerous case turned out to be *enemy* damage, not player melee — an enemy hitting a
   ghost hurt and could kill the real player during ordinary play, with no visible cause. Fixed by

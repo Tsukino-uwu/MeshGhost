@@ -5281,3 +5281,33 @@ everything put together, if they need each other to work?"* — the working run 
 live while I was testing three — and *"just dump everything"*, which produced all 473 pawn
 functions and with them `Timeline_1__UpdateFunc`, a name no keyword filter of mine would ever have
 matched. Recorded as a rule in `CLAUDE.md`.
+
+## 2026-08-17 — Audit pass: three earlier entries superseded by later ones in this same file
+
+- Date: 2026-08-17
+- Confirmed by: a repo-wide documentation audit, cross-reading this file against itself. No new
+  runtime facts here — this entry exists only because the file is append-only, so a superseded
+  claim cannot be edited out and will otherwise keep reading as live.
+
+**1. The first empty-hand recall glow entry is superseded by the second.** Two entries share the
+title "Pseudoregalia empty-hand recall glow: FIXED by spawning the effect directly, confirmed
+live". The earlier one says the glow attaches to the ghost's root and its position is visibly off,
+and lists a second, unlocated "sword outline" glow as **still open**. The later entry corrects
+both: the real effect attaches to the pawn's `WeaponMesh` at zero offset, and there was never a
+second effect — the same one, mis-attached, is what read as an outline of the sword. **Nothing is
+still open there.**
+
+**2. The first thrown-Dream-Breaker / use-after-free entries are superseded the same way** — each
+appears twice, and in both pairs the later entry is a rewrite, not a copy. Prefer the later one.
+
+**3. "The Pseudoregalia camera fight-back is what takes the camera" (2026-08-16) is superseded**
+by "A ghost brings its own camera rig, and that is what took the camera" (2026-08-16, later in the
+file). The rig, identified by its `OwningActor`, was the cause. The fight-back's premise was
+vindicated; its *rule* was the bug. The earlier heading is the misleading part — it is what a
+reader scanning headings takes away.
+
+**Convention going forward, from the same audit:** cite a file that lives outside this repo by
+filename only, never with an absolute path. Several older entries here carry absolute paths to
+external checkouts (a `pokeemerald` decomp, an Archipelago install, a Steam library, a CMake
+install). They are harmless — no username in any of them — but unusable to a reader, and the rule
+in `CLAUDE.md` is filename-only. Append-only means they stay; new entries should not add more.

@@ -22,6 +22,9 @@ Nothing about the game world is shared. Not enemies, not pickups, not doors, not
 players are non-interactive props with no collision, no damage, no AI. The goal is to see
 friends moving around in the same space while playing. That's it.
 
+> Since superseded on one point: ghost collision became an opt-in per-adapter feature
+> 2026-08-15, on the user's own request — see `plans.md`. Everything else here still holds.
+
 ### Explicit non-goals
 
 - No shared or authoritative world state

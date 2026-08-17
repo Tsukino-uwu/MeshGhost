@@ -15,8 +15,8 @@ What's in this folder:
 Status: Pokemon Emerald is tested and working. TEVI and Pseudoregalia are both
 EXPERIMENTAL. TEVI has been confirmed working with two real players (two local
 instances on one machine; not yet confirmed over a network between two separate
-machines). Pseudoregalia is code-complete but has not yet been tested with a
-second player at all. See games\tevi\README.txt and games\pseudoregalia\README.txt.
+machines). Pseudoregalia has been confirmed with two real players on two separate
+machines. See games\tevi\README.txt and games\pseudoregalia\README.txt.
 
 Setup, once:
 1. Open config.json in a text editor (Notepad is fine).
@@ -132,8 +132,10 @@ Setup, once:
                The server refuses to start and tells you if you forget. Pros/cons of each are in "Transports --
                tcp vs udp vs quic" near the bottom, along with which ports
                you need to forward for each.
-     "listen_quic" -- only used if you put "quic" in "transport". It needs
-               its own port number, different from "listen_on".
+     "listen_quic" -- leave it as "" (the default). quic then shares
+               "listen_on"'s port number, so hosting stays one number to
+               forward. Only set it if you serve plain "udp" as well,
+               since those two collide.
      "room_code" -- OPTIONAL. Leave as "" to keep the old behavior: anyone
                who has your address can join. Set it to a word or phrase
                to require everyone to also enter that same code in their
@@ -307,8 +309,10 @@ Hosting (skip this section if you're not the host):
 1. Double-click meshghost-server.exe. Leave the window open while people
    play.
 2. If your friends are NOT on the same local network/VPN as you, forward
-   your port (TCP) on your router to this machine, or run this on a small
-   public server/VPS instead.
+   your port on your router to this machine -- on BOTH TCP and UDP. Two
+   rules, one number: the default "tcp,quic" makes first contact over TCP
+   and then runs the session over quic, which rides on UDP. Or run this on
+   a small public server/VPS instead.
 3. Give your friends this machine's IP address (and port, if you changed
    it) -- they'll need it for their "connect_to" setting. If you didn't set
    a "room_code", treat the address itself as the shared secret: anyone
@@ -459,15 +463,16 @@ the host what they serve, and only then switches. That is why you never
 need to know port numbers, and why picking something your host doesn't
 serve leaves you on a working tcp connection instead of failing.
 
-If you're a PLAYER: leave it on "udp" (the default) and stop reading,
-unless you specifically want your room_code encrypted -- then use "quic"
-and ask your host to serve it.
+If you're a PLAYER: leave it on "auto" (the default) and stop reading.
+auto asks your host what they serve and takes the best of it, which on a
+default host means quic -- so your room_code is already encrypted in
+transit without you doing anything.
 
 If you're HOSTING: "transport" is what you actually serve, and you can
 serve more than one at once. This is the only place the choice really
 matters, since players find whatever you turn on by themselves.
 
-  tcp  (what the SERVER defaults to, and always served regardless)
+  tcp  (always served regardless; half of the "tcp,quic" server default)
     + Works everywhere, no surprises.
     + The only one we can actually inspect when something goes wrong, so
       it's the easiest to get help with.
@@ -475,7 +480,7 @@ matters, since players find whatever you turn on by themselves.
       resent, so a bad connection can look "stuttery then catch up".
     - Not encrypted: your room_code travels in the clear.
 
-  udp  (what the CLIENT defaults to)
+  udp  (never chosen for you -- you have to ask for it by name)
     + Handles a bad/lossy connection better -- a dropped position is just
       skipped instead of delaying the next one, so ghosts keep moving
       smoothly instead of freezing and then snapping forward.
@@ -485,12 +490,14 @@ matters, since players find whatever you turn on by themselves.
     - Harder to troubleshoot.
     - On a healthy connection it is NOT faster (see the note below).
 
-  quic
+  quic  (the other half of the "tcp,quic" server default)
     + Same loss handling as udp, so the same benefit on a bad connection.
     + Encrypted, and very hard to spoof. The only one where your room_code
       is protected in transit.
-    - Needs its OWN port ("listen_quic" on the host's side) -- it cannot
-      share one with udp. That's one more port to forward.
+    + Shares the same port NUMBER as tcp, so hosting stays one number --
+      but it rides on UDP, so forward that number on BOTH tcp and udp.
+    - Only if you serve plain udp as well does quic need a port of its own
+      ("listen_quic" on the host's side), because the two collide.
     - Harder to troubleshoot.
 
 "But isn't udp the fast one?"  Not quite, and this is the most common
@@ -500,11 +507,15 @@ quic avoid is one lost packet holding up the ones behind it -- so the win
 is SMOOTHNESS on a bad connection, not lower ping on a good one.
 
 Short version:
-  Playing, not hosting?           udp (the default -- just leave it)
-  Want your room_code encrypted?  quic (and ask your host to serve it)
+  Playing, not hosting?           auto (the default -- just leave it)
+  Want your room_code encrypted?  auto already does this on a default host
   Hosting, just want it to work?  tcp,quic  (the default)
   Hosting, keep it simplest?      tcp
-  Hosting for a flaky group?      tcp,udp   (see the udp warning above)
+  Hosting for a flaky group?      tcp,udp   (see the udp warning above --
+                                  this drops the encrypted default, so
+                                  room codes go back to travelling in the
+                                  clear; prefer tcp,quic unless you have a
+                                  reason not to)
 
 "auto" is the player default: it asks the host and takes the best on offer,
 preferring quic, then tcp, and deliberately never picking udp for you --

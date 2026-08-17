@@ -19,11 +19,13 @@ downloaded release folder and run against its `meshghost-server.exe` instead.
   Two checks it deliberately leaves to CI (`.github/workflows/ci.yml`, which runs on every
   push): the **race detector**, because on Windows `-race` needs a working cgo toolchain and
   this machine has neither a usable one nor WSL (the `gcc` on `PATH` resolves to a devkitPro
-  MSYS2 copy, and the real MSYS2 GCC 15 can't compile Go 1.22's `runtime/cgo`) — on Linux it
+  MSYS2 copy, and the real MSYS2 GCC 15 can't compile Go's `runtime/cgo`) — on Linux it
   needs no setup at all; and **fuzzing**, which runs a short campaign per push against the
   parsers. Both are also why a green run here is not the same as a green CI run. Re-confirmed
   2026-08-16 against Go 1.25: the devkitPro `gcc` fails on `stddef.h`, MSYS2's own GCC 15.1 fails
-  in `runtime/cgo`, and `wsl.exe` exists with no distro installed.
+  in `runtime/cgo`, and `wsl.exe` exists with no distro installed. (`go.mod` requires Go 1.25.0
+  and the installed toolchain is 1.26.5; CI's `setup-go` still pins 1.22, which works only
+  because `GOTOOLCHAIN=auto` upgrades it on the fly.)
 - `run-gotests-race.bat` — the race detector, the exact `go test -race -count=3 ./...` CI runs.
   **Probes for a C compiler Go can actually use** rather than assuming one, since two different
   installed `gcc`s both fail, and prints what to install if none works. Currently that is what it
@@ -211,7 +213,7 @@ downloaded release folder and run against its `meshghost-server.exe` instead.
 - `run-core-tevi.bat` / `run-core-tevi2.bat` — two TEVI core clients on distinct bridge ports
   (7778 / 7779), for real two-TEVI testing with a normal (non-loopback) `run-relay.bat` — same
   shape as the Emerald pair above, but for `-game=tevi`. Pair each with its own TEVI install
-  (e.g. the Steam copy on 7778, a standalone build like `C:\dev\tevi-14778703` on 7779 — see
+  (e.g. the Steam copy on 7778, a standalone build like a separate standalone TEVI build on 7779 — see
   [agent_docs/environment.md](../agent_docs/environment.md)); the standalone install's own
   `BepInEx/config/dev.meshghost.tevi.cfg` needs its `BridgePort` set to match (7779), since
   Steam already owns the default. See

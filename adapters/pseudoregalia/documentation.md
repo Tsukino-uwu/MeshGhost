@@ -92,7 +92,7 @@ Full field inventory and sync status: `PLAYER_FIELDS.md`.
 
 > **Fields** `actionState 1` · `moveState 0` · `bIsCrouched true` · `BaseEyeHeight 64 → 32`
 > **Components** `CapsuleComponent` (halved) · `VisualMesh` (offset shortened)
-> **We read it at** [`Plugin.cpp:6742`](MeshGhostPseudo/Mod/src/Plugin.cpp#L6742)
+> **We read it at** `Plugin.cpp`, where the local-state builder emits `slide_t`
 
 The game shrinks her and drops her, in a way that leaves her floor contact untouched:
 
@@ -192,15 +192,16 @@ them:
 - `animJumpType` runs the same `13 → 11 → 0` on an ultra as on a normal backflip.
 - Launch `verticalSpeed` doesn't separate: normal backflips 1369.0 and 1348.6, ultra 1388.9 — noise.
 
-**Where the blue comes from: unknown, deliberately parked.** It is *not* `afterimageColor`, which
-was edge-traced through a real ultra and never changed from yellow. Most plausibly the spawn path
-picks a different asset or material, which needs Blueprint-graph inspection rather than property
-tracing. Don't resume by guessing property names — that ground is covered and empty.
+**Where the blue comes from: answered.** It is *not* `afterimageColor`, which was edge-traced
+through a real ultra and never changed from yellow — because the colour does not live on the pawn
+at all. **Each afterimage is a posed copy of the character carrying its own `Color`**, and the
+ultra path colours those actors individually, bypassing the pawn field entirely. Normal images
+measure `(1.000, 0.888, 0.260)`, ultra images `(0.000, 0.787, 1.000)`.
 
 ## The afterimage trail
 
 > **Fields** `afterImagesToSpawn` (int) · `afterimageColor` (`FLinearColor`)
-> **Function** `spawnNumAfterimages` — [`Plugin.cpp:3164`](MeshGhostPseudo/Mod/src/Plugin.cpp#L3164)
+> **Function** `spawnNumAfterimages` — `Plugin.cpp`, `call_spawn_num_afterimages`
 
 Unusually direct, as game mechanisms go. `afterImagesToSpawn` is counted **down** by the game's own
 timer loop as it spawns, so any *increase* is the game starting a fresh burst and its value is the
@@ -214,7 +215,7 @@ writes, so a player with that mod has already changed it. Ultra-hop images measu
 ## Wall ride (Cling Gem)
 
 > **Fields** `moveState 4` · `obtainedWallRide?` · `wallRideButtonHeld?` · `wallRideHeld?` · `wallRideVFX` · `wallRideSFX`
-> **Function** `doWallRun`, plus `wallRunTick`/`doWallRunJump` — [`Plugin.cpp:3087`](MeshGhostPseudo/Mod/src/Plugin.cpp#L3087)
+> **Function** `doWallRun`, plus `wallRunTick`/`doWallRunJump` — `Plugin.cpp`, `call_do_wall_run`
 
 `moveState == 4` is the marker. Note the naming: internally this is **wall ride/run**, matching
 neither the item's name ("Cling Gem") nor the community's usual term — worth knowing before
@@ -223,7 +224,7 @@ searching for "cling" or "glide" and finding nothing.
 ## Bubble
 
 > **Fields** `moveState 7` with `movementMode 5`, `actionState 0`, `animJumpType 0`, capsule 65
-> **Functions** `StartBubbleJumpFlash(Condition)` · `changeBubbleChargedJump(hasBubbleChargedJump)` — [`Plugin.cpp:2715`](MeshGhostPseudo/Mod/src/Plugin.cpp#L2715)
+> **Functions** `StartBubbleJumpFlash(Condition)` · `changeBubbleChargedJump(hasBubbleChargedJump)` — `Plugin.cpp`, the bubble-jump flash helpers
 
 The boost out of it is `animJumpType == 2`, which also moves `moveState` to 4. The visual is the
 model itself pulsating, not a trail — and the two functions above are named for exactly that
@@ -242,8 +243,8 @@ Leaving a pole moves to `moveState 1` / `movementMode 3`. A brief
 
 Recorded so nobody re-runs a search that already came up empty:
 
-- **The ultra hop's blue trail source.** Parked; Blueprint-graph work, and UFunction hooks are
-  known to crash this build.
+- ~~The ultra hop's blue trail source.~~ **Answered** — the colour is per-afterimage, not a pawn
+  property. See "The afterimage trail" above.
 - ~~What writes the capsule and mesh during a slide.~~ **Answered 2026-08-17** — see "How the pose
   is actually driven" above.
 - **What the `Timeline_1` curve's overshoot is for.** The track is now known to drive the slide (it

@@ -64,7 +64,7 @@ reintroduces the exact churn this was chosen to prevent.
 
 ## Borderline — noted, not urgent
 
-- **`udpconn.go:130-133`.** Retry budget asserted to fit inside `relay.DefaultHelloTimeout` in
+- **`udpconn.go:127-133`.** Retry budget asserted to fit inside `relay.DefaultHelloTimeout` in
   prose only, not derived. Same drift shape as #2, lower impact.
 - **`parent_windows.go:31-43`.** Windows PID reuse could make a dead parent look alive forever; not
   called out anywhere.
@@ -79,6 +79,5 @@ Recorded so a future audit does not churn them.
   asked for `quic` an unencrypted session.
 - **`relay/limits.go`'s derived constants** — the pattern #1 and #2 above should be converted to.
 - **`stripBOM` / `applyDespiteBadValue`**
-- **`connectionGeneration`**
 - **The `net.ErrClosed` suppression**
 - **The `relayOwner` / `attachedAdapter` split**

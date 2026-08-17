@@ -1,11 +1,11 @@
 MeshGhost -- Pseudoregalia setup
 =================================
 
-STATUS: EXPERIMENTAL. This mod is code-complete -- ghost spawning, positioning, facing,
-and movement animations have all been confirmed working live, solo -- but it has NOT yet
-been tested with a real second player over a real network. If something doesn't work with
-two players, that's useful information -- there's nowhere to report it yet, but don't
-assume it's your setup.
+STATUS: EXPERIMENTAL. Ghost spawning, positioning, facing, and movement animations have
+all been confirmed working live, and as of 2026-08-16 so has a real session with two
+players on two separate machines. Still experimental because that is one session on one
+pair of machines, not broad testing. If something doesn't work, that's useful
+information -- there's nowhere to report it yet, but don't assume it's your setup.
 
 What you need, once:
 - Your own legally-obtained copy of Pseudoregalia. That's it -- everything else the mod

@@ -303,13 +303,13 @@ else runs `queryTransports` (`core.go:1175`) first.
 
 That inversion buys three things at once:
 
-- **A client never needs to know a port.** QUIC listens on a different one — it runs over UDP,
-  so it cannot share with the plain udp transport — and guessing is impossible. So the relay is
-  asked. `connect_to` only ever needs the tcp address.
+- **A client never needs to know a port.** QUIC's may differ: it shares `-addr`'s port number by
+  default, and moves only when the plain udp transport is served and has taken it. Guessing is
+  impossible, so the relay is asked. `connect_to` only ever needs the tcp address.
 - **The one leg that must work is the one that works everywhere** and is readable with netcat
   while debugging.
 - **A wrong preference degrades instead of failing.** Asking a relay for quic it doesn't serve
-  yields a working tcp session plus a log line (`chooseTransport`, `core.go:1293`), not a
+  yields a working tcp session plus a log line (`chooseTransport`), not a
   timeout with no explanation.
 
 `queryTransports` sends a `hello` with `QueryOnly: true` and hangs up without joining. Not
@@ -322,7 +322,7 @@ as a real join and replies `welcome`; `core.go:1224` recognises that, logs it, a
 to tcp. That costs one spurious join/leave against pre-2026-08-16 relays only, and is the price
 of the field being additive rather than a version bump.
 
-`chooseTransport` (`core.go:1251`) takes **only the port** from the offer and keeps the host the
+`chooseTransport` takes **only the port** from the offer and keeps the host the
 user configured. That's what makes discovery work through NAT and port forwarding: a relay bound
 to `0.0.0.0` has no idea which address reaches it, but the client just connected to one. An
 explicit preference is honoured exactly and nothing else is considered — a client that asked
@@ -364,9 +364,11 @@ The three implementations:
   every application datagram must carry an unpredictable 8-byte **per-connection token**
   (`udpconn.go:125`), because address validation only gates admission — without the token, a
   connection is identified by source address alone and anyone who can guess a client's ip:port
-  can inject into its session. `Write` (`udpconn.go:294`) is reliable via sequence numbers, acks
-  and a retry loop, and does not block waiting for the ack (blocking would stall the relay's
-  forward loop for every other recipient behind one slow peer). `WriteUnreliable`
+  can inject into its session. `Write` (`udpconn.go:294`) is reliable **and ordered** via sequence
+  numbers, acks, a retry loop, and a receive-side reorder window (`reorderWindow`, 64) — ordering
+  added 2026-08-16, and `internal/core` now depends on it rather than merely on delivery. It does
+  not block waiting for the ack (blocking would stall the relay's forward loop for every other
+  recipient behind one slow peer). `WriteUnreliable`
   (`udpconn.go:332`) is a bare token-prefixed datagram, sent once. `MaxDatagramBytes` is 1200
   (`udpconn.go:148`) — below the Ethernet MTU, because a datagram large enough to fragment is
   lost whole when any one fragment is lost.

@@ -876,11 +876,17 @@ three gets re-tried blind:
   *handling* of that event fixed.
 - Full evidence: `agent_docs/verified.md`'s "Pseudoregalia trail-VFX UFunction hook" entry.
 
-### Actor destroy unavailable on this build — move offscreen, let the level's own teardown reclaim it
+### Actor destroy unavailable on the ghost pawn — move offscreen, let the level's own teardown reclaim it
 
-- **Symptom**: `K2_DestroyActor()` on a spawned ghost actor silently no-ops on this Pseudoregalia
+- **Symptom**: `K2_DestroyActor()` on the ghost pawn silently no-ops on this Pseudoregalia
   build — no crash, no error, the actor call simply doesn't remove the object. Earlier attempts
   to destroy ghosts through other means caused world-leak crashes.
+- **Scope correction (2026-08-17 audit)**: this is a property of *that actor*, not of the build.
+  The ghost pawn came from the hijack design, so it was never ours and its class reflected no
+  usable `K2_DestroyActor`. An actor we spawn ourselves, of a class whose live function dump does
+  list it, destroys fine — `Plugin.cpp`'s `call_destroy_actor` does exactly that for the
+  thrown-weapon prop, and falls back to parking when the reflection isn't there. Read the
+  "permanent constraint" below as permanent for the ghost pawn only.
 - **Design (not a bug fix, a permanent constraint)**: ghosts are never destroyed. On
   `despawn_remote`, `Plugin.cpp`'s `release_ghost` moves the ghost far offscreen via the
   already-proven `call_set_actor_location_and_rotation` path (see the `FRotator` marshaling

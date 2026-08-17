@@ -8,7 +8,8 @@ etc.) live in `CLAUDE.md`, not here — this file is reference, not rules.
 
 ```text
         Relay (internal/relay, cmd/meshghost-relay)
-             |  relay protocol: NDJSON/TCP, hello/welcome/reject/join/leave/state/ping
+             |  relay protocol: NDJSON over tcp|udp|quic (via netx),
+             |  hello/welcome/reject/join/leave/state/ping
         Core (internal/core, cmd/meshghost)
              |  adapter bridge: NDJSON/TCP, localhost-only
      [ Adapter contract ]
@@ -43,7 +44,8 @@ Enforced dependency graph for the Go module, added as a compiling type skeleton 
 
 ```text
 internal/protocol   — message types + JSON shapes. No internal deps. Lowest layer.
-internal/transport  — generic NDJSON/TCP framing. Defines its own Transport interface;
+internal/transport  — generic NDJSON framing over any net.Conn. Defines its own Transport
+                       interface;
                        no internal deps (byte-level only, doesn't know message shapes).
 internal/bridge     — adapter<->core message shapes (LocalState/RenderRemote/DespawnRemote).
                        Imports protocol only.
@@ -60,6 +62,10 @@ internal/netx       — transport selection (tcp|udp|quic) as net.Listener/net.C
 cmd/meshghost       — desktop app entry point. Imports core and netx (the Phase 3 note here
                        once predicted transport/bridge imports; they never arrived).
 cmd/meshghost-relay — standalone relay entry point. Imports relay and netx.
+cmd/meshghost-fakeadapter — the test rig's ghost-that-walks-in-a-circle. Imports core.
+cmd/meshghost-netsim — fault-injecting proxy for real sessions. Imports NOTHING under
+                       internal/, deliberately: it must be able to mangle the wire without
+                       inheriting any of the code whose behaviour it is testing.
 ```
 
 **Hard rule:** `internal/core` and `internal/relay` may never import anything under
@@ -1133,9 +1139,14 @@ Format: Date / Decision / Status / Context / Options considered / Resolution / C
   `listen_on` — pinned by `TestTCPAndUDPShareAPortNumber` rather than left as a comment, because if
   it were ever false the relay would fail to start in a shipped configuration for a non-obvious
   reason. QUIC is carried over UDP and therefore **cannot** share a port with the plain `udp`
-  transport, so it gets its own `listen_quic`. A host serving all three forwards three router rules
+  transport, so it gets its own `listen_quic`. *(Refined the same day: `listen_quic` now defaults
+  to empty, meaning quic reuses `listen_on`'s port number. It is required only when plain `udp` is
+  served too — which is the collision this bullet is really about.)* A host serving all three
+  forwards three router rules
   across two port numbers.
-- **Resolution (defaults):** Both ends default to `tcp`, and the shipped `config.json` says so.
+- **Resolution (defaults)** — *superseded the same day by the quic-default ADR later in this file:
+  the client ships `auto` and the relay `tcp,quic`:* Both ends default to `tcp`, and the shipped
+  `config.json` says so.
   Considered and rejected: client `udp` with server `tcp`, which cannot connect at all out of the
   box. `tcp` is also the safest default (the only encryptable-later one, and the only one readable
   with netcat for debugging) and the only choice that changes nothing for existing users.
@@ -1237,7 +1248,10 @@ Format: Date / Decision / Status / Context / Options considered / Resolution / C
 - **Resolution (an explicit preference does not rank):** A client asking for `quic` considers only
   quic, and falls back to tcp if it is absent — it must never silently land on `udp`, which would
   swap an encrypted session for one that cannot be encrypted. Only `auto` ranks.
-- **Resolution (default `udp`), and the tradeoff recorded plainly:** the shipped client default is
+- **Resolution (default `udp`), and the tradeoff recorded plainly** — *superseded the same day by
+  the quic-default ADR later in this file; the client now ships `auto` and the relay `tcp,quic`,
+  and udp is never chosen for anyone. Kept because the caveats below are still the reasoning:* the
+  shipped client default is
   `udp`, chosen by the user so that a host who enables more than tcp automatically gets clients off
   the head-of-line-blocking path. Two honest caveats, neither of which changes the decision but
   both of which belong on the record: **`udp` is not lower latency on a link that is not losing

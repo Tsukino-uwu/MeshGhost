@@ -28,7 +28,8 @@ Setup, once:
    `BepInEx\plugins\MeshGhost\MeshGhostTevi.dll`.
 
 Setup, every time you play:
-1. Double-click meshghost.exe (one folder up). Leave the window open.
+1. Double-click meshghost.exe (two folders up, in the MeshGhost root next to
+   config.json). Leave the window open.
 2. Launch TEVI normally through Steam. The mod loads automatically via BepInEx -- no
    separate script to open, and nothing to set in config.json -- the mod tells
    meshghost.exe which game it is on its own.

@@ -259,8 +259,9 @@ point of picking a second, structurally different game.
   mechanism.
 
   6.6 (two real players) can now proceed with local dual-instance testing instead of needing a
-  second machine. Still only proves "both processes launch" — the actual gameplay/multiplayer
-  test (both ghosts visible, moving, cross-area filtering, join/leave) is still open.
+  second machine. At the time this was written it only proved "both processes launch", with the
+  actual gameplay/multiplayer test still open — **6.6 closed 2026-08-13**; see this file's status
+  line at the top.
 
   **Original (2026-08-12) v1.01-branch attempt, superseded, kept for the record:**
   `steamcmd` downloaded the `v1.01` branch (app `2230650`, depot `2230651`, buildid `12996163`,

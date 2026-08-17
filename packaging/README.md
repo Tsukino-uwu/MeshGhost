@@ -3,8 +3,10 @@
 What actually goes in a release, and why it's laid out the way it is. Consumed by
 `.github/workflows/release.yml` — this folder holds the hand-written parts (the config
 template, player-facing READMEs, and the committed TEVI/Pseudoregalia plugins); the workflow
-adds the freshly-built Go `.exe`s and the Emerald adapter files on top and zips the whole
-`packaging/release/` folder as the one release asset.
+adds the freshly-built Go `.exe`s and the Emerald adapter files on top, stages a copy of the
+client beside each game's mod along with `client-config-template.json` renamed to `config.json`,
+and zips the whole `packaging/release/` folder as the Windows release asset. Two more assets go
+out beside it — the Linux and macOS client+server tarballs; see "Three assets" below.
 
 ## Why one zip
 
@@ -66,7 +68,7 @@ opens a console window same as the `.bat` did, but that window vanishes the inst
 exits, taking a crash message with it before a non-technical user could read it — `pause` kept
 the window open long enough to read it. Removed once `cmd/meshghost`/`cmd/meshghost-relay`
 started writing their own `meshghost.log`/`meshghost-server.log` next to the `.exe` (tee'd
-alongside stderr, truncated each run) — that file survives the window closing, so the `.bat`
+alongside stderr, appended to across runs) — that file survives the window closing, so the `.bat`
 files stopped doing anything a user couldn't already get by double-clicking the `.exe` itself.
 
 ## Room-code auth (added 2026-08-14)
@@ -232,10 +234,11 @@ bumps the RE-UE4SS submodule pin re-runs the relevant script and commits the res
 
 Manual only, deliberately — nothing publishes on its own just from pushing a commit or tag.
 On GitHub: repo → **Actions** tab → **Release** workflow → **Run workflow** → type a version
-(e.g. `v0.1.0`), tick **prerelease** if this cut includes untested content (e.g. Pseudoregalia
-before its first real two-player test) → run. It builds both `.exe`s for Windows/amd64 (the only
-platform BizHawk's LuaSocket vendoring currently supports, per
-[agent_docs/licensing.md](../agent_docs/licensing.md)), verifies three committed build outputs
-aren't stale (the TEVI plugin, the Pseudoregalia plugin, and the bundled UE4SS runtime — each
-gated on its own `built-from.txt`-style hash record), assembles the one zip, creates the tag if
-it doesn't already exist, and attaches the zip to a new GitHub Release.
+(e.g. `v0.1.0`), tick **prerelease** if this cut includes untested content → run. It builds both
+`.exe`s for Windows/amd64 — the only platform the *full* bundle supports, since BizHawk's
+LuaSocket vendoring is Windows-only (per
+[agent_docs/licensing.md](../agent_docs/licensing.md)) — plus client and server binaries for
+linux and darwin on amd64 and arm64 for the two tarballs. It verifies three committed build
+outputs aren't stale (the TEVI plugin, the Pseudoregalia plugin, and the bundled UE4SS runtime —
+each gated on its own `built-from.txt`-style hash record), assembles the three assets, creates
+the tag if it doesn't already exist, and attaches them to a new GitHub Release.

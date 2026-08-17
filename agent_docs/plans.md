@@ -40,6 +40,10 @@ there for a specific game if that's wanted later — see the Extensibility secti
 `agent_docs/contract.md` and the matching ADR in `agent_docs/architecture.md` for the
 mechanism (an opaque, per-adapter event plane; nothing built yet, just reserved).
 
+The concept layer under this ladder — sync models, the authority taxonomy, and what a
+deeper-than-cosmetic mode would actually have to close — is `agent_docs/beyond-cosmetic.md`.
+Read it before proposing anything past Tier 2.
+
 Depth ladder — what MeshGhost can support, per game:
 
 | Tier | What | Game writes? | Cost |
@@ -240,14 +244,15 @@ sends every known remote regardless of area). Emerald's own Phase 4 caught two r
 Phase 3's solo loopback hadn't surfaced, so something similar in TEVI once a second machine is
 available is a real possibility, not just a formality — accepted as a small risk of later
 rework rather than sitting idle on a blocker with no ETA. **This risk closed, not just
-resolved by waiting**: a standalone second TEVI build (`C:\dev\tevi-14778703`, confirmed to run
-alongside the Steam copy) unblocked real two-player testing, and 6.6 completed 2026-08-13 — see
+resolved by waiting**: a standalone second TEVI build, confirmed to run
+alongside the Steam copy, unblocked real two-player testing, and 6.6 completed 2026-08-13 — see
 the "Status" line at the top of this section.
 
 ### Phase 7 — Third game (Pseudoregalia)
 
 Visible outcome: repeat phases 1–4 for Pseudoregalia (UE5) using the frozen template. **Status:
-7.0–7.6 done, 7.7 (real two-player test) not started** — see `agent_docs/phases/phase7.md` for
+7.0–7.7 done — 7.7 confirmed 2026-08-16, two real players on two machines with the Linux
+tester** — see `agent_docs/phases/phase7.md` for
 the full task record. Started early relative to Phase 6's own two-player milestone (6.6) — see
 Phase 6's status note above for why that's a deliberate, recorded tradeoff rather than an
 oversight.
@@ -261,14 +266,14 @@ camera-locked-to-ghost, invisible `SpawnActor`'d meshes, stuck falling/ledge-han
 full blow-by-blow in `phase7.md`, since each is a transferable UE4SS-reflection lesson, not
 just a fixed bug. **First release package cut 2026-08-13** as EXPERIMENTAL/pre-release, same
 status TEVI shipped at before its own two-player test — see
-`packaging/release/games/pseudoregalia/README.txt`. 7.7 (real second player over a real
-network) is the one remaining gate before this can be called confirmed-working.
+`packaging/release/games/pseudoregalia/README.txt`. 7.7 (a real second player over a real
+network) closed 2026-08-16, so the adapter is confirmed-working rather than expected-to-work.
 
 Ghost collision, raised by the user during Phase 7.6 animation testing (2026-08-13): make it a
 feature rather than permanently disabled. The user's own framing: physically sharing space with
 another player can make the game feel more interactable than a pure visual ghost.
 
-**SHIPPED 2026-08-15 — `GHOST_COLLISION_ENABLED = true` (`Plugin.cpp:200`) is now a deliberate
+**SHIPPED 2026-08-15 — `GHOST_COLLISION_ENABLED = true` (`Plugin.cpp`) is now a deliberate
 feature, not a test flag.** The run-ending danger found along the way (an enemy hitting a ghost
 hurting and killing the *real* player) was fixed by giving the ghost capsule the
 `ECC_WorldDynamic` object type, so enemy targeting never queries it. Residual and accepted: a
@@ -347,8 +352,10 @@ one (tell hosts to update); TEVI's `game_version` doesn't yet reflect a real Ste
 
 **Partly overtaken 2026-08-16 by selectable transports** (ADR in `architecture.md`): `quic` is
 encrypted, so a room code on that transport no longer crosses the wire in the clear. TLS over
-`tcp` is still unbuilt, and `udp` can never have it at all. Neither end changed default — both
-still ship `tcp`.
+`tcp` is still unbuilt, and `udp` can never have it at all. **The shipped defaults then changed
+2026-08-16**: `config.json` now ships `client.transport: "auto"` (prefers quic) and
+`server.transport: "tcp,quic"`, so quic is the normal path and tcp the fallback. Encrypted is
+still not authenticated — the certificate is unverified.
 
 ### Selectable transport: `tcp` | `udp` | `quic`
 
@@ -365,9 +372,11 @@ per-connection-goroutine concurrency model survived untouched. `Send` is reliabl
 
 **Adapters are unaffected and cannot observe any of it** — the bridge stays loopback TCP NDJSON.
 
-**Open, and deliberately not attempted here**: a client cannot discover which transports a relay
-offers, so the host must say so out of band (`ideas.md` has the `Welcome`-advertisement design);
-`udp` can never be encrypted; there is still no per-IP connection cap. Full detail in the ADR,
+**Since built (2026-08-16)**: transport discovery. The relay answers what it serves during the
+tcp handshake, so a client only ever needs the tcp port and the host says nothing out of band.
+
+**Open, and deliberately not attempted here**: `udp` can never be encrypted; there is still no
+per-IP connection cap. Full detail in the ADR,
 `risks.md`, and `verified.md`.
 
 ### Send/receive rate control
@@ -395,7 +404,7 @@ plan that was never implemented). Full record: the ADR in `agent_docs/architectu
 - An over-limit client now gets a `Reject` (`ReasonRateLimited`, classified retryable) before the
   relay closes the connection, instead of the previous anonymous hangup.
 
-**Real regression caught and fixed in the same change**: all six `dev-scripts/run-core-*.bat`
+**Real regression caught and fixed in the same change**: every `dev-scripts/run-core-*.bat`
 pass `-min-send=10ms` — faster than the (now fallback-only) 20Hz default — which under "slower
 wins" against an unconfigured relay would have silently capped every one of them back down to
 50ms, undoing the exact fast-local-timing setup Phase 8 chose deliberately

@@ -10,7 +10,8 @@ What's in this folder:
   lib\ -- a dependency it needs. Keep it in this same folder, next to the script.
 
 Setup, every time you play:
-1. Double-click meshghost.exe (two folders up). Leave the window open.
+1. Double-click meshghost.exe (three folders up, in the MeshGhost root next
+   to config.json). Leave the window open.
 2. Open your ROM in BizHawk.
 3. In BizHawk: Tools > Lua Console, then Script > Open Script, and pick
    meshghost_emerald.lua from this folder.

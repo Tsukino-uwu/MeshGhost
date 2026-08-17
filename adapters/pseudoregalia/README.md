@@ -1,7 +1,8 @@
 # Pseudoregalia
 
-**Status: Phase 7, 7.0–7.6 done, 7.7 (real two-player test) not started.** First release
-package cut 2026-08-13, marked experimental/pre-release pending 7.7. See
+**Status: Phase 7, 7.0–7.8 done. 7.7 (real two-player test) confirmed 2026-08-16** — two players
+on two machines. First release package cut 2026-08-13, still marked experimental/pre-release
+because that is one session on one pair of machines, not broad testing. See
 [agent_docs/phases/phase7.md](../../agent_docs/phases/phase7.md) and
 `packaging/release/games/pseudoregalia/README.txt`.
 
@@ -144,9 +145,9 @@ Roughly in order:
 23. Added the slide/ultra-hop trail (afterimages), triggered off the player capsule physically
     shrinking rather than an animation-state enum — three enum-based triggers were each disproven
     live, because the enums overlap between different moves and the shrink doesn't. (7.6)
-24. Fixed the ghost sinking into the floor mid-slide: the same shrink drops the capsule's origin
-    by 43 units, so a full-height ghost placed there sat 43 under the floor. Mirroring the ghost's
-    capsule provably didn't work; compensating its render height did. (7.6)
+24. Stopped the ghost sinking into the floor mid-slide: the same shrink drops the capsule's
+    origin by 43 units, so a full-height ghost placed there sat 43 under the floor. Compensated
+    the render height instead of mirroring the capsule. Superseded by step 44. (7.6)
 25. Added the cling-gem (wall-ride) VFX by calling the pawn's own wall-run function on the ghost,
     with the paired sound suppressed — ghosts are a visual-only layer. (7.6)
 26. Synced the trail colour, modded colours included. The ultra hop's blue trail turned out to be
@@ -265,12 +266,12 @@ bug behind the facing-direction fix).
 
 ### Further work past "good enough"
 
-The ghost passed "good enough" around step 18; steps 19–41 are all polish past that line. Still
-open as of 2026-08-16 — [agent_docs/status.md](../../agent_docs/status.md) is the authoritative
+The ghost passed "good enough" around step 18; steps 19–44 are all polish past that line. Still
+open as of 2026-08-17 — [agent_docs/status.md](../../agent_docs/status.md) is the authoritative
 list:
 
-- 7.7 itself, two real players. Also gates the keep-or-axe call on ghost collision.
-- Rotating around a climbing pole, and a sword thrown near a save crystal. Both are provably
-  synced; loopback puts the ghost beside the geometry, so a second player is needed to judge them.
+- A sword thrown near a save crystal. Provably synced; loopback puts the ghost beside the
+  geometry, so a second player is needed to judge it. (Pole rotation, same suspicion, came back
+  fine on the two-machine session.)
 - Ghost vanishes while a peer is on a climbing pole, then returns stuck in a climb pose.
 - A `Fatal Error!` on game exit, seen once, never root-caused.

@@ -1,7 +1,7 @@
 # Adapter template
 
 **First written 2026-08-11**, at the end of Phase 5, and kept current since with what the three
-shipped adapters learned the hard way (last swept 2026-08-16). The core was proven to run against a fake
+shipped adapters learned the hard way (last swept 2026-08-17). The core was proven to run against a fake
 adapter (`cmd/meshghost-fakeadapter`, a ghost that walks in a circle, driven by
 `core.RunAdapter` — see [agent_docs/verified.md](../../agent_docs/verified.md)'s Phase 5 entry)
 with no game attached and no import of anything under `adapters/`. This folder is what that
@@ -75,7 +75,14 @@ same as any two unrelated games — grouping by franchise just keeps the top lev
 | `documentation.md` | As soon as you learn how one mechanic works | [documentation.md](documentation.md) |
 | `BANDAGES.md` | The first time you ship a compensation — and it starts empty, not absent | [BANDAGES.md](BANDAGES.md) |
 
-The first three are expected of every adapter. **A state inventory is not** — it is worth a file
+`README.md` and `BANDAGES.md` are expected of every adapter. **`documentation.md` is expected only
+when the game has no readable source of its own** — the same reasoning as the state inventory
+below. Pseudoregalia has one because UE reflection is all there is; Emerald's mechanics are
+described by the `pokeemerald` decompilation and TEVI's by its managed assembly, so for those two
+a `documentation.md` would mostly restate a source the adapter can simply cite, and neither has
+one. That is a decision, not a gap — if you skip it, record why in the adapter's README.
+
+**A state inventory is not expected either** — it is worth a file
 only when the game gives you far more readable state than you sync, and its form is completely
 game-specific: memory addresses for Emerald, C# class fields for TEVI, reflected UE properties for
 Pseudoregalia. Only Pseudoregalia has one (`PLAYER_FIELDS.md`), because UE reflection hands you
@@ -434,6 +441,19 @@ the single fact that best explains why an adapter is the size and shape it is, i
 immediately how much of the code is discovery scaffolding versus feature work, and it sets
 expectations for anyone picking the adapter up later.
 
+**The other sections every shipped README carries**, and which the build story alone doesn't cover:
+
+- **A bold `**Status:**` line as line 3** — the phase, what's done, what the last live
+  confirmation was and when. All three shipped adapters open this way, and it is the line a reader
+  checks first.
+- **"Further work past 'good enough'"** — what is still open, with `agent_docs/status.md` named as
+  the authoritative list. This is the section that stops the numbered story turning into a status
+  file: anything still open goes here, not into a step. All three carry it.
+- **"Custom features"** — anything this adapter does that isn't required of an adapter (TEVI and
+  Pseudoregalia both have one). Keeps game-specific extras out of the build story.
+- **"Dev tools"** — an index of the probe scripts the adapter accumulated. Emerald's ten probes
+  are only findable because its README lists them; write this the moment you have more than two.
+
 ## Hard rule: a bandage fix is not a finished feature
 
 **Default: no.** If the fix compensates for a value instead of causing it, forces state back after
@@ -452,10 +472,12 @@ something else will eventually read the state you patched.
   every legitimate camera change forever after; players saw it as the ghost stealing the camera.
   The real fix, once measured, was one line: refuse a switch to a rig whose `OwningActor` is a
   ghost. Deleted 2026-08-16 — `verified.md`.
-- **Bandages spread.** The slide floor-sinking fix moves the ghost's render Z by +43 because the
-  ghost never runs the player's crouch logic. `Plugin.cpp` now describes a *second* bug, the thrown
-  weapon, as "structurally the same bug as the slide floor-sinking fix". One compensation taught
-  the next one to exist.
+- **Bandages spread.** The slide floor-sinking fix moved the ghost's render Z by +43 because the
+  ghost never ran the player's crouch logic, and `Plugin.cpp` went on to describe a *second* bug,
+  the thrown weapon, as "structurally the same bug as the slide floor-sinking fix". One
+  compensation taught the next one to exist. Replaced 2026-08-17 by driving the game's own crouch
+  path on the ghost, which is what the ending makes this worth reading: the proper fix existed the
+  whole time and the bandage is what stopped anyone looking for it.
 
 **The narrow exception, and its price.** A temporary fix is allowed when it unblocks something else
 that must be tested now — early bring-up, or getting a camera usable so a different feature can be

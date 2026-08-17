@@ -256,7 +256,8 @@ There is **no application-level fragmentation anywhere**. Two separate ceilings 
 | `udpconn.MaxDatagramBytes` | 1200 | **refused, not split** — `contract.md`: *"Large `extras` therefore means `tcp`"* |
 | `protocol.MaxExtrasBytes` | 1024 | validation failure |
 
-For scale, a measured Pseudoregalia state line is **597 bytes** — already half the udp budget. A
+For scale, a measured Pseudoregalia state line is **at least 597 bytes** — that figure is a floor,
+taken before `extras` grew from 14 keys to 25 — already half the udp budget. A
 Pokémon party would not fit in 1200 bytes, nowhere close.
 
 **The ceiling largely evaporates on the right transport, which is the useful part.** The reliable
@@ -280,7 +281,8 @@ stream transport, or sending a *reference* rather than the data.
 
 Most of the rig already exists and is better than it looks: `cmd/meshghost-fakeadapter` doubles as
 an N-client synthetic load generator, `internal/e2e` launches the real binaries, `-loopback` gives
-a one-machine round trip, and CI runs the race detector plus five fuzz targets. `testing.md` and
+a one-machine round trip, and CI runs the race detector plus five of the six fuzz targets (the
+udpconn listener target is written but not in CI — `testing.md` says so). `testing.md` and
 `dev-scripts/README.md` are the inventory.
 
 What is missing splits cleanly by **which bug class it catches**:

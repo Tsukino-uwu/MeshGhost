@@ -65,6 +65,6 @@ in-process path at all.
 ## Links
 
 - `agent_docs/contract.md` — the adapter interface and tick model this phase's stub restates.
-- `agent_docs/plans.md` — roadmap; Phase 6 (TEVI) is next, using the frozen template.
+- `agent_docs/plans.md` — roadmap. Phase 6 (TEVI) followed this one, using the frozen template; `agent_docs/status.md` has the current phase.
 - `agent_docs/verified.md` — the human-observed confirmation for this phase.
 - `adapters/_template/` — this phase's actual deliverable.

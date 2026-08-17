@@ -61,4 +61,9 @@ confirmed broken, not everything that plausibly could be"* — learned from the 
 
 ## Deliberate — do NOT "fix" these
 
-None currently recorded for this adapter.
+Recorded so a future audit does not churn them.
+
+- **`connectionGeneration` (`BridgeClient.cs:67`).** A counter bumped on every reconnect so a
+  reader goroutine from a previous connection recognises it is stale and exits quietly. It reads
+  like state kept across an invalidation, but it is the invalidation signal itself. (Moved here
+  2026-08-17 from `agent_docs/bandages-core.md`, which is the Go side's register — this is C#.)

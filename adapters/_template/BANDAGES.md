@@ -1,7 +1,9 @@
-# Bandages — <game>
+# Bandages — the canonical guide
 
-Copy this file into your adapter folder, next to its `README.md`, and log every shipped
-compensation here as you take it.
+**This file is the guide, not the thing you copy.** A new adapter's register lives at
+`adapters/<game>/BANDAGES.md` and carries a compact form that links back here. Start it from the
+stub at the bottom of this file — all three shipped registers have that exact shape, and one that
+doesn't is harder to read across games.
 
 **Keep this template current.** Anything an adapter's own register learns — a new tell, a new rule,
 a category that keeps recurring — belongs back here in the same pass. `_template/` is the gold
@@ -113,7 +115,8 @@ afterwards**, and any one of them is enough to add an entry:
    fixed.
 2. **A second bug gets described as "structurally the same bug as X."** That sentence means X was
    a bandage and it has started teaching the next one to exist. Live case: the thrown-weapon prop
-   versus the slide floor-sinking fix.
+   versus the slide floor-sinking fix — the latter was replaced with a real fix 2026-08-17, and
+   the sentence naming it is what marked it as a bandage in the first place.
 3. **It outlived its purpose and became the bug.** The strongest signal, and it arrives as a user
    report. Live case: the camera fight-back worked for its one spawn case and blocked every
    legitimate camera change forever after; players saw it as the ghost stealing the camera.
@@ -151,3 +154,65 @@ audit doesn't have to re-derive why they were left.
 Constants and behaviours that look like bandages and are not, with the evidence that makes them
 design decisions. This section exists to prevent churn; it is not a place to park things you
 haven't measured.
+
+## Not a compensation, but worse than most of them
+
+A *correct* fix whose scope is dangerously narrow — right where it is applied, silently absent
+everywhere else, and shaped so the next call site inherits the bug without anyone noticing. It
+fails none of the tests above, which is exactly why it needs its own section. Live case:
+`adapters/pseudoregalia/BANDAGES.md`'s `FRotator` float/double fix, correct at one call site and
+missing at every other rotation write in the SDK.
+
+---
+
+## The stub to copy
+
+Everything below the line goes into a new `adapters/<game>/BANDAGES.md`. Fill in the game name and
+the cross-links; leave the three section headings in place even when empty — an empty register
+says "audited, nothing found", an absent one says nothing at all.
+
+```markdown
+# Bandages — <Game>
+
+Shipped compensations in this adapter: **a fix that restores, forces, compensates for, or
+remembers a value rather than preventing whatever changed it.** The rule, its one narrow
+exception, and what it is *not*: `adapters/_template/README.md` ("a bandage fix is not a finished
+feature").
+
+Ranked by how likely each is to cause a real bug.
+
+Other registers: `../<other-game>/BANDAGES.md`, `../../agent_docs/bandages-core.md`.
+
+## Is this a bandage? — the short form
+
+Full version, including all seven after-the-fact tells: `../_template/BANDAGES.md`.
+
+**The one mechanical test:** does the fix **prevent** the wrong thing, or **correct** it
+afterwards? Correcting afterwards means the cause is still running. Then: *"what would make this
+unnecessary?"* (a proper fix has no answer) and *"where did this number come from?"* — measuring
+the mechanism, or trying values until it looked right?
+
+**Writing it:** watch for *almost*, *good enough*, *for now* in your own reasoning, and for code
+that *restores*, *forces*, *remembers*, *re-applies*, or *offsets* a value.
+
+**Discovering it later — you will not always know at the time.** Add an entry if any of these
+happen: its cause got fixed somewhere else and the fix is still there; a second bug gets described
+as *"structurally the same bug as X"*; it outlived its purpose and became the bug itself; a
+constant needs re-tuning when something unrelated changes; removing it breaks something it was
+never about; you can't explain it without describing a sequence; it needs a companion fix elsewhere
+to stay correct.
+
+**When in doubt, log it.** A false positive costs one line under "Deliberate".
+
+## Open compensations
+
+None currently recorded for this adapter.
+
+## Borderline — noted, not urgent
+
+None currently recorded for this adapter.
+
+## Deliberate — do NOT "fix" these
+
+None currently recorded for this adapter.
+```

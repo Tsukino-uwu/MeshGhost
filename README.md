@@ -12,17 +12,17 @@ friend kills a boss, it stays alive in your world, and that's okay.
   and running.
 - **TEVI** (Unity) — game id `tevi`. Adapter confirmed working (two clients / client +
   loopback), not yet tested online.
-- **Pseudoregalia** (Unreal Engine 5) — game id `pseudoregalia`. Adapter confirmed working
-  locally, not yet tested online.
+- **Pseudoregalia** (Unreal Engine 5) — game id `pseudoregalia`. Tested online with two real
+  players on two machines.
 
 The game id is what an adapter announces itself as. You never set it yourself as a player —
 it's picked up automatically from whichever game's mod you load — but a host running a
 dedicated single-game server types one of those exact strings into `server.only_game` (see
 Setup below).
 
-TEVI and Pseudoregalia aren't personally confirmed online yet, but they're expected to work —
-the relay and core client are game-agnostic and don't know which game an adapter is for, so
-"works locally" and "works online" are the same code path.
+TEVI isn't personally confirmed online yet, but it's expected to work — the relay and core
+client are game-agnostic and don't know which game an adapter is for, so "works locally" and
+"works online" are the same code path.
 
 A release publishes three downloads. **`MeshGhost-full-<version>.zip` is the one nearly
 everyone wants** — client, server, and every game's mod, for Windows. Alongside it,
@@ -127,7 +127,8 @@ posture, what's already checked-safe vs. the known open gaps).
 
 ```text
 MeshGhost/
-├── cmd/                  # entry points: the desktop app, the standalone relay
+├── cmd/                  # entry points: the desktop app, the standalone relay, and the test
+│                         #   rig's fake adapter and network simulator
 ├── internal/             # core, relay, protocol, transport, adapter bridge
 ├── adapters/             # one folder per game; _template/ is the starting point for a new one
 ├── agent_docs/           # design brief, contract, architecture, roadmap, verified facts

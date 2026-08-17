@@ -75,15 +75,17 @@ type fileConfig struct {
 	// agent_docs/architecture.md for the send/receive rate-control feature.
 	SendHz *int `json:"send_hz"`
 	// Transport is a comma-separated list of transports to serve at once:
-	// any of "tcp", "udp", "quic". Absent means "tcp". Clients pick one of
+	// any of "tcp", "udp", "quic". Absent means "tcp,quic". Clients pick one of
 	// them; a room can hold clients on different transports simultaneously,
 	// since the relay forwards through the transport.Transport interface and
 	// never learns which is which. See the transport ADR in
 	// agent_docs/architecture.md.
 	Transport *string `json:"transport"`
-	// QuicAddr is where quic listens, and it must differ from listen_on's
-	// port: quic is carried over udp, so it cannot share a port with the
-	// plain "udp" transport. Absent means DefaultQuicAddr.
+	// QuicAddr is where quic listens. Absent or empty is quicSharesAddrPort:
+	// quic reuses listen_on's port number, so hosting means forwarding one
+	// number. It must be set to a different port only when the plain "udp"
+	// transport is served too, since quic is itself carried over udp and the
+	// two would collide; the relay refuses to start rather than guess.
 	QuicAddr *string `json:"listen_quic"`
 }
 
