@@ -76,6 +76,12 @@ local F_INIT_X, F_INIT_Y = 0x14, 0x15
 local F_SPRITE_X, F_SPRITE_Y = 0x17, 0x18
 
 local FLAG1_WONT_DELETE = 0x02
+
+-- PROBE FLAG, default OFF. Keeps the template NPC's script pointer so the ghost can be talked to.
+-- Off means the ghost is silent, which is correct behaviour; on means it speaks whichever NPC it
+-- was copied from, which is wrong but demonstrates that interaction is possible at all.
+-- See agent_docs/ideas.md, "Crystal: a ghost you can talk to".
+local KEEP_TEMPLATE_SCRIPT = false
 local SPAWN_AFTER_FRAMES = 120
 local UNASSIGNED = 0xFF
 local MAPSTATUS_HANDLE = 2
@@ -249,15 +255,21 @@ local function tick()
 			w8(our_st_base + off, u8(src_st_base + off) or 0)
 		end
 
-		-- STRIP THE TEMPLATE'S SCRIPT. Copying an NPC wholesale copies its MAPOBJECT_SCRIPT_POINTER
-		-- and MAPOBJECT_EVENT_FLAG too, so the ghost inherits that NPC's dialogue and can be talked
-		-- to — found live 2026-08-18, when talking to the ghost produced an aide's line about the
-		-- player's Pokémon. A peer's ghost must not run somebody else's script.
+		-- THE TEMPLATE'S SCRIPT. Copying an NPC wholesale copies its MAPOBJECT_SCRIPT_POINTER and
+		-- MAPOBJECT_EVENT_FLAG too, so the ghost inherits that NPC's dialogue and can be talked to
+		-- — found live 2026-08-18, when talking to a ghost produced an aide's line about the
+		-- player's Pokémon.
 		--
-		-- Zeroed rather than pointed somewhere harmless: a null script is the state the engine
-		-- already handles for objects with nothing to say.
-		for _, off in ipairs({ 0x0A, 0x0B, 0x0C, 0x0D }) do
-			w8(our_mo_base + off, 0)
+		-- That is a bug as it stands (a peer's ghost should not speak someone else's lines) and
+		-- simultaneously the discovery that **a ghost can be INTERACTED WITH AT ALL**, which is a
+		-- door to talking to a peer, and eventually to battling one. See `agent_docs/ideas.md`.
+		-- So it is a switch, not a deletion, and the default is off.
+		if not KEEP_TEMPLATE_SCRIPT then
+			for _, off in ipairs({ 0x0A, 0x0B, 0x0C, 0x0D }) do
+				w8(our_mo_base + off, 0)
+			end
+		else
+			log("KEEP_TEMPLATE_SCRIPT is on — the ghost will speak the template NPC's lines.")
 		end
 
 		-- Then change ONLY position and the cross-references.

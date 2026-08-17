@@ -1341,6 +1341,59 @@ the game**, or you end up with an adapter that can read perfectly and cannot sho
 adapter is ever built, the emulator is chosen first and the game second — and `access-models.md`
 argues Dolphin is the strongest candidate of the emulators surveyed.
 
+## Crystal: a ghost you can talk to — and eventually battle
+
+**Status: discovered by accident 2026-08-18, nothing built, nothing scheduled.** Recorded because it
+is the largest new possibility this project has turned up in a while, and because it arrived as a
+*bug report*, which is exactly how such things get thrown away.
+
+**What happened.** Crystal's ghost is built by copying a live NPC, and a map object carries a
+`MAPOBJECT_SCRIPT_POINTER`. The copy took it, so the ghost inherited that NPC's dialogue — the user
+walked up to a ghost, talked to it, and got *"Oh! Your POKéMON is adorable!"*. Wrong behaviour, and
+in fixing it the real finding surfaced:
+
+> **A ghost is a real object event, so the game will let you INTERACT with it. That mechanism is
+> already there and already works — we did not add it and could not have designed it in.**
+
+Every other adapter in this project renders presence and stops. **This is the first time a peer's
+representation can be *approached and engaged* using a system the game already ships.**
+
+**What it plausibly opens, cheapest first.** None of this is designed; the point is the ladder:
+
+- **A ghost that says something.** Point the script pointer at our own text rather than an NPC's:
+  the peer's name, where they are going, how long they have been playing. Cosmetic, no game state
+  touched, and it makes a ghost legible instead of anonymous.
+- **A ghost that responds.** The script system supports branching and conditions, so "press A on a
+  peer" could carry an intent back over the wire — a wave, a ping, a "follow me". The event plane
+  already exists on the Go side (`contract.md`, built 2026-08-17) and has **no live consumer**;
+  this would be its first one.
+- **Battling a peer.** `OBJECTTYPE_TRAINER` exists, and trainer battles are a normal thing a map
+  object can start. The pieces the game provides are real. **What is NOT provided is any of the
+  hard part** — see the caution below.
+
+**The caution, and it is not a formality.** Everything past the first rung leaves cosmetic
+territory, which is governed by `beyond-cosmetic.md` and by `plans.md`'s depth ladder, and needs a
+deliberate decision rather than momentum. Specifically:
+
+- **A battle is shared, authoritative gameplay** — two machines agreeing on turn order, damage,
+  and an outcome that matters. That is the deep end of `beyond-cosmetic.md`, not an extension of
+  presence, and the honest comparison is that Dolphin's lockstep netplay solves it by making one
+  session rather than two independent ones (`access-models.md`).
+- **`CLAUDE.md`'s never-write-a-save rule ends any version that persists a result.** A battle whose
+  outcome changes a party, an item or a badge is out, permanently and without an ADR being able to
+  rescue it. A battle that changes nothing is a demo; deciding whether that is worth building is a
+  product question, not a technical one.
+- **It would need the peer's actual party data**, which is a much larger sync surface than a
+  position and a sprite id, and a much larger trust surface too.
+
+**Do the first rung first, and treat it as complete in itself.** A ghost that can be talked to and
+says who it is would be a genuinely new thing for this project, needs no new plane, persists
+nothing, and would tell us how the interaction feels before anything is committed to the rest.
+
+**Left switchable in the meantime**: `walk_test.lua` has `KEEP_TEMPLATE_SCRIPT`, default off. On,
+the ghost speaks whichever NPC it was copied from — wrong, but a working demonstration that the
+door exists.
+
 ## Carrion (MonoGame, PC) — candidate adapter, and possibly this project's first tier-1 game
 
 **Status: surfaced 2026-08-17 as a side-track while scoping Crystal, parked immediately.** Two

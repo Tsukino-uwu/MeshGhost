@@ -1,0 +1,10 @@
+=== MeshGhost Crystal spawn test 7 — NPC behaviour, player appearance (WRITES RAM) ===
+ROM guard passed: vanilla Crystal V1.0
+Template: NPC map object 1 -> struct 1 (sprite 41), engine-driven.
+Computed screen coords: sprite_x=48 sprite_y=64 (bg offset 48,0) — NOT copied.
+Wearing the player's face: sprite=1 tile=0 palette=0 (gender inherited, not chosen).
+Ours: map object 4 <-> struct 3 at map 10,10 (player at map 8,10; window origin 4,6).
+It will look like that NPC, not like you. Appearance is the next problem, not this one.
+>>> WALK AROUND. <<< Watch the two columns below: if ours starts tracking the way the
+NPC does, the engine has taken it.
+  f=121    ours: map=10,10 step=1     |   template NPC: map=10,12 step=1  

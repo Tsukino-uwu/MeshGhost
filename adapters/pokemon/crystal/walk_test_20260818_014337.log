@@ -63,3 +63,115 @@ NPC does, the engine has taken it.
   f=4113   ours: map=13,9 step=0     |   template NPC: map=10,12 step=1    <<< OURS MOVED ON ITS OWN
   f=4186   initiated step left -> map 12,9 (walking=6 dir=8)
   f=4186   ours: map=12,9 step=8     |   template NPC: map=10,12 step=1    <<< OURS MOVED ON ITS OWN
+  f=5331   initiated step left -> map 11,9 (walking=6 dir=8)
+  f=5331   ours: map=11,9 step=0     |   template NPC: map=10,12 step=1  
+  f=9738   initiated step left -> map 10,9 (walking=6 dir=8)
+  f=9738   ours: map=10,9 step=8     |   template NPC: map=10,12 step=1    <<< OURS MOVED ON ITS OWN
+  f=9789   initiated step left -> map 9,9 (walking=6 dir=8)
+  f=9789   ours: map=9,9 step=0     |   template NPC: map=10,12 step=1    <<< OURS MOVED ON ITS OWN
+  f=9930   initiated step right -> map 10,9 (walking=7 dir=12)
+  f=9930   ours: map=10,9 step=8     |   template NPC: map=10,12 step=1    <<< OURS MOVED ON ITS OWN
+  f=9967   initiated step right -> map 11,9 (walking=7 dir=12)
+  f=9967   ours: map=11,9 step=0     |   template NPC: map=10,12 step=1  
+  f=10003  initiated step right -> map 12,9 (walking=7 dir=12)
+  f=10003  ours: map=12,9 step=8     |   template NPC: map=10,12 step=1    <<< OURS MOVED ON ITS OWN
+  f=10175  initiated step right -> map 13,9 (walking=7 dir=12)
+  f=10175  ours: map=13,9 step=0     |   template NPC: map=10,12 step=1    <<< OURS MOVED ON ITS OWN
+  f=10424  initiated step left -> map 12,9 (walking=6 dir=8)
+  f=10424  ours: map=12,9 step=8     |   template NPC: map=10,12 step=1    <<< OURS MOVED ON ITS OWN
+  f=10469  initiated step left -> map 11,9 (walking=6 dir=8)
+  f=10469  ours: map=11,9 step=0     |   template NPC: map=10,12 step=1  
+  f=10689  initiated step left -> map 10,9 (walking=6 dir=8)
+  f=10689  ours: map=10,9 step=8     |   template NPC: map=10,12 step=1    <<< OURS MOVED ON ITS OWN
+  f=10955  initiated step left -> map 9,9 (walking=6 dir=8)
+  f=10955  ours: map=9,9 step=0     |   template NPC: map=10,12 step=1    <<< OURS MOVED ON ITS OWN
+  f=11123  initiated step right -> map 10,9 (walking=7 dir=12)
+  f=11123  ours: map=10,9 step=8     |   template NPC: map=10,12 step=1    <<< OURS MOVED ON ITS OWN
+  f=11251  initiated step right -> map 11,9 (walking=7 dir=12)
+  f=11251  ours: map=11,9 step=0     |   template NPC: map=10,12 step=1  
+  f=11513  initiated step right -> map 12,9 (walking=7 dir=12)
+  f=11513  ours: map=12,9 step=8     |   template NPC: map=10,12 step=1    <<< OURS MOVED ON ITS OWN
+  f=11668  initiated step right -> map 13,9 (walking=7 dir=12)
+  f=11668  ours: map=13,9 step=0     |   template NPC: map=10,12 step=1    <<< OURS MOVED ON ITS OWN
+  f=11800  initiated step left -> map 12,9 (walking=6 dir=8)
+  f=11800  ours: map=12,9 step=8     |   template NPC: map=10,12 step=1    <<< OURS MOVED ON ITS OWN
+  f=11864  initiated step left -> map 11,9 (walking=6 dir=8)
+  f=11864  ours: map=11,9 step=0     |   template NPC: map=10,12 step=1  
+  f=12118  initiated step left -> map 10,9 (walking=6 dir=8)
+  f=12118  ours: map=10,9 step=8     |   template NPC: map=10,12 step=1    <<< OURS MOVED ON ITS OWN
+  f=12384  initiated step left -> map 9,9 (walking=6 dir=8)
+  f=12384  ours: map=9,9 step=0     |   template NPC: map=10,12 step=1    <<< OURS MOVED ON ITS OWN
+  f=12596  initiated step right -> map 10,9 (walking=7 dir=12)
+  f=12596  ours: map=10,9 step=8     |   template NPC: map=10,12 step=1    <<< OURS MOVED ON ITS OWN
+  f=12802  initiated step right -> map 11,9 (walking=7 dir=12)
+  f=12802  ours: map=11,9 step=0     |   template NPC: map=10,12 step=1  
+  f=13034  initiated step right -> map 12,9 (walking=7 dir=12)
+  f=13034  ours: map=12,9 step=8     |   template NPC: map=10,12 step=1    <<< OURS MOVED ON ITS OWN
+  f=13176  initiated step right -> map 13,9 (walking=7 dir=12)
+  f=13176  ours: map=13,9 step=0     |   template NPC: map=10,12 step=1    <<< OURS MOVED ON ITS OWN
+  f=13309  initiated step left -> map 12,9 (walking=6 dir=8)
+  f=13309  ours: map=12,9 step=8     |   template NPC: map=10,12 step=1    <<< OURS MOVED ON ITS OWN
+  f=13505  initiated step left -> map 11,9 (walking=6 dir=8)
+  f=13505  ours: map=11,9 step=0     |   template NPC: map=10,12 step=1  
+  f=13721  initiated step left -> map 10,9 (walking=6 dir=8)
+  f=13721  ours: map=10,9 step=8     |   template NPC: map=10,12 step=1    <<< OURS MOVED ON ITS OWN
+  f=13986  initiated step left -> map 9,9 (walking=6 dir=8)
+  f=13986  ours: map=9,9 step=0     |   template NPC: map=10,12 step=1    <<< OURS MOVED ON ITS OWN
+  f=14042  initiated step right -> map 10,9 (walking=7 dir=12)
+  f=14042  ours: map=10,9 step=8     |   template NPC: map=10,12 step=1    <<< OURS MOVED ON ITS OWN
+  f=14260  initiated step right -> map 11,9 (walking=7 dir=12)
+  f=14260  ours: map=11,9 step=0     |   template NPC: map=10,12 step=1  
+  f=14382  initiated step right -> map 12,9 (walking=7 dir=12)
+  f=14382  ours: map=12,9 step=8     |   template NPC: map=10,12 step=1    <<< OURS MOVED ON ITS OWN
+  f=14650  initiated step right -> map 13,9 (walking=7 dir=12)
+  f=14650  ours: map=13,9 step=0     |   template NPC: map=10,12 step=1    <<< OURS MOVED ON ITS OWN
+  f=14692  initiated step left -> map 12,9 (walking=6 dir=8)
+  f=14692  ours: map=12,9 step=8     |   template NPC: map=10,12 step=1    <<< OURS MOVED ON ITS OWN
+  f=14882  initiated step left -> map 11,9 (walking=6 dir=8)
+  f=14882  ours: map=11,9 step=0     |   template NPC: map=10,12 step=1  
+  f=15134  initiated step left -> map 10,9 (walking=6 dir=8)
+  f=15134  ours: map=10,9 step=8     |   template NPC: map=10,12 step=1    <<< OURS MOVED ON ITS OWN
+  f=15166  initiated step left -> map 9,9 (walking=6 dir=8)
+  f=15166  ours: map=9,9 step=0     |   template NPC: map=10,12 step=1    <<< OURS MOVED ON ITS OWN
+  f=15354  initiated step right -> map 10,9 (walking=7 dir=12)
+  f=15354  ours: map=10,9 step=8     |   template NPC: map=10,12 step=1    <<< OURS MOVED ON ITS OWN
+  f=15534  initiated step right -> map 11,9 (walking=7 dir=12)
+  f=15534  ours: map=11,9 step=0     |   template NPC: map=10,12 step=1  
+  f=15668  initiated step right -> map 12,9 (walking=7 dir=12)
+  f=15668  ours: map=12,9 step=8     |   template NPC: map=10,12 step=1    <<< OURS MOVED ON ITS OWN
+  f=15834  initiated step right -> map 13,9 (walking=7 dir=12)
+  f=15834  ours: map=13,9 step=0     |   template NPC: map=10,12 step=1    <<< OURS MOVED ON ITS OWN
+  f=16100  initiated step left -> map 12,9 (walking=6 dir=8)
+  f=16100  ours: map=12,9 step=8     |   template NPC: map=10,12 step=1    <<< OURS MOVED ON ITS OWN
+  f=16334  initiated step left -> map 11,9 (walking=6 dir=8)
+  f=16334  ours: map=11,9 step=0     |   template NPC: map=10,12 step=1  
+  f=16570  initiated step left -> map 10,9 (walking=6 dir=8)
+  f=16570  ours: map=10,9 step=8     |   template NPC: map=10,12 step=1    <<< OURS MOVED ON ITS OWN
+  f=16736  initiated step left -> map 9,9 (walking=6 dir=8)
+  f=16736  ours: map=9,9 step=0     |   template NPC: map=10,12 step=1    <<< OURS MOVED ON ITS OWN
+  f=16836  initiated step right -> map 10,9 (walking=7 dir=12)
+  f=16836  ours: map=10,9 step=8     |   template NPC: map=10,12 step=1    <<< OURS MOVED ON ITS OWN
+  f=17088  initiated step right -> map 11,9 (walking=7 dir=12)
+  f=17088  ours: map=11,9 step=0     |   template NPC: map=10,12 step=1  
+  f=17184  initiated step right -> map 12,9 (walking=7 dir=12)
+  f=17184  ours: map=12,9 step=8     |   template NPC: map=10,12 step=1    <<< OURS MOVED ON ITS OWN
+  f=17290  initiated step right -> map 13,9 (walking=7 dir=12)
+  f=17290  ours: map=13,9 step=0     |   template NPC: map=10,12 step=1    <<< OURS MOVED ON ITS OWN
+  f=17334  initiated step left -> map 12,9 (walking=6 dir=8)
+  f=17334  ours: map=12,9 step=8     |   template NPC: map=10,12 step=1    <<< OURS MOVED ON ITS OWN
+  f=17370  initiated step left -> map 11,9 (walking=6 dir=8)
+  f=17370  ours: map=11,9 step=0     |   template NPC: map=10,12 step=1  
+  f=17512  initiated step left -> map 10,9 (walking=6 dir=8)
+  f=17512  ours: map=10,9 step=8     |   template NPC: map=10,12 step=1    <<< OURS MOVED ON ITS OWN
+  f=17750  initiated step left -> map 9,9 (walking=6 dir=8)
+  f=17750  ours: map=9,9 step=0     |   template NPC: map=10,12 step=1    <<< OURS MOVED ON ITS OWN
+  f=17856  initiated step right -> map 10,9 (walking=7 dir=12)
+  f=17856  ours: map=10,9 step=8     |   template NPC: map=10,12 step=1    <<< OURS MOVED ON ITS OWN
+  f=17996  initiated step right -> map 11,9 (walking=7 dir=12)
+  f=17996  ours: map=11,9 step=0     |   template NPC: map=10,12 step=1  
+  f=18020  initiated step right -> map 12,9 (walking=7 dir=12)
+  f=18020  ours: map=12,9 step=8     |   template NPC: map=10,12 step=1    <<< OURS MOVED ON ITS OWN
+  f=18258  initiated step right -> map 13,9 (walking=7 dir=12)
+  f=18258  ours: map=13,9 step=0     |   template NPC: map=10,12 step=1    <<< OURS MOVED ON ITS OWN
+  f=18514  initiated step left -> map 12,9 (walking=6 dir=8)
+  f=18514  ours: map=12,9 step=8     |   template NPC: map=10,12 step=1    <<< OURS MOVED ON ITS OWN
