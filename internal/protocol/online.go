@@ -226,6 +226,61 @@ func FeatureSetKey(features []string) string {
 	return strings.Join(NormalizeFeatures(features), ",")
 }
 
+// IsRoomScopedFeature reports whether name is a capability every member of a
+// room must agree on, as opposed to one that concerns only a single client and
+// the relay.
+//
+// The distinction is not bookkeeping — it decides whether turning a capability
+// on costs a coordinated reconfiguration of everyone in the room:
+//
+//   - **Room-scoped** capabilities describe something shared. event.v1,
+//     lease.v1 and escrow.v1 are protocols *between peers*, and a member that
+//     does not speak one silently fails to participate — the hazard
+//     agent_docs/beyond-cosmetic.md §3 exists to close. clock.v1 is subtler
+//     but the same: it changes which clock State.Timestamp is expressed in, and
+//     a room where some members shift and others don't is worse than one where
+//     nobody does.
+//   - **Client-scoped** capabilities describe something between one client and
+//     the relay, which no peer participates in or can even observe.
+//     resume.v1 asks the relay to hold *this* client's identity after a drop.
+//     snapshot.v1 asks it to seed *this* client on join. A peer neither
+//     consents to nor is affected by either.
+//
+// Forcing the second kind through the sticky room check was the original
+// design and it was wrong: it made enabling resumption cost a lockstep
+// reconfiguration of every player, for a feature none of them take part in —
+// friction with no safety bought, and the surest way to have nobody bother.
+//
+// **An unrecognised name is treated as room-scoped.** That is the fail-safe
+// direction: a future room-scoped capability wrongly classified as client-
+// scoped would silently not be enforced, which is exactly the invisible
+// mismatch this whole mechanism exists to prevent, whereas the opposite
+// mistake merely asks for a coordinated config change that was not strictly
+// necessary. Annoying beats silently broken.
+func IsRoomScopedFeature(name string) bool {
+	switch name {
+	case FeatureResumeV1, FeatureSnapshotV1:
+		return false
+	}
+	return true
+}
+
+// RoomScopedFeatures returns the normalized subset of features that a room
+// agrees on collectively. This is what the relay makes sticky and compares a
+// later joiner against; the rest is honoured per client.
+func RoomScopedFeatures(features []string) []string {
+	out := make([]string, 0, len(features))
+	for _, f := range NormalizeFeatures(features) {
+		if IsRoomScopedFeature(f) {
+			out = append(out, f)
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
 // HasFeature reports whether an already-normalized (or not) feature list
 // contains name. Linear because these lists are at most MaxFeatures long.
 func HasFeature(features []string, name string) bool {

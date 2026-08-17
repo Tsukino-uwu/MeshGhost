@@ -152,6 +152,14 @@ downloaded release folder and run against its `meshghost-server.exe` instead.
   relay it saw 51,000 events without noticing, where the in-process total-order test caught the
   same defect immediately. It complements `internal/relay`'s tests; it does not replace them. See
   `agent_docs/testing.md`.
+- `run-relay-online.bat` + `run-core-pseudoregalia-online.bat` — **the two-machine pair for the
+  capabilities that only mean anything across a real network**: `clock.v1` (room-scoped, so both
+  players must run it) and `resume.v1` (client-scoped, so it works even if the other player does
+  not). Neither can be tested in loopback — one machine has one clock and no network to blip — and
+  neither is visible on its own, so both scripts carry a "what to watch for" list. The relay side
+  runs `-introspect`, which is the only way to see that a player is SUSPENDED rather than simply
+  frozen. Read the scripts' own headers before the session: they record what resumption does and
+  does not cover, measured rather than assumed.
 - `run-netsim.bat` — **the adverse-network rig** (`cmd/meshghost-netsim`): a fault-injecting proxy
   between clients and a relay, adding loss, latency, jitter, reordering, duplication and
   partitions. Everything else here runs over a perfect loopback, which is the gap this closes —

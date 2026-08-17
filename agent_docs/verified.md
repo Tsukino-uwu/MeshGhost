@@ -5381,3 +5381,39 @@ in `CLAUDE.md` is filename-only. Append-only means they stay; new entries should
   what this session shows is that leaving it off costs nothing. The heavy per-frame TRACE probes
   were on in this build; per CLAUDE.md's probe rule that makes the *timing* here unrepresentative,
   which is fine because nothing about timing was being claimed.
+
+### Session resumption, clock sync and the capability scope split, confirmed against real binaries
+
+- Date: 2026-08-17
+- Observed: agent-run, from process logs — no game involved, so this is the `internal/core` /
+  `internal/relay` side that CLAUDE.md puts on the "confirm with the tools yourself" footing.
+- **Resumption works end to end.** With `-resume-grace=60` and the link cut by killing
+  `meshghost-netsim` mid-session (so both ends saw a real close) and then restored: relay logged
+  `p1 dropped from room "default" — holding its identity for 1m0s`, then 7 seconds later the core
+  logged `resumed the previous session as p1 — the room was never told we left` and the relay
+  `p1 reconnected to room "default" and resumed its session`. Same `player_id` across a real
+  disconnect, no `leave` broadcast.
+- **Capability scoping behaves as designed, in the shipped binaries.** Against a room whose first
+  member advertised `clock.v1,resume.v1`: a client advertising only `clock.v1` was **admitted**
+  (differs solely in the client-scoped half) and its Welcome correctly reported `[clock.v1]` — not
+  the room's full set — while a client advertising only `resume.v1` was **refused** with
+  `feature set mismatch for this room`, missing the room-scoped `clock.v1`.
+- **Drop detection is transport-dependent, and it dominates the grace window.** A hard-killed
+  client was noticed by the relay in the same second on `tcp` (the OS sends an RST) and after
+  **~17 seconds** on `quic`, where a killed peer sends no close frame and the connection lingers
+  until quic's idle timeout. So a crash on the default transport freezes that ghost for roughly
+  17s *plus* whatever `-resume-grace` is set to. `quicconn.quicConfig` sets no `MaxIdleTimeout`
+  at all, which is the lever, and is left open.
+- **A tcp session survived a 25-second total link partition without disconnecting.** Its read
+  deadline is 60s, so short outages never reach resumption there at all. Resumption earns its keep
+  on quic and on outages long enough to actually break a connection.
+- **Two limits are structural, not bugs.** Killing the client *process* loses the resume token
+  (it is in memory) so the next launch joins fresh — confirmed live, and correct, since a closed
+  game should be a real leave. A relay restart likewise loses every session. Nothing is persisted
+  to disk anywhere by design.
+- Notes: found while wiring this up rather than by testing it afterwards — registering a session
+  only on disconnect meant a resume worked *solely* when the relay had already noticed the drop,
+  which on quic it usually has not. The fix (register on token issue, allow takeover of a live
+  session) is in the ADR. **Clock sync is still unverified against a genuinely skewed peer** — that
+  needs two machines with deliberately different clocks, which is what
+  `dev-scripts/run-core-pseudoregalia-online.bat` step 3 is for.

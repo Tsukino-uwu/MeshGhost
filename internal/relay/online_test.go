@@ -1028,3 +1028,221 @@ func TestSnapshotReportsWhatTheRelayThinksIsTrue(t *testing.T) {
 		t.Fatalf("rendered snapshot does not flag the suspended member:\n%s", snap.String())
 	}
 }
+
+// ---------------------------------------------------------------------------
+// Room-scoped vs client-scoped capabilities
+// ---------------------------------------------------------------------------
+
+// TestClientScopedCapabilitiesDoNotSplitARoom is the point of the split. A
+// capability that concerns only one client and the relay must not force every
+// other member to be reconfigured in lockstep — no peer participates in it, so
+// there is nothing for them to disagree about.
+//
+// The original design made every capability sticky, which meant enabling
+// resumption cost a coordinated config change across every player for a
+// feature none of them take part in. That is friction with no safety bought,
+// and the surest way to have nobody enable it.
+func TestClientScopedCapabilitiesDoNotSplitARoom(t *testing.T) {
+	addr := startServerWith(t, &Server{
+		rooms:      make(map[string]*Room),
+		MaxClients: DefaultMaxClients,
+	})
+
+	// A plain cosmetic client creates the room, advertising nothing at all.
+	plain := dialFeatureClient(t, addr, "room1", "plain", nil)
+	defer plain.conn.Close()
+	if w := plain.expectWelcome(timeout); len(w.Features) != 0 {
+		t.Fatalf("cosmetic client's welcome carried features %v, want none", w.Features)
+	}
+
+	// A client wanting only client-scoped capabilities joins the same room.
+	fancy := dialFeatureClient(t, addr, "room1", "fancy",
+		[]string{protocol.FeatureResumeV1, protocol.FeatureSnapshotV1})
+	defer fancy.conn.Close()
+	w := fancy.expectWelcome(timeout)
+	if w.PlayerID == "" {
+		t.Fatal("a client wanting only client-scoped capabilities was refused a cosmetic room")
+	}
+	if w.ResumeToken == "" {
+		t.Fatal("resume.v1 was not honoured, even though it needs no agreement from anyone")
+	}
+	if !protocol.HasFeature(w.Features, protocol.FeatureResumeV1) {
+		t.Fatalf("welcome features = %v, want resume.v1 reported as in force for this client", w.Features)
+	}
+
+	// And it genuinely works: the fancy client drops and resumes, while the
+	// plain client — which has never heard of resumption — sees nothing.
+	plainSaw := make(chan struct{})
+	go func() {
+		plain.expectNothingOfType(protocol.TypeLeave, 700*time.Millisecond)
+		close(plainSaw)
+	}()
+	fancy.conn.Close()
+	<-plainSaw
+
+	back := dialTestClientWithHello(t, addr, protocol.Hello{
+		ProtocolVersion: protocol.Version,
+		GameID:          "emerald",
+		Room:            "room1",
+		DisplayName:     "fancy",
+		Features:        []string{protocol.FeatureResumeV1, protocol.FeatureSnapshotV1},
+		ResumeToken:     w.ResumeToken,
+	})
+	defer back.conn.Close()
+	got := back.expectWelcome(timeout)
+	if !got.Resumed || got.PlayerID != w.PlayerID {
+		t.Fatalf("resume in a mixed room gave resumed=%v id=%q, want true and %q",
+			got.Resumed, got.PlayerID, w.PlayerID)
+	}
+}
+
+// TestRoomScopedCapabilityStillSplitsARoom is the other half: the split must
+// not have quietly weakened the check that matters. A capability peers take
+// part in still has to match exactly, or conflict resolution fails silently.
+func TestRoomScopedCapabilityStillSplitsARoom(t *testing.T) {
+	addr := startServer(t)
+
+	// A room-scoped capability mixed with a client-scoped one: only the
+	// room-scoped half is compared, so this must still be refused.
+	c1 := dialFeatureClient(t, addr, "room1", "alice",
+		[]string{protocol.FeatureLeaseV1, protocol.FeatureResumeV1})
+	defer c1.conn.Close()
+	c1.expectWelcome(timeout)
+
+	// Same client-scoped set, different room-scoped set: refused.
+	c2 := dialFeatureClient(t, addr, "room1", "bob", []string{protocol.FeatureResumeV1})
+	defer c2.conn.Close()
+	env := c2.next(timeout)
+	if env.Type != protocol.TypeReject {
+		t.Fatalf("a client missing the room's lease.v1 got %q, want a reject", env.Type)
+	}
+
+	// And differing ONLY in a client-scoped capability is fine.
+	c3 := dialFeatureClient(t, addr, "room1", "carol", []string{protocol.FeatureLeaseV1})
+	defer c3.conn.Close()
+	if w := c3.expectWelcome(timeout); w.PlayerID == "" {
+		t.Fatal("a client differing only in a client-scoped capability was refused")
+	}
+}
+
+// TestSnapshotIsPerRecipientNotPerRoom confirms the seed follows the receiving
+// client's own request, since it changes only what that client receives.
+func TestSnapshotIsPerRecipientNotPerRoom(t *testing.T) {
+	addr := startServer(t)
+
+	mover := dialFeatureClient(t, addr, "room1", "mover", nil)
+	defer mover.conn.Close()
+	mover.expectWelcome(timeout)
+	mover.sendState(protocol.State{AreaID: "0:9", Position: []float64{4, 5}})
+	time.Sleep(100 * time.Millisecond)
+
+	// Wants a seed and must get one.
+	wanting := dialFeatureClient(t, addr, "room1", "wanting", []string{protocol.FeatureSnapshotV1})
+	defer wanting.conn.Close()
+	wanting.expectWelcome(timeout)
+	var join protocol.Join
+	if err := json.Unmarshal(wanting.nextOfType(protocol.TypeJoin, timeout).Payload, &join); err != nil {
+		t.Fatalf("unmarshal join: %v", err)
+	}
+	if join.State == nil {
+		t.Fatal("a client that asked for a seed did not get one")
+	}
+
+	// Does not want one, in the same room, and must not get one.
+	plain := dialFeatureClient(t, addr, "room1", "plain", nil)
+	defer plain.conn.Close()
+	plain.expectWelcome(timeout)
+	plain.expectNothingOfType(protocol.TypeJoin, 300*time.Millisecond)
+}
+
+// TestResumeTakesOverAConnectionTheRelayHasNotNoticedIsDead is the case that
+// makes resumption work in the field rather than only in tests.
+//
+// A client's connection dies without the relay noticing — routine on quic,
+// where a hard-killed peer sends no close frame and the connection lingers
+// until quic's idle timeout (measured 2026-08-17: ~17s, against an immediate
+// RST on tcp). The client reconnects INSIDE that window, while the relay still
+// believes the old connection is fine.
+//
+// The original design registered a session only on disconnect, so the token
+// matched nothing here: the client got a fresh player_id and its old ghost
+// stood there until the timeout. That is strictly worse than not having
+// resumption, and it is the common case — which is why this is tested by
+// resuming without ever closing the first connection.
+func TestResumeTakesOverAConnectionTheRelayHasNotNoticedIsDead(t *testing.T) {
+	addr := startServerWith(t, &Server{
+		rooms:      make(map[string]*Room),
+		MaxClients: DefaultMaxClients,
+	})
+
+	alice := dialFeatureClient(t, addr, "room1", "alice", allFeatures)
+	defer alice.conn.Close()
+	wA := alice.expectWelcome(timeout)
+	bob := dialFeatureClient(t, addr, "room1", "bob", allFeatures)
+	defer bob.conn.Close()
+	bob.expectWelcome(timeout)
+	alice.nextOfType(protocol.TypeJoin, timeout)
+
+	// Deliberately NOT closing alice's connection: the relay must still
+	// believe it is live when the replacement arrives.
+	back := dialTestClientWithHello(t, addr, protocol.Hello{
+		ProtocolVersion: protocol.Version,
+		GameID:          "emerald",
+		Room:            "room1",
+		DisplayName:     "alice",
+		Features:        allFeatures,
+		ResumeToken:     wA.ResumeToken,
+	})
+	defer back.conn.Close()
+
+	w := back.expectWelcome(timeout)
+	if !w.Resumed {
+		t.Fatal("a takeover was not reported as a resumption — the client would treat this as a new session")
+	}
+	if w.PlayerID != wA.PlayerID {
+		t.Fatalf("took over as %q, want the original identity %q", w.PlayerID, wA.PlayerID)
+	}
+
+	// Bob must see none of it: no leave, no join, no duplicate. The resource
+	// side of a takeover is asserted separately, in
+	// TestTakeoverLeavesExactlyOneMemberAndOneSlot.
+	bob.expectNothingOfType(protocol.TypeLeave, 400*time.Millisecond)
+}
+
+// TestTakeoverLeavesExactlyOneMemberAndOneSlot guards the resource half of a
+// takeover: the replaced connection must not leave its member entry, its
+// server-wide slot, or a second ghost behind.
+func TestTakeoverLeavesExactlyOneMemberAndOneSlot(t *testing.T) {
+	s := &Server{rooms: make(map[string]*Room), MaxClients: DefaultMaxClients}
+	addr := startServerWith(t, s)
+
+	alice := dialFeatureClient(t, addr, "room1", "alice", allFeatures)
+	defer alice.conn.Close()
+	wA := alice.expectWelcome(timeout)
+
+	back := dialTestClientWithHello(t, addr, protocol.Hello{
+		ProtocolVersion: protocol.Version,
+		GameID:          "emerald",
+		Room:            "room1",
+		DisplayName:     "alice",
+		Features:        allFeatures,
+		ResumeToken:     wA.ResumeToken,
+	})
+	defer back.conn.Close()
+	back.expectWelcome(timeout)
+
+	// The superseded connection's own OnDisconnect fires asynchronously; give
+	// it a moment and then require the books to balance.
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		snap := s.Snapshot()
+		if len(snap.Rooms) == 1 && len(snap.Rooms[0].Members) == 1 &&
+			snap.Clients == 1 && snap.SuspendedSessions == 0 {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("after a takeover the relay still shows:\n%s", snap.String())
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
+}

@@ -90,8 +90,10 @@ type RoomSnapshot struct {
 type Snapshot struct {
 	Clients    int
 	MaxClients int
-	// SuspendedSessions is how many dropped identities are being held. The
-	// COUNT only: the tokens themselves are credentials and never appear.
+	// SuspendedSessions is how many dropped identities are currently being
+	// held waiting for a reconnect — not how many resumable sessions exist,
+	// which for a healthy room is simply everyone. The COUNT only: the tokens
+	// themselves are credentials and never appear.
 	SuspendedSessions int
 	Rooms             []RoomSnapshot
 }
@@ -107,9 +109,19 @@ type Snapshot struct {
 func (s *Server) Snapshot() Snapshot {
 	s.mu.Lock()
 	snap := Snapshot{
-		Clients:           s.clientCount,
-		MaxClients:        s.MaxClients,
-		SuspendedSessions: len(s.suspended),
+		Clients:    s.clientCount,
+		MaxClients: s.MaxClients,
+	}
+	// Counted, not len(s.suspended): that map holds every LIVE identity too,
+	// since a session is registered when its token is issued rather than when
+	// it drops (see online.go's suspendedSession). Reporting the map size
+	// would say "3 suspended sessions" about a healthy three-player room,
+	// which is exactly the kind of confidently wrong number a debugging aid
+	// must never produce.
+	for _, sess := range s.suspended {
+		if sess.suspended {
+			snap.SuspendedSessions++
+		}
 	}
 	if snap.MaxClients <= 0 {
 		snap.MaxClients = DefaultMaxClients

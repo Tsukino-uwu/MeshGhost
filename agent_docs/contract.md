@@ -175,12 +175,37 @@ do (`internal/protocol/online.go`):
 | `resume.v1` | session resumption after an unexpected drop |
 | `clock.v1` | timestamps stamped in the relay's clock domain |
 
-**A room's normalized feature set is sticky on first join, and a later joiner must match it
-exactly** — refused with `ReasonFeatureMismatch` otherwise. Two rules follow that are worth
+**Capabilities are either room-scoped or client-scoped, and only the first kind is sticky.**
+Added 2026-08-17, shortly after the capabilities themselves, because making everything sticky was
+wrong in a way that only showed up when trying to actually use one:
+
+| Scope | Capabilities | Compared between members? |
+|---|---|---|
+| **Room-scoped** | `event.v1`, `lease.v1`, `escrow.v1`, `clock.v1` | **Yes — must match exactly** |
+| **Client-scoped** | `resume.v1`, `snapshot.v1` | No — honoured per client |
+
+A room-scoped capability describes something *shared*: `event`/`lease`/`escrow` are protocols
+between peers, and `clock.v1` changes which clock `timestamp` is expressed in. A member that
+disagrees fails silently, which is the hazard the sticky check exists for.
+
+A client-scoped one describes something between **one client and the relay**, which no peer
+participates in or can observe. `resume.v1` asks the relay to hold *this* client's identity;
+`snapshot.v1` asks it to seed *this* client on join. Forcing those through the sticky check meant
+enabling resumption cost a coordinated reconfiguration of every player in the room for a feature
+none of them take part in — friction with no safety bought.
+
+**An unrecognised capability name is treated as room-scoped**, which is the fail-safe direction: a
+future shared capability wrongly treated as client-scoped would silently not be enforced, while
+the opposite mistake merely asks for a config change that was not strictly necessary.
+`welcome.features` reports what is actually in force **for that client** — the room's agreed set
+plus its own honoured client-scoped ones — rather than a room-wide answer to a per-client
+question.
+
+Within the room-scoped half, the sticky rule is unchanged, and two things about it are worth
 stating because both are easy to get backwards:
 
-- **An empty set is a real value that must still match.** Unlike `game_version`, where "not
-  declared" means "don't check", a client advertising nothing may not join a room that
+- **An empty room-scoped set is a real value that must still match.** Unlike `game_version`,
+  where "not declared" means "don't check", a client advertising nothing may not join a room that
   negotiated leases. The hazard being closed is exactly that case: one client claiming
   properly while another simply acts means conflict resolution silently does not work, and
   everything looks fine until it doesn't.
@@ -203,6 +228,20 @@ in a later `hello` to reclaim the same `player_id` after an unexpected drop.
   `player_id`, its leases and its in-flight exchanges are all still live, and **the rest of the
   room is never told anything happened at all** — no `leave`, no `join`. Past it, the drop
   becomes an ordinary leave: leases freed, live exchanges aborted, `leave` broadcast.
+- **A session may be taken over while the relay still believes it is live**, not only after a
+  drop it has already noticed. The relay registers a session when it *issues* the token, not when
+  the connection dies. This is not an edge case: on `quic` a hard-killed peer sends no close
+  frame and the connection lingers until quic's idle timeout (measured 2026-08-17 at ~17s, against
+  an immediate RST on `tcp`), so a client reconnecting inside that window would otherwise present
+  a token matching nothing, be given a fresh `player_id`, and leave its old ghost standing.
+  Only the holder of an unguessable token can do this, so a takeover is always the legitimate
+  owner returning.
+- **What resumption covers is narrower than it sounds, and the boundary is the token's lifetime.**
+  It survives the *connection* dropping while the client process keeps running — a blip, a route
+  change, a proxy restart. It does **not** survive the game or core process closing (the token is
+  in memory, so a new process joins fresh, which is correct: a closed game should be a real
+  leave), and it does **not** survive a relay restart (its sessions are in memory too). Nothing is
+  written to disk anywhere, deliberately.
 - **Single-use, and rotated on every `welcome`.** Treat it as a credential: anyone holding it
   can take over that session, including its outstanding exchanges. It is generated with
   `crypto/rand` (128 bits) rather than derived from `player_id`, which is a bare counter.

@@ -84,6 +84,28 @@ func (r *Room) hasFeature(name string) bool {
 	return protocol.HasFeature(r.features, name)
 }
 
+// wants reports whether this client asked for a client-scoped capability.
+// Room-scoped ones are answered by Room.hasFeature instead — the room agreed
+// on those collectively, and a single client's opinion of them is not a
+// question that can be asked.
+func (c *Client) wants(name string) bool {
+	return protocol.HasFeature(c.features, name)
+}
+
+// effectiveFeatures is what is actually in force for one client: the room's
+// agreed room-scoped set, plus the client-scoped capabilities this client
+// asked for. Echoed in its Welcome so a client reads back what it really has
+// rather than a room-wide answer to a per-client question.
+func effectiveFeatures(r *Room, c *Client) []string {
+	out := append([]string(nil), r.features...)
+	for _, f := range c.features {
+		if !protocol.IsRoomScopedFeature(f) {
+			out = append(out, f)
+		}
+	}
+	return protocol.NormalizeFeatures(out)
+}
+
 // nextSeq returns this room's next sequencer stamp. Caller holds r.mu, which
 // is the entire trick: the stamp is assigned inside the same critical section
 // that snapshots the recipient set, so the order the relay assigns is the
@@ -625,12 +647,16 @@ func (r *Room) isMemberLocked(id string) bool {
 
 // recordState remembers a player's most recent valid state, so a client
 // joining later can be shown an existing player immediately instead of
-// waiting for that player's next update. Only kept for a room that asked for
-// it (protocol.FeatureSnapshotV1), so the cosmetic case stores nothing.
+// waiting for that player's next update.
+//
+// Recorded unconditionally, where this used to be gated on the room having
+// asked for snapshots. Once snapshot.v1 became client-scoped the gate could no
+// longer be answered here at all — the sender's own capabilities say nothing
+// about whether some future joiner will want a seed — and the storage is one
+// State per member, bounded by MaxClients, which is not worth a condition. The
+// gate that survives is the one that matters: whether to SEND a seed, which is
+// the receiving client's own question.
 func (r *Room) recordState(playerID string, st protocol.State) {
-	if !r.hasFeature(protocol.FeatureSnapshotV1) {
-		return
-	}
 	r.mu.Lock()
 	if r.lastState == nil {
 		r.lastState = make(map[string]protocol.State)
@@ -645,7 +671,11 @@ func (r *Room) recordState(playerID string, st protocol.State) {
 // receiving side (internal/core) already handled a populated one correctly.
 // Caller holds r.mu.
 func (r *Room) stateSnapshotLocked(to string) []outgoing {
-	if !r.hasFeature(protocol.FeatureSnapshotV1) {
+	// The RECIPIENT's own capability, not the room's: a seed changes only what
+	// this one client receives, so a room may freely mix members that want one
+	// and members that do not.
+	recipient, ok := r.members[to]
+	if !ok || !recipient.wants(protocol.FeatureSnapshotV1) {
 		return nil
 	}
 	var outs []outgoing
@@ -692,7 +722,22 @@ type suspendedSession struct {
 	token    string
 	playerID string
 	room     *Room
-	timer    *time.Timer
+	// timer is the grace countdown, set only while suspended.
+	timer *time.Timer
+	// suspended distinguishes an identity whose connection has dropped from
+	// one that is still live.
+	//
+	// A session is registered when its token is ISSUED, not when the client
+	// drops, and that is the fix for the case that matters. Registering only
+	// on disconnect means a resume works solely when the relay noticed the
+	// drop FIRST — and on quic it routinely does not, because a hard-killed
+	// peer sends no close frame and the connection sits there until quic's own
+	// idle timeout (measured 2026-08-17: ~17s, against an immediate RST on
+	// tcp). A client that reconnects inside that window presented a token
+	// matching nothing, got a fresh player_id, and left its old ghost standing
+	// until the timeout — strictly worse than not having resumption at all,
+	// and precisely the blip resumption exists for.
+	suspended bool
 }
 
 // newResumeToken mints an unguessable session token. crypto/rand, not the
@@ -730,12 +775,16 @@ func (s *Server) suspend(r *Room, c *Client, token string) {
 	c.Conn = nil
 	r.mu.Unlock()
 
-	sess := &suspendedSession{token: token, playerID: c.PlayerID, room: r}
 	s.mu.Lock()
-	if s.suspended == nil {
-		s.suspended = make(map[string]*suspendedSession)
+	sess := s.suspended[token]
+	if sess == nil {
+		// The session should already be registered from when its token was
+		// issued (registerSession). A missing one means the token was rotated
+		// or the identity already left, so there is nothing to hold.
+		s.mu.Unlock()
+		return
 	}
-	s.suspended[token] = sess
+	sess.suspended = true
 	s.mu.Unlock()
 
 	sess.timer = time.AfterFunc(s.resumeGrace(), func() { s.expireSuspended(token) })
@@ -743,15 +792,59 @@ func (s *Server) suspend(r *Room, c *Client, token string) {
 		c.PlayerID, r.Name, s.resumeGrace())
 }
 
-// takeSuspended removes and returns the session for token, if it is still
-// held and is for the room the client is asking to rejoin. A token for
-// another room is refused here and the caller falls back to a fresh join —
-// reinstating an identity into a room it never belonged to would hand its
-// player_id to strangers.
+// registerSession records a live identity under the token just issued to it,
+// replacing any previous token for the same identity (tokens are single-use
+// and rotate on every Welcome).
+func (s *Server) registerSession(r *Room, playerID, token, replacing string) {
+	if token == "" {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.suspended == nil {
+		s.suspended = make(map[string]*suspendedSession)
+	}
+	if replacing != "" {
+		delete(s.suspended, replacing)
+	}
+	s.suspended[token] = &suspendedSession{token: token, playerID: playerID, room: r}
+}
+
+// forgetSessionsOf drops every token belonging to playerID, called when that
+// identity really leaves. Without it a long-lived relay accumulates one dead
+// entry per departed player, and — worse — a stale token could later resume an
+// identity that no longer exists.
+func (s *Server) forgetSessionsOf(r *Room, playerID string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for token, sess := range s.suspended {
+		if sess.room == r && sess.playerID == playerID {
+			if sess.timer != nil {
+				sess.timer.Stop()
+			}
+			delete(s.suspended, token)
+		}
+	}
+}
+
+// takeSession removes and returns the session for token, if it is for the room
+// the client is asking to rejoin. A token for another room is refused here and
+// the caller falls back to a fresh join — reinstating an identity into a room
+// it never belonged to would hand its player_id to strangers.
+//
+// **A session that is still LIVE is returned too, not just a suspended one.**
+// That is a takeover, and it is the case that makes resumption work in
+// practice rather than only in tests: a client whose connection died without
+// the relay noticing (routine on quic, where nothing is sent on a hard kill
+// and the connection lingers until the idle timeout) reconnects while the
+// relay still believes the old one is fine. Refusing there — the original
+// behaviour — handed it a fresh player_id and left its old ghost standing.
+// Since only the holder of the token can do this, and the token is
+// unguessable, a takeover is always the legitimate owner returning.
 //
 // Single-use: the token is consumed whether or not the caller goes on to
 // succeed, and a fresh one is issued in the new Welcome.
-func (s *Server) takeSuspended(token, roomName, gameID string) *suspendedSession {
+func (s *Server) takeSession(token, roomName, gameID string) *suspendedSession {
 	if token == "" {
 		return nil
 	}
@@ -804,6 +897,7 @@ func (s *Server) finishLeave(r *Room, playerID string) {
 
 	r.forgetState(playerID)
 	r.remove(playerID)
+	s.forgetSessionsOf(r, playerID)
 	s.releaseSlot()
 
 	leave, err := envelope(protocol.TypeLeave, protocol.Leave{PlayerID: playerID})
@@ -841,18 +935,18 @@ func (s *Server) resumeInto(nd transport.Transport, transportName string, r *Roo
 		Conn:         nd,
 		maxReceiveHz: protocol.ClampReceiveHz(hello.MaxReceiveHz),
 		transport:    transportName,
+		features:     protocol.NormalizeFeatures(hello.Features),
 	}
 
 	r.mu.Lock()
 	prev, ok := r.members[sess.playerID]
-	if !ok || !prev.suspended {
-		// Either the grace window expired between takeSuspended and here, or
-		// something else already took this identity. Both mean the token is
-		// no longer good; joining fresh is correct and the old identity, if
-		// any, is already being cleaned up by whoever won.
+	if !ok {
+		// The grace window expired between takeSession and here, so the
+		// identity is already gone. Joining fresh is correct.
 		r.mu.Unlock()
 		return nil, "", false
 	}
+	previousConn := prev.Conn
 	r.members[sess.playerID] = resumed
 	roster := make([]string, 0, len(r.members))
 	for id := range r.members {
@@ -866,18 +960,37 @@ func (s *Server) resumeInto(nd transport.Transport, transportName string, r *Roo
 		PlayerID:     sess.playerID,
 		Roster:       roster,
 		SendHz:       sendHz,
-		Features:     r.features,
+		Features:     effectiveFeatures(r, resumed),
 		ResumeToken:  newToken,
 		Resumed:      true,
 		ServerTimeMs: time.Now().UnixMilli(),
 	})
+
+	// Close the connection being taken over, if it was still open. Its
+	// OnDisconnect then finds r.members[id] is no longer its own Client and
+	// does nothing — the stale-callback guard that already existed for the
+	// suspended case covers the live one identically. Closing AFTER the swap
+	// is what makes that true, so the order here is load-bearing.
+	if previousConn != nil {
+		_ = previousConn.Close()
+	}
 
 	// Sent after Welcome for the same reason a fresh join's seed is: the
 	// client rebuilds its roster from Welcome and drops state for any id it
 	// has not been told about.
 	r.resumeSnapshot(sess.playerID)
 
-	log.Printf("relay: %s reconnected to room %q and resumed its session over %s", sess.playerID, r.Name, transportName)
+	s.registerSession(r, sess.playerID, newToken, sess.token)
+
+	took := "resumed its session"
+	if !sess.suspended {
+		// Worth distinguishing in the log: a takeover means the relay never
+		// saw the old connection die, which on quic is the normal case and on
+		// tcp usually means something odder. Someone reading this log to
+		// explain a duplicate ghost needs to know which happened.
+		took = "took over its still-open session (the relay had not yet noticed the old connection was gone)"
+	}
+	log.Printf("relay: %s reconnected to room %q and %s over %s", sess.playerID, r.Name, took, transportName)
 	return resumed, newToken, true
 }
 

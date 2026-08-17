@@ -66,6 +66,12 @@ that a peer's state genuinely differs from the local player's, which loopback co
   not whether the path works, so it retries instead of falling back to tcp. Docs-only for now.
 - **The planes past cosmetic have no live consumer.** Built and Go-tested 2026-08-17; no adapter
   asks for any capability yet. `beyond-cosmetic.md`, `architecture.md` ADR.
+- **`clock.v1` never tested against a genuinely skewed peer** — needs two machines with
+  deliberately different clocks. `dev-scripts/run-core-pseudoregalia-online.bat` step 3.
+- **quic's drop detection (~17s) dominates any resume grace** — `quicConfig` sets no
+  `MaxIdleTimeout`. `verified.md` 2026-08-17, `architecture.md` ADR.
+- **Nameplates / one-shot peer effects are now unblocked** — both were parked for want of the
+  event plane, which exists. Needs per-adapter work. `ideas.md`.
 - **Suspected: Pseudoregalia mod may not clear ghosts when the bridge drops** — pre-existing, any
   transport. Planned fix: `release_all_ghosts` on bridge loss, NOT parking. `verified.md` 2026-08-16.
 

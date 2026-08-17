@@ -32,13 +32,16 @@ type Room struct {
 	GameVersion string
 	Name        string
 
-	// features is this room's agreed capability set, normalized and sticky
-	// from its first member's Hello — a later joiner advertising a different
-	// set is refused (protocol.ReasonFeatureMismatch). Written once in
-	// newRoom, before the room is published into Server.rooms, and never
-	// mutated, so it needs no lock. See online.go for what each capability
-	// switches on and agent_docs/beyond-cosmetic.md §3 for why capability
-	// mismatch inside one room had to be closed rather than tolerated.
+	// features is this room's agreed ROOM-SCOPED capability set, normalized
+	// and sticky from its first member's Hello — a later joiner whose own
+	// room-scoped set differs is refused (protocol.ReasonFeatureMismatch).
+	// Client-scoped capabilities (resume, snapshot) are deliberately NOT in
+	// here: they concern one client and the relay, no peer participates in
+	// them, and making them sticky would cost a lockstep reconfiguration of
+	// everyone for nothing. See protocol.IsRoomScopedFeature for the split and
+	// agent_docs/beyond-cosmetic.md §3 for why the room-scoped half must be
+	// matched exactly. Written once in newRoom, before the room is published
+	// into Server.rooms, and never mutated, so it needs no lock.
 	features []string
 
 	// sendMu serializes the CONTROL plane — events, lease changes, escrow
@@ -110,6 +113,16 @@ type Client struct {
 	// test, 2026-08-16.
 	transport string
 
+	// features is this client's own full advertised capability set, normalized.
+	// The room already agreed on the room-scoped half (Room.features); this is
+	// kept per client for the CLIENT-scoped half — whether to hold this
+	// client's identity after a drop (resume.v1), and whether to seed it on
+	// join (snapshot.v1) — which no peer participates in and which therefore
+	// may legitimately differ between two members of one room. Written once at
+	// construction, before this Client is published into Room.members, so like
+	// maxReceiveHz and transport it needs no lock.
+	features []string
+
 	// suspended marks a client whose connection dropped but whose identity
 	// the relay is still holding, waiting out protocol.DefaultResumeGrace in
 	// case it reconnects with its resume token (see online.go's
@@ -175,7 +188,7 @@ func newRoom(gameID, gameVersion, name string, features []string) *Room {
 		GameID:      gameID,
 		GameVersion: gameVersion,
 		Name:        name,
-		features:    protocol.NormalizeFeatures(features),
+		features:    protocol.RoomScopedFeatures(features),
 		members:     make(map[string]*Client),
 	}
 }
@@ -582,16 +595,21 @@ func (s *Server) joinOrCreateRoom(gameID, gameVersion, name string, features []s
 	if r.GameID != gameID {
 		return nil, protocol.ReasonGameMismatch
 	}
-	// Feature stickiness. Unlike GameVersion below, an EMPTY set on either
-	// side is a real value that must still match: the hazard being closed is
-	// precisely "one client advertises lease.v1 and claims properly while
-	// another doesn't and simply acts," where conflict resolution silently
-	// does not work and everything looks fine until it doesn't
-	// (agent_docs/beyond-cosmetic.md §3). Treating empty as "unknown, don't
-	// check" — the right call for a version string — would leave exactly
-	// that case open. Compared as normalized joined strings, so the same
-	// capabilities in a different order still match.
-	if protocol.FeatureSetKey(r.features) != protocol.FeatureSetKey(features) {
+	// Feature stickiness, over the ROOM-SCOPED subset only. Unlike GameVersion
+	// below, an EMPTY set on either side is a real value that must still
+	// match: the hazard being closed is precisely "one client advertises
+	// lease.v1 and claims properly while another doesn't and simply acts,"
+	// where conflict resolution silently does not work and everything looks
+	// fine until it doesn't (agent_docs/beyond-cosmetic.md §3). Treating empty
+	// as "unknown, don't check" — the right call for a version string — would
+	// leave exactly that case open.
+	//
+	// Client-scoped capabilities are excluded because no peer participates in
+	// them, so there is nothing to disagree about: one client may resume its
+	// session in a room where nobody else can, and the others cannot tell.
+	// Compared as normalized joined strings, so the same capabilities in a
+	// different order still match.
+	if protocol.FeatureSetKey(r.features) != protocol.FeatureSetKey(protocol.RoomScopedFeatures(features)) {
 		return nil, protocol.ReasonFeatureMismatch
 	}
 	// GameVersion is only compared once both sides have actually declared
@@ -879,8 +897,8 @@ func (s *Server) handleConn(conn net.Conn) {
 			// simply yields nil here and the client joins fresh — being away
 			// slightly too long must degrade to "you get a new identity", not
 			// to "you cannot play".
-			if joined.hasFeature(protocol.FeatureResumeV1) && hello.ResumeToken != "" {
-				if sess := s.takeSuspended(hello.ResumeToken, hello.Room, hello.GameID); sess != nil && sess.room == joined {
+			if protocol.HasFeature(hello.Features, protocol.FeatureResumeV1) && hello.ResumeToken != "" {
+				if sess := s.takeSession(hello.ResumeToken, hello.Room, hello.GameID); sess != nil && sess.room == joined {
 					if resumedClient, newToken, ok := s.resumeInto(nd, transportName(conn), joined, sess, hello, sendHz); ok {
 						mu.Lock()
 						room, playerID, client, resumeToken = joined, sess.playerID, resumedClient, newToken
@@ -908,6 +926,7 @@ func (s *Server) handleConn(conn net.Conn) {
 				Conn:         nd,
 				maxReceiveHz: protocol.ClampReceiveHz(hello.MaxReceiveHz),
 				transport:    transportName(conn),
+				features:     protocol.NormalizeFeatures(hello.Features),
 			}
 			rosterBeforeJoin := joined.tryAddAndSnapshotRoster(newClient)
 
@@ -918,13 +937,18 @@ func (s *Server) handleConn(conn net.Conn) {
 			// supported platform) degrades to a session that simply cannot
 			// resume, rather than a refused join.
 			newToken := ""
-			if joined.hasFeature(protocol.FeatureResumeV1) {
+			if newClient.wants(protocol.FeatureResumeV1) {
 				var err error
 				if newToken, err = newResumeToken(); err != nil {
 					log.Printf("relay: could not mint a resume token for %s: %v — this session will not be resumable", newID, err)
 					newToken = ""
 				}
 			}
+
+			// Registered now, while the connection is healthy — not on
+			// disconnect. See suspendedSession: registering late is what made a
+			// resume only work when the relay had already noticed the drop.
+			s.registerSession(joined, newID, newToken, "")
 
 			mu.Lock()
 			room, playerID, client, resumeToken = joined, newID, newClient, newToken
@@ -940,10 +964,14 @@ func (s *Server) handleConn(conn net.Conn) {
 				newID, hello.DisplayName, hello.Room, hello.GameID, transportName(conn))
 
 			sendEnvelope(nd, protocol.TypeWelcome, protocol.Welcome{
-				PlayerID:     newID,
-				Roster:       rosterBeforeJoin,
-				SendHz:       sendHz,
-				Features:     joined.features,
+				PlayerID: newID,
+				Roster:   rosterBeforeJoin,
+				SendHz:   sendHz,
+				// The room's agreed set PLUS whatever client-scoped
+				// capabilities this particular client asked for and got — so
+				// what a client reads back is what is actually in force for
+				// it, not a room-wide answer to a per-client question.
+				Features: effectiveFeatures(joined, newClient),
 				ResumeToken:  newToken,
 				ServerTimeMs: time.Now().UnixMilli(),
 			})
