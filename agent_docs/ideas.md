@@ -1289,6 +1289,48 @@ out — not because the technique differs, but because reading another process's
 what those systems detect, and shipping something that gets users banned is not a trade this
 project makes.
 
+## Super Mario Sunshine (GameCube, Dolphin) — candidate adapter, nothing checked yet
+
+**Status: named as a candidate 2026-08-17, zero investigation done.** Recorded so the idea is not
+re-derived from scratch, and so the checks below happen in the right order. Everything here is a
+question, not a finding.
+
+**Why it is a plausible fit.** It is a single-player 3D platformer, which is the exact shape
+MeshGhost already handles — a position, an orientation, and an animation tag per player, with
+independent worlds and desync expected. Nothing about it needs the planes past cosmetic. And it
+has a large, long-lived speedrunning community, which is the thing that most often means
+addresses are already documented: practice tools for a speedgame generally read position, state
+and timers, and that work is exactly what a tier-2 lookup needs.
+
+**Presence is a genuinely good pitch for a speedgame specifically.** Two people doing separate
+runs and seeing each other's ghost is close to what a race already is, and it is the one thing
+Dolphin's own lockstep netplay cannot deliver, because netplay is a single shared session. See
+`access-models.md`'s emulator section for that distinction — it is the difference between a
+different product and a worse one.
+
+**The blocker is inherited and it is not about this game.** Per that same section, Dolphin looks
+like solved reading and **no drawing API**. So an SMS adapter is gated on the rendering question
+for Dolphin — hook its renderer, an external overlay, or a fork with GPL obligations — regardless
+of how well documented the game itself turns out to be. **Answer that before spending any time on
+the game**, or you end up with an adapter that can read perfectly and cannot show anything.
+
+**Checks to run, in this order, before treating this as real work:**
+
+1. **Prior art.** Does an SMS online/co-op mod already exist? If so it is both a reference for
+   facts and a reason to reconsider the pitch. Read its licence before its source
+   (`licensing.md`), same posture as every other reference project in that table.
+2. **The Dolphin drawing question** (the blocker above). Nothing else matters until it has an
+   answer.
+3. **Does a decompilation or a documented address set exist** for SMS — decomp project, practice
+   tool source, speedrun community documentation? That decides whether the per-game half is a
+   lookup (tier 2, like Emerald) or a differential hunt (tier 8).
+4. **Only then** the ordinary adapter questions: which field is position, which is orientation,
+   what stands in for an animation tag.
+
+**Not scheduled, and downstream of an emulator decision rather than a game one.** If an emulator
+adapter is ever built, the emulator is chosen first and the game second — and `access-models.md`
+argues Dolphin is the strongest candidate of the emulators surveyed.
+
 ## Links
 
 - `agent_docs/plans.md` — the roadmap; move an idea here (with a phase number) once it's picked.
