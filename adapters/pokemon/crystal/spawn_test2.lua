@@ -50,7 +50,13 @@ local M_Y_COORD = 0x02
 local M_X_COORD = 0x03
 
 local SRC_MAPOBJ = 0 -- the player's map object, used as a known-good template
-local DST_MAPOBJ = 1 -- wMap1Object
+local NUM_MAP_OBJECTS = 16 -- NUM_OBJECTS. NOTE: 16 map objects but only 13 object structs.
+-- DST_MAPOBJ is CHOSEN AT RUNTIME, not hardcoded. The first attempt used slot 1 and was refused
+-- because the player's bedroom already has a map object there: sprite 240 = SPRITE_CONSOLE, the
+-- console in the room. Map objects are what the MAP defines, so the low slots are occupied on
+-- essentially every real map, and they are occupied even when the object currently has no object
+-- struct -- which is why the struct-occupancy view showed "1 used" while map object 1 was taken.
+-- Two different arrays, two different questions. Found live 2026-08-18.
 local TILE_OFFSET_X = 2
 local SPAWN_AFTER_FRAMES = 120
 local UNASSIGNED = 0xFF -- -1: "no object struct yet". The engine fills this in.
@@ -114,8 +120,37 @@ if not ok then
 end
 log("ROM guard passed: " .. why)
 
+-- Show the whole map-object array before touching it. This is the view that was missing when
+-- slot 1 was hardcoded: without it, "already in use" is a dead end rather than information.
+local function dump_map_objects()
+	log("Map objects (sprite 0 = free; the engine skips those):")
+	for i = 0, NUM_MAP_OBJECTS - 1 do
+		local base = MAP_OBJECTS + (i * MAPOBJECT_LENGTH)
+		local sprite = u8(base + M_SPRITE) or 0
+		if sprite ~= 0 then
+			log(string.format(
+				"  %2d: sprite=%3d structId=%3d at %d,%d%s",
+				i, sprite, u8(base + M_OBJECT_STRUCT_ID) or -1,
+				u8(base + M_X_COORD) or -1, u8(base + M_Y_COORD) or -1,
+				(i == 0) and "   <- player" or ""
+			))
+		end
+	end
+end
+
+-- Pick the first genuinely free slot rather than assuming one. Skips 0 (the player).
+local function find_free_map_object()
+	for i = 1, NUM_MAP_OBJECTS - 1 do
+		local sprite = u8(MAP_OBJECTS + (i * MAPOBJECT_LENGTH) + M_SPRITE)
+		if sprite == 0 then
+			return i
+		end
+	end
+	return nil
+end
+
 local src = MAP_OBJECTS + (SRC_MAPOBJ * MAPOBJECT_LENGTH)
-local dst = MAP_OBJECTS + (DST_MAPOBJ * MAPOBJECT_LENGTH)
+local DST_MAPOBJ, dst -- resolved once the map is loaded, in tick()
 
 local frames, written, written_at = 0, false, 0
 local adopted_reported = false
@@ -142,15 +177,19 @@ local function tick()
 			return
 		end
 
-		local existing = u8(dst + M_SPRITE)
-		if existing and existing ~= 0 then
+		dump_map_objects()
+
+		DST_MAPOBJ = find_free_map_object()
+		if not DST_MAPOBJ then
 			log(string.format(
-				"Map object %d already in use (sprite=%d) — not writing. Try a quieter map.",
-				DST_MAPOBJ, existing
+				"All %d map object slots are in use — nothing free on this map. Not writing.",
+				NUM_MAP_OBJECTS
 			))
 			written = true
 			return
 		end
+		dst = MAP_OBJECTS + (DST_MAPOBJ * MAPOBJECT_LENGTH)
+		log(string.format("Chose free map object slot %d.", DST_MAPOBJ))
 
 		-- Copy the player's own map object as a known-good template, same reasoning as test 1.
 		local bytes = {}
@@ -204,6 +243,9 @@ end
 -- the emulator is tearing down, so nothing in here may throw. Both found live 2026-08-18.
 event.onexit(function()
 	pcall(function()
+		if not dst then
+			return -- never picked a slot, so nothing to undo
+		end
 		local id = u8(dst + M_OBJECT_STRUCT_ID)
 		if id and id ~= UNASSIGNED and id < NUM_OBJECT_STRUCTS then
 			w8(OBJECT_STRUCTS + (id * OBJECT_LENGTH), 0)

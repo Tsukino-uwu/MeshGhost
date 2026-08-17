@@ -1,0 +1,7 @@
+=== MeshGhost Crystal spawn test 2 — via the map object (WRITES RAM) ===
+ROM guard passed: vanilla Crystal V1.0
+Map object 1 already in use (sprite=240) — not writing. Try a quieter map.
+  +150 frames: still -1, not adopted yet. Slots [X............]
+  +300 frames: still -1, not adopted yet. Slots [X............]
+  +450 frames: still -1, not adopted yet. Slots [X............]
+  +600 frames: still -1, not adopted yet. Slots [X............]
