@@ -413,6 +413,37 @@ Misleading symptoms that mean something other than their surface reading:
 
 ## Pitfalls by theme
 
+### BizHawk Lua: `event.onframeend` outlives its script; use a `frameadvance` loop
+
+- **Symptom** (found live 2026-08-18, Crystal): the Lua Console showed the script red and
+  `1 script (0 active, 0 paused)`, while the script **kept running and spamming the console**.
+  Start and stop both did nothing. Each reload made it worse.
+- **Cause**: a callback registered with `event.onframeend` is owned by the emulator, not by the
+  script that registered it. Stopping the script does not unregister it, so it keeps firing, and
+  every reload stacks another copy on top. The UI is reporting the *script's* state honestly — it
+  really is inactive; the leftover callback is what you are still seeing.
+- **Fix**: drive the script with an explicit loop instead, so it dies when the script does:
+
+  ```lua
+  local function tick() ... end
+  while true do
+      tick()
+      emu.frameadvance()
+  end
+  ```
+
+- **This was already the house style and got missed.** The shipped Emerald adapter
+  (`meshghost_emerald.lua`) has always used `while true do ... emu.frameadvance() end`; four new
+  Crystal scripts were written with `event.onframeend` without checking the existing one first.
+  **Read the working adapter before writing a new script for the same host.**
+- **Two related traps in the same shape:**
+  - **`event.onexit` must be registered BEFORE the loop**, since the loop never returns. Easy to
+    get backwards when converting from a callback.
+  - **Nothing inside `onexit` may throw.** Memory domains are not guaranteed valid while the
+    emulator tears down, and an error there is one way to reach the wedged state above. Wrap the
+    whole handler body in `pcall`.
+- **Recovery when it happens**: restarting EmuHawk is the reliable way to clear stacked callbacks.
+
 ### Spawned actors auto-possessing (taking control away from the player)
 
 - **Symptom**: spawning a second copy of the player's own controllable Blueprint (e.g.

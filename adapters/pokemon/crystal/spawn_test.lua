@@ -135,7 +135,7 @@ local function clear_slot()
 	w8(dst + F_SPRITE, 0)
 end
 
-event.onframeend(function()
+local function tick()
 	frames = frames + 1
 
 	if not spawned then
@@ -194,11 +194,16 @@ event.onframeend(function()
 			n, tostring(u8(dst + F_SPRITE_X)), tostring(u8(dst + F_SPRITE_Y))
 		))
 	end
-end)
+end
 
--- Wrapped whole: an error thrown in onexit can wedge BizHawk's Lua Console so the script cannot
--- be started or stopped at all (red icon, "0 active"). Found live 2026-08-18. Memory domains are
--- not guaranteed valid during teardown.
+-- Registered BEFORE the loop below, which never returns. Wrapped whole because an error thrown
+-- in onexit can wedge BizHawk's Lua Console so the script cannot be started or stopped at all.
+-- Memory domains are not guaranteed valid during teardown. Both found live 2026-08-18.
 event.onexit(function()
 	pcall(clear_slot)
 end)
+
+while true do
+	tick()
+	emu.frameadvance()
+end

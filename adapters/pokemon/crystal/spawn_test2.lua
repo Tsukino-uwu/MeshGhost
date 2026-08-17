@@ -129,7 +129,12 @@ local function occupancy()
 	return table.concat(marks)
 end
 
-event.onframeend(function()
+-- Driven by an explicit frameadvance loop, NOT event.onframeend. This is the idiom the shipped
+-- Emerald adapter uses, and the reason matters: a registered event callback OUTLIVES the script
+-- that registered it, so stopping the script leaves it firing and every reload stacks another
+-- copy. Found live 2026-08-18 -- the console kept spamming while the Lua Console showed the
+-- script red and "0 active", and start/stop did nothing. A while loop dies with the script.
+local function tick()
 	frames = frames + 1
 
 	if not written then
@@ -191,12 +196,12 @@ event.onframeend(function()
 			log(string.format("  +%d frames: still -1, not adopted yet. Slots [%s]", n, occupancy()))
 		end
 	end
-end)
+end
 
--- Cleanup, wrapped whole. An error thrown inside onexit can leave BizHawk's Lua Console unable
--- to start or stop the script at all -- it shows a red icon and "0 active", and toggling does
--- nothing. Found live 2026-08-18. Memory domains are not guaranteed valid while the emulator is
--- tearing down, so nothing in here may be allowed to throw.
+-- Cleanup, registered BEFORE the loop below, which never returns. Wrapped whole because an error
+-- thrown inside onexit can leave BizHawk's Lua Console unable to start or stop the script at all
+-- -- red icon, "0 active", toggling does nothing. Memory domains are not guaranteed valid while
+-- the emulator is tearing down, so nothing in here may throw. Both found live 2026-08-18.
 event.onexit(function()
 	pcall(function()
 		local id = u8(dst + M_OBJECT_STRUCT_ID)
@@ -208,3 +213,8 @@ event.onexit(function()
 		end
 	end)
 end)
+
+while true do
+	tick()
+	emu.frameadvance()
+end

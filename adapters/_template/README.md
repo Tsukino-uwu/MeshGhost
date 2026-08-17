@@ -750,6 +750,30 @@ and the other had a stale assumption nobody had tested. **Know which of those yo
    `BANDAGES.md`, not only as a code comment. Then, **when the design changes, re-test the
    constraint**: that is the step this project missed.
 
+## Read the working adapter for the same host before writing a new script
+
+**If another adapter already runs on the host you are targeting — the same emulator, mod loader or
+scripting runtime — open it and copy its shape before writing anything.** Not its game logic, which
+will not transfer, but its loop structure, its lifecycle handling and its cleanup. Those are
+properties of the *host*, and the existing adapter has already paid for getting them right.
+
+**Found live 2026-08-18.** Four new BizHawk Lua scripts for Crystal were written using
+`event.onframeend` to drive their per-frame work. It appears to function, and then: a callback
+registered that way is owned by the **emulator**, not by the script, so stopping the script does
+not unregister it. The console kept spamming while the Lua Console reported `0 active`, start and
+stop did nothing, and each reload stacked another copy. The shipped Emerald adapter had used the
+correct idiom — `while true do ... emu.frameadvance() end`, which dies with the script — since the
+day it was written. Nobody looked.
+
+Two follow-on traps in the same area, both worth knowing before you meet them: an exit handler must
+be **registered before** a loop that never returns, and **nothing in a teardown handler may throw**,
+because host resources may already be invalid. Full symptom-to-fix write-up in
+[agent_docs/pitfalls.md](../../agent_docs/pitfalls.md).
+
+**The general form**: host-lifecycle questions — how does my code start, stop, and clean up — have
+already been answered once per host in this repo. Re-deriving them is how you find the answer by
+breaking something instead of by reading.
+
 ## Hard rule: ship the bare minimum, and nothing else
 
 **A release contains exactly what the adapter needs to run, and not one file more.** TEVI is the

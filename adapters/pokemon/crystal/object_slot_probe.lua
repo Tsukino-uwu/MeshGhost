@@ -156,7 +156,7 @@ local function dump_struct(i, why)
 	))
 end
 
-event.onframeend(function()
+local function tick()
 	frames = frames + 1
 
 	-- Every frame: has any slot just been populated or cleared?
@@ -229,4 +229,9 @@ event.onframeend(function()
 		end
 		last_key = key
 	end
-end)
+end
+
+while true do
+	tick()
+	emu.frameadvance()
+end

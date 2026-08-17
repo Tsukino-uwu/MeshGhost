@@ -173,7 +173,7 @@ local function summarise(c)
 	return ycount, xcount
 end
 
-event.onframeend(function()
+local function tick()
 	frames = frames + 1
 	if frames < SETTLE_FRAMES then
 		return
@@ -257,4 +257,9 @@ event.onframeend(function()
 			log("No candidate has shown both coordinates changing yet -- walk further.")
 		end
 	end
-end)
+end
+
+while true do
+	tick()
+	emu.frameadvance()
+end
