@@ -77,16 +77,55 @@ same as any two unrelated games — grouping by franchise just keeps the top lev
 | File | When to create it | Template |
 | --- | --- | --- |
 | `README.md` | Immediately — the build story, one numbered step per thing that happened | see "Writing the new adapter's own README" below |
-| `documentation.md` | As soon as you learn how one mechanic works | [documentation.md](documentation.md) |
-| `BANDAGES.md` | The first time you ship a compensation — and it starts empty, not absent | [BANDAGES.md](BANDAGES.md) |
+| `documentation.md` | **Immediately** — start it with the first mechanic you learn | [documentation.md](documentation.md) |
+| `BANDAGES.md` | **Immediately, empty** — an empty register is the goal, an absent one is a gap | [BANDAGES.md](BANDAGES.md) |
 | `FLAGS.md` | Once you pass a handful of compile-time switches — sooner than feels necessary | [FLAGS.md](FLAGS.md) |
 
-`README.md` and `BANDAGES.md` are expected of every adapter. **`documentation.md` is expected only
-when the game has no readable source of its own** — the same reasoning as the state inventory
-below. Pseudoregalia has one because UE reflection is all there is; Emerald's mechanics are
-described by the `pokeemerald` decompilation and TEVI's by its managed assembly, so for those two
-a `documentation.md` would mostly restate a source the adapter can simply cite, and neither has
-one. That is a decision, not a gap — if you skip it, record why in the adapter's README.
+**`README.md`, `BANDAGES.md` and `documentation.md` are expected of EVERY adapter, with no
+exceptions.** Create all three when the folder is created.
+
+**This replaces an earlier carve-out, overturned by the user 2026-08-18**, which said
+`documentation.md` was needed only for games with no readable source — on the reasoning that
+Emerald has a decompilation and TEVI a managed assembly, so a doc would restate them. That was
+wrong for two reasons worth keeping:
+
+- **A curated description of the mechanics an adapter depends on is a different artifact from the
+  source it was learned from.** The decomp describes the whole game; this describes the handful of
+  systems we actually touch, in the order that matters, with the traps noted.
+- **Being *able* to look something up is not the same as having looked.** The carve-out assumed a
+  future reader would go to the decomp. In practice they read the adapter folder, and if the
+  knowledge is not there it gets rediscovered — which is what these files exist to prevent.
+
+**An empty `BANDAGES.md` is the goal; an absent one is a gap.** A register that is present and
+empty says "this adapter has no compensations". An absent one says nothing at all — you cannot tell
+whether there are none or whether nobody wrote them down.
+
+### What may go in `documentation.md`: explain facts, never reproduce expression
+
+**This is the publishability rule applied to prose**, and it is strict — see
+[CLAUDE.md](../../CLAUDE.md)'s standing test: *is this fine sitting in a public repo forever?* Not
+"does a licence permit it". No, or unclear, means it stays out.
+
+**Facts are not copyrightable; expression is.** So the file explains how the game works, in our own
+words, and never carries the material it was learned from:
+
+| Fine | Never |
+| --- | --- |
+| Measured numbers, timings, coordinates | Source text, in any language |
+| Field, function and type *names* | Decompiler or disassembler output |
+| Which component does what, how states relate | Asset content, extracted strings |
+| Behaviour described in your own sentences | Verbatim reflection or memory dumps |
+| Citing a reference by file, so a claim is checkable | Bulk data tables copied wholesale |
+
+**The test to apply: could someone re-derive this by owning the game and watching it?** If yes it is
+a fact and may be explained. A decompilation or an assembly only saved you the time; it is not the
+source of your right to know it. If no — if the only way to have it is to copy something — it stays
+out.
+
+**Two edges worth naming rather than discovering later.** A small data table restated as facts is
+usually fine, but a table that *is* the entire content of a source file is the closest you will get
+to the line, so make it a considered call and prefer prose when in doubt. And every copy must carry
+the provenance sentence at the top — `agent_docs/licensing.md`'s audit greps for it.
 
 **A state inventory is not expected either** — it is worth a file
 only when the game gives you far more readable state than you sync, and its form is completely

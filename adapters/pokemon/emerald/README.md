@@ -12,9 +12,13 @@ and the "Further work past 'good enough'" section below for what's still open.
   [`pokeemerald`](https://github.com/pret/pokeemerald) and cited — nothing is discovered at runtime.
   Addresses are unknowable but authoritative: you cannot invent one, and once the decomp gives it to
   you it is right. See [agent_docs/access-models.md](../../../agent_docs/access-models.md) for what
-  each access model costs and what the other adapters used. That is also why this adapter has no
-  `documentation.md`: the decompilation already describes Emerald's mechanics, so the file would
-  mostly restate a source the adapter can simply cite — a decision, not a gap
+  each access model costs and what the other adapters used.
+- **[documentation.md](documentation.md)** describes how Emerald itself works — where player state
+  lives and why one address is not enough, the tile-based movement model, and the callback that
+  says which state machine is running. It was previously argued that a game with a decompilation
+  needed no such file; **the user overturned that 2026-08-18** and every adapter now carries one.
+  A curated description of the mechanics this adapter depends on is a different artifact from the
+  decompilation, and being able to look something up is not the same as having looked
   ([adapters/_template/README.md](../../_template/README.md)'s folder convention).
 - Reading local state is trivial — the `pokeemerald` decompilation documents player X/Y,
   map bank/number, and camera offset rather than requiring reverse engineering. See

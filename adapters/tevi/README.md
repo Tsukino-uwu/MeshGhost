@@ -13,9 +13,13 @@ Phase 6 fully done 2026-08-13.**
   compiles against it — so a wrong name is a build error, not a silent runtime nothing. A little C#
   reflection reaches non-public members. This is the easiest of the three access models the project
   has used, and it is why this adapter was by far the fastest. See
-  [agent_docs/access-models.md](../../agent_docs/access-models.md). That is also why this adapter
-  has no `documentation.md`: the managed assembly already describes TEVI's mechanics, so the file
-  would mostly restate a source the adapter can simply cite — a decision, not a gap
+  [agent_docs/access-models.md](../../agent_docs/access-models.md).
+- **[documentation.md](documentation.md)** describes how TEVI itself works — reaching the player
+  through `EventManager`, the gap between the logic position and the drawn position, Spine
+  animations addressed by name, facing as a sprite flip, and the map screen's separate coordinate
+  system. It was previously argued that a game with a readable managed assembly needed no such
+  file; **the user overturned that 2026-08-18** and every adapter now carries one — being able to
+  look something up is not the same as having looked
   ([adapters/_template/README.md](../_template/README.md)'s folder convention).
 - Owned by the project author, unlike the Ori titles (see
   [adapters/oribf/README.md](../oribf/README.md)), which was the deciding factor.

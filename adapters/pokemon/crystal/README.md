@@ -16,9 +16,11 @@ probes and this file. Nothing here renders a ghost, opens a socket, or writes me
   *floating* sections, so **no address appears in the decomp's source at all** — the decomp has to
   be built to produce `pokecrystal.sym`. Toolchain and the one non-obvious trap:
   [agent_docs/environment.md](../../../agent_docs/environment.md).
-- **No `documentation.md`, deliberately.** Same reasoning as Emerald: the decompilation already
-  describes Crystal's mechanics, so the file would restate a source this adapter can simply cite
-  ([adapters/_template/README.md](../../_template/README.md)'s folder convention).
+- **[documentation.md](documentation.md)** describes how Crystal itself works — the two object
+  arrays, how a character comes to exist, the lifecycle states. It was briefly argued that a game
+  with a decompilation needed no such file; the user overturned that 2026-08-18, and every adapter
+  now carries one ([adapters/_template/README.md](../../_template/README.md)).
+- **[BANDAGES.md](BANDAGES.md)** is present and **empty**, which is the point of this phase.
 
 ## How this adapter will differ from Emerald's — the reason it exists
 
