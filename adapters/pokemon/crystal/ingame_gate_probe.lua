@@ -3,9 +3,14 @@
 -- READ-ONLY DIAGNOSTIC. Writes nothing, spawns nothing.
 --
 -- WHY THIS EXISTS
--- A ghost must never appear during the main menu, the intro, a loading step, or a cutscene. This
--- is not a Crystal quirk -- it is one of the most common adapter bugs there is, so the general
--- rule lives in adapters/_template/README.md and this probe is Crystal's instance of answering it.
+-- A ghost must never appear before the player is in the world at all -- title screen, main menu,
+-- file select, intro, the loading step. That case is absolute and is what this probe is for.
+--
+-- Everything else is per-state judgment, and "hide it" is frequently the WRONG answer: Crystal
+-- draws the overworld behind the START menu, so removing a ghost there would look like a bug
+-- rather than like correctness. Do not read the gate below as "hide during every non-walking
+-- state" -- read it as "the world exists and is stable". The general rule, and the distinction
+-- between this and what to do when a PEER is unavailable, is in adapters/_template/README.md.
 --
 -- The failure it prevents is not cosmetic. Spawning into a state the game does not consider "the
 -- overworld" means writing object RAM the game is *currently rebuilding*, which is how you corrupt

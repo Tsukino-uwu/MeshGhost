@@ -752,11 +752,27 @@ and the other had a stale assumption nobody had tested. **Know which of those yo
 
 ## Hard rule: never let a ghost exist before the player is actually in the game
 
-**Find the game's own "I am in play" signal early, gate every spawn and every draw on it, and do
-that before the ghost is otherwise finished.** Menus, title screens, intros, loading steps, warps,
-cutscenes and battles are all states where a peer's ghost must not appear **on your screen**. Every
-adapter meets this; it is one of the most common bugs in the category, and it is far cheaper to
-build the gate in than to retrofit one after a ghost has been seen floating over a title screen.
+**Find the game's own "I am in play" signal early, gate every spawn on it, and do that before the
+ghost is otherwise finished.** Every adapter meets this; it is one of the most common bugs in the
+category, and far cheaper to build in than to retrofit after a ghost has been seen floating over a
+title screen.
+
+**There is one absolute case and a pile of judgment calls, and they should not be written as one
+rule** — an over-broad first draft of this section said "menus, intros, warps, cutscenes and
+battles", and the user's correction (2026-08-18) is the version that is actually true:
+
+- **ALWAYS blocked, no exceptions: anything before the player is in the world at all.** Title
+  screen, main menu, file select, intro, the loading step itself. Here the world does not exist yet
+  or is mid-construction — the object tables an adapter writes into are being built, and the data
+  it reads is stale from before. **This is the case that is guaranteed for every game, and the one
+  the gate exists for.**
+- **Everything else is per-state judgment, and "hide it" is often the wrong answer.** In-game but
+  not free-roaming covers a wide range: a pause menu, dialogue, a shop, a cutscene, a battle. The
+  useful questions are *does the game still render the overworld in this state* and *is the object
+  table stable*. A pause menu drawn over a still-visible overworld is a state where leaving the
+  ghost alone looks right and removing it looks like a bug. A battle that replaces the screen
+  entirely makes the question moot. **Decide per state, with a reason you can state**, rather than
+  blanket-hiding because it feels safer.
 
 > **Two different questions, and this section only answers the first.** They are easy to conflate
 > and the wording above did until it was caught, 2026-08-18:
