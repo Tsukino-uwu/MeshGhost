@@ -5500,3 +5500,41 @@ in `CLAUDE.md` is filename-only. Append-only means they stay; new entries should
   (`TestOpaqueFieldsNeverFlapAcrossInterpolation` — an opaque field that changes once across
   interpolation changes once), which is what narrowed this to a single question with two opposite
   answers and made one probe enough.
+
+### Pseudoregalia: a hard crash mid-session, and the discovery that we ship six unnecessary UE4SS mods enabled
+
+- Date: 2026-08-17
+- Observed: user-reported live. The pause menu opened **twice** and could not be closed, then the
+  game died with `EXCEPTION_ACCESS_VIOLATION`. The stack is ~25 repetitions of one address pair,
+  the shape of a recursive widget/UI traversal rather than anything resembling our own call sites.
+  Not the 2026-08-16 transition crash, and not the known on-exit `Fatal Error!` — this was
+  mid-play.
+- **Not attributable to MeshGhost on the evidence available**, and two specific hypotheses are
+  dead:
+  - *The ghost pressed pause.* It cannot. The ghost is spawned unpossessed with null
+    `Controller`/`InputComponent`, and `AutoPossessPlayer` is cleared on the class default object
+    **before** `SpawnActor` precisely so it cannot take the controller.
+  - *Our riskiest call smashed memory.* `GHOST_CROUCH_INPUT_CALL` invokes the game's own Enhanced
+    Input crouch handlers, which the source flags as the highest-risk thing the adapter does — but
+    `call_named_no_arg` sizes its parameter buffer from `function->GetPropertiesSize()`, the
+    function's real size, not a hand-guessed one, so it cannot overrun. Timing is against it too:
+    the last crouch input fired **83 seconds** before the crash, and MeshGhost's final log lines are
+    ordinary position updates and bridge counters.
+- **What the investigation did turn up is a shipping defect of our own.** The user believed the
+  other UE4SS mods came with the game; they do not — Pseudoregalia ships no UE4SS at all.
+  **Our own release package stages the UE4SS runtime and its stock mods, enabled**, so installing
+  "just the online mod" silently adds a cheat manager, a console, console commands, keybind hooks,
+  an actor dumper and a line-trace tool to the player's game. Two of those hook keyboard input and
+  one enumerates actors, which makes them live suspects for an un-closeable menu in a way MeshGhost
+  is not.
+- **The two loader files also disagreed**: `mods.txt` had `ActorDumperMod : 1` while `mods.json`
+  had it `false`, and that mod's script failed to execute in this very session
+  (`The size for property 'ArrayProperty' was unknown`). Both files now agree.
+- Fixed by disabling every stock Lua mod in the shipped package except the Blueprint-loader pair.
+  **This costs MeshGhost nothing**: `MeshGhostPseudo` appears in neither loader file, because C++
+  mods are auto-loaded from the folder. Not yet re-tested live.
+- Notes: the crash itself is **not root-caused and is not claimed to be fixed**. One occurrence
+  with no clear trigger is not actionable; what this does is remove a whole class of input and
+  enumeration suspects, so a recurrence is genuinely informative about MeshGhost rather than
+  ambiguous. Especially worth having for the Linux tester, who is a speedrunner — a cheat manager
+  and a console are not things to put in a runner's game uninvited.
