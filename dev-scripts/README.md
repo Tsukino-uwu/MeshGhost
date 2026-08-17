@@ -152,20 +152,32 @@ downloaded release folder and run against its `meshghost-server.exe` instead.
   relay it saw 51,000 events without noticing, where the in-process total-order test caught the
   same defect immediately. It complements `internal/relay`'s tests; it does not replace them. See
   `agent_docs/testing.md`.
-**Every launcher here runs `-interp=0ms` at `-send-hz=100`, and that is not a default to tune —
-it is the point.** These scripts exist so a ghost can be compared **1:1** against the player.
-Interpolation renders a remote deliberately in the past, so any non-zero value puts a visible delay
-between the two by design (100ms is ~6 frames at 60fps), and a relay left at its 20Hz default drags
-every client's fast local rate back down, since the effective rate is the slower of the two.
-Either one destroys the only measurement the rig is for.
+### Interp is PAIRED with the loopback offset — pick the matching one
 
-Found live 2026-08-17: interp was raised to 250ms and then 100ms to make a loopback self-ghost
-easier to see, and the user spent several sessions reporting a ghost that "starts to act a tiny bit
-after the player" — a delay that had been introduced by the launcher, not by the code under test,
-and which sent a whole investigation down a latency path. **A loopback ghost overlapping the player
-is not solved with interp** — that is what the render-only sideways offset is for
-(`adapters/pseudoregalia/BANDAGES.md`). The one deliberate exception is
-`run-core-emerald-trail.bat`, which exists specifically to produce a trailing ghost and says so.
+A self-ghost has to be separated from the player somehow, and there are exactly two ways. Use one,
+never both, and never neither:
+
+| Loopback mode | Interp | Answers |
+|---|---|---|
+| Ghost **offset to the side** | **`0ms`** | *Is it 1:1?* — same pose, same timing, right now |
+| Ghost **directly on the player** (no offset) | a **deliberate delay** | *Does it follow?* — visible only because it trails |
+
+Every launcher here is the first row (`-interp=0ms`, relay at `-send-hz=100`) except
+`run-core-emerald-trail.bat`, which is the second and says so in its own header.
+
+Getting the combination wrong is what ruins a session, and both wrong combinations are silent.
+Zero interp with no offset hides the ghost inside the player; **non-zero interp WITH the offset
+adds a delay that makes 1:1 impossible to judge** — which is the mistake made 2026-08-17, when
+interp was raised to 250ms and then 100ms to make a loopback ghost easier to see. The user spent
+several sessions reporting a ghost that "starts to act a tiny bit after the player": a delay
+introduced by the launcher, not by the code under test, which sent a whole investigation down a
+latency path. Separation is the offset's job (`adapters/pseudoregalia/BANDAGES.md`); interp's job
+is the question being asked.
+
+The relay's `-send-hz=100` matters for the same reason: its advertised rate is prescriptive and the
+effective rate is the **slower** of it and the client's own `-min-send`, so a relay left at its 20Hz
+default silently drags every dev client back down, and a ghost updating at 20Hz cannot be judged
+1:1 whatever interp says.
 
 - `run-relay-online.bat` + `run-core-pseudoregalia-online.bat` — **the two-machine pair for the
   capabilities that only mean anything across a real network**: `clock.v1` (room-scoped, so both
