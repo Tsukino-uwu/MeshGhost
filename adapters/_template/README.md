@@ -172,6 +172,49 @@ resolved live and **a wrong one does not fail to compile — it returns nothing,
 plausible.** On those games, enumerating what the game contains is not a debugging technique. It is
 the substitute for having source.
 
+## Where does this already happen normally? — pick the common path, not the matching feature
+
+**Before asking "how do I make X happen", ask "where does the game already do X, in ordinary
+play?"** Then go and watch that, and see whether you can call or copy it. This turns an invention
+problem into an observation problem, and observation is the thing you can actually do.
+
+**The trap it avoids is picking the wrong place to look.** The instinct is to find the feature
+that *thematically* matches what you want. That feature is usually the worst possible teacher: it
+is rare, special-cased, hard to trigger, and often built for constraints that have nothing to do
+with yours. The ordinary path runs every session, is trivial to observe, and is far more likely to
+be the generic mechanism everything else is built on.
+
+**The live case, 2026-08-17.** Wanting to put another player's character into Pokémon Emerald, the
+obvious place to look was **Union Room** — the game's own multiplayer mode, where other players'
+avatars appear. A full decomp investigation went there. The user's later reframing was better:
+*"something is obviously handling the spawn of the character normally in the game after all"* —
+the game spawns the player character **every time a save loads**. Same question, a path that runs
+constantly instead of one behind a link cable.
+
+And the investigation's own findings back that up: the function Union Room uses,
+`TrySpawnObjectEvent`, is explicitly noted there as **a generic engine function, not
+Union-Room-specific**. The thematic feature was a special case of the common mechanism the whole
+time. Worse, having gone to the special case, the investigation went on to ask how to *imitate*
+what it writes, and never asked whether the generic function could simply be **called** — the
+question the common-path framing produces immediately. See `agent_docs/ideas.md`.
+
+**The sequence, and it is short:**
+
+1. **Name the thing in the game's own terms** — "a character appears", not "spawn a remote ghost".
+2. **Find when that happens in normal play**, preferring the most boring, most frequent occurrence.
+   Loading a save. Entering a room. Drawing the HUD.
+3. **Watch it happen** with a read-only probe, and find the call that does it.
+4. **Ask whether you can call that**, before asking how to reproduce its effects. Calling it gets
+   you everything the game does around it for free; reproducing its effects gets you a maintenance
+   burden and a list of things you forgot.
+5. **Only if you cannot call it**, imitate — and write down *why* you could not, because that is
+   the blocker the next person needs (see the create/borrow/draw tiers below).
+
+**Why this is worth a section of its own.** "Ask the game what it has" (next) tells you how to
+enumerate what exists. This tells you *where to point that enumeration*. Getting the location
+wrong makes every other technique here more expensive, because you are studying a special case and
+generalising from it — and you will not notice, since the special case does genuinely work.
+
 ## Ask the game what it has, before you guess at what it might have
 
 **Do this early — right after a ghost renders at all, not once you are deep into polish.** It is the
