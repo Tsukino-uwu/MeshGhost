@@ -707,6 +707,32 @@ override — but you cannot target what you have not measured.
   produced a ghost stuck in an airborne pose. They are one-shot pulses; the continuous fields are
   something else entirely. Nothing about the names said so — only watching the values did.
 
+### Watch it before you PLAN against it, not just before you work around it
+
+The rule above is usually stated as "observe before you override". It applies just as much to
+**designing**, and that is easier to miss, because planning does not feel like changing anything.
+
+**If a plan rests on a model of how the game behaves, capture the behaviour first — it is almost
+always cheaper than the plan.** A read-only frame-by-frame capture of the game doing the thing
+costs one live run. Building on a wrong model costs the implementation, the debugging, and the
+correction of everything reasoned from it.
+
+**The live case, 2026-08-18 (Crystal).** Moving a ghost was planned around an assumed model: that a
+character's map coordinate updates when a step *completes*, so a ghost would be moved by writing
+coordinates and letting animation follow. One read-only capture of an NPC taking a real step showed
+the opposite — **the map coordinate is the destination and is set at the START**, in the same frame
+as everything else, and the sprite then slides to catch up over the following ~16 frames. Every
+frame after the first is the engine's own work. The plan built on the wrong model would have
+produced a character that teleported while looking like it was walking, and the bug would have been
+blamed on smoothing.
+
+**The tell that you are planning on an assumption**: you can describe what the game does, but you
+cannot point at the run where you watched it. That is the moment to spend one capture.
+
+And when the capture contradicts you, **say so plainly in the write-up** rather than quietly
+adopting the new model — the wrong assumption is worth recording, because the next person will
+arrive with the same intuition.
+
 **What "observe first" looks like in practice**, cheapest first:
 
 1. **Log what the game does, changing nothing.** A read-only hook on the function you were about
