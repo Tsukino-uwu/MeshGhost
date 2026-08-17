@@ -58,14 +58,21 @@ to that specific actor rather than the build. **Live-tested 2026-08-17 with
 transition, repeatedly, with no crash** — so the premise for parking is gone for that path. See
 the template's "the bandage to avoid entirely: borrowing an object instead of creating one".
 
-**What is still unproven, and why this stays open.** The case the park was actually written for —
-a peer despawning *mid-area*, with no level transition behind it — **has still not been tested**.
-The attempt on 2026-08-17 killed the relay instead, which cannot produce it: killing the relay
-removes the thing that would deliver the peer's leave. That test needs a second real peer
-(`cmd/meshghost-fakeadapter`) stopped cleanly while the user watches.
+**Now tested, 2026-08-17 — both despawn paths are covered.** The case this was written for, a peer
+despawning *mid-area* with no level transition behind it, finally ran: a `cmd/meshghost-fakeadapter`
+peer circling the player was stopped cleanly, the relay forwarded the leave, and 60 ms later
+`release_ghost` called `K2_DestroyActor`. **The ghost disappeared on screen and the game kept
+running** — user-confirmed. An earlier attempt that killed the *relay* did not count, because that
+removes the very thing that would deliver the peer's leave. `verified.md`.
 
-**Do not remove the park until that runs.** It is the fallback when `call_destroy_actor` finds no
-reflected function, and it is the only thing covering the one case nobody has exercised.
+**Status: the park is now a fallback, not the mechanism.** `call_destroy_actor` returns false when
+the function is not reflected, and parking is what happens then — so it still earns its place, and
+removing it would leave that branch with nothing. But it is no longer what normally runs, and the
+premise that once justified it (the ghost is not ours, destroy no-ops) is dead on both halves.
+
+**What would let this entry be deleted outright:** confidence that no supported build can reach
+the no-reflection branch. Nobody has checked that, and the cost of keeping the fallback is a few
+lines, so it stays.
 
 **Gone, and replaced by the game's own pose path rather than a better compensation.** The ghost is
 now posed by the game itself: its capsule mirrors the peer's, the slide Blueprint Timeline's curve

@@ -5782,3 +5782,44 @@ leaving *mid-area* — and it does not. A peer leaving sends a leave that the re
 a prompt `despawn_remote`; killing the relay removes the thing that would deliver it. **The
 mid-area despawn path remains untested**, and needs a second real peer
 (`cmd/meshghost-fakeadapter` in the same room and area) that can be stopped cleanly.
+
+## 2026-08-17 — Mid-area despawn destroys the ghost cleanly, and a peer's ghost is genuinely the PEER
+
+**Track: human-gated** — user watched both, on a real two-client session (the real game plus
+`cmd/meshghost-fakeadapter` as a second peer in the same room and area).
+
+### 1. The despawn path the park was written for finally ran, and destroy handled it
+
+Setup: plain relay (no `-loopback`), core via `dev-scripts/run-core-pseudoregalia.bat`, and a fake
+peer circling the player at radius 180. The peer was stopped with `Stop-Process -Force`, which
+drops its connection and makes the relay forward a real leave — so the core emits a genuine
+`despawn_remote` with **no level transition behind it**. That is the case
+`DESPAWN_PARK_Z` exists for, and until now every attempt to produce it had failed.
+
+Peer stopped at 22:01:51.791. 60 ms later:
+
+    22:01:51.851  releasing remote p5: ghost=0x16232a13340
+    22:01:51.852  GHOSTDESTROY p5: K2_DestroyActor was reflected and called
+
+**User: "yes the ghost went away."** The game kept running. So with
+`GHOST_DESTROY_ON_DESPAWN = true`, a mid-area despawn destroys the ghost, it disappears on screen,
+and there is no crash — including no `Fatal world leaks detected`, the failure this was most
+suspected of. Together with the zone-transition runs earlier the same day, both despawn paths are
+now covered.
+
+### 2. A peer's ghost shows the PEER's appearance, not the local player's
+
+`status.md` had carried this since 2026-08-16: *"A fresh ghost shows the LOCAL player's state, not
+the peer's. Two fixes shipped 2026-08-16, never verifiable in loopback."* It was unanswerable by
+construction — in loopback the peer IS the local player, so "did it read the peer or copy me"
+has no observable difference.
+
+This is the first non-loopback peer this adapter has ever rendered. The fake peer sends no outfit
+or weapon extras, and its ghost appeared with **default appearance** — user, verbatim: *"loopback
+always showed what i had, this one showed was a 'fresh no save other player had'"*. The ghost is
+built from the peer's state, not the local save. **The 2026-08-16 fixes are confirmed working**,
+and the item can come off `status.md`.
+
+**Worth keeping as a method note:** a synthetic peer is not only a load-test tool. It is the only
+way to answer any question of the form "is this the peer's data or mine?", because loopback makes
+the two identical. Reach for `cmd/meshghost-fakeadapter` whenever that distinction matters.

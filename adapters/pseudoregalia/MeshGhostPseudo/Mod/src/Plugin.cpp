@@ -123,6 +123,14 @@ namespace MeshGhostPseudo
     // documentation.md, so the number survives without the probe. Turn it back on to re-measure
     // the slide duration against a new game build, which is the one thing that would invalidate
     // that constant.
+    // Logs the area_id and world position actually sent, every ~300 ticks (~5s). ON right now
+    // because the ghost-load and despawn rigs cannot be aimed without it: fakeadapter's -center
+    // and -area-id have to match a live session, and until 2026-08-17 neither was readable from
+    // anywhere -- see the STATESEND line's own comment. Cheap by construction (one throttled
+    // line, no enumeration, no per-object work), which is why it is not in the same risk class
+    // as the probes FLAGS.md warns about.
+    constexpr bool STATE_SEND_TRACE = true;
+
     constexpr bool GHOST_MESH_Z_TRACE = false;
 
     // Diffs the LOCAL pawn's whole property set, standing versus mid-slide and standing versus
@@ -8525,6 +8533,22 @@ namespace MeshGhostPseudo
             // baked into this tick's JSON is simply the count as of this tick; on_update no longer
             // needs to touch these members at all.
             //
+            // The local world position and area_id, as actually sent. Throttled to the same
+            // cadence as the bridge counter line so it cannot spam.
+            //
+            // Exists because a rig needed it and could not get it: placing synthetic peers with
+            // cmd/meshghost-fakeadapter requires -center (where the player is) and -area-id
+            // (which must match EXACTLY, or core filters the peers out and nothing renders), and
+            // on 2026-08-17 neither could be read from anywhere. dev-scripts/run-ghostload-
+            // pseudoregalia.bat's own header tells you to read both "from the mod's log", and no
+            // such line existed -- the only position logged was VisualMesh's RELATIVE offset
+            // (0,0,-66), which looks like an answer and is not one. This is that line.
+            if (STATE_SEND_TRACE && (tick_count % 300) == 0)
+            {
+                Output::send(STR("[MeshGhostPseudo] STATESEND area_id=\"{}\" pos=({:.1f},{:.1f},{:.1f})\n"),
+                             to_wide_ascii(area_id), location.X(), location.Y(), location.Z());
+            }
+
             // std::format runs unlocked -- found in a review pass: it's a pure computation with
             // no access to any state on_update's thread also touches, so holding state_mutex
             // across it (as this used to) only needlessly extended the critical section against

@@ -177,12 +177,13 @@ stays here, its reasoning goes to `agent_docs/`, with a one-line pointer. Full e
 - **Keep working through to completion; don't suggest stopping partway.** Only pause to ask if
   genuinely blocked — a real technical dead end, or a decision only the user can make — not as
   a default checkpoint.
-- **NEVER suggest stopping, pausing, or resuming later**, and never invoke the clock, the session
-  length, or the attempt count. Banned: "it's late", "good place to stop", "pick it up fresh", and
-  every variation. **Silence means keep going until it actually works** — the user says explicitly
-  when to stop. If genuinely blocked, name the blocker and the next measurement instead. Stated
-  2026-08-17, after recurring across sessions; that day's own "good place to stop" came two steps
-  from the fix.
+- **NEVER suggest stopping, pausing, or resuming later — including as one option among several.**
+  Never invoke the clock, session length, or attempt count. Banned: "it's late", "good place to
+  stop", "pick it up fresh", "stop here for tonight", and every variation, in prose OR as an
+  `AskUserQuestion` choice. **Offering it as a choice is suggesting it**; that loophole was used
+  the same day the rule was written (2026-08-17), reasoning that a menu entry is not a suggestion.
+  **Silence means keep going until it actually works** — the user says when to stop. If genuinely
+  blocked, name the blocker and the next measurement instead.
 - **A diagnostic can break the thing it measures — and then every reading agrees with itself.**
   Keep probes off by default, audit their cost before trusting their output, and re-run with them
   off before believing a result. Never leave a probe that *spawns* an effect enabled while judging

@@ -84,6 +84,12 @@ meshghost-server.log
 # meshghost.log appends and rotates once at 1MiB (cmd/meshghost's openLogFile), so the
 # rotated generation needs ignoring too.
 meshghost.log.1
+# Redirected stdout/stderr from scaffolding an agent starts for a live test (relay, core,
+# fakeadapter). These are named per-run rather than by the binary, so the entries above do not
+# catch them -- six of them were committed by accident on 2026-08-17 and removed again.
+*-live.log
+*-live.err.log
+*-live.err2.log
 
 # Backup-renamed binaries left behind when a running .exe couldn't be overwritten in place
 # (e.g. go build racing a still-running process on Windows) -- found live 2026-08-14,

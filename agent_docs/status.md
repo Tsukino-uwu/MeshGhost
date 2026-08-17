@@ -30,8 +30,8 @@ Fixed-and-confirmed work is not listed here — see `verified.md` and the phase 
 Two real players on two machines, confirmed on screen — `verified.md`. These need re-judging now
 that a peer's state genuinely differs from the local player's, which loopback could never show:
 
-- **A fresh ghost shows the LOCAL player's state, not the peer's.** Two fixes shipped 2026-08-16,
-  never verifiable in loopback — `verified.md` (recall glow entry).
+- ~~A fresh ghost shows the LOCAL player's state, not the peer's.~~ **CLOSED 2026-08-17** — a
+  synthetic peer rendered with default appearance, not the local save. `verified.md`.
 - **Ghost collision: keeping it ON, still WIP.** Enemies can no longer hit the ghost (confirmed
   2026-08-17); the player still can. `risks.md`, `verified.md`.
 - **Killing a ghost leaves the player respawning at 0/empty health** — player melee only; the HUD
