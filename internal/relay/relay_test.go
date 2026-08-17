@@ -236,40 +236,49 @@ func TestLeaveOnDisconnect(t *testing.T) {
 	}
 }
 
-// TestMismatchedGameIDRejected confirms a room's game_id is sticky: a
-// second client claiming a different game_id for the same room name is
-// refused rather than silently mixed in.
-func TestMismatchedGameIDRejected(t *testing.T) {
+// TestSameRoomNameInDifferentGamesAreSeparateRooms is the behaviour that
+// replaced a rejection, and the reason the change was worth making: `room`
+// ships defaulted to "default" for every game, so keying rooms by name alone
+// meant the first game onto a server took "default" and every other game was
+// refused with a "game mismatch" that gave no hint the fix was to invent a
+// room name. A server that advertises hosting any number of games at once was
+// therefore broken by its own default configuration.
+//
+// Rooms are now keyed by game_id AND name (roomKey), which is what the package
+// comment always claimed ("partitioned by game_id"). Two games asking for the
+// same room name get two separate rooms, automatically, with nothing to
+// configure -- and cannot see each other, which is the property that made
+// mixing them unacceptable in the first place.
+func TestSameRoomNameInDifferentGamesAreSeparateRooms(t *testing.T) {
 	addr := startServer(t)
 
-	c1 := dialTestClient(t, addr, "emerald", "room1", "alice")
-	defer c1.conn.Close()
-	c1.expectWelcome(timeout)
+	emerald := dialTestClient(t, addr, "emerald", "default", "alice")
+	defer emerald.conn.Close()
+	wEmerald := emerald.expectWelcome(timeout)
 
-	conn, err := transport.Dial(addr)
-	if err != nil {
-		t.Fatalf("dial: %v", err)
-	}
-	defer conn.Close()
-
-	disconnected := make(chan struct{})
-	conn.OnDisconnect(func(err error) { close(disconnected) })
-
-	hello, _ := json.Marshal(protocol.Hello{
-		ProtocolVersion: protocol.Version,
-		GameID:          "tevi",
-		Room:            "room1",
-		DisplayName:     "carol",
-	})
-	env, _ := json.Marshal(protocol.Envelope{Type: protocol.TypeHello, Payload: hello})
-	if err := conn.Send(env); err != nil {
-		t.Fatalf("send hello: %v", err)
+	// The exact case that used to be refused: a different game, same room name,
+	// same server.
+	tevi := dialTestClient(t, addr, "tevi", "default", "bob")
+	defer tevi.conn.Close()
+	wTevi := tevi.expectWelcome(timeout)
+	if wTevi.PlayerID == "" {
+		t.Fatal("a second game was refused the default room name")
 	}
 
-	select {
-	case <-disconnected:
-	case <-time.After(timeout):
-		t.Fatal("timed out waiting for connection to be refused")
+	// Separate rooms, so neither is announced to the other and neither appears
+	// in the other's roster.
+	if len(wTevi.Roster) != 0 {
+		t.Fatalf("tevi's roster = %v, want empty — it must not see the emerald room", wTevi.Roster)
+	}
+	emerald.expectNothingOfType(protocol.TypeJoin, 300*time.Millisecond)
+
+	// And state does not cross between them.
+	tevi.sendState(protocol.State{AreaID: "tevi-zone", Position: []float64{1, 2}})
+	emerald.expectNothingOfType(protocol.TypeState, 300*time.Millisecond)
+
+	// Two rooms really exist, both named "default".
+	if wEmerald.PlayerID == wTevi.PlayerID {
+		t.Fatal("both clients were given the same player_id")
 	}
 }
 

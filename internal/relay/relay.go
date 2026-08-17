@@ -32,6 +32,11 @@ type Room struct {
 	GameVersion string
 	Name        string
 
+	// key is this room's identity in Server.rooms — game_id and name together,
+	// see roomKey. Stored so dropIfEmpty can find its own entry without
+	// recomputing, and so nothing is tempted to delete by name alone.
+	key string
+
 	// features is this room's agreed ROOM-SCOPED capability set, normalized
 	// and sticky from its first member's Hello — a later joiner whose own
 	// room-scoped set differs is refused (protocol.ReasonFeatureMismatch).
@@ -579,22 +584,48 @@ func rejectAndClose(conn transport.Transport, hello protocol.Hello, reason strin
 	_ = conn.Close()
 }
 
-// joinOrCreateRoom returns the named room, creating it (with gameID/
-// gameVersion) if it doesn't exist yet. reason is empty on success;
-// non-empty describes why the caller must refuse the connection rather
-// than mix clients from different games or incompatible versions.
+// roomKey is the key a room lives under in Server.rooms: its game_id AND its
+// name, not the name alone.
+//
+// **This is what "partitioned by game_id" in the package comment actually
+// means**, and until 2026-08-17 it was only half true — rooms were keyed by
+// name, and a client whose game differed from the room's was refused with
+// ReasonGameMismatch instead. Since `room` ships defaulted to "default" for
+// every game, that made two different games on one server lock each other out
+// by default: the first group in took "default", and everyone else got a
+// mismatch with no hint that the fix was to invent a room name. The relay
+// advertises itself as hosting any number of games at once, so the default
+// configuration breaking exactly that was a bug, not a setting.
+//
+// Length-prefixed rather than joined with a separator: both halves come
+// straight off the wire, and JSON can carry any byte in a string (including
+// NUL), so a plain "a|b" join would let a crafted game_id land a client in
+// another game's room. The length makes the split unambiguous whatever the
+// contents.
+func roomKey(gameID, name string) string {
+	return fmt.Sprintf("%d:%s:%s", len(gameID), gameID, name)
+}
+
+// joinOrCreateRoom returns the named room FOR THIS GAME, creating it if it
+// doesn't exist yet. Two games using the same room name get two separate
+// rooms and never see each other. reason is empty on success; non-empty
+// describes why the caller must refuse the connection rather than mix clients
+// with incompatible capabilities or versions.
 func (s *Server) joinOrCreateRoom(gameID, gameVersion, name string, features []string) (r *Room, reason string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	r, exists := s.rooms[name]
+	key := roomKey(gameID, name)
+	r, exists := s.rooms[key]
 	if !exists {
 		r = newRoom(gameID, gameVersion, name, features)
-		s.rooms[name] = r
+		r.key = key
+		s.rooms[key] = r
 		return r, ""
 	}
-	if r.GameID != gameID {
-		return nil, protocol.ReasonGameMismatch
-	}
+	// No game_id check: a room is now reached only through its own game's key,
+	// so r.GameID == gameID by construction. protocol.ReasonGameMismatch is
+	// consequently no longer reachable from here and is kept only for the wire
+	// (an older relay still sends it, and a client must still understand it).
 	// Feature stickiness, over the ROOM-SCOPED subset only. Unlike GameVersion
 	// below, an EMPTY set on either side is a real value that must still
 	// match: the hazard being closed is precisely "one client advertises
@@ -628,8 +659,10 @@ func (s *Server) dropIfEmpty(r *Room) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if r.size() == 0 {
-		if cur, ok := s.rooms[r.Name]; ok && cur == r {
-			delete(s.rooms, r.Name)
+		// Keyed by r.key, not r.Name: two games can hold a room of the same
+		// name, and deleting by name would evict the wrong one.
+		if cur, ok := s.rooms[r.key]; ok && cur == r {
+			delete(s.rooms, r.key)
 		}
 	}
 }

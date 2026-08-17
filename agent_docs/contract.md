@@ -258,8 +258,18 @@ in a later `hello` to reclaim the same `player_id` after an unexpected drop.
 New field, not in the original brief. The brief states `anim` tags are "only ever compared
 between two clients running the same game" but nothing enforced that two different games
 couldn't end up in the same room. `game_id` is sent once, at `hello` (e.g. `"emerald"`,
-`"tevi"`). The relay rejects a `hello` whose `game_id` doesn't match the room's existing
-`game_id`, rather than silently mixing clients that would draw garbage at each other.
+`"tevi"`). **Rooms are keyed by `game_id` AND room name together** (2026-08-17), so two games
+asking for the same room name get two separate rooms and never see each other — a game's rooms
+come into existence on their own the first time someone from that game connects, with nothing to
+configure.
+
+Until then rooms were keyed by name alone and a mismatched `game_id` was refused with
+`ReasonGameMismatch`. That was a bug rather than a policy: this package's own doc comment has
+always said rooms are "partitioned by game_id", and since `room` ships defaulted to `"default"`
+for every game, the first game onto a server took `"default"` and every other game was locked out
+of its own default configuration — with a refusal that gave no hint the fix was to invent a room
+name. `ReasonGameMismatch` is now unreachable from the room path and is kept only for the wire:
+an older relay still sends it, so a client must still understand it.
 
 A relay may additionally be configured (`server.only_game`, off by default — see the ADR in
 `architecture.md`) to accept just one `game_id` server-wide, independent of any room. That

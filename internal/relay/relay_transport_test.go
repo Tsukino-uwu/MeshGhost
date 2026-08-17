@@ -362,7 +362,9 @@ func TestJoinLogRecordsTheTransport(t *testing.T) {
 		w := c.expectWelcome(timeout)
 
 		s.mu.Lock()
-		room := s.rooms["room-"+tc.want]
+		// Keyed by game_id AND name since rooms became genuinely partitioned
+		// by game (see roomKey) -- a name alone no longer identifies a room.
+		room := s.rooms[roomKey("emerald", "room-"+tc.want)]
 		s.mu.Unlock()
 		if room == nil {
 			t.Fatalf("%s: room was not created", tc.kind)
