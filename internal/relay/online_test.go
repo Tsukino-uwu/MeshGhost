@@ -1246,3 +1246,111 @@ func TestTakeoverLeavesExactlyOneMemberAndOneSlot(t *testing.T) {
 		time.Sleep(25 * time.Millisecond)
 	}
 }
+
+// TestVoluntaryLeaveIsImmediateEvenWithResumptionOn is the fix for a bug the
+// 2026-08-17 loopback session found: with resume.v1 on, quitting the game left
+// every other player staring at a frozen ghost for the whole grace window,
+// because the relay only ever saw a socket close and could not tell a
+// deliberate exit from a bad connection.
+//
+// The core discarding its own resume token was not enough — that only decides
+// where the NEXT connection lands and says nothing to the relay about this one.
+// A client now says goodbye explicitly.
+func TestVoluntaryLeaveIsImmediateEvenWithResumptionOn(t *testing.T) {
+	addr := startServerWith(t, &Server{
+		rooms:      make(map[string]*Room),
+		MaxClients: DefaultMaxClients,
+		// Long enough that a suspension would be unmistakable in the timings
+		// below rather than a race against the grace expiring on its own.
+		ResumeGrace: 30 * time.Second,
+	})
+
+	quitter := dialFeatureClient(t, addr, "room1", "quitter", allFeatures)
+	if w := quitter.expectWelcome(timeout); w.ResumeToken == "" {
+		t.Fatal("resumption was not on, so this test would pass for the wrong reason")
+	}
+	watcher := dialFeatureClient(t, addr, "room1", "watcher", allFeatures)
+	defer watcher.conn.Close()
+	watcher.expectWelcome(timeout)
+	quitter.nextOfType(protocol.TypeJoin, timeout)
+
+	// Say goodbye, then hang up — exactly what the core does when its adapter
+	// (the game) goes away.
+	quitter.send(protocol.TypeLeave, protocol.Leave{})
+	time.Sleep(150 * time.Millisecond)
+	quitter.conn.Close()
+
+	// The watcher must see a real leave promptly, NOT after 30 seconds.
+	env := watcher.nextOfType(protocol.TypeLeave, 3*time.Second)
+	var leave protocol.Leave
+	if err := json.Unmarshal(env.Payload, &leave); err != nil {
+		t.Fatalf("unmarshal leave: %v", err)
+	}
+	if leave.PlayerID == "" {
+		t.Fatal("leave named nobody")
+	}
+}
+
+// TestUnexplainedDropStillGetsTheGraceWindow is the other side of the same
+// coin: only an explicit goodbye skips the grace. A client that simply
+// vanishes — which is what a network failure looks like — must still be held,
+// or the fix above would have quietly disabled resumption altogether.
+func TestUnexplainedDropStillGetsTheGraceWindow(t *testing.T) {
+	addr := startServerWith(t, &Server{
+		rooms:       make(map[string]*Room),
+		MaxClients:  DefaultMaxClients,
+		ResumeGrace: 30 * time.Second,
+	})
+
+	dropper := dialFeatureClient(t, addr, "room1", "dropper", allFeatures)
+	dropper.expectWelcome(timeout)
+	watcher := dialFeatureClient(t, addr, "room1", "watcher", allFeatures)
+	defer watcher.conn.Close()
+	watcher.expectWelcome(timeout)
+	dropper.nextOfType(protocol.TypeJoin, timeout)
+
+	// No goodbye: just gone.
+	dropper.conn.Close()
+
+	watcher.expectNothingOfType(protocol.TypeLeave, 1*time.Second)
+}
+
+// TestSnapshotShowsPerMemberClientScopedCapabilities covers the question
+// introspection most obviously invites once a player drops and is NOT held:
+// why not. The answer is usually "that client never asked for resume.v1",
+// which is a per-client fact and so cannot appear on the room's feature line.
+func TestSnapshotShowsPerMemberClientScopedCapabilities(t *testing.T) {
+	s := &Server{rooms: make(map[string]*Room), MaxClients: DefaultMaxClients}
+	addr := startServerWith(t, s)
+
+	resumable := dialFeatureClient(t, addr, "room1", "resumable",
+		[]string{protocol.FeatureLeaseV1, protocol.FeatureResumeV1})
+	defer resumable.conn.Close()
+	wR := resumable.expectWelcome(timeout)
+
+	// Same room-scoped set, no client-scoped extras — so it shares the room
+	// but is NOT resumable, which is exactly the difference to surface.
+	plain := dialFeatureClient(t, addr, "room1", "plain", []string{protocol.FeatureLeaseV1})
+	defer plain.conn.Close()
+	wP := plain.expectWelcome(timeout)
+
+	room := s.Snapshot().Rooms[0]
+	byID := map[string][]string{}
+	for _, m := range room.Members {
+		byID[m.PlayerID] = m.Features
+	}
+	if !protocol.HasFeature(byID[wR.PlayerID], protocol.FeatureResumeV1) {
+		t.Fatalf("member %s shows features %v, want resume.v1", wR.PlayerID, byID[wR.PlayerID])
+	}
+	if len(byID[wP.PlayerID]) != 0 {
+		t.Fatalf("member %s shows features %v, want none", wP.PlayerID, byID[wP.PlayerID])
+	}
+	// A room-scoped capability belongs on the room line, not repeated on every
+	// member.
+	if protocol.HasFeature(byID[wR.PlayerID], protocol.FeatureLeaseV1) {
+		t.Fatalf("member line repeated the room-scoped lease.v1: %v", byID[wR.PlayerID])
+	}
+	if !protocol.HasFeature(room.Features, protocol.FeatureLeaseV1) {
+		t.Fatalf("room features = %v, want lease.v1", room.Features)
+	}
+}

@@ -30,6 +30,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"meshghost/internal/protocol"
 )
 
 // MemberSnapshot is one client's visible state in a room.
@@ -44,6 +46,15 @@ type MemberSnapshot struct {
 	Suspended bool
 	// MaxReceiveHz is this client's own requested per-peer cap; 0 is uncapped.
 	MaxReceiveHz int
+	// Features is this member's CLIENT-scoped capabilities only — the
+	// room-scoped ones are a property of the room and are reported there
+	// instead of repeated on every line.
+	//
+	// Without this the tool could not answer the question it most obviously
+	// invites once a player drops: "why was that identity not held?" The
+	// answer is usually "that client never asked for resume.v1", which is
+	// per-client and therefore invisible on the room's own feature line.
+	Features []string
 }
 
 // LeaseSnapshot is one held key.
@@ -154,11 +165,18 @@ func (r *Room) snapshot(now time.Time) RoomSnapshot {
 		Seq:         r.seqCounter,
 	}
 	for _, c := range r.members {
+		clientScoped := make([]string, 0, len(c.features))
+		for _, f := range c.features {
+			if !protocol.IsRoomScopedFeature(f) {
+				clientScoped = append(clientScoped, f)
+			}
+		}
 		out.Members = append(out.Members, MemberSnapshot{
 			PlayerID:     c.PlayerID,
 			Transport:    c.transport,
 			Suspended:    c.suspended,
 			MaxReceiveHz: c.maxReceiveHz,
+			Features:     clientScoped,
 		})
 	}
 	for key, l := range r.leases {
@@ -222,6 +240,9 @@ func (s Snapshot) String() string {
 			fmt.Fprintf(&b, "\n    %s over %s", m.PlayerID, m.Transport)
 			if m.MaxReceiveHz > 0 {
 				fmt.Fprintf(&b, ", capped at %dHz per peer", m.MaxReceiveHz)
+			}
+			if len(m.Features) > 0 {
+				fmt.Fprintf(&b, ", %s", strings.Join(m.Features, "+"))
 			}
 			if m.Suspended {
 				// Called out in words rather than a flag: a suspended member

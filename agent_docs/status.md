@@ -66,6 +66,8 @@ that a peer's state genuinely differs from the local player's, which loopback co
   not whether the path works, so it retries instead of falling back to tcp. Docs-only for now.
 - **The planes past cosmetic have no live consumer.** Built and Go-tested 2026-08-17; no adapter
   asks for any capability yet. `beyond-cosmetic.md`, `architecture.md` ADR.
+- **udp signals nothing on close, so a dropped udp peer freezes for up to 60s** — tcp is instant,
+  quic ~17s. Fix is a token-carrying control frame. `internal/netx/conformance_test.go`.
 - **`clock.v1` never tested against a genuinely skewed peer** — needs two machines with
   deliberately different clocks. `dev-scripts/run-core-pseudoregalia-online.bat` step 3.
 - **quic's drop detection (~17s) dominates any resume grace** — `quicConfig` sets no

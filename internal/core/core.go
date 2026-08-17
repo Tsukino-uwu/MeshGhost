@@ -1058,6 +1058,19 @@ func (c *Core) handleBridgeConn(netConn net.Conn) {
 		}
 		c.mu.Unlock()
 		if relay != nil && owns {
+			// Tell the relay this is a deliberate departure before hanging up,
+			// so it announces a real leave instead of holding this identity
+			// for its resume grace. Clearing c.resumeToken above only decides
+			// where the NEXT connection lands; it tells the relay nothing about
+			// this one, and without this the room watches a frozen ghost for
+			// the whole grace window every time someone quits the game. Found
+			// live 2026-08-17, in the loopback session that was meant only to
+			// re-confirm the cosmetic path.
+			//
+			// Best effort: a failure here just means the relay falls back to
+			// treating it as an unexplained drop, which is the pre-existing
+			// behaviour and still correct, only slower.
+			sendGoodbye(relay)
 			_ = relay.Close()
 		}
 	})

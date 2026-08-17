@@ -133,14 +133,19 @@ type Hello struct {
 	// Feature* constants in online.go. Reserved from 2026-08-11 and
 	// populated from 2026-08-17.
 	//
-	// A room's normalized feature set is sticky on first join and later
-	// joiners must match it exactly, the same way GameVersion already is.
-	// That is not tidiness: if one client advertises lease.v1 and claims
-	// properly while another does not and simply acts, conflict resolution
-	// silently does not work, and everything looks fine until it doesn't.
-	// Refusing at the handshake turns an invisible correctness failure into
-	// a legible one (protocol.ReasonFeatureMismatch). The relay learns no
-	// more about "lease.v1" than it currently learns about "1.2.0".
+	// A room's ROOM-SCOPED capabilities (IsRoomScopedFeature) are sticky on
+	// first join and later joiners must match them exactly, the same way
+	// GameVersion already is. That is not tidiness: if one client advertises
+	// lease.v1 and claims properly while another does not and simply acts,
+	// conflict resolution silently does not work, and everything looks fine
+	// until it doesn't. Refusing at the handshake turns an invisible
+	// correctness failure into a legible one (ReasonFeatureMismatch). The
+	// relay learns no more about "lease.v1" than about "1.2.0".
+	//
+	// Client-scoped capabilities (resume.v1, snapshot.v1) are NOT compared —
+	// they concern only this client and the relay, so they may differ freely
+	// between members of one room. Welcome.Features reports what ended up in
+	// force for this client specifically.
 	Features []string `json:"features,omitempty"`
 	// ResumeToken, when non-empty, asks the relay to reinstate the identity
 	// this token was issued for (Welcome.ResumeToken) instead of assigning a
@@ -307,6 +312,20 @@ type Join struct {
 
 // Leave announces a peer leaving the room. This is what drives
 // despawn_remote on the adapter side of the bridge.
+//
+// **Also sent client -> relay, as a voluntary goodbye** (added 2026-08-17).
+// PlayerID is ignored in that direction — the relay knows whose connection it
+// is — and the message means "I am leaving on purpose; do not hold my session
+// for a reconnect."
+//
+// It exists because resumption otherwise cannot tell a closed game from a bad
+// connection, and guesses wrong in the case a player actually sees. Found live:
+// with resume.v1 on, quitting the game left every other player staring at a
+// frozen ghost for the whole grace window, because the relay only saw a socket
+// close. The core discarding its own token was not enough — that only affects
+// where the NEXT connection lands, and says nothing to the relay about this
+// one. A client that never sends this is unaffected: it simply gets the grace
+// window, which is the correct treatment for an unexplained drop.
 type Leave struct {
 	PlayerID string `json:"player_id"`
 }

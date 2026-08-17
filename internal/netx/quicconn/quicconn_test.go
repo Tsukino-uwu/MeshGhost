@@ -215,3 +215,69 @@ func TestHandshakeIsTLS13(t *testing.T) {
 		t.Logf("      the room-code channel-binding follow-up would need another mechanism")
 	}
 }
+
+// TestFinalWriteBeforeCloseIsDelivered is the regression test for a defect
+// that silently broke every send-before-close in the project on quic.
+//
+// Close() used to close the stream and tear down the whole QUIC connection in
+// the same breath. Closing a stream only signals FIN — the bytes still have to
+// be delivered, and they cannot be once the connection is gone, so the peer got
+// CONNECTION_CLOSE instead of the last message.
+//
+// This is not a hypothetical pattern. The relay writes a Reject and then closes
+// when it refuses a hello, so a client with a wrong room code saw a bare
+// hangup rather than the reason — precisely what rejectAndClose exists to
+// prevent — and the same shape carries the rate-limit Reject and the core's
+// goodbye before a deliberate leave. Found 2026-08-17 when the goodbye went
+// missing on quic while working perfectly on tcp.
+func TestFinalWriteBeforeCloseIsDelivered(t *testing.T) {
+	l := listenTest(t)
+	client, server := connect(t, l, "hello\n")
+	defer server.Close()
+
+	// Drain the handshake line connect() sent, so the assertion below reads
+	// the farewell rather than what was already in flight ahead of it.
+	if err := server.SetReadDeadline(time.Now().Add(testTimeout)); err != nil {
+		t.Fatalf("set read deadline: %v", err)
+	}
+	greeting := make([]byte, len("hello\n"))
+	if _, err := readFull(server, greeting); err != nil {
+		t.Fatalf("read greeting: %v", err)
+	}
+
+	const farewell = "goodbye\n"
+	if _, err := client.Write([]byte(farewell)); err != nil {
+		t.Fatalf("write farewell: %v", err)
+	}
+	// Immediately, with no flush, no sleep and no handshake — exactly what
+	// every send-before-close site in this codebase does.
+	if err := client.Close(); err != nil {
+		t.Fatalf("close: %v", err)
+	}
+
+	if err := server.SetReadDeadline(time.Now().Add(testTimeout)); err != nil {
+		t.Fatalf("set read deadline: %v", err)
+	}
+	buf := make([]byte, len(farewell))
+	n, err := readFull(server, buf)
+	if err != nil {
+		t.Fatalf("the last message written before Close never arrived: %v (got %q)", err, buf[:n])
+	}
+	if string(buf[:n]) != farewell {
+		t.Fatalf("received %q, want %q", buf[:n], farewell)
+	}
+}
+
+// readFull reads len(buf) bytes, tolerating short reads — a QUIC stream may
+// hand over a partial buffer even when everything has arrived.
+func readFull(c net.Conn, buf []byte) (int, error) {
+	total := 0
+	for total < len(buf) {
+		n, err := c.Read(buf[total:])
+		total += n
+		if err != nil {
+			return total, err
+		}
+	}
+	return total, nil
+}

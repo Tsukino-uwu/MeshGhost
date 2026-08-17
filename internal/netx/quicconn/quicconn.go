@@ -270,11 +270,41 @@ func (c *Conn) WriteUnreliable(p []byte) (int, error) {
 	return len(p), nil
 }
 
+// closeLinger is how long a closing connection stays alive after its stream
+// has been closed, so the bytes already written to that stream can actually
+// reach the peer.
+//
+// Without it, Close() closed the stream and tore down the whole QUIC
+// connection in the same breath. Closing the stream only signals FIN; the data
+// still has to be delivered, and it cannot be once the connection is gone — so
+// the peer received CONNECTION_CLOSE instead of the last message and never saw
+// it at all.
+//
+// **That silently broke every send-before-close in the project on quic**, which
+// is a pattern this codebase relies on deliberately in three places: the
+// relay's Reject before refusing a hello (a client with a wrong room code saw a
+// bare hangup rather than the reason, which is the entire thing rejectAndClose
+// exists to prevent), the relay's rate-limit Reject, and the core's goodbye
+// before a deliberate leave. Found 2026-08-17 by the goodbye going missing on
+// quic while working perfectly on tcp.
+//
+// 250ms is chosen to be far longer than a loopback or LAN round trip and short
+// enough to be invisible: Close() itself does not wait, so nothing blocks on
+// this — only the connection object survives a moment longer.
+const closeLinger = 250 * time.Millisecond
+
 func (c *Conn) Close() error {
 	c.once.Do(func() {
 		close(c.closed)
+		// Closing the stream first signals FIN, so the peer learns the message
+		// it is about to receive is the last one.
 		_ = c.stream.Close()
-		_ = c.qc.CloseWithError(0, "")
+		// The connection teardown is deferred rather than skipped: a QUIC
+		// connection left open forever would leak, and a peer that has already
+		// gone will simply never read the data. Deferred with AfterFunc rather
+		// than a sleep so Close stays non-blocking — it is called from read
+		// loops and from error paths that must not stall.
+		time.AfterFunc(closeLinger, func() { _ = c.qc.CloseWithError(0, "") })
 	})
 	return nil
 }

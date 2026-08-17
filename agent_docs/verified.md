@@ -5417,3 +5417,32 @@ in `CLAUDE.md` is filename-only. Append-only means they stay; new entries should
   session) is in the ADR. **Clock sync is still unverified against a genuinely skewed peer** — that
   needs two machines with deliberately different clocks, which is what
   `dev-scripts/run-core-pseudoregalia-online.bat` step 3 is for.
+
+### Two transport-divergence bugs, found by a loopback re-test and the suite it prompted
+
+- Date: 2026-08-17
+- Observed: agent-run from process logs and tests; the trigger was a user-watched loopback session.
+- **A clean game-close was being treated as a network blip.** With `resume.v1` on, quitting the
+  game made the relay log `p1 dropped from room "default" — holding its identity for 20s`, so every
+  other player would have watched a frozen ghost for the whole grace window. The core discarding
+  its own resume token was never enough: that only decides where the NEXT connection lands and says
+  nothing to the relay about this one. Fixed by a voluntary `leave` sent client -> relay before a
+  deliberate hangup. An unexplained drop still gets the grace, which is the whole point.
+- **`quicconn.Close()` discarded the last message written before it.** It closed the stream and
+  tore down the QUIC connection in the same breath; closing a stream only signals FIN, and the
+  bytes cannot be delivered once the connection is gone. Confirmed by the goodbye above landing on
+  tcp and vanishing on quic, and by the regression test failing when the fix is reverted.
+  **This silently broke every send-before-close in the project on quic** — including the relay's
+  `Reject`, so a client refused for a wrong room code saw a bare hangup instead of the reason,
+  which is the entire thing `rejectAndClose` exists to prevent. Fixed with a bounded linger before
+  the connection teardown; `Close()` itself still does not block.
+- **A third divergence, found by the new conformance suite on its first run and NOT fixed:** udp
+  signals nothing on close, so a peer waits out `transport.DefaultIdleTimeout` (60s), against an
+  immediate RST on tcp and ~17s on quic. Left as a documented skip with the consequence named,
+  because the fix is a new control frame in the project's most exposed parser and deserves its own
+  pass. The goodbye above covers the common case there regardless.
+- Notes: the first bug was found only because the user asked "no need to test loopback?" after I
+  had moved on — the earlier on-screen confirmation was against an older build, and the join and
+  close paths had changed under it since. Worth recording as a methodology point, not just a bug:
+  **a confirmation is against a build, not against a project**, and it goes stale the moment the
+  code it covered changes.

@@ -122,6 +122,21 @@ and its `contents: write` permission is the reason CI is deliberately `contents:
   ghosts, but of the control-plane invariant CHECKERS it grew 2026-08-17. A checker with no test
   of its own passes forever, including on every run where the thing it was watching was broken,
   which is the worst failure available to a tool whose whole job is to notice.
+- **`internal/netx/conformance_test.go`** — **the transport conformance suite: one set of
+  behavioural assertions run against tcp, udp AND quic.** The point of `internal/netx` is that the
+  three are interchangeable behind one interface, so a behaviour that holds on one and not another
+  breaks a documented guarantee while every per-transport test still passes — each of those only
+  asks whether its own transport is self-consistent.
+  **The rule for adding to it: if a behaviour is promised by the Transport contract rather than by
+  one implementation, it belongs here.** Anything asserted is automatically asserted against every
+  transport, including any added later.
+  It has already paid for itself twice. It is the regression test for the quic close bug
+  (`Close()` tore the connection down immediately after closing the stream, discarding the last
+  message — which silently broke every send-before-close in the project, including the relay's
+  Reject, so a refused quic client saw a bare hangup instead of the reason). And on its very first
+  run it found a second divergence nobody was looking for: udp signals nothing at all on close, so
+  a peer waits out the full 60s idle timeout. That one is a documented skip with the consequence
+  named, not a deleted assertion.
 - **`internal/relay/leak_test.go`** — goroutine and connection-slot teardown. Both pass; these
   exist because a relay holds sessions for hours and nothing else asserted that a closed
   connection actually releases anything.

@@ -1121,6 +1121,22 @@ func (s *Server) handleConn(conn net.Conn) {
 				return
 			}
 			r.handleEscrow(id, req)
+		case protocol.TypeLeave:
+			// A voluntary goodbye (protocol.Leave): this client is going on
+			// purpose, so its identity must NOT be held for a reconnect.
+			// Clearing the token is what makes OnDisconnect below take the
+			// finishLeave path instead of suspending — the room hears a real
+			// leave immediately, which is what a player who just quit should
+			// look like to everyone else.
+			//
+			// The payload is not read at all: player_id would be the client's
+			// own claim, and the connection already knows whose it is.
+			mu.Lock()
+			resumeToken = ""
+			mu.Unlock()
+			s.forgetSessionsOf(r, id)
+			_ = nd.Close()
+			return
 		case protocol.TypePing:
 			var ping protocol.Ping
 			if err := json.Unmarshal(env.Payload, &ping); err != nil {

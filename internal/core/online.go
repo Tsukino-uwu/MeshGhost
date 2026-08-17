@@ -404,3 +404,27 @@ func logResumeOutcome(w protocol.Welcome, hadToken bool) {
 		log.Printf("core: could not resume the previous session (token expired or the relay restarted) — joined fresh as %s", w.PlayerID)
 	}
 }
+
+// sendGoodbye tells the relay this client is leaving deliberately, so it
+// announces a real leave rather than holding the identity for a reconnect.
+//
+// Synchronous, and sent before the Close that follows it: transport.Send
+// writes the line to the socket before returning, so a goodbye that raced its
+// own hangup would put us straight back to the behaviour this removes. Same
+// send-before-close reasoning as rejectBridge.
+func sendGoodbye(relay transport.Transport) {
+	payload, err := json.Marshal(protocol.Leave{})
+	if err != nil {
+		return
+	}
+	env, err := json.Marshal(protocol.Envelope{Type: protocol.TypeLeave, Payload: payload})
+	if err != nil {
+		return
+	}
+	if err := relay.Send(env); err != nil {
+		// Only worth a line at all because its absence changes what every
+		// other player sees: without a goodbye they watch a frozen ghost until
+		// the grace window expires instead of seeing a clean departure.
+		log.Printf("core: could not tell the relay this was a deliberate leave (%v) — peers will see this session time out instead", err)
+	}
+}
