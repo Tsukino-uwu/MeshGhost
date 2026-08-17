@@ -1,0 +1,17 @@
+=== MeshGhost Crystal spawn test 2 — via the map object (WRITES RAM) ===
+ROM guard passed: vanilla Crystal V1.0
+Map objects (sprite 0 = free; the engine skips those):
+   0: sprite=  1 structId=  0 at 11,4   <- player
+   2: sprite=241 structId=255 at 8,8
+   3: sprite=242 structId=255 at 9,8
+   4: sprite=243 structId=255 at 4,5
+Chose free map object slot 1.
+Wrote map object 1 at frame 120 (player 11,4 -> ghost 13,4), struct id left as -1.
+Slots now: [X............]
+>>> NOW WALK. <<< The engine only looks for unadopted map objects at the moment the
+player FINISHES a step: _CheckObjectEnteringVisibleRange returns immediately unless
+PLAYERSTEP_STOP_F is set in wPlayerStepFlags. Standing still, it never runs.
+  +150 frames: still -1, not adopted yet. Slots [X............]
+  +300 frames: still -1, not adopted yet. Slots [X............]
+  +450 frames: still -1, not adopted yet. Slots [X............]
+  +600 frames: still -1, not adopted yet. Slots [X............]

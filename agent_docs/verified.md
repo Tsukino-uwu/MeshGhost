@@ -6168,3 +6168,36 @@ scheduled. All established by the agent with local tools; nothing here is a visu
 - **Slot budget, two data points:** `PLAYERS_HOUSE_2F` (bedroom) uses 1 of 13; `PLAYERS_HOUSE_1F`
   (downstairs) uses 3. Still both small indoor maps — a populated outdoor map is untested and is
   the number that actually constrains the design.
+
+### Crystal: the engine only adopts objects scrolling onto the screen EDGE (2026-08-18)
+
+- Date: 2026-08-18
+- Observed: `spawn_test2.lua` wrote a map object into a free slot with `structId` left at `-1`, and
+  it stayed unadopted through 600+ frames of walking. The map-object dump is what explained it:
+
+  ```
+   0: sprite=  1 structId=  0 at 11,4   <- player
+   2: sprite=241 structId=255 at 8,8
+   3: sprite=242 structId=255 at 9,8
+   4: sprite=243 structId=255 at 4,5
+  ```
+
+  Sprites 241/242/243 are `SPRITE_DOLL_1`, `SPRITE_DOLL_2`, `SPRITE_BIG_DOLL` — **the game's own
+  objects, in the same room, also sitting unadopted at `structId` 255.** Only the player had a
+  struct. Nothing was being adopted, so our object was not being singled out.
+- Source: live run; `CheckObjectEnteringVisibleRange` in
+  `pret/pokecrystal` `engine/overworld/player_object.asm`.
+- Notes: **`CheckObjectEnteringVisibleRange` is not a general "adopt anything unassigned" pass.**
+  It is specifically *spawn objects as they scroll onto the screen edge*: it returns immediately
+  unless `wPlayerStepDirection` is not `STANDING`, then scans **exactly one row** —
+  `wYCoord + 9` walking down, `wYCoord - 1` walking up — for map objects on that row whose
+  `structId` is still `-1`. An object placed **beside** the player is already inside the visible
+  area and can never match, no matter how far the player walks.
+  **So test 2's failure was about WHERE the object was put, not what was written**, and that
+  distinction was only visible because the dump showed the game's own objects failing identically.
+  A dump of neighbours is worth more than a dump of the thing you are debugging.
+  **The two real entry points are now both known:** `InitializeVisibleSprites` at map load
+  (`map_setup.asm`), and `CheckObjectEnteringVisibleRange` per step at the screen edge. **Neither
+  will ever pick up an object placed next to the player mid-map**, which is exactly what a ghost
+  needs — so a general solution has to either invoke the path directly or complete the linkage by
+  hand. That is the ADR's call-vs-imitate question, now with the cost of each side visible.
