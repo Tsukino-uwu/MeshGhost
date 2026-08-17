@@ -56,9 +56,9 @@ jobs:
     # actual shipping target.
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7
         with:
           go-version: "1.25"
           # Caching keys off go.sum, which this module has had since quic-go
@@ -103,9 +103,9 @@ jobs:
     name: Fuzz the parsers
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7
         with:
           go-version: "1.25"
           # Caching keys off go.sum, which this module has had since quic-go
@@ -187,7 +187,7 @@ jobs:
       # repo, where `go test ./<pkg>` replays it as an ordinary test case.
       - name: Upload the failing input
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: fuzz-failure-corpus
           path: '**/testdata/fuzz/**'
@@ -200,9 +200,9 @@ jobs:
     # path-handling or line-ending assumption the Linux job can't.
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7
         with:
           go-version: "1.25"
           # Caching keys off go.sum, which this module has had since quic-go
