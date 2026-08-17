@@ -135,6 +135,32 @@ local function find_free_map_object()
 	return nil
 end
 
+-- A free SLOT and a free TILE are different questions, and the first run only asked the first:
+-- wYCoord+9 happened to be the exact tile an NPC stood on, so the ghost spawned on top of it and
+-- the NPC looked like it had vanished. Found live 2026-08-18.
+local function tile_occupied(x, y)
+	for i = 0, NUM_MAP_OBJECTS - 1 do
+		local base = MAP_OBJECTS + (i * MAPOBJECT_LENGTH)
+		if (u8(base + M_SPRITE) or 0) ~= 0 then
+			if u8(base + M_X_COORD) == x and u8(base + M_Y_COORD) == y then
+				return true
+			end
+		end
+	end
+	return false
+end
+
+-- Pick a spot on the row the engine scans, stepping sideways until the tile is actually empty.
+local function pick_x(px, y)
+	for _, dx in ipairs({ 0, 1, -1, 2, -2, 3, -3 }) do
+		local x = px + dx
+		if x >= 0 and not tile_occupied(x, y) then
+			return x
+		end
+	end
+	return nil
+end
+
 local function dump_map_objects(label)
 	log(label)
 	for i = 0, NUM_MAP_OBJECTS - 1 do
@@ -164,6 +190,9 @@ local src = MAP_OBJECTS -- the player's map object, index 0, as a known-good tem
 local DST, dst
 local frames, written, written_at = 0, false, 0
 local adopted = false
+local last_state = nil
+
+local MAPSTATUS = { [0] = "START", [1] = "ENTER", [2] = "HANDLE", [3] = "DONE" }
 
 local function tick()
 	frames = frames + 1
@@ -195,7 +224,13 @@ local function tick()
 		-- against -- not from the player's map object, whose coords are its spawn position.
 		local px, py = u8(W_XCOORD) or 0, u8(W_YCOORD) or 0
 		local gy = py + BELOW_SCREEN_DY
-		w8(dst + M_X_COORD, px)
+		local gx = pick_x(px, gy)
+		if not gx then
+			log("Every candidate tile on the scan row is occupied. Not writing — move elsewhere.")
+			written = true
+			return
+		end
+		w8(dst + M_X_COORD, gx)
 		w8(dst + M_Y_COORD, gy)
 		w8(dst + M_OBJECT_STRUCT_ID, UNASSIGNED)
 
@@ -203,14 +238,37 @@ local function tick()
 		written_at = frames
 		log(string.format(
 			"Wrote map object %d: sprite copied from player, at %d,%d (player is at %d,%d).",
-			DST, px, gy, px, py
+			DST, gx, gy, px, py
 		))
 		log(">>> WALK DOWN. <<< The engine scans the row at wYCoord+9 as it scrolls into view,")
 		log("and only while a step is in progress. Beside the player it would never be seen.")
 		return
 	end
 
+	-- After adoption, keep watching OUR object specifically. This is the one-variable version of
+	-- "does a ghost survive a battle": a struct COUNT staying the same proves nothing, because an
+	-- unchanged count is not unchanged contents. Watching this object's own sprite and struct id
+	-- across mapStatus changes does answer it.
 	if adopted then
+		local sprite = u8(dst + M_SPRITE) or 0
+		local id = u8(dst + M_OBJECT_STRUCT_ID)
+		local status = u8(W_MAPSTATUS)
+		local key = string.format("%d|%s|%s", sprite, tostring(id), tostring(status))
+		if key ~= last_state then
+			last_state = key
+			local what
+			if sprite == 0 then
+				what = "GONE — our map object was wiped (rebuilt from ROM)"
+			elseif id == UNASSIGNED then
+				what = "still present, but UNADOPTED again (lost its struct)"
+			else
+				what = string.format("alive, struct %d", id)
+			end
+			log(string.format(
+				"  f=%-7d mapStatus=%-6s ghost: %s",
+				frames, MAPSTATUS[status] or tostring(status), what
+			))
+		end
 		return
 	end
 
