@@ -6698,3 +6698,26 @@ scheduled. All established by the agent with local tools; nothing here is a visu
   initiation set — direction, facing, walking, step type, step duration, action, and the
   destination map coordinate — once per tile of movement, and let the engine walk it. That is the
   same "trigger the game's own systems" shape that produced the spawn recipe.
+
+### Crystal: the ghost WALKS — the full cosmetic mechanism is complete (2026-08-18)
+
+- Date: 2026-08-18
+- Observed: **watched by the user.** `walk_test.lua` spawned a player-looking ghost and paced it
+  four tiles right and four left by writing the step-initiation set once per tile. User: *"yee it
+  looks normal i think, just like any other random npc walking around"*.
+- Source: live session; `adapters/pokemon/crystal/walk_test.lua`.
+- Notes: **this completes the cosmetic mechanism Phase 9 set out to build.** A peer can be
+  represented by a real in-game character that is spawned on demand at any position, wears the
+  player's appearance, and **walks with the game's own step animation** — and the adapter draws
+  nothing, animates nothing, and interpolates nothing. Emerald does all three by hand.
+  **Being indistinguishable from an ordinary NPC is the result, not a coincidence**: it *is* an
+  ordinary object event, built the way the game builds them and driven by the same routines.
+  The initiation set, once per tile, with the engine doing the other ~16 frames:
+  `WALKING = 4 + dir`, `DIRECTION = FACING = dir * 4`, `STEP_TYPE = 2`, `STEP_DURATION = 7`,
+  `ACTION = 2`, and `MAP_X`/`MAP_Y` set to the **destination**. Direction encoding derived from
+  `InitStep`, not guessed, and agreeing with all three captured steps.
+  **Only initiate while the object is idle** (`STEP_DURATION == 0`); interrupting a half-played step
+  is what would produce a character that teleports while animating.
+- **What is left is no longer about the game.** Networking (bridge, socket, `get_local_state`),
+  the lifecycle (re-spawn on every map load and every battle), and showing a peer's *own* gender
+  rather than the local player's. Emerald's socket layer transfers wholesale for the first.
