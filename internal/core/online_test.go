@@ -199,3 +199,34 @@ func TestTimestampsUseTheRelayClockDomainOnlyWhenNegotiated(t *testing.T) {
 		t.Fatalf("with clock.v1 negotiated, nowMs() = %d, want ~%d (local + the measured offset)", shifted, local+60_000)
 	}
 }
+
+// TestClockNeverMovesBackwardsWhenTheOffsetIsRevisedDown guards a fault
+// introduced by clock sync itself: the offset is re-estimated whenever a
+// better (lower-RTT) sample arrives, so it can DECREASE, and nowMs feeds both
+// the timestamp stamped on outgoing state and the render time used to
+// interpolate remotes.
+//
+// Either moving backwards is a real fault. interp.go's remoteBuffer.add
+// requires non-decreasing timestamps and does not re-sort, so a peer's buffer
+// would go unsorted; and a render time that rewound could flip an opaque field
+// back to a previous value, manufacturing a state edge in a field the core is
+// forbidden to interpret — which an adapter firing on that edge would act on.
+func TestClockNeverMovesBackwardsWhenTheOffsetIsRevisedDown(t *testing.T) {
+	c := New()
+	c.activeFeatures = []string{protocol.FeatureClockV1}
+	c.clock = clockSync{offsetMs: 5000, bestRTTMs: 200}
+
+	high := c.nowMs()
+
+	// A better sample lands and revises the offset sharply downwards — the
+	// exact thing the lowest-RTT estimator is designed to do.
+	c.clock = clockSync{offsetMs: 1000, bestRTTMs: 5}
+
+	for i := 0; i < 50; i++ {
+		got := c.nowMs()
+		if got < high {
+			t.Fatalf("nowMs went backwards: %d after %d (a 4s downward correction)", got, high)
+		}
+		high = got
+	}
+}

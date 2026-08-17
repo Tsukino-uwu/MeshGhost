@@ -115,3 +115,66 @@ func TestRemoteBufferMismatchedAreaIDFallsBackToOlder(t *testing.T) {
 		t.Fatalf("state = %+v, want unchanged from older snapshot (zone-a, [1 2]) on an area_id change between bracketing snapshots", got)
 	}
 }
+
+// TestOpaqueFieldsNeverFlapAcrossInterpolation is the Go side's answer to a
+// question raised by a live session: a Pseudoregalia ghost was seen entering
+// and leaving its slide pose repeatedly during one continuous player slide,
+// and the adapter fires that pose on the EDGE of an opaque value it receives
+// (the peer's capsule height crossing a standing threshold). So the question
+// was whether interpolation could manufacture those edges.
+//
+// It cannot, and this pins that: non-position fields come from the OLDER of
+// the two bracketing snapshots, and renderTime advances monotonically, so a
+// value that changes once in the source changes once in the output. Anything
+// else would mean the core was inventing state transitions in a field it is
+// forbidden to interpret at all.
+func TestOpaqueFieldsNeverFlapAcrossInterpolation(t *testing.T) {
+	// A peer that stands, then crouches once and stays crouched — the shape a
+	// held slide should produce.
+	const standing, crouched = 65.0, 22.0
+	// Kept inside maxSnapshots so nothing is trimmed: the invariant is about
+	// interpolation, and a buffer that dropped the standing samples would
+	// report "no transitions" for a reason that has nothing to do with it.
+	const samples = 8
+	var b remoteBuffer
+	for i := 0; i < samples; i++ {
+		half := standing
+		if i >= 4 {
+			half = crouched
+		}
+		b.add(protocol.State{
+			Timestamp: int64(1000 + i*50),
+			AreaID:    "zone",
+			Position:  []float64{float64(i), 0, 0},
+			Anim:      "slide",
+			Extras:    map[string]any{"capsule_half": half},
+		})
+	}
+
+	// Walk the render clock forward one millisecond at a time across the whole
+	// buffer and count how many times the opaque value changes.
+	transitions := 0
+	last := -1.0
+	for rt := int64(1000); rt <= 1000+(samples-1)*50; rt++ {
+		st, ok := b.at(rt)
+		if !ok {
+			t.Fatalf("no state at renderTime %d", rt)
+		}
+		got, isFloat := st.Extras["capsule_half"].(float64)
+		if !isFloat {
+			t.Fatalf("opaque value came back as %T, not the float64 that went in", st.Extras["capsule_half"])
+		}
+		if last >= 0 && got != last {
+			transitions++
+		}
+		last = got
+	}
+	if transitions != 1 {
+		t.Fatalf("an opaque value that changed ONCE in the source changed %d times across "+
+			"interpolation — the core is manufacturing edges in a field it must not interpret",
+			transitions)
+	}
+	if last != crouched {
+		t.Fatalf("final opaque value = %v, want %v", last, crouched)
+	}
+}

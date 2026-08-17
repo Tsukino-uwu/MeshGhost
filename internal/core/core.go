@@ -383,6 +383,11 @@ type Core struct {
 	// identity (Welcome.Resumed) rather than being issued a fresh one.
 	resumed bool
 
+	// lastNowMs is the highest value nowMs has returned, so the clock it hands
+	// out never moves backwards when the offset estimate is revised downwards.
+	// Guarded by mu. See nowMs.
+	lastNowMs int64
+
 	// clock holds this connection's estimate of the offset between the local
 	// wall clock and the relay's. See clockSync in online.go for why a shared
 	// clock domain matters: State.Timestamp is compared directly against a
@@ -541,6 +546,10 @@ func (c *Core) ConnectRelay(gameID string) error {
 			c.activeFeatures = nil
 			c.resumed = false
 			c.clock = clockSync{}
+			// Reset with the clock it derives from: a new connection may have a
+			// completely different offset, and carrying the old ceiling across
+			// would freeze the new one until real time caught up.
+			c.lastNowMs = 0
 			c.pendingPings = nil
 			// Roster is per-connection: player_ids are only meaningful within
 			// the connection that assigned them. Welcome used to be the de

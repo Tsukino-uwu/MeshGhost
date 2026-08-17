@@ -102,7 +102,32 @@ func (c *Core) RelayRTTMs() int64 {
 func (c *Core) nowMs() int64 {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	return time.Now().UnixMilli() + c.clockAdjustLocked()
+	ms := time.Now().UnixMilli() + c.clockAdjustLocked()
+	// **Never go backwards.** The offset is re-estimated whenever a better
+	// (lower-RTT) sample arrives, so it can DECREASE — and this value feeds
+	// both the timestamp stamped on outgoing state and the render time used to
+	// interpolate remotes. Either one moving backwards is a real fault:
+	//
+	//   - interp.go's remoteBuffer.add states plainly that callers must add
+	//     snapshots in non-decreasing Timestamp order and that it does not
+	//     re-sort, so a timestamp that went backwards would leave every peer's
+	//     buffer unsorted and at() picking the wrong bracket.
+	//   - a render time that went backwards would rewind every ghost slightly,
+	//     and — because opaque fields come from the older bracketing snapshot —
+	//     could flip one back to a previous value, manufacturing a state edge
+	//     in a field the core is forbidden to interpret. An adapter that fires
+	//     on such an edge (Pseudoregalia poses a ghost's slide exactly that
+	//     way) would act on a transition that never happened.
+	//
+	// Clamping rather than slewing: this holds the clock still until real time
+	// catches up, which is what a monotonic clock should do with a correction
+	// that would otherwise step back. A correction FORWARD is applied
+	// immediately, since jumping ahead breaks neither property above.
+	if ms < c.lastNowMs {
+		ms = c.lastNowMs
+	}
+	c.lastNowMs = ms
+	return ms
 }
 
 // clockAdjustLocked returns the offset to apply, or 0 when this room did not
