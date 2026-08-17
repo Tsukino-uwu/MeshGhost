@@ -60,11 +60,18 @@ REM   3. Deliberately set the two machines' clocks apart by ~1s and play. With
 REM      clock.v1 the ghosts should stay smooth; without it they visibly stop
 REM      interpolating. This is the only way to actually test clock sync.
 REM
-REM -interp=100ms, not the 0ms the other pseudoregalia scripts use: those are
-REM loopback scripts where 0 keeps a self-ghost exactly on the player. Across a
-REM real network there is real jitter to smooth, and the interpolation delay is
-REM also what decides how much clock skew is survivable -- 0 would mean ANY skew
-REM breaks interpolation, which would mask exactly what this script is for.
+REM -interp=0ms and -min-send=10ms, matching every other dev script. **Dev scripts
+REM are always 1:1** -- they exist so the ghost can be compared directly against the
+REM player, and any interpolation renders the ghost deliberately in the PAST (100ms
+REM is ~6 frames at 60fps, a plainly visible lag). Whatever else a run is testing,
+REM it must not silently cost the rig the one thing it is for.
+REM
+REM **Consequence to know before testing clock.v1 specifically:** at interp=0 the
+REM newest sample is always used, so clock skew between two machines has nothing to
+REM change and this script cannot demonstrate clock sync working or failing. That
+REM measurement needs interp raised ABOVE the skew being tested -- which is a
+REM deliberate, temporary, say-so-out-loud change for that one run, then put back.
+REM The resumption half below is unaffected and testable as-is.
 ..\meshghost.exe -game=pseudoregalia -bridge=127.0.0.1:7778 -name=player1 ^
-  -features=clock.v1,resume.v1 -interp=100ms -min-send=20ms
+  -features=clock.v1,resume.v1 -interp=0ms -min-send=10ms
 pause

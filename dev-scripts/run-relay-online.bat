@@ -29,14 +29,16 @@ REM being held). That last one is the state hardest to diagnose from the outside
 REM because a suspended player still appears in every roster and receives nothing.
 REM If a ghost freezes and nobody can explain it, this is the line to read.
 REM
-REM -send-hz left at its 20Hz default ON PURPOSE, unlike the loopback dev scripts
-REM which force 100. This is a real network with real bandwidth, and the client
-REM script's -min-send=20ms already matches; 100Hz here would quadruple everyone's
-REM traffic to prove nothing about the two capabilities being tested.
+REM -send-hz=100, like every other dev relay script. A relay's advertised rate is
+REM prescriptive and effectiveSendInterval takes the SLOWER of it and the client's
+REM own -min-send, so a relay left at the 20Hz default silently drags every dev
+REM client's fast local rate back down -- and a ghost updating at 20Hz cannot be
+REM judged 1:1 against the player no matter what interp is set to. Dev scripts are
+REM for 1:1 checking; the rate is half of that.
 REM
 REM Room code: set one before handing this address to anyone outside your own
 REM machine. quic (the default transport) encrypts the session against a passive
 REM observer but does NOT authenticate the relay, so the address alone is the
 REM whole of the access control until a code is set.
-..\meshghost-relay.exe -resume-grace=8 -introspect=30s
+..\meshghost-relay.exe -send-hz=100 -resume-grace=8 -introspect=30s
 pause
