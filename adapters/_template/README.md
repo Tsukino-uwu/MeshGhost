@@ -277,6 +277,25 @@ Related, when a write of yours keeps getting undone: something is **maintaining*
 what state *it* reads rather than writing harder — re-asserting every tick just loses the race
 visibly.
 
+### Delay your own change, so its effects separate from the game's own startup
+
+The noisiest moment in any game is the first few seconds of a level: cameras pick targets, systems
+initialise, actors register. Introduce your thing into *that*, and every consequence of it arrives
+tangled up with consequences of the level loading, which you cannot tell apart.
+
+**Hold your change back by a few seconds after the local player is valid, and the game goes quiet
+first.** Whatever then happens is yours. Pseudoregalia held ghost spawning for ~300 game-thread
+ticks (~5s), and that alone turned "the camera sometimes ends up on the wrong target" into a
+clean, isolated event ~2.6ms after spawn — a timestamped one-off instead of a vague interaction
+with level entry. It is the time-domain version of the previous section: rather than logging a
+window around a moment, you *move* the moment somewhere the log is empty.
+
+Two things to get right. Delay from **the player becoming valid**, not from mod load — mod load is
+early and varies, player-valid is the event the game's own startup hangs off. And **make it a
+constant you can set to zero**, because this is a diagnostic scaffold, not behaviour: once the
+question is answered, a delay before a peer appears is a cost users pay for an investigation that
+already finished. Zero it, and keep the constant so the next investigation can raise it again.
+
 ## When a mirrored effect's timing is slightly off, stop reconstructing the trigger
 
 Enumeration (above) answers *what exists*. This answers *when it happens* — and it is the fix for
