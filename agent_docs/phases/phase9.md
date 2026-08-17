@@ -47,6 +47,94 @@ All evidence in `agent_docs/verified.md`, dated. Summary only here.
   with a real struct id — the game stating in its own terms that our bytes are legitimate. This is
   the ADR's chosen branch proven rather than assumed.
 
+## What was done, in order
+
+Every step, including the ones that were wrong — the wrong ones are most of what was learned.
+Evidence for each is in `verified.md` under the matching date.
+
+**Groundwork (2026-08-17)**
+
+1. **Licence-checked the whole `pret` family before reading any of it.** All of them carry no
+   licence file, so the facts-only posture already recorded for `pokeemerald` applies unchanged.
+   One row now covers the family (`licensing.md`).
+2. **Built `pokecrystal` and verified it three ways** — the built ROM, the user's ROM, and the hash
+   the decomp documents all match (`f4cd194b…`). This is what makes every address authoritative
+   rather than plausible. **Nothing needed installing**; the one trap was that the build must run
+   in the msys2 shell, whose failure mode looks like a broken compiler (`environment.md`).
+3. **Pulled player/map addresses from `pokecrystal.sym`**, including the four consecutive bytes
+   `wMapGroup`/`wMapNumber`/`wYCoord`/`wXCoord` that later served as a live fingerprint.
+4. **`domain_probe.lua`** — established that `System Bus` and `WRAM` both reach bank 1 and agree.
+   - *First run verdict was wrong*: it reported "ambiguous" because two domains agreed exactly.
+     Aliasing domains are corroboration, not conflict; the logic was fixed.
+   - *Also fixed*: the probe had no log file, so its verdict existed only in the Lua Console and
+     had to be copied back by hand. All probes now write a timestamped log beside themselves.
+
+**Understanding the object model (2026-08-17 → 08-18)**
+
+5. **`object_slot_probe.lua`** — 13 object structs of 0x28 bytes, player in slot 0.
+   - *Run 1* produced a single line in an empty bedroom and looked broken; a heartbeat was added so
+     a quiet room reads as quiet.
+   - *Run 2* caught the game's own `SpawnPlayer` at frame 454 and dumped the struct.
+   - *Run 3* dumped **different bytes for the same event** — revealing that the first frame a slot
+     is non-zero is *during* initialisation. Follow-up dumps at +1/+4/+16/+64 frames were added,
+     and the earlier "ground truth" was marked provisional.
+6. **Wrote the spawn ADR** (`architecture.md`), then corrected it twice: once to ask
+   **call-vs-imitate** before implementing (a lesson the template already recorded), and once to
+   narrow the claim — spawning was never forbidden; the emulator **mechanism** is what needed the
+   gate.
+
+**Making something appear (2026-08-18)**
+
+7. **`spawn_test.lua`** — copied the player's object struct into a free slot. **A second character
+   rendered, correctly, confirmed on screen.** First game-RAM write in the project.
+8. **The user found the seam**: collision sat two tiles from the sprite, and an invisible blocked
+   tile existed where nothing was drawn. Cause: map coordinates drive collision, screen coordinates
+   drive drawing, and the engine never recomputed the latter — a **half-owned object**. The script
+   had logged that and it was misread as "stationary, inconclusive".
+9. **`spawn_test2.lua`** — wrote a *map object* instead and waited for adoption. Nothing happened
+   for 600 frames.
+   - *First attempt refused to write at all*: map object slot 1 held `SPRITE_CONSOLE`, the console
+     in the bedroom. The guard was right; hardcoding a slot was not. Free-slot selection became
+     a runtime scan, and the array is now dumped first.
+   - *The dump explained the silence*, and not from our object: **the game's own dolls were also
+     sitting unadopted.** Nothing was being adopted.
+10. **Read `CheckObjectEnteringVisibleRange`**: it is not a general adoption pass but *"spawn
+    objects as they scroll onto the screen edge"* — one row, only mid-step. An object beside the
+    player can never match it.
+11. **`spawn_test3.lua`** — placed on the row the engine actually scans. **`*** ADOPTED ***` — the
+    engine replaced our `-1` with a real struct id.** The ADR's chosen branch, proven.
+    - *Two side effects*: the ghost landed on an NPC's tile (a free **slot** was checked, never a
+      free **tile**), and an existing NPC was bumped out of the struct pool and stayed invisible.
+      Both undone by a map reload, which the user confirmed on screen.
+    - *A claim was withdrawn*: this was first written up as pool exhaustion. A struct was free
+      throughout, so it was a reshuffle, not exhaustion.
+
+**Lifecycle (2026-08-18)**
+
+12. **`ingame_gate_probe.lua`** — started on the title screen, walked through the whole lifecycle.
+    - Found a **~2-second window** after loading where the map identity and player object both look
+      valid while the world is still being built. Any data-plausibility check passes there.
+    - *Gate correction 1*: including `wMapEventStatus`/`wScriptRunning` made it flicker dozens of
+      times crossing one room — they toggle every step.
+    - *Gate correction 2*: `wMapStatus` stays `HANDLE` through a **battle**, so `wBattleMode`
+      became its own term.
+    - Captured a **door transition** (objects rebuild from ROM) and a **battle exit** (also passes
+      through `ENTER`).
+13. **A false `ADOPTED`**: the player changed maps, our object was wiped, and the new map's NPC
+    inherited the slot — answering "is the struct id set?" perfectly plausibly. The script now
+    checks **identity** (sprite, coordinates, map) before claiming anything.
+
+**Cross-cutting fixes made along the way**
+
+14. **All four scripts moved off `event.onframeend`** to `while true do … emu.frameadvance() end`.
+    A registered callback outlives its script, so stopping it left it running and every reload
+    stacked another — the console spammed while the UI reported "0 active". **The shipped Emerald
+    adapter had used the correct idiom all along**; nobody read it first. Written up in
+    `pitfalls.md`, generalised into the template.
+15. **Rules added to `CLAUDE.md` and the template** as a result: read `_template/README.md` end to
+    end before starting an adapter; read the working adapter for the same host first; gate spawns
+    on the game's own in-play signal; and give a new game its own phase file.
+
 ## The shape of the thing, learned the hard way
 
 Worth stating plainly because three tests were spent discovering it:

@@ -19,6 +19,9 @@ resumption, clock sync, and world custody, all opt-in and unused by any adapter)
 and the six library packages moved out of `internal/` to the repo root under the module's real
 path — importable from outside, with no stability promised. See the ADR in `architecture.md`.
 
+**Phase 9 (Crystal) opened 2026-08-17** — fourth game, and the first that **spawns a real in-game
+object** instead of drawing an overlay. `phases/phase9.md`.
+
 Roadmap: `plans.md`. Per-phase log: `phases/`. Evidence for all of the above: `verified.md`.
 
 ## Genuinely open items
@@ -42,6 +45,10 @@ that a peer's state genuinely differs from the local player's, which loopback co
   bug; a two-machine session settles it. `verified.md`.
 
 ### Open, not blocked
+
+- **Crystal: adoption only fires at map load or the screen edge** — neither reaches an object
+  placed beside the player, which is what a ghost needs. `phases/phase9.md`.
+- **Crystal: does a ghost survive a battle?** Set up twice, answered neither time. `phase9.md`.
 
 - **Duplicate ghost spawn on every level load** — two ghosts per peer, the `remotes` entry going
   present -> absent within three ticks, leaving an orphaned pawn nobody tracks. `verified.md`.

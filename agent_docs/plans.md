@@ -353,6 +353,25 @@ VRAM/sprite-injection investigation (`agent_docs/ideas.md`; Stage 1 — read-onl
 which actually *writes* emulator memory is gated by the no-memory-writes non-goal above, and needs
 its own ADR before it starts.
 
+### Phase 9 — Pokémon Crystal (GBC), spawn-based rather than drawn
+
+**Status: in progress, started 2026-08-17.** Full record: `agent_docs/phases/phase9.md`. The fourth
+game, and the first to render a peer by **spawning a real in-game object** rather than drawing an
+overlay — the user's explicit call, so a new adapter does not begin with a compensation Emerald
+already carries. That crossed the no-memory-writes non-goal above and has its own ADR
+(`architecture.md`, 2026-08-17), narrowly scoped: Crystal only, vanilla V1.0 only, live RAM only,
+cosmetic only, and the adapter must identify the ROM before writing and refuse otherwise.
+
+**Settled**: the decomp builds byte-identical to the ROM being played, so addresses are
+authoritative; `WRAM` is the domain to read; the in-game gate is `wMapStatus == HANDLE` **and**
+`wBattleMode == 0` (both terms established empirically after simpler versions failed); object state
+is rebuilt per map, and a **battle exit is also a map re-entry**; and **the engine adopts map
+objects we write**, which is the ADR's chosen branch proven rather than assumed.
+
+**The central open problem**: both of the engine's adoption paths are map-load or screen-edge, so
+neither will pick up an object placed beside the player mid-map — which is exactly what a ghost
+needs. Nothing networked exists yet; Emerald's socket layer transfers once that is closed.
+
 ### Room codes / relay safety
 
 **Set as the current/next priority 2026-08-13; core work done 2026-08-14.** Full record: the
