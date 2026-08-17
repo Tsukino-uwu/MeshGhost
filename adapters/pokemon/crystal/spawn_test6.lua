@@ -218,7 +218,16 @@ local function tick()
 		end
 
 		local mo, st = free_map_object(), free_struct()
-		local px, py = u8(W_XCOORD) or 0, u8(W_YCOORD) or 0
+
+		-- TWO DIFFERENT QUANTITIES, conflated all session until 2026-08-18:
+		--   wXCoord/wYCoord    = the origin of the VISIBLE WINDOW. Used by the engine's own range
+		--                        checks, and by the screen-coordinate formula below.
+		--   player struct MAP_X/MAP_Y = where the PLAYER actually stands on the map.
+		-- Placing at "wXCoord + 2" put a ghost two tiles from the top-left of the screen, which is
+		-- how test 6's first run spawned next to Professor Elm instead of next to the player.
+		local win_x, win_y = u8(W_XCOORD) or 0, u8(W_YCOORD) or 0
+		local px = u8(OBJECT_STRUCTS + F_MAP_X) or 0
+		local py = u8(OBJECT_STRUCTS + F_MAP_Y) or 0
 		local gx, gy = pick_spot(px, py)
 		if not mo or not st or not gx then
 			log("No free slot or clear tile. Move somewhere more open.")
@@ -276,8 +285,9 @@ local function tick()
 		-- than an absolute map coordinate, and the BG map offset is the sub-tile scroll.
 		local bg_x = u8(W_BGMAPOFFSETX) or 0
 		local bg_y = u8(W_BGMAPOFFSETY) or 0
-		local sx = (((gx - px) & 0x0F) * 16 - bg_x) & 0xFF
-		local sy = (((gy - py) & 0x0F) * 16 - bg_y) & 0xFF
+		-- Relative to the WINDOW origin, not the player -- that is what the engine's formula uses.
+		local sx = (((gx - win_x) & 0x0F) * 16 - bg_x) & 0xFF
+		local sy = (((gy - win_y) & 0x0F) * 16 - bg_y) & 0xFF
 		w8(our_st_base + F_SPRITE_X, sx)
 		w8(our_st_base + F_SPRITE_Y, sy)
 		log(string.format(
@@ -287,8 +297,8 @@ local function tick()
 
 		written = true
 		mine = { sprite = u8(our_st_base + F_SPRITE), group = u8(W_MAPGROUP), number = u8(W_MAPNUMBER) }
-		log(string.format("Ours: map object %d <-> struct %d at %d,%d (player at %d,%d).",
-			mo, st, gx, gy, px, py))
+		log(string.format("Ours: map object %d <-> struct %d at map %d,%d (player at map %d,%d; window origin %d,%d).",
+			mo, st, gx, gy, px, py, win_x, win_y))
 		log("It will look like that NPC, not like you. Appearance is the next problem, not this one.")
 		log(">>> WALK AROUND. <<< Watch the two columns below: if ours starts tracking the way the")
 		log("NPC does, the engine has taken it.")
