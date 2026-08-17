@@ -57,11 +57,11 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          go-version: "1.22"
-          # No go.sum in this module (zero dependencies), and setup-go's cache
-          # keys off one -- leaving it on just logs a "Dependencies file is not
-          # found" restore failure on every run with nothing to cache anyway.
-          cache: false
+          go-version: "1.25"
+          # Caching keys off go.sum, which this module has had since quic-go
+          # was adopted (2026-08-16). It was off while the module had zero
+          # dependencies and setup-go had nothing to key on.
+          cache: true
 
       - name: Build
         run: go build ./...
@@ -104,11 +104,11 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          go-version: "1.22"
-          # No go.sum in this module (zero dependencies), and setup-go's cache
-          # keys off one -- leaving it on just logs a "Dependencies file is not
-          # found" restore failure on every run with nothing to cache anyway.
-          cache: false
+          go-version: "1.25"
+          # Caching keys off go.sum, which this module has had since quic-go
+          # was adopted (2026-08-16). It was off while the module had zero
+          # dependencies and setup-go had nothing to key on.
+          cache: true
 
       # A relay is a listening port strangers connect to, so every byte it
       # parses is attacker-controlled. Each target gets a short campaign per
@@ -134,6 +134,12 @@ jobs:
       - name: Fuzz relay - survives arbitrary bytes and still serves clients
         run: go test ./internal/relay -run=XXX -fuzz=FuzzRelaySurvivesArbitraryLines -fuzztime=45s
 
+      # udp parses stranger datagrams *before* address validation, room code or
+      # protocol version -- the most exposed pre-auth surface in the project,
+      # and since 2026-08-16 it is also on the fallback path rather than opt-in.
+      - name: Fuzz udpconn - listener survives arbitrary datagrams
+        run: go test ./internal/netx/udpconn -run=XXX -fuzz=FuzzListenerSurvivesArbitraryDatagrams -fuzztime=45s
+
       # A fuzz failure writes the exact reproducing input to
       # testdata/fuzz/<Target>/<hash>. Without this it exists only inside a
       # deleted runner and the log shows a hash nobody can reproduce from;
@@ -158,11 +164,11 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          go-version: "1.22"
-          # No go.sum in this module (zero dependencies), and setup-go's cache
-          # keys off one -- leaving it on just logs a "Dependencies file is not
-          # found" restore failure on every run with nothing to cache anyway.
-          cache: false
+          go-version: "1.25"
+          # Caching keys off go.sum, which this module has had since quic-go
+          # was adopted (2026-08-16). It was off while the module had zero
+          # dependencies and setup-go had nothing to key on.
+          cache: true
 
       - name: Build the release binaries
         run: |

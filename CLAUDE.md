@@ -228,10 +228,10 @@ stays here, its reasoning goes to `agent_docs/`, with a one-line pointer. Full e
   enough", not "~10 hours in") — the three existing adapter READMEs all read that way, and it's
   the number a reader is actually asking for. Found live 2026-08-15:
   Pseudoregalia's steps 19-22 had each grown to 15-20 dense lines while 1-18 stayed at 2-4,
-  making the file hard to read for exactly the audience it's for. **One standing exception, granted
-  by the user 2026-08-16: Pseudoregalia's steps 38-41 (the ultra-hop blue trail) run ~6 lines each
-  and must not be trimmed to match the rest** — it was the adapter's hardest and longest piece of
-  work. A note at the bottom of that list says so too; don't "fix" either.
+  making the file hard to read for exactly the audience it's for. **Standing exception, granted by
+  the user 2026-08-16 and extended 2026-08-17: Pseudoregalia's steps 38-41 (ultra-hop blue trail)
+  and 43-44 (the slide pose) run 6-10 lines each and must not be trimmed** — the adapter's two
+  hardest pieces of work. A note at the bottom of that list says so too; don't "fix" either.
 - **`agent_docs/status.md` is an index of what's open, not a record: two lines per item, maximum —
   what is open, and where the detail lives.** A third line means it belongs in `verified.md`,
   `pitfalls.md`, or `phases/phaseN.md`; move it and leave a pointer. Delete an item the moment it's

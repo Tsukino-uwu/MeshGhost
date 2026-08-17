@@ -23,9 +23,9 @@ downloaded release folder and run against its `meshghost-server.exe` instead.
   needs no setup at all; and **fuzzing**, which runs a short campaign per push against the
   parsers. Both are also why a green run here is not the same as a green CI run. Re-confirmed
   2026-08-16 against Go 1.25: the devkitPro `gcc` fails on `stddef.h`, MSYS2's own GCC 15.1 fails
-  in `runtime/cgo`, and `wsl.exe` exists with no distro installed. (`go.mod` requires Go 1.25.0
-  and the installed toolchain is 1.26.5; CI's `setup-go` still pins 1.22, which works only
-  because `GOTOOLCHAIN=auto` upgrades it on the fly.)
+  in `runtime/cgo`, and `wsl.exe` exists with no distro installed. (`go.mod` requires Go 1.25.0,
+  the installed toolchain is 1.26.5, and CI's `setup-go` pins 1.25 to match — it pinned 1.22 until
+  2026-08-17, which worked only because `GOTOOLCHAIN=auto` upgraded it silently.)
 - `run-gotests-race.bat` — the race detector, the exact `go test -race -count=3 ./...` CI runs.
   **Probes for a C compiler Go can actually use** rather than assuming one, since two different
   installed `gcc`s both fail, and prints what to install if none works. Currently that is what it

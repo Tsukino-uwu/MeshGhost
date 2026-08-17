@@ -281,8 +281,7 @@ stream transport, or sending a *reference* rather than the data.
 
 Most of the rig already exists and is better than it looks: `cmd/meshghost-fakeadapter` doubles as
 an N-client synthetic load generator, `internal/e2e` launches the real binaries, `-loopback` gives
-a one-machine round trip, and CI runs the race detector plus five of the six fuzz targets (the
-udpconn listener target is written but not in CI — `testing.md` says so). `testing.md` and
+a one-machine round trip, and CI runs the race detector plus all six fuzz targets. `testing.md` and
 `dev-scripts/README.md` are the inventory.
 
 What is missing splits cleanly by **which bug class it catches**:

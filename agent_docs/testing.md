@@ -54,7 +54,7 @@ the set that actually went wrong.
 | End-to-end, real binaries (`internal/e2e`) | yes | yes | yes |
 | **Race detector** | **no — can't** (`run-gotests-race.bat` says why) | yes (Linux) | no |
 | Concurrency stress (`-shuffle`, `-cpu`, repeats) | yes (`run-gotests-stress.bat`) | no | no |
-| **Fuzzing** | seed corpus only | yes, short campaign — five of the six targets | no |
+| **Fuzzing** | seed corpus only | yes, short campaign per target (all six) | no |
 
 **The race detector is the one real hole, and it has already cost a round trip.** CI caught a
 relay race on 2026-08-16 (a join broadcast computed its recipients under a *second* lock
@@ -143,10 +143,10 @@ checks):
 | `FuzzRelaySurvivesArbitraryLines` | A live relay fed arbitrary bytes still serves legitimate clients afterwards. |
 | `FuzzListenerSurvivesArbitraryDatagrams` | A `udpconn` listener fed arbitrary datagrams — malformed headers, bad tokens, wrong sequence numbers — keeps accepting real sessions. |
 
-**`FuzzListenerSurvivesArbitraryDatagrams` is the one target CI does not run** (`ci.yml`'s fuzz
-job names the other five). Its seed corpus runs in the ordinary suite, but it gets no campaign,
-which is a real gap on the transport that is now the universal fallback. Run it by hand with the
-campaign command below until CI covers it.
+`FuzzListenerSurvivesArbitraryDatagrams` was written but left out of CI until 2026-08-17. It is the
+most exposed target of the six: udp parses a stranger's bytes *before* address validation, room
+code, or protocol version, and since the transport defaults changed it sits on the fallback path
+rather than being opt-in.
 
 If CI's fuzz job fails, the reproducing input is uploaded as the `fuzz-failure-corpus`
 artifact. Download it, drop it into the matching `testdata/fuzz/<Target>/` directory, and
