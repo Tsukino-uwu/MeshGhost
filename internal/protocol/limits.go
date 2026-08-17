@@ -173,7 +173,16 @@ func ValidateState(st State) bool {
 			return false
 		}
 	}
-	if len(st.AreaID) > MaxAreaIDLen || len(st.Anim) > MaxAnimLen ||
+	// AreaID and Anim get the same UTF-8 requirement as the identifiers on
+	// the other planes (ValidOpaqueString), and for the identical reason: the
+	// core is permitted to compare them by equality and nothing else, and a
+	// string that is not valid UTF-8 comes back from a JSON round trip as a
+	// different string. A wire-decoded state is already valid UTF-8, so this
+	// changes nothing for any shipped adapter — all three speak JSON over the
+	// bridge. It guards an in-process Go caller, where the failure would
+	// otherwise be a ghost whose area_id silently stops matching its peer's
+	// and which therefore never renders, with nothing reporting why.
+	if !ValidOpaqueString(st.AreaID, MaxAreaIDLen) || !ValidOpaqueString(st.Anim, MaxAnimLen) ||
 		len(st.Orientation) > MaxOrientationBytes {
 		return false
 	}

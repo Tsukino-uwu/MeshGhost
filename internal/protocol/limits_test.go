@@ -93,3 +93,56 @@ func TestValidateState(t *testing.T) {
 		}
 	})
 }
+
+// TestOpaqueIdentifiersMustBeValidUTF8 is the named form of a defect the
+// fuzzer found (its reproducing input is kept in
+// testdata/fuzz/FuzzValidateEventIsStableAcrossTheWire, where `go test` replays
+// it, but a seed file explains nothing about why it matters).
+//
+// The rule: an opaque identifier is only ever compared by equality, and a
+// string that is not valid UTF-8 does not survive JSON — encoding/json swaps
+// each invalid byte for U+FFFD. So the sender's key and every receiver's key
+// are different strings, and equality silently stops working. The replacement
+// also expands one byte into three, which is how it surfaced: a corr_id that
+// passed the length check before marshaling failed it afterwards, so a client
+// accepted an event the relay would then silently drop.
+func TestOpaqueIdentifiersMustBeValidUTF8(t *testing.T) {
+	// Valid UTF-8 and comfortably short. Non-ASCII on purpose: the rule is
+	// about well-formedness, never about restricting anyone to ASCII.
+	const ok = "route103:rare-candy-ünïcode"
+	// A lone continuation byte: syntactically impossible UTF-8.
+	const bad = "route103:\xb4\xe5"
+
+	if !ValidOpaqueString(ok, 128) {
+		t.Fatalf("a valid non-ASCII identifier was rejected")
+	}
+	if ValidOpaqueString(bad, 128) {
+		t.Fatalf("an invalid-UTF-8 identifier was accepted")
+	}
+
+	if ValidateEvent(Event{CorrID: bad}) {
+		t.Errorf("an event with an invalid-UTF-8 corr_id was accepted")
+	}
+	if ValidateEvent(Event{To: bad}) {
+		t.Errorf("an event addressed to an invalid-UTF-8 player_id was accepted")
+	}
+	if ValidateLease(Lease{Op: LeaseClaim, Key: bad}) {
+		t.Errorf("a lease claim on an invalid-UTF-8 key was accepted")
+	}
+	if ValidateEscrow(Escrow{Op: EscrowOpen, ID: bad, With: "p2"}) {
+		t.Errorf("an exchange with an invalid-UTF-8 id was accepted")
+	}
+	if ValidateState(State{AreaID: bad}) {
+		t.Errorf("a state with an invalid-UTF-8 area_id was accepted")
+	}
+	if ValidateState(State{Anim: bad}) {
+		t.Errorf("a state with an invalid-UTF-8 anim was accepted")
+	}
+
+	// And the legitimate cases still pass, so this cannot have been "fixed"
+	// by rejecting everything.
+	if !ValidateEvent(Event{CorrID: ok}) || !ValidateLease(Lease{Op: LeaseClaim, Key: ok}) ||
+		!ValidateState(State{AreaID: ok, Anim: ok}) {
+		t.Errorf("valid identifiers were rejected by the new UTF-8 check")
+	}
+}

@@ -18,7 +18,35 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
+
+// ValidOpaqueString reports whether s is usable as one of this protocol's
+// opaque identifiers: within maxBytes, and valid UTF-8.
+//
+// **The UTF-8 half is not tidiness, and it is not about the contents.** The
+// contract permits exactly one operation on an opaque string — comparison by
+// equality — and a string that is not valid UTF-8 does not survive JSON:
+// encoding/json replaces each invalid byte with U+FFFD on the way out. So the
+// key a sender wrote and the key every receiver compares are different
+// strings, and equality silently stops working across the wire. That is a
+// worse failure than a refusal, because nothing reports it.
+//
+// The replacement also EXPANDS (one bad byte becomes three), which is how this
+// was found: FuzzValidateEventIsStableAcrossTheWire produced a corr_id that
+// passed the length check before being marshaled and failed it afterwards, so
+// a client's own validation accepted an event the relay would then silently
+// drop. The length asymmetry is the symptom; the broken equality is the
+// disease, and rejecting invalid UTF-8 fixes both at once rather than
+// budgeting for worst-case expansion.
+//
+// Not reachable from the wire itself — a string decoded from JSON is already
+// valid UTF-8, because the decoder did the same replacement on the way in — so
+// this guards the in-process callers: internal/core's exported send paths, and
+// any future in-process adapter that builds these values in Go.
+func ValidOpaqueString(s string, maxBytes int) bool {
+	return len(s) <= maxBytes && utf8.ValidString(s)
+}
 
 // Capability strings a client advertises in Hello.Features. Each names one
 // thing the relay is asked to do that it would otherwise never do; a room
@@ -313,7 +341,7 @@ func ValidateLease(l Lease) bool {
 	default:
 		return false
 	}
-	return l.Key != "" && len(l.Key) <= MaxLeaseKeyLen
+	return l.Key != "" && ValidOpaqueString(l.Key, MaxLeaseKeyLen)
 }
 
 // EscrowOp is one step of a two-sided atomic exchange.
@@ -409,10 +437,10 @@ func ValidateEscrow(e Escrow) bool {
 	default:
 		return false
 	}
-	if e.ID == "" || len(e.ID) > MaxEscrowIDLen {
+	if e.ID == "" || !ValidOpaqueString(e.ID, MaxEscrowIDLen) {
 		return false
 	}
-	if len(e.With) > MaxHelloFieldLenForID {
+	if !ValidOpaqueString(e.With, MaxHelloFieldLenForID) {
 		return false
 	}
 	return len(e.Blob) <= MaxEscrowBlobBytes
@@ -430,10 +458,10 @@ const MaxHelloFieldLenForID = 128
 // relay on receive and at the core before send, the same two-enforcement-
 // point discipline as ValidateState.
 func ValidateEvent(e Event) bool {
-	if len(e.To) > MaxHelloFieldLenForID {
+	if !ValidOpaqueString(e.To, MaxHelloFieldLenForID) {
 		return false
 	}
-	if len(e.CorrID) > MaxCorrIDLen {
+	if !ValidOpaqueString(e.CorrID, MaxCorrIDLen) {
 		return false
 	}
 	return len(e.Payload) <= MaxEventBytes

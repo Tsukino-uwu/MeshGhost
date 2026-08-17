@@ -2,7 +2,7 @@ name: CI
 
 # Runs the Go client/server checks CLAUDE.md requires before any change to
 # internal/ or cmd/ is called done -- build, vet, the full test suite, and a
-# short fuzz campaign against six targets across four packages (protocol,
+# short fuzz campaign against nine targets across four packages (protocol,
 # transport, relay, netx/udpconn). Until this existed,
 # every one of those ran only when a human remembered to run them, and
 # release.yml shipped binaries without running a single test.
@@ -128,6 +128,24 @@ jobs:
 
       - name: Fuzz protocol - envelope decode never panics
         run: go test ./internal/protocol -run=XXX -fuzz=FuzzEnvelopeUnmarshalNeverPanics -fuzztime=30s
+
+      # The three planes past cosmetic (2026-08-17) parse their own
+      # attacker-controlled shapes: an event payload is opaque bytes forwarded
+      # to other players, and a lease key or escrow id becomes a map key in the
+      # relay's own state. Same exposure as the state plane above, so the same
+      # treatment.
+      - name: Fuzz protocol - events survive a relay forward unchanged
+        run: go test ./internal/protocol -run=XXX -fuzz=FuzzValidateEventIsStableAcrossTheWire -fuzztime=30s
+
+      - name: Fuzz protocol - lease and escrow bounds never panic
+        run: go test ./internal/protocol -run=XXX -fuzz=FuzzValidateLeaseAndEscrowNeverPanic -fuzztime=30s
+
+      # Room feature stickiness compares normalized capability lists by string
+      # equality, so a normalizer that is not idempotent would refuse two
+      # clients a shared room for no reason -- a handshake failure with no
+      # legible cause.
+      - name: Fuzz protocol - feature normalization is idempotent
+        run: go test ./internal/protocol -run=XXX -fuzz=FuzzNormalizeFeaturesIsIdempotent -fuzztime=30s
 
       - name: Fuzz transport - framing honours its line limit
         run: go test ./internal/transport -run=XXX -fuzz=FuzzReadLoopNeverExceedsItsLineLimit -fuzztime=45s
