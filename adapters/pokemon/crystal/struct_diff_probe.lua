@@ -149,14 +149,34 @@ local function struct_bytes(i)
 	return b
 end
 
--- An NPC the engine built and is driving: a map object, not the player, whose struct id is real.
+-- An NPC the engine built and is driving.
+--
+-- "Has a struct id that is not 255" is NOT the same claim as "the engine made this", and treating
+-- them as equivalent invalidated an entire run on 2026-08-18: another MeshGhost script was still
+-- loaded, its hand-built ghost satisfied the test, and the probe compared our object against our
+-- own other object. The diff came back clean because both sides were built the same way.
+--
+-- So a candidate is rejected if its sprite matches the player's. Every ghost this project builds
+-- copies the player's sprite id, and no real NPC uses it. That is a heuristic rather than a proof
+-- -- the real discipline is running one writer at a time -- so it warns loudly rather than
+-- silently skipping.
 local function find_engine_object()
+	local player_sprite = u8(OBJECT_STRUCTS + F_SPRITE)
 	for i = 1, NUM_MAP_OBJECTS - 1 do
 		local base = MAP_OBJECTS + (i * MAPOBJECT_LENGTH)
 		local sprite = u8(base + M_SPRITE) or 0
 		local id = u8(base + M_OBJECT_STRUCT_ID)
 		if sprite ~= 0 and id and id ~= UNASSIGNED and id < NUM_OBJECT_STRUCTS then
-			return i, id
+			if sprite == player_sprite then
+				log(string.format(
+					"!! map object %d uses the PLAYER's sprite (%d) — that is almost certainly a",
+					i, sprite
+				))
+				log("!! ghost from another MeshGhost script, not an engine-built NPC. Skipping it.")
+				log("!! Stop every other MeshGhost script before trusting this run.")
+			else
+				return i, id
+			end
 		end
 	end
 	return nil

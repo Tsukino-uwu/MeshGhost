@@ -6454,3 +6454,34 @@ scheduled. All established by the agent with local tools; nothing here is a visu
   correction both times came from the screen, not the numbers.
 - **Next measurement must be somewhere the camera actually scrolls** — an outdoor route, not a
   room — with the same control. Only there does a frozen-versus-tracking comparison mean anything.
+
+### RETRACTION: that struct diff compared our object against our own other object (2026-08-18)
+
+- Date: 2026-08-18
+- Observed: **the user caught it** — `spawn_test4.lua` was still loaded and running when
+  `struct_diff_probe.lua` started. Comparing the two logs:
+
+  ```
+  test 4:      Linked map object 1 <-> struct 4, at 7,8
+  diff probe:  Reference: map object 1 -> struct 4, built and driven by the engine.
+  ```
+
+  **The "engine-built reference" was test 4's own hand-built ghost.**
+- Source: the two logs, read together.
+- Notes: **the preceding entry's central finding is withdrawn.** "No meaningful field difference
+  between what the engine builds and what we build" was **guaranteed by construction** — both sides
+  of the comparison were built by us, the same way, minutes apart. It says nothing about the
+  engine.
+  **The cause is a weak identity test, the same class of mistake as the false `ADOPTED`.**
+  `find_engine_object()` looked for a map object whose struct id was not 255 and assumed that meant
+  the engine had adopted it. Our own scripts set that field, so our objects qualified. **"Has a
+  struct id" is not the same claim as "the engine made this"** — and nothing about the value read
+  was implausible, which is why it passed unnoticed.
+  **What survives from that run:** the culling mechanic (independent, read from the decomp), and
+  the observation that the control did not move — though even that is now doubly unusable, since
+  the "reference" was not an engine object and Elm's lab does not scroll anyway.
+  **Two rules earned, both already project rules and both broken here anyway:** run one writer at a
+  time, and check identity rather than a proxy for it. The first was stated explicitly before the
+  previous run and not followed through when a second script was added.
+- **Practical guard added**: a reference object whose `SPRITE` matches the player's is now rejected
+  and warned about, since our ghosts copy the player's sprite id and real NPCs do not use it.
