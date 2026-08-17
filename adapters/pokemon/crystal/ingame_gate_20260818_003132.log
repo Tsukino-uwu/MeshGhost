@@ -36,3 +36,5 @@ The 'gate' column is what a spawn guard would decide at that moment.
 [SPAWN-OK] f=21235   mapStatus=HANDLE battle=-       map=24/3 structs= 3 mapObjs= 9  (events=1 script=0 paused=0)
 [SPAWN-OK] f=21245   mapStatus=HANDLE battle=-       map=24/3 structs= 2 mapObjs= 9  (events=1 script=0 paused=0)
 [SPAWN-OK] f=21430   mapStatus=HANDLE battle=wild    map=24/3 structs= 2 mapObjs= 9  (events=0 script=255 paused=0)
+[blocked ] f=30000   mapStatus=ENTER  battle=-       map=24/3 structs= 2 mapObjs= 9  (events=0 script=255 paused=0)
+[SPAWN-OK] f=30055   mapStatus=HANDLE battle=-       map=24/3 structs= 2 mapObjs= 9  (events=0 script=0 paused=0)

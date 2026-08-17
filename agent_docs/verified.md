@@ -6296,3 +6296,36 @@ scheduled. All established by the agent with local tools; nothing here is a visu
   same time and injects one map object**, so the real figure is 8 or 9 — good enough to establish
   that outdoor maps consume roughly half the array and that free slots exist, but it should be
   re-measured with only one script running before any budget rests on it.
+
+### Crystal: leaving a battle is a map re-entry (2026-08-18)
+
+- Date: 2026-08-18
+- Observed: running from a wild battle on Route 29, `ingame_gate_probe.lua`:
+
+  ```
+  [SPAWN-OK] f=21430 mapStatus=HANDLE battle=wild map=24/3 structs= 2 mapObjs= 9
+  [blocked ] f=30000 mapStatus=ENTER  battle=-    map=24/3 structs= 2 mapObjs= 9
+  [SPAWN-OK] f=30055 mapStatus=HANDLE battle=-    map=24/3 structs= 2 mapObjs= 9
+  ```
+
+- Source: live run, `ingame_gate_20260818_003132.log`.
+- Notes: **the battle ends with `wMapStatus` passing through `ENTER` — the same transition a door
+  produces.** So a battle exit is a map re-entry, and **every encounter is a ghost-lifecycle event,
+  not just every map change.** Given how often battles happen in this game that is a central rule
+  for the adapter rather than an edge case, and it is the answer to the question the battle run was
+  posed to settle.
+  **The gate handles it correctly with no extra work**: `ENTER` already blocks, so the re-entry
+  window is covered by the term added for door transitions.
+  Battle *entry* did not disturb the arrays (`structs` held at 2 going in).
+- **Two things deliberately NOT concluded from this run:**
+  1. **`structs` reading 2 before, during and after does not prove the structs were not rebuilt.**
+     An unchanged count is not unchanged contents, and this map happens to have the same number of
+     nearby objects on both sides of the battle. Whether a ghost actually survives a battle needs a
+     test that watches a *specific* object, not a count.
+  2. **`mapObjs` held at 9 across the `ENTER`, which is suggestive but confounded.**
+     `spawn_test3.lua` was running alongside and had injected a map object; if the battle exit
+     reloaded map objects from ROM, that injected object should have vanished and the count should
+     have dropped. It did not — which hints the battle-exit `ENTER` is a *lighter* re-entry than a
+     door transition. **But with two scripts running, the count cannot be attributed**, and the
+     alternative (the object was already gone and 9 is simply the map's real count) fits equally
+     well. Re-run with a single script before believing either.
