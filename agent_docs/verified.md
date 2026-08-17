@@ -5982,3 +5982,50 @@ scheduled. All established by the agent with local tools; nothing here is a visu
   absent from the entries read, which lists mainly flags and Archipelago's own variables), and
   whether the V1.0 and V1.1 basepatches (`basepatch.bsdiff4`, `basepatch11.bsdiff4`) differ in
   layout from each other.
+
+### Crystal: what the game itself writes when it spawns the player (2026-08-17)
+
+- Date: 2026-08-17
+- Observed: `object_slot_probe.lua` watching all 13 object slots every frame while the user loaded
+  a save from the main menu. At **frame 454** slot 0 went from empty to occupied, and the probe
+  dumped the whole 40-byte struct as the game left it:
+
+  ```
+  01 00 00 0B 02 00 00 FF 00 01 00 01 00 FF 00 00 07 07 07 07 07 07 00 40 40 00 00 00 00 00 00 00 ...
+  ```
+
+  Decoded against `constants/map_object_constants.asm`:
+
+  | Off | Field | Value | Note |
+  | --- | --- | --- | --- |
+  | 00 | `OBJECT_SPRITE` | `01` | `SPRITE_CHRIS` |
+  | 03 | `OBJECT_MOVEMENT_TYPE` | `0B` | `SPRITEMOVEDATA_PLAYER` |
+  | 04 | `OBJECT_FLAGS1` | `02` | |
+  | 06 | `OBJECT_PALETTE` | `00` | male; the female path would differ |
+  | 07 | `OBJECT_WALKING` | `FF` | not walking |
+  | 08 | `OBJECT_DIRECTION` | `00` | |
+  | 09 | `OBJECT_STEP_TYPE` | `01` | |
+  | 0B | `OBJECT_ACTION` | `01` | |
+  | 0D | `OBJECT_FACING` | `FF` | |
+  | 10-11 | `OBJECT_MAP_X` / `MAP_Y` | `07` `07` | |
+  | 12-13 | `OBJECT_LAST_MAP_X` / `Y` | `07` `07` | equal to current, as expected at spawn |
+  | 14-15 | `OBJECT_INIT_X` / `Y` | `07` `07` | equal to current |
+  | 17-18 | `OBJECT_SPRITE_X` / `Y` | `40` `40` | screen position |
+  | 19+ | remainder | `00` | all zero |
+
+- Source: live capture (`object_slot_probe.lua`, read-only, no writes); field offsets and constant
+  names from `pret/pokecrystal`.
+- Notes: **this is the ground truth the spawn ADR asked for** — what a correctly-initialised object
+  looks like, to verify against if the engine routine can be called, or to imitate if it cannot.
+  **It corroborates the decomp independently**: `SPRITE_CHRIS` and `SPRITEMOVEDATA_PLAYER` are
+  exactly what `PlayerObjectTemplate` specifies in `engine/overworld/player_object.asm`, arrived at
+  from live bytes rather than from reading it.
+  **An ordering fact worth having**: the object is populated while `wMapGroup`/`wMapNumber` still
+  read `0/0`; the map identity only becomes `24/7` afterwards. So object spawn does not wait on map
+  identity being valid, and an adapter must not use "map is valid" as its cue that the player
+  object exists.
+  **Also confirmed:** 13 slots free before load, exactly one used after — the player. No slot was
+  cleared across the menu-to-map transition.
+- **Still not observed, and both matter:** a real map-to-map transition (the run stayed in
+  `PLAYERS_HOUSE_2F`), and how many slots the game itself consumes on a populated map. Twelve free
+  in a bedroom is an upper bound, not a budget.
