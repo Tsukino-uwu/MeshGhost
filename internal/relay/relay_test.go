@@ -870,7 +870,7 @@ func (f *fakeStallingTransport) Close() error                        { return ni
 // stalled peer. Found while scoping relay-safety hardening —
 // agent_docs/architecture.md's room-code/version ADR.
 func TestRoomForwardDoesNotBlockOtherOperationsOnStalledSend(t *testing.T) {
-	r := newRoom("emerald", "", "room1")
+	r := newRoom("emerald", "", "room1", nil)
 	stalled := &fakeStallingTransport{unblock: make(chan struct{})}
 	r.tryAdd(&Client{PlayerID: "p1", Conn: stalled})
 
@@ -1081,7 +1081,7 @@ func TestGameVersionMismatchRejected(t *testing.T) {
 // section so the snapshot for the Nth join always reflects exactly the
 // N-1 members added before it, never fewer, by construction.
 func TestTryAddAndSnapshotRosterIsAtomic(t *testing.T) {
-	r := newRoom("emerald", "", "room1")
+	r := newRoom("emerald", "", "room1", nil)
 
 	roster1 := r.tryAddAndSnapshotRoster(&Client{PlayerID: "p1", Conn: &fakeStallingTransport{unblock: make(chan struct{})}})
 	if len(roster1) != 0 {
@@ -1565,7 +1565,7 @@ func TestRateLimitedClientReceivesRejectBeforeClose(t *testing.T) {
 // reused), one stale map entry per departure over a long-lived relay's
 // life.
 func TestReceiveGateForgetsASenderThatLeft(t *testing.T) {
-	r := newRoom("emerald", "", "room1")
+	r := newRoom("emerald", "", "room1", nil)
 	sender := &Client{PlayerID: "p1", Conn: &fakeStallingTransport{unblock: make(chan struct{})}}
 	// maxReceiveHz must be > 0 -- the uncapped (0) path short-circuits
 	// allowStateFrom before it ever touches the gate map, so an uncapped

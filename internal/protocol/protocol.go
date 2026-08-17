@@ -53,12 +53,24 @@ const (
 	TypeJoin    MessageType = "join"
 	TypeLeave   MessageType = "leave"
 	TypeState   MessageType = "state"
-	// TypeEvent is reserved and not implemented. See the Extensibility
-	// section of agent_docs/contract.md — the payload is opaque to the core
-	// and relay by design, and routing for it does not exist yet.
+	// TypeEvent is the event plane: reliable, ordered, addressed, and with a
+	// payload fully opaque to the core and relay. Reserved from the start of
+	// the project and implemented 2026-08-17 — see agent_docs/contract.md's
+	// Extensibility section and the ADR in agent_docs/architecture.md. Only
+	// routed for a room whose agreed feature set contains FeatureEventV1.
 	TypeEvent MessageType = "event"
-	TypePing  MessageType = "ping"
-	TypePong  MessageType = "pong"
+	// TypeLease and TypeLeaseState are lease authority over opaque keys:
+	// the relay grants a key to the first asker and refuses the rest,
+	// without ever knowing what the key means. Gated on FeatureLeaseV1.
+	TypeLease      MessageType = "lease"
+	TypeLeaseState MessageType = "lease_state"
+	// TypeEscrow and TypeEscrowState are two-sided atomic exchange — both or
+	// neither. Gated on FeatureEscrowV1. See online.go's EscrowOp for why
+	// this is a separate mechanism from leases rather than a use of them.
+	TypeEscrow      MessageType = "escrow"
+	TypeEscrowState MessageType = "escrow_state"
+	TypePing        MessageType = "ping"
+	TypePong        MessageType = "pong"
 	// TypeReject is the relay's reply to a Hello it refuses — wrong protocol
 	// version, mismatched game_id/game_version for the room, a wrong room
 	// code, or a full room — or, since the send/receive rate-control feature
@@ -117,10 +129,31 @@ type Hello struct {
 	// matching how a room's first Hello with no game_id would behave — see
 	// the ADR in agent_docs/architecture.md.
 	GameVersion string `json:"game_version,omitempty"`
-	// Features is a capability list a client advertises. Reserved: nothing
-	// populates or consumes real values yet. See contract.md's Features
-	// section for why this field exists before anything uses it.
+	// Features is the capability list this client advertises — see the
+	// Feature* constants in online.go. Reserved from 2026-08-11 and
+	// populated from 2026-08-17.
+	//
+	// A room's normalized feature set is sticky on first join and later
+	// joiners must match it exactly, the same way GameVersion already is.
+	// That is not tidiness: if one client advertises lease.v1 and claims
+	// properly while another does not and simply acts, conflict resolution
+	// silently does not work, and everything looks fine until it doesn't.
+	// Refusing at the handshake turns an invisible correctness failure into
+	// a legible one (protocol.ReasonFeatureMismatch). The relay learns no
+	// more about "lease.v1" than it currently learns about "1.2.0".
 	Features []string `json:"features,omitempty"`
+	// ResumeToken, when non-empty, asks the relay to reinstate the identity
+	// this token was issued for (Welcome.ResumeToken) instead of assigning a
+	// fresh player_id: same id, same leases, same in-flight escrows, and no
+	// leave/join seen by anyone else in the room. Honoured only within
+	// DefaultResumeGrace of the drop, only in the same room, and only for a
+	// room whose feature set contains FeatureResumeV1.
+	//
+	// A token that is unknown, expired, or for another room is NOT an error
+	// — the relay silently falls back to assigning a new identity, which is
+	// exactly what a client with no token gets. Failing the join instead
+	// would turn "you were away slightly too long" into "you cannot play."
+	ResumeToken string `json:"resume_token,omitempty"`
 	// MaxReceiveHz is the highest rate, in updates per second *per peer*, at
 	// which this client wants the relay to forward other players' state to
 	// it. Zero or absent means uncapped (the pre-existing behavior, and what
@@ -183,6 +216,30 @@ type Welcome struct {
 	// be a bug worth seeing rather than eliding. See the ADR in
 	// agent_docs/architecture.md.
 	SendHz int `json:"send_hz"`
+	// Features is the room's agreed feature set — normalized, and identical
+	// for every member (see Hello.Features). Echoed back so a client can see
+	// what the room actually settled on rather than assuming its own request
+	// was adopted wholesale, and so a client joining an existing room learns
+	// the set it was matched against.
+	Features []string `json:"features,omitempty"`
+	// ResumeToken is the unguessable secret this client presents in a later
+	// Hello.ResumeToken to reclaim this identity after an unexpected drop.
+	// Populated only for a room whose feature set contains FeatureResumeV1;
+	// empty otherwise, and empty from any relay that predates resumption.
+	//
+	// Treat it as a credential: anyone holding it can take over this session,
+	// including its outstanding escrows. It never leaves the client that was
+	// issued it, and is never broadcast to the room.
+	ResumeToken string `json:"resume_token,omitempty"`
+	// Resumed reports that this Welcome reinstated an existing identity
+	// rather than creating one. A client uses it to know that its previous
+	// player_id, leases and escrows are still live — and, more practically,
+	// that it should NOT treat this as a fresh session.
+	Resumed bool `json:"resumed,omitempty"`
+	// ServerTimeMs is the relay's own wall clock at the moment it sent this
+	// Welcome, in milliseconds. The seed for clock sync: see Pong.ServerTimeMs
+	// for why a single shared clock domain matters more than it sounds.
+	ServerTimeMs int64 `json:"server_time_ms,omitempty"`
 }
 
 // Reject is the relay's reply to a Hello it refuses to accept, or — since
@@ -209,6 +266,12 @@ const (
 	ReasonInvalidRoomCode         = "invalid room code"
 	ReasonGameMismatch            = "game mismatch for this room"
 	ReasonGameVersionMismatch     = "game version mismatch for this room"
+	// ReasonFeatureMismatch means this client's advertised capability set
+	// differs from the one this room agreed on when its first member joined
+	// (see Hello.Features). Sticky the same way game_version is, and refused
+	// for the same reason: two members that disagree about whether leases
+	// exist do not fail loudly, they fail silently and much later.
+	ReasonFeatureMismatch = "feature set mismatch for this room"
 	// ReasonGameNotAllowed means this relay is configured to host one
 	// specific game and the client is playing a different one — a
 	// server-wide restriction the operator declared up front (see
@@ -248,24 +311,80 @@ type Leave struct {
 	PlayerID string `json:"player_id"`
 }
 
-// Event is reserved and not implemented — see agent_docs/contract.md's
-// Extensibility section. Payload is opaque to the core and relay; To is the
-// addressee, or empty for room broadcast. No code sends, routes, or
-// consumes this type yet.
+// Event is one message on the event plane: reliable, ordered, addressed,
+// and opaque. See agent_docs/contract.md's Extensibility section.
+//
+// The two planes are kept structurally separate on purpose, and the reason
+// is delivery semantics rather than tidiness. `extras` on the state plane is
+// lossy, latest-wins, and re-sent ~20x/second — right for "what colour is
+// this ghost's trail" and catastrophic for "I offer you this item," which is
+// not an offer if it may silently vanish. Deeper data rides here, never
+// there.
 type Event struct {
-	To      string          `json:"to,omitempty"`
+	// To is the addressee's player_id, or empty for room broadcast. This is
+	// the one field of an Event the relay reads, which is exactly why it is
+	// top-level and the payload is not: **a field earns top-level status only
+	// if game-agnostic code must act on it.** A top-level field the core does
+	// not read is a field the core can start reading.
+	To string `json:"to,omitempty"`
+	// From is the sender's player_id, stamped server-side from the
+	// connection's own assigned id and never trusted from the payload —
+	// exactly as State.PlayerID already is, and for the same reason: a peer
+	// could otherwise attribute an event to someone else.
+	From string `json:"from,omitempty"`
+	// Seq is the room's monotonic sequencer stamp, assigned by the relay
+	// inside the same critical section that snapshots the recipients, so
+	// every member of a room observes one identical total order over events,
+	// lease changes and escrow changes alike.
+	//
+	// This is real server authority in the practically useful sense, and it
+	// needs no game knowledge whatsoever: **authority over order is not
+	// authority over meaning.** "You were second" needs a counter. "That move
+	// was illegal" needs to understand the game, and is not on offer here.
+	//
+	// Distinct from State.Seq, which is a per-client counter on the lossy
+	// plane and means nothing across senders.
+	Seq uint64 `json:"seq,omitempty"`
+	// CorrID is an opaque correlation id, echoed unchanged, so an adapter can
+	// match a reply to its request without inventing a framing of its own
+	// inside Payload. The relay never generates, interprets or requires one.
+	CorrID string `json:"corr_id,omitempty"`
+	// Payload is fully opaque to the core and relay — the same rule that
+	// keeps them game-agnostic for area_id and anim is what would keep them
+	// game-agnostic for a battle protocol. Bounded by MaxEventBytes, and
+	// never fragmented: if it does not fit, send a reference, not chunks.
 	Payload json.RawMessage `json:"payload"`
 }
 
-// Ping/Pong keep an otherwise-quiet connection from going idle
-// (internal/core.Core.sendHeartbeats) — not a liveness/RTT mechanism. Nonce
-// is echoed by the relay but not currently read by anything; reserved for a
-// real RTT/liveness use later, per agent_docs/contract.md's Transport
-// section.
+// Ping keeps an otherwise-quiet connection from going idle
+// (internal/core.Core.sendHeartbeats) and, since 2026-08-17, doubles as the
+// clock-sync probe. Nonce is echoed in the Pong so a client can match a
+// reply to the send time it recorded — previously the field existed and
+// nothing read it back, which meant RTT was not merely unmeasured but not
+// even computable.
 type Ping struct {
 	Nonce uint64 `json:"nonce"`
 }
 
+// Pong is the relay's reply.
 type Pong struct {
 	Nonce uint64 `json:"nonce"`
+	// ServerTimeMs is the relay's own wall clock when it sent this reply, in
+	// milliseconds. With the client's recorded send time and its receive
+	// time, that is the standard three-timestamp estimate: RTT is t2-t0, and
+	// the offset between the two clocks is serverTime - (t0+t2)/2.
+	//
+	// **Why the relay is the clock and not each peer:** State.Timestamp is
+	// compared directly against a *local* wall clock by
+	// internal/core/interp.go's remoteBuffer.at(), so two peers whose clocks
+	// disagree by more than the interpolation delay stop interpolating and
+	// silently fall back to an edge snapshot every tick — no error anywhere,
+	// just ghosts that look subtly wrong. A client that has measured this
+	// offset stamps its outgoing timestamps in the relay's clock domain
+	// instead of its own, which puts every member of a room on one shared
+	// clock without any peer having to be correct about the real time.
+	//
+	// Zero means "not advertised" — an older relay — and a client reading
+	// zero applies no offset, which is exactly the pre-2026-08-17 behaviour.
+	ServerTimeMs int64 `json:"server_time_ms,omitempty"`
 }

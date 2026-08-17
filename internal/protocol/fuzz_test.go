@@ -2,6 +2,7 @@ package protocol
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 )
 
@@ -122,3 +123,78 @@ func FuzzValidPositionsSurviveNarrowingToFloat32(f *testing.F) {
 // which would hide exactly the overflow being tested.
 func math32IsInf(f float32) bool { return f > 3.4e38 || f < -3.4e38 }
 func math32IsNaN(f float32) bool { return f != f }
+
+// FuzzValidateEventIsStableAcrossTheWire is ValidateEvent's counterpart to
+// the state-plane target above: the event plane's payload is fully opaque, so
+// the only thing standing between a stranger's bytes and the relay's forward
+// path is this one bounds check. A payload that validates must still validate
+// after a round trip through JSON, or the relay and the receiving core could
+// reach different conclusions about the same message.
+func FuzzValidateEventIsStableAcrossTheWire(f *testing.F) {
+	f.Add("", "", []byte(`{"a":1}`))
+	f.Add("p2", "corr-1", []byte(`null`))
+	f.Add("p2", "", []byte(``))
+
+	f.Fuzz(func(t *testing.T, to, corrID string, payload []byte) {
+		ev := Event{To: to, CorrID: corrID}
+		if json.Valid(payload) {
+			ev.Payload = json.RawMessage(payload)
+		}
+		if !ValidateEvent(ev) {
+			return
+		}
+		b, err := json.Marshal(ev)
+		if err != nil {
+			t.Fatalf("a valid event failed to marshal: %v", err)
+		}
+		var back Event
+		if err := json.Unmarshal(b, &back); err != nil {
+			t.Fatalf("a valid event failed to round trip: %v", err)
+		}
+		if !ValidateEvent(back) {
+			t.Fatalf("event validated before the wire and not after: %+v -> %+v", ev, back)
+		}
+	})
+}
+
+// FuzzValidateLeaseAndEscrowNeverPanic covers the two arbitration planes'
+// bounds checks. Neither may panic on any input: the relay calls them on
+// bytes a stranger chose, before the request reaches any of its own state.
+func FuzzValidateLeaseAndEscrowNeverPanic(f *testing.F) {
+	f.Add("claim", "route103:candy", 0, "open", "trade-1", "p2", []byte(`{"x":1}`))
+	f.Add("", "", -1, "", "", "", []byte(``))
+
+	f.Fuzz(func(t *testing.T, leaseOp, key string, ttl int, escrowOp, id, with string, blob []byte) {
+		ValidateLease(Lease{Op: LeaseOp(leaseOp), Key: key, TTLMs: ttl})
+		// Whatever the request said, a resolved TTL must always land inside
+		// the honoured range — a negative or absurd value is clamped, never
+		// passed through into a timer.
+		if d := ClampLeaseTTL(ttl); d < MinLeaseTTL || d > MaxLeaseTTL {
+			t.Fatalf("ClampLeaseTTL(%d) = %v, outside [%v, %v]", ttl, d, MinLeaseTTL, MaxLeaseTTL)
+		}
+		e := Escrow{Op: EscrowOp(escrowOp), ID: id, With: with}
+		if json.Valid(blob) {
+			e.Blob = json.RawMessage(blob)
+		}
+		ValidateEscrow(e)
+	})
+}
+
+// FuzzNormalizeFeaturesIsIdempotent guards the property the relay's room
+// stickiness depends on: normalizing twice must equal normalizing once, or
+// two clients advertising the same capabilities could compare unequal and be
+// refused a shared room for no reason.
+func FuzzNormalizeFeaturesIsIdempotent(f *testing.F) {
+	f.Add("lease.v1,event.v1")
+	f.Add(" a , a ,,b")
+	f.Add("")
+
+	f.Fuzz(func(t *testing.T, joined string) {
+		in := strings.Split(joined, ",")
+		once := NormalizeFeatures(in)
+		twice := NormalizeFeatures(once)
+		if FeatureSetKey(once) != FeatureSetKey(twice) {
+			t.Fatalf("NormalizeFeatures is not idempotent: %q -> %v -> %v", joined, once, twice)
+		}
+	})
+}

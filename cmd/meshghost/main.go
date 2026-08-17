@@ -120,6 +120,18 @@ type fileConfig struct {
 	// means uncapped (the pre-existing behavior). Per-peer, not a total —
 	// see core.Core.MaxReceiveHz and the ADR in agent_docs/architecture.md.
 	MaxReceiveHzPerPlayer *int `json:"max_receive_hz_per_player"`
+	// Features turns on capabilities beyond the cosmetic ghost overlay --
+	// the event plane, leases, escrow, late-join snapshots, session
+	// resumption, clock sync (see internal/protocol's Feature* constants and
+	// agent_docs/beyond-cosmetic.md). Absent or empty, the default, means
+	// cosmetic only.
+	//
+	// **A room's capability set has to match EXACTLY across everyone in it**,
+	// so this is not a per-player preference like the ones above: everybody
+	// sharing a room needs the same list, and a client whose list differs is
+	// refused at the handshake with a clear reason rather than admitted into
+	// a room where half the arbitration silently does not work.
+	Features *[]string `json:"features"`
 	// Transport is what this client moves to AFTER connecting, not how it
 	// connects: the handshake is always tcp and no setting changes that.
 	// "tcp" stays put; "udp" (the shipped default) and "quic" upgrade if the
@@ -166,6 +178,7 @@ type configTargets struct {
 	maxReceiveHz *int
 	transport    *string
 	showConsole  *bool
+	features     *string
 }
 
 // applyFileConfig loads path (leaving every flag alone if it doesn't exist, so
@@ -337,6 +350,11 @@ func applyFileConfig(path string, explicit map[string]bool, t configTargets) {
 	if fc.ShowConsole != nil && !explicit["show-console"] {
 		*t.showConsole = *fc.ShowConsole
 	}
+	if fc.Features != nil && !explicit["features"] {
+		// Joined rather than kept as a list, so the config file and the flag
+		// resolve to one representation and the flag stays a plain string.
+		*t.features = strings.Join(*fc.Features, ",")
+	}
 }
 
 // connectRelayWithRetry keeps calling Core.ConnectRelayOnAdapterHello until
@@ -496,10 +514,17 @@ func main() {
 			"started this client (it spawns us with no window on purpose); a client you ran "+
 			"yourself already has the terminal you ran it from. For \"is it actually running?\" -- "+
 			"the log file answers the same question either way. Ignored on non-Windows")
+	features := flag.String("features", "",
+		"comma-separated capabilities to negotiate beyond the cosmetic ghost overlay, e.g. "+
+			"\"event.v1,lease.v1,escrow.v1\". Empty (the default) is cosmetic only and is what "+
+			"every shipped adapter uses. EVERYONE in a room must pass the same set -- a "+
+			"mismatch is refused at the handshake, on purpose, because a room where one client "+
+			"arbitrates and another doesn't fails silently and much later. See "+
+			"agent_docs/beyond-cosmetic.md")
 	configPath := flag.String("config", "config.json",
 		"path to an optional JSON config file with a \"client\" section "+
 			"(connect_to/local_game_bridge/game/room/name/interp/min_send/room_code/game_version/"+
-			"max_receive_hz_per_player/transport/show_console) -- a friendlier alternative to flags for non-developer use; "+
+			"max_receive_hz_per_player/transport/show_console/features) -- a friendlier alternative to flags for non-developer use; "+
 			"a warning is logged if it doesn't exist; any flag explicitly passed on the command line "+
 			"overrides the same field from this file")
 	flag.Parse()
@@ -529,6 +554,7 @@ func main() {
 		maxReceiveHz: maxReceiveHz,
 		transport:    transportName,
 		showConsole:  showConsole,
+		features:     features,
 	})
 
 	// stderr stays in the list unconditionally: when this client was run from a
@@ -579,6 +605,7 @@ func main() {
 	c.InterpolationDelay = *interp
 	c.MinSendInterval = *minSend
 	c.MaxReceiveHz = *maxReceiveHz
+	c.Features = parseFeatures(*features)
 	c.RelayAddr = *relayAddr
 	c.Room = *room
 	c.DisplayName = *name
@@ -616,4 +643,17 @@ func main() {
 	if err := c.ServeBridge(ln); err != nil {
 		log.Fatalf("meshghost: serve bridge: %v", err)
 	}
+}
+
+// parseFeatures turns the comma-separated -features value into the list this
+// client advertises. Unknown names are passed through rather than rejected:
+// the relay compares capability sets by equality and never interprets a name,
+// so a future capability this build has not heard of must still be able to
+// travel through it — the same forward-compatibility posture as unknown
+// fields and unknown message types.
+func parseFeatures(s string) []string {
+	if strings.TrimSpace(s) == "" {
+		return nil
+	}
+	return protocol.NormalizeFeatures(strings.Split(s, ","))
 }

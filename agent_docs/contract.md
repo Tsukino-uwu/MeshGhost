@@ -89,7 +89,10 @@ briefly the other way round, and a test that squats a port with a listener that 
 adapter/game closes, or its socket otherwise drops), the core closes its relay connection too,
 which the relay reports to the rest of the room as a real `leave` — see the 2026-08-13 ADR in
 `architecture.md`. A later bridge `hello` on that same core process reconnects to the relay and
-is assigned a new `player_id`; there is no session resumption under the old identity.
+is assigned a new `player_id`: the core deliberately discards its `resume_token` when the
+adapter goes away, so an adapter-driven disconnect is always a real leave. Session resumption
+(see `resume_token` below) exists for the opposite case — the relay connection dropping
+underneath a game that is still running.
 
 ## Packet schema (the `state` message payload)
 
@@ -99,7 +102,7 @@ Unchanged from the brief, restated exactly:
 |---|---|
 | `player_id` | assigned by the relay at `hello` |
 | `seq` | monotonic, per-client, for ordering |
-| `timestamp` | numeric, for interpolation. Milliseconds, wall-clock (`time.Now().UnixMilli()` on whichever side stamps it). **Peers' wall clocks must actually agree, not just be internally consistent** — `internal/core/interp.go`'s `remoteBuffer.at()` compares a *local* wall-clock render time directly against a *remote's* wall-clock timestamps. Meaningful clock skew between peers silently falls back to an edge snapshot every tick (interpolation stops, no error anywhere) rather than failing loudly. |
+| `timestamp` | numeric, for interpolation. Milliseconds, wall-clock (`time.Now().UnixMilli()` on whichever side stamps it). **Peers' wall clocks must actually agree, not just be internally consistent** — `internal/core/interp.go`'s `remoteBuffer.at()` compares a *local* wall-clock render time directly against a *remote's* wall-clock timestamps. Meaningful clock skew between peers silently falls back to an edge snapshot every tick (interpolation stops, no error anywhere) rather than failing loudly. **A room that negotiates `clock.v1` closes that gap**: every member stamps in the *relay's* clock domain instead of its own, and renders against the same shifted clock, so nobody has to be correct about the real time — they only have to agree. Off by default, so an unnegotiated room is byte-for-byte the original behaviour. See Transport below. |
 | `area_id` | opaque string. Map bank for Emerald, scene name for TEVI/Unity. |
 | `position` | variable-length float array. 2 for Emerald, 3 for 3D games. |
 | `orientation` | optional. Facing direction, angle, or quaternion. Opaque to the core. |
@@ -139,25 +142,77 @@ signal joins/leaves — `despawn_remote(id)` has nothing to trigger it without a
 
 | Message | Direction | Carries |
 |---|---|---|
-| `hello` | client → relay | protocol version, `game_id`, room name, display name, `room_code`, `game_version`, `features`, `max_receive_hz_per_player`, `query_only` |
-| `welcome` | relay → client | assigned `player_id`, current room roster, room send rate (`send_hz`) |
+| `hello` | client → relay | protocol version, `game_id`, room name, display name, `room_code`, `game_version`, `features`, `resume_token`, `max_receive_hz_per_player`, `query_only` |
+| `welcome` | relay → client | assigned `player_id`, current room roster, room send rate (`send_hz`), the room's agreed `features`, the relay's clock (`server_time_ms`), and — for a `resume.v1` room — a single-use `resume_token` and a `resumed` flag |
 | `transports` | relay → client | the transports this relay actually serves, as `kind` + `port` pairs (never a host). The reply to a `hello` carrying `query_only: true` — sent *instead of* `welcome`, with no room joined and no `player_id` assigned, and the relay closes immediately after. See Transport below |
 | `reject` | relay → client | a reason string — sent immediately before the relay closes a connection, either refusing a `hello` at handshake or, since the send/receive rate-control feature (see the ADR in `architecture.md`), closing an already-joined connection for exceeding the per-client message cap |
-| `join` | relay → client | a peer's `player_id`. The schema reserves an optional initial `state`, but no relay populates it today — every `Join` the relay sends has `State == nil`, so treat it as absent. |
+| `join` | relay → client | a peer's `player_id`, plus an optional initial `state`. Populated **only** for a room that negotiated `snapshot.v1`, where a joining client is sent one `join` per existing member carrying that member's most recent sample; otherwise still absent, as it was from 2026-08-11 to 2026-08-17. |
 | `leave` | relay → client | a peer's `player_id` — this is what drives `despawn_remote` |
 | `state` | both directions | the packet schema above |
-| `event` | both directions | **reserved, not implemented.** See Extensibility below. |
-| `ping` / `pong` | client → relay / relay → client | keeps an otherwise-quiet connection from going idle. Each carries a `nonce` (uint64). Despite the pair being symmetric on paper, the implementation is one-directional per type: the core sends `ping`, the relay answers `pong`, and the core ignores an inbound `ping`. See below |
+| `event` | both directions | an opaque payload, a `to` addressee (or absent for room broadcast), a relay-stamped `from`, a room-wide `seq`, and an optional `corr_id`. **Implemented 2026-08-17**; requires `event.v1`. See Extensibility below |
+| `lease` / `lease_state` | client → relay / relay → client | exclusive hold of an opaque key: `claim`/`renew`/`release`, answered with the current holder and expiry. Requires `lease.v1` |
+| `escrow` / `escrow_state` | client → relay / relay → client | two-sided atomic exchange: `open`/`deposit`/`commit`/`abort`, answered with the phase and — only once committed — both opaque blobs. Requires `escrow.v1` |
+| `ping` / `pong` | client → relay / relay → client | keeps an otherwise-quiet connection from going idle, and carries clock sync. Each carries a `nonce` (uint64); `pong` also carries `server_time_ms`. Despite the pair being symmetric on paper, the implementation is one-directional per type: the core sends `ping`, the relay answers `pong`, and the core ignores an inbound `ping`. See below |
 
 ### `features`
 
-New field on `hello`, added 2026-08-11, not yet consumed by anything. An array of opaque
-capability strings a client advertises (e.g. `["battle.v1"]`). A relay or peer that doesn't
-recognize a capability simply ignores it — this is the one piece of the contract that cannot
-be added after clients exist in the wild: a client built before `features` existed has no way
-to say what it supports, so the first feature addition would silently break every already-
-deployed client. Reserving the field now costs nothing; it is not populated with real values
-until something actually needs one.
+Added to `hello` 2026-08-11 and reserved unused until 2026-08-17, when everything past the
+cosmetic state plane was built on top of it. An array of opaque capability strings a client
+advertises. This is the one piece of the contract that could not have been added after clients
+existed in the wild: a client built before `features` existed has no way to say what it
+supports, so the first feature addition would have silently broken every already-deployed
+client.
+
+The defined capabilities, each of which switches on one thing the relay would otherwise never
+do (`internal/protocol/online.go`):
+
+| Capability | Turns on |
+|---|---|
+| `event.v1` | addressed event routing |
+| `lease.v1` | exclusive hold of opaque keys |
+| `escrow.v1` | two-sided atomic exchange |
+| `snapshot.v1` | seeding a joining client via `join.state` |
+| `resume.v1` | session resumption after an unexpected drop |
+| `clock.v1` | timestamps stamped in the relay's clock domain |
+
+**A room's normalized feature set is sticky on first join, and a later joiner must match it
+exactly** — refused with `ReasonFeatureMismatch` otherwise. Two rules follow that are worth
+stating because both are easy to get backwards:
+
+- **An empty set is a real value that must still match.** Unlike `game_version`, where "not
+  declared" means "don't check", a client advertising nothing may not join a room that
+  negotiated leases. The hazard being closed is exactly that case: one client claiming
+  properly while another simply acts means conflict resolution silently does not work, and
+  everything looks fine until it doesn't.
+- **Nothing is on by default.** Every shipped adapter advertises nothing and is therefore
+  wire-compatible with any cosmetic room, which is what keeps this additive rather than a
+  version bump. A capability is turned on by the user (`client.features` in `config.json`, or
+  `-features`) or asked for by an adapter in its bridge `hello`; the core advertises the union.
+
+The relay learns no more about `lease.v1` than it currently learns about the game version
+`1.2.0` — it compares two normalized strings. See `agent_docs/beyond-cosmetic.md` for why
+capability mismatch inside one room had to be closed rather than tolerated.
+
+### `resume_token`
+
+Added 2026-08-17 with session resumption. Issued in `welcome` for a `resume.v1` room, presented
+in a later `hello` to reclaim the same `player_id` after an unexpected drop.
+
+- **The relay holds a dropped identity for a grace window** (20s by default,
+  `server.resume_grace_seconds`) rather than announcing a `leave`. Within it, the client's
+  `player_id`, its leases and its in-flight exchanges are all still live, and **the rest of the
+  room is never told anything happened at all** — no `leave`, no `join`. Past it, the drop
+  becomes an ordinary leave: leases freed, live exchanges aborted, `leave` broadcast.
+- **Single-use, and rotated on every `welcome`.** Treat it as a credential: anyone holding it
+  can take over that session, including its outstanding exchanges. It is generated with
+  `crypto/rand` (128 bits) rather than derived from `player_id`, which is a bare counter.
+- **A token that is unknown, expired, or for another room is not an error.** The relay silently
+  assigns a fresh identity instead, because being away slightly too long must cost a new
+  `player_id`, never the ability to play.
+- **In memory only.** This survives a network blip, not a relay restart — the relay persists
+  nothing to disk, deliberately (see `beyond-cosmetic.md` §5).
+- The core discards its token when **the adapter** disconnects, since a closed game is a real
+  departure the room should see, not a blip to paper over.
 
 ### `game_id`
 
@@ -235,53 +290,118 @@ Both values are bounded to **10–100** (`protocol.MinSendHz`/`MaxSendHz`) when 
 other than their own "unspecified"/"uncapped" sentinel; see the Limits section below for the
 exact clamping table.
 
-## Extensibility — the event plane (reserved, not implemented)
+## Extensibility — the event plane and the arbitration planes
 
 MeshGhost's default is, and stays, a visual-only mod: cosmetic position/area/anim, no shared
-world state, no game writes. But nothing about the architecture should trap a specific game's
-adapter from going deeper later — trading or battling in Emerald, say — if that's ever
-wanted. This section reserves the extension point; it does not build the extension.
+world state, no game writes. **Everything in this section is off unless a room's members all
+ask for it**, and no shipped adapter does. It exists because the architecture must never *trap*
+a specific game's adapter at cosmetic — reserved 2026-08-11, built 2026-08-17 (ADR in
+`architecture.md`; concept layer in `beyond-cosmetic.md`).
 
 **Two planes, kept structurally separate:**
 
-- **State plane** (exists today, `state` messages) — lossy, latest-wins, ~10Hz, cosmetic,
-  interpolated by the core. This plane does not grow new fields for deeper features; it stays
-  exactly what it is now.
-- **Event plane** (reserved, `event` messages, not yet implemented) — reliable, ordered,
-  addressed. Its payload is **fully opaque to the core and relay**, exactly like `area_id` and
-  `anim` are opaque today — they route it by `to`, they never parse its contents. The same
-  rule that keeps the core game-agnostic for cosmetic fields is what would keep it
-  game-agnostic for a battle protocol: an Emerald-specific event schema would live entirely
-  inside the Emerald adapter, never in `internal/core` or `internal/relay`.
+- **State plane** (`state` messages) — lossy, latest-wins, ~20Hz, cosmetic, interpolated by the
+  core. This plane does not grow new fields for deeper features; it stays exactly what it is
+  now.
+- **Event plane** (`event` messages) — reliable, ordered, addressed. Its payload is **fully
+  opaque to the core and relay**, exactly like `area_id` and `anim`: they route it by `to`, they
+  never parse its contents. The same rule that keeps the core game-agnostic for cosmetic fields
+  is what keeps it game-agnostic for a battle protocol.
 
-**Envelope addition (reserved):** a `to` field — a `player_id`, or absent for room broadcast.
-Not implemented at the relay yet; see the Phase 3 note below.
+**`extras` is the tempting wrong answer for deeper data, and the reason is delivery semantics
+rather than vagueness.** `extras` is a `state` field, so anything in it is lossy, latest-wins,
+and re-sent ~20×/second. That is right for "what colour is this ghost's trail" and catastrophic
+for "I offer you this item" — an offer sent 20 times a second on a plane that may silently drop
+it is not an offer. Deeper data rides `event`, never `extras`.
 
-**Scope limit:** the event plane is for *bounded, consensual* interactions between two
-specific players — a trade offer, a battle turn — not a path to continuous authoritative
-sync. It carries the same shape either way, so this has to be stated rather than inferred:
-see the depth ladder in `agent_docs/plans.md` for why "everything in the game synced" is a
-different, per-game project that could reuse the relay/transport but not `internal/core`,
-rather than something this event plane grows into.
+### Addressing, ordering, and the sender's echo
 
-**Why this is documented now and built later, specifically:** building `event` routing before
-any adapter sends an event would add code with no consumer — nothing to watch happening on
-screen, which is exactly what this project's verification standard exists to prevent. The
-`features` field is the one piece that must be reserved now, because it can't be added
-retroactively once clients exist. The rest is easy to add on top of the relay's existing
-forward path once there's an actual feature that needs it.
+`to` is a `player_id`, or absent for room broadcast. It is the only field of an event the relay
+reads, which is the general rule: **a field earns top-level status only if game-agnostic code
+must act on it.** Everything else belongs in the opaque payload, because a top-level field the
+core does not read is a field the core can *start* reading.
 
-**Phase 3 guidance:** when the relay's message-forwarding path is built, shape it to take a
-recipient set from the start (even though that set is always "everyone in the room" until the
-event plane is implemented) rather than hardcoding room-wide broadcast. This is a shape
-decision, not a feature — it costs nothing today and avoids a rewrite of the forwarding path
-later.
+Every room has a **sequencer**: a monotonic counter, assigned inside the same critical section
+that snapshots the recipient set, and stamped on every `event`, `lease_state` and
+`escrow_state`. Every member observes one identical total order. This is real server authority
+in the practically useful sense and needs no game knowledge at all — **authority over *order* is
+not authority over *meaning*.** "You were second" needs a counter; "that move was illegal" needs
+to understand the game, and is not on offer.
 
-**What would gate ever actually building this:** see the memory-write non-goal in
-`agent_docs/plans.md` and the new ADR in `agent_docs/architecture.md`. Anything past Tier 2 on
-the depth ladder there requires writing game memory, which is a deliberate, per-game, opt-in
-departure from the current read-only default — not something this reservation authorizes on
-its own.
+**The sender always receives its own event back.** The stamp is the relay's, so an echo is the
+only way a client can learn where its own action landed in the order; an adapter tells its own
+echo apart by comparing `from` against its `player_id`. An event addressed to a `player_id` that
+is not in the room reaches nobody but that echo, and no error is returned — the relay cannot
+distinguish a typo from someone who left half a second ago.
+
+**Delivery order matches stamp order.** The relay holds a per-room send lock across both halves;
+without it two events can be stamped 1 and 2 and then race to the socket, which is precisely
+what a sequencer exists to prevent. The state plane is deliberately excluded from that lock: it
+is lossy by contract and does not need ordering.
+
+### Leases — authority over an opaque key
+
+`claim` / `renew` / `release` against an opaque key. The relay grants it to the first asker,
+denies everyone else (privately, to the asker alone — broadcasting failures would turn a
+contested key into a message storm), and tells the whole room every time a key changes hands.
+
+**The relay never judges merit, only arrival.** It picks the first claim and that becomes the
+fact by fiat; everyone agrees because everyone was told the same answer, not because the answer
+was correct on the merits. Arbitrary-but-consistent is the whole trick, and judging *rightness*
+is what would require understanding the game.
+
+**Adapters must ask BEFORE acting, never announce after.** An adapter that acts locally and then
+reports puts the relay's "no" *after* the fact is already on screen — a rollback problem, per
+game and genuinely hard. The flow is claim → wait → act, so **every contested action costs a
+network round trip before anything visible happens.** Invisible for a turn-based trade;
+unacceptable for anything twitchy. That is the real boundary on how deep any of this can go, and
+it lands independently on the same line the depth ladder already drew.
+
+Every lease is **timed** (1s–5min, 30s default). Lifetime is the hard part, not the grant: a
+holder that vanishes must not wedge a key forever, and only a clock can guarantee that without
+game knowledge. A lease ends by `release`, by expiry, or by its holder disconnecting, and the
+relay says which of the three happened rather than deciding what that should mean.
+
+### Escrow — both or neither
+
+`open` / `deposit` / `commit` / `abort` between exactly two members of a room.
+
+**A lease grants exclusive *access*, never an atomic *swap*.** A trade is two-sided, and if one
+side vanishes after handing over, an item is destroyed or duplicated — which is exactly where
+historical Pokémon trading exploits came from. No amount of lease discipline prevents it, so
+this is a separate mechanism rather than a use of that one.
+
+- Blobs are opaque, and are **revealed only on `committed`** — never earlier, or the second
+  depositor could choose what to offer after seeing what it was offered.
+- An exchange completes only when **both** parties have deposited **and both** have committed.
+  Both then receive the identical blob map, which is what makes it both-or-neither from each
+  side's point of view. **An adapter applies the swap on `committed` and on no other phase.**
+- Any abort, disconnect, or timeout (60s) aborts the whole thing and discards both blobs.
+- A terminal record is **retained for 60s**, so a party that dropped in the instant between the
+  relay committing and the message arriving can resume and be told the outcome. Without that,
+  "both or neither" would hold only for as long as both sockets stayed up — the case that never
+  fails in testing and always fails in the field. This is why resumption and escrow were built
+  together.
+
+### What none of this buys
+
+Stated because it is where an enthusiastic later session would overreach:
+
+- **Not anti-cheat.** A lying client still lies; ordering never validates content. "The server
+  disagrees that you did 9999 damage" is simulation authority, which is excluded by
+  construction — catching a lie requires knowing what is true.
+- **Not full sync.** Ordering is necessary, not sufficient: two clients applying the same
+  ordered log to different local state still diverge. It *is* sufficient for bounded, consensual
+  interactions between two specific players — a trade offer, a battle turn — which is the scope
+  limit, not a stage on the way to continuous authoritative sync.
+- **Not persistence.** The relay writes nothing to disk. Rooms, leases, exchanges and identities
+  all die with the process, deliberately: a persistent relay needs storage, backups, migrations
+  and corruption handling, and stops being a thing a user runs from a `.bat` file.
+
+**What still gates going deeper:** anything past Tier 2 on `plans.md`'s depth ladder requires
+writing game memory, which is a deliberate, per-game, opt-in departure from the read-only
+default. Nothing here authorizes that; these are the transport-level primitives an adapter could
+build on, not permission to build on them.
 
 ## Transport (relay protocol wire format)
 
@@ -358,9 +478,17 @@ ends and the next begins.
     a caller could register the callback, so it fired from a goroutine racing that
     registration — unusable as specified, and nothing in the codebase ever registered one.)
   - Reconnect with exponential backoff on unexpected disconnect.
-  - Heartbeat: `internal/core.Core.sendHeartbeats` sends a `ping` every
-    `DefaultHeartbeatInterval` (20s) on an otherwise-quiet connection; the relay replies with
-    `pong`, but nothing currently reads it back — this is not liveness detection. Added
+  - Heartbeat and clock sync: `internal/core.Core.sendHeartbeats` sends a short burst of
+    `ping`s at connect and then one every `DefaultHeartbeatInterval` (20s) on an otherwise-quiet
+    connection; the relay replies with `pong`, echoing the `nonce` and adding its own
+    `server_time_ms`. Since 2026-08-17 the core *does* read that back: it records each ping's
+    send time, and turns a reply into a round-trip time and a clock offset, keeping the sample
+    with the **lowest** RTT rather than an average (a slow sample is slow because it was delayed
+    asymmetrically, which is exactly what corrupts an offset estimate). The estimate is exposed
+    as `Core.ClockOffsetMs`/`Core.RelayRTTMs`, and is *applied* to timestamps only in a room that
+    negotiated `clock.v1`. The burst exists because a 20s heartbeat would take a minute to form
+    an estimate — precisely the minute a player is first walking into everyone else's view. This
+    is still not liveness detection. Added
     2026-08-14 for a narrower reason: a core with no adapter attached (or one reporting no
     local state) sent nothing at all, which `transport.DefaultIdleTimeout` (60s) closed as
     idle, and the existing auto-reconnect handed out a fresh `player_id` every cycle — every
@@ -439,6 +567,16 @@ above. The very first message an adapter sends on a fresh bridge connection, bef
 ```json
 {"type":"hello","payload":{"game_id":"emerald","game_version":"phase5.5"}}
 ```
+
+An adapter may also declare `"features"` here — the capabilities it needs the core to negotiate
+on its behalf (see `features` above). The core advertises the union of that and its own
+configured list. **This is not a breach of "an adapter has no say in how the core reaches the
+relay":** a capability is a statement about what the *adapter* can do, which nothing else can
+know, whereas the address, transport and rate are properties of the connection and remain
+entirely the core's. Every shipped adapter omits it. The core also gains four more bridge
+message types for those capabilities — `event` (both directions), `lease`/`escrow` (adapter →
+core) and `lease_state`/`escrow_state` (core → adapter) — none of which an adapter that never
+asks for a capability will ever see.
 
 `game_id` is opaque to the core — the same equality-only rule as `area_id`/`anim` — and is
 forwarded verbatim into the relay's own `hello.game_id` (the packet-schema table above). This
@@ -542,7 +680,27 @@ alongside room-code auth (see the architecture.md ADR) — treat the numbers bel
 - Remote strings (`area_id`, `anim`, `extras` values, display name) are never interpolated
   into a file path, shell command, or format string by an adapter. They are opaque data,
   not code, even though they're only ever compared by equality within the same game.
-- Max event payload size (reserved, applies once the event plane is implemented).
+- Max `event` payload: **1024 bytes** (`MaxEventBytes`), plus **64** for `corr_id`
+  (`MaxCorrIDLen`). Uniform across every transport rather than transport-dependent, and chosen
+  so a whole event envelope fits under `udpconn.MaxDatagramBytes` (1200) — so an event means the
+  same thing everywhere and needs no size negotiation. **There is no application-level
+  fragmentation, deliberately**: an oversized event is refused, not split, because fragmenting
+  across a lossy plane reinvents TCP badly and the reliable plane already is TCP. If a payload
+  does not fit, send a *reference* to the data (a key, an exchange id), never chunks.
+- Max lease key: **128 bytes** (`MaxLeaseKeyLen`); max distinct keys held per room: **256**
+  (`MaxLeasesPerRoom`), past which a claim is denied like any other refusal — without it a
+  client could grow the relay's lease table without bound by claiming a fresh key per message.
+- Lease TTL: clamped to **1s–5min**, default **30s** (`ClampLeaseTTL`) — clamped rather than
+  refused, so a silly duration never costs a claim that would otherwise have been won.
+- Max escrow id: **64 bytes**; max escrow blob: **1024 bytes**; max concurrent exchanges per
+  room: **64** (`MaxEscrowsPerRoom`). Escrow timeout **60s**, terminal-record retention **60s**.
+- Max `features` entries: **16**, each **64 bytes** (`MaxFeatures` / `MaxFeatureLen`). Max
+  `resume_token`: **128 bytes** (`MaxResumeTokenLen`); the relay's own are 16 random bytes as
+  hex. Both checked at the relay alongside the other `hello` field bounds, before any of them
+  are used to create or look up a room.
+- Resume grace: an identity dropped from a `resume.v1` room is held **20s** by default
+  (`DefaultResumeGrace`, `server.resume_grace_seconds`) before becoming a real leave. The
+  client's slot stays counted against `max_clients` for that window, since it is still occupied.
 - An unknown message `type` is ignored, not treated as an error — same forward-compatibility
   posture as the existing unknown-*field* rule above.
 

@@ -1,8 +1,10 @@
 // Package relay is the game-agnostic server: it forwards protocol.State
 // messages between clients in a room, partitioned by game_id, and never
-// runs or touches a game. protocol.Event is reserved for a future addressed
-// event plane (agent_docs/contract.md's Extensibility section) but has no
-// routing here yet. It never imports internal/core
+// runs or touches a game. Since 2026-08-17 it also arbitrates the planes past
+// cosmetic — addressed events, a room sequencer, leases, escrow, and session
+// resumption — all of which live in online.go and all of which stay dumb:
+// every key, id and payload there is opaque, and none of it runs for a room
+// that did not opt in. It never imports internal/core
 // or internal/bridge — the relay must stay ignorant of adapter-side
 // concerns, the same way it's ignorant of games.
 package relay
@@ -30,8 +32,57 @@ type Room struct {
 	GameVersion string
 	Name        string
 
+	// features is this room's agreed capability set, normalized and sticky
+	// from its first member's Hello — a later joiner advertising a different
+	// set is refused (protocol.ReasonFeatureMismatch). Written once in
+	// newRoom, before the room is published into Server.rooms, and never
+	// mutated, so it needs no lock. See online.go for what each capability
+	// switches on and agent_docs/beyond-cosmetic.md §3 for why capability
+	// mismatch inside one room had to be closed rather than tolerated.
+	features []string
+
+	// sendMu serializes the CONTROL plane — events, lease changes, escrow
+	// changes, and the leave that ends a session — from the moment a
+	// sequencer stamp is assigned until that message has been written to
+	// every recipient.
+	//
+	// It is load-bearing, not defensive. Stamping under mu and then sending
+	// after releasing it produces a correct total order that is delivered in
+	// the wrong one: two concurrent events can be stamped 1 and 2 and then
+	// race to the socket, so a client receives 2 before 1. That is exactly
+	// what a sequencer exists to prevent, and it failed the total-order test
+	// on the first run of it. The alternative — sending while holding mu —
+	// is the shape that was deliberately removed from Room.forward, because
+	// one stalled peer would freeze every other operation in the room.
+	//
+	// **Lock order is always sendMu then mu, never the reverse.** Room.forward
+	// takes mu internally, so anything that delivers while holding sendMu is
+	// consistent with that; nothing may take mu and then reach for sendMu.
+	//
+	// The state plane deliberately does NOT go through this: it is lossy and
+	// latest-wins by contract, so ordering it would cost the hot path a
+	// serialization point to guarantee something it does not need.
+	sendMu sync.Mutex
+
 	mu      sync.Mutex
 	members map[string]*Client
+
+	// Everything below is guarded by mu, and exists only for rooms whose
+	// feature set actually asked for it — see online.go.
+
+	// seqCounter is this room's monotonic sequencer: one total order over
+	// events, lease changes and escrow changes, assigned inside the same
+	// critical section that snapshots recipients. Starts at 0, so the first
+	// stamp issued is 1 and a zero on the wire means "unstamped".
+	seqCounter uint64
+	// leases maps an opaque key to its current holder. nil until first use.
+	leases map[string]*lease
+	// escrows maps an opaque exchange id to its record, including terminal
+	// ones inside their retention window. nil until first use.
+	escrows map[string]*escrow
+	// lastState is each member's most recent valid state, for seeding a
+	// late joiner via Join.State. nil unless FeatureSnapshotV1 is on.
+	lastState map[string]protocol.State
 }
 
 // Client is one connected relay peer.
@@ -58,6 +109,15 @@ type Client struct {
 	// their own client log. Gap noticed during the first live three-transport
 	// test, 2026-08-16.
 	transport string
+
+	// suspended marks a client whose connection dropped but whose identity
+	// the relay is still holding, waiting out protocol.DefaultResumeGrace in
+	// case it reconnects with its resume token (see online.go's
+	// suspendedSession). It stays in Room.members so the roster a later
+	// joiner receives is still complete, but Room.forward writes nothing to
+	// it — Conn is nil. Guarded by Room.mu, unlike the write-once fields
+	// above, because it is flipped after the Client is published.
+	suspended bool
 
 	// gateMu guards lastStateTo, which maps a *sender's* player_id to the
 	// last time a State from that sender was forwarded *to this client*.
@@ -110,8 +170,14 @@ func (c *Client) forgetSender(sender string) {
 	delete(c.lastStateTo, sender)
 }
 
-func newRoom(gameID, gameVersion, name string) *Room {
-	return &Room{GameID: gameID, GameVersion: gameVersion, Name: name, members: make(map[string]*Client)}
+func newRoom(gameID, gameVersion, name string, features []string) *Room {
+	return &Room{
+		GameID:      gameID,
+		GameVersion: gameVersion,
+		Name:        name,
+		features:    protocol.NormalizeFeatures(features),
+		members:     make(map[string]*Client),
+	}
 }
 
 // Forward routes msg to the given recipients. Shaped to take an explicit
@@ -162,7 +228,11 @@ func (r *Room) forward(msg protocol.Envelope, to []string, unreliable bool) {
 	r.mu.Lock()
 	targets := make([]target, 0, len(to))
 	for _, id := range to {
-		if c, ok := r.members[id]; ok {
+		// A suspended member is still in the room (so rosters stay complete)
+		// but has no connection to write to — skipped silently rather than
+		// attempted, since a Send against a nil/closed conn would log a
+		// failure per message per second for the whole grace window.
+		if c, ok := r.members[id]; ok && !c.suspended && c.Conn != nil {
 			targets = append(targets, target{id: id, conn: c.Conn})
 		}
 	}
@@ -264,7 +334,7 @@ func (r *Room) stateRecipients(sender string, now time.Time) []string {
 	r.mu.Lock()
 	members := make([]*Client, 0, len(r.members))
 	for id, c := range r.members {
-		if id != sender {
+		if id != sender && !c.suspended {
 			members = append(members, c)
 		}
 	}
@@ -286,6 +356,21 @@ type Server struct {
 	mu        sync.Mutex
 	rooms     map[string]*Room
 	idCounter uint64
+
+	// suspended maps a resume token to the identity it reinstates, for
+	// clients that dropped from a room whose feature set includes
+	// protocol.FeatureResumeV1. Guarded by mu, same as rooms — session
+	// bookkeeping is one small critical section, not worth its own lock. In
+	// memory only: this survives a network blip, not a relay restart, which
+	// is the honest boundary of an unpersisted identity (see online.go's
+	// suspendedSession and agent_docs/beyond-cosmetic.md §5).
+	suspended map[string]*suspendedSession
+
+	// ResumeGrace overrides protocol.DefaultResumeGrace — how long a dropped
+	// identity is held before the room is told it left. Zero means "use the
+	// default", the same zero-means-default convention as HelloTimeout and
+	// MaxClients. Exists so a test can use a window it can actually wait out.
+	ResumeGrace time.Duration
 
 	// Loopback is a dev-only Phase 3 flag (see agent_docs/phases/phase3.md):
 	// when set, every State forwarded normally to the rest of a room is
@@ -485,17 +570,29 @@ func rejectAndClose(conn transport.Transport, hello protocol.Hello, reason strin
 // gameVersion) if it doesn't exist yet. reason is empty on success;
 // non-empty describes why the caller must refuse the connection rather
 // than mix clients from different games or incompatible versions.
-func (s *Server) joinOrCreateRoom(gameID, gameVersion, name string) (r *Room, reason string) {
+func (s *Server) joinOrCreateRoom(gameID, gameVersion, name string, features []string) (r *Room, reason string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	r, exists := s.rooms[name]
 	if !exists {
-		r = newRoom(gameID, gameVersion, name)
+		r = newRoom(gameID, gameVersion, name, features)
 		s.rooms[name] = r
 		return r, ""
 	}
 	if r.GameID != gameID {
 		return nil, protocol.ReasonGameMismatch
+	}
+	// Feature stickiness. Unlike GameVersion below, an EMPTY set on either
+	// side is a real value that must still match: the hazard being closed is
+	// precisely "one client advertises lease.v1 and claims properly while
+	// another doesn't and simply acts," where conflict resolution silently
+	// does not work and everything looks fine until it doesn't
+	// (agent_docs/beyond-cosmetic.md §3). Treating empty as "unknown, don't
+	// check" — the right call for a version string — would leave exactly
+	// that case open. Compared as normalized joined strings, so the same
+	// capabilities in a different order still match.
+	if protocol.FeatureSetKey(r.features) != protocol.FeatureSetKey(features) {
+		return nil, protocol.ReasonFeatureMismatch
 	}
 	// GameVersion is only compared once both sides have actually declared
 	// one (protocol.Hello.GameVersion's doc comment) — an adapter that
@@ -559,6 +656,16 @@ func (s *Server) handleConn(conn net.Conn) {
 		room     *Room
 		playerID string
 
+		// client is this connection's entry in room.members, and resumeToken
+		// is the single-use secret that would let it reclaim playerID after
+		// an unexpected drop (empty for a room without
+		// protocol.FeatureResumeV1, which is every room that hasn't opted
+		// in). Both are read by OnDisconnect to decide whether the drop is a
+		// real leave or a suspension, so both live under mu with room and
+		// playerID rather than in the OnReceive-only group below.
+		client      *Client
+		resumeToken string
+
 		// rateWindow/rateCount need no mutex of their own, unlike mu above
 		// (which helloTimer's separate AfterFunc goroutine also touches):
 		// both are only ever read or written from inside the OnReceive
@@ -614,16 +721,30 @@ func (s *Server) handleConn(conn net.Conn) {
 	nd.OnDisconnect(func(err error) {
 		helloTimer.Stop()
 		mu.Lock()
-		r, id := room, playerID
+		r, id, c, token := room, playerID, client, resumeToken
 		mu.Unlock()
 		if r == nil {
 			return
 		}
-		r.remove(id)
-		s.releaseSlot()
-		leave, _ := envelope(protocol.TypeLeave, protocol.Leave{PlayerID: id})
-		r.Forward(leave, r.roster())
-		s.dropIfEmpty(r)
+
+		if token != "" && c != nil {
+			// This room does resumption. Park the identity rather than
+			// announcing a leave — but only if this connection is still the
+			// live one for id. A resumed session installs a NEW Client under
+			// the same player_id, so a late OnDisconnect from the superseded
+			// connection must do nothing at all; suspending on it would
+			// silently mute the connection that just took over. Same
+			// stale-callback hazard internal/core's relayOwner exists for.
+			r.mu.Lock()
+			stillOurs := r.members[id] == c
+			r.mu.Unlock()
+			if stillOurs {
+				s.suspend(r, c, token)
+			}
+			return
+		}
+
+		s.finishLeave(r, id)
 	})
 
 	nd.OnReceive(func(payload []byte) {
@@ -689,7 +810,9 @@ func (s *Server) handleConn(conn net.Conn) {
 			// on every attempt. Found in a review pass.
 			if len(hello.GameID) > MaxHelloFieldLen || len(hello.Room) > MaxHelloFieldLen ||
 				len(hello.DisplayName) > MaxHelloFieldLen || len(hello.RoomCode) > MaxHelloFieldLen ||
-				len(hello.GameVersion) > MaxHelloFieldLen {
+				len(hello.GameVersion) > MaxHelloFieldLen ||
+				len(hello.ResumeToken) > protocol.MaxResumeTokenLen ||
+				!protocol.ValidateFeatures(hello.Features) {
 				log.Printf("relay: refused hello (%s): a field exceeded %d bytes", protocol.ReasonHelloFieldTooLong, MaxHelloFieldLen)
 				sendEnvelope(nd, protocol.TypeReject, protocol.Reject{Reason: protocol.ReasonHelloFieldTooLong})
 				_ = nd.Close()
@@ -743,10 +866,29 @@ func (s *Server) handleConn(conn net.Conn) {
 				rejectAndClose(nd, hello, protocol.ReasonGameNotAllowed)
 				return
 			}
-			joined, reason := s.joinOrCreateRoom(hello.GameID, hello.GameVersion, hello.Room)
+			joined, reason := s.joinOrCreateRoom(hello.GameID, hello.GameVersion, hello.Room, hello.Features)
 			if reason != "" {
 				rejectAndClose(nd, hello, reason)
 				return
+			}
+
+			// Session resumption, before a slot is reserved or an id
+			// assigned: a resuming client's slot was never released and its
+			// player_id already exists, so both of those steps would be
+			// wrong. A token that is unknown, expired, or for another room
+			// simply yields nil here and the client joins fresh — being away
+			// slightly too long must degrade to "you get a new identity", not
+			// to "you cannot play".
+			if joined.hasFeature(protocol.FeatureResumeV1) && hello.ResumeToken != "" {
+				if sess := s.takeSuspended(hello.ResumeToken, hello.Room, hello.GameID); sess != nil && sess.room == joined {
+					if resumedClient, newToken, ok := s.resumeInto(nd, transportName(conn), joined, sess, hello, sendHz); ok {
+						mu.Lock()
+						room, playerID, client, resumeToken = joined, sess.playerID, resumedClient, newToken
+						mu.Unlock()
+						helloTimer.Stop()
+						return
+					}
+				}
 			}
 
 			if !s.tryReserveSlot() {
@@ -761,15 +903,31 @@ func (s *Server) handleConn(conn net.Conn) {
 			}
 
 			newID := s.nextPlayerID()
-			rosterBeforeJoin := joined.tryAddAndSnapshotRoster(&Client{
+			newClient := &Client{
 				PlayerID:     newID,
 				Conn:         nd,
 				maxReceiveHz: protocol.ClampReceiveHz(hello.MaxReceiveHz),
 				transport:    transportName(conn),
-			})
+			}
+			rosterBeforeJoin := joined.tryAddAndSnapshotRoster(newClient)
+
+			// A resume token is minted only for a room that asked for
+			// resumption, so nothing is issued — and no identity is ever held
+			// past a disconnect — for the cosmetic case. A minting failure
+			// (crypto/rand unavailable, which does not happen on any
+			// supported platform) degrades to a session that simply cannot
+			// resume, rather than a refused join.
+			newToken := ""
+			if joined.hasFeature(protocol.FeatureResumeV1) {
+				var err error
+				if newToken, err = newResumeToken(); err != nil {
+					log.Printf("relay: could not mint a resume token for %s: %v — this session will not be resumable", newID, err)
+					newToken = ""
+				}
+			}
 
 			mu.Lock()
-			room, playerID = joined, newID
+			room, playerID, client, resumeToken = joined, newID, newClient, newToken
 			mu.Unlock()
 			helloTimer.Stop()
 
@@ -782,10 +940,24 @@ func (s *Server) handleConn(conn net.Conn) {
 				newID, hello.DisplayName, hello.Room, hello.GameID, transportName(conn))
 
 			sendEnvelope(nd, protocol.TypeWelcome, protocol.Welcome{
-				PlayerID: newID,
-				Roster:   rosterBeforeJoin,
-				SendHz:   sendHz,
+				PlayerID:     newID,
+				Roster:       rosterBeforeJoin,
+				SendHz:       sendHz,
+				Features:     joined.features,
+				ResumeToken:  newToken,
+				ServerTimeMs: time.Now().UnixMilli(),
 			})
+
+			// Seed the newcomer with what everyone else looks like right now,
+			// so an existing player appears immediately instead of only on
+			// its next update. Sent after Welcome — the client's roster comes
+			// from Welcome, and it drops state for any id it has not been
+			// told about (the roster-trust rule) — and only to this
+			// connection, since nobody else needs it.
+			joined.mu.Lock()
+			seedOuts := joined.stateSnapshotLocked(newID)
+			joined.mu.Unlock()
+			joined.deliver(seedOuts)
 
 			join, err := envelope(protocol.TypeJoin, protocol.Join{PlayerID: newID})
 			if err == nil {
@@ -830,6 +1002,12 @@ func (s *Server) handleConn(conn net.Conn) {
 			if err != nil {
 				return
 			}
+			// Remembered before forwarding, and independent of the
+			// per-recipient rate gate below: a late joiner should be seeded
+			// with the newest sample, not the newest one that happened to be
+			// forwarded to somebody. No-op unless the room asked for
+			// snapshots.
+			r.recordState(id, st)
 			r.ForwardUnreliable(stateEnv, r.stateRecipients(id, time.Now()))
 
 			if s.Loopback {
@@ -871,17 +1049,67 @@ func (s *Server) handleConn(conn net.Conn) {
 					r.ForwardUnreliable(ghostEnv, []string{id})
 				}
 			}
+		case protocol.TypeEvent:
+			// Gated on the room's agreed feature set, which is how every
+			// deeper capability stays adapter-opt-in rather than
+			// relay-imposed: a room that never asked for events never runs
+			// this path, and the relay needs no per-game table and no
+			// game_id branch to arrange that.
+			if !r.hasFeature(protocol.FeatureEventV1) {
+				return
+			}
+			var ev protocol.Event
+			if err := json.Unmarshal(env.Payload, &ev); err != nil {
+				return
+			}
+			if !protocol.ValidateEvent(ev) {
+				// Dropped, not truncated and not fragmented — an oversized
+				// event means the payload should have been a reference to
+				// the data rather than the data.
+				return
+			}
+			r.handleEvent(id, ev)
+		case protocol.TypeLease:
+			if !r.hasFeature(protocol.FeatureLeaseV1) {
+				return
+			}
+			var req protocol.Lease
+			if err := json.Unmarshal(env.Payload, &req); err != nil {
+				return
+			}
+			if !protocol.ValidateLease(req) {
+				return
+			}
+			r.handleLease(id, req)
+		case protocol.TypeEscrow:
+			if !r.hasFeature(protocol.FeatureEscrowV1) {
+				return
+			}
+			var req protocol.Escrow
+			if err := json.Unmarshal(env.Payload, &req); err != nil {
+				return
+			}
+			if !protocol.ValidateEscrow(req) {
+				return
+			}
+			r.handleEscrow(id, req)
 		case protocol.TypePing:
 			var ping protocol.Ping
 			if err := json.Unmarshal(env.Payload, &ping); err != nil {
 				return
 			}
-			sendEnvelope(nd, protocol.TypePong, protocol.Pong{Nonce: ping.Nonce})
+			// ServerTimeMs is stamped as late as possible — right here, not
+			// at the top of the callback — so the client's offset estimate
+			// measures the network rather than this relay's own queueing.
+			sendEnvelope(nd, protocol.TypePong, protocol.Pong{
+				Nonce:        ping.Nonce,
+				ServerTimeMs: time.Now().UnixMilli(),
+			})
 		default:
-			// Unknown/unhandled types (event is reserved but not
-			// implemented; hello after already joining; anything else)
-			// are ignored, not treated as an error — the same
-			// forward-compatibility posture as unknown fields.
+			// Unknown/unhandled types (a hello after already joining, a
+			// message type from a newer client) are ignored, not treated as
+			// an error — the same forward-compatibility posture as unknown
+			// fields.
 		}
 	})
 }

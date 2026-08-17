@@ -39,6 +39,27 @@ const (
 	// good enough.
 	TypeBridgeReady MessageType = "bridge_ready"
 	TypeReject      MessageType = "reject"
+	// The planes past cosmetic, added 2026-08-17 — see
+	// agent_docs/beyond-cosmetic.md and the ADR in agent_docs/architecture.md.
+	// An adapter that never sends one of these, and never asks for the
+	// matching capability in its Hello, is completely unaffected by their
+	// existence: the core forwards nothing it never receives.
+	//
+	// TypeEvent travels in BOTH directions, the only bridge message that
+	// does. That asymmetry with local_state/render_remote is inherent rather
+	// than a shortcut: the state plane is a one-way sample of the local
+	// player pushed up and a one-way render of remotes pushed down, whereas
+	// an event is a message between two players and has no natural direction.
+	TypeEvent MessageType = "event"
+	// TypeLease and TypeEscrow are adapter -> core requests; TypeLeaseState
+	// and TypeEscrowState are the core -> adapter answers. Deliberately
+	// separate types per direction, rather than one echoed shape: a request
+	// and a fact about the room are different things, and an adapter that
+	// mixes them up would act on its own unanswered claim.
+	TypeLease       MessageType = "lease"
+	TypeLeaseState  MessageType = "lease_state"
+	TypeEscrow      MessageType = "escrow"
+	TypeEscrowState MessageType = "escrow_state"
 )
 
 // Envelope is the outer shape of every bridge message, one per NDJSON
@@ -68,6 +89,62 @@ type Hello struct {
 	// a caller with no real adapter attached force a game_id. Added
 	// alongside room-code auth — see the ADR in agent_docs/architecture.md.
 	GameVersion string `json:"game_version,omitempty"`
+	// Features is what this adapter asks the core to negotiate with the relay
+	// on its behalf (internal/protocol's Feature* constants). Opaque here in
+	// the same sense GameID is — the core merges it with its own configured
+	// list and forwards the union, never inspecting an individual name.
+	//
+	// An adapter having a say in this is not a breach of "an adapter has no
+	// say in how the core reaches the relay": a capability is a statement
+	// about what this adapter can do, which nothing else can know, whereas
+	// the address, transport and rate are properties of the connection and
+	// remain entirely the core's. An adapter still never learns a relay
+	// address and never sends a byte off-machine.
+	//
+	// Absent, the default, means "cosmetic only" and is what every shipped
+	// adapter sends — leaving the client wire-compatible with any room, since
+	// a room's feature set is matched exactly.
+	Features []string `json:"features,omitempty"`
+}
+
+// Event is one event-plane message, in either direction. Adapter -> core it
+// is an outbound event (To, CorrID and Payload are read; From and Seq are
+// ignored and stamped by the relay); core -> adapter it is an inbound one,
+// fully stamped.
+//
+// Payload is opaque end to end. A game-specific schema — a trade offer, a
+// battle turn — lives entirely inside the adapter that defines it and is
+// never understood by the core or the relay, which is the same rule that
+// keeps them game-agnostic for area_id and anim.
+type Event struct {
+	protocol.Event
+}
+
+// Lease is an adapter -> core lease request over an opaque key.
+//
+// **Ask before acting, never announce after.** The answer comes back as a
+// LeaseState, asynchronously; an adapter that acts locally and then claims
+// has put the relay's refusal after the fact is already on screen, which is a
+// rollback problem this project does not solve.
+type Lease struct {
+	protocol.Lease
+}
+
+// LeaseState is the core -> adapter answer: who holds a key right now.
+type LeaseState struct {
+	protocol.LeaseState
+}
+
+// Escrow is an adapter -> core step in a two-sided atomic exchange.
+type Escrow struct {
+	protocol.Escrow
+}
+
+// EscrowState is the core -> adapter report on an exchange. An adapter
+// applies the swap on phase "committed" and on no other phase, because every
+// other one can still end in an abort.
+type EscrowState struct {
+	protocol.EscrowState
 }
 
 // BridgeReady is sent core -> adapter as the answer to an accepted Hello:

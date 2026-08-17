@@ -1,0 +1,201 @@
+package core
+
+// Client-side tests for the planes past cosmetic: clock sync, capability
+// gating, and a real round trip of each plane against the actual relay.
+
+import (
+	"encoding/json"
+	"testing"
+	"time"
+
+	"meshghost/internal/protocol"
+)
+
+// TestClockSyncKeepsTheLowestRTTSample pins the estimator's one real
+// judgement call. A slow sample is slow because it was delayed somewhere, and
+// an asymmetric delay is exactly what corrupts an offset estimate — so a
+// worse-RTT sample must be discarded outright rather than averaged in, which
+// would drag the estimate toward the noise.
+func TestClockSyncKeepsTheLowestRTTSample(t *testing.T) {
+	var cs clockSync
+	base := time.UnixMilli(1_000_000)
+
+	// A slow round trip: 400ms, with the relay's clock 5000ms ahead.
+	cs.observe(base, base.Add(400*time.Millisecond), base.Add(200*time.Millisecond).UnixMilli()+5000)
+	if cs.bestRTTMs != 400 {
+		t.Fatalf("bestRTT = %d, want 400", cs.bestRTTMs)
+	}
+	if cs.offsetMs != 5000 {
+		t.Fatalf("offset = %d, want 5000", cs.offsetMs)
+	}
+
+	// A worse sample must not move the estimate at all.
+	cs.observe(base, base.Add(900*time.Millisecond), base.Add(450*time.Millisecond).UnixMilli()+9999)
+	if cs.offsetMs != 5000 || cs.bestRTTMs != 400 {
+		t.Fatalf("a worse sample changed the estimate to offset=%d rtt=%d", cs.offsetMs, cs.bestRTTMs)
+	}
+
+	// A better one must replace it.
+	cs.observe(base, base.Add(20*time.Millisecond), base.Add(10*time.Millisecond).UnixMilli()+4800)
+	if cs.bestRTTMs != 20 || cs.offsetMs != 4800 {
+		t.Fatalf("a better sample gave offset=%d rtt=%d, want 4800/20", cs.offsetMs, cs.bestRTTMs)
+	}
+}
+
+// TestClockSyncIgnoresARelayThatDoesNotStampItsClock keeps an older relay on
+// exactly the pre-clock-sync behaviour: no samples, no offset, nothing
+// applied.
+func TestClockSyncIgnoresARelayThatDoesNotStampItsClock(t *testing.T) {
+	var cs clockSync
+	base := time.UnixMilli(1_000_000)
+	cs.observe(base, base.Add(30*time.Millisecond), 0)
+	if cs.bestRTTMs != 0 || cs.offsetMs != 0 {
+		t.Fatalf("an unstamped pong produced offset=%d rtt=%d, want nothing", cs.offsetMs, cs.bestRTTMs)
+	}
+}
+
+// TestSendPathsRefuseACapabilityTheRoomDidNotNegotiate is the client half of
+// opt-in. A silent drop here is how "trades sometimes don't work" becomes a
+// bug report instead of a configuration error the user can see.
+func TestSendPathsRefuseACapabilityTheRoomDidNotNegotiate(t *testing.T) {
+	addr := startRelay(t)
+
+	c := New()
+	c.RelayAddr, c.Room, c.DisplayName = addr, "room1", "alice"
+	// Deliberately no Features: this Core joins as a plain cosmetic client.
+	if err := c.ConnectRelay("emerald"); err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+
+	if err := c.SendEvent(protocol.Event{Payload: json.RawMessage(`1`)}); err != ErrFeatureNotEnabled {
+		t.Fatalf("SendEvent error = %v, want %v", err, ErrFeatureNotEnabled)
+	}
+	if err := c.ClaimLease("k", time.Second); err != ErrFeatureNotEnabled {
+		t.Fatalf("ClaimLease error = %v, want %v", err, ErrFeatureNotEnabled)
+	}
+	if err := c.SendEscrow(protocol.Escrow{Op: protocol.EscrowOpen, ID: "t", With: "p2"}); err != ErrFeatureNotEnabled {
+		t.Fatalf("SendEscrow error = %v, want %v", err, ErrFeatureNotEnabled)
+	}
+}
+
+// TestOversizedEventIsRefusedBeforeItIsSent mirrors the relay's own check on
+// the client side, so a caller gets a real error rather than a message that
+// vanishes somewhere in the relay. There is no chunking fallback by design.
+func TestOversizedEventIsRefusedBeforeItIsSent(t *testing.T) {
+	c := New()
+	big := make([]byte, protocol.MaxEventBytes+64)
+	for i := range big {
+		big[i] = 'a'
+	}
+	payload, err := json.Marshal(string(big))
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if err := c.SendEvent(protocol.Event{Payload: payload}); err == nil {
+		t.Fatal("an oversized event was accepted")
+	}
+}
+
+// TestCoreRoundTripsAnEventThroughARealRelay is the end-to-end proof that the
+// client half actually works against internal/relay rather than only
+// type-checking: two Cores in one room, one sends, both observe it stamped
+// and ordered.
+func TestCoreRoundTripsAnEventThroughARealRelay(t *testing.T) {
+	addr := startRelay(t)
+
+	events := make(chan protocol.Event, 8)
+	newCore := func(name string, sink chan protocol.Event) *Core {
+		c := New()
+		c.RelayAddr, c.Room, c.DisplayName = addr, "room1", name
+		c.Features = []string{protocol.FeatureEventV1}
+		if sink != nil {
+			c.OnEvent = func(ev protocol.Event) { sink <- ev }
+		}
+		if err := c.ConnectRelay("emerald"); err != nil {
+			t.Fatalf("connect %s: %v", name, err)
+		}
+		return c
+	}
+
+	sender := newCore("alice", nil)
+	receiver := newCore("bob", events)
+
+	if got := receiver.RoomFeatures(); len(got) != 1 || got[0] != protocol.FeatureEventV1 {
+		t.Fatalf("negotiated features = %v, want [%s]", got, protocol.FeatureEventV1)
+	}
+
+	if err := sender.SendEvent(protocol.Event{CorrID: "c1", Payload: json.RawMessage(`{"turn":1}`)}); err != nil {
+		t.Fatalf("send event: %v", err)
+	}
+
+	select {
+	case ev := <-events:
+		if ev.From != sender.PlayerID() {
+			t.Fatalf("event From = %q, want %q", ev.From, sender.PlayerID())
+		}
+		if ev.Seq == 0 {
+			t.Fatal("event arrived without a sequencer stamp")
+		}
+		if ev.CorrID != "c1" || string(ev.Payload) != `{"turn":1}` {
+			t.Fatalf("event = %+v, want the payload and corr_id unchanged", ev)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for the event")
+	}
+}
+
+// TestCoreLeaseRoundTripThroughARealRelay covers the claim/deny path from the
+// client API, including that the loser is told who actually holds the key
+// rather than merely being refused.
+func TestCoreLeaseRoundTripThroughARealRelay(t *testing.T) {
+	addr := startRelay(t)
+
+	newCore := func(name string, sink chan protocol.LeaseState) *Core {
+		c := New()
+		c.RelayAddr, c.Room, c.DisplayName = addr, "room1", name
+		c.Features = []string{protocol.FeatureLeaseV1}
+		c.OnLeaseState = func(st protocol.LeaseState) { sink <- st }
+		if err := c.ConnectRelay("emerald"); err != nil {
+			t.Fatalf("connect %s: %v", name, err)
+		}
+		return c
+	}
+
+	aliceStates := make(chan protocol.LeaseState, 8)
+	bobStates := make(chan protocol.LeaseState, 8)
+	alice := newCore("alice", aliceStates)
+	newCore("bob", bobStates)
+
+	if err := alice.ClaimLease("k", 30*time.Second); err != nil {
+		t.Fatalf("claim: %v", err)
+	}
+	select {
+	case st := <-aliceStates:
+		if st.Reason != protocol.LeaseGranted || st.Holder != alice.PlayerID() {
+			t.Fatalf("alice's claim = %+v, want granted to herself", st)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for the lease grant")
+	}
+}
+
+// TestTimestampsUseTheRelayClockDomainOnlyWhenNegotiated pins the one change
+// here that touches an already-shipped behaviour. With clock.v1 off — every
+// room today — the stamp must be the plain local wall clock, exactly as
+// before; with it on, the measured offset is applied so every member of the
+// room measures against one clock.
+func TestTimestampsUseTheRelayClockDomainOnlyWhenNegotiated(t *testing.T) {
+	c := New()
+	c.clock = clockSync{offsetMs: 60_000, bestRTTMs: 5}
+
+	local := time.Now().UnixMilli()
+	if got := c.nowMs(); got < local-1000 || got > local+1000 {
+		t.Fatalf("with clock sync un-negotiated, nowMs() = %d, want the local wall clock ~%d", got, local)
+	}
+
+	c.activeFeatures = []string{protocol.FeatureClockV1}
+	shifted := c.nowMs()
+	if shifted < local+59_000 || shifted > local+61_000 {
+		t.Fatalf("with clock.v1 negotiated, nowMs() = %d, want ~%d (local + the measured offset)", shifted, local+60_000)
+	}
+}

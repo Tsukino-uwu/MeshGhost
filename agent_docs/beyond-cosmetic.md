@@ -1,9 +1,21 @@
 # Beyond cosmetic — what a deeper online mode would actually take
 
-**MeshGhost is visual-only, and that is not changing here.** Nothing in this file is scheduled,
-proposed, or approved. It exists because the architecture must never *trap* the project at
-cosmetic, and the way to guarantee that is to know — before anyone needs it — which doors are
-already open, which need building, and which are welded shut.
+**MeshGhost is visual-only, and that is not changing here.** It exists because the architecture
+must never *trap* the project at cosmetic, and the way to guarantee that is to know — before
+anyone needs it — which doors are already open, which need building, and which are welded shut.
+
+**Status, 2026-08-17: every door this file said a dumb relay could open has been built** (ADR in
+`architecture.md`; the wire contract is now in `contract.md`). What that does and does not change:
+
+- It is **primitives, not permission.** Nothing in a shipped adapter uses any of it, everything is
+  off unless every member of a room opts in, and **anything past Tier 2 on `plans.md`'s depth
+  ladder still needs its own per-game ADR and the memory-write gate.** A future session reading
+  "escrow exists" as "trading is approved" is misreading it exactly as badly as this file's last
+  section warns.
+- The three gaps this file identified as *not* dumb-relay-shaped stay open, and for three
+  different reasons — see §4 and §5. One of them is impossible rather than unbuilt.
+- The analysis below is kept as written, because the reasoning is what makes the code
+  reviewable. Where a section describes something now built, it is marked **BUILT**.
 
 Read `plans.md`'s depth ladder first for the tier framing (0 cosmetic → 3 consensual interaction),
 and `contract.md`'s Extensibility section for the reserved event plane. This file is the *concept*
@@ -18,16 +30,20 @@ A future session should not re-derive any of this. It exists today:
 | Thing | Where | State |
 |---|---|---|
 | Depth ladder, Tier 0-3 | `plans.md` | documented |
-| Event plane (`event` type, `to` addressee, opaque payload) | `contract.md` Extensibility, `protocol.go` | **declared, no routing** |
-| `features` capability list on `hello` | `protocol.go`, `contract.md` | **declared, nothing populates it** |
-| Recipient-set forwarding | `relay.Room.Forward(msg, to []string)` | **built** — shaped for addressed routing from the start |
+| Event plane (`event` type, `to` addressee, opaque payload) | `contract.md` Extensibility, `protocol.go` | **BUILT 2026-08-17** — routed, stamped, gated on `event.v1` |
+| `features` capability list on `hello` | `protocol.go`, `contract.md` | **BUILT 2026-08-17** — six capabilities, sticky per room |
+| Recipient-set forwarding | `relay.Room.Forward(msg, to []string)` | **built** — shaped for addressed routing from the start, and that shape paid off exactly as intended |
 | Unknown *fields* ignored | `contract.md` | built |
 | Unknown *message types* ignored | both dispatch switches | built |
 | `send` reliable **and ordered** on every transport | `contract.md`, `udpconn` | built (ordering added 2026-08-16) |
+| Room sequencer, one total order | `relay/online.go` | **BUILT 2026-08-17** |
+| Lease / escrow / snapshot / resumption / clock sync | `relay/online.go`, `core/online.go` | **BUILT 2026-08-17** |
 
 The single most valuable one is `features`: it had to exist *before* clients shipped, because a
 client built without it has no way to say what it supports. That one field is most of why deeper
-work is still possible at all.
+work was still possible at all — **and it was: every capability below travels on it, and none of
+them needed a `ProtocolVersion` bump, so no deployed client was orphaned.** Reserving one field
+in 2026-08-11 is the whole reason 2026-08-17 was additive.
 
 ---
 
@@ -140,17 +156,19 @@ Arbitration is roughly one fifth of what "full online" means. The useful questio
 work" but **which gaps the opacity trick still covers** — because that is what decides whether the
 relay can stay dumb.
 
-| Gap | State today | Dumb relay enough? |
+| Gap | State | Dumb relay enough? |
 |---|---|---|
-| **Atomicity / escrow** | **discussed nowhere in this repo** | **Yes** — relay holds an opaque blob, releases on commit/abort |
-| **Late-join world snapshot** | `Join.State` reserved but never populated; relay stores no per-player state at all | **Yes** — relay keeps the last opaque state blob per player |
-| **Clock sync** | ping/pong exists, but core has no `TypePong` handler and records no send time — RTT is not even computable | **Yes** — relay serves time |
-| **Stable identity** | `player_id` is a bare counter, resets on relay restart, no session resumption | **No** — new subsystem |
-| **Persistence** | rooms deleted when empty; nothing on disk but the log | **No** — new subsystem |
-| **Anti-cheat** | none possible | **Never** — catching a lie requires knowing what is true |
+| **Atomicity / escrow** | **BUILT 2026-08-17** — open/deposit/commit/abort, blobs revealed only on commit | **Yes** — relay holds an opaque blob, releases on commit/abort |
+| **Late-join world snapshot** | **BUILT 2026-08-17** — `Join.State` populated for a `snapshot.v1` room | **Yes** — relay keeps the last opaque state blob per player |
+| **Clock sync** | **BUILT 2026-08-17** — `Pong.ServerTimeMs`, lowest-RTT estimator, applied under `clock.v1` | **Yes** — relay serves time |
+| **Stable identity** | **BUILT 2026-08-17** — `resume_token`, a grace window, no leave/join seen by the room | **No** — was a new subsystem, and is one |
+| **Persistence** | **REFUSED** — rooms still deleted when empty; nothing on disk but the log | **No** — new subsystem, and see below |
+| **Anti-cheat** | **impossible** | **Never** — catching a lie requires knowing what is true |
 
-Three ride the same opaque-blob trick. Two are genuinely new subsystems. Exactly one is impossible
-by construction — and **knowing which one is impossible is worth more than the rest.**
+Three rode the same opaque-blob trick and were cheap. One was a genuinely new subsystem and was
+built anyway, because escrow is not honest without it (see below). One was refused on grounds
+that have nothing to do with difficulty. Exactly one is impossible by construction — and
+**knowing which one is impossible is still worth more than the rest.**
 
 ### Atomicity deserves the most emphasis
 
@@ -159,15 +177,27 @@ it. **A lease grants exclusive *access*, never an atomic *swap*.** A trade is tw
 neither — and if one side vanishes after handing over, an item is destroyed or duplicated. That is
 exactly where historical Pokémon trading exploits came from.
 
-`plans.md` currently asserts trades are tractable *because* they are bounded and consensual, and
-never examines the one-side-vanishes case. The repo is protected today only by accident: nothing
-game-affecting is implemented at all.
+`plans.md` asserts trades are tractable *because* they are bounded and consensual, and never
+examines the one-side-vanishes case. That case is now the one the implementation is built around:
+an exchange completes only when both parties have deposited **and** both have committed, any
+disconnect or timeout aborts it and destroys both blobs, and a terminal record is retained for 60s
+so a party that dropped between the commit and its delivery can resume and be told the outcome.
 
-### Persistence changes the project's character
+**That retention is why stable identity was built alongside escrow rather than after it.** Without
+resumption, "both or neither" holds only for as long as both sockets stay up — which is the case
+that never fails in testing and always fails in the field. Escrow without resumption would have
+been a guarantee that is true in every test and false in the only situation it exists for.
 
-Worth flagging separately: a persistent relay needs storage, backups, migrations and corruption
-handling. It stops being a thing a user runs from a `.bat` file. That is a bigger change than its
-one table row suggests.
+### Persistence changes the project's character — and was refused for that reason
+
+A persistent relay needs storage, backups, migrations and corruption handling. It stops being a
+thing a user runs from a `.bat` file. That is a bigger change than its one table row suggests, and
+it is why the 2026-08-17 pass built the other five rows and deliberately did not build this one.
+
+The honest boundary it leaves: **resumption survives a network blip, not a relay restart.** Rooms,
+leases, exchanges and identities all live in memory and die with the process. A host who restarts
+their relay mid-trade aborts it, and every client rejoins with a fresh `player_id`. Making that
+survivable is the one remaining thing that would change what MeshGhost *is* to run.
 
 ---
 
@@ -180,7 +210,11 @@ Recorded so nobody re-scopes it from scratch:
 - `Room.Forward` already takes an explicit recipient set, shaped that way deliberately for addressed
   routing.
 
-**The sequencer half is cheap.** Leases, escrow and lifetime handling are not.
+**The sequencer half is cheap.** Leases, escrow and lifetime handling are not — and that
+estimate held exactly. The sequencer was a counter incremented inside a lock already being taken;
+what it actually cost was the *delivery* guarantee nobody had priced, a per-room send lock held
+across stamp-and-send (see §10's invariant-harness row). Lease lifetime and escrow atomicity were the bulk of the work,
+as predicted.
 
 ---
 
@@ -202,15 +236,23 @@ predicts an adapter's difficulty — here, what you can *reproduce* predicts how
 
 ## 8. Protocol-level gaps to close first
 
-- **`MaxEventBytes`** is a documentation placeholder in `contract.md` with no number.
+- **`MaxEventBytes`** — **CLOSED 2026-08-17 at 1024 bytes, uniform.** Of the two honest options in
+  §9, uniform won: it keeps a whole event envelope under `udpconn.MaxDatagramBytes`, so an event
+  means the same thing on every transport and size needs no negotiation. The cost is a smaller
+  ceiling than a stream transport could carry, paid so there is one number rather than a
+  capability difference that only shows up in the field.
 - **`seq` is inert.** `protocol.State.seq` is documented "for ordering", written by
-  `internal/core`, and read by nothing. Ordering is currently a transport property; if anything ever
-  needs application-level ordering, this is the field waiting for it.
+  `internal/core`, and read by nothing. **Still true, and now deliberately so**: the event plane
+  got its own room-wide `Event.Seq` rather than reusing this one, because a per-client counter on a
+  lossy plane means nothing across senders and a total order has to come from the relay. The two
+  are different things that happen to share a word.
 - **Versioning is the one that matters most.** `ProtocolVersion` is an exact-equality check, so any
   bump hard-rejects every existing client. New capability must therefore travel via `features` plus
   the unknown-field/unknown-type tolerance, and a `Version` bump stays reserved for genuinely
   breaking changes. **Stating this is most of what keeps the door open** — it is the difference
-  between adding a feature and orphaning every deployed client.
+  between adding a feature and orphaning every deployed client. **Held in practice 2026-08-17**:
+  six capabilities, four message types, and eight new fields shipped with `ProtocolVersion`
+  untouched, riding `features` plus the unknown-field/unknown-type tolerance exactly as planned.
 
 ---
 
@@ -289,15 +331,18 @@ What is missing splits cleanly by **which bug class it catches**:
 | Tool | Catches | Status |
 |---|---|---|
 | **Adverse-network proxy** | anything that only breaks under loss/latency/jitter/reorder/partition | **BUILT 2026-08-16** — `cmd/meshghost-netsim` |
-| **Invariant harness over N clients** | concurrency bugs (one lease holder, no dupe/loss, consistent order) | reserved |
+| **Invariant harness over N clients** | concurrency bugs (one lease holder, no dupe/loss, consistent order) | **BUILT 2026-08-17** — `internal/relay/online_test.go` |
 | **Divergence detector** | two peers silently disagreeing about shared state | reserved |
 | **Record / replay** | a desync seen once and never again | reserved |
 | **Crash injection at protocol points** | atomicity — the half-finished trade | reserved |
 | **Relay introspection** | "what does the server think is true right now" | reserved |
 
-**Only the first was built, and only because it has a present-day consumer** — the rest would be
-code with nothing to exercise it, which is the same reasoning the event plane itself was reserved
-under. The proxy earned its place immediately: `testing.md` already recorded that jitter and clock
+**The second was built the moment it had something to be an invariant about**, and immediately
+earned it: the total-order test failed on its first run, catching a real ordering defect (a stamp
+assigned under the room lock and delivered after releasing it, so two concurrent events could be
+stamped 1 and 2 and race to the socket). That is the predicted failure mode landing exactly where
+this table said it would. The remaining four stay reserved — they would be code with nothing to
+exercise it, the same reasoning the event plane itself was reserved under. The proxy earned its place immediately: `testing.md` already recorded that jitter and clock
 skew were untested and that interpolation degrades *silently* under skew, and the unit-scale
 version of exactly this tool found the lifecycle-ordering bug on 2026-08-16.
 

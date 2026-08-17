@@ -374,14 +374,37 @@
   Mitigation planned the same way — confirm the position read works both with the randomizer
   enabled and disabled, prefer reads that survive patching, record which was tested in
   `verified.md`.
-- **Reserved-but-unbuilt contract fields going stale**: the `features` field and the `event`
-  message type (`agent_docs/contract.md`, Extensibility section) are documented now and
-  implemented never, until something needs them. The risk is a future session building
-  routing for them speculatively, before any adapter actually sends an event — that produces
-  code with no on-screen consumer, which this project's own verification standard treats as
-  unproven. The mitigation is procedural: don't implement the event plane until a specific
-  Tier 3 feature (see `plans.md`) is approved via its own ADR and has a concrete adapter
-  ready to use it.
+- **Code with no consumer, deliberately accepted 2026-08-17**: this entry used to say the
+  `features` field and the `event` message type would be "documented now and implemented never,
+  until something needs them", with a procedural mitigation of not building the event plane until
+  a Tier 3 feature was approved and a concrete adapter was ready. **That mitigation was overridden
+  by an explicit decision to build the whole dumb-relay set ahead of any consumer** (ADR in
+  `architecture.md`), so the risk it named is now real rather than avoided, and is recorded here
+  honestly instead of being quietly deleted.
+
+  What is actually at risk, and what is not:
+
+  - **Not the verification standard.** The standard is "was the expected thing seen happening on
+    screen" *for an adapter*, because a wrong memory address returns a plausible number instead of
+    crashing. None of this touches a game: it is `internal/relay`, `internal/core` and
+    `internal/protocol`, which CLAUDE.md puts on the opposite footing — confirm with the tools,
+    don't ask the user to watch. That was done (invariant tests over racing clients, three fuzz
+    targets, the suite at `-count=10`, `internal/e2e` green), and it immediately caught a real
+    ordering defect. So this is unproven *in a game*, not unproven.
+  - **Genuinely at risk: the shape being wrong for the first adapter that wants it.** An API with
+    no user is an API nobody has disagreed with yet. The likeliest places to find that out are the
+    ones where a judgement call was made with nothing concrete to check it against — `MaxEventBytes`
+    being uniform rather than transport-dependent, the 20s resume grace, the 60s escrow
+    timeout/retention, and whether an adapter really wants its own event echoed back.
+  - **Also at risk: bit rot.** Six capabilities and four message types that nothing exercises
+    outside their own tests will drift as the rest of the codebase moves. The mitigation is that
+    they are all opt-in and inert by default, so drift degrades a feature nobody is using rather
+    than the cosmetic path everybody is.
+
+  **The rule that has NOT changed:** these are transport-level primitives, not permission. Anything
+  past Tier 2 on `plans.md`'s depth ladder still needs writing game memory, still needs its own
+  per-game ADR, and still passes through the memory-write gate. Reading "escrow exists" as "trading
+  is approved" is exactly the misreading `beyond-cosmetic.md` §11 warns about.
 
 - **Blueprint-vs-C++ readability, surfaced at Phase 7 start**: Pseudoregalia is largely
   Blueprint-driven (per `adapters/pseudoregalia/README.md`'s brief note and no `.pdb`/managed

@@ -40,7 +40,8 @@ TEVI replaced the brief's original Ori: Will of the Wisps pick.
 MeshGhost's default is and stays a visual-only mod. But the architecture doesn't trap it
 there for a specific game if that's wanted later — see the Extensibility section of
 `agent_docs/contract.md` and the matching ADR in `agent_docs/architecture.md` for the
-mechanism (an opaque, per-adapter event plane; nothing built yet, just reserved).
+mechanism (an opaque, per-adapter event plane, built 2026-08-17 and opt-in — see
+`beyond-cosmetic.md`; primitives only, and no adapter uses any of it).
 
 The concept layer under this ladder — sync models, the authority taxonomy, and what a
 deeper-than-cosmetic mode would actually have to close — is `agent_docs/beyond-cosmetic.md`.

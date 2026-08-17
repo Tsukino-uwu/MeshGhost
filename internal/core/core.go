@@ -345,6 +345,66 @@ type Core struct {
 	autoRetryAdapterGameVersion string
 	autoRetryBridgeConn         transport.Transport
 
+	// Features is the capability list this Core advertises in Hello.Features,
+	// on top of whatever the adapter itself asks for over the bridge (see
+	// effectiveFeatures). Empty by default, deliberately: a room's feature
+	// set is sticky and matched exactly, so a Core that advertised
+	// capabilities nobody asked for would refuse to share a room with any
+	// client that hadn't been upgraded in lockstep. Everything past the
+	// cosmetic state plane is opt-in — see agent_docs/beyond-cosmetic.md §3
+	// and the Feature* constants in internal/protocol/online.go.
+	Features []string
+
+	// adapterFeatures is what the adapter last requested in its bridge
+	// Hello, kept separate from the exported Features (the user's own
+	// setting) for the same reason adapterGameVersion is kept separate from
+	// GameVersion: latching one into the other destroys the "not set" state
+	// for the rest of the process.
+	adapterFeatures []string
+
+	// resumeToken is the single-use secret from the last Welcome, presented
+	// in a later Hello to reclaim this identity after an unexpected drop.
+	// Deliberately NOT cleared on disconnect — that is precisely when it
+	// becomes useful — but cleared when the adapter itself goes away, since
+	// that is a real departure the room should see rather than a blip to
+	// paper over.
+	resumeToken string
+
+	// activeFeatures is the room's agreed feature set, from Welcome.Features
+	// — NOT what this Core asked for. The two can differ only by the relay
+	// being older than this client (in which case the room agreed on
+	// nothing), because a real mismatch is refused at the handshake. Every
+	// send path gates on this rather than on the request, so a capability
+	// this room does not have fails with a clear error instead of being
+	// dropped somewhere in the relay. Guarded by mu; cleared on disconnect.
+	activeFeatures []string
+
+	// resumed records whether the current session reclaimed a previous
+	// identity (Welcome.Resumed) rather than being issued a fresh one.
+	resumed bool
+
+	// clock holds this connection's estimate of the offset between the local
+	// wall clock and the relay's. See clockSync in online.go for why a shared
+	// clock domain matters: State.Timestamp is compared directly against a
+	// local wall clock by interp.go, so peers whose clocks disagree stop
+	// interpolating silently rather than failing.
+	clock clockSync
+
+	// pendingPings maps a heartbeat nonce to when it was sent, so a Pong can
+	// be turned into a round-trip time. The nonce field existed from the
+	// start and nothing read it back, which meant RTT was not merely
+	// unmeasured but not computable at all.
+	pendingPings map[uint64]time.Time
+
+	// OnEvent, OnLeaseState and OnEscrowState, if set, receive the event
+	// plane and the two arbitration planes. A caller that leaves them nil
+	// (every cosmetic caller) still has these messages forwarded to its
+	// attached adapter over the bridge — these exist for an in-process host
+	// and for tests, the same narrow role core.Adapter has.
+	OnEvent       func(ev protocol.Event)
+	OnLeaseState  func(st protocol.LeaseState)
+	OnEscrowState func(st protocol.EscrowState)
+
 	// adapterGameVersion is the version the adapter last reported in its
 	// bridge Hello. Kept separate from the exported GameVersion (the user's
 	// override) so a reconnecting adapter reporting a different version is
@@ -472,6 +532,16 @@ func (c *Core) ConnectRelay(gameID string) error {
 			// "nothing advertised yet" fallback instead of inheriting this
 			// connection's now-stale rate.
 			c.serverSendInterval = 0
+			// Per-connection too: the room's agreed capabilities, the clock
+			// offset (a different relay has a different clock, and even the
+			// same one restarted may have jumped), the outstanding ping
+			// timings, and whether this session was a resumption. The resume
+			// TOKEN deliberately survives — this is exactly the drop it
+			// exists for.
+			c.activeFeatures = nil
+			c.resumed = false
+			c.clock = clockSync{}
+			c.pendingPings = nil
 			// Roster is per-connection: player_ids are only meaningful within
 			// the connection that assigned them. Welcome used to be the de
 			// facto reset (it replaced the map wholesale), but it no longer
@@ -498,6 +568,13 @@ func (c *Core) ConnectRelay(gameID string) error {
 	})
 	conn.OnReceive(func(payload []byte) { c.handleRelayMessage(payload, welcome, reject) })
 
+	// A resume token from a previous session on this Core, if any. Presented
+	// on every connect attempt: the relay silently ignores one it does not
+	// recognise, so there is no need to know whether this is a reconnect.
+	c.mu.Lock()
+	resumeToken := c.resumeToken
+	c.mu.Unlock()
+
 	hello, err := json.Marshal(protocol.Hello{
 		ProtocolVersion: protocol.Version,
 		GameID:          gameID,
@@ -506,6 +583,8 @@ func (c *Core) ConnectRelay(gameID string) error {
 		RoomCode:        roomCode,
 		GameVersion:     gameVersion,
 		MaxReceiveHz:    c.MaxReceiveHz,
+		Features:        c.effectiveFeatures(),
+		ResumeToken:     resumeToken,
 	})
 	if err != nil {
 		_ = conn.Close()
@@ -536,6 +615,13 @@ func (c *Core) ConnectRelay(gameID string) error {
 		c.playerID = w.PlayerID
 		c.relayGame = gameID
 		c.mu.Unlock()
+		if agreed := c.RoomFeatures(); len(agreed) > 0 {
+			// Worth one line at connect: a room's capabilities are matched
+			// exactly and are the difference between a lease being arbitrated
+			// and silently ignored, so "which set did we actually land on"
+			// should never require reading the relay's log to answer.
+			log.Printf("core: room %q negotiated capabilities %v", room, agreed)
+		}
 		go c.sendHeartbeats(conn)
 		return nil
 	case r := <-reject:
@@ -758,7 +844,17 @@ func (c *Core) handleRelayMessage(payload []byte, welcome chan<- protocol.Welcom
 			if w.SendHz > 0 {
 				c.serverSendInterval = time.Second / time.Duration(protocol.ClampSendHz(w.SendHz))
 			}
+			// The room's agreed set, normalized again on receive rather than
+			// trusted as sent — same defence-in-depth against a hostile relay
+			// as clamping SendHz above.
+			c.activeFeatures = protocol.NormalizeFeatures(w.Features)
+			c.resumed = w.Resumed
+			hadToken := c.resumeToken != ""
+			if w.ResumeToken != "" {
+				c.resumeToken = w.ResumeToken
+			}
 			c.mu.Unlock()
+			logResumeOutcome(w, hadToken)
 			select {
 			case welcome <- w:
 			default:
@@ -807,8 +903,11 @@ func (c *Core) handleRelayMessage(payload []byte, welcome chan<- protocol.Welcom
 			c.storeRemoteState(st)
 		}
 	default:
-		// Unknown or not-yet-implemented types (event, ping/pong) are
-		// ignored — same forward-compatibility posture as unknown fields.
+		// The event/lease/escrow planes and Pong, which handleOnlineMessage
+		// owns (internal/core/online.go). Anything it does not recognise
+		// either — a message type from a newer relay — is ignored, the same
+		// forward-compatibility posture as unknown fields.
+		c.handleOnlineMessage(env)
 	}
 }
 
@@ -948,6 +1047,14 @@ func (c *Core) handleBridgeConn(netConn net.Conn) {
 			c.autoRetryGameID = ""
 			c.autoRetryAdapterGameVersion = ""
 			c.autoRetryBridgeConn = nil
+			// The game closed. That is a real departure the rest of the room
+			// should see as a leave, so the resume credential is discarded
+			// here — resumption exists for the connection dropping underneath
+			// a still-running game, which is a different event even though
+			// both arrive as a closed socket. Without this, relaunching the
+			// game would silently reclaim the old identity and nobody would
+			// ever have seen the ghost go.
+			c.resumeToken = ""
 		}
 		c.mu.Unlock()
 		if relay != nil && owns {
@@ -984,6 +1091,14 @@ func (c *Core) handleBridgeConn(netConn net.Conn) {
 				return
 			}
 
+			// Recorded before the connect below, because the relay Hello it
+			// sends carries the union of this and c.Features. An adapter that
+			// asks for nothing (every shipped adapter) leaves this empty and
+			// the client stays wire-compatible with any room.
+			c.mu.Lock()
+			c.adapterFeatures = protocol.NormalizeFeatures(h.Features)
+			c.mu.Unlock()
+
 			if err := c.ConnectRelayOnAdapterHello(h.GameID, h.GameVersion, nd); err != nil {
 				// Release the slot claimed above: this connection never
 				// became the adapter, so holding it would make the Core
@@ -1007,6 +1122,24 @@ func (c *Core) handleBridgeConn(netConn net.Conn) {
 				return
 			}
 			c.onAdapterFrame(msg, nd, rendered)
+		case bridge.TypeEvent:
+			var msg bridge.Event
+			if err := json.Unmarshal(env.Payload, &msg); err != nil {
+				return
+			}
+			c.reportBridgeSendErr(nd, bridge.TypeEvent, c.SendEvent(msg.Event))
+		case bridge.TypeLease:
+			var msg bridge.Lease
+			if err := json.Unmarshal(env.Payload, &msg); err != nil {
+				return
+			}
+			c.reportBridgeSendErr(nd, bridge.TypeLease, c.sendLease(msg.Lease))
+		case bridge.TypeEscrow:
+			var msg bridge.Escrow
+			if err := json.Unmarshal(env.Payload, &msg); err != nil {
+				return
+			}
+			c.reportBridgeSendErr(nd, bridge.TypeEscrow, c.SendEscrow(msg.Escrow))
 		}
 	})
 }
@@ -1133,7 +1266,13 @@ func (c *Core) forwardLocalState(state *protocol.State) {
 	st := *state
 	st.PlayerID = playerID
 	st.Seq = atomic.AddUint64(&c.seq, 1)
-	st.Timestamp = time.Now().UnixMilli()
+	// Stamped in the RELAY's clock domain when this room negotiated clock
+	// sync, and in the local one otherwise (which is every room today, and
+	// every room against an older relay). See nowMs and clockSync in
+	// online.go: a receiver compares this against its own wall clock, so what
+	// matters is that every member of a room measures against the same one,
+	// not that any of them is right about the real time.
+	st.Timestamp = c.nowMs()
 	c.sendState(relay, st)
 }
 
@@ -1143,7 +1282,13 @@ func (c *Core) forwardLocalState(state *protocol.State) {
 // (onAdapterFrame) and the in-process path (onAdapterFrameInProcess) so the
 // tick-model diff logic exists exactly once.
 func (c *Core) tickRenders(rendered map[string]bool, render func(id string, st protocol.State), despawn func(id string)) {
-	renderTime := time.Now().Add(-c.InterpolationDelay).UnixMilli()
+	// The same clock domain outgoing timestamps are stamped in (nowMs), which
+	// is the whole point: remote samples carry the sender's idea of the time,
+	// and comparing them against a render time measured on a different clock
+	// is what makes interpolation degrade silently under skew. With clock
+	// sync off — every room today — this is exactly the previous
+	// time.Now().Add(-delay).
+	renderTime := c.nowMs() - c.InterpolationDelay.Milliseconds()
 	current := c.remoteStatesAt(renderTime)
 
 	for id, st := range current {
@@ -1173,29 +1318,65 @@ func (c *Core) sendHeartbeats(conn transport.Transport) {
 	if interval <= 0 {
 		return
 	}
-	ticker := time.NewTicker(interval)
-	defer ticker.Stop()
 	var nonce uint64
-	for range ticker.C {
-		c.mu.Lock()
-		stillCurrent := c.relay == conn
-		c.mu.Unlock()
-		if !stillCurrent {
+	// One ping is a heartbeat; a short burst of them is a clock measurement.
+	// The burst comes first because the heartbeat interval is 20s, and an
+	// offset estimate that takes a minute to form is useless for exactly the
+	// minute a player is first walking into everyone else's view. Three
+	// probes cost three messages and give the "keep the lowest RTT"
+	// estimator something to choose between, which a single sample cannot.
+	//
+	// Spaced at the SHORTER of the probe interval and this Core's heartbeat
+	// interval. A Core configured to heartbeat faster than the burst clearly
+	// wants pings sooner, and spacing the burst wider than the heartbeat
+	// would delay the very keepalive it is being sent alongside — which is
+	// not hypothetical, it broke two existing heartbeat tests the moment the
+	// burst was added with a fixed interval.
+	probeGap := initialClockProbeInterval
+	if interval < probeGap {
+		probeGap = interval
+	}
+	for i := 0; i < initialClockProbeCount; i++ {
+		if !c.sendPing(conn, &nonce) {
 			return
 		}
-		nonce++
-		payload, err := json.Marshal(protocol.Ping{Nonce: nonce})
-		if err != nil {
-			continue
-		}
-		env, err := json.Marshal(protocol.Envelope{Type: protocol.TypePing, Payload: payload})
-		if err != nil {
-			continue
-		}
-		if err := conn.Send(env); err != nil {
+		time.Sleep(probeGap)
+	}
+
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for range ticker.C {
+		if !c.sendPing(conn, &nonce) {
 			return
 		}
 	}
+}
+
+// sendPing sends one Ping on conn and records when it went out, so the
+// matching Pong can be turned into a round-trip time and a clock offset.
+// Returns false once conn is no longer this Core's relay connection, or the
+// send fails — in both cases sendHeartbeats should stop.
+func (c *Core) sendPing(conn transport.Transport, nonce *uint64) bool {
+	c.mu.Lock()
+	stillCurrent := c.relay == conn
+	c.mu.Unlock()
+	if !stillCurrent {
+		return false
+	}
+	*nonce++
+	payload, err := json.Marshal(protocol.Ping{Nonce: *nonce})
+	if err != nil {
+		return true
+	}
+	env, err := json.Marshal(protocol.Envelope{Type: protocol.TypePing, Payload: payload})
+	if err != nil {
+		return true
+	}
+	// Recorded before the send, not after: a send that blocks briefly is part
+	// of the round trip a client actually experiences, and stamping
+	// afterwards would quietly subtract it and bias every estimate low.
+	c.recordPingSent(*nonce, time.Now())
+	return conn.Send(env) == nil
 }
 
 // discoverTransportTimeout bounds the whole "what do you serve?" exchange.

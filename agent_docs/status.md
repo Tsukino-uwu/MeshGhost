@@ -10,7 +10,9 @@ Phase 8 (Emerald) is open but idle since 2026-08-14; Phase 6 (TEVI) is done.
 **Landed 2026-08-16** (autostart on Windows+Proton, v0.7.0, admission control, the camera/rig fix,
 no more through-wall ghosts; Go side: quic default, ordered udp, `cmd/meshghost-netsim`) and
 **2026-08-17** (a sliding ghost posed via the game's own crouch path, retiring the +43 render-Z
-bandage) — full record in `verified.md`, `plans.md` and `adapters/pseudoregalia/BANDAGES.md`.
+bandage; Go side: the planes past cosmetic — events, sequencer, leases, escrow, snapshots,
+resumption, clock sync, all opt-in and unused by any adapter) — full record in `verified.md`,
+`plans.md`, `architecture.md` and `adapters/pseudoregalia/BANDAGES.md`.
 
 Roadmap: `plans.md`. Per-phase log: `phases/`. Evidence for all of the above: `verified.md`.
 
@@ -62,6 +64,8 @@ that a peer's state genuinely differs from the local player's, which loopback co
   flags). Open: no sustained-load or two-machine test yet, no per-IP cap. `verified.md`, `risks.md`.
 - **A served-but-unforwarded transport strands a client** — discovery knows what a relay offers,
   not whether the path works, so it retries instead of falling back to tcp. Docs-only for now.
+- **The planes past cosmetic have no live consumer.** Built and Go-tested 2026-08-17; no adapter
+  asks for any capability yet. `beyond-cosmetic.md`, `architecture.md` ADR.
 - **Suspected: Pseudoregalia mod may not clear ghosts when the bridge drops** — pre-existing, any
   transport. Planned fix: `release_all_ghosts` on bridge loss, NOT parking. `verified.md` 2026-08-16.
 

@@ -108,6 +108,16 @@ and its `contents: write` permission is the reason CI is deliberately `contents:
   then drives a real adapter over the bridge and asserts a ghost completes the round trip. This
   is the only thing covering `cmd/`'s flag parsing and config wiring, and it is the automated
   form of the loopback check that used to mean launching two `.bat` files and watching.
+- **`internal/relay/online_test.go`, `internal/core/online_test.go`** — the planes past cosmetic
+  (events, sequencer, leases, escrow, snapshots, resumption, clock sync). **The concurrency tests
+  there are the point of the file, not decoration**, and are the invariant harness
+  `beyond-cosmetic.md` predicted would be the highest-value tool for this work: many clients race
+  for one lease key and exactly one must win with everyone told the same answer, and several send
+  events at once and every member must observe one identical total order. That second one **failed
+  on its first run**, catching a real ordering defect (a sequencer stamp assigned under the room
+  lock and delivered after releasing it, so two events stamped 1 and 2 could race to the socket).
+  Written as an invariant over N racing clients rather than a tidy two-client sequence precisely
+  because a two-client version would have passed.
 - **`internal/relay/leak_test.go`** — goroutine and connection-slot teardown. Both pass; these
   exist because a relay holds sessions for hours and nothing else asserted that a closed
   connection actually releases anything.

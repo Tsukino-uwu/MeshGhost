@@ -17,6 +17,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"meshghost/internal/netx"
 	"meshghost/internal/protocol"
@@ -74,6 +75,15 @@ type fileConfig struct {
 	// or 0 means protocol.DefaultSendHz. See the ADR in
 	// agent_docs/architecture.md for the send/receive rate-control feature.
 	SendHz *int `json:"send_hz"`
+	// ResumeGraceSeconds is how long this relay holds a dropped client's
+	// identity -- its player_id, its leases and its in-flight exchanges --
+	// waiting for it to reconnect, before telling the room it left. Absent or
+	// 0 means protocol.DefaultResumeGrace (20s). Only ever used by a room
+	// whose members negotiated resume.v1; a cosmetic room never holds
+	// anything. Raising it makes a flaky connection less visible to everyone
+	// else and makes a genuinely departed player's keys stay locked longer --
+	// see relay.Server.ResumeGrace.
+	ResumeGraceSeconds *int `json:"resume_grace_seconds"`
 	// Transport is a comma-separated list of transports to serve at once:
 	// any of "tcp", "udp", "quic". Absent means "tcp,quic". Clients pick one of
 	// them; a room can hold clients on different transports simultaneously,
@@ -102,13 +112,14 @@ type rootConfig struct {
 // the same trigger cmd/meshghost's own struct cites (a struct keeps each
 // field's name at the call site instead of relying on positional order).
 type configTargets struct {
-	addr       *string
-	roomCode   *string
-	onlyGame   *string
-	maxClients *int
-	sendHz     *int
-	transport  *string
-	quicAddr   *string
+	addr        *string
+	roomCode    *string
+	onlyGame    *string
+	maxClients  *int
+	sendHz      *int
+	resumeGrace *int
+	transport   *string
+	quicAddr    *string
 }
 
 // stripBOM removes a leading UTF-8 byte-order mark from a config file's
@@ -217,6 +228,9 @@ func applyFileConfig(path string, explicit map[string]bool, t configTargets) {
 	if rc.Server.SendHz != nil && !explicit["send-hz"] {
 		*t.sendHz = *rc.Server.SendHz
 	}
+	if rc.Server.ResumeGraceSeconds != nil && !explicit["resume-grace"] {
+		*t.resumeGrace = *rc.Server.ResumeGraceSeconds
+	}
 	if rc.Server.Transport != nil && !explicit["transport"] {
 		*t.transport = *rc.Server.Transport
 	}
@@ -274,6 +288,12 @@ func main() {
 			"same room, so traffic within a room scales roughly with the square of its size, not "+
 			"linearly -- raising this a lot and letting it pile into one room trades your own "+
 			"relay's bandwidth/CPU for more seats, not a free lunch")
+	resumeGrace := flag.Int("resume-grace", 0,
+		"seconds to hold a dropped player's identity (its player_id, leases and in-flight "+
+			"exchanges) waiting for it to reconnect, before telling the room it left. 0 (the "+
+			"default) means 20s. Only used by rooms whose members negotiated resume.v1 -- a "+
+			"cosmetic room holds nothing and this changes nothing for it. Higher hides a flaky "+
+			"connection better; lower frees a genuinely departed player's keys sooner")
 	sendHz := flag.Int("send-hz", protocol.DefaultSendHz,
 		"how many times per second every player sends their position to this room (a \"20 tick\" "+
 			"relay = 20Hz = an update every 50ms; higher/lower are the same idea in different "+
@@ -303,7 +323,7 @@ func main() {
 		"path to an optional JSON config file with a \"server\" section "+
 			"({\"listen_on\": \"...\", \"listen_quic\": \"...\", \"room_code\": \"...\", "+
 			"\"only_game\": \"...\", \"transport\": \"...\", "+
-			"\"max_clients\": ..., \"send_hz\": ...}) -- a friendlier alternative to flags for "+
+			"\"max_clients\": ..., \"send_hz\": ..., \"resume_grace_seconds\": ...}) -- a friendlier alternative to flags for "+
 			"non-developer use; "+
 			"silently ignored if it doesn't exist; a flag passed explicitly on the command line "+
 			"overrides the same field from this file")
@@ -314,13 +334,14 @@ func main() {
 	explicit := map[string]bool{}
 	flag.Visit(func(f *flag.Flag) { explicit[f.Name] = true })
 	applyFileConfig(*configPath, explicit, configTargets{
-		addr:       addr,
-		roomCode:   roomCode,
-		onlyGame:   onlyGame,
-		maxClients: maxClients,
-		sendHz:     sendHz,
-		transport:  transportNames,
-		quicAddr:   quicAddr,
+		addr:        addr,
+		roomCode:    roomCode,
+		onlyGame:    onlyGame,
+		maxClients:  maxClients,
+		sendHz:      sendHz,
+		resumeGrace: resumeGrace,
+		transport:   transportNames,
+		quicAddr:    quicAddr,
 	})
 
 	// Fatal on an unrecognized transport rather than falling back to tcp:
@@ -442,6 +463,7 @@ func main() {
 	server.Offers = offers
 	server.MaxClients = *maxClients
 	server.SendHz = *sendHz
+	server.ResumeGrace = time.Duration(*resumeGrace) * time.Second
 	log.Printf("meshghost-relay: max clients (total, across all rooms): %d", *maxClients)
 	// Clamp and warn rather than refuse to start -- a typo in a cosmetic
 	// tuning knob must not stop a host booting (see the ADR in
