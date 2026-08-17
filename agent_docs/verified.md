@@ -6048,3 +6048,60 @@ scheduled. All established by the agent with local tools; nothing here is a visu
 - **Still not observed, and both matter:** a real map-to-map transition (the run stayed in
   `PLAYERS_HOUSE_2F`), and how many slots the game itself consumes on a populated map. Twelve free
   in a bedroom is an upper bound, not a budget.
+
+### Crystal: a spawned object event renders — the create tier works on an emulator (2026-08-18)
+
+- Date: 2026-08-18
+- Observed: **watched on screen by the user**, with a screenshot. `spawn_test.lua` copied the
+  player's own object struct from slot 0 into slot 1 and offset it +2 tiles in x. A **second Chris
+  appeared in the room, correctly drawn** — right sprite, right palette, composited into the scene
+  like any other object, not painted over it. Player at (7,7), ghost at (9,7), in
+  `PLAYERS_HOUSE_2F`. Log: `ROM guard passed: vanilla Crystal V1.0` then
+  `Wrote slot 1 at frame 120`.
+- Source: live session; `adapters/pokemon/crystal/spawn_test.lua`.
+- Notes: **this is the milestone the 2026-08-17 spawn ADR was written for.** MeshGhost has drawn
+  overlays on an emulated game since Emerald; this is the first time it has asked the game itself
+  to render a character, and the first game-RAM write in the project's history. It validates the
+  whole approach: palettes, sprite selection and compositing are the engine's job and they came out
+  right without us implementing any of them.
+  **Copying a live object was the right call.** The struct was duplicated from a real, running
+  object rather than built from the two disagreeing spawn-time captures, which removed field
+  correctness as a variable entirely.
+  **The guard did its job silently and should stay that way:** it verified the ROM header
+  (`PM_CRYSTAL`, checksum `129F`) before writing anything.
+- **Honest caveat about the automated check: it was inconclusive, and the screen is what settled
+  this.** The script logged the engine-maintained `OBJECT_SPRITE_X`/`Y` at +1, +30 and +120 frames
+  expecting movement to indicate the engine had adopted the object; all three read `64`/`64`,
+  unchanged. That is exactly what a *stationary* object should read, so it neither confirms nor
+  denies engine ownership — the test was badly chosen, not failed. **Do not cite those numbers as
+  corroboration.** A better check is whether the object animates or reacts when it has reason to.
+- **Not yet known, and none of it is implied by the above:** whether the ghost animates, whether it
+  survives a map transition, whether the player collides with it, whether it can be given a
+  *different* appearance from the player (a peer will need Kris, or a different state), and how it
+  behaves on a map that is already using its slot.
+
+### Crystal: writing the object struct directly makes a half-owned object (2026-08-18)
+
+- Date: 2026-08-18
+- Observed: **watched by the user**, immediately after the successful render above. The spawned
+  character's **collision sat two tiles away from where its sprite was drawn** — user, verbatim:
+  *"the hitbox/collission of the sprite seems to be 2 tiles to the right of where the sprite is
+  shown"*, and then *"its now an 'invisible blocked tile' i can't walk onto"*.
+- Source: live session; `adapters/pokemon/crystal/spawn_test.lua`.
+- Notes: **the two tiles are exactly the offset the script applied**, which identifies the cause
+  precisely. `OBJECT_MAP_X`/`MAP_Y` drive collision and we set them to +2; the sprite is drawn from
+  `OBJECT_SPRITE_X`/`Y`, which we copied from the player and **the engine never recomputed** — the
+  same `64`/`64` the script logged unchanged at +1, +30 and +120 frames. That log line was read at
+  the time as "stationary object, inconclusive"; the user's observation is what gave it its real
+  meaning. **A metric that agrees with itself is not evidence** — the screen settled this, twice.
+- **The underlying cause, from `pokecrystal`: object structs are not the source of truth, map
+  objects are.** `InitializeVisibleSprites` (`engine/overworld/player_object.asm`) walks the map
+  objects and, for each with a sprite whose `MAPOBJECT_OBJECT_STRUCT_ID` is still `-1`, assigns an
+  object struct and takes ownership. Writing the struct directly skips that, so the object renders
+  but nothing maintains it. **This is the imitation failure `adapters/_template/README.md` predicts
+  in "find out how the GAME does it before you work around it"** — and it appeared on the very
+  first attempt, which is the argument for the ADR's call-the-engine branch rather than a
+  refinement of the imitation.
+- **Correction to the entry above:** "palettes, sprite selection and compositing are the engine's
+  job and they came out right" still holds for *drawing*, but the object is not engine-driven.
+  Treat that entry as "the game will render a struct we place", not "the game adopted our object".
