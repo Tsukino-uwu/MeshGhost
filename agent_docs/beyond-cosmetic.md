@@ -334,15 +334,33 @@ What is missing splits cleanly by **which bug class it catches**:
 | **Invariant harness over N clients** | concurrency bugs (one lease holder, no dupe/loss, consistent order) | **BUILT 2026-08-17** — `internal/relay/online_test.go` |
 | **Divergence detector** | two peers silently disagreeing about shared state | reserved |
 | **Record / replay** | a desync seen once and never again | reserved |
-| **Crash injection at protocol points** | atomicity — the half-finished trade | reserved |
-| **Relay introspection** | "what does the server think is true right now" | reserved |
+| **Crash injection at protocol points** | atomicity — the half-finished trade | **BUILT 2026-08-17** — `internal/relay/online_test.go`'s crash-mid-exchange tests |
+| **Relay introspection** | "what does the server think is true right now" | **BUILT 2026-08-17** — `Server.Snapshot`, `meshghost-relay -introspect` |
 
 **The second was built the moment it had something to be an invariant about**, and immediately
 earned it: the total-order test failed on its first run, catching a real ordering defect (a stamp
 assigned under the room lock and delivered after releasing it, so two concurrent events could be
 stamped 1 and 2 and race to the socket). That is the predicted failure mode landing exactly where
-this table said it would. The remaining four stay reserved — they would be code with nothing to
-exercise it, the same reasoning the event plane itself was reserved under. The proxy earned its place immediately: `testing.md` already recorded that jitter and clock
+this table said it would. Two more followed once the code existed to need them:
+
+- **Relay introspection** earned its place by the relay finally having state worth inspecting. A
+  relay that forwards and forgets has nothing to report; one holding leases, exchanges and parked
+  identities can be wedged in ways no log line records. Deliberately a snapshot logged by the
+  relay itself, not a status port — adding a listener would hand back the pre-auth surface the
+  transport-discovery ADR worked to keep clear.
+- **Crash injection** turned out to be tests rather than a tool: dropping a party's socket at a
+  chosen protocol point is one `Close()` in an existing test client. The case that mattered is a
+  party crashing between the relay committing an exchange and the message arriving, then resuming
+  to learn the outcome — the path the whole retention mechanism exists for, and one that was
+  built before it was tested.
+
+**A finding worth more than either tool.** The soak rig, run against a deliberately broken relay
+(per-room send lock removed), saw 51,000 events and reported nothing, while the in-process
+total-order test caught the same defect immediately. Load and duration are not a substitute for
+contention density. See `testing.md`.
+
+The remaining two — divergence detection and record/replay — stay reserved, and honestly should:
+nothing shares state to diverge yet, which is the condition that would make them mean anything. The proxy earned its place immediately: `testing.md` already recorded that jitter and clock
 skew were untested and that interpolation degrades *silently* under skew, and the unit-scale
 version of exactly this tool found the lifecycle-ordering bug on 2026-08-16.
 

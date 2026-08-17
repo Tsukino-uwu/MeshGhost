@@ -118,6 +118,10 @@ and its `contents: write` permission is the reason CI is deliberately `contents:
   lock and delivered after releasing it, so two events stamped 1 and 2 could race to the socket).
   Written as an invariant over N racing clients rather than a tidy two-client sequence precisely
   because a two-client version would have passed.
+- **`cmd/meshghost-fakeadapter`** — now has tests, where it had none: not of the circling
+  ghosts, but of the control-plane invariant CHECKERS it grew 2026-08-17. A checker with no test
+  of its own passes forever, including on every run where the thing it was watching was broken,
+  which is the worst failure available to a tool whose whole job is to notice.
 - **`internal/relay/leak_test.go`** — goroutine and connection-slot teardown. Both pass; these
   exist because a relay holds sessions for hours and nothing else asserted that a closed
   connection actually releases anything.
@@ -202,6 +206,30 @@ artifact. Download it, drop it into the matching `testdata/fuzz/<Target>/` direc
   launch. Rebuild explicitly with `-o` first. (`internal/e2e` sidesteps this by building its own
   binaries into a temp dir every run, deliberately — a test silently exercising yesterday's build
   is worse than no test.)
+
+## Soaking the planes past cosmetic, and what that does NOT cover
+
+`dev-scripts/run-controlplane-soak.bat` starts a relay and 6 synthetic peers that contend for
+one lease key, broadcast events at each other, and run two-sided exchanges for 60 seconds, while
+every peer checks ordering, exclusivity and termination continuously. It exits non-zero if any
+invariant failed. Point `-relay` at `run-netsim.bat`'s proxy to soak the same thing under loss
+and jitter, and run the relay with `-introspect` to see what it thought was true while it ran.
+
+**Read the summary line even on a pass.** A run reporting 0 claims denied, or 0 exchanges
+committed, is a green result that exercised nothing — the counts are the only way to tell that
+apart from a real pass.
+
+**The measured limit, which is the important part.** With the relay's per-room send lock
+deliberately removed — a real ordering defect — this rig ran **51,000 events across 8 peers and
+reported no violations**, while `internal/relay/online_test.go`'s total-order test caught the
+same defect on its first run. The checkers are not broken; they have their own tests. A
+ticker-driven rig simply produces far less contention per second than a tight burst of
+goroutines, and Go's mutex handoff tends to preserve the very order the defect needs disturbed.
+
+So: **the soak complements the unit tests and does not replace them.** Its value is duration,
+real transports, and faults a unit test cannot reach. For a concurrency defect, the tight
+in-process invariant test is still the sharper instrument, which is the same lesson this file
+already records about the relay race found in 100 local runs.
 
 ## Running a session over a bad network
 

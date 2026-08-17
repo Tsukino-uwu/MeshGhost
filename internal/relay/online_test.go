@@ -16,6 +16,7 @@ package relay
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -804,6 +805,124 @@ func TestResumeGraceExpiryBecomesARealLeave(t *testing.T) {
 	}
 }
 
+// TestCommittedEscrowSurvivesAPartyCrashingBeforeItHearsTheOutcome is the
+// crash-injection case the whole retention mechanism exists for, and the one
+// that decides whether "both or neither" is a real guarantee or one that only
+// holds while both sockets stay up.
+//
+// The scenario: alice deposits and commits, then her connection dies. Bob
+// deposits and commits, so the exchange COMPLETES while alice is not there to
+// hear it — the relay's committed message is written to a suspended
+// connection and goes nowhere. Alice comes back and must be told the outcome,
+// with both blobs, or she is permanently unsure whether she gave something
+// away for nothing.
+//
+// This is precisely the failure that never shows up in testing and always
+// shows up in the field, so it gets an explicit test rather than being
+// assumed from the retention constant's existence.
+func TestCommittedEscrowSurvivesAPartyCrashingBeforeItHearsTheOutcome(t *testing.T) {
+	addr := startServerWith(t, &Server{
+		rooms:      make(map[string]*Room),
+		MaxClients: DefaultMaxClients,
+	})
+
+	alice := dialFeatureClient(t, addr, "room1", "alice", allFeatures)
+	wA := alice.expectWelcome(timeout)
+	bob := dialFeatureClient(t, addr, "room1", "bob", allFeatures)
+	defer bob.conn.Close()
+	wB := bob.expectWelcome(timeout)
+	alice.nextOfType(protocol.TypeJoin, timeout)
+
+	openEscrow(t, alice, bob, "trade-1", wB.PlayerID)
+
+	alice.send(protocol.TypeEscrow, protocol.Escrow{
+		Op: protocol.EscrowDeposit, ID: "trade-1", Blob: json.RawMessage(`"alice-item"`),
+	})
+	alice.expectEscrowState(timeout)
+	bob.expectEscrowState(timeout)
+	alice.send(protocol.TypeEscrow, protocol.Escrow{Op: protocol.EscrowCommit, ID: "trade-1"})
+	alice.expectEscrowState(timeout)
+	bob.expectEscrowState(timeout)
+
+	// Alice's connection dies mid-exchange. Her identity is held, so the
+	// exchange must NOT be aborted — a suspended party is not a departed one.
+	alice.conn.Close()
+
+	bob.send(protocol.TypeEscrow, protocol.Escrow{
+		Op: protocol.EscrowDeposit, ID: "trade-1", Blob: json.RawMessage(`"bob-item"`),
+	})
+	bob.expectEscrowState(timeout)
+	bob.send(protocol.TypeEscrow, protocol.Escrow{Op: protocol.EscrowCommit, ID: "trade-1"})
+
+	// Bob sees it complete. Alice, being gone, sees nothing at all.
+	st := bob.expectEscrowState(timeout)
+	if st.Phase != protocol.EscrowPhaseCommitted {
+		t.Fatalf("bob's phase = %q, want %q — a suspended party must not abort a live exchange", st.Phase, protocol.EscrowPhaseCommitted)
+	}
+	if string(st.Blobs[wA.PlayerID]) != `"alice-item"` {
+		t.Fatalf("bob's committed blobs = %v, want alice's deposit included", st.Blobs)
+	}
+
+	// Alice reconnects and must learn what happened while she was gone.
+	back := dialTestClientWithHello(t, addr, protocol.Hello{
+		ProtocolVersion: protocol.Version,
+		GameID:          "emerald",
+		Room:            "room1",
+		DisplayName:     "alice",
+		Features:        allFeatures,
+		ResumeToken:     wA.ResumeToken,
+	})
+	defer back.conn.Close()
+	if w := back.expectWelcome(timeout); !w.Resumed {
+		t.Fatal("alice did not resume, so the retained exchange is unreachable")
+	}
+
+	replayed := back.expectEscrowState(timeout)
+	if replayed.ID != "trade-1" || replayed.Phase != protocol.EscrowPhaseCommitted {
+		t.Fatalf("replayed exchange = %+v, want trade-1 committed", replayed)
+	}
+	if string(replayed.Blobs[wB.PlayerID]) != `"bob-item"` {
+		t.Fatalf("replayed blobs = %v — alice cannot complete the swap without bob's side", replayed.Blobs)
+	}
+}
+
+// TestEscrowAbortsIfACrashedPartyNeverComesBack is the other half: retention
+// is not forgiveness. Once the grace window closes the party has genuinely
+// left, and an exchange that can never complete must release the other side's
+// deposit rather than hold it hostage until the 60s escrow timeout.
+func TestEscrowAbortsIfACrashedPartyNeverComesBack(t *testing.T) {
+	addr := startServerWith(t, &Server{
+		rooms:       make(map[string]*Room),
+		MaxClients:  DefaultMaxClients,
+		ResumeGrace: 200 * time.Millisecond,
+	})
+
+	alice := dialFeatureClient(t, addr, "room1", "alice", allFeatures)
+	alice.expectWelcome(timeout)
+	bob := dialFeatureClient(t, addr, "room1", "bob", allFeatures)
+	defer bob.conn.Close()
+	wB := bob.expectWelcome(timeout)
+	alice.nextOfType(protocol.TypeJoin, timeout)
+
+	openEscrow(t, alice, bob, "trade-1", wB.PlayerID)
+	bob.send(protocol.TypeEscrow, protocol.Escrow{
+		Op: protocol.EscrowDeposit, ID: "trade-1", Blob: json.RawMessage(`"bob-item"`),
+	})
+	alice.expectEscrowState(timeout)
+	bob.expectEscrowState(timeout)
+
+	alice.conn.Close()
+
+	st := bob.expectEscrowState(2 * time.Second)
+	if st.Phase != protocol.EscrowPhaseAborted || st.Reason != protocol.EscrowReasonPartyLeft {
+		t.Fatalf("after the grace window got %q/%q, want %q/%q",
+			st.Phase, st.Reason, protocol.EscrowPhaseAborted, protocol.EscrowReasonPartyLeft)
+	}
+	if len(st.Blobs) != 0 {
+		t.Fatal("an abort still delivered bob's own deposit back as if it had committed")
+	}
+}
+
 // TestStaleResumeTokenJoinsFreshRatherThanFailing pins the degradation rule:
 // being away slightly too long must cost a new identity, never the ability to
 // play.
@@ -826,5 +945,86 @@ func TestStaleResumeTokenJoinsFreshRatherThanFailing(t *testing.T) {
 	}
 	if w.Resumed {
 		t.Fatal("a fabricated token was reported as a successful resumption")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Introspection
+// ---------------------------------------------------------------------------
+
+// TestSnapshotReportsWhatTheRelayThinksIsTrue covers the debugging aid, which
+// is worth a test for one specific reason: it is the tool someone reaches for
+// when something is already wrong, so a snapshot that quietly reports the
+// wrong thing is worse than none at all.
+//
+// It also pins the two omissions that are deliberate rather than incidental —
+// resume tokens and escrow blobs never appear, being a credential and the
+// contents of a trade in progress respectively.
+func TestSnapshotReportsWhatTheRelayThinksIsTrue(t *testing.T) {
+	s := &Server{rooms: make(map[string]*Room), MaxClients: DefaultMaxClients}
+	addr := startServerWith(t, s)
+
+	alice := dialFeatureClient(t, addr, "room1", "alice", allFeatures)
+	wA := alice.expectWelcome(timeout)
+	bob := dialFeatureClient(t, addr, "room1", "bob", allFeatures)
+	defer bob.conn.Close()
+	wB := bob.expectWelcome(timeout)
+	alice.nextOfType(protocol.TypeJoin, timeout)
+
+	alice.send(protocol.TypeLease, protocol.Lease{Op: protocol.LeaseClaim, Key: "k", TTLMs: 30000})
+	alice.expectLeaseState(timeout)
+	bob.expectLeaseState(timeout)
+
+	openEscrow(t, alice, bob, "trade-1", wB.PlayerID)
+	alice.send(protocol.TypeEscrow, protocol.Escrow{
+		Op: protocol.EscrowDeposit, ID: "trade-1", Blob: json.RawMessage(`"a-secret-item"`),
+	})
+	alice.expectEscrowState(timeout)
+	bob.expectEscrowState(timeout)
+
+	snap := s.Snapshot()
+	if snap.Clients != 2 || len(snap.Rooms) != 1 {
+		t.Fatalf("snapshot = %d clients / %d rooms, want 2/1", snap.Clients, len(snap.Rooms))
+	}
+	room := snap.Rooms[0]
+	if len(room.Members) != 2 || room.Seq == 0 {
+		t.Fatalf("room snapshot = %d members seq=%d, want 2 members and a moving sequencer", len(room.Members), room.Seq)
+	}
+	if len(room.Leases) != 1 || room.Leases[0].Holder != wA.PlayerID || room.Leases[0].ExpiresIn <= 0 {
+		t.Fatalf("lease snapshot = %+v, want \"k\" held by %s with time left", room.Leases, wA.PlayerID)
+	}
+	if len(room.Escrows) != 1 || len(room.Escrows[0].Deposited) != 1 || room.Escrows[0].Terminal {
+		t.Fatalf("escrow snapshot = %+v, want one live exchange with a single deposit", room.Escrows)
+	}
+
+	// The rendered form is what a host actually reads, so assert on it too —
+	// and on what must NOT be in it.
+	rendered := snap.String()
+	if !strings.Contains(rendered, `lease "k" held by `+wA.PlayerID) {
+		t.Fatalf("rendered snapshot does not name the lease holder:\n%s", rendered)
+	}
+	if strings.Contains(rendered, "a-secret-item") {
+		t.Fatalf("rendered snapshot leaked an escrow blob — a trade's contents are not debugging output:\n%s", rendered)
+	}
+	if wA.ResumeToken == "" || strings.Contains(rendered, wA.ResumeToken) {
+		t.Fatalf("rendered snapshot leaked a resume token, which is a session credential:\n%s", rendered)
+	}
+
+	// A suspended identity is the state hardest to diagnose without this, so
+	// it must be visible and labelled.
+	alice.conn.Close()
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		snap = s.Snapshot()
+		if snap.SuspendedSessions == 1 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("a dropped identity never showed as suspended:\n%s", snap.String())
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if !strings.Contains(snap.String(), "SUSPENDED") {
+		t.Fatalf("rendered snapshot does not flag the suspended member:\n%s", snap.String())
 	}
 }

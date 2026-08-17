@@ -288,6 +288,14 @@ func main() {
 			"same room, so traffic within a room scales roughly with the square of its size, not "+
 			"linearly -- raising this a lot and letting it pile into one room trades your own "+
 			"relay's bandwidth/CPU for more seats, not a free lunch")
+	introspect := flag.Duration("introspect", 0,
+		"if set, periodically log what this relay currently thinks is true: rooms, members and "+
+			"their transports, held leases and who holds them, exchanges in flight, and identities "+
+			"parked waiting for a reconnect. Off by default. For a cosmetic room this is one line "+
+			"and not worth running; it exists because a wedged trade or a key nobody can claim is "+
+			"otherwise invisible -- that state is a map in memory, not something the log printed "+
+			"once. Deliberately NOT a status port: no listener, nothing new to authenticate. "+
+			"Never prints resume tokens or the contents of a trade")
 	resumeGrace := flag.Int("resume-grace", 0,
 		"seconds to hold a dropped player's identity (its player_id, leases and in-flight "+
 			"exchanges) waiting for it to reconnect, before telling the room it left. 0 (the "+
@@ -464,6 +472,16 @@ func main() {
 	server.MaxClients = *maxClients
 	server.SendHz = *sendHz
 	server.ResumeGrace = time.Duration(*resumeGrace) * time.Second
+	if *introspect > 0 {
+		go func() {
+			ticker := time.NewTicker(*introspect)
+			defer ticker.Stop()
+			for range ticker.C {
+				log.Print(server.Snapshot().String())
+			}
+		}()
+		log.Printf("meshghost-relay: introspection on -- logging relay state every %s", *introspect)
+	}
 	log.Printf("meshghost-relay: max clients (total, across all rooms): %d", *maxClients)
 	// Clamp and warn rather than refuse to start -- a typo in a cosmetic
 	// tuning knob must not stop a host booting (see the ADR in

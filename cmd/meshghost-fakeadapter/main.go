@@ -292,6 +292,27 @@ func main() {
 	interp := flag.Duration("interp", core.DefaultInterpolationDelay, "interpolation delay for remote ghosts")
 	logEvery := flag.Duration("log-every", 500*time.Millisecond, "minimum time between console prints per remote (the core still ticks at -tick regardless)")
 	statsEvery := flag.Duration("stats-every", 0, "if set, print a periodic summary of remotes rendered and render rate")
+	features := flag.String("features", "",
+		"comma-separated capabilities to negotiate beyond the cosmetic ghost overlay, e.g. "+
+			"\"event.v1,lease.v1,escrow.v1\". Turning any on makes these synthetic peers drive AND "+
+			"CHECK that plane -- see -event-every/-lease-every/-trade-every and controlplane.go. "+
+			"Every member of a room must pass the same set")
+	eventEvery := flag.Duration("event-every", 0, "if set (and event.v1 is in -features), each "+
+		"synthetic peer broadcasts an event this often. Every peer checks that the sequencer stamps "+
+		"it receives strictly increase, which is the ordering guarantee the event plane exists to "+
+		"provide")
+	leaseEvery := flag.Duration("lease-every", 0, "if set (and lease.v1 is in -features), each peer "+
+		"tries to claim -lease-key this often, holds it briefly, then releases. They all go for the "+
+		"SAME key on purpose: contention is what makes the one-holder-at-a-time check mean anything")
+	leaseKey := flag.String("lease-key", "contended-key", "the opaque key every peer contends for (see -lease-every)")
+	leaseHold := flag.Duration("lease-hold", 2*time.Second, "TTL to request when claiming; a winner releases after half of it")
+	tradeEvery := flag.Duration("trade-every", 0, "if set (and escrow.v1 is in -features), peers pair "+
+		"off and run a full two-sided exchange this often, checking that every one reaches committed "+
+		"or aborted and that an abort never delivers a deposit")
+	duration := flag.Duration("duration", 0, "stop and print the summary after this long. 0 (the "+
+		"default) means run until interrupted, which is right when a human is watching and wrong "+
+		"for a script -- a soak or CI job needs the process to end on its own and report, and "+
+		"killing it with a signal from outside loses the summary and the exit code that goes with it")
 	transportName := flag.String("transport", netx.TCP.String(),
 		"which transport to move to after the (always-tcp) handshake: tcp, udp, quic, or auto. "+
 			"Until this existed the rig never set Transport at all, so it inherited netx.Kind's tcp "+
@@ -322,12 +343,45 @@ func main() {
 	}
 
 	stop := make(chan struct{})
+	if *duration > 0 {
+		// time.AfterFunc rather than a goroutine with a select: there is
+		// nothing else for it to wait on, and closing twice is impossible
+		// because the signal handler below closes the same channel only if it
+		// fires first -- both paths go through stopOnce.
+		time.AfterFunc(*duration, func() { stopOnce(stop) })
+	}
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, os.Interrupt)
 	go func() {
 		<-sig
-		close(stop)
+		stopOnce(stop)
 	}()
+
+	// Resolved before any client connects: the feature list travels in the
+	// relay Hello, and a room's set is matched exactly, so getting this wrong
+	// fails at the handshake rather than halfway through a run.
+	featureList := protocol.NormalizeFeatures(strings.Split(*features, ","))
+	cpCfg := controlPlaneConfig{
+		clients:     *clients,
+		eventEvery:  *eventEvery,
+		leaseEvery:  *leaseEvery,
+		leaseKey:    *leaseKey,
+		leaseHold:   *leaseHold,
+		tradeEvery:  *tradeEvery,
+		statsEvery:  *statsEvery,
+		featureList: featureList,
+	}
+	cpCfg.anyPlaneOn = len(featureList) > 0 &&
+		(*eventEvery > 0 || *leaseEvery > 0 || *tradeEvery > 0)
+	if len(featureList) > 0 && !cpCfg.anyPlaneOn {
+		// Advertising a capability and then never using it is a real and
+		// confusing state: the room negotiates it, every cosmetic client is
+		// refused for the mismatch, and nothing is actually exercised. Worth
+		// a line rather than silence.
+		log.Printf("meshghost-fakeadapter: warning: -features %v is set but no plane is being driven "+
+			"-- pass -event-every, -lease-every or -trade-every to actually exercise them",
+			featureList)
+	}
 
 	start := time.Now()
 	adapters := make([]*circleAdapter, 0, *clients)
@@ -347,6 +401,7 @@ func main() {
 		c.DisplayName = displayName
 		c.RoomCode = *roomCode
 		c.GameVersion = *gameVersion
+		c.Features = featureList
 		c.DialTimeout = 5 * time.Second
 		// Deliberately still the old one-shot connect-or-fail pattern, not
 		// cmd/meshghost's retry-with-backoff: this is dev-only tooling meant to
@@ -407,6 +462,26 @@ func main() {
 		}(cores[i], adapters[i])
 	}
 
+	// The control plane runs alongside the circling ghosts rather than instead
+	// of them, deliberately: a bug that only appears when arbitration traffic
+	// shares a connection with 20Hz state traffic is exactly the kind this rig
+	// exists to find, and running the two separately would never produce it.
+	var planes []*controlPlane
+	if cpCfg.anyPlaneOn {
+		for i, c := range cores {
+			cp := newControlPlane(i)
+			cp.attach(c)
+			planes = append(planes, cp)
+		}
+		log.Printf("meshghost-fakeadapter: control plane on -- capabilities %v, "+
+			"events every %s, lease claims every %s (key %q), exchanges every %s",
+			featureList, *eventEvery, *leaseEvery, *leaseKey, *tradeEvery)
+		for _, cp := range planes {
+			wg.Add(1)
+			go cp.run(stop, &wg, cpCfg)
+		}
+	}
+
 	if *statsEvery > 0 {
 		wg.Add(1)
 		go func() {
@@ -449,5 +524,35 @@ func main() {
 	}
 
 	wg.Wait()
+	if len(planes) > 0 {
+		summarize(planes, time.Since(start))
+	}
 	log.Println("meshghost-fakeadapter: stopped")
+	// A run that saw an invariant fail exits non-zero, so this can sit in a
+	// script or a soak job instead of needing someone to read the log. Every
+	// other failure in this program is already log.Fatalf; this is the one
+	// that can happen after a completely successful startup.
+	if violations.Load() > 0 {
+		os.Exit(1)
+	}
+}
+
+// stopOnce closes stop, tolerating a second caller.
+//
+// Both shutdown paths -- -duration elapsing and an interrupt arriving -- close
+// the same channel, and a run that is interrupted just as its duration expires
+// would otherwise panic on a double close while trying to shut down cleanly.
+// That is a rare race whose only symptom would be a stack trace in place of
+// the summary, which is precisely the output the run existed to produce.
+var stopMu sync.Mutex
+var stopped bool
+
+func stopOnce(stop chan struct{}) {
+	stopMu.Lock()
+	defer stopMu.Unlock()
+	if stopped {
+		return
+	}
+	stopped = true
+	close(stop)
 }
