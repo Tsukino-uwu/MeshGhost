@@ -30,7 +30,7 @@ REM tcp, so every real session needs tcp mirrored. The tool only refuses the
 REM combination that does nothing at all -- those flags with NO udp ports.
 setlocal
 if "%~1"=="" (
-  "%~dp0..\meshghost-netsim.exe" -tcp= -udp=7777,7780 -loss 0.02 -latency 40ms -jitter 20ms
+  "%~dp0..\meshghost-netsim.exe" -tcp=7777 -udp=7777,7780 -loss 0.02 -latency 40ms -jitter 20ms
 ) else (
   "%~dp0..\meshghost-netsim.exe" %*
 )
