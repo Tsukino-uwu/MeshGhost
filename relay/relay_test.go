@@ -1904,3 +1904,78 @@ func TestForwardHoldsTrafficUntilWelcomeIsWritten(t *testing.T) {
 			"should be released, not permanent", len(got))
 	}
 }
+
+// TestFlushIsNotOvertakenByANewerMessage pins the ordering half of the
+// pre-Welcome hold: a message produced WHILE the backlog is being flushed must
+// not reach the client ahead of that backlog.
+//
+// The first version of markWelcomedAndFlush cleared the hold, unlocked, and
+// then sent what it had taken. In the gap, Room.forward saw a client with no
+// hold and wrote straight to the connection — so a newer message could land in
+// front of older queued ones. That is message reordering introduced by the very
+// mechanism added to stop it, and no existing test noticed, because they all
+// flush with nothing else in flight.
+//
+// recordingTransport's block makes the window deterministic instead of hoping
+// for it: the flush parks inside its first write, a second message is forwarded
+// while it is parked, and only then is the write released.
+func TestFlushIsNotOvertakenByANewerMessage(t *testing.T) {
+	r := newRoom("emerald", "", "churn", nil)
+	rt := &recordingTransport{block: make(chan struct{})}
+	r.tryAdd(&Client{PlayerID: "p1", Conn: rt, holdUntilWelcome: true})
+
+	first, err := envelope(protocol.TypeLeave, protocol.Leave{PlayerID: "first"})
+	if err != nil {
+		t.Fatalf("build first: %v", err)
+	}
+	second, err := envelope(protocol.TypeLeave, protocol.Leave{PlayerID: "second"})
+	if err != nil {
+		t.Fatalf("build second: %v", err)
+	}
+
+	// Queued behind the hold.
+	r.Forward(first, []string{"p1"})
+
+	flushed := make(chan struct{})
+	go func() {
+		defer close(flushed)
+		r.markWelcomedAndFlush("p1")
+	}()
+
+	// Wait until the flush is parked inside its write of `first`.
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		rt.mu.Lock()
+		parked := rt.blocked
+		rt.mu.Unlock()
+		if parked {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("flush never reached its first write")
+		}
+		time.Sleep(time.Millisecond)
+	}
+
+	// Produced mid-flush. It must NOT overtake `first`.
+	r.Forward(second, []string{"p1"})
+
+	close(rt.block)
+	<-flushed
+
+	got := rt.received(t)
+	if len(got) != 2 {
+		t.Fatalf("client received %d message(s), want 2", len(got))
+	}
+	var ids []string
+	for _, e := range got {
+		var lv protocol.Leave
+		if err := json.Unmarshal(e.Payload, &lv); err != nil {
+			t.Fatalf("decode leave: %v", err)
+		}
+		ids = append(ids, lv.PlayerID)
+	}
+	if ids[0] != "first" || ids[1] != "second" {
+		t.Fatalf("delivered %v — a message produced during the flush overtook the backlog", ids)
+	}
+}

@@ -422,25 +422,53 @@ const maxPendingBeforeWelcome = 64
 //
 // Sends after releasing r.mu, matching Room.forward's own snapshot-then-send
 // shape: a stalled joiner must not freeze the room it is joining.
+// The hold is released only once the backlog is empty, and that ordering is
+// the whole point. Clearing the flag first and then sending the backlog
+// outside the lock would leave a window where forward writes a NEWER message
+// directly while this is still draining older ones — delivering them out of
+// order, which is the exact failure the hold exists to prevent. So each round
+// takes what is queued, sends it, and re-checks: anything that arrived while
+// we were sending is still held (the flag is still set) and gets picked up by
+// the next round. The flag is cleared in the same critical section that
+// observes an empty queue.
 func (r *Room) markWelcomedAndFlush(playerID string) {
-	r.mu.Lock()
-	c, ok := r.members[playerID]
-	if !ok {
-		r.mu.Unlock()
-		return
-	}
-	c.holdUntilWelcome = false
-	queued, conn := c.pending, c.Conn
-	c.pending = nil
-	r.mu.Unlock()
-
-	if conn == nil {
-		return
-	}
-	for _, payload := range queued {
-		if err := conn.Send(payload); err != nil {
-			log.Printf("relay: flushing queued message to %s failed: %v", playerID, err)
+	for {
+		r.mu.Lock()
+		c, ok := r.members[playerID]
+		if !ok {
+			r.mu.Unlock()
 			return
+		}
+		if len(c.pending) == 0 {
+			c.holdUntilWelcome = false
+			r.mu.Unlock()
+			return
+		}
+		queued, conn := c.pending, c.Conn
+		c.pending = nil
+		r.mu.Unlock()
+
+		if conn == nil {
+			// Nothing to write to; drop the hold so this cannot spin.
+			r.mu.Lock()
+			if c, ok := r.members[playerID]; ok {
+				c.holdUntilWelcome = false
+				c.pending = nil
+			}
+			r.mu.Unlock()
+			return
+		}
+		for _, payload := range queued {
+			if err := conn.Send(payload); err != nil {
+				log.Printf("relay: flushing queued message to %s failed: %v", playerID, err)
+				r.mu.Lock()
+				if c, ok := r.members[playerID]; ok {
+					c.holdUntilWelcome = false
+					c.pending = nil
+				}
+				r.mu.Unlock()
+				return
+			}
 		}
 	}
 }
