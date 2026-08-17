@@ -6358,3 +6358,37 @@ scheduled. All established by the agent with local tools; nothing here is a visu
   detected and reported as `GONE` rather than silently invalidating everything downstream.
   **Generalises past this bug: when watching a slot in a pooled array, "the slot changed" is not
   the same claim as "my thing changed", and only an identity check separates them.**
+
+### Crystal: hand-linking both halves does NOT make the engine drive an object (2026-08-18)
+
+- Date: 2026-08-18
+- Observed: `spawn_test4.lua` wrote a map object and an object struct and cross-linked them
+  (`MAPOBJECT_OBJECT_STRUCT_ID` -> our struct, `OBJECT_MAP_OBJECT_INDEX` -> our map object), at a
+  clear tile 2 west of the player. The log printed **one** line and never again — and it prints
+  only on change:
+
+  ```
+  f=121  mapStatus=HANDLE  engine-maintained sprite_x=80 sprite_y=16
+  ```
+
+  **`OBJECT_SPRITE_X`/`Y` never changed for the whole run.** The user reports the ghost appeared
+  **exactly where the player was standing**, and that an NPC went invisible.
+- Source: live run, `spawn_test4_20260818_*.log`.
+- Notes: **the cross-link is not sufficient. This is test 1's half-owned object again**, reached by
+  a different route: the struct was copied from the player, screen coordinates included, so it
+  draws at wherever the player stood at copy time and stays there. Collision uses the map
+  coordinates we set; the sprite uses frozen screen coordinates. Exactly the split first seen
+  2026-08-18 in test 1.
+  **Two attempts have now failed with the identical symptom**, which by `CLAUDE.md`'s own rule
+  means stop guessing and isolate by subtraction rather than try a third variation.
+  **The subtraction is available and cheap**: in test 3 the engine adopted our map object and
+  produced a **working** object. So a known-good, engine-built struct exists to diff, field by
+  field, against the one built by hand. That is one diagnostic and one variable, and it should
+  come before any further write.
+  **Consequence for the ADR's open question**: imitation has now been tried twice with the full
+  linkage understood, and failed both times. That is real evidence for the **call-the-engine's-own
+  -routine** branch rather than a third round of reproducing what it writes — but the diff should
+  run first, because it either identifies the missing field or proves there is more to adoption
+  than field values.
+- **An NPC went invisible again**, as in test 3. Same class as the struct reshuffle recorded there;
+  mechanism still not established. Recovery is a map reload.

@@ -1,0 +1,7 @@
+=== MeshGhost Crystal spawn test 4 — map object + struct, cross-linked (WRITES RAM) ===
+ROM guard passed: vanilla Crystal V1.0
+Linked map object 1 <-> struct 4, at 7,8 (player at 5,8) on map 24/5.
+LOOK AT THE SCREEN: a character should be beside you.
+>>> Now WALK AROUND IT. <<< Watch whether it holds its tile like an NPC, or slides
+with the screen. The log reports the engine-maintained screen coordinates.
+  f=121     mapStatus=HANDLE engine-maintained sprite_x=80 sprite_y=16  (changing = the game owns it)
