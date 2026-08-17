@@ -6660,3 +6660,41 @@ scheduled. All established by the agent with local tools; nothing here is a visu
   represent.
 - **Still nothing networked.** No bridge, no socket, no `get_local_state`. Emerald's socket layer
   transfers wholesale; the mechanism half of Phase 9 is what was unknown and is now closed.
+
+### Crystal: the anatomy of one step, captured frame by frame (2026-08-18)
+
+- Date: 2026-08-18
+- Observed: `step_watch_probe.lua` during the scripted sequence with the NPC outside Elm's lab —
+  the user's find, and an excellent capture: talking to them makes them step back and shove the
+  player, so the game walks **two characters that are not under input control**, in seconds, and
+  it repeats on demand. Both objects showed the identical pattern.
+- Source: live run, `step_watch_20260818_013937.log`.
+- **A step is initiated in ONE frame, then the engine plays it out over 16.** For the player
+  stepping down:
+
+  ```
+  f=599  MOVEMENT_TYPE 11->20  WALKING 255->4   STEP_TYPE 1->6  STEP_DURATION 0->7
+         DIRECTION 12->0       FACING 12->0     ACTION 1->2
+         MAP_Y 6->7            SPRITE_Y 64->66  MOVEMENT_INDEX 0->2  STEP_INDEX 0->1
+  f=601..611   STEP_DURATION 7->6->..->1   STEP_FRAME 1->2->..->7   SPRITE_Y +2 every 2 frames
+  f=613  WALKING 4->255  STEP_TYPE 6->1  STEP_DURATION 1->0  LAST_MAP_Y 6->7  SPRITE_Y ->80
+  f=615  MOVEMENT_TYPE 20->11  MOVEMENT_INDEX 2->0  STEP_INDEX 1->0
+  ```
+
+- Notes, and the first is the one that matters:
+  1. **`MAP_X`/`MAP_Y` are the DESTINATION and are set at the START of the step**, not at the end.
+     The sprite then slides to catch up. This is the opposite of the assumption made when planning
+     the movement work, where the map coordinate was expected to update on completion.
+  2. **`LAST_MAP_X`/`Y` update at the END** — they are "where I came from", catching up on
+     completion.
+  3. **The slide is 2 pixels every 2 frames, 8 times: 16 pixels, one tile, ~16 frames.**
+     `STEP_DURATION` counts 7 down to 0 and is the engine's own countdown.
+  4. **`MOVEMENT_TYPE` is temporarily swapped to 20 for the duration** (from 11 player / 9 NPC) and
+     restored afterwards — so a scripted step overrides the object's normal movement behaviour and
+     puts it back.
+  5. **We only have to initiate.** Every frame after the first is the engine's own work: the
+     countdown, the walk animation, the pixel slide, the completion bookkeeping.
+- **Consequence for moving a ghost**: do not write `MAP_X`/`MAP_Y` on their own and hope. Write the
+  initiation set — direction, facing, walking, step type, step duration, action, and the
+  destination map coordinate — once per tile of movement, and let the engine walk it. That is the
+  same "trigger the game's own systems" shape that produced the spawn recipe.
