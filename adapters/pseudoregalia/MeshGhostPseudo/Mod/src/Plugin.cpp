@@ -93,10 +93,30 @@ namespace MeshGhostPseudo
     // CLAUDE.md, echoing your own write back proves only that your code ran. Logged on change, so a
     // whole session prints a handful of lines.
     //
-    // Back ON 2026-08-17 for the capsule mirror: its ghostHalf and readback columns are exactly
-    // the two numbers that decide whether the mesh follows the capsule on its own. If it does,
-    // readback tracks -(ghostHalf + 1) with nothing writing the mesh at all.
-    constexpr bool GHOST_MESH_Z_TRACE = false;
+    // Turned on 2026-08-17 for the capsule mirror (its ghostHalf and readback columns decide
+    // whether the mesh follows the capsule on its own -- if it does, readback tracks
+    // -(ghostHalf + 1) with nothing writing the mesh at all), then turned back OFF once that
+    // question was answered. This comment claimed it was still on for a while after the value
+    // said otherwise; the value is the truth, per CLAUDE.md.
+    //
+    // **ON again 2026-08-17 (evening) for one specific measurement, and to be switched back off
+    // straight after.** The user reports a ghost's slide reading as delayed, and the log shows the
+    // ghost entering and LEAVING its slide pose repeatedly through one continuous slide. The pose
+    // fires on the edge of `target_capsule_half` crossing GHOST_STANDING_CAPSULE_HALF, and the Go
+    // side is ruled out (an opaque field that changes once across interpolation changes once --
+    // internal/core's TestOpaqueFieldsNeverFlapAcrossInterpolation). So the value itself is
+    // crossing the threshold repeatedly, and the open question is whether the LOCAL capsule really
+    // oscillates during a held slide or whether reading it introduces that.
+    //
+    // `peerHalf` is what settles it, and in LOOPBACK the peer is the player -- the ghost's state is
+    // the player's own, echoed back -- so this column reads the local capsule directly. The two
+    // answers need opposite fixes (hold the pose across genuine gaps, versus fix the read), which
+    // is why this is measured rather than guessed at a third time.
+    //
+    // Cheap enough to trust its own output: it logs on CHANGE, not per tick (see
+    // last_traced_mesh_z), so a session prints a handful of lines and cannot distort the timing it
+    // is measuring the way a per-tick enumeration would.
+    constexpr bool GHOST_MESH_Z_TRACE = true;
 
     // Diffs the LOCAL pawn's whole property set, standing versus mid-slide and standing versus
     // crouching, to identify what actually drives the pose. See its block in tickLocal for why a
