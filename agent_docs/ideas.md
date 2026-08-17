@@ -764,6 +764,37 @@ protocol above is actually run and watched.
 
 ---
 
+## Relay/client — make the Go packages importable by an outside program
+
+Not an adapter item and not on the depth ladder. Raised 2026-08-17 while writing
+`internal/PROTOCOL-without-adapter.md`, and **deliberately not scheduled** — recorded so the
+decision is a decision rather than something rediscovered.
+
+**The situation.** A Go game that wants MeshGhost compiled in cannot import any of it, for two
+independent reasons: the module is declared `module meshghost`, a local-only name that resolves to
+nothing, and every library package lives under `internal/`, which Go refuses to import from outside
+the owning module. `cmd/*` are all `package main`. So the only routes today are forking/vendoring
+(MIT permits it) or running our binary and speaking the bridge.
+
+**Making it importable is mechanically trivial and behaviourally free.** Rename the module to the
+real remote path and move the wanted packages out of `internal/`. Both are pure import-path renames:
+the code is byte-identical, the binaries build the same, the wire protocol is untouched, and
+**adapters are completely unaffected** — they speak a socket, not a Go API, so no adapter has an
+import path to update.
+
+**The cost is not risk, it is commitment.** `internal/` is precisely how a Go project says "I
+reserve the right to reshape this freely". Moving `core`/`relay`/`transport` out makes them a public
+API surface, so every later refactor becomes a potential breaking change for strangers we cannot
+contact — against a project whose whole posture is that third-party use is unsupported and untested.
+
+**The half-measure does not earn its keep.** Exporting only `internal/protocol` (pure wire structs
+and validation, no dependencies, the most stable code here) is tempting and cheap, but an embedder
+would still write their own framing, transports and client logic — it saves maybe a third of the
+work while creating a permanent surface. Either export enough to be genuinely useful, or none.
+
+**If it is ever picked up**, the trigger should be a real user asking, not neatness, and it wants an
+ADR — a public API is a contract revision in everything but name.
+
 ## Relay/client — transport security (TLS)
 
 Not an adapter item and not on the depth ladder at all: this is the Go side, so it's

@@ -89,11 +89,18 @@ const (
 	ctrlHello   = 0x01
 	ctrlCookie  = 0x02
 	ctrlConfirm = 0x03
-	// ctrlData carries a payload that must arrive: an 8-byte big-endian
-	// sequence number followed by the NDJSON line. ctrlAck echoes that
-	// sequence number back. Unreliable payloads are NOT wrapped at all —
-	// they go on the wire as the bare line — so the hot path stays exactly
-	// one datagram of pure NDJSON with no header to strip.
+	// ctrlData carries a payload that must arrive: the token, then an 8-byte
+	// big-endian sequence number, then the NDJSON line. ctrlAck echoes that
+	// sequence number back.
+	//
+	// This comment used to end "unreliable payloads are NOT wrapped at all —
+	// they go on the wire as the bare line", which was true before the
+	// per-connection token became mandatory and has been false since. It is
+	// called out rather than quietly deleted because it survived long enough
+	// to be the one thing in this file that would send someone implementing a
+	// client from the source down a path where nothing is ever delivered:
+	// unframed datagrams are dropped on arrival (see the package doc's wire
+	// table, ctrlLossy below, and WriteUnreliable). Corrected 2026-08-17.
 	ctrlData = 0x04
 	ctrlAck  = 0x05
 	// ctrlReady carries the per-connection token the relay issues on
@@ -351,9 +358,13 @@ func (c *Conn) Write(p []byte) (int, error) {
 	return len(p), nil
 }
 
-// WriteUnreliable sends p as a bare datagram, once, with no sequence
-// number, no ack and no retransmission — so the payload on the wire is
-// exactly the NDJSON line and nothing else.
+// WriteUnreliable sends p once, with no sequence number, no ack and no
+// retransmission. It is still framed — `0xFF 0x07 <token8>` ahead of the
+// NDJSON line, 10 bytes — because every application datagram must carry the
+// token; an unwrapped one would be a way to simply not carry it, and is
+// dropped on arrival. (This comment also claimed the payload went on the wire
+// "exactly as the NDJSON line and nothing else", which stopped being true when
+// the token became mandatory. Corrected 2026-08-17.)
 //
 // Dropping is the correct behaviour rather than a regrettable one: the
 // state plane is explicitly lossy and latest-wins (agent_docs/contract.md),

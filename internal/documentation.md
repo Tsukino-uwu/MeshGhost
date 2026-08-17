@@ -6,7 +6,7 @@ that way. It is written for someone who is about to read or change `internal/rel
 `internal/core`, `internal/transport`, or `internal/netx` and wants the shape in their head
 first.
 
-It deliberately does not overlap the two documents that already exist:
+It deliberately does not overlap the three documents that already exist:
 
 - [`internal/README.md`](README.md) is the **security and privacy posture** — what this layer
   does and does not defend against, and whether it is safe to use with people you don't know.
@@ -18,6 +18,10 @@ It deliberately does not overlap the two documents that already exist:
 - [`agent_docs/architecture.md`](../agent_docs/architecture.md) is the **decision record** —
   dated ADRs saying why each choice was made at the time it was made. This file summarises
   conclusions and links; it never restates an ADR.
+- [`internal/PROTOCOL-without-adapter.md`](PROTOCOL-without-adapter.md) is for **someone outside
+  this project** who owns their own game's source and wants to reimplement the client or embed the
+  relay. It is unsupported and untested by us. Closest to this file in subject, opposite in
+  audience: this one is for changing the Go code, that one is for never reading it.
 
 Line references are `file.go:123` against the code as of 2026-08-17. They will drift; the
 function names won't.

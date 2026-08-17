@@ -55,6 +55,12 @@ Internal documentation for MeshGhost: architecture, planning, licensing, and ver
   checks, and bounded reads all shipped 2026-08-14) versus the gaps that remain. Since
   2026-08-16 `quic` is the default, so a room code is encrypted by default — but the certificate
   is unverified, so encrypted is not authenticated, and `tcp`/`udp` are still plaintext.
+- [../internal/PROTOCOL-without-adapter.md](../internal/PROTOCOL-without-adapter.md) — also lives
+  with the code. How someone who owns their own game's source could reimplement the client, or
+  embed the relay, instead of writing an adapter. **Unsupported and untested by us** — we test the
+  relay, the client and our own adapters, nothing else — but it records the things only the Go
+  source knew: the QUIC rules an implementer must match exactly, a real captured wire transcript,
+  what the relay answers versus drops in silence, and why `go get` cannot work on this module.
 - [claude-md-cap.md](claude-md-cap.md) — why `CLAUDE.md` holds a hard 300-line cap, and why
   `status.md`'s cap is per-item rather than a flat line count. The evidence behind two rules
   that otherwise read as arbitrary.

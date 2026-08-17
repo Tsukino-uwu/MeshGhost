@@ -217,6 +217,10 @@ MeshGhost/
 - [agent_docs/README.md](agent_docs/README.md) — **full internal documentation index.** Start
   here if what you're looking for isn't in the shortlist below — it covers everything from
   system design to risk tracking to what's actually been confirmed running.
+- [internal/PROTOCOL-without-adapter.md](internal/PROTOCOL-without-adapter.md) — **own your
+  game's source and want this built in rather than shipped beside it?** How to reimplement the
+  client, or embed the relay, without writing an adapter. Unsupported and untested, but it is all
+  written down.
 - [agent_docs/brief.md](agent_docs/brief.md) — the full design brief and reasoning.
 - [agent_docs/plans.md](agent_docs/plans.md) — the phase-by-phase roadmap.
 - [agent_docs/status.md](agent_docs/status.md) — one-screen summary of where things stand.
