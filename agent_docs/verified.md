@@ -6105,3 +6105,35 @@ scheduled. All established by the agent with local tools; nothing here is a visu
 - **Correction to the entry above:** "palettes, sprite selection and compositing are the engine's
   job and they came out right" still holds for *drawing*, but the object is not engine-driven.
   Treat that entry as "the game will render a struct we place", not "the game adopted our object".
+
+### Crystal: the in-game gate, and a 2-second window where plausible data is not yet safe (2026-08-18)
+
+- Date: 2026-08-18
+- Observed: `ingame_gate_probe.lua`, started on the title screen and run through a save load.
+  It prints only on change; the whole run to reaching play was three lines:
+
+  ```
+  [blocked ] f=5     mapStatus=START  events=0 script=0 paused=0 map=0/0  slots=0
+  [blocked ] f=900   mapStatus=START  events=0 script=0 paused=0 map=24/7 slots=1
+  [SPAWN-OK] f=1020  mapStatus=HANDLE events=0 script=0 paused=0 map=24/7 slots=1
+  ```
+
+- Source: live run (logs committed alongside, `ingame_gate_20260818_002003.log`); addresses
+  `wMapStatus` `01:d432`, `wMapEventStatus` `01:d433`, `wScriptRunning` `01:d438`,
+  `wGameLogicPaused` `00:c2cd`, from our hash-verified build.
+- Notes: **the gate behaves correctly at both ends** — `blocked` on the title screen, `SPAWN-OK`
+  once the overworld is running.
+  **The middle line is the finding, and it justifies reading the game's state machine rather than
+  its data.** For roughly **120 frames — two seconds — `wMapGroup`/`wMapNumber` read a real map
+  (24/7) and object slot 0 was already populated, while `wMapStatus` was still `START`.** Every
+  data-shaped check available would have passed during that window: the map is valid, the player
+  object exists, coordinates are sane. Only the state machine said "not yet". An adapter gating on
+  plausibility rather than state would spawn into a two-second window while the game is still
+  building the map — the corruption case, not a cosmetic one.
+  **This also matches the ordering fact recorded 2026-08-17**: the player object is populated
+  before the map identity becomes valid. Together the two give the setup sequence as
+  object -> map identity -> `MAPSTATUS_HANDLE`, and only the last of the three means "in play".
+- Still not captured: what `wMapStatus` reads *during* a door/map-to-map transition, and what the
+  gate reports during a battle or the START menu. Neither is pass/fail — per
+  `adapters/_template/README.md` only the pre-game case is an absolute block, and the rest is a
+  per-state design decision.
