@@ -6392,3 +6392,32 @@ scheduled. All established by the agent with local tools; nothing here is a visu
   than field values.
 - **An NPC went invisible again**, as in test 3. Same class as the struct reshuffle recorded there;
   mechanism still not established. Recovery is a map reload.
+
+### Crystal: the engine CULLS objects that leave the visible window (2026-08-18)
+
+- Date: 2026-08-18
+- Observed: **watched by the user.** A hand-built ghost in Elm's lab *"disappears when i'm at the
+  bottom 2 tiles of the elms lab, all the tiles above that show it properly"*, and earlier,
+  *"when i go away from the ghost towards a door, it disappears... it does not happen if i go up"*.
+  The trigger is the **player's** position, not the ghost's, and it is directional.
+- Source: live session; `CheckObjectStillVisible` and the deletion path in
+  `pret/pokecrystal` `engine/overworld/map_objects.asm`.
+- Notes: **Crystal actively deletes overworld objects that leave the visible window.** Reading
+  `CheckObjectStillVisible`, the test is run twice: first against the object's **current**
+  `OBJECT_MAP_X`/`MAP_Y`, and if that fails, again against its **`OBJECT_INIT_X`/`INIT_Y`** — its
+  spawn tile. If *both* fall outside the window (`MAPOBJECT_SCREEN_WIDTH`/`HEIGHT` from
+  `wXCoord`/`wYCoord`), the object is deleted **unless `WONT_DELETE` (bit 1 of `OBJECT_FLAGS1`) is
+  set**. Bit 0 of the same byte is `INVISIBLE`, a separate state.
+  **This is a genuine mechanic, not a symptom of our writes** — it is how the game keeps the object
+  pool bounded on large maps, and it applies to its own NPCs.
+  **Two consequences for a ghost, and they are design constraints rather than bugs:**
+  1. **A peer standing far from the local player cannot simply be spawned and left**; the engine
+     will cull it. `WONT_DELETE` is the flag that exists precisely for objects that must persist.
+  2. **`INIT_X`/`INIT_Y` matter more than expected.** They are consulted by the cull, so an object
+     whose spawn tile is far away is deletable even while its current tile is near — worth setting
+     deliberately rather than copying.
+  **Not yet established**: which of the two mechanisms produced what the user saw. Deletion sets
+  `SPRITE` to 0; the invisible flag leaves the object present. The struct-diff probe now reports
+  which, and both need different fixes. The player's own struct was observed carrying
+  `FLAGS1 = 0x02`, i.e. `WONT_DELETE` already set — so if our copy preserved that faithfully,
+  deletion should not have applied, which is itself a reason to measure rather than assume.

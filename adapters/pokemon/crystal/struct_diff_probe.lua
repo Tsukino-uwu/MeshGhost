@@ -54,6 +54,11 @@ local NUM_MAP_OBJECTS = 16
 
 local M_OBJECT_STRUCT_ID, M_SPRITE, M_Y_COORD, M_X_COORD = 0x00, 0x01, 0x02, 0x03
 local F_SPRITE, F_MAP_OBJECT_INDEX = 0x00, 0x01
+local F_FLAGS1, F_FLAGS2 = 0x04, 0x05
+-- OBJECT_FLAGS1 bits (constants/map_object_constants.asm):
+--   0 INVISIBLE  1 WONT_DELETE  2 FIXED_FACING  3 SLIDING
+--   4 NOCLIP_TILES  5 MOVE_ANYWHERE  6 NOCLIP_OBJS  7 EMOTE_OBJECT
+local FLAG1_INVISIBLE, FLAG1_WONT_DELETE = 0x01, 0x02
 local F_MAP_X, F_MAP_Y = 0x10, 0x11
 local F_LAST_MAP_X, F_LAST_MAP_Y = 0x12, 0x13
 local F_INIT_X, F_INIT_Y = 0x14, 0x15
@@ -205,6 +210,7 @@ log("ROM guard passed: " .. why)
 
 local frames, done = 0, false
 local ref_struct, our_struct, ref_base, our_base
+local last_watch = nil
 
 local function tick()
 	frames = frames + 1
@@ -212,12 +218,31 @@ local function tick()
 		-- The control, and the measurement, on one line. If the reference's engine-maintained
 		-- screen coordinates move and ours do not, the diff above is describing a real difference.
 		-- If NEITHER moves, this run measured nothing and should be discarded.
-		if frames % 60 == 0 then
+		-- Also watch FLAGS1 and SPRITE, because "the ghost disappeared" has two distinct causes in
+		-- Crystal and they need telling apart (user observed it 2026-08-18, walking toward a door):
+		--   * DELETED — the engine culls objects that leave visible range, unless OBJECT_FLAGS1
+		--     bit 1 (WONT_DELETE) is set. A deleted object's SPRITE goes to 0.
+		--   * INVISIBLE — OBJECT_FLAGS1 bit 0 set. Still there, simply not drawn.
+		-- Printing only on change, so the moment it happens is a single obvious line.
+		local ours_sprite = u8(our_base + F_SPRITE) or 0
+		local ours_flags = u8(our_base + F_FLAGS1) or 0
+		local key = string.format("%d|%d|%s|%s", ours_sprite, ours_flags,
+			tostring(u8(our_base + F_SPRITE_X)), tostring(u8(ref_base + F_SPRITE_X)))
+		if key ~= last_watch then
+			last_watch = key
+			local state
+			if ours_sprite == 0 then
+				state = "DELETED (sprite=0) — culled for leaving visible range"
+			elseif (ours_flags & FLAG1_INVISIBLE) ~= 0 then
+				state = "INVISIBLE flag set (still exists, not drawn)"
+			else
+				state = "present and visible"
+			end
 			log(string.format(
-				"  f=%-6d engine object: sprite_x=%-3s sprite_y=%-3s   |   ours: sprite_x=%-3s sprite_y=%-3s",
-				frames,
-				tostring(u8(ref_base + F_SPRITE_X)), tostring(u8(ref_base + F_SPRITE_Y)),
-				tostring(u8(our_base + F_SPRITE_X)), tostring(u8(our_base + F_SPRITE_Y))
+				"  f=%-6d ours: %s  flags1=0x%02X%s  sprite_x=%-3s | engine object sprite_x=%-3s",
+				frames, state, ours_flags,
+				((ours_flags & FLAG1_WONT_DELETE) ~= 0) and " [WONT_DELETE]" or " [deletable]",
+				tostring(u8(our_base + F_SPRITE_X)), tostring(u8(ref_base + F_SPRITE_X))
 			))
 		end
 		return
