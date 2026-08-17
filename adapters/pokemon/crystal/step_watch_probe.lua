@@ -22,8 +22,12 @@
 -- field moves FIRST is the interesting part, because that is the one to write.
 --
 -- HOW TO RUN
---   1. Stand in the overworld with a wandering NPC in view. Elm's lab is ideal -- the aides pace
---      on their own, so steps happen without you doing anything.
+--   1. Best capture found so far, and it repeats on demand: the NPC standing OUTSIDE Elm's lab.
+--      Talk to them -- they get angry, step BACK, then PUSH the player, and the player cannot move
+--      during it. That is a scripted movement sequence driving both an NPC and the player, which
+--      is precisely the machinery a ghost needs: a character walked to a place while not under
+--      input control. Repeatable, short, and it exercises both objects at once.
+--      A wandering NPC (Elm's aides pace on their own) works too, for a plain unscripted step.
 --   2. Lua Console -> Script -> Open, pick this file. Watch for a few seconds.
 --      Log: step_watch_<timestamp>.log beside this script.
 --
@@ -90,71 +94,87 @@ local function u8(addr)
 	return nil
 end
 
--- Same identity guard the other scripts use: an object wearing the player's sprite is one of ours
--- from another script, not an engine NPC.
-local function find_wandering_npc()
-	local player_sprite = u8(OBJECT_STRUCTS + F_SPRITE)
-	for i = 1, NUM_MAP_OBJECTS - 1 do
+-- Watch EVERY object the engine is driving, not one picked arbitrarily. The first version chose
+-- the first NPC it found, which may be a stationary one -- and a probe that watches the wrong
+-- object reports "nothing happened" indistinguishably from "nothing happens". Cheap to watch all
+-- of them, and it guarantees the one that moves is captured.
+--
+-- The player (struct 0) is included deliberately: during a scripted cutscene the game walks the
+-- PLAYER around too, and that is the same movement machinery driving a character that is not
+-- under input control -- which is exactly the situation a ghost is in.
+local function engine_objects()
+	local out = {}
+	for i = 0, NUM_MAP_OBJECTS - 1 do
 		local base = MAP_OBJECTS + (i * MAPOBJECT_LENGTH)
 		local sprite = u8(base + M_SPRITE) or 0
 		local id = u8(base + M_OBJECT_STRUCT_ID)
-		if sprite ~= 0 and id and id ~= UNASSIGNED and id < NUM_OBJECT_STRUCTS
-			and sprite ~= player_sprite then
-			return i, id
+		if sprite ~= 0 and id and id ~= UNASSIGNED and id < NUM_OBJECT_STRUCTS then
+			out[#out + 1] = { mo = i, st = id, sprite = sprite,
+				label = (i == 0) and "PLAYER" or string.format("npc%d", i) }
 		end
 	end
+	return out
 end
 
 open_log()
 log("=== MeshGhost Crystal step watch (READ-ONLY) ===")
-log("Watching one wandering NPC. Prints only frames where something changed.")
+log("Watching every engine-driven object, the player included. Prints only frames that changed.")
 
-local frames, base, prev = 0, nil, {}
+local frames, watched = 0, nil
 local steps_seen = 0
 
 local function tick()
 	frames = frames + 1
 
-	if not base then
-		if frames < 60 then
-			return
-		end
-		local mo, st = find_wandering_npc()
-		if not mo then
-			log("No engine-driven NPC found. Move somewhere with a person and restart.")
-			base = -1
-			return
-		end
-		base = OBJECT_STRUCTS + (st * OBJECT_LENGTH)
-		log(string.format("Watching map object %d -> struct %d (sprite %d).",
-			mo, st, u8(MAP_OBJECTS + (mo * MAPOBJECT_LENGTH) + M_SPRITE) or -1))
-		for _, f in ipairs(WATCH) do
-			prev[f[1]] = u8(base + f[1])
-		end
-		return
-	end
-	if base == -1 then
-		return
-	end
-
-	local changes = {}
-	local moved = false
-	for _, f in ipairs(WATCH) do
-		local now = u8(base + f[1])
-		if now ~= prev[f[1]] then
-			changes[#changes + 1] = string.format("%s %s->%s", f[2], tostring(prev[f[1]]), tostring(now))
-			if f[1] == 0x10 or f[1] == 0x11 then
-				moved = true
+	-- Re-scan periodically as well as at the start: a cutscene can bring objects in and out, and
+	-- a watcher fixed at startup would miss whoever arrives to shove the player around.
+	if not watched or frames % 300 == 0 then
+		local found = engine_objects()
+		if #found == 0 then
+			if not watched then
+				log("No engine-driven objects yet.")
 			end
-			prev[f[1]] = now
+			return
 		end
+		local fresh = {}
+		for _, o in ipairs(found) do
+			local key = o.st
+			local existing = watched and watched[key]
+			o.base = OBJECT_STRUCTS + (o.st * OBJECT_LENGTH)
+			o.prev = existing and existing.prev or {}
+			if not existing then
+				for _, f in ipairs(WATCH) do
+					o.prev[f[1]] = u8(o.base + f[1])
+				end
+				log(string.format("Now watching %s (map object %d -> struct %d, sprite %d).",
+					o.label, o.mo, o.st, o.sprite))
+			end
+			fresh[key] = o
+		end
+		watched = fresh
+		return
 	end
 
-	if #changes > 0 then
-		log(string.format("  f=%-6d %s", frames, table.concat(changes, "  ")))
-		if moved then
-			steps_seen = steps_seen + 1
-			log(string.format("  ^^^ MAP COORDS CHANGED — end of step %d ^^^", steps_seen))
+	for _, o in pairs(watched) do
+		local changes, moved = {}, false
+		for _, f in ipairs(WATCH) do
+			local now = u8(o.base + f[1])
+			if now ~= o.prev[f[1]] then
+				changes[#changes + 1] =
+					string.format("%s %s->%s", f[2], tostring(o.prev[f[1]]), tostring(now))
+				if f[1] == 0x10 or f[1] == 0x11 then
+					moved = true
+				end
+				o.prev[f[1]] = now
+			end
+		end
+		if #changes > 0 then
+			log(string.format("  f=%-6d [%-6s] %s", frames, o.label, table.concat(changes, "  ")))
+			if moved then
+				steps_seen = steps_seen + 1
+				log(string.format("  ^^^ [%s] MAP COORDS CHANGED — step %d complete ^^^",
+					o.label, steps_seen))
+			end
 		end
 	end
 end
