@@ -645,6 +645,31 @@ the adapter later switched to spawning a real pawn clone, **nobody re-tested the
 workaround was still running against a premise that had stopped being true. See
 `agent_docs/pitfalls.md`.
 
+**There is a third option, and an emulator adapter usually starts there: draw over the top.** You
+never touch the game's world at all — you paint on the frame from outside, and the game does not
+know anything is there. Ranked by how much the game does for you:
+
+| Tier | What it is | You get for free | You pay |
+|---|---|---|---|
+| **Create** | ask the game to make one, with a class it already ships | animation, collision, layering, occlusion, lifetime | you own the lifetime and must not leak it |
+| **Borrow** | repurpose an object the level already placed | it exists and is valid | it is still the game's: no animation, cannot destroy, cannot hide |
+| **Draw over** | paint on the frame from outside | nothing | you reimplement everything, permanently |
+
+**"Draw over" is not automatically the wrong answer** — and this is the part worth getting right,
+because the tiers are not a quality ranking. It is the correct answer when the tiers above are
+blocked by something real, and the way to tell is whether you can name the blocker.
+
+This project has one of each. Pseudoregalia's ghost moved **borrow → create** and should have
+moved sooner; the constraint that kept it borrowing had quietly gone stale and nobody re-checked
+it, which is the bandage described above. Emerald draws its ghost with overlay primitives and
+**stays there on purpose**: the create tier needs a spawn path that writes game state, which this
+project refuses outright, and the middle tier (sprite/VRAM injection) has a cited fragility —
+a reference implementation's own comments show its fixed address needing manual re-tuning between
+*vanilla* versions of the same game, before any ROM patch. See `agent_docs/ideas.md`.
+
+The difference between those two is not the tier. It is that one had a blocker anyone could state
+and the other had a stale assumption nobody had tested. **Know which of those you have.**
+
 **How to find out which one you are looking at**, and what the game's own path is:
 
 1. **Ask where the object came from.** If your code holds a pointer it *found* (an enumeration, a
