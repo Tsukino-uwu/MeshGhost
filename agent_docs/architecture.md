@@ -1823,6 +1823,22 @@ Format: Date / Decision / Status / Context / Options considered / Resolution / C
   rather than drawing an overlay with `gui.*` as Emerald does. This is the first deliberate
   crossing of the "no emulator memory writes" non-goal in `plans.md`, which required exactly this:
   an ADR, not an inference. **Scoped to vanilla Crystal V1.0 only.**
+- **Correction, same day, on finishing `adapters/_template/README.md`: this is a narrower change
+  than the first draft claimed.** That draft called it a philosophical first crossing. It is not.
+  The template's own "never write a save, and never write game state" rule already says
+  explicitly: *"Reading is unrestricted, and so is drawing: **spawn actors**, draw overlays, pose
+  clones, play animations. The line is at persistence and at authoritative game state, not at
+  pixels."* Spawning a cosmetic ghost is on the permitted side of that line, and TEVI and
+  Pseudoregalia both already spawn things — so **the act is not new and needs no dispensation.**
+  What *is* new, and what this ADR actually exists for, is the **mechanism**: those two adapters
+  spawn from inside the game's own process through its engine API, whereas Crystal's adapter would
+  poke **emulator RAM from outside**. That is `plans.md`'s separate "no emulator memory writes"
+  non-goal, which is an emulator-specific rule about a blunt instrument, not a statement about
+  spawning. Both rules are satisfied: the ghost stays cosmetic and non-authoritative, nothing is
+  persisted, and the emulator-write gate is cleared by this ADR. **State the distinction this way
+  round in future** — "we are choosing a cruder mechanism for a permitted act" is the accurate
+  framing, and it keeps the actual risk (a blind write landing on moved memory) in focus rather
+  than a philosophical one that was never in question.
 - **Status:** Approved by the user 2026-08-17, in those terms — *"i want to actually spawn in as
   intended now for crystal, so we don't start doing this game with bandaids from the get go"*.
   **Nothing is implemented.** `adapters/pokemon/crystal/object_slot_probe.lua` is the first step

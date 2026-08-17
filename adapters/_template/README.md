@@ -714,10 +714,23 @@ blocked by something real, and the way to tell is whether you can name the block
 This project has one of each. Pseudoregalia's ghost moved **borrow → create** and should have
 moved sooner; the constraint that kept it borrowing had quietly gone stale and nobody re-checked
 it, which is the bandage described above. Emerald draws its ghost with overlay primitives and
-**stays there on purpose**: the create tier needs a spawn path that writes game state, which this
-project refuses outright, and the middle tier (sprite/VRAM injection) has a cited fragility —
+**stayed there on purpose**: the create tier needs a spawn path that writes game state, which this
+project refused outright, and the middle tier (sprite/VRAM injection) has a cited fragility —
 a reference implementation's own comments show its fixed address needing manual re-tuning between
 *vanilla* versions of the same game, before any ROM patch. See `agent_docs/ideas.md`.
+
+**Updated 2026-08-17 — that blocker's premise has since changed, and this is the worked example of
+the rule two paragraphs down.** The refusal was never absolute: `agent_docs/plans.md` phrased it as
+the current posture, liftable per-feature by an ADR. Crystal's adapter did exactly that and moves
+to **create** — spawning a real object event via the engine's own path (`architecture.md`,
+2026-08-17). Note what did and did not change: the template's "never write game state" rule below
+already permits *spawning* — the line is persistence and authority, not pixels — so what the ADR
+actually bought was the cruder **mechanism** an emulator forces, writing RAM from outside the
+process rather than calling an engine API from within it.
+**So Emerald now has the stale assumption, not the stated blocker.** Nothing about its overlay is
+wrong today, and it is shipping and proven; but "we cannot create, because writes are refused" has
+stopped being true, and per point 4 below the constraint is due a re-test rather than continued
+inheritance. Whoever picks Emerald up next should decide that deliberately instead of assuming.
 
 The difference between those two is not the tier. It is that one had a blocker anyone could state
 and the other had a stale assumption nobody had tested. **Know which of those you have.**

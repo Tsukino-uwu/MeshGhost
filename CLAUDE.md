@@ -39,17 +39,16 @@ stays here, its reasoning goes to `agent_docs/`, with a one-line pointer. Full e
 - **"It ran without errors" is not evidence — for an adapter.** The standard there is: was the
   expected thing seen happening on screen in a running game? A wrong memory address or a wrong
   reflected name returns a plausible number instead of crashing, so only watching settles it.
-- **The Go client/server is the opposite case: confirm it with the tools, yourself, and don't
-  ask the user to watch it.** `core`, `relay`, `transport`,
-  `bridge` and `cmd/` are deterministic code against a contract we own — nothing there
-  rests on a guess about a game, which is exactly why the three are separated. Before calling a
-  change to them done, run `dev-scripts/run-gotests.bat` — build, vet, and the whole suite
-  twice, including `internal/e2e`, which launches the real binaries and drives a real adapter
-  over the bridge (no game, no watching). CI adds the race detector and a fuzz campaign on any
-  push touching a `.go` file; neither runs locally, so a green script is not a green CI. **Repeat the suite
-  when touching concurrency** — `-count=10` has caught what `-count=1` and `-count=2` both
-  miss, most recently 2026-08-16. A behaviour change wants a regression test that fails
-  without the fix.
+- **The Go client/server is the opposite case: confirm it with the tools, yourself, and don't ask
+  the user to watch it.** `core`, `relay`, `transport`, `bridge` and `cmd/` are deterministic code
+  against a contract we own — nothing there rests on a guess about a game, which is exactly why the
+  three are separated. Before calling a change to them done, run `dev-scripts/run-gotests.bat` —
+  build, vet, and the whole suite twice, including `internal/e2e`, which launches the real binaries
+  and drives a real adapter over the bridge (no game, no watching). CI adds the race detector and a
+  fuzz campaign on any push touching a `.go` file; neither runs locally, so a green script is not a
+  green CI. **Repeat the suite when touching concurrency** — `-count=10` has caught what `-count=1`
+  and `-count=2` both miss, most recently 2026-08-16. A behaviour change wants a regression test
+  that fails without the fix.
 - **After any `.go` commit, go look at what CI did with it — `gh run list -L 5` — and at the start
   of a session, before anything else, if the recent commits touch `.go` files.** The user commits,
   pushes, and then opens a fresh chat, so a session usually begins with a run already finished
@@ -97,13 +96,12 @@ stays here, its reasoning goes to `agent_docs/`, with a one-line pointer. Full e
 - **Commit freely; never create a branch; push only with explicit permission, asked for every
   time.** The user normally pushes themselves. Pushing is allowed when they say so in that
   moment — a past yes is not a standing one, and "commit this" never implies it. Commits go
-  straight to `master`, which is
-  how every commit in this repo's history was made (`git log --merges` returns nothing).
-  **This overrides the generic "if on the default branch, branch first" default some agent
-  harnesses carry**, which is where the one violation came from (2026-08-16, a branch made
-  unasked for a large change). Stated here because that default will otherwise keep arguing
-  for the opposite every session. If a branch somehow exists, `git merge --ff-only` it back
-  onto `master` and delete it — fast-forward keeps history linear and loses nothing.
+  straight to `master`, how every commit in this repo's history was made (`git log --merges`
+  returns nothing). **This overrides the generic "if on the default branch, branch first" default
+  some agent harnesses carry**, which is where the one violation came from (2026-08-16, a branch
+  made unasked for a large change). Stated here because that default will otherwise keep arguing
+  for the opposite every session. If a branch somehow exists, `git merge --ff-only` it back onto
+  `master` and delete it — fast-forward keeps history linear and loses nothing.
 - **After changing source for something CI can't build itself, rebuild it before calling the
   change done.** TEVI's and Pseudoregalia's mod DLLs are committed precisely because CI can't
   build them (proprietary game DLLs / a private UE4SS dependency — see `packaging/README.md`
@@ -116,9 +114,9 @@ stays here, its reasoning goes to `agent_docs/`, with a one-line pointer. Full e
   machine-identifying detail in any tracked file. Prose counts, not just code.** Genericize it
   (a placeholder a new user edits, an environment variable) or make it relative (scripts under
   `adapters/` resolve their own directory). Cite files living outside the repo by filename
-  only — an absolute prefix is unusable to a reader anyway. Suspect pasted tool output
-  above all: both live cases got in that way rather than by being typed. Verify before
-  committing, and never assume a clean run means clean —
+  only — an absolute prefix is unusable to a reader anyway. Suspect pasted tool output above all:
+  both live cases got in that way rather than by being typed. Verify before committing, and never
+  assume a clean run means clean —
   `git grep -inIF -e 'C:\Users' -e '/home/' -- . ':!CLAUDE.md' ':!agent_docs/environment.md'
   ':!agent_docs/pitfalls.md'` must print nothing (`-F` is load-bearing: as a regex the
   backslashes silently match nothing, so the check passes while leaking. The three excluded
@@ -143,9 +141,8 @@ stays here, its reasoning goes to `agent_docs/`, with a one-line pointer. Full e
 - **Never log the value you just wrote as proof it worked.** Read back an independent value
   instead (e.g. a real getter call, not the local variable you wrote into) — an echoed log
   line proves your code ran, not that the world actually changed.
-- **Two guessed fixes failing with the identical symptom is a signal, not bad luck.** Stop
-  guessing and isolate by subtraction (one diagnostic, one variable, at a time) instead of
-  trying a third.
+- **Two guessed fixes failing with the identical symptom is a signal, not bad luck.** Stop guessing
+  and isolate by subtraction (one diagnostic, one variable, at a time) instead of trying a third.
 - **After ~3 failed live-test iterations, STOP and write the results as a table (config vs
   outcome) before building anything else — and try the untested COMBINATION.** "A alone does
   nothing, B alone does nothing" never implies A+B does nothing; game code is full of
@@ -163,9 +160,8 @@ stays here, its reasoning goes to `agent_docs/`, with a one-line pointer. Full e
   real rate/duration before marking it closed — a one-shot round trip and a real sustained
   stream can behave completely differently. Found live: a single successful round trip closed
   a risk that reopened the same day once tested under real sustained traffic.
-- **Treat "access denied" as a question to research, not a wall to route around** — who gates
-  this, and how does anyone actually get past it — especially before investing in a workaround
-  that would be expensive to undo.
+- **Treat "access denied" as a question to research, not a wall to route around** — who gates this,
+  and how does anyone actually get past it — especially before investing in an expensive workaround.
 - **Anything on `PATH` may resolve to the wrong install — including `cmd` itself.** Confirm the
   real copy (`C:\Program Files\CMake\bin`, `$env:ComSpec`) before believing a build failure;
   prefer an absolute path for the interpreter. Twice live, both a devkitPro/MSYS2 shadow:
@@ -278,12 +274,16 @@ stays here, its reasoning goes to `agent_docs/`, with a one-line pointer. Full e
   game itself properly handles, so it reads as a description of the game to someone who has never
   seen our code. Everything in it must also be publishable: facts observed from a running copy,
   never source, decompiled output, asset content or verbatim dumps (`licensing.md`).
-- **Read `adapters/_template/README.md` IN FULL before starting a new game's adapter — first, and
-  not partway through.** It holds the folder convention, the access-model question, and the "where
-  does the game already do this normally?" framing. Skipping it cost a wrong framing on Crystal's
-  spawn ADR within a day of that section being written (2026-08-17). **`_template/` is also the
-  gold standard and may never lag**: a rule, file or trap added to `emerald`/`tevi`/`pseudoregalia`
-  is back-ported in the same pass, since whatever is missing there the next game re-learns the hard way.
+- **Read `adapters/_template/README.md` END TO END before a new game's adapter exists — all ~840
+  lines, before you create its first file. `wc -l` it; if you have not reached the last line, you
+  have not read it, and saying "I read the template" is then false.** Reading the top and starting
+  work is THE failure mode, not a shortcut — it happened twice on 2026-08-17, the day this rule was
+  written: a wrong framing shipped into Crystal's spawn ADR, and the create/borrow/draw-over tiers
+  plus the game-state rule already answered the exact question being asked. **Answers are at the
+  bottom as often as the top.** It holds the folder convention, the access-model question,
+  observe-the-game-before-working-around-it, and enumerate-before-guessing. **`_template/` is also
+  the gold standard and may never lag**: a rule, file or trap added to a shipped adapter is
+  back-ported in the same pass, and a decision that invalidates a premise stated there updates it.
 - `agent_docs/effect-investigation.md` is the how-to-search playbook for a game's visual effects —
   read before starting effect/VFX work on a new adapter, not after it goes wrong.
 - `agent_docs/access-models.md` records what can be read about each game (decompilation, managed
