@@ -59,7 +59,12 @@ local WATCH = {
 	{ name = "wMapGroup", addr = to_flat(0xDCB5) },
 	{ name = "wMapNumber", addr = to_flat(0xDCB6) },
 	{ name = "wPlayerStepFlags", addr = to_flat(0xD150) },
+	-- Added 2026-08-18. wBattleMode: 0 = not in a battle, 1 = WILD_BATTLE, 2 = TRAINER_BATTLE
+	-- (constants/battle_constants.asm, const_def 1).
+	{ name = "wBattleMode", addr = to_flat(0xD22D) },
 }
+
+local BATTLE = { [0] = "-", [1] = "wild", [2] = "trainer" }
 
 local MAPSTATUS = { [0] = "START", [1] = "ENTER", [2] = "HANDLE", [3] = "DONE" }
 
@@ -68,6 +73,15 @@ local MAPSTATUS = { [0] = "START", [1] = "ENTER", [2] = "HANDLE", [3] = "DONE" }
 local OBJECT_STRUCTS = to_flat(0xD4D6)
 local OBJECT_LENGTH = 0x28
 local NUM_OBJECT_STRUCTS = 13
+
+-- Map objects are a SEPARATE array from object structs -- 16 vs 13 -- and they answer a different
+-- question: what the MAP defines, versus what the engine is currently driving. Tracking only the
+-- structs is what made a "free" slot look free when the map had an object there (2026-08-18).
+-- Both are watched here so a battle's effect on each is visible independently.
+local MAP_OBJECTS = to_flat(0xD71E)
+local MAPOBJECT_LENGTH = 0x10
+local NUM_MAP_OBJECTS = 16
+local M_SPRITE = 0x01
 
 local logfile
 local function open_log()
@@ -100,6 +114,17 @@ local function slots_used()
 	local n = 0
 	for i = 0, NUM_OBJECT_STRUCTS - 1 do
 		local s = u8(OBJECT_STRUCTS + (i * OBJECT_LENGTH))
+		if s and s ~= 0 then
+			n = n + 1
+		end
+	end
+	return n
+end
+
+local function map_objects_used()
+	local n = 0
+	for i = 0, NUM_MAP_OBJECTS - 1 do
+		local s = u8(MAP_OBJECTS + (i * MAPOBJECT_LENGTH) + M_SPRITE)
 		if s and s ~= 0 then
 			n = n + 1
 		end
@@ -140,15 +165,17 @@ local function tick()
 		return
 	end
 
-	local v = { slots = slots_used() }
+	local v = { slots = slots_used(), mapobjs = map_objects_used() }
 	for _, w in ipairs(WATCH) do
 		v[w.name] = u8(w.addr)
 	end
 
+	-- Deliberately NOT keyed on wMapEventStatus/wScriptRunning: both toggle on every walking step
+	-- (2026-08-18), so including them made the log a wall of noise. They are still printed.
 	local key = string.format(
-		"%s|%s|%s|%s|%s/%s|%d",
-		tostring(v.wMapStatus), tostring(v.wMapEventStatus), tostring(v.wScriptRunning),
-		tostring(v.wGameLogicPaused), tostring(v.wMapGroup), tostring(v.wMapNumber), v.slots
+		"%s|%s|%s/%s|%d|%d",
+		tostring(v.wMapStatus), tostring(v.wBattleMode),
+		tostring(v.wMapGroup), tostring(v.wMapNumber), v.slots, v.mapobjs
 	)
 	if key == last then
 		return
@@ -157,12 +184,13 @@ local function tick()
 
 	local gate = would_spawn(v) and "SPAWN-OK" or "blocked "
 	log(string.format(
-		"[%s] f=%-7d mapStatus=%-6s events=%s script=%s paused=%s map=%s/%s slots=%d",
+		"[%s] f=%-7d mapStatus=%-6s battle=%-7s map=%s/%s structs=%2d mapObjs=%2d  (events=%s script=%s paused=%s)",
 		gate, frames,
 		MAPSTATUS[v.wMapStatus] or tostring(v.wMapStatus),
-		tostring(v.wMapEventStatus), tostring(v.wScriptRunning),
-		tostring(v.wGameLogicPaused), tostring(v.wMapGroup), tostring(v.wMapNumber),
-		v.slots
+		BATTLE[v.wBattleMode] or tostring(v.wBattleMode),
+		tostring(v.wMapGroup), tostring(v.wMapNumber),
+		v.slots, v.mapobjs,
+		tostring(v.wMapEventStatus), tostring(v.wScriptRunning), tostring(v.wGameLogicPaused)
 	))
 end
 
