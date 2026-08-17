@@ -106,6 +106,52 @@ What it costs instead, and none of it is relay work:
   client is not merely lying about itself. Fine among friends, which is this project's setting;
   worth being explicit that it is not a security model.
 
+#### Who is the host, and what happens when they leave
+
+The obvious follow-up — the first player joins and is host, then leaves after others have arrived —
+and the useful answer is that "hosting" is three separate jobs. The relay should take two of them
+and can never take the third.
+
+**1. Designation — the relay, and it already does this.** "Who owns the enemies" is an opaque key.
+`lease.v1` grants it to the first asker, refuses the rest, and tells every member the same answer
+by fiat; the relay learns nothing about what the key means. The lifecycle falls straight out of
+what the lease already does:
+
+- **A host leaving** releases its lease with `holder_left`, and the next claimant takes over. No
+  election to write and no split-brain to resolve, because one claim is picked by arrival and
+  everyone is told the same thing.
+- **A host blipping** does not migrate at all if the room negotiated `resume.v1`: the identity and
+  its lease are held for the grace window and a reconnect inside it resumes as the same holder.
+  Migrating on every packet loss would be far worse than the outage.
+- **A host crashing** migrates once that window expires — deliberately slower than a clean exit,
+  which is the right trade for something this disruptive.
+- **Nobody left** is fine: an empty room is dropped, and whoever arrives next claims the key
+  uncontested.
+
+**2. Custody of the world — the relay should hold it too, and this is the better answer.** The
+tempting design is for the incoming host to adopt from its own last-known view, but every peer has
+a slightly different and slightly stale one, so which peer takes over changes what the world
+becomes. Instead let the relay keep the latest **opaque** blob per entity and hand it to whoever
+takes the lease. That is the same trick escrow already uses for its deposits and `Join.State`
+already uses for late joiners — the relay stores bytes it cannot read — so it stays exactly as dumb
+while giving migration one canonical source instead of N approximations. It also fixes late joins
+for free: a player arriving mid-session gets the world from the relay rather than waiting for the
+host to re-describe it.
+
+**3. Simulation — never the relay.** Running the AI, resolving damage, deciding what the enemies
+actually do is the one excluded model, because it is the point where the relay would have to
+understand the game. That is the line the whole architecture rests on and none of the above moves
+it: the relay decides *who* simulates and stores *what they last said*, and never simulates.
+
+**What is still genuinely hard is the handover, not the bookkeeping.** Whatever the old host knew
+and never sent — RNG state, AI internals, half-finished timers — is gone at migration, and shows up
+as a visible discontinuity: enemies snapping to their last replicated pose, or forgetting what they
+were doing. Custody by the relay narrows that to "everything that was never transmitted" rather
+than "everything the new host happened to miss", which is a real improvement but not a solution.
+Same shape as the lease-lifetime problem this document already calls the hard part: **the mechanism
+is cheap and the failure handling is where the work is.** None of it is relay work; all of it is
+per-game.
+
 **It does not need a save write**, which is worth stating because the instinct is to assume it
 does: spawning and driving entities is runtime state, exactly like the ghost pawn the Pseudoregalia
 adapter already clones and poses through the game's own systems. `CLAUDE.md`'s save rule is
