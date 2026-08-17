@@ -132,6 +132,41 @@ afterwards**, and any one of them is enough to add an entry:
    it back" is a bandage on its face. A proper fix is one clause.
 7. **It needs a companion fix elsewhere to stay correct.** Two places compensating for each other
    is one mechanism nobody found.
+8. **It works on an object the game made, that you took rather than created.** See below — this
+   one is severe enough to be worth avoiding outright rather than merely logging.
+
+### The bandage to avoid entirely: borrowing an object instead of creating one
+
+**Prefer the game's own creation call over repurposing something that already exists, even when
+repurposing works.** This is the highest-cost bandage shape this project has found, and unlike the
+others it is usually cheap to avoid *at the time* and very expensive to unwind later.
+
+**What it looks like.** You need a thing on screen — a character, a marker, an effect. Instead of
+asking the game to make one (Unreal: `world->SpawnActor(<a class the game already ships>, …)`),
+you find something suitable already in the level and drive that.
+
+**Why it is worse than it looks.** The obvious cost is cosmetic: a scenery object cannot animate
+and does not look like a character. The real cost is that **the object is still the game's**:
+
+- Destroying it deletes part of the level, permanently for that session.
+- Hiding or moving it leaves a hole where it used to be, and may break whatever referenced it.
+- None of the game's systems that would drive a *real* instance apply to it, so every behaviour
+  you wanted has to be reimplemented by hand — which is a second bandage, and then a third.
+
+**And the part that actually bites.** You inherit a permanent *"never do X to this"* rule, written
+far from the code that will eventually want to do X. When the design later changes and the object
+becomes yours, **nothing re-tests that rule** — so a constraint invented for a design that no
+longer exists silently keeps a workaround alive. That is tell #1 above, in its most durable form.
+
+**The live case.** Pseudoregalia's ghost began as a hijacked `StaticMeshActor`, which produced a
+"ghosts are never destroyed" constraint recorded as a *permanent* one. The adapter later moved to
+spawning a clone of the player's own pawn class — a real pawn, driven by the game's own animation
+systems, and genuinely ours — but the constraint stayed, and the workaround it justified went on
+shipping. It was reopened only when someone asked "did we ever actually check?", and the answer
+was that the premise had been false since the design changed. `agent_docs/pitfalls.md`.
+
+**If you must borrow**, record in this file what you may not do to the object *and why*, and put a
+re-test of that constraint on the list for whenever the design around it changes.
 
 **When in doubt, log it.** A false positive costs one line under "Deliberate" and saves the next
 audit from re-deriving it. A missed one costs a live test round, or a user report.

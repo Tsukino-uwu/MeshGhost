@@ -5683,3 +5683,102 @@ observation to match a later layout would falsify it. The same applies to `agent
 
 **Not covered by this entry.** Nothing about behaviour changed, so nothing here is a claim about
 runtime behaviour beyond "the same tests still pass". No adapter was touched, built, or run.
+
+## 2026-08-17 — The double pause menu recurred, and this time did NOT crash
+
+**Track: human-gated** — user watched it and supplied a screenshot: the title screen's PRESS START
+and the in-game pause menu (RESUME / OPTIONS / RESET TO LAST SAVE / MAIN MENU / QUIT) drawn at the
+same time, after returning to the title to reload a save.
+
+**Why this matters.** The earlier entry in this file ("a hard crash mid-session, and the discovery
+that we ship six unnecessary UE4SS mods enabled") recorded the double menu and an
+`EXCEPTION_ACCESS_VIOLATION` together, in one report. They were therefore one observation, and it
+was open whether the duplicated menu was simply the first visible symptom of whatever crashed.
+**It is not.** The menu duplicated and the session continued normally — so the two are separable,
+and any explanation that requires them to be the same fault is wrong.
+
+**What was running.** MeshGhost's own mod, plus eight stock UE4SS Lua mods enabled on this machine
+— `[Lua] [CheatManagerEnabler] Constructed CheatManager / Enabled CheatManager` appears in this
+session's `UE4SS.log`, as it did in the crash session. `Keybinds` is among them and hooks input,
+which is the standing suspect for a menu that opens twice; MeshGhost's ghost is spawned
+unpossessed with a null `Controller`/`InputComponent` and cannot press anything.
+
+**Correction to the earlier entry's "we ship them" claim, established 2026-08-17 while writing
+this one:** we do not, any more. That defect was real and was closed the same day by
+`95b88f9` ("Stop shipping a cheat manager, a console and keybind hooks into players' games"); the
+package now contains only `Mods/MeshGhostPseudo` and the runtime, with **no `mods.txt` at all**.
+The eight enabled here come from this machine's own UE4SS install. Two consequences: a player
+installing MeshGhost today does not get them, so this symptom is **not** something the release
+inflicts; and the enablement mechanism is `Mods/mods.txt` (`Name : 1`) for Lua mods, NOT the
+`enabled.txt` file C++ mods like ours use — an earlier sentence in this file saying the fix is "a
+directory of `enabled.txt` files" is wrong for the stock mods specifically.
+
+**Not established**: the cause. Nobody has yet run Pseudoregalia with the stock mods disabled and
+tried to reproduce this, which is the obvious next experiment and is cheap — it is a directory of
+`enabled.txt` files, not a rebuild. Until that is done, "the stock mods do it" remains a
+hypothesis with motive and opportunity, not a finding.
+
+**Scope**: seen on the loopback rig (relay `-loopback -send-hz=100`, core `-interp=0ms`), one
+occurrence, during a return to the title screen for a save reload.
+
+**Lead, user-supplied and explicitly NOT yet confirmed:** the user's impression is that this
+happens when the pause menu is used **with a gamepad**, and that they have not seen it while
+using the mouse. Recorded verbatim as an impression — "think" and "don't think I have seen",
+across sessions, with no deliberate A/B — because it is the first reproduction handle this
+symptom has had, and it is cheap to test properly: open and close the pause menu N times on
+gamepad, then N times on mouse, same session, same area.
+
+It also sharpens the stock-mods hypothesis rather than replacing it. The suspect mods hook
+**keyboard** input, so a gamepad-only symptom would point at either the game's own input handling
+or a device path those hooks disturb indirectly — and a clean mouse-only run would be evidence
+against the simplest version of "the stock mods do it".
+
+**The hypothesis that should be tested FIRST is that this is a vanilla Pseudoregalia bug.** A
+pause menu that opens twice on gamepad input is an ordinary UI-input bug shape, it needs no mod to
+explain it, and **nothing observed so far distinguishes vanilla from mod-caused** — because the
+game has never been run unmodded and pushed at this. That test is cheaper than every other one
+here: no rebuild, no relay, no rig. Launch Pseudoregalia with UE4SS absent (rename `dwmapi.dll`),
+open and close the pause menu on a gamepad until it either duplicates or convincingly does not.
+
+Order the work accordingly: vanilla first, then stock-mods-only (UE4SS present, MeshGhost's own
+`enabled.txt` removed), then MeshGhost. Testing ours first would be the expensive end of the
+ladder for the least likely cause, and a negative there would prove the least.
+
+## 2026-08-17 — A relay that dies leaves every ghost frozen in place, for up to 60 seconds
+
+**Track: human-gated** — user watched it and supplied a screenshot: the ghost frozen mid-jump near
+the ceiling, sword still in hand, while the player stood below. The user had deliberately been
+jumping so any change would be easy to spot.
+
+**What was done.** Loopback rig (relay `-loopback -send-hz=100`, core `-interp=0ms`, both from
+`dev-scripts`), user in a single zone, ghost visible. The relay process was killed outright
+(`Stop-Process -Force`) at 21:25:36.876 — not a peer leaving, a server dying.
+
+**What happened.** Nothing, visibly, for the ~18 seconds the user watched. The ghost held the
+exact pose and position it had at the moment the relay died. `UE4SS.log` has **no `releasing
+remote` line** in that window, so no `despawn_remote` ever reached the adapter: `release_ghost`
+never ran, and neither the park nor the new destroy path was involved at all.
+
+**Whether it would EVER have despawned on its own is untested.** The user then closed the game —
+the `LoadMap PRE` at 21:25:54 is that quit, not a mid-play level change, and an earlier draft of
+this entry wrongly read it as the level reclaiming the ghost. Nothing here reached the 60-second
+timeout below, so "the ghost is frozen for up to 60s and then goes" is the *predicted* behaviour
+from reading the code, **not an observed one**. What is observed is 18 seconds of a frozen ghost
+and no despawn. Someone should sit through the full minute before that prediction is trusted.
+
+**Why.** The core reaches the relay over **quic** here (`run-core-pseudoregalia.bat` passes no
+`-transport`, so `auto` prefers quic), and a killed server is not an orderly close. Nothing
+notices until `transport.DefaultIdleTimeout` — **60 seconds** — expires. Until then the core still
+believes it has a relay, so it has no reason to drop remotes, and `dropAllRemotes` (core.go, in
+the `OnDisconnect` handler under its `wasCurrent` guard) is never reached.
+
+**Why it matters beyond the rig.** This is a real user-facing case, not a testing artefact: a host
+whose relay crashes, or who closes it, leaves every peer staring at a frozen statue of them for up
+to a minute. It is also strictly worse than the case the DESPAWN_PARK_Z bandage was written for —
+that one at least parks the ghost out of sight.
+
+**What this test did NOT establish.** It was set up to exercise the park's own case — a peer
+leaving *mid-area* — and it does not. A peer leaving sends a leave that the relay forwards, giving
+a prompt `despawn_remote`; killing the relay removes the thing that would deliver it. **The
+mid-area despawn path remains untested**, and needs a second real peer
+(`cmd/meshghost-fakeadapter` in the same room and area) that can be stopped cleanly.

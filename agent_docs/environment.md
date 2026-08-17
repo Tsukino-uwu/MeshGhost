@@ -174,6 +174,39 @@ Built once to extract real RAM addresses via a `make compare`-verified build —
   `agent_docs/licensing.md`; not a MeshGhost dependency, a local dev tool only.
 - Pseudoregalia install: `C:\Program Files (x86)\Steam\steamapps\common\Pseudoregalia`
   (confirmed 2026-08-12 via a Steam-library directory scan).
+- **Launching `dev-scripts\*.bat` headlessly (agent-run scaffolding).** The scripts are written
+  for a human double-click, and two properties of that fight automation: they invoke
+  `..\meshghost.exe`, which is **relative to the working directory, not to the script**, and they
+  end in `pause`, which blocks forever on an attached stdin. What works from PowerShell:
+
+  ```powershell
+  Start-Process -FilePath "$env:ComSpec" `
+    -ArgumentList '/c','C:\dev\MeshGhost\dev-scripts\run-relay-loopback.bat' `
+    -WorkingDirectory 'C:\dev\MeshGhost\dev-scripts' `
+    -RedirectStandardOutput '...\relay-live.log' -PassThru -WindowStyle Hidden
+  ```
+
+  Three things that do **not** work, each failing unhelpfully: a bare script name in
+  `-ArgumentList` (cmd reports `not recognized as an internal or external command` even with
+  `-WorkingDirectory` set); `'cd /d <dir> && script.bat'` as one argument (the `&&` does not
+  survive Start-Process's argument handling, and the error again names the script rather than the
+  parse); and plain `cmd` instead of `$env:ComSpec`, which on this machine is a devkitPro
+  document rather than an interpreter (see `pitfalls.md`). Found live 2026-08-17, four attempts.
+- **Deploying Pseudoregalia for a live test — TWO artifacts, not one.** Everything the mod needs
+  sits in one folder, `…\Pseudoregalia\pseudoregalia\Binaries\Win64\ue4ss\Mods\MeshGhostPseudo\`:
+  - `dlls\main.dll` ← `dev-scripts\build-pseudoregalia.bat` output, staged under
+    `packaging\release\games\pseudoregalia\…\MeshGhostPseudo\dlls\main.dll`
+  - `meshghost.exe` ← the repo-root client, rebuilt with `go build -o meshghost.exe ./cmd/meshghost`
+  - `config.json` — the mod's OWN client settings (`connect_to`, `transport`, `room`, `interp`).
+    Not the release-folder `config.json`; the mod starts the client and points it at this one.
+
+  **Copying only the DLL is the mistake to avoid**, and it fails in a way that does not look like
+  a stale binary: the mod logs `bridge: connected=false connect_attempts=N` forever and no ghost
+  ever appears, because the client it autostarts is a different build (or missing) rather than
+  wrong. Found live 2026-08-17 — the installed `meshghost.exe` was a day old while `main.dll` was
+  minutes old. The tell is `connect_attempts` climbing with `send_ok=0` in `UE4SS.log`, plus **no
+  `meshghost` process and no client log in the mod folder** (the client writes its log beside
+  itself on startup, so its absence means it never started).
 - **SteamCMD**: `C:\dev\steamcmd\steamcmd.exe`, outside `C:\dev\MeshGhost` on purpose (a
   standalone tool, not repo content). `+download_depot` ignores `+force_install_dir` — it always
   lands under `steamcmd`'s own `steamapps\content\app_<id>\depot_<id>\` and has to be copied out

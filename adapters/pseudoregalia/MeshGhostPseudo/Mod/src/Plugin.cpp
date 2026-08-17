@@ -532,7 +532,34 @@ namespace MeshGhostPseudo
 
     constexpr bool CAMERA_TRACE = false;
 
-    constexpr uint64_t SPAWN_DELAY_TICKS = 300;
+    // Attempt K2_DestroyActor on a despawning ghost instead of flinging it to DESPAWN_PARK_Z.
+    //
+    // ON for a live test, 2026-08-17, because the reason it was off no longer holds. The
+    // recorded reason was "K2_DestroyActor silently no-ops on this build" -- but
+    // agent_docs/pitfalls.md's own 2026-08-17 audit corrected that: it is a property of THAT
+    // ACTOR, not of the build. The ghost came from the hijack design, was never ours, and its
+    // class reflected no usable K2_DestroyActor. Since Phase 7.6 the ghost is SPAWNED BY US,
+    // exactly like the thrown-weapon prop that call_destroy_actor already destroys cleanly every
+    // throw. So the premise for the park is stale, and nobody re-tested it after the design
+    // changed underneath it.
+    //
+    // call_destroy_actor returns false when the function is not reflected, and this falls back to
+    // parking in that case -- so the worst outcome is exactly today's behaviour plus a log line.
+    // The outcome it CANNOT rule out by itself is the historical "Fatal world leaks detected"
+    // crash, which is why this is a watched live test and not a quiet default flip.
+    constexpr bool GHOST_DESTROY_ON_DESPAWN = true;
+
+    // 0 = spawn as soon as the local pawn is valid, which is what a player wants: a peer
+    // already in the area is visible on arrival instead of fading in five seconds later,
+    // and that delay was paid again on every zone transition.
+    //
+    // It was 300 (~5s at 60fps) as a DIAGNOSTIC, not as behaviour -- holding the spawn until
+    // after the game's own noisy level-entry let the Phase 7.4 camera re-pick be observed as a
+    // clean isolated event ~2.6ms after spawn instead of tangled up with level entry. That
+    // investigation is finished, so the cost stops being worth paying. The constant stays so
+    // the next investigation can raise it again; the technique is written up in
+    // adapters/_template/README.md ("Delay your own change...") so it survives this reaching 0.
+    constexpr uint64_t SPAWN_DELAY_TICKS = 0;
 
     // User-requested toggle, 2026-08-13: try re-enabling ghost collision as a real fix for the
     // stuck-falling-pose and can't-grab-ledges bugs (both plausibly need a real physics trace to
@@ -5020,9 +5047,23 @@ namespace MeshGhostPseudo
                      static_cast<void*>(it->second.ghost),
                      static_cast<void*>(it->second.owning_world));
 
-        FVector park_loc(it->second.target_x, it->second.target_y, DESPAWN_PARK_Z);
-        FRotator park_rot(it->second.target_pitch, it->second.target_yaw, it->second.target_roll);
-        call_set_actor_location_and_rotation(it->second.ghost, park_loc, park_rot);
+        // Try the game's own mechanism first, fall back to parking. See
+        // GHOST_DESTROY_ON_DESPAWN for why this is worth attempting at all now.
+        bool destroyed = false;
+        if constexpr (GHOST_DESTROY_ON_DESPAWN)
+        {
+            destroyed = call_destroy_actor(it->second.ghost);
+            Output::send(STR("[MeshGhostPseudo] GHOSTDESTROY {}: K2_DestroyActor {} -- watch whether the ghost actually disappears.\n"),
+                         to_wide_ascii(player_id),
+                         destroyed ? STR("was reflected and called") : STR("NOT reflected, parking instead"));
+        }
+
+        if (!destroyed)
+        {
+            FVector park_loc(it->second.target_x, it->second.target_y, DESPAWN_PARK_Z);
+            FRotator park_rot(it->second.target_pitch, it->second.target_yaw, it->second.target_roll);
+            call_set_actor_location_and_rotation(it->second.ghost, park_loc, park_rot);
+        }
 
         hijacked_actors.erase(it->second.ghost);
         it->second.ghost = nullptr;

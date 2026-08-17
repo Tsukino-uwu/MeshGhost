@@ -166,10 +166,10 @@ stays here, its reasoning goes to `agent_docs/`, with a one-line pointer. Full e
 - **Treat "access denied" as a question to research, not a wall to route around** — who gates
   this, and how does anyone actually get past it — especially before investing in a workaround
   that would be expensive to undo.
-- **A build tool on `PATH` may silently resolve to the wrong install.** Confirm `cmake` (and
-  similar) resolves to the intended copy (e.g. `C:\Program Files\CMake\bin`, not a bundled
-  MSYS2 copy) before trusting a build failure or success. Found live 2026-08-13: a
-  `CMAKE_GENERATOR` failure was this, not a real toolchain regression.
+- **Anything on `PATH` may resolve to the wrong install — including `cmd` itself.** Confirm the
+  real copy (`C:\Program Files\CMake\bin`, `$env:ComSpec`) before believing a build failure;
+  prefer an absolute path for the interpreter. Twice live, both a devkitPro/MSYS2 shadow:
+  2026-08-13 `cmake` (a fake `CMAKE_GENERATOR` failure), 2026-08-17 `cmd`. See `pitfalls.md`.
 - **Don't use worktree-isolated parallel agents for testing work here.** The test loop is "make
   a change, then watch it live in a running BizHawk/game session" — a git worktree can't share
   that live, stateful session, so parallelizing testing across worktrees doesn't fit how this

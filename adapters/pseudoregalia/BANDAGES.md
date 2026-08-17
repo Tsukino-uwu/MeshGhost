@@ -35,7 +35,37 @@ to stay correct.
 
 ## Open compensations
 
-### ~~1. The slide render-Z compensation (+43 units)~~ — REMOVED 2026-08-17
+### 0. Parking a despawned ghost at Z = -500000 instead of destroying it
+
+**Never registered here until 2026-08-17, despite being live for days** — found when the user
+called it "a pretty big bandage right now i think", checked the register, and it was not in it.
+Recorded now, including that omission, because an unregistered compensation is the case this file
+exists to prevent.
+
+**What it does.** `release_ghost` moves a despawning ghost to `DESPAWN_PARK_Z` (-500000) via the
+same move call the redraw loop uses, rather than removing it. It fixed something real: before it,
+a peer leaving *mid-area* left its ghost standing frozen and visible until the next area
+transition.
+
+**Why it existed.** The recorded reason was that `K2_DestroyActor` "silently no-ops on this build"
+and that the ghost "was never ours" — both from the **hijack** design, where the ghost was a
+`StaticMeshActor` belonging to the level. Destroying it would have deleted level geometry.
+
+**Why it is now questionable.** Since Phase 7.6 the ghost is spawned by us from the player's own
+pawn class, so it *is* ours, and `pitfalls.md`'s 2026-08-17 audit already narrowed the no-op claim
+to that specific actor rather than the build. **Live-tested 2026-08-17 with
+`GHOST_DESTROY_ON_DESPAWN = true`: `K2_DestroyActor` was reflected and called on every zone
+transition, repeatedly, with no crash** — so the premise for parking is gone for that path. See
+the template's "the bandage to avoid entirely: borrowing an object instead of creating one".
+
+**What is still unproven, and why this stays open.** The case the park was actually written for —
+a peer despawning *mid-area*, with no level transition behind it — **has still not been tested**.
+The attempt on 2026-08-17 killed the relay instead, which cannot produce it: killing the relay
+removes the thing that would deliver the peer's leave. That test needs a second real peer
+(`cmd/meshghost-fakeadapter`) stopped cleanly while the user watches.
+
+**Do not remove the park until that runs.** It is the fallback when `call_destroy_actor` finds no
+reflected function, and it is the only thing covering the one case nobody has exercised.
 
 **Gone, and replaced by the game's own pose path rather than a better compensation.** The ghost is
 now posed by the game itself: its capsule mirrors the peer's, the slide Blueprint Timeline's curve

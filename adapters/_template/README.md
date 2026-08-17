@@ -618,6 +618,48 @@ rather than preventing the thing that changed it. That is not automatically wron
 are treating a symptom, and it should be a deliberate choice you can defend — with the observation
 that justifies it — rather than the first thing that made the screen look right.
 
+### Did the game make this, or did you take it? — the question that decides what you may do to it
+
+The same object can arrive two ways, and which one it was determines what is safe to do with it
+later. This is worth deciding **explicitly and writing down**, because the answer silently becomes
+a constraint on every operation you perform on that object afterwards.
+
+- **You asked the engine for it** — the game's own creation call, with the game's own class
+  (in Unreal, `world->SpawnActor(pawn_class, …)`; the equivalent elsewhere is whatever the game
+  itself calls to make one). It exists because you asked. It is a real instance of a real class,
+  so **the game's own systems drive it for free** — animation, physics, state machines — which is
+  usually the whole reason to want it.
+- **You took something that already existed** and repurposed it. Nothing was created; a thing the
+  level placed for its own reasons is now doing your job.
+
+**Repurposing is the bandage, and its cost is not where people look for it.** The obvious cost is
+appearance — a scenery object cannot animate and does not look like a character. The one that
+bites is that **the object is still the game's**, so destroying it destroys part of the level,
+hiding it leaves a hole where it used to be, and moving it may break whatever referenced it. You
+inherit a permanent "never do X to this" rule, and the reason for that rule lives far away from
+the code that eventually wants to do X.
+
+That is exactly how this project acquired one. Pseudoregalia's ghost was first a hijacked
+`StaticMeshActor`; the resulting "never destroy the ghost" rule long outlived the design, and when
+the adapter later switched to spawning a real pawn clone, **nobody re-tested the constraint** — a
+workaround was still running against a premise that had stopped being true. See
+`agent_docs/pitfalls.md`.
+
+**How to find out which one you are looking at**, and what the game's own path is:
+
+1. **Ask where the object came from.** If your code holds a pointer it *found* (an enumeration, a
+   name lookup, a search for something suitable), it is not yours. If it holds one a creation call
+   *returned*, it is.
+2. **Look for the creation call the game itself uses.** Dump the class's functions and the
+   engine's spawn/factory API and look for the one the game would call to make this — then check
+   whether you can call it with a class the game already ships. Cloning the player's own class is
+   often available and gives you every system attached to it.
+3. **Prefer it even when repurposing already works.** A found object that behaves correctly today
+   is still borrowed, and the bill arrives as an unexplained constraint months later.
+4. **If you must repurpose, write down what you may not do to it, and why** — in the adapter's
+   `BANDAGES.md`, not only as a code comment. Then, **when the design changes, re-test the
+   constraint**: that is the step this project missed.
+
 ## Hard rule: ship the bare minimum, and nothing else
 
 **A release contains exactly what the adapter needs to run, and not one file more.** TEVI is the

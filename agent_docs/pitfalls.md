@@ -1009,6 +1009,27 @@ Backing detail for `CLAUDE.md`'s public-repo rule. Two live cases, and they fail
   `cmake`, and from the same devkitPro MSYS2 install. Treat a tool's *config-dependent*
   output (not just its success/failure) as suspect until the binary is identified.
 
+### `cmd` itself resolves to a devkitPro document, not an interpreter (2026-08-17)
+
+- **Symptom**: `cmd /c "dev-scripts\build-pseudoregalia.bat"` from PowerShell failed instantly
+  with `Cannot run a document in the middle of a pipeline:
+  c:\devkitPro\msys2\usr\bin\cmd`. Nothing to do with the build, which was fine.
+- **Actual cause**: devkitPro's MSYS2 ships a `cmd` **with no extension** — a text file, not
+  `cmd.exe`. It sits earlier on `PATH` than `C:\Windows\System32`, so `cmd` resolves to a
+  document PowerShell then refuses to execute. The third instance of this same MSYS2 install
+  shadowing something, after `cmake` (2026-08-13) and `git.exe` (above, 2026-08-15).
+- **Why it is worth its own entry**: the other two resolved to a *real tool of the wrong
+  version or config*, so they failed plausibly and late — a fake `CMAKE_GENERATOR` error, a
+  fake 15,000-line diff. This one is not a wrong tool at all, and the error names a category
+  (`a document`) rather than a path problem, so it does not read as a `PATH` issue on first
+  sight. **The tell is the error naming a file with no extension under `devkitPro`.**
+- **Fix**: invoke the interpreter absolutely — `& "$env:ComSpec" /c "..."` from PowerShell.
+  Prefer that over bare `cmd` for anything scripted, since the shadow is machine-wide and
+  permanent.
+- **Generalizes to**: on a machine with a toolchain bundle on `PATH` (devkitPro, MSYS2,
+  Cygwin, Git-for-Windows), assume **any** common command name may be shadowed — including
+  ones that feel too fundamental to check. Resolve interpreters by absolute path in scripts.
+
 ### The diagnostics were the bug: probes that broke the effect they measured (2026-08-16)
 
 **The most serious regression this project has had, and the first to require comparing commits to
