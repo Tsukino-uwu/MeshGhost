@@ -23,7 +23,9 @@
 -- HOW TO RUN
 --   1. Open BizHawk, load the Crystal ROM, and be in the overworld (not a menu or battle).
 --   2. Lua Console -> Script -> Open, pick this file.
---   3. Walk around for a few seconds. Read the verdict in the console.
+--   3. Walk around for a few seconds, changing BOTH x and y (e.g. left/right, then up/down).
+--      Read the verdict in the console -- it is also written to domain_probe_<timestamp>.log
+--      beside this script, so the run leaves a record without anyone copying text out.
 --
 -- Stop it with the Lua Console's stop button; it holds no resources.
 
@@ -40,6 +42,36 @@ local MAPPINGS = {
 	{ name = "cpu", addr = WMAPGROUP },
 	{ name = "flat", addr = 0x1000 + (WMAPGROUP - BANK1_BASE) },
 }
+
+-- Mirror every console line to a timestamped log beside this script, matching the convention
+-- Emerald's vram_probe.lua established. Without this the only record is the Lua Console window,
+-- which means a human has to copy-paste it back -- found live 2026-08-17, on this probe's own
+-- first run.
+local logfile
+local function open_log()
+	local dir = "."
+	local info = debug.getinfo(1, "S")
+	if info and info.source and info.source:sub(1, 1) == "@" then
+		dir = info.source:sub(2):match("^(.*)[/\\][^/\\]*$") or "."
+	end
+	local stamp = os.date("%Y%m%d_%H%M%S")
+	local path = string.format("%s/domain_probe_%s.log", dir, stamp)
+	local f = io.open(path, "w")
+	if f then
+		logfile = f
+		return path
+	end
+	return nil
+end
+
+local raw_log = console.log
+local function log(msg)
+	raw_log(msg)
+	if logfile then
+		logfile:write(msg, "\n")
+		logfile:flush()
+	end
+end
 
 local function domain_list()
 	local ok, list = pcall(memory.getmemorydomainlist)
@@ -92,14 +124,20 @@ local frames = 0
 local reported = false
 
 local domains = domain_list()
-console.log("=== MeshGhost Crystal domain probe ===")
+local log_path = open_log()
+log("=== MeshGhost Crystal domain probe ===")
+if log_path then
+	log("Logging to " .. log_path)
+else
+	log("NOTE: could not open a log file; console output is the only record.")
+end
 if #domains == 0 then
-	console.log("Could not read the domain list. Is a ROM loaded?")
+	log("Could not read the domain list. Is a ROM loaded?")
 	return
 end
-console.log("Domains offered by this core: " .. table.concat(domains, ", "))
-console.log("Looking for wMapGroup/wMapNumber/wYCoord/wXCoord as 4 consecutive bytes.")
-console.log("Walk around for a few seconds...")
+log("Domains offered by this core: " .. table.concat(domains, ", "))
+log("Looking for wMapGroup/wMapNumber/wYCoord/wXCoord as 4 consecutive bytes.")
+log("Walk around for a few seconds...")
 
 for _, domain in ipairs(domains) do
 	for _, m in ipairs(MAPPINGS) do
@@ -118,11 +156,11 @@ for _, domain in ipairs(domains) do
 end
 
 if #candidates == 0 then
-	console.log("No candidate domain looked plausible. Are you in the overworld, not a menu?")
+	log("No candidate domain looked plausible. Are you in the overworld, not a menu?")
 	return
 end
 
-console.log(string.format("%d candidate(s) to disambiguate by movement.", #candidates))
+log(string.format("%d candidate(s) to disambiguate by movement.", #candidates))
 
 local function summarise(c)
 	local ycount, xcount = 0, 0
@@ -163,29 +201,29 @@ event.onframeend(function()
 
 		if #movers == 1 then
 			local c = movers[1]
-			console.log("=== MATCH ===")
-			console.log(string.format(
+			log("=== MATCH ===")
+			log(string.format(
 				"domain=%q mapping=%s  wMapGroup at 0x%04X",
 				c.domain, c.mapping, c.addr
 			))
-			console.log(string.format(
+			log(string.format(
 				"  group=%d number=%d  y=%d x=%d",
 				c.last[1], c.last[2], c.last[3], c.last[4]
 			))
-			console.log("Record this in agent_docs/verified.md, noting which core is loaded.")
+			log("Record this in agent_docs/verified.md, noting which core is loaded.")
 			reported = true
 		elseif #movers > 1 then
-			console.log(string.format(
+			log(string.format(
 				"%d candidates still moving -- ambiguous, keep walking:", #movers
 			))
 			for _, c in ipairs(movers) do
-				console.log(string.format(
+				log(string.format(
 					"  domain=%q mapping=%s -> group=%d number=%d y=%d x=%d",
 					c.domain, c.mapping, c.last[1], c.last[2], c.last[3], c.last[4]
 				))
 			end
 		else
-			console.log("No candidate has shown both coordinates changing yet -- walk further.")
+			log("No candidate has shown both coordinates changing yet -- walk further.")
 		end
 	end
 end)
