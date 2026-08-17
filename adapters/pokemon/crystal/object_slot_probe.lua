@@ -126,9 +126,52 @@ local last_key = nil
 local last_map = nil
 local frames = 0
 
+-- Spawn watch. The single most valuable thing this probe can capture is the moment the game
+-- populates an object slot itself -- loading a save runs Crystal's own SpawnPlayer, which is the
+-- exact routine the adapter intends to reuse. So rather than sample at 6Hz and blur it, check
+-- occupancy EVERY frame (13 single-byte reads, cheap) and, the frame a slot goes from empty to
+-- occupied, dump the whole struct.
+--
+-- That dump is the deliverable: it is ground truth for what a correctly-spawned object looks
+-- like. If the engine routine can be called, it is what to verify against; if it has to be
+-- imitated, it is what to imitate. See the ADR's call-vs-imitate question.
+local occupied = {}
+
+local function dump_struct(i, why)
+	local base = OBJECT_STRUCTS + (i * OBJECT_LENGTH)
+	local bytes = {}
+	for off = 0, OBJECT_LENGTH - 1 do
+		bytes[#bytes + 1] = string.format("%02X", u8(base + off) or 0)
+	end
+	log(string.format("*** %s: slot %d at frame %d ***", why, i, frames))
+	-- Raw first, so nothing depends on my field offsets being right.
+	log("    raw: " .. table.concat(bytes, " "))
+	local s = slot(i)
+	log(string.format(
+		"    sprite=%d mapobj=%d pal=%d dir=%d x=%d y=%d",
+		s.sprite or -1, s.map_object or -1, s.palette or -1,
+		s.direction or -1, s.x or -1, s.y or -1
+	))
+end
+
 event.onframeend(function()
 	frames = frames + 1
-	if frames % 10 ~= 0 then -- 6Hz is plenty, and keeps this off the critical path
+
+	-- Every frame: has any slot just been populated or cleared?
+	for i = 0, NUM_OBJECT_STRUCTS - 1 do
+		local sprite = u8(OBJECT_STRUCTS + (i * OBJECT_LENGTH) + F_SPRITE)
+		local now = (sprite ~= nil and sprite ~= 0)
+		if now ~= (occupied[i] or false) then
+			if now then
+				dump_struct(i, "SPAWNED")
+			else
+				log(string.format("*** CLEARED: slot %d at frame %d ***", i, frames))
+			end
+			occupied[i] = now
+		end
+	end
+
+	if frames % 10 ~= 0 then -- the summary view below stays at 6Hz; the watch above is per-frame
 		return
 	end
 
