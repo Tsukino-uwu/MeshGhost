@@ -12,6 +12,28 @@ both-or-neither exchanges — built and tested, off unless every member of a roo
 by no shipped game today. They exist so a game's adapter *could* go further; none currently does,
 and shipping one is a per-game decision nobody has taken.
 
+**So where is the ceiling, concretely?** Not an MMO, and not "everything synced". The realistic
+top end is **bounded, consensual interactions between two specific players** — a trade, a battle
+turn, an emote: something with a clear beginning, two willing participants, and an outcome both
+sides can be told about and agree on. Two limits put it there, and neither is a matter of effort:
+
+- **The server never understands the game.** It can put actions in a definite order and hand out
+  exclusive claims, because both are just comparing opaque strings — that is genuinely enough to
+  settle "who picked this up first" or "did this trade complete". It can never judge *content*.
+  "You did not really have that item" or "that move was illegal" needs a server that simulates the
+  game, which this one deliberately is not, and which would be a different project rather than a
+  bigger version of this one. That also means no anti-cheat: a lying client still lies.
+- **Arbitration costs a round trip.** An adapter has to ask before acting, not announce afterwards,
+  or a refusal arrives after the result is already on screen. So anything arbitrated waits for the
+  network before anything visible happens — unnoticeable for a trade menu, unusable for a fight.
+
+Shared *world* state — enemies, physics, other players' progression — stays out of reach, since
+keeping two worlds genuinely identical needs exactly the authority above. Ordering is necessary
+for that and nowhere near sufficient: two clients applying the same ordered actions to different
+local state still drift apart. Full reasoning, including what it would take and why some of it is
+impossible rather than merely unbuilt:
+[agent_docs/beyond-cosmetic.md](agent_docs/beyond-cosmetic.md).
+
 **Your save is never touched.** MeshGhost reads the game's memory and draws ghosts over the top;
 it does not write game state and does not modify save files — not your own, and not the save of
 anyone you play with. That is a rule the project holds itself to rather than a happy accident of
