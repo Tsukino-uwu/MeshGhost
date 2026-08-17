@@ -6329,3 +6329,32 @@ scheduled. All established by the agent with local tools; nothing here is a visu
      door transition. **But with two scripts running, the count cannot be attributed**, and the
      alternative (the object was already gone and 9 is simply the map's real count) fits equally
      well. Re-run with a single script before believing either.
+
+### Crystal: a false ADOPTED — the slot was reused by another map's NPC (2026-08-18)
+
+- Date: 2026-08-18
+- Observed: a `spawn_test3.lua` run reported `*** ADOPTED at +307 frames ***`, but its own
+  before/after dumps show the player had **changed maps** in between:
+
+  ```
+  BEFORE:  player at 63,12   8 objects, coords up to 52,20   (an outdoor map)
+  AFTER:   player at  4,13   1: sprite=41 structId=1 at 10,12
+  ```
+
+  Our object was written with `sprite=1` at `48,19`. The slot afterwards holds **`sprite=41` at
+  `10,12`** — a different map's own NPC, which legitimately owns struct 1.
+- Source: live run, `spawn_test3_20260818_004254.log`.
+- Notes: **the check was "is `structId` no longer -1?", and a stranger answered it.** The map
+  change wiped our object and the new map's objects reused the slot; nothing about the value read
+  was implausible, which is precisely the failure mode `CLAUDE.md` warns about — a wrong read
+  returning a plausible value rather than an error. **Every line after that point in the log is
+  tracking someone else's object**, so the "does a ghost survive a battle" question this run was
+  set up to answer is **still unanswered**.
+  **The earlier success is unaffected, and was checked rather than assumed**: in the 2026-08-18
+  adoption run the slot held `sprite=1` at `6,13`, exactly what had been written, on the same map.
+  That result stands.
+- **Fix**: the script now records the identity of what it wrote — sprite, coordinates, and map
+  group/number — and only reports adoption if the slot still holds *that*. A map change is
+  detected and reported as `GONE` rather than silently invalidating everything downstream.
+  **Generalises past this bug: when watching a slot in a pooled array, "the slot changed" is not
+  the same claim as "my thing changed", and only an identity check separates them.**

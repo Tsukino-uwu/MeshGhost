@@ -192,6 +192,30 @@ local frames, written, written_at = 0, false, 0
 local adopted = false
 local last_state = nil
 
+-- Identity of the object we wrote, so we can tell OUR object from whatever later occupies the
+-- same slot. Without this the check "is structId no longer -1?" is answered just as happily by a
+-- different map's NPC that inherited the slot -- which produced a false ADOPTED on 2026-08-18,
+-- reporting success while our object had actually been wiped by a map change. A wrong read
+-- returning a plausible value, exactly as CLAUDE.md warns.
+local mine = nil -- { sprite, x, y, group, number }
+local W_MAPGROUP = flat(0xDCB5)
+local W_MAPNUMBER = flat(0xDCB6)
+
+local function map_changed()
+	return u8(W_MAPGROUP) ~= mine.group or u8(W_MAPNUMBER) ~= mine.number
+end
+
+-- Our object is only still ours if the map has not changed AND the slot still holds what we put
+-- there. Coordinates are checked too, since a slot can be reused within the same map.
+local function still_ours()
+	if map_changed() then
+		return false
+	end
+	return u8(dst + M_SPRITE) == mine.sprite
+		and u8(dst + M_X_COORD) == mine.x
+		and u8(dst + M_Y_COORD) == mine.y
+end
+
 local MAPSTATUS = { [0] = "START", [1] = "ENTER", [2] = "HANDLE", [3] = "DONE" }
 
 local function tick()
@@ -236,9 +260,17 @@ local function tick()
 
 		written = true
 		written_at = frames
+		mine = {
+			sprite = u8(dst + M_SPRITE),
+			x = gx,
+			y = gy,
+			group = u8(W_MAPGROUP),
+			number = u8(W_MAPNUMBER),
+		}
 		log(string.format(
-			"Wrote map object %d: sprite copied from player, at %d,%d (player is at %d,%d).",
-			DST, gx, gy, px, py
+			"Wrote map object %d: sprite=%s at %d,%d on map %s/%s (player is at %d,%d).",
+			DST, tostring(mine.sprite), gx, gy,
+			tostring(mine.group), tostring(mine.number), px, py
 		))
 		log(">>> WALK DOWN. <<< The engine scans the row at wYCoord+9 as it scrolls into view,")
 		log("and only while a step is in progress. Beside the player it would never be seen.")
@@ -250,15 +282,20 @@ local function tick()
 	-- unchanged count is not unchanged contents. Watching this object's own sprite and struct id
 	-- across mapStatus changes does answer it.
 	if adopted then
-		local sprite = u8(dst + M_SPRITE) or 0
-		local id = u8(dst + M_OBJECT_STRUCT_ID)
 		local status = u8(W_MAPSTATUS)
-		local key = string.format("%d|%s|%s", sprite, tostring(id), tostring(status))
+		local ours = still_ours()
+		local id = u8(dst + M_OBJECT_STRUCT_ID)
+		local key = string.format("%s|%s|%s", tostring(ours), tostring(id), tostring(status))
 		if key ~= last_state then
 			last_state = key
 			local what
-			if sprite == 0 then
-				what = "GONE — our map object was wiped (rebuilt from ROM)"
+			if map_changed() then
+				what = string.format(
+					"GONE — map changed to %s/%s, our object did not survive it",
+					tostring(u8(W_MAPGROUP)), tostring(u8(W_MAPNUMBER))
+				)
+			elseif not ours then
+				what = "GONE — the slot no longer holds our object (wiped or reused)"
 			elseif id == UNASSIGNED then
 				what = "still present, but UNADOPTED again (lost its struct)"
 			else
@@ -272,12 +309,24 @@ local function tick()
 		return
 	end
 
+	-- Adoption only counts if the slot still holds OUR object. Checking structId alone accepted a
+	-- different map's NPC that had inherited the slot (2026-08-18 false positive).
+	if map_changed() then
+		log(string.format(
+			"Map changed to %s/%s before adoption — our object is gone. Nothing more to watch.",
+			tostring(u8(W_MAPGROUP)), tostring(u8(W_MAPNUMBER))
+		))
+		adopted = true -- stop the pre-adoption path; the watcher above reports honestly from here
+		return
+	end
+
 	local id = u8(dst + M_OBJECT_STRUCT_ID)
-	if id and id ~= UNASSIGNED then
+	if id and id ~= UNASSIGNED and still_ours() then
 		adopted = true
 		log(string.format("*** ADOPTED at +%d frames: engine assigned object struct %d ***",
 			frames - written_at, id))
-		log("The game changed a value we did not write. Our map object is legitimate.")
+		log(string.format("Verified still ours: sprite=%s at %d,%d on the same map.",
+			tostring(mine.sprite), mine.x, mine.y))
 		dump_map_objects("Map objects after adoption:")
 		log("LOOK AT THE SCREEN: a character should be there, and it should behave like an NPC.")
 		return

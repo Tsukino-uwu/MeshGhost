@@ -1,0 +1,28 @@
+=== MeshGhost Crystal spawn test 3 — placed on the row the engine scans (WRITES RAM) ===
+ROM guard passed: vanilla Crystal V1.0
+Map objects before writing:
+   0: sprite=  1 structId=  0 at 63,12
+   2: sprite= 39 structId=255 at 31,20
+   3: sprite= 41 structId=255 at 19,15
+   4: sprite= 93 structId=255 at 16,6
+   5: sprite= 58 structId=255 at 29,7
+   6: sprite= 35 structId=255 at 17,8
+   7: sprite= 41 structId=255 at 33,16
+   8: sprite= 84 structId=255 at 52,6
+Wrote map object 1: sprite copied from player, at 48,19 (player is at 48,10).
+>>> WALK DOWN. <<< The engine scans the row at wYCoord+9 as it scrolls into view,
+and only while a step is in progress. Beside the player it would never be seen.
+  +300 frames: still unadopted. player now at 59,9, ghost row is 19.
+*** ADOPTED at +307 frames: engine assigned object struct 1 ***
+The game changed a value we did not write. Our map object is legitimate.
+Map objects after adoption:
+   0: sprite=  1 structId=  0 at 4,13
+   1: sprite= 41 structId=  1 at 10,12
+   2: sprite= 58 structId=255 at 16,13
+   3: sprite=  4 structId=255 at 7,6
+LOOK AT THE SCREEN: a character should be there, and it should behave like an NPC.
+  f=428     mapStatus=ENTER  ghost: alive, struct 1
+  f=431     mapStatus=HANDLE ghost: alive, struct 1
+  f=640     mapStatus=ENTER  ghost: still present, but UNADOPTED again (lost its struct)
+  f=646     mapStatus=HANDLE ghost: still present, but UNADOPTED again (lost its struct)
+  f=708     mapStatus=HANDLE ghost: alive, struct 1
