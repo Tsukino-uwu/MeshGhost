@@ -491,6 +491,11 @@ func main() {
 			"ever makes you send SLOWER than the room, never faster: it's for a poor connection "+
 			"that wants to opt out of a fast room, not a way to exceed what the relay allows. "+
 			"e.g. 100ms means 'send at most 10 times/sec even if this room runs faster'")
+	stats := flag.Duration("stats", 0, "log a one-line client stats summary this often (e.g. 10s); "+
+		"0 disables it. The client-side counterpart to the relay's -introspect: link health (rtt, "+
+		"clock offset), how many peers are known versus actually rendered, bytes sent and received "+
+		"with an hourly rate, and what share of received remote states this client threw away "+
+		"because the sender was in another area. Costs nothing when off, and one log line when on")
 	roomCode := flag.String("room-code", "", "shared secret to send the relay for room-code auth "+
 		"-- only needed if the relay you're connecting to has one configured; leave empty for a "+
 		"relay running open (the default)")
@@ -624,6 +629,21 @@ func main() {
 	c.DialTimeout = 5 * time.Second
 	c.OnRelayConnected = func(gameID string) {
 		log.Printf("meshghost: connected to relay %s as %s in room %q (game %q)", *relayAddr, c.PlayerID(), *room, gameID)
+	}
+
+	if *stats > 0 {
+		// Its own goroutine rather than folded into an existing tick: this is
+		// a diagnostic, and it must not be able to slow the state path down or
+		// change its timing. Stats() takes c.mu only briefly and reads the
+		// counters atomically.
+		go func() {
+			t := time.NewTicker(*stats)
+			defer t.Stop()
+			for range t.C {
+				log.Print(c.Stats())
+			}
+		}()
+		log.Printf("meshghost: stats on -- summary every %s", *stats)
 	}
 
 	if *exitWithPID != 0 {

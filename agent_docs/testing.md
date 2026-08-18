@@ -447,3 +447,77 @@ number instead of crashing. See CLAUDE.md, `pitfalls.md`, and `effect-investigat
 Also uncovered, by construction: two real game instances playing together (loopback echoes one
 player's own state), and anything about rendering cost inside a game — see `dev-scripts/README.md`
 on the load rig's three ceilings.
+
+## Watching a running system: `-introspect` and `-stats`
+
+Neither needs a game, and both are off unless asked for. They are the two halves of the same
+picture, and they should broadly agree with each other -- if they do not, one of them is wrong,
+which is itself the finding.
+
+**Relay: `meshghost-relay -introspect=10s`.** Logs what the server believes: rooms, members and
+their transports, leases, escrows, world custody, and -- added 2026-08-18 -- the **cross-area state
+fan-out**: how many recipients each state message reached, how many of those an area-equality
+filter would have suppressed, weighted by payload bytes, plus how many distinct areas the room's
+members are spread across. Measurement only; nothing branches on it. Deliberately prints counts
+rather than `area_id` strings, because those are opaque game data and a host may paste a dump into
+an issue.
+
+**Client: `meshghost -stats=10s`.** The counterpart: link health (rtt, clock offset -- both were
+measured and shown to nobody until this existed), peers known versus actually rendered, bytes in
+and out with an hourly rate, and the share of received remote states this client discarded because
+the sender was in another area.
+
+**The gap between "known" and "rendered" is the thing to look at.** It is almost always the
+cross-area filter, and a client showing many known and few rendered is paying full inbound cost for
+ghosts it never draws -- which is the entire argument for filtering at the relay
+(`agent_docs/risks.md`, "Cross-area state fan-out").
+
+Driving them without a game:
+
+```
+meshghost-relay.exe -addr=127.0.0.1:7941 -transport=tcp -introspect=3s
+meshghost.exe -relay=127.0.0.1:7941 -room=demo -game=faketest -name=me -bridge=127.0.0.1:7999 -stats=4s
+meshghost-fakeadapter.exe -relay=127.0.0.1:7941 -room=demo -game-id=faketest -clients=2 -area-id=town -duration=12s
+meshghost-fakeadapter.exe -relay=127.0.0.1:7941 -room=demo -game-id=faketest -clients=2 -area-id=cave -duration=12s
+```
+
+Two fakeadapter processes with different `-area-id` is how you get a room that is genuinely split
+across areas -- one process gives every peer it runs the same area. Sanity check for the maths: 4
+peers split 2-and-2 means each state reaches 3 peers of whom 2 are elsewhere, so the relay should
+report 67% cross-area, and it does.
+
+**A client with no adapter attached reports 0% cross-area, and that is correct, not a bug.**
+`localAreaID` is only set from a real adapter frame, and an unknown local area filters nothing --
+the core's long-standing fail-open rule. It will still show the full inbound byte cost, which is a
+useful demonstration on its own.
+
+## `dev-scripts/preflight.ps1` — run this before handing anyone a game
+
+Read-only: it inspects and reports, never builds, deploys or commits. Every check in it exists
+because that exact thing went wrong and cost a live test, and a live cycle costs the user a real
+game launch and a replayed save, so this is the cheapest minute in the loop.
+
+```
+powershell -ExecutionPolicy Bypass -File dev-scripts\preflight.ps1
+```
+
+What it checks: gofmt on tracked `.go`; the public-repo leak grep in **both** slash directions;
+CLAUDE.md's 300-line cap; the four root `.exe` files being newer than the newest non-test `.go`
+(`go build ./...` does NOT refresh them, and `dev-scripts/*.bat` launch those exact names); both
+committed mod DLLs against every source hash in their `built-from.txt`, which reproduces
+`release.yml`'s staleness gate locally; CRLF in the LF-pinned adapter sources; and any MeshGhost
+process left running from a previous session.
+
+Optionally also compares the DEPLOYED copies in the live game installs against the freshly built
+ones — set `MESHGHOST_TEVI_DLL`, `MESHGHOST_TEVI_DLL_ALT` and `MESHGHOST_PSEUDO_DLL`. Env vars
+rather than literals because install paths are machine-specific and this is a public repo. Worth
+setting: the repo's staging copy being fresh does not mean the GAME is running it.
+
+**Two bugs it had on its first run, both worth knowing about, because both are the shape where a
+checker quietly passes:**
+- It compared the binaries against `*_test.go` too, so a test edit reported four fresh binaries as
+  stale. Over-eager rather than dangerous, but it trains a reader to ignore the check.
+- It measured CLAUDE.md with `Measure-Object -Line`, which counts only NON-EMPTY lines: it read
+  288 for a 300-line file and would have passed a CLAUDE.md sitting 12+ lines over the cap. RULE 0
+  is written in terms of `wc -l`, so the gate now uses `(Get-Content).Count`, which measures the
+  same thing. **A gate that disagrees with the rule it enforces is worse than no gate.**

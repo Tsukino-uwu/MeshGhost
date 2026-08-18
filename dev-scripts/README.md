@@ -298,6 +298,10 @@ default silently drags every dev client back down, and a ghost updating at 20Hz 
   staleness-gate pattern as `build-tevi.bat`, but CI can't build this one at all (needs the
   private UEPseudo dependency), so the build tree must already be configured locally — see
   [agent_docs/phases/phase7.md](../agent_docs/phases/phase7.md)'s 7.2 entry.
+- `preflight.ps1` — read-only pre-live-test check: gofmt, the leak grep (both slash directions),
+  CLAUDE.md's cap, root binaries vs source, both mod DLLs vs their `built-from.txt`, CRLF in
+  LF-pinned sources, leftover MeshGhost processes, and optionally the deployed DLLs in the live
+  game installs. Run it before asking anyone to launch a game. See `agent_docs/testing.md`.
 - `stage-ue4ss-runtime.bat` — stages the RE-UE4SS runtime (UE4SS.dll, settings, the MIT
   LICENSE). The stock Mods folder is deliberately NOT staged -- see the script's own header for
   the cheat-manager/console reasoning -- and no mods.txt/mods.json ships either.

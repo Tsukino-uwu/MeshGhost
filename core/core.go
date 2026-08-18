@@ -296,6 +296,15 @@ type Core struct {
 	remotes     map[string]*remoteBuffer
 	localAreaID string // this Core's own most recently known area_id, for cross-area filtering
 
+	// stats are the diagnostic counters behind Core.Stats (core/stats.go).
+	// Atomic adds on paths that already exist -- never a lock of their own,
+	// and never per-tick work, since the state path runs at the adapter's
+	// frame rate. startedAt is zero for a Core built as a literal (several
+	// tests do), which Stats reports as an unknown rate rather than lying.
+	stats       coreStats
+	startedAt   time.Time
+	renderedNow int64
+
 	// roster is the set of player_ids this Core has actually seen via
 	// Welcome or Join — a State for any other id is dropped rather than
 	// silently creating a remote. Before this, the Core trusted the relay
@@ -445,6 +454,7 @@ type Core struct {
 // only ever applies as effectiveSendInterval's last-resort fallback.
 func New() *Core {
 	return &Core{
+		startedAt:          time.Now(),
 		remotes:            make(map[string]*remoteBuffer),
 		InterpolationDelay: DefaultInterpolationDelay,
 		HeartbeatInterval:  DefaultHeartbeatInterval,
@@ -861,6 +871,11 @@ func (c *Core) PlayerID() string {
 }
 
 func (c *Core) handleRelayMessage(payload []byte, welcome chan<- protocol.Welcome, reject chan<- protocol.Reject) {
+	// Counted before parsing, so a malformed line still shows up as inbound
+	// cost -- it was paid for on the wire either way.
+	atomic.AddUint64(&c.stats.messagesReceived, 1)
+	atomic.AddUint64(&c.stats.bytesReceived, uint64(len(payload)))
+
 	var env protocol.Envelope
 	if err := json.Unmarshal(payload, &env); err != nil {
 		return
@@ -983,6 +998,7 @@ func (c *Core) storeRemoteState(st protocol.State) {
 	if st.PlayerID == "" {
 		return
 	}
+	atomic.AddUint64(&c.stats.statesReceived, 1)
 	// Size/length/finiteness caps mirror the relay's own checks
 	// (relay) via the shared protocol.ValidateState, applied here
 	// too since a hostile or compromised relay was previously trusted
@@ -1048,6 +1064,12 @@ func (c *Core) remoteStatesAt(renderTime int64) map[string]protocol.State {
 			continue
 		}
 		if c.localAreaID != "" && st.AreaID != c.localAreaID {
+			// The client side of the relay's cross-area fan-out question:
+			// this sample was received, validated, buffered and is now being
+			// thrown away. Counted per render tick rather than per arrival on
+			// purpose -- it measures wasted RENDER-set work, and the arrival
+			// count is already tracked separately as statesReceived.
+			atomic.AddUint64(&c.stats.statesFilteredByArea, 1)
 			continue
 		}
 		out[id] = st
@@ -1385,8 +1407,13 @@ func (c *Core) tickRenders(rendered map[string]bool, render func(id string, st p
 		if _, stillKnown := current[id]; !stillKnown {
 			despawn(id)
 			delete(rendered, id)
+			atomic.AddUint64(&c.stats.despawnsSent, 1)
 		}
 	}
+	atomic.AddUint64(&c.stats.rendersSent, uint64(len(current)))
+	// Stored rather than derived, because `rendered` is owned by the caller
+	// and Stats has no access to it.
+	atomic.StoreInt64(&c.renderedNow, int64(len(rendered)))
 }
 
 // sendHeartbeats sends a Ping on conn every Core.HeartbeatInterval
@@ -1669,7 +1696,10 @@ func (c *Core) sendState(relay transport.Transport, st protocol.State) {
 	// in agent_docs/architecture.md.
 	if err := relay.SendUnreliable(env); err != nil {
 		log.Printf("core: send state to relay failed: %v", err)
+		return
 	}
+	atomic.AddUint64(&c.stats.statesSent, 1)
+	atomic.AddUint64(&c.stats.bytesSent, uint64(len(env)))
 }
 
 func (c *Core) sendRenderRemote(nd transport.Transport, playerID string, st protocol.State) {
