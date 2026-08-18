@@ -161,6 +161,21 @@ UE4SS entry below for that last one specifically, which is currently unresolved)
   needs a shell to ask where it is. `debug.getinfo(1, "S").source` is the path the chunk was
   loaded from, which is the actual question. Crystal's adapter already did this and Emerald's did
   not; both do now, with `io.popen` kept only as an unreachable fallback.
+- **Savestates are drivable from Lua, and all ten slots are ours for testing — 2026-08-18.**
+  `savestate.save` / `load` / `saveslot` / `loadslot` are all present and callable in this build
+  (checked at runtime, not from a doc string — `savestate.saveslots` does NOT exist). BizHawk has
+  **ten slots**, and the user has given standing permission to use all of them during
+  dev/testing: *"you are allowed to use all 10 during dev/testing/local tests"*.
+  `dev-scripts/bizhawk-savestate.lua` saves or loads one slot and stops.
+  **Why it matters:** reaching a test state costs the user real playing time, so a checkpoint
+  turns "walk back to the route / re-catch a Pokemon / replay the intro" into an instant restore,
+  and makes a risky test cheap to repeat.
+  **The trap, hit live the same day: a savestate is NOT an in-game save.** Asked to "save" before
+  an emulator relaunch, the user saved a *state* — and the relaunch still lost their place,
+  because the two are separate mechanisms. Anything a test kit writes into RAM (badges, items,
+  repel) is captured by a savestate but only reaches the `.sav` file when the game itself saves.
+  Say which one is meant. Recovery, when it happens: the state FILES survive a relaunch
+  (`Bizhawk/GBA/State/<rom>.mGBA.QuickSaveN.State`), so `loadslot` puts it back.
 - **`dev-scripts/bizhawk-syntax-check.lua` — does this Lua even parse?** BizHawk embeds Lua 5.4
   and this machine has no standalone Lua binary, so before this the only way to find a missing
   `end` in an adapter was to load it into a live session. The checker `loadfile()`s a list of
