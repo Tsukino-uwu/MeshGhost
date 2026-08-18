@@ -67,6 +67,7 @@ off before believing a result.
 
 | Switch | How it is set | Default | What it does |
 |---|---|---|---|
+| `MESHGHOST_NO_AUTOSTART` | environment (any value) | unset — the adapter starts a core itself | Turns autostart OFF, so the adapter uses only a core that is already running and never spawns one. **Supported configuration, not a debug switch**: an antivirus objecting to one program launching another is a real thing that happens to real players, and this is the documented answer — set it and run `meshghost.exe` by hand. Every adapter honours the same name. |
 | `BridgePort` | BepInEx config, `[Network]` section of `BepInEx/config/dev.meshghost.tevi.cfg` | `7778` (`DefaultBridgePort`) | Which local core process this instance talks to. **This exists for two-instance local testing**: two TEVI copies on one machine each need their own core on its own port, because a core serves exactly one adapter. A single-instance install should never need to touch it. |
 | `BridgeHost` | not settable — `const`, `127.0.0.1` | — | Deliberately fixed. An adapter may hold a socket to its own local core and nothing else; a configurable host would be the first step toward an adapter that talks to a relay, which the contract forbids. |
 | `ReconnectInterval` | not settable — `BridgeClient.cs`, `2` seconds | — | How often a disconnected bridge retries. |

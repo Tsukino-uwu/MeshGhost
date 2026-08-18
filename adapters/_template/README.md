@@ -1029,6 +1029,62 @@ because host resources may already be invalid. Full symptom-to-fix write-up in
 already been answered once per host in this repo. Re-deriving them is how you find the answer by
 breaking something instead of by reading.
 
+## Every adapter starts the client, and stops it again
+
+**This is expected of a new adapter, not optional.** MeshGhost should feel like part of starting
+the game, not a second program to remember. All four shipped adapters do it as of 2026-08-18 --
+Pseudoregalia since 2026-08-16, TEVI, Emerald and Crystal added the same day this was written.
+
+The rule has two halves and the second is the one people forget:
+
+- **Start**: if no core answers, spawn one — with no window.
+- **Stop**: the core must die with the game, including when the game crashes.
+
+**Auto-close is `-exit-with-pid=<the game's own pid>`.** The core watches that process and exits
+when it goes, so a crash cannot leave an orphan holding the bridge port. Kill the child on a clean
+shutdown too, where the host gives you a hook: that makes the player's ghost leave the room
+immediately instead of when the relay's idle timeout notices.
+
+**Spawn on a port the walk found EMPTY, never a fixed one.** This is the bug worth stealing the
+fix for: Emerald's first version spawned on `BRIDGE_BASE_PORT`, which is correct alone and wrong
+with two copies of the game running — the walk correctly reported the base port busy, the launcher
+spawned there anyway, that core could not bind and exited instantly, and the second copy was left
+with nothing. Record the first port where *nothing answered* during the sweep, spawn there, and
+refuse to spawn at all if every port in the range is somebody else's core. A port that answered
+and then rejected you is not free.
+
+**Only spawn after a full sweep found nothing.** A core that is already running — started by hand,
+by a dev script, or by another copy of the game — must be used as-is. That ordering is the whole
+reason autostart cannot produce a pile of processes.
+
+**How to spawn with no window depends on the host:**
+
+| Host | Mechanism |
+| --- | --- |
+| C++ (UE4SS) | `CreateProcessW` with `CREATE_NO_WINDOW` |
+| C# (BepInEx) | `ProcessStartInfo` with `UseShellExecute=false`, `CreateNoWindow=true` |
+| Lua (BizHawk) | `luanet` → the same `ProcessStartInfo`. **Not `os.execute`/`io.popen`** |
+
+That last row is worth the detail, because the obvious route is the wrong one. `os.execute` and
+`io.popen` both run `cmd /c ...`, so the console window that flashes belongs to the *shell doing
+the launching* — which is why `start /b`, `powershell -WindowStyle Hidden` and a hidden-`Run`
+`.vbs` all still flash, the PowerShell one longest. `luanet` skips the shell entirely.
+`Process.GetCurrentProcess().Id` from the same bridge gives you the pid for `-exit-with-pid`.
+Method and evidence: `agent_docs/environment.md`, probe in `dev-scripts/bizhawk-spawn-probe.lua`.
+
+**Always support `MESHGHOST_NO_AUTOSTART`.** An antivirus objecting to one program starting
+another is a real thing that happens to real players, and the documented answer is to set this and
+run the client by hand. Register it in the adapter's `FLAGS.md`.
+
+**Say which happened, once per connection** — "started a core" versus "using a core that was
+already running". With no console window anywhere, that log line is the only way to answer "why
+are there two processes" or "why is it running the old build".
+
+**Packaging**: the client is NOT shipped inside mod folders (9 MB each, per game). A mod that
+installs into the game's own tree ships its `config.json` and the player copies `meshghost.exe` in
+once — see the folder-convention section above. An adapter loaded from the release folder itself
+reaches the root copy with no copy at all.
+
 ## Hard rule: ship the bare minimum, and nothing else
 
 **A release contains exactly what the adapter needs to run, and not one file more.** TEVI is the

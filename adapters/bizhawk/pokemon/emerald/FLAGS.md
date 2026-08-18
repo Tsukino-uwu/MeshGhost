@@ -65,11 +65,13 @@ before running it; `_template/probes.md` has the cheapest-first list.
 
 ## Runtime switches — environment variables and loader globals
 
-All five are **development-only**. None is set in a shipped release, and each falls back to a
+All but `MESHGHOST_NO_AUTOSTART` are **development-only**; that one is a supported player
+setting. None is set in a shipped release, and each falls back to a
 default that is the shipping behaviour.
 
 | Switch | How it is set | Default when unset | What it does |
 |---|---|---|---|
+| `MESHGHOST_NO_AUTOSTART` | environment (any value) | unset — the adapter starts a core itself | Turns autostart OFF, so the adapter uses only a core that is already running and never spawns one. **Supported configuration, not a debug switch**: an antivirus objecting to one program launching another is a real thing that happens to real players, and this is the documented answer — set it and run `meshghost.exe` by hand. Every adapter honours the same name. |
 | `MESHGHOST_BRIDGE_PORT` | environment | unset — walk 7778-7785 | Pins the bridge port instead of walking. An explicit port is honoured and then *not* walked: someone who names a port means that port, and silently landing elsewhere would be worse than failing. |
 | `MESHGHOST_LOOPBACK_TRAIL` | environment (any value) | unset — offset 2 tiles | Switches the loopback ghost from *offset* mode to *exact-trail* mode (offset 0). **Two genuinely different, both-valid loopback tests**, per the user: offset for judging rendering, animation and smoothing side by side, where an exact overlap makes the two impossible to tell apart; zero for verifying the ghost tracks the real position precisely, which an offset would hide. An environment variable rather than a code constant so switching costs a different `.local.bat` and not a script edit. |
 | `MESHGHOST_FORCE_GHOST_GFX` | **global first, then environment** | unset — no forcing | Forces every ghost to a given `graphicsId` regardless of what the peer reports, so the **asymmetric** case can be tested at all: loopback echoes your own state, so "a peer on a bike while you walk" cannot otherwise be produced without a second machine. Read as a global first because that is what makes it usable mid-session — the dev loader loads its targets in order, so a one-line script listed *before* the adapter changes the value on a reload, where an environment variable would need the whole emulator restarted. |
