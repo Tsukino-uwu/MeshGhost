@@ -484,3 +484,34 @@ assumptions that caused it.
 afterwards, not in the next iteration — the same edit. If the rule cannot be expressed in the code,
 say why in a comment at the exact place it applies, so the next reader meets it where it matters
 rather than in a document they may never open.
+
+## Look first, then write the script — not the other way round
+
+**The user, 2026-08-18, after watching several failed attempts to script a menu:** *"take a
+picture, observe it, then write whatever needs to be done. so you actually know what it has to
+do."*
+
+That session went: write a button sequence from assumption -> run it -> read a log -> guess what
+went wrong -> adjust -> run again. Four rounds, and it ended up on the SAVE dialog, because every
+round was inferring the screen instead of looking at it. **A screenshot costs one command and
+removes the guessing entirely.**
+
+**The working order:**
+
+1. **Put the game in the state you want to script from**, and screenshot it.
+2. **Look at the screenshot.** What is on screen, where is the cursor *actually*, how many entries
+   does this menu have on *this* save?
+3. **Write the step you can see is correct** — one step.
+4. **Screenshot again** and check it landed. Only then write the next step.
+
+This is slower per step and far faster overall, because a blind sequence fails at an unknown point
+and every re-run costs the full setup. It also produces a route that is right for the save in front
+of you rather than for an imagined one — which matters, since menu contents change with game
+progress.
+
+**Screenshots are for the agent's own eyes here, not evidence** (see `agent_docs/testing.md`):
+looking at one to decide what to press next is exactly what they are for, and it never becomes a
+claim about whether a feature works.
+
+**And when the blind approach has failed twice, stop.** Scripting a menu the user can navigate in
+five seconds is rarely worth a fifth attempt — especially when a wrong press can hit SAVE.
