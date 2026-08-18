@@ -74,16 +74,16 @@ stays here, its reasoning goes to `agent_docs/`, with a one-line pointer. Full e
   universal animation vocabulary or branch on area contents in game-agnostic code.
 - **Nothing goes in this repo that couldn't be published. The test is not "does a license permit
   this?" but "is this fine sitting in a public repo forever?"** No/unclear means it doesn't go in,
-  even where a license would allow it. Consulting a reference for *facts* is fine; containing its
-  *expression* is not — decompiler output, disassembly, game binaries, assets, ROMs, symbol files,
-  verbatim reflection dumps. **It also filters which approaches to adopt at all**, and **clean isn't
-  enough: the repo must WORK for a user who has only it plus what they legitimately own.** Why, and
-  the build-time-artifact carve-out: `agent_docs/access-models.md`.
-- **Read a project's license before reading its source.** See `agent_docs/licensing.md`.
-  Consulting a reference project (e.g. the `pokeemerald` decompilation) to learn a fact —
-  an address, a function name, a data layout — is normal; copying its source or assets is
-  not. If the project isn't already listed in `licensing.md`, its license hasn't been
-  checked yet — don't use it as a reference until it is.
+  even where a license would allow it: a permissive license is not an exception. **Facts may be
+  used and recorded, with a citation; expression may never be committed** — decompiler output,
+  disassembly, game binaries, assets, ROMs, symbol files, verbatim dumps, or code structurally
+  identical to its source. **It also filters which approaches to adopt at all**, and **clean isn't
+  enough: the repo must WORK for a user who has only it plus what they legitimately own.** Why,
+  and the build-time-artifact carve-out: `agent_docs/access-models.md`.
+- **Read a project's license before reading its source.** See `agent_docs/licensing.md`. Learning
+  a fact from a reference project (e.g. the `pokeemerald` decompilation) is normal; copying its
+  source or assets is not. If the project isn't already listed in `licensing.md`, its license
+  hasn't been checked yet — don't use it as a reference until it is.
 - **Any dated fact recorded in `agent_docs/` — a license check, a tool/mod version, a closed
   risk, a memory address — is true as of that date, not a permanent guarantee.** Installed
   tools, mods, ROM/game patches, and external repos can all drift without this repo changing.
