@@ -6900,3 +6900,22 @@ scheduled. All established by the agent with local tools; nothing here is a visu
 - **Supersedes the previous entry and further amends the spawn ADR.** The ADR's "identify the ROM
   before writing and refuse otherwise" is now a *warn* rather than a *refuse*, by explicit decision;
   what survives unchanged is that the adapter must always identify the ROM and say what it found.
+
+### Crystal: LOOPBACK WORKS — a network-driven ghost that moves and faces correctly (2026-08-18)
+
+- Date: 2026-08-18
+- Observed: **watched by the user.** `meshghost_crystal.lua` connected to a local core over the
+  bridge, and a ghost driven entirely by state off the wire appeared, moved and turned correctly:
+  *"ghost works"*, *"moving works properly"*, *"yes facing direction works perfect now"*.
+- Source: live loopback session — relay in `-loopback`, core `-game=crystal` over quic.
+- Notes: **Crystal is now a working adapter end to end.** A peer is represented by a real in-game
+  object event that the game renders, animates and walks, driven by `render_remote` — with **no
+  drawing, animation or interpolation code in the adapter at all**, which is the entire point of
+  the spawn approach over Emerald's overlay.
+  Facing needed one fix found by the user: `render_remote` reacted only to *position*, so the ghost
+  faced whichever way it last walked and **turning in place did not register** — a common action in
+  this game. Applying the peer's `orientation` while idle fixed it. It must be while idle:
+  `OBJECT_FACING`'s low bits are the walk-cycle subframe the engine advances during a step, so
+  writing the base value mid-step fights the animation.
+- **Still true and unchanged**: a ghost wears the LOCAL player's face, not the peer's, and
+  `LOOPBACK_OFFSET_X` must default to 0 before any release. Both in `phases/phase9.md`.
