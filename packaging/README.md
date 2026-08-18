@@ -252,10 +252,18 @@ outputs aren't stale (the TEVI plugin, the Pseudoregalia plugin, and the bundled
 each gated on its own `built-from.txt`-style hash record), assembles the three assets, creates
 the tag if it doesn't already exist, and attaches them to a new GitHub Release.
 
-The release body is not empty: the workflow hashes the three assets it just built and publishes
-a SHA-256 table, which GitHub's own generated notes are then appended to. That table is not
-decoration — [docs/antivirus.md](../docs/antivirus.md) and
-`packaging/release/README.txt` both tell a user whose antivirus flagged an unsigned Go binary to
-check their download against the published hash, and until 2026-08-18 no release published one,
-so that advice pointed at a number that did not exist. GitHub's two `Source code` archives are
-generated after the fact and cannot be hashed by the workflow; the table says so.
+The release body is composed by the workflow: GitHub's generated changelog first, then a
+horizontal rule, then a SHA-256 table for the three assets that release built. The changelog leads
+because it is what a reader wants first; the hashes are a reference you go looking for. That
+ordering is why the workflow fetches the notes itself through the `generate-notes` API rather than
+setting `generate_release_notes: true`, which would PREPEND our body and put the table back on top.
+
+The table is deliberately bare — no heading, no `Get-FileHash` instructions, no explanation of
+unsigned binaries. Anyone checking a hash already knows how, and the prose ran longer than the
+thing it introduced; [docs/antivirus.md](../docs/antivirus.md) and `packaging/release/README.txt`
+carry the full explanation, including the note that GitHub's two `Source code` archives are
+generated after the fact and so cannot be hashed by the workflow.
+
+It is not decoration: both of those docs tell a user whose antivirus flagged an unsigned Go binary
+to check their download against the published hash, and until 2026-08-18 no release published one,
+so that advice pointed at a number that did not exist.
