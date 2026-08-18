@@ -92,3 +92,19 @@ into each other.
 
 `SaveManager` owns save state. **MeshGhost never writes it** — `CLAUDE.md`'s absolute rule — and it
 is named here only because it is the component a reader will otherwise go looking for.
+
+## The pause overlay and the main menu are different states, and only one drops the player
+
+TEVI's Characters/pause overlay leaves the player object alive: `PlayerControl.instance` (and its
+transform) stays non-null while the overlay is up. Returning to the **main menu / title** does null
+it. Confirmed live 2026-08-13 and recorded in `agent_docs/phases/phase6.md`, which is where the
+detail sits.
+
+That single difference is what lets a `player == null` check tell "the player left the session"
+apart from "the player opened a menu" — without it, a pause would be indistinguishable from
+quitting. It is the reason peer ghosts can stay on screen while you are in the pause overlay, which
+is the intended, wanted behaviour (user, 2026-08-18), and disappear when you actually quit to the
+title.
+
+**Be precise about which menu when describing this.** Bare "menu" is ambiguous in a game with both,
+and on 2026-08-18 that ambiguity alone produced a false regression report about working code.

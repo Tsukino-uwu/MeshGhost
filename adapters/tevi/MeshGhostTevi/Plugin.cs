@@ -554,7 +554,7 @@ namespace MeshGhostTevi
             {
                 if (hadPlayerLastFrame)
                 {
-                    Logger.LogInfo("MeshGhost: no local player yet (not in a play session) -- disconnecting bridge so this player's ghost despawns for any peer.");
+                    Logger.LogInfo("MeshGhost: left the play session (main menu / title, NOT the pause overlay) -- disconnecting bridge so this player's ghost despawns for any peer, and despawning theirs.");
                     hadPlayerLastFrame = false;
                     timeSinceLastLog = 0f;
                     // Reconnects automatically next frame via TryConnect() once back in a real
@@ -562,9 +562,18 @@ namespace MeshGhostTevi
                     bridge.Disconnect();
                     // Symmetry, and the exit direction of the template's "never let a ghost
                     // exist before the player is in the game": we tell peers our ghost is gone,
-                    // so theirs must go too. Without this, every peer ghost stayed standing in
-                    // a menu or between sessions, frozen at its last position, because nothing
-                    // else destroys them -- despawn_remote only ever arrives for a real leave.
+                    // so theirs must go too. Without this, peer ghosts stayed standing between
+                    // sessions, frozen at their last position, because nothing else destroys
+                    // them -- despawn_remote only ever arrives for a real leave.
+                    //
+                    // *** THIS IS THE MAIN MENU, NOT THE PAUSE MENU. *** Peer ghosts MUST stay
+                    // visible during the pause overlay -- that is wanted behaviour, confirmed by
+                    // the user 2026-08-18. It is safe here because this whole branch is gated on
+                    // `player == null`, and phases/phase6.md records (confirmed live 2026-08-13)
+                    // that the Characters/pause overlay does NOT null the player, so that check
+                    // "safely distinguishes a real menu return from a pause overlay". If a future
+                    // TEVI build ever nulls the player on pause, this call despawns every peer
+                    // ghost mid-session and must be removed -- it is the first thing to suspect.
                     DespawnAllRemoteGhosts();
                 }
                 // PROTOCOL.md: send local_state every frame even when there's nothing to send.

@@ -39,6 +39,10 @@ stays here, its reasoning goes to `agent_docs/`, with a one-line pointer. Full e
 - **"It ran without errors" is not evidence — for an adapter.** The standard there is: was the
   expected thing seen happening on screen in a running game? A wrong memory address or a wrong
   reflected name returns a plausible number instead of crashing, so only watching settles it.
+  **Never assume what a game is MEANT to do — ASK.** A change to what the player SEES needs the
+  user's confirmation of intent first: reasoning from the code is how TEVI's pause-menu ghosts got
+  "fixed" into a regression that wasn't (2026-08-18). Name the exact state too — **"main menu",
+  never bare "menu"** — in a game with both, that word alone caused the same false alarm.
 - **The Go client/server is the opposite case: confirm it with the tools, yourself, and don't ask
   the user to watch it.** `core`, `relay`, `transport`, `bridge` and `cmd/` are deterministic code
   against a contract we own — nothing there rests on a guess about a game, which is exactly why the
@@ -113,16 +117,12 @@ stays here, its reasoning goes to `agent_docs/`, with a one-line pointer. Full e
 - **This is a public repo — no personal username, home-directory path, or other
   machine-identifying detail in any tracked file. Prose counts, not just code.** Genericize it
   (a placeholder a new user edits, an environment variable) or make it relative (scripts under
-  `adapters/` resolve their own directory). Cite files living outside the repo by filename
-  only — an absolute prefix is unusable to a reader anyway. Suspect pasted tool output above all:
-  all three live cases got in that way rather than by being typed. Never assume a clean run means
-  clean — `git grep -inIF -e 'C:\Users' -e 'C:/Users' -e '/home/' -- . ':!CLAUDE.md'
-  ':!agent_docs/environment.md' ':!agent_docs/pitfalls.md'` must print nothing. **Both slash
-  directions are load-bearing**, as is `-F`: as a regex the backslashes match nothing, and a
-  forward-slash path sat leaking in `master` while the backslash-only check ran clean
-  (2026-08-18). The three excluded files hold the pattern by definition.
-  `agent_docs/environment.md` is the one deliberate exception (a factual environment record) —
-  even there prefer a version number over a path. All three cases: `agent_docs/pitfalls.md`.
+  `adapters/` resolve their own directory). Cite files outside the repo by filename only. Suspect
+  pasted tool output above all. Never assume a clean run means clean —
+  `git grep -inIF -e 'C:\Users' -e 'C:/Users' -e '/home/' -- . ':!CLAUDE.md'
+  ':!agent_docs/environment.md' ':!agent_docs/pitfalls.md'` must print nothing; **both slash
+  directions and `-F` are load-bearing** (why, and all three live cases: `agent_docs/pitfalls.md`).
+  `agent_docs/environment.md` is the one deliberate exception — prefer a version to a path.
 - **Never let a scripted edit write CRLF into the LF-pinned adapter sources.** `.gitattributes`
   pins TEVI's `*.cs`/`*.csproj` and Pseudoregalia's `Mod/src/*.cpp|hpp`/`CMakeLists.txt` to
   `eol=lf`, because the release staleness gate hashes them on a Windows runner that defaults to
