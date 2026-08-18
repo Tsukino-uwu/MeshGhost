@@ -514,6 +514,9 @@ local function spawnGhost(id, x, y)
 	return ghosts[id]
 end
 
+-- The inverse of DIR_NAMES: a peer sends orientation as a name, and we need the numeric dir.
+local ORIENTATION_TO_DIR = { down = 0, up = 1, left = 2, right = 3 }
+
 local DELTA_TO_DIR = { ["0,1"] = 0, ["0,-1"] = 1, ["-1,0"] = 2, ["1,0"] = 3 }
 
 local function stepGhost(g, dir)
@@ -586,6 +589,18 @@ local function renderRemote(id, state)
 
 	local cx, cy = u8(g.st_base + F_MAP_X) or 0, u8(g.st_base + F_MAP_Y) or 0
 	if cx == x and cy == y then
+		-- Not moving, but the peer may have TURNED IN PLACE — a real and common action in this
+		-- game, and one the ghost missed entirely until 2026-08-18 because renderRemote only ever
+		-- looked at position. Facing then came from whichever way the ghost last walked.
+		--
+		-- DIRECTION and FACING both take dir*4. FACING's low bits are the walk-cycle subframe the
+		-- engine advances during a step, so writing the base value while idle is safe; doing it
+		-- mid-step would fight the animation, which is why this sits behind the idle check.
+		local want = ORIENTATION_TO_DIR[state.orientation]
+		if want and u8(g.st_base + F_DIRECTION) ~= want * 4 then
+			w8(g.st_base + F_DIRECTION, want * 4)
+			w8(g.st_base + F_FACING, want * 4)
+		end
 		return
 	end
 	local dir = DELTA_TO_DIR[string.format("%d,%d", x - cx, y - cy)]
