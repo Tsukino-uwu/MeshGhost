@@ -116,6 +116,18 @@ either speaks the bridge correctly, in which case the proven stack carries it, o
 which case it fails locally in loopback and two machines would only tell you the same thing more
 slowly. **So: TEVI, Crystal and every future adapter need no online confirmation.**
 
+**What the carve-out has actually cost, measured rather than feared (user, 2026-08-18):** *"it
+only needed 2 actual peers, for the pole rotation in pseudoregalia. everything else has been fine
+with just loopback with offset."* **One case, across four adapters and the whole project.** That
+is the real weight of the list above: it is not four common gaps, it is a small set of possible
+ones from which exactly one has ever bitten — Pseudoregalia's pole rotation, cleared 2026-08-16
+when two real players were finally in a room together.
+
+So the list stays, because the one case was genuine and invisible in a mirror by construction —
+but it should be read as *"the rare thing to keep in mind"*, not as a standing doubt about
+loopback results. **Loopback with the sideways offset is the normal, sufficient way to confirm an
+adapter**, and treating it as second-best misreads four adapters' worth of evidence.
+
 **Do not confuse this with the carve-out above.** The carve-out is not about whether networking
 works; it is about **adapter behaviour that depends on the peer differing from you** — a ghost
 built from local state, a peer of the other gender, real latency. Those are properties of the
