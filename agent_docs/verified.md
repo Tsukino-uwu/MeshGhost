@@ -6964,3 +6964,28 @@ scheduled. All established by the agent with local tools; nothing here is a visu
   fingerprint, not by faith — slot 0 must hold the player (`SPRITE` matching, a 0x28 stride) and
   its `MAP_X`/`MAP_Y` must track the player's own coordinates as they walk. That is the same test
   the domain probe used to tell a real match from a plausible lookalike.
+
+### Crystal/AP: the contiguity derivation is REFUTED — those are not the player's coordinates (2026-08-18)
+
+- Date: 2026-08-18
+- Observed: `ap_address_probe.lua` on an Archipelago ROM, walking a square. The addresses derived
+  as `wMapGroup + 1/2/3` produced a **repeating cycle** of deltas —
+  `-19,+0` / `+66,+0` / `-69,+0` / `-1,-3` — with every accepted "step" identically `+0,-1`, four
+  times over, and the candidate count frozen at 14.
+- Source: live run, `ap_address_20260818_*.log`.
+- Notes: **a player walking a square does not produce a repeating sequence.** That signature is a
+  counter or animation register cycling, so `7361`/`7362` are **not** `wYCoord`/`wXCoord` on this
+  build. The 14 survivors are an artefact of filtering against a periodic signal, not a match —
+  and note the probe would have *reported* them as survivors if the run had ended there, which is
+  why the repeating pattern in the log mattered more than the count.
+- **What is refuted, precisely**: the assumption that `wMapGroup`/`wMapNumber`/`wYCoord`/`wXCoord`
+  remain four consecutive bytes on the Archipelago build, so that AP's published `wMapGroup = 7359`
+  yields the other three. **Either the patch reordered them, or 7359 does not mean in AP's address
+  space what it was taken to mean.** Both are checkable; neither has been checked.
+  **The derivation was reasonable and is still wrong**, which is the point: a structural fact from
+  the vanilla decomp is a fact *about vanilla*, and the whole reason Archipelago is hard is that it
+  rearranges structure.
+- **Next step, and it should not assume anything this time**: discover the player's coordinates the
+  same differential way rather than deriving them — scan for any byte pair that changes by exactly
+  ±1 in one axis, repeatedly, as the player walks, and cross-check the survivors against known map
+  transitions. Only once the coordinates are *measured* can they anchor the object-array scan.
