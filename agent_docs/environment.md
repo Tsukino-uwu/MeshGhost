@@ -396,6 +396,18 @@ UE4SS entry below for that last one specifically, which is currently unresolved)
   **The standing limit is unchanged.** All of this is dev-only tooling for reaching a state faster;
   it never becomes adapter behaviour, and none of it confirms anything — the user still watches the
   end result.
+- **`dev-scripts/lua-forward-refs.py` — a name used before its `local` definition.** In Lua that
+  resolves to a **global**, which is `nil`, so the call site silently does nothing or errors
+  somewhere unrelated — it never looks like what it is. This bit the Emerald adapter **three times
+  on 2026-08-18** (`despawnAllGhosts` in the bridge reset, `frameCounter` in the port walk, and
+  `SURFING_GFX`/`spawnSurfBlob` in the spawn), each time costing a live test to find, and the
+  third one presented as "the surf blob feature does nothing at all".
+  Run it over any Lua that has grown past a screen:
+  `python dev-scripts/lua-forward-refs.py adapters/pokemon/*/meshghost_*.lua`.
+  It considers **file-scope** locals only (a local inside a function cannot be the trap), ignores
+  strings, comments, field access, method calls and table keys, and understands a forward
+  declaration as the fix rather than an instance. **It reports candidates for a human to judge, not
+  errors** — expect roughly one false positive per file. The Emerald adapter reports zero.
 - **`dev-scripts/bizhawk-syntax-check.lua` — does this Lua even parse?** BizHawk embeds Lua 5.4
   and this machine has no standalone Lua binary, so before this the only way to find a missing
   `end` in an adapter was to load it into a live session. The checker `loadfile()`s a list of
