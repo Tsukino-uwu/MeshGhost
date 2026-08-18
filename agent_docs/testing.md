@@ -98,6 +98,30 @@ being *different* from you. Four things fall in that gap:
 two machines. That is a much smaller set than "every game needs a two-player session", and it is
 the set that actually went wrong.
 
+### Restated 2026-08-18, because an agent talked itself back out of it
+
+The user, after an agent described a day of loopback testing as "not two-player confirmed" and
+implied that was a gap:
+
+> *"we already know the server/client works, its seperated from the adapters on purpose. we don't
+> have to test/confirm if a game works online, as it either works online, or the adapter does not
+> work at all to begin with... TEVI/Crystal don't need any 'online confirmation', nor does any
+> future adapters/games at this point. the server/client + adapter split/modular setup is already
+> proven."*
+
+**"Does this game work online" is not a question about the game.** The client, relay and transport
+do not know which game they are carrying — that is the whole point of the split, and it has been
+demonstrated end to end on two real machines twice (Emerald, then Pseudoregalia). A new adapter
+either speaks the bridge correctly, in which case the proven stack carries it, or it does not, in
+which case it fails locally in loopback and two machines would only tell you the same thing more
+slowly. **So: TEVI, Crystal and every future adapter need no online confirmation.**
+
+**Do not confuse this with the carve-out above.** The carve-out is not about whether networking
+works; it is about **adapter behaviour that depends on the peer differing from you** — a ghost
+built from local state, a peer of the other gender, real latency. Those are properties of the
+adapter's own rendering, invisible in a mirror, and they stay on the list. Everything else about
+"is it online" is settled and should not be re-litigated per game.
+
 ## What runs where
 
 | Check | Local | CI (see below) | Release |
