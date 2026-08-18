@@ -263,6 +263,28 @@ UE4SS entry below for that last one specifically, which is currently unresolved)
     `A B L R Up Down Left Right Start Select`, plus `Power`, `Light Sensor` and `Tilt X/Y/Z`.
   - `joypad.set` applies to the **next frame only**, so a held button must be re-issued every
     frame rather than set once.
+- **Switching ROMs without restarting the emulator — `client.openrom` (2026-08-18).**
+  `client.openrom(path)`, `client.closerom()` and `client.reboot_core()` are all present in this
+  build's Lua API. The user pointed at BizHawk's own File -> Recent ROM list to make the point:
+  changing ROM is a menu action, not a relaunch, and the Lua API exposes it. **That matters
+  because a relaunch drops every attached script**, the dev loader included, and loses whatever
+  state the session was holding — so testing "does this adapter behave on a different ROM" costs a
+  full re-setup only if you go the long way round.
+  Practical use: the Emerald adapter has to be exercised against **both** a vanilla and an
+  Archipelago-patched ROM (`BANDAGES.md`), and those are two `openrom` calls apart rather than two
+  emulator sessions apart.
+  **Still blocked on something else, though**: a patched ROM boots to the intro, and no save or
+  savestate exists for one on this machine — so reaching its overworld means playing the intro,
+  which is why that test is still open rather than done.
+- **Telling a patched ROM from a vanilla one by its file name — a tell, never a conclusion.**
+  The user, 2026-08-18: *"garbled = probly archipelago, good names = most likely the vanilla
+  roms"*. A clean `Pokemon - Emerald Version (USA, Europe).gba` is almost certainly vanilla; a
+  `P1_Tsukino_N2LVKSRcSG-V8oZzd11ehg.gba` is almost certainly a generated Archipelago seed, since
+  the generator names output after the player and a seed hash. **Useful for picking a file, never
+  for deciding what the adapter is talking to** — the adapter identifies the ROM from memory
+  (finding the player's own object event at one of two known addresses) precisely because a file
+  name is not evidence. Same standing rule recorded for Crystal: treat the name as a hint and
+  confirm.
 - **Restarting the game without restarting the emulator** — BizHawk's Emulation menu has Reboot
   Core (Ctrl+R), Soft Reset and Hard Reset; pointed out by the user 2026-08-18. Useful when a test
   needs a cold boot: it avoids relaunching EmuHawk, which would drop every attached script and
