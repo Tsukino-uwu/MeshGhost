@@ -57,12 +57,54 @@ local function flat(cpu)
 	return 0x1000 + (cpu - 0xD000)
 end
 
-local OBJECT_STRUCTS = flat(0xD4D6) -- 01:d4d6, 13 x 0x28
-local MAP_OBJECTS = flat(0xD71E) -- 01:d71e, 16 x 0x10
-local W_MAPGROUP, W_MAPNUMBER = flat(0xDCB5), flat(0xDCB6)
-local W_YCOORD, W_XCOORD = flat(0xDCB7), flat(0xDCB8) -- the VISIBLE WINDOW origin, not the player
-local W_MAPSTATUS, W_BATTLEMODE = flat(0xD432), flat(0xD22D)
-local W_BGMAPOFFSETX, W_BGMAPOFFSETY = flat(0xD14C), flat(0xD14D)
+-- ONE TABLE PER ROM BUILD, selected by classifyRom() at startup. A build that rearranges WRAM
+-- does not get vanilla's addresses "because they are close" -- it gets its own measured set or it
+-- does not run at all. Every entry here is traceable: vanilla's to our own hash-verified
+-- pokecrystal build, Archipelago's to a dated probe log (verified.md, 2026-08-18).
+local ADDRESSES = {
+	vanilla = {
+		label = "vanilla Crystal V1.0",
+		OBJECT_STRUCTS = flat(0xD4D6), -- 01:d4d6, 13 x 0x28
+		MAP_OBJECTS = flat(0xD71E), -- 01:d71e, 16 x 0x10
+		W_MAPGROUP = flat(0xDCB5),
+		W_MAPNUMBER = flat(0xDCB6),
+		-- the VISIBLE WINDOW origin, not the player
+		W_YCOORD = flat(0xDCB7),
+		W_XCOORD = flat(0xDCB8),
+		W_MAPSTATUS = flat(0xD432),
+		W_BATTLEMODE = flat(0xD22D),
+		W_BGMAPOFFSETX = flat(0xD14C),
+		W_BGMAPOFFSETY = flat(0xD14D),
+	},
+
+	-- Archipelago's Crystal patch. MEASURED, never derived -- three separate vanilla relationships
+	-- failed on this build before these four were established the hard way (verified.md):
+	-- the coordinate block moved +7, the object array +6, and the map-object table -0x2A. Deltas
+	-- from vanilla are noted only to show they disagree; nothing here is computed from them.
+	--
+	-- INCOMPLETE ON PURPOSE. The nil entries below have not been measured, and a nil is what makes
+	-- this table refuse to run rather than silently write somewhere plausible. Fill one in only
+	-- from a probe log, never from the delta of its neighbour -- that is exactly the reasoning
+	-- that produced the three failures above.
+	archipelago = {
+		label = "Archipelago-patched Crystal",
+		OBJECT_STRUCTS = 0x14DC, -- vanilla+6; player in slot 0, NPCs in 1-2, zeroes after
+		MAP_OBJECTS = 0x16F4, -- vanilla-0x2A; struct_id/sprite/y/x agree with the array both ways
+		W_YCOORD = 0x1CBE, -- vanilla+7; moved -1 walking up, +1 walking back down
+		W_XCOORD = 0x1CBF, -- vanilla+7; moved with left/right only
+		W_MAPGROUP = nil, -- SUSPECTED 0x1CBC, constant on one map and sitting just before Y/X --
+		W_MAPNUMBER = nil, -- and 0x1CBD. Suspicion is not measurement: needs a map transition.
+		W_MAPSTATUS = nil, -- AP's published table implies 5177, and its published wMapGroup was
+		W_BATTLEMODE = nil, -- off by three, so it is not evidence. Needs a battle to measure.
+		W_BGMAPOFFSETX = nil,
+		W_BGMAPOFFSETY = nil,
+	},
+}
+
+-- Assigned once, from the selected table, before the main loop runs.
+local OBJECT_STRUCTS, MAP_OBJECTS
+local W_MAPGROUP, W_MAPNUMBER, W_YCOORD, W_XCOORD
+local W_MAPSTATUS, W_BATTLEMODE, W_BGMAPOFFSETX, W_BGMAPOFFSETY
 
 local OBJECT_LENGTH, MAPOBJECT_LENGTH = 0x28, 0x10
 local NUM_OBJECT_STRUCTS, NUM_MAP_OBJECTS = 13, 16
@@ -339,11 +381,11 @@ end
 -- ROM classification, three-way rather than pass/fail (user's call, 2026-08-18).
 --
 --   "known"        vanilla V1.0 — the addresses below were derived from a byte-identical build.
---   "incompatible" a ROM we have POSITIVE evidence is wrong: Archipelago's Crystal patch
---                  rearranges WRAM non-uniformly, so vanilla addresses land on whatever now
---                  occupies them. Refused, because this is not "untested", it is "tested and known
---                  to corrupt". Overridable with MESHGHOST_CRYSTAL_FORCE=1 for deliberate
---                  experimentation.
+--   "archipelago"  Archipelago's Crystal patch, which rearranges WRAM non-uniformly. It no longer
+--                  means "refuse": it selects ADDRESSES.archipelago, a measured set of its own.
+--                  It still refuses while that set is incomplete — see the startup check, which
+--                  names the missing entries rather than falling back to vanilla's. Falling back
+--                  would be the corrupting case this class exists to prevent.
 --   "unknown"      anything else — another revision, a romhack, a translation. **Warn loudly and
 --                  RUN.** Refusing guarantees an untested-but-fine ROM does not work, where trying
 --                  it might. The cost of being wrong is bounded: this adapter writes only object
@@ -361,16 +403,20 @@ local function classifyRom()
 	local title = table.concat(t)
 	if title == "PM_CRYSTAL"
 		and u8(0x14E, ROM_DOMAIN) == 0x12 and u8(0x14F, ROM_DOMAIN) == 0x9F then
-		return "known", "vanilla Crystal V1.0"
+		return "known", "vanilla Crystal V1.0", "vanilla"
 	end
-	-- Archipelago renames the header, which is a cheaper and stronger signal than the checksum.
+	-- Archipelago renames the header, which is a cheaper and stronger signal than the checksum --
+	-- and seed-independent, which the checksum is not: every seed patches different item data on
+	-- top of one shared base recompile. Emerald's adapter relies on the same property for its own
+	-- Archipelago addresses; if a future world update recompiles that base, the measured addresses
+	-- move and the fingerprint check below is what notices.
 	if title:sub(1, 3) == "AP_" then
-		return "incompatible",
-			string.format("ROM title %q — Archipelago's patch moves WRAM, so these addresses "
-				.. "would land on the wrong data", title)
+		return "archipelago", string.format("ROM title %q — Archipelago's Crystal patch", title),
+			"archipelago"
 	end
 	return "unknown", string.format("ROM title %q, checksum %02X%02X — not a build these addresses "
-		.. "were derived from", title, u8(0x14E, ROM_DOMAIN) or 0, u8(0x14F, ROM_DOMAIN) or 0)
+		.. "were derived from", title, u8(0x14E, ROM_DOMAIN) or 0, u8(0x14F, ROM_DOMAIN) or 0),
+		"vanilla"
 end
 
 -- The in-game gate. Established empirically in Phase 9, and BOTH terms were needed: wMapStatus
@@ -711,10 +757,22 @@ end
 -- Main loop
 ----------------------------------------------------------------------------
 
-local romClass, romWhy = classifyRom()
+local romClass, romWhy, romTable = classifyRom()
 log("=== MeshGhost — Pokémon Crystal ===")
+
+-- Select the address set BEFORE anything reads or writes memory. An unknown ROM still gets
+-- vanilla's, which is the deliberate run-anyway case; an Archipelago ROM gets its own or none.
+local A = ADDRESSES[romTable or "vanilla"]
+OBJECT_STRUCTS, MAP_OBJECTS = A.OBJECT_STRUCTS, A.MAP_OBJECTS
+W_MAPGROUP, W_MAPNUMBER = A.W_MAPGROUP, A.W_MAPNUMBER
+W_YCOORD, W_XCOORD = A.W_YCOORD, A.W_XCOORD
+W_MAPSTATUS, W_BATTLEMODE = A.W_MAPSTATUS, A.W_BATTLEMODE
+W_BGMAPOFFSETX, W_BGMAPOFFSETY = A.W_BGMAPOFFSETX, A.W_BGMAPOFFSETY
+
 if romClass == "known" then
 	log("ROM: " .. romWhy .. " — addresses verified against a byte-identical build.")
+elseif romClass == "archipelago" then
+	log("ROM: " .. romWhy .. " — using its own measured address set.")
 else
 	-- One line, whatever the ROM. Toned down from a multi-line warning on the user's call
 	-- (2026-08-18): every non-vanilla ROM is attempted, so a wall of caution on each startup is
@@ -729,6 +787,25 @@ else
 	end
 	log("ROM: untested — " .. romWhy .. ". Running anyway; object RAM only, never a save.")
 end
+
+-- A missing address is a refusal, never a fallback. Falling back to vanilla's value for one entry
+-- is worse than not running: the gate would read a byte that means something else on this build,
+-- pass, and start WRITING object RAM at addresses that were never checked.
+local missing = {}
+for _, name in ipairs({ "OBJECT_STRUCTS", "MAP_OBJECTS", "W_MAPGROUP", "W_MAPNUMBER", "W_YCOORD",
+	"W_XCOORD", "W_MAPSTATUS", "W_BATTLEMODE", "W_BGMAPOFFSETX", "W_BGMAPOFFSETY" }) do
+	if A[name] == nil then
+		missing[#missing + 1] = name
+	end
+end
+if #missing > 0 then
+	log(string.format("REFUSING TO RUN on %s: %d address(es) not yet measured — %s.",
+		A.label, #missing, table.concat(missing, ", ")))
+	log("These are deliberately nil rather than guessed. Measure them with the probes beside this")
+	log("script (see the adapter README), then fill them into ADDRESSES." .. (romTable or "?") .. ".")
+	return
+end
+
 log(string.format("Bridge target %s:%d (set MESHGHOST_BRIDGE_PORT to change).", BRIDGE_HOST, BRIDGE_PORT))
 
 local lastArea = nil

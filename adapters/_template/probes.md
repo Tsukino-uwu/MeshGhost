@@ -79,6 +79,37 @@ Carry nothing forward as an exclusion, either. If a byte fails the reversal, let
 with its evidence, rather than hard-coding it out of the next probe: an exclusion list is a claim
 you stop re-testing, and the next counter just inherits the place you cleared for it.
 
+## Two parameters that trade off against each other give you one answer N times
+
+If a search varies both a base address and an offset within the entry, then `base+k` with
+`offset-k` describes the same bytes as `base` with `offset` — so a table found at one place gets
+reported at every alignment, and a clean single result looks like sixteen candidates. Found live
+2026-08-18 hunting Crystal's map-object table: 16 "candidates", all one table, `base + offset`
+constant across every row.
+
+That is not a reason to fix the parameter you were unsure about. **Search both, then collapse the
+degenerate family and pick the alignment on independent evidence** — here, entries carry an index
+back to the struct that points at them, and only one alignment makes that back-pointer agree in
+both directions. A search dimension you cannot resolve from *within* the search needs a constraint
+from outside it.
+
+## Reverse the STATE too, not just the input
+
+The reversal idea generalises past movement. A state flag is found the same way a coordinate is:
+put the game into a state, take it back out, and keep only the bytes that came back. Overworld ->
+battle -> overworld finds a battle flag; map A -> map B finds map identity; and the two together
+separate them, because a map identity byte is unchanged by a battle and a battle flag is unchanged
+by a map.
+
+**Match on the game's SEMANTICS rather than its addresses when a build has moved things.** "This
+byte reads 2 in the overworld and something else in a battle" is knowledge about the game that
+survives a patch rearranging WRAM; "this byte is at 0xD432" is not. A signature of three or four
+such facts across snapshots is not something a byte satisfies by accident.
+
+**Do not make the human time the transition.** Sample through the phase and keep the snapshot that
+differs most from the baseline — the battle is then found wherever inside the phase it happened,
+and a slow encounter costs nothing.
+
 ## Delay your own change, so its effects separate from the game's own startup
 
 The noisiest moment in any game is the first few seconds of a level: cameras pick targets, systems
