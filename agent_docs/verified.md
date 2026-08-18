@@ -6938,3 +6938,29 @@ scheduled. All established by the agent with local tools; nothing here is a visu
   `ram_addresses` in `worlds/pokemon_crystal_prerelease/data/data.json` (MIT, `licensing.md`),
   which already carries `wMapGroup`/`wMapNumber` among others. A second address table selected by
   ROM identity — which the classifier already computes — is the shape, not a relaxed guard.
+
+### Crystal/Archipelago: five addresses derived from one published value (2026-08-18)
+
+- Date: 2026-08-18
+- Observed: Archipelago's Crystal world publishes only **`wMapGroup` = 7359** of the addresses this
+  adapter needs (`worlds/pokemon_crystal_prerelease/data/data.json`, MIT). `wMapStatus`,
+  `wBattleMode`, `wObjectStructs`, `wMapObjects`, `wXCoord`/`wYCoord` and the BG offsets are all
+  absent from its table — it exports what Archipelago's own client uses, not what we do.
+- **But two structural facts from the vanilla decomp turn one value into five**, because the
+  layout *within* a region is preserved even though the regions moved:
+  - `wMapGroup`/`wMapNumber`/`wYCoord`/`wXCoord` are four consecutive bytes (`ram/wram.asm`), so
+    AP's are **7359 / 7360 / 7361 / 7362**.
+  - `wMapStatus` immediately precedes `wMapEventStatus`, which AP publishes as 5178 — so AP's
+    `wMapStatus` is **5177**.
+  **This is the same fingerprint reasoning the domain probe used**: the decomp gives relationships,
+  and one anchor turns them into addresses.
+- **Still unknown, and a hypothesis rather than a fact**: `wMapEventStatus` sits at +7 against
+  vanilla in that region, and `wObjectStructs` is only ~160 bytes away, so **`vanilla + 7` is the
+  obvious candidate** for it, with `wMapObjects` at the same fixed `+0x248` offset the vanilla
+  build has. **Not to be trusted without a test** — the earlier region-by-region comparison showed
+  deltas of +7, −45, +22 and +10 in different places, so "nearby means same delta" is exactly the
+  kind of plausible-looking assumption this session has been caught by four times.
+- **How to settle it, cheaply and read-only**: the candidate `wObjectStructs` is verifiable by
+  fingerprint, not by faith — slot 0 must hold the player (`SPRITE` matching, a 0x28 stride) and
+  its `MAP_X`/`MAP_Y` must track the player's own coordinates as they walk. That is the same test
+  the domain probe used to tell a real match from a plausible lookalike.
