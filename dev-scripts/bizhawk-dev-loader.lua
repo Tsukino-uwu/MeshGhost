@@ -8,12 +8,29 @@
 -- seven relaunches, each one a real interruption to whoever is holding the controller.
 --
 -- This loader is attached ONCE at launch and then watches a plain text control file. Whatever
--- script path that file names gets loaded and ticked; change the file and the loader swaps to the
--- new script on the next poll, with no relaunch and without disturbing the running game.
+-- scripts that file names get loaded and ticked; change the file and the loader swaps to the new
+-- set on the next poll, with no relaunch and without disturbing the running game.
+--
+-- CONTROL FILE
+-- Default: bizhawk-dev-loader.target next to this file. Either
+--   - one or more paths to .lua files, ONE PER LINE (absolute, or relative to the control file's
+--     own directory). ALL of them load and ALL of them tick, in order -- so an adapter and a
+--     test-state script can run at the same time; or
+--   - the word `none` / an empty file, meaning "run nothing" -- the detach case.
+-- Lines starting with # are ignored, as is leading/trailing whitespace.
+--
+-- Multiple targets were added 2026-08-18, because one slot turned out to be a false constraint:
+-- keeping a test-state script alive (it tops up a countdown every frame) meant dropping the
+-- adapter, so the two could never run together and each swap silently undid the other's work.
+--
+-- PREFER ABSOLUTE PATHS. A relative path is resolved against BizHawk's working directory, which
+-- is not necessarily this folder -- and a script that then loads a DLL relative to itself fails
+-- with "The specified module could not be found", an error that reads as a missing file when the
+-- file is present. Found live 2026-08-18 loading the Emerald adapter, which loads LuaSocket.
 --
 -- CONTRACT FOR A LOADABLE SCRIPT
 -- A script written for this loader must NOT run its own `while true ... emu.frameadvance()` loop
--- (two such loops cannot coexist). Instead it sets one global:
+-- (two such loops cannot coexist). Instead it sets:
 --
 --     MESHGHOST_DEV_TICK = function() ... end   -- called once per frame by the loader
 --
@@ -22,19 +39,12 @@
 -- Optionally it may also set:
 --
 --     MESHGHOST_DEV_UNLOAD = function() ... end -- called when the loader drops it (close files,
---                                              -- clear gui.*), best-effort, errors ignored.
---
--- CONTROL FILE
--- Default: bizhawk-dev-loader.target next to this file. One line, either
---   - a path to a .lua file (absolute, or relative to the control file's own directory), or
---   - the word `none` / an empty file, meaning "run nothing" -- the detach case.
--- The path may be followed by nothing else; leading/trailing whitespace is ignored.
+--                                              -- despawn what it created), best-effort.
 --
 -- SAFETY
--- The loader never touches game memory itself. A target's error is caught, logged, and the target
--- is dropped rather than being allowed to kill the session -- an infinite reload of a broken
--- script would otherwise spam the console and hide the real error. A dropped target is not
--- retried until the control file changes again.
+-- The loader never touches game memory itself. A target that errors during its tick is unloaded
+-- and skipped rather than being allowed to kill the session or spam the console every frame; the
+-- others keep running. A failed target is not retried until the control file changes.
 
 local POLL_FRAMES = 30 -- half a second at 60fps; the control file is tiny and this is a dev tool
 
@@ -66,29 +76,41 @@ end
 
 local function readControl()
 	local f = io.open(CONTROL_FILE, "r")
-	if not f then return nil end
-	local line = f:read("l")
-	f:close()
-	if not line then return nil end
-	line = line:match("^%s*(.-)%s*$")
-	if line == "" or line:lower() == "none" then return nil end
-	if not line:match("^%a:[/\\]") and not line:match("^[/\\]") then
-		line = DIR .. "/" .. line -- relative paths resolve against the control file's directory
+	if not f then return {} end
+	local paths = {}
+	for line in f:lines() do
+		line = line:match("^%s*(.-)%s*$")
+		if line ~= "" and line:sub(1, 1) ~= "#" and line:lower() ~= "none" then
+			if not line:match("^%a:[/\\]") and not line:match("^[/\\]") then
+				line = DIR .. "/" .. line
+			end
+			paths[#paths + 1] = line
+		end
 	end
-	return line
+	f:close()
+	return paths
 end
 
-local currentPath, currentTick, currentUnload = nil, nil, nil
-local failedPath = nil -- a target that errored; not retried until the control file changes
+local function sameList(a, b)
+	if #a ~= #b then return false end
+	for i = 1, #a do
+		if a[i] ~= b[i] then return false end
+	end
+	return true
+end
 
-local function dropCurrent(why)
-	if currentUnload then
-		pcall(currentUnload)
+-- loaded[i] = { path, tick, unload }, in control-file order.
+local loaded = {}
+local loadedPaths = {}
+local failed = {} -- paths that errored; not retried until the control file changes
+
+local function dropAll(why)
+	for _, entry in ipairs(loaded) do
+		if entry.unload then pcall(entry.unload) end
+		log(string.format("dropped %s (%s)", entry.path, why))
 	end
-	if currentPath then
-		log(string.format("dropped %s (%s)", currentPath, why))
-	end
-	currentPath, currentTick, currentUnload = nil, nil, nil
+	loaded = {}
+	loadedPaths = {}
 	MESHGHOST_DEV_TICK, MESHGHOST_DEV_UNLOAD = nil, nil
 	-- A dropped script may have left an overlay behind; clearing here means a swap never leaves
 	-- stale graphics on screen being misread as the new script's output.
@@ -100,23 +122,20 @@ local function loadTarget(path)
 	local chunk, err = loadfile(path)
 	if not chunk then
 		log("LOAD FAILED: " .. tostring(err))
-		failedPath = path
+		failed[path] = true
 		return false
 	end
 	local ok, runErr = pcall(chunk)
 	if not ok then
 		log("RUN FAILED: " .. tostring(runErr))
-		failedPath = path
+		failed[path] = true
 		return false
 	end
 	if type(MESHGHOST_DEV_TICK) ~= "function" then
 		log("LOADED but set no MESHGHOST_DEV_TICK -- it ran once and will not be ticked.")
-		log("  (a loader target must set MESHGHOST_DEV_TICK; see this loader's header)")
 	end
-	currentPath = path
-	currentTick = MESHGHOST_DEV_TICK
-	currentUnload = MESHGHOST_DEV_UNLOAD
-	failedPath = nil
+	loaded[#loaded + 1] = { path = path, tick = MESHGHOST_DEV_TICK, unload = MESHGHOST_DEV_UNLOAD }
+	failed[path] = nil
 	log("loaded " .. path)
 	return true
 end
@@ -125,7 +144,7 @@ MESHGHOST_DEV_LOADER = true
 
 log("=== MeshGhost BizHawk dev loader ===")
 log("control file: " .. CONTROL_FILE)
-log("write a .lua path into it to attach; write `none` to detach.")
+log("one .lua path per line to attach (absolute preferred); `none` to detach.")
 
 local frames = 0
 
@@ -134,27 +153,29 @@ while true do
 
 	if frames % POLL_FRAMES == 0 then
 		local want = readControl()
-		if want ~= currentPath then
-			if currentPath then dropCurrent("control file changed") end
-			if want == nil then
-				-- Detached. Clear the failure memory too: pointing away and back again is the
-				-- obvious way to say "I fixed it, try once more", and without this the loader
-				-- silently ignored the retry -- which looks exactly like the fix not working.
-				-- Found live 2026-08-18, chasing a path bug that was already fixed.
-				failedPath = nil
-			elseif want ~= failedPath then
-				loadTarget(want)
-			end
+		if not sameList(want, loadedPaths) then
+			dropAll("control file changed")
+			-- Clear the failure memory on every change: editing the file is how you say "I fixed
+			-- it, try again". Without this the loader silently ignored the retry, which looks
+			-- exactly like the fix not working -- found live 2026-08-18, chasing a path bug that
+			-- had already been fixed.
+			failed = {}
+			for _, path in ipairs(want) do loadTarget(path) end
+			loadedPaths = want
 		end
 	end
 
-	if currentTick then
-		local ok, err = pcall(currentTick)
-		if not ok then
-			log("TICK ERROR in " .. tostring(currentPath) .. ": " .. tostring(err))
-			local broken = currentPath
-			dropCurrent("tick error")
-			failedPath = broken
+	-- Backwards so removing a broken target mid-loop cannot skip the next one.
+	for i = #loaded, 1, -1 do
+		local entry = loaded[i]
+		if entry.tick then
+			local ok, err = pcall(entry.tick)
+			if not ok then
+				log("TICK ERROR in " .. tostring(entry.path) .. ": " .. tostring(err))
+				if entry.unload then pcall(entry.unload) end
+				failed[entry.path] = true
+				table.remove(loaded, i)
+			end
 		end
 	end
 

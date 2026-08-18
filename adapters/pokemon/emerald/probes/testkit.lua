@@ -45,7 +45,8 @@ local WANTED = {
 	badges = true,        -- all 8, so HM moves are usable outside battle
 	hms = true,           -- HM01-HM08, the TM/HM pocket
 	master_balls = 5,     -- a count, or false. For catching something that can actually Surf.
-	rare_candies = 30,    -- levels, so a caught Pokemon can hold its own
+	rare_candies = 99,    -- levels, so a caught Pokemon can hold its own. 99 is the stack
+	                      -- cap; Wailmer evolves into Wailord at 40.
 	permanent_repel = true, -- keep VAR_REPEL_STEP_COUNT topped up, so wild encounters stay off
 }
 
