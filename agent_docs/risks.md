@@ -693,3 +693,26 @@
   test result, not permanent. Real precedent: the `lua_State`-mismatch risk above closed under a
   light round trip, then reopened the same day once real 10Hz sustained traffic exposed an
   83-98% corruption rate that the light test never exercised.
+
+## Cross-area state fan-out is unmeasured in a REAL session (opened 2026-08-18)
+
+**The risk this closes, and the one it leaves open.** The relay fans every state message to every
+room member and never reads `area_id`; the core discards non-matching areas at render time
+(`core/core.go`'s `remoteStatesAt`). So cross-area traffic is paid for on both uplinks, parsed and
+buffered, then thrown away. Nobody had ever measured how much of the total that is.
+
+**Shadow counters shipped 2026-08-18** (`relay/introspect.go`'s `StateFanoutSnapshot`, counted in
+`relay.stateRecipients`). Measurement only — nothing branches on them and delivery is byte-for-byte
+unchanged.
+
+**Validated, not yet measured.** A synthetic run (relay plus two `cmd/meshghost-fakeadapter`
+processes, 4 peers split 2-and-2 across two areas) reported **67%** of forwarded bytes as
+cross-area, which is exactly the hand arithmetic — each state reaches 3 peers, 2 elsewhere. That
+confirms the counter is correct; it says nothing about real play, because the areas were assigned
+by a flag. **Still open: run a real multi-player session on a real game with `-introspect` and
+record the number here**, ideally on the same setup the 653 KB/s figure in
+`packaging/release/README.txt` came from, so the two are comparable.
+
+Expect it to vary sharply by game — a title with small, frequently-crossed zones should score high,
+one with a single always-loaded overworld near zero. Per `plans.md`'s "Efficiency is a standing
+goal", the number sizes the win; it is not a threshold the win has to clear to be worth taking.

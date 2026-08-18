@@ -114,13 +114,40 @@ type Room struct {
 	// ones inside their retention window. nil until first use.
 	escrows map[string]*escrow
 	// lastState is each member's most recent valid state, for seeding a
-	// late joiner via Join.State. nil unless FeatureSnapshotV1 is on.
+	// late joiner via Join.State. Recorded for EVERY room: the snapshot.v1
+	// gate that survives is on whether to SEND a seed, which is the receiving
+	// client's own question (see recordState). This comment used to say "nil
+	// unless FeatureSnapshotV1 is on", which stopped being true when
+	// snapshot.v1 became client-scoped.
+	//
+	// It doubles as each member's last known area_id, which is what the
+	// cross-area fan-out counters below read.
 	lastState map[string]protocol.State
 	// world is this room's custody map: the latest opaque blob per entity,
 	// namespaced by the authority lease it was written under. nil until first
 	// use, and deliberately outlives the lease and the client that wrote it —
 	// see freeLeaseLocked and world.go.
 	world map[worldKey]*worldEntry
+
+	// Shadow counters for the cross-area fan-out question: how much of what
+	// this room forwards is state that every recipient's core will throw away
+	// at render time because the sender is in another area (core's
+	// remoteStatesAt). MEASUREMENT ONLY -- nothing branches on these, and the
+	// relay still forwards exactly what it always did. They exist because the
+	// argument for filtering at the relay rests entirely on a number nobody
+	// had ever measured, and the honest way to find out is to count first and
+	// decide after. Same "introspection only" status as world.go's holder
+	// field. Guarded by mu, read by snapshot().
+	//
+	// crossArea* is the subset that WOULD have been suppressed by an
+	// area-equality filter. Fail-open matches what such a filter would have to
+	// do: a message is only counted as suppressible when BOTH areas are known
+	// and they differ.
+	statesIn             uint64
+	stateRecipientsOut   uint64
+	stateRecipientsCross uint64
+	stateBytesForwarded  uint64
+	stateBytesCrossArea  uint64
 
 	// Two once-per-room complaints about adapter misconfiguration, each of
 	// which would otherwise repeat at the world plane's own message rate.
@@ -532,14 +559,41 @@ func (r *Room) roster() []string {
 // go through roster(), a roster captured atomically with a membership
 // change, or a direct recipient list instead, so they are never throttled (a
 // throttled leave would strand a permanently frozen ghost).
-func (r *Room) stateRecipients(sender string, now time.Time) []string {
+// senderArea and payloadBytes feed the shadow counters only; neither changes
+// who receives anything.
+//
+// payloadBytes is the state payload, NOT the whole NDJSON line -- the envelope
+// wrapper and newline are a constant few dozen bytes added later by forward's
+// own Marshal, and re-marshaling here purely to count them would make the
+// diagnostic cost real work on the hottest path in the process, which CLAUDE.md
+// warns about directly. It undercounts absolute bytes slightly and does not
+// affect the ratio at all, since the same constant lands on both sides of it --
+// and the ratio is the number the filtering decision actually rests on. Worth
+// counting bytes rather than only messages because a state line differs about
+// threefold between games (206 Emerald / 249 TEVI / 597+ Pseudoregalia).
+func (r *Room) stateRecipients(sender, senderArea string, payloadBytes int, now time.Time) []string {
 	r.mu.Lock()
 	members := make([]*Client, 0, len(r.members))
+	var cross uint64
 	for id, c := range r.members {
 		if id != sender && !c.suspended {
 			members = append(members, c)
+			// Counted here, against the full recipient set, BEFORE the receive
+			// gate below: a real filter would run in this same position, since
+			// dropping by area first is what would stop a cross-area message
+			// consuming a recipient's rate-gate slot at all.
+			if senderArea != "" {
+				if last, ok := r.lastState[id]; ok && last.AreaID != "" && last.AreaID != senderArea {
+					cross++
+				}
+			}
 		}
 	}
+	r.statesIn++
+	r.stateRecipientsOut += uint64(len(members))
+	r.stateRecipientsCross += cross
+	r.stateBytesForwarded += uint64(len(members)) * uint64(payloadBytes)
+	r.stateBytesCrossArea += cross * uint64(payloadBytes)
 	r.mu.Unlock()
 
 	ids := make([]string, 0, len(members))
@@ -1287,10 +1341,10 @@ func (s *Server) handleConn(conn net.Conn) {
 			// Remembered before forwarding, and independent of the
 			// per-recipient rate gate below: a late joiner should be seeded
 			// with the newest sample, not the newest one that happened to be
-			// forwarded to somebody. No-op unless the room asked for
-			// snapshots.
+			// forwarded to somebody. Recorded for every room, not only ones
+			// that asked for snapshots -- see recordState.
 			r.recordState(id, st)
-			r.ForwardUnreliable(stateEnv, r.stateRecipients(id, time.Now()))
+			r.ForwardUnreliable(stateEnv, r.stateRecipients(id, st.AreaID, len(stateEnv.Payload), time.Now()))
 
 			if s.Loopback {
 				// Dev-only Phase 3 loopback (agent_docs/phases/phase3.md):

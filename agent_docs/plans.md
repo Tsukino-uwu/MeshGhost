@@ -27,8 +27,76 @@ TEVI replaced the brief's original Ori: Will of the Wisps pick.
   collision is negotiated between peers.)
 - No game-specific rendering logic inside the core.
 - No adapter transport or socket handling — adapters speak only to the local bridge.
-- No production binary encoding or performance optimization before the contract is stable.
+- ~~No production binary encoding or performance optimization before the contract is stable.~~
+  **Amended 2026-08-18, on the user's explicit call.** Efficiency is now a standing goal, not
+  something deferred until it hurts: *"we should always strive for improvement/performance not
+  being stale and inefficent or avoiding new/modern methods... we should always try to lower the
+  bandwidth/cpu usage whenever possible."* See "Efficiency is a standing goal" below. The half
+  that survives is the *sequencing* one — do not churn the wire format while the contract is
+  still moving — not the idea that small savings are beneath bothering with.
 - No second-game adapter until Phase 5 validates the template.
+
+### Efficiency is a standing goal — and the size of the win is not the test
+
+Recorded 2026-08-18, on the user's call, as the general stance for all server/client networking
+work rather than a decision about one feature.
+
+**No saving is too small to take.** A 0.1% reduction is a real win once a server carries many
+players across many games, and the reflex to dismiss a small percentage is how a system ends up
+stale and inefficient. Prompted by exactly that: a design note proposed a "under ~20% and it is
+not worth it" threshold for relay-side area filtering, and the user rejected the framing outright.
+**Do not gate an optimization on how big the win is.** Gate it on risk and on the one constraint
+below.
+
+**The one hard constraint: it must not make the adapters or the games run worse.** The point is to
+make everything better overall, not to move cost from the network onto the game thread. A
+compression scheme that costs frame time, a filter that adds per-tick work in an adapter, a diff
+that needs a full re-marshal per frame — those fail this test even if they cut bytes, and they run
+straight into the standing rule that a diagnostic must not break the thing it measures. Bandwidth
+and CPU are both on the "lower it" side of the ledger; game smoothness is not currency to spend.
+
+**We must not be the reason a big server is impossible.** User, 2026-08-18: *"Im probly never
+going to host a 1k+ ppl lobby myself, but i don't want our server/client to be the reason someone
+couldn't be able to do that if they want to."* So the target is not "8 players is our size" —
+`DefaultMaxClients = 8` is a safe default for a home uplink and explicitly *"not because 9 would
+break something"* (`packaging/release/README.txt`). The ceiling should be the operator's hardware,
+never an avoidable choice of ours.
+
+This reframes cross-area filtering from a saving into a **scaling-shape change**, which matters far
+more. Today the host's uplink carries `n x (n-1)` state messages — measured at 2.2 GB/hour for 8
+players, 39.7 GB/hour for 32, and simply impossible at 1000. Filtering by area makes the cost
+`n x (peers sharing your area)`: if a thousand players are spread over hundreds of areas, fan-out
+per sender is a handful rather than 999, and the curve stops being quadratic in total population.
+**That is the difference between "8 is the practical limit" and "the limit is how many people are
+standing in the same room."** No amount of shrinking a state line does that; only not sending it
+does.
+
+**Where the ceiling is allowed to live: in the game, never in us.** User, 2026-08-18: *"the only
+limitation should be a free limit / lag in game due to having to many players etc. it should be a
+per adapter issue. not a server/client issue."*
+
+So a room's practical size should be decided by what the GAME can do — how many ghost actors the
+engine will render before the frame rate suffers, how many object-event slots a ROM has, what a
+sprite table can hold. Those are real, per-adapter, and legitimately different per title; Emerald's
+object-event slots and Pseudoregalia's actor cost are not the same ceiling and should not pretend
+to be. **What must never be the binding constraint is `core`, `relay`, `transport` or the wire
+format.** If someone's session tops out, the honest answer should be "your game cannot draw more
+than that", not "our relay could not carry it."
+
+Two consequences worth stating, because they are easy to get backwards:
+- `DefaultMaxClients` is a **safe default for a home uplink**, not a statement about the software's
+  capability, and its doc comment should keep saying so.
+- A per-adapter limit belongs in that adapter's own docs (its `README.md` / `documentation.md`) as a
+  measured game fact, not as a protocol constant. The Go side should not learn a per-game number —
+  that would be `if game == "emerald"` by another name, which `CLAUDE.md` forbids outright.
+
+**Modern methods are in scope**, not avoided out of conservatism — subject to the same constraint,
+and to the contract-stability sequencing above.
+
+What this does NOT license: breaking the contract silently, optimizing on a guess instead of a
+measurement (measure first — that is why the cross-area counters in `relay/introspect.go` exist),
+or trading debuggability away wholesale. `contract.md`'s "JSON until it hurts" still stands as the
+*default format* decision; it is no longer a reason to decline a cheap saving elsewhere.
 - ~~No relay authentication work before Phase 4 ships on no-auth~~ — **superseded 2026-08-13,
   done 2026-08-14**: Phase 4 shipped 2026-08-11; relay/core safety became the explicit next
   priority and room-code auth is now built, see "Room codes / relay safety" below. Kept struck

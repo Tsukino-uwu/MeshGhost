@@ -97,6 +97,47 @@ type WorldSnapshot struct {
 	Seq       uint64
 }
 
+// StateFanoutSnapshot answers one question: what share of this room's state
+// fan-out is cross-area, and therefore what an area-equality filter at the
+// relay would save.
+//
+// Counts and bytes only -- the area_id STRINGS are deliberately never exposed
+// here. They are opaque game data, a host may paste an introspect dump into an
+// issue, and the relay having no idea what an area means is a promise this file
+// should not be the one to break. DistinctAreas is a count for the same reason:
+// a room where it is always 1 is a room where filtering can save nothing.
+type StateFanoutSnapshot struct {
+	// StatesIn is how many state messages this room has accepted for
+	// forwarding -- the liveness denominator; if this is not moving, the rest
+	// means nothing.
+	StatesIn uint64
+	// Recipients is the sum over those messages of how many members each was
+	// fanned out to. This is the O(n^2) term made visible.
+	Recipients uint64
+	// CrossAreaRecipients is the subset that an area-equality filter would
+	// have suppressed: both areas known, and different.
+	CrossAreaRecipients uint64
+	// PayloadBytes and CrossAreaPayloadBytes are the same two numbers weighted
+	// by message size, which is what actually matters on the wire. Payload
+	// only, excluding the envelope -- see stateRecipients for why, and why the
+	// ratio is unaffected by that.
+	PayloadBytes          uint64
+	CrossAreaPayloadBytes uint64
+	// DistinctAreas is how many different areas the room's members are
+	// currently spread across.
+	DistinctAreas int
+}
+
+// SuppressibleShare is the fraction of forwarded state bytes an area-equality
+// filter would have saved, 0 to 1. This is THE number the relay-side filtering
+// decision rests on; everything else in this struct is context for it.
+func (f StateFanoutSnapshot) SuppressibleShare() float64 {
+	if f.PayloadBytes == 0 {
+		return 0
+	}
+	return float64(f.CrossAreaPayloadBytes) / float64(f.PayloadBytes)
+}
+
 // RoomSnapshot is one room's whole visible state.
 type RoomSnapshot struct {
 	Name        string
@@ -106,11 +147,15 @@ type RoomSnapshot struct {
 	// Seq is the room sequencer's current value — how many ordered control
 	// messages this room has issued. Mostly useful as a liveness signal: a
 	// room where something is stuck shows a seq that has stopped moving.
-	Seq     uint64
-	Members []MemberSnapshot
-	Leases  []LeaseSnapshot
-	Escrows []EscrowSnapshot
-	World   []WorldSnapshot
+	Seq uint64
+	// StateFanout is the cross-area measurement described on Room's counters:
+	// how much of this room's state traffic every recipient's core throws away
+	// at render time. Measurement only -- nothing in the relay branches on it.
+	StateFanout StateFanoutSnapshot
+	Members     []MemberSnapshot
+	Leases      []LeaseSnapshot
+	Escrows     []EscrowSnapshot
+	World       []WorldSnapshot
 }
 
 // Snapshot is the whole relay's visible state at one moment.
@@ -179,7 +224,23 @@ func (r *Room) snapshot(now time.Time) RoomSnapshot {
 		GameVersion: r.GameVersion,
 		Features:    append([]string(nil), r.features...),
 		Seq:         r.seqCounter,
+		StateFanout: StateFanoutSnapshot{
+			StatesIn:              r.statesIn,
+			Recipients:            r.stateRecipientsOut,
+			CrossAreaRecipients:   r.stateRecipientsCross,
+			PayloadBytes:          r.stateBytesForwarded,
+			CrossAreaPayloadBytes: r.stateBytesCrossArea,
+		},
 	}
+	// Counted from live membership rather than from lastState, so a departed
+	// member's stale area never inflates it.
+	areas := make(map[string]struct{}, len(r.members))
+	for id := range r.members {
+		if st, ok := r.lastState[id]; ok && st.AreaID != "" {
+			areas[st.AreaID] = struct{}{}
+		}
+	}
+	out.StateFanout.DistinctAreas = len(areas)
 	for _, c := range r.members {
 		clientScoped := make([]string, 0, len(c.features))
 		for _, f := range c.features {
@@ -258,6 +319,22 @@ func (r *Room) snapshot(now time.Time) RoomSnapshot {
 // A room with nothing beyond members collapses to one line, so the common case
 // — a purely cosmetic room, which is every room today — does not bury the one
 // room that has something going on.
+// humanBytes renders a byte total the way a host reads it. Deliberately coarse:
+// this is a number someone eyeballs in a terminal to decide whether a
+// difference is worth caring about, not one anything computes with.
+func humanBytes(n uint64) string {
+	switch {
+	case n >= 1<<30:
+		return fmt.Sprintf("%.1f GB", float64(n)/float64(1<<30))
+	case n >= 1<<20:
+		return fmt.Sprintf("%.1f MB", float64(n)/float64(1<<20))
+	case n >= 1<<10:
+		return fmt.Sprintf("%.1f KB", float64(n)/float64(1<<10))
+	default:
+		return fmt.Sprintf("%d B", n)
+	}
+}
+
 func (s Snapshot) String() string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "relay state: %d/%d client slots in use, %d room(s), %d suspended session(s)",
@@ -270,6 +347,15 @@ func (s Snapshot) String() string {
 		fmt.Fprintf(&b, " members=%d seq=%d", len(r.Members), r.Seq)
 		if len(r.Features) > 0 {
 			fmt.Fprintf(&b, " features=%s", strings.Join(r.Features, ","))
+		}
+		// Only once the room has actually forwarded something: a line reading
+		// "0 states, 0% cross-area" on a freshly created room is noise that
+		// looks like a measurement.
+		if f := r.StateFanout; f.StatesIn > 0 {
+			fmt.Fprintf(&b, "\n    state fan-out: %d states to %d recipients (%s), %d area(s)",
+				f.StatesIn, f.Recipients, humanBytes(f.PayloadBytes), f.DistinctAreas)
+			fmt.Fprintf(&b, "\n      cross-area: %d recipients, %s -- %.0f%% of forwarded bytes go to a peer whose core will discard them",
+				f.CrossAreaRecipients, humanBytes(f.CrossAreaPayloadBytes), f.SuppressibleShare()*100)
 		}
 		for _, m := range r.Members {
 			fmt.Fprintf(&b, "\n    %s over %s", m.PlayerID, m.Transport)
