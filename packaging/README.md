@@ -29,8 +29,10 @@ sit directly under `games/`.) See `packaging/release/` for the actual layout.
 ## …and then two more, for Linux and macOS (added 2026-08-16)
 
 A release now publishes three assets: `MeshGhost-full-<version>.zip` (the one above — Windows
-client, server, and every game's mod) plus `MeshGhost-linux-<version>.tar.gz` and
-`MeshGhost-macos-<version>.tar.gz`, holding native builds of **only the client and server**.
+client, server, and every game's mod) plus `MeshGhost-linux-server-client-<version>.tar.gz` and
+`MeshGhost-macos-server-client-<version>.tar.gz`, holding native builds of **only the client and
+server** — the name says so, because "linux" alone told you the platform and nothing about the
+contents, and the platform word stays FIRST so these still sort below `full`.
 Hand-written parts live in `packaging/unix/`.
 
 **The names are load-bearing, not decorative.** GitHub sorts a release's assets alphabetically by

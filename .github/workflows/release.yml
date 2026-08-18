@@ -84,8 +84,8 @@ jobs:
           # out 0644). That is precisely why this job runs on ubuntu-latest, and it also means
           # the first real release is where it gets proven. If a Linux user reports "permission
           # denied", this is the line to look at.
-          tar -czf "MeshGhost-linux-$VERSION.tar.gz" -C stage/linux .
-          tar -czf "MeshGhost-macos-$VERSION.tar.gz" -C stage/macos .
+          tar -czf "MeshGhost-linux-server-client-$VERSION.tar.gz" -C stage/linux .
+          tar -czf "MeshGhost-macos-server-client-$VERSION.tar.gz" -C stage/macos .
 
       - uses: actions/upload-artifact@v7
         with:
@@ -345,8 +345,8 @@ jobs:
         run: |
           $assets = @(
             "MeshGhost-full-$env:VERSION.zip",
-            "MeshGhost-linux-$env:VERSION.tar.gz",
-            "MeshGhost-macos-$env:VERSION.tar.gz"
+            "MeshGhost-linux-server-client-$env:VERSION.tar.gz",
+            "MeshGhost-macos-server-client-$env:VERSION.tar.gz"
           )
           # GitHub's own generated notes, fetched rather than left to the release action.
           # generate_release_notes:true PREPENDS a supplied body, which put the hash table above
@@ -396,8 +396,8 @@ jobs:
           # shipped adapter is for a Windows game, so a native Unix build has nothing to hook.
           files: |
             MeshGhost-full-${{ inputs.version }}.zip
-            MeshGhost-linux-${{ inputs.version }}.tar.gz
-            MeshGhost-macos-${{ inputs.version }}.tar.gz
+            MeshGhost-linux-server-client-${{ inputs.version }}.tar.gz
+            MeshGhost-macos-server-client-${{ inputs.version }}.tar.gz
           # The whole body -- generated changelog first, then the hash table -- is composed by
           # the step above. generate_release_notes stays FALSE precisely because turning it on
           # would prepend this body to a second copy of the notes, duplicating the changelog and

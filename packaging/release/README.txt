@@ -462,7 +462,8 @@ Playing on Linux or macOS
 ---------------------------------
 This zip is the Windows build, plus every game's mod. Native Linux and macOS
 builds of the client and server are SEPARATE downloads on the same release
-page (MeshGhost-linux-<version>.tar.gz and MeshGhost-macos-<version>.tar.gz),
+page (MeshGhost-linux-server-client-<version>.tar.gz and
+   MeshGhost-macos-server-client-<version>.tar.gz),
 and each has its
 own README explaining what it's for.
 
