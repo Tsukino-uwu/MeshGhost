@@ -4,7 +4,12 @@
 probes and this file. Nothing here renders a ghost, opens a socket, or writes memory.
 
 - Platform: Game Boy Color, played via BizHawk.
-- Confirmed working roms: **vanilla V1.0** (`sha1 f4cd194b…`), "Archipelago 6.0.0-beta.11"
+- Confirmed working roms: **vanilla V1.0 only** (`sha1 f4cd194b…`).
+- **Archipelago (6.0.0-beta.11) is an intended target, not a supported one yet.** The ROM guard
+  currently *refuses to write* on anything but vanilla V1.0, deliberately: Archipelago's Crystal
+  patch rearranges WRAM non-uniformly, so a vanilla address lands on whatever now occupies it
+  rather than failing cleanly ([verified.md](../../../agent_docs/verified.md), 2026-08-17).
+  Supporting it means a second address table for the patched ROM, not a relaxed guard.
 - Adapter language: Lua (BizHawk's scripting host), as Emerald.
 - **How the game is read: an external source decompilation** —
   [`pokecrystal`](https://github.com/pret/pokecrystal), built locally and verified byte-identical
