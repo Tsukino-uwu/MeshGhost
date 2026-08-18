@@ -329,21 +329,26 @@ Hosting (skip this section if you're not the host):
 4. To stop hosting: close the window (or Ctrl+C).
 
 Playing, every session (everyone, including the host):
-1. Pseudoregalia: just start the game. The mod starts MeshGhost for you,
-   with no window -- there is nothing to run and nothing to leave open.
-   Its settings live in the mod's own folder (games\pseudoregalia\...\Mods\
-   MeshGhostPseudo\config.json), NOT the config.json next to this README:
-   once you drag the mod into your game, that's the copy it reads.
+1. Pseudoregalia and TEVI: just start the game. The mod starts MeshGhost
+   for you, with no window -- there is nothing to run and nothing to leave
+   open -- and closes it again when you quit. Both need the one-time copy
+   of meshghost.exe into that game's mod folder, described in
+   games\<your game>\README.txt.
 
-   TEVI and Emerald: double-click meshghost.exe first and leave the window
-   open -- it should say "no game set -- waiting for a game to connect and
-   say hello...". If it prints a warning about config.json instead, you
-   probably broke the JSON syntax above -- the warning will say what's
-   wrong.
+   Their settings live in that same mod folder's config.json, NOT the
+   config.json next to this README: once you drag the mod into your game,
+   that's the copy it reads.
+
+   Emerald and Crystal: double-click meshghost.exe first and leave the
+   window open -- it should say "no game set -- waiting for a game to
+   connect and say hello...". If it prints a warning about config.json
+   instead, you probably broke the JSON syntax above -- the warning will
+   say what's wrong. These two run from this folder, so they use the
+   config.json right here and need nothing copied.
 2. Open your game and load its MeshGhost mod/script -- see games\<your
-   game>\README.txt for exactly how (BizHawk Lua Console for Emerald,
-   BepInEx plugin for TEVI, UE4SS mod for Pseudoregalia -- which loads
-   itself). Where there is a meshghost.exe window, it should change to say
+   game>\README.txt for exactly how (BizHawk Lua Console for Emerald and
+   Crystal; BepInEx for TEVI and UE4SS for Pseudoregalia, both of which
+   load themselves). Where there is a meshghost.exe window, it should change to say
    "connected to relay ... in room ..." -- that's your "it worked" signal.
    Where there isn't one, the same line is in meshghost.log beside the mod.
 3. Walk around. Once a friend joins the same server in the same room,
@@ -430,9 +435,8 @@ guess rather than a match against anything known.
 
 What you can do:
 
-1. Check the file is the one we published. The release notes on the
-   Releases page carry a SHA-256 for every file that release built (the
-   two "Source code" archives are GitHub's own and aren't listed). Run
+1. Check the file is the one we published. The Releases page shows a
+   SHA-256 next to every download -- GitHub computes it, not us. Run
    `Get-FileHash <file> -Algorithm SHA256` in PowerShell on the zip you
    downloaded; if it matches, it is exactly what the build produced, and
    the build is public.

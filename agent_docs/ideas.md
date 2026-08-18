@@ -1632,3 +1632,38 @@ and the ghost-load/despawn rigs stop needing a human to aim them.
 
 **Not scheduled.** Nothing here is committed until it moves into `plans.md`. The method notes for
 writing such a probe belong in `adapters/_template/probes.md`, which carries the pointer.
+
+## BizHawk on Linux: the adapters are portable, the socket is not — filed 2026-08-18
+
+**The gap.** BizHawk ships a native Linux build (`BizHawk-<ver>-linux-x64.tar.gz`), so a Linux
+player can run Emerald and Crystal. **Our adapters cannot follow them there**, for exactly one
+reason: they reach the network through LuaSocket, and what we ship is
+`lib/x64/socket-windows-5-4.dll` loaded by `package.loadlib` next to `lua54.dll`. The filename says
+it. Everything else in those scripts — the memory reads, the spawn recipe, the JSON codec, the
+bridge framing — is plain Lua and portable.
+
+**`packaging/unix/README-linux.txt` claimed the opposite** ("the scripts and their libraries are not
+Windows-specific") and shipped in v0.9.5 saying so. Corrected the same day; the claim had never been
+tested, which is the whole reason it survived.
+
+**What it would take**, roughly in order:
+
+1. A LuaSocket `.so` built against **BizHawk's own Lua 5.4** — the version must match, the same way
+   the Windows pair does. Licensing is already settled: LuaSocket is MIT and `licensing.md` covers
+   the pair we ship, so a Linux build of the same library raises no new question.
+2. Platform detection in the loader. `loadSocketCore()` already walks a candidate list and logs
+   every path it tried; this is one more branch in that list, not a rewrite.
+3. Ship it beside the Windows DLLs in `games/pokemon/*/lib/`, and say so in the Linux README.
+4. **Someone has to actually run it.** Until then this is untested, and the README must keep saying
+   so rather than implying it works.
+
+**Two things to check before starting**, because either could make this shorter or pointless:
+- Whether BizHawk's Linux build exposes `package.loadlib` at all, and with which Lua. If its Lua is
+  built without the C loader, no `.so` helps and the answer is "run BizHawk under Proton instead".
+- Whether the Proton route already works. A Windows BizHawk in a Proton prefix would load the DLLs
+  we already ship and talk to a Windows `meshghost.exe` in the same prefix — the arrangement TEVI
+  and Pseudoregalia already use, and the one confirmed with a Linux tester on 2026-08-16. If that
+  works it is zero code, and it may be the honest recommendation regardless.
+
+**Not scheduled.** Filed because a Linux user asking "why do only two of the four games work for
+me" deserves an answer better than silence, and because the README was actively wrong about it.

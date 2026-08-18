@@ -36,6 +36,7 @@ copy /y "%SRC%\bin\Release\MeshGhostTevi.dll" "%DEST%\MeshGhostTevi.dll" >nul
 echo Recording source hashes to built-from.txt...
 for /f "usebackq tokens=1" %%h in (`certutil -hashfile "%SRC%\Plugin.cs" SHA256 ^| findstr /v "hash CertUtil"`) do if not defined PLUGIN_HASH set PLUGIN_HASH=%%h
 for /f "usebackq tokens=1" %%h in (`certutil -hashfile "%SRC%\BridgeClient.cs" SHA256 ^| findstr /v "hash CertUtil"`) do if not defined BRIDGE_HASH set BRIDGE_HASH=%%h
+for /f "usebackq tokens=1" %%h in (`certutil -hashfile "%SRC%\CoreLauncher.cs" SHA256 ^| findstr /v "hash CertUtil"`) do if not defined LAUNCHER_HASH set LAUNCHER_HASH=%%h
 for /f "usebackq tokens=1" %%h in (`certutil -hashfile "%SRC%\MeshGhostTevi.csproj" SHA256 ^| findstr /v "hash CertUtil"`) do if not defined CSPROJ_HASH set CSPROJ_HASH=%%h
 for /f %%c in ('git -C "%ROOT%" rev-parse HEAD') do set COMMIT=%%c
 
@@ -46,6 +47,7 @@ for /f %%c in ('git -C "%ROOT%" rev-parse HEAD') do set COMMIT=%%c
   echo commit: %COMMIT%
   echo Plugin.cs: %PLUGIN_HASH%
   echo BridgeClient.cs: %BRIDGE_HASH%
+  echo CoreLauncher.cs: %LAUNCHER_HASH%
   echo MeshGhostTevi.csproj: %CSPROJ_HASH%
 ) > "%GAMEDIR%\built-from.txt"
 

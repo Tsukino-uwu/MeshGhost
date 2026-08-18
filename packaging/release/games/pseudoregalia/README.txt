@@ -46,11 +46,21 @@ ALREADY USING OTHER MODS? Read this one paragraph.
    needs; the rest of what is bundled exists only so someone with no UE4SS at all can
    install in one drag.
 
+Setup, once more -- the one file you copy yourself:
+3. Copy meshghost.exe (from the folder you unzipped, next to the outer config.json) INTO the
+   MeshGhostPseudo mod folder you just installed, so you end up with
+
+       ...\Pseudoregalia\pseudoregalia\Binaries\Win64\ue4ss\Mods\MeshGhostPseudo\meshghost.exe
+
+   sitting in the same folder as config.json and the dlls\ folder.
+
+   Do this again whenever you update MeshGhost.
+
 Setup, once more -- where your settings live:
-3. Open config.json in the MeshGhostPseudo mod folder you just installed
+4. Open config.json in the MeshGhostPseudo mod folder you just installed
    (`...\Pseudoregalia\pseudoregalia\Binaries\Win64\ue4ss\Mods\MeshGhostPseudo\config.json`)
    and set "connect_to" to your host's address, plus "room" and "name". This is the file
-   the mod's own copy of meshghost.exe reads -- NOT the config.json in the folder you
+   the meshghost.exe you just copied in reads -- NOT the config.json in the folder you
    unzipped. Once the mod is installed inside your game, that outer one is out of reach.
 
 Setup, every time you play:
@@ -78,7 +88,7 @@ check ue4ss\UE4SS.log, and see the antivirus note in the main README.txt.
 
 Prefer to run it yourself? Set the environment variable MESHGHOST_NO_AUTOSTART to anything
 and the mod won't start one; double-click meshghost.exe (in the folder you unzipped)
-before launching the game, exactly as TEVI and Emerald do.
+before launching the game, exactly as Emerald and Crystal do.
 
 Two important notes specific to Pseudoregalia:
 - The mod always uses local bridge port 7778, and the config.json beside it deliberately

@@ -24,11 +24,11 @@ The heuristic isn't being stupid; it just can't tell the difference yet.
 
 - The whole source is in this repo, and the release binaries are built from it by GitHub Actions —
   the build is a public workflow log, not something produced on a developer's machine.
-- Every asset the release builds is listed with its SHA-256 at the bottom of the release notes on
-  the [Releases page](https://github.com/Tsukino-uwu/MeshGhost/releases) — the Windows zip and the
-  two Unix tarballs. (GitHub's own `Source code` archives are generated afterwards and can't be
-  hashed by the build.) Check yours with `Get-FileHash <file> -Algorithm SHA256` on Windows or
-  `shasum -a 256 <file>` elsewhere; if it matches, it's the file CI produced.
+- Every release asset shows a SHA-256 beside its download on the
+  [Releases page](https://github.com/Tsukino-uwu/MeshGhost/releases) — GitHub computes it itself,
+  so it is not something we could get wrong or forge. Check yours with
+  `Get-FileHash <file> -Algorithm SHA256` on Windows or `shasum -a 256 <file>` elsewhere; if it
+  matches, it's the file CI produced.
 - If it's specifically the Pseudoregalia mod starting `meshghost.exe` that your scanner objects to,
   set the environment variable `MESHGHOST_NO_AUTOSTART` to anything and start the client yourself —
   that path is unchanged and fully supported.

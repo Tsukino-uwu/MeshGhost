@@ -214,14 +214,9 @@ local function scriptDir()
 			return dir
 		end
 	end
-	local p = io.popen and io.popen("cd")
-	if p then
-		local out = p:read("*l")
-		p:close()
-		if out and #out > 0 then
-			return out
-		end
-	end
+	-- No io.popen fallback (removed 2026-08-18). It answers with the WORKING directory, not this
+	-- script's, so it is wrong exactly when it is needed -- and it spawns a real `cmd` to ask,
+	-- flashing a console window on screen every launch.
 	return "."
 end
 
@@ -271,25 +266,17 @@ local function loadSocketCore()
 	--
 	-- Every attempt is logged. A loader that fails silently is what made that first failure take a
 	-- round trip to diagnose.
-	local cwd = (io.popen and (function()
-		local p = io.popen("cd")
-		if not p then
-			return nil
-		end
-		local out = p:read("*l")
-		p:close()
-		return out
-	end)()) or nil
+	-- There used to be an io.popen("cd") here building one more candidate path from the working
+	-- directory. It ran unconditionally, so EVERY launch spawned a `cmd` and flashed a console
+	-- window -- the user spotted it on screen. Removed 2026-08-18: SCRIPT_DIR is resolved from
+	-- debug.getinfo and is the reliable answer, so the candidates below already cover every real
+	-- layout without paying a process for it.
 
 	local candidates = {
 		SCRIPT_DIR .. "/lib/x64/",
 		SCRIPT_DIR .. "/../emerald/lib/x64/",
 		"adapters/bizhawk/pokemon/emerald/lib/x64/",
 	}
-	if cwd then
-		candidates[#candidates + 1] = cwd .. "\\adapters\\bizhawk\\pokemon\\emerald\\lib\\x64\\"
-	end
-
 	for _, dir in ipairs(candidates) do
 		pcall(function()
 			package.loadlib(dir .. "lua54.dll", "meshghost_force_preload")

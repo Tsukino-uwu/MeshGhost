@@ -26,15 +26,23 @@ Setup, once:
    creates the `BepInEx\plugins\` folder.
 3. Drag the MeshGhost folder (from this folder) into `BepInEx\plugins\`, so you end up with
    `BepInEx\plugins\MeshGhost\MeshGhostTevi.dll`.
+4. Copy meshghost.exe (two folders up, next to config.json) INTO that MeshGhost folder,
+   so you end up with `BepInEx\plugins\MeshGhost\meshghost.exe` sitting alongside
+   `BepInEx\plugins\MeshGhost\MeshGhostTevi.dll`.
+
+   Do this again whenever you update MeshGhost.
 
 Setup, every time you play:
-1. Double-click meshghost.exe (two folders up, in the MeshGhost root next to
-   config.json). Leave the window open.
-2. Launch TEVI normally through Steam. The mod loads automatically via BepInEx -- no
-   separate script to open, and nothing to set in config.json -- the mod tells
-   meshghost.exe which game it is on its own.
-3. Walk around. Once a friend joins the same server in the same room, you should see
+1. Launch TEVI normally through Steam. That is all -- the mod loads via BepInEx and starts
+   meshghost.exe itself, hidden, and shuts it down again when you quit. Nothing to open,
+   nothing to leave running, and nothing to set in config.json: the mod tells the client
+   which game it is on its own.
+2. Walk around. Once a friend joins the same server in the same room, you should see
    their character as a ghost.
+
+If you would rather start the client yourself (an antivirus that objects to one program
+launching another, or you want to watch its window), set the environment variable
+MESHGHOST_NO_AUTOSTART to anything and run meshghost.exe by hand as before.
 
 One note specific to TEVI:
 - The mod's local bridge port defaults to 7778 and does not read config.json's

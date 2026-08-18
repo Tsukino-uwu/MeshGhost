@@ -56,9 +56,10 @@ jobs:
           VERSION: ${{ inputs.version }}
         run: |
           set -e
+          # -s -w as in the Windows job below: same size saving, same unchanged stack traces.
           build() { # build <goos> <goarch> <label> <staging dir>
-            GOOS=$1 GOARCH=$2 go build -o "$4/meshghost-$3" ./cmd/meshghost
-            GOOS=$1 GOARCH=$2 go build -o "$4/meshghost-server-$3" ./cmd/meshghost-relay
+            GOOS=$1 GOARCH=$2 go build -ldflags="-s -w" -o "$4/meshghost-$3" ./cmd/meshghost
+            GOOS=$1 GOARCH=$2 go build -ldflags="-s -w" -o "$4/meshghost-server-$3" ./cmd/meshghost-relay
           }
 
           mkdir -p stage/linux stage/macos
@@ -133,11 +134,19 @@ jobs:
       - name: Test
         run: go test -count=2 ./...
 
+      # -ldflags="-s -w" drops the symbol table and DWARF debug info. It does NOT touch the
+      # runtime tables Go builds stack traces from, so a panic in a shipped binary still prints
+      # function names, files and line numbers -- verified 2026-08-18 by building the same
+      # program both ways and comparing the traces, which were identical. What is lost is
+      # attaching a debugger to a user's copy, which nobody does.
+      #
+      # Worth it because this binary is shipped several times over (root, plus whatever a user
+      # copies beside a mod): 9.4 MB -> 6.5 MB on disk, and 5.1 MB -> 2.6 MB inside the zip.
       - name: Build meshghost.exe
-        run: go build -o meshghost.exe ./cmd/meshghost
+        run: go build -ldflags="-s -w" -o meshghost.exe ./cmd/meshghost
 
       - name: Build meshghost-server.exe
-        run: go build -o meshghost-server.exe ./cmd/meshghost-relay
+        run: go build -ldflags="-s -w" -o meshghost-server.exe ./cmd/meshghost-relay
 
 
       - name: Verify the committed TEVI plugin isn't stale
@@ -263,18 +272,31 @@ jobs:
         run: |
           Copy-Item meshghost.exe packaging\release\
           Copy-Item meshghost-server.exe packaging\release\
-          # A copy of the client beside each mod that installs INTO the game, because the
-          # mod starts it (see agent_docs/architecture.md's autostart ADR) and after a
-          # drag-and-drop install there is nothing pointing back at this release folder.
-          # Emerald is deliberately not in this list: its script is loaded from the release
-          # folder itself, so it reaches the root exe and config without a second copy.
-          # TEVI joins this list when its own mod learns to start a core; shipping an exe
-          # beside a mod that never launches it would just be a confusing spare copy.
+          # Each mod that installs INTO the game gets its own config.json, but NOT its own copy
+          # of the client. The mod starts the client from beside its own DLL (autostart ADR in
+          # agent_docs/architecture.md), so the user copies meshghost.exe in once per game --
+          # a step, deliberately, rather than shipping the same 9 MB binary N times.
+          #
+          # Changed 2026-08-18, on the user's call. Every alternative was worse in a way that
+          # cost more than it saved: shipping a copy per mod grows the download by ~2.6 MB
+          # (stripped, compressed) per game forever, and a %LOCALAPPDATA% breadcrumb pointing at
+          # one shared client is machinery we would have to own -- it goes stale when the folder
+          # moves, and silently picks the wrong one when two installs exist. Copying a file is a
+          # thing a user already understands and that cannot rot.
+          #
+          # config.json DOES ship here (1 KB), so only the big file is a manual step, and the
+          # mod folder still arrives configured.
+          #
+          # Emerald and Crystal are not in this list at all: their scripts load from the release
+          # folder itself, so they reach the root exe and config with no copy of anything.
+          #
+          # The cost of the step is a forgotten copy, so both mods name the exact folder in
+          # their log when the exe is missing rather than doing nothing.
           $modFolders = @(
-            'packaging\release\games\pseudoregalia\pseudoregalia\Binaries\Win64\ue4ss\Mods\MeshGhostPseudo'
+            'packaging\release\games\pseudoregalia\pseudoregalia\Binaries\Win64\ue4ss\Mods\MeshGhostPseudo',
+            'packaging\release\games\tevi\MeshGhost'
           )
           foreach ($f in $modFolders) {
-            Copy-Item meshghost.exe $f\
             Copy-Item packaging\release\games\client-config-template.json $f\config.json
           }
           Remove-Item packaging\release\games\client-config-template.json
@@ -321,70 +343,6 @@ jobs:
         with:
           name: unix-packages
 
-      # packaging/release/README.txt and docs/antivirus.md both tell a user whose
-      # antivirus flagged an unsigned Go binary to check their download's SHA-256
-      # against the one on the Releases page. Nothing published one until this step
-      # existed, so that advice pointed at a number that was not there -- a bad thing
-      # to be wrong about, since it is the one check a suspicious user can actually
-      # perform for themselves.
-      #
-      # Hashes are computed here, AFTER every asset is in place and immediately before
-      # the upload, so what is published is the exact bytes that get attached rather
-      # than something recomputed from an earlier stage.
-      #
-      # This covers the three assets this workflow builds. GitHub attaches two
-      # "Source code" archives of its own that no workflow can hash, reorder or remove;
-      # the note below says so rather than leaving a reader wondering why they are
-      # missing from the table.
-      - name: Build the release body (changelog first, hashes last)
-        shell: pwsh
-        env:
-          VERSION: ${{ inputs.version }}
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          SHA: ${{ github.sha }}
-        run: |
-          $assets = @(
-            "MeshGhost-full-$env:VERSION.zip",
-            "MeshGhost-linux-server-client-$env:VERSION.tar.gz",
-            "MeshGhost-macos-server-client-$env:VERSION.tar.gz"
-          )
-          # GitHub's own generated notes, fetched rather than left to the release action.
-          # generate_release_notes:true PREPENDS a supplied body, which put the hash table above
-          # the changelog -- backwards, since the changelog is what a reader wants first and the
-          # hashes are a reference you go looking for. Fetching them here lets us order it
-          # ourselves. This endpoint is read-only and works for a tag that does not exist yet
-          # (verified 2026-08-18), which matters because the action creates the tag afterwards.
-          $notes = ""
-          try {
-            $notes = gh api "repos/$env:GITHUB_REPOSITORY/releases/generate-notes" `
-              -f tag_name="$env:VERSION" -f target_commitish="$env:SHA" -q .body
-          } catch {
-            Write-Host "::warning::could not generate release notes ($_); publishing the hash table alone"
-          }
-
-          # Just the table. No heading, no "here is how to run shasum", no explanation of why
-          # unsigned binaries get flagged -- anyone who checks a hash already knows all of that,
-          # and the prose was longer than the thing it introduced. docs/antivirus.md still
-          # carries the full explanation for whoever wants it.
-          $lines = @()
-          if ($notes) { $lines += @($notes, "", "---", "") }
-          $lines += @(
-            "| Asset | SHA-256 |",
-            "| --- | --- |"
-          )
-          foreach ($a in $assets) {
-            if (-not (Test-Path $a)) {
-              Write-Host "::error::expected release asset $a is missing, so it cannot be hashed"
-              exit 1
-            }
-            $h = (Get-FileHash $a -Algorithm SHA256).Hash.ToLower()
-            $lines += "| ``$a`` | ``$h`` |"
-          }
-          $lines += ""
-
-          $lines | Set-Content -Path release-body.md -Encoding utf8
-          Get-Content release-body.md | Write-Host
-
       - name: Create release
         uses: softprops/action-gh-release@v3
         with:
@@ -398,9 +356,11 @@ jobs:
             MeshGhost-full-${{ inputs.version }}.zip
             MeshGhost-linux-server-client-${{ inputs.version }}.tar.gz
             MeshGhost-macos-server-client-${{ inputs.version }}.tar.gz
-          # The whole body -- generated changelog first, then the hash table -- is composed by
-          # the step above. generate_release_notes stays FALSE precisely because turning it on
-          # would prepend this body to a second copy of the notes, duplicating the changelog and
-          # putting the table back on top.
-          body_path: release-body.md
-          generate_release_notes: false
+          # No body of our own. A hash table lived here briefly on 2026-08-18 and was removed
+          # the same day: GitHub already computes and displays a sha256 digest for every uploaded
+          # asset, right next to its download button, and exposes the same value on the API. The
+          # table restated what the Assets list was already showing. The audit that prompted it
+          # checked whether the WORKFLOW published a hash and concluded the docs' "every release
+          # asset shows a SHA-256" claim was false -- without checking whether GitHub published
+          # one. It does, and the claim was true all along.
+          generate_release_notes: true

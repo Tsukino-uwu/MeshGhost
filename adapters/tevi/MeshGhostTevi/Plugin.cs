@@ -68,6 +68,8 @@ namespace MeshGhostTevi
         private const float PositionChangeEpsilon = 0.5f;
         private float timeSinceLastLog = MaxSilenceSeconds;
         private bool hadPlayerLastFrame;
+        private CoreLauncher launcher;
+        private int bridgePort;
         private Vector3 lastLoggedPos;
         private Character.Direction lastLoggedDir;
         private Character.PlayerAniState lastLoggedAnim;
@@ -489,6 +491,8 @@ namespace MeshGhostTevi
                 "instance on the same machine for local two-player testing -- each instance " +
                 "needs its own core process on its own port.").Value;
             bridge = new BridgeClient(BridgeHost, bridgePort);
+            this.bridgePort = bridgePort;
+            launcher = new CoreLauncher(msg => Logger.LogInfo(msg));
         }
 
         // Neither BepInEx nor Unity closes the bridge socket for us on shutdown -- without this,
@@ -498,11 +502,13 @@ namespace MeshGhostTevi
         private void OnDestroy()
         {
             bridge?.Disconnect();
+            launcher?.Stop();
         }
 
         private void OnApplicationQuit()
         {
             bridge?.Disconnect();
+            launcher?.Stop();
         }
 
         // EventManager.mainCharacter is a property on the current game build (backed by a
@@ -548,6 +554,17 @@ namespace MeshGhostTevi
 
             bridge.DrainLogsInto(msg => Logger.LogInfo(msg));
             bridge.TryConnect();
+            // Autostart sits here rather than in Awake: "is a core running?" is only answerable by
+            // trying, and TryConnect above is the thing that tries. If one is already up -- started
+            // by hand, or left by another instance -- this never spawns anything.
+            if (bridge.IsConnected)
+            {
+                launcher.TickConnected();
+            }
+            else
+            {
+                launcher.TickDisconnected(bridgePort);
+            }
             bridge.SendHelloIfNeeded(GameId, PluginVersion);
 
             if (player == null || player.t == null)

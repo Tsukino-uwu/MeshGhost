@@ -438,13 +438,14 @@ local function scriptDir()
             return dir .. "/"
         end
     end
-    -- Fallback for a host that does not populate `source` (none seen). Keeps the old behaviour
-    -- rather than failing outright, but it is the wrong answer whenever the two differ.
-    local pwd = io.popen and io.popen("cd"):read("*l")
-    if not pwd or pwd == "" then
-        error("MeshGhost: could not determine the script's own directory.")
-    end
-    return pwd .. "\\"
+    -- No io.popen fallback. It was kept here as a "host that does not populate source" path and
+    -- removed 2026-08-18: it is the WRONG answer whenever the two differ (it returns the working
+    -- directory, not the script's), and it spawns a real `cmd` to ask, which is a console window
+    -- flashing on screen every launch. A fallback that is both wrong and visible is worse than no
+    -- fallback -- failing here says exactly what happened, where a wrong path fails later as
+    -- "The specified module could not be found" and sends you hunting LuaSocket.
+    error("MeshGhost: could not determine the script's own directory (debug.getinfo gave no source). "
+        .. "Load this file from BizHawk's Lua Console or with --lua=<path>.")
 end
 
 local SCRIPT_DIR = scriptDir()
