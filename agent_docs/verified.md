@@ -6835,3 +6835,26 @@ scheduled. All established by the agent with local tools; nothing here is a visu
   first one tested before being believed. The two before it — that talking to the ghost disturbed
   it, and that the idle check permitted overlapping steps — were both plausible, both untested, and
   both wrong. The test here cost one run and one variable.
+
+### Crystal: the ROM guard refuses a REAL Archipelago ROM (2026-08-18)
+
+- Date: 2026-08-18
+- Observed: `meshghost_crystal.lua` loaded against an Archipelago-patched Crystal ROM, by accident
+  rather than by design:
+
+  ```
+  MeshGhost: LuaSocket loaded from ...\adapters\pokemon\emerald\lib\x64\
+  === MeshGhost — Pokémon Crystal ===
+  REFUSING TO RUN: ROM title is "AP_CRYSTAL", expected "PM_CRYSTAL"
+  ```
+
+- Source: live run, `meshghost_crystal_20260818_021207.log`.
+- Notes: **the guard the spawn ADR requires is now proven on a real patched ROM rather than
+  trusted.** It refused before any write, identified the ROM by its header title, and said why in
+  terms of the missing address table rather than just failing. **Archipelago's Crystal patch even
+  renames the ROM header** to `AP_CRYSTAL`, which is a stronger and cheaper signal than the
+  checksum test that follows it.
+  This is the safety test that had been listed as "worth doing eventually"; it cost nothing because
+  the user happened to have the patched ROM loaded.
+- Also confirms the LuaSocket path fix: the loader found the vendored pair via the working
+  directory after `debug.getinfo` proved useless under BizHawk (`pitfalls.md`).
