@@ -34,6 +34,21 @@
 /packaging/release/games/pokemon/emerald/meshghost_emerald.lua
 /packaging/release/games/pokemon/emerald/lib/
 
+# Same deal for Crystal: assembled by release.yml from adapters/pokemon/crystal/, never
+# hand-edited, never committed. README.txt at that path IS committed, as with every other game.
+/packaging/release/games/pokemon/crystal/meshghost_crystal.lua
+/packaging/release/games/pokemon/crystal/run_second_client.lua
+/packaging/release/games/pokemon/crystal/lib/
+
+# ap_try.flag makes the Crystal adapter run an Archipelago ROM with an address that has NOT been
+# confirmed. It is a deliberate local experiment and must never be committed or shipped -- its
+# presence in a release would silently lower the bar the refusal exists to hold. It was committed
+# once by an over-broad "git add -A" on 2026-08-18 and removed the same day.
+/adapters/pokemon/crystal/ap_try.flag
+
+# Probe logs, same reasoning as Emerald's vram_probe logs: personal diagnostic output.
+/adapters/pokemon/crystal/ap_*.log
+
 # Exception: the TEVI mod DLL is committed on purpose -- CI cannot build it (the
 # .csproj needs the user's own proprietary game DLLs, which are never committed,
 # per agent_docs/licensing.md), so this is our own compiled output, checked in

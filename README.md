@@ -21,6 +21,7 @@ runs in that same prefix.
 ## Games
 
 - [Pokémon Emerald](adapters/pokemon/emerald/README.md)
+- [Pokémon Crystal](adapters/pokemon/crystal/README.md)
 - [TEVI](adapters/tevi/README.md)
 - [Pseudoregalia](adapters/pseudoregalia/README.md)
 
@@ -31,7 +32,8 @@ can show today.
 `meshghost-server.exe` carries Emerald, TEVI and Pseudoregalia sessions simultaneously on one
 port. Each game gets its own rooms automatically, so games never collide and players only ever
 see others in the same game and the same room name. A host who wants their server locked to one
-game sets `server.only_game` to that game's id — `emerald`, `tevi` or `pseudoregalia`. Players
+game sets `server.only_game` to that game's id — `emerald`, `crystal`, `tevi` or
+`pseudoregalia`. Players
 never set it: a mod announces its own id.
 
 ## Setup

@@ -100,7 +100,7 @@ anything else is refused at the handshake. **Optional and off by default** — a
 keeps the original posture, where one relay happily hosts different games in different rooms.
 See [agent_docs/architecture.md](../agent_docs/architecture.md)'s ADR.
 
-The valid values are the ids the shipped adapters announce — `emerald`, `tevi`,
+The valid values are the ids the shipped adapters announce — `emerald`, `crystal`, `tevi`,
 `pseudoregalia` — compared for exact equality, so `README.txt` lists them literally rather than
 describing them, and the relay logs the value it actually read on startup (a typo'd id refuses
 every client with no other visible cause). This is the only end-user-facing setting whose valid

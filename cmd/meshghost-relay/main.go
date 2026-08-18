@@ -280,7 +280,8 @@ func main() {
 	onlyGame := flag.String("only-game", "", "restrict this relay to a single game: a client "+
 		"playing anything else is refused at the handshake. Leave empty (the default) to host any "+
 		"game, including several at once in different rooms. Valid values are the game_id an "+
-		"adapter advertises -- \"emerald\", \"tevi\", or \"pseudoregalia\" for the three shipped "+
+		"adapter advertises -- \"emerald\", \"crystal\", \"tevi\", or \"pseudoregalia\" for the four "+
+			"shipped "+
 		"adapters -- and must match exactly")
 	maxClients := flag.Int("max-clients", relay.DefaultMaxClients,
 		"max clients this relay accepts in total, across every room it's hosting combined -- "+

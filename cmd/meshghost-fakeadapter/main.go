@@ -270,7 +270,7 @@ func main() {
 	roomCode := flag.String("room-code", "", "shared secret to send the relay for room-code auth "+
 		"-- only needed if the relay you're connecting to has one configured")
 	gameID := flag.String("game-id", "faketest", "game_id to advertise -- must match the real client's "+
-		"game_id (\"emerald\"/\"tevi\"/\"pseudoregalia\") to share a room with a real game")
+		"game_id (\"emerald\"/\"crystal\"/\"tevi\"/\"pseudoregalia\") to share a room with a real game")
 	gameVersion := flag.String("game-version", "", "game_version to advertise to the relay")
 	clients := flag.Int("clients", 1, "how many independent synthetic peers to run in this process, "+
 		"each with its own Core and relay connection")

@@ -12,7 +12,8 @@ What's in this folder:
 - games\                -- one folder per supported game. Only the folder
                             for the game you're playing matters to you.
 
-Status: Pokemon Emerald is tested and working. TEVI and Pseudoregalia are both
+Status: Pokemon Emerald and Pokemon Crystal are tested and working. TEVI and
+Pseudoregalia are both
 EXPERIMENTAL. TEVI has been confirmed working with two real players (two local
 instances on one machine; not yet confirmed over a network between two separate
 machines). Pseudoregalia has been confirmed with two real players on two separate
@@ -157,6 +158,7 @@ Setup, once:
                else is turned away as soon as they connect, with a message
                saying so. The valid ids are exactly:
                    emerald         (Pokemon Emerald)
+                   crystal         (Pokemon Crystal)
                    tevi            (TEVI)
                    pseudoregalia   (Pseudoregalia)
                Type one of those exactly as written, all lowercase -- a

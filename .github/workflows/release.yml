@@ -274,6 +274,21 @@ jobs:
           New-Item -ItemType Directory -Force packaging\release\games\pokemon\emerald | Out-Null
           Copy-Item adapters\pokemon\emerald\meshghost_emerald.lua packaging\release\games\pokemon\emerald\meshghost_emerald.lua
           Copy-Item -Recurse adapters\pokemon\emerald\lib packaging\release\games\pokemon\emerald\lib
+          # Crystal, the same way. Its lib\ comes from Emerald's: it is the same BizHawk LuaSocket
+          # build, and adapters/pokemon/crystal/ deliberately has no copy of its own -- in a source
+          # checkout the script falls back to ../emerald/lib/x64/, and a release gives each game
+          # folder its own so that fallback is never needed by a player.
+          New-Item -ItemType Directory -Force packaging\release\games\pokemon\crystal | Out-Null
+          Copy-Item adapters\pokemon\crystal\meshghost_crystal.lua packaging\release\games\pokemon\crystal\meshghost_crystal.lua
+          Copy-Item adapters\pokemon\crystal\run_second_client.lua packaging\release\games\pokemon\crystal\run_second_client.lua
+          Copy-Item -Recurse adapters\pokemon\emerald\lib packaging\release\games\pokemon\crystal\lib
+          # An experiment flag beside the adapter would make it run an Archipelago ROM on an
+          # unconfirmed address. It is gitignored, so this only catches a stray local copy -- but
+          # a release is exactly where that must not slip through.
+          if (Test-Path packaging\release\games\pokemon\crystal\ap_try.flag) {
+            Write-Host "::error::ap_try.flag must never be packaged"
+            exit 1
+          }
           # "full" rather than "windows", for two reasons. It says what is actually in here
           # (client, server, and every game's mod) instead of naming a platform, and GitHub
           # sorts release assets ALPHABETICALLY BY FILENAME -- upload order is ignored, and
