@@ -201,6 +201,27 @@ UE4SS entry below for that last one specifically, which is currently unresolved)
   looking at the screen, and in every case the logs looked healthy. **Automating the mechanical
   half of the loop is what this buys; the judging half is not automatable and should not be
   presented as if it were.**
+- **The agent can SEE the screen — `client.screenshot`, confirmed working 2026-08-18.**
+  `dev-scripts/bizhawk-screenshot.lua` writes a PNG; the agent then reads that PNG directly. First
+  run showed the town, the player, and the spawned ghost beside them, all legible.
+  **This lands on the project's core constraint.** Every live-testing rule here exists because the
+  agent could not see the game, so any claim about what it DOES needed the user to watch. That is
+  no longer true for *static* facts.
+  **What it does and does not answer, stated carefully, because the temptation is to overclaim:**
+  a screenshot answers *"what is on screen right now"* — is the ghost present, is it on the grid,
+  is it the right sprite, is it behind the menu. It does **not** answer *"does this look right
+  while moving"*. All six real bugs in the 2026-08-18 Emerald session were motion or interaction
+  defects (a ghost mirroring the player's animation, a frozen ghost, a walk that should have been
+  a run, a script firing on interaction); **a still frame would have caught almost none of them.**
+  Treat it as a new instrument, not a replacement for a person watching.
+  Two consequences worth acting on: a screenshot can be taken *before and after* a scripted input
+  to compare, and a failed test can attach the frame that failed instead of describing it.
+- **BizHawk pauses while any of its own menus or dialogs is open** — confirmed by the user
+  2026-08-18, who has "pause when unfocused" already disabled. While paused, `emu.frameadvance()`
+  does not return, so **the dev loader stops polling and every attached script stops ticking**.
+  The symptom is confusing from outside: control-file changes are silently ignored and log files
+  stop growing, which reads as a broken loader rather than a paused emulator. Check whether the
+  adapter's log is still growing before debugging anything else.
 - **`dev-scripts/bizhawk-syntax-check.lua` — does this Lua even parse?** BizHawk embeds Lua 5.4
   and this machine has no standalone Lua binary, so before this the only way to find a missing
   `end` in an adapter was to load it into a live session. The checker `loadfile()`s a list of

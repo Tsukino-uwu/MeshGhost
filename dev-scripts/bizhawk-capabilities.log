@@ -1,0 +1,2 @@
+=== BizHawk Lua functions, as this build reports them ===
+client.getluafunctionslist() unavailable: C:/dev/MeshGhost/dev-scripts/bizhawk-capabilities.lua:17: attempt to call a nil value (field 'getluafunctionslist')
