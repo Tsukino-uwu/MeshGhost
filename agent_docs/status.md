@@ -63,8 +63,10 @@ that a peer's state genuinely differs from the local player's, which loopback co
   stops sending leaves a marker frozen where it was. Shipped bug, not hypothetical. `ideas.md`.
 - **TEVI lags the template's bridge shape** — no autostart, no port walk, no `bridge_ready`.
   Both Pokémon adapters got the walk and the ack 2026-08-18, **untested live**. `_template/PROTOCOL.md`.
-- **Emerald's shipped adapter spawns instead of drawing** — live 2026-08-18: appears, follows,
-  walks and runs, hidden by the pause menu, not interactable. `phases/phase8.md`, `verified.md`.
+- **Emerald's shipped adapter spawns instead of drawing** — user-confirmed piece by piece
+  2026-08-18 (appears, follows, walks, runs, on-grid, no leak); **no end-to-end pass yet.**
+- **Awaiting a confirmation pass**: the spawn adapter and the whole test toolchain were built and
+  self-tested the same day. Nothing in either is "done" until the user confirms the result.
 - **Emerald: a peer's own state (surf/bike/fishing) is not rendered yet** — the state is its
   `graphicsId` and all player states share one palette tag, so this is now scoped. `phase8.md`.
 - **Emerald: Archipelago ROMs still use the overlay** — `gSprites`' shift is unmeasured, so the
