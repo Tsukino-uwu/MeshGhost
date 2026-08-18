@@ -63,8 +63,12 @@ that a peer's state genuinely differs from the local player's, which loopback co
   stops sending leaves a marker frozen where it was. Shipped bug, not hypothetical. `ideas.md`.
 - **TEVI lags the template's bridge shape** — no autostart, no port walk, no `bridge_ready`.
   Both Pokémon adapters got the walk and the ack 2026-08-18, **untested live**. `_template/PROTOCOL.md`.
-- **Emerald spawns a real object event instead of drawing** — confirmed on screen 2026-08-18,
-  in `probes/spawn_test.lua`; not yet wired into the shipped adapter. `phases/phase8.md`.
+- **Emerald's shipped adapter spawns instead of drawing** — live 2026-08-18: appears, follows,
+  walks and runs, hidden by the pause menu, not interactable. `phases/phase8.md`, `verified.md`.
+- **Emerald: a peer's own state (surf/bike/fishing) is not rendered yet** — the state is its
+  `graphicsId` and all player states share one palette tag, so this is now scoped. `phase8.md`.
+- **Emerald: Archipelago ROMs still use the overlay** — `gSprites`' shift is unmeasured, so the
+  spawn path refuses to write there. `adapters/pokemon/emerald/BANDAGES.md`.
 - **Loopback offset puts the ghost inside/above sloped geometry** — a rig artefact, since a real
   peer's position is always valid. Weigh loopback-only anomalies accordingly. `verified.md`.
 - **Pseudoregalia: a hard crash mid-session after the pause menu opened twice** — not root-caused,
