@@ -7503,3 +7503,32 @@ scheduled. All established by the agent with local tools; nothing here is a visu
   adapter uses those planes. `risks.md` has the measurement; `bandages-core.md` the register entry.
 - What changed is only that the documentation stopped asserting a relationship that does not hold,
   and that the gap can no longer widen unnoticed.
+
+### 2026-08-18 — v0.9.5 released as a pre-release, and the asset hashes are real
+
+**Track: measured by the agent with the tools (no game, no watching).**
+
+Cut from `6128da1` via the Release workflow with `version=v0.9.5`, `prerelease=true`. Every step
+green, including all three staleness gates (TEVI, Pseudoregalia, UE4SS runtime) and the first run
+of the new `Hash the release assets` step. Three assets published: the Windows zip (24.1 MB), and
+the Linux and macOS tarballs (20.0 / 20.6 MB).
+
+**The hash table was verified end to end rather than assumed.** `docs/antivirus.md` and the
+packaged README have told a user with a flagged download to compare their SHA-256 against the
+Releases page since long before anything published one. Downloaded
+`MeshGhost-linux-v0.9.5.tar.gz` from the release and hashed it locally:
+
+    published:  c48239b6657d58d8ed1c128b51ed644bf2b622a5f6dfd6c46904913306149819
+    downloaded: c48239b6657d58d8ed1c128b51ed644bf2b622a5f6dfd6c46904913306149819
+
+Identical. So the advice now works for the person it was written for, which it did not before —
+"a hash appeared in the release body" would not have shown that on its own.
+
+**Marked pre-release on the user's call, for a specific reason:** TEVI's 2026-08-18 changes
+(`bridge_ready`/`reject` handling, draining the bridge below the in-play gate, despawning peer
+ghosts on a real main-menu return) and its DLL bump to `PluginVersion = "0.2.0"` have **not been
+watched live**. The version bump in particular is a hard reject at the relay against any peer
+still on 0.1.0. Not a defect — an untested change, labelled as one.
+
+CI on `aad43cb` (the commit carrying all of today's Go work) passed beforehand: build, vet,
+cross-compiles, the new gofmt gate, `-race -count=3`, and all eleven fuzz targets.
