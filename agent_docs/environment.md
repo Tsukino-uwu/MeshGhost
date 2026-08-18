@@ -366,6 +366,36 @@ UE4SS entry below for that last one specifically, which is currently unresolved)
 - Not expected to confirm anything visual or gameplay-related. The agent **cannot** — and a
   screenshot it took does not count, by the user's explicit instruction.
 - Not expected to ask the user to run scripts, `.bat` files, or watch the Go side.
+- **COMBINE the capabilities — that is where the leverage is, not in any one of them.** The user,
+  2026-08-18, on being told fishing and underwater were "untested":
+
+  > *"you can use cheats to move to different places in the game can't you? and you can probly just
+  > change a tile to be ground/water as well? and use the fishing rod onto the water? be a bit
+  > creative with the abilities you have for doing things. combine inputs/savestates/cheats to
+  > find/test things"*
+
+  The correction is worth keeping because the failure was one of imagination, not capability: each
+  tool had been used on its own, and "untested" was reported for a state that was reachable by
+  putting three of them together. **Reaching a game state is a puzzle to solve with the toolkit,
+  not a precondition to wait for.** What is available, and what it buys when combined:
+
+  | Tool | On its own | Combined |
+  | --- | --- | --- |
+  | Savestates (10) | Return to a known point | Checkpoint before every attempt, so any experiment is free to fail |
+  | `joypad.set` | Press buttons | Walk to a place, open a menu, use an item, trigger an event |
+  | Memory writes | Give an item, set a flag | **Edit the world**: change a tile under or in front of the player |
+  | Screenshots + zoom | See one frame | Judge the result of the above without asking the user |
+  | The decompilation | Look up an address | Find *which* value makes a tile water, an item usable, a state legal |
+
+  Worked example: to test a surfing or fishing ghost you do not need to walk to the sea. Find a
+  water metatile in the current tileset (the decomp says which behaviour means water), **write it
+  into the tile in front of the player**, checkpoint, then drive the input that uses it — and
+  restore the checkpoint afterwards so nothing is left changed. Same shape for any state: ask what
+  the game checks, write that, and drive the rest.
+
+  **The standing limit is unchanged.** All of this is dev-only tooling for reaching a state faster;
+  it never becomes adapter behaviour, and none of it confirms anything — the user still watches the
+  end result.
 - **`dev-scripts/bizhawk-syntax-check.lua` — does this Lua even parse?** BizHawk embeds Lua 5.4
   and this machine has no standalone Lua binary, so before this the only way to find a missing
   `end` in an adapter was to load it into a live session. The checker `loadfile()`s a list of

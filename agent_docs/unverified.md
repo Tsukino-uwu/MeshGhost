@@ -71,5 +71,9 @@ Turned OFF by default (`MESHGHOST_GHOST_PEER_GFX`), because it is incomplete —
     player is walking, since the game only loads it when *you* surf. Walking the ghost does not
     correct the offset, so it is not a stale initial placement; the engine puts it there.
   - **Untested:** fishing and underwater, which may need companions of their own.
+  - **Now reachable, though:** `probes/watertile.lua` turns the tile in front of the player into
+    real water (finds a water metatile in the map's own tilesets and writes it, behaviour and
+    collision). Self-tested by driving the player into it and being blocked. That removes "we are
+    not near water" as the reason surfing and fishing are untested.
 - **Archipelago ROMs still use the old drawn overlay.** See `adapters/pokemon/emerald/BANDAGES.md`
   — one live run on a patched seed either closes it or refuses safely.
