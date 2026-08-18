@@ -58,10 +58,18 @@ Turned OFF by default (`MESHGHOST_GHOST_PEER_GFX`), because it is incomplete —
 
 ## Known incomplete — do NOT confirm, these are not finished
 
-- **Surfing renders the rider without the blue Pokémon underneath.** Confirmed by the agent's own
-  screenshot and by the user's description. The blob is a separate sprite — `ObjectEvent` carries
-  a `fieldEffectSpriteId` (offset `0x1A`), so a surfing ghost needs that companion field effect
-  spawned too, which is not built. **Fishing and underwater are untested and may have the same
-  shape of problem.**
+- **Surfing: the blob is now spawned and the engine drives it, but it sits in the wrong place and
+  the wrong colour.** Progress worth keeping, and not finished:
+  - **What works.** `UpdateSurfBlobFieldEffect` turns out **not** to be hardcoded to the player —
+    it reads an object event id out of `sprite->data[2]` and synchronises to whatever that names.
+    Point one at a ghost and the engine animates and follows it for free. Built from
+    `gFieldEffectObjectTemplate_SurfBlob` (`0850CBC4`) because no live blob exists to copy unless
+    somebody is already surfing. Confirmed alive by its OAM Y changing every sample — that is the
+    engine's own bobbing running on our sprite.
+  - **What does not.** It renders roughly half a tile down-right of the rider instead of under it,
+    and **dark navy instead of blue** — the palette the blob expects is not loaded while the local
+    player is walking, since the game only loads it when *you* surf. Walking the ghost does not
+    correct the offset, so it is not a stale initial placement; the engine puts it there.
+  - **Untested:** fishing and underwater, which may need companions of their own.
 - **Archipelago ROMs still use the old drawn overlay.** See `adapters/pokemon/emerald/BANDAGES.md`
   — one live run on a patched seed either closes it or refuses safely.

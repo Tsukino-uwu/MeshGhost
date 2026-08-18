@@ -1333,6 +1333,13 @@ local ghosts = {}
 -- Forward declaration: despawnGhost below must ask "is this still ours" before it destroys
 -- anything, and the identity check itself reads the save block pointer defined further down.
 local ghostAlive
+-- Forward declarations for the surf-blob code, which is defined further down (it needs the sprite
+-- and tile helpers above it) but is used by spawnGhost/despawnGhost, which come first. Without
+-- these the names resolve to nil GLOBALS at the call site -- the same forward-reference trap that
+-- has now bitten three times in this file (despawnAllGhosts, frameCounter, and this).
+local despawnSurfBlob
+local spawnSurfBlob
+local SURFING_GFX
 
 local function freeGhostTiles(g)
     if g.tileStart then
@@ -1359,6 +1366,7 @@ local function despawnGhost(playerId)
     local g = ghosts[playerId]
     if not g then return end
     if ghostAlive(g) then
+        despawnSurfBlob(g)
         w8(objAddr(g.objId) + 0x00, 0)
         local d = sprAddr(g.sprId)
         w8(d + 0x3e, (r8(d + 0x3e) & ~0x01) | 0x04) -- inUse = 0, invisible = 1
@@ -1588,7 +1596,102 @@ local function spawnGhost(playerId, mapX, mapY, orientation, wantGfx)
         tileStart = tileStart, tileCount = tileCount, mapX = mapX, mapY = mapY,
         gfx = graphicsId, -- what this ghost is currently DRAWN as, so a change can be detected
     }
+    -- A state is its animation AND its extras: a surfing rider without the Pokemon underneath is
+    -- half the state, and the missing half is the one a player notices first.
+    if SURFING_GFX[graphicsId] then
+        local blob = spawnSurfBlob(ghosts[playerId], mapX, mapY)
+        console.log(string.format("MeshGhost: surf blob for gfx %d -> sprite %s",
+            graphicsId, tostring(blob)))
+    end
     return ghosts[playerId]
+end
+
+-- ---------------------------------------------------------------------------------------------
+-- The surf blob: a state is its animation AND whatever else the game spawns with it
+--
+-- Giving a ghost the surfing graphic renders a rider sitting on nothing, because the blue Pokemon
+-- underneath is a SEPARATE sprite. The engine attaches it through the object's own
+-- `fieldEffectSpriteId`, and -- the part that makes this possible at all --
+-- `UpdateSurfBlobFieldEffect` is NOT hardcoded to the player: it reads `sprite->data[2]` for an
+-- object event id and synchronises its animation and position to whatever that names. Point one
+-- at a ghost and the engine drives the blob for the ghost, every frame, for free.
+--
+-- Built from the field effect's own sprite template rather than copied from a live blob, because
+-- no blob exists unless somebody is already surfing.
+--   gFieldEffectObjectTemplate_SurfBlob  0850CBC4  (SpriteTemplate: tileTag 0x00, paletteTag
+--     0x02, oam 0x04, anims 0x08, images 0x0C, affineAnims 0x10, callback 0x14)
+--   UpdateSurfBlobFieldEffect            08155658  (+1 for Thumb)
+-- Its data slots (field_effect_helpers.c:990): data[0] bob state, data[2] object event id,
+-- data[3] velocity, data[6]/data[7] previous x/y. FldEff_SurfBlob seeds velocity and prev to -1,
+-- sets coordOffsetEnabled, palette 0 and subpriority 150 -- all reproduced below.
+local GFIELDEFFECTTEMPLATE_SURFBLOB = 0x0850cbc4
+local UPDATESURFBLOBFIELDEFFECT_CB = 0x08155658 + 1
+local BOB_PLAYER_AND_MON = 1
+local SURFBLOB_SUBPRIORITY = 150
+
+-- Which graphics ids ride a blob. Surfing only: underwater uses a different mechanism
+-- (StartUnderwaterSurfBlobBobbing on the player's own sprite), and is not handled here.
+SURFING_GFX = { [2] = true, [92] = true } -- Brendan, May
+
+spawnSurfBlob = function(g, mapX, mapY)
+    local tmpl = GFIELDEFFECTTEMPLATE_SURFBLOB
+    local oamPtr, animsPtr = r32(tmpl + 0x04), r32(tmpl + 0x08)
+    local imagesPtr, affinePtr = r32(tmpl + 0x0c), r32(tmpl + 0x10)
+    if oamPtr == 0 or imagesPtr == 0 then return nil end
+
+    local sprId = findFreeSpriteSlot()
+    if not sprId or sprId == g.sprId then return nil end
+    -- The blob's frames are 32x32 -- 16 tiles, same as the rider's.
+    local tileStart = allocSpriteTiles(16)
+    if not tileStart then return nil end
+
+    local d = sprAddr(sprId)
+    for off = 0, SPRITE_STRUCT_SIZE - 1 do w8(d + off, 0) end
+    for off = 0, 7 do w8(d + off, r8(oamPtr + off)) end
+    w16(d + 0x04, (r16(d + 0x04) & 0x0c00) | (tileStart & 0x03ff)) -- tileNum, paletteNum 0
+    w32(d + 0x08, animsPtr)
+    w32(d + 0x0c, imagesPtr)
+    w32(d + 0x10, affinePtr)
+    w32(d + 0x1c, UPDATESURFBLOBFIELDEFFECT_CB)
+
+    -- Position. NOT the rider's formula: FldEff_SurfBlob uses SetSpritePosToOffsetMapCoords,
+    -- which is SetSpritePosToMapCoords (event_object_movement.c:4801) plus (8,8). That helper
+    -- subtracts BOTH gTotalCameraPixelOffset and gFieldCamera, where the rider's
+    -- GetMapCoordsFromSpritePos subtracts only the former -- using the wrong one put the blob a
+    -- tile below the ghost. The camera terms cancel while the camera is at rest, which is the
+    -- only moment a ghost is placed anyway, but they are written out so the two stay
+    -- distinguishable.
+    local sb1 = r32(GSAVEBLOCK1PTR_ADDR)
+    local dx = -rs16(GTOTALCAMERAPIXELOFFSETX_ADDR) - memory.read_s32_le(GFIELDCAMERA_X_ADDR)
+    local dy = -rs16(GTOTALCAMERAPIXELOFFSETY_ADDR) - memory.read_s32_le(GFIELDCAMERA_Y_ADDR)
+    local sx = (((mapX + MAP_OFFSET) - rs16(sb1 + 0x00)) << 4) + dx + 8
+    local sy = (((mapY + MAP_OFFSET) - rs16(sb1 + 0x02)) << 4) + dy + 8
+    w16(d + 0x20, sx) w16(d + 0x22, sy)
+    w8(d + 0x43, SURFBLOB_SUBPRIORITY)
+    w16(d + 0x2e, 0)                       -- data[0]: bob state, set below
+    w8(d + 0x2e, BOB_PLAYER_AND_MON)
+    w16(d + 0x32, g.objId)                 -- data[2]: the object this blob follows -- the GHOST
+    w16(d + 0x34, 0xffff)                  -- data[3]: velocity, seeded -1
+    w16(d + 0x3a, 0xffff)                  -- data[6]: previous x, seeded -1
+    w16(d + 0x3c, 0xffff)                  -- data[7]: previous y, seeded -1
+    w8(d + 0x3e, 0x03)                     -- inUse | coordOffsetEnabled
+    w8(d + 0x3f, 0x04)                     -- animBeginning
+
+    -- Tell the object it owns this effect, the way the engine does.
+    w8(objAddr(g.objId) + 0x1a, sprId)
+    g.blobSprId, g.blobTileStart = sprId, tileStart
+    return sprId
+end
+
+despawnSurfBlob = function(g)
+    if not g.blobSprId then return end
+    local d = sprAddr(g.blobSprId)
+    w8(d + 0x3e, (r8(d + 0x3e) & ~0x01) | 0x04) -- inUse = 0, invisible = 1
+    w32(d + 0x1c, 0)
+    if g.blobTileStart then
+        for t = g.blobTileStart, g.blobTileStart + 15 do setTileAllocated(t, false) end
+    end
+    g.blobSprId, g.blobTileStart = nil, nil
 end
 
 -- ObjectEventSetHeldMovement (event_object_movement.c:4870): three object fields plus the sprite's
@@ -1653,7 +1756,8 @@ local function syncGhost(playerId, remote)
     if g and not ghostAlive(g) then
         -- The engine cleared it (map load) or culled it (walked out of view). Both are normal, and
         -- in both cases the tiles went with it -- freeing our old range here would clear bits the
-        -- new map's sprites now own. Drop the record, free nothing.
+        -- new map's sprites now own. Drop the record, free nothing. The blob went the same way:
+        -- it lives in the same sprite array the engine reset.
         ghosts[playerId] = nil
         g = nil
     end
@@ -1879,6 +1983,7 @@ local function runFrame()
                 end
                 spr("ghost ", gs)
                 spr("player", ps)
+                if g.blobSprId then spr("blob  ", sprAddr(g.blobSprId)) end
             end
         end
     end
