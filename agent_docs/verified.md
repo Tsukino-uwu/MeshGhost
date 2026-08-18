@@ -7107,3 +7107,23 @@ scheduled. All established by the agent with local tools; nothing here is a visu
   (`use of closed network connection`) before being moved to tcp — unexplained, and not
   Crystal-specific.
 
+
+### Crystal: a vanilla client and an Archipelago client see each other correctly (2026-08-18)
+
+- Date: 2026-08-18
+- Observed: **the user watched both screens.** Two BizHawk instances on one machine, one running
+  vanilla Crystal V1.0 and one an `AP_CRYSTAL` Archipelago ROM, two cores (bridges 7778/7779), one
+  relay, no loopback. Each saw the other's ghost at the position it was actually standing in, on
+  the same map.
+- Source: live two-client session, user-confirmed, with a screenshot of both windows.
+- **What makes this stronger than a loopback ghost**: the two clients read *completely different
+  addresses* to produce the same `area_id` and position — vanilla's set from a hash-verified
+  decomp build, Archipelago's measured byte by byte on 2026-08-18. Agreement between them is a
+  check on both tables that neither could provide alone, and `area_id` matching across builds
+  confirms the map identity bytes on each.
+- **One real bug found by this run, and it was ours, not the game's**: the Archipelago client drew
+  the peer two tiles to the right. `LOOPBACK_OFFSET_X` still defaulted to `2` in the script that
+  client had loaded minutes earlier — the loopback convenience that Phase 9 had already flagged as
+  "must default to 0 before release". It now does, and reloading fixed it.
+  **The asymmetry was the tell**: one client correct and the other offset means a client-side
+  constant, not a coordinate or protocol problem, and that narrowed it in one step.
