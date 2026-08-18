@@ -217,7 +217,12 @@ local function scriptDir()
 	-- MESHGHOST_SCRIPT_DIR, if whatever launched us set it. Free, absolute, and spawns nothing.
 	-- Needed because `--lua=<path>` makes BizHawk report `source` as `[string "main"]` rather
 	-- than a path, so the branch above cannot answer at all in that case.
-	local fromEnv = MESHGHOST_SCRIPT_DIR or os.getenv("MESHGHOST_SCRIPT_DIR")
+	-- Game-specific FIRST -- see the same note in Emerald's adapter: an env var is process-wide,
+	-- BizHawk runs every script in one process, so a shared name leaks one adapter's folder into
+	-- the next one loaded.
+	local fromEnv = MESHGHOST_SCRIPT_DIR
+		or os.getenv("MESHGHOST_SCRIPT_DIR_CRYSTAL")
+		or os.getenv("MESHGHOST_SCRIPT_DIR")
 	if fromEnv and fromEnv ~= "" then
 		return (fromEnv:gsub("[/\\]$", ""))
 	end

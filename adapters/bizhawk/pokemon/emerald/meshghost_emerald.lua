@@ -443,7 +443,13 @@ local function scriptDir()
     -- above cannot answer and the io.popen fallback is what actually ran -- every launch, which
     -- is where the console-window flash came from. Anything launching this script can hand it
     -- the answer for free instead (dev-scripts do), and then no process is spawned at all.
-    local fromEnv = MESHGHOST_SCRIPT_DIR or os.getenv("MESHGHOST_SCRIPT_DIR")
+    -- Game-specific FIRST. An environment variable is process-wide, and BizHawk runs every Lua
+    -- script in one process -- so a plain MESHGHOST_SCRIPT_DIR set for one adapter is inherited
+    -- by the next one loaded, which sent Crystal's log and DLL search into Emerald's folder
+    -- (found live 2026-08-18, loading both adapters in one emulator).
+    local fromEnv = MESHGHOST_SCRIPT_DIR
+        or os.getenv("MESHGHOST_SCRIPT_DIR_EMERALD")
+        or os.getenv("MESHGHOST_SCRIPT_DIR")
     if fromEnv and fromEnv ~= "" then
         return (fromEnv:gsub("[/\\]$", "")) .. "/"
     end
@@ -758,19 +764,124 @@ local function tryPort(port)
     return true
 end
 
+-- The first port in the range with NOTHING listening on it, as observed by the last sweep. That
+-- is where autostart puts a new core, and getting it from the sweep rather than assuming
+-- BRIDGE_BASE_PORT is what makes a second copy of the game work: the base port is taken by the
+-- first copy's core, so spawning there produced a core that could not bind and exited instantly,
+-- leaving the second emulator with no core at all (found live 2026-08-18, two Emeralds).
+--
+-- A port that answered and then REJECTED us is not free -- it is somebody else's core, and it is
+-- skipped by busyUntil above rather than recorded here.
+local firstFreePort = nil
+
 -- One sweep across the whole range per attempt, not one port per attempt -- one port per retry
 -- interval would take many seconds to find a free core a few ports up.
 local function connectBridge()
     if BRIDGE_PORT_OVERRIDE then
+        firstFreePort = BRIDGE_PORT_OVERRIDE
         tryPort(BRIDGE_PORT_OVERRIDE)
         return
     end
+    firstFreePort = nil
     for i = 0, BRIDGE_PORT_COUNT - 1 do
         local port = BRIDGE_BASE_PORT + i
         if (busyUntil[port] or 0) <= frameCounter then
             if tryPort(port) then return end
+            -- Nothing answered here, so it is free for a core of our own.
+            if not firstFreePort then firstFreePort = port end
         end
     end
+end
+
+-- ---------------------------------------------------------------------------
+-- Autostart: start a core ourselves, and let it die with the emulator.
+--
+-- Every adapter is meant to do this (agent_docs/plans.md). It looked impossible from Lua for a
+-- while, because os.execute and io.popen both run `cmd /c ...` -- so the console window that
+-- flashes belongs to the SHELL doing the launching, and no amount of hiding the child helps.
+-- Confirmed by watching all five shell variants flash, `powershell -WindowStyle Hidden` longest.
+--
+-- The way through is luanet, NLua's .NET bridge, which this BizHawk build exposes: build a
+-- System.Diagnostics.ProcessStartInfo with UseShellExecute=false and CreateNoWindow=true and
+-- there is no shell and no window at all. Confirmed invisible by the user against a deliberate
+-- window-showing control, 2026-08-18 -- see agent_docs/environment.md and
+-- dev-scripts/bizhawk-spawn-probe.lua.
+--
+-- Auto-close comes from the same bridge: GetCurrentProcess().Id is EmuHawk's pid, so the core
+-- gets -exit-with-pid and exits when the emulator does, however the emulator goes away. That is
+-- the same mechanism TEVI and Pseudoregalia use.
+local coreChild, coreSpawnFrame, coreSpawnFailed = nil, nil, false
+
+-- Opting out is supported, not a debug switch: an antivirus that objects to one program starting
+-- another is a real thing, and the documented answer is to set this and run the core yourself.
+local AUTOSTART = os.getenv("MESHGHOST_NO_AUTOSTART") == nil
+
+-- meshghost.exe is not shipped beside this script (it is 9 MB and every game would carry a copy),
+-- so look where it actually is: the release root is three levels up from games/pokemon/emerald,
+-- and a source checkout is four up from adapters/bizhawk/pokemon/emerald. Beside the script wins
+-- if someone put one there deliberately.
+local function findCoreExe()
+    local candidates = {
+        SCRIPT_DIR .. "meshghost.exe",
+        SCRIPT_DIR .. "../../../meshghost.exe",
+        SCRIPT_DIR .. "../../../../meshghost.exe",
+    }
+    for _, path in ipairs(candidates) do
+        local f = io.open(path, "rb")
+        if f then
+            f:close()
+            return path
+        end
+    end
+    return nil
+end
+
+local function coreStillRunning()
+    if not coreChild then return false end
+    local ok, exited = pcall(function() return coreChild.HasExited end)
+    if not ok then return false end
+    return not exited
+end
+
+local function startCore(port)
+    if not AUTOSTART or coreSpawnFailed or coreStillRunning() then return end
+    -- No free port in the whole range: every one of them is somebody else's core. Spawning
+    -- anywhere here would just produce a process that cannot bind and exits.
+    if not port then return end
+    -- A core takes a moment to bind; spawning again before then is how you get a pile of
+    -- processes fighting over one port.
+    if coreSpawnFrame and (frameCounter - coreSpawnFrame) < 300 then return end
+
+    local exe = findCoreExe()
+    if not exe then
+        coreSpawnFailed = true
+        console.log("MeshGhost: meshghost.exe not found near this script -- not starting a core. "
+            .. "Start it yourself, or put a copy beside this file.")
+        return
+    end
+
+    coreSpawnFrame = frameCounter
+    local ok, err = pcall(function()
+        luanet.load_assembly("System") -- without this import_type returns nil
+        local Process = luanet.import_type("System.Diagnostics.Process")
+        local StartInfo = luanet.import_type("System.Diagnostics.ProcessStartInfo")
+        local si = StartInfo()
+        si.FileName = exe
+        -- No relay settings: the core reads config.json from its own directory, which is the file
+        -- a player edits. Passing -relay here would silently override it.
+        si.Arguments = string.format("-exit-with-pid=%d -bridge=%s:%d",
+            Process.GetCurrentProcess().Id, BRIDGE_HOST, port)
+        si.UseShellExecute = false
+        si.CreateNoWindow = true
+        coreChild = Process.Start(si)
+    end)
+    if not ok then
+        coreSpawnFailed = true
+        console.log("MeshGhost: could not start a core: " .. tostring(err))
+        return
+    end
+    console.log(string.format("MeshGhost: started a core (no window) on bridge port %d; "
+        .. "it will exit with the emulator.", port))
 end
 
 local function resetBridge()
@@ -1967,6 +2078,13 @@ local function runFrame()
 
     if not connected then
         connectBridge()
+        -- Only after a full sweep found nothing. A core that is already running -- started by
+        -- hand, by a dev script, or left by a previous session -- is used as-is and nothing is
+        -- spawned; that ordering is what stops autostart from ever producing a second core.
+        if not connected then
+            -- On the port the sweep just found empty, never a fixed one -- see firstFreePort.
+            startCore(firstFreePort)
+        end
         if connected then
             console.log(string.format("MeshGhost: bridge connected on %s:%d.", BRIDGE_HOST, currentPort))
             helloSentAtFrame = frameCounter
