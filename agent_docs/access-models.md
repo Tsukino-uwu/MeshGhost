@@ -211,8 +211,13 @@ the artifact is. All eight above are ways of *learning* about a game, and copyri
   colour value, an enum meaning. Record them with a citation ([verified.md](verified.md)) so the
   boundary stays auditable.
 - **Expression may never be committed**: source text, data tables, decompiler output, disassembly,
-  game assets, or structurally-identical code — **regardless of the licence**, unless that licence
-  explicitly permits redistribution and you attribute per its terms.
+  game assets, or structurally-identical code — **regardless of the licence, with no exception for
+  a permissive one.** An earlier version of this line carved out "unless that licence explicitly
+  permits redistribution and you attribute per its terms", which quietly reopened the door
+  [CLAUDE.md](../CLAUDE.md) closes: the test there is not "does a licence permit this?" but **"is
+  this fine sitting in a public repo forever?"**, and no-or-unclear means it stays out even where a
+  licence would allow it. A permission is not a reason, and a carve-out is exactly what gets
+  reached for at the moment copying looks convenient. Removed on the user's call, 2026-08-18.
 
 That is [licensing.md](licensing.md)'s "facts and addresses, never code", and it is what makes all
 three shipped adapters publishable despite two of them being built on unlicensed reference material.
