@@ -118,3 +118,9 @@ dev-scripts/*.local.bat
 *.srm
 *.rom
 *.gba
+
+# Local dev/test process logs (relay/core started for a live session)
+core-*.log
+core-*.err.log
+relay-*.log
+relay-*.err.log

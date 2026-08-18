@@ -1,9 +1,0 @@
-2026/08/18 02:06:02 meshghost-relay: listening on 127.0.0.1:7777 (tcp)
-2026/08/18 02:06:02 meshghost-relay: listening on 127.0.0.1:7777 (udp)
-2026/08/18 02:06:02 meshghost-relay: listening on 127.0.0.1:7780 (quic)
-2026/08/18 02:06:02 meshghost-relay: to accept players from outside this machine, forward: 7777/tcp (tcp), 7777/udp (udp), 7780/udp (quic)
-2026/08/18 02:06:02 meshghost-relay: max clients (total, across all rooms): 8
-2026/08/18 02:06:02 meshghost-relay: room send rate: 100Hz (per-client message cap: 600/sec)
-2026/08/18 02:06:02 meshghost-relay: -loopback enabled — dev-only, do not use with real peers
-2026/08/18 02:06:02 meshghost-relay: WARNING: no room code configured -- anyone who has this relay's address can join any room. Set -room-code (or "room_code" in config.json) before exposing this relay beyond a friend you directly hand the address to.
-2026/08/18 02:06:02 meshghost-relay: hosting any game (no "only_game" set)
