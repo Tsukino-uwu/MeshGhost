@@ -33,7 +33,7 @@ MESHGHOST_DEV_TICK = function()
         sx, sy = pos()
         if not sx then return end -- wait for a save to be loaded
         pcall(function() savestate.saveslot(SLOT) end)
-        pcall(function() client.screenshot("C:/dev/MeshGhost/dev-scripts/shot-before.png") end)
+        pcall(function() client.screenshot("C:/dev/MeshGhost/dev-scripts/shots/emerald/shot-before.png") end)
         log(string.format("start: player at (%d,%d); checkpointed to slot %d", sx, sy, SLOT))
         phase, frames = "hold", 0
         return
@@ -47,7 +47,7 @@ MESHGHOST_DEV_TICK = function()
         pcall(function() joypad.set({ [DIR] = true }) end)
         if frames >= HOLD then
             local ex, ey = pos()
-            pcall(function() client.screenshot("C:/dev/MeshGhost/dev-scripts/shot-after.png") end)
+            pcall(function() client.screenshot("C:/dev/MeshGhost/dev-scripts/shots/emerald/shot-after.png") end)
             log(string.format("held %s for %d frames: (%d,%d) -> (%s,%s), delta=(%s,%s)",
                 DIR, HOLD, sx, sy, tostring(ex), tostring(ey),
                 tostring((ex or sx) - sx), tostring((ey or sy) - sy)))

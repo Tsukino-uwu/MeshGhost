@@ -39,7 +39,7 @@ MESHGHOST_DEV_TICK = function()
             else
                 log("MOVED -- the tile is still walkable, so the edit did not take behaviourally.")
             end
-            pcall(function() client.screenshot("C:/dev/MeshGhost/dev-scripts/shot.png") end)
+            pcall(function() client.screenshot("C:/dev/MeshGhost/dev-scripts/shots/emerald/shot.png") end)
             phase = "done"
             if f then f:close() f = nil end
         end

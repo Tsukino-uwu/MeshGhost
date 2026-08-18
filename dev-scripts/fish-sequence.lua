@@ -57,7 +57,7 @@ MESHGHOST_DEV_TICK = function()
     end
     if held < 14 then held = held + 1 return end -- release, and let the UI settle
     pcall(function()
-        client.screenshot("C:/dev/MeshGhost/dev-scripts/step-" .. step.shot .. ".png")
+        client.screenshot("C:/dev/MeshGhost/dev-scripts/shots/emerald/step-" .. step.shot .. ".png")
     end)
     console.log("MeshGhost: step " .. step.shot)
     i, frames, held = i + 1, 0, 0

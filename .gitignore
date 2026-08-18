@@ -148,5 +148,8 @@ dev-scripts/bizhawk-dev-loader.log
 # Screenshots the agent takes to debug with (dev-scripts/bizhawk-screenshot.lua). Same reasoning
 # as the probe logs above: a working aid, never project content, and never evidence -- a picture
 # is not proof of anything visual (agent_docs/testing.md).
+# Screenshots the agent takes while debugging, one folder per game so a session on one
+# adapter cannot bury another. Same reasoning as the probe logs, and never evidence.
+/dev-scripts/shots/
 /dev-scripts/*.png
 /dev-scripts/*.log

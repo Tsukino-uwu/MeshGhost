@@ -13,7 +13,7 @@ MESHGHOST_DEV_TICK = function()
         return
     end
     if phase == "settle" and frames > 240 + HOLD + 60 then
-        pcall(function() client.screenshot("C:/dev/MeshGhost/dev-scripts/shot.png") end)
+        pcall(function() client.screenshot("C:/dev/MeshGhost/dev-scripts/shots/emerald/shot.png") end)
         console.log("MeshGhost: walked and shot")
         phase = "done"
     end

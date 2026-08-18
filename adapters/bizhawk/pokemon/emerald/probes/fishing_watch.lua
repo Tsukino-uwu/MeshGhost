@@ -51,7 +51,12 @@ MESHGHOST_DEV_TICK = function()
 	-- fieldEffectSpriteId is the field surfing uses to own its blob (ObjectEvent +0x1A). If
 	-- fishing owns a companion too, it shows up here as a non-zero id.
 	local fx = u8(a + 0x1a)
-	local key = string.format("%d|%d|%d|%d", u8(a + 0x05), u8(sp + 0x2a), fx, spritesInUse())
+	-- callback2 is part of the key, not just the output. Without it, entering a menu or a battle
+	-- changed nothing this probe considered "a change", so a whole run logged one line and the
+	-- silence was misread as "the game did nothing" (pitfalls.md). A probe's change-detection
+	-- decides what it can see, so it has to include every transition worth noticing.
+	local key = string.format("%d|%d|%d|%d|%08X",
+		u8(a + 0x05), u8(sp + 0x2a), fx, spritesInUse(), u32(GMAIN_CALLBACK2_ADDR))
 	if key ~= last then
 		log(string.format("%6d | gfx=%3d anim=%2d | fieldEffect=%3d | sprites=%2d | cb2=%08X",
 			frames, u8(a + 0x05), u8(sp + 0x2a), fx, spritesInUse(), u32(GMAIN_CALLBACK2_ADDR)))

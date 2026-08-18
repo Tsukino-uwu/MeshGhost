@@ -2,8 +2,12 @@
 # A 240x160 GBA frame is too small to judge a sprite in; nearest-neighbour upscaling keeps the
 # pixels honest (no smoothing inventing detail that is not there).
 param([int]$X = 96, [int]$Y = 48, [int]$W = 96, [int]$H = 64, [int]$Scale = 4,
-      [string]$In = "C:\dev\MeshGhost\dev-scripts\shot.png",
-      [string]$Out = "C:\dev\MeshGhost\dev-scripts\zoom.png")
+      [string]$Game = "emerald",
+      [string]$In = "",
+      [string]$Out = "")
+# Screenshots live in dev-scripts/shots/<game>/ so a session on one adapter cannot bury another's.
+if (-not $In)  { $In  = "C:\dev\MeshGhost\dev-scripts\shots\$Game\shot.png" }
+if (-not $Out) { $Out = "C:\dev\MeshGhost\dev-scripts\shots\$Game\zoom.png" }
 Add-Type -AssemblyName System.Drawing
 $src = [System.Drawing.Image]::FromFile($In)
 $crop = New-Object System.Drawing.Bitmap -ArgumentList $W, $H

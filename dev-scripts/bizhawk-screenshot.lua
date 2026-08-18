@@ -9,7 +9,7 @@
 -- A probe that measures the wrong moment does not fail; it answers a different question
 -- convincingly. See agent_docs/probes.md and pitfalls.md.
 local DELAY_FRAMES = 600 -- 10s: connect + bridge_ready + first render_remote + spawn, comfortably
-local OUT = "C:/dev/MeshGhost/dev-scripts/shot.png"
+local OUT = "C:/dev/MeshGhost/dev-scripts/shots/emerald/shot.png"
 
 local frames, done = 0, false
 MESHGHOST_DEV_TICK = function()
