@@ -120,6 +120,24 @@ Thumbs.db
 # Editor/tooling local settings
 .claude/settings.local.json
 
+# Agent-local state under .claude/ -- per-machine scheduling/worktree/checkpoint bookkeeping
+# written by the agent harness, never project content. These were covered ONLY by this clone's
+# .git/info/exclude, which is local and never committed, so a fresh clone would have shown them
+# as untracked and an over-broad `git add -A` could sweep them in -- exactly how ap_try.flag got
+# committed once on 2026-08-18. Listed here so the protection travels with the repo.
+# Deliberately enumerated rather than ignoring .claude/ wholesale, so that shared agent config
+# (a committed skill or agent definition) stays committable if this repo ever grows one.
+.claude/scheduled_tasks.lock
+.claude/scheduled_tasks.json
+.claude/agent-registry.json
+.claude/agent-memory-local/
+.claude/assistant-daemon-state.json
+.claude/first-run
+.claude/routines/.state/
+.claude/worktrees/
+.claude/checkpoints/
+.claude/mailbox/
+
 # Per-machine BizHawk launchers with real local paths filled in (see
 # dev-scripts/README.md) -- the tracked *.bat files stay generic/placeholder since this
 # repo is public. Real reason this exists, not just a preference: a real two-peer Emerald

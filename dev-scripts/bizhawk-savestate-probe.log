@@ -1,6 +1,0 @@
-=== savestate API, as this host actually reports it ===
-  savestate.save       -> userdata
-  savestate.load       -> userdata
-  savestate.saveslot   -> userdata
-  savestate.loadslot   -> userdata
-  savestate.saveslots  -> nil

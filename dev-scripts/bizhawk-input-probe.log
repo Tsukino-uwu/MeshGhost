@@ -1,7 +1,0 @@
-=== input API, as this host actually reports it ===
-  joypad.set           -> userdata
-  joypad.get           -> userdata
-  joypad.getimmediate  -> userdata
-  joypad.setanalog     -> userdata
-  input.get           -> userdata
-  input.getmouse      -> userdata
