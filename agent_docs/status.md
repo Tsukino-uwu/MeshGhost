@@ -53,6 +53,8 @@ that a peer's state genuinely differs from the local player's, which loopback co
 - **Crystal/Archipelago: `wBattleMode` unmeasured** — 0x015A vs 0x1234, needs one trainer battle.
   Everything else is measured and a loopback ghost walks on the AP ROM. `phases/phase9.md`.
 - **Crystal: does a ghost survive a battle?** Set up twice, answered neither time. `phase9.md`.
+- **The core dropped its relay connection twice on quic** — `use of closed network connection`,
+  ~40s apart, reconnecting each time; moving to tcp stopped it. Go side. `verified.md` 2026-08-18.
 - **Duplicate ghost spawn on every level load** — two ghosts per peer, the `remotes` entry going
   present -> absent within three ticks, leaving an orphaned pawn nobody tracks. `verified.md`.
 - **Two different games at once: half fixed** — the user-visible symptom of the bridge-shape gap

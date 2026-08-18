@@ -7127,3 +7127,27 @@ scheduled. All established by the agent with local tools; nothing here is a visu
   "must default to 0 before release". It now does, and reloading fixed it.
   **The asymmetry was the tell**: one client correct and the other offset means a client-side
   constant, not a coordinate or protocol problem, and that narrowed it in one step.
+
+### Go side: the core dropped its relay connection twice on quic, in one session (2026-08-18)
+
+- Date: 2026-08-18
+- Observed: during Crystal loopback testing, `meshghost.exe` logged
+  `core: relay disconnected: use of closed network connection` at 03:54:42 and again at 03:55:18 —
+  about 40 seconds apart — reconnecting cleanly each time as a NEW player id (p1, then p2, then
+  p3). Restarting the core with `-transport=tcp` stopped it; nothing similar appeared afterwards.
+- Source: my own reading of the core's log across two runs — deterministic Go-side code, so this
+  needs no live watching to pursue (`CLAUDE.md`'s client/server rule).
+- **Why it matters beyond the annoyance**: each reconnect arrives as a new player id, so every
+  peer despawns the old ghost and spawns a fresh one. The Crystal adapter's log shows exactly that
+  — `spawned p1` … `despawned p1` … `spawned p3` — which would read as a ghost bug while being a
+  transport one.
+- **What is NOT established**: the cause. The relay logged no kick, no flood-cap message and no
+  error of its own; both ends were on one machine over loopback, so real packet loss is
+  implausible. The relay was serving `-transport=tcp,udp,quic` with `-listen-quic` on a separate
+  port at the time, which is the uncommon configuration, and `-send-hz=100` with `-min-send=10ms`
+  is the fastest rate the dev scripts use. Neither has been tested in isolation.
+- **How to chase it without a game**: `cmd/meshghost-netsim` and `internal/e2e` already drive real
+  binaries over a real transport. A soak at 100Hz on quic-only, then on the three-transport relay,
+  separates "quic at rate" from "quic alongside udp on a split port". CI's race detector on a
+  quic-heavy test is the other angle, since a half-closed session under concurrency is exactly the
+  class it catches and local runs do not.
