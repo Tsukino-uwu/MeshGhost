@@ -48,7 +48,13 @@
 # confirmed. It is a deliberate local experiment and must never be committed or shipped -- its
 # presence in a release would silently lower the bar the refusal exists to hold. It was committed
 # once by an over-broad "git add -A" on 2026-08-18 and removed the same day.
-/adapters/bizhawk/pokemon/crystal/ap_try.flag
+#
+# Globbed, so the PARKED name is covered too. The flag is kept between experiments as
+# `ap_try.flag.off` -- renaming it back is how you turn it on, which beats deleting it and
+# re-creating it from memory later. Without the glob that parked file shows up untracked and the
+# same over-broad `git add -A` sweeps it in, which is precisely how the live one got committed.
+# release.yml still checks for the exact name `ap_try.flag`, so a parked one cannot fail a build.
+/adapters/bizhawk/pokemon/crystal/ap_try.flag*
 
 # Exception: the TEVI mod DLL is committed on purpose -- CI cannot build it (the
 # .csproj needs the user's own proprietary game DLLs, which are never committed,
