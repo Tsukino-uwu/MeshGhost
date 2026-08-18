@@ -1415,3 +1415,32 @@ that is a ten-second check against an authoritative source we already build. If 
 **Generalises.** The same "published lists mix two games' codes without saying so" shape applies to
 any game with a close sibling release. The defence is not caution, it is the decode-and-look-it-up
 step, which is cheap and mechanical.
+
+## BizHawk accepts a GBA cheat code it cannot decrypt, and silently activates the garbage
+
+**Symptom, seen live 2026-08-18.** `client.addcheat("F89BD08B ED8D449E")` returned without error,
+and the Cheats dialog then showed **`2 cheats 2 active`** — with the code decoded to
+**address `0000000E`, value `8B`, size Byte**. GBA EWRAM starts at `0x02000000`, so that is not an
+address in the machine at all: BizHawk had not decrypted the code, it had parsed the hex.
+
+**Two separate traps, and the second is the dangerous one:**
+
+1. **"Accepted" is not "decoded".** `client.addcheat`'s own doc string says it adds a code *"if
+   supported"*, and a `pcall` returning `true` only means the Lua call did not throw. Of six codes
+   added, the four CodeBreaker-format ones (8+4 digits, e.g. `83000E48 1ED2`) were dropped
+   silently — this build has a `GbaGameSharkDecoder` and no CodeBreaker decoder.
+2. **A mis-decoded code is not inert — it is ACTIVE.** Two codes became live per-frame writes of
+   an arbitrary byte to an arbitrary low address. Anything odd afterwards would have been blamed
+   on the adapter, with the cheat sitting quietly in a dialog nobody had open.
+
+**Rule.** Never conclude a cheat worked from the API's return value. Read the Cheats dialog and
+check the decoded **address** is plausible for the machine (`0x02……`/`0x03……` on GBA), then remove
+what you added. `dev-scripts/bizhawk-cheat-clear.lua` exists for exactly that.
+
+**What to do instead on GBA.** Emerald's popular codes are GameShark v3 / CodeBreaker, both
+encrypted and neither usable here — and the ones that look decodable often are not verifiable
+either: `82005274 0YYY` resolves to `gHeap + 0x5274`, an unnamed heap offset whose meaning depends
+on what is allocated at that moment, which is why such codes come with "enable one at a time, then
+switch it off". Prefer writing the real structure through `gSaveBlock1Ptr`, whose offsets are in
+the decomp and can be checked: key items at `+0x5D8`, badge flags at `+0x1270`. Contrast Crystal,
+whose GameShark codes are unencrypted and land on named symbols — see the entry above.

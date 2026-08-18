@@ -4,5 +4,7 @@
   OK      ../adapters/pokemon/crystal/probes/run_second_client.lua
   OK      ../adapters/pokemon/emerald/probes/spawn_test.lua
   OK      ../adapters/pokemon/emerald/probes/object_slot_probe.lua
+  OK      ../adapters/pokemon/emerald/probes/testkit.lua
+  OK      ../dev-scripts/bizhawk-cheat-clear.lua
   OK      ../dev-scripts/bizhawk-dev-loader.lua
-All 6 files compile.
+All 8 files compile.

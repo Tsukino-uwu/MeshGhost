@@ -19,6 +19,8 @@ local FILES = {
 	"../adapters/pokemon/crystal/probes/run_second_client.lua",
 	"../adapters/pokemon/emerald/probes/spawn_test.lua",
 	"../adapters/pokemon/emerald/probes/object_slot_probe.lua",
+	"../adapters/pokemon/emerald/probes/testkit.lua",
+	"../dev-scripts/bizhawk-cheat-clear.lua",
 	"../dev-scripts/bizhawk-dev-loader.lua",
 }
 
