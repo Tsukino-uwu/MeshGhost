@@ -1,0 +1,1121 @@
+=== MeshGhost Crystal/AP map + state probe (READ-ONLY) ===
+Four phases on a countdown. Detail goes to the log file; console gets the summary.
+1: OVERWORLD -- Stand still in the overworld.
+  [1: OVERWORLD] 13 seconds left
+  [1: OVERWORLD] 11 seconds left
+  [1: OVERWORLD] 9 seconds left
+  [1: OVERWORLD] 7 seconds left
+  [1: OVERWORLD] 5 seconds left
+  [1: OVERWORLD] 3 seconds left
+  [1: OVERWORLD] 1 seconds left
+2: ANOTHER MAP -- Go to a DIFFERENT map, then stand still.
+  [2: ANOTHER MAP] 28 seconds left
+  [2: ANOTHER MAP] 26 seconds left
+  [2: ANOTHER MAP] 24 seconds left
+  [2: ANOTHER MAP] 22 seconds left
+  [2: ANOTHER MAP] 20 seconds left
+  [2: ANOTHER MAP] 18 seconds left
+  [2: ANOTHER MAP] 16 seconds left
+  [2: ANOTHER MAP] 14 seconds left
+  [2: ANOTHER MAP] 12 seconds left
+  [2: ANOTHER MAP] 10 seconds left
+  [2: ANOTHER MAP] 8 seconds left
+  [2: ANOTHER MAP] 6 seconds left
+  [2: ANOTHER MAP] 4 seconds left
+  [2: ANOTHER MAP] 2 seconds left
+  [2: ANOTHER MAP] 0 seconds left
+3: IN A BATTLE -- Get into a battle and stay in it.
+  [3: IN A BATTLE] 58 seconds left
+  [3: IN A BATTLE] 56 seconds left
+  [3: IN A BATTLE] 54 seconds left
+  [3: IN A BATTLE] 52 seconds left
+  [3: IN A BATTLE] 50 seconds left
+  [3: IN A BATTLE] 48 seconds left
+  [3: IN A BATTLE] 46 seconds left
+  [3: IN A BATTLE] 44 seconds left
+  [3: IN A BATTLE] 42 seconds left
+  [3: IN A BATTLE] 40 seconds left
+  [3: IN A BATTLE] 38 seconds left
+  [3: IN A BATTLE] 36 seconds left
+  [3: IN A BATTLE] 34 seconds left
+  [3: IN A BATTLE] 32 seconds left
+  [3: IN A BATTLE] 30 seconds left
+  [3: IN A BATTLE] 28 seconds left
+  [3: IN A BATTLE] 26 seconds left
+  [3: IN A BATTLE] 24 seconds left
+  [3: IN A BATTLE] 22 seconds left
+  [3: IN A BATTLE] 20 seconds left
+  [3: IN A BATTLE] 18 seconds left
+  [3: IN A BATTLE] 16 seconds left
+  [3: IN A BATTLE] 14 seconds left
+  [3: IN A BATTLE] 12 seconds left
+  [3: IN A BATTLE] 10 seconds left
+  [3: IN A BATTLE] 8 seconds left
+  [3: IN A BATTLE] 6 seconds left
+  [3: IN A BATTLE] 4 seconds left
+  [3: IN A BATTLE] 2 seconds left
+  [3: IN A BATTLE] 0 seconds left
+  captured the battle moment: 4811 bytes unlike the overworld
+4: BACK OUT -- End the battle, stand still in the overworld.
+  [4: BACK OUT] 28 seconds left
+  [4: BACK OUT] 26 seconds left
+  [4: BACK OUT] 24 seconds left
+  [4: BACK OUT] 22 seconds left
+  [4: BACK OUT] 20 seconds left
+  [4: BACK OUT] 18 seconds left
+  [4: BACK OUT] 16 seconds left
+  [4: BACK OUT] 14 seconds left
+  [4: BACK OUT] 12 seconds left
+  [4: BACK OUT] 10 seconds left
+  [4: BACK OUT] 8 seconds left
+  [4: BACK OUT] 6 seconds left
+  [4: BACK OUT] 4 seconds left
+  [4: BACK OUT] 2 seconds left
+  [4: BACK OUT] 0 seconds left
+=== RESULT ===
+wMapGroup / wMapNumber: 655 candidate(s)
+  Expect a PAIR of adjacent addresses, values small (map groups are single digits to ~26).
+  0x0104 (  260)  overworld=3 map2=1 battle=1 after=1
+  0x0105 (  261)  overworld=1 map2=17 battle=17 after=17
+  0x0109 (  265)  overworld=251 map2=0 battle=0 after=0
+  0x010A (  266)  overworld=114 map2=0 battle=0 after=0
+  0x010F (  271)  overworld=0 map2=192 battle=192 after=192
+  0x0120 (  288)  overworld=17 map2=16 battle=16 after=16
+  0x0136 (  310)  overworld=3 map2=1 battle=1 after=1
+  0x0141 (  321)  overworld=128 map2=192 battle=192 after=192
+  0x0152 (  338)  overworld=17 map2=33 battle=33 after=33
+  0x0160 (  352)  overworld=6 map2=12 battle=12 after=12
+  0x0178 (  376)  overworld=3 map2=4 battle=4 after=4
+  0x0182 (  386)  overworld=19 map2=0 battle=0 after=0
+  0x029F (  671)  overworld=58 map2=60 battle=60 after=60
+  0x02C0 (  704)  overworld=60 map2=52 battle=52 after=52
+  0x02D8 (  728)  overworld=1 map2=2 battle=2 after=2
+  0x02D9 (  729)  overworld=1 map2=2 battle=2 after=2
+  0x02ED (  749)  overworld=34 map2=0 battle=0 after=0
+  0x074C ( 1868)  overworld=6 map2=46 battle=46 after=46
+  0x074D ( 1869)  overworld=6 map2=47 battle=47 after=47
+  0x074E ( 1870)  overworld=6 map2=46 battle=46 after=46
+  0x074F ( 1871)  overworld=6 map2=47 battle=47 after=47
+  0x0750 ( 1872)  overworld=6 map2=46 battle=46 after=46
+  0x0751 ( 1873)  overworld=6 map2=47 battle=47 after=47
+  0x0752 ( 1874)  overworld=6 map2=46 battle=46 after=46
+  0x0753 ( 1875)  overworld=6 map2=47 battle=47 after=47
+  0x0754 ( 1876)  overworld=6 map2=46 battle=46 after=46
+  0x0755 ( 1877)  overworld=6 map2=47 battle=47 after=47
+  0x0756 ( 1878)  overworld=6 map2=46 battle=46 after=46
+  0x0757 ( 1879)  overworld=6 map2=47 battle=47 after=47
+  0x0764 ( 1892)  overworld=6 map2=46 battle=46 after=46
+  0x0765 ( 1893)  overworld=6 map2=47 battle=47 after=47
+  0x0766 ( 1894)  overworld=6 map2=46 battle=46 after=46
+  0x0767 ( 1895)  overworld=6 map2=47 battle=47 after=47
+  0x0768 ( 1896)  overworld=6 map2=46 battle=46 after=46
+  0x0769 ( 1897)  overworld=6 map2=47 battle=47 after=47
+  0x076A ( 1898)  overworld=6 map2=46 battle=46 after=46
+  0x076B ( 1899)  overworld=6 map2=47 battle=47 after=47
+  0x076C ( 1900)  overworld=6 map2=46 battle=46 after=46
+  0x076D ( 1901)  overworld=6 map2=47 battle=47 after=47
+  0x076E ( 1902)  overworld=6 map2=46 battle=46 after=46
+  0x076F ( 1903)  overworld=6 map2=47 battle=47 after=47
+  0x077C ( 1916)  overworld=6 map2=62 battle=62 after=62
+  0x077D ( 1917)  overworld=6 map2=63 battle=63 after=63
+  0x077E ( 1918)  overworld=6 map2=62 battle=62 after=62
+  0x077F ( 1919)  overworld=6 map2=63 battle=63 after=63
+  0x0780 ( 1920)  overworld=6 map2=62 battle=62 after=62
+  0x0781 ( 1921)  overworld=6 map2=63 battle=63 after=63
+  0x0782 ( 1922)  overworld=6 map2=62 battle=62 after=62
+  0x0783 ( 1923)  overworld=6 map2=63 battle=63 after=63
+  0x0784 ( 1924)  overworld=6 map2=62 battle=62 after=62
+  0x0785 ( 1925)  overworld=6 map2=63 battle=63 after=63
+  0x0786 ( 1926)  overworld=6 map2=62 battle=62 after=62
+  0x0787 ( 1927)  overworld=6 map2=63 battle=63 after=63
+  0x0788 ( 1928)  overworld=6 map2=4 battle=4 after=4
+  0x0789 ( 1929)  overworld=6 map2=4 battle=4 after=4
+  0x078A ( 1930)  overworld=6 map2=4 battle=4 after=4
+  0x078B ( 1931)  overworld=6 map2=4 battle=4 after=4
+  0x0790 ( 1936)  overworld=6 map2=30 battle=30 after=30
+  0x0791 ( 1937)  overworld=6 map2=31 battle=31 after=31
+  0x0792 ( 1938)  overworld=6 map2=30 battle=30 after=30
+  0x0793 ( 1939)  overworld=6 map2=31 battle=31 after=31
+  0x0794 ( 1940)  overworld=5 map2=30 battle=30 after=30
+  0x0795 ( 1941)  overworld=5 map2=31 battle=31 after=31
+  0x0796 ( 1942)  overworld=5 map2=30 battle=30 after=30
+  0x0797 ( 1943)  overworld=5 map2=31 battle=31 after=31
+  0x0798 ( 1944)  overworld=16 map2=30 battle=30 after=30
+  0x0799 ( 1945)  overworld=17 map2=31 battle=31 after=31
+  0x079A ( 1946)  overworld=17 map2=30 battle=30 after=30
+  0x079B ( 1947)  overworld=17 map2=31 battle=31 after=31
+  0x07A0 ( 1952)  overworld=6 map2=4 battle=4 after=4
+  0x07A1 ( 1953)  overworld=6 map2=4 battle=4 after=4
+  0x07A2 ( 1954)  overworld=6 map2=4 battle=4 after=4
+  0x07A3 ( 1955)  overworld=6 map2=4 battle=4 after=4
+  0x07A8 ( 1960)  overworld=6 map2=46 battle=46 after=46
+  0x07A9 ( 1961)  overworld=6 map2=47 battle=47 after=47
+  0x07AA ( 1962)  overworld=6 map2=46 battle=46 after=46
+  0x07AB ( 1963)  overworld=6 map2=47 battle=47 after=47
+  0x07AC ( 1964)  overworld=5 map2=46 battle=46 after=46
+  0x07AD ( 1965)  overworld=5 map2=47 battle=47 after=47
+  0x07AE ( 1966)  overworld=5 map2=46 battle=46 after=46
+  0x07AF ( 1967)  overworld=5 map2=47 battle=47 after=47
+  0x07B0 ( 1968)  overworld=10 map2=46 battle=46 after=46
+  0x07B1 ( 1969)  overworld=11 map2=47 battle=47 after=47
+  0x07B2 ( 1970)  overworld=11 map2=46 battle=46 after=46
+  0x07B3 ( 1971)  overworld=11 map2=47 battle=47 after=47
+  0x07B8 ( 1976)  overworld=6 map2=4 battle=4 after=4
+  0x07B9 ( 1977)  overworld=6 map2=4 battle=4 after=4
+  0x07BA ( 1978)  overworld=6 map2=4 battle=4 after=4
+  0x07BB ( 1979)  overworld=6 map2=4 battle=4 after=4
+  0x07C0 ( 1984)  overworld=6 map2=46 battle=46 after=46
+  0x07C1 ( 1985)  overworld=6 map2=47 battle=47 after=47
+  0x07C2 ( 1986)  overworld=6 map2=46 battle=46 after=46
+  0x07C3 ( 1987)  overworld=6 map2=47 battle=47 after=47
+  0x07C4 ( 1988)  overworld=5 map2=46 battle=46 after=46
+  0x07C5 ( 1989)  overworld=5 map2=47 battle=47 after=47
+  0x07C6 ( 1990)  overworld=78 map2=46 battle=46 after=46
+  0x07C7 ( 1991)  overworld=79 map2=47 battle=47 after=47
+  0x07C8 ( 1992)  overworld=26 map2=46 battle=46 after=46
+  0x07C9 ( 1993)  overworld=27 map2=47 battle=47 after=47
+  0x07CA ( 1994)  overworld=55 map2=46 battle=46 after=46
+  0x07CB ( 1995)  overworld=56 map2=47 battle=47 after=47
+  0x07D0 ( 2000)  overworld=6 map2=4 battle=4 after=4
+  0x07D1 ( 2001)  overworld=6 map2=4 battle=4 after=4
+  0x07D2 ( 2002)  overworld=6 map2=4 battle=4 after=4
+  0x07D3 ( 2003)  overworld=6 map2=4 battle=4 after=4
+  0x07D8 ( 2008)  overworld=6 map2=62 battle=62 after=62
+  0x07D9 ( 2009)  overworld=6 map2=63 battle=63 after=63
+  0x07DA ( 2010)  overworld=6 map2=62 battle=62 after=62
+  0x07DB ( 2011)  overworld=6 map2=63 battle=63 after=63
+  0x07DC ( 2012)  overworld=5 map2=62 battle=62 after=62
+  0x07DD ( 2013)  overworld=5 map2=63 battle=63 after=63
+  0x07DE ( 2014)  overworld=94 map2=62 battle=62 after=62
+  0x07DF ( 2015)  overworld=95 map2=63 battle=63 after=63
+  0x07E0 ( 2016)  overworld=1 map2=62 battle=62 after=62
+  0x07E1 ( 2017)  overworld=2 map2=63 battle=63 after=63
+  0x07E2 ( 2018)  overworld=57 map2=62 battle=62 after=62
+  0x07E3 ( 2019)  overworld=58 map2=63 battle=63 after=63
+  0x080D ( 2061)  overworld=0 map2=5 battle=5 after=5
+  0x080E ( 2062)  overworld=0 map2=5 battle=5 after=5
+  0x080F ( 2063)  overworld=0 map2=5 battle=5 after=5
+  0x0810 ( 2064)  overworld=0 map2=1 battle=1 after=1
+  0x0811 ( 2065)  overworld=0 map2=1 battle=1 after=1
+  0x0812 ( 2066)  overworld=0 map2=1 battle=1 after=1
+  0x0813 ( 2067)  overworld=0 map2=5 battle=5 after=5
+  0x0814 ( 2068)  overworld=0 map2=5 battle=5 after=5
+  0x0815 ( 2069)  overworld=0 map2=5 battle=5 after=5
+  0x0816 ( 2070)  overworld=0 map2=5 battle=5 after=5
+  0x0830 ( 2096)  overworld=5 map2=0 battle=0 after=0
+  0x0834 ( 2100)  overworld=5 map2=12 battle=12 after=12
+  0x0835 ( 2101)  overworld=24 map2=13 battle=13 after=13
+  0x0836 ( 2102)  overworld=31 map2=5 battle=5 after=5
+  0x0837 ( 2103)  overworld=25 map2=5 battle=5 after=5
+  0x083B ( 2107)  overworld=5 map2=0 battle=0 after=0
+  0x083C ( 2108)  overworld=5 map2=0 battle=0 after=0
+  0x083D ( 2109)  overworld=5 map2=0 battle=0 after=0
+  0x083E ( 2110)  overworld=5 map2=0 battle=0 after=0
+  0x083F ( 2111)  overworld=5 map2=0 battle=0 after=0
+  0x0840 ( 2112)  overworld=5 map2=0 battle=0 after=0
+  0x0841 ( 2113)  overworld=5 map2=0 battle=0 after=0
+  0x0842 ( 2114)  overworld=5 map2=0 battle=0 after=0
+  0x0843 ( 2115)  overworld=5 map2=0 battle=0 after=0
+  0x0844 ( 2116)  overworld=71 map2=0 battle=0 after=0
+  0x0845 ( 2117)  overworld=28 map2=0 battle=0 after=0
+  0x0846 ( 2118)  overworld=119 map2=0 battle=0 after=0
+  0x0847 ( 2119)  overworld=30 map2=0 battle=0 after=0
+  0x0848 ( 2120)  overworld=5 map2=0 battle=0 after=0
+  0x0849 ( 2121)  overworld=24 map2=0 battle=0 after=0
+  0x084A ( 2122)  overworld=25 map2=0 battle=0 after=0
+  0x084B ( 2123)  overworld=5 map2=0 battle=0 after=0
+  0x084C ( 2124)  overworld=5 map2=0 battle=0 after=0
+  0x084D ( 2125)  overworld=5 map2=0 battle=0 after=0
+  0x084E ( 2126)  overworld=5 map2=0 battle=0 after=0
+  0x084F ( 2127)  overworld=5 map2=0 battle=0 after=0
+  0x0850 ( 2128)  overworld=5 map2=0 battle=0 after=0
+  0x0851 ( 2129)  overworld=5 map2=0 battle=0 after=0
+  0x0852 ( 2130)  overworld=5 map2=0 battle=0 after=0
+  0x0853 ( 2131)  overworld=5 map2=0 battle=0 after=0
+  0x0854 ( 2132)  overworld=2 map2=0 battle=0 after=0
+  0x0855 ( 2133)  overworld=1 map2=5 battle=5 after=5
+  0x0856 ( 2134)  overworld=1 map2=5 battle=5 after=5
+  0x0857 ( 2135)  overworld=1 map2=5 battle=5 after=5
+  0x0858 ( 2136)  overworld=71 map2=8 battle=8 after=8
+  0x0859 ( 2137)  overworld=22 map2=9 battle=9 after=9
+  0x085A ( 2138)  overworld=30 map2=5 battle=5 after=5
+  0x085F ( 2143)  overworld=5 map2=0 battle=0 after=0
+  0x0860 ( 2144)  overworld=5 map2=0 battle=0 after=0
+  0x0861 ( 2145)  overworld=5 map2=0 battle=0 after=0
+  0x0862 ( 2146)  overworld=5 map2=0 battle=0 after=0
+  0x0863 ( 2147)  overworld=5 map2=0 battle=0 after=0
+  0x0864 ( 2148)  overworld=1 map2=0 battle=0 after=0
+  0x0865 ( 2149)  overworld=1 map2=0 battle=0 after=0
+  0x0866 ( 2150)  overworld=1 map2=0 battle=0 after=0
+  0x0867 ( 2151)  overworld=1 map2=0 battle=0 after=0
+  0x0868 ( 2152)  overworld=1 map2=0 battle=0 after=0
+  0x0869 ( 2153)  overworld=1 map2=0 battle=0 after=0
+  0x086A ( 2154)  overworld=1 map2=0 battle=0 after=0
+  0x086B ( 2155)  overworld=1 map2=0 battle=0 after=0
+  0x086C ( 2156)  overworld=84 map2=88 battle=88 after=88
+  0x086D ( 2157)  overworld=118 map2=89 battle=89 after=89
+  0x086E ( 2158)  overworld=118 map2=5 battle=5 after=5
+  0x086F ( 2159)  overworld=118 map2=5 battle=5 after=5
+  0x0870 ( 2160)  overworld=1 map2=5 battle=5 after=5
+  0x0871 ( 2161)  overworld=1 map2=5 battle=5 after=5
+  0x0872 ( 2162)  overworld=1 map2=5 battle=5 after=5
+  0x0873 ( 2163)  overworld=1 map2=5 battle=5 after=5
+  0x0874 ( 2164)  overworld=1 map2=92 battle=92 after=92
+  0x0875 ( 2165)  overworld=1 map2=93 battle=93 after=93
+  0x0876 ( 2166)  overworld=1 map2=5 battle=5 after=5
+  0x0877 ( 2167)  overworld=69 map2=5 battle=5 after=5
+  0x0878 ( 2168)  overworld=1 map2=5 battle=5 after=5
+  0x0879 ( 2169)  overworld=1 map2=5 battle=5 after=5
+  0x087A ( 2170)  overworld=1 map2=5 battle=5 after=5
+  0x087B ( 2171)  overworld=1 map2=5 battle=5 after=5
+  0x087C ( 2172)  overworld=88 map2=26 battle=26 after=26
+  0x087D ( 2173)  overworld=53 map2=17 battle=17 after=17
+  0x087E ( 2174)  overworld=53 map2=5 battle=5 after=5
+  0x087F ( 2175)  overworld=53 map2=5 battle=5 after=5
+  0x0884 ( 2180)  overworld=20 map2=5 battle=5 after=5
+  0x0885 ( 2181)  overworld=21 map2=5 battle=5 after=5
+  0x0886 ( 2182)  overworld=1 map2=5 battle=5 after=5
+  0x0887 ( 2183)  overworld=1 map2=5 battle=5 after=5
+  0x0888 ( 2184)  overworld=1 map2=5 battle=5 after=5
+  0x0889 ( 2185)  overworld=1 map2=5 battle=5 after=5
+  0x088A ( 2186)  overworld=1 map2=5 battle=5 after=5
+  0x088B ( 2187)  overworld=98 map2=5 battle=5 after=5
+  0x088F ( 2191)  overworld=88 map2=24 battle=24 after=24
+  0x0890 ( 2192)  overworld=5 map2=100 battle=100 after=100
+  0x0891 ( 2193)  overworld=5 map2=2 battle=2 after=2
+  0x0893 ( 2195)  overworld=4 map2=5 battle=5 after=5
+  0x0894 ( 2196)  overworld=1 map2=5 battle=5 after=5
+  0x0895 ( 2197)  overworld=1 map2=5 battle=5 after=5
+  0x0896 ( 2198)  overworld=1 map2=5 battle=5 after=5
+  0x0897 ( 2199)  overworld=71 map2=5 battle=5 after=5
+  0x0898 ( 2200)  overworld=20 map2=60 battle=60 after=60
+  0x0899 ( 2201)  overworld=21 map2=2 battle=2 after=2
+  0x089A ( 2202)  overworld=1 map2=79 battle=79 after=79
+  0x089B ( 2203)  overworld=98 map2=2 battle=2 after=2
+  0x089C ( 2204)  overworld=5 map2=61 battle=61 after=61
+  0x089D ( 2205)  overworld=5 map2=93 battle=93 after=93
+  0x089F ( 2207)  overworld=88 map2=2 battle=2 after=2
+  0x08A0 ( 2208)  overworld=5 map2=2 battle=2 after=2
+  0x08A1 ( 2209)  overworld=5 map2=2 battle=2 after=2
+  0x08A4 ( 2212)  overworld=101 map2=5 battle=5 after=5
+  0x08A5 ( 2213)  overworld=101 map2=5 battle=5 after=5
+  0x08A6 ( 2214)  overworld=1 map2=3 battle=3 after=3
+  0x08A7 ( 2215)  overworld=1 map2=3 battle=3 after=3
+  0x08A8 ( 2216)  overworld=1 map2=3 battle=3 after=3
+  0x08A9 ( 2217)  overworld=1 map2=3 battle=3 after=3
+  0x08AA ( 2218)  overworld=1 map2=101 battle=101 after=101
+  0x08AB ( 2219)  overworld=98 map2=102 battle=102 after=102
+  0x08AF ( 2223)  overworld=10 map2=5 battle=5 after=5
+  0x08B2 ( 2226)  overworld=5 map2=71 battle=71 after=71
+  0x08B3 ( 2227)  overworld=5 map2=28 battle=28 after=28
+  0x08B8 ( 2232)  overworld=5 map2=71 battle=71 after=71
+  0x08B9 ( 2233)  overworld=5 map2=2 battle=2 after=2
+  0x08BA ( 2234)  overworld=5 map2=94 battle=94 after=94
+  0x08BC ( 2236)  overworld=5 map2=75 battle=75 after=75
+  0x08BD ( 2237)  overworld=5 map2=87 battle=87 after=87
+  0x08BE ( 2238)  overworld=5 map2=83 battle=83 after=83
+  0x08BF ( 2239)  overworld=88 map2=3 battle=3 after=3
+  0x08C0 ( 2240)  overworld=0 map2=3 battle=3 after=3
+  0x08C1 ( 2241)  overworld=0 map2=62 battle=62 after=62
+  0x08C2 ( 2242)  overworld=0 map2=61 battle=61 after=61
+  0x08C3 ( 2243)  overworld=0 map2=2 battle=2 after=2
+  0x08C4 ( 2244)  overworld=0 map2=2 battle=2 after=2
+  0x08C5 ( 2245)  overworld=0 map2=2 battle=2 after=2
+  0x08C6 ( 2246)  overworld=0 map2=94 battle=94 after=94
+  0x08C7 ( 2247)  overworld=0 map2=5 battle=5 after=5
+  0x08C8 ( 2248)  overworld=0 map2=3 battle=3 after=3
+  0x08C9 ( 2249)  overworld=0 map2=2 battle=2 after=2
+  0x08CA ( 2250)  overworld=0 map2=3 battle=3 after=3
+  0x08CB ( 2251)  overworld=0 map2=3 battle=3 after=3
+  0x08CC ( 2252)  overworld=0 map2=3 battle=3 after=3
+  0x08CD ( 2253)  overworld=0 map2=5 battle=5 after=5
+  0x08CE ( 2254)  overworld=0 map2=5 battle=5 after=5
+  0x08CF ( 2255)  overworld=0 map2=5 battle=5 after=5
+  0x08D0 ( 2256)  overworld=0 map2=5 battle=5 after=5
+  0x08D1 ( 2257)  overworld=0 map2=5 battle=5 after=5
+  0x08D2 ( 2258)  overworld=0 map2=5 battle=5 after=5
+  0x08D3 ( 2259)  overworld=0 map2=5 battle=5 after=5
+  0x08D4 ( 2260)  overworld=0 map2=5 battle=5 after=5
+  0x08D5 ( 2261)  overworld=0 map2=5 battle=5 after=5
+  0x08D6 ( 2262)  overworld=0 map2=2 battle=2 after=2
+  0x08D7 ( 2263)  overworld=0 map2=1 battle=1 after=1
+  0x08D8 ( 2264)  overworld=0 map2=1 battle=1 after=1
+  0x08D9 ( 2265)  overworld=0 map2=1 battle=1 after=1
+  0x08DA ( 2266)  overworld=0 map2=1 battle=1 after=1
+  0x08DB ( 2267)  overworld=0 map2=1 battle=1 after=1
+  0x08DC ( 2268)  overworld=0 map2=1 battle=1 after=1
+  0x08DD ( 2269)  overworld=0 map2=1 battle=1 after=1
+  0x08DE ( 2270)  overworld=0 map2=1 battle=1 after=1
+  0x08DF ( 2271)  overworld=0 map2=78 battle=78 after=78
+  0x08E0 ( 2272)  overworld=0 map2=3 battle=3 after=3
+  0x08E1 ( 2273)  overworld=0 map2=3 battle=3 after=3
+  0x08E2 ( 2274)  overworld=0 map2=3 battle=3 after=3
+  0x08E3 ( 2275)  overworld=0 map2=3 battle=3 after=3
+  0x08E4 ( 2276)  overworld=0 map2=97 battle=97 after=97
+  0x08E5 ( 2277)  overworld=0 map2=100 battle=100 after=100
+  0x08E6 ( 2278)  overworld=0 map2=62 battle=62 after=62
+  0x08E7 ( 2279)  overworld=0 map2=2 battle=2 after=2
+  0x08E8 ( 2280)  overworld=0 map2=2 battle=2 after=2
+  0x08E9 ( 2281)  overworld=0 map2=2 battle=2 after=2
+  0x08EA ( 2282)  overworld=0 map2=2 battle=2 after=2
+  0x08EB ( 2283)  overworld=0 map2=3 battle=3 after=3
+  0x08EC ( 2284)  overworld=0 map2=3 battle=3 after=3
+  0x08ED ( 2285)  overworld=0 map2=3 battle=3 after=3
+  0x08EE ( 2286)  overworld=0 map2=5 battle=5 after=5
+  0x08EF ( 2287)  overworld=0 map2=2 battle=2 after=2
+  0x08F0 ( 2288)  overworld=0 map2=5 battle=5 after=5
+  0x08F1 ( 2289)  overworld=0 map2=5 battle=5 after=5
+  0x08F2 ( 2290)  overworld=0 map2=92 battle=92 after=92
+  0x08F3 ( 2291)  overworld=0 map2=60 battle=60 after=60
+  0x08F4 ( 2292)  overworld=0 map2=71 battle=71 after=71
+  0x08F5 ( 2293)  overworld=0 map2=2 battle=2 after=2
+  0x08F6 ( 2294)  overworld=0 map2=5 battle=5 after=5
+  0x08F7 ( 2295)  overworld=0 map2=5 battle=5 after=5
+  0x08F8 ( 2296)  overworld=0 map2=5 battle=5 after=5
+  0x08F9 ( 2297)  overworld=0 map2=5 battle=5 after=5
+  0x08FA ( 2298)  overworld=0 map2=1 battle=1 after=1
+  0x08FB ( 2299)  overworld=0 map2=1 battle=1 after=1
+  0x08FC ( 2300)  overworld=0 map2=5 battle=5 after=5
+  0x08FD ( 2301)  overworld=0 map2=5 battle=5 after=5
+  0x08FE ( 2302)  overworld=0 map2=5 battle=5 after=5
+  0x08FF ( 2303)  overworld=0 map2=5 battle=5 after=5
+  0x0900 ( 2304)  overworld=0 map2=5 battle=5 after=5
+  0x0901 ( 2305)  overworld=0 map2=2 battle=2 after=2
+  0x0902 ( 2306)  overworld=0 map2=1 battle=1 after=1
+  0x0903 ( 2307)  overworld=0 map2=82 battle=82 after=82
+  0x0904 ( 2308)  overworld=0 map2=75 battle=75 after=75
+  0x0905 ( 2309)  overworld=0 map2=87 battle=87 after=87
+  0x0906 ( 2310)  overworld=0 map2=102 battle=102 after=102
+  0x0907 ( 2311)  overworld=0 map2=97 battle=97 after=97
+  0x0908 ( 2312)  overworld=0 map2=97 battle=97 after=97
+  0x0909 ( 2313)  overworld=0 map2=97 battle=97 after=97
+  0x090A ( 2314)  overworld=0 map2=100 battle=100 after=100
+  0x090B ( 2315)  overworld=0 map2=87 battle=87 after=87
+  0x090C ( 2316)  overworld=0 map2=87 battle=87 after=87
+  0x090D ( 2317)  overworld=0 map2=102 battle=102 after=102
+  0x090E ( 2318)  overworld=0 map2=99 battle=99 after=99
+  0x090F ( 2319)  overworld=0 map2=97 battle=97 after=97
+  0x0910 ( 2320)  overworld=0 map2=97 battle=97 after=97
+  0x0911 ( 2321)  overworld=0 map2=3 battle=3 after=3
+  0x0912 ( 2322)  overworld=0 map2=5 battle=5 after=5
+  0x0913 ( 2323)  overworld=0 map2=3 battle=3 after=3
+  0x0914 ( 2324)  overworld=0 map2=79 battle=79 after=79
+  0x0915 ( 2325)  overworld=0 map2=2 battle=2 after=2
+  0x0916 ( 2326)  overworld=0 map2=2 battle=2 after=2
+  0x0917 ( 2327)  overworld=0 map2=2 battle=2 after=2
+  0x0918 ( 2328)  overworld=0 map2=1 battle=1 after=1
+  0x0919 ( 2329)  overworld=0 map2=1 battle=1 after=1
+  0x091A ( 2330)  overworld=0 map2=1 battle=1 after=1
+  0x091B ( 2331)  overworld=0 map2=1 battle=1 after=1
+  0x091C ( 2332)  overworld=0 map2=1 battle=1 after=1
+  0x091D ( 2333)  overworld=0 map2=1 battle=1 after=1
+  0x091E ( 2334)  overworld=0 map2=1 battle=1 after=1
+  0x091F ( 2335)  overworld=0 map2=1 battle=1 after=1
+  0x0920 ( 2336)  overworld=0 map2=5 battle=5 after=5
+  0x0921 ( 2337)  overworld=0 map2=5 battle=5 after=5
+  0x0922 ( 2338)  overworld=0 map2=5 battle=5 after=5
+  0x0923 ( 2339)  overworld=0 map2=5 battle=5 after=5
+  0x0924 ( 2340)  overworld=0 map2=5 battle=5 after=5
+  0x0925 ( 2341)  overworld=0 map2=3 battle=3 after=3
+  0x0926 ( 2342)  overworld=0 map2=1 battle=1 after=1
+  0x0927 ( 2343)  overworld=0 map2=1 battle=1 after=1
+  0x0928 ( 2344)  overworld=0 map2=1 battle=1 after=1
+  0x0929 ( 2345)  overworld=0 map2=2 battle=2 after=2
+  0x092A ( 2346)  overworld=0 map2=2 battle=2 after=2
+  0x092B ( 2347)  overworld=0 map2=63 battle=63 after=63
+  0x092C ( 2348)  overworld=0 map2=101 battle=101 after=101
+  0x092D ( 2349)  overworld=0 map2=95 battle=95 after=95
+  0x092E ( 2350)  overworld=0 map2=93 battle=93 after=93
+  0x092F ( 2351)  overworld=0 map2=2 battle=2 after=2
+  0x0930 ( 2352)  overworld=0 map2=2 battle=2 after=2
+  0x0931 ( 2353)  overworld=0 map2=78 battle=78 after=78
+  0x0932 ( 2354)  overworld=0 map2=2 battle=2 after=2
+  0x0933 ( 2355)  overworld=0 map2=2 battle=2 after=2
+  0x0934 ( 2356)  overworld=0 map2=2 battle=2 after=2
+  0x0935 ( 2357)  overworld=0 map2=2 battle=2 after=2
+  0x0936 ( 2358)  overworld=0 map2=2 battle=2 after=2
+  0x0937 ( 2359)  overworld=0 map2=3 battle=3 after=3
+  0x0938 ( 2360)  overworld=0 map2=79 battle=79 after=79
+  0x0939 ( 2361)  overworld=0 map2=3 battle=3 after=3
+  0x093A ( 2362)  overworld=0 map2=3 battle=3 after=3
+  0x093B ( 2363)  overworld=0 map2=2 battle=2 after=2
+  0x093C ( 2364)  overworld=0 map2=2 battle=2 after=2
+  0x093D ( 2365)  overworld=0 map2=2 battle=2 after=2
+  0x093E ( 2366)  overworld=0 map2=5 battle=5 after=5
+  0x093F ( 2367)  overworld=0 map2=5 battle=5 after=5
+  0x0940 ( 2368)  overworld=0 map2=5 battle=5 after=5
+  0x0941 ( 2369)  overworld=0 map2=5 battle=5 after=5
+  0x0942 ( 2370)  overworld=0 map2=20 battle=20 after=20
+  0x0943 ( 2371)  overworld=0 map2=21 battle=21 after=21
+  0x0944 ( 2372)  overworld=0 map2=5 battle=5 after=5
+  0x0945 ( 2373)  overworld=0 map2=5 battle=5 after=5
+  0x0946 ( 2374)  overworld=0 map2=5 battle=5 after=5
+  0x0947 ( 2375)  overworld=0 map2=5 battle=5 after=5
+  0x0948 ( 2376)  overworld=0 map2=5 battle=5 after=5
+  0x0949 ( 2377)  overworld=0 map2=3 battle=3 after=3
+  0x094A ( 2378)  overworld=0 map2=3 battle=3 after=3
+  0x094B ( 2379)  overworld=0 map2=3 battle=3 after=3
+  0x094C ( 2380)  overworld=0 map2=5 battle=5 after=5
+  0x094D ( 2381)  overworld=0 map2=100 battle=100 after=100
+  0x094E ( 2382)  overworld=0 map2=87 battle=87 after=87
+  0x094F ( 2383)  overworld=0 map2=87 battle=87 after=87
+  0x0950 ( 2384)  overworld=0 map2=97 battle=97 after=97
+  0x0951 ( 2385)  overworld=0 map2=97 battle=97 after=97
+  0x0952 ( 2386)  overworld=0 map2=60 battle=60 after=60
+  0x0953 ( 2387)  overworld=0 map2=2 battle=2 after=2
+  0x0954 ( 2388)  overworld=0 map2=2 battle=2 after=2
+  0x0955 ( 2389)  overworld=0 map2=82 battle=82 after=82
+  0x0956 ( 2390)  overworld=0 map2=75 battle=75 after=75
+  0x0957 ( 2391)  overworld=0 map2=87 battle=87 after=87
+  0x0958 ( 2392)  overworld=0 map2=102 battle=102 after=102
+  0x0959 ( 2393)  overworld=0 map2=5 battle=5 after=5
+  0x095A ( 2394)  overworld=0 map2=87 battle=87 after=87
+  0x095B ( 2395)  overworld=0 map2=87 battle=87 after=87
+  0x095C ( 2396)  overworld=0 map2=83 battle=83 after=83
+  0x095D ( 2397)  overworld=0 map2=3 battle=3 after=3
+  0x095E ( 2398)  overworld=0 map2=3 battle=3 after=3
+  0x095F ( 2399)  overworld=0 map2=3 battle=3 after=3
+  0x0960 ( 2400)  overworld=0 map2=3 battle=3 after=3
+  0x0961 ( 2401)  overworld=0 map2=3 battle=3 after=3
+  0x0962 ( 2402)  overworld=0 map2=5 battle=5 after=5
+  0x0963 ( 2403)  overworld=0 map2=5 battle=5 after=5
+  0x0964 ( 2404)  overworld=0 map2=5 battle=5 after=5
+  0x0965 ( 2405)  overworld=0 map2=4 battle=4 after=4
+  0x0966 ( 2406)  overworld=0 map2=1 battle=1 after=1
+  0x0967 ( 2407)  overworld=0 map2=1 battle=1 after=1
+  0x0968 ( 2408)  overworld=0 map2=5 battle=5 after=5
+  0x0969 ( 2409)  overworld=0 map2=5 battle=5 after=5
+  0x096A ( 2410)  overworld=0 map2=5 battle=5 after=5
+  0x096B ( 2411)  overworld=0 map2=5 battle=5 after=5
+  0x096C ( 2412)  overworld=0 map2=5 battle=5 after=5
+  0x096D ( 2413)  overworld=0 map2=3 battle=3 after=3
+  0x096E ( 2414)  overworld=0 map2=3 battle=3 after=3
+  0x096F ( 2415)  overworld=0 map2=5 battle=5 after=5
+  0x0970 ( 2416)  overworld=0 map2=5 battle=5 after=5
+  0x0971 ( 2417)  overworld=0 map2=5 battle=5 after=5
+  0x0972 ( 2418)  overworld=0 map2=2 battle=2 after=2
+  0x0973 ( 2419)  overworld=0 map2=2 battle=2 after=2
+  0x0974 ( 2420)  overworld=0 map2=2 battle=2 after=2
+  0x0975 ( 2421)  overworld=0 map2=2 battle=2 after=2
+  0x0976 ( 2422)  overworld=0 map2=2 battle=2 after=2
+  0x0977 ( 2423)  overworld=0 map2=2 battle=2 after=2
+  0x0978 ( 2424)  overworld=0 map2=2 battle=2 after=2
+  0x0979 ( 2425)  overworld=0 map2=2 battle=2 after=2
+  0x097A ( 2426)  overworld=0 map2=1 battle=1 after=1
+  0x097B ( 2427)  overworld=0 map2=2 battle=2 after=2
+  0x097C ( 2428)  overworld=0 map2=5 battle=5 after=5
+  0x097D ( 2429)  overworld=0 map2=5 battle=5 after=5
+  0x097E ( 2430)  overworld=0 map2=3 battle=3 after=3
+  0x097F ( 2431)  overworld=0 map2=3 battle=3 after=3
+  0x0980 ( 2432)  overworld=0 map2=3 battle=3 after=3
+  0x0981 ( 2433)  overworld=0 map2=3 battle=3 after=3
+  0x0982 ( 2434)  overworld=0 map2=3 battle=3 after=3
+  0x0983 ( 2435)  overworld=0 map2=5 battle=5 after=5
+  0x0984 ( 2436)  overworld=0 map2=5 battle=5 after=5
+  0x0985 ( 2437)  overworld=0 map2=5 battle=5 after=5
+  0x0986 ( 2438)  overworld=0 map2=5 battle=5 after=5
+  0x0987 ( 2439)  overworld=0 map2=5 battle=5 after=5
+  0x0988 ( 2440)  overworld=0 map2=5 battle=5 after=5
+  0x0989 ( 2441)  overworld=0 map2=5 battle=5 after=5
+  0x098A ( 2442)  overworld=0 map2=101 battle=101 after=101
+  0x098B ( 2443)  overworld=0 map2=101 battle=101 after=101
+  0x098C ( 2444)  overworld=0 map2=5 battle=5 after=5
+  0x098D ( 2445)  overworld=0 map2=5 battle=5 after=5
+  0x098E ( 2446)  overworld=0 map2=5 battle=5 after=5
+  0x098F ( 2447)  overworld=0 map2=5 battle=5 after=5
+  0x0990 ( 2448)  overworld=0 map2=5 battle=5 after=5
+  0x0991 ( 2449)  overworld=0 map2=5 battle=5 after=5
+  0x0992 ( 2450)  overworld=0 map2=5 battle=5 after=5
+  0x0993 ( 2451)  overworld=0 map2=5 battle=5 after=5
+  0x0994 ( 2452)  overworld=0 map2=5 battle=5 after=5
+  0x0995 ( 2453)  overworld=0 map2=5 battle=5 after=5
+  0x0996 ( 2454)  overworld=0 map2=5 battle=5 after=5
+  0x0997 ( 2455)  overworld=0 map2=5 battle=5 after=5
+  0x0998 ( 2456)  overworld=0 map2=5 battle=5 after=5
+  0x0999 ( 2457)  overworld=0 map2=5 battle=5 after=5
+  0x099A ( 2458)  overworld=0 map2=5 battle=5 after=5
+  0x099B ( 2459)  overworld=0 map2=101 battle=101 after=101
+  0x099C ( 2460)  overworld=0 map2=2 battle=2 after=2
+  0x099D ( 2461)  overworld=0 map2=2 battle=2 after=2
+  0x099E ( 2462)  overworld=0 map2=1 battle=1 after=1
+  0x099F ( 2463)  overworld=0 map2=1 battle=1 after=1
+  0x09A0 ( 2464)  overworld=0 map2=1 battle=1 after=1
+  0x09A1 ( 2465)  overworld=0 map2=2 battle=2 after=2
+  0x09A2 ( 2466)  overworld=0 map2=2 battle=2 after=2
+  0x09A3 ( 2467)  overworld=0 map2=3 battle=3 after=3
+  0x09A4 ( 2468)  overworld=0 map2=3 battle=3 after=3
+  0x09A5 ( 2469)  overworld=0 map2=5 battle=5 after=5
+  0x09A6 ( 2470)  overworld=0 map2=5 battle=5 after=5
+  0x09A7 ( 2471)  overworld=0 map2=5 battle=5 after=5
+  0x09A8 ( 2472)  overworld=0 map2=5 battle=5 after=5
+  0x09A9 ( 2473)  overworld=0 map2=5 battle=5 after=5
+  0x09AA ( 2474)  overworld=0 map2=5 battle=5 after=5
+  0x09AB ( 2475)  overworld=0 map2=5 battle=5 after=5
+  0x09AC ( 2476)  overworld=0 map2=5 battle=5 after=5
+  0x09AD ( 2477)  overworld=0 map2=5 battle=5 after=5
+  0x09AE ( 2478)  overworld=0 map2=5 battle=5 after=5
+  0x09AF ( 2479)  overworld=0 map2=5 battle=5 after=5
+  0x0D24 ( 3364)  overworld=6 map2=5 battle=5 after=5
+  0x0D25 ( 3365)  overworld=6 map2=5 battle=5 after=5
+  0x0D26 ( 3366)  overworld=6 map2=5 battle=5 after=5
+  0x0D27 ( 3367)  overworld=6 map2=5 battle=5 after=5
+  0x0D34 ( 3380)  overworld=6 map2=5 battle=5 after=5
+  0x0D35 ( 3381)  overworld=6 map2=5 battle=5 after=5
+  0x0D3C ( 3388)  overworld=6 map2=4 battle=4 after=4
+  0x0D3D ( 3389)  overworld=6 map2=4 battle=4 after=4
+  0x0D3E ( 3390)  overworld=5 map2=4 battle=4 after=4
+  0x0D3F ( 3391)  overworld=5 map2=4 battle=4 after=4
+  0x0D40 ( 3392)  overworld=94 map2=4 battle=4 after=4
+  0x0D41 ( 3393)  overworld=95 map2=4 battle=4 after=4
+  0x0D42 ( 3394)  overworld=1 map2=4 battle=4 after=4
+  0x0D43 ( 3395)  overworld=2 map2=4 battle=4 after=4
+  0x0D48 ( 3400)  overworld=0 map2=2 battle=2 after=2
+  0x0D49 ( 3401)  overworld=0 map2=2 battle=2 after=2
+  0x0D4A ( 3402)  overworld=0 map2=2 battle=2 after=2
+  0x0D4B ( 3403)  overworld=0 map2=2 battle=2 after=2
+  0x0D4C ( 3404)  overworld=0 map2=2 battle=2 after=2
+  0x0D4D ( 3405)  overworld=0 map2=2 battle=2 after=2
+  0x0D4E ( 3406)  overworld=0 map2=2 battle=2 after=2
+  0x0D4F ( 3407)  overworld=0 map2=2 battle=2 after=2
+  0x0D5C ( 3420)  overworld=0 map2=2 battle=2 after=2
+  0x0D5D ( 3421)  overworld=0 map2=2 battle=2 after=2
+  0x0D60 ( 3424)  overworld=0 map2=2 battle=2 after=2
+  0x0D61 ( 3425)  overworld=0 map2=2 battle=2 after=2
+  0x0D62 ( 3426)  overworld=0 map2=2 battle=2 after=2
+  0x0D63 ( 3427)  overworld=0 map2=2 battle=2 after=2
+  0x0D64 ( 3428)  overworld=0 map2=2 battle=2 after=2
+  0x0D65 ( 3429)  overworld=0 map2=2 battle=2 after=2
+  0x0D68 ( 3432)  overworld=0 map2=2 battle=2 after=2
+  0x0D69 ( 3433)  overworld=0 map2=2 battle=2 after=2
+  0x0D6A ( 3434)  overworld=5 map2=2 battle=2 after=2
+  0x0D6B ( 3435)  overworld=5 map2=2 battle=2 after=2
+  0x0D71 ( 3441)  overworld=155 map2=153 battle=153 after=153
+  0x0D73 ( 3443)  overworld=155 map2=153 battle=153 after=153
+  0x0D81 ( 3457)  overworld=155 map2=154 battle=154 after=154
+  0x0D83 ( 3459)  overworld=155 map2=154 battle=154 after=154
+  0x1077 ( 4215)  overworld=129 map2=132 battle=132 after=132
+  0x107B ( 4219)  overworld=31 map2=80 battle=80 after=80
+  0x107E ( 4222)  overworld=150 map2=148 battle=148 after=148
+  0x107F ( 4223)  overworld=141 map2=147 battle=147 after=147
+  0x1080 ( 4224)  overworld=80 map2=132 battle=132 after=132
+  0x1081 ( 4225)  overworld=130 map2=127 battle=127 after=127
+  0x1082 ( 4226)  overworld=135 map2=249 battle=249 after=249
+  0x1083 ( 4227)  overworld=132 map2=246 battle=246 after=246
+  0x1084 ( 4228)  overworld=145 map2=80 battle=80 after=80
+  0x11A1 ( 4513)  overworld=1 map2=2 battle=2 after=2
+  0x11A2 ( 4514)  overworld=5 map2=9 battle=9 after=9
+  0x11A3 ( 4515)  overworld=78 map2=80 battle=80 after=80
+  0x11A6 ( 4518)  overworld=10 map2=30 battle=30 after=30
+  0x11A7 ( 4519)  overworld=43 map2=42 battle=42 after=42
+  0x11A8 ( 4520)  overworld=181 map2=213 battle=213 after=213
+  0x11A9 ( 4521)  overworld=77 map2=82 battle=82 after=82
+  0x11AA ( 4522)  overworld=106 map2=104 battle=104 after=104
+  0x11AB ( 4523)  overworld=0 map2=93 battle=93 after=93
+  0x11AC ( 4524)  overworld=64 map2=81 battle=81 after=81
+  0x11AD ( 4525)  overworld=159 map2=19 battle=19 after=19
+  0x11AE ( 4526)  overworld=67 map2=88 battle=88 after=88
+  0x11AF ( 4527)  overworld=3 map2=11 battle=11 after=11
+  0x11B0 ( 4528)  overworld=255 map2=5 battle=5 after=5
+  0x11C8 ( 4552)  overworld=24 map2=26 battle=26 after=26
+  0x11CA ( 4554)  overworld=240 map2=32 battle=32 after=32
+  0x11CB ( 4555)  overworld=82 map2=78 battle=78 after=78
+  0x11CC ( 4556)  overworld=48 map2=108 battle=108 after=108
+  0x11CF ( 4559)  overworld=30 map2=20 battle=20 after=20
+  0x11D1 ( 4561)  overworld=59 map2=39 battle=39 after=39
+  0x11D2 ( 4562)  overworld=66 map2=46 battle=46 after=46
+  0x11D5 ( 4565)  overworld=2 map2=4 battle=4 after=4
+  0x11D6 ( 4566)  overworld=205 map2=181 battle=181 after=181
+  0x11D7 ( 4567)  overworld=114 map2=77 battle=77 after=77
+  0x11D8 ( 4568)  overworld=61 map2=141 battle=141 after=141
+  0x11DB ( 4571)  overworld=40 map2=10 battle=10 after=10
+  0x11DE ( 4574)  overworld=47 map2=17 battle=17 after=17
+  0x1261 ( 4705)  overworld=0 map2=25 battle=25 after=25
+  0x1262 ( 4706)  overworld=0 map2=25 battle=25 after=25
+  0x1263 ( 4707)  overworld=0 map2=25 battle=25 after=25
+  0x1264 ( 4708)  overworld=15 map2=0 battle=0 after=0
+  0x14E4 ( 5348)  overworld=0 map2=8 battle=8 after=8
+  0x14E9 ( 5353)  overworld=0 map2=8 battle=8 after=8
+  0x1504 ( 5380)  overworld=41 map2=35 battle=35 after=35
+  0x1506 ( 5382)  overworld=24 map2=48 battle=48 after=48
+  0x1509 ( 5385)  overworld=0 map2=8 battle=8 after=8
+  0x1512 ( 5394)  overworld=0 map2=24 battle=24 after=24
+  0x1513 ( 5395)  overworld=0 map2=24 battle=24 after=24
+  0x1514 ( 5396)  overworld=10 map2=54 battle=54 after=54
+  0x1515 ( 5397)  overworld=12 map2=16 battle=16 after=16
+  0x1516 ( 5398)  overworld=10 map2=54 battle=54 after=54
+  0x1517 ( 5399)  overworld=12 map2=16 battle=16 after=16
+  0x1518 ( 5400)  overworld=10 map2=54 battle=54 after=54
+  0x1519 ( 5401)  overworld=12 map2=16 battle=16 after=16
+  0x151A ( 5402)  overworld=18 map2=17 battle=17 after=17
+  0x152C ( 5420)  overworld=58 map2=0 battle=0 after=0
+  0x152D ( 5421)  overworld=2 map2=0 battle=0 after=0
+  0x152E ( 5422)  overworld=36 map2=0 battle=0 after=0
+  0x152F ( 5423)  overworld=4 map2=0 battle=0 after=0
+  0x1532 ( 5426)  overworld=2 map2=0 battle=0 after=0
+  0x1535 ( 5429)  overworld=7 map2=0 battle=0 after=0
+  0x1536 ( 5430)  overworld=1 map2=0 battle=0 after=0
+  0x1537 ( 5431)  overworld=2 map2=0 battle=0 after=0
+  0x1538 ( 5432)  overworld=15 map2=0 battle=0 after=0
+  0x153C ( 5436)  overworld=16 map2=0 battle=0 after=0
+  0x153D ( 5437)  overworld=14 map2=0 battle=0 after=0
+  0x153E ( 5438)  overworld=16 map2=0 battle=0 after=0
+  0x153F ( 5439)  overworld=13 map2=0 battle=0 after=0
+  0x1540 ( 5440)  overworld=16 map2=0 battle=0 after=0
+  0x1541 ( 5441)  overworld=13 map2=0 battle=0 after=0
+  0x1542 ( 5442)  overworld=33 map2=0 battle=0 after=0
+  0x1543 ( 5443)  overworld=48 map2=0 battle=0 after=0
+  0x1544 ( 5444)  overworld=143 map2=0 battle=0 after=0
+  0x16F3 ( 5875)  overworld=3 map2=1 battle=1 after=1
+  0x16F7 ( 5879)  overworld=4 map2=63 battle=63 after=63
+  0x1705 ( 5893)  overworld=41 map2=35 battle=35 after=35
+  0x1706 ( 5894)  overworld=12 map2=16 battle=16 after=16
+  0x1707 ( 5895)  overworld=10 map2=54 battle=54 after=54
+  0x1709 ( 5897)  overworld=1 map2=0 battle=0 after=0
+  0x170C ( 5900)  overworld=0 map2=128 battle=128 after=128
+  0x170E ( 5902)  overworld=113 map2=252 battle=252 after=252
+  0x170F ( 5903)  overworld=64 map2=81 battle=81 after=81
+  0x1714 ( 5908)  overworld=2 map2=255 battle=255 after=255
+  0x1715 ( 5909)  overworld=58 map2=39 battle=39 after=39
+  0x1716 ( 5910)  overworld=13 map2=20 battle=20 after=20
+  0x1717 ( 5911)  overworld=16 map2=31 battle=31 after=31
+  0x171E ( 5918)  overworld=157 map2=51 battle=51 after=51
+  0x171F ( 5919)  overworld=64 map2=82 battle=82 after=82
+  0x1725 ( 5925)  overworld=4 map2=41 battle=41 after=41
+  0x1726 ( 5926)  overworld=6 map2=15 battle=15 after=15
+  0x1727 ( 5927)  overworld=7 map2=19 battle=19 after=19
+  0x1728 ( 5928)  overworld=9 map2=5 battle=5 after=5
+  0x1729 ( 5929)  overworld=0 map2=1 battle=1 after=1
+  0x172C ( 5932)  overworld=0 map2=160 battle=160 after=160
+  0x172E ( 5934)  overworld=160 map2=54 battle=54 after=54
+  0x172F ( 5935)  overworld=64 map2=82 battle=82 after=82
+  0x1730 ( 5936)  overworld=112 map2=255 battle=255 after=255
+  0x1731 ( 5937)  overworld=6 map2=255 battle=255 after=255
+  0x1735 ( 5941)  overworld=0 map2=93 battle=93 after=93
+  0x1736 ( 5942)  overworld=255 map2=6 battle=6 after=6
+  0x1745 ( 5957)  overworld=0 map2=58 battle=58 after=58
+  0x1746 ( 5958)  overworld=255 map2=7 battle=7 after=7
+  0x1755 ( 5973)  overworld=0 map2=35 battle=35 after=35
+  0x1756 ( 5974)  overworld=255 map2=8 battle=8 after=8
+  0x1765 ( 5989)  overworld=0 map2=41 battle=41 after=41
+  0x1766 ( 5990)  overworld=255 map2=16 battle=16 after=16
+  0x1775 ( 6005)  overworld=0 map2=84 battle=84 after=84
+  0x1776 ( 6006)  overworld=255 map2=6 battle=6 after=6
+  0x17F8 ( 6136)  overworld=255 map2=0 battle=0 after=0
+  0x17F9 ( 6137)  overworld=255 map2=0 battle=0 after=0
+  0x17FA ( 6138)  overworld=255 map2=0 battle=0 after=0
+  0x17FC ( 6140)  overworld=255 map2=0 battle=0 after=0
+  0x1C2E ( 7214)  overworld=51 map2=54 battle=54 after=54
+  0x1C32 ( 7218)  overworld=4 map2=1 battle=1 after=1
+  0x1C33 ( 7219)  overworld=162 map2=22 battle=22 after=22
+  0x1C34 ( 7220)  overworld=67 map2=88 battle=88 after=88
+  0x1C36 ( 7222)  overworld=183 map2=28 battle=28 after=28
+  0x1C37 ( 7223)  overworld=67 map2=88 battle=88 after=88
+  0x1C38 ( 7224)  overworld=4 map2=2 battle=2 after=2
+  0x1C39 ( 7225)  overworld=200 map2=45 battle=45 after=45
+  0x1C3A ( 7226)  overworld=67 map2=88 battle=88 after=88
+  0x1C3B ( 7227)  overworld=3 map2=8 battle=8 after=8
+  0x1C3C ( 7228)  overworld=221 map2=56 battle=56 after=56
+  0x1C3D ( 7229)  overworld=67 map2=88 battle=88 after=88
+  0x1C3F ( 7231)  overworld=1 map2=94 battle=94 after=94
+  0x1C40 ( 7232)  overworld=64 map2=81 battle=81 after=81
+  0x1C42 ( 7234)  overworld=10 map2=103 battle=103 after=103
+  0x1C43 ( 7235)  overworld=64 map2=81 battle=81 after=81
+  0x1CBD ( 7357)  overworld=4 map2=3 battle=3 after=3   <-- suspected wMapNumber
+  0x1CD5 ( 7381)  overworld=1 map2=5 battle=5 after=5
+  0x1CD6 ( 7382)  overworld=1 map2=5 battle=5 after=5
+  0x1CD7 ( 7383)  overworld=1 map2=5 battle=5 after=5
+  0x1CD8 ( 7384)  overworld=1 map2=3 battle=3 after=3
+  0x1CDA ( 7386)  overworld=1 map2=5 battle=5 after=5
+  0x1CDB ( 7387)  overworld=71 map2=5 battle=5 after=5
+  0x1CDC ( 7388)  overworld=20 map2=5 battle=5 after=5
+  0x1FEC ( 8172)  overworld=4 map2=3 battle=3 after=3
+  0x1FEE ( 8174)  overworld=3 map2=4 battle=4 after=4
+  (655 listed in the log; console shows only flagged ones)
+wBattleMode: 315 candidate(s)
+  Expect very few. It is 0 outside a battle and non-zero inside.
+  0x008E (  142)  overworld=0 map2=0 battle=96 after=0
+  0x009D (  157)  overworld=0 map2=0 battle=213 after=0
+  0x00AE (  174)  overworld=0 map2=0 battle=9 after=0
+  0x00B9 (  185)  overworld=0 map2=0 battle=128 after=0
+  0x00D3 (  211)  overworld=0 map2=0 battle=192 after=0
+  0x015A (  346)  overworld=0 map2=0 battle=1 after=0
+  0x016D (  365)  overworld=0 map2=0 battle=15 after=0
+  0x016E (  366)  overworld=0 map2=0 battle=96 after=0
+  0x017D (  381)  overworld=0 map2=0 battle=2 after=0
+  0x01CC (  460)  overworld=0 map2=0 battle=32 after=0
+  0x01CD (  461)  overworld=0 map2=0 battle=16 after=0
+  0x01CF (  463)  overworld=0 map2=0 battle=120 after=0
+  0x01D0 (  464)  overworld=0 map2=0 battle=113 after=0
+  0x01D7 (  471)  overworld=0 map2=0 battle=128 after=0
+  0x01D8 (  472)  overworld=0 map2=0 battle=81 after=0
+  0x01D9 (  473)  overworld=0 map2=0 battle=18 after=0
+  0x01DA (  474)  overworld=0 map2=0 battle=3 after=0
+  0x01DE (  478)  overworld=0 map2=0 battle=1 after=0
+  0x01DF (  479)  overworld=0 map2=0 battle=128 after=0
+  0x01E2 (  482)  overworld=0 map2=0 battle=128 after=0
+  0x01E4 (  484)  overworld=0 map2=0 battle=17 after=0
+  0x01F0 (  496)  overworld=0 map2=0 battle=32 after=0
+  0x01F6 (  502)  overworld=0 map2=0 battle=1 after=0
+  0x01FE (  510)  overworld=0 map2=0 battle=32 after=0
+  0x01FF (  511)  overworld=0 map2=0 battle=16 after=0
+  0x0201 (  513)  overworld=0 map2=0 battle=120 after=0
+  0x0202 (  514)  overworld=0 map2=0 battle=113 after=0
+  0x0209 (  521)  overworld=0 map2=0 battle=128 after=0
+  0x020A (  522)  overworld=0 map2=0 battle=81 after=0
+  0x020B (  523)  overworld=0 map2=0 battle=18 after=0
+  0x020C (  524)  overworld=0 map2=0 battle=3 after=0
+  0x0210 (  528)  overworld=0 map2=0 battle=1 after=0
+  0x0211 (  529)  overworld=0 map2=0 battle=128 after=0
+  0x0214 (  532)  overworld=0 map2=0 battle=128 after=0
+  0x0216 (  534)  overworld=0 map2=0 battle=34 after=0
+  0x0228 (  552)  overworld=0 map2=0 battle=1 after=0
+  0x0262 (  610)  overworld=0 map2=0 battle=32 after=0
+  0x0263 (  611)  overworld=0 map2=0 battle=16 after=0
+  0x0265 (  613)  overworld=0 map2=0 battle=127 after=0
+  0x0266 (  614)  overworld=0 map2=0 battle=113 after=0
+  0x026E (  622)  overworld=0 map2=0 battle=147 after=0
+  0x026F (  623)  overworld=0 map2=0 battle=79 after=0
+  0x0274 (  628)  overworld=0 map2=0 battle=1 after=0
+  0x0279 (  633)  overworld=0 map2=0 battle=1 after=0
+  0x027A (  634)  overworld=0 map2=0 battle=136 after=0
+  0x028C (  652)  overworld=0 map2=0 battle=1 after=0
+  0x029C (  668)  overworld=0 map2=0 battle=8 after=0
+  0x02B0 (  688)  overworld=0 map2=0 battle=71 after=0
+  0x02B1 (  689)  overworld=0 map2=0 battle=3 after=0
+  0x02B2 (  690)  overworld=0 map2=0 battle=128 after=0
+  0x02BC (  700)  overworld=0 map2=0 battle=1 after=0
+  0x02BD (  701)  overworld=0 map2=0 battle=240 after=0
+  0x02BF (  703)  overworld=0 map2=0 battle=159 after=0
+  0x07E8 ( 2024)  overworld=0 map2=0 battle=1 after=0
+  0x0F78 ( 3960)  overworld=0 map2=0 battle=1 after=0
+  0x0FB2 ( 4018)  overworld=0 map2=0 battle=1 after=0
+  0x103E ( 4158)  overworld=0 map2=0 battle=32 after=0
+  0x1044 ( 4164)  overworld=0 map2=0 battle=2 after=0
+  0x1045 ( 4165)  overworld=0 map2=0 battle=255 after=0
+  0x1051 ( 4177)  overworld=0 map2=0 battle=130 after=0
+  0x1155 ( 4437)  overworld=0 map2=0 battle=254 after=0
+  0x1157 ( 4439)  overworld=0 map2=0 battle=96 after=0
+  0x1234 ( 4660)  overworld=0 map2=0 battle=1 after=0
+  0x1235 ( 4661)  overworld=0 map2=0 battle=16 after=0
+  0x143B ( 5179)  overworld=0 map2=0 battle=4 after=0
+  0x143E ( 5182)  overworld=0 map2=0 battle=1 after=0
+  0x143F ( 5183)  overworld=0 map2=0 battle=255 after=0
+  0x14F8 ( 5368)  overworld=0 map2=0 battle=1 after=0
+  0x601F (24607)  overworld=0 map2=0 battle=32 after=0
+  0x6057 (24663)  overworld=0 map2=0 battle=11 after=0
+  0x6059 (24665)  overworld=0 map2=0 battle=9 after=0
+  0x605D (24669)  overworld=0 map2=0 battle=8 after=0
+  0x605F (24671)  overworld=0 map2=0 battle=4 after=0
+  0x6075 (24693)  overworld=0 map2=0 battle=128 after=0
+  0x6076 (24694)  overworld=0 map2=0 battle=129 after=0
+  0x6077 (24695)  overworld=0 map2=0 battle=66 after=0
+  0x6079 (24697)  overworld=0 map2=0 battle=67 after=0
+  0x607B (24699)  overworld=0 map2=0 battle=34 after=0
+  0x607C (24700)  overworld=0 map2=0 battle=192 after=0
+  0x607D (24701)  overworld=0 map2=0 battle=35 after=0
+  0x607F (24703)  overworld=0 map2=0 battle=146 after=0
+  0x60B8 (24760)  overworld=0 map2=0 battle=127 after=0
+  0x60BC (24764)  overworld=0 map2=0 battle=191 after=0
+  0x6112 (24850)  overworld=0 map2=0 battle=191 after=0
+  0x6113 (24851)  overworld=0 map2=0 battle=255 after=0
+  0x6131 (24881)  overworld=0 map2=0 battle=1 after=0
+  0x6140 (24896)  overworld=0 map2=0 battle=7 after=0
+  0x6142 (24898)  overworld=0 map2=0 battle=6 after=0
+  0x6144 (24900)  overworld=0 map2=0 battle=38 after=0
+  0x6146 (24902)  overworld=0 map2=0 battle=68 after=0
+  0x6148 (24904)  overworld=0 map2=0 battle=194 after=0
+  0x614A (24906)  overworld=0 map2=0 battle=196 after=0
+  0x614C (24908)  overworld=0 map2=0 battle=226 after=0
+  0x614E (24910)  overworld=0 map2=0 battle=213 after=0
+  0x616F (24943)  overworld=0 map2=0 battle=255 after=0
+  0x6170 (24944)  overworld=0 map2=0 battle=255 after=0
+  0x6171 (24945)  overworld=0 map2=0 battle=255 after=0
+  0x6172 (24946)  overworld=0 map2=0 battle=254 after=0
+  0x6174 (24948)  overworld=0 map2=0 battle=243 after=0
+  0x6175 (24949)  overworld=0 map2=0 battle=252 after=0
+  0x61B1 (25009)  overworld=0 map2=0 battle=16 after=0
+  0x61B3 (25011)  overworld=0 map2=0 battle=144 after=0
+  0x61B5 (25013)  overworld=0 map2=0 battle=240 after=0
+  0x61B7 (25015)  overworld=0 map2=0 battle=240 after=0
+  0x61B9 (25017)  overworld=0 map2=0 battle=254 after=0
+  0x61BB (25019)  overworld=0 map2=0 battle=255 after=0
+  0x61BC (25020)  overworld=0 map2=0 battle=53 after=0
+  0x61BD (25021)  overworld=0 map2=0 battle=255 after=0
+  0x61BF (25023)  overworld=0 map2=0 battle=255 after=0
+  0x6231 (25137)  overworld=0 map2=0 battle=20 after=0
+  0x6232 (25138)  overworld=0 map2=0 battle=236 after=0
+  0x6233 (25139)  overworld=0 map2=0 battle=20 after=0
+  0x623E (25150)  overworld=0 map2=0 battle=125 after=0
+  0x623F (25151)  overworld=0 map2=0 battle=65 after=0
+  0x6241 (25153)  overworld=0 map2=0 battle=127 after=0
+  0x6242 (25154)  overworld=0 map2=0 battle=127 after=0
+  0x6243 (25155)  overworld=0 map2=0 battle=127 after=0
+  0x624E (25166)  overworld=0 map2=0 battle=127 after=0
+  0x624F (25167)  overworld=0 map2=0 battle=127 after=0
+  0x62C5 (25285)  overworld=0 map2=0 battle=127 after=0
+  0x62C7 (25287)  overworld=0 map2=0 battle=127 after=0
+  0x6300 (25344)  overworld=0 map2=0 battle=127 after=0
+  0x6301 (25345)  overworld=0 map2=0 battle=127 after=0
+  0x6302 (25346)  overworld=0 map2=0 battle=127 after=0
+  0x6303 (25347)  overworld=0 map2=0 battle=127 after=0
+  0x6304 (25348)  overworld=0 map2=0 battle=127 after=0
+  0x6305 (25349)  overworld=0 map2=0 battle=127 after=0
+  0x6306 (25350)  overworld=0 map2=0 battle=127 after=0
+  0x6307 (25351)  overworld=0 map2=0 battle=127 after=0
+  0x6320 (25376)  overworld=0 map2=0 battle=127 after=0
+  0x6322 (25378)  overworld=0 map2=0 battle=127 after=0
+  0x6324 (25380)  overworld=0 map2=0 battle=127 after=0
+  0x6330 (25392)  overworld=0 map2=0 battle=127 after=0
+  0x6332 (25394)  overworld=0 map2=0 battle=127 after=0
+  0x6334 (25396)  overworld=0 map2=0 battle=127 after=0
+  0x6350 (25424)  overworld=0 map2=0 battle=127 after=0
+  0x6351 (25425)  overworld=0 map2=0 battle=127 after=0
+  0x6352 (25426)  overworld=0 map2=0 battle=127 after=0
+  0x6353 (25427)  overworld=0 map2=0 battle=127 after=0
+  0x6354 (25428)  overworld=0 map2=0 battle=127 after=0
+  0x6355 (25429)  overworld=0 map2=0 battle=127 after=0
+  0x6356 (25430)  overworld=0 map2=0 battle=127 after=0
+  0x6357 (25431)  overworld=0 map2=0 battle=127 after=0
+  0x6362 (25442)  overworld=0 map2=0 battle=127 after=0
+  0x6363 (25443)  overworld=0 map2=0 battle=127 after=0
+  0x6367 (25447)  overworld=0 map2=0 battle=127 after=0
+  0x63C1 (25537)  overworld=0 map2=0 battle=127 after=0
+  0x63C5 (25541)  overworld=0 map2=0 battle=127 after=0
+  0x63C7 (25543)  overworld=0 map2=0 battle=127 after=0
+  0x63FF (25599)  overworld=0 map2=0 battle=127 after=0
+  0x642C (25644)  overworld=0 map2=0 battle=1 after=0
+  0x642E (25646)  overworld=0 map2=0 battle=1 after=0
+  0x6432 (25650)  overworld=0 map2=0 battle=1 after=0
+  0x6490 (25744)  overworld=0 map2=0 battle=1 after=0
+  0x64F0 (25840)  overworld=0 map2=0 battle=3 after=0
+  0x64F1 (25841)  overworld=0 map2=0 battle=3 after=0
+  0x652A (25898)  overworld=0 map2=0 battle=3 after=0
+  0x652B (25899)  overworld=0 map2=0 battle=3 after=0
+  0x652C (25900)  overworld=0 map2=0 battle=3 after=0
+  0x6532 (25906)  overworld=0 map2=0 battle=3 after=0
+  0x6580 (25984)  overworld=0 map2=0 battle=7 after=0
+  0x658E (25998)  overworld=0 map2=0 battle=7 after=0
+  0x65AB (26027)  overworld=0 map2=0 battle=7 after=0
+  0x65AC (26028)  overworld=0 map2=0 battle=7 after=0
+  0x65C0 (26048)  overworld=0 map2=0 battle=7 after=0
+  0x65EE (26094)  overworld=0 map2=0 battle=7 after=0
+  0x65EF (26095)  overworld=0 map2=0 battle=7 after=0
+  0x6610 (26128)  overworld=0 map2=0 battle=7 after=0
+  0x6612 (26130)  overworld=0 map2=0 battle=7 after=0
+  0x6821 (26657)  overworld=0 map2=0 battle=20 after=0
+  0x68BA (26810)  overworld=0 map2=0 battle=66 after=0
+  0x6932 (26930)  overworld=0 map2=0 battle=236 after=0
+  0x6937 (26935)  overworld=0 map2=0 battle=170 after=0
+  0x69A7 (27047)  overworld=0 map2=0 battle=67 after=0
+  0x69B7 (27063)  overworld=0 map2=0 battle=249 after=0
+  0x69C7 (27079)  overworld=0 map2=0 battle=1 after=0
+  0x69CD (27085)  overworld=0 map2=0 battle=28 after=0
+  0x69CE (27086)  overworld=0 map2=0 battle=228 after=0
+  0x69CF (27087)  overworld=0 map2=0 battle=248 after=0
+  0x6A0A (27146)  overworld=0 map2=0 battle=1 after=0
+  0x6A0B (27147)  overworld=0 map2=0 battle=1 after=0
+  0x6A0E (27150)  overworld=0 map2=0 battle=3 after=0
+  0x6A0F (27151)  overworld=0 map2=0 battle=3 after=0
+  0x6A10 (27152)  overworld=0 map2=0 battle=4 after=0
+  0x6A11 (27153)  overworld=0 map2=0 battle=7 after=0
+  0x6A12 (27154)  overworld=0 map2=0 battle=4 after=0
+  0x6A13 (27155)  overworld=0 map2=0 battle=7 after=0
+  0x6A14 (27156)  overworld=0 map2=0 battle=9 after=0
+  0x6A15 (27157)  overworld=0 map2=0 battle=15 after=0
+  0x6A16 (27158)  overworld=0 map2=0 battle=11 after=0
+  0x6A17 (27159)  overworld=0 map2=0 battle=14 after=0
+  0x6A18 (27160)  overworld=0 map2=0 battle=21 after=0
+  0x6A19 (27161)  overworld=0 map2=0 battle=22 after=0
+  0x6A1A (27162)  overworld=0 map2=0 battle=23 after=0
+  0x6A1B (27163)  overworld=0 map2=0 battle=28 after=0
+  0x6A1C (27164)  overworld=0 map2=0 battle=23 after=0
+  0x6A1D (27165)  overworld=0 map2=0 battle=28 after=0
+  0x6A1E (27166)  overworld=0 map2=0 battle=15 after=0
+  0x6A1F (27167)  overworld=0 map2=0 battle=9 after=0
+  0x6A20 (27168)  overworld=0 map2=0 battle=23 after=0
+  0x6A21 (27169)  overworld=0 map2=0 battle=26 after=0
+  0x6A22 (27170)  overworld=0 map2=0 battle=47 after=0
+  0x6A23 (27171)  overworld=0 map2=0 battle=50 after=0
+  0x6A24 (27172)  overworld=0 map2=0 battle=47 after=0
+  0x6A25 (27173)  overworld=0 map2=0 battle=53 after=0
+  0x6A26 (27174)  overworld=0 map2=0 battle=47 after=0
+  0x6A27 (27175)  overworld=0 map2=0 battle=53 after=0
+  0x6A28 (27176)  overworld=0 map2=0 battle=30 after=0
+  0x6A29 (27177)  overworld=0 map2=0 battle=30 after=0
+  0x6A30 (27184)  overworld=0 map2=0 battle=252 after=0
+  0x6A31 (27185)  overworld=0 map2=0 battle=212 after=0
+  0x6A32 (27186)  overworld=0 map2=0 battle=124 after=0
+  0x6A33 (27187)  overworld=0 map2=0 battle=236 after=0
+  0x6A34 (27188)  overworld=0 map2=0 battle=248 after=0
+  0x6A35 (27189)  overworld=0 map2=0 battle=72 after=0
+  0x6A36 (27190)  overworld=0 map2=0 battle=240 after=0
+  0x6A37 (27191)  overworld=0 map2=0 battle=176 after=0
+  0x6A38 (27192)  overworld=0 map2=0 battle=192 after=0
+  0x6A39 (27193)  overworld=0 map2=0 battle=192 after=0
+  0x6A3A (27194)  overworld=0 map2=0 battle=192 after=0
+  0x6A3B (27195)  overworld=0 map2=0 battle=64 after=0
+  0x6A3C (27196)  overworld=0 map2=0 battle=128 after=0
+  0x6A3D (27197)  overworld=0 map2=0 battle=192 after=0
+  0x6A3F (27199)  overworld=0 map2=0 battle=128 after=0
+  0x6A40 (27200)  overworld=0 map2=0 battle=116 after=0
+  0x6A41 (27201)  overworld=0 map2=0 battle=127 after=0
+  0x6A42 (27202)  overworld=0 map2=0 battle=56 after=0
+  0x6A43 (27203)  overworld=0 map2=0 battle=127 after=0
+  0x6A44 (27204)  overworld=0 map2=0 battle=32 after=0
+  0x6A45 (27205)  overworld=0 map2=0 battle=47 after=0
+  0x6A46 (27206)  overworld=0 map2=0 battle=64 after=0
+  0x6A47 (27207)  overworld=0 map2=0 battle=95 after=0
+  0x6A48 (27208)  overworld=0 map2=0 battle=128 after=0
+  0x6A49 (27209)  overworld=0 map2=0 battle=191 after=0
+  0x6A4A (27210)  overworld=0 map2=0 battle=129 after=0
+  0x6A4B (27211)  overworld=0 map2=0 battle=255 after=0
+  0x6A4C (27212)  overworld=0 map2=0 battle=70 after=0
+  0x6A4D (27213)  overworld=0 map2=0 battle=127 after=0
+  0x6A4E (27214)  overworld=0 map2=0 battle=58 after=0
+  0x6A4F (27215)  overworld=0 map2=0 battle=63 after=0
+  0x6A50 (27216)  overworld=0 map2=0 battle=36 after=0
+  0x6A51 (27217)  overworld=0 map2=0 battle=63 after=0
+  0x6A52 (27218)  overworld=0 map2=0 battle=60 after=0
+  0x6A53 (27219)  overworld=0 map2=0 battle=23 after=0
+  0x6A54 (27220)  overworld=0 map2=0 battle=183 after=0
+  0x6A55 (27221)  overworld=0 map2=0 battle=147 after=0
+  0x6A56 (27222)  overworld=0 map2=0 battle=227 after=0
+  0x6A57 (27223)  overworld=0 map2=0 battle=224 after=0
+  0x6A58 (27224)  overworld=0 map2=0 battle=197 after=0
+  0x6A5A (27226)  overworld=0 map2=0 battle=170 after=0
+  0x6A5C (27228)  overworld=0 map2=0 battle=85 after=0
+  0x6A5E (27230)  overworld=0 map2=0 battle=223 after=0
+  0x6A5F (27231)  overworld=0 map2=0 battle=224 after=0
+  0x6A68 (27240)  overworld=0 map2=0 battle=96 after=0
+  0x6A69 (27241)  overworld=0 map2=0 battle=96 after=0
+  0x6A6A (27242)  overworld=0 map2=0 battle=152 after=0
+  0x6A6B (27243)  overworld=0 map2=0 battle=152 after=0
+  0x6A6C (27244)  overworld=0 map2=0 battle=4 after=0
+  0x6A6D (27245)  overworld=0 map2=0 battle=164 after=0
+  0x6A6F (27247)  overworld=0 map2=0 battle=82 after=0
+  0x6A70 (27248)  overworld=0 map2=0 battle=1 after=0
+  0x6A71 (27249)  overworld=0 map2=0 battle=233 after=0
+  0x6A73 (27251)  overworld=0 map2=0 battle=245 after=0
+  0x6A75 (27253)  overworld=0 map2=0 battle=234 after=0
+  0x6A77 (27255)  overworld=0 map2=0 battle=222 after=0
+  0x6A78 (27256)  overworld=0 map2=0 battle=128 after=0
+  0x6A79 (27257)  overworld=0 map2=0 battle=188 after=0
+  0x6A7A (27258)  overworld=0 map2=0 battle=4 after=0
+  0x6A7B (27259)  overworld=0 map2=0 battle=125 after=0
+  0x6A7C (27260)  overworld=0 map2=0 battle=4 after=0
+  0x6A7D (27261)  overworld=0 map2=0 battle=255 after=0
+  0x6A7E (27262)  overworld=0 map2=0 battle=8 after=0
+  0x6A7F (27263)  overworld=0 map2=0 battle=255 after=0
+  0x6A80 (27264)  overworld=0 map2=0 battle=17 after=0
+  0x6A81 (27265)  overworld=0 map2=0 battle=255 after=0
+  0x6A82 (27266)  overworld=0 map2=0 battle=98 after=0
+  0x6A83 (27267)  overworld=0 map2=0 battle=255 after=0
+  0x6A84 (27268)  overworld=0 map2=0 battle=162 after=0
+  0x6A85 (27269)  overworld=0 map2=0 battle=255 after=0
+  0x6A86 (27270)  overworld=0 map2=0 battle=37 after=0
+  0x6A87 (27271)  overworld=0 map2=0 battle=253 after=0
+  0x6A88 (27272)  overworld=0 map2=0 battle=249 after=0
+  0x6A89 (27273)  overworld=0 map2=0 battle=29 after=0
+  0x6A8A (27274)  overworld=0 map2=0 battle=246 after=0
+  0x6A8B (27275)  overworld=0 map2=0 battle=14 after=0
+  0x6A8C (27276)  overworld=0 map2=0 battle=250 after=0
+  0x6A8D (27277)  overworld=0 map2=0 battle=30 after=0
+  0x6A8E (27278)  overworld=0 map2=0 battle=124 after=0
+  0x6A8F (27279)  overworld=0 map2=0 battle=228 after=0
+  0x6A94 (27284)  overworld=0 map2=0 battle=128 after=0
+  0x6A95 (27285)  overworld=0 map2=0 battle=128 after=0
+  0x6A97 (27287)  overworld=0 map2=0 battle=64 after=0
+  0x6A98 (27288)  overworld=0 map2=0 battle=64 after=0
+  0x6A99 (27289)  overworld=0 map2=0 battle=64 after=0
+  0x6A9A (27290)  overworld=0 map2=0 battle=56 after=0
+  0x6A9B (27291)  overworld=0 map2=0 battle=184 after=0
+  0x6A9C (27292)  overworld=0 map2=0 battle=124 after=0
+  0x6A9D (27293)  overworld=0 map2=0 battle=228 after=0
+  0x6A9E (27294)  overworld=0 map2=0 battle=62 after=0
+  0x6A9F (27295)  overworld=0 map2=0 battle=226 after=0
+  0x6AA0 (27296)  overworld=0 map2=0 battle=252 after=0
+  0x6AA1 (27297)  overworld=0 map2=0 battle=148 after=0
+  0x6AA2 (27298)  overworld=0 map2=0 battle=124 after=0
+  0x6AA3 (27299)  overworld=0 map2=0 battle=108 after=0
+  0x6AA4 (27300)  overworld=0 map2=0 battle=48 after=0
+  0x6AA5 (27301)  overworld=0 map2=0 battle=32 after=0
+  0x6AA6 (27302)  overworld=0 map2=0 battle=32 after=0
+  0x6AA7 (27303)  overworld=0 map2=0 battle=32 after=0
+  0x6AA8 (27304)  overworld=0 map2=0 battle=64 after=0
+  0x6AA9 (27305)  overworld=0 map2=0 battle=64 after=0
+  0x6AAA (27306)  overworld=0 map2=0 battle=64 after=0
+  0x6AAB (27307)  overworld=0 map2=0 battle=64 after=0
+  0x6AAC (27308)  overworld=0 map2=0 battle=128 after=0
+  0x6AAD (27309)  overworld=0 map2=0 battle=192 after=0
+  0x6AAF (27311)  overworld=0 map2=0 battle=128 after=0
+  (315 listed in the log; console shows only flagged ones)
+wMapStatus: 65 candidate(s)
+  Expect very few. 2 = MAPSTATUS_HANDLE, the value the gate wants.
+  0x00BA (  186)  overworld=2 map2=2 battle=9 after=2
+  0x0E2B ( 3627)  overworld=2 map2=2 battle=0 after=2
+  0x0E2D ( 3629)  overworld=2 map2=2 battle=0 after=2
+  0x0E2E ( 3630)  overworld=2 map2=2 battle=0 after=2
+  0x0E37 ( 3639)  overworld=2 map2=2 battle=1 after=2
+  0x0E38 ( 3640)  overworld=2 map2=2 battle=1 after=2
+  0x0E39 ( 3641)  overworld=2 map2=2 battle=1 after=2
+  0x0E3A ( 3642)  overworld=2 map2=2 battle=1 after=2
+  0x0E3B ( 3643)  overworld=2 map2=2 battle=1 after=2
+  0x0E3C ( 3644)  overworld=2 map2=2 battle=1 after=2
+  0x0E3F ( 3647)  overworld=2 map2=2 battle=0 after=2
+  0x0E41 ( 3649)  overworld=2 map2=2 battle=0 after=2
+  0x0E42 ( 3650)  overworld=2 map2=2 battle=0 after=2
+  0x0E4B ( 3659)  overworld=2 map2=2 battle=1 after=2
+  0x0E4C ( 3660)  overworld=2 map2=2 battle=1 after=2
+  0x0E4D ( 3661)  overworld=2 map2=2 battle=1 after=2
+  0x0E4E ( 3662)  overworld=2 map2=2 battle=1 after=2
+  0x0E4F ( 3663)  overworld=2 map2=2 battle=1 after=2
+  0x0E50 ( 3664)  overworld=2 map2=2 battle=1 after=2
+  0x0E53 ( 3667)  overworld=2 map2=2 battle=0 after=2
+  0x0E55 ( 3669)  overworld=2 map2=2 battle=0 after=2
+  0x0E56 ( 3670)  overworld=2 map2=2 battle=0 after=2
+  0x0E5F ( 3679)  overworld=2 map2=2 battle=1 after=2
+  0x0E60 ( 3680)  overworld=2 map2=2 battle=1 after=2
+  0x0E61 ( 3681)  overworld=2 map2=2 battle=1 after=2
+  0x0E62 ( 3682)  overworld=2 map2=2 battle=1 after=2
+  0x0E63 ( 3683)  overworld=2 map2=2 battle=1 after=2
+  0x0E64 ( 3684)  overworld=2 map2=2 battle=1 after=2
+  0x0E67 ( 3687)  overworld=2 map2=2 battle=0 after=2
+  0x0E69 ( 3689)  overworld=2 map2=2 battle=0 after=2
+  0x0E6A ( 3690)  overworld=2 map2=2 battle=0 after=2
+  0x0E73 ( 3699)  overworld=2 map2=2 battle=3 after=2
+  0x0E74 ( 3700)  overworld=2 map2=2 battle=3 after=2
+  0x0E75 ( 3701)  overworld=2 map2=2 battle=3 after=2
+  0x0E76 ( 3702)  overworld=2 map2=2 battle=3 after=2
+  0x0E77 ( 3703)  overworld=2 map2=2 battle=3 after=2
+  0x0E78 ( 3704)  overworld=2 map2=2 battle=3 after=2
+  0x0E7B ( 3707)  overworld=2 map2=2 battle=0 after=2
+  0x0E87 ( 3719)  overworld=2 map2=2 battle=3 after=2
+  0x0E88 ( 3720)  overworld=2 map2=2 battle=3 after=2
+  0x0E89 ( 3721)  overworld=2 map2=2 battle=3 after=2
+  0x0E8A ( 3722)  overworld=2 map2=2 battle=3 after=2
+  0x0E8B ( 3723)  overworld=2 map2=2 battle=3 after=2
+  0x0E8C ( 3724)  overworld=2 map2=2 battle=3 after=2
+  0x0E8F ( 3727)  overworld=2 map2=2 battle=0 after=2
+  0x0E9B ( 3739)  overworld=2 map2=2 battle=3 after=2
+  0x0E9C ( 3740)  overworld=2 map2=2 battle=3 after=2
+  0x0E9D ( 3741)  overworld=2 map2=2 battle=3 after=2
+  0x0E9E ( 3742)  overworld=2 map2=2 battle=3 after=2
+  0x0E9F ( 3743)  overworld=2 map2=2 battle=3 after=2
+  0x0EA0 ( 3744)  overworld=2 map2=2 battle=3 after=2
+  0x0FB1 ( 4017)  overworld=2 map2=2 battle=0 after=2
+  0x605B (24667)  overworld=2 map2=2 battle=8 after=2
+  0x6094 (24724)  overworld=2 map2=2 battle=19 after=2
+  0x6095 (24725)  overworld=2 map2=2 battle=236 after=2
+  0x6202 (25090)  overworld=2 map2=2 battle=0 after=2
+  0x6203 (25091)  overworld=2 map2=2 battle=0 after=2
+  0x6281 (25217)  overworld=2 map2=2 battle=127 after=2
+  0x62F0 (25328)  overworld=2 map2=2 battle=127 after=2
+  0x6381 (25473)  overworld=2 map2=2 battle=127 after=2
+  0x63AA (25514)  overworld=2 map2=2 battle=127 after=2
+  0x6436 (25654)  overworld=2 map2=2 battle=0 after=2
+  0x6457 (25687)  overworld=2 map2=2 battle=0 after=2
+  0x65FC (26108)  overworld=2 map2=2 battle=0 after=2
+  0x68CE (26830)  overworld=2 map2=2 battle=32 after=2
+  (65 listed in the log; console shows only flagged ones)
+Nothing here is filled into the adapter until a second run agrees -- a single run cannot
+tell a state flag from a byte that happened to move the same way once.

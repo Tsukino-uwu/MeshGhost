@@ -21,6 +21,32 @@ Every lesson here is dated and came from a real run in this repo, most of them e
 
 ---
 
+## Hard rule: a probe asks for endurance, not timing — the user's standing preference
+
+**Every live probe run costs the user a real game launch.** A probe that needs a re-run because a
+window was missed spends their time, not compute, and that is the expensive resource here.
+
+So, as a rule and not a nicety:
+
+- **Fixed-length phases with a spoken countdown** — "walk one way for 15 seconds, then walk back",
+  "stand still, then get into a battle" — never a keypress at the right frame and never a moment
+  the player has to hit.
+- **When a moment must be caught, catch it yourself.** Sample through the phase and keep the
+  snapshot that best fits what you are looking for (the one least like the baseline, say), so a
+  slow encounter or a late door costs nothing.
+- **Let the sloppy parts not count rather than spoil the run.** Turning around, pausing, walking
+  into a wall: a phase should tolerate all of it and simply record less.
+- **Never close a phase on a race to a threshold.** A byte ticking on a frame timer reaches any hit
+  count long before a walking player does, so the phase ends while the real answer has moved twice.
+  Four Crystal runs produced four different "candidates" that way, every one a counter.
+- **Detail to the log file, headlines to the console.** A full dump floods the emulator's console
+  pane and scrolls the answer away; the file is uncapped and authoritative, which is also why every
+  probe writes one beside itself.
+
+**Stated by the user 2026-08-18**: these runs are "way easier to do/follow" than the earlier
+Crystal probes, and the Emerald ones were "way too fast/hard to time". Treat a probe that demands
+precision from the player as unfinished work, the same way a flaky test is.
+
 ## Dump everything. A filter is a guess about the answer
 
 **When you dump a class's functions or properties to read yourself, do not filter first.** The
