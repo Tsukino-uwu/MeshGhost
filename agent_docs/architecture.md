@@ -1841,7 +1841,7 @@ Format: Date / Decision / Status / Context / Options considered / Resolution / C
   than a philosophical one that was never in question.
 - **Status:** Approved by the user 2026-08-17, in those terms — *"i want to actually spawn in as
   intended now for crystal, so we don't start doing this game with bandaids from the get go"*.
-  **Nothing is implemented.** `adapters/pokemon/crystal/object_slot_probe.lua` is the first step
+  **Nothing is implemented.** `adapters/pokemon/crystal/probes/object_slot_probe.lua` is the first step
   and is strictly read-only.
 - **Context:** Emerald draws over the emulator: a `gui.drawPixel` overlay fed by a hand-rolled
   decode of the Brendan/May sprite out of ROM. That was the brief's own tier 1 and it shipped, but
@@ -1923,3 +1923,61 @@ Format: Date / Decision / Status / Context / Options considered / Resolution / C
   - **A new bandage risk of its own**: if spawning proves unreliable, the tempting fix is to fall
     back to drawing and leave both paths in. That would be a compensation, and belongs in
     `adapters/pokemon/crystal/BANDAGES.md` if it ever happens, not left unremarked.
+
+### 2026-08-18 — Emerald spawns too: the Crystal spawn ADR extends to Emerald, and call-vs-imitate is answered
+
+- **Decision:** The Pokémon Emerald adapter renders a peer by **spawning a real object event**, the
+  way Crystal does, replacing today's `gui.drawPixel` overlay fed by a hand-rolled decode of the
+  Brendan/May sprite out of ROM. This extends the 2026-08-17 Crystal spawn ADR above, whose scope
+  line reads *"Scoped to vanilla Crystal V1.0 only"* — that scope is now vanilla Crystal V1.0 **and
+  Emerald**, on the terms below. Everything that ADR holds absolute (never write a save, the core
+  never touches the game, no gameplay authority) is unchanged and restated by reference, not
+  relaxed.
+- **Status:** Requested by the user 2026-08-18 — *"lets fix up emerald so spawns instead of draw"*.
+  The read-only evidence step (`adapters/pokemon/emerald/probes/object_slot_probe.lua`) ran the same day;
+  no write has been made yet.
+- **Why the mechanism transfers cleanly.** Emerald's structures are the same *shape* as Crystal's —
+  two cross-linked arrays, one owning identity and one owning drawing — which is why the recipe
+  carries over rather than needing rediscovery. Read from our own `make compare`-verified
+  `pokeemerald` build, and confirmed live by the probe the same day:
+  - `gObjectEvents` — 16 (`OBJECT_EVENTS_COUNT`) entries of `0x24` bytes at `0x02037350`.
+  - `gSprites` — 64 (`MAX_SPRITES`) entries of `0x44` bytes at `0x02020630`.
+  - **The cross-link is `objectEvent.spriteId` <-> `sprite.data[0]`** (`sObjEventId`), which the
+    live dump shows holding exactly the owning object's index for every active slot.
+  - **A live NPC and the player differ in their sprite callback** — `0x0808FD8D` for ordinary map
+    NPCs, `0x0808A999` for the player — the same "the player's record is driven by the input
+    system" distinction that made Crystal copy an NPC rather than the player.
+  - **Budget is not the constraint Emerald's own Union Room investigation feared** (`ideas.md`,
+    which noted 8 Union Room leaders would claim half the array): a real indoor map measured
+    **4 of 16 object events and 8 of 64 sprites in use**. Outdoor figures still to be measured.
+- **The call-vs-imitate question, which that ADR required be asked first and answered: BizHawk
+  cannot call a GBA routine, so imitation is the path — and this now rests on a stated capability
+  limit rather than on nobody having asked.** BizHawk 2.11's Lua API exposes `emu.getregister` /
+  `emu.setregister` and execute *hooks* (`event.onmemoryexecute`), and **no primitive that invokes
+  code in the emulated machine**. The only thing register writes would buy is hand-driving PC/LR
+  mid-frame, which hijacks whatever the CPU was already doing — not a call mechanism, a stunt with
+  a corrupted frame as its failure mode. So Emerald imitates `TrySetupObjectEventSprite`'s effects,
+  as Crystal imitates `CopyMapObjectToObjectStruct`'s. This closes the open question the Crystal
+  ADR left standing, for **both** BizHawk adapters.
+- **The Archipelago condition is stronger here than for Crystal, and that is deliberate.** Crystal's
+  patch rearranges WRAM non-uniformly, so that adapter refuses to write on an unrecognised ROM.
+  Emerald's relocation is a **single verified constant shift** (`0x284` for
+  `gObjectEvents`/`gPlayerAvatar`, established live 2026-08-14), and the shipped adapter already
+  detects which of the two applies by finding the player's own object event rather than trusting
+  either address. The same rule still governs: **positively identify the ROM before writing, and
+  refuse to spawn otherwise.** Detection is retried every frame rather than latched once — the
+  timing bug already found live on the read path (a script loaded during the intro latching onto
+  the vanilla offset forever) would be far worse on a write path.
+- **What is NOT yet decided, and must not be decided by drift:** whether the existing overlay
+  renderer stays as a fallback (unrecognised ROM, no free slot) or is removed once spawning works.
+  Keeping both paths is exactly the shape of a compensation, so if it happens it is a deliberate
+  choice recorded in `adapters/pokemon/emerald/BANDAGES.md`, not a leftover. This is the user's
+  call and is deferred until spawning is confirmed on screen, so the choice is made against a real
+  result rather than a hope.
+- **Consequences, accepted going in:** the same three the Crystal ADR lists — per-map object state
+  means re-spawning on every map load, a writer can race another tool's writes where two readers
+  never could, and slot exhaustion needs a defined behaviour. Emerald adds one of its own:
+  `RemoveObjectEventsOutsideView` culls any non-player object whose current *and* initial
+  coordinates both leave a window around the player, so a ghost is culled by the engine when the
+  peer walks off-screen and has to be re-spawned when they come back — which is closer to correct
+  than it sounds, since an off-screen ghost has nothing to draw.

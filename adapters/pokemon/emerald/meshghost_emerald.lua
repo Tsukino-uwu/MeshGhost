@@ -1,7 +1,7 @@
 -- This is the real, actively-maintained Emerald adapter -- what actually ships (see
 -- packaging/README.md and .github/workflows/release.yml, which stage this file as
 -- games/pokemon/emerald/meshghost_emerald.lua in the release zip) and what any future fix or
--- feature for this game should be made in. adapters/pokemon/emerald/phase5_5_sprite.lua was a
+-- feature for this game should be made in. adapters/pokemon/emerald/probes/phase5_5_sprite.lua was a
 -- byte-identical copy of this file at the moment it was renamed here from that original
 -- development-phase name (2026-08-14, once this had been the stable, shipped adapter for a
 -- while and "phase5_5_sprite" no longer read as the current, final one it actually was) --
@@ -11,7 +11,7 @@
 --
 -- Otherwise unchanged from its original Phase 5.5 content: real Brendan/May ghost sprite
 -- instead of the magenta placeholder box. Same adapter <-> bridge <-> core round trip as
--- adapters/pokemon/emerald/phase4_multiplayer.lua (state reading, screen-position anchor,
+-- adapters/pokemon/emerald/probes/phase4_multiplayer.lua (state reading, screen-position anchor,
 -- JSON, bridge protocol, remote-ghost set, tick model, overworld gate, LuaSocket loading --
 -- all unchanged, see that script's header for the full derivation and citations, not
 -- re-derived here). Never writes memory.
@@ -24,7 +24,7 @@
 -- field is already free-form/opaque, no core/relay change needed); a remote's advertised
 -- gender picks which pic table its ghost is drawn from.
 --
--- Sprite decode: see adapters/pokemon/emerald/sprite_probe.lua (Step 1, confirmed 2026-08-11) and
+-- Sprite decode: see adapters/pokemon/emerald/probes/sprite_probe.lua (Step 1, confirmed 2026-08-11) and
 -- sprite_ghost_test.lua (Step 2, confirmed 2026-08-11) for the 4bpp-tile/BGR555-palette decode
 -- math and the gui.drawPixel color-format fix (0xAARRGGBB, not 0xRRGGBBAA), both cited in
 -- agent_docs/verified.md. Addresses (pokeemerald.sym, same make-compare-verified build as
@@ -111,7 +111,7 @@ local CB2_OVERWORLD_ADDR = 0x08085e5c
 -- address for every player on that patch version, not just one specific seed. No decomp source
 -- exists for the patched build to cite the normal way, so this was instead confirmed the way
 -- this project's own verification standard treats as equally valid when source isn't available:
--- watched live, 2026-08-14, via adapters/pokemon/emerald/battle_probe.lua against a real
+-- watched live, 2026-08-14, via adapters/pokemon/emerald/probes/battle_probe.lua against a real
 -- .apemerald-patched ROM. callback2 read 0x080867F1 while standing idle in the overworld, held
 -- steady through walking and a route change (no line printed -- no change), and through a full
 -- door-transition round trip (entering AND leaving a house) it briefly showed 0x08086965 ->

@@ -214,6 +214,17 @@ So, when instrumenting an effect:
   log the observation and conclude outside it, because a wrong conclusion in a log file outlives
   the run and gets believed later.
 
+## Don't pay a relaunch per probe revision (BizHawk)
+
+`EmuHawk.exe --lua=<script> "<rom>"` attaches a script at launch, but swapping one on a *running*
+emulator is a Lua Console GUI action nothing outside the process can drive — so every edit
+otherwise costs a full relaunch, and each relaunch interrupts whoever is holding the controller.
+`dev-scripts/bizhawk-dev-loader.lua` is attached once and then loads, swaps or drops whatever
+script a one-line control file names. Write a probe to its contract — set `MESHGHOST_DEV_TICK`,
+no `while true ... emu.frameadvance()` loop of your own, and gate that loop on
+`MESHGHOST_DEV_LOADER` if the file should still work opened directly. Details and the confirmed
+live behaviour: `agent_docs/environment.md`.
+
 ## A probe's read budget is real — an emulator's script host is slow
 
 **Scanning a lot of memory every frame does not work, and it fails silently.** An emulator's Lua (or

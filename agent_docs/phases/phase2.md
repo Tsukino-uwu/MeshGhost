@@ -14,7 +14,7 @@ matters here already, even with no remote player yet.
 
 ## Approach
 
-`adapters/pokemon/emerald/phase2_ghost.lua` reads the local player's own on-screen sprite position
+`adapters/pokemon/emerald/probes/phase2_ghost.lua` reads the local player's own on-screen sprite position
 (`gSprites[gPlayerAvatar.spriteId]`, combined with `gSpriteCoordOffsetX/Y` the same way the
 game itself does for its object event sprites — see the script's header comment for the exact
 addresses and their `pokeemerald` source citations) and draws a placeholder image at that

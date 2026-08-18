@@ -233,7 +233,7 @@ loop, once per real game frame:
 
 The "redraw every frame regardless of new data" rule is the one that produces flicker if
 skipped — see `agent_docs/contract.md`'s tick model section for the full reasoning, and
-`adapters/pokemon/emerald/phase3_loopback.lua`'s header for the specific bug this project hit live
+`adapters/pokemon/emerald/probes/phase3_loopback.lua`'s header for the specific bug this project hit live
 before that rule was written down.
 
 Five things in that loop are there because a shipped adapter got them wrong first:

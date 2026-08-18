@@ -513,7 +513,7 @@ game it's running (it's the script/mod the user loaded) — typing it a second t
 {"game_id":"..."}}`) is now sent by the adapter as the first message on a fresh bridge
 connection; `core.Core.ConnectRelayOnAdapterHello` connects to the relay lazily on
 that first hello instead of requiring `-game`/`config.json`'s `"game"` up front. Both shipped
-adapters updated (`adapters/pokemon/emerald/phase5_5_sprite.lua`,
+adapters updated (`adapters/pokemon/emerald/probes/phase5_5_sprite.lua`,
 `adapters/tevi/MeshGhostTevi/BridgeClient.cs` + `Plugin.cs`, TEVI's DLL rebuilt and
 recommitted). `-game`/`"game"` still work as an explicit override — needed by
 `dev-scripts/run-core-*.bat` (each game's dev launcher still passes it explicitly) and

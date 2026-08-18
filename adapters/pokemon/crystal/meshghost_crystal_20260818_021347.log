@@ -1,9 +1,0 @@
-MeshGhost: no LuaSocket at C:\dev\MeshGhost\adapters\pokemon\crystal/lib/x64/
-MeshGhost: LuaSocket loaded from C:\dev\MeshGhost\adapters\pokemon\crystal/../emerald/lib/x64/
-=== MeshGhost — Pokémon Crystal ===
-ROM guard passed: vanilla Crystal V1.0
-Bridge target 127.0.0.1:7778 (set MESHGHOST_BRIDGE_PORT to change).
-MeshGhost: bridge connected on 127.0.0.1:7778
-MeshGhost: bridge_ready — this core is ours
-MeshGhost: spawned p1-ghost at 14,14 (map object 4 <-> struct 3)
-MeshGhost: despawned p1-ghost

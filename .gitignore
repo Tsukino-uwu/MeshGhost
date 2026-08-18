@@ -21,9 +21,14 @@
 # ADR), not Go build output -- must actually be committed.
 !/adapters/pokemon/emerald/lib/**/*.dll
 
-# vram_probe.lua writes a timestamped session log next to itself each run (see its own header) --
-# personal diagnostic output, never meant to be committed.
-/adapters/pokemon/emerald/vram_probe_*.log
+# Probe/test logs. Every probe writes a timestamped log beside itself, deliberately (a verdict
+# that lives only in the Lua Console has to be copied back by hand) -- but they are personal
+# diagnostic output, they grow large, and once a run has been read its conclusions belong in
+# agent_docs/verified.md, not in a megabyte of raw log. The PROBES themselves are kept and
+# committed: they are the record of how each fact was established, and several have been reused
+# to chase the same class of bug on a later ROM. 72 such logs (1.1MB) were untracked on
+# 2026-08-18 when this rule replaced the two narrower ones it supersedes.
+/adapters/pokemon/**/*.log
 
 # The adapter script + lib/ under packaging/release/games/pokemon/emerald/ are assembled by
 # .github/workflows/release.yml (copied fresh from adapters/pokemon/emerald/ each run) or by a
@@ -45,9 +50,6 @@
 # presence in a release would silently lower the bar the refusal exists to hold. It was committed
 # once by an over-broad "git add -A" on 2026-08-18 and removed the same day.
 /adapters/pokemon/crystal/ap_try.flag
-
-# Probe logs, same reasoning as Emerald's vram_probe logs: personal diagnostic output.
-/adapters/pokemon/crystal/ap_*.log
 
 # Exception: the TEVI mod DLL is committed on purpose -- CI cannot build it (the
 # .csproj needs the user's own proprietary game DLLs, which are never committed,
@@ -139,3 +141,7 @@ core-*.log
 core-*.err.log
 relay-*.log
 relay-*.err.log
+
+# BizHawk dev loader: its control file and log are per-session dev state, not project content
+dev-scripts/bizhawk-dev-loader.target
+dev-scripts/bizhawk-dev-loader.log

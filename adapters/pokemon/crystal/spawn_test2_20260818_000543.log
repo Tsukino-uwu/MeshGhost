@@ -1,9 +1,0 @@
-=== MeshGhost Crystal spawn test 2 — via the map object (WRITES RAM) ===
-ROM guard passed: vanilla Crystal V1.0
-Wrote map object 1 at frame 120 (player 7,7 -> ghost 9,7), struct id left as -1.
-Slots now: [X............]
-Waiting for the ENGINE to assign an object struct...
-  +150 frames: still -1, not adopted yet. Slots [X............]
-  +300 frames: still -1, not adopted yet. Slots [X............]
-  +450 frames: still -1, not adopted yet. Slots [X............]
-  +600 frames: still -1, not adopted yet. Slots [X............]

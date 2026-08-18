@@ -365,7 +365,7 @@ passed and a real corruption bug wasn't found until sustained traffic later):
    exists anywhere in this repo, only the opaque "182" quoted below from a project that isn't
    cloned locally.** Stage 1's real job is to *discover* a candidate free region empirically
    (cross-checked against the game's own sprite-tile allocator bookkeeping), not to verify a
-   guessed one — see `adapters/pokemon/emerald/vram_probe.lua`.
+   guessed one — see `adapters/pokemon/emerald/probes/vram_probe.lua`.
 2. Same probe, on a real `.apemerald`-patched ROM — does the patch touch whatever region Stage
    1 found?
 3. First real write: one static test sprite, vanilla only, easily reversible.

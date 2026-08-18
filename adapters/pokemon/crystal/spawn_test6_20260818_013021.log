@@ -1,9 +1,0 @@
-=== MeshGhost Crystal spawn test 6 — NPC template + computed screen coords (WRITES RAM) ===
-ROM guard passed: vanilla Crystal V1.0
-Template: NPC map object 1 -> struct 4 (sprite 16), engine-driven.
-Computed screen coords: sprite_x=96 sprite_y=240 (bg offset 0,80) — NOT copied.
-Ours: map object 7 <-> struct 5 at map 10,10 (player at map 8,10; window origin 4,6).
-It will look like that NPC, not like you. Appearance is the next problem, not this one.
->>> WALK AROUND. <<< Watch the two columns below: if ours starts tracking the way the
-NPC does, the engine has taken it.
-  f=121    ours: map=10,10 step=1     |   template NPC: map=9,6 step=1  

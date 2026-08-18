@@ -63,7 +63,7 @@ local SCRIPT_DIR = scriptDir()
 
 local function preloadLua54()
     pcall(function()
-        package.loadlib(SCRIPT_DIR .. "lib/x64/lua54.dll", "meshghost_force_preload")
+        package.loadlib(SCRIPT_DIR .. "../lib/x64/lua54.dll", "meshghost_force_preload")
     end)
 end
 
@@ -80,7 +80,7 @@ local function loadSocketCore()
         error("MeshGhost probe: only x64 is supported by the vendored LuaSocket binary so far.")
     end
     preloadLua54()
-    local dllPath = SCRIPT_DIR .. "lib/x64/socket-windows-5-4.dll"
+    local dllPath = SCRIPT_DIR .. "../lib/x64/socket-windows-5-4.dll"
     return assert(package.loadlib(dllPath, "luaopen_socket_core"))()
 end
 

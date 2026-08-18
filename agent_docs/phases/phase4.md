@@ -30,9 +30,9 @@ instead of a synthetic one.
 
 ## Known gap, closed
 
-`adapters/pokemon/emerald/phase3_loopback.lua:55` hardcoded `local BRIDGE_PORT = 7778` — as written,
+`adapters/pokemon/emerald/probes/phase3_loopback.lua:55` hardcoded `local BRIDGE_PORT = 7778` — as written,
 two BizHawk instances couldn't point at two separate core processes without editing the
-script. **Closed**: `adapters/pokemon/emerald/phase4_multiplayer.lua` is a new script (Phase 3's file
+script. **Closed**: `adapters/pokemon/emerald/probes/phase4_multiplayer.lua` is a new script (Phase 3's file
 stays as-is, a historical record of a completed phase, per the project's one-script-per-phase
 convention) that is otherwise identical but reads `BRIDGE_PORT` from the
 `MESHGHOST_BRIDGE_PORT` environment variable, falling back to 7778 (the same default
@@ -45,7 +45,7 @@ two real BizHawk instances — that's the next task below.
 
 ## Tasks
 
-- [x] Close the `BRIDGE_PORT` gap above — `adapters/pokemon/emerald/phase4_multiplayer.lua`.
+- [x] Close the `BRIDGE_PORT` gap above — `adapters/pokemon/emerald/probes/phase4_multiplayer.lua`.
 - [x] Start one `meshghost-relay` (no `-loopback`), two `meshghost.exe` processes with distinct
       `-bridge`/`-name` on the same `-relay`/`-room`/`-game`, two BizHawk instances.
 - [x] Confirm on screen: each client renders the other's ghost, tracking correctly.
@@ -71,7 +71,7 @@ two real BizHawk instances — that's the next task below.
 
 - **Battle-skip gating — closed out.** Two-player testing surfaced exactly the bad in-battle
   ghost render Phase 2 predicted. Found and cited a real `pokeemerald` signal
-  (`gMain.callback2` vs `CB2_Overworld`, confirmed live via `adapters/pokemon/emerald/battle_probe.lua`)
+  (`gMain.callback2` vs `CB2_Overworld`, confirmed live via `adapters/pokemon/emerald/probes/battle_probe.lua`)
   that turned out to generalize beyond battle specifically — it also covers every full-screen
   pause-menu submenu (Pokédex, Bag, Player Card, Options), while correctly leaving NPC dialogue
   ungated. Wired into `phase4_multiplayer.lua` as `inOverworld()` and confirmed live: ghosts

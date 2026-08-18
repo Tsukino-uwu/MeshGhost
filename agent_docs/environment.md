@@ -115,6 +115,27 @@ UE4SS entry below for that last one specifically, which is currently unresolved)
   Don't trust that doc string's return-type claim for other scripts either; `vram_probe.lua`
   now handles both shapes defensively.
 
+- **Attaching Lua from outside BizHawk, and swapping scripts without relaunching — 2026-08-18.**
+  Two separate capabilities, and only the first is BizHawk's own:
+  - **Launch-time attach**: `EmuHawk.exe --lua=<script.lua> "<rom>"` loads and runs a script as
+    the emulator starts. Confirmed live 2026-08-18 (`object_slot_probe.lua` came up and logged on
+    the first try). This is the only handle BizHawk itself exposes to anything outside the
+    process — **attaching, swapping or stopping a script on an already-running instance is a Lua
+    Console GUI action** and nothing external can drive it.
+  - **`dev-scripts/bizhawk-dev-loader.lua` closes that gap.** Attach it once with `--lua=`; it
+    polls `dev-scripts/bizhawk-dev-loader.target` (one line: a script path, or `none`) and loads,
+    swaps or drops the named script live. Writing one line to that file is now the whole
+    attach/detach cycle — no relaunch, no GUI, and the running game is undisturbed.
+    **Confirmed live 2026-08-18**: loaded, dropped on `none`, and re-loaded, all from the loader's
+    own log, with the emulator running throughout.
+  - **Why it matters**: an adapter's probe loop is edit-run-watch, and previously every edit cost
+    a full emulator relaunch (Crystal's spawn work went through seven `spawn_test` scripts, so
+    seven relaunches, each interrupting whoever holds the controller). The contract for a
+    loadable script is in the loader's own header: set `MESHGHOST_DEV_TICK`, don't run your own
+    `while true ... emu.frameadvance()` loop, and check `MESHGHOST_DEV_LOADER` if the same file
+    should still work when opened directly in the Lua Console. It is a development tool only and
+    is never part of a shipped adapter.
+
 ## pokeemerald decomp (address source for Phase 1)
 
 Built once to extract real RAM addresses via a `make compare`-verified build — see

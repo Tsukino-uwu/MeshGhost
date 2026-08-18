@@ -88,6 +88,18 @@ same as any two unrelated games — grouping by franchise just keeps the top lev
 **`README.md`, `BANDAGES.md` and `documentation.md` are expected of EVERY adapter, with no
 exceptions.** Create all three when the folder is created.
 
+**Probes and their logs go in a `probes/` subfolder, not at the top level.** Only what ships
+lives beside the `.md` files — the adapter script itself and anything a release copies. A mature
+adapter accumulates dozens of probe scripts and hundreds of log files, and at the top level they
+bury the documentation that a reader actually came for: Crystal reached 25 scripts and 72 logs
+within a day of being started, at which point its four `.md` files were genuinely hard to find in
+the listing. **The probes themselves are committed and kept** — they are the record of how each
+fact was established, and several have been re-run months-equivalent later against a patched ROM
+to chase the same class of bug. **Their logs are not**: `.gitignore` covers
+`adapters/**/*.log`, because once a run has been read its conclusions belong in `verified.md`,
+not in a megabyte of raw text. Convention adopted 2026-08-18, on the user's ask, and applied to
+Emerald and Crystal together.
+
 **This replaces an earlier carve-out, overturned by the user 2026-08-18**, which said
 `documentation.md` was needed only for games with no readable source — on the reasoning that
 Emerald has a decompilation and TEVI a managed assembly, so a doc would restate them. That was
@@ -862,7 +874,7 @@ Worked examples, both real:
 - **Crystal** has `wMapStatus` (`START`/`ENTER`/`HANDLE`/`DONE`), plus `wMapEventStatus`,
   `wScriptRunning` and `wGameLogicPaused` — a map state machine and separate "is the player free to
   act" flags. Characterised with a dedicated probe rather than assumed
-  (`adapters/pokemon/crystal/ingame_gate_probe.lua`).
+  (`adapters/pokemon/crystal/probes/ingame_gate_probe.lua`).
 
 **How to establish it for a new game:**
 

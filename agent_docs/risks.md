@@ -343,7 +343,7 @@
     works with no regression. This closes the fourth and final Archipelago rendering bug found
     via this investigation.
   - **Correction, found live 2026-08-14 (Stage 1/2 of the VRAM investigation,
-    `adapters/pokemon/emerald/vram_probe.lua`), to the "directly corroborates the pointer-based
+    `adapters/pokemon/emerald/probes/vram_probe.lua`), to the "directly corroborates the pointer-based
     fields surviving" claim two paragraphs up: that reasoning conflated "Archipelago's own
     client also reads a `gMain.callback2`-shaped anchor" with "Archipelago's own client uses the
     *same numeric* `CB2_Overworld` value this project's vanilla-derived address (0x08085e5c)

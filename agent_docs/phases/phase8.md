@@ -190,7 +190,7 @@ file of its own, which is what was happening before this file existed.
       the shift should carry over from the already-working `avatarAddrOffset` detection — still
       needs an on-screen bitfield check per this project's own rule. Real per-tile timing for
       each mode still needs live measurement. A combined probe
-      (`adapters/pokemon/emerald/surf_bike_probe.lua`) is ready; not yet run. Fishing rod (a
+      (`adapters/pokemon/emerald/probes/surf_bike_probe.lua`) is ready; not yet run. Fishing rod (a
       stationary action, not a movement speed) is a separate, smaller follow-up.
 - [ ] **VRAM/sprite injection investigation** (`agent_docs/ideas.md`) — draw-via-VRAM-write
       instead of `gui.drawPixel` overlay, found via the `GBA-PK-multiplayer` reference project

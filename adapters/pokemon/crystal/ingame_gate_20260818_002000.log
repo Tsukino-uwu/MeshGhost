@@ -1,4 +1,0 @@
-=== MeshGhost Crystal in-game gate probe (READ-ONLY) ===
-Prints only on change. Start on the MAIN MENU, then load a save and play.
-The 'gate' column is what a spawn guard would decide at that moment.
-[blocked ] f=5       mapStatus=START  events=0 script=0 paused=0 map=0/0 slots=0

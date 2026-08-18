@@ -11,9 +11,9 @@
 -- process only* (127.0.0.1, the bridge port) -- it never learns a relay address and never
 -- speaks the relay protocol directly. The core is the only thing that talks to the relay.
 --
--- State reading: same addresses as adapters/pokemon/emerald/phase1_probe.lua (gSaveBlock1Ptr,
+-- State reading: same addresses as adapters/pokemon/emerald/probes/phase1_probe.lua (gSaveBlock1Ptr,
 -- gPlayerAvatar, gObjectEvents), same pokeemerald citations, not re-derived here.
--- Screen-position anchor: same formula as adapters/pokemon/emerald/phase2_ghost.lua (gSprites,
+-- Screen-position anchor: same formula as adapters/pokemon/emerald/probes/phase2_ghost.lua (gSprites,
 -- gSpriteCoordOffsetX/Y), reused rather than reimplemented -- see that script's header for
 -- the exact addresses and source citations.
 --
@@ -128,7 +128,7 @@ local function preloadLua54()
     -- effect is wanted here. Wrapped in pcall since a failed symbol lookup
     -- surfaces as a Lua error, not just a nil return.
     pcall(function()
-        package.loadlib(SCRIPT_DIR .. "lib/x64/lua54.dll", "meshghost_force_preload")
+        package.loadlib(SCRIPT_DIR .. "../lib/x64/lua54.dll", "meshghost_force_preload")
     end)
 end
 
@@ -145,7 +145,7 @@ local function loadSocketCore()
         error("MeshGhost Phase 3: only x64 is supported by the vendored LuaSocket binary so far.")
     end
     preloadLua54()
-    local dllPath = SCRIPT_DIR .. "lib/x64/socket-windows-5-4.dll"
+    local dllPath = SCRIPT_DIR .. "../lib/x64/socket-windows-5-4.dll"
     return assert(package.loadlib(dllPath, "luaopen_socket_core"))()
 end
 

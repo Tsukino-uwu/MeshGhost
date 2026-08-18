@@ -71,7 +71,7 @@ emulator:
       `TestRoomFullRejectsExtraClient`. `go build`/`go vet`/`go test ./...` all clean.
 - [x] `internal/core`: make `InterpolationDelay` a per-`Core` field (was a package const),
       settable via a new `-interp` flag on `cmd/meshghost`, defaulting unchanged.
-- [x] Write `adapters/pokemon/emerald/phase3_loopback.lua`: real state reading (same addresses as
+- [x] Write `adapters/pokemon/emerald/probes/phase3_loopback.lua`: real state reading (same addresses as
       `phase1_probe.lua`), a hand-written minimal JSON encoder/decoder (no vendored JSON lib —
       the wire is either our own construction or our own Go's canonical output, not untrusted
       input), a non-blocking LuaSocket connection to the bridge, the adapter-owned

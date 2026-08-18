@@ -8,7 +8,7 @@
 -- below this point is Phase 5.5 content only, predating all of that.
 --
 -- Phase 5.5: real Brendan/May ghost sprite instead of the magenta placeholder box. Same
--- adapter <-> bridge <-> core round trip as adapters/pokemon/emerald/phase4_multiplayer.lua (state
+-- adapter <-> bridge <-> core round trip as adapters/pokemon/emerald/probes/phase4_multiplayer.lua (state
 -- reading, screen-position anchor, JSON, bridge protocol, remote-ghost set, tick model,
 -- overworld gate, LuaSocket loading -- all unchanged, see that script's header for the full
 -- derivation and citations, not re-derived here). Never writes memory.
@@ -21,7 +21,7 @@
 -- field is already free-form/opaque, no core/relay change needed); a remote's advertised
 -- gender picks which pic table its ghost is drawn from.
 --
--- Sprite decode: see adapters/pokemon/emerald/sprite_probe.lua (Step 1, confirmed 2026-08-11) and
+-- Sprite decode: see adapters/pokemon/emerald/probes/sprite_probe.lua (Step 1, confirmed 2026-08-11) and
 -- sprite_ghost_test.lua (Step 2, confirmed 2026-08-11) for the 4bpp-tile/BGR555-palette decode
 -- math and the gui.drawPixel color-format fix (0xAARRGGBB, not 0xRRGGBBAA), both cited in
 -- agent_docs/verified.md. Addresses (pokeemerald.sym, same make-compare-verified build as
@@ -240,7 +240,7 @@ local SCRIPT_DIR = scriptDir()
 
 local function preloadLua54()
     pcall(function()
-        package.loadlib(SCRIPT_DIR .. "lib/x64/lua54.dll", "meshghost_force_preload")
+        package.loadlib(SCRIPT_DIR .. "../lib/x64/lua54.dll", "meshghost_force_preload")
     end)
 end
 
@@ -257,7 +257,7 @@ local function loadSocketCore()
         error("MeshGhost Phase 5.5: only x64 is supported by the vendored LuaSocket binary so far.")
     end
     preloadLua54()
-    local dllPath = SCRIPT_DIR .. "lib/x64/socket-windows-5-4.dll"
+    local dllPath = SCRIPT_DIR .. "../lib/x64/socket-windows-5-4.dll"
     return assert(package.loadlib(dllPath, "luaopen_socket_core"))()
 end
 

@@ -1,8 +1,0 @@
-=== MeshGhost Crystal spawn test (WRITES RAM) ===
-ROM guard passed: vanilla Crystal V1.0
-Will copy slot 0 -> slot 1, offset +2 tiles in x.
-Wrote slot 1 at frame 120 (player at 7,7 -> ghost at 9,7).
-LOOK AT THE SCREEN: is there a second character beside you?
-  +  1 frames: engine-maintained sprite_x=64 sprite_y=64 (moving = the game owns it)
-  + 30 frames: engine-maintained sprite_x=64 sprite_y=64 (moving = the game owns it)
-  +120 frames: engine-maintained sprite_x=64 sprite_y=64 (moving = the game owns it)
