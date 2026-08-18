@@ -263,6 +263,29 @@ UE4SS entry below for that last one specifically, which is currently unresolved)
   The symptom is confusing from outside: control-file changes are silently ignored and log files
   stop growing, which reads as a broken loader rather than a paused emulator. Check whether the
   adapter's log is still growing before debugging anything else.
+- **How to actually use all of the above: iterate freely, then hand over ONE confirmation.**
+  Stated by the user 2026-08-18, after the automation above was assembled:
+
+  > *"you are fine to test/try things, and fix them. but i have to confirm the end result. it does
+  > not stop you from trying to find/fix more things. it just means i will have to confirm
+  > personally at the end that EVERYTHING works as intended after you have done so."*
+
+  **The gate is on the CLAIM, not on the activity.** Restoring savestates, driving input, taking
+  screenshots, spawning things, breaking them and fixing them again — all of that is the agent's
+  own business and needs no permission and no supervision. What needs the user is the *end
+  result*: a personal confirmation that everything works as intended, before anything is called
+  done or written into `verified.md`.
+
+  **The practical shape this asks for**, which is the opposite of what the agent was doing before
+  it was said: do **not** stop after every change to ask "does this look right?". Run the loop —
+  find, fix, re-test, find the next thing — and hand over a finished piece with a short list of
+  what to look at. Interrupting at each step spends the user's attention on intermediate states
+  that may not survive the next fix, and their attention is the scarce resource the whole toolchain
+  exists to protect.
+
+  **What does not change:** nothing self-tested becomes "confirmed". The agent's runs narrow the
+  work down to something worth looking at; the user looking at it is what makes it true. The
+  reasoning behind the split is in [testing.md](testing.md), and a screenshot never substitutes.
 - **`dev-scripts/bizhawk-syntax-check.lua` — does this Lua even parse?** BizHawk embeds Lua 5.4
   and this machine has no standalone Lua binary, so before this the only way to find a missing
   `end` in an adapter was to load it into a live session. The checker `loadfile()`s a list of

@@ -47,6 +47,14 @@ exactly as it is"* and *"even with a picture, I still have to verify/confirm vis
 never take pictures as proof"*. A still frame cannot show motion, which is where the bugs were.
 Use screenshots to ask a better question; never to answer one for the record.
 
+**The gate is on the claim, not on the activity** (user, 2026-08-18): *"you are fine to test/try
+things, and fix them... it just means i will have to confirm personally at the end that EVERYTHING
+works as intended"*. Iterating, breaking things, and fixing them needs no supervision — only the
+finished result needs the user's eyes. So batch the asking: run the loop to a coherent stopping
+point, then hand over one list of what to check, rather than interrupting after every change with
+"does this look right?" — intermediate states often do not survive the next fix, and the user's
+attention is the scarce resource this whole toolchain exists to protect.
+
 **The practical rule, both directions:** never ask the user to confirm something the tools can
 settle, and never record as confirmed something only a person can see. Getting the first wrong
 wastes their time; getting the second wrong is how a feature that does not exist ends up in
