@@ -1472,3 +1472,27 @@ in the scroll cycle. If a correction like that ever ships, it belongs in the ada
 **Generalises to any engine where a spawned entity's screen position is set once and then driven
 by deltas.** The question to ask at the point of placement is not "is this value right?" but "is
 the *state I am computing it from* at rest?".
+
+## A spawned entity leaks once per zone crossing, but survives doors fine
+
+**Symptom.** Ghosts pile up along a route as the player walks back and forth between two areas —
+one left behind per crossing — while entering and leaving buildings behaves perfectly. Seen in
+Emerald 2026-08-18, five deep in a screenshot.
+
+**Cause.** The adapter identified its ghost partly by "the object's map matches the current map".
+A **warp** (house, elevator) rebuilds the world: the engine clears every object, so the check
+correctly reports death and a fresh spawn follows. A **connection** (route to route) changes the
+map identity **without** clearing anything, so the same check reports a live ghost as dead — the
+record is dropped, a replacement spawns, and the original stays active and untracked.
+
+**Why it matters more than it looks.** Ghosts are solid. Leaked ones accumulate into a wall, so a
+cosmetic-looking leak becomes "this route is now impassable".
+
+**Fix.** Identify the entity by something the engine cannot forge and that does not mention
+location — Emerald uses active + not-the-player + `localId == LOCALID_PLAYER` — and add a periodic
+sweep that clears anything wearing that marker which the adapter is not tracking. Full reasoning
+and the general form: `adapters/_template/README.md`, "The map changed and the world was rebuilt
+are different events".
+
+**The trap for testing:** each failure hides in the case the other one exercises. Passing a
+door/elevator test says nothing about a seamless boundary, and vice versa. Test both, deliberately.

@@ -892,6 +892,45 @@ Worked examples, both real:
    it is reasonable to stop sending the moment a menu opens while leaving an already-spawned ghost
    alone until something more disruptive happens.
 
+## "The map changed" and "the world was rebuilt" are different events
+
+**An engine can do the first without the second, and a ghost's identity check must not confuse
+them.** Learned the expensive way in Emerald, 2026-08-18, after it leaked a solid ghost at every
+route boundary until a screenshot showed five of them standing in a line.
+
+Any adapter that spawns something has to answer, every frame, *"is the thing I created still the
+thing I created?"* — because the engine owns the slots and will reuse them. The obvious answer is
+to record what makes it identifiable and re-check that. The trap is **which** properties you pick:
+
+- **A rebuild** — a warp, a door, a level load — destroys what the engine owns and reassigns the
+  slots. Anything of yours that survives is a stale pointer to somebody else's object. Here,
+  destroying "your" ghost without re-checking deactivated a real NPC and freed another sprite's
+  VRAM, both silently.
+- **A move that is not a rebuild** — a seamless connection between adjacent maps, a streamed zone,
+  a sub-area transition — changes the *identity of where you are* while leaving the objects
+  untouched. An identity check keyed on location now reports a healthy entity as dead, so you drop
+  your record, spawn a replacement, and leave the original alive with nobody tracking it. **One
+  orphan per crossing.**
+
+Both failures come from the same check, and each is invisible in exactly the case the other one
+catches — which is why testing a house (a rebuild) proved nothing about a route boundary (a
+connection), and the adapter passed one live test while failing the other.
+
+**What to do:**
+
+- **Identify a spawned entity by something you control that the engine cannot forge**, not by where
+  it is. Emerald uses "active, not the player, and `localId == LOCALID_PLAYER`" — a state only its
+  ghosts can be in, because real NPCs carry a template id and the player is flagged. Pick the
+  equivalent property in your game; check that a *real* entity of that game can never wear it.
+- **Sweep for orphans on a timer.** Anything wearing your marker that you are not tracking is
+  yours, from a previous script load or a bug, and clearing it costs nothing. This also cleans up
+  after the reload-driven development loop, which leaves debris by its nature.
+- **Never destroy without re-checking identity first.** Clearing a slot you no longer own is worse
+  than leaking one you do.
+- **A leak plus solidity is a different severity from either alone.** Leaked cosmetic ghosts are
+  untidy; leaked *solid* ones accumulate into a wall that can block a route. Decide collision and
+  lifecycle together, not separately.
+
 ## Budget a probe's reads before running it — see [probes.md](probes.md)
 
 An emulator's script host charges per call across a managed boundary, so a scan that reads trivially
