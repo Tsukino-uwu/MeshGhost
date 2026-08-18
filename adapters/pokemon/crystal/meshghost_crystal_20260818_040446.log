@@ -1,0 +1,7 @@
+MeshGhost: no LuaSocket at C:\dev\MeshGhost\adapters\pokemon\crystal/lib/x64/
+MeshGhost: LuaSocket loaded from C:\dev\MeshGhost\adapters\pokemon\crystal/../emerald/lib/x64/
+=== MeshGhost — Pokémon Crystal ===
+ROM: vanilla Crystal V1.0 — addresses verified against a byte-identical build.
+This session is an EXPERIMENT: at least one address is unconfirmed. Nothing seen here
+may be written to verified.md as a fact about the game.
+Bridge target 127.0.0.1:7779 (set MESHGHOST_BRIDGE_PORT to change).

@@ -205,7 +205,10 @@ Both are dev conveniences that are correct for a loopback session and wrong for 
 Recorded at the moment they were introduced (2026-08-18, on the user's question) rather than left
 to be noticed by a user.
 
-- [ ] **`LOOPBACK_OFFSET_X` defaults to `2` and must default to `0`.** A loopback relay echoes your
+- [x] **DONE 2026-08-18: `LOOPBACK_OFFSET_X` now defaults to `0`.** A loopback session sets it
+      explicitly (env var or a global before `dofile`); the shipped default is the correct one.
+      Original note follows.
+- [x] **`LOOPBACK_OFFSET_X` defaulted to `2` and had to default to `0`.** A loopback relay echoes your
       own state back, and this ghost has real collision, so without an offset the player stands
       inside something solid. Shipped as-is it would place **every real peer two tiles from where
       they actually are**, permanently and silently — the worst kind of bug, since it looks like a

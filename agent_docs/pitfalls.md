@@ -1271,6 +1271,26 @@ next adapter author doesn't re-diagnose them as adapter bugs:
   processing a new local update — a "send once, wait" test can look broken even when the
   socket is fine.
 
+### A guard that checks "did I get an answer" instead of "is the answer usable" (2026-08-18)
+
+- **Symptom**: the Crystal adapter failed to find its vendored LuaSocket from four candidate paths
+  and refused to start — but only when loaded indirectly, through a four-line wrapper that sets a
+  bridge port and `dofile`s it. Loaded directly, the same file worked.
+- **Diagnosis**: `scriptDir()` prefers `debug.getinfo().source` and falls back to the working
+  directory. The fallback exists because BizHawk reports an empty source when a script is opened
+  directly — so the guard asked "did I get a path?". Under `dofile`, source is `@./meshghost_crystal.lua`:
+  a path, and a **relative** one. The guard passed, the pwd fallback was skipped, and `"."` was
+  returned. That is fine for `io.open` and fatal for `package.loadlib` — Windows resolves a
+  relative DLL path against the **process** directory (BizHawk's), never the working directory, so
+  `./../emerald/lib/x64/` cannot resolve even with the folder sitting right there.
+- **Fix**: require the property actually needed. The guard now accepts the source-derived directory
+  only if it is absolute (`^%a:` or a leading slash) and otherwise falls through to pwd, which is
+  the answer BizHawk gives reliably.
+- **The general shape, and why it recurred the same day it was first hit**: a guard written from
+  one observed failure tends to encode *that* failure ("source was empty") rather than the
+  requirement ("I need an absolute directory"). Every other way of being unusable then walks
+  straight through it. When writing a guard, state the requirement, not the incident.
+
 ### A patched build's WRAM shift is NON-UNIFORM, and being right most of the time is the trap (2026-08-18)
 
 - **Symptom**: on an Archipelago-patched Crystal ROM, addresses derived from vanilla by a known

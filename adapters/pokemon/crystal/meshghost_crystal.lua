@@ -31,7 +31,7 @@ local GAME_ID = "crystal"
 local GAME_VERSION = "phase9"
 
 local BRIDGE_HOST = "127.0.0.1"
-local BRIDGE_PORT = tonumber(os.getenv("MESHGHOST_BRIDGE_PORT") or "") or 7778
+local BRIDGE_PORT = tonumber(MESHGHOST_BRIDGE_PORT or os.getenv("MESHGHOST_BRIDGE_PORT") or "") or 7778
 local RECONNECT_FRAMES = 120
 
 -- DEV-ONLY loopback offset, in tiles. A loopback relay echoes your own state back to you, so
@@ -41,7 +41,10 @@ local RECONNECT_FRAMES = 120
 -- Offset to the SIDE rather than trailing behind, so the ghost can be compared against the real
 -- character rather than hidden by it (user's standing preference for test ghosts). Set to 0 for a
 -- real two-machine session, where a peer's position is already their own.
-local LOOPBACK_OFFSET_X = tonumber(os.getenv("MESHGHOST_LOOPBACK_OFFSET_X") or "") or 2
+-- Each of these can also be set as a GLOBAL before this file is dofile()'d, which is how a second
+-- instance gets a different bridge port without restarting an already-open emulator to change an
+-- environment variable. See run_second_client.lua.
+local LOOPBACK_OFFSET_X = tonumber(MESHGHOST_LOOPBACK_OFFSET_X or os.getenv("MESHGHOST_LOOPBACK_OFFSET_X") or "") or 0
 
 local DOMAIN = "WRAM"
 local ROM_DOMAIN = "ROM"
@@ -180,7 +183,13 @@ local function scriptDir()
 	local info = debug.getinfo(1, "S")
 	if info and info.source and info.source:sub(1, 1) == "@" then
 		local dir = info.source:sub(2):match("^(.*)[/\\]")
-		if dir and #dir > 0 then
+		-- Only an ABSOLUTE answer counts. A relative one ("." from a dofile) satisfies this branch,
+		-- skips the pwd fallback below, and then fails where it matters -- LuaSocket is loaded with
+		-- package.loadlib, and Windows resolves a relative DLL path against the PROCESS directory
+		-- (BizHawk's), never the working directory, so "./../emerald/lib/x64/" cannot work even when
+		-- the folder is sitting right there. Cost this exact failure twice on 2026-08-18: once from
+		-- an empty source under BizHawk, once from loading this file through run_second_client.lua.
+		if dir and #dir > 0 and (dir:match("^%a:") or dir:match("^[/\\]")) then
 			return dir
 		end
 	end
