@@ -515,3 +515,23 @@ claim about whether a feature works.
 
 **And when the blind approach has failed twice, stop.** Scripting a menu the user can navigate in
 five seconds is rarely worth a fifth attempt — especially when a wrong press can hit SAVE.
+
+### Why a picture FIRST, rather than a picture when something breaks
+
+The user's framing, 2026-08-18: *"taking a picture first means you always know what to expect,
+instead of running into issues later."*
+
+That is the difference between one unknown and two. Look first and the starting state is a **fact**,
+so if the next step misbehaves the only thing left to question is the step. Script blind and you
+discover the state at the moment something fails — and now you are debugging the route and the
+state together, with no way to tell which is wrong. Every one of the four failed menu rounds in
+that session was that: a wrong route and an unexpected starting screen, indistinguishable from each
+other in the log.
+
+It also changes what "expected" means. With a picture you can state the expectation *before*
+running — "the cursor is on BAG, so A opens the bag" — and a failure then falsifies something
+specific. Without one, "it didn't work" is the whole result, and the next attempt is another guess.
+
+**Generalises past menus:** screenshot before any scripted interaction, and before any test whose
+result depends on where the game currently is. It is one command, and it converts an assumption
+into an observation at the exact moment that is still cheap.
