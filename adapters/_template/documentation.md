@@ -123,3 +123,32 @@ Adapters are built by measuring a game nobody has source for, and that knowledge
 scattered across code comments, a phase file, and one very long `verified.md`. This is the file that
 answers "how does this game actually work" in one read — which is also the file that tells you
 whether a new feature is even possible before you start building it.
+
+## Write a mechanic as its STEPS, not as one behaviour — 2026-08-18
+
+**If a mechanic has stages, the documentation has stages.** A one-line summary of something that is
+actually a sequence is the kind of note that reads fine and is useless later, because every
+question a reader arrives with ("what happens if it fails halfway?", "which part is timed?", "where
+does it end?") is about a stage the summary collapsed.
+
+Emerald fishing is the example that produced this rule. "Using a rod starts fishing" is true and
+answers nothing. What it actually is, in the user's own enumeration:
+
+1. cast — **nothing bites**, and it ends there
+2. cast — **something bites and is missed**, which ends in the same standing pose as (1)
+3. cast — **something bites and takes several rounds** of timed reaction before resolving
+4. cast — **something bites and is landed**, which starts a **battle**, which then has to be escaped
+
+That version answers all three questions, and it also tells an adapter author things the summary
+hides: that two outcomes are indistinguishable at the endpoint, that one stage demands timing, and
+that the mechanic can **end in a different game state entirely**.
+
+**So when documenting a mechanic:**
+
+- **List the stages in order, and mark which can fail or repeat.**
+- **Say where each branch ends up** — especially if any of them leaves the map, opens a menu, or
+  starts a battle, because that changes what an adapter must survive.
+- **Note which stages are timed** — those are the ones a scripted test cannot drive blind.
+- **Record what the ENGINE creates at each stage**, not just what the player sees: a graphic swap, a
+  companion sprite, a field effect. Surfing looks like one pose and is a pose plus a separate
+  Pokemon sprite.

@@ -368,10 +368,17 @@ would be scripted:
 > several times, and then you get into a battle if you do all the baits properly. so after that you
 > would have to run from the battle."*
 
-So "use the rod" is: cast -> maybe nothing -> maybe a bite -> a timed reaction -> **possibly
-repeated** -> a battle -> escaping the battle. Several of those branch on luck and one demands
-timing. A probe written as "press the button, read the result" measures whichever branch it
-happened to land in and reports it as *the* behaviour.
+So "use the rod" is not one behaviour but at least four outcomes, as the user enumerated them:
+
+1. **nothing bit** — the cast simply fails
+2. **something bit and you missed it** — a bite, then a failed reaction
+3. **something bit and it takes several rounds** — the timed reaction repeats before it resolves
+4. **something bit and you land it** — which starts a battle, that you then have to escape
+
+A probe written as "press the button, read the result" measures whichever of those four it happened
+to land in, and reports it as *the* behaviour. Worse, outcome 1 and outcome 2 both end with the
+player standing still holding a rod, so a probe that samples only the endpoints cannot tell them
+apart at all.
 
 **What this changes about how to probe such a state:**
 

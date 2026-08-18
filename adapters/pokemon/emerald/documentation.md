@@ -95,3 +95,39 @@ own client reads the save-block pointers, which is why those keep working.
 
 Full citation trail, including what is and is not covered:
 [`agent_docs/risks.md`](../../../agent_docs/risks.md).
+
+## Fishing
+
+**Fishing is a multi-stage process with four outcomes, not a state you enter and leave.** Recorded
+because an adapter that mirrors a peer has to represent whichever stage they are in, and two of the
+outcomes look identical at the end.
+
+The stages, as the game runs them:
+
+1. **Cast.** The player's `graphicsId` changes to the fishing graphic for the whole action —
+   `OBJ_EVENT_GFX_BRENDAN_FISHING` (137) or `..._MAY_FISHING` (138). Position, `movementType` and
+   `movementActionId` do not change; the player does not move.
+2. **Nothing bites.** The rod is put away and it ends.
+3. **Something bites and is missed.** Also ends with the rod put away — **the same pose as (2)**,
+   so the outcomes are indistinguishable from the final frame alone.
+4. **Something bites and the reaction succeeds**, possibly over **several rounds** of timed input,
+   and then a **battle starts** — so fishing can end in a different game state entirely, with a
+   different object array.
+
+The whole animation plays out in the **sprite's `animNum`**, not in the object's movement fields:
+
+| animNum | meaning |
+| --- | --- |
+| 0-3 | `ANIM_TAKE_OUT_ROD_*` — south, north, west, east |
+| 4-7 | `ANIM_PUT_AWAY_ROD_*` — same order |
+| 8-11 | `ANIM_HOOKED_POKEMON_*` — same order |
+
+Observed live on a May save (`verified.md`, 2026-08-18): `gfx 89 -> 138`, then `anim 3` (take out
+rod, east), `anim 7` (put away — a bite that got away), `anim 3` again, `anim 11` (hooked), and
+finally back to `gfx 89`. `PLAYER_AVATAR_FLAG_ON_FOOT | PLAYER_AVATAR_FLAG_CONTROLLABLE` stayed set
+throughout.
+
+**Not yet established:** whether fishing also owns a companion sprite the way surfing does
+(surfing attaches a separate Pokemon sprite through the object event's `fieldEffectSpriteId`).
+`probes/fishing_watch.lua` exists to answer exactly that and has not been run through a full set of
+outcomes yet.
