@@ -6919,3 +6919,22 @@ scheduled. All established by the agent with local tools; nothing here is a visu
   writing the base value mid-step fights the animation.
 - **Still true and unchanged**: a ghost wears the LOCAL player's face, not the peer's, and
   `LOOPBACK_OFFSET_X` must default to 0 before any release. Both in `phases/phase9.md`.
+
+### Crystal: on an Archipelago ROM nothing spawns, because the READS are wrong too (2026-08-18)
+
+- Date: 2026-08-18
+- Observed: with the guard relaxed to warn-and-run, the adapter on an AP ROM connected normally
+  (`bridge connected`, `bridge_ready`) and then **did nothing** — no spawn line, no ghost.
+- Source: live run, `meshghost_crystal_20260818_021856.log`.
+- Notes: **the failure is upstream of the writes.** `inPlay()` reads `wMapStatus` at a vanilla
+  address, which on a patched ROM holds something else, so it never reports in-play,
+  `get_local_state()` returns `nil`, the loopback relay has nothing to echo, and no
+  `render_remote` ever arrives. **Nothing was written at all.**
+  So the hope that a patch might "leave enough intact to somewhat work" does not survive contact:
+  it is not that writes land badly while reads still work — **every address the adapter uses, in
+  both directions, comes from the vanilla table.** Relaxing the guard was still the right call
+  (it costs nothing and the failure is inert), but it cannot substitute for the address table.
+- **The route to real support is known and cheap-ish**: Archipelago's own Crystal world publishes
+  `ram_addresses` in `worlds/pokemon_crystal_prerelease/data/data.json` (MIT, `licensing.md`),
+  which already carries `wMapGroup`/`wMapNumber` among others. A second address table selected by
+  ROM identity — which the classifier already computes — is the shape, not a relaxed guard.
