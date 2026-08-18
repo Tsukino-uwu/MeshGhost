@@ -32,7 +32,9 @@
 local DOMAIN = "WRAM"
 local WRAM_SIZE = 0x8000
 local NEEDED_HITS = 4 -- how many consistent ±1 changes before an address is reported
-local SAMPLE_EVERY = 2 -- frames; a step takes ~16, so this cannot miss one
+local SAMPLE_EVERY = 10 -- frames. A step takes ~16, so this still cannot miss one, and 32k reads
+-- every other frame is far more than BizHawk's Lua host will carry — the first version of this
+-- probe never produced a log at all because of it (2026-08-18).
 
 local function scriptDir()
 	local info = debug.getinfo(1, "S")
@@ -75,6 +77,7 @@ end
 log("=== MeshGhost Crystal/AP coordinate probe (READ-ONLY) ===")
 log("WALK STEADILY IN ONE DIRECTION, 6+ tiles, no turning, no doors.")
 log("Looking for bytes that change by the same +1 or -1, repeatedly.")
+log("NOTE: one direction only. A square resets the counter at every turn and finds nothing.")
 
 -- state per address: last value, how many consistent ±1 steps seen, and which direction.
 local prev, hits, dir = {}, {}, {}
