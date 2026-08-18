@@ -358,3 +358,38 @@ behavioural test (drive into it, read the coordinates) is what settled it.
 the map is rebuilt from ROM on the next map load regardless — so a mistake costs a door. A dev tool
 that edits the world should always have an obvious way back, because the alternative is being
 cautious with it, and being cautious with it is how it stops being used.
+
+## A state is often a multi-step process with branches, not a flag — 2026-08-18
+
+**Do not assume a state is on/off, or that one input produces it.** The user, on being told fishing
+would be scripted:
+
+> *"fishing happens in steps, you can not get a bait, you can get a bite but need to time it 1 or
+> several times, and then you get into a battle if you do all the baits properly. so after that you
+> would have to run from the battle."*
+
+So "use the rod" is: cast -> maybe nothing -> maybe a bite -> a timed reaction -> **possibly
+repeated** -> a battle -> escaping the battle. Several of those branch on luck and one demands
+timing. A probe written as "press the button, read the result" measures whichever branch it
+happened to land in and reports it as *the* behaviour.
+
+**What this changes about how to probe such a state:**
+
+- **Record a window across the whole process, not a reading at the end.** The Emerald fishing
+  capture is the model: logging every change produced `take out rod -> put away rod` (a bite that
+  got away), then `take out rod -> hooked`, which is the branch structure visible in the data
+  without anyone having to describe it first.
+- **Expect to see the failure branches, and keep them.** They are usually more informative than
+  the success: "put away rod" is what told us a failed bite is a distinct animation rather than
+  nothing happening.
+- **Do not script the timed parts blind.** A human plays the minigame far better than a scripted
+  input sequence guessing at frame windows, and the point of the probe is what the ENGINE does, not
+  whether the agent can fish. Drive the setup (reach water, open the bag, start the state) and let
+  the person handle the timed middle — or accept many retries, which savestates make cheap.
+- **Plan for the state to end somewhere else entirely.** Fishing can drop you into a battle, which
+  is a different map state with a different object array. Anything the probe holds across that
+  boundary — a spawned ghost, a slot index, a tile edit — has to survive it or be re-established.
+
+**The general form:** before probing a state, ask *"how many steps is this, and which of them can
+fail?"* If the answer is more than one, the probe wants a window, a log of every transition, and no
+assumption about which branch it will see.
