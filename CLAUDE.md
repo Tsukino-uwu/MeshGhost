@@ -274,16 +274,16 @@ stays here, its reasoning goes to `agent_docs/`, with a one-line pointer. Full e
   game itself properly handles, so it reads as a description of the game to someone who has never
   seen our code. Everything in it must also be publishable: facts observed from a running copy,
   never source, decompiled output, asset content or verbatim dumps (`licensing.md`).
-- **Read `adapters/_template/README.md` END TO END before a new game's adapter exists — all ~840
-  lines, before you create its first file. `wc -l` it; if you have not reached the last line, you
+- **Read `adapters/_template/README.md` END TO END before a new game's adapter exists — every
+  line, before you create its first file. `wc -l` it; if you have not reached the last line, you
   have not read it, and saying "I read the template" is then false.** Reading the top and starting
-  work is THE failure mode, not a shortcut — it happened twice on 2026-08-17, the day this rule was
-  written: a wrong framing shipped into Crystal's spawn ADR, and the create/borrow/draw-over tiers
-  plus the game-state rule already answered the exact question being asked. **Answers are at the
-  bottom as often as the top.** It holds the folder convention, the access-model question,
-  observe-the-game-before-working-around-it, and enumerate-before-guessing. **`_template/` is also
-  the gold standard and may never lag**: a rule, file or trap added to a shipped adapter is
-  back-ported in the same pass, and a decision that invalidates a premise stated there updates it.
+  work is THE failure mode, not a shortcut — it happened twice on 2026-08-17, the day this rule
+  was written, both times with the answer already sitting further down the file. **Answers are at
+  the bottom as often as the top.** It holds the folder convention, the access-model question and
+  enumerate-before-guessing; its companion `adapters/_template/probes.md` is the probe method —
+  read that one before writing any probe. **`_template/` is also the gold standard and may never
+  lag**: a rule, file or trap added to a shipped adapter is back-ported in the same pass, and a
+  decision that invalidates a premise stated there updates it.
 - `agent_docs/effect-investigation.md` is the how-to-search playbook for a game's visual effects —
   read before starting effect/VFX work on a new adapter, not after it goes wrong.
 - `agent_docs/access-models.md` records what can be read about each game (decompilation, managed

@@ -1,0 +1,50 @@
+=== MeshGhost Crystal/AP coordinate probe, BY REVERSAL (READ-ONLY) ===
+PHASE A: walk steadily ONE direction, 8+ tiles. No turning, no doors.
+Nothing is excluded up front. Failing reversal is the evidence.
+  [phase A] best run so far: 6 consistent steps, 13 seconds left
+  [phase A] best run so far: 7 consistent steps, 11 seconds left
+  [phase A] best run so far: 11 consistent steps, 9 seconds left
+  [phase A] best run so far: 17 consistent steps, 7 seconds left
+  [phase A] best run so far: 25 consistent steps, 5 seconds left
+  [phase A] best run so far: 27 consistent steps, 3 seconds left
+  [phase A] best run so far: 27 consistent steps, 1 seconds left
+=== PHASE A closed (900 frames): everything with 3+ consistent ±1 changes ===
+  0x0107 (  263)  moved +1, 6 time(s), now 200
+  0x019D (  413)  moved +1, 10 time(s), now 187
+  0x02A8 (  680)  moved -1, 6 time(s), now 0
+  0x119B ( 4507)  moved -1, 7 time(s), now 203
+  0x1459 ( 5209)  moved -1, 4 time(s), now 0
+  0x14CD ( 5325)  moved +1, 15 time(s), now 59
+  0x14EC ( 5356)  moved -1, 14 time(s), now 48
+  0x14EE ( 5358)  moved -1, 15 time(s), now 48
+  0x1C82 ( 7298)  moved +1, 27 time(s), now 98
+  0x1CBF ( 7359)  moved -1, 15 time(s), now 44
+10 address(es) carried into phase B.
+
+>>> NOW TURN AROUND AND WALK BACK THE SAME WAY, 8+ tiles. <<<
+A coordinate now moves the OTHER way. A counter keeps going the same way and is dropped.
+  [phase B] best run so far: 2 consistent steps, 14 seconds left
+  [phase B] best run so far: 8 consistent steps, 12 seconds left
+  [phase B] best run so far: 11 consistent steps, 10 seconds left
+  [phase B] best run so far: 18 consistent steps, 8 seconds left
+  [phase B] best run so far: 25 consistent steps, 6 seconds left
+  [phase B] best run so far: 27 consistent steps, 4 seconds left
+  [phase B] best run so far: 33 consistent steps, 2 seconds left
+  [phase B] best run so far: 33 consistent steps, 0 seconds left
+=== RESULT ===
+CONFIRMED BY REVERSAL: 0x119B (4507)  -1 then +1
+    0x1197-0x119F:  00  00  00  00 [59]  C8  01  01  25
+CONFIRMED BY REVERSAL: 0x14EC (5356)  -1 then +1
+    0x14E8-0x14F0:  01  0C  00  00 [15]  0D  15  0D  07
+CONFIRMED BY REVERSAL: 0x14EE (5358)  -1 then +1
+    0x14EA-0x14F2:  00  00  15  0D [15]  0D  07  07  00
+CONFIRMED BY REVERSAL: 0x1CBF (7359)  -1 then +1
+    0x1CBB-0x1CC3:  02  18  04  09 [11]  16  1E  05  05
+--- dropped in phase B (kept counting the same way, so not a coordinate) ---
+  0x0107 (  263)  phase A +1, phase B +1 x1
+  0x019D (  413)  phase A +1, phase B none x0
+  0x02A8 (  680)  phase A -1, phase B none x0
+  0x1459 ( 5209)  phase A -1, phase B -1 x4
+  0x14CD ( 5325)  phase A +1, phase B +1 x14
+  0x1C82 ( 7298)  phase A +1, phase B +1 x33
+Run again on the OTHER axis to tell wXCoord from wYCoord.

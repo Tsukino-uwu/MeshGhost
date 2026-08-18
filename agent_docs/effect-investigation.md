@@ -8,6 +8,8 @@ part of it. It is deliberately separate from its neighbours:
   avoid a specific trap.
 - [`adapters/_template/README.md`](../adapters/_template/README.md) is *what to build* — enumerate
   before guessing, mirror the decision rather than the rule, latch payloads to their counter.
+- [`adapters/_template/probes.md`](../adapters/_template/probes.md) is *how to instrument* — the
+  probe method itself: reversal search, dumping unfiltered, read budgets, and the cost warning.
 - **This file is *how to search*.** The order of operations, what each dead end actually taught, how
   to instrument so a run can answer something, and how to tell which of your beliefs is load-bearing.
 

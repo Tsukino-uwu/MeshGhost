@@ -6989,3 +6989,30 @@ scheduled. All established by the agent with local tools; nothing here is a visu
   same differential way rather than deriving them — scan for any byte pair that changes by exactly
   ±1 in one axis, repeatedly, as the player walks, and cross-check the survivors against known map
   transitions. Only once the coordinates are *measured* can they anchor the object-array scan.
+
+### Crystal/AP: the player's coordinates, MEASURED by reversal — 7358 = Y, 7359 = X (2026-08-18)
+
+- Date: 2026-08-18
+- Observed: two runs of `ap_reverse_probe.lua` on the Archipelago ROM, one per axis, each walking
+  ~15s one way and ~15s back. Only bytes that changed by a consistent ±1 in the first half AND the
+  opposite sign in the second half were kept.
+  - up/down run (`ap_reverse_20260818_025312.log`): `0x1CBE` (**7358**), plus `0x14ED`, `0x14EF`.
+  - left/right run (`ap_reverse_20260818_025414.log`): `0x1CBF` (**7359**), plus `0x14EC`, `0x14EE`.
+- Source: my own reading of those two log files — no visual claim, nothing watched on screen.
+- **The two runs are disjoint and adjacent**, which is what a real coordinate pair looks like:
+  up/down moved the odd bytes, left/right the even ones. So **7358 is Y and 7359 is X**, in that
+  order, matching vanilla's `wYCoord`/`wXCoord` ordering.
+- **This contradicts the published number, not just the earlier derivation.** AP publishes 7359 as
+  `wMapGroup`; on this build 7359 tracks left/right movement, so it is X. Both coordinates sit at
+  **vanilla + 7** (vanilla `0xDCB7`/`0xDCB8` -> flat `0x1CB7`/`0x1CB8`), the same delta
+  `wMapEventStatus` has — so the block moved as a unit and the *labels* were what was wrong.
+- **`0x14CD` is a counter, formally.** Three earlier one-direction runs reported it (or its
+  equivalents `0x011E`, `0x016B`) as a coordinate candidate; it counted `+1` through both reversals.
+  The one-direction probe closed its phase on the first address to reach a hit threshold, and a
+  frame-timer counter always wins that race — four runs produced four different "candidates", all
+  counters. Recorded because the fix generalises: fixed-length phases, and reverse the input.
+- **Not yet established, and the next measurement**: `0x14EC`/`0x14ED` and `0x14EE`/`0x14EF` have
+  the spacing of `F_MAP_X`/`F_MAP_Y`/`F_LAST_MAP_X`/`F_LAST_MAP_Y` at offset `0x10`, which would put
+  `wObjectStructs` at `0x14DC` — vanilla + 6, a *different* delta from the coordinate block's +7.
+  That is a prediction written down before the run, not a fact; `ap_address_probe.lua` is now
+  anchored on the measured 7358/7359 and scans every base, so it can contradict it.

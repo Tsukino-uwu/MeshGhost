@@ -40,6 +40,10 @@ The counterpart rule for content lives in each file: `BANDAGES.md` for compensat
   belong in `BANDAGES.md`), and everything in it must be publishable — facts observed from a running
   copy, never source, decompiled output, asset content or verbatim dumps. The licensing assessment
   behind that is in [agent_docs/licensing.md](../../agent_docs/licensing.md).
+- [probes.md](probes.md) — **how to build a probe that answers something**: how to search for a
+  value you cannot name, how to instrument a running game without changing what it does, how much a
+  probe is allowed to cost, and the traps that make a probe lie. Not copied into an adapter folder —
+  it is method, and it is read, not filled in.
 - [BANDAGES.md](BANDAGES.md) — the shipped-compensation register, plus the canonical
   how-to-tell-a-bandage guide and the user's standing position that a bandage is a state to leave,
   never a resting place.
@@ -345,18 +349,16 @@ local machine has installed*. Pseudoregalia's enumeration turned up a custom eff
 third-party mod. Anything built on such an asset silently does nothing for peers who lack it, so
 prefer base-game assets and treat a failed asset lookup as an expected case, not an error.
 
-### Dump everything. A filter is a guess about the answer
+### How to build the probe that answers this — [probes.md](probes.md)
 
-**When you dump a class's functions or properties to read yourself, do not filter first.** The
-needle list you would filter by is a guess about what the answer is called, made before you know
-what the answer is — and if the guess is wrong the dump still looks complete, so nothing tells you.
+Everything about probe *method* now lives in [probes.md](probes.md), next to this file: searching
+for something you cannot name (drive an input one way, then reverse it), dumping without filtering
+first, logging a window rather than an event, delaying your own change so its effects separate from
+the game's own startup, and the two ways a probe lies to you — by breaking what it measures, and by
+being too expensive to run at all.
 
-Found the expensive way, 2026-08-17: a filtered function dump (`slide|crouch|duck|mesh`) hid the
-one function that mattered — a Blueprint Timeline update handler — through nine failed attempts.
-The unfiltered dump was **473 functions**, which is one screen of scrolling and under a minute to
-read. The noise costs less than a single wasted build-deploy-play cycle.
-
-Filter while reading, never before. Same for property dumps and log greps.
+**Read it before writing the first probe for a new game.** Every section in it is a run that
+already went wrong once in this repo.
 
 ### When several mechanisms each "do nothing", try them together
 
@@ -368,36 +370,6 @@ switched off as proven no-ops and had to be restored when removing them broke a 
 **After about three single-variable negatives, run the union of everything plausible.** If it
 works, subtract from there: that direction is safe, because you always have a working state to
 compare against. Full case study: `agent_docs/pitfalls.md`.
-
-### Log a window, not an event
-
-An on-change trace tells you what a value became; it cannot tell you *when*, and "when" is often the
-whole answer. When something looks intermittent, ordering-dependent, or "mostly fine", log a fixed
-window of consecutive ticks across the transition, with the source state and the result side by
-side. One such capture collapsed three apparently separate Pseudoregalia bugs into one latch.
-
-Related, when a write of yours keeps getting undone: something is **maintaining** that value. Ask
-what state *it* reads rather than writing harder — re-asserting every tick just loses the race
-visibly.
-
-### Delay your own change, so its effects separate from the game's own startup
-
-The noisiest moment in any game is the first few seconds of a level: cameras pick targets, systems
-initialise, actors register. Introduce your thing into *that*, and every consequence of it arrives
-tangled up with consequences of the level loading, which you cannot tell apart.
-
-**Hold your change back by a few seconds after the local player is valid, and the game goes quiet
-first.** Whatever then happens is yours. Pseudoregalia held ghost spawning for ~300 game-thread
-ticks (~5s), and that alone turned "the camera sometimes ends up on the wrong target" into a
-clean, isolated event ~2.6ms after spawn — a timestamped one-off instead of a vague interaction
-with level entry. It is the time-domain version of the previous section: rather than logging a
-window around a moment, you *move* the moment somewhere the log is empty.
-
-Two things to get right. Delay from **the player becoming valid**, not from mod load — mod load is
-early and varies, player-valid is the event the game's own startup hangs off. And **make it a
-constant you can set to zero**, because this is a diagnostic scaffold, not behaviour: once the
-question is answered, a delay before a peer appears is a cost users pay for an investigation that
-already finished. Zero it, and keep the constant so the next investigation can raise it again.
 
 ## When a mirrored effect's timing is slightly off, stop reconstructing the trigger
 
@@ -455,52 +427,22 @@ and log a lifetime when one vanishes. If nothing ever vanishes, they are pooled.
 
 Worth knowing, but note how it played out in Pseudoregalia: pooling was real, and re-writing the
 spawn detector around it was still **the wrong fix** and got reverted. The trail was not
-short of spawns at all — see the cost warning below for what was actually wrong. *"This mechanism
+short of spawns at all — see the cost warning in [probes.md](probes.md) for what was actually
+wrong. *"This mechanism
 is real"* and *"this mechanism explains my bug"* are separate claims and need separate evidence.
 
-### The cost warning: a probe can break the effect you are measuring
+### Before you instrument any of this, read the probe cost warning
 
-This is the single most expensive lesson in this repo, and it belongs here because it is a *method*
-failure, not a game-specific one. Full incident in
-[agent_docs/pitfalls.md](../../agent_docs/pitfalls.md), "The diagnostics were the bug".
-
-A per-tick enumeration of live objects, with a name lookup or string conversion per object, is far
-more expensive than it looks — and if the engine spawns the effect you are studying as a *countdown
-across ticks*, stalling the game thread truncates the very bursts you are trying to count. In
-Pseudoregalia that produced an intermittently missing trail while **four separate metrics reported
-exact parity**, because every object that survived was correct and only the destroyed ones were
-absent. A second probe made it worse by *spawning* the same kind of object it measured.
-
-So, when instrumenting an effect:
-
-- **Compare by pointer, not by name.** The enumeration itself was affordable; the per-object
-  `GetFullName()` and UTF-8 conversion were not. Comparing an object reference against a known
-  component pointer is nearly free.
-- **Keep probes off by default and re-test with them off** before believing any result. Never leave
-  a probe that *spawns* the effect enabled while judging that effect.
-- **Prefer edge-triggered logging** to per-tick, and treat any figure gathered while a heavy probe
-  was live as suspect afterwards.
-- **If a human keeps reporting a difference your metrics deny, suspect the metrics.** Agreement
-  between two sides measured by one instrument is not correctness — a shared blind spot makes them
-  agree and describes neither.
-
-### Two more probe traps
-
-- **A probe that returns nothing is a result, not a malfunction.** Ask what a genuine zero would
-  mean before widening the net. Here, "no object ever disappeared" *was* the finding.
-- **A sampling window that is too narrow produces a false negative indistinguishable from a real
-  one.** One probe reported "0 new objects" every run and concluded the effect was pooled; the
-  objects were in fact created slightly later than the sample and then persisted. What caught it
-  was the *totals* printed beside the diff, climbing by exactly two each time. So: always print a
-  **total**, not only the difference; diff **across** probes so anything appearing in a gap is
-  still attributed; and never let a probe write its conclusion into the log ("likely pooled") —
-  log the observation and conclude outside it, because a wrong conclusion in a log file outlives
-  the run and gets believed later.
+The most expensive lesson in this repo is that **a probe can break the effect it is measuring**,
+and that four metrics agreeing with each other proves only that they share a blind spot. It applies
+directly to the enumeration and spawn-detection work above, which is exactly the shape that got
+costly. It lives in [probes.md](probes.md) with the rest of the probe method, and the full incident
+is in [../../agent_docs/pitfalls.md](../../agent_docs/pitfalls.md), "The diagnostics were the bug".
 
 ### If you are about to start effect work, read the playbook first
 
-The two sections above tell you *what to build*: enumerate before guessing, mirror the decision
-rather than the rule. They do not tell you how to run the hunt — what order to do things in, how to
+The two sections above tell you *what to build* — enumerate before guessing, and mirror the
+decision rather than the rule; [probes.md](probes.md) tells you how to instrument either one. They do not tell you how to run the hunt — what order to do things in, how to
 instrument a run so it can answer something, or how to tell when you are actually finished.
 
 That is [agent_docs/effect-investigation.md](../../agent_docs/effect-investigation.md), and it is
@@ -938,34 +880,13 @@ Worked examples, both real:
    it is reasonable to stop sending the moment a menu opens while leaving an already-spawned ghost
    alone until something more disruptive happens.
 
-## A probe's read budget is real — an emulator's script host is slow
+## Budget a probe's reads before running it — see [probes.md](probes.md)
 
-**Scanning a lot of memory every frame does not work, and it fails silently.** An emulator's Lua (or
-equivalent) host charges per call across a managed boundary, so a scan that looks trivial as an
-expression is thousands of those calls per frame. It does not error — the script stalls, the
-emulator drags or hangs, and **you get no log at all**, which reads as "the probe did nothing"
-rather than "the probe never ran".
-
-**Found live 2026-08-18**, hunting for an address on a patched Crystal ROM: a probe read all 32 KB
-of WRAM every other frame. It produced no output whatsoever, and the live testing done for it
-measured nothing — the run had to be repeated.
-
-**What to do instead**, cheapest first:
-
-- **Sample less often.** If the thing you are watching takes ~16 frames (one walking step, say),
-  sampling every 10 frames still cannot miss it, and costs a sixth as much.
-- **Only pay the big cost on interesting frames.** A cheap check first — has a single reference
-  byte changed? — then the wide scan only when it has. An earlier probe in the same session
-  survived a full-WRAM scan precisely because it only ran it on change frames.
-- **Narrow the range** once you can justify it, and say in the log what you excluded, so a null
-  result cannot be mistaken for "searched everywhere".
-- **Check for a bulk-read call** in the host's API, which is one boundary crossing instead of
-  thousands — but confirm it against the host's own documentation rather than assuming it exists
-  ([CLAUDE.md](../../CLAUDE.md)'s no-APIs-from-memory rule).
-
-**The general shape, worth carrying to any future emulator adapter:** a probe that is too expensive
-does not report being too expensive. Budget the reads *before* the run, and if a probe produces no
-log at all, suspect its cost before suspecting the game.
+An emulator's script host charges per call across a managed boundary, so a scan that reads trivially
+as an expression is thousands of calls per frame. It does not error: it stalls, and **you get no log
+at all**, which reads as "the probe found nothing" rather than "the probe never ran". Found live
+2026-08-18 on a patched Crystal ROM, costing a repeated live test. The section in
+[probes.md](probes.md) has what to do instead, cheapest first.
 
 ## Read the working adapter for the same host before writing a new script
 

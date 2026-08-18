@@ -41,6 +41,10 @@ Internal documentation for MeshGhost: architecture, planning, licensing, and ver
   adapter's difficulty better than its engine does. What each shipped adapter used (decompilation /
   self-documenting artifact / runtime reflection), the other approaches that exist, and a checklist
   for working out what a new game offers. Read before starting a new adapter.
+- **`adapters/_template/probes.md` — how to build a probe that answers something**: searching for a
+  value you cannot name (drive an input one way, then reverse it), instrumenting a running game
+  without changing what it does, what a probe is allowed to cost, and the two ways a probe lies.
+  It sits with the template rather than here because it is adapter work; read it before writing one.
 - [effect-investigation.md](effect-investigation.md) — **how to search**: the procedure for finding,
   mirroring and confirming a game's visual effect, told through the Pseudoregalia afterimage/trail
   investigation start to finish. Complements the other two rather than repeating them —

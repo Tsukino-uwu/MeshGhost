@@ -4,15 +4,35 @@
 --
 -- WHY
 -- Archipelago's Crystal patch moves WRAM non-uniformly, and its published table exports what its
--- own client uses, not what we do. Five addresses are derivable from it (verified.md, 2026-08-18):
+-- own client uses, not what we do. Deriving our addresses from AP's published wMapGroup = 7359 was
+-- tried and REFUTED (verified.md, 2026-08-18): the bytes it pointed at cycled rather than tracking
+-- a walking player.
 --
---   wMapGroup 7359, wMapNumber 7360, wYCoord 7361, wXCoord 7362   (four consecutive bytes)
---   wMapStatus 5177                                               (one before wMapEventStatus)
+-- The coordinates are MEASURED instead, by reversal — a byte that moves +1 walking one way and -1
+-- walking back is a coordinate; a byte that keeps counting is a counter. Two runs of
+-- ap_reverse_probe.lua, one per axis, agreed and were disjoint:
 --
--- wObjectStructs is not. The obvious guess is vanilla+7, because wMapEventStatus sits at +7 and
--- the object array is ~160 bytes away — but observed deltas elsewhere were +7, -45, +22 and +10,
--- so "nearby means same delta" is exactly the plausible assumption this project keeps getting
--- caught by. So it is MEASURED, not guessed.
+--   7358 (0x1CBE) moved with UP/DOWN     -> Y     ap_reverse_20260818_025312.log
+--   7359 (0x1CBF) moved with LEFT/RIGHT  -> X     ap_reverse_20260818_025414.log
+--
+-- Note what that does to the published number: 7359 is not wMapGroup on this build, it is the X
+-- coordinate. Both sit at vanilla + 7 (vanilla 0xDCB7/0xDCB8 -> flat 0x1CB7/0x1CB8), the same
+-- delta wMapEventStatus has.
+--
+-- CAVEAT on the anchor: in the vanilla build these two are the visible WINDOW origin rather than
+-- the player (see meshghost_crystal.lua). That is fine here — all this probe needs from them is
+-- "a step just happened, on this axis, in this direction", and a camera clamped at a map edge
+-- costs a missed step, which the filter treats as no step at all.
+--
+-- wObjectStructs is still not derivable. The obvious guess is vanilla+7 to match the block above,
+-- but observed deltas elsewhere were +7, -45, +22 and +10, so "nearby means same delta" is exactly
+-- the plausible assumption this project keeps getting caught by. So it is MEASURED, not guessed.
+--
+-- PREDICTION, written before the run so the result can contradict it: the same two reversal runs
+-- confirmed 0x14EC/0x14ED moving on the X/Y axes and 0x14EE/0x14EF two bytes later — the
+-- F_MAP_X/F_MAP_Y/F_LAST_MAP_X/F_LAST_MAP_Y layout at offset 0x10, which puts the base at 0x14DC,
+-- vanilla + 6. A DIFFERENT delta from the coordinate block's +7. This probe scans every base
+-- regardless; if it lands elsewhere, the prediction is wrong and the probe is right.
 --
 -- HOW
 -- A differential scan, which is the one technique that cannot be fooled by a plausible-looking
@@ -34,12 +54,10 @@
 
 local DOMAIN = "WRAM"
 
--- From Archipelago's own data.json plus the decomp's contiguity facts.
-local AP_MAPGROUP = 7359
-local AP_MAPNUMBER = 7360
-local AP_YCOORD = 7361
-local AP_XCOORD = 7362
-local AP_MAPSTATUS = 5177
+-- MEASURED on this ROM by ap_reverse_probe.lua, one run per axis (2026-08-18). Not derived from
+-- AP's published table, which the earlier attempt proved does not mean what it was taken to mean.
+local AP_YCOORD = 7358
+local AP_XCOORD = 7359
 
 local F_MAP_X, F_MAP_Y = 0x10, 0x11
 local OBJECT_LENGTH = 0x28
@@ -85,7 +103,7 @@ local function u8(addr)
 end
 
 log("=== MeshGhost Crystal/AP address probe (READ-ONLY) ===")
-log(string.format("Using AP's wXCoord=%d wYCoord=%d. Vanilla wObjectStructs is 0x%04X.",
+log(string.format("Anchored on MEASURED X=%d Y=%d. Vanilla wObjectStructs is 0x%04X (predicting 0x14DC).",
 	AP_XCOORD, AP_YCOORD, VANILLA_OBJECT_STRUCTS))
 log("WALK, changing direction a few times. Candidates are cut on every step.")
 
