@@ -319,3 +319,42 @@ screenshot fired before the adapter had connected produced three convincing pict
 no ghost in it. A probe does not fail when it measures the wrong instant — it answers a different
 question persuasively. Delay to a known state, and log the state alongside the reading so the
 mismatch is visible.
+
+## Edit the world instead of travelling to it — 2026-08-18
+
+**If the game decides something from a value, the cheapest way to reach that state is to write the
+value.** Emerald's surf and fishing work needed water, and the water was several maps away. Walking
+there costs the user's time; warping needed machinery we did not have. But a tile is water because
+one halfword says so — so the tile the player was standing next to became water, and the state was
+reachable in seconds. `adapters/pokemon/emerald/probes/watertile.lua` is the worked example.
+
+The generalisable parts, in the order they matter:
+
+**Ask the decompilation what makes the state true, not how to get there.** "How do I reach water"
+is a navigation problem with no good answer. "What does the game read to decide a tile is water" is
+a lookup: a metatile id, whose behaviour byte lives in the tileset's attribute table. One is a
+journey, the other is a write.
+
+**Search what is ALREADY LOADED for something with the property you need.** The water metatile was
+found by scanning the current map's own primary and secondary tilesets for a behaviour of
+`MB_POND_WATER`/`MB_OCEAN_WATER`, rather than hardcoding an id from a seaside map. An id from a
+tileset this map has not loaded would render as unrelated garbage. **Generalises to anything
+id-based**: graphics, items, animations, palettes — find a live instance of the property in the
+data the game currently has, and copy its identifier.
+
+**One field is not one property.** The map grid halfword holds a metatile id, collision bits and
+elevation bits, and they are independent. The first attempt changed the id only, so the tile had
+water *behaviour* while remaining walkable — and a "walk into it" test walked straight through and
+reported the edit had failed, when the half that fishing cares about had worked. **When a write
+seems not to have taken, check whether the property your test measures is the property you
+changed.**
+
+**Visual absence is not functional absence.** The edited tile still *looked* like grass, because
+the map view is only redrawn as it scrolls — while the game's own collision and behaviour checks
+read the grid and agreed it was water. A screenshot would have said "the edit did nothing". The
+behavioural test (drive into it, read the coordinates) is what settled it.
+
+**Make the edit reversible and say so.** The tool restores the original halfword when unloaded, and
+the map is rebuilt from ROM on the next map load regardless — so a mistake costs a door. A dev tool
+that edits the world should always have an obvious way back, because the alternative is being
+cautious with it, and being cautious with it is how it stops being used.
