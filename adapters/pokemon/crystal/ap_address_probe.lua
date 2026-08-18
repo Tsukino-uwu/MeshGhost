@@ -100,8 +100,9 @@ local prevX, prevY = u8(AP_XCOORD), u8(AP_YCOORD)
 local prevVals = {}
 local steps, frames = 0, 0
 local done = false
+local snapshot
 
-local function snapshot()
+snapshot = function()
 	prevVals = {}
 	for _, a in ipairs(candidates) do
 		prevVals[a] = { u8(a + F_MAP_X), u8(a + F_MAP_Y) }
@@ -124,6 +125,20 @@ local function tick()
 	if dx == 0 and dy == 0 then
 		return
 	end
+
+	-- ONLY a real step counts: exactly one tile, on exactly one axis. The first run treated any
+	-- change as a step and the very first sample was "+88,+4" — a map load or a mid-transition
+	-- read — which discarded every candidate at once and reported a confident dead end.
+	--
+	-- Anything else (a warp, a map change, garbage during a load) re-baselines instead of
+	-- filtering, so it costs nothing rather than destroying the run.
+	if math.abs(dx) + math.abs(dy) ~= 1 then
+		prevX, prevY = x, y
+		snapshot()
+		log(string.format("  (ignored a jump of %+d,%+d — warp or load, re-baselining)", dx, dy))
+		return
+	end
+
 	prevX, prevY = x, y
 
 	local kept = {}

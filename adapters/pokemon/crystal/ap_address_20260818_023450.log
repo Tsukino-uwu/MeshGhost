@@ -1,0 +1,6 @@
+=== MeshGhost Crystal/AP address probe (READ-ONLY) ===
+Using AP's wXCoord=7362 wYCoord=7361. Vanilla wObjectStructs is 0x14D6.
+WALK, changing direction a few times. Candidates are cut on every step.
+  step 1 (moved +88,+4): 0 candidate(s) left
+!! No candidate survived. wXCoord/wYCoord may be wrong for this ROM, or the object
+!! struct layout differs. Nothing further can be concluded from this run.
