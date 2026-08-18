@@ -123,6 +123,8 @@ namespace MeshGhostPseudo
     // documentation.md, so the number survives without the probe. Turn it back on to re-measure
     // the slide duration against a new game build, which is the one thing that would invalidate
     // that constant.
+    constexpr bool GHOST_MESH_Z_TRACE = false;
+
     // Logs the area_id and world position actually sent, every ~300 ticks (~5s). ON right now
     // because the ghost-load and despawn rigs cannot be aimed without it: fakeadapter's -center
     // and -area-id have to match a live session, and until 2026-08-17 neither was readable from
@@ -130,8 +132,6 @@ namespace MeshGhostPseudo
     // line, no enumeration, no per-object work), which is why it is not in the same risk class
     // as the probes FLAGS.md warns about.
     constexpr bool STATE_SEND_TRACE = true;
-
-    constexpr bool GHOST_MESH_Z_TRACE = false;
 
     // Diffs the LOCAL pawn's whole property set, standing versus mid-slide and standing versus
     // crouching, to identify what actually drives the pose. See its block in tickLocal for why a

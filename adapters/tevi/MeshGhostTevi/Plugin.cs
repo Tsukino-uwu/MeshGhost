@@ -440,6 +440,21 @@ namespace MeshGhostTevi
             UpdateRemoteMapMarker(playerId, state);
         }
 
+        // Every peer ghost at once, for leaving play rather than for a peer leaving. Iterates a
+        // copy of the key list because DespawnRemoteGhost mutates remoteVisuals as it goes.
+        private void DespawnAllRemoteGhosts()
+        {
+            if (remoteVisuals.Count == 0)
+            {
+                return;
+            }
+            Logger.LogInfo($"MeshGhost: leaving play -- despawning all {remoteVisuals.Count} remote ghost(s).");
+            foreach (string playerId in new List<string>(remoteVisuals.Keys))
+            {
+                DespawnRemoteGhost(playerId);
+            }
+        }
+
         private void DespawnRemoteGhost(string playerId)
         {
             // Called only from bridge.DrainInto's despawn_remote callback -- a real peer leave.
@@ -534,7 +549,6 @@ namespace MeshGhostTevi
             bridge.DrainLogsInto(msg => Logger.LogInfo(msg));
             bridge.TryConnect();
             bridge.SendHelloIfNeeded(GameId, PluginVersion);
-            bridge.DrainInto(UpsertRemoteGhost, DespawnRemoteGhost);
 
             if (player == null || player.t == null)
             {
@@ -546,11 +560,22 @@ namespace MeshGhostTevi
                     // Reconnects automatically next frame via TryConnect() once back in a real
                     // play session -- see BridgeClient.Disconnect's comment for why this exists.
                     bridge.Disconnect();
+                    // Symmetry, and the exit direction of the template's "never let a ghost
+                    // exist before the player is in the game": we tell peers our ghost is gone,
+                    // so theirs must go too. Without this, every peer ghost stayed standing in
+                    // a menu or between sessions, frozen at its last position, because nothing
+                    // else destroys them -- despawn_remote only ever arrives for a real leave.
+                    DespawnAllRemoteGhosts();
                 }
                 // PROTOCOL.md: send local_state every frame even when there's nothing to send.
                 bridge.SendLocalState(null);
                 return;
             }
+
+            // Drained only now, below the gate. Above it, a remote's state could create a ghost
+            // while the local player did not exist -- the very thing the gate is for -- and it
+            // would then be destroyed again on the same frame by the branch above.
+            bridge.DrainInto(UpsertRemoteGhost, DespawnRemoteGhost);
 
             Vector3 pos = player.t.position;
             byte area = currentLocalArea;

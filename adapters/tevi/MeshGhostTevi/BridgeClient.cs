@@ -341,6 +341,33 @@ namespace MeshGhostTevi
                             onDespawnRemote(playerId);
                             break;
                         }
+                        case "bridge_ready":
+                            // The core accepted our hello. Recognised explicitly rather than
+                            // falling through to the unknown-type warning below, which is what
+                            // used to happen -- so every healthy session logged a warning about
+                            // the one message that means everything is fine.
+                            //
+                            // NOT yet used as a send gate: _template/PROTOCOL.md requires that
+                            // local_state waits for this, and TEVI still sends immediately. That
+                            // is a real gap, tracked in adapters/tevi/BANDAGES.md; closing it
+                            // needs the reconnect path to reset the flag too, or a missed ready
+                            // silences the adapter completely.
+                            Log("MeshGhost: bridge ready -- the core accepted this adapter.");
+                            break;
+                        case "reject":
+                        {
+                            // The core refused us: wrong game_id, or it already has an adapter.
+                            // Previously this landed in the unknown-type default and we kept
+                            // pushing local_state at a core that had already refused and closed.
+                            string reason = "unspecified";
+                            if (payload != null && payload.TryGetValue("reason", out JToken reasonToken))
+                            {
+                                reason = (string)reasonToken;
+                            }
+                            Log($"MeshGhost: the core rejected this adapter ({reason}) -- disconnecting.");
+                            connected = false;
+                            break;
+                        }
                         default:
                             Log($"MeshGhost: ignoring unknown bridge message type '{type}'.");
                             break;

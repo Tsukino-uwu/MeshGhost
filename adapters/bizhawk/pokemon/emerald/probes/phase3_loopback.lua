@@ -11,9 +11,9 @@
 -- process only* (127.0.0.1, the bridge port) -- it never learns a relay address and never
 -- speaks the relay protocol directly. The core is the only thing that talks to the relay.
 --
--- State reading: same addresses as adapters/pokemon/emerald/probes/phase1_probe.lua (gSaveBlock1Ptr,
+-- State reading: same addresses as adapters/bizhawk/pokemon/emerald/probes/phase1_probe.lua (gSaveBlock1Ptr,
 -- gPlayerAvatar, gObjectEvents), same pokeemerald citations, not re-derived here.
--- Screen-position anchor: same formula as adapters/pokemon/emerald/probes/phase2_ghost.lua (gSprites,
+-- Screen-position anchor: same formula as adapters/bizhawk/pokemon/emerald/probes/phase2_ghost.lua (gSprites,
 -- gSpriteCoordOffsetX/Y), reused rather than reimplemented -- see that script's header for
 -- the exact addresses and source citations.
 --

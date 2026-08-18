@@ -43,7 +43,7 @@
 -- Assets/Lua/_docs_luacats/gui.d.lua -- "function gui.drawImage(path, x, y, width, height,
 -- cache, surfaceName)", supports .bmp/.gif/.jpg/.png/.tif, caches file contents by path.
 --
--- Placeholder art: adapters/pokemon/emerald/assets/ghost_placeholder.bmp, a flat 16x16 magenta box
+-- Placeholder art: adapters/bizhawk/pokemon/emerald/assets/ghost_placeholder.bmp, a flat 16x16 magenta box
 -- generated for this project (not ripped from any game) -- see agent_docs/licensing.md.
 
 local GSAVEBLOCK1PTR_ADDR = 0x03005d8c

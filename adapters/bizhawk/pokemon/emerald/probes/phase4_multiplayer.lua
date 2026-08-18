@@ -1,5 +1,5 @@
 -- Phase 4: two players. Same adapter <-> bridge <-> core round trip as
--- adapters/pokemon/emerald/probes/phase3_loopback.lua (state reading, screen-position anchor, JSON,
+-- adapters/bizhawk/pokemon/emerald/probes/phase3_loopback.lua (state reading, screen-position anchor, JSON,
 -- bridge protocol, remote-ghost set, tick model -- all unchanged, see that script's header
 -- for the full derivation and citations), run against a real second peer instead of the
 -- relay's dev-only `-loopback` echo. Never writes memory.
@@ -26,9 +26,9 @@
 -- process only* (127.0.0.1, the bridge port) -- it never learns a relay address and never
 -- speaks the relay protocol directly. The core is the only thing that talks to the relay.
 --
--- State reading: same addresses as adapters/pokemon/emerald/probes/phase1_probe.lua (gSaveBlock1Ptr,
+-- State reading: same addresses as adapters/bizhawk/pokemon/emerald/probes/phase1_probe.lua (gSaveBlock1Ptr,
 -- gPlayerAvatar, gObjectEvents), same pokeemerald citations, not re-derived here.
--- Screen-position anchor: same formula as adapters/pokemon/emerald/probes/phase2_ghost.lua (gSprites,
+-- Screen-position anchor: same formula as adapters/bizhawk/pokemon/emerald/probes/phase2_ghost.lua (gSprites,
 -- gSpriteCoordOffsetX/Y), reused rather than reimplemented -- see that script's header for
 -- the exact addresses and source citations.
 --
@@ -75,7 +75,7 @@ local GSPRITECOORDOFFSETY_ADDR = 0x02021bbe
 -- pointer for the game's current top-level state-machine callback, re-read every frame like
 -- every other field in this script (never cached).
 -- CB2_Overworld = 0x08085E5C (pokeemerald.map/.sym), the callback for ordinary field play
--- (src/overworld.c L1484). Confirmed live (2026-08-11, adapters/pokemon/emerald/probes/battle_probe.lua) the
+-- (src/overworld.c L1484). Confirmed live (2026-08-11, adapters/bizhawk/pokemon/emerald/probes/battle_probe.lua) the
 -- runtime value actually read is 0x08085E5D -- the address with the GBA Thumb-mode bit set,
 -- as expected for a Thumb function pointer, not assumed. Checking both forms below in case a
 -- different callsite ever stores it without the bit.

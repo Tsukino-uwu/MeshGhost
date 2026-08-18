@@ -3,7 +3,7 @@
 -- READ-ONLY DIAGNOSTIC. Writes nothing, sends nothing, draws nothing.
 -- Emerald's shipped adapter draws its ghost with gui.drawPixel over a hand-rolled ROM sprite
 -- decode. The goal this probe serves is replacing that with a real spawned object event, the way
--- adapters/pokemon/crystal does -- so the engine owns palettes, occlusion, priority and
+-- adapters/bizhawk/pokemon/crystal does -- so the engine owns palettes, occlusion, priority and
 -- animation. Spawning needs writes; writes are ADR-gated (agent_docs/architecture.md). This is
 -- the evidence step that comes first, and it deliberately performs no writes at all.
 --

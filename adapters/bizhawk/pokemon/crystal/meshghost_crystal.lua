@@ -287,7 +287,7 @@ local function loadSocketCore()
 		"adapters/bizhawk/pokemon/emerald/lib/x64/",
 	}
 	if cwd then
-		candidates[#candidates + 1] = cwd .. "\\adapters\\pokemon\\emerald\\lib\\x64\\"
+		candidates[#candidates + 1] = cwd .. "\\adapters\\bizhawk\\pokemon\\emerald\\lib\\x64\\"
 	end
 
 	for _, dir in ipairs(candidates) do
