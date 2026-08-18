@@ -1169,7 +1169,12 @@ local MOVEMENT_TYPE_NONE = 0x00
 local DIR_ID = { south = 1, north = 2, west = 3, east = 4 }
 local FACE_ACTION = { [1] = 0x00, [2] = 0x01, [3] = 0x02, [4] = 0x03 }
 local WALK_ACTION = { [1] = 0x08, [2] = 0x09, [3] = 0x0a, [4] = 0x0b }
-local RUN_ACTION = { [1] = 0x15, [2] = 0x16, [3] = 0x17, [4] = 0x18 }
+-- PLAYER_RUN, not WALK_FAST. Both cross a tile quickly, but WALK_FAST (0x15) reuses the WALKING
+-- frames while PLAYER_RUN (0x35) plays ANIM_RUN_*, which is what running actually looks like.
+-- Found live 2026-08-18: "it moves around properly, but its not running" -- the ghost was keeping
+-- up and still visibly walking. The run frames exist on the ghost because it borrows the player's
+-- graphics, which is the one graphic in the game that has them.
+local RUN_ACTION = { [1] = 0x35, [2] = 0x36, [3] = 0x37, [4] = 0x38 }
 
 local function w8(a, v) memory.write_u8(a, v & 0xff) end
 local function w16(a, v) memory.write_u16_le(a, v & 0xffff) end
@@ -1631,10 +1636,12 @@ local function runFrame()
             for playerId, g in pairs(ghosts) do
                 local ga, gs = objAddr(g.objId), sprAddr(g.sprId)
                 logFile(string.format(
-                    "  ghost %s: obj=%d spr=%d coords=(%d,%d) sprite=(%d,%d) held=%d/%d anim=%d",
+                    "  ghost %s: obj=%d spr=%d coords=(%d,%d) sprite=(%d,%d) held=%d/%d anim=%d "
+                        .. "action=%d peerAnim=%s",
                     tostring(playerId), g.objId, g.sprId, rs16(ga + 0x10), rs16(ga + 0x12),
                     rs16(gs + 0x20), rs16(gs + 0x22),
-                    (r8(ga + 0x00) >> 6) & 1, (r8(ga + 0x00) >> 7) & 1, r8(gs + 0x2a)))
+                    (r8(ga + 0x00) >> 6) & 1, (r8(ga + 0x00) >> 7) & 1, r8(gs + 0x2a),
+                    r8(ga + 0x1c), tostring(remotes[playerId] and remotes[playerId].anim)))
             end
         end
     end
