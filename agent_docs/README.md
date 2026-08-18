@@ -21,6 +21,9 @@ Internal documentation for MeshGhost: architecture, planning, licensing, and ver
 - [environment.md](environment.md) — toolchain and environment notes, filled in as phases
   actually run.
 - [verified.md](verified.md) — append-only, human-gated log of confirmed runtime facts.
+- [unverified.md](unverified.md) — the waiting room for it: things the agent believes work and the
+  user has not seen yet, with what to look at and what correct looks like. A checklist to work
+  down; confirmed items move to `verified.md`, declined ones go back to being work.
 - [testing.md](testing.md) — **how to run every automated check** for the Go client/server: the
   one local command, what CI adds (race detector, fuzzing) and why neither runs locally, how to
   run a real fuzz campaign, and the traps that otherwise get rediscovered. Read before adding a

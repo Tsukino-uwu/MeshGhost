@@ -503,3 +503,33 @@ Three builds found what hours of measurement had not.
 - [verified.md](verified.md) — the dated, confirmed findings behind every claim here.
 - [`adapters/pseudoregalia/README.md`](../adapters/pseudoregalia/README.md) — the same story as a
   short build narrative (steps 23, 26, 28, 36-41).
+
+## A visual "state" is often several objects — do the thing and count what appears
+
+**Found the slow way on Emerald, 2026-08-18.** A ghost was given the player's *surfing* graphic and
+came out as a rider sitting on nothing. The rider is one sprite; **the blue Pokémon underneath is a
+separate one**, attached through the object's own `fieldEffectSpriteId` field. Copying the graphic
+reproduced exactly half of what "surfing" looks like, and the half that was missing is the half a
+player would notice first.
+
+The user's instruction, and it is the general method:
+
+> *"surfing is also supposed to show a 'Blue thing you are riding on' not just the animation
+> itself. reproduce things like this by having the player use surf on water, to see how it does
+> things like this"*
+
+**So: perform the state in the real game and observe what the engine creates**, before deciding
+what a ghost needs. Concretely, for any state that looks like more than a pose:
+
+- Snapshot the object array **and** the sprite array before and after entering the state, and diff
+  them. A second sprite appearing is the answer; a field-effect id becoming non-zero tells you
+  what it is attached to.
+- Watch which fields on the *player's own* object change — `fieldEffectSpriteId`,
+  `graphicsId`, elevation, the avatar flags. The player is the reference implementation.
+- Do not reason from the graphics table alone. It describes one sprite, and says nothing about
+  companions the state also spawns.
+
+**The tell that this class of bug is present:** the ghost looks *nearly* right and a person
+describes the difference in one short phrase ("it's missing the thing you ride on"). A log cannot
+show it, and a screenshot only shows it if someone thinks to look at the right frame — which is
+why the state has to be performed rather than imagined.

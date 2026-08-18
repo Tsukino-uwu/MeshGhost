@@ -583,6 +583,31 @@ Region variants, exact file names and hashes are a separate question and belong 
   probes are only findable because its README lists them; write this the moment you have more
   than two.
 
+## Hard rule: reproduce the WHOLE effect — the animation and its extras
+
+**A state is not just a pose.** If the game spawns something alongside it, the ghost needs that
+too, and shipping the pose alone is shipping a bug that looks like a half-finished character.
+User, 2026-08-18, on a ghost given the surfing graphic: *"surfing is also supposed to show a 'Blue
+thing you are riding on' not just the animation itself... we should do the animation + extra
+things if there are any, not just the animation and miss extras/VFX"*.
+
+The Emerald case is the clean example. Every special player state — both bikes, surfing, fishing —
+is a different `graphicsId`, so switching the graphic *looks* like the whole job. It is not:
+surfing also spawns a **separate sprite for the Pokémon being ridden**, attached through the
+object's own `fieldEffectSpriteId`. The ghost rendered as a rider sitting on nothing, which is the
+half a player notices first.
+
+**So, when mirroring any state:**
+
+- **Perform it in the real game and count what appears** — objects, sprites, field effects — before
+  deciding what to copy ([effect-investigation.md](../../agent_docs/effect-investigation.md) has
+  the diffing method). The graphics table describes one sprite and says nothing about companions.
+- **Ask what else the state owns**: a trail, a splash, a shadow, a dust puff, a held item, a
+  mount. TEVI's charged-attack VFX and Pseudoregalia's ultra-hop trail are the same question in
+  other games.
+- **If the extras are not done, say the state is not done.** "The animation plays" is not "the
+  state is reproduced", and the difference is exactly what a person sees.
+
 ## Hard rule: a bandage fix is not a finished feature
 
 **Default: no.** If the fix compensates for a value instead of causing it, forces state back after

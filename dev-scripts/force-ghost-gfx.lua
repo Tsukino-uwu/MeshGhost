@@ -1,15 +1,12 @@
--- MeshGhost — DEV switch for ghost graphics (loader target; list BEFORE the adapter)
+-- MeshGhost — DEV switches for ghost graphics (loader target; list BEFORE the adapter)
 --
--- ALWAYS ASSIGNS BOTH GLOBALS, including when turning something off. Lua globals live in the
--- emulator's Lua state and survive a script reload -- so commenting a line out does NOT unset it,
--- it just leaves the previous session's value in place. That cost a confusing reload on
--- 2026-08-18 where a ghost stayed forced onto a bike after the line that forced it was gone.
---
---   0 Brendan normal | 1 Mach Bike | 63 Acro Bike | 2 surfing | 137 fishing
---  89 May normal     | 90 Mach Bike | 91 Acro Bike | 92 surfing | 138 fishing
-
-MESHGHOST_FORCE_GHOST_GFX = nil   -- a graphics id to force every ghost to, or nil
-MESHGHOST_GHOST_PEER_GFX = nil    -- true to draw ghosts with the PEER's own graphic (corrupts
-                                  -- for the 32-wide states -- see the adapter's comment)
-
+-- ASSIGNS EVERY SWITCH, ALWAYS, including the ones being turned off. Lua globals live in the
+-- emulator's Lua state and survive a script reload, so a switch left out of this file keeps
+-- whatever a previous experiment set it to. That has now caused two confusing runs on
+-- 2026-08-18: a ghost that stayed forced onto a bike after the forcing line was removed, and a
+-- ghost still sharing the player's VRAM tiles from an experiment three reloads earlier.
+MESHGHOST_FORCE_GHOST_GFX = 2     -- graphics id to force, or nil
+MESHGHOST_GHOST_PEER_GFX = nil    -- true to use the peer's own graphic
+MESHGHOST_DEBUG_SKIP_OAM_COPY = nil
+MESHGHOST_DEBUG_SHARE_PLAYER_TILES = nil
 MESHGHOST_DEV_TICK = function() end

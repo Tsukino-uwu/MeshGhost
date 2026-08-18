@@ -1538,19 +1538,22 @@ local function spawnGhost(playerId, mapX, mapY, orientation, wantGfx)
     local src, dst = sprAddr(playerSprId), sprAddr(sprId)
     for off = 0, SPRITE_STRUCT_SIZE - 1 do w8(dst + off, r8(src + off)) end
 
+    -- OAM: take ONLY the shape and size bits from the target graphic, leaving every other field
+    -- as the live sprite already had it.
+    --
+    -- Copying the graphic's whole 8-byte template OAM was tried first and rendered as scrambled
+    -- pieces, confirmed on screen 2026-08-18. That template also carries affine mode, object mode,
+    -- mosaic, priority and a zeroed matrix/x/y, and overwriting the live values with them puts the
+    -- sprite out of step with the engine's own per-frame OAM building. Skipping the copy entirely
+    -- renders cleanly but at the wrong width, because the special-state graphics are 32 wide where
+    -- the normal one is 16. Shape and size are the only fields that describe the new graphic's
+    -- dimensions, so they are the only ones taken.
+    --   attr0 bits 14-15 = shape, attr1 bits 14-15 = size (struct OamData, include/sprite.h)
+    local attr2 = r16(dst + 0x04)
+    w16(dst + 0x04, (attr2 & 0xfc00) | (tileStart & 0x03ff))
     if info.oam ~= 0 then
-        -- OAM shape/size come from the graphic; tileNum and paletteNum are ours to set. Copy the
-        -- template OAM, then restore the palette slot the player's sprite is using -- the palette
-        -- is already loaded for that slot and every player-state graphic shares its tag.
-        local playerPalNum = (r16(src + 0x04) >> 12) & 0x0f
-        for off = 0, 7 do w8(dst + off, r8(info.oam + off)) end
-        local attr2 = r16(dst + 0x04)
-        local useTile = tileStart
-        if MESHGHOST_DEBUG_SHARE_PLAYER_TILES then useTile = r16(src + 0x04) & 0x03ff end
-        w16(dst + 0x04, (attr2 & 0x0c00) | (useTile & 0x03ff) | (playerPalNum << 12))
-    else
-        local attr2 = r16(dst + 0x04)
-        w16(dst + 0x04, (attr2 & 0xfc00) | (tileStart & 0x03ff))
+        w16(dst + 0x00, (r16(dst + 0x00) & 0x3fff) | (r16(info.oam + 0x00) & 0xc000))
+        w16(dst + 0x02, (r16(dst + 0x02) & 0x3fff) | (r16(info.oam + 0x02) & 0xc000))
     end
 
     -- The four ROM pointers that say which pixels and which animations. These cannot be
