@@ -180,3 +180,41 @@ here"** — the same text as trying to ride a bike indoors, and **not** a story-
 Confirmed live 2026-08-18 by editing a Littleroot tile to `id 44 / collision 0 / elevation 1` and
 reading back what the game computes for it: `behaviour 21 (OCEAN_WATER)`, with the player at
 elevation 3 one tile north. `probes/watertile.lua` does this on demand.
+
+## Wild encounters are per-map data, not a property of the tile
+
+**[measured]** What a tile *is* and what can *appear* on it are two different systems, and only
+the first lives in the map grid.
+
+`gWildMonHeaders[]` is a table keyed by **(mapGroup, mapNum)** — one entry per map — and each entry
+holds **four independent lists**:
+
+| field | used by |
+| --- | --- |
+| `landMonsInfo` | walking in grass/caves |
+| `waterMonsInfo` | surfing |
+| `rockSmashMonsInfo` | smashing rocks |
+| `fishingMonsInfo` | any rod |
+
+A map with no entry, or an entry whose list is `NULL`, simply has nothing to encounter there.
+Fishing checks this explicitly: `DoesCurrentMapHaveFishingMons` (`wild_encounter.c:770`) returns
+false when `fishingMonsInfo` is `NULL`, and the fishing task then does
+
+```
+if (!DoesCurrentMapHaveFishingMons())
+    task->tStep = FISHING_NO_BITE;     // field_player_avatar.c:1851
+```
+
+— it jumps **straight to the no-bite branch**. The rod still comes out, the animation still plays,
+and nothing can ever bite.
+
+**Consequence for testing, learned the hard way 2026-08-18.** Water was created in Littleroot Town
+(`probes/watertile.lua`) and fishing worked — the cast played, confirmed on screen. But Littleroot
+is a town with no wild encounters of any kind, so **no bite is possible there, ever**. The tile
+made the *action* legal; only the map's own encounter data can make the *outcome* happen. To reach
+a bite, a hook, or the battle that follows, the water has to be on a map that actually defines
+`fishingMonsInfo` — a route, not a starting town.
+
+The user's framing, which is the general form: *"we added water, we made it so we could fish, but
+we missed an important extra step on top of it that made it not do all functions it's actually
+intended to do."*

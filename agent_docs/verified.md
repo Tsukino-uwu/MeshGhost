@@ -7373,3 +7373,29 @@ scheduled. All established by the agent with local tools; nothing here is a visu
   `behaviour 21 (MB_OCEAN_WATER)` with the player at elevation 3 one tile away.
 - **What this does NOT establish**: that a rod has been successfully cast on such a tile. The
   setup is ready and unconfirmed — `unverified.md`.
+
+### Emerald: fishing works on a synthesised water tile — and can never catch anything there (2026-08-18)
+
+- Date: 2026-08-18
+- Observed: with `probes/watertile.lua` turning the tile in front of the player into water
+  (metatile behaviour `MB_OCEAN_WATER`, collision 0, elevation `ELEVATION_SURF`), **the user
+  confirmed on screen that fishing works** — the rod comes out and the cast plays, in Littleroot
+  Town, where no water exists in the real game.
+- **And nothing can ever bite there**, which the user diagnosed before the code was read: *"pokemon
+  are tied to per town/route... there are no pokemon in this town as its not supposed to have any
+  grass/water or wild pokemon battles to begin with"*.
+- Source: user-watched for the fishing itself; the mechanism below is my own reading of
+  `pokeemerald`, so it needs no separate confirmation.
+- **Mechanism.** `gWildMonHeaders[]` is keyed by `(mapGroup, mapNum)` and holds four independent
+  lists — `landMonsInfo`, `waterMonsInfo`, `rockSmashMonsInfo`, `fishingMonsInfo`.
+  `DoesCurrentMapHaveFishingMons` (`wild_encounter.c:770`) is false when `fishingMonsInfo` is
+  `NULL`, and the fishing task then sets `task->tStep = FISHING_NO_BITE`
+  (`field_player_avatar.c:1851`) — jumping straight past every bite branch.
+- **What this means for the ghost work.** The synthesised tile is enough to reach the *cast* and
+  the *no-bite* branches of fishing, and cannot reach *bite*, *hooked*, or the *battle* — so those
+  branches must be tested on a map that actually defines fishing encounters. It also means the
+  earlier plan to answer "does fishing spawn a companion sprite?" from this setup can only answer
+  it for the first two branches.
+- **The general lesson, recorded in `probes.md`**: synthesising a piece of a game gets you its
+  form, not the data keyed to it. A real water tile is a behaviour, an elevation, **and** a map
+  with water encounters; two of the three produce something that looks right and does nothing.

@@ -535,3 +535,28 @@ specific. Without one, "it didn't work" is the whole result, and the next attemp
 **Generalises past menus:** screenshot before any scripted interaction, and before any test whose
 result depends on where the game currently is. It is one command, and it converts an assumption
 into an observation at the exact moment that is still cheap.
+
+## Faking a thing gets you its FORM; the data behind it is a separate step
+
+**2026-08-18, Emerald.** A tile was edited into real water so that fishing could be tested without
+walking to the sea. It worked: the game accepted the tile, allowed the rod, and played the cast.
+And **nothing could ever bite**, because which Pokemon appear is per-MAP data
+(`gWildMonHeaders`, keyed by map group and number, with separate lists for land, water, rock smash
+and fishing) and the town in question defines none. The fishing routine checks exactly that and
+jumps straight to its no-bite branch.
+
+So the fake water was genuinely water for movement and for the rod, and genuinely empty for
+everything that makes fishing *mean* anything. The user put it best: *"we added water, we made it
+so we could fish, but we missed an important extra step on top of it that made it not do all
+functions it's actually intended to do."*
+
+**The general rule: when you synthesise a piece of a game, enumerate what the real thing depends
+on before believing the copy is complete.** A real water tile is (a) a metatile whose behaviour is
+water, (b) an elevation the player cannot walk onto, and (c) a map that has water encounters. Two
+out of three is a tile that looks right, behaves right, and does nothing.
+
+**How to find the missing third:** ask *"what does the game look up when this actually works?"* and
+follow it — the encounter path was two greps from the fishing task. Faking geometry is usually
+easy; the data keyed to a location, a species, an item id or a flag is the part that is invisible
+until it is missing. **And prefer doing the test where the real thing exists** — moving to a route
+would have cost less than making water in a town that could never use it.

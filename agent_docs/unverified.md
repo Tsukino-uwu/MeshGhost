@@ -70,11 +70,12 @@ Turned OFF by default (`MESHGHOST_GHOST_PEER_GFX`), because it is incomplete —
     and **dark navy instead of blue** — the palette the blob expects is not loaded while the local
     player is walking, since the game only loads it when *you* surf. Walking the ghost does not
     correct the offset, so it is not a stale initial placement; the engine puts it there.
-  - **Untested:** fishing and underwater, which may need companions of their own. The setup for
-    answering it is ready and waiting on one minute of play: water is in front of the player and
-    `probes/fishing_watch.lua` is running with `callback2` in its change-key, so a few casts —
-    one empty, one missed, one landed — would show whether `fieldEffectSpriteId` ever goes
-    non-zero and whether the sprite count jumps.
+  - **Fishing on synthesised water WORKS (user-confirmed 2026-08-18)** — but only its first two
+    branches are reachable there. Wild encounters are per-map data (`gWildMonHeaders`), and a
+    starting town defines none, so the game jumps straight to no-bite. Moved to `verified.md`.
+  - **Still untested: whether fishing spawns a companion sprite** the way surfing does. Answering
+    it needs the bite/hooked branches, which means fishing on a **route that defines fishing
+    encounters** — not on a tile invented in a town. Underwater likewise untested.
   - **`probes/watertile.lua` now makes real water**, after two wrong versions. It writes metatile
     id + **collision 0** + **elevation 1 (`ELEVATION_SURF`)**, which is what the game means by
     water — the earlier version set the collision bit, which made the tile solid and *prevented*
