@@ -212,6 +212,36 @@ behind it.
   descriptively to say what MeshGhost interoperates with. This is not a claim of affiliation
   with or endorsement by any of those projects or the games' rights holders.
 
+## Cheat codes in this repo: fine, and why (2026-08-18)
+
+**Question, from the user:** is it all right for cheat codes, what they change, and how they work
+to sit in a public repo forever? **Answer: yes**, and the reasoning is the same facts-versus-
+expression test `CLAUDE.md` applies to everything else — but it lands differently for the two
+formats, which is worth knowing before pasting the next list.
+
+- **A decoded address/value pair is a fact about a running game.** `0x7E09C2` holds Samus's
+  energy; `wBadges` is at `0xD857`. We already record hundreds of such facts from decompilations,
+  with citations. A cheat code that decodes to one is not a different kind of thing, and several
+  of ours were *verified against the decomp* before being written down — the Crystal entry in
+  `pitfalls.md` exists precisely because that check caught a code that would have corrupted our
+  own object array.
+- **What we deliberately do not do is paste large curated lists verbatim.** A long, organised
+  compilation is somebody's work as a compilation even when each row is a fact, and a wholesale
+  copy adds nothing we need. The Super Metroid entry in `ideas.md` is the pattern to follow: the
+  codes were **decoded into our own address table**, sorted by address, annotated with what each
+  came from, with the unusable Game Genie half described but not reproduced. That form is both
+  more useful to us and further from the source — the technical reason and the licensing reason
+  point the same way, which is usually the sign of a good format.
+- **No game code, ROM data or assets are involved**, so the rule that actually bites elsewhere in
+  this project does not apply here at all.
+- **Nothing about it is a distribution problem either.** These are single-player games, the codes
+  are decades old and published in hundreds of places, and our use is development tooling for
+  reaching test states — documented as dev-only in `adapters/_template/README.md`, never shipped.
+
+**The rule to carry forward:** record cheat codes **decoded, by address, in our own table, with
+what each was verified against**. Do not paste a list because it is convenient — decode it,
+because that is the step that makes it useful, checkable, and ours.
+
 ## When this file needs an update
 
 - Before adding any new project to the "prior art" or "tooling" list in `brief.md`.

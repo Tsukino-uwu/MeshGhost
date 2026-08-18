@@ -445,9 +445,20 @@ local SCRIPT_DIR = scriptDir()
 -- full derivation of why lua54.dll must be pre-loaded by full path first.
 ----------------------------------------------------------------------------
 
+-- Windows LoadLibrary is documented as NOT supporting forward slashes, and package.loadlib is a
+-- thin wrapper over it. Everything else here is happy with either separator, so this conversion is
+-- applied to DLL paths only. Found live 2026-08-18: scriptDir() changing from io.popen("cd")
+-- (which returns backslashes) to debug.getinfo (which returns whatever separator the loader used)
+-- turned a working load into "The specified module could not be found" -- an error that reads as
+-- a missing DLL and sends you hunting for the file, when the file is there and the SEPARATOR is
+-- the problem.
+local function dllPath(rel)
+    return (SCRIPT_DIR .. rel):gsub("/", "\\")
+end
+
 local function preloadLua54()
     pcall(function()
-        package.loadlib(SCRIPT_DIR .. "lib/x64/lua54.dll", "meshghost_force_preload")
+        package.loadlib(dllPath("lib/x64/lua54.dll"), "meshghost_force_preload")
     end)
 end
 
@@ -464,8 +475,29 @@ local function loadSocketCore()
         error("MeshGhost: only x64 is supported by the vendored LuaSocket binary so far.")
     end
     preloadLua54()
-    local dllPath = SCRIPT_DIR .. "lib/x64/socket-windows-5-4.dll"
-    return assert(package.loadlib(dllPath, "luaopen_socket_core"))()
+    local socketDll = dllPath("lib/x64/socket-windows-5-4.dll")
+    local loader, loadErr = package.loadlib(socketDll, "luaopen_socket_core")
+    if not loader then
+        error(string.format("MeshGhost: could not load %s (%s)", socketDll, tostring(loadErr)))
+    end
+    return loader()
+end
+
+-- A log file beside the script, as Crystal's adapter has always had and this one never did --
+-- found live 2026-08-18: the adapter failed to connect and there was NO way to see why from
+-- outside the emulator, because every message went to the Lua Console only. An adapter that can
+-- only be diagnosed by someone sitting in front of the GUI cannot be diagnosed by whoever is
+-- actually debugging it, and a user reporting a problem has nothing to send.
+local logfile = io.open(string.format("%smeshghost_emerald_%s.log", SCRIPT_DIR,
+    os.date("%Y%m%d_%H%M%S")), "w")
+
+local rawConsoleLog = console.log
+console.log = function(msg)
+    rawConsoleLog(msg)
+    if logfile then
+        logfile:write(tostring(msg), "\n")
+        logfile:flush()
+    end
 end
 
 local socketCore = loadSocketCore()
@@ -620,6 +652,11 @@ end
 ----------------------------------------------------------------------------
 -- Bridge connection -- identical to phase4_multiplayer.lua, see its header.
 ----------------------------------------------------------------------------
+
+-- Declared here, not down with the movement state, because the bridge's port walk below reads it
+-- and Lua would otherwise resolve it to a nil GLOBAL -- which surfaces as "attempt to compare
+-- number with nil" on the first connect attempt, once per frame, forever. Found live 2026-08-18.
+local frameCounter = 0
 
 local sock = nil
 local connected = false
@@ -820,7 +857,6 @@ end
 -- with zero variance across many real continuous steps -- see agent_docs/verified.md.
 local STEP_DURATION_FRAMES = { walking = 16, running = 8 }
 
-local frameCounter = 0
 local prevTileX, prevTileY = nil, nil
 local committedTileX, committedTileY = nil, nil
 local committedAreaId = nil
