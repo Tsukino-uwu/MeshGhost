@@ -61,8 +61,10 @@ that a peer's state genuinely differs from the local player's, which loopback co
   below. Pseudoregalia's port walk is built but **not yet watched live**. `ideas.md`.
 - **TEVI's FullMap marker goes stale** — it only refreshes on a `render_remote`, so a peer who
   stops sending leaves a marker frozen where it was. Shipped bug, not hypothetical. `ideas.md`.
-- **TEVI and Emerald lag the template's bridge shape** — no autostart, no port walk, no
-  `bridge_ready`; Pseudoregalia has all three. Emerald needs a spawn spike. `_template/PROTOCOL.md`.
+- **TEVI lags the template's bridge shape** — no autostart, no port walk, no `bridge_ready`.
+  Both Pokémon adapters got the walk and the ack 2026-08-18, **untested live**. `_template/PROTOCOL.md`.
+- **Emerald spawns a real object event instead of drawing** — confirmed on screen 2026-08-18,
+  in `probes/spawn_test.lua`; not yet wired into the shipped adapter. `phases/phase8.md`.
 - **Loopback offset puts the ghost inside/above sloped geometry** — a rig artefact, since a real
   peer's position is always valid. Weigh loopback-only anomalies accordingly. `verified.md`.
 - **Pseudoregalia: a hard crash mid-session after the pause menu opened twice** — not root-caused,

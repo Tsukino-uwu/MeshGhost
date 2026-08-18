@@ -75,6 +75,11 @@ UE4SS entry below for that last one specifically, which is currently unresolved)
   `dev-scripts/README.md`'s `.local.bat` launchers and `pitfalls.md`'s "Running two instances
   of the same emulator/game silently collide on a shared default port" entry (found live
   2026-08-14, cost a long diagnostic session before the actual cause was this simple).
+  **Superseded in code on 2026-08-18, but NOT yet live-verified**: both Pokémon adapters now walk
+  ports 7778-7785 and take the first core that answers `bridge_ready`, so a second instance
+  should find its own core with no environment variable at all. Until that has actually been
+  watched with two emulators and two cores, keep setting the variable — it is still honoured, and
+  an explicit port disables the walk by design.
 - Archipelago coexistence: confirmed 2 Lua scripts (`ButtonCount`, `Connector`) can run
   concurrently in BizHawk's Lua Console without conflict (2026-08-11) — satisfies
   `phase1.md`'s first coexistence checklist item, though it should be re-checked later with
@@ -135,6 +140,21 @@ UE4SS entry below for that last one specifically, which is currently unresolved)
     `while true ... emu.frameadvance()` loop, and check `MESHGHOST_DEV_LOADER` if the same file
     should still work when opened directly in the Lua Console. It is a development tool only and
     is never part of a shipped adapter.
+  - **The effect, in the user's words the day it was built** (2026-08-18): *"i had to start/stop
+    each lua myself, go to the folder and open new scripts, refresh them etc myself before. so
+    this is way faster for testing and finding things"*, and on the arc across three adapters —
+    *"when we started emerald it took forever, then we did the crystal probes and it was
+    easier/faster, and now when you are handling the load/deload/reload on your own its almost
+    feeling fully automatic and super fast"*. Worth recording because the speed-up is **not** the
+    agent getting better at Emerald: it is that the human stopped being in the loop for the
+    mechanical half. The remaining human step — watching the screen and saying what is wrong — is
+    the one that cannot be automated and is exactly where every real bug this session was caught.
+- **`dev-scripts/bizhawk-syntax-check.lua` — does this Lua even parse?** BizHawk embeds Lua 5.4
+  and this machine has no standalone Lua binary, so before this the only way to find a missing
+  `end` in an adapter was to load it into a live session. The checker `loadfile()`s a list of
+  files (compiling, never running them, so no socket or frame loop starts) and reports each one.
+  Run it through the loader like any other target. Added 2026-08-18 after a bridge rewrite that
+  touched both Pokémon adapters at once.
 
 ## pokeemerald decomp (address source for Phase 1)
 

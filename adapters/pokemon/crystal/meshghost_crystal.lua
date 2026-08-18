@@ -31,8 +31,29 @@ local GAME_ID = "crystal"
 local GAME_VERSION = "phase9"
 
 local BRIDGE_HOST = "127.0.0.1"
-local BRIDGE_PORT = tonumber(MESHGHOST_BRIDGE_PORT or os.getenv("MESHGHOST_BRIDGE_PORT") or "") or 7778
+
+-- PORT WALK. A core serves exactly ONE adapter (agent_docs/contract.md): a second bridge
+-- connection is answered with `reject` and closed. Two copies of one game on one machine is a
+-- normal thing to do -- it is how most of this project's adapters were tested -- so an adapter
+-- that takes a single fixed port makes the second copy either fail or, worse, silently share the
+-- first core. Instead: probe 7778 upward and take the first core that answers `bridge_ready`.
+-- Shape copied from Pseudoregalia's BridgeClient, which is the version that has been tested,
+-- including the three things it got wrong first (see adapters/_template/PROTOCOL.md).
+local BRIDGE_BASE_PORT = 7778
+local BRIDGE_PORT_COUNT = 8
+
+-- An explicit port is still honoured and then NOT walked: someone who names a port means that
+-- port, and silently landing somewhere else would be worse than failing.
+local BRIDGE_PORT_OVERRIDE = tonumber(MESHGHOST_BRIDGE_PORT or os.getenv("MESHGHOST_BRIDGE_PORT") or "")
+
 local RECONNECT_FRAMES = 120
+-- Silence is NOT acceptance. Something that accepts a connection and never answers is far more
+-- likely an unrelated program holding a port in our range than a core, and committing to it
+-- strands the session with no ghosts and no explanation. 90 frames = 1.5s, matching Pseudoregalia.
+local HELLO_ANSWER_FRAMES = 90
+-- A port whose core said "busy" is a live core that simply is not ours; re-probing it every sweep
+-- is noise. 600 frames = 10s.
+local BUSY_PORT_COOLDOWN_FRAMES = 600
 
 -- DEV-ONLY loopback offset, in tiles. A loopback relay echoes your own state back to you, so
 -- without this the ghost spawns on the tile you are standing on — and this ghost is a real object
@@ -759,23 +780,60 @@ local function send(obj)
 	end
 end
 
-local function connect()
+-- Ports that answered but would not have us, with the frame their cooldown ends.
+local busyUntil = {}
+local currentPort = nil
+local helloSentAtFrame = nil
+local bridgeFrames = 0
+
+local function markPortBusy(port, why)
+	if port then
+		busyUntil[port] = bridgeFrames + BUSY_PORT_COOLDOWN_FRAMES
+		log(string.format("MeshGhost: port %d %s — skipping it for %ds.",
+			port, why, BUSY_PORT_COOLDOWN_FRAMES // 60))
+	end
+end
+
+local function tryPort(port)
 	local s = socketCore.tcp()
 	if not s then
-		return
+		return false
 	end
 	s:settimeout(0.05)
-	local ok = s:connect(BRIDGE_HOST, BRIDGE_PORT)
+	local ok = s:connect(BRIDGE_HOST, port)
 	if not ok then
 		pcall(function()
 			s:close()
 		end)
-		return
+		return false
 	end
 	s:settimeout(0)
 	sock, connected, ready, rxBuffer = s, true, false, ""
-	log(string.format("MeshGhost: bridge connected on %s:%d", BRIDGE_HOST, BRIDGE_PORT))
+	currentPort, helloSentAtFrame = port, bridgeFrames
+	-- Log the port, always. With a walk, "connected" no longer implies a known port, and the port
+	-- is the first thing anyone needs when two instances start behaving as one.
+	log(string.format("MeshGhost: bridge connected on %s:%d", BRIDGE_HOST, port))
 	send({ type = "hello", payload = { game_id = GAME_ID, game_version = GAME_VERSION } })
+	return true
+end
+
+-- One sweep across the whole range per cooldown, NOT one port per cooldown: each candidate costs
+-- at most the 50ms connect timeout against a closed port (usually far less, since a refused
+-- connection is immediate on loopback), whereas one port per 2s would take 16 seconds to find a
+-- free core eight ports up.
+local function connect()
+	if BRIDGE_PORT_OVERRIDE then
+		tryPort(BRIDGE_PORT_OVERRIDE)
+		return
+	end
+	for i = 0, BRIDGE_PORT_COUNT - 1 do
+		local port = BRIDGE_BASE_PORT + i
+		if (busyUntil[port] or 0) <= bridgeFrames then
+			if tryPort(port) then
+				return
+			end
+		end
+	end
 end
 
 local function handle(msg)
@@ -787,7 +845,10 @@ local function handle(msg)
 		ready = true
 		log("MeshGhost: bridge_ready — this core is ours")
 	elseif t == "reject" then
+		-- The reason is for the log, never for branching on: the right response to any rejection
+		-- is the same one, which is to try the next port.
 		log("MeshGhost: rejected (" .. tostring(p.reason) .. ")")
+		markPortBusy(currentPort, "is a core that already has an adapter")
 		disconnect(nil)
 	elseif t == "render_remote" then
 		renderRemote(tostring(p.player_id), p.state)
@@ -909,7 +970,14 @@ if #missing > 0 then
 	return
 end
 
-log(string.format("Bridge target %s:%d (set MESHGHOST_BRIDGE_PORT to change).", BRIDGE_HOST, BRIDGE_PORT))
+if BRIDGE_PORT_OVERRIDE then
+	log(string.format("Bridge target %s:%d (MESHGHOST_BRIDGE_PORT is set, so no port walk).",
+		BRIDGE_HOST, BRIDGE_PORT_OVERRIDE))
+else
+	log(string.format("Bridge: walking %s:%d-%d for a core that will have us. Two copies on one "
+		.. "machine each find their own.", BRIDGE_HOST, BRIDGE_BASE_PORT,
+		BRIDGE_BASE_PORT + BRIDGE_PORT_COUNT - 1))
+end
 
 local lastArea = nil
 
@@ -943,12 +1011,23 @@ function diagnose(state)
 end
 
 local function tick()
+	bridgeFrames = bridgeFrames + 1
+
 	if not connected then
 		sinceRetry = sinceRetry + 1
 		if sinceRetry >= RECONNECT_FRAMES then
 			sinceRetry = 0
 			connect()
 		end
+		return
+	end
+
+	-- A connection that never got an answer is not a connection worth keeping. Dropping it costs
+	-- nothing if it really was an old core (the walk just finds or starts another); staying
+	-- attached to a squatter costs the whole session.
+	if not ready and helloSentAtFrame and bridgeFrames - helloSentAtFrame > HELLO_ANSWER_FRAMES then
+		markPortBusy(currentPort, "never answered our hello, so it is not a core we can use")
+		disconnect(nil)
 		return
 	end
 

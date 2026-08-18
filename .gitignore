@@ -42,7 +42,6 @@
 # Same deal for Crystal: assembled by release.yml from adapters/pokemon/crystal/, never
 # hand-edited, never committed. README.txt at that path IS committed, as with every other game.
 /packaging/release/games/pokemon/crystal/meshghost_crystal.lua
-/packaging/release/games/pokemon/crystal/run_second_client.lua
 /packaging/release/games/pokemon/crystal/lib/
 
 # ap_try.flag makes the Crystal adapter run an Archipelago ROM with an address that has NOT been

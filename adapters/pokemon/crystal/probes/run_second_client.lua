@@ -21,4 +21,4 @@ MESHGHOST_BRIDGE_PORT = 7779
 -- The offset now defaults to 0 in the adapter itself, so this needs to set nothing: it exists only
 -- for a loopback session, where a ghost echoing your own position would otherwise stand inside you.
 local dir = debug.getinfo(1, "S").source:sub(2):match("^(.*)[/\\]") or "."
-dofile(dir .. "/meshghost_crystal.lua")
+dofile(dir .. "/../meshghost_crystal.lua")

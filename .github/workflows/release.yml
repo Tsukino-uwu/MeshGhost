@@ -280,7 +280,6 @@ jobs:
           # folder its own so that fallback is never needed by a player.
           New-Item -ItemType Directory -Force packaging\release\games\pokemon\crystal | Out-Null
           Copy-Item adapters\pokemon\crystal\meshghost_crystal.lua packaging\release\games\pokemon\crystal\meshghost_crystal.lua
-          Copy-Item adapters\pokemon\crystal\run_second_client.lua packaging\release\games\pokemon\crystal\run_second_client.lua
           Copy-Item -Recurse adapters\pokemon\emerald\lib packaging\release\games\pokemon\crystal\lib
           # An experiment flag beside the adapter would make it run an Archipelago ROM on an
           # unconfirmed address. It is gitignored, so this only catches a stray local copy -- but

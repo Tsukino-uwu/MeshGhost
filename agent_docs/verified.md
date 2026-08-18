@@ -7198,3 +7198,32 @@ scheduled. All established by the agent with local tools; nothing here is a visu
   liveness check that asks "is this slot active?" would have called that our ghost, which is the
   same false positive Crystal lost a run to. The fix, now in the script, is to check **identity**:
   slot active AND `localId` is ours AND the map matches.
+
+### Emerald: a ghost copied from the player shows the PLAYER's animation frames, until it owns tiles (2026-08-18)
+
+- Date: 2026-08-18
+- Observed: the spawned ghost appeared to mirror the player — the user's words, watching it:
+  *"its copying me facing down right now"*, and earlier *"its facing left whenever i face right"*.
+  Every field in the log said otherwise: the ghost's own object event read the requested direction
+  (`face=4` for east), its sprite carried the right animation (`anim=7`, `ANIM_STD_GO_EAST`), and
+  the engine had even set the hardware flip (`attr1=0x9040`, `matrixNum=8`, `affine=0`). After
+  giving the ghost its own tile allocation — 16 OBJ tiles at index 44, against the player's at 0 —
+  the user confirmed on screen: **"yes it can face all 4 directions now"**.
+- Source: live run, user-watched for the visual claim; the field readings are mine from the log.
+- **Cause**: a sprite whose images are a frame list (not a sheet) owns a range of OBJ VRAM tiles,
+  and the engine DMAs the current animation frame into *that* range on every frame change
+  (`RequestSpriteFrameImageCopy`, `sprite.c:802`, called with `sprite->oam.tileNum`). The ghost's
+  sprite was copied wholesale from the player's, tile number included, so both sprites named the
+  same tiles and the ghost displayed whatever frame the player was in. Fix: imitate
+  `AllocSpriteTiles` (`sprite.c:702`) against `sSpriteTileAllocBitmap` (`0x02021b3c`), and free
+  exactly that range on despawn.
+- **The lesson worth keeping, and it is a diagnostic one**: every reading in the log was correct
+  and the thing on screen was still wrong, because the bug lived one level below the struct being
+  logged. The symptom was only ever visible to a person watching — which is exactly what
+  `CLAUDE.md`'s "was the expected thing seen happening on screen" rule exists for. It also means
+  **"the sprite struct is correct" is not the same claim as "the sprite draws correctly"**; the
+  tiles it points at are a third thing, owned by whoever allocated them.
+- **Carries a warning for Crystal**: `phases/phase9.md`'s recipe borrows the player's
+  `SPRITE_TILE` on the same reasoning ("the player's sprite is resident on every map"). Whether
+  Crystal shares this failure is **unknown and untested** — a different console and a different
+  tile model — but it is now a specific thing to check rather than an assumption.

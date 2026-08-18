@@ -1,0 +1,8 @@
+=== MeshGhost syntax check (compile only, nothing is executed) ===
+  OK      ../adapters/pokemon/emerald/meshghost_emerald.lua
+  OK      ../adapters/pokemon/crystal/meshghost_crystal.lua
+  OK      ../adapters/pokemon/crystal/probes/run_second_client.lua
+  OK      ../adapters/pokemon/emerald/probes/spawn_test.lua
+  OK      ../adapters/pokemon/emerald/probes/object_slot_probe.lua
+  OK      ../dev-scripts/bizhawk-dev-loader.lua
+All 6 files compile.

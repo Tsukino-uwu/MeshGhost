@@ -8,7 +8,6 @@ What you need, once:
 What's in this folder:
 - meshghost_crystal.lua -- the mod itself.
   lib\ -- a dependency it needs. Keep it in this same folder, next to the script.
-- run_second_client.lua -- only for running TWO copies on ONE machine. See below.
 
 Setup, every time you play:
 1. Double-click meshghost.exe (three folders up, in the MeshGhost root next
@@ -30,11 +29,10 @@ What makes Crystal different from the other games here:
   not done yet.
 
 Two copies on one machine:
-- Load meshghost_crystal.lua in the first BizHawk, and run_second_client.lua in the
-  second. That is the only difference -- it is a four-line file that points the second
-  copy at the second client's port (7779) and then loads the same mod.
-- Your second copy's config.json needs "local_game_bridge" set to that same 7779.
-  See the main README.txt for running two clients.
+- Set the MESHGHOST_BRIDGE_PORT environment variable before launching the second
+  BizHawk, to match that copy's "local_game_bridge" port -- the script reads the port
+  from there, not from config.json. Same as Emerald.
+- See the main README.txt for running two clients.
 
 Patched and randomized ROMs:
 - Vanilla Pokemon Crystal (V1.0, the USA/Europe release) is what this is tested against.

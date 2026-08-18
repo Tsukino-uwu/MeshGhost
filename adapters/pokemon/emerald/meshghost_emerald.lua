@@ -131,7 +131,21 @@ end
 local TILE = 16 -- confirmed on screen in Phase 3, see phase4_multiplayer.lua's header.
 
 local BRIDGE_HOST = "127.0.0.1"
-local BRIDGE_PORT = tonumber(os.getenv("MESHGHOST_BRIDGE_PORT") or "") or 7778
+-- PORT WALK. A core serves exactly ONE adapter (agent_docs/contract.md): a second bridge
+-- connection is answered with `reject` and closed. Two copies of one game on one machine is a
+-- normal thing to do, so a fixed port makes the second copy either fail or silently share the
+-- first core -- a real mistake already recorded in pitfalls.md, made by launching EmuHawk
+-- directly and skipping the environment variable. Instead: probe 7778 upward and take the first
+-- core that answers `bridge_ready`. Shape copied from Pseudoregalia's BridgeClient (the tested
+-- one) and matching Crystal's; the rationale, including the three things it got wrong first,
+-- is in adapters/_template/PROTOCOL.md.
+local BRIDGE_BASE_PORT = 7778
+local BRIDGE_PORT_COUNT = 8
+-- An explicit port is honoured and then NOT walked: someone who names a port means that port.
+local BRIDGE_PORT_OVERRIDE = tonumber(os.getenv("MESHGHOST_BRIDGE_PORT") or "")
+-- Silence is NOT acceptance -- see PROTOCOL.md. 90 frames = 1.5s, matching the other adapters.
+local HELLO_ANSWER_FRAMES = 90
+local BUSY_PORT_COOLDOWN_FRAMES = 600 -- 10s
 
 -- Sent as this adapter's bridge Hello (internal/bridge.Hello) so the core can connect to the
 -- relay without the user needing to type "game" into config.json themselves -- see
@@ -590,27 +604,55 @@ end
 
 local sock = nil
 local connected = false
+-- `connected` is a socket fact; `ready` is a protocol one. The core answers every hello with
+-- bridge_ready or reject (agent_docs/contract.md), and only bridge_ready means this core is ours.
+local ready = false
 local recvPartial = "" -- straddling-line remainder from the last drainBridge() timeout; belongs
                         -- to the current connection, so resetBridge() clears it too.
 
-local function connectBridge()
-    if not sock then
-        sock = socketCore.tcp()
-        sock:settimeout(0)
+-- Ports that answered but would not have us, with the frame their cooldown ends.
+local busyUntil = {}
+local currentPort = nil
+local helloSentAtFrame = nil
+
+local function markPortBusy(port, why)
+    if port then
+        busyUntil[port] = frameCounter + BUSY_PORT_COOLDOWN_FRAMES
+        console.log(string.format("MeshGhost: port %d %s -- skipping it for %ds.",
+            port, why, BUSY_PORT_COOLDOWN_FRAMES // 60))
     end
-    local ok, err = sock:connect(BRIDGE_HOST, BRIDGE_PORT)
-    if ok == 1 or err == "already connected" then
-        connected = true
-    elseif err ~= "timeout" then
-        -- "timeout" is the expected, documented result of a non-blocking connect still in
-        -- progress (phase4_multiplayer.lua's connectBridge, same shape) -- retrying on the
-        -- same socket next tick is correct there. Anything else (e.g. "connection refused") is
-        -- a real failure, and standard BSD socket semantics say a socket that failed a
-        -- connect() this way is not reliably reusable for a second connect() attempt -- drop
-        -- it so the next tick allocates a fresh one, same as the already-handled nil case,
-        -- instead of retrying forever on a dead socket.
-        pcall(function() sock:close() end)
-        sock = nil
+end
+
+-- A short blocking timeout rather than the non-blocking connect this used to do: a sweep needs a
+-- yes/no per candidate within the same frame, and on loopback a closed port refuses immediately,
+-- so the timeout is a ceiling that is essentially never reached.
+local function tryPort(port)
+    local s = socketCore.tcp()
+    if not s then return false end
+    s:settimeout(0.05)
+    local ok = s:connect(BRIDGE_HOST, port)
+    if not ok then
+        pcall(function() s:close() end)
+        return false
+    end
+    s:settimeout(0)
+    sock, connected, ready, recvPartial = s, true, false, ""
+    currentPort = port
+    return true
+end
+
+-- One sweep across the whole range per attempt, not one port per attempt -- one port per retry
+-- interval would take many seconds to find a free core a few ports up.
+local function connectBridge()
+    if BRIDGE_PORT_OVERRIDE then
+        tryPort(BRIDGE_PORT_OVERRIDE)
+        return
+    end
+    for i = 0, BRIDGE_PORT_COUNT - 1 do
+        local port = BRIDGE_BASE_PORT + i
+        if (busyUntil[port] or 0) <= frameCounter then
+            if tryPort(port) then return end
+        end
     end
 end
 
@@ -621,6 +663,8 @@ local function resetBridge()
     if sock then pcall(function() sock:close() end) end
     sock = nil
     connected = false
+    ready = false
+    helloSentAtFrame = nil
     recvPartial = ""
 end
 
@@ -878,7 +922,19 @@ local function handleBridgeLine(line)
     local env = jsonDecode(line)
     if not env or type(env) ~= "table" then return end
 
-    if env.type == "render_remote" then
+    if env.type == "bridge_ready" then
+        ready = true
+        console.log(string.format("MeshGhost: bridge_ready on port %s -- this core is ours.",
+            tostring(currentPort)))
+    elseif env.type == "reject" then
+        -- The reason is for the log, never for branching on: the right response to any rejection
+        -- is the same one, which is to try the next port.
+        local payload = env.payload
+        console.log("MeshGhost: rejected ("
+            .. tostring(type(payload) == "table" and payload.reason or "no reason given") .. ")")
+        markPortBusy(currentPort, "is a core that already has an adapter")
+        resetBridge()
+    elseif env.type == "render_remote" then
         local payload = env.payload
         if type(payload) == "table" and type(payload.state) == "table" and payload.player_id then
             local st = payload.state
@@ -1046,7 +1102,14 @@ console.log("Decoding Brendan/May sprite frames...")
 loadGenderFrames()
 tryDetectAvatarAddrOffset() -- may not find it yet if loaded during the intro/title sequence --
 -- see the main loop below, which keeps retrying every frame until it succeeds.
-console.log("Connecting to bridge at " .. BRIDGE_HOST .. ":" .. BRIDGE_PORT .. " ...")
+if BRIDGE_PORT_OVERRIDE then
+    console.log(string.format("Bridge target %s:%d (MESHGHOST_BRIDGE_PORT is set, so no port walk).",
+        BRIDGE_HOST, BRIDGE_PORT_OVERRIDE))
+else
+    console.log(string.format("Bridge: walking %s:%d-%d for a core that will have us. Two copies "
+        .. "on one machine each find their own.", BRIDGE_HOST, BRIDGE_BASE_PORT,
+        BRIDGE_BASE_PORT + BRIDGE_PORT_COUNT - 1))
+end
 
 local localGender = nil -- resolved lazily, first frame a save is loaded (see readLocalGender)
 
@@ -1061,10 +1124,21 @@ local function runFrame()
         tryDetectAvatarAddrOffset()
     end
 
+    -- A connection that never got an answer is not worth keeping: something that accepts and
+    -- then stays silent is far more likely an unrelated program holding a port in our range than
+    -- a core. Dropping it costs nothing (the walk tries elsewhere); committing to it costs the
+    -- whole session.
+    if connected and not ready and helloSentAtFrame
+        and frameCounter - helloSentAtFrame > HELLO_ANSWER_FRAMES then
+        markPortBusy(currentPort, "never answered our hello, so it is not a core we can use")
+        resetBridge()
+    end
+
     if not connected then
         connectBridge()
         if connected then
-            console.log("MeshGhost: connected to bridge.")
+            console.log(string.format("MeshGhost: bridge connected on %s:%d.", BRIDGE_HOST, currentPort))
+            helloSentAtFrame = frameCounter
             -- Must be the first message on a fresh connection, before any local_state --
             -- see internal/bridge.Hello. Declares the game so the core can connect to the
             -- relay without the user typing "game" into config.json themselves.
@@ -1106,8 +1180,13 @@ local function runFrame()
                     "MeshGhost DIAG CURVE: frame=%d smoothX=%.4f smoothY=%.4f realScreenX=%d realScreenY=%d realDX=%d realDY=%d",
                     frameCounter, smoothX, smoothY, realX, realY, deltaX, deltaY))
             end
-            sendLine(encodeLocalState(state.areaId, smoothX, smoothY, state.orientation, state.anim, localGender or "male"))
-        else
+            -- Not until bridge_ready. "The socket connected" is not "this core is ours", and
+            -- sending state to a core that is about to reject us is state sent to somebody
+            -- else's session (agent_docs/contract.md, PROTOCOL.md's tick loop).
+            if ready then
+                sendLine(encodeLocalState(state.areaId, smoothX, smoothY, state.orientation, state.anim, localGender or "male"))
+            end
+        elseif ready then
             sendLine(ENCODED_NO_SEND)
         end
 
