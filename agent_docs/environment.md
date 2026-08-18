@@ -302,6 +302,15 @@ UE4SS entry below for that last one specifically, which is currently unresolved)
   Writing "done" or "fixed" or "confirmed" ahead of that is the exact failure the split exists to
   prevent, and it is easy to do by accident after a long run where everything went well.
 
+  **Work can queue up while the user is away** (2026-08-18): *"i can confirm/check multiple things
+  later if you think a step is currently done yourself, i will confirm them all individually
+  later. you are fine to keep going if you 'think' it looks fine or is fixed. but this also does
+  not mean it bypasses that i have to actually double check/confirm visually later."* So: do not
+  idle waiting for a confirmation, and do not stop at the first thing worth showing. Keep going,
+  keep a **list** of what each step is believed to do, and hand the whole list over — the user
+  confirms them one by one. "I think this is fixed" is a legitimate working state to build on; it
+  is never a finished one, and the queue does not shorten the checking, it only batches it.
+
   So the loop is: iterate freely -> reach a coherent stopping point -> hand over a list of what to
   look at, described as unconfirmed -> the user confirms -> only then is it done, and only then
   does it go in `verified.md`. The reasoning behind the split is in [testing.md](testing.md), and
