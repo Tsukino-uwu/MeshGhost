@@ -310,6 +310,20 @@ UE4SS entry below for that last one specifically, which is currently unresolved)
   already on screen. A fix that only shows up in a log has not been handed over in a form the user
   can confirm at all.
 
+  **And it has to be the REAL behaviour, in the game, as intended** — *"should be replicated as
+  intended in the game, so i can observe it working as intended and then either confirm or decline
+  it"*. Two things follow:
+
+  - **Demonstrate the intended use, not a rig that happens to work.** A behaviour shown only under
+    a special setup proves the setup. Where a rig is unavoidable, say so and say what it does not
+    cover — a loopback ghost, for instance, is the player's own state echoed back, so it can look
+    perfect while a real peer's differing state would not.
+  - **"Confirm or decline" means decline is a normal outcome, not a failure of the handover.**
+    Present the thing to be judged, not a conclusion to be agreed with: describe what to watch and
+    what correct looks like, then let the answer be no. Do not ask leading questions ("does that
+    look right now?"), do not pre-announce success, and treat a decline as information about the
+    fix rather than about the user's attention.
+
 ### What is expected of the agent, and what is not
 
 **Expected:**
