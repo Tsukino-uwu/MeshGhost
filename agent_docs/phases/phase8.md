@@ -246,3 +246,71 @@ the ghost not appearing). Automating the wrong half would have cost the bugs.
 - Every fact cited above already has its own `agent_docs/verified.md` entry with the real
   source/citation — this file doesn't re-derive anything, it's the phase-level index pointing
   at that evidence, matching how Phase 6/7 cite `verified.md` rather than duplicating it.
+
+## 2026-08-18 — the spawn session, in full
+
+The longest single session this phase has had: Emerald stopped drawing its ghost and started
+spawning one, and roughly half the day's value ended up being the **method and the mistakes**
+rather than the feature. Recorded here as the index; each item points at where the detail lives.
+
+### What was built
+
+1. **The adapter spawns instead of draws.** A peer is a real `ObjectEvent` plus a `Sprite`, and
+   Emerald's engine draws, animates and walks it — no drawing code. Hidden behind the pause menu,
+   correct gender and palette for free. `verified.md`, `README.md` steps 15-21.
+2. **A whole test toolchain**, most of it discovered by asking what BizHawk already had:
+   the dev loader (attach/swap/drop scripts live, several at once), savestates (10 slots),
+   controller input, screenshots the agent can read, a Lua syntax checker, a forward-reference
+   checker, ROM swapping, a cheat survey, and a test kit that writes items/badges/repel.
+   All in `environment.md`.
+3. **World editing.** `probes/watertile.lua` turns a tile into real water on demand, which is what
+   makes surf/fishing testable without walking across the region.
+4. **Structure.** `adapters/bizhawk/pokemon/`, probes and logs in subfolders, screenshots per game.
+
+### The six bugs the USER found by watching — every one with a healthy log
+
+Listed together because the pattern is the point: **not one of them was visible in the data.**
+
+1. The ghost wore the *player's* animation frames — it had no VRAM tiles of its own, so both
+   sprites read the same tiles.
+2. Talking to a ghost launched the **slot-machine minigame** — a synthesised object has no script
+   template, so the lookup returned garbage and the game ran it.
+3. The ghost took one step and froze — the engine sets `heldMovementFinished` but leaves
+   `heldMovementActive` set; clearing is the caller's job.
+4. It kept up with a run while visibly *walking* — `WALK_FAST` reuses walking frames;
+   `PLAYER_RUN` is a different action.
+5. It sat a few pixels off the grid — a sprite's screen position is computed once and then driven
+   by camera deltas, so it must be placed with the camera at rest.
+6. It leaked one **solid** ghost per route crossing — a route boundary is a *connection*, which
+   changes the map without rebuilding the world, so a map-based identity check declared a live
+   ghost dead. Left alone it would have walled off the route.
+
+### The mistakes I made, and what each taught
+
+These are in `probes.md` and `pitfalls.md` in full; the list matters because several repeated.
+
+- **Assumed instead of checking**, three times in one hour: what a message meant, that being
+  blocked proved a tile was water, and that a collision bit was the right way to make water. The
+  third *was the thing preventing the feature from working*, and it passed my own test.
+- **Misread silence as a result**, four ways: a screenshot taken before the adapter connected; a
+  probe that never loaded (a lost backslash); the emulator paused; and then the same misreading
+  again an hour after writing it up. A dead probe and a quiet game look identical.
+- **Scripted a menu blind** for four rounds and finished on the SAVE dialog — because I inferred
+  the screen instead of screenshotting it. Menus vary in *contents* (a fresh save has no
+  Pokédex/Pokémon entries) and remember their *cursor* between openings.
+- **Left the game in a menu** and ran the next test into it.
+- **Wrote a rule down and broke it four minutes later** — documenting is not implementing; change
+  the script in the same pass.
+- **Lost backslashes through shell heredocs** four times, twice silently enough that a script
+  never loaded at all.
+- **Overstated a bandage rationale** (`gSprites` "unmeasured" when this adapter's own README said
+  otherwise) and **re-opened a settled decision** (treating loopback as second-best when the
+  project had settled that in August). Both corrected in place rather than in conversation.
+
+### What is open
+
+- Surf blob: spawned and engine-driven, but offset and mis-coloured. Peer graphics gated off.
+- Fishing/underwater companions: unanswered; the rig is set up and needs a minute of play.
+- Archipelago: still on the overlay; one run on a patched seed would settle it, blocked only by
+  the absence of a save for one.
+- Everything from this session that a person has to see: `unverified.md`.
