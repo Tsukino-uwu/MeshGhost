@@ -50,7 +50,8 @@ that a peer's state genuinely differs from the local player's, which loopback co
 
 - **Crystal: a ghost looks like THIS machine's player, not the peer** — a peer's own gender needs
   their sprite loaded locally. `phases/phase9.md`.
-- **Crystal: nothing networked yet** — no bridge, no socket. Emerald's layer transfers. `phase9.md`.
+- **Crystal/Archipelago: `wBattleMode` unmeasured** — 0x015A vs 0x1234, needs one trainer battle.
+  Everything else is measured and a loopback ghost walks on the AP ROM. `phases/phase9.md`.
 - **Crystal: does a ghost survive a battle?** Set up twice, answered neither time. `phase9.md`.
 - **Duplicate ghost spawn on every level load** — two ghosts per peer, the `remotes` entry going
   present -> absent within three ticks, leaving an orphaned pawn nobody tracks. `verified.md`.

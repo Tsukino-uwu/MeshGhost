@@ -7062,3 +7062,48 @@ scheduled. All established by the agent with local tools; nothing here is a visu
 - **Still open**: `wBattleMode` — 64 candidates survived the intersection, 10 of which read exactly
   1 in both battles, both of which were wild. A trainer battle reads a different value.
   `wBGMapOffsetX`/`Y` are untouched so far.
+
+### Crystal/AP: wBGMapOffsetX/Y are 0x1153/0x1154, measured by correlation (2026-08-18)
+
+- Date: 2026-08-18
+- Source: my own reading of `ap_scrollwatch_20260818_*.log` — no visual claim, nothing watched
+  on screen.
+- **`wBGMapOffsetX` = `0x1153`, `wBGMapOffsetY` = `0x1154`.** Across 137 real tile steps in one
+  run: `0x1153` moved on **70 of 70** X steps and 1 of 67 Y steps; `0x1154` moved on **67 of 67**
+  Y steps and 1 of 70 X steps. Both sweep 0,2,4…254 within a single step, which is the scroll
+  shape and nothing else in that region has it.
+- **Method note, and a probe bug worth not repeating**: the probe's own verdict said "moves on both
+  axes, not a per-axis offset" for both — because it attributed movement to **the phase the human
+  was asked to walk**, not to the coordinate that actually changed. The user drifted a tile
+  sideways at the start of the up/down phase, as anyone would, and that alone flipped the verdict.
+  Re-scoring the same log against the axis that really stepped made it unanimous.
+  **Attribute an effect to what was observed, never to the instruction that was given.**
+- **Still open**: `wBattleMode`. Two candidates (`0x015A`, and `0x1234` = vanilla+7), both 0 in the
+  overworld and 1 through a wild battle. A trainer battle reads 2 and separates them.
+- **Also unresolved**: `0x0FB1` is in use as `wMapStatus` and reads 2 in play, but it sits 0x481
+  below vanilla's while every other measured address moved +7, +6 or −0x2A. `0x1439` (vanilla+7)
+  also reads 2 in play. Both are candidates; a battle distinguishes them.
+
+### Crystal/AP: a ghost spawns, walks and faces correctly on an Archipelago ROM (2026-08-18)
+
+- Date: 2026-08-18
+- Observed: **the user watched it on screen.** Loopback session on the Archipelago-patched Crystal
+  ROM (`AP_CRYSTAL`), relay in `-loopback`, core on tcp: a ghost appeared, followed the player,
+  walked with the game's own step animation, and faced the right way.
+- Source: live session, user-confirmed. Adapter log `meshghost_crystal_20260818_*.log`.
+- **What this confirms, and it is most of the table**: a ghost that walks with correct facing is
+  reading and writing through `wObjectStructs` (0x14DC), `wMapObjects` (0x16F4), both coordinates
+  (0x1CBE/0x1CBF), the map identity (0x1CBC/0x1CBD) and both scroll offsets (0x1153/0x1154). Wrong
+  values in any of those do not produce a correct ghost.
+- **`wMapStatus` is 0x1439, not 0x0FB1.** 0x0FB1 survived two snapshot runs and was wrong: with the
+  gate reading it, the gate closed several times a second while the player simply stood in the
+  overworld. The snapshots agreed on it only because all four sampled while standing still.
+  **A byte that passes every still-life test can still fail the moment the game is in motion** —
+  the same lesson as the map-identity candidates, in a different disguise.
+- **Caveat on this session**: it ran with `ap_try.flag`, i.e. `wBattleMode` = 0x015A unconfirmed.
+  Nothing here is evidence about `wBattleMode`, and a battle was not part of what was watched.
+- **Still open**: `wBattleMode` (0x015A vs 0x1234, needs a trainer battle); whether a ghost survives
+  a battle on this build; and the core dropped its relay connection twice on quic
+  (`use of closed network connection`) before being moved to tcp — unexplained, and not
+  Crystal-specific.
+

@@ -220,9 +220,9 @@ to be noticed by a user.
 - [ ] **A ghost looks like THIS machine's player, not like the peer.** Showing a peer's own gender
       needs their sprite's tiles loaded on the local map — the `wUsedSprites` allocation question,
       deliberately deferred. Worth attacking once there is a real peer to represent.
-- [ ] **Nothing networked exists yet** — no bridge, no socket, no `get_local_state`. Emerald's
-      socket layer transfers wholesale. This is now the largest remaining piece, and the
-      best-understood one.
+- [x] **Networking exists and works.** Bridge, socket, `get_local_state`, `render_remote` and
+      `despawn_remote` are all in, and a loopback ghost was watched walking on 2026-08-18 —
+      on the Archipelago ROM, which was the harder of the two targets.
 - [ ] **Lifecycle: re-spawn on every map load AND every battle**, since a battle exit is also a map
       re-entry. Understood, not yet implemented.
 - [ ] **Does a ghost survive a battle?** Set up twice and answered neither time — the first run
@@ -238,9 +238,12 @@ to be noticed by a user.
       encoding is not worked out (`PAL_NPC_RED` is 8, observed values were 0 and 1).
 - [ ] **Nothing networked exists yet** — no bridge, no socket, no `get_local_state`. Emerald's
       socket layer transfers wholesale when the spawn question is closed.
-- [ ] **Archipelago is deliberately out of scope** and guarded against, not merely deferred: its
-      Crystal patch rearranges WRAM non-uniformly, so the adapter must identify the ROM before
-      writing and refuse otherwise.
+- [~] **Archipelago is IN scope and mostly measured** (reversed from out-of-scope, 2026-08-18).
+      The patch does rearrange WRAM non-uniformly — +7, +6 and −0x2A in one build — so the adapter
+      keeps one address table per ROM, selected by the header-title classifier, and an unmeasured
+      entry stays `nil` so the adapter refuses rather than writing somewhere plausible.
+      Nine of ten entries are measured; `wBattleMode` needs a trainer battle to settle
+      0x015A vs 0x1234. See `verified.md` and `pitfalls.md`.
 
 ## Method notes worth keeping
 

@@ -108,7 +108,12 @@ local ADDRESSES = {
 		-- not, so it may well be something else that happens to track play state. The gate needs
 		-- the behaviour, not the name; do not "correct" this to a tidier address on the strength
 		-- of the label. Measured across two state runs plus two battle runs (verified.md).
-		W_MAPSTATUS = 0x0FB1,
+		-- 0x0FB1 was the single survivor of two snapshot runs, and a live run then showed it
+		-- FLICKERING between 2 and 1 several times a second while simply standing in the
+		-- overworld -- so it is not wMapStatus, and the snapshots only ever agreed because they
+		-- sampled while standing still and phase-locked. 0x1439 is vanilla+7 and held 2 across
+		-- 1103 samples of walking. Override with MESHGHOST_CRYSTAL_STATUS_ADDR to compare.
+		W_MAPSTATUS = tonumber(os.getenv("MESHGHOST_CRYSTAL_STATUS_ADDR") or "") or 0x1439,
 		-- Two candidates, deliberately unresolved. Both read 0 whenever the player is in the
 		-- overworld and 1 through a wild battle:
 		--   0x015A -- non-zero earliest and for the most of each battle.
@@ -127,15 +132,13 @@ local ADDRESSES = {
 		-- candidate that can be read by ordinary code eventually gets treated as measured.
 		candidates = {
 			W_BATTLEMODE = 0x015A,
-			-- The scroll offsets have not been measured at all yet (ap_scroll_probe.lua). Zero is
-			-- not a guess at their address -- it is the value that makes screenCoords() fall back
-			-- to whole-tile positioning, so a ghost lands on the right TILE and can be up to a
-			-- tile out mid-step. Good enough to see a ghost; not good enough to judge smoothness.
-			W_BGMAPOFFSETX = nil,
-			W_BGMAPOFFSETY = nil,
 		},
-		W_BGMAPOFFSETX = nil,
-		W_BGMAPOFFSETY = nil,
+		-- Pixel scroll offsets, and the only pair here measured by CORRELATION rather than by a
+		-- filter: across 137 real tile steps, 0x1153 moved on 70 of 70 X steps and 1 of 67 Y
+		-- steps, 0x1154 the exact mirror. They sweep 0,2,4..254 within a step, which is the shape
+		-- nothing else in this region has. (Also vanilla+7, noticed after the fact, not before.)
+		W_BGMAPOFFSETX = 0x1153,
+		W_BGMAPOFFSETY = 0x1154,
 	},
 }
 
@@ -198,6 +201,16 @@ local logfile = io.open(string.format("%s/meshghost_crystal_%s.log", SCRIPT_DIR,
 
 local function log(msg)
 	console.log(msg)
+	if logfile then
+		logfile:write(msg, "\n")
+		logfile:flush()
+	end
+end
+
+-- File only. A per-tick diagnostic in the Lua Console scrolls the startup lines out of view, and
+-- those name the ROM and every address in use -- which is what a reader actually needs
+-- (probes.md: detail to the log file, headlines to the console).
+local function logFile(msg)
 	if logfile then
 		logfile:write(msg, "\n")
 		logfile:flush()
@@ -496,6 +509,14 @@ end
 ----------------------------------------------------------------------------
 
 local ghosts = {} -- player_id -> { mo, st, mo_base, st_base, area }
+
+function ghostCount()
+	local n = 0
+	for _ in pairs(ghosts) do
+		n = n + 1
+	end
+	return n
+end
 
 local function freeMapObject()
 	for i = 1, NUM_MAP_OBJECTS - 1 do
@@ -883,6 +904,35 @@ log(string.format("Bridge target %s:%d (set MESHGHOST_BRIDGE_PORT to change).", 
 
 local lastArea = nil
 
+-- Experiment-mode diagnostic (ap_try.flag / MESHGHOST_CRYSTAL_AP_TRY=1 only). Prints, twice a
+-- second, what the gate DECIDED and what it decided it from -- the Phase 9 lesson that a gate's
+-- inputs beside its verdict is the thing worth logging, because a gate that silently says "no"
+-- and a bridge that silently drops look identical from outside.
+local diagFrames, diagLastKey = 0, nil
+function diagnose(state)
+	if not TRY then
+		return
+	end
+	diagFrames = diagFrames + 1
+	local key = state and (state.area_id .. "|" .. state.position[1] .. "," .. state.position[2]
+		.. "|" .. state.orientation .. "|" .. state.anim) or "NO STATE"
+	if diagFrames % 30 ~= 0 and key == diagLastKey then
+		return
+	end
+	diagLastKey = key
+	if state then
+		logFile(string.format("gate: SENDING area=%s pos=%d,%d %s %s sprite=%s ghosts=%d "
+			.. "[0FB1=%s 1439=%s]", state.area_id, state.position[1], state.position[2],
+			state.orientation, state.anim, tostring(state.extras and state.extras.sprite),
+			ghostCount(), tostring(u8(0x0FB1)), tostring(u8(0x1439))))
+	else
+		logFile(string.format("gate: NOT SENDING — status(0x%04X)=%s wants %d, battle(0x%04X)=%s "
+			.. "wants 0, map=%s/%s [0FB1=%s 1439=%s]", W_MAPSTATUS, tostring(u8(W_MAPSTATUS)),
+			MAPSTATUS_HANDLE, W_BATTLEMODE, tostring(u8(W_BATTLEMODE)), tostring(u8(W_MAPGROUP)),
+			tostring(u8(W_MAPNUMBER)), tostring(u8(0x0FB1)), tostring(u8(0x1439))))
+	end
+end
+
 local function tick()
 	if not connected then
 		sinceRetry = sinceRetry + 1
@@ -912,7 +962,9 @@ local function tick()
 	end
 
 	if ready then
-		send({ type = "local_state", payload = { state = getLocalState() } })
+		local state = getLocalState()
+		diagnose(state)
+		send({ type = "local_state", payload = { state = state } })
 	end
 end
 

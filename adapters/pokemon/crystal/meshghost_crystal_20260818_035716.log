@@ -1,0 +1,8 @@
+MeshGhost: no LuaSocket at C:\dev\MeshGhost\adapters\pokemon\crystal/lib/x64/
+MeshGhost: LuaSocket loaded from C:\dev\MeshGhost\adapters\pokemon\crystal/../emerald/lib/x64/
+=== MeshGhost — Pokémon Crystal ===
+ROM: ROM title "AP_CRYSTAL" — Archipelago's Crystal patch — using its own measured address set.
+UNCONFIRMED ADDRESS IN USE: W_BATTLEMODE = 0x015A (MESHGHOST_CRYSTAL_AP_TRY=1)
+This session is an EXPERIMENT: at least one address is unconfirmed. Nothing seen here
+may be written to verified.md as a fact about the game.
+Bridge target 127.0.0.1:7778 (set MESHGHOST_BRIDGE_PORT to change).
