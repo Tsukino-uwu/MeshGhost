@@ -273,9 +273,25 @@ UE4SS entry below for that last one specifically, which is currently unresolved)
   Practical use: the Emerald adapter has to be exercised against **both** a vanilla and an
   Archipelago-patched ROM (`BANDAGES.md`), and those are two `openrom` calls apart rather than two
   emulator sessions apart.
-  **Still blocked on something else, though**: a patched ROM boots to the intro, and no save or
-  savestate exists for one on this machine — so reaching its overworld means playing the intro,
-  which is why that test is still open rather than done.
+  **Tested 2026-08-18, and it does everything the menu does:** `client.openrom` loads an
+  **arbitrary path**, not only recent entries; **the Lua environment survives the swap**, so the
+  dev loader and every attached script keep running; and swapping back plus `loadslot` restores
+  the previous session exactly. Measured vanilla -> AP seed -> vanilla in a single run. The user
+  confirmed visually that the patched ROM really loaded.
+  **Two traps found while proving it:**
+  - **The cartridge header does NOT identify a patched ROM.** Both read `POKEMON EMER`, because an
+    Archipelago patch keeps the header. Fingerprint **code** instead — three words around
+    `CB2_Overworld` gave vanilla `4809B510 23C004D2 46684918` against the seed's
+    `00000888 FF86F779 4809B510`. That third word is vanilla's *first*, which is the known
+    `CB2_Overworld` relocation (`0x08085E5C` -> `0x080867F1`, `verified.md` 2026-08-14) showing up
+    as a shift — an independent corroboration nobody asked for.
+  - **State carried over between runs made a real difference invisible.** The first attempt sampled
+    "before" and "after" in two separate runs, and got identical fingerprints — because the earlier
+    run had already left the other ROM loaded, so both samples were the same cartridge. Measure
+    both sides inside one run, from a starting point you set yourself.
+  **Still blocked on something else**: a patched ROM boots to the intro, and no save or savestate
+  exists for one on this machine — so reaching its overworld means playing the intro. Swapping is
+  cheap; arriving somewhere useful is not.
 - **Telling a patched ROM from a vanilla one by its file name — a tell, never a conclusion.**
   The user, 2026-08-18: *"garbled = probly archipelago, good names = most likely the vanilla
   roms"*. A clean `Pokemon - Emerald Version (USA, Europe).gba` is almost certainly vanilla; a
