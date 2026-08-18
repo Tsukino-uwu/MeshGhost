@@ -180,7 +180,16 @@ UE4SS entry below for that last one specifically, which is currently unresolved)
   a console window on screen — the user spotted that independently, and it is pure cost: nothing
   needs a shell to ask where it is. `debug.getinfo(1, "S").source` is the path the chunk was
   loaded from, which is the actual question. Crystal's adapter already did this and Emerald's did
-  not; both do now, with `io.popen` kept only as an unreachable fallback.
+  not; both do now.
+- **CORRECTION, same day: `io.popen` was NOT an unreachable fallback, and deleting it broke
+  `--lua=` immediately.** Loaded with `--lua=<path>` BizHawk reports `source` as
+  `[string "main"]` -- not a path -- so `debug.getinfo` cannot answer and the fallback was what
+  ran on every such launch. That is where the console flash came from, and it is also why the
+  flash was visible when the loader claimed to have removed the cause. Both adapters now accept
+  `MESHGHOST_SCRIPT_DIR` (an env var a launcher can set for free, no process spawned), fall back
+  to `debug.getinfo`, and keep `io.popen` last for the case where nothing offered an answer.
+  `dev-scripts` set the env var. **The lesson is the shape, not the API: "this branch is
+  unreachable" is a claim to test, not to annotate** -- one launch settled it.
 - **Savestates are drivable from Lua, and all ten slots are ours for testing — 2026-08-18.**
   `savestate.save` / `load` / `saveslot` / `loadslot` are all present and callable in this build
   (checked at runtime, not from a doc string — `savestate.saveslots` does NOT exist). BizHawk has
@@ -746,3 +755,27 @@ All done on this machine — kept as the checklist a fresh setup should still fo
 - The project lives in `C:\dev\MeshGhost`.
 - Do not access outside authorized directories unless explicitly approved.
 - Record any non-default environment tweaks here, factually and version-specific.
+- **BizHawk Lua CAN start a process with NO window — via `luanet`, not `os.execute`
+  (2026-08-18).** This unblocks autostart for both Pokemon adapters, which was previously assumed
+  impossible because every shell route flashes.
+  - **`os.execute` and `io.popen` always flash, in every shape.** Tried plain, `start /b`,
+    `powershell -WindowStyle Hidden`, and `wscript.exe` running a hidden-`Run` `.vbs`; the user
+    watched all of them and every one showed a window. The reason they all fail is the same: both
+    functions go through the C runtime's `system()`, which runs `cmd /c ...`, so **the window
+    belongs to the shell doing the launching, not to the child** — which is why hiding the child
+    cannot help, and why `-WindowStyle Hidden` flashed *longest* (PowerShell is slow to start).
+  - **The build has no process API of its own.** Enumerated every global: `client`, `emu`, `comm`,
+    `bizstring` contain nothing that starts a program. (`client.getluafunctionslist` does NOT exist
+    in this build; walk `_G` instead.)
+  - **`luanet` is in `_G`** — NLua's .NET bridge. `luanet.load_assembly("System")` first (without
+    it `import_type` returns nil, which is what made the first attempt look like a dead end), then
+    `luanet.import_type("System.Diagnostics.Process")` and `...ProcessStartInfo`. Set
+    `UseShellExecute = false` and `CreateNoWindow = true`.
+  - **Confirmed invisible by the user, against a positive control**: three spaced spawns —
+    hidden `cmd.exe`, hidden `meshghost.exe`, then a deliberate window-showing
+    `Process.Start(file, args)` — observed as "hidden, hidden, show", with all three verified to
+    have actually run via marker files. The control is what makes the two silences mean something.
+  - `Process.GetCurrentProcess().Id` comes with it, so a Lua adapter can pass
+    `-exit-with-pid=<EmuHawk's pid>` and get auto-close for free, the same way TEVI and
+    Pseudoregalia do.
+  - Probe: `dev-scripts/bizhawk-spawn-probe.lua`.

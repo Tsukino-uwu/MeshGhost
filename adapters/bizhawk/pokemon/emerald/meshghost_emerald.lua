@@ -438,14 +438,28 @@ local function scriptDir()
             return dir .. "/"
         end
     end
-    -- No io.popen fallback. It was kept here as a "host that does not populate source" path and
-    -- removed 2026-08-18: it is the WRONG answer whenever the two differ (it returns the working
-    -- directory, not the script's), and it spawns a real `cmd` to ask, which is a console window
-    -- flashing on screen every launch. A fallback that is both wrong and visible is worse than no
-    -- fallback -- failing here says exactly what happened, where a wrong path fails later as
-    -- "The specified module could not be found" and sends you hunting LuaSocket.
-    error("MeshGhost: could not determine the script's own directory (debug.getinfo gave no source). "
-        .. "Load this file from BizHawk's Lua Console or with --lua=<path>.")
+    -- MESHGHOST_SCRIPT_DIR, if set. This exists because of the case below it: loaded with
+    -- `--lua=<path>` BizHawk reports `source` as `[string "main"]`, NOT a path, so the branch
+    -- above cannot answer and the io.popen fallback is what actually ran -- every launch, which
+    -- is where the console-window flash came from. Anything launching this script can hand it
+    -- the answer for free instead (dev-scripts do), and then no process is spawned at all.
+    local fromEnv = MESHGHOST_SCRIPT_DIR or os.getenv("MESHGHOST_SCRIPT_DIR")
+    if fromEnv and fromEnv ~= "" then
+        return (fromEnv:gsub("[/\\]$", "")) .. "/"
+    end
+
+    -- Last resort, and it DOES get used: `--lua=` with no env var set. It answers with the
+    -- working directory rather than this script's, so it is only right when the two happen to
+    -- agree -- and it spawns a real `cmd` to ask, which is the window that flashes. Removing it
+    -- outright on 2026-08-18 broke `--lua=` loading immediately ("could not determine the
+    -- script's own directory"), which is how we learned the comment calling it unreachable was
+    -- wrong. Kept, and now reached only when nothing better was offered.
+    local pwd = io.popen and io.popen("cd"):read("*l")
+    if not pwd or pwd == "" then
+        error("MeshGhost: could not determine the script's own directory. Load this file from "
+            .. "BizHawk's Lua Console, or set MESHGHOST_SCRIPT_DIR to the folder holding it.")
+    end
+    return pwd .. "\\"
 end
 
 local SCRIPT_DIR = scriptDir()

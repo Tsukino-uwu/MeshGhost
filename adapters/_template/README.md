@@ -228,16 +228,16 @@ deliberately no template, since a stub with no content would go stale immediatel
    writes a `built-from.txt` SHA-256 record, the build output committed to the repo (CI can't
    build these), its own staleness-verification step in `release.yml`, and a hand-written
    `README.txt` for the game folder that nothing generates.
-   **If the adapter autostarts a core** (see [PROTOCOL.md](PROTOCOL.md)), check where it installs
-   first: a mod that drag-and-drops *into the game's own directory tree* has nothing pointing back
-   at the unzipped release folder, so `meshghost.exe` and a client-only `config.json` have to ride
-   along in the mod folder. **Exactly one adapter does this: Pseudoregalia.** The condition is
-   *autostarts a core*, not *installs into the game tree* — TEVI's mod also installs into the game
-   tree and ships a single DLL and nothing else, because it does not start a core, and shipping an
-   exe beside a mod that never launches one would just be a confusing spare copy. An adapter loaded
-   from the release folder itself (both BizHawk adapters) reaches the root exe and config with no
-   second copy at all. The duplication is forced by the install model, not chosen; don't copy it to
-   an adapter that doesn't need it.
+   **If the adapter autostarts a core** — which it should; see "Start the client, and stop it
+   again" below — check where it installs. A mod that drag-and-drops *into the game's own
+   directory tree* has nothing pointing back at the unzipped release folder, so it needs a
+   `config.json` of its own in the mod folder, and the player copies `meshghost.exe` in beside it
+   once. **The client is deliberately NOT shipped in mod folders** (changed 2026-08-18): it is
+   9 MB, every such adapter would carry the same copy, and the alternative — a shared client found
+   through a `%LOCALAPPDATA%` breadcrumb — is machinery that goes stale when a folder moves and
+   silently picks the wrong one when two installs exist. `config.json` is 1 KB and does ship, so
+   only the big file is manual. An adapter loaded from the release folder itself (both BizHawk
+   adapters) reaches the root exe and config with no copy of anything.
 
 ## First, work out what you will be able to READ
 

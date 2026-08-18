@@ -214,9 +214,27 @@ local function scriptDir()
 			return dir
 		end
 	end
-	-- No io.popen fallback (removed 2026-08-18). It answers with the WORKING directory, not this
-	-- script's, so it is wrong exactly when it is needed -- and it spawns a real `cmd` to ask,
-	-- flashing a console window on screen every launch.
+	-- MESHGHOST_SCRIPT_DIR, if whatever launched us set it. Free, absolute, and spawns nothing.
+	-- Needed because `--lua=<path>` makes BizHawk report `source` as `[string "main"]` rather
+	-- than a path, so the branch above cannot answer at all in that case.
+	local fromEnv = MESHGHOST_SCRIPT_DIR or os.getenv("MESHGHOST_SCRIPT_DIR")
+	if fromEnv and fromEnv ~= "" then
+		return (fromEnv:gsub("[/\\]$", ""))
+	end
+
+	-- Last resort. It answers with the WORKING directory rather than this script's, so it is only
+	-- right when the two agree, and it spawns a real `cmd` -- the console window that flashes on
+	-- launch. Removing it outright on 2026-08-18 broke Emerald's `--lua=` loading instantly, which
+	-- is how the "unreachable fallback" comment was shown to be wrong; kept here for the same
+	-- reason, and now reached only when nothing better was offered.
+	local p = io.popen and io.popen("cd")
+	if p then
+		local out = p:read("*l")
+		p:close()
+		if out and #out > 0 then
+			return out
+		end
+	end
 	return "."
 end
 
