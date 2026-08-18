@@ -107,9 +107,38 @@ order:
 14. Found and fixed a sub-tile movement-smoothing bug once local testing stopped hiding it —
     the self-correcting glide-duration scheme was measuring idle time as step time; replaced
     with fixed per-anim timing after two other fixes were tried and disproven.
-15. Not yet done: surf, Mach Bike, Acro Bike, ledges, and Mach Bike rail sections all still
-    snap badly — a real, cited detection source is found (no new memory address needed) but
-    not yet live-verified; a real per-tile timing measurement is also still needed.
+15. Taught the emulator to work for us, which turned out to matter more than any single fix.
+    A loader script attached once at launch now loads, swaps and drops any number of scripts
+    from a one-line control file — so an edit costs no relaunch, and the adapter and a test-state
+    script run side by side. Before this, every probe revision interrupted whoever held the pad.
+16. Kept going through the rest of what BizHawk exposes, once it was clear how much was sitting
+    unused: savestates (all ten slots, save and load), the cheat engine, a Lua syntax checker,
+    controller input, and screenshots the agent can read. Reaching a test state stopped costing
+    real playing time — checkpoint once, restore instantly, forever.
+17. Wrote down the limit in the same breath. A screenshot answers "what is on screen now", never
+    "does this look right moving", so it changes no rule: the user still confirms every visual
+    claim personally. That is the anti-hallucination split this project rests on — see
+    [testing.md](../../../agent_docs/testing.md).
+18. Replaced the drawn ghost with a **spawned one**. A peer is now a real object event plus a
+    sprite, and Emerald's own engine draws, animates and walks it — no drawing code at all. It
+    is hidden behind the pause menu, which the overlay never was, and gets the right gender and
+    palette for free by borrowing the player's own graphics.
+19. Six bugs came out of that, each found by watching rather than reading, and the logs looked
+    healthy for every one: a ghost wearing the player's animation frames (it had no tiles of its
+    own), talking to a ghost launching the slot machine, a ghost frozen after one step, a run
+    that was really a fast walk, a sprite a few pixels off its grid, and — the worst — a solid
+    ghost leaked at every route crossing, which would eventually wall the route off.
+20. The leak taught the general lesson: **"the map changed" and "the world was rebuilt" are
+    different events.** A house rebuilds the world, a route boundary does not, and an identity
+    check keyed on the map is wrong in exactly the case the other one hides. Houses had tested
+    perfectly clean. ([_template/README.md](../../_template/README.md))
+21. Not yet done: surf, Mach Bike, Acro Bike, ledges, and Mach Bike rail sections. Half of this
+    is now solved — every special state is simply its own `graphicsId`, so no anim classifier is
+    needed. What remains is rendering it: a ghost borrows the player's graphics, so showing a
+    surfing peer while you walk needs the sprite built from the graphics table instead of copied.
+
+**~2 hours from a drawn ghost to a spawned one**, on top of the ~10 hours the drawn one took —
+most of it spent on the six bugs above rather than on the spawn itself.
 
 See [phase8.md](../../../agent_docs/phases/phase8.md) for the full record.
 

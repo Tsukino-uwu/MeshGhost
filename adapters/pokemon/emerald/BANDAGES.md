@@ -78,13 +78,24 @@ ADR named this exact risk going in: *"if spawning proves unreliable, the temptin
 back to drawing and leave both paths in."* This is not that case — spawning works — but the result
 looks identical from the outside, so it is registered rather than left unremarked.
 
-**Why it is nonetheless right today.** The spawn path writes `gObjectEvents` *and* `gSprites`.
-`gObjectEvents`' Archipelago relocation is measured and applied; **`gSprites`' is not** — the
-adapter has only ever *read* `gSprites`, at its vanilla address. Reading a wrong address returns a
-wrong number, which is a cosmetic bug; **writing one corrupts whatever now lives there**, which is
-the failure the ADR's "positively identify the ROM before writing" rule exists to prevent. Keeping
-the proven read-only renderer on the ROM we cannot yet write to safely is the conservative choice,
-not a shortcut.
+**Why it is nonetheless right today — with a correction, 2026-08-18.** The first version of this
+entry said `gSprites`' Archipelago relocation was "unmeasured". That overstated the unknown, and
+the evidence was already in this adapter's own README: `sprite_anchor_verify_probe.lua` was
+written specifically to check whether `gSprites` (and the sprite coord offsets) were shifted like
+`gObjectEvents` was, and the answer was **no** — `playerScreenPos()` uses those three addresses
+unmodified and the ghost has been repeatedly confirmed correctly anchored on a patched ROM.
+
+So the honest position is weaker than "we cannot write there" and stronger than "it is fine":
+**the address is very likely correct, and was never verified for WRITING specifically.** Reading a
+wrong address returns a wrong number, a cosmetic bug; writing one corrupts whatever now lives
+there. That asymmetry is why the fallback stays for now rather than because the address is unknown.
+
+**What makes this cheap to close.** The spawn path already performs a live self-check before it
+writes a single byte: it reads the player's `objectEvent.spriteId`, then checks that sprite's
+`data[0]` holds the player's own object event id. If `gSprites` were wrong on a patched ROM, that
+round trip cannot succeed, and the adapter refuses and logs. **So enabling the spawn path on an
+Archipelago ROM is guarded by construction** — one live run on a patched seed either confirms it
+or refuses safely. That run has not happened yet, which is the only reason this entry still exists.
 
 **How it ends.** Measure `gSprites` on a patched ROM — `probes/avatar_scan_probe.lua` through
 `avatar_verify_probe.lua` are the four-stage template that already did this for `gObjectEvents`.
