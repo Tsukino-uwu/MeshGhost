@@ -125,3 +125,37 @@ func TestTransportAbsentFromConfigLeavesTheFlagDefaults(t *testing.T) {
 		t.Errorf("listen_quic = %q, want it left at the flag default (empty = share -addr's port)", quicAddr)
 	}
 }
+
+// TestEmptyConfigFileIsSilentlyIgnored covers "no config" spelled as a file
+// that exists and holds nothing.
+//
+// dev-scripts/run-loadtest-relay.bat passes `-config nul` to mean "ignore the
+// repo's config.json". On Windows os.ReadFile("nul") does not fail
+// os.IsNotExist -- it succeeds with zero bytes -- so this reached
+// json.Unmarshal, which returned "unexpected end of JSON input", and the relay
+// warned on every run that EVERY SETTING was being ignored and defaults used
+// instead. The relay was working correctly; the warning read like a broken
+// install. An empty file means nothing was configured, which is not an error.
+func TestEmptyConfigFileIsSilentlyIgnored(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		body string
+	}{
+		{"completely empty", ""},
+		{"only whitespace", "\n\n   \t\n"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			path := writeConfig(t, nil, tc.body)
+
+			addr, onlyGame, transport, quicAddr := applyTestConfigFull(path)
+			for field, got := range map[string]string{
+				"listen_on": addr, "only_game": onlyGame,
+				"transport": transport, "listen_quic": quicAddr,
+			} {
+				if got != "" {
+					t.Errorf("%s = %q, want the flag default left untouched", field, got)
+				}
+			}
+		})
+	}
+}

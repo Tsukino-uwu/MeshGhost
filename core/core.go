@@ -1295,19 +1295,18 @@ func (c *Core) onAdapterFrameInProcess(adapter Adapter, rendered map[string]bool
 // connection, and the relay has no business overriding that upward. Caller
 // holds c.mu. See the ADR in agent_docs/architecture.md.
 func (c *Core) effectiveSendInterval() time.Duration {
-	switch {
-	case c.MinSendInterval > 0 && c.serverSendInterval > 0:
-		if c.MinSendInterval > c.serverSendInterval {
-			return c.MinSendInterval
-		}
-		return c.serverSendInterval
-	case c.MinSendInterval > 0:
-		return c.MinSendInterval
-	case c.serverSendInterval > 0:
-		return c.serverSendInterval
-	default:
-		return DefaultMinSendInterval
+	// The slower of the two wins, and if neither is set the built-in default
+	// does. Written as a max rather than the four-arm switch this used to be:
+	// both non-positive means neither was set, one set means that one, and both
+	// set means the slower -- which is exactly what taking the larger does.
+	d := c.MinSendInterval
+	if c.serverSendInterval > d {
+		d = c.serverSendInterval
 	}
+	if d <= 0 {
+		d = DefaultMinSendInterval
+	}
+	return d
 }
 
 // forwardLocalState stamps and sends state to the relay, if there is one.
@@ -1512,8 +1511,9 @@ func (c *Core) resolveTransport(addr, gameID, room, displayName, roomCode, gameV
 //
 // Not joining is the whole point. Joining first and upgrading afterwards
 // would make every other player in the room watch this one leave and
-// rejoin, because the relay assigns a fresh player_id per connection and
-// agent_docs/contract.md guarantees no session resumption.
+// rejoin, because the relay assigns a fresh player_id per connection and a
+// discovery query is never issued a resume token, so there is nothing for
+// the upgraded connection to reclaim.
 //
 // An error is returned only for an unreachable relay. Anything else yields
 // a nil list, meaning "nothing to upgrade to".

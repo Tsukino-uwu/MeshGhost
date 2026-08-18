@@ -1,4 +1,5 @@
-// Package transport provides generic NDJSON-over-TCP framing. It knows
+// Package transport provides generic NDJSON framing over any net.Conn -
+// tcp, and udpconn/quicconn alike. It knows
 // nothing about protocol.Envelope or any other message shape — it moves
 // bytes, one JSON-line payload at a time. core and relay
 // both consume the Transport interface, for the relay connection and the
@@ -92,8 +93,8 @@ type Transport interface {
 	Close() error
 }
 
-// NDJSONConn is the concrete Transport implementation over a TCP
-// connection, newline-delimited JSON per line. Structurally satisfies
+// NDJSONConn is the concrete Transport implementation over any net.Conn
+// (tcp, udpconn, quicconn), newline-delimited JSON per line. Structurally satisfies
 // Transport; declared here as a compile-time check.
 //
 // Reconnect-with-backoff is not implemented here: this type wraps a single
@@ -107,10 +108,11 @@ type Transport interface {
 // (see the package doc above). Ping/pong are protocol-level messages, so
 // that loop belongs in core and relay, not in this
 // package. core.Core.sendHeartbeats sends a Ping on an otherwise-
-// quiet connection and relay answers with a Pong — but this is an
-// idle-timeout-avoidance mechanism, not liveness/RTT detection; nothing
-// currently reads the Pong back. See agent_docs/contract.md's Transport
-// section for the real mechanism and why it exists.
+// quiet connection and relay answers with a Pong. That is still not
+// liveness detection - a dead peer is found by the idle timeout, not by a
+// missing Pong - but the Pong is read back: core turns each one into an
+// RTT and a clock offset (core/online.go's clockSync). This package knows
+// nothing about any of it. See agent_docs/contract.md's Transport section.
 type NDJSONConn struct {
 	conn net.Conn
 

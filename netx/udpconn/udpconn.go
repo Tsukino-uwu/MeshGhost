@@ -481,13 +481,21 @@ func (c *Conn) handleControl(b []byte) []byte {
 	// so guessing a client's ip:port is not enough to inject into its
 	// session. Constant-time, for the same reason the room-code compare in
 	// relay is. See tokenLen.
+	//
+	// body is sliced inside this guard, not after it. It used to be computed
+	// unconditionally for every message type, which stayed in bounds only by
+	// two coincidences: both callers pass buf[:n] out of a MaxDatagramBytes
+	// array, so slicing past len was still within cap, and body went unused
+	// for the types that skip the check. Neither is a property to lean on in
+	// the most exposed surface in the repo.
+	var body []byte
 	if b[1] == ctrlData || b[1] == ctrlLossy || b[1] == ctrlAck {
 		if len(b) < 2+tokenLen ||
 			subtle.ConstantTimeCompare(b[2:2+tokenLen], c.token[:]) != 1 {
 			return nil
 		}
+		body = b[2+tokenLen:]
 	}
-	body := b[2+tokenLen:]
 
 	switch b[1] {
 	case ctrlLossy:

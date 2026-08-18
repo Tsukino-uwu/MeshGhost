@@ -5,14 +5,18 @@
 // its own local core and nothing else. It never speaks protocol's
 // relay messages directly.
 //
-// Three of these four message shapes are the wire form of the three-function
+// Three of these message shapes are the wire form of the three-function
 // adapter interface from the brief (get_local_state / render_remote /
 // despawn_remote). A real adapter (BizHawk Lua, or any future host) speaks
-// this wire protocol; it does not implement a Go interface — see
+// this wire protocol; it does not implement a Go interface - see
 // core.Adapter for the one Go interface in this project, which is
 // scoped to the Phase 5 in-process test adapter only, not to real adapters.
-// The fourth, Hello, is connection setup: it comes first, before any
-// LocalState, and declares which game this adapter is for.
+//
+// Hello, BridgeReady and Reject are connection setup: Hello comes first,
+// before any LocalState, and declares which game this adapter is for. The
+// event/lease/escrow/world pairs exist only for an adapter that asked for
+// the matching capability, and an adapter that asked for none never sees
+// them - the shipped cosmetic default is exactly the three above.
 //
 // How this package fits the whole -- the life of a connection and of a state
 // message, traced across all of them -- is docs/networking.md.

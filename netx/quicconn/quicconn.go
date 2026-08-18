@@ -432,7 +432,7 @@ func Dial(addr string, timeout time.Duration) (net.Conn, error) {
 
 	qc, err := quic.DialAddr(ctx, addr, clientTLSConfig(), quicConfig())
 	if err != nil {
-		return nil, fmt.Errorf("quicconn: dial %s: %w (is the relay serving the quic transport on this port? quic uses a different port from tcp/udp)", addr, err)
+		return nil, fmt.Errorf("quicconn: dial %s: %w (is the relay serving quic? by default quic shares the relay's own port; it moves to listen_quic only when plain udp is served too)", addr, err)
 	}
 	stream, err := qc.OpenStreamSync(ctx)
 	if err != nil {

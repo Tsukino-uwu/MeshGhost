@@ -202,6 +202,16 @@ func applyFileConfig(path string, explicit map[string]bool, t configTargets) {
 	if data == nil {
 		return
 	}
+	// An empty file is "nothing configured", not a broken config. Without this,
+	// json.Unmarshal returns "unexpected end of JSON input" and the warning below
+	// tells the operator every setting is being IGNORED -- which reads like a
+	// broken install and is not true, since there was nothing in it to ignore.
+	// Reachable in the ordinary way on Windows: `-config nul` is how a dev script
+	// says "no config", and os.ReadFile("nul") succeeds with zero bytes rather
+	// than failing os.IsNotExist.
+	if len(bytes.TrimSpace(data)) == 0 {
+		return
+	}
 	var rc rootConfig
 	if err := json.Unmarshal(data, &rc); err != nil {
 		if !applyDespiteBadValue(err, shown, "meshghost-relay") {
@@ -281,7 +291,7 @@ func main() {
 		"playing anything else is refused at the handshake. Leave empty (the default) to host any "+
 		"game, including several at once in different rooms. Valid values are the game_id an "+
 		"adapter advertises -- \"emerald\", \"crystal\", \"tevi\", or \"pseudoregalia\" for the four "+
-			"shipped "+
+		"shipped "+
 		"adapters -- and must match exactly")
 	maxClients := flag.Int("max-clients", relay.DefaultMaxClients,
 		"max clients this relay accepts in total, across every room it's hosting combined -- "+

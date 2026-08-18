@@ -220,11 +220,11 @@ func TestReliableWriteIsDeliveredOnlyOnce(t *testing.T) {
 // TestReliableWritesArriveInOrderUnderLoss pins down what "reliable"
 // actually promises on this transport.
 //
-// Reliable and ordered are separate properties, and the receive path
-// delivers each payload the moment it arrives, deduping by seq with no
-// resequencing buffer. So a payload whose first datagram is lost is
-// overtaken by the next one, which was never lost: both arrive, in the
-// wrong order.
+// Reliable and ordered are both promised. A payload whose first datagram is
+// lost used to be overtaken by the next one, which was never lost, so both
+// arrived in the wrong order; the resequencing buffer closed that -- see
+// Conn.wantSeq and Conn.reorderBuf, which hold anything that arrives ahead of
+// the next deliverable sequence number until the gap is filled.
 //
 // This matters above here rather than in the abstract. relay sends
 // every lifecycle message (join, leave, welcome, reject) on this path, and
@@ -232,9 +232,12 @@ func TestReliableWriteIsDeliveredOnlyOnce(t *testing.T) {
 // own Join strands that peer's ghost permanently. See
 // TestLeaveIsNotUndoneByALateJoin in core.
 //
-// If a resequencing buffer is ever added, this test is the thing that
-// should fail and be consciously rewritten -- not silently keep passing
-// against a guarantee that changed.
+// The assertion below is therefore in-order delivery. It used to assert the
+// opposite, and this paragraph used to say "if a resequencing buffer is ever
+// added, this test should fail" -- the buffer was added, the assertion was
+// updated, and the comment was not, leaving the two saying opposite things.
+// netx/conformance_test.go's TestConformanceSendIsOrdered owns the same claim
+// at the contract level.
 func TestReliableWritesArriveInOrderUnderLoss(t *testing.T) {
 	l := listenTest(t)
 	p := newLossyProxy(t, l.Addr().String())

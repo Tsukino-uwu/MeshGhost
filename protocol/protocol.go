@@ -310,12 +310,13 @@ const (
 	ReasonRateLimited = "rate limited"
 )
 
-// Join announces a peer entering the room. State is reserved for seeding a
-// newly-visible remote ghost with its most recent known state, but
-// relay does not track or populate it today — every Join it sends
-// has State == nil (found stale in a review pass; the receiving side,
-// core, already handles a populated State correctly if a future
-// relay change starts sending one).
+// Join announces a peer entering the room. State seeds a newly-visible
+// remote ghost with its most recent known state, so it appears where it
+// actually is rather than only on its next update.
+//
+// Populated only for a recipient that advertised FeatureSnapshotV1; for
+// anyone else it is nil, as it was for every recipient before 2026-08-17.
+// See relay's stateSnapshotLocked. core handles both cases.
 type Join struct {
 	PlayerID string `json:"player_id"`
 	State    *State `json:"state,omitempty"`

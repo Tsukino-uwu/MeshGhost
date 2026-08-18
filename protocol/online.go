@@ -113,12 +113,23 @@ const (
 const (
 	// MaxEventBytes bounds one Event.Payload. agent_docs/beyond-cosmetic.md
 	// §9 laid out the honest choice here as uniform-vs-transport-dependent,
-	// and this is the uniform answer: 1024 keeps a whole event envelope
-	// comfortably under udpconn.MaxDatagramBytes (1200), so an event means
-	// the same thing on every transport and no capability negotiation is
-	// needed for size. The alternative — a bigger ceiling that udp clients
-	// silently cannot use — buys a larger number and pays for it with a
-	// difference that only shows up in the field.
+	// and 1024 was picked as the uniform answer.
+	//
+	// **It does not actually achieve that, and this comment used to claim it
+	// did.** A maximal Event marshals to ~1310 bytes, over
+	// udpconn.MaxDatagramBytes (1200), so it is refused by checkWritable for
+	// every udp peer with nothing but a relay log line to show for it — the
+	// "difference that only shows up in the field" this number was chosen to
+	// avoid. A committed EscrowState is worse: it carries two blobs of up to
+	// MaxEscrowBlobBytes each and overshoots in every case, not just the
+	// maximal one.
+	//
+	// Shrinking these is a contract revision with its own trade-offs, so it
+	// is recorded in agent_docs/risks.md as its own decision rather than made
+	// quietly here. What is NOT optional is that the number stops lying:
+	// netx/udpconn's TestMaximalEventDoesNotFitAUDPDatagram and
+	// TestMaximalCommittedEscrowDoesNotFitAUDPDatagram assert the real
+	// relationship, and will fail the day it changes in either direction.
 	//
 	// There is deliberately NO application-level fragmentation. If a payload
 	// does not fit, the answer is a *reference* to the data rather than the

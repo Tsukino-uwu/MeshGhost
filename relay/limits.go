@@ -84,23 +84,20 @@ const (
 	MaxHelloFieldLen = 128
 )
 
-// maxMessagesPerSecond returns the per-client flood cap for a room running
+// MaxMessagesPerSecondFor returns the per-client flood cap for a room running
 // at sendHz. It only ever scales UP from MaxMessagesPerSecond: lowering a
 // relay's send_hz must never start disconnecting clients that are still
 // sending at their own built-in default rate — an older client, or any
 // client with an explicit local override, never sees Welcome.SendHz at all
 // or deliberately ignores it, and none of them deserve to be dropped just
 // because the operator turned the room down.
-func maxMessagesPerSecond(sendHz int) int {
-	return MaxMessagesPerSecondFor(sendHz)
-}
-
-// MaxMessagesPerSecondFor is the exported form of maxMessagesPerSecond, so
-// a caller outside this package (cmd/meshghost-relay, which prints the cap
-// to the operator at startup) reports the same number the relay actually
-// enforces. It had hand-copied the formula, which would have made the
-// startup banner lie about the limit the moment this rule changed — found
-// in a review pass 2026-08-16.
+//
+// Exported so a caller outside this package (cmd/meshghost-relay, which
+// prints the cap to the operator at startup) reports the number the relay
+// actually enforces. It had hand-copied the formula, which would have made
+// the startup banner lie the moment this rule changed — found in a review
+// pass 2026-08-16. An unexported alias in front of this one was deleted in
+// the 2026-08-18 audit: it only duplicated the doc comment.
 func MaxMessagesPerSecondFor(sendHz int) int {
 	if limit := sendHz * RateLimitHeadroomMultiple; limit > MaxMessagesPerSecond {
 		return limit

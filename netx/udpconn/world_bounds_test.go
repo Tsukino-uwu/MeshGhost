@@ -107,3 +107,83 @@ func TestWorldSnapshotNeverExceedsTheReorderWindow(t *testing.T) {
 			protocol.MaxWorldKeysPerRoom, reorderWindow)
 	}
 }
+
+// maximalEventLine is the largest Event the protocol permits, rendered exactly
+// as the relay would put it on the wire.
+func maximalEventLine(t *testing.T) int {
+	t.Helper()
+	payload, err := json.Marshal(protocol.Event{
+		From:    strings.Repeat("p", protocol.MaxHelloFieldLenForID),
+		To:      strings.Repeat("t", protocol.MaxHelloFieldLenForID),
+		CorrID:  strings.Repeat("c", protocol.MaxCorrIDLen),
+		Seq:     ^uint64(0),
+		Payload: json.RawMessage(`"` + strings.Repeat("x", protocol.MaxEventBytes-2) + `"`),
+	})
+	if err != nil {
+		t.Fatalf("marshal event: %v", err)
+	}
+	line, err := json.Marshal(protocol.Envelope{Type: protocol.TypeEvent, Payload: payload})
+	if err != nil {
+		t.Fatalf("marshal envelope: %v", err)
+	}
+	return len(line)
+}
+
+// TestMaximalEventDoesNotFitAUDPDatagram pins the CURRENT, known-wrong state
+// rather than asserting the guarantee we would like.
+//
+// MaxEventBytes' doc comment claimed for a long time that 1024 was chosen so a
+// whole event envelope fits under MaxDatagramBytes, "so an event means the same
+// thing on every transport". It does not: a maximal event overshoots, and is
+// then refused by checkWritable for every udp peer with nothing but a relay log
+// line to show for it. The comment has been corrected; this test is what stops
+// the claim coming back, and what will fail the day somebody shrinks the
+// constant to make it true — at which point flip the assertion.
+//
+// Shrinking MaxEventBytes is a contract revision with its own trade-offs and is
+// recorded in agent_docs/risks.md as its own decision, so this test asserts
+// reality, and names the gap in its failure message rather than hiding it.
+func TestMaximalEventDoesNotFitAUDPDatagram(t *testing.T) {
+	const framing = 2 + tokenLen + seqLen
+
+	line := maximalEventLine(t)
+	if line+framing <= MaxDatagramBytes {
+		t.Fatalf("a maximal event now fits a datagram (%d bytes, %d with framing, limit %d) -- "+
+			"if MaxEventBytes was deliberately shrunk to make this true, invert this test into "+
+			"the guarantee and update protocol.MaxEventBytes' doc comment to promise it.",
+			line, line+framing, MaxDatagramBytes)
+	}
+}
+
+// TestMaximalCommittedEscrowDoesNotFitAUDPDatagram is the same gap, wider: a
+// committed EscrowState carries TWO blobs of up to MaxEscrowBlobBytes each, so
+// it overshoots by more than an event does and in every case rather than only
+// the maximal one. Nothing documented this anywhere before the 2026-08-18 audit.
+func TestMaximalCommittedEscrowDoesNotFitAUDPDatagram(t *testing.T) {
+	const framing = 2 + tokenLen + seqLen
+
+	blob := json.RawMessage(`"` + strings.Repeat("x", protocol.MaxEscrowBlobBytes-2) + `"`)
+	a := strings.Repeat("a", protocol.MaxHelloFieldLenForID)
+	b := strings.Repeat("b", protocol.MaxHelloFieldLenForID)
+	payload, err := json.Marshal(protocol.EscrowState{
+		ID:        strings.Repeat("i", protocol.MaxEscrowIDLen),
+		Seq:       ^uint64(0),
+		Phase:     protocol.EscrowPhaseCommitted,
+		Parties:   []string{a, b},
+		Deposited: []string{a, b},
+		Committed: []string{a, b},
+		Blobs:     map[string]json.RawMessage{a: blob, b: blob},
+	})
+	if err != nil {
+		t.Fatalf("marshal escrow_state: %v", err)
+	}
+	line, err := json.Marshal(protocol.Envelope{Type: protocol.TypeEscrowState, Payload: payload})
+	if err != nil {
+		t.Fatalf("marshal envelope: %v", err)
+	}
+	if len(line)+framing <= MaxDatagramBytes {
+		t.Fatalf("a maximal committed escrow_state now fits a datagram (%d bytes, %d with "+
+			"framing, limit %d) -- invert this test into the guarantee if that was deliberate.",
+			len(line), len(line)+framing, MaxDatagramBytes)
+	}
+}

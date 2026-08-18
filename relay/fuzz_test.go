@@ -199,8 +199,9 @@ func FuzzRelaySurvivesArbitraryPostJoinMessages(f *testing.F) {
 		// All four room-scoped planes at once, and world.v1 needs lease.v1 named
 		// explicitly or the dispatch returns before handleWorld. Deliberately no
 		// resume.v1: it would make the relay hold this identity after the
-		// disconnect instead of releasing it, which pins the room and breaks the
-		// teardown assertion below.
+		// disconnect instead of releasing it, which pins the room. The teardown
+		// assertion this used to protect now lives in leak_test.go, as
+		// TestRoomIsDroppedEvenWhenItHeldAWorld.
 		hello, err := json.Marshal(protocol.Hello{
 			ProtocolVersion: protocol.Version,
 			GameID:          "fuzzgame",
@@ -252,29 +253,6 @@ func FuzzRelaySurvivesArbitraryPostJoinMessages(f *testing.F) {
 	})
 }
 
-// maxFuzzRooms bounds how many rooms the post-join target tolerates at once.
-//
-// **Per worker PROCESS, which is what makes a small number the right one.** Go
-// fuzzing runs inputs in separate worker processes, so each gets its own Server
-// and runs one input at a time: the legitimate steady state is this iteration's
-// room, the liveness probe's own, and whatever is still tearing down
-// asynchronously — two or three. 64 is ~20x that and still an order of magnitude
-// below where a leak lands.
-//
-// Sized by measurement, not taste. At 512 this assertion was VACUOUS: with
-// dropIfEmpty deliberately broken so any room holding a world entry is never
-// swept, a 30s campaign still passed, because only the small fraction of inputs
-// that are a valid reliable world write leak a room and that fraction is spread
-// across 12 processes. A ceiling a bug cannot reach is worse than no ceiling,
-// since it reads as coverage.
-const maxFuzzRooms = 2
-
-func roomCount(s *Server) int {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return len(s.rooms)
-}
-
 // mustEnvelope wraps an already-marshaled payload in an envelope line.
 func mustEnvelope(t *testing.T, typ protocol.MessageType, payload []byte) []byte {
 	t.Helper()
@@ -283,27 +261,6 @@ func mustEnvelope(t *testing.T, typ protocol.MessageType, payload []byte) []byte
 		t.Fatalf("marshal envelope: %v", err)
 	}
 	return b
-}
-
-// roomEventuallyGone reports whether a room has left the server's table.
-// Retried for the same reason relayStillServesAGoodClient is: the room is
-// dropped when the relay notices the disconnect, so one immediate check would
-// race that and report a leak that isn't one. A real leak never resolves.
-func roomEventuallyGone(s *Server, gameID, name string) bool {
-	key := roomKey(gameID, name)
-	deadline := time.Now().Add(3 * time.Second)
-	for {
-		s.mu.Lock()
-		_, present := s.rooms[key]
-		s.mu.Unlock()
-		if !present {
-			return true
-		}
-		if time.Now().After(deadline) {
-			return false
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
 }
 
 // relayStillServesAGoodClient dials a well-formed client and reports whether

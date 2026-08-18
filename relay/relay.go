@@ -394,17 +394,6 @@ func (r *Room) tryAdd(c *Client) {
 	r.members[c.PlayerID] = c
 }
 
-// tryAddAndSnapshotRoster adds c and returns the roster as it stood
-// immediately before the add, all under one r.mu critical section.
-// Combining these matters: two clients joining concurrently via separate
-// roster() + tryAdd() calls could each snapshot the roster before either
-// had actually added itself, so neither would ever learn about the other
-// through its own Welcome or the resulting Join broadcast. With the roster
-// cross-check core now does on receive (agent_docs/architecture.md's
-// ADR), that isn't just a cosmetic gap anymore — it's a silently invisible
-// peer, since a State for an unrostered id is dropped outright. Found in a
-// review pass. Like tryAdd, capacity is already reserved server-wide by
-// the caller, so this cannot fail.
 // maxPendingBeforeWelcome bounds Client.pending. The window it covers is
 // normally microseconds — the gap between a client being added to a room and
 // its own Welcome being written — so this is a backstop against a stalled
@@ -473,6 +462,17 @@ func (r *Room) markWelcomedAndFlush(playerID string) {
 	}
 }
 
+// tryAddAndSnapshotRoster adds c and returns the roster as it stood
+// immediately before the add, all under one r.mu critical section.
+// Combining these matters: two clients joining concurrently via separate
+// roster() + tryAdd() calls could each snapshot the roster before either
+// had actually added itself, so neither would ever learn about the other
+// through its own Welcome or the resulting Join broadcast. With the roster
+// cross-check core now does on receive (agent_docs/architecture.md's
+// ADR), that isn't just a cosmetic gap anymore — it's a silently invisible
+// peer, since a State for an unrostered id is dropped outright. Found in a
+// review pass. Like tryAdd, capacity is already reserved server-wide by
+// the caller, so this cannot fail.
 func (r *Room) tryAddAndSnapshotRoster(c *Client) (rosterBeforeJoin []string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -949,7 +949,7 @@ func (s *Server) handleConn(conn net.Conn) {
 	// computed before OnReceive is registered, read only from inside it. See
 	// the ADR in agent_docs/architecture.md.
 	sendHz := s.resolveSendHz()
-	msgLimit := maxMessagesPerSecond(sendHz)
+	msgLimit := MaxMessagesPerSecondFor(sendHz)
 
 	// HelloTimeout: a connection that never completes a Hello and joins a
 	// room is closed after this long, rather than held open indefinitely.
@@ -1230,7 +1230,7 @@ func (s *Server) handleConn(conn net.Conn) {
 			// Welcome is on the wire, so this client may now be written to
 			// directly — and anything the room produced while it was being
 			// added is delivered here, still ahead of the seeding below.
-			// See Client.welcomed for the race this closes.
+			// See Client.holdUntilWelcome for the race this closes.
 			joined.markWelcomedAndFlush(newID)
 
 			// Seed the newcomer with what everyone else looks like right now,
