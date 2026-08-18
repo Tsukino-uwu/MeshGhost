@@ -139,3 +139,44 @@ throughout.
 (surfing attaches a separate Pokemon sprite through the object event's `fieldEffectSpriteId`).
 `probes/fishing_watch.lua` exists to answer exactly that and has not been run through a full set of
 outcomes yet.
+
+## Water tiles, and what the game checks before letting you fish or surf
+
+**[measured]** A tile is one 16-bit word in the map grid (`gBackupMapLayout.map`), and it carries
+**three independent things**:
+
+| bits | field | mask |
+| --- | --- | --- |
+| 0-9 | metatile id | `0x03FF` |
+| 10-11 | collision | `0x0C00` |
+| 12-15 | elevation | `0xF000` |
+
+The **metatile id** is what selects the behaviour: the id indexes the map's tileset attribute
+table (primary tileset below 512, secondary above), and the low byte of that attribute is the
+metatile behaviour — `MB_POND_WATER` (16), `MB_DEEP_WATER` (18), `MB_OCEAN_WATER` (21) and so on.
+
+**Water is NOT impassable.** This is the part that is easy to get backwards: a water tile has
+**collision 0** and sits at **`ELEVATION_SURF` (1)**, while the player walks at
+`ELEVATION_DEFAULT` (3). You cannot walk onto it because the *elevations differ*, not because it
+is solid — and the difference matters, because the game reads that specific outcome:
+
+```
+IsPlayerFacingSurfableFishableWater()          (field_player_avatar.c:1322)
+    GetCollisionAtCoords(...) == COLLISION_ELEVATION_MISMATCH
+ && PlayerGetElevation() == ELEVATION_DEFAULT
+ && MetatileBehavior_IsSurfableFishableWater(behaviour at that tile)
+```
+
+So a tile made solid (collision 1) blocks the player *and* fails the fishing check, because
+`GetCollisionAtCoords` returns `COLLISION_IMPASSABLE` rather than `COLLISION_ELEVATION_MISMATCH`.
+Being blocked looks like water and is not.
+
+**Using a rod** goes through `CanFish` (`item_use.c:234`), which additionally refuses on a
+waterfall tile and while underwater, and takes a different branch while surfing (where the tile
+must be surfable water with collision 0, or a bridge over water). A refusal shows the message
+*"DAD's advice... there's a time and place for everything"*, which is the generic **"not usable
+here"** — the same text as trying to ride a bike indoors, and **not** a story-progress gate.
+
+Confirmed live 2026-08-18 by editing a Littleroot tile to `id 44 / collision 0 / elevation 1` and
+reading back what the game computes for it: `behaviour 21 (OCEAN_WATER)`, with the player at
+elevation 3 one tile north. `probes/watertile.lua` does this on demand.

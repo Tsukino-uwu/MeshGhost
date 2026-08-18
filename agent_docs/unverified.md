@@ -70,13 +70,17 @@ Turned OFF by default (`MESHGHOST_GHOST_PEER_GFX`), because it is incomplete —
     and **dark navy instead of blue** — the palette the blob expects is not loaded while the local
     player is walking, since the game only loads it when *you* surf. Walking the ghost does not
     correct the offset, so it is not a stale initial placement; the engine puts it there.
-  - **Untested:** fishing and underwater, which may need companions of their own.
-  - **`probes/watertile.lua` makes a tile SOLID, and it is not yet proven to make it WATER.**
-    It finds a metatile whose attribute byte reads as `MB_OCEAN_WATER` and writes it with a
-    collision bit. Driving the player into it is blocked — but **that only proves collision**, and
-    an earlier note here overstated it as proving the game treats the tile as water. It does not:
-    using the Super Rod while facing it was refused with *"there's a time and place"*, which is
-    Emerald's "not usable here", i.e. **no fishable water in front**. So either the behaviour is
-    not what the attribute lookup claims, or fishing checks something further. Open.
+  - **Untested:** fishing and underwater, which may need companions of their own. The setup for
+    answering it is ready and waiting on one minute of play: water is in front of the player and
+    `probes/fishing_watch.lua` is running with `callback2` in its change-key, so a few casts —
+    one empty, one missed, one landed — would show whether `fieldEffectSpriteId` ever goes
+    non-zero and whether the sprite count jumps.
+  - **`probes/watertile.lua` now makes real water**, after two wrong versions. It writes metatile
+    id + **collision 0** + **elevation 1 (`ELEVATION_SURF`)**, which is what the game means by
+    water — the earlier version set the collision bit, which made the tile solid and *prevented*
+    fishing, while looking like success because the player was blocked by it.
+    *Self-tested* by reading back what the game computes at that tile: `behaviour 21
+    (OCEAN_WATER)`, collision 0, elevation 1, player at elevation 3 adjacent. **Not confirmed on
+    screen, and no rod has successfully been cast on it yet.**
 - **Archipelago ROMs still use the old drawn overlay.** See `adapters/bizhawk/pokemon/emerald/BANDAGES.md`
   — one live run on a patched seed either closes it or refuses safely.

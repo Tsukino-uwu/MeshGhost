@@ -7346,3 +7346,30 @@ scheduled. All established by the agent with local tools; nothing here is a visu
 - **The general lesson**: "the map changed" and "the world was rebuilt" are different events, and
   an engine can do the first without the second. Any identity check keyed on map identity inherits
   that distinction whether or not its author considered it.
+
+### Emerald: what the game means by "water", and why a solid tile is not it (2026-08-18)
+
+- Date: 2026-08-18
+- Source: my own reading of memory (the map grid and the tileset attribute tables) plus
+  `pokeemerald`; no visual claim, so this needs no user watching under `CLAUDE.md`'s rule.
+- **A map-grid tile is one 16-bit word carrying three independent fields**: metatile id
+  (`0x03FF`), collision (`0x0C00`), elevation (`0xF000`). The metatile id selects the *behaviour*
+  by indexing the map's tileset attribute table — primary tileset below id 512, secondary above,
+  behaviour in the low byte of the attribute.
+- **Water has collision 0 and elevation `ELEVATION_SURF` (1)**, against the player's
+  `ELEVATION_DEFAULT` (3). You cannot walk onto it because the elevations *differ*, not because it
+  is solid. `IsPlayerFacingSurfableFishableWater` (`field_player_avatar.c:1322`) requires exactly
+  `GetCollisionAtCoords(...) == COLLISION_ELEVATION_MISMATCH`, the player at `ELEVATION_DEFAULT`,
+  and a surfable/fishable behaviour at the target tile.
+- **Therefore making a tile solid makes fishing impossible.** An impassable tile returns
+  `COLLISION_IMPASSABLE`, which fails that check. Found by doing it: a tile edited to water
+  behaviour *plus* a collision bit blocked the player — which read as success — and then refused
+  the rod with *"DAD's advice... there's a time and place"*.
+- **That message is the generic "not usable here"**, not a story gate — the same text as riding a
+  bike indoors (user, 2026-08-18). Two separate wrong conclusions were drawn from it before it was
+  looked up.
+- **Verified by construction afterwards**: a Littleroot tile written as
+  `id 44 / collision 0 / elevation 1` reads back, through the game's own lookup path, as
+  `behaviour 21 (MB_OCEAN_WATER)` with the player at elevation 3 one tile away.
+- **What this does NOT establish**: that a rod has been successfully cast on such a tile. The
+  setup is ready and unconfirmed — `unverified.md`.
