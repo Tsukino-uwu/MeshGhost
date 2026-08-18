@@ -137,7 +137,11 @@ local function giveKeyItem(sb1, key, itemId, name)
 	w16(addr, itemId)
 	-- The quantity is XOR-encrypted with SaveBlock2's key (item.c's SetBagItemQuantity). A plain
 	-- 1 here shows up as a nonsense count and the item can behave as if absent.
-	w16(addr + 2, 1 ~ key)
+	-- The game stores quantity as a u16, so its XOR against the 32-bit encryptionKey is truncated
+	-- to the key's low half. Write and read must both use that half or the count comes back as a
+	-- 32-bit-looking number (seen live 2026-08-18: 3500146689 = 0xD0A00001, i.e. a correct 1 with
+	-- the key's high half still attached by a wrong decode).
+	w16(addr + 2, 1 ~ (key & 0xffff))
 	log(string.format("  %-10s -> key item slot %d (id %d)", name, slot, itemId))
 end
 
@@ -183,7 +187,7 @@ local function apply()
 		local addr = keyItemSlotAddr(sb1, i)
 		local id = u16(addr)
 		if id ~= 0 then
-			log(string.format("  key slot %2d: item %3d x%d", i, id, u16(addr + 2) ~ key))
+			log(string.format("  key slot %2d: item %3d x%d", i, id, u16(addr + 2) ~ (key & 0xffff)))
 		end
 	end
 	if WANTED.badges then
