@@ -858,7 +858,7 @@ three gets re-tried blind:
   when a line straddles the read boundary; code that only checks the first two returns discards
   `partial` outright, and the next successful read starts mid-line. `send()` on the same kind of
   socket can accept only part of a buffer, silently truncating the newline-terminated line if the
-  return isn't checked against the full length. Found in `adapters/pokemon/emerald/
+  return isn't checked against the full length. Found in `adapters/bizhawk/pokemon/emerald/
   meshghost_emerald.lua`'s `drainBridge`/`sendLine` (fixed: resume `receive("*l", partial)`,
   drop-and-reconnect on a partial send) and, as a partial-send-only variant, in
   `BridgeClient::send_line` (`adapters/pseudoregalia/MeshGhostPseudo/Mod/src/BridgeClient.cpp`,
@@ -1322,7 +1322,7 @@ next adapter author doesn't re-diagnose them as adapter bugs:
   vanilla+7 first costs nothing and is right often — but an address enters the table only after it
   was measured on the build in front of you. In this adapter that is enforced structurally: an
   unmeasured entry is `nil`, a `nil` refuses to run, and the refusal names what is missing. See
-  `ADDRESSES` in `adapters/pokemon/crystal/meshghost_crystal.lua` and the method in
+  `ADDRESSES` in `adapters/bizhawk/pokemon/crystal/meshghost_crystal.lua` and the method in
   `adapters/_template/probes.md`.
 - **A byte can pass every still-life test and fail the moment the game moves.** `0x0FB1` was the
   single survivor of two four-snapshot state runs for `wMapStatus`: 2 in the overworld on four

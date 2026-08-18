@@ -19,7 +19,7 @@
 # Exception: LuaSocket is a real vendored dependency for the Emerald BizHawk
 # adapter (agent_docs/licensing.md, agent_docs/architecture.md's Phase 3
 # ADR), not Go build output -- must actually be committed.
-!/adapters/pokemon/emerald/lib/**/*.dll
+!/adapters/bizhawk/pokemon/emerald/lib/**/*.dll
 
 # Probe/test logs. Every probe writes a timestamped log beside itself, deliberately (a verdict
 # that lives only in the Lua Console has to be copied back by hand) -- but they are personal
@@ -28,18 +28,18 @@
 # committed: they are the record of how each fact was established, and several have been reused
 # to chase the same class of bug on a later ROM. 72 such logs (1.1MB) were untracked on
 # 2026-08-18 when this rule replaced the two narrower ones it supersedes.
-/adapters/pokemon/**/*.log
+/adapters/bizhawk/pokemon/**/*.log
 
 # The adapter script + lib/ under packaging/release/games/pokemon/emerald/ are assembled by
-# .github/workflows/release.yml (copied fresh from adapters/pokemon/emerald/ each run) or by a
+# .github/workflows/release.yml (copied fresh from adapters/bizhawk/pokemon/emerald/ each run) or by a
 # local dry run -- never hand-edited, never committed (avoids a second copy of the adapter
-# script drifting from the real one at adapters/pokemon/emerald/meshghost_emerald.lua).
+# script drifting from the real one at adapters/bizhawk/pokemon/emerald/meshghost_emerald.lua).
 # README.txt at this same path is NOT covered by these two patterns -- see the exception below;
 # it's hand-written and committed, same as TEVI's/Pseudoregalia's games/<game>/README.txt.
 /packaging/release/games/pokemon/emerald/meshghost_emerald.lua
 /packaging/release/games/pokemon/emerald/lib/
 
-# Same deal for Crystal: assembled by release.yml from adapters/pokemon/crystal/, never
+# Same deal for Crystal: assembled by release.yml from adapters/bizhawk/pokemon/crystal/, never
 # hand-edited, never committed. README.txt at that path IS committed, as with every other game.
 /packaging/release/games/pokemon/crystal/meshghost_crystal.lua
 /packaging/release/games/pokemon/crystal/lib/
@@ -48,7 +48,7 @@
 # confirmed. It is a deliberate local experiment and must never be committed or shipped -- its
 # presence in a release would silently lower the bar the refusal exists to hold. It was committed
 # once by an over-broad "git add -A" on 2026-08-18 and removed the same day.
-/adapters/pokemon/crystal/ap_try.flag
+/adapters/bizhawk/pokemon/crystal/ap_try.flag
 
 # Exception: the TEVI mod DLL is committed on purpose -- CI cannot build it (the
 # .csproj needs the user's own proprietary game DLLs, which are never committed,

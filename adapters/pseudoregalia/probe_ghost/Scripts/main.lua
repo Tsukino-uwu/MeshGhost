@@ -29,14 +29,14 @@
 --   package.loadlib(vendored lua54.dll / socket-windows-5-4.dll)  -- confirmed live in 7.2 Stage 2/3
 --   socket.tcp():settimeout(0)/:connect()/:send()/:receive()      -- confirmed live in 7.2 Stage 3
 --     (Stage 3 used a blocking timeout for a one-shot probe; this uses settimeout(0), the
---     non-blocking pattern adapters/pokemon/emerald/probes/phase5_5_sprite.lua already uses for the
+--     non-blocking pattern adapters/bizhawk/pokemon/emerald/probes/phase5_5_sprite.lua already uses for the
 --     same per-frame connect-retry shape in the same Lua dialect)
 --   K2_DestroyActor()  -- gh api search/code, 710 hits -- not yet confirmed live on this build;
 --     tried defensively for despawn_remote, falls back to hiding the actor far away if it fails
 --     (this build's UFunction reflection has repeatedly turned out narrower than expected)
 --
 -- JSON encode/decode is a straight port of this project's own existing minimal JSON
--- implementation (adapters/pokemon/emerald/probes/phase5_5_sprite.lua) -- plain Lua string/table
+-- implementation (adapters/bizhawk/pokemon/emerald/probes/phase5_5_sprite.lua) -- plain Lua string/table
 -- operations, no BizHawk-specific API involved, already proven correct against the real bridge
 -- wire format.
 
@@ -108,7 +108,7 @@ local socketCore = socketCoreOrErr
 print("[MeshGhostGhostProbe] socket core loaded.\n")
 
 ----------------------------------------------------------------------------
--- Minimal JSON -- ported from adapters/pokemon/emerald/probes/phase5_5_sprite.lua, already proven
+-- Minimal JSON -- ported from adapters/bizhawk/pokemon/emerald/probes/phase5_5_sprite.lua, already proven
 -- against the real bridge wire format.
 ----------------------------------------------------------------------------
 

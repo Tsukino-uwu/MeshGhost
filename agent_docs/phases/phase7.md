@@ -1224,7 +1224,7 @@ GBA memory). Started early relative to Phase 6's own two-player milestone (6.6) 
       `MAX_TICK_DELTA`/`REFUSAL_RESYNC_LIMIT` backstop, the never-mutate-a-vector-read-from-
       elsewhere rule). New: vendored LuaSocket loading and a non-blocking
       connect/hello/send/receive loop (`settimeout(0)`, the same shape
-      `adapters/pokemon/emerald/probes/phase5_5_sprite.lua` already uses, not Stage 3's blocking
+      `adapters/bizhawk/pokemon/emerald/probes/phase5_5_sprite.lua` already uses, not Stage 3's blocking
       one-shot version); a real `getLocalState()` per 7.1's confirmed reads and 7.3's decided
       field shapes (`position` cm `[X,Y,Z]`, `orientation` full `[pitch,yaw,roll]`, `area_id` the
       level name, `anim` a placeholder inferred from position-delta speed rather than an
@@ -1232,7 +1232,7 @@ GBA memory). Started early relative to Phase 6's own two-player milestone (6.6) 
       state + lazily-spawned ghost actor) driven entirely by `render_remote`/`despawn_remote`,
       redrawn unconditionally every tick per `PROTOCOL.md`'s rule, instead of the old single
       local-offset `ghost`. JSON encode/decode ported directly from
-      `adapters/pokemon/emerald/probes/phase5_5_sprite.lua`'s own minimal implementation (plain Lua,
+      `adapters/bizhawk/pokemon/emerald/probes/phase5_5_sprite.lua`'s own minimal implementation (plain Lua,
       already proven against the real wire format). `despawn_remote` and connection-loss cleanup
       both try `K2_DestroyActor()` (grounded, 710 hits, not yet confirmed live on this build)
       with a hide-far-away fallback, given this build's UFunction reflection has repeatedly

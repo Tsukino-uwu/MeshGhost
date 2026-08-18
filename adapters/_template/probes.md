@@ -326,7 +326,7 @@ mismatch is visible.
 value.** Emerald's surf and fishing work needed water, and the water was several maps away. Walking
 there costs the user's time; warping needed machinery we did not have. But a tile is water because
 one halfword says so — so the tile the player was standing next to became water, and the state was
-reachable in seconds. `adapters/pokemon/emerald/probes/watertile.lua` is the worked example.
+reachable in seconds. `adapters/bizhawk/pokemon/emerald/probes/watertile.lua` is the worked example.
 
 The generalisable parts, in the order they matter:
 

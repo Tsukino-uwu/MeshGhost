@@ -10,7 +10,7 @@ alternative, and the derivation next to them — see "deliberate" at the end, wh
 would cause churn. Ranked by how likely each is to cause a real bug.
 
 Per-adapter registers: `adapters/pseudoregalia/BANDAGES.md`, `adapters/tevi/BANDAGES.md`,
-`adapters/pokemon/emerald/BANDAGES.md`.
+`adapters/bizhawk/pokemon/emerald/BANDAGES.md`.
 
 Unlike the adapter registers, everything here is confirmable with the tools — `run-gotests.bat`, a
 regression test — without watching a running game.

@@ -62,16 +62,24 @@ The counterpart rule for content lives in each file: `BANDAGES.md` for compensat
   in-process shortcut used only by `cmd/meshghost-fakeadapter` and Go tests
   (`internal/core/core_test.go`'s `TestRunAdapterInProcess`) to drive the core without a socket
   at all. A real adapter — including TEVI's — never implements it; it dials the bridge and
-  speaks NDJSON, exactly like `adapters/pokemon/emerald/meshghost_emerald.lua` does. See
+  speaks NDJSON, exactly like `adapters/bizhawk/pokemon/emerald/meshghost_emerald.lua` does. See
   [PROTOCOL.md](PROTOCOL.md) for why this distinction matters and where to look for a worked
   example of each.
 
 ## Folder convention
 
-One folder per game, named after the game itself (`emerald`, `tevi`, `pseudoregalia`). Games
-in the same franchise are grouped under a shared subfolder — `adapters/pokemon/emerald/`, and
-a future `adapters/pokemon/platinum/` would go alongside it — purely for browsability as more
-games get added; it's not a code-sharing boundary. A hypothetical Platinum adapter (NDS, a
+One folder per game, named after the game itself (`emerald`, `tevi`, `pseudoregalia`).
+
+**Games driven through an emulator are grouped under that emulator; native games sit at the top
+level.** So `adapters/bizhawk/pokemon/emerald/` and `adapters/tevi/`. Added 2026-08-18, on the
+user's call, because "how this adapter reaches the game" is the division that actually predicts
+what an adapter looks like: everything under `bizhawk/` is Lua reading emulator memory against a
+decompilation, while a native game is a mod inside the process using the engine's own API. A
+future `adapters/dolphin/` or `adapters/duckstation/` would sit beside `bizhawk/`.
+
+Within an emulator, games in the same franchise are grouped again —
+`adapters/bizhawk/pokemon/emerald/`, with a future `adapters/bizhawk/pokemon/platinum/` alongside
+it — purely for browsability as more games get added; it's not a code-sharing boundary. A hypothetical Platinum adapter (NDS, a
 different console/engine than Emerald's GBA) would share essentially no code with Emerald's,
 same as any two unrelated games — grouping by franchise just keeps the top level of
 `adapters/` from getting crowded by one series' many entries.
@@ -176,7 +184,7 @@ deliberately no template, since a stub with no content would go stale immediatel
    per-frame send/receive, redraw-every-frame) independent of any particular language.
 3. For a worked, complete reference of a real adapter speaking this protocol end-to-end
    (connection retry, the hello handshake, NDJSON framing, the remote-ghost set, the tick
-   loop), read `adapters/pokemon/emerald/meshghost_emerald.lua`. Its game-reading parts are
+   loop), read `adapters/bizhawk/pokemon/emerald/meshghost_emerald.lua`. Its game-reading parts are
    Emerald-specific and won't transfer; its bridge-connection, hello, and tick-loop shape will.
 4. Figure out, for the new game: what counts as `area_id` (a scene/level identifier), what
    `position` looks like (2D or 3D — the schema doesn't fix this), what `anim` tags are
@@ -544,7 +552,7 @@ working.** Use this layout verbatim — user-facing and direct, quoted names, no
 - Confirmed working roms: "Vanilla", "Archipelago 0.6.7".
 ```
 
-(`isos` where that is what the platform uses.) `adapters/pokemon/emerald/README.md` carries the live
+(`isos` where that is what the platform uses.) `adapters/bizhawk/pokemon/emerald/README.md` carries the live
 one. **Keep it a bare list of names**: a player checks their own copy against it at a glance, and
 turning it into prose defeats the entire point.
 
@@ -899,7 +907,7 @@ Worked examples, both real:
 - **Crystal** has `wMapStatus` (`START`/`ENTER`/`HANDLE`/`DONE`), plus `wMapEventStatus`,
   `wScriptRunning` and `wGameLogicPaused` — a map state machine and separate "is the player free to
   act" flags. Characterised with a dedicated probe rather than assumed
-  (`adapters/pokemon/crystal/probes/ingame_gate_probe.lua`).
+  (`adapters/bizhawk/pokemon/crystal/probes/ingame_gate_probe.lua`).
 
 **How to establish it for a new game:**
 
@@ -1094,7 +1102,7 @@ correctly refuse to build it.
 
 Reaching a state the adapter cannot yet handle — surfing, a bike, the far side of the map, eight
 badges — costs an hour of play per attempt otherwise. A dev probe may write whatever it takes,
-including save data (`adapters/pokemon/emerald/probes/testkit.lua` is the worked example).
+including save data (`adapters/bizhawk/pokemon/emerald/probes/testkit.lua` is the worked example).
 
 The carve-out is narrow, and each clause is load-bearing:
 

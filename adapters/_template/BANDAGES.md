@@ -175,7 +175,7 @@ audit from re-deriving it. A missed one costs a live test round, or a user repor
 
 Existing registers worth reading as examples — the first is the fullest:
 `adapters/pseudoregalia/BANDAGES.md`, `adapters/tevi/BANDAGES.md`,
-`adapters/pokemon/emerald/BANDAGES.md`, `agent_docs/bandages-core.md`.
+`adapters/bizhawk/pokemon/emerald/BANDAGES.md`, `agent_docs/bandages-core.md`.
 
 ## Open compensations
 
@@ -210,7 +210,7 @@ Everything below the line goes into a new `adapters/<game>/BANDAGES.md`. Fill in
 the cross-links; leave the three section headings in place even when empty — an empty register
 says "audited, nothing found", an absent one says nothing at all. **Check the relative depth of
 every cross-link**: a franchise-grouped adapter sits one level deeper than the stub assumes
-(`adapters/pokemon/emerald/` needs `../../_template/`, not `../_template/`).
+(`adapters/bizhawk/pokemon/emerald/` needs `../../_template/`, not `../_template/`).
 
 ```markdown
 # Bandages — <Game>

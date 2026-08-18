@@ -233,7 +233,7 @@ loop, once per real game frame:
 
 The "redraw every frame regardless of new data" rule is the one that produces flicker if
 skipped — see `agent_docs/contract.md`'s tick model section for the full reasoning, and
-`adapters/pokemon/emerald/probes/phase3_loopback.lua`'s header for the specific bug this project hit live
+`adapters/bizhawk/pokemon/emerald/probes/phase3_loopback.lua`'s header for the specific bug this project hit live
 before that rule was written down.
 
 Five things in that loop are there because a shipped adapter got them wrong first:
@@ -490,7 +490,7 @@ never does — see this folder's `README.md`.
 - `cmd/meshghost-fakeadapter/world.go` — the only worked example of the planes above: it drives a
   shared world through repeated host handovers and checks five invariants while doing it. Read it
   before writing an adapter that uses `world.v1`, not after.
-- `adapters/pokemon/emerald/meshghost_emerald.lua` — the shipped Emerald adapter, including the
+- `adapters/bizhawk/pokemon/emerald/meshghost_emerald.lua` — the shipped Emerald adapter, including the
   hello send right after connecting (search for `GAME_ID`). Its connection/tick-loop shape
   transfers to a new game; its game-memory reads do not.
 - `adapters/tevi/MeshGhostTevi/BridgeClient.cs` / `Plugin.cs` — the same shape in C#/BepInEx.

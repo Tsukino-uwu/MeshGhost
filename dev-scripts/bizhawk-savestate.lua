@@ -20,8 +20,8 @@
 -- items, repel) is inside it -- but none of that reaches the .sav file until the game itself
 -- saves. The two were confused once already, and an emulator relaunch lost the user's place.
 
-local ACTION = "save" -- "save" or "load"
-local SLOT = 5
+local ACTION = "load" -- "save" or "load"
+local SLOT = 6
 
 local done = false
 MESHGHOST_DEV_TICK = function()

@@ -378,7 +378,7 @@ namespace MeshGhostTevi
 
             visual.Go.SetActive(true);
             // Loopback ghost offset, 2026-08-14 -- user-requested, generalized from the same fix
-            // in adapters/pokemon/emerald/meshghost_emerald.lua's drawRemotes() (and
+            // in adapters/bizhawk/pokemon/emerald/meshghost_emerald.lua's drawRemotes() (and
             // adapters/pseudoregalia's UpsertRemoteGhost-equivalent). A loopback-echoed ghost
             // (internal/relay's dev-only -loopback flag, id = "<id>-ghost") otherwise renders
             // exactly on top of the real player -- it's an echo of your own position by

@@ -29,7 +29,7 @@ account for. Only remaining: bike/surf flags (deferred, far into the game, not b
       for what "consulting" the decomp does and doesn't permit). See `agent_docs/verified.md`.
 - [x] Identify the current map bank/number address(es), same sourcing rule. See
       `agent_docs/verified.md`.
-- [x] Print those values in the BizHawk Lua console. `adapters/pokemon/emerald/probes/phase1_probe.lua`.
+- [x] Print those values in the BizHawk Lua console. `adapters/bizhawk/pokemon/emerald/probes/phase1_probe.lua`.
 - [x] Walk in each cardinal direction; confirm the values change in the expected direction
       (not just "a number changed" — the brief's "test against known-direction motion" rule).
       Confirmed and reproduced twice; see `agent_docs/verified.md`.

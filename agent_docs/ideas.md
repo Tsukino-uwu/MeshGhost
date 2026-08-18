@@ -365,7 +365,7 @@ passed and a real corruption bug wasn't found until sustained traffic later):
    exists anywhere in this repo, only the opaque "182" quoted below from a project that isn't
    cloned locally.** Stage 1's real job is to *discover* a candidate free region empirically
    (cross-checked against the game's own sprite-tile allocator bookkeeping), not to verify a
-   guessed one — see `adapters/pokemon/emerald/probes/vram_probe.lua`.
+   guessed one — see `adapters/bizhawk/pokemon/emerald/probes/vram_probe.lua`.
 2. Same probe, on a real `.apemerald`-patched ROM — does the patch touch whatever region Stage
    1 found?
 3. First real write: one static test sprite, vanilla only, easily reversible.
@@ -973,7 +973,7 @@ only one of those where the work is bounded and the benefit reaches users direct
 
 Split into one file per adapter, so each game's compensations sit next to its own `README.md`:
 `adapters/pseudoregalia/BANDAGES.md`, `adapters/tevi/BANDAGES.md`,
-`adapters/pokemon/emerald/BANDAGES.md`, and `agent_docs/bandages-core.md` for the Go side.
+`adapters/bizhawk/pokemon/emerald/BANDAGES.md`, and `agent_docs/bandages-core.md` for the Go side.
 The rule itself lives in `adapters/_template/README.md`, with a blank register beside it.
 
 ## ~~Slide: replace the render-Z bandage with the game's own crouch handling~~ — DONE 2026-08-17

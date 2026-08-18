@@ -391,7 +391,7 @@ Format: Date / Decision / Status / Context / Options considered / Resolution / C
   edit a text file to match." The cost is a small ordering contract every future adapter must
   follow (hello before any `local_state`) that a purely-flag-driven adapter never had to think
   about — documented in `contract.md` and `adapters/_template/PROTOCOL.md`, and demonstrated in
-  both shipped adapters (`adapters/pokemon/emerald/meshghost_emerald.lua`,
+  both shipped adapters (`adapters/bizhawk/pokemon/emerald/meshghost_emerald.lua`,
   `adapters/tevi/MeshGhostTevi/BridgeClient.cs`).
 
 ---
@@ -941,7 +941,7 @@ Format: Date / Decision / Status / Context / Options considered / Resolution / C
     no-numbers-from-memory rule, the per-message byte figures are not estimated — they come from
     actually marshaling a real `protocol.State`/`protocol.Envelope` through the identical
     `json.Marshal` path `relay.go`'s `sendEnvelope` uses, with field shapes and example values
-    matching the two adapters' own real outgoing payloads (Emerald: `adapters/pokemon/emerald/
+    matching the two adapters' own real outgoing payloads (Emerald: `adapters/bizhawk/pokemon/emerald/
     meshghost_emerald.lua`'s `encodeLocalState`, `:463-466`; Pseudoregalia: `adapters/
     pseudoregalia/MeshGhostPseudo/Mod/src/Plugin.cpp`'s local-state `std::format` call,
     `:7538-7592`). Measured once via a throwaway `cmd/` program, run, and deleted — not committed,
@@ -1841,7 +1841,7 @@ Format: Date / Decision / Status / Context / Options considered / Resolution / C
   than a philosophical one that was never in question.
 - **Status:** Approved by the user 2026-08-17, in those terms — *"i want to actually spawn in as
   intended now for crystal, so we don't start doing this game with bandaids from the get go"*.
-  **Nothing is implemented.** `adapters/pokemon/crystal/probes/object_slot_probe.lua` is the first step
+  **Nothing is implemented.** `adapters/bizhawk/pokemon/crystal/probes/object_slot_probe.lua` is the first step
   and is strictly read-only.
 - **Context:** Emerald draws over the emulator: a `gui.drawPixel` overlay fed by a hand-rolled
   decode of the Brendan/May sprite out of ROM. That was the brief's own tier 1 and it shipped, but
@@ -1922,7 +1922,7 @@ Format: Date / Decision / Status / Context / Options considered / Resolution / C
     maps use them. The adapter needs a defined behaviour when none is free.
   - **A new bandage risk of its own**: if spawning proves unreliable, the tempting fix is to fall
     back to drawing and leave both paths in. That would be a compensation, and belongs in
-    `adapters/pokemon/crystal/BANDAGES.md` if it ever happens, not left unremarked.
+    `adapters/bizhawk/pokemon/crystal/BANDAGES.md` if it ever happens, not left unremarked.
 
 ### 2026-08-18 — Emerald spawns too: the Crystal spawn ADR extends to Emerald, and call-vs-imitate is answered
 
@@ -1934,7 +1934,7 @@ Format: Date / Decision / Status / Context / Options considered / Resolution / C
   never touches the game, no gameplay authority) is unchanged and restated by reference, not
   relaxed.
 - **Status:** Requested by the user 2026-08-18 — *"lets fix up emerald so spawns instead of draw"*.
-  The read-only evidence step (`adapters/pokemon/emerald/probes/object_slot_probe.lua`) ran the same day;
+  The read-only evidence step (`adapters/bizhawk/pokemon/emerald/probes/object_slot_probe.lua`) ran the same day;
   no write has been made yet.
 - **Why the mechanism transfers cleanly.** Emerald's structures are the same *shape* as Crystal's —
   two cross-linked arrays, one owning identity and one owning drawing — which is why the recipe
@@ -1971,7 +1971,7 @@ Format: Date / Decision / Status / Context / Options considered / Resolution / C
 - **What is NOT yet decided, and must not be decided by drift:** whether the existing overlay
   renderer stays as a fallback (unrecognised ROM, no free slot) or is removed once spawning works.
   Keeping both paths is exactly the shape of a compensation, so if it happens it is a deliberate
-  choice recorded in `adapters/pokemon/emerald/BANDAGES.md`, not a leftover. This is the user's
+  choice recorded in `adapters/bizhawk/pokemon/emerald/BANDAGES.md`, not a leftover. This is the user's
   call and is deferred until spawning is confirmed on screen, so the choice is made against a real
   result rather than a hope.
 - **Consequences, accepted going in:** the same three the Crystal ADR lists — per-map object state

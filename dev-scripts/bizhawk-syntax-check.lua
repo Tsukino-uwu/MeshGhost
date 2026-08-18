@@ -14,12 +14,12 @@
 --   to bizhawk-syntax-check.log beside this script, then it goes quiet.
 
 local FILES = {
-	"../adapters/pokemon/emerald/meshghost_emerald.lua",
-	"../adapters/pokemon/crystal/meshghost_crystal.lua",
-	"../adapters/pokemon/crystal/probes/run_second_client.lua",
-	"../adapters/pokemon/emerald/probes/spawn_test.lua",
-	"../adapters/pokemon/emerald/probes/object_slot_probe.lua",
-	"../adapters/pokemon/emerald/probes/testkit.lua",
+	"../adapters/bizhawk/pokemon/emerald/meshghost_emerald.lua",
+	"../adapters/bizhawk/pokemon/crystal/meshghost_crystal.lua",
+	"../adapters/bizhawk/pokemon/crystal/probes/run_second_client.lua",
+	"../adapters/bizhawk/pokemon/emerald/probes/spawn_test.lua",
+	"../adapters/bizhawk/pokemon/emerald/probes/object_slot_probe.lua",
+	"../adapters/bizhawk/pokemon/emerald/probes/testkit.lua",
 	"../dev-scripts/bizhawk-cheat-clear.lua",
 	"../dev-scripts/bizhawk-dev-loader.lua",
 }

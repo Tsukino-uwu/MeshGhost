@@ -13,7 +13,7 @@ here rather than repeating it, and each adapter's own README states its model in
 
 | Adapter | Engine / platform | Access model | What it meant in practice |
 | --- | --- | --- | --- |
-| [Emerald](../adapters/pokemon/emerald/README.md) | GBA, via BizHawk | **External source decompilation** — [`pokeemerald`](https://github.com/pret/pokeemerald) | Player X/Y, map bank/number and camera offset were *looked up*, not reverse engineered. Addresses cited to the decomp. 15 build-story steps. |
+| [Emerald](../adapters/bizhawk/pokemon/emerald/README.md) | GBA, via BizHawk | **External source decompilation** — [`pokeemerald`](https://github.com/pret/pokeemerald) | Player X/Y, map bank/number and camera offset were *looked up*, not reverse engineered. Addresses cited to the decomp. 15 build-story steps. |
 | [TEVI](../adapters/tevi/README.md) | Unity (Mono), BepInEx | **Self-documenting artifact** — `Assembly-CSharp.dll` decompiled locally with ILSpy | Real class and field names, and the adapter *compiles against them*, so a wrong name is a build error. Fastest adapter by a wide margin: ~1 hour to a following ghost, 9 steps, ~970 lines. |
 | [Pseudoregalia](../adapters/pseudoregalia/README.md) | Unreal Engine 5, UE4SS | **Runtime reflection only** — plus a Blueprint-only reference mod for scattered facts | No readable source exists anywhere. Every property, class and function is a name string resolved live; a wrong name returns nothing or something plausible. 44 steps, ~12,000 lines, and the most `pitfalls.md` entries of any game. |
 

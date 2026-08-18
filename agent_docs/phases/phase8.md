@@ -6,7 +6,7 @@ themselves, since Emerald was the first game) — renumbering 1–5.5 would brea
 citations to them across `verified.md`/`pitfalls.md`/`status.md`/`risks.md` for no real gain, so
 they stay as-is. Phase 6 (TEVI) and Phase 7 (Pseudoregalia) are unrelated games and keep their
 own numbers; this phase is specifically "Emerald keeps getting worked on, on its own, after
-5.5 closed" — decided 2026-08-14, see `adapters/pokemon/emerald/README.md`'s "How this adapter
+5.5 closed" — decided 2026-08-14, see `adapters/bizhawk/pokemon/emerald/README.md`'s "How this adapter
 was built"/"Further work" sections for the reader-facing summary this phase file backs.
 
 ## Purpose
@@ -202,7 +202,7 @@ file of its own, which is what was happening before this file existed.
       the shift should carry over from the already-working `avatarAddrOffset` detection — still
       needs an on-screen bitfield check per this project's own rule. Real per-tile timing for
       each mode still needs live measurement. A combined probe
-      (`adapters/pokemon/emerald/probes/surf_bike_probe.lua`) is ready; not yet run. Fishing rod (a
+      (`adapters/bizhawk/pokemon/emerald/probes/surf_bike_probe.lua`) is ready; not yet run. Fishing rod (a
       stationary action, not a movement speed) is a separate, smaller follow-up.
 - [ ] **VRAM/sprite injection investigation** (`agent_docs/ideas.md`) — draw-via-VRAM-write
       instead of `gui.drawPixel` overlay, found via the `GBA-PK-multiplayer` reference project
@@ -215,7 +215,7 @@ file of its own, which is what was happening before this file existed.
 
 ## For the README write-up: the workflow arc is part of this phase's story
 
-**Not yet written into `adapters/pokemon/emerald/README.md` — do it when the spawn work is
+**Not yet written into `adapters/bizhawk/pokemon/emerald/README.md` — do it when the spawn work is
 confirmed and the build story gets its next steps.** Noted here so it is not lost, at the user's
 request 2026-08-18, in their words: *"emerald loading manually, crystal having better probes, and
 now emerald solving it all together with automation. we have improved the workflow a lot by going

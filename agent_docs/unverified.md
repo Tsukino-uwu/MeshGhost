@@ -75,5 +75,5 @@ Turned OFF by default (`MESHGHOST_GHOST_PEER_GFX`), because it is incomplete —
     real water (finds a water metatile in the map's own tilesets and writes it, behaviour and
     collision). Self-tested by driving the player into it and being blocked. That removes "we are
     not near water" as the reason surfing and fishing are untested.
-- **Archipelago ROMs still use the old drawn overlay.** See `adapters/pokemon/emerald/BANDAGES.md`
+- **Archipelago ROMs still use the old drawn overlay.** See `adapters/bizhawk/pokemon/emerald/BANDAGES.md`
   — one live run on a patched seed either closes it or refuses safely.
