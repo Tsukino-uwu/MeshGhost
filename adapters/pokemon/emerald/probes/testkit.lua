@@ -46,6 +46,7 @@ local WANTED = {
 	hms = true,           -- HM01-HM08, the TM/HM pocket
 	master_balls = 5,     -- a count, or false. For catching something that can actually Surf.
 	rare_candies = 30,    -- levels, so a caught Pokemon can hold its own
+	permanent_repel = true, -- keep VAR_REPEL_STEP_COUNT topped up, so wild encounters stay off
 }
 
 local GSAVEBLOCK1PTR_ADDR = 0x03005d8c
@@ -64,6 +65,17 @@ local BAG_TMHM_COUNT = 64
 local SB1_FLAGS = 0x1270
 local BAG_KEYITEMS_COUNT = 30
 local ITEM_SLOT_SIZE = 4
+
+-- Vars live in their own SaveBlock1 array (include/global.h:1021), indexed from VARS_START.
+-- VAR_REPEL_STEP_COUNT is the counter the Repel ITEM sets: the repel effect is active for as long
+-- as it is non-zero, and the game decrements it one per step. So "permanent repel" is not a flag
+-- to set once -- it is this counter kept topped up, which is why this one is maintained every
+-- frame while everything else here is applied once. Keeping it high also avoids the "use another
+-- Repel?" prompt entirely, since that fires exactly when it hits zero.
+local SB1_VARS = 0x139c
+local VARS_START = 0x4000
+local VAR_REPEL_STEP_COUNT = 0x4021
+local REPEL_TOPUP = 250
 
 local FLAG_BADGE01_GET = 0x867 -- SYSTEM_FLAGS (0x860) + 7
 local NUM_BADGES = 8
@@ -167,6 +179,14 @@ local function giveItem(sb1, key, pocket, pocketCount, itemId, name, quantity)
 	log(string.format("  %-16s -> slot %d (id %d) x%d", name, slot, itemId, quantity))
 end
 
+local function varAddr(sb1, varId)
+	return sb1 + SB1_VARS + (varId - VARS_START) * 2
+end
+
+local function topUpRepel(sb1)
+	w16(varAddr(sb1, VAR_REPEL_STEP_COUNT), REPEL_TOPUP)
+end
+
 local function setBadges(sb1)
 	for b = 0, NUM_BADGES - 1 do
 		local flagId = FLAG_BADGE01_GET + b
@@ -216,6 +236,11 @@ local function apply()
 			"Rare Candy", WANTED.rare_candies)
 	end
 	if WANTED.badges then setBadges(sb1) end
+	if WANTED.permanent_repel then
+		topUpRepel(sb1)
+		log(string.format("  %-16s -> VAR_REPEL_STEP_COUNT held at %d (maintained every frame)",
+			"Repel", REPEL_TOPUP))
+	end
 
 	-- Read back through the same decode the GAME uses, not the values just written: an echo of
 	-- our own write proves the write landed, not that the game will agree with it.
@@ -249,7 +274,15 @@ local function apply()
 end
 
 MESHGHOST_DEV_TICK = function()
-	if done then return end
+	if done then
+		-- Everything else was a one-shot write. Repel is a countdown the game spends, so it is the
+		-- one thing that has to be maintained rather than set.
+		if WANTED.permanent_repel and inOverworld() then
+			local sb1 = saveBlocks()
+			if sb1 then topUpRepel(sb1) end
+		end
+		return
+	end
 	frames = frames + 1
 	if not inOverworld() then
 		if frames % 300 == 0 then log("waiting: not in the overworld with a save loaded yet.") end

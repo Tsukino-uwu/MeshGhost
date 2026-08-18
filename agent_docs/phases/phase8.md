@@ -181,6 +181,18 @@ file of its own, which is what was happening before this file existed.
         (a 20s `Ping`). Both confirmed live, `main.dll` rebuilt and hash-diff-deployed to both the
         in-repo packaging copy and the live Steam install. See `verified.md`'s three new entries.
       - **This closed every item from the 2026-08-14 sweep's "Not started" list.**
+- [~] **Surf/bike/fishing IDENTIFICATION is solved, 2026-08-18 — it is one byte, not a
+      classifier.** `sPlayerAvatarGfxIds` gives every special state its own `graphicsId` per
+      gender (normal 0/89, Mach Bike 1/90, Acro Bike 63/91, surfing 2/92, underwater 111/112,
+      field move 3/93, fishing 137/138, watering 191/192), so the state is readable directly from
+      the player's object event rather than guessed from anim plus per-mode step timings.
+      Confirmed live for fishing (`probes/fishing_probe.lua`, gfx 89 -> 138 -> 89, with
+      take-out-rod / put-away-rod / hooked all playing out in the sprite's `animNum`) — see
+      `verified.md`. **What remains is RENDERING it**: a ghost borrows the player's sprite, so it
+      can only show the graphic the local player is using; showing a surfing peer while you walk
+      needs the sprite built from `gObjectEventGraphicsInfoPointers[gfxId]` (own images/anims/OAM,
+      own tiles sized from that entry, palette resolved not inherited). One mechanism for all
+      eight states. The original item follows.
 - [ ] **Surf, Mach Bike, Acro Bike, ledges, and Mach Bike rail sections**: the ghost snaps badly
       on all of these today, since `getLocalState()`'s anim classification and
       `STEP_DURATION_FRAMES` only cover walking/running/idle. Real, cited detection source

@@ -7227,3 +7227,51 @@ scheduled. All established by the agent with local tools; nothing here is a visu
   `SPRITE_TILE` on the same reasoning ("the player's sprite is resident on every map"). Whether
   Crystal shares this failure is **unknown and untested** — a different console and a different
   tile model — but it is now a specific thing to check rather than an assumption.
+
+### Emerald: every special player state is a different graphicsId, and fishing is fully characterised (2026-08-18)
+
+- Date: 2026-08-18
+- Observed: `probes/fishing_probe.lua` recorded a real fishing session on a May save. The player's
+  object event swapped `graphicsId` **89 -> 138** for the whole action and back to 89 at the end,
+  while `movementType`, position and `movementActionId` never changed. The animation played out
+  entirely in the sprite's `animNum`:
+
+  ```
+   306 | gfx=138 anim= 3   <- take out rod, east
+   547 | gfx=138 anim= 7   <- put away rod, east   (a nibble that got away)
+   882 | gfx=138 anim= 3   <- cast again
+  1123 | gfx=138 anim=11   <- HOOKED, east
+  2780 | gfx= 89           <- back to normal
+  ```
+
+- Source: live run, my own reading of the probe's log; every number below is cross-checked against
+  our own `make compare`-verified `pokeemerald` build, so this needs no visual confirmation.
+- **Decoded**: `138` is `OBJ_EVENT_GFX_MAY_FISHING`; anim `3/7/11` are `ANIM_TAKE_OUT_ROD_EAST` /
+  `ANIM_PUT_AWAY_ROD_EAST` / `ANIM_HOOKED_POKEMON_EAST` (`constants/event_object_movement.h:309`),
+  the four directions being +0/1/2/3 within each group. `flags=0x21` is
+  `PLAYER_AVATAR_FLAG_ON_FOOT | PLAYER_AVATAR_FLAG_CONTROLLABLE`.
+- **The general result, which is bigger than fishing.** `sPlayerAvatarGfxIds`
+  (`field_player_avatar.c:246`) maps every special state to its own graphic, per gender:
+
+  | State | Brendan | May |
+  | --- | --- | --- |
+  | normal | 0 | 89 |
+  | Mach Bike | 1 | 90 |
+  | Acro Bike | 63 | 91 |
+  | surfing | 2 | 92 |
+  | underwater | 111 | 112 |
+  | field move | 3 | 93 |
+  | fishing | 137 | 138 |
+  | watering | 191 | 192 |
+
+  So **the open surf/Mach Bike/Acro Bike item does not need anim classification at all** — the
+  state IS the `graphicsId`, readable in one byte from the player's object event, alongside the
+  `PLAYER_AVATAR_FLAG_*` bits `phase8.md` already identified. That is a much smaller and more
+  reliable thing to send over the wire than a guessed anim tag plus per-mode step timings.
+- **What it means for the spawn path, and it is a real constraint.** A ghost currently borrows the
+  PLAYER's sprite — its `images`/`anims` pointers and now its own copy of the player's tiles — so
+  it can only ever show the graphic the local player is currently using. Rendering a *surfing*
+  peer while you walk needs the sprite built from `gObjectEventGraphicsInfoPointers[gfxId]`
+  instead of copied: its own `images`/`anims`/OAM shape, tiles sized from that entry's `size`, and
+  its palette resolved rather than inherited. Not attempted yet; this is the next piece of work,
+  and it is the same mechanism for all eight states rather than eight special cases.
