@@ -1,5 +1,13 @@
 # Phase 3 — Loopback
 
+> **Package paths below predate the 2026-08-17 move.** The six library packages (`protocol`,
+> `relay`, `core`, `transport`, `bridge`, `netx`) left `internal/` for the repo root that day so
+> they could be imported from outside the module — read any `internal/X` here as `X/`. `internal/`
+> now holds only `e2e`, which really does still live there. Citations of `internal/README.md` are
+> to a file that no longer exists; its content became `docs/networking.md` and `docs/security.md`.
+> The ADR is in `architecture.md`. Not rewritten line by line: these are dated records, and they
+> were correct when written.
+
 Folded back into `agent_docs/plans.md` as complete (2026-08-11); kept here for the detailed
 task-by-task record. Per `agent_docs/README.md`'s rule: a phase earns a file when it's live,
 and gets folded back once it's done. Phase 4 (two players) is also complete — see

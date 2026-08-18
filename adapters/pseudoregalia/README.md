@@ -277,3 +277,30 @@ list:
 - Duplicate ghost spawn on every level load — two ghosts per peer, leaving an orphaned pawn.
 - Suspected: the mod may not clear ghosts when the bridge drops.
 - A `Fatal Error!` on game exit, seen once, never root-caused.
+
+## Dev tools
+
+Six scripts across three folders, none of which ships — the release contains the compiled
+`MeshGhostPseudo` DLL and nothing from here. They are kept because they are the record of how each
+capability was established, and because two of them answer questions that would otherwise be
+re-asked from scratch. Every one is a UE4SS **Lua** mod, which is what makes them cheap to run
+against a live game without a rebuild; the shipped adapter is C++.
+
+**UE4SS loads `Scripts/main.lua` and only that**, so a probe with stages swaps files rather than
+taking a flag — copy the stage over `main.lua` to run it, and put the original back afterwards.
+
+| Script | What it is for |
+| --- | --- |
+| `probe/Scripts/main.lua` | **Read-only.** The first thing that ran: confirms live on screen where the local player pawn, its position, its rotation and the level name actually live, before any of it was ported into C++. Writes nothing, touches no network. |
+| `probe_socket/Scripts/main.lua` | **Stage 1, safe.** Asks only whether `package.loadlib` exists and is callable under UE4SS's embedded Lua. It exists because UE4SS's own API docs list no networking at all and RE-UE4SS has zero LuaSocket references — which proves nothing about `loadlib` itself, and the whole adapter's shape depended on the answer. |
+| `probe_socket/Scripts/stage2_loadlib.lua` | **Stage 2, riskier.** Actually loads the vendored LuaSocket core and *creates* — deliberately does not connect — a TCP socket object. Run only after stage 1 passes. |
+| `probe_socket/Scripts/stage3_roundtrip.lua` | **Stage 3.** A real bind/connect/send/receive round trip against the bridge protocol, the one thing stage 2 left untested. The staging is the point: each stage is the smallest step that could fail, which is why a crash in one of them named its own cause. |
+| `probe_ghost/Scripts/diagnose.lua` | **A diagnostic, explicitly not a fix.** Written after three straight fix-and-retest cycles failed to stop the player being dragged around by a spawned ghost — the moment `CLAUDE.md`'s "two guessed fixes failing the same way is a signal" applied. It gathers evidence for the `AutoPossessPlayer` theory instead of guessing a fourth time, and that is what found the cause. |
+| `probe_ghost/Scripts/main.lua` | **Superseded — a complete 849-line Lua adapter, kept for history.** This was the real Phase 7.5 adapter: local state every tick, the bridge protocol, spawned ghosts, the camera hook. It was replaced by the C++ mod after a LuaSocket corruption bug made the Lua host untenable (`pitfalls.md`), and the C++ `BridgeClient` and spawn path were ported *from* it — `MIN_PLAUSIBLE_DISTANCE` still cites it by name. Read it to see where a piece of `Plugin.cpp` came from; do not run it as the adapter. |
+
+**Its camera fight-back is the one thing in here not to copy.** `probe_ghost/Scripts/main.lua`'s
+header still describes a `SetViewTargetWithBlend` hook that forces the view target back whenever a
+ghost spawn makes the game re-target. That approach was deleted 2026-08-16 for blocking every
+legitimate camera change forever after, and replaced by refusing only a switch to a rig whose
+`OwningActor` is a ghost — see [BANDAGES.md](BANDAGES.md) and `agent_docs/verified.md`. The file is
+history, and history includes the parts that were wrong.

@@ -239,8 +239,9 @@ to be noticed by a user.
 - [ ] **Gender/appearance.** The sprite comes from `ChrisStateSprites`/`KrisStateSprites` keyed on
       `wPlayerState`, so a peer's appearance is gender + state -> one sprite id. `OBJECT_PALETTE`'s
       encoding is not worked out (`PAL_NPC_RED` is 8, observed values were 0 and 1).
-- [ ] **Nothing networked exists yet** — no bridge, no socket, no `get_local_state`. Emerald's
-      socket layer transfers wholesale when the spawn question is closed.
+- [x] **Superseded 2026-08-18 by the "Networking exists and works" item above** — this entry read
+      "Nothing networked exists yet"; the bridge, the socket and all three handlers now exist and
+      a loopback ghost has been watched. Kept so the contradiction is not re-read as live.
 - [~] **Archipelago is IN scope and mostly measured** (reversed from out-of-scope, 2026-08-18).
       The patch does rearrange WRAM non-uniformly — +7, +6 and −0x2A in one build — so the adapter
       keeps one address table per ROM, selected by the header-title classifier, and an unmeasured

@@ -12,7 +12,8 @@ adapter contract (thin boundary), per-game adapters (game-specific rewrite). Ful
 detail lives in `agent_docs/contract.md`.
 
 Target games: **Pokémon Emerald** (BizHawk, first) → **TEVI** (Unity, second) →
-**Pseudoregalia** (UE5, third). See `agent_docs/architecture.md`'s decision log for why
+**Pseudoregalia** (UE5, third) → **Pokémon Crystal** (BizHawk, fourth — Phase 9, shipping since
+2026-08-18). **Four adapters ship.** See `agent_docs/architecture.md`'s decision log for why
 TEVI replaced the brief's original Ori: Will of the Wisps pick.
 
 ## Non-goals for early work
@@ -41,11 +42,22 @@ TEVI replaced the brief's original Ori: Will of the Wisps pick.
   without exception.
   **First exception granted 2026-08-17, by exactly that route** — the Crystal adapter spawns a
   real object event rather than drawing an overlay, approved by the user and recorded as an ADR in
-  `architecture.md`. It is **narrow**: Crystal only, vanilla V1.0 only, live RAM only, cosmetic
-  only, and the adapter must positively identify the ROM before writing and refuse otherwise —
-  because Archipelago's Crystal patch rearranges WRAM non-uniformly, so a write to a moved address
-  corrupts rather than fails (`verified.md`). The Archipelago-coexistence test is **deferred, not
-  waived**; it is what a patched-ROM version of this feature is still gated on. Every other
+  `architecture.md`. **Extended to Emerald 2026-08-18**, by the same route and with its own ADR:
+  Emerald's shipped adapter now spawns a real object event too, on a vanilla ROM, and keeps the
+  overlay for a patched one. So the exception covers **both BizHawk Pokémon adapters**, not
+  Crystal alone. It is still **narrow**: those two games only, live RAM only, cosmetic
+  only, and the adapter must positively identify the ROM before writing — because Archipelago's
+  Crystal patch rearranges WRAM non-uniformly, so a write to a moved address corrupts rather than
+  fails (`verified.md`). **Amended 2026-08-18 on the user's call: identification is a *warn*, not
+  a *refuse*.** No ROM is refused by default; the adapter always says which build it found, and
+  `MESHGHOST_CRYSTAL_STRICT=1` restores refusal for anyone who wants it (`verified.md`).
+  **Archipelago's standing is settled, 2026-08-18, on the user's call: it is a real goal, but it
+  comes after the original game, always.** Vanilla is what the project promises and what gets
+  fixed first; a patched ROM is worked toward and treated as best-effort until it is not. So the
+  coexistence test is neither waived nor a blocker on shipping vanilla work — it gates calling
+  the *patched-ROM* version of a feature done, and nothing else. This resolves the tension
+  between this paragraph and `phases/phase9.md` marking Archipelago in-scope: in-scope and
+  second in line are not in conflict. Every other
   adapter remains read-only, and "never write a save" is untouched and absolute **for anything that
   ships**. Clarified 2026-08-18, on the user's call: a **dev-only probe may cheat**, save data
   included, because reaching a test state (surfing, a bike, eight badges) otherwise costs an hour
@@ -342,8 +354,10 @@ was answered 2026-08-15 — it did, via enemies, and that is what the fix above 
 
 ### Phase 8 — Emerald, dedicated (post-5.5 ongoing work)
 
-**Status: in progress, started 2026-08-14, and idle since** (Phases 6/7 work has had the
-attention) — see `agent_docs/phases/phase8.md` for the full record. Numbered next in sequence rather than folded back into 1–5.5 (which bundled Emerald
+**Status: LIVE.** Started 2026-08-14, then quiet while Phases 6/7 had the attention, and picked
+back up with a full session on **2026-08-18** that replaced the overlay with a real spawned object
+event (its own ADR in `architecture.md`; user-confirmed piece by piece on screen, end-to-end pass
+still queued in `unverified.md`). `status.md` is the index of what is open — see `agent_docs/phases/phase8.md` for the full record. Numbered next in sequence rather than folded back into 1–5.5 (which bundled Emerald
 with building the server/client/core themselves) — those stay as-is to avoid breaking their
 many existing citations elsewhere. A dedicated home for real Emerald-specific work that keeps
 happening after Phase 5.5's "good enough" milestone: a review/refactor sweep (real
@@ -366,7 +380,9 @@ game, and the first to render a peer by **spawning a real in-game object** rathe
 overlay — the user's explicit call, so a new adapter does not begin with a compensation Emerald
 already carries. That crossed the no-memory-writes non-goal above and has its own ADR
 (`architecture.md`, 2026-08-17), narrowly scoped: Crystal only, vanilla V1.0 only, live RAM only,
-cosmetic only, and the adapter must identify the ROM before writing and refuse otherwise.
+cosmetic only, and the adapter must identify the ROM before writing. (Vanilla-only and
+refuse-otherwise were both relaxed 2026-08-18 on the user's call: every ROM is identified and
+attempted, Archipelago included, with `MESHGHOST_CRYSTAL_STRICT=1` restoring refusal — `verified.md`.)
 
 **Settled**: the decomp builds byte-identical to the ROM being played, so addresses are
 authoritative; `WRAM` is the domain to read; the in-game gate is `wMapStatus == HANDLE` **and**
@@ -374,9 +390,12 @@ authoritative; `WRAM` is the domain to read; the in-game gate is `wMapStatus == 
 is rebuilt per map, and a **battle exit is also a map re-entry**; and **the engine adopts map
 objects we write**, which is the ADR's chosen branch proven rather than assumed.
 
-**The central open problem**: both of the engine's adoption paths are map-load or screen-edge, so
-neither will pick up an object placed beside the player mid-map — which is exactly what a ghost
-needs. Nothing networked exists yet; Emerald's socket layer transfers once that is closed.
+**That central open problem is SOLVED, 2026-08-18**: neither of the engine's adoption paths
+(map-load, screen-edge) picks up an object placed beside the player mid-map, and the adapter now
+gets one there anyway — a ghost spawns beside the player mid-map and walks with the game's own
+step animation. **Networking is in and works**: `meshghost_crystal.lua` carries `get_local_state`,
+`render_remote` and `despawn_remote` over the bridge, and a loopback ghost was watched moving and
+facing correctly (`verified.md`, `phases/phase9.md`).
 
 ### Room codes / relay safety
 

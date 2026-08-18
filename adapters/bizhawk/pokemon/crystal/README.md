@@ -1,50 +1,60 @@
 # Pokémon Crystal
 
-**Status: groundwork only. There is no adapter yet** — this folder currently holds two read-only
-probes and this file. Nothing here renders a ghost, opens a socket, or writes memory.
+**Status: shipping.** `meshghost_crystal.lua` is a working adapter — it dials the bridge, spawns a
+real in-game object event for each peer, walks it with the game's own step mechanism, and ships in
+the release (`.github/workflows/release.yml` stages it into `games/pokemon/crystal/`). It **writes
+game RAM** — object RAM only, never a save. Last live confirmation 2026-08-18: a loopback ghost
+walked on both vanilla and an Archipelago-patched ROM.
 
 - Platform: Game Boy Color, played via BizHawk.
-- Confirmed working roms: **vanilla V1.0 only** (`sha1 f4cd194b…`).
-- **Archipelago (6.0.0-beta.11) is an intended target, not a supported one yet.** The ROM guard
-  currently *refuses to write* on anything but vanilla V1.0, deliberately: Archipelago's Crystal
-  patch rearranges WRAM non-uniformly, so a vanilla address lands on whatever now occupies it
-  rather than failing cleanly ([verified.md](../../../agent_docs/verified.md), 2026-08-17).
-  Supporting it means a second address table for the patched ROM, not a relaxed guard.
+- Confirmed working roms: **"Vanilla V1.0"**, **"Archipelago 6.0.0-beta.11"** (the latter with one
+  address still unmeasured — see the next bullet).
+- **One address table per ROM build, chosen at startup from the header title.** Vanilla's entries
+  come from our own hash-verified `pokecrystal` build; Archipelago's were each *measured*, because
+  its patch rearranges WRAM non-uniformly and no constant offset recovers vanilla's addresses
+  ([verified.md](../../../../agent_docs/verified.md), 2026-08-17). An entry nobody has measured stays
+  `nil`, and a `nil` makes the adapter **refuse to run** rather than write somewhere plausible —
+  `W_BATTLEMODE` on the Archipelago table is still `nil` and still needs one trainer battle to
+  settle. An unrecognised build runs on vanilla's table with a one-line "untested" log, or refuses
+  outright under `MESHGHOST_CRYSTAL_STRICT=1`. Every switch: [FLAGS.md](FLAGS.md).
 - Adapter language: Lua (BizHawk's scripting host), as Emerald.
 - **How the game is read: an external source decompilation** —
   [`pokecrystal`](https://github.com/pret/pokecrystal), built locally and verified byte-identical
   to the ROM being played. Addresses are looked up and cited, never discovered at runtime. See
-  [agent_docs/access-models.md](../../../agent_docs/access-models.md).
+  [agent_docs/access-models.md](../../../../agent_docs/access-models.md).
 - **One structural difference from Emerald worth knowing up front:** Game Boy RAM labels live in
   *floating* sections, so **no address appears in the decomp's source at all** — the decomp has to
   be built to produce `pokecrystal.sym`. Toolchain and the one non-obvious trap:
-  [agent_docs/environment.md](../../../agent_docs/environment.md).
+  [agent_docs/environment.md](../../../../agent_docs/environment.md).
 - **[documentation.md](documentation.md)** describes how Crystal itself works — the two object
   arrays, how a character comes to exist, the lifecycle states. It was briefly argued that a game
   with a decompilation needed no such file; the user overturned that 2026-08-18, and every adapter
-  now carries one ([adapters/_template/README.md](../../_template/README.md)).
-- **[BANDAGES.md](BANDAGES.md)** is present and **empty**, which is the point of this phase.
+  now carries one ([adapters/_template/README.md](../../../_template/README.md)).
+- **[BANDAGES.md](BANDAGES.md)** carries this adapter's shipped compensations, and
+  **[FLAGS.md](FLAGS.md)** its runtime switches.
 
-## How this adapter will differ from Emerald's — the reason it exists
+## How this adapter differs from Emerald's — the reason it exists
 
 Emerald draws a ghost **over** the emulator with `gui.*`, fed by a hand-rolled decode of the
-player sprite out of ROM. Crystal is instead intended to **spawn a real in-game object event** and
-let the engine draw it, so palettes, occlusion, priority and animation are the game's problem
-rather than ours.
+player sprite out of ROM. Crystal instead **spawns a real in-game object event** and lets the
+engine draw it, so palettes, occlusion, priority and animation are the game's problem rather than
+ours.
 
 That is a deliberate, recorded decision, not an implementation detail — it is the first time
 MeshGhost writes game memory, and it required an ADR to clear `plans.md`'s standing no-writes
 non-goal. **Read
-[agent_docs/architecture.md](../../../agent_docs/architecture.md)'s 2026-08-17 entry before
+[agent_docs/architecture.md](../../../../agent_docs/architecture.md)'s 2026-08-17 entry before
 touching any of this**, including its open question about whether the engine's own routine can be
 *called* rather than imitated.
 
 > **Warning — why an unrecognised ROM must never be written to.** Archipelago's Crystal patch
 > rearranges WRAM **non-uniformly**; no constant offset recovers the vanilla addresses
-> ([agent_docs/verified.md](../../../agent_docs/verified.md), 2026-08-17). A write aimed at a
+> ([agent_docs/verified.md](../../../../agent_docs/verified.md), 2026-08-17). A write aimed at a
 > vanilla address on a patched ROM does not fail cleanly — it lands on whatever now occupies that
-> address. The adapter must positively identify the ROM before writing and refuse to spawn
-> otherwise.
+> address. So the adapter identifies the ROM from its header title first and picks a *measured*
+> table for it; a build it recognises but has not fully measured refuses to run, and one it does
+> not recognise at all runs on vanilla's table only after saying so in its first log line
+> (`MESHGHOST_CRYSTAL_STRICT=1` turns that into a refusal).
 
 ## How this adapter was built
 
@@ -52,11 +62,11 @@ Only steps that actually happened and were confirmed are listed here.
 
 1. Checked the licences for the whole `pret` family before reading any of it — all of them carry
    no licence file, so the same facts-only posture already used for `pokeemerald` applies.
-   ([agent_docs/licensing.md](../../../agent_docs/licensing.md))
+   ([agent_docs/licensing.md](../../../../agent_docs/licensing.md))
 2. Built `pokecrystal` locally and confirmed the result is byte-identical both to the ROM being
    played and to the hash the decomp documents, which is what makes every address below
    authoritative rather than merely plausible.
-   ([agent_docs/verified.md](../../../agent_docs/verified.md))
+   ([agent_docs/verified.md](../../../../agent_docs/verified.md))
 3. Pulled the player and map addresses out of the resulting `pokecrystal.sym`, including the four
    consecutive bytes `wMapGroup`/`wMapNumber`/`wYCoord`/`wXCoord` that later served as a
    fingerprint for identifying them in a live game.
@@ -77,18 +87,18 @@ Only steps that actually happened and were confirmed are listed here.
 
 ## What's here
 
-- `domain_probe.lua` — read-only. Finds which BizHawk memory domain exposes WRAM bank 1, by
-  matching the decomp's four-consecutive-bytes fingerprint and requiring both coordinates to
-  change as you walk, so a lookalike cannot pass.
-- `object_slot_probe.lua` — read-only. Dumps the 13 object structs live, to establish how many
-  slots are genuinely free during play and what a map transition does to them. **Required
-  evidence before anything is spawned**; performs no writes.
-- `ap_*.lua` — read-only. The Archipelago measurement family, one probe per question: `ap_reverse`
-  (coordinates, by walking one way then back), `ap_address` and `ap_struct_check` (the object
-  array), `ap_mapobj` (the map-object table), `ap_state` and `ap_mapid` (map identity and game
-  state), `ap_battlemode`, `ap_scroll_probe` and `ap_scroll_watch` (the scroll offsets). Each one
-  exists because the address it hunts could not be derived from vanilla — see its own header for
-  what was tried first and why it failed.
-
-Both write a timestamped `.log` beside themselves, so a run leaves a record without anyone
-copying text out of the Lua Console.
+- `meshghost_crystal.lua` — **the adapter, and the only file that ships.** It walks bridge ports
+  7778-7785 for a core that will have it, gates every spawn on the game's own map-state bytes,
+  spawns one object event per peer (a map object plus an object struct, cross-linked, built from a
+  live NPC template wearing the player's sprite), and moves each ghost by writing the game's own
+  step-initiation set once per tile. It draws, animates and interpolates nothing.
+- `documentation.md`, `BANDAGES.md`, `FLAGS.md` — how Crystal itself works, the shipped
+  compensations, and the runtime switches.
+- `probes/` — every development tool, and none of it ships. Twenty-odd scripts covering the
+  address hunt, the spawn recipe worked out one failure at a time, and the Archipelago
+  re-measurement. **Indexed, one line each, in [probes/README.md](probes/README.md)** — read that
+  rather than the folder listing.
+- `logs/` — where the adapter's own runs land, one timestamped `.log` per script load (probes write
+  theirs beside themselves in `probes/`). A run therefore leaves a record without anyone copying
+  text out of the Lua Console; `.gitignore` covers every `.log`, because once a run has been read
+  its conclusion belongs in `verified.md`.

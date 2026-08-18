@@ -56,14 +56,21 @@ rendering a second character in TEVI: placing a clone at the logic position alon
 sprite in the wrong place, because the game's own visual hangs off a child transform with its own
 offset.
 
-## Animation: Spine, addressed by name
+## Animation: a Unity `Animator` on a sprite, addressed by clip name
 
-TEVI animates with **Spine**, and the currently-playing animation is obtainable as a **name string**
-via the sprite-animation component (`spranim_prefer.GetAnimationTrueName()`).
+**Playable characters are not Spine.** They are a plain `SpriteRenderer` plus a Unity `Animator`;
+`PixelCharacter` carries no Spine reference at all. Spine *is* used in this game — roughly a dozen
+boss and environment types use it — so "TEVI uses Spine" is true of the game and false of the
+player, and that distinction is the one that matters when cloning a character.
+
+The currently-playing animation is obtainable as a **clip name string** from the sprite-animation
+component (`spranim_prefer.GetAnimationTrueName()`), which reads the `Animator`'s own current clip
+info rather than any state enum the game keeps alongside it.
 
 That name is what makes a cosmetic clone tractable: a peer's animation can be carried as an opaque
-string and replayed on a clone, with no need to model the state machine that chose it. The core
-never interprets it — animation tags are opaque outside the adapter that produced them.
+string and handed straight back to the clone's own `Animator`, with no invented name-mapping table
+and no need to model the state machine that chose it. The core never interprets it — animation tags
+are opaque outside the adapter that produced them.
 
 ## Facing is a sprite flip, not a rotation
 

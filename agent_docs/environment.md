@@ -12,8 +12,12 @@ UE4SS entry below for that last one specifically, which is currently unresolved)
 
 ## Host
 
-- OS: Windows 11 Pro (dev machine). Cross-platform build targets: Windows, Linux, macOS —
-  not yet built or tested on the latter two.
+- OS: Windows 11 Pro (dev machine). Cross-platform build targets: Windows, Linux, macOS.
+  **All three are built.** CI cross-compiles `linux/arm64`, `darwin/amd64` and `darwin/arm64` on
+  every run (`.github/workflows/ci.yml`), and `release.yml` ships linux amd64/arm64 and macOS
+  amd64/arm64 binaries in their own archives. What is still true is that **macOS has no runner and
+  is never *run*** — compile-only — and Linux has been exercised live by the Linux tester
+  (Pseudoregalia over Proton, 2026-08-16, `verified.md`) rather than by CI.
 - Go toolchain: **confirmed installed**, `go1.26.5 windows/amd64` (`go version`, 2026-08-11).
   `go build ./...` and `go vet ./...` both pass clean on the current type skeleton.
   **Re-confirmed 2026-08-17**: still `go1.26.5 windows/amd64`.

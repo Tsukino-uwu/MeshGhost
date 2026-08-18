@@ -1,8 +1,15 @@
-# `<game>` — compile-time flag register
+# `<game>` — flag register
 
-Every adapter accumulates compile-time switches. They look alike and they are not alike, and
-mistaking one class for another costs real time. This file is the index: which flag is which kind,
-what the shipped value is, and which ones must not be touched alone.
+Every adapter accumulates switches. They look alike and they are not alike, and mistaking one
+class for another costs real time. This file is the index: which switch is which kind, what the
+shipped value is, and which ones must not be touched alone.
+
+**Four kinds of switch live here, not one.** Compile-time bools are the first and the easiest to
+spot; the other three each got missed once. `constexpr` **numbers** decide as much behaviour as any
+bool ("Tunable constants"). **Runtime** switches — environment variables, flag files, globals set
+by a loader — are the only kind an interpreted adapter has at all ("Runtime switches"). And a
+**derived** flag, set from other flags rather than by hand, belongs in whichever section its
+sources do, marked as derived.
 
 **Write this file once you have more than a handful of flags.** Pseudoregalia reached 56 before it
 had one, and the cost was concrete: on 2026-08-17 three load-bearing pose flags were read as
@@ -73,6 +80,77 @@ A useful pattern worth copying: when something has two plausible polarities nobo
 which one fired. **A swap then costs a flag, not a build** — which matters a lot when every test
 cycle costs the user a real game launch.
 
+
+## Tunable constants — the `constexpr`/`local` NUMBERS
+
+**A bool register is only half the switches, and this half is the one that gets missed.** Every
+shipped adapter also carries constants that decide behaviour: a hold window, a spawn guard, a
+render offset, a distance threshold, a snap limit. They do not look like switches — they look like
+arithmetic — so nobody classifies them, and then one gets "simplified" by a reader who assumed it
+was arbitrary. Pseudoregalia has ~40 of these against its 58 bools; the register was bools-only
+until 2026-08-18 and that omission is why this section exists.
+
+**Register a number here the moment its value carries an argument.** Not every integer needs a
+row — a buffer size does not. The test is whether someone changing it would be changing
+*behaviour a player sees* or *a claim about the game*.
+
+**Sort each one by provenance, because that is what says whether it may be touched:**
+
+| Provenance | What it means | May it be changed? |
+|---|---|---|
+| **Measured** | derived from a capture of the game, with the capture cited at the constant | only by re-measuring |
+| **Sized** | chosen against a known rate or bound, with margin, and the reasoning written down | yes, if the bound it was sized against changed |
+| **Tuned by eye** | adjusted until it looked right | yes — and it belongs in `BANDAGES.md`, not only here |
+
+That last row is the join between this file and `BANDAGES.md`: *"where did this number come
+from — measuring the mechanism, or trying values until it looked right?"* is the same question
+both files ask. A number that cannot answer it is a bandage that has not been logged yet.
+
+**Two traps worth naming before you meet them:**
+
+- **An enum value is not a tunable.** `CROUCH_MOVE_STATE = 2` is a *fact about the game*; changing
+  it asserts a different fact. Group these separately and say so, or someone will "tune" one.
+- **Say where it lives.** A constant declared inside a function is invisible to a grep at the top
+  of the file, and citing it by bare name elsewhere reads as though it were file-scope. Note the
+  enclosing function in its row.
+
+**Probe constants go in their own table.** A cadence or a threshold that only runs while a `false`
+flag is on is dead code in every shipped build, and mixing it in with live behaviour makes the
+live list look far more dangerous than it is. Keep them, though — turning a probe back on should
+not also mean re-deriving how often it ought to run. One of them is usually worth a warning of its
+own: a probe's *own* cadence can invert its conclusion, which has happened here.
+
+## Runtime switches — environment variables and flag files
+
+**Not every adapter has a compile step.** A Lua adapter loaded by an emulator has no `constexpr`
+at all, so its switches are environment variables, files on disk, and globals set before the
+script is `dofile()`'d. **They are switches in exactly the sense this file means**, and for two
+sessions the Lua adapters had no register at all because this file only contemplated compile-time
+bools — which is precisely the drift `README.md`'s gold-standard rule is about.
+
+**Register them the same way, with two extra columns' worth of information:**
+
+- **How it is set** — `MESHGHOST_FOO=1` in the environment, a file beside the script, a global
+  assigned by a loader script. An emulator usually has to be restarted for an environment variable
+  to be seen, which is often *why* a file-based alternative exists beside it.
+- **What its default is when unset**, stated explicitly. This is the value every real user gets,
+  and it is the one thing a reader cannot recover by reading the flag's name.
+
+**A runtime switch is more dangerous than a compile-time one, in two specific ways:**
+
+1. **It can be on without anyone choosing it.** A stray file in a folder, or a variable exported
+   in a shell weeks ago, silently changes behaviour in a build that looks identical. Make anything
+   that relaxes a safety rule **announce itself in the log on every startup**, so a session run
+   that way can be told apart afterwards; and make ending the experiment obvious (deleting the
+   file is a good shape).
+2. **It can ship.** A compile-time probe is compiled out; a flag file just needs someone to
+   forget. If a switch must never reach a player, the packaging step should **fail the build** on
+   finding it, not merely avoid copying it.
+
+**And the rule that outranks both:** a runtime switch may lower the bar to *unconfirmed*, never to
+*invented*. Substituting a named, logged candidate for a measured value is a deliberate
+experiment. Falling back to a plausible value because a real one is missing is the thing the
+verification standard exists to forbid — a missing value should refuse to run.
 ## When a comment and a value disagree
 
 Believe the value, then find out why the comment drifted before changing either. These comments

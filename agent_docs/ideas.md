@@ -99,8 +99,12 @@ own sections.
     into this table. Not scheduled; would be its own idea, not a fix for #10 above.
 
 11. **Bike / surf / ledge-jump poses.** Deferred since Phase 5.5 (`phases/phase5_5.md:32-42`).
-    A ghost on a bike or surfing currently renders as an ordinary walking trainer — each has its
-    own `graphicsId` in `sPlayerAvatarGfxIds`, unread today.
+    A ghost on a bike or surfing still renders as an ordinary walking trainer — each has its
+    own `graphicsId` in `sPlayerAvatarGfxIds`. **Updated 2026-08-18: no longer "unread".** The
+    spawn adapter reads and writes `graphicsId` directly (`meshghost_emerald.lua`, `graphicsInfo`
+    and the object-event write), so rendering an arbitrary state is a solved mechanism. What is
+    still missing is the *peer's* state travelling over the wire — see `status.md`, and
+    `phases/phase8.md` for the scoping (all player states share one palette tag).
 
 12. **Archipelago-patched-ROM facing fallback.** Designed but never built
     (`risks.md`, "Archipelago coexistence" entry): derive facing from the position delta between
@@ -264,6 +268,14 @@ happens every session — the reason to look at it was thematic, not technical.
 
 ### Recommendation
 
+> **SUPERSEDED 2026-08-18 by the Emerald spawn ADR** (`architecture.md`). Emerald's shipped
+> adapter now spawns a real object event, and the `no-writes-without-an-ADR` gate this section
+> defers to was cleared by exactly that route. What survives: the *Union-Room-specific* framing
+> below is still the wrong way in (the feature really is unreachable outside a live link session),
+> and the two primitives it identified really did inform the design that shipped. What is stale:
+> every claim below that drawing is the only working option, that it "remains the right shipping
+> default", or that a write path is unbuilt. Read the rest as the investigation it was.
+
 **Do not build a Union-Room-based spawn adapter as currently conceived.** The specific feature
 the user was curious about is unreachable outside a live link session (Q5) — that's a clean
 negative result, not a dead end from lack of effort. The two underlying *primitives* it exposed
@@ -383,9 +395,12 @@ option — not the other way around. That's contingent, not decided in advance: 
 could also show injection is fine on vanilla but not safe under Archipelago (then it'd likely be
 an opt-in for vanilla-only players rather than a blanket default), or that it's bad outright, in
 which case it's dropped entirely rather than kept around as a permanent second option nobody
-should use. **Today, before any stage of the test plan has run, drawing is simply the only
-option that exists and works** — that's a fact about the current state, not a standing
-preference for drawing over injection. Two real costs to plan for once both scripts exist,
+should use. **At the time of writing, before any stage of the test plan had run, drawing was the
+only option that existed and worked** — a fact about that state, not a standing preference for
+drawing over injection. **No longer true as of 2026-08-18**: spawning a real object event is a
+third option, it is built, and it is what the Emerald adapter ships on a vanilla ROM
+(`architecture.md`'s Emerald spawn ADR). Drawing survives only as the patched-ROM fallback,
+registered in that adapter's `BANDAGES.md`. VRAM injection remains unstarted past Stage 1. Two real costs to plan for once both scripts exist,
 regardless of which ends up default:
 
 - **Sharing code between them is genuinely awkward in BizHawk, not just a style question.**
@@ -1138,9 +1153,10 @@ change landed — `bridge` gained `TypeReject` and `Reject{Reason}` (see
 it refused and the correct answer to any rejection is simply to try the next port. Pseudoregalia
 walks the range: `BridgeClient.hpp`'s `BRIDGE_BASE_PORT = 7778` sweeping up through 7785.
 
-**Still open, and the only work left here:** TEVI (`Plugin.cs`, `DefaultBridgePort`) and Emerald
-(`meshghost_emerald.lua`, `BRIDGE_PORT`) are both still pinned to 7778 and do not walk. Until
-they do, two games at once works only if Pseudoregalia is one of them. Option A is moot.
+**Updated 2026-08-18:** both Pokémon adapters walk now — `meshghost_emerald.lua` and
+`meshghost_crystal.lua` each sweep `BRIDGE_BASE_PORT` (7778) up across `BRIDGE_PORT_COUNT` (8) and
+require `bridge_ready`. **Not yet watched live.** **Still open:** TEVI (`Plugin.cs`,
+`DefaultBridgePort`) is the last adapter pinned to a single port and does not walk. Option A is moot.
 
 ## Unmoddable games — a scanner and an overlay, NOT our own mod loader
 
@@ -1573,3 +1589,46 @@ recompute**, which is exactly the pattern this project keeps having to unlearn; 
 drives sprite priority (`SetObjectSubpriorityByElevation`), so a deliberately wrong elevation
 changes occlusion — the ghost may draw in front of or behind terrain it should not. If this is ever
 adopted, it is a compensation and belongs in `BANDAGES.md`.
+
+## Driving the game itself: scripted input for Pseudoregalia (and beyond), filed 2026-08-18
+
+**The ask, in the user's words:** input mapping / AI control of what happens in-game, the way
+BizHawk's `joypad.set` already lets a Lua probe press buttons. Screenshots are a poor channel for
+this, but the user can describe the menu path step by step — "past the main menu" is a fixed,
+short sequence — so once it is scripted it can be replayed on every run. **The goal is a faster,
+more automatic dev/test loop**, because today every Pseudoregalia or TEVI iteration costs the
+user a real game launch and a manual walk to the test state.
+
+**Why this is filed rather than dismissed:** it was nearly dismissed. The instruction that
+produced this entry was *"don't just assume you can't do something without checking what possible
+tools you have available first."* Checking took minutes and turned a guess into three concrete
+candidates.
+
+**What is actually available (checked 2026-08-18, not remembered):**
+
+1. **`ProcessEvent` — already in our own mod, already working.** `Plugin.cpp` calls
+   `target->ProcessEvent(function, params_buffer.data())` to invoke arbitrary UFunctions with a
+   hand-built parameter buffer. That is the general lever: anything the game exposes as a
+   Blueprint or native function — menu handlers, level load, a player-controller input entry
+   point — is reachable the same way the ghost's own animation calls already are. **This is the
+   most promising route precisely because it is not new capability**, just a new caller.
+2. **UE4SS key binds are the wrong direction.** `RegisterKeyBind`/`RegisterKeyBindAsync` and
+   `IsKeyBindRegistered` *observe* input; they do not synthesise it. `Input/Platform/
+   QueueInputSource.hpp` looks like injection and is not — it is explicitly
+   *"not an implemented input source and should not be used directly"*, `is_available()` returns
+   `false`. **Worth recording as a checked dead end so nobody re-derives it.**
+3. **Win32 `SendInput`/`PostMessage`** from inside the mod's own process, which is the closest
+   analogue to `joypad.set` and needs no Unreal knowledge at all. Coarser (it goes through the OS
+   and needs window focus), but game-agnostic — it would work for TEVI too, which has no
+   equivalent of UE4SS.
+
+**Shape it should take if adopted:** a **probe**, never shipped adapter behaviour, and off by
+default — an adapter that can press buttons is an adapter that can play the game, which is a very
+different promise from a cosmetic ghost, and is squarely the kind of thing `beyond-cosmetic.md`
+exists to gate. The obvious first milestone is the smallest observable one: **script the main-menu
+sequence to reach a loaded save, and nothing else.** If that replays reliably, everything after it
+(walk to a spot, hold a slide, stand still for a ghost-load rig) is the same mechanism repeated,
+and the ghost-load/despawn rigs stop needing a human to aim them.
+
+**Not scheduled.** Nothing here is committed until it moves into `plans.md`. The method notes for
+writing such a probe belong in `adapters/_template/probes.md`, which carries the pointer.

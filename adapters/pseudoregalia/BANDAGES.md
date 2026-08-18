@@ -9,7 +9,8 @@ From the repo-wide audit of 2026-08-16. Its headline holds here too: most things
 bandages are not — the great majority carry the live incident, the rejected alternative, and the
 derivation right beside them. Ranked by how likely each is to cause a real bug.
 
-Other registers: `../tevi/BANDAGES.md`, `../pokemon/emerald/BANDAGES.md`,
+Other registers: `../tevi/BANDAGES.md`, `../bizhawk/pokemon/emerald/BANDAGES.md`,
+`../bizhawk/pokemon/crystal/BANDAGES.md`,
 `../../agent_docs/bandages-core.md`.
 
 ## Is this a bandage? — the short form
@@ -73,6 +74,8 @@ premise that once justified it (the ghost is not ours, destroy no-ops) is dead o
 **What would let this entry be deleted outright:** confidence that no supported build can reach
 the no-reflection branch. Nobody has checked that, and the cost of keeping the fallback is a few
 lines, so it stays.
+
+### ~~1. The slide render-Z compensation (+43 units)~~ — REMOVED 2026-08-17
 
 **Gone, and replaced by the game's own pose path rather than a better compensation.** The ghost is
 now posed by the game itself: its capsule mirrors the peer's, the slide Blueprint Timeline's curve

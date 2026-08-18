@@ -9,12 +9,12 @@ From the repo-wide audit of 2026-08-16. Its headline holds here too: most things
 bandages are not — the great majority carry the live incident, the rejected alternative, and the
 derivation right beside them. Ranked by how likely each is to cause a real bug.
 
-Other registers: `../../pseudoregalia/BANDAGES.md`, `../../tevi/BANDAGES.md`,
-`../../../agent_docs/bandages-core.md`.
+Other registers: `../../../pseudoregalia/BANDAGES.md`, `../../../tevi/BANDAGES.md`, `../crystal/BANDAGES.md`,
+`../../../../agent_docs/bandages-core.md`.
 
 ## Is this a bandage? — the short form
 
-Full version, including all seven after-the-fact tells: `../../_template/BANDAGES.md`.
+Full version, including all seven after-the-fact tells: `../../../_template/BANDAGES.md`.
 
 **The one mechanical test:** does the fix **prevent** the wrong thing, or **correct** it
 afterwards? Correcting afterwards means the cause is still running. Then: *"what would make this
@@ -37,9 +37,14 @@ to stay correct.
 
 ### 1. Proceeds on known-wrong addresses for an unrecognised ROM
 
-`meshghost_emerald.lua:304-307` (sprite data) and `:359-379` / `:1060-1062` (avatar offset). When
-neither the vanilla nor the known Archipelago-shifted address verifies, both warn and **carry on
-with vanilla addresses**.
+`meshghost_emerald.lua`, `detectSpriteAddrOffset()` (sprite/palette data) and
+`tryDetectAvatarAddrOffset()` (the avatar offset, retried from `runFrame()` until it succeeds).
+When neither the vanilla nor the known Archipelago-shifted address verifies, both warn and **carry
+on with vanilla addresses**.
+
+*(Cited by function name, not by line. This entry's line numbers had drifted a hundred lines out
+of date by 2026-08-18 — the spawn work shifted the whole file — and a citation that points at the
+wrong code is worse than one that makes a reader search. Name the function.)*
 
 **This is the one that puts wrong data on the wire.** Nothing gates *sending* on
 `avatarAddrConfirmed`, so `getLocalState()` reads `GPLAYERAVATAR_ADDR + 0` every frame until
@@ -54,7 +59,8 @@ disabled adapter beats silent wrong data.
 
 ### 2. Blanket per-frame `pcall` with a 300-frame log gag
 
-`meshghost_emerald.lua:1133-1142`. The resilience posture is right for a Lua script that would
+`meshghost_emerald.lua`, `guardedFrame()` — a `pcall` around `runFrame()` whose error log is gagged
+to once per 300 frames. The resilience posture is right for a Lua script that would
 otherwise die for the session — but it cannot tell one malformed line from every frame failing. A
 systematically broken read reports once per ~5s and the ghost silently stops updating.
 
@@ -63,7 +69,7 @@ rather than a constant chosen to protect the console.
 
 ## Borderline — noted, not urgent
 
-- **`meshghost_emerald.lua:675` — `FACING[facingRaw] or "south"`.** Turns a bad memory read into a
+- **`getLocalState()` — `FACING[facingRaw] or "south"`.** Turns a bad memory read into a
   plausible value with no counter or log, which is the failure mode `CLAUDE.md` warns about. (The
   neighbouring gender/direction defaults are documented forward-compat and fine.)
 

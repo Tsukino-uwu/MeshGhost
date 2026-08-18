@@ -31,7 +31,7 @@ A future session should not re-derive any of this. It exists today:
 |---|---|---|
 | Depth ladder, Tier 0-3 | `plans.md` | documented |
 | Event plane (`event` type, `to` addressee, opaque payload) | `contract.md` Extensibility, `protocol.go` | **BUILT 2026-08-17** — routed, stamped, gated on `event.v1` |
-| `features` capability list on `hello` | `protocol.go`, `contract.md` | **BUILT 2026-08-17** — six capabilities, sticky per room |
+| `features` capability list on `hello` | `protocol.go`, `contract.md` | **BUILT 2026-08-17** — seven capabilities, sticky per room |
 | Recipient-set forwarding | `relay.Room.Forward(msg, to []string)` | **built** — shaped for addressed routing from the start, and that shape paid off exactly as intended |
 | Unknown *fields* ignored | `contract.md` | built |
 | Unknown *message types* ignored | both dispatch switches | built |
@@ -238,6 +238,12 @@ already makes `GameVersion` sticky on first join and rejects mismatches by strin
 feature set can work identically. The relay would learn no more about `lease.v1` than it currently
 learns about `1.2.0`.
 
+**SHIPPED 2026-08-17, exactly as argued.** This is no longer a proposal: `newRoom` stores
+`protocol.RoomScopedFeatures(features)` on the room, and `joinOrCreateRoom` rejects a join whose
+`protocol.FeatureSetKey` differs from the room's — the `GameVersion` pattern, by string equality,
+with the relay still learning nothing about what any capability means. Only the *room-scoped* half
+is agreed this way; per-client capabilities stay per-client.
+
 ---
 
 ## 4. What the dumb-relay models do NOT buy
@@ -355,7 +361,8 @@ predicts an adapter's difficulty — here, what you can *reproduce* predicts how
   the unknown-field/unknown-type tolerance, and a `Version` bump stays reserved for genuinely
   breaking changes. **Stating this is most of what keeps the door open** — it is the difference
   between adding a feature and orphaning every deployed client. **Held in practice 2026-08-17**:
-  six capabilities, four message types, and eight new fields shipped with `ProtocolVersion`
+  seven capabilities (`event`, `lease`, `escrow`, `snapshot`, `resume`, `world`, `clock` — all `.v1`),
+  four message types, and eight new fields shipped with `ProtocolVersion`
   untouched, riding `features` plus the unknown-field/unknown-type tolerance exactly as planned.
 
 ---
@@ -411,13 +418,18 @@ plane on `tcp` and `quic` is a *stream*, so it has no datagram limit — only `M
 are rare and reliable, so they ride the stream rather than datagrams. Raw `udp` is the only
 transport with the hard 1200 wall.
 
-That turns `MaxEventBytes` — today a placeholder in `contract.md` with **no number** — into a real
-decision with two honest options:
+That turned `MaxEventBytes` — at the time a placeholder in `contract.md` with **no number** — into
+a real decision with two honest options:
 
 1. **Uniform**: set it to what every transport can carry (~1200 minus overhead). Simple, and
    restrictive for everyone because of udp.
 2. **Transport-dependent**: a udp client genuinely cannot do large events. A real capability
    difference, and exactly the kind of thing `features` exists to negotiate.
+
+**CLOSED 2026-08-17 at 1024 bytes, uniform** (option 1) — see §"Closed decisions" above.
+**And option 1 was not achieved**: 1024 was set against the *payload*, so a maximal envelope is
+1321 bytes and still exceeds the udp budget it was meant to fit inside. The choice stands; the
+number does not yet implement it. `risks.md` has the measurement, `bandages-core.md` the entry.
 
 **Argue against app-level chunking.** Fragmenting a payload across lossy datagrams reinvents TCP,
 badly, and worse than the version the kernel already provides. If a payload is big the answer is a

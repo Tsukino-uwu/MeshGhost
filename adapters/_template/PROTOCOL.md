@@ -42,7 +42,7 @@ process serves one game at a time.
 hardening (see `agent_docs/architecture.md`'s ADR). It's what lets the relay refuse two peers on
 incompatible builds before any state is exchanged, rather than letting them silently
 misinterpret each other's `area_id`/`anim`. **Report your own adapter/mod's version, not a game
-build number read from memory** — none of the three shipped adapters read one (there's no cited
+build number read from memory** — none of the four shipped adapters read one (there's no cited
 address for it, and `CLAUDE.md`'s "no addresses/APIs from memory" rule means one isn't guessed
 at), and an adapter-script version is the more useful signal anyway: it catches two peers
 running different revisions of *this adapter*, the most likely real source of a silent protocol
@@ -54,7 +54,7 @@ ghosts (`internal/bridge`'s `Hello.Features`, merged into whatever the core itse
 with and forwarded to the relay). **Omit it unless you have actually implemented a plane.** A room's
 feature set is matched *exactly* and is sticky for that room's life, so advertising a capability you
 do not use is not a spare ability — it makes your adapter unable to share a room with any adapter
-that did not advertise the identical list. All three shipped adapters omit it. What the planes are:
+that did not advertise the identical list. All four shipped adapters omit it. What the planes are:
 "Beyond cosmetic" at the bottom of this file.
 
 ### Every `hello` is answered — `bridge_ready` or `reject`
@@ -170,10 +170,11 @@ quaternion object. The core never parses it, so nothing here validates its conte
 adapter's own consumer of a received `orientation` is responsible for treating it as untrusted
 (see the peer-controlled-data note below).
 
-`extras` is load-bearing, not decorative — every one of the three shipped adapters relies on it
+`extras` is load-bearing, not decorative — every one of the four shipped adapters relies on it
 for real per-game data the core schema has no field for: Emerald carries player gender in it,
-TEVI carries its room-grid coordinates for the map marker, Pseudoregalia carries movement/action
-state enums for its Animator. Treat it as "your adapter's private channel to itself across the
+Crystal carries the sprite id its spawned object event should wear, TEVI carries its room-grid
+coordinates for the map marker, and Pseudoregalia carries movement/action state enums for its
+Animator. Treat it as "your adapter's private channel to itself across the
 wire," not an afterthought field.
 
 Core → adapter, zero or more times per frame, one per currently-known remote:
@@ -247,7 +248,7 @@ Five things in that loop are there because a shipped adapter got them wrong firs
   Pseudoregalia independently landed on the same 2s interval.
 - **Clear the remote-ghost map on connect *and* on disconnect.** `despawn_remote` is not
   guaranteed to arrive: if the core process exits or is restarted, nothing tells you, and a
-  peer's ghost stands frozen on screen indefinitely. All three adapters hit this live.
+  peer's ghost stands frozen on screen indefinitely. All four adapters hit this live.
 - **Treat "timeout"/"would block" as the *only* harmless socket result** — everything else is
   fatal. The intuitive inverse (special-case "closed" as fatal, treat the rest as a timeout) is
   what Emerald shipped in Phase 3 and Pseudoregalia repeated in C++; it silently converts a dead
@@ -337,11 +338,15 @@ hidden-because-the-peer-is-elsewhere (still in your map, just not drawn), and ac
 
 `despawn_remote` must remove the entry from your map, not just hide the visual. TEVI leaked a
 clone per reconnect twice by only deactivating the GameObject and leaving the dictionary entry
-alive. Where the engine has no reliable runtime destroy (Pseudoregalia), park the actor far
-offscreen instead — but still drop the map entry.
+alive. Where the engine has no reliable runtime destroy, park the actor far offscreen instead —
+but still drop the map entry. **Re-test that premise before inheriting it**: Pseudoregalia was the
+worked example of "no reliable destroy" and is no longer one. The finding turned out to be a
+property of the *hijacked* actor it used at the time, not of the engine, and once the ghost was one
+it had spawned itself, `K2_DestroyActor` worked. The park survives there only as a fallback.
 
-Two more traps if your ghost is a clone of the real player, which is how all three adapters
-ended up building it:
+Two more traps if your ghost is a clone of the real player, which is how all four adapters
+ended up building it (Crystal's is the loosest: a live NPC used as the template, wearing the
+player's own sprite):
 
 - **A clone deep-copies transient state at the instant you cloned it.** TEVI cloned a player
   mid-zone-fade and inherited `enabled == false` on a renderer, with no gameplay logic that

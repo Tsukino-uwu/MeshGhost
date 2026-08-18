@@ -34,8 +34,10 @@ obeyed. A rule added past the cap does not add a rule — it quietly weakens all
 
 `agent_docs/status.md` had a flat ~50-line cap and it did not work. The cap bounded the *file* but
 nothing bounded *per-item verbosity*, so every item arrived carrying its own rationale — averaging
-3 lines, one reaching 6 — and the total crept back regardless: **628 lines once (2026-08-15), then
-106 the next day even with the cap in force.**
+3 lines, one reaching 6 — and the total crept back regardless. The dates, re-checked against
+`git log` 2026-08-18 (the earlier version of this paragraph had them off by a day): the file peaked
+at **628 lines on 2026-08-14**, was cut to **132 the next day**, and had crept back to **116 by
+2026-08-16** — all with the flat cap nominally in force, and all far over the ~50 lines it stated.
 
 Replaced 2026-08-16 with a per-item limit: **two lines per item, maximum** — what is open, and where
 the detail lives. Size then tracks the *number of open items*, which is real signal about the

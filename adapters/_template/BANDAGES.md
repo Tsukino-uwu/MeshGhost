@@ -2,8 +2,10 @@
 
 **This file is the guide, not the thing you copy.** A new adapter's register lives at
 `adapters/<game>/BANDAGES.md` and carries a compact form that links back here. Start it from the
-stub at the bottom of this file — all three shipped registers have that exact shape, and one that
-doesn't is harder to read across games.
+stub at the bottom of this file. Three of the four shipped registers have that exact shape;
+Crystal's diverges (it heads its first section "Shipped compensations" and carries no "Borderline"),
+which is the cost being warned about — a register that does not match its siblings is harder to
+read across games, and harder to audit in one pass.
 
 **Keep this template current.** Anything an adapter's own register learns — a new tell, a new rule,
 a category that keeps recurring — belongs back here in the same pass. `_template/` is the gold
@@ -18,8 +20,11 @@ That last part matters: a number *measured from the game* and documented is a de
 evidence behind it, not a bandage. Log those under "Deliberate" so a future audit doesn't churn
 them.
 
-**Keep the entries short.** Symptom, the file:line, why the compensation was taken, and what would
-replace it. The long evidence trail goes to `agent_docs/phases/phaseN.md`, `verified.md`, or
+**Keep the entries short.** Symptom, where it lives, why the compensation was taken, and what would
+replace it. **Cite the file and the FUNCTION, never a line number** — line citations drift silently
+and then point at unrelated code, which is worse than making a reader search. Emerald's register
+had drifted a hundred lines out of date by 2026-08-18, from one pass of work elsewhere in the file;
+TEVI's had drifted too. Both were rewritten to name functions instead. The long evidence trail goes to `agent_docs/phases/phaseN.md`, `verified.md`, or
 `pitfalls.md` — link, don't inline. Same discipline as the README's build-story steps.
 
 ---
@@ -175,7 +180,8 @@ audit from re-deriving it. A missed one costs a live test round, or a user repor
 
 Existing registers worth reading as examples — the first is the fullest:
 `adapters/pseudoregalia/BANDAGES.md`, `adapters/tevi/BANDAGES.md`,
-`adapters/bizhawk/pokemon/emerald/BANDAGES.md`, `agent_docs/bandages-core.md`.
+`adapters/bizhawk/pokemon/emerald/BANDAGES.md`, `adapters/bizhawk/pokemon/crystal/BANDAGES.md`,
+`agent_docs/bandages-core.md`.
 
 ## Open compensations
 

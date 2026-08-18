@@ -35,6 +35,15 @@ friends moving around in the same space while playing. That's it.
 Desync is expected and accepted. If a friend kills a boss it stays alive in your world and
 their ghost will appear to fight nothing. This is fine. Do not propose fixes for it.
 
+> Since qualified on two points, 2026-08-17 — the *shipped* posture is unchanged, the
+> *architectural* one is not. "No shared or authoritative world state" and "no authority
+> arbitration" now read as **shipped default, not absolute**: the relay grew a room sequencer,
+> leases, escrow, snapshots and world custody, all opt-in and **used by no adapter**. Order and
+> lease authority need no game knowledge; **simulation authority in the relay stays welded shut**,
+> which is the part of these two lines that is still absolute. `beyond-cosmetic.md` for the
+> taxonomy, `architecture.md` for the ADR, `plans.md` for the depth ladder that gates any use.
+> The other two non-goals are untouched.
+
 ### Prior art worth reading
 
 MAKE SURE TO CHECK, READ AND RESPECT ANY AND ALL LICENSES. Don't just copy things we are not

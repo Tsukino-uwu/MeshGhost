@@ -11,9 +11,9 @@ dumps, and data tables copied wholesale are never fine — **regardless of what 
 and may be explained; whatever you learned it from only saved you the time, and is not the source of
 your right to know it. If the only way to have it is to copy something, it stays out.
 
-This is [CLAUDE.md](../../../CLAUDE.md)'s standing rule — *is this fine sitting in a public repo
+This is [CLAUDE.md](../../../../CLAUDE.md)'s standing rule — *is this fine sitting in a public repo
 forever?* — applied to prose. No, or merely unclear, means out. Full guidance and the two edge cases
-worth knowing: [adapters/_template/README.md](../../_template/README.md).
+worth knowing: [adapters/_template/README.md](../../../_template/README.md).
 
 > Everything here is **measured from a running game** during Phase 9 (2026-08-17 onward), and
 > cross-checked against the public `pret/pokecrystal` decompilation, which is cited by file so any
@@ -24,8 +24,8 @@ worth knowing: [adapters/_template/README.md](../../_template/README.md).
 adapter workaround** — those belong in [BANDAGES.md](BANDAGES.md). It should read as a description
 of Crystal to someone who has never seen our code.
 
-Dated evidence for every claim: [`agent_docs/verified.md`](../../../agent_docs/verified.md).
-The narrative of how it was discovered: [`phases/phase9.md`](../../../agent_docs/phases/phase9.md).
+Dated evidence for every claim: [`agent_docs/verified.md`](../../../../agent_docs/verified.md).
+The narrative of how it was discovered: [`phases/phase9.md`](../../../../agent_docs/phases/phase9.md).
 
 ## Overworld characters: two arrays, not one
 

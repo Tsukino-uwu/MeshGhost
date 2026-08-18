@@ -2,7 +2,7 @@
 
 **Status: Phase 8 (ongoing, post-"good enough" work).** First game targeted, shipped, and
 live-tested with real two-player sessions. See
-[agent_docs/phases/phase8.md](../../../agent_docs/phases/phase8.md) for the current task list
+[agent_docs/phases/phase8.md](../../../../agent_docs/phases/phase8.md) for the current task list
 and the "Further work past 'good enough'" section below for what's still open.
 
 - Platform: GBA, played via BizHawk.
@@ -11,27 +11,36 @@ and the "Further work past 'good enough'" section below for what's still open.
 - **How the game is read: an external source decompilation.** Fixed memory addresses, looked up in
   [`pokeemerald`](https://github.com/pret/pokeemerald) and cited — nothing is discovered at runtime.
   Addresses are unknowable but authoritative: you cannot invent one, and once the decomp gives it to
-  you it is right. See [agent_docs/access-models.md](../../../agent_docs/access-models.md) for what
+  you it is right. See [agent_docs/access-models.md](../../../../agent_docs/access-models.md) for what
   each access model costs and what the other adapters used.
+- **[BANDAGES.md](BANDAGES.md)** is this adapter's shipped-compensation register and
+  **[FLAGS.md](FLAGS.md)** its switch register — including the environment variables that are the
+  only kind of switch a Lua adapter has.
 - **[documentation.md](documentation.md)** describes how Emerald itself works — where player state
   lives and why one address is not enough, the tile-based movement model, and the callback that
   says which state machine is running. It was previously argued that a game with a decompilation
   needed no such file; **the user overturned that 2026-08-18** and every adapter now carries one.
   A curated description of the mechanics this adapter depends on is a different artifact from the
   decompilation, and being able to look something up is not the same as having looked
-  ([adapters/_template/README.md](../../_template/README.md)'s folder convention).
+  ([adapters/_template/README.md](../../../_template/README.md)'s folder convention).
 - Reading local state is trivial — the `pokeemerald` decompilation documents player X/Y,
   map bank/number, and camera offset rather than requiring reverse engineering. See
-  [agent_docs/licensing.md](../../../agent_docs/licensing.md) for the rule on how that decomp
+  [agent_docs/licensing.md](../../../../agent_docs/licensing.md) for the rule on how that decomp
   may and may not be used.
-- Rendering draws the real Brendan/May overworld sprite pixel-by-pixel via `gui.drawPixel`
-  (tier 1 of 3 from the brief — draws over the emulator, not occluded by scenery). Earlier
-  phases (`phase2_ghost.lua` through `phase4_multiplayer.lua`) used `gui.drawImage` for a flat
-  placeholder box before the real sprite decode replaced it in Phase 5.5.
+- **Rendering: the engine draws the ghost, not us.** A peer is spawned as a real object event
+  plus a sprite and Emerald animates, walks and occludes it itself (step 18 below) — which is why
+  a ghost is correctly hidden behind the pause menu, something the old overlay never was.
+  **The `gui.drawPixel` overlay is still in the file and is still live, as the fallback on an
+  Archipelago-patched ROM only** — the spawn path writes `gSprites`, whose relocation under that
+  patch was never verified for *writing*. Registered in [BANDAGES.md](BANDAGES.md) as a
+  deliberate, temporary split with one live run standing between it and deletion. Earlier phases
+  (`phase2_ghost.lua` through `phase4_multiplayer.lua`) used `gui.drawImage` for a flat
+  placeholder box, before the real sprite decode replaced it in Phase 5.5 and the spawn replaced
+  that in Phase 8.
 - Tile-grid movement means small integer positions; the brief's original "10Hz sync looks
   fine" hypothesis was superseded once real send-rate limits shipped — the real cap is 20Hz
   (`core.DefaultMinSendInterval`), live-confirmed across three games (see
-  [agent_docs/contract.md](../../../agent_docs/contract.md)'s Limits section).
+  [agent_docs/contract.md](../../../../agent_docs/contract.md)'s Limits section).
 - No ROM is or will be shipped with this repo. Bring your own legally-obtained copy.
 - The shipped/maintained adapter script is `meshghost_emerald.lua`, in this folder — that's
   what `.github/workflows/release.yml` ships and what any future fix belongs in.
@@ -40,9 +49,9 @@ and the "Further work past 'good enough'" section below for what's still open.
   it's since diverged) — the "How this adapter was built" section below is the accurate
   history of how it came to be, under whatever name it had at each point.
 
-See [agent_docs/contract.md](../../../agent_docs/contract.md) for the adapter interface and
+See [agent_docs/contract.md](../../../../agent_docs/contract.md) for the adapter interface and
 tick model this adapter must implement, and
-[agent_docs/phases/phase8.md](../../../agent_docs/phases/phase8.md) for the current
+[agent_docs/phases/phase8.md](../../../../agent_docs/phases/phase8.md) for the current
 verification task list.
 
 ## How this adapter was built
@@ -54,44 +63,44 @@ Phase 5.5) took about 10 hours.
 Roughly in order, with the phase file that covers each part in more depth:
 
 1. Drew a static purple box on screen as proof the overlay-rendering path worked at all.
-   ([agent_docs/phases/phase2.md](../../../agent_docs/phases/phase2.md))
+   ([agent_docs/phases/phase2.md](../../../../agent_docs/phases/phase2.md))
 2. Probed memory while walking in each direction, recording what changed, to find the
-   position-related addresses. ([agent_docs/phases/phase1.md](../../../agent_docs/phases/phase1.md))
+   position-related addresses. ([agent_docs/phases/phase1.md](../../../../agent_docs/phases/phase1.md))
 3. Probed again while facing each direction without moving a tile, to separate "facing" from
-   "position" in what had been found. ([agent_docs/phases/phase1.md](../../../agent_docs/phases/phase1.md))
+   "position" in what had been found. ([agent_docs/phases/phase1.md](../../../../agent_docs/phases/phase1.md))
 4. Made the box follow the player, still drawn at a fixed point on screen.
-   ([agent_docs/phases/phase2.md](../../../agent_docs/phases/phase2.md))
+   ([agent_docs/phases/phase2.md](../../../../agent_docs/phases/phase2.md))
 5. Made the box track world position instead of screen position, so it stayed correct whether
-   the player was on- or off-screen. ([agent_docs/phases/phase2.md](../../../agent_docs/phases/phase2.md))
+   the player was on- or off-screen. ([agent_docs/phases/phase2.md](../../../../agent_docs/phases/phase2.md))
 6. Tested going in and out of buildings and between routes, to check position tracking
-   survived map/warp transitions. ([agent_docs/phases/phase1.md](../../../agent_docs/phases/phase1.md),
-   [phase2.md](../../../agent_docs/phases/phase2.md))
+   survived map/warp transitions. ([agent_docs/phases/phase1.md](../../../../agent_docs/phases/phase1.md),
+   [phase2.md](../../../../agent_docs/phases/phase2.md))
 7. Replaced the static box with an idle sprite that moves around.
-   ([agent_docs/phases/phase5_5.md](../../../agent_docs/phases/phase5_5.md))
-8. Added a walking animation. ([agent_docs/phases/phase5_5.md](../../../agent_docs/phases/phase5_5.md))
+   ([agent_docs/phases/phase5_5.md](../../../../agent_docs/phases/phase5_5.md))
+8. Added a walking animation. ([agent_docs/phases/phase5_5.md](../../../../agent_docs/phases/phase5_5.md))
 9. Added a running animation — initially just the walk cycle sped up, corrected to Emerald's
    real, separate running pic table once live testing showed it looked wrong.
-   ([agent_docs/phases/phase5_5.md](../../../agent_docs/phases/phase5_5.md))
+   ([agent_docs/phases/phase5_5.md](../../../../agent_docs/phases/phase5_5.md))
 
 The real networking — the relay, the core, and the bridge protocol connecting an adapter to
 both — got built alongside this adapter rather than before it, since Emerald was also the
-first game to need it. [phase3.md](../../../agent_docs/phases/phase3.md) (loopback: one real
-client, a synthetic echoed "ghost") and [phase4.md](../../../agent_docs/phases/phase4.md) (two
+first game to need it. [phase3.md](../../../../agent_docs/phases/phase3.md) (loopback: one real
+client, a synthetic echoed "ghost") and [phase4.md](../../../../agent_docs/phases/phase4.md) (two
 real players, join/leave, despawn on disconnect) cover that side.
-[phase5.md](../../../agent_docs/phases/phase5.md) is not Emerald-specific — it's where the
+[phase5.md](../../../../agent_docs/phases/phase5.md) is not Emerald-specific — it's where the
 core got proven game-agnostic by running it against a fake, non-Emerald adapter, which is what
 let TEVI (Phase 6) reuse it directly.
 
-See [agent_docs/phases/phase1.md](../../../agent_docs/phases/phase1.md) through
-[phase5_5.md](../../../agent_docs/phases/phase5_5.md) for the detailed, dated log of this
-work, and [agent_docs/pitfalls.md](../../../agent_docs/pitfalls.md) for the transferable
+See [agent_docs/phases/phase1.md](../../../../agent_docs/phases/phase1.md) through
+[phase5_5.md](../../../../agent_docs/phases/phase5_5.md) for the detailed, dated log of this
+work, and [agent_docs/pitfalls.md](../../../../agent_docs/pitfalls.md) for the transferable
 lessons pulled out of it (memory probing methodology, overlay rendering gotchas, map-transition
 read glitches).
 
 ### Further work past "good enough"
 
 Real work continued after Phase 5.5 closed — given its own phase file,
-[phase8.md](../../../agent_docs/phases/phase8.md), rather than 1–5.5 (which bundled Emerald
+[phase8.md](../../../../agent_docs/phases/phase8.md), rather than 1–5.5 (which bundled Emerald
 with building the server/client/core themselves) or living homeless in `status.md`. Roughly in
 order:
 
@@ -118,7 +127,7 @@ order:
 17. Wrote down the limit in the same breath. A screenshot answers "what is on screen now", never
     "does this look right moving", so it changes no rule: the user still confirms every visual
     claim personally. That is the anti-hallucination split this project rests on — see
-    [testing.md](../../../agent_docs/testing.md).
+    [testing.md](../../../../agent_docs/testing.md).
 18. Replaced the drawn ghost with a **spawned one**. A peer is now a real object event plus a
     sprite, and Emerald's own engine draws, animates and walks it — no drawing code at all. It
     is hidden behind the pause menu, which the overlay never was, and gets the right gender and
@@ -131,7 +140,7 @@ order:
 20. The leak taught the general lesson: **"the map changed" and "the world was rebuilt" are
     different events.** A house rebuilds the world, a route boundary does not, and an identity
     check keyed on the map is wrong in exactly the case the other one hides. Houses had tested
-    perfectly clean. ([_template/README.md](../../_template/README.md))
+    perfectly clean. ([_template/README.md](../../../_template/README.md))
 21. Not yet done: surf, Mach Bike, Acro Bike, ledges, and Mach Bike rail sections. Half of this
     is now solved — every special state is simply its own `graphicsId`, so no anim classifier is
     needed. What remains is rendering it: a ghost borrows the player's graphics, so showing a
@@ -140,9 +149,13 @@ order:
 **~2 hours from a drawn ghost to a spawned one**, on top of the ~10 hours the drawn one took —
 most of it spent on the six bugs above rather than on the spawn itself.
 
-See [phase8.md](../../../agent_docs/phases/phase8.md) for the full record.
+See [phase8.md](../../../../agent_docs/phases/phase8.md) for the full record.
 
 ## Dev tools
+
+Everything below lives in [probes/](probes/), and **[probes/README.md](probes/README.md) is the
+full index** — including the three scripts that WRITE, one of which alters the save. Read that
+before running any of them. The adapter's own switches are in [FLAGS.md](FLAGS.md).
 
 - `probe_render_remote_trace.lua` — a headless companion script (same bridge/networking/JSON
   code as `meshghost_emerald.lua`, no sprite decoding or drawing) that prints this client's own
@@ -162,7 +175,7 @@ See [phase8.md](../../../agent_docs/phases/phase8.md) for the full record.
   but with no bridge/relay/core in the picture. Isolates "is the rendering wrong?" from "is the
   network wrong?" — see its own header for the 2026-08-14 incident that motivated it.
 - `surf_bike_probe.lua` — read-only probe for the still-open surf/Mach Bike/Acro Bike work
-  (item 15 above): checks whether the `PLAYER_AVATAR_FLAG_*` bits behave as `pokeemerald`
+  (item 21 above): checks whether the `PLAYER_AVATAR_FLAG_*` bits behave as `pokeemerald`
   documents them, and measures real per-tile timing. Its findings aren't live-verified yet.
 - `sprite_ghost_test.lua` — the Phase 5.5 step that drew a decoded Brendan frame beside the
   local player with no networking, proving the decode-then-draw path on screen before it was

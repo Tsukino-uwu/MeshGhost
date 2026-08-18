@@ -2,7 +2,8 @@
 
 **First written 2026-08-11**, at the end of Phase 5, and kept current since with what the three
 shipped adapters learned the hard way (last swept 2026-08-17, against `agent_docs/contract.md`,
-`internal/bridge`, and the three shipped adapters' own docs). The core was proven to run against a fake
+`internal/bridge`, and the four shipped adapters' own docs; last recount 2026-08-18, when Crystal
+shipped and every "three" in this folder became wrong at once). The core was proven to run against a fake
 adapter (`cmd/meshghost-fakeadapter`, a ghost that walks in a circle, driven by
 `core.RunAdapter` — see [agent_docs/verified.md](../../agent_docs/verified.md)'s Phase 5 entry)
 with no game attached and no import of anything under `adapters/`. This folder is what that
@@ -12,8 +13,9 @@ to run as-is.
 ## Hard rule: this folder is the gold standard, and it is never allowed to go stale
 
 **Anything a shipped adapter learns belongs here too.** A new rule, a new file convention, a hard-won
-trap, a new per-adapter document — when it lands in `pokemon/emerald/`, `tevi/` or `pseudoregalia/`,
-back-port it to `_template/` in the same pass, not "later". The next game starts from this folder,
+trap, a new per-adapter document — when it lands in `bizhawk/pokemon/emerald/`,
+`bizhawk/pokemon/crystal/`, `tevi/` or `pseudoregalia/`, back-port it to `_template/` in the same
+pass, not "later". The next game starts from this folder,
 so whatever is missing here is a lesson the next adapter gets to learn the hard way a second time.
 
 **The rule lives here, in the template itself, deliberately** — not only in `CLAUDE.md` — because
@@ -47,9 +49,13 @@ The counterpart rule for content lives in each file: `BANDAGES.md` for compensat
 - [BANDAGES.md](BANDAGES.md) — the shipped-compensation register, plus the canonical
   how-to-tell-a-bandage guide and the user's standing position that a bandage is a state to leave,
   never a resting place.
-- [FLAGS.md](FLAGS.md) — the compile-time flag register: every switch sorted into shipped
-  **behaviour**, **probe**, or **dormant** negative. Write it once you have more than a handful of
-  flags; Pseudoregalia reached 56 without one and paid for it. It is the tie-breaker when a flag's
+- [FLAGS.md](FLAGS.md) — the switch register: every switch sorted into shipped **behaviour**,
+  **probe**, or **dormant** negative, plus the two kinds that are not bools at all — `constexpr`
+  **numbers** that decide behaviour, and **runtime** switches (environment variables, flag files,
+  loader-set globals), which are the only kind an interpreted adapter has. Write it once you have
+  more than a handful; Pseudoregalia reached 56 without one and paid for it, and the two Lua
+  adapters had none at all until 2026-08-18 because this file used to contemplate compile-time
+  bools only. It is the tie-breaker when a flag's
   comment and its value disagree, and the place where flags that only work as a *set* are marked.
 - [PROTOCOL.md](PROTOCOL.md) — the three-function contract (`get_local_state` /
   `render_remote` / `despawn_remote`) and the tick model, written language-agnostically
@@ -196,7 +202,7 @@ deliberately no template, since a stub with no content would go stale immediatel
 6. Read [agent_docs/pitfalls.md](../../agent_docs/pitfalls.md) — at minimum its "Diagnostic
    methodology" section (one diagnostic at a time, never log the value you just wrote, run the
    test without the fix, two identical failures means stop guessing). It's the most transferable
-   content in the repo, and the rest of the file is the log of what the three existing adapters
+   content in the repo, and the rest of the file is the log of what the four existing adapters
    got wrong so you don't have to.
 7. Follow this project's verification standard ([CLAUDE.md](../../CLAUDE.md)): no address,
    hook, or API call from memory — everything traceable to a source, and nothing in
@@ -209,7 +215,9 @@ deliberately no template, since a stub with no content would go stale immediatel
 9. When the adapter is actually ready to ship, add it to the release: give it its own step in
    `.github/workflows/release.yml`'s "Assemble release package" step, under
    `packaging/release/games/<game>/` (or `games/<franchise>/<game>/` if the game is grouped, as
-   `games/pokemon/emerald/` is — the layout mirrors `adapters/`) — nothing
+   `games/pokemon/emerald/` is — the release groups by franchise the way `adapters/` does, but
+   **not** by emulator: there is no `games/bizhawk/`, because a player installing a game's files
+   does not care which host reads them) — nothing
    under `adapters/` is picked up automatically. See
    [packaging/README.md](../../packaging/README.md)'s "Adding a game to the release" for the
    pattern (and its TEVI section if the adapter needs a build step, not just a file copy,
@@ -221,9 +229,13 @@ deliberately no template, since a stub with no content would go stale immediatel
    **If the adapter autostarts a core** (see [PROTOCOL.md](PROTOCOL.md)), check where it installs
    first: a mod that drag-and-drops *into the game's own directory tree* has nothing pointing back
    at the unzipped release folder, so `meshghost.exe` and a client-only `config.json` have to ride
-   along in the mod folder — TEVI and Pseudoregalia both do. An adapter loaded from the release
-   folder itself (Emerald) reaches the root exe and config with no second copy. The duplication is
-   forced by the install model, not chosen; don't copy it to an adapter that doesn't need it.
+   along in the mod folder. **Exactly one adapter does this: Pseudoregalia.** The condition is
+   *autostarts a core*, not *installs into the game tree* — TEVI's mod also installs into the game
+   tree and ships a single DLL and nothing else, because it does not start a core, and shipping an
+   exe beside a mod that never launches one would just be a confusing spare copy. An adapter loaded
+   from the release folder itself (both BizHawk adapters) reaches the root exe and config with no
+   second copy at all. The duplication is forced by the install model, not chosen; don't copy it to
+   an adapter that doesn't need it.
 
 ## First, work out what you will be able to READ
 
@@ -234,6 +246,7 @@ readable source existed about the game before work started.**
 | Adapter | Access model |
 | --- | --- |
 | Emerald | External source decompilation (`pokeemerald`) |
+| Crystal | External source decompilation (`pokecrystal`) — with a twist: Game Boy RAM labels live in *floating* sections, so no address appears in the decomp's source at all and the decomp has to be **built** to produce a symbol file |
 | TEVI | Self-documenting artifact (`Assembly-CSharp.dll` via ILSpy) — the easiest, and by far the fastest adapter |
 | Pseudoregalia | Runtime reflection only, no readable source anywhere — the largest and hardest by a wide margin |
 
@@ -510,9 +523,13 @@ the expensive way:
   per transport for this, paired with `run-netsim.bat` for real packet loss.
 - **Solo-test through `run-relay-loopback.bat`**, which echoes your own state back as
   `<id>-ghost`, and give loopback ghosts a **render-only** offset so you can tell the ghost from
-  your own character — all three adapters do this (Emerald 2 tiles, TEVI 160 units,
-  Pseudoregalia 150). Offset for judging render quality, zero for verifying exact tracking;
-  either way it never touches what goes on the wire.
+  your own character — Emerald 2 tiles, TEVI 160 units, Pseudoregalia 150. Offset for judging
+  render quality, zero for verifying exact tracking; either way it never touches what goes on the
+  wire. **Crystal's default is 0, and that is a deliberate difference rather than an omission**:
+  its ghost is a real object event with real collision, so the offset is about not spawning inside
+  something solid rather than about telling two sprites apart, and a tester raises it by hand when
+  they want a side-by-side comparison. So this is four adapters and three defaults — pick yours
+  from what your ghost *is*, not from what the others chose.
 - **Loopback cannot exercise cross-area filtering, join/leave, or despawn** — it always echoes
   your own area back. Those bugs only appear with two real instances, which is why the bridge
   port has to be per-instance overridable (see [PROTOCOL.md](PROTOCOL.md)). `run-fakeadapter1/2`
@@ -540,7 +557,7 @@ hard rule on this.
 
 **Also state the access model up top**, as a bullet alongside platform and adapter language:
 **"How the game is read: ..."** — decompilation, self-documenting artifact, runtime reflection,
-modding API, and so on, per the section above. All three shipped adapters carry this bullet. It is
+modding API, and so on, per the section above. All four shipped adapters carry this bullet. It is
 the single fact that best explains why an adapter is the size and shape it is, it tells a reader
 immediately how much of the code is discovery scaffolding versus feature work, and it sets
 expectations for anyone picking the adapter up later.
@@ -580,11 +597,16 @@ Region variants, exact file names and hashes are a separate question and belong 
 **The other sections every shipped README carries**, and which the build story alone doesn't cover:
 
 - **A bold `**Status:**` line as line 3** — the phase, what's done, what the last live
-  confirmation was and when. All three shipped adapters open this way, and it is the line a reader
-  checks first.
+  confirmation was and when. All four shipped adapters open this way, and it is the line a reader
+  checks first. **Rewrite it the day the adapter's state changes, not the day someone notices.**
+  Crystal's still said "groundwork only, there is no adapter yet" while a ~1000-line adapter that
+  renders ghosts, opens a socket, writes RAM and ships in the release sat beside it — the single
+  most misleading line in the repo when it was found, 2026-08-18, precisely because it is the line
+  a reader trusts most.
 - **"Further work past 'good enough'"** — what is still open, with `agent_docs/status.md` named as
   the authoritative list. This is the section that stops the numbered story turning into a status
-  file: anything still open goes here, not into a step. All three carry it.
+  file: anything still open goes here, not into a step. Three of the four carry it; Crystal, the
+  newest, does not yet, which is a gap rather than a precedent.
 - **"Custom features"** — anything this adapter does that isn't required of an adapter (TEVI and
   Pseudoregalia both have one). Keeps game-specific extras out of the build story.
 - **"Dev tools"** — an index of the probe scripts the adapter accumulated. Emerald's dozen-plus

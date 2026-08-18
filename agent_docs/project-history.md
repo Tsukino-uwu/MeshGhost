@@ -4,8 +4,8 @@ A retrospective, written from memory rather than derived from logs or commits. I
 because it's fun to look back on and because it's a useful reference for scoping the next
 game adapter — not as a source of truth for exact dates or facts (see `verified.md` and the
 `phases/` files for that). Per-adapter build stories live in each game's own `README.md`
-(`adapters/bizhawk/pokemon/emerald/README.md`, `adapters/tevi/README.md`,
-`adapters/pseudoregalia/README.md`) — this file covers only the part before any adapter
+(`adapters/bizhawk/pokemon/emerald/README.md`, `adapters/bizhawk/pokemon/crystal/README.md`,
+`adapters/tevi/README.md`, `adapters/pseudoregalia/README.md`) — this file covers only the part before any adapter
 existed.
 
 ## Pre-planning / concept (~3-5 hours)

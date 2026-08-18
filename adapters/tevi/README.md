@@ -15,8 +15,9 @@ Phase 6 fully done 2026-08-13.**
   has used, and it is why this adapter was by far the fastest. See
   [agent_docs/access-models.md](../../agent_docs/access-models.md).
 - **[documentation.md](documentation.md)** describes how TEVI itself works — reaching the player
-  through `EventManager`, the gap between the logic position and the drawn position, Spine
-  animations addressed by name, facing as a sprite flip, and the map screen's separate coordinate
+  through `EventManager`, the gap between the logic position and the drawn position, the player's
+  Unity `Animator` clips addressed by name (the playable characters are *not* Spine, though other
+  things in the game are), facing as a sprite flip, and the map screen's separate coordinate
   system. It was previously argued that a game with a readable managed assembly needed no such
   file; **the user overturned that 2026-08-18** and every adapter now carries one — being able to
   look something up is not the same as having looked
@@ -47,7 +48,7 @@ sending leaves their marker frozen where it was — see
 
 Second game, and by far the fastest: about 1 hour from start to a ghost following the player
 with all animations working. Server/client and the general approach were already proven by
-the `pokemon/emerald` adapter, so this was adapter-only work. BepInEx plus being able to
+the `bizhawk/pokemon/emerald` adapter, so this was adapter-only work. BepInEx plus being able to
 decompile the game made this easier and faster than Emerald, even though Emerald had a full
 source decompilation available to reference — a lot of things (notably the animations) just
 worked as soon as they were wired up, with no equivalent of Emerald's memory-probing phase.

@@ -367,9 +367,10 @@
     independently on a second unique seed, and added it to `inOverworld()` in
     `meshghost_emerald.lua` (also `vram_probe.lua`'s `isOverworld()` and `battle_probe.lua`
     itself) alongside the vanilla one, the same pattern already used for the vanilla/Thumb-bit
-    variant. **Still open**: an actual rendered ghost has not yet been watched on screen with
-    this fix applied (a loopback/two-peer session) — the address-level fix is confirmed, the
-    rendering consequence of it is inferred, not yet independently re-verified.
+    variant. **CLOSED, and this bullet's own "still open" line was already contradicted by the
+    entry ~45 lines above it** — which records the user reloading `meshghost_emerald.lua` and
+    watching a loopback ghost spawn and follow correctly on **both** Archipelago-patched seeds and
+    the vanilla ROM. The rendering consequence is watched, not inferred. Corrected 2026-08-18.
 - **No game-version check between peers, surfaced by TEVI (Phase 6) — closed 2026-08-14, with
   one real limit, and evidence the limit is the right call, not just an accepted gap.** `hello`
   now carries an optional `game_version` (`protocol.Hello.GameVersion`/`bridge.Hello.GameVersion`),
@@ -423,7 +424,7 @@
     ones where a judgement call was made with nothing concrete to check it against — `MaxEventBytes`
     being uniform rather than transport-dependent, the 20s resume grace, the 60s escrow
     timeout/retention, and whether an adapter really wants its own event echoed back.
-  - **Also at risk: bit rot.** Six capabilities and four message types that nothing exercises
+  - **Also at risk: bit rot.** Seven capabilities and four message types that nothing exercises
     outside their own tests will drift as the rest of the codebase moves. The mitigation is that
     they are all opt-in and inert by default, so drift degrades a feature nobody is using rather
     than the cosmetic path everybody is.
@@ -530,7 +531,9 @@
   **The `lua_State`-mismatch risk this entry originally raised is not closed after all** — it was
   only ever exercised lightly before. See `agent_docs/phases/phase7.md`'s 7.5 entry for the full
   diagnostic trail. Next steps, neither tried: an alternate vendored LuaSocket build, or the
-  C++/UEPseudo path (still blocked on private submodule access, above).
+  C++/UEPseudo path (blocked on private submodule access as of that writing — **that block was
+  resolved 2026-08-12**, see the "Resolved 2026-08-12" note on the submodule risk above, and the
+  paragraph immediately below is what happened once it was).
   **Resolved by side-by-side comparison, 2026-08-13**: with UEPseudo unblocked (above), a native
   C++ bridge client (`adapters/pseudoregalia/MeshGhostPseudo`) was run *simultaneously* with the
   still-enabled Lua `MeshGhostGhostProbe`, both connected to the same bridge port at the same

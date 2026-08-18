@@ -10,7 +10,7 @@ alternative, and the derivation next to them — see "deliberate" at the end, wh
 would cause churn. Ranked by how likely each is to cause a real bug.
 
 Per-adapter registers: `adapters/pseudoregalia/BANDAGES.md`, `adapters/tevi/BANDAGES.md`,
-`adapters/bizhawk/pokemon/emerald/BANDAGES.md`.
+`adapters/bizhawk/pokemon/emerald/BANDAGES.md`, `adapters/bizhawk/pokemon/crystal/BANDAGES.md`.
 
 Unlike the adapter registers, everything here is confirmable with the tools — `run-gotests.bat`, a
 regression test — without watching a running game.
@@ -61,6 +61,26 @@ reintroduces the exact churn this was chosen to prevent.
 
 **Fix:** `DefaultIdleTimeout / 3`. The repo already does this correctly elsewhere —
 `relay/limits.go:65` derives its headroom "so the stated relationship can't silently break".
+
+### 3. `MaxEventBytes` is a margin asserted against a datagram limit it does not actually fit
+
+Exactly the shape this file's "Go side" note describes: a constant in one package hand-picked as a
+margin against a constant in another, with prose asserting a relationship that does not hold.
+`MaxEventBytes`' own doc comment says it keeps an event "comfortably under"
+`udpconn.MaxDatagramBytes` (1200), and `contract.md` repeated the claim — it was sized against the
+**payload** alone, not the envelope. Measured 2026-08-17: a maximal `Event` renders to **1321
+bytes** and a committed `EscrowState` to **2294**, against **1182** usable after 18 bytes of
+framing. Both are refused by `udpconn.checkWritable` — on the reliable plane too — surfacing only
+as a `relay: send to pX failed:` line, so the message is lost for that recipient and never
+superseded. Registered here 2026-08-18; the measurement and the full trade-off are in `risks.md`.
+
+**Unreached today** — no adapter uses the event, escrow or world planes at all.
+
+**Fix:** derive the ceiling from the datagram limit the way `MaxWorldBlobBytes` already is (derived
+that way from the start, and it does fit), and retrofit `netx/udpconn/world_bounds_test.go`'s
+assertion shape onto events and escrow so the two constants cannot drift apart again. Shrinking
+them is a contract change with its own trade-offs, weighed against making the bound
+transport-dependent (`beyond-cosmetic.md` §9) — its own decision, not a hot-fix.
 
 ## Borderline — noted, not urgent
 

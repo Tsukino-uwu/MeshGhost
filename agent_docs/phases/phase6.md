@@ -1,5 +1,13 @@
 # Phase 6 — Second game (TEVI)
 
+> **Package paths below predate the 2026-08-17 move.** The six library packages (`protocol`,
+> `relay`, `core`, `transport`, `bridge`, `netx`) left `internal/` for the repo root that day so
+> they could be imported from outside the module — read any `internal/X` here as `X/`. `internal/`
+> now holds only `e2e`, which really does still live there. Citations of `internal/README.md` are
+> to a file that no longer exists; its content became `docs/networking.md` and `docs/security.md`.
+> The ADR is in `architecture.md`. Not rewritten line by line: these are dated records, and they
+> were correct when written.
+
 **Status: fully done, including 6.6 (two real players) and 6.7 (map markers)**, confirmed
 2026-08-13 — with one cosmetic gap still open, charged-attack VFX missing on the ghost (see
 Notes at the end of this file, and `status.md`). Started 2026-08-11. Per `agent_docs/README.md`'s convention: a phase earns a file

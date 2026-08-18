@@ -11,9 +11,9 @@ dumps, and data tables copied wholesale are never fine — **regardless of what 
 and may be explained; whatever you learned it from only saved you the time, and is not the source of
 your right to know it. If the only way to have it is to copy something, it stays out.
 
-This is [CLAUDE.md](../../../CLAUDE.md)'s standing rule — *is this fine sitting in a public repo
+This is [CLAUDE.md](../../../../CLAUDE.md)'s standing rule — *is this fine sitting in a public repo
 forever?* — applied to prose. No, or merely unclear, means out. Full guidance and the two edge cases
-worth knowing: [adapters/_template/README.md](../../_template/README.md).
+worth knowing: [adapters/_template/README.md](../../../_template/README.md).
 
 > Everything here is **measured from a running game** across Phases 1–5.5 and 8, and cross-checked
 > against the public `pret/pokeemerald` decompilation, which is cited by file so any claim can be
@@ -24,7 +24,7 @@ worth knowing: [adapters/_template/README.md](../../_template/README.md).
 describes an adapter workaround** — those belong in [BANDAGES.md](BANDAGES.md).
 
 Dated evidence for every claim, with addresses cited to the decomp build:
-[`agent_docs/verified.md`](../../../agent_docs/verified.md).
+[`agent_docs/verified.md`](../../../../agent_docs/verified.md).
 
 **Written 2026-08-18**, after this adapter had been shipping for a week. It was previously argued
 that a `documentation.md` was unnecessary for a game with a decompilation. That was overturned by
@@ -94,7 +94,51 @@ cases include the overworld callback, the player sprite data, and the overworld 
 own client reads the save-block pointers, which is why those keep working.
 
 Full citation trail, including what is and is not covered:
-[`agent_docs/risks.md`](../../../agent_docs/risks.md).
+[`agent_docs/risks.md`](../../../../agent_docs/risks.md).
+
+## Surfing: a rider plus a second sprite the game spawns underneath
+
+**[measured]** **A special player state is not just a graphic.** Surfing changes the player's
+`graphicsId` like every other special state, and it *also* puts a separate blue Pokémon sprite
+under the rider. Give something only the surfing graphic and it renders a rider sitting on nothing,
+which is the half a player notices first — so this is the worked example behind
+`_template/README.md`'s rule about reproducing the whole effect, animation *and* extras.
+
+**How the two are joined.** An object event owns its field effect through its own
+`fieldEffectSpriteId` field. That is the link the engine follows, and it is per-object rather than
+global.
+
+**The blob follows an object event id it reads from itself, not the player.** Its per-frame update
+routine, `UpdateSurfBlobFieldEffect`, is **not hardcoded to the player**: it reads an object event
+id out of the sprite's own `data[2]` and synchronises the blob's animation and position to whatever
+that names. This is the single fact that makes a surfing *anything* possible — point the field at a
+character and the engine drives the blob for that character, every frame, with nothing further
+required.
+
+**The blob's data slots** (`field_effect_helpers.c`): `data[0]` bob state, `data[2]` the object
+event id it follows, `data[3]` velocity, `data[6]`/`data[7]` the previous x and y. The game's own
+`FldEff_SurfBlob` seeds velocity and both previous coordinates to −1, enables the coordinate
+offset, uses palette 0, and sets **subpriority 150** — which is what puts the blob behind the rider
+rather than over them.
+
+**The blob is described by a sprite template in ROM** (`gFieldEffectObjectTemplate_SurfBlob`), so
+it can be built from that description rather than copied from a live one. That matters practically:
+**no blob exists at all unless somebody is already surfing**, so there is nothing to copy from
+until the state you are trying to produce already exists.
+
+**Two different map-coordinate-to-screen helpers, and they are not interchangeable.** The rider is
+placed with the one behind `GetMapCoordsFromSpritePos`, which subtracts only the total camera pixel
+offset. The blob is placed by `SetSpritePosToOffsetMapCoords` — `SetSpritePosToMapCoords` plus
+(8, 8) — which subtracts **both** the total camera pixel offset **and** the field camera. The two
+terms cancel while the camera is at rest, so the difference is invisible in the easy case and puts
+the blob a tile out of place in the others. **Which helper a given sprite uses is part of what that
+sprite is**, and picking by resemblance rather than by looking it up is how the blob ends up one
+tile below its rider.
+
+**Underwater is a different mechanism, not a variant of this one.** It bobs the player's own sprite
+(`StartUnderwaterSurfBlobBobbing`) rather than spawning a companion.
+
+**Frame size.** The blob's frames are 32×32 — sixteen tiles, the same tile cost as the rider's.
 
 ## Fishing
 
@@ -173,9 +217,12 @@ Being blocked looks like water and is not.
 
 **Using a rod** goes through `CanFish` (`item_use.c:234`), which additionally refuses on a
 waterfall tile and while underwater, and takes a different branch while surfing (where the tile
-must be surfable water with collision 0, or a bridge over water). A refusal shows the message
-*"DAD's advice... there's a time and place for everything"*, which is the generic **"not usable
-here"** — the same text as trying to ride a bike indoors, and **not** a story-progress gate.
+must be surfable water with collision 0, or a bridge over water). A refusal shows **the game's
+generic "you cannot use that here" message** — the one that also appears when you try to ride a
+bike indoors, phrased as advice from the player's father. It is **not** a story-progress gate, and
+reading it as one sends an investigation to the save block instead of to the tile in front of the
+player. (Described rather than quoted: extracted in-game text is on the Never side of
+`_template/README.md`'s Fine/Never table, and identifying the message is the fact that matters.)
 
 Confirmed live 2026-08-18 by editing a Littleroot tile to `id 44 / collision 0 / elevation 1` and
 reading back what the game computes for it: `behaviour 21 (OCEAN_WATER)`, with the player at

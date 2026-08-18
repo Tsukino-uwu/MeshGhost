@@ -7399,3 +7399,72 @@ scheduled. All established by the agent with local tools; nothing here is a visu
 - **The general lesson, recorded in `probes.md`**: synthesising a piece of a game gets you its
   form, not the data keyed to it. A real water tile is a behaviour, an elevation, **and** a map
   with water encounters; two of the three produce something that looks right and does nothing.
+
+### CORRECTION: the Pseudoregalia bridge-loss despawn path does exist, and always did (2026-08-18)
+
+- Date: 2026-08-18
+- Confirmed by: my own reading of `Plugin.cpp`/`Plugin.hpp`. No new runtime facts and no visual
+  claim, so this needs no user watching under `CLAUDE.md`'s rule. This file is append-only, so the
+  wrong entry cannot be edited out and would otherwise keep reading as live.
+- **What was wrong.** The 2026-08-16 transport entry above records, under "Suspected, not
+  confirmed": *"the Pseudoregalia mod appears to have no despawn-on-bridge-loss path — a search
+  found no disconnect callback and no ghost-map clear"*, and then plans the fix. **The path was
+  already built and confirmed live on 2026-08-14** — two entries far earlier in this same file
+  ("Pseudoregalia bridge-disconnect ghost cleanup, found live and fixed", and the entry above it
+  where the user watched the ghost disappear on client close) describe building it and watching it
+  work.
+- **Why the search missed it.** It looked for a *disconnect callback*. There is none, by design:
+  `on_update()` **polls** `bridge->is_connected()`/`is_ready()` every tick and acts on the
+  connected -> disconnected **edge** (`bridge_was_connected`), arming
+  `bridge_disconnect_cleanup_pending` under `state_mutex`. `game_thread_tick()` drains that flag
+  and calls `release_all_ghosts_parked(STR("bridge disconnected"))` — the split exists because the
+  actual release must happen on the game thread. Grepping for a callback registration finds
+  nothing; grepping for the symbol finds all of it. **The general lesson: absence of a match is
+  evidence about the search term, not about the code** — which the original entry said in the same
+  breath as drawing the conclusion anyway.
+- **One detail in the superseded plan is also wrong.** It insists the fix is `release_all_ghosts`
+  and *"NOT moving the ghosts somewhere out of sight"*. What shipped, and what was watched
+  working, is `release_all_ghosts_parked`, which parks — the same thing a real `despawn_remote`
+  does. The parking-is-unsafe reasoning it cites applies to a ghost whose *level has already been
+  torn down* (the `LoadMap` case), which is not the bridge-loss case.
+- **Consequence:** the corresponding open item has been deleted from `status.md`. Nothing is open
+  here.
+
+### CORRECTION: ghosts do NOT spawn with collision disabled — the camera fix was the rig, not collision (2026-08-18)
+
+- Date: 2026-08-18
+- Confirmed by: my own reading of `Plugin.cpp`. No visual claim, so no user watching is needed.
+- **What was wrong.** Two 2026-08-16 entries above reason from *"ghosts spawn with collision
+  disabled now"* / *"most likely because ghosts now spawn with collision disabled"* — offered as
+  the reason a camera-rig problem stopped reproducing, and as grounds for expecting a ghost to no
+  longer trigger overlap volumes.
+- **`GHOST_COLLISION_ENABLED` is `true`** (`Plugin.cpp:620`) and has been since 2026-08-15. It was
+  never flipped off. Collision is *shipped on*, and is the subject of its own still-open item (a
+  player killing a ghost leaves them respawning at 0 health — see the 2026-08-17 entry).
+- **The real mechanism, already recorded correctly elsewhere in this file**: a ghost brings its own
+  `BP_PlayerCam_C` camera rig, identified by its `OwningActor`, and *that* is what took the camera
+  — see "A ghost brings its own camera rig, and that is what took the camera" (2026-08-16) and the
+  2026-08-17 audit entry that supersedes the fight-back heading. The enemy-targeting half was fixed
+  by re-typing the ghost's capsule as `WorldDynamic` (`call_set_collision_object_type`), which
+  changes what *queries* see, not whether collision exists.
+- **Why it matters beyond tidiness:** any future reasoning of the form "a ghost cannot trigger an
+  overlap volume, so that mechanism is dead" is built on a premise that is false. A ghost has
+  collision and can.
+
+### NOTE: `internal/X` package paths throughout this file predate the 2026-08-17 move (2026-08-18)
+
+- Date: 2026-08-18
+- Confirmed by: `ls internal/`, `git log --diff-filter=D -- internal/README.md`, and the ADR in
+  `architecture.md`. No runtime facts here; this file is append-only, so a bookkeeping note is the
+  only way to correct ~60 stale paths without rewriting dated records.
+- **The six library packages left `internal/` for the repo root on 2026-08-17** — `protocol`,
+  `relay`, `core`, `transport`, `bridge`, `netx` — so they can be imported from outside the module,
+  with no stability promised. **Read every `internal/X` in the entries above as `X/`.**
+- **`internal/` now holds only `e2e`**, which really does still live there, so `internal/e2e` is
+  correct wherever it appears.
+- **`internal/README.md` was deleted** in "Let an outside program actually use this, in Go or in
+  anything". Entries citing it are citing a file that no longer exists; its content became
+  `docs/networking.md` and `docs/security.md`.
+- **Deliberately not rewritten line by line.** Each entry was correct on its own date, and this
+  file's value is that it records what was true when. The same note now sits at the top of
+  `phases/phase3.md` through `phase8.md`.

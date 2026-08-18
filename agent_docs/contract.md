@@ -147,7 +147,7 @@ signal joins/leaves — `despawn_remote(id)` has nothing to trigger it without a
 | `transports` | relay → client | the transports this relay actually serves, as `kind` + `port` pairs (never a host). The reply to a `hello` carrying `query_only: true` — sent *instead of* `welcome`, with no room joined and no `player_id` assigned, and the relay closes immediately after. See Transport below |
 | `reject` | relay → client | a reason string — sent immediately before the relay closes a connection, either refusing a `hello` at handshake or, since the send/receive rate-control feature (see the ADR in `architecture.md`), closing an already-joined connection for exceeding the per-client message cap |
 | `join` | relay → client | a peer's `player_id`, plus an optional initial `state`. Populated **only** for a room that negotiated `snapshot.v1`, where a joining client is sent one `join` per existing member carrying that member's most recent sample; otherwise still absent, as it was from 2026-08-11 to 2026-08-17. |
-| `leave` | relay → client | a peer's `player_id` — this is what drives `despawn_remote` |
+| `leave` | **both directions** | relay → client: a peer's `player_id` — this is what drives `despawn_remote`. client → relay (since 2026-08-17): a voluntary goodbye, payload ignored — see `resume_token` |
 | `state` | both directions | the packet schema above |
 | `event` | both directions | an opaque payload, a `to` addressee (or absent for room broadcast), a relay-stamped `from`, a room-wide `seq`, and an optional `corr_id`. **Implemented 2026-08-17**; requires `event.v1`. See Extensibility below |
 | `lease` / `lease_state` | client → relay / relay → client | exclusive hold of an opaque key: `claim`/`renew`/`release`, answered with the current holder and expiry. Requires `lease.v1` |
@@ -230,6 +230,12 @@ in a later `hello` to reclaim the same `player_id` after an unexpected drop.
   `player_id`, its leases and its in-flight exchanges are all still live, and **the rest of the
   room is never told anything happened at all** — no `leave`, no `join`. Past it, the drop
   becomes an ordinary leave: leases freed, live exchanges aborted, `leave` broadcast.
+- **A deliberate quit is a `leave` sent client → relay**, which is why `leave` is the one message
+  that travels both ways. The core sends an empty `protocol.Leave` before closing
+  (`sendGoodbye`, synchronous so it cannot race its own hangup); the relay ignores the payload —
+  `player_id` would be the client's own claim and the connection already knows whose it is — clears
+  the resume token and takes the real-leave path instead of suspending. Without it a player who
+  quit on purpose would freeze on everyone else's screen for the whole grace window.
 - **A session may be taken over while the relay still believes it is live**, not only after a
   drop it has already noticed. The relay registers a session when it *issues* the token, not when
   the connection dies. This is not an edge case: on `quic` a hard-killed peer sends no close
@@ -291,7 +297,7 @@ both opaque to the core and relay (never parsed, compared only where noted below
   by its first member, is sticky the same way `game_id` is — a later `hello` with a *different*,
   non-empty `game_version` for that room is refused. A client that omits it (or a room where no
   member has declared one yet) is never refused on this basis; only a real mismatch between two
-  declared values counts. None of the three shipped adapters read a game build number for this
+  declared values counts. None of the four shipped adapters reads a game build number for this
   — there's no cited memory address for one, and `CLAUDE.md`'s "no addresses/APIs from memory"
   rule means one isn't guessed at. Each adapter instead reports its own script/mod version,
   which is the more useful signal anyway: it catches two peers running different revisions of
@@ -685,10 +691,12 @@ on its behalf (see `features` above). The core advertises the union of that and 
 configured list. **This is not a breach of "an adapter has no say in how the core reaches the
 relay":** a capability is a statement about what the *adapter* can do, which nothing else can
 know, whereas the address, transport and rate are properties of the connection and remain
-entirely the core's. Every shipped adapter omits it. The core also gains four more bridge
-message types for those capabilities — `event` (both directions), `lease`/`escrow` (adapter →
-core) and `lease_state`/`escrow_state` (core → adapter) — none of which an adapter that never
-asks for a capability will ever see.
+entirely the core's. Every shipped adapter omits it. The core also gains **seven** more bridge
+message types for those capabilities — `event` (both directions), `lease`/`escrow`/`world`
+(adapter → core) and `lease_state`/`escrow_state`/`world_state` (core → adapter) — none of which
+an adapter that never asks for a capability will ever see. (This sentence said "four" and then
+listed five; `world`/`world_state` landed later the same day and were never added to the count.
+Corrected 2026-08-18 against `bridge/bridge.go`.)
 
 `game_id` is opaque to the core — the same equality-only rule as `area_id`/`anim` — and is
 forwarded verbatim into the relay's own `hello.game_id` (the packet-schema table above). This
@@ -793,9 +801,15 @@ alongside room-code auth (see the architecture.md ADR) — treat the numbers bel
   into a file path, shell command, or format string by an adapter. They are opaque data,
   not code, even though they're only ever compared by equality within the same game.
 - Max `event` payload: **1024 bytes** (`MaxEventBytes`), plus **64** for `corr_id`
-  (`MaxCorrIDLen`). Uniform across every transport rather than transport-dependent, and chosen
-  so a whole event envelope fits under `udpconn.MaxDatagramBytes` (1200) — so an event means the
-  same thing everywhere and needs no size negotiation. **There is no application-level
+  (`MaxCorrIDLen`). Uniform across every transport rather than transport-dependent, so an event
+  means the same thing everywhere and needs no size negotiation.
+  **Correction, 2026-08-18: it does NOT keep a whole event envelope under
+  `udpconn.MaxDatagramBytes` (1200), and this file previously claimed it was chosen to.** It was
+  sized against the *payload* alone. Measured: a maximal `Event` renders to **1321 bytes** and a
+  committed `EscrowState` to **2294**, against 1182 usable after 18 bytes of framing — both are
+  refused by `udpconn.checkWritable`, on the reliable plane too, and lost for that recipient. See
+  `risks.md`, which has the full measurement, and `bandages-core.md`. Unreached today: no adapter
+  uses these planes. Fixing it is a contract change with its own trade-offs and its own decision. **There is no application-level
   fragmentation, deliberately**: an oversized event is refused, not split, because fragmenting
   across a lossy plane reinvents TCP badly and the reliable plane already is TCP. If a payload
   does not fit, send a *reference* to the data (a key, an exchange id), never chunks.
@@ -843,7 +857,8 @@ never from memory.
       verified.md` (`gObjectEvents`/facing-direction entry).
 - [x] Local snapshot frequency: **answered, not by confirming the brief's 10Hz hypothesis, but
       by superseding it.** The real enforced rate is `core.DefaultMinSendInterval` = 50ms / 20Hz,
-      live-confirmed across all three shipped games (Emerald, TEVI, Pseudoregalia) — see the
+      live-confirmed across the three games shipping at the time (Emerald, TEVI, Pseudoregalia; Crystal
+      came later, 2026-08-18) — see the
       "Limits" section above. 20Hz was chosen for headroom under the relay's 120 msg/sec cap
       (found live: TEVI's frame-driven `Update()` runs uncapped well above 120Hz with no
       engine-level throttle), not as a claim that 20Hz is the objectively "right" sync rate for

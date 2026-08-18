@@ -8,13 +8,17 @@ etc.) live in `CLAUDE.md`, not here — this file is reference, not rules.
 
 ```text
         Relay (relay, cmd/meshghost-relay)
-             |  relay protocol: NDJSON over tcp|udp|quic (via netx),
-             |  hello/welcome/reject/join/leave/state/ping
+             |  relay protocol: NDJSON over tcp|udp|quic (via netx). 16 types:
+             |  hello/welcome/reject/join/leave/state/ping/pong/transports, plus
+             |  the opt-in planes event/lease/lease_state/escrow/escrow_state/
+             |  world/world_state (protocol/protocol.go is the list)
         Core (core, cmd/meshghost)
-             |  adapter bridge: NDJSON/TCP, localhost-only
+             |  adapter bridge: NDJSON/TCP, localhost-only. 13 types:
+             |  hello/bridge_ready/reject/local_state/render_remote/despawn_remote,
+             |  plus the same opt-in planes (bridge/bridge.go)
      [ Adapter contract ]
         /    |    \
-   Emerald  TEVI  Pseudoregalia   (per-game, rewritten each time)
+   Emerald  Crystal  TEVI  Pseudoregalia   (per-game, rewritten each time)
 ```
 
 Full field-level detail — packet schema, message types, tick model, transport framing,
@@ -534,8 +538,8 @@ Format: Date / Decision / Status / Context / Options considered / Resolution / C
   stale) the `game_id` ADR removed.
 - **Resolution (version check):** Option 2. `bridge.Hello.GameVersion`, forwarded verbatim
   (opaque, same discipline as `game_id`/`area_id`/`anim`); `Core.GameVersion` overrides it when
-  set. All three shipped adapters report their own **adapter/mod version**, not a game build
-  number read from memory — no cited address exists for a game version in any of the three
+  set. All four shipped adapters report their own **adapter/mod version**, not a game build
+  number read from memory — no cited address exists for a game version in any of the four
   games, and `CLAUDE.md`'s "no addresses/APIs from memory" rule means one isn't guessed at. An
   adapter-script version is arguably the more useful signal anyway: it catches two peers on
   different revisions of the same adapter, the likelier real source of a silent mismatch. A
@@ -597,7 +601,7 @@ Format: Date / Decision / Status / Context / Options considered / Resolution / C
      checked against the code: **nowhere adequate.** `rejectAndClose` (added by the ADR above)
      sent the reason to the client, but never logged anything server-side — a host had zero
      visibility that anyone was ever refused. The reason did reach `core`'s own log,
-     but no further: all three shipped adapters, on a closed bridge connection, just log a
+     but no further: every shipped adapter, on a closed bridge connection, just logs a
      generic "lost, will retry" and loop silently forever with no reason ever reaching the
      player. Separately, the relay's own log had never recorded a successful join or leave
      either — a gap the user had already flagged once before, in the cross-machine session
@@ -1412,8 +1416,12 @@ Format: Date / Decision / Status / Context / Options considered / Resolution / C
   `bridge_ready` or `reject{reason}` instead of silence-or-hangup.
 - **Status:** Core, bridge, and tests done. The adapter-side port walk that consumes it has since
   shipped for Pseudoregalia (`BridgeClient` walks `BRIDGE_BASE_PORT..+BRIDGE_PORT_COUNT` and
-  requires an explicit `bridge_ready`, covered by `internal/e2e`'s `TestPortWalkFindsAFreeCore`);
-  TEVI and Emerald still connect to a single fixed port. **One resolution below is reversed** —
+  requires an explicit `bridge_ready`, covered by `internal/e2e`'s `TestPortWalkFindsAFreeCore`).
+  **Updated 2026-08-18: both Pokémon adapters now walk too** — `meshghost_emerald.lua` and
+  `meshghost_crystal.lua` each probe `BRIDGE_BASE_PORT` (7778) upward across `BRIDGE_PORT_COUNT`
+  (8) and require `bridge_ready`. **TEVI is the last one still on a single fixed port**
+  (`Plugin.cs`'s `DefaultBridgePort`, overridable by config but not walked); the adapter walks are
+  **not yet watched live**. **One resolution below is reversed** —
   silence is no longer treated as an older core, see the note on that bullet.
 - **Context:** The Linux tester asked for a way to run a second game — "start it anyway with an
   increased port until a free one is found" — so each game could use a different relay. Checking
@@ -1841,8 +1849,14 @@ Format: Date / Decision / Status / Context / Options considered / Resolution / C
   than a philosophical one that was never in question.
 - **Status:** Approved by the user 2026-08-17, in those terms — *"i want to actually spawn in as
   intended now for crystal, so we don't start doing this game with bandaids from the get go"*.
-  **Nothing is implemented.** `adapters/bizhawk/pokemon/crystal/probes/object_slot_probe.lua` is the first step
-  and is strictly read-only.
+  **Implemented and confirmed on screen 2026-08-18** — the original status line here read "Nothing
+  is implemented", true only on the day it was written.
+  `adapters/bizhawk/pokemon/crystal/probes/object_slot_probe.lua` was the first, strictly read-only
+  step; `meshghost_crystal.lua` now spawns a real object event beside the player mid-map, walks it
+  with the game's own step animation, and drives it off `render_remote` over the bridge — a
+  loopback ghost was watched moving and facing correctly. `verified.md`, `phases/phase9.md`.
+  Two amendments to the terms below: the ROM guard is a warn (see the Archipelago bullet), and the
+  scope now includes Emerald (see the 2026-08-18 ADR further down).
 - **Context:** Emerald draws over the emulator: a `gui.drawPixel` overlay fed by a hand-rolled
   decode of the Brendan/May sprite out of ROM. That was the brief's own tier 1 and it shipped, but
   it re-implements what the game already does, and it is fragile in a way that has been *confirmed
@@ -1881,6 +1895,11 @@ Format: Date / Decision / Status / Context / Options considered / Resolution / C
   otherwise** — degrading to no ghost, or to the overlay path, but never writing on an
   unrecognised ROM. Deferring Archipelago support is fine; writing blindly is not, and the
   difference between the two is this guard.
+  **Amended 2026-08-18, on the user's explicit call (`verified.md`): the second half of that
+  sentence is now a *warn*, not a *refuse*.** As shipped, `meshghost_crystal.lua` identifies the
+  ROM, says which build it found, and runs anyway — Archipelago included, using its own measured
+  address table. `MESHGHOST_CRYSTAL_STRICT=1` restores the refusal. What survives unchanged is the
+  identification itself and the bound that makes attempting safe: object RAM only, never a save.
 - **Open question that must be answered BEFORE implementing: call the routine, or imitate it?**
   Added 2026-08-17 on re-reading `adapters/_template/README.md`, whose "Where does this already
   happen normally?" section records precisely this failure from the day before — Emerald's Union
@@ -1934,8 +1953,10 @@ Format: Date / Decision / Status / Context / Options considered / Resolution / C
   never touches the game, no gameplay authority) is unchanged and restated by reference, not
   relaxed.
 - **Status:** Requested by the user 2026-08-18 — *"lets fix up emerald so spawns instead of draw"*.
-  The read-only evidence step (`adapters/bizhawk/pokemon/emerald/probes/object_slot_probe.lua`) ran the same day;
-  no write has been made yet.
+  The read-only evidence step (`adapters/bizhawk/pokemon/emerald/probes/object_slot_probe.lua`) ran the same day.
+  **Shipped the same day**: `meshghost_emerald.lua` spawns on a vanilla ROM and the user confirmed
+  it piece by piece on screen — appears, follows, walks, runs, stays on-grid, leaks nothing. The
+  end-to-end pass is still queued (`unverified.md`).
 - **Why the mechanism transfers cleanly.** Emerald's structures are the same *shape* as Crystal's —
   two cross-linked arrays, one owning identity and one owning drawing — which is why the recipe
   carries over rather than needing rediscovery. Read from our own `make compare`-verified
@@ -1960,7 +1981,10 @@ Format: Date / Decision / Status / Context / Options considered / Resolution / C
   as Crystal imitates `CopyMapObjectToObjectStruct`'s. This closes the open question the Crystal
   ADR left standing, for **both** BizHawk adapters.
 - **The Archipelago condition is stronger here than for Crystal, and that is deliberate.** Crystal's
-  patch rearranges WRAM non-uniformly, so that adapter refuses to write on an unrecognised ROM.
+  patch rearranges WRAM non-uniformly; that adapter was originally to refuse on an unrecognised
+  ROM, and since 2026-08-18 warns and attempts instead (see the amendment on the Crystal ADR).
+  **Emerald's condition was not relaxed** — the spawn path still declines to write on a ROM whose
+  layout is unmeasured and keeps the overlay there.
   Emerald's relocation is a **single verified constant shift** (`0x284` for
   `gObjectEvents`/`gPlayerAvatar`, established live 2026-08-14), and the shipped adapter already
   detects which of the two applies by finding the player's own object event rather than trusting
@@ -1968,12 +1992,14 @@ Format: Date / Decision / Status / Context / Options considered / Resolution / C
   refuse to spawn otherwise.** Detection is retried every frame rather than latched once — the
   timing bug already found live on the read path (a script loaded during the intro latching onto
   the vanilla offset forever) would be far worse on a write path.
-- **What is NOT yet decided, and must not be decided by drift:** whether the existing overlay
-  renderer stays as a fallback (unrecognised ROM, no free slot) or is removed once spawning works.
-  Keeping both paths is exactly the shape of a compensation, so if it happens it is a deliberate
-  choice recorded in `adapters/bizhawk/pokemon/emerald/BANDAGES.md`, not a leftover. This is the user's
-  call and is deferred until spawning is confirmed on screen, so the choice is made against a real
-  result rather than a hope.
+- **Was open, DECIDED 2026-08-18:** whether the existing overlay renderer stays as a fallback
+  (unrecognised ROM, no free slot) or is removed once spawning works. **Both paths stay for now** —
+  the adapter spawns on a vanilla ROM and falls back to the overlay on an Archipelago-patched one
+  (`avatarAddrOffset ~= 0`). Keeping both is exactly the shape of a compensation, so it went in
+  where this bullet said it must: registered in
+  `adapters/bizhawk/pokemon/emerald/BANDAGES.md` ("Two render paths at once"), with its own
+  retirement condition — verifying `gSprites` for *writing* on a patched ROM — rather than left as
+  a leftover.
 - **Consequences, accepted going in:** the same three the Crystal ADR lists — per-map object state
   means re-spawning on every map load, a writer can race another tool's writes where two readers
   never could, and slot exhaustion needs a defined behaviour. Emerald adds one of its own:

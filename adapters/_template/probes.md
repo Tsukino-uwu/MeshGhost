@@ -406,10 +406,12 @@ assumption about which branch it will see.
 **The user, 2026-08-18, after the third time in one session:** *"check what something is/does,
 don't assume."* Each instance below cost real time, and each was one grep away from being right.
 
-**1. Assumed a message meant one thing; it meant another.** Emerald answered *"DAD's advice...
-there's a time and place for everything"* when a scripted rod use failed. That was written up as a
-story-progress gate. It is actually the generic **"you cannot use that HERE"** — the same message
-you get riding a bike indoors. The wrong explanation was plausible, fitted the evidence, and would
+**1. Assumed a message meant one thing; it meant another.** A scripted rod use in Emerald failed
+with a refusal message phrased as fatherly advice about doing things in the right place. That was
+written up as a story-progress gate. It is actually the game's generic **"you cannot use that
+HERE"** — the same message you get riding a bike indoors. (Described, not quoted: extracted in-game
+text is on the Never side of `README.md`'s Fine/Never table. Naming *which* message it is carries
+the whole lesson; reproducing the text carries none of it.) The wrong explanation was plausible, fitted the evidence, and would
 have sent the next session looking at save progress instead of at the tile in front of the player.
 
 **2. Assumed an effect proved a cause.** A tile was edited to be water, the player walked into it,
@@ -560,3 +562,43 @@ follow it — the encounter path was two greps from the fishing task. Faking geo
 easy; the data keyed to a location, a species, an item id or a flag is the part that is invisible
 until it is missing. **And prefer doing the test where the real thing exists** — moving to a route
 would have cost less than making water in a town that could never use it.
+
+## Check what tools you actually have before concluding you can't — 2026-08-18
+
+**The rule:** *"don't just assume you can't do something without checking what possible tools you
+have available first."* Recorded here because probes are where it bites: a probe exists to answer
+a question, and "we have no way to ask that" is itself an answer that must be *checked* rather
+than assumed.
+
+**The live example was scripted input.** BizHawk gives a Lua probe `joypad.set`, so an Emerald
+probe can drive the game — walk into a tile, hold a direction, run a fishing sequence — and every
+probe in `emerald/probes/` that does so exists because that tool was obvious. The PC games looked
+like they had no equivalent, so setup stayed manual: every Pseudoregalia or TEVI iteration costs a
+real game launch and a hand-walk to the test state, and the ghost-load rig has to be *aimed* by a
+human reading a log line. Ten minutes of actually looking found three candidates
+(`agent_docs/ideas.md`, "Driving the game itself"), one of which — calling a UFunction through
+`ProcessEvent` — the Pseudoregalia mod **already does**, for the ghost's own animation. The
+capability was in the file the whole time; only the framing was missing.
+
+**The general shape, and why it is a probe-method rule and not a nice sentiment:**
+
+- **A negative capability finding ages badly and is rarely re-tested.** Once "X can't be done
+  here" is written down, tooling gets built *around* the absence and nobody revisits it. In this
+  repo that pattern cost the local race detector for two days — see `pitfalls.md`'s
+  wrong-install-on-PATH entry, where the conclusion "this compiler can't build cgo" was really
+  "the probe was missing a step". Treat "not possible on this machine" as **a dated claim, not a
+  property**, exactly as `CLAUDE.md` says for every other dated fact.
+- **Look for the capability you already ship.** The cheapest tool is one the adapter is using for
+  something else. Before reaching for a new dependency, grep your own mod for the general
+  mechanism (`ProcessEvent`, a reflection helper, an existing hook) — a new *caller* is far
+  cheaper and far less risky than a new *capability*.
+- **Record checked dead ends, not just wins.** UE4SS's `RegisterKeyBind` observes input and does
+  not synthesise it, and `QueueInputSource` looks like injection but is explicitly *"not an
+  implemented input source"* with `is_available()` returning `false`. Writing that down is what
+  stops the next session re-deriving it — the same reason a probe that answered its question is
+  kept rather than deleted.
+
+**If you build one, it is a probe and it stays one.** An adapter that can press buttons can play
+the game, which is a completely different promise from a cosmetic ghost — off by default, never
+shipped, and gated the way `agent_docs/beyond-cosmetic.md` gates anything past cosmetic. The first
+milestone is the smallest observable one: reach a loaded save from the main menu, and nothing else.

@@ -1,5 +1,13 @@
 # Phase 8 — Emerald, dedicated (post-Phase-5.5 ongoing work)
 
+> **Package paths below predate the 2026-08-17 move.** The six library packages (`protocol`,
+> `relay`, `core`, `transport`, `bridge`, `netx`) left `internal/` for the repo root that day so
+> they could be imported from outside the module — read any `internal/X` here as `X/`. `internal/`
+> now holds only `e2e`, which really does still live there. Citations of `internal/README.md` are
+> to a file that no longer exists; its content became `docs/networking.md` and `docs/security.md`.
+> The ADR is in `architecture.md`. Not rewritten line by line: these are dated records, and they
+> were correct when written.
+
 **Status: in progress**, started 2026-08-14. Numbered next in sequence rather than folded back
 into 1–5.5 (which bundled Emerald's adapter work together with building the server/client/core
 themselves, since Emerald was the first game) — renumbering 1–5.5 would break the many existing
@@ -102,8 +110,9 @@ file of its own, which is what was happening before this file existed.
         of the three games. Real gap this still leaves open for TEVI specifically: two peers on
         different Steam patch levels or DLC states still aren't caught — see `risks.md`.
         (Those two version strings are the 2026-08-14 values and have since been bumped, as
-        designed: Emerald reports `"phase8"` and Pseudoregalia `"phase7.7"` as of 2026-08-17 —
-        `ADAPTER_VERSION` in each adapter is the live source.)
+        designed: Emerald reported `"phase8"` and Pseudoregalia `"phase7.7"` as of 2026-08-17;
+        Emerald is `"phase8-spawn"` as of 2026-08-18, bumped with the spawn renderer —
+        `ADAPTER_VERSION` in each adapter is the live source, not this line.)
       - **Malicious-peer hardening**: a real remote-OOM in `internal/transport` (unbounded read
         buffer, fixed via `bufio.Scanner` with a real max-token-size enforced during the read),
         read/write deadlines and a relay hello-timeout (none existed before), `Room.Forward` no
@@ -152,7 +161,8 @@ file of its own, which is what was happening before this file existed.
         the in-repo packaging copy and the live Steam install. **Live-confirmed working**: ghost
         spawn/follow/animate, no crashes. Unrelated to this sweep, found live during the same
         test: a possible ghost→real-player combat interaction (ghost landing hits despite
-        `GHOST_COLLISION_ENABLED = false`) — logged as a new data point on the existing
+        `GHOST_COLLISION_ENABLED = false`, its value on that date; it has been `true` since
+        2026-08-15) — logged as a new data point on the existing
         ghost-collision open question in `risks.md`, low priority, not yet investigated.
       - **TEVI (C#)**: all fixes applied (stale-thread generation guard, `TcpClient` disposal,
         real `Destroy()` on ghost/marker despawn, `OnDestroy`/`OnApplicationQuit` bridge close,

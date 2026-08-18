@@ -34,6 +34,26 @@ Roadmap: `plans.md`. Per-phase log: `phases/`. Evidence for all of the above: `v
 
 Fixed-and-confirmed work is not listed here — see `verified.md` and the phase files.
 
+### Deferred by the 2026-08-18 audit-and-refactor pass
+
+The pass fixed two real relay bugs, four adapter defects and ~60 stale doc claims; these were
+identified, scoped and deliberately NOT done, because each needs a live game to judge or is large
+enough that bundling it would make one confirmation pass unable to isolate a regression.
+
+- **`Plugin.cpp`'s `game_thread_tick()` is ~4,000 lines in a 10,347-line file.** Its neighbours are
+  already extracted (`tick_remote_weapon`, `tick_afterimage_discovery`); the per-remote blocks are
+  the next ones. Behaviour-preserving but on the adapter's hot path — needs a live session.
+- **The two BizHawk Lua adapters duplicate ~400-500 lines each** (JSON codec, socket loader, port
+  walk, framing). Shared `adapters/bizhawk/lib/` would need a matching `release.yml` staging change.
+- **Probe boilerplate: an identical 47-line block across 8 Crystal probes**, including the ROM
+  guard. Do the guard and `detect_rom_variant()` first — eight divergeable copies of "refuse to
+  write unless the checksum matches" is the risk, not the line count.
+- **`cmd/meshghost` and `cmd/meshghost-relay` duplicate ~120 lines of config/log plumbing**
+  (`stripBOM` is byte-identical). An `internal/cfg` package; both mains' comments already say
+  "mirrored in".
+- **TEVI: the `bridge_ready` send gate and the port walk.** Registered as entry 5 in
+  `adapters/tevi/BANDAGES.md` with the reason it was not rushed.
+
 ### Was blocked on a two-player session — now unblocked (7.7 confirmed 2026-08-16)
 
 Two real players on two machines, confirmed on screen — `verified.md`. These need re-judging now
@@ -111,8 +131,6 @@ that a peer's state genuinely differs from the local player's, which loopback co
   `MaxIdleTimeout`. `verified.md` 2026-08-17, `architecture.md` ADR.
 - **Nameplates / one-shot peer effects are now unblocked** — both were parked for want of the
   event plane, which exists. Needs per-adapter work. `ideas.md`.
-- **Suspected: Pseudoregalia mod may not clear ghosts when the bridge drops** — pre-existing, any
-  transport. Planned fix: `release_all_ghosts` on bridge loss, NOT parking. `verified.md` 2026-08-16.
 
 ## Links
 
