@@ -149,6 +149,18 @@ UE4SS entry below for that last one specifically, which is currently unresolved)
     agent getting better at Emerald: it is that the human stopped being in the loop for the
     mechanical half. The remaining human step — watching the screen and saying what is wrong — is
     the one that cannot be automated and is exactly where every real bug this session was caught.
+- **A BizHawk Lua script must find itself with `debug.getinfo`, never `io.popen("cd")` —
+  2026-08-18.** BizHawk changes the working directory to a script's own folder when that script is
+  opened by hand in the Lua Console, so `io.popen("cd")` returns the right answer *by coincidence*
+  and only in that one case. Load the same file any other way — from another script, or with a
+  different working directory — and it resolves `lib/x64/` against the wrong folder and dies with
+  **"The specified module could not be found"**, which reads like a missing DLL and sends you
+  looking at LuaSocket instead of at a path. Found live 2026-08-18 loading the Emerald adapter
+  through the dev loader. `io.popen` also **spawns a real `cmd` process**, so every launch flashed
+  a console window on screen — the user spotted that independently, and it is pure cost: nothing
+  needs a shell to ask where it is. `debug.getinfo(1, "S").source` is the path the chunk was
+  loaded from, which is the actual question. Crystal's adapter already did this and Emerald's did
+  not; both do now, with `io.popen` kept only as an unreachable fallback.
 - **`dev-scripts/bizhawk-syntax-check.lua` — does this Lua even parse?** BizHawk embeds Lua 5.4
   and this machine has no standalone Lua binary, so before this the only way to find a missing
   `end` in an adapter was to load it into a live session. The checker `loadfile()`s a list of

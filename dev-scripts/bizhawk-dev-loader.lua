@@ -136,10 +136,14 @@ while true do
 		local want = readControl()
 		if want ~= currentPath then
 			if currentPath then dropCurrent("control file changed") end
-			if want and want ~= failedPath then
+			if want == nil then
+				-- Detached. Clear the failure memory too: pointing away and back again is the
+				-- obvious way to say "I fixed it, try once more", and without this the loader
+				-- silently ignored the retry -- which looks exactly like the fix not working.
+				-- Found live 2026-08-18, chasing a path bug that was already fixed.
+				failedPath = nil
+			elseif want ~= failedPath then
 				loadTarget(want)
-			elseif want and want == failedPath then
-				-- same broken target still named; stay quiet rather than spamming
 			end
 		end
 	end

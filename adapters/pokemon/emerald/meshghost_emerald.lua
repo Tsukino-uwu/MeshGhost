@@ -411,10 +411,29 @@ end
 -- string chunks, not files).
 ----------------------------------------------------------------------------
 
+-- Ask Lua where THIS file is, rather than asking the OS where the process happens to be.
+-- Two real bugs fixed here, 2026-08-18:
+--   * `io.popen("cd")` returns the CURRENT WORKING DIRECTORY, which is only the script's own
+--     directory because BizHawk chdirs into it when a script is opened by hand. Load this file
+--     any other way -- from another script, or with a different working directory -- and it
+--     looked for lib/x64/ in the wrong place and died with "The specified module could not be
+--     found", which reads like a missing DLL rather than a wrong path.
+--   * `io.popen` spawns a real `cmd` process, so every launch flashed a console window on screen.
+--     The user noticed it; there is no reason for an adapter to start a shell to find itself.
+-- debug.getinfo's `source` is the path this chunk was loaded from, which is the actual question.
 local function scriptDir()
+    local info = debug.getinfo(1, "S")
+    if info and info.source and info.source:sub(1, 1) == "@" then
+        local dir = info.source:sub(2):match("^(.*)[/\\][^/\\]*$")
+        if dir and dir ~= "" then
+            return dir .. "/"
+        end
+    end
+    -- Fallback for a host that does not populate `source` (none seen). Keeps the old behaviour
+    -- rather than failing outright, but it is the wrong answer whenever the two differ.
     local pwd = io.popen and io.popen("cd"):read("*l")
     if not pwd or pwd == "" then
-        error("MeshGhost: could not determine the script's own directory (io.popen \"cd\" unavailable or returned nothing).")
+        error("MeshGhost: could not determine the script's own directory.")
     end
     return pwd .. "\\"
 end
@@ -1583,7 +1602,8 @@ local function runFrame()
 end
 
 local lastFrameErrorLogged = 0
-while true do
+
+local function guardedFrame()
     local ok, err = pcall(runFrame)
     if not ok then
         -- Rate-limited: a per-frame error would otherwise spam the console every 1/60s.
@@ -1592,5 +1612,20 @@ while true do
             lastFrameErrorLogged = frameCounter
         end
     end
-    emu.frameadvance()
+end
+
+-- Four lines of dev affordance, and the only one in this file: when loaded by
+-- dev-scripts/bizhawk-dev-loader.lua (a development tool, never shipped), hand it the per-frame
+-- function instead of taking the frame loop, so the adapter can be swapped and reloaded live like
+-- any probe. A player opening this file in the Lua Console sets neither global and gets the
+-- normal loop below, unchanged. Without this, testing an adapter edit costs a full emulator
+-- relaunch each time, which is the cost the loader exists to remove.
+MESHGHOST_DEV_TICK = guardedFrame
+MESHGHOST_DEV_UNLOAD = despawnAllGhosts
+
+if not MESHGHOST_DEV_LOADER then
+    while true do
+        guardedFrame()
+        emu.frameadvance()
+    end
 end

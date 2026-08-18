@@ -1457,3 +1457,78 @@ runtime read of the user's own installed files.
 - `agent_docs/risks.md` — Pseudoregalia's full ghost-collision incident history, required
   reading before touching TEVI's collision idea.
 - `agent_docs/contract.md` — the event plane (built 2026-08-17), needed before emotes/chat/pings.
+
+---
+
+## Super Metroid (SNES): a starting memory map, filed 2026-08-18
+
+**Status: filed only. Nothing is planned, scheduled or begun** — this is not a phase and there is
+no adapter. Recorded here because a cheat list for a game with no decompilation is an accidental
+partial memory map, and that is the expensive thing to obtain later.
+
+The user supplied a large Game Genie + Pro Action Replay list. The two formats are not equally
+useful and the difference is the point:
+
+- **Pro Action Replay codes are plain RAM writes.** SNES PAR is `AAAAAADD` — a 24-bit address and
+  a byte, no encryption. All 45 codes below decode into `0x7E0000`-`0x7FFFFF`, which is SNES WRAM,
+  so each one names **an address the game keeps live state in**. Same situation as Crystal's GB
+  GameShark codes, and the opposite of Emerald's GameShark v3 / CodeBreaker codes, which are
+  encrypted and turned out to be unusable (`pitfalls.md`).
+- **Game Genie codes are ROM patches**, with address and value scrambled through a letter
+  alphabet. They patch code, not state, so they are useless as a memory map and unusable by the
+  approach every adapter here takes. Their *names* are still informative about what the engine has
+  a switch for — walk through walls, disable water physics, all doors open — but nothing more.
+- **Six PAR codes in the list address ROM banks, not WRAM** (`90BEBFA7`, `90BE6FAD`, `90BEC4AD`,
+  `90C02DEA`, `81A81A00`, `81A8AF80`). Those are code patches wearing PAR clothing; they are not
+  part of the table below.
+
+### Decoded addresses (WRAM), from the PAR list
+
+| Address | Value | Cheat it came from |
+| --- | --- | --- |
+| `0x7E05B6` | `0xFF` | Invulnerability |
+| `0x7E0945`-`0x7E0947` | `00/00/01` | Escape timer |
+| `0x7E09A2` / `0x7E09A4` | `04`, `16` | Morph Ball; Morph+Bomb+Spring |
+| `0x7E09A3` / `0x7E09A5` | `10` | Bomb |
+| `0x7E09A6` / `0x7E09A8` | `04`, `16` | Spazer; Spazer+Ice |
+| `0x7E09A7` / `0x7E09A9` | `10` | Charge Beam |
+| `0x7E09C2` | `0x63` | Energy |
+| `0x7E09C4` / `0x7E09C5` | `78`, `05` | Tanks |
+| `0x7E09C6` / `0x7E09C7` | `E7`, `03` | Missiles |
+| `0x7E09C8` | `01` | Have Missiles |
+| `0x7E09CA` / `0x7E09CC` | `50`, `01` | Super Missiles |
+| `0x7E09CE` / `0x7E09D0` | `50`, `01` | Power Bombs |
+| `0x7E09D1` | `0x64` | Bombs at start / Reserve Tank |
+| `0x7E09D6` / `0x7E09D7` | `90`, `01` | Reserve Energy |
+| `0x7E0A6E` | `02`, `0F` | Hyper Run; kill-on-contact |
+| `0x7E0ACC` | `01` | Permanent super charge |
+| `0x7E0B2D` / `0x7E0B2E` | `44`, `01` | Moon Jump |
+| `0x7E0B3F` | `04` | Hyper Run |
+| `0x7E0CD2` | `00` | Bomb lay rate |
+| `0x7E100D` | `00` | Metroid health |
+| `0x7E18A8` | `4C`, `FF` | Untouchable / invulnerable |
+| `0x7ED908`-`0x7ED90D` | `FF` | Map explored bits, one byte per area: Crateria, Brinstar, Norfair, Wrecked Ship, Maridia, Tourian |
+
+### What is worth noticing, and what is only a guess
+
+- **`0x7ED908`-`0x7ED90D` is one byte per area, in area order.** That is the closest thing here to
+  an `area_id`, which is the first field any adapter needs. Strong lead, still unverified.
+- **The a/b pairs two bytes apart** (`09C4`/`09C5`, `09C6`/`09C7`, `09A2`/`09A4`) look like
+  current/maximum and equipped/collected pairs — a normal layout, and consistent with what the
+  cheats are named. **This is an inference from the shape of the list, not a measured fact**, and
+  it is exactly the kind of tidy-looking guess this project treats as invented until confirmed
+  against a running game.
+- **Position is absent.** Nothing here gives Samus's X/Y, which is the one field a cosmetic ghost
+  cannot do without. A cheat list only covers what people wanted to cheat at, so the most
+  important address for us is the one it will never contain.
+
+### If this is ever picked up
+
+It would be a new phase with a new phase file, and the standing rules apply before any code:
+read `adapters/_template/README.md` end to end, establish the access model
+(`access-models.md` — SNES has no decompilation of the quality `pokeemerald`/`pokecrystal` have,
+so this is a harder tier than either Pokémon game), and check the licence of any reference project
+**before** reading its source (`licensing.md`). The BizHawk toolchain transfers unchanged: the dev
+loader, the syntax checker, the probe conventions, and the spawn-versus-draw question in the same
+form. What does not transfer is the address source — every address would have to be measured
+live, which is precisely why this list was worth recording.
