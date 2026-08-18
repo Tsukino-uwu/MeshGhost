@@ -444,6 +444,31 @@ Misleading symptoms that mean something other than their surface reading:
     whole handler body in `pcall`.
 - **Recovery when it happens**: restarting EmuHawk is the reliable way to clear stacked callbacks.
 
+### BizHawk Lua: `debug.getinfo` gives no path — use the working directory
+
+- **Symptom** (found live 2026-08-18, Crystal): a script that resolves its own folder from
+  `debug.getinfo(1, "S").source` gets `"main"`, not `"@C:\...\script.lua"`. Every path built from it
+  is wrong — the vendored LuaSocket DLL is not found, and the script's log file is written somewhere
+  unexpected, which is *worse*, because the failure then has no record.
+- **Cause**: BizHawk loads the script such that `source` is a chunk name rather than a file path.
+- **Fix**: **the working directory IS the script's directory** when BizHawk loads a Lua file —
+  confirmed live, `cd` returned the adapter's own folder. So `io.popen("cd")` is the *primary*
+  answer here, not a fallback:
+
+  ```lua
+  local p = io.popen("cd")           -- Windows; prints the working directory
+  local dir = p:read("*l"); p:close()
+  ```
+
+- **The shipped Emerald adapter already had this**, as a `pwd` fallback in its own `scriptDir()`.
+  Writing a new BizHawk script without reading it cost a failed run and a round trip — the same
+  lesson as the `event.onframeend` entry above, from the same session.
+- **Expect this to recur on other emulator adapters.** "Where am I on disk" is a *host* question,
+  not a game one, and an emulator's Lua host has no obligation to answer it the way a standalone
+  interpreter does. Any adapter that loads a vendored binary or writes a log beside itself needs a
+  path that does not depend on the host being generous. See `adapters/_template/README.md`'s
+  "read the working adapter for the same host before writing a new script".
+
 ### Spawned actors auto-possessing (taking control away from the player)
 
 - **Symptom**: spawning a second copy of the player's own controllable Blueprint (e.g.

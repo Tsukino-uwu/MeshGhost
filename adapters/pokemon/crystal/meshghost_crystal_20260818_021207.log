@@ -1,0 +1,6 @@
+MeshGhost: no LuaSocket at C:\dev\MeshGhost\adapters\pokemon\crystal/lib/x64/
+MeshGhost: LuaSocket loaded from C:\dev\MeshGhost\adapters\pokemon\crystal/../emerald/lib/x64/
+=== MeshGhost — Pokémon Crystal ===
+REFUSING TO RUN: ROM title is "AP_CRYSTAL", expected "PM_CRYSTAL"
+This adapter writes object RAM, and a wrong ROM means writing to the wrong addresses.
+Archipelago support needs its own address table, not a relaxed guard. See the README.
