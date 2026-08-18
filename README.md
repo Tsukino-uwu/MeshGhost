@@ -136,6 +136,10 @@ than a Go API.
 
 ## Repo layout
 
+Grouped by what each thing *is*, not alphabetically — so GitHub's file listing shows these in a
+different order. Only the directories worth orienting on are listed; the usual `LICENSE`,
+`.gitignore` and friends are omitted.
+
 ```text
 MeshGhost/
 ├── cmd/                  # entry points: the desktop app, the standalone relay, and the test
@@ -149,12 +153,14 @@ MeshGhost/
 ├── bridge/               # the adapter <-> local core messages
 ├── netx/                 # transport selection: tcp | udp | quic
 │
-├── internal/             # e2e tests only — deliberately not importable
+├── internal/e2e/         # e2e tests only — deliberately not importable
 ├── adapters/             # one folder per game; _template/ is the starting point for a new one
 ├── docs/                 # for people using MeshGhost
 ├── agent_docs/           # design brief, contract, architecture, roadmap, verified facts
 ├── dev-scripts/          # local test rig: launchers, load tests, adapter build scripts
 ├── packaging/            # what goes in the release zip, and how it's assembled
+├── .github/workflows/    # CI on every push; the release is a manual button
+├── CLAUDE.md             # the rules this project is built under, for whoever works on it
 └── go.mod
 ```
 
