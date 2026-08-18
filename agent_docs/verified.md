@@ -6811,3 +6811,27 @@ scheduled. All established by the agent with local tools; nothing here is a visu
 - Source: live session.
 - Notes: closes the last known defect in Crystal's movement. The full recipe — spawn, appearance,
   and walking — is in `phases/phase9.md` and is now confirmed end to end on screen.
+
+### Crystal: the "off" collision was the engine's own behaviour, not a defect (2026-08-18)
+
+- Date: 2026-08-18
+- Observed: **watched by the user.** With the ghost alternating eight seconds pacing and eight
+  standing still, walking into it in both phases: *"yee now collission looks/feel good"*. The
+  sprite had already been confirmed drawn correctly; only the collision felt wrong, and only
+  while it was moving.
+- Source: live session; `walk_test.lua`'s pace/stand cycle.
+- Notes: **collision follows `OBJECT_MAP_X`/`MAP_Y`, and during a step those hold the DESTINATION**,
+  written in the initiating frame. So a walking character blocks the tile it is moving *into*
+  before it visually arrives. **This is the engine's own behaviour and the game's own NPCs do it** —
+  nothing to fix.
+  What made it feel wrong was the test, not the game: the ghost paced almost continuously, where a
+  real NPC stands still most of the time, so a normally-invisible detail was on display constantly.
+- **Design consequence, and it resolves itself**: a real ghost steps when its **peer** steps, not on
+  a timer. Once the ghost is driven by network state it will spend most of its time standing, and
+  this will be no more noticeable than it is for any NPC. **No compensation is needed and none
+  should be added** — if the destination-leading collision ever does need softening, that would be
+  a bandage and belongs in `BANDAGES.md` with a reason.
+- **Method note**: this was the third hypothesis of the session about the ghost's position, and the
+  first one tested before being believed. The two before it — that talking to the ghost disturbed
+  it, and that the idle check permitted overlapping steps — were both plausible, both untested, and
+  both wrong. The test here cost one run and one variable.
