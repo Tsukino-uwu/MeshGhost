@@ -1,0 +1,10 @@
+=== MeshGhost Crystal domain probe ===
+Logging to ./domain_probe_20260818_020742.log
+Domains offered by this core: CartRAM, HRAM, OAM, ROM, System Bus, VRAM, WRAM
+Looking for wMapGroup/wMapNumber/wYCoord/wXCoord as 4 consecutive bytes.
+Walk around for a few seconds...
+3 candidate(s) to disambiguate by movement.
+No candidate has shown both coordinates changing yet -- walk further.
+No candidate has shown both coordinates changing yet -- walk further.
+No candidate has shown both coordinates changing yet -- walk further.
+No candidate has shown both coordinates changing yet -- walk further.

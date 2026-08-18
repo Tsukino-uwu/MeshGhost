@@ -116,21 +116,46 @@ local function loadSocketCore()
 	if package.config:sub(1, 1) ~= "\\" then
 		error("MeshGhost: only Windows is supported by the vendored LuaSocket binary so far.")
 	end
-	-- The vendored pair lives beside Emerald's adapter today. Look next to this script first, so a
-	-- shipped per-game folder works, then fall back to Emerald's copy for a source checkout.
-	local candidates = { SCRIPT_DIR .. "/lib/x64/", SCRIPT_DIR .. "/../emerald/lib/x64/" }
+	-- The vendored pair lives beside Emerald's adapter today. Try next to this script first (so a
+	-- shipped per-game folder works), then Emerald's copy, then the same paths relative to the working
+	-- directory — because `debug.getinfo` is not dependable under BizHawk, which is exactly why
+	-- Emerald's own scriptDir() carries a pwd fallback. Getting this wrong produced an empty log
+	-- and an unexplained error on the first run, 2026-08-18.
+	--
+	-- Every attempt is logged. A loader that fails silently is what made that first failure take a
+	-- round trip to diagnose.
+	local cwd = (io.popen and (function()
+		local p = io.popen("cd")
+		if not p then
+			return nil
+		end
+		local out = p:read("*l")
+		p:close()
+		return out
+	end)()) or nil
+
+	local candidates = {
+		SCRIPT_DIR .. "/lib/x64/",
+		SCRIPT_DIR .. "/../emerald/lib/x64/",
+		"adapters/pokemon/emerald/lib/x64/",
+	}
+	if cwd then
+		candidates[#candidates + 1] = cwd .. "\\adapters\\pokemon\\emerald\\lib\\x64\\"
+	end
+
 	for _, dir in ipairs(candidates) do
-		local ok = pcall(function()
+		pcall(function()
 			package.loadlib(dir .. "lua54.dll", "meshghost_force_preload")
 		end)
-		local loaded, fn = pcall(package.loadlib, dir .. "socket-windows-5-4.dll",
+		local ok, fn = pcall(package.loadlib, dir .. "socket-windows-5-4.dll",
 			"luaopen_socket_core")
-		if ok and loaded and fn then
+		if ok and type(fn) == "function" then
 			log("MeshGhost: LuaSocket loaded from " .. dir)
 			return fn()
 		end
+		log("MeshGhost: no LuaSocket at " .. dir)
 	end
-	error("MeshGhost: could not load the vendored LuaSocket binary from any known location.")
+	error("MeshGhost: could not load the vendored LuaSocket binary from any of the paths above.")
 end
 
 local socketCore = loadSocketCore()
