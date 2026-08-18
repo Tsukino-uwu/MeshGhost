@@ -31,7 +31,13 @@
 
 local DOMAIN = "WRAM"
 local WRAM_SIZE = 0x8000
-local NEEDED_HITS = 4 -- how many consistent ±1 changes before an address is reported
+local NEEDED_HITS = 5 -- consistent ±1 changes before an address is reported
+
+-- Addresses PROVEN to be counters rather than coordinates: they moved +1 while walking right AND
+-- +1 while walking left (2026-08-18). A coordinate reverses with direction; a counter does not.
+-- Excluded because the probe used to stop at the first address to reach the threshold, and the
+-- counter won that race every run — hiding the real candidate behind it.
+local EXCLUDE = { [0x0FC4] = true }
 local SAMPLE_EVERY = 10 -- frames. A step takes ~16, so this still cannot miss one, and 32k reads
 -- every other frame is far more than BizHawk's Lua host will carry — the first version of this
 -- probe never produced a log at all because of it (2026-08-18).
@@ -113,6 +119,9 @@ local function tick()
 				hits[a] = 0 -- jumped: a load, a counter wrapping, unrelated data
 			end
 			prev[a] = now
+		end
+		if EXCLUDE[a] then
+			hits[a] = 0
 		end
 		if hits[a] > best then
 			best = hits[a]
