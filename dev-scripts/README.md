@@ -17,27 +17,39 @@ downloaded release folder and run against its `meshghost-server.exe` instead.
   `meshghost.exe` and drives a real adapter over the bridge, which is what pairing
   `run-relay-loopback.bat` with a `run-core-*.bat` used to check by hand.
 
-  Two checks it deliberately leaves to CI (`.github/workflows/ci.yml`, which runs on every
-  push): the **race detector**, because on Windows `-race` needs a working cgo toolchain and
-  this machine has neither a usable one nor WSL (the `gcc` on `PATH` resolves to a devkitPro
-  MSYS2 copy, and the real MSYS2 GCC 15 can't compile Go's `runtime/cgo`) — on Linux it
-  needs no setup at all; and **fuzzing**, which runs a short campaign per push against the
-  parsers. Both are also why a green run here is not the same as a green CI run. Re-confirmed
-  2026-08-16 against Go 1.25: the devkitPro `gcc` fails on `stddef.h`, MSYS2's own GCC 15.1 fails
-  in `runtime/cgo`, and `wsl.exe` exists with no distro installed. (`go.mod` requires Go 1.25.0,
-  the installed toolchain is 1.26.5, and CI's `setup-go` pins 1.25 to match — it pinned 1.22 until
-  2026-08-17, which worked only because `GOTOOLCHAIN=auto` upgraded it silently.)
-- `run-gotests-race.bat` — the race detector, the exact `go test -race -count=3 ./...` CI runs.
-  **Probes for a C compiler Go can actually use** rather than assuming one, since two different
-  installed `gcc`s both fail, and prints what to install if none works. Currently that is what it
-  does on this machine — it is here so the gap is visible and so it starts working the day a
-  usable toolchain (mingw-w64 GCC 12-14, or a WSL distro) exists.
-- `run-gotests-stress.bat` — what you *can* run locally instead: `-count=10 -shuffle=on -cpu=1,4`
-  over the concurrency packages. Repeats, randomised order, and two different GOMAXPROCS values,
-  each of which changes interleavings. ~3-4 minutes. `internal/e2e` is excluded on purpose (it
-  launches real binaries per test and blew past `go test`'s 10-minute limit when included). **Not
-  a substitute for `-race`, and it must never be reported as one** — CI caught a real relay race
-  on 2026-08-16 that 300 local runs of the same test never reproduced.
+  It does **not** run the race detector or the fuzzers. Race is now a separate local script (below,
+  working since 2026-08-18); **fuzzing is still CI-only** (`.github/workflows/ci.yml`, a short
+  campaign per push against the parsers), so a green run here is still not a green CI run.
+  (`go.mod` requires Go 1.25.0, the installed toolchain is 1.26.5, and CI's `setup-go` pins 1.25 to
+  match — it pinned 1.22 until 2026-08-17, which worked only because `GOTOOLCHAIN=auto` upgraded it
+  silently.)
+- `run-gotests-race.bat` — the race detector, the exact `go test -race -count=3 ./...` CI runs, and
+  **it works on this machine as of 2026-08-18**. Run it whenever you touch concurrency; the whole
+  suite is clean under it. It **probes for a C compiler Go can actually use** rather than assuming
+  one, and the fix that made it work is worth knowing: setting `CC` is not enough — the compiler's
+  own bin directory has to go on `PATH` ahead of the devkitPro MSYS2 `gcc`, or `as`/`ld`/its headers
+  don't resolve and a perfectly good compiler fails exactly like a broken one. That single missing
+  step is why MSYS2's GCC stood recorded as unusable from 2026-08-16. If no candidate passes the
+  probe it says what to install (an MSYS2 mingw64 GCC, any mingw-w64 GCC, or a WSL distro), exits 1,
+  and is explicit that this is a real gap rather than a pass.
+- `run-gotests-stress.bat` — a different axis, not a race substitute: `-count=10 -shuffle=on
+  -cpu=1,4` over the concurrency packages. Repeats, randomised order, and two different GOMAXPROCS
+  values, each of which changes interleavings. ~3-4 minutes. `internal/e2e` is excluded on purpose
+  (it launches real binaries per test and blew past `go test`'s 10-minute limit when included).
+  **Never report it as standing in for `-race`** — CI caught a real relay race on 2026-08-16 that
+  300 local runs of the same test never reproduced. Now that `-race` runs locally, run that first.
+- `preflight.ps1` — read-only pre-live-test check: gofmt, the leak grep (both slash directions),
+  CLAUDE.md's cap, root binaries vs source, both mod DLLs vs their `built-from.txt`, CRLF in
+  LF-pinned sources, leftover MeshGhost processes, and optionally the deployed DLLs in the live
+  game installs (`MESHGHOST_TEVI_DLL`, `MESHGHOST_TEVI_DLL_ALT`, `MESHGHOST_PSEUDO_DLL` — env vars
+  rather than literals, because install paths are machine-specific and this repo is public). It
+  never builds, deploys or commits. Exit 0 = everything fresh, 1 = at least one FAIL; warnings do
+  not fail the run. Run it before asking anyone to launch a game. See `agent_docs/testing.md`.
+
+  Its runtime counterparts, for a session already running: add `-stats=10s` to any `meshghost.exe`
+  launch for a one-line client summary (link rtt, clock offset, peers known versus rendered, bytes
+  in/out with an hourly rate, and the share of remote states thrown away as cross-area), and
+  `-introspect` on the relay for the server side of the same picture. Both are off by default.
 - `run-relay.bat` / `run-relay-loopback.bat` — a single relay, `-send-hz=100`. Deliberately NOT
   the relay's own 20Hz default: since the send/receive rate-control feature (see the ADR in
   agent_docs/architecture.md), a relay's advertised send_hz is prescriptive — a Core adopts it
@@ -154,6 +166,7 @@ downloaded release folder and run against its `meshghost-server.exe` instead.
   relay it saw 51,000 events without noticing, where the in-process total-order test caught the
   same defect immediately. It complements `relay`'s tests; it does not replace them. See
   `agent_docs/testing.md`.
+
 ### Interp is PAIRED with the loopback offset — pick the matching one
 
 A self-ghost has to be separated from the player somehow, and there are exactly two ways. Use one,
@@ -298,14 +311,9 @@ default silently drags every dev client back down, and a ghost updating at 20Hz 
   staleness-gate pattern as `build-tevi.bat`, but CI can't build this one at all (needs the
   private UEPseudo dependency), so the build tree must already be configured locally — see
   [agent_docs/phases/phase7.md](../agent_docs/phases/phase7.md)'s 7.2 entry.
-- `preflight.ps1` — read-only pre-live-test check: gofmt, the leak grep (both slash directions),
-  CLAUDE.md's cap, root binaries vs source, both mod DLLs vs their `built-from.txt`, CRLF in
-  LF-pinned sources, leftover MeshGhost processes, and optionally the deployed DLLs in the live
-  game installs. Run it before asking anyone to launch a game. See `agent_docs/testing.md`.
-- `stage-ue4ss-runtime.bat` — stages the RE-UE4SS runtime (UE4SS.dll, settings, the MIT
-  LICENSE). The stock Mods folder is deliberately NOT staged -- see the script's own header for
-  the cheat-manager/console reasoning -- and no mods.txt/mods.json ships either.
+- `stage-ue4ss-runtime.bat` — stages the RE-UE4SS runtime (UE4SS.dll, settings, the MIT LICENSE)
   from the pinned `adapters/pseudoregalia/MeshGhostPseudo/RE-UE4SS` submodule into
   `packaging/release/games/pseudoregalia/`, alongside whatever `build-pseudoregalia.bat` has
-  staged. Re-run whenever the RE-UE4SS submodule pin changes; requires the build tree already
-  built once.
+  staged. The stock Mods folder is deliberately NOT staged -- see the script's own header for the
+  cheat-manager/console reasoning -- and no mods.txt/mods.json ships either. Re-run whenever the
+  RE-UE4SS submodule pin changes; requires the build tree already built once.

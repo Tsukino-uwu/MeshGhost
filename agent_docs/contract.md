@@ -131,7 +131,11 @@ Rules, unchanged from the brief:
   still unknown, in which case nothing is filtered. See the ADR in `architecture.md`.
 - Do not fix `position` at 2 or 3 components.
 - Do not invent a universal `anim` vocabulary. Each adapter defines its own tag set.
-- JSON until it hurts. Debuggability beats bandwidth at this project's scale.
+- JSON until it hurts. Debuggability beats bandwidth at this project's scale. **This is a
+  *format* decision, not a licence to skip efficiency work**: since 2026-08-18 efficiency is a
+  standing goal and the size of a win is not the test for taking it (`plans.md`, "Efficiency is a
+  standing goal"). What survives here is "don't churn the wire format while the contract is still
+  moving", not "small savings aren't worth it".
 - Unknown fields in a received message are ignored, not rejected — forward compatibility for
   a contract that will be revised after the first two games.
 
@@ -757,7 +761,7 @@ alongside room-code auth (see the architecture.md ADR) — treat the numbers bel
 - Max length of every `hello` string field (`game_id`, `room`, `display_name`, `room_code`,
   `game_version`): **128 bytes** (`MaxHelloFieldLen`), checked at the relay before any of them
   are used to create or look up a room.
-- Per-client rate limit: **`max(120, send_hz × 6)` messages/second** (`maxMessagesPerSecond`,
+- Per-client rate limit: **`max(120, send_hz × 6)` messages/second** (`MaxMessagesPerSecondFor`,
   `relay/limits.go`) — the relay closes, rather than throttles, a connection that
   exceeds it, sending a `reject` (`ReasonRateLimited`) first since the send/receive rate-control
   feature (see the ADR in `architecture.md`). At the default `send_hz` (20), this computes to
@@ -784,7 +788,10 @@ alongside room-code auth (see the architecture.md ADR) — treat the numbers bel
   refused — a typo in a cosmetic tuning knob must not stop a relay from starting or a client
   from connecting.
 - Max clients: **8 by default** (`DefaultMaxClients`), configurable per relay
-  (`Server.MaxClients`, `-max-clients`, `config.json`'s `server.max_clients`) — enforced
+  (`Server.MaxClients`, `-max-clients`, `config.json`'s `server.max_clients`). **8 is a safe
+  default for a home uplink, not a capability limit** — there is no enforced ceiling, and the
+  ceiling is meant to be the operator's hardware or the game's own draw limit, never a choice of
+  ours (`plans.md`, 2026-08-18). Enforced
   server-wide, across every room the relay is hosting combined, not per room. A relay already
   at capacity refuses an additional join the same way a `game_id` mismatch is refused.
 - Hello timeout: an unauthenticated connection that hasn't completed a `hello` and joined a

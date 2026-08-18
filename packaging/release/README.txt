@@ -221,13 +221,16 @@ for you:
 The real cost of raising send_hz -- shown per-hour, not per-second,
 because the same number looks tiny per-second and adds up fast per-hour.
 
-These are REAL MEASURED numbers, not estimates. They are measured for
-PSEUDOREGALIA, deliberately: it sends the most detailed position update
-of the three supported games (597 bytes per update, vs. 249 for TEVI and
-206 for Pokemon Emerald), so every number below is a worst case. If
-you're hosting one of the other two, your real usage is roughly a third
-of what's shown here. Pick your room size off this table and a lighter
-game can only surprise you in the good direction.
+These come from real measurements rather than guesswork, but treat them
+as the right ballpark rather than exact to the byte. They were measured
+for PSEUDOREGALIA, deliberately: it sends the most detailed position
+update of the supported games (597 bytes per update when last measured,
+against 249 for TEVI and 206 for Pokemon Emerald; Pokemon Crystal sends
+less than Emerald). If you're hosting one of the other three, your real
+usage is roughly a third of what's shown here or less. Pseudoregalia's
+own update has grown a little since that measurement, so if you host
+that one specifically, treat the table as a floor and leave headroom
+rather than planning to the last megabyte.
 
   YOUR OWN upload (what you personally send out -- same no matter how
   many people are in the room):
@@ -267,7 +270,11 @@ How many players can I actually host? (guidance for "max_clients")
 The honest answer is that YOUR UPLOAD SPEED decides this, not the
 software. There's no hard limit built in -- max_clients is 8 by default
 because that's a size almost any home connection can carry, not because
-9 would break something.
+9 would break something. The server is deliberately not the thing that
+caps a session: raise it as far as your uplink and your game are happy
+with. What actually runs out first is your upload (the table below) and
+then the game itself having to draw that many extra characters -- never
+the server refusing on principle.
 
 Because the host relays everyone's position to everyone else, host
 upload grows with the SQUARE of the room. Doubling the players roughly
@@ -386,6 +393,32 @@ Common things to check:
   actually read. With a mod that starts MeshGhost for you, that's the copy
   in the MOD's folder, not the one next to this README.
 
+Want to see whether it's actually working, and what it's costing you?
+Start the client from a command prompt with -stats and a time, e.g.
+
+    meshghost.exe -stats=10s
+
+and every 10 seconds it writes one summary line (to the window and to
+meshghost.log): your round-trip time to the host, how many other players
+it knows about versus how many it is actually drawing, and how many bytes
+it has sent and received with an hourly rate -- which is the real answer
+to "how much data is this using", measured on your own connection rather
+than read off the table above. It's off unless you ask for it, and costs
+nothing when off.
+
+If you're HOSTING, the server has the matching switch:
+
+    meshghost-server.exe -introspect=30s
+
+which periodically logs what it currently believes -- which rooms exist,
+who is in each one and over which transport, and how much position data it
+is actually relaying (including how much of it is going to players who are
+in a different area of the game and will discard it). That last part is
+the host-side answer to the bandwidth tables above, measured rather than
+predicted. It also shows anything the server is holding on someone's
+behalf, which only applies to features nothing shipped uses today. It
+prints nothing secret -- no room codes, no game data.
+
 If your antivirus flags MeshGhost
 ---------------------------------
 It may, and it is a false positive. meshghost.exe and meshghost-server.exe
@@ -397,9 +430,12 @@ guess rather than a match against anything known.
 
 What you can do:
 
-1. Check the file is the one we published. Every release asset lists a
-   SHA-256 on the Releases page; if yours matches, it is exactly what the
-   build produced, and the build is public.
+1. Check the file is the one we published. The release notes on the
+   Releases page carry a SHA-256 for every file that release built (the
+   two "Source code" archives are GitHub's own and aren't listed). Run
+   `Get-FileHash <file> -Algorithm SHA256` in PowerShell on the zip you
+   downloaded; if it matches, it is exactly what the build produced, and
+   the build is public.
 
 2. If it is specifically the Pseudoregalia mod STARTING meshghost.exe that
    your scanner objects to, set the environment variable
@@ -450,10 +486,11 @@ Nothing is lost by that. MeshGhost exits with the game under Proton, confirmed
 on a real Linux setup 2026-08-16 across six sessions, including when the game
 is killed outright rather than quit normally.
 
-One exception worth knowing: Pokemon Emerald's adapter is a BizHawk Lua script
-(games\pokemon\emerald\ in this zip), and BizHawk itself runs natively on
-Linux and macOS. Nothing about that script is Windows-specific -- though
-nobody has yet tried it off Windows.
+One exception worth knowing: the Pokemon Emerald and Pokemon Crystal adapters
+are BizHawk Lua scripts (games\pokemon\emerald\ and games\pokemon\crystal\ in
+this zip), and BizHawk itself runs natively on Linux and macOS. Nothing about
+those scripts is Windows-specific -- though nobody has yet tried them off
+Windows.
 
 
 Transports -- tcp vs udp vs quic

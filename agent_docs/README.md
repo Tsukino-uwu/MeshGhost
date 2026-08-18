@@ -25,8 +25,8 @@ Internal documentation for MeshGhost: architecture, planning, licensing, and ver
   user has not seen yet, with what to look at and what correct looks like. A checklist to work
   down; confirmed items move to `verified.md`, declined ones go back to being work.
 - [testing.md](testing.md) — **how to run every automated check** for the Go client/server: the
-  one local command, what CI adds (race detector, fuzzing) and why neither runs locally, how to
-  run a real fuzz campaign, and the traps that otherwise get rediscovered. Read before adding a
+  one local command, the local `-race` recipe (working since 2026-08-18), what CI adds on top
+  (fuzzing, cross-compiles, gofmt), how to run a real fuzz campaign, and the traps that otherwise get rediscovered. Read before adding a
   test or diagnosing an intermittent failure. Covers the Go side only — adapters are watched, not
   tested, per CLAUDE.md.
 - [pitfalls.md](pitfalls.md) — adapter-specific issues across all games: symptom, how it was
@@ -39,7 +39,9 @@ Internal documentation for MeshGhost: architecture, planning, licensing, and ver
 - [bandages-core.md](bandages-core.md) — shipped compensations in the Go side (core, relay,
   transport), and the ones deliberately left alone. **Per-adapter bandages live in each adapter's
   own `BANDAGES.md`**, next to its `README.md`; the rule and the how-to-spot-one guide are in
-  `adapters/_template/`.
+  `adapters/_template/`. Each adapter also carries a **`FLAGS.md`** (its compile-time flag
+  register — shipped behaviour / probe / dormant) and a **`documentation.md`** (how that GAME
+  works, never our compensations). All four shipped adapters have all three, as of 2026-08-18.
 - [access-models.md](access-models.md) — **what you can read about a game**, which predicts an
   adapter's difficulty better than its engine does. What each shipped adapter used (decompilation /
   self-documenting artifact / runtime reflection), the other approaches that exist, and a checklist
@@ -55,7 +57,11 @@ Internal documentation for MeshGhost: architecture, planning, licensing, and ver
   to go looking. Read it before starting effect/VFX work on a new game.
 - `phases/` — a file per phase. Kept around after the phase ends as a work log/archive
   rather than folded away — [status.md](status.md) and [plans.md](plans.md) stay the
-  current-state summary.
+  current-state summary. **Read them as dated records, not as current fact.** Notably, every
+  `internal/protocol|transport|bridge|core|relay|netx` path written before 2026-08-17 is now at
+  the repo root (`protocol/`, `core/`, …) — see the module-rename ADR in
+  [architecture.md](architecture.md). Those paths are left as written rather than rewritten,
+  because a phase file records what was true while the phase ran.
 **`../docs/` is the other half of the documentation, and it is not this folder's job.** It is
 written for people *using* MeshGhost; `agent_docs/` is the internal record of how it was built.
 Four files, all one level up:

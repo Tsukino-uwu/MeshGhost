@@ -203,13 +203,10 @@ metatile behaviour — `MB_POND_WATER` (16), `MB_DEEP_WATER` (18), `MB_OCEAN_WAT
 **collision 0** and sits at **`ELEVATION_SURF` (1)**, while the player walks at
 `ELEVATION_DEFAULT` (3). You cannot walk onto it because the *elevations differ*, not because it
 is solid — and the difference matters, because the game reads that specific outcome:
-
-```
-IsPlayerFacingSurfableFishableWater()          (field_player_avatar.c:1322)
-    GetCollisionAtCoords(...) == COLLISION_ELEVATION_MISMATCH
- && PlayerGetElevation() == ELEVATION_DEFAULT
- && MetatileBehavior_IsSurfableFishableWater(behaviour at that tile)
-```
+`IsPlayerFacingSurfableFishableWater` (`field_player_avatar.c:1322`) is satisfied by three things
+together — the collision at the faced tile comes back as `COLLISION_ELEVATION_MISMATCH`
+specifically, the player is standing at `ELEVATION_DEFAULT`, and that tile's metatile behaviour is
+one of the surfable/fishable water behaviours.
 
 So a tile made solid (collision 1) blocks the player *and* fails the fishing check, because
 `GetCollisionAtCoords` returns `COLLISION_IMPASSABLE` rather than `COLLISION_ELEVATION_MISMATCH`.
@@ -245,15 +242,9 @@ holds **four independent lists**:
 
 A map with no entry, or an entry whose list is `NULL`, simply has nothing to encounter there.
 Fishing checks this explicitly: `DoesCurrentMapHaveFishingMons` (`wild_encounter.c:770`) returns
-false when `fishingMonsInfo` is `NULL`, and the fishing task then does
-
-```
-if (!DoesCurrentMapHaveFishingMons())
-    task->tStep = FISHING_NO_BITE;     // field_player_avatar.c:1851
-```
-
-— it jumps **straight to the no-bite branch**. The rod still comes out, the animation still plays,
-and nothing can ever bite.
+false when `fishingMonsInfo` is `NULL`, and when it does, the fishing task sets its own step
+straight to the no-bite branch (`field_player_avatar.c:1851`) instead of rolling for a bite. The
+rod still comes out, the animation still plays, and nothing can ever bite.
 
 **Consequence for testing, learned the hard way 2026-08-18.** Water was created in Littleroot Town
 (`probes/watertile.lua`) and fishing worked — the cast played, confirmed on screen. But Littleroot

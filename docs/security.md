@@ -233,8 +233,9 @@ either). See `agent_docs/ideas.md`'s nameplates entry if that's ever wired up fo
 process lifetime, carrying no information about the connection it came from.
 
 **The relay itself doesn't currently read or log a client's IP.** `relay`, `core`
-and `cmd/` contain no `RemoteAddr()` call site (grepped); the only occurrences are in `netx/` --
-the `net.Conn` method that `netx/udpconn` and `netx/quicconn` must implement, plus `udpconn`'s own
+and `cmd/` contain no `RemoteAddr()` call site (re-grepped 2026-08-18); the only occurrences are in
+`netx/` -- the `net.Conn` method that `netx/udpconn` and `netx/quicconn` must implement, plus a
+stub on a fake conn in `transport`'s own tests -- plus `udpconn`'s own
 internal keying of its connection map by remote address — which is how a single shared UDP socket
 is demultiplexed at all, and is never surfaced upward or logged. The relay is still the one party
 that *could* see a real IP — it's the actual TCP endpoint every client connects to, which is
@@ -256,9 +257,13 @@ during the read itself, not after), `MaxExtrasBytes` (1024), `MaxPositionLen` (8
 limit is `max(120, send_hz * RateLimitHeadroomMultiple)`, and that multiple is 6),
 `DefaultHelloTimeout` (10s). The opt-in planes carry their own, in `protocol/online.go`
 rather than `limits.go`: `MaxEventBytes` (1024), `MaxLeaseKeyLen` (128), `MaxEscrowBlobBytes`
-(1024), `MaxWorldKeyLen` (64), `MaxWorldBlobBytes` (768) — all **derived from the datagram limit
-rather than `MaxLineBytes`**, because an oversized datagram is refused even on the reliable plane
-and reported only as a log line — plus
+(1024), `MaxWorldKeyLen` (64), `MaxWorldBlobBytes` (768) — all **meant to be derived from the
+datagram limit rather than `MaxLineBytes`**, because an oversized datagram is refused even on the
+reliable plane and reported only as a log line. Two of them do not actually achieve that, and the
+comments that claimed otherwise were corrected 2026-08-18: a **maximal `Event` marshals to ~1310
+bytes, over `udpconn.MaxDatagramBytes` (1200)**, and a committed `EscrowState` carrying two blobs
+overshoots in every case. Both are pinned by tests in `netx/udpconn` and recorded as an open
+decision in `agent_docs/risks.md` rather than quietly reduced — plus
 `MaxLeasesPerRoom`/`MaxEscrowsPerRoom`/`MaxWorldKeysPerRoom`, which are per-room **memory** bounds
 rather than per-message ones and are the only limits here of that kind. Originally
 generous rather than tight (no-auth was the accepted state through Phase 4); audited with an

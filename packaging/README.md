@@ -3,7 +3,7 @@
 What actually goes in a release, and why it's laid out the way it is. Consumed by
 `.github/workflows/release.yml` — this folder holds the hand-written parts (the config
 template, player-facing READMEs, and the committed TEVI/Pseudoregalia plugins); the workflow
-adds the freshly-built Go `.exe`s and the Emerald adapter files on top, stages a copy of the
+adds the freshly-built Go `.exe`s and the Emerald and Crystal adapter files on top, stages a copy of the
 client beside the Pseudoregalia mod (the only one that starts a client for you) along with
 `client-config-template.json` renamed to `config.json`,
 and zips the whole `packaging/release/` folder as the Windows release asset. Two more assets go
@@ -21,10 +21,10 @@ not "am I hosting or joining."
 One zip fixes that at the source — there's no second file to pick wrong. `client`/`server`
 sections in one `config.json`, `meshghost.exe`/`meshghost-server.exe` side by side, and
 `games/<publisher>/<game>/` mirroring `adapters/` so a second game adds a folder inside the
-same zip, not a new release asset to explain. (In practice only Emerald has a `<publisher>`
-subfolder — `games/pokemon/emerald/` — since "emerald" alone isn't a unique-enough folder name
-the way "tevi" and "pseudoregalia" already are; TEVI and Pseudoregalia sit directly under
-`games/`.) See `packaging/release/` for the actual layout.
+same zip, not a new release asset to explain. (In practice only the two Pokemon games have a `<publisher>`
+subfolder — `games/pokemon/emerald/` and `games/pokemon/crystal/` — since "emerald" alone isn't a
+unique-enough folder name the way "tevi" and "pseudoregalia" already are; TEVI and Pseudoregalia
+sit directly under `games/`.) See `packaging/release/` for the actual layout.
 
 ## …and then two more, for Linux and macOS (added 2026-08-16)
 
@@ -58,8 +58,8 @@ Two decisions worth keeping:
   deleting that instruction is most of the point. It also means the dev machine cannot verify this
   part: a local dry run got the packaging right and the mode bits wrong, on NTFS, unavoidably.
 - **No adapters in them.** Every shipped adapter targets a Windows game, so a native Unix build
-  has nothing to hook. Emerald's Lua script is the one that could plausibly run elsewhere (BizHawk
-  is cross-platform), and it stays in the main zip rather than being duplicated.
+  has nothing to hook. The two Pokemon Lua scripts are the ones that could plausibly run elsewhere
+  (BizHawk is cross-platform), and they stay in the main zip rather than being duplicated.
 
 ## No launcher `.bat` files
 
@@ -158,8 +158,9 @@ shippable output (other Lua scripts under `adapters/bizhawk/pokemon/emerald/` ar
 `adapters/tevi/MeshGhostTevi/` is a C# project; pseudoregalia carries a submodule). Emerald is
 the easy case only because `meshghost_emerald.lua` *is* the shipped file. Each game gets its own
 step in `.github/workflows/release.yml`'s assemble job when its adapter is genuinely ready to
-ship — see the Emerald step there for the pattern (copy the script, copy its `lib/` next to it),
-and TEVI below for what a compiled adapter needs instead.
+ship — see the Emerald and Crystal steps there for the pattern (copy the script, copy a `lib/`
+next to it; Crystal reuses Emerald's, which is the same BizHawk LuaSocket build), and TEVI below
+for what a compiled adapter needs instead.
 
 Every game also gets a hand-written, committed `games/<publisher>/<game>/README.txt` — the
 end-user-facing setup steps for that specific game (what's in the folder, where to drag/copy it,
@@ -226,7 +227,8 @@ Two dev scripts stage this folder, and they're independent of each other:
   Pseudoregalia was found on 2026-08-17 to be shipping RE-UE4SS's stock Lua mods — a cheat manager,
   a console, keybind hooks, an actor dumper — **enabled**, none of them used.
 - `dev-scripts/stage-ue4ss-runtime.bat` stages the RE-UE4SS runtime itself (`UE4SS.dll`,
-  settings, stock `Mods/`) from the pinned RE-UE4SS submodule, recording its own provenance to
+  `dwmapi.dll` and `UE4SS-settings.ini`, but deliberately none of the stock Lua mods — see the
+  bullet above) from the pinned RE-UE4SS submodule, recording its own provenance to
   `ue4ss-runtime-built-from.txt`. This one is a deliberate exception to the project's normal
   "never redistribute the modding tool, user installs it themselves" posture — RE-UE4SS is
   MIT-licensed, and this ships its own `LICENSE` alongside the binaries per MIT's terms (see
@@ -249,3 +251,11 @@ linux and darwin on amd64 and arm64 for the two tarballs. It verifies three comm
 outputs aren't stale (the TEVI plugin, the Pseudoregalia plugin, and the bundled UE4SS runtime —
 each gated on its own `built-from.txt`-style hash record), assembles the three assets, creates
 the tag if it doesn't already exist, and attaches them to a new GitHub Release.
+
+The release body is not empty: the workflow hashes the three assets it just built and publishes
+a SHA-256 table, which GitHub's own generated notes are then appended to. That table is not
+decoration — [docs/antivirus.md](../docs/antivirus.md) and
+`packaging/release/README.txt` both tell a user whose antivirus flagged an unsigned Go binary to
+check their download against the published hash, and until 2026-08-18 no release published one,
+so that advice pointed at a number that did not exist. GitHub's two `Source code` archives are
+generated after the fact and cannot be hashed by the workflow; the table says so.

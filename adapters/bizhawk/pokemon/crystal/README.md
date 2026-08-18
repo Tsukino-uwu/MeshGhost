@@ -85,6 +85,18 @@ Only steps that actually happened and were confirmed are listed here.
    run instead of writing somewhere plausible. A loopback ghost walked on that ROM the same day.
    The measurement techniques are in `adapters/_template/probes.md`; the trap is in `pitfalls.md`.
 
+### Further work past "good enough"
+
+Open as of 2026-08-18 — [agent_docs/status.md](../../../../agent_docs/status.md) is the
+authoritative list, and [phase9.md](../../../../agent_docs/phases/phase9.md) has the detail:
+
+- A ghost looks like **this** machine's player, not the peer — a peer's own gender needs their
+  sprite loaded locally.
+- `W_BATTLEMODE` is still unmeasured on the Archipelago table (`0x015A` vs `0x1234`), and one
+  trainer battle settles it (`probes/ap_battlemode_probe.lua`).
+- Whether a ghost survives a battle: set up twice, answered neither time.
+- Two real machines: everything confirmed so far was a loopback ghost.
+
 ## What's here
 
 - `meshghost_crystal.lua` — **the adapter, and the only file that ships.** It walks bridge ports

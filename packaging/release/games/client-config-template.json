@@ -1,6 +1,7 @@
 {
   "_comment": "MeshGhost settings for this game. The mod starts meshghost.exe for you and it reads THIS file, not the config.json in the release folder you unzipped -- that one is for the server and for running the client by hand. Edit connect_to to your host's address, and make sure room matches everyone else's.",
   "_comment_no_bridge_here": "local_game_bridge is deliberately absent: the mod passes its own bridge port when it starts the client, so there is one owner of that value instead of two settings that can disagree. Adding it here would have no effect.",
+  "_comment_show_console": "show_console opens a real window for the client the mod started, so you can watch it work instead of reading meshghost.log. Windows only -- under Proton/Wine there is no console to open and it does nothing.",
   "client": {
     "connect_to": "127.0.0.1:7777",
     "transport": "auto",
@@ -8,6 +9,7 @@
     "room_code": "",
     "name": "player",
     "interp": "100ms",
-    "max_receive_hz_per_player": 0
+    "max_receive_hz_per_player": 0,
+    "show_console": false
   }
 }

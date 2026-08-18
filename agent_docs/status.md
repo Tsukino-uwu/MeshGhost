@@ -40,19 +40,16 @@ The pass fixed two real relay bugs, four adapter defects and ~60 stale doc claim
 identified, scoped and deliberately NOT done, because each needs a live game to judge or is large
 enough that bundling it would make one confirmation pass unable to isolate a regression.
 
-- **`Plugin.cpp`'s `game_thread_tick()` is ~4,000 lines in a 10,347-line file.** Its neighbours are
-  already extracted (`tick_remote_weapon`, `tick_afterimage_discovery`); the per-remote blocks are
-  the next ones. Behaviour-preserving but on the adapter's hot path — needs a live session.
+- **`Plugin.cpp`'s `game_thread_tick()` is ~4,000 lines in a 10,347-line file.** Per-remote blocks
+  are the next extraction; on the adapter's hot path, so it needs a live session.
 - **The two BizHawk Lua adapters duplicate ~400-500 lines each** (JSON codec, socket loader, port
   walk, framing). Shared `adapters/bizhawk/lib/` would need a matching `release.yml` staging change.
 - **Probe boilerplate: an identical 47-line block across 8 Crystal probes**, including the ROM
-  guard. Do the guard and `detect_rom_variant()` first — eight divergeable copies of "refuse to
-  write unless the checksum matches" is the risk, not the line count.
+  guard. Do the guard and `detect_rom_variant()` first — divergence is the risk, not the lines.
 - **`cmd/meshghost` and `cmd/meshghost-relay` duplicate ~120 lines of config/log plumbing**
-  (`stripBOM` is byte-identical). An `internal/cfg` package; both mains' comments already say
-  "mirrored in".
-- **TEVI: the `bridge_ready` send gate and the port walk.** Registered as entry 5 in
-  `adapters/tevi/BANDAGES.md` with the reason it was not rushed.
+  (`stripBOM` is byte-identical) — an `internal/cfg` package; both mains already say "mirrored in".
+- **TEVI: the `bridge_ready` send gate, and the port walk.** The message is RECOGNISED as of
+  2026-08-18 but not yet waited on before sending. Entry 5 in `adapters/tevi/BANDAGES.md`.
 
 ### Was blocked on a two-player session — now unblocked (7.7 confirmed 2026-08-16)
 
@@ -85,8 +82,8 @@ that a peer's state genuinely differs from the local player's, which loopback co
   below. Pseudoregalia's port walk is built but **not yet watched live**. `ideas.md`.
 - **TEVI's FullMap marker goes stale** — it only refreshes on a `render_remote`, so a peer who
   stops sending leaves a marker frozen where it was. Shipped bug, not hypothetical. `ideas.md`.
-- **TEVI lags the template's bridge shape** — no autostart, no port walk, no `bridge_ready`.
-  Both Pokémon adapters got the walk and the ack 2026-08-18, **untested live**. `_template/PROTOCOL.md`.
+- **TEVI lags the template's bridge shape** — it handles `bridge_ready`/`reject` as of 2026-08-18
+  (DLL v0.2.0); still no autostart and no port walk, and untested live. `_template/PROTOCOL.md`.
 - **Emerald's shipped adapter spawns instead of drawing** — user-confirmed piece by piece
   2026-08-18 (appears, follows, walks, runs, on-grid, no leak); **no end-to-end pass yet.**
 - **Awaiting a confirmation pass**: the spawn adapter and the whole test toolchain were built and

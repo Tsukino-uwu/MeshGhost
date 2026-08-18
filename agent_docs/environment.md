@@ -29,6 +29,15 @@ UE4SS entry below for that last one specifically, which is currently unresolved)
   `GOTOOLCHAIN=auto` is what let CI pass while it was still pinned to 1.22. Which of these
   actually *link* into the shipped binaries is a separate (smaller) list — see
   `packaging/release/THIRD-PARTY-NOTICES.txt`.
+- **cgo / the race detector: works, as of 2026-08-18.** `go test -race` needs a real C toolchain,
+  and the one that works here is the **standalone MSYS2 mingw64** at `C:/msys64/mingw64/bin`
+  (not devkitPro's MSYS2, whose `gcc` cgo cannot use — `stddef.h: No such file or directory`).
+  **Setting `CC` alone is not enough**: the compiler's own `bin` must be *ahead of devkitPro on
+  `PATH`* so `as`/`ld`/headers resolve, or it fails with `runtime/cgo: cgo.exe: exit status 2`.
+  This was recorded as "does not work on this machine" from 2026-08-16 until 2026-08-18, which
+  was wrong about the reason. The exact recipe is in `testing.md`'s Race detector section, and
+  `dev-scripts/run-gotests-race.bat` runs it. Same `PATH`-shadowing trap as `cmake` and `cmd`
+  (`pitfalls.md`).
 - Python: **confirmed installed**, 3.12.10 (`python --version`, 2026-08-11), at the standard
   per-user install location (`%LOCALAPPDATA%\Programs\Python\Python312\python.exe`). Invoke as
   `python`, not `python3` — only `python` is on `PATH` (both in a normal shell and in the

@@ -7,6 +7,11 @@ and the "Further work past 'good enough'" section below for what's still open.
 
 - Platform: GBA, played via BizHawk.
 - Confirmed working roms: "Vanilla", "Archipelago 0.6.7".
+- **It writes game RAM** — object RAM only (`gObjectEvents`, `gSprites`, the sprite-tile
+  allocation bitmap), never a save, cosmetic only, and only on a ROM whose addresses were
+  measured. Cleared by `agent_docs/architecture.md`'s 2026-08-18 ADR, which extends Crystal's
+  spawn ADR to this adapter. The adapter's own header said "Never writes memory" until that
+  day; see [BANDAGES.md](BANDAGES.md) for the ROM guard that decides where it may write.
 - Adapter language: Lua (BizHawk's scripting host).
 - **How the game is read: an external source decompilation.** Fixed memory addresses, looked up in
   [`pokeemerald`](https://github.com/pret/pokeemerald) and cited — nothing is discovered at runtime.

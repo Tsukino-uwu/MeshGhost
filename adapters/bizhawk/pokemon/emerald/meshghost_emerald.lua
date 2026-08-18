@@ -22,7 +22,8 @@
 -- adapters/bizhawk/pokemon/emerald/probes/phase4_multiplayer.lua (state reading, screen-position anchor,
 -- JSON, bridge protocol, remote-ghost set, tick model, overworld gate, LuaSocket loading --
 -- all unchanged, see that script's header for the full derivation and citations, not
--- re-derived here). Never writes memory.
+-- re-derived here). That inherited content is read-only; the RAM writes this adapter now does
+-- are the spawn path added 2026-08-18, described in the banner at the top of this file.
 --
 -- What's different from phase4_multiplayer.lua: drawRemotes() decodes and draws the real
 -- Brendan/May overworld sprite (gender, facing direction, and walk/run animation, including a

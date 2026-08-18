@@ -60,7 +60,7 @@ reconnection, buffering, interpolation, the relay conversation. Your game connec
 to it on `127.0.0.1:7778` and exchanges **one JSON object per line**. Nothing of ours is linked
 into your binary and nothing of yours into ours.
 
-This is not a fallback, it is how MeshGhost is actually built: the three shipped adapters are
+This is not a fallback, it is how MeshGhost is actually built: the four shipped adapters are
 written in **Lua, C# and C++**, share no code, and each is a few hundred lines. Rust, Python,
 Godot, Java, Zig — all the same shape.
 
@@ -337,9 +337,9 @@ import path and none was affected by any of it.
 `protocol_version` is checked for **exact equality**. A mismatch is refused outright rather than
 negotiated, so a bump would reject every existing client at once.
 
-In practice it has stayed at `1` while six capabilities, four message types and a good number of
-fields were added, because new capability travels through the `features` list plus two forward
-compatibility rules: **unknown fields are ignored, and unknown message types are ignored.** Build
+In practice it has stayed at `1` while seven capabilities, most of the message types and a good
+number of fields were added, because new capability travels through the `features` list plus two
+forward compatibility rules: **unknown fields are ignored, and unknown message types are ignored.** Build
 your client to honour both and additive changes will pass straight over it.
 
 **That is our internal discipline, not a promise to you.** It has held so far and we intend to keep

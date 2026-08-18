@@ -65,7 +65,7 @@ before running it; `_template/probes.md` has the cheapest-first list.
 
 ## Runtime switches — environment variables and loader globals
 
-All four are **development-only**. None is set in a shipped release, and each falls back to a
+All five are **development-only**. None is set in a shipped release, and each falls back to a
 default that is the shipping behaviour.
 
 | Switch | How it is set | Default when unset | What it does |
@@ -73,6 +73,7 @@ default that is the shipping behaviour.
 | `MESHGHOST_BRIDGE_PORT` | environment | unset — walk 7778-7785 | Pins the bridge port instead of walking. An explicit port is honoured and then *not* walked: someone who names a port means that port, and silently landing elsewhere would be worse than failing. |
 | `MESHGHOST_LOOPBACK_TRAIL` | environment (any value) | unset — offset 2 tiles | Switches the loopback ghost from *offset* mode to *exact-trail* mode (offset 0). **Two genuinely different, both-valid loopback tests**, per the user: offset for judging rendering, animation and smoothing side by side, where an exact overlap makes the two impossible to tell apart; zero for verifying the ghost tracks the real position precisely, which an offset would hide. An environment variable rather than a code constant so switching costs a different `.local.bat` and not a script edit. |
 | `MESHGHOST_FORCE_GHOST_GFX` | **global first, then environment** | unset — no forcing | Forces every ghost to a given `graphicsId` regardless of what the peer reports, so the **asymmetric** case can be tested at all: loopback echoes your own state, so "a peer on a bike while you walk" cannot otherwise be produced without a second machine. Read as a global first because that is what makes it usable mid-session — the dev loader loads its targets in order, so a one-line script listed *before* the adapter changes the value on a reload, where an environment variable would need the whole emulator restarted. |
+| `MESHGHOST_DEV_LOADER` | a **global**, set by `dev-scripts/bizhawk-dev-loader.lua` | unset — the adapter runs its own `while true ... emu.frameadvance()` loop | Decides who owns the frame loop. When the loader set it, the adapter publishes `MESHGHOST_DEV_TICK`/`MESHGHOST_DEV_UNLOAD` and lets the loader call it, so the script can be swapped and reloaded live; a player opening the file in the Lua Console sets neither global and gets the normal loop. Listed here because it is a global that changes control flow, which is exactly the shape this section exists to catch — not because a player would ever set it. |
 | `MESHGHOST_GHOST_PEER_GFX` | global or environment | unset — **off, deliberately** | Opts in to drawing a peer with the peer's own graphic. **Off is not an oversight.** Every special state renders corrupted, confirmed on screen 2026-08-18, for a structural reason: normal Brendan/May is 16 px wide with one OAM and subsprite table, while both bikes, surfing, underwater and fishing are **32 wide** with different ones — and this code copies both pointers while also forcing `subspriteTableNum = 0`, a field the engine manages itself. Until that is solved, a peer's graphic is used only when it matches the local player's, which changes nothing visually but keeps the wire format and the plumbing exercised. |
 
 **The pattern worth copying**, and the reason this section exists at all: a runtime switch can be

@@ -23,8 +23,8 @@ question of whether it could move:
 - **Go side — the agent's half.** `core`, `relay`, `transport`, `bridge` and `cmd/` are
   deterministic code against a contract this project owns. Nothing there rests on a guess about a
   game, so it can be settled by tools that cannot be talked into agreeing: a compiler, `go vet`, a
-  suite that runs twice, `internal/e2e` driving real binaries, the race detector and the fuzzer in
-  CI. The agent must run these itself and **must not** ask the user to watch. A claim here is
+  suite that runs twice, `internal/e2e` driving real binaries, the race detector (locally and in
+  CI, since 2026-08-18) and the fuzzer in CI. The agent must run these itself and **must not** ask the user to watch. A claim here is
   backed by an exit code.
 - **Adapters — the user's half.** An adapter's claims are about a running game whose internals are
   reconstructed from a decompilation and live observation. A wrong memory address does not throw:
@@ -172,16 +172,19 @@ adapter's own rendering, invisible in a mirror, and they stay on the list. Every
 | **Race detector** | **yes, with the PATH recipe below** (was "can't" until 2026-08-18) | yes (Linux) | no |
 | Concurrency stress (`-shuffle`, `-cpu`, repeats) | yes (`run-gotests-stress.bat`) | no | no |
 | **Fuzzing** | seed corpus only | yes, short campaign per target (all eleven) | no |
+| **gofmt** | yes (`dev-scripts/preflight.ps1`) | yes — `gofmt -l` on tracked `.go`, added 2026-08-18 | no |
 
-**The race detector is the one real hole, and it has already cost a round trip.** CI caught a
-relay race on 2026-08-16 (a join broadcast computed its recipients under a *second* lock
-acquisition, so a client that joined in the window got a duplicate join it had already been told
-about in its welcome) that 300 local runs of the same test never reproduced. The loop is
-necessarily: push → CI fails → fix. `run-gotests-stress.bat` shortens that loop by repeating the
-concurrency packages under shuffled order and two GOMAXPROCS values; it does not close it. The
-durable lesson from that bug is cheaper than any tooling: **a test that asserts an invariant under
-concurrent clients found it locally in 100 runs once written**, where the test that failed in CI
-only failed by accident, in a misleading place.
+**The race detector used to be the one real hole, and it cost a round trip before it was
+closed.** CI caught a relay race on 2026-08-16 (a join broadcast computed its recipients under a
+*second* lock acquisition, so a client that joined in the window got a duplicate join it had
+already been told about in its welcome) that 300 local runs of the same test never reproduced. At
+the time the loop was necessarily: push → CI fails → fix. **That is no longer true — as of
+2026-08-18 `-race` runs locally**, via the `PATH` recipe in the Race detector section below and
+`dev-scripts/run-gotests-race.bat`, so a suspected race can be settled before a push.
+`run-gotests-stress.bat` still helps by repeating the concurrency packages under shuffled order
+and two GOMAXPROCS values. The durable lesson from that bug is cheaper than any tooling:
+**a test that asserts an invariant under concurrent clients found it locally in 100 runs once
+written**, where the test that failed in CI only failed by accident, in a misleading place.
 
 CI is `.github/workflows/ci.yml`. **It only runs when a `.go` file, `go.mod`/`go.sum`, or the
 workflow itself changed** — no tracked `.go` file belongs to an adapter, so that

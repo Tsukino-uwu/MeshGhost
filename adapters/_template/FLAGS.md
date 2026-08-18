@@ -23,7 +23,7 @@ one says what it is, that one says what it costs.
 **Keep it in step with the code.** Add a flag, add its row. Flip a flag, fix its row in the same
 edit. A register that disagrees with the source is worse than no register.
 
-## The three kinds
+## The three kinds a compile-time bool can be
 
 | Kind | Shipped value | What it means |
 |---|---|---|
@@ -151,6 +151,7 @@ bools — which is precisely the drift `README.md`'s gold-standard rule is about
 *invented*. Substituting a named, logged candidate for a measured value is a deliberate
 experiment. Falling back to a plausible value because a real one is missing is the thing the
 verification standard exists to forbid — a missing value should refuse to run.
+
 ## When a comment and a value disagree
 
 Believe the value, then find out why the comment drifted before changing either. These comments

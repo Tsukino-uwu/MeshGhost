@@ -691,7 +691,7 @@ type Server struct {
 	// more often (and costs every peer that much more bandwidth in both
 	// directions), but nothing makes a client honor it — the only hard
 	// limit is the flood cap, which scales from this value (see
-	// maxMessagesPerSecond). See the ADR in agent_docs/architecture.md.
+	// MaxMessagesPerSecondFor). See the ADR in agent_docs/architecture.md.
 	SendHz int
 
 	// Offers is what a QueryOnly Hello is answered with: the transports

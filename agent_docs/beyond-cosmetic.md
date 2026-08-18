@@ -347,10 +347,11 @@ predicts an adapter's difficulty — here, what you can *reproduce* predicts how
 ## 8. Protocol-level gaps to close first
 
 - **`MaxEventBytes`** — **CLOSED 2026-08-17 at 1024 bytes, uniform.** Of the two honest options in
-  §9, uniform won: it keeps a whole event envelope under `udpconn.MaxDatagramBytes`, so an event
-  means the same thing on every transport and size needs no negotiation. The cost is a smaller
-  ceiling than a stream transport could carry, paid so there is one number rather than a
-  capability difference that only shows up in the field.
+  §9, uniform won: one number rather than a capability difference that only shows up in the field,
+  at the cost of a smaller ceiling than a stream transport could carry. **The number does not yet
+  deliver that intent** — 1024 bounds the *payload*, and a maximal envelope is 1321 bytes, over
+  `udpconn.MaxDatagramBytes`. See §9 below and `risks.md`; pinned since 2026-08-18 by
+  `netx/udpconn/world_bounds_test.go`.
 - **`seq` is inert.** `protocol.State.seq` is documented "for ordering", written by
   `core`, and read by nothing. **Still true, and now deliberately so**: the event plane
   got its own room-wide `Event.Seq` rather than reusing this one, because a per-client counter on a
@@ -439,8 +440,8 @@ stream transport, or sending a *reference* rather than the data.
 
 Most of the rig already exists and is better than it looks: `cmd/meshghost-fakeadapter` doubles as
 an N-client synthetic load generator, `internal/e2e` launches the real binaries, `-loopback` gives
-a one-machine round trip, and CI runs the race detector plus all six fuzz targets. `testing.md` and
-`dev-scripts/README.md` are the inventory.
+a one-machine round trip, the race detector runs locally as well as in CI (since 2026-08-18), and
+CI runs all eleven fuzz targets. `testing.md` and `dev-scripts/README.md` are the inventory.
 
 What is missing splits cleanly by **which bug class it catches**:
 
@@ -451,7 +452,8 @@ What is missing splits cleanly by **which bug class it catches**:
 | **Divergence detector** | two peers silently disagreeing about shared state | reserved |
 | **Record / replay** | a desync seen once and never again | reserved |
 | **Crash injection at protocol points** | atomicity — the half-finished trade | **BUILT 2026-08-17** — `relay/online_test.go`'s crash-mid-exchange tests |
-| **Relay introspection** | "what does the server think is true right now" | **BUILT 2026-08-17** — `Server.Snapshot`, `meshghost-relay -introspect` |
+| **Relay introspection** | "what does the server think is true right now" | **BUILT 2026-08-17** — `Server.Snapshot`, `meshghost-relay -introspect`; extended 2026-08-18 with cross-area state fan-out counters (`StateFanoutSnapshot`) |
+| **Client-side link/render stats** | "what does the client see, and how much of it does it throw away" | **BUILT 2026-08-18** — `meshghost -stats=<dur>` (`core/stats.go`): rtt, clock offset, peers known vs rendered, bytes in/out |
 
 **The second was built the moment it had something to be an invariant about**, and immediately
 earned it: the total-order test failed on its first run, catching a real ordering defect (a stamp

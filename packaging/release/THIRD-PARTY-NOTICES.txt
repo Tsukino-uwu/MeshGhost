@@ -17,6 +17,20 @@ Last verified 2026-08-16 against quic-go v0.61.0.
 Note golang.org/x/net appears in go.mod but does NOT link into these
 binaries, so it is deliberately absent here.
 
+This file covers the two executables ONLY. The Windows download also ships
+game mods, and each carries its own notices next to the files they belong to:
+
+  games\pseudoregalia\pseudoregalia\Binaries\Win64\ue4ss\
+      LICENSE and THIRD-PARTY-NOTICES.txt -- RE-UE4SS (MIT) and the libraries
+      it statically links into the UE4SS runtime bundled there.
+  games\pokemon\emerald\lib\x64\  and  games\pokemon\crystal\lib\x64\
+      lua54.LICENSE.txt and luasocket.LICENSE.txt -- the Lua and LuaSocket
+      builds the BizHawk scripts load.
+
+The TEVI mod (games\tevi\) adds no third-party code of its own: it is MeshGhost
+source compiled against BepInEx and the game's own assemblies, neither of which
+is redistributed here.
+
 ----------------------------------------------------------------------
 github.com/quic-go/quic-go v0.61.0 -- MIT
   Used for the "quic" transport (see the Transports section in the Windows

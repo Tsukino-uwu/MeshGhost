@@ -37,7 +37,7 @@ const (
 	// cap itself since the send/receive rate-control feature (see the ADR in
 	// agent_docs/architecture.md): the real cap is
 	// max(MaxMessagesPerSecond, sendHz*RateLimitHeadroomMultiple), computed
-	// by maxMessagesPerSecond below, so a relay configured for a faster
+	// by MaxMessagesPerSecondFor below, so a relay configured for a faster
 	// send_hz gets proportionally more headroom instead of tripping this
 	// flat number outright. At the default send_hz (protocol.DefaultSendHz,
 	// 20), the computed cap is exactly this constant's historical value —

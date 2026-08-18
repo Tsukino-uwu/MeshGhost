@@ -43,7 +43,11 @@ Section "Public-repo leak check"
 # Both slash directions. A backslash-only check ran clean for days while a forward-slash path sat
 # leaking in master -- see agent_docs/pitfalls.md, "A verification rule that reports clean while
 # the thing it checks is broken".
-$leaks = & git grep -inIF -e 'C:\Users' -e 'C:/Users' -e '/home/' -- . ':!CLAUDE.md' ':!agent_docs/environment.md' ':!agent_docs/pitfalls.md'
+# This script excludes ITSELF, for the same reason CLAUDE.md and pitfalls.md are excluded: the
+# patterns are written out literally on this line, so git grep finds them here every time. Without
+# the exclusion the check reported FAIL on a perfectly clean tree -- a checker that always fails is
+# as useless as one that never can, and gets ignored just as fast.
+$leaks = & git grep -inIF -e 'C:\Users' -e 'C:/Users' -e '/home/' -- . ':!CLAUDE.md' ':!agent_docs/environment.md' ':!agent_docs/pitfalls.md' ':!dev-scripts/preflight.ps1'
 if ($LASTEXITCODE -eq 0 -and $leaks) {
     Report-Fail "machine-identifying path in a tracked file:"
     $leaks | ForEach-Object { Write-Host "          $_" }

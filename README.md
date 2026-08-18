@@ -29,12 +29,11 @@ Each link goes to that adapter's own README: how it reads its game, how it was b
 can show today.
 
 **One server hosts every game at once**, with nothing to set up for it: a single
-`meshghost-server.exe` carries Emerald, TEVI and Pseudoregalia sessions simultaneously on one
-port. Each game gets its own rooms automatically, so games never collide and players only ever
-see others in the same game and the same room name. A host who wants their server locked to one
-game sets `server.only_game` to that game's id — `emerald`, `crystal`, `tevi` or
-`pseudoregalia`. Players
-never set it: a mod announces its own id.
+`meshghost-server.exe` carries Emerald, Crystal, TEVI and Pseudoregalia sessions simultaneously
+on one port. Each game gets its own rooms automatically, so games never collide and players only
+ever see others in the same game and the same room name. A host who wants their server locked to
+one game sets `server.only_game` to that game's id — `emerald`, `crystal`, `tevi` or
+`pseudoregalia`. Players never set it: a mod announces its own id.
 
 ## Setup
 
@@ -46,10 +45,11 @@ never set it: a mod announces its own id.
    is hosting also runs `meshghost-server.exe` and forwards port 7777 — **both `tcp` and `udp`,
    which are two separate rules on most routers**. The server prints exactly what to forward when
    it starts.
-4. Load your game's mod from `games\<publisher>\<game>\` (BizHawk Lua Console for Emerald, BepInEx
-   for TEVI, UE4SS for Pseudoregalia) — for Emerald and TEVI, **after** `meshghost.exe` is already
-   running. For Pseudoregalia there is no order to get right: starting the game is the whole
-   thing. (Emerald is the only game with a `<publisher>` subfolder, `games\pokemon\emerald\`.)
+4. Load your game's mod from `games\<publisher>\<game>\` (BizHawk Lua Console for Emerald and
+   Crystal, BepInEx for TEVI, UE4SS for Pseudoregalia) — for Emerald, Crystal and TEVI, **after**
+   `meshghost.exe` is already running. For Pseudoregalia there is no order to get right: starting
+   the game is the whole thing. (The two Pokémon games are the only ones with a `<publisher>`
+   subfolder: `games\pokemon\emerald\` and `games\pokemon\crystal\`.)
 
 Full walkthrough: `packaging/release/README.txt`, which ships in the zip.
 
@@ -116,7 +116,7 @@ interfaces), [agent_docs/architecture.md](agent_docs/architecture.md) (system sh
 
 **Any language: run it beside your game.** `meshghost.exe` does all the networking as its own
 process; your game connects a TCP socket to it on localhost and exchanges one JSON object per
-line. There is no library to link — which is why the three shipped adapters are written in three
+line. There is no library to link — which is why the four shipped adapters are written in three
 unrelated languages (Lua, C#, C++) and share no code. Rust, Python, Godot, Java: same shape.
 [docs/integrating.md](docs/integrating.md) is the guide, with a conformance checklist and a
 worked example.

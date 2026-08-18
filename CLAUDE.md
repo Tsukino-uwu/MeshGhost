@@ -48,11 +48,11 @@ stays here, its reasoning goes to `agent_docs/`, with a one-line pointer. Full e
   against a contract we own — nothing there rests on a guess about a game, which is exactly why the
   three are separated. Before calling a change to them done, run `dev-scripts/run-gotests.bat` —
   build, vet, and the whole suite twice, including `internal/e2e`, which launches the real binaries
-  and drives a real adapter over the bridge (no game, no watching). CI adds the race detector and a
-  fuzz campaign on any push touching a `.go` file; neither runs locally, so a green script is not a
-  green CI. **Repeat the suite when touching concurrency** — `-count=10` has caught what `-count=1`
-  and `-count=2` both miss, most recently 2026-08-16. A behaviour change wants a regression test
-  that fails without the fix.
+  and drives a real adapter over the bridge (no game, no watching). **`-race` runs locally too now**
+  (`dev-scripts/run-gotests-race.bat`, fixed 2026-08-18) — run it when touching concurrency. Only
+  the fuzz campaign is still CI-only, so a green script is not quite a green CI. Repeat the suite
+  too: `-count=10` has caught what `-count=1` and `-count=2` both miss, most recently 2026-08-16.
+  A behaviour change wants a regression test that fails without the fix.
 - **After any `.go` commit, go look at what CI did with it — `gh run list -L 5` — and at the start
   of a session, before anything else, if the recent commits touch `.go` files.** The user commits,
   pushes, and then opens a fresh chat, so a session usually begins with a run already finished
@@ -120,9 +120,9 @@ stays here, its reasoning goes to `agent_docs/`, with a one-line pointer. Full e
   `adapters/` resolve their own directory). Cite files outside the repo by filename only. Suspect
   pasted tool output above all. Never assume a clean run means clean —
   `git grep -inIF -e 'C:\Users' -e 'C:/Users' -e '/home/' -- . ':!CLAUDE.md'
-  ':!agent_docs/environment.md' ':!agent_docs/pitfalls.md'` must print nothing; **both slash
-  directions and `-F` are load-bearing** (why, and all three live cases: `agent_docs/pitfalls.md`).
-  `agent_docs/environment.md` is the one deliberate exception — prefer a version to a path.
+  ':!agent_docs/environment.md' ':!agent_docs/pitfalls.md' ':!dev-scripts/preflight.ps1'` must
+  print nothing; **both slash directions and `-F` are load-bearing** (why, and all three live
+  cases: `agent_docs/pitfalls.md`). `agent_docs/environment.md` — prefer a version to a path.
 - **Never let a scripted edit write CRLF into the LF-pinned adapter sources.** `.gitattributes`
   pins TEVI's `*.cs`/`*.csproj` and Pseudoregalia's `Mod/src/*.cpp|hpp`/`CMakeLists.txt` to
   `eol=lf`, because the release staleness gate hashes them on a Windows runner that defaults to

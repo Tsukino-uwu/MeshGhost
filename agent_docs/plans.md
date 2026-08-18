@@ -235,10 +235,12 @@ verified `pokeemerald` battle-state signal — was closed the same day with
 Phase 5 (extract the
 template) is also complete (2026-08-11) — the core was confirmed running standalone against an
 in-process fake adapter (a ghost walking in a circle, no game attached), and
-`adapters/_template/` is now frozen with a language-agnostic protocol stub for Phase 6 to build
-from (see `agent_docs/phases/phase5.md`). Phases 6, 7, and 8 (TEVI, Pseudoregalia, and Emerald's
-own ongoing post-5.5 work, respectively) are covered in their own sections further down this
-file. See `agent_docs/status.md` for the current one-screen summary of active work.
+`adapters/_template/` gained a language-agnostic protocol stub for Phase 6 to build from (see
+`agent_docs/phases/phase5.md`). **"Frozen" was the wording here until 2026-08-18 and it is
+wrong** — `CLAUDE.md` requires `_template/` to be kept as the gold standard and back-ported in
+the same pass whenever a shipped adapter learns a rule, file or trap; what is stable is the
+*protocol stub*, not the folder. Phases 6, 7, 8 and 9 (TEVI, Pseudoregalia, Emerald's ongoing
+post-5.5 work, and Crystal) are covered in their own sections further down this file. See `agent_docs/status.md` for the current one-screen summary of active work.
 
 ## Roadmap
 

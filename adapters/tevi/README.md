@@ -12,7 +12,8 @@ Phase 6 fully done 2026-08-13.**
   Mono bytecode, decompiled locally with ILSpy to read real class and field names, and the adapter
   compiles against it — so a wrong name is a build error, not a silent runtime nothing. A little C#
   reflection reaches non-public members. This is the easiest of the three access models the project
-  has used, and it is why this adapter was by far the fastest. See
+  has used -- three models across four adapters, since both Pokemon games share the decompilation
+  one -- and it is why this adapter was by far the fastest. See
   [agent_docs/access-models.md](../../agent_docs/access-models.md).
 - **[documentation.md](documentation.md)** describes how TEVI itself works — reaching the player
   through `EventManager`, the gap between the logic position and the drawn position, the player's
@@ -35,6 +36,14 @@ Phase 6 fully done 2026-08-13.**
   [agent_docs/phases/phase6.md](../../agent_docs/phases/phase6.md). This adapter was built from
   the template Phase 5 extracted (`adapters/_template/`) — see
   [agent_docs/phases/phase5.md](../../agent_docs/phases/phase5.md).
+
+- **Shipped DLL is `PluginVersion` 0.2.0, rebuilt and redeployed 2026-08-18.** That build added
+  three bridge/lifecycle behaviours — `bridge_ready` and `reject` are handled explicitly instead of
+  falling into the unknown-message default, the bridge is drained only after the local player is
+  confirmed to exist, and returning to the **main menu** despawns every peer ghost. **None of the
+  three has been watched live yet.** The despawn fires on a real main-menu return only: peer ghosts
+  stay visible during the Characters/pause overlay, which is the wanted behaviour and is why
+  `documentation.md` insists on naming the exact state rather than saying "menu".
 
 ## Custom features
 

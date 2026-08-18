@@ -1634,3 +1634,27 @@ including `internal/e2e`. Recipe and caveats: `testing.md`'s Race detector secti
 ages worse: "we can't do X here" gets written into the docs, tooling gets built around the
 absence, and nobody re-tests it. Cost here was every race being a push-and-wait round trip for
 two days. **Treat "this doesn't work on this machine" as a dated claim, not a property.**
+
+## Inferring what a game is MEANT to do, and "fixing" a non-bug (2026-08-18, TEVI)
+
+**Symptom.** TEVI's peer ghosts stayed visible while the pause overlay was open. Reading
+`Plugin.cs` alone, that looks like a leak — the local player is not in gameplay, so why is anyone
+else's ghost on screen? A change was proposed to despawn them, which would have been a real visual
+regression: peer ghosts staying up during the pause overlay is **wanted** behaviour, and the user
+confirmed it as such the same day.
+
+**Cause.** Two failures stacked. First, *intent was inferred from code* — the code says what
+happens, never what should happen, and a cosmetic layer's correctness is a design question the
+user owns. Second, the word **"menu"** was doing double duty: TEVI has a main menu *and* a pause
+overlay, and the despawn path is deliberately gated on only one of them (`player == null`, which
+`phases/phase6.md` records the pause overlay does not trigger). One sentence written as "on menu
+return" covered two states with opposite required behaviour.
+
+**Fix.** `CLAUDE.md` now carries both halves as a rule: **never assume what a game is meant to do
+— ask**, before changing anything the player SEES; and **name the exact state, "main menu", never
+bare "menu"**. `Plugin.cs`'s despawn call carries a comment saying which menu it means and what to
+suspect first if a future TEVI build ever nulls the player on pause.
+
+**The tell.** You are about to change a *visible* behaviour and your only evidence is what the
+source implies. That is the same shape as "it ran without errors" — self-consistent, and untested
+against the one person who decides what correct looks like.

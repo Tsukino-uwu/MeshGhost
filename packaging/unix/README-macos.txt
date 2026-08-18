@@ -49,10 +49,10 @@ Where are the games?
 This is the honest part: **MeshGhost has nothing to play on macOS yet.**
 
 Every supported game is a Windows game. Pseudoregalia and TEVI use Windows DLL
-mods; Pokemon Emerald uses a Lua script for BizHawk, which does have a macOS
-build, so that one is at least plausible -- the script is in the Windows
-download's games/pokemon/emerald/ folder and isn't Windows-specific, but
-nobody has tried it on a Mac.
+mods; Pokemon Emerald and Pokemon Crystal use Lua scripts for BizHawk, which
+does have a macOS build, so those two are at least plausible -- the scripts are
+in the Windows download's games/pokemon/emerald/ and games/pokemon/crystal/
+folders and aren't Windows-specific, but nobody has tried them on a Mac.
 
 So what this build is genuinely for today is HOSTING: running the server for
 friends who are playing on Windows. That works without any game on this

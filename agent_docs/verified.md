@@ -7468,3 +7468,38 @@ scheduled. All established by the agent with local tools; nothing here is a visu
 - **Deliberately not rewritten line by line.** Each entry was correct on its own date, and this
   file's value is that it records what was true when. The same note now sits at the top of
   `phases/phase3.md` through `phase8.md`.
+
+### CORRECTION: the two "`-race` cannot run on this machine" entries above are wrong (2026-08-18)
+
+- Date: 2026-08-18
+- Confirmed by: **the Go tools, by me, no game and no user watching** — the standard `CLAUDE.md`
+  sets for the Go half. Appended rather than editing, per this file's append-only rule.
+- **Superseded entries:** the 2026-08-16 "`-race` cannot run on this machine" entry and the later
+  "Local tooling gap re-measured (Go 1.25): `-race` still cannot run here". Both were correct that
+  devkitPro's `gcc` cannot build cgo; both were **wrong that no local `-race` was possible**.
+- **The working recipe** is `CC=C:/msys64/mingw64/bin/gcc.exe CGO_ENABLED=1` **plus**
+  `PATH=/c/msys64/mingw64/bin:$PATH`. Setting `CC` alone fails (`runtime/cgo: cgo.exe: exit status
+  2`) because the compiler needs its own `as`/`ld`/headers resolvable ahead of devkitPro's copy —
+  the same wrong-install-on-`PATH` trap already recorded for `cmake` and `cmd`.
+- **Run by me while auditing the docs:** `go test -race -count=1` clean on `protocol`, `relay`,
+  `core`, `netx`, `netx/quicconn`, `netx/udpconn`. `dev-scripts/run-gotests-race.bat` is the
+  packaged form; `testing.md`'s Race detector section holds the recipe and caveats, and
+  `pitfalls.md` the diagnosis.
+- **Read every earlier claim in this file that the race detector is CI-only as dated, not as a
+  property of the machine.** CI's Linux `-race` job is unchanged and remains the authority.
+
+### CORRECTION: `MaxEventBytes`' "comfortably under a datagram" claim, now pinned by tests (2026-08-18)
+
+- Date: 2026-08-18
+- Confirmed by: reading `protocol/online.go` and `netx/udpconn/world_bounds_test.go` — source
+  reads, not a runtime observation.
+- **`protocol.MaxEventBytes` (1024) does NOT keep a maximal `event` envelope under
+  `udpconn.MaxDatagramBytes` (1200).** Its own doc comment used to say it did; the comment was
+  corrected on 2026-08-18 and now states the real relationship, naming the two tests that assert
+  it: `TestMaximalEventDoesNotFitAUDPDatagram` and
+  `TestMaximalCommittedEscrowDoesNotFitAUDPDatagram`.
+- **The constants are unchanged** — 1024 still, and the underlying risk (a maximal event or a
+  committed escrow is undeliverable to a udp peer) is still open and still unreached, since no
+  adapter uses those planes. `risks.md` has the measurement; `bandages-core.md` the register entry.
+- What changed is only that the documentation stopped asserting a relationship that does not hold,
+  and that the gap can no longer widen unnoticed.

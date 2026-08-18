@@ -39,9 +39,10 @@ Every game MeshGhost currently supports is a Windows game:
 
 - Pseudoregalia and TEVI use mods that are Windows DLLs. They run under
   Proton/Wine, inside the game's own prefix.
-- Pokemon Emerald is a Lua script for BizHawk, which does run natively on
-  Linux -- grab it from the Windows download's games\pokemon\emerald\ folder;
-  the script and its libraries are not Windows-specific.
+- Pokemon Emerald and Pokemon Crystal are Lua scripts for BizHawk, which does
+  run natively on Linux -- grab them from the Windows download's
+  games\pokemon\emerald\ and games\pokemon\crystal\ folders; the scripts and
+  their libraries are not Windows-specific.
 
 So for Pseudoregalia and TEVI, the mod runs inside the Proton prefix and will
 start the WINDOWS meshghost.exe from that same prefix -- which is expected to

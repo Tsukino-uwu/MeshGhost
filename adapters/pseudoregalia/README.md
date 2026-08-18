@@ -14,7 +14,7 @@ because that is one session on one pair of machines, not broad testing. See
   and function is a **name string resolved live** through UE4SS, and a wrong name does not fail to
   compile — it returns nothing, or something plausible. Everything had to be discovered by
   enumerating the running game, which is why this adapter is far and away the largest and hardest of
-  the three, and why it produced most of the project's tooling and lessons. See
+  the four, and why it produced most of the project's tooling and lessons. See
   [agent_docs/access-models.md](../../agent_docs/access-models.md) and
   [agent_docs/effect-investigation.md](../../agent_docs/effect-investigation.md).
 - Tooling: **confirmed 2026-08-12** — UE 5.1 (`++UE5+Release-5.1-CL-23901901`, read from

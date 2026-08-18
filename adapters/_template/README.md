@@ -1,9 +1,11 @@
 # Adapter template
 
-**First written 2026-08-11**, at the end of Phase 5, and kept current since with what the three
+**First written 2026-08-11**, at the end of Phase 5, and kept current since with what the four
 shipped adapters learned the hard way (last swept 2026-08-17, against `agent_docs/contract.md`,
 `internal/bridge`, and the four shipped adapters' own docs; last recount 2026-08-18, when Crystal
-shipped and every "three" in this folder became wrong at once). The core was proven to run against a fake
+shipped and every "three" in this folder became wrong at once; re-swept later the same day against
+all four adapters' sources and the repo-wide tooling — `dev-scripts/preflight.ps1`, `meshghost
+-stats`, the relay's `-introspect`). The core was proven to run against a fake
 adapter (`cmd/meshghost-fakeadapter`, a ghost that walks in a circle, driven by
 `core.RunAdapter` — see [agent_docs/verified.md](../../agent_docs/verified.md)'s Phase 5 entry)
 with no game attached and no import of anything under `adapters/`. This folder is what that
@@ -108,8 +110,8 @@ adapter accumulates dozens of probe scripts and hundreds of log files, and at th
 bury the documentation that a reader actually came for: Crystal reached 25 scripts and 72 logs
 within a day of being started, at which point its four `.md` files were genuinely hard to find in
 the listing. **The probes themselves are committed and kept** — they are the record of how each
-fact was established, and several have been re-run months-equivalent later against a patched ROM
-to chase the same class of bug. **Their logs are not**: `.gitignore` covers
+fact was established, and several written for a vanilla ROM were re-run days later against a
+patched one to chase the same class of bug (Emerald's four `avatar_*` probes, 2026-08-14). **Their logs are not**: `.gitignore` covers
 `adapters/**/*.log`, because once a run has been read its conclusions belong in `verified.md`,
 not in a megabyte of raw text. Convention adopted 2026-08-18, on the user's ask, and applied to
 Emerald and Crystal together.
@@ -160,7 +162,7 @@ the provenance sentence at the top — `agent_docs/licensing.md`'s audit greps f
 **The rule above is repeated verbatim at the top of every adapter's `documentation.md`, and must
 stay there.** Not a link to it — the text itself. A rule that lives one click away is read once,
 when the file is created, and then not again at the moment it matters: someone pasting something in
-months later. `_template/documentation.md` carries it as a `## Before adding anything to this file`
+long after they have forgotten it exists. `_template/documentation.md` carries it as a `## Before adding anything to this file`
 section, marked KEEP; copying that file forward is what propagates it. All four shipped adapters
 carry it (added 2026-08-18, on the user's instruction: *"so we always guarantee that we don't
 accidently add something wrong/bad anywhere"*).
@@ -239,7 +241,7 @@ deliberately no template, since a stub with no content would go stale immediatel
 
 ## First, work out what you will be able to READ
 
-Do this before estimating anything. The three shipped adapters differed enormously in difficulty,
+Do this before estimating anything. The four shipped adapters differed enormously in difficulty,
 and the best predictor was not the engine, the language or the modding framework — it was **how much
 readable source existed about the game before work started.**
 
@@ -543,7 +545,16 @@ Two habits from the existing adapters worth copying:
   log produced 7324 lines in a single TEVI session.
 - **Hash-diff the file actually deployed into the game directory against your repo copy before
   believing any live test.** Every adapter here is a build artifact copied somewhere, and a
-  stale copy has invalidated whole test sessions twice.
+  stale copy has invalidated whole test sessions twice. `dev-scripts/preflight.ps1` does this
+  check and the rest of the "are these the artifacts we think they are" sweep, read-only; run it
+  before handing the user a game, and point the `MESHGHOST_*_DLL` environment variables it
+  documents at wherever your adapter deploys so a new game is covered too.
+- **Ask the client what it saw, rather than inferring it from the game.** `meshghost -stats=10s`
+  logs one line: link health, how many peers are known versus actually rendered, bytes each way,
+  and what share of received remote states this client discarded because the sender was in another
+  area. That last number separates "the adapter is not rendering" from "nothing was meant to
+  render", which is otherwise a guess. The relay's `-introspect` is the same idea from the other
+  end (rooms, members, and cross-area fan-out); both are off by default and cost one log line.
 
 ## Writing the new adapter's own README
 
@@ -831,7 +842,7 @@ and the other had a stale assumption nobody had tested. **Know which of those yo
    whether you can call it with a class the game already ships. Cloning the player's own class is
    often available and gives you every system attached to it.
 3. **Prefer it even when repurposing already works.** A found object that behaves correctly today
-   is still borrowed, and the bill arrives as an unexplained constraint months later.
+   is still borrowed, and the bill arrives later as an unexplained constraint.
 4. **If you must repurpose, write down what you may not do to it, and why** — in the adapter's
    `BANDAGES.md`, not only as a code comment. Then, **when the design changes, re-test the
    constraint**: that is the step this project missed.

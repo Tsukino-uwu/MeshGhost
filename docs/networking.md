@@ -82,7 +82,7 @@ own idle timeout does not cover this: it resets on *any* successfully read line,
 could ping forever without ever joining and stay under it indefinitely.
 
 **Resolve the rate cap once.** `sendHz := s.resolveSendHz()` and
-`msgLimit := maxMessagesPerSecond(sendHz)` at `relay.go-587`, before `OnReceive` is
+`msgLimit := MaxMessagesPerSecondFor(sendHz)` at `relay.go`, before `OnReceive` is
 registered. Deliberately not re-read per message: the cap the relay *enforces* has to be the
 one this connection's own `welcome` *advertised*, and re-reading `s.SendHz` mid-session would
 let the relay start enforcing a limit it never told this client about.
@@ -142,10 +142,15 @@ matters — the joiner learns the room from its own `welcome`, the room learns t
 
 **Leave.** `OnDisconnect` (`relay.go`) stops the hello timer, removes the member, releases
 the slot, forwards a `leave` to the remaining roster, and drops the room if it is now empty.
-There is no session resumption anywhere: a reconnect is a new connection with a new
-`player_id`, full stop. That single fact is why `queryTransports` on the client side goes out
-of its way not to join (section 6) — joining and then upgrading would make every other player
-watch this one leave and rejoin.
+For a **cosmetic** room that is the whole story: a reconnect is a new connection with a new
+`player_id`. A room whose members negotiated `resume.v1` is the exception — `suspend`
+(`relay/online.go`) parks the identity in the room, marked suspended, and arms a grace timer
+(`Server.resumeGrace`, `protocol.DefaultResumeGrace`, 20s) instead of announcing a `leave`; a
+client that comes back inside the window presents its `Welcome.ResumeToken` and reclaims the same
+`player_id`, its leases and its in-flight exchanges. Nothing survives a relay restart — the
+suspended set is in memory. Either way, a client should not *rely* on getting its id back, which
+is why `queryTransports` goes out of its way not to join at all (section 6): joining and then
+upgrading would make every other player watch this one leave and rejoin.
 
 ## 3. The life of a state message
 
@@ -217,6 +222,14 @@ ghost at a meaningless midpoint.
 `remoteStatesAt` also drops any remote whose `area_id` doesn't equal the local player's own,
 unless the local area is still unknown. Equality only; it never looks inside the string.
 
+That filter runs *after* the bytes have already crossed the network, so the traffic it throws away
+is real. Both ends can now measure it rather than guess: `meshghost -stats=<dur>` logs one client
+line (link rtt, clock offset, peers known versus rendered, bytes in/out with an hourly rate, and
+the share of received remote states discarded as cross-area, `core/stats.go`), and the relay's
+`-introspect` reports the same fan-out per room from its side (`StateFanoutSnapshot` and its
+`SuppressibleShare`, `relay/introspect.go`) — measurement only; nothing in the relay branches on it.
+Both are off by default and cost nothing when off.
+
 `tickRenders` then diffs against what was rendered last tick and emits `render_remote` for
 everything current, `despawn_remote` for everything that dropped out. Both are pushed on the
 same bridge call the adapter just made — the adapter's job is only to hold the latest state per
@@ -278,7 +291,7 @@ invariant and nothing else in `Client` does; hence a mutex on exactly that field
 else. `maxReceiveHz` sits next to it unguarded, because it's written once before the `Client` is
 published into `Room.members` and never mutated after.
 
-**`Room.Forward` snapshots targets before sending** (`relay.go-157`). It copies the
+**`Room.Forward` snapshots targets before sending** (`relay.go`). It copies the
 recipient `(id, conn)` pairs under `r.mu`, releases the lock, and only then sends. This used to
 send while holding the lock for the whole loop. Once `Send` gained a write deadline and could
 legitimately block for seconds against a stalled peer (`DefaultWriteTimeout`, 10s,
@@ -377,7 +390,7 @@ The three implementations:
   mandatory: an unwrapped datagram would have been a way to not carry it. Admission
   requires echoing back a **derived, not stored** cookie — `HMAC(secret, addr || timeSlot)`,
   checked against the current and previous slot (`cookieFor`/`validCookie`,
-  `udpconn.go`/`193`). Deriving is the point: a table of unvalidated addresses would itself
+  `udpconn.go`). Deriving is the point: a table of unvalidated addresses would itself
   be the vulnerability, one map entry per forged hello, unbounded memory an unauthenticated
   stranger controls. Same trick as a TCP SYN cookie or QUIC's Retry packet. After admission,
   every application datagram must carry an unpredictable 8-byte **per-connection token**
@@ -421,7 +434,7 @@ are `relay/limits.go` and `protocol/limits.go`. What matters here is *what
 happens when each one trips*.
 
 - **Line length** — `protocol.MaxLineBytes` (4096) is enforced *during* the read, as
-  `bufio.Scanner`'s max token size (`transport.go-234`), not as a check on an
+  `bufio.Scanner`'s max token size (`transport.go`), not as a check on an
   already-buffered line. The earlier `ReadBytes` approach grew its buffer without bound until it
   found a newline, so a peer streaming bytes with no newline could force unbounded memory
   growth. Trips → the read loop fails, `fail` (`transport.go`) reports and closes.
@@ -460,8 +473,12 @@ happens when each one trips*.
   (64) is the odd one out: it is a per-room **memory** bound rather than a per-message one, and it
   equals `udpconn`'s reorder window because a reliable burst wider than that window goes unacked
   and is retried until the connection closes. Asserted in
-  `netx/udpconn/world_bounds_test.go`. Two pre-existing constants do NOT satisfy this and
-  are recorded in `agent_docs/risks.md`.
+  `netx/udpconn/world_bounds_test.go`. Two pre-existing constants do NOT satisfy this:
+  `MaxEventBytes` (a maximal `Event` marshals to ~1310 bytes, over the 1200-byte datagram) and
+  `MaxEscrowBlobBytes` (a *committed* `EscrowState` carries two of them and overshoots in every
+  case, not just the maximal one). Shrinking either is a contract revision, so both are pinned by
+  `TestMaximalEventDoesNotFitAUDPDatagram`/`TestMaximalCommittedEscrowDoesNotFitAUDPDatagram` and
+  recorded as an open decision in `agent_docs/risks.md`.
 - **Read queue** — 64 datagrams per connection (`udpconn.go`, `quicconn.go`), dropped
   when full rather than blocked. Blocking would let one slow reader stall the demultiplexer for
   every other connection on the shared socket.
@@ -485,16 +502,19 @@ is a peer that stops reading: that is the write timeout's job, not a queue's.
   `game_id` contents anywhere in `relay` or `core`.
 - **No persistence.** Rooms exist only while occupied (`dropIfEmpty`), and nothing is written
   to disk except the operator's own log file.
-- **No session resumption.** A reconnect gets a fresh `player_id`; `seq` is a core-lifetime
-  counter that never resets. This is why the transport upgrade path is careful never to join
-  twice (section 6).
+- **No session resumption unless a room asked for it.** In a cosmetic room a reconnect gets a
+  fresh `player_id`; `seq` is a core-lifetime counter that never resets. `resume.v1` (2026-08-17)
+  is the opt-in exception, and it holds an identity in memory for a grace window only — never
+  across a relay restart, and never on disk (section 2). This is still why the transport upgrade
+  path is careful never to join twice (section 6).
 - **It never learns anything about an adapter.** The relay sees `game_id` and `game_version` as
   opaque strings and nothing else. It has no idea whether the client is a real game, a fake
   adapter, or nothing at all.
 - **It doesn't redistribute identity.** `display_name` reaches the relay and is logged there;
   it is never forwarded. `welcome.roster` and `join` carry ids only.
-- **It never calls `RemoteAddr()`.** `relay` and `core` contain no call site
-  (the only definitions are the `net.Conn` methods `udpconn`/`quicconn` must implement). One
+- **It never calls `RemoteAddr()`.** `relay` and `core` contain no call site (the only
+  definitions are the `net.Conn` methods `udpconn`/`quicconn` must implement, plus a stub on a
+  fake conn in `transport`'s tests). One
   nuance worth knowing on udp specifically: `udpconn.Listener` necessarily *keys* its connection
   map by `remote.String()` (`udpconn.go`), because that is how a shared socket is
   demultiplexed at all — the address is used internally, just never surfaced upward or logged.

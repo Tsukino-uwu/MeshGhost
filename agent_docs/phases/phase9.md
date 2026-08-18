@@ -248,6 +248,9 @@ to be noticed by a user.
       entry stays `nil` so the adapter refuses rather than writing somewhere plausible.
       Nine of ten entries are measured; `wBattleMode` needs a trainer battle to settle
       0x015A vs 0x1234. See `verified.md` and `pitfalls.md`.
+      **In scope does not mean equal priority** — settled 2026-08-18 (`plans.md`): Archipelago is a
+      real goal but always comes after the original game. Vanilla is what the project promises;
+      a patched ROM is best-effort until it is not.
 
 ## Method notes worth keeping
 

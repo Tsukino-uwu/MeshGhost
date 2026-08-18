@@ -42,15 +42,20 @@
   `udpconn.MaxDatagramBytes` (1200) minus 18 bytes of framing = **1182 usable**. Both fail
   `udpconn.checkWritable` — *including on the reliable plane* — and the refusal surfaces only as a
   `relay: send to pX failed:` line, so the message is lost for that recipient and never superseded.
-  `MaxEventBytes`' own doc comment claims it was sized to keep an event "comfortably under"
-  the datagram limit; it was sized against the payload alone, not the envelope. Reachable only by a
+  `MaxEventBytes`' own doc comment used to claim it was sized to keep an event "comfortably under"
+  the datagram limit; it was sized against the payload alone, not the envelope. **That comment was
+  corrected 2026-08-18** and now states the real relationship, with
+  `netx/udpconn/world_bounds_test.go`'s `TestMaximalEventDoesNotFitAUDPDatagram` and
+  `TestMaximalCommittedEscrowDoesNotFitAUDPDatagram` pinning it in both directions — so the
+  documentation half of this risk is closed; the constants themselves are unchanged and the risk
+  below still stands. Reachable only by a
   client that actually uses the full ceiling, which nothing does yet — no adapter uses these planes
   at all — which is why this is recorded rather than hot-fixed: **shrinking those constants is a
   contract change with its own trade-offs and should be its own decision**, weighed against the
   alternative of making the bound transport-dependent (`beyond-cosmetic.md` §9 lays out that
-  choice). The assertion test written for the world plane
-  (`netx/udpconn/world_bounds_test.go`) is the shape to retrofit onto events and escrow
-  when it is taken; `MaxWorldBlobBytes` was derived this way from the start and does fit.
+  choice). The assertion tests were retrofitted onto events and escrow on 2026-08-18
+  (`netx/udpconn/world_bounds_test.go`), so the gap can no longer widen unnoticed;
+  `MaxWorldBlobBytes` was derived this way from the start and does fit.
 - **A lossy world write over quic is bounded by the path MTU, not by our own constants.** quic's
   `SendUnreliable` is a real datagram path (RFC 9221) and quic-go refuses a datagram larger than the
   connection's *current* path MTU rather than fragmenting it — a dynamic value that can sit below

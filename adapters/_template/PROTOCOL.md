@@ -237,7 +237,14 @@ skipped — see `agent_docs/contract.md`'s tick model section for the full reaso
 `adapters/bizhawk/pokemon/emerald/probes/phase3_loopback.lua`'s header for the specific bug this project hit live
 before that rule was written down.
 
-Five things in that loop are there because a shipped adapter got them wrong first:
+Six things in that loop are there because a shipped adapter got them wrong first:
+
+- **Drain the bridge *below* your "am I in play" gate, not above it.** The drain is what creates
+  ghosts, so draining first means a peer's `render_remote` can spawn one during the exact frame
+  the gate exists to protect — and the gate then destroys it again on the same frame, which reads
+  as a flicker rather than as the ordering bug it is. Send `local_state` (possibly `null`)
+  unconditionally; only drain once you have confirmed the local player exists. TEVI moved its
+  drain below the gate on 2026-08-18 for exactly this reason.
 
 - **Do not start sending `local_state` until `bridge_ready` arrives.** "The socket connected" is
   not "a core accepted me" — see the handshake section above for what silence actually turns out to
@@ -260,6 +267,12 @@ Five things in that loop are there because a shipped adapter got them wrong firs
   a protocol error. For the same reason, **stay connected through menus and pauses and send
   `null`** rather than closing the socket: closing it is a real relay `leave`, and reconnecting
   gets you a brand-new `player_id` (`agent_docs/contract.md`).
+  **The one case where disconnecting is the right answer is leaving the session for real** — a
+  return to the main menu or title, where you genuinely are gone and a peer seeing your ghost
+  vanish is correct. Name the state exactly when you implement this: TEVI drops the bridge and
+  despawns every peer ghost on a **main menu** return, and deliberately does neither on the pause
+  overlay, where peer ghosts staying visible is the wanted behaviour. In a game with both, "menu"
+  alone is not a specification — it produced a false regression report on 2026-08-18.
 
 ## Framing: NDJSON is fragile in exactly two places
 

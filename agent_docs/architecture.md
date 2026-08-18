@@ -819,7 +819,10 @@ Format: Date / Decision / Status / Context / Options considered / Resolution / C
 - **Resolution:** Option 2. `Core.sendHeartbeats` sends `Ping` every `HeartbeatInterval`
   (default `DefaultHeartbeatInterval`, 20s — comfortable margin under the 60s idle timeout even
   accounting for scheduling jitter). This is deliberately **not** a liveness/RTT mechanism —
-  `Pong`'s `Nonce` is echoed by the relay but not read by anything on receipt. Drop detection is
+  `Pong`'s `Nonce` is echoed by the relay but not read by anything on receipt. **Superseded in
+  part, 2026-08-17:** the core now *does* read the pong back, producing `Core.RelayRTTMs` and
+  `Core.ClockOffsetMs` (lowest-RTT sample, applied only under `clock.v1`), and since 2026-08-18
+  `meshghost -stats=<dur>` prints both. Drop detection is still not built on it. Drop detection is
   unchanged: still entirely `transport.DefaultIdleTimeout` closing the socket on a truly dead
   connection. `HeartbeatInterval <= 0` disables heartbeats entirely, used by `core_test.go` to
   reproduce the pre-fix idle-timeout-churn bug directly.
@@ -908,7 +911,7 @@ Format: Date / Decision / Status / Context / Options considered / Resolution / C
     when it happens post-connect.
 - **Resolution:** All of the above, implemented across `protocol` (shared `DefaultSendHz`/
   `MinSendHz`/`MaxSendHz`/`ClampSendHz`/`ClampReceiveHz`, `Hello.MaxReceiveHz`, `Welcome.SendHz`,
-  `ReasonRateLimited`), `relay` (`Server.SendHz`, `resolveSendHz`, `maxMessagesPerSecond`,
+  `ReasonRateLimited`), `relay` (`Server.SendHz`, `resolveSendHz`, `MaxMessagesPerSecondFor`,
   the per-`Client` receive gate, `Room.stateRecipients`, the `Room.remove` gate purge),
   `core` (`effectiveSendInterval`, `serverSendInterval`, `Core.MaxReceiveHz`, the
   `isPermanentRejectReason` fix, mid-session reject logging), and both `cmd/` binaries
@@ -1759,7 +1762,9 @@ Format: Date / Decision / Status / Context / Options considered / Resolution / C
   string. The same datagram arithmetic turned up a **pre-existing** bug that is not fixed here and
   is recorded in `risks.md`: a maximal `Event` renders to 1321 bytes and a committed `EscrowState`
   with two blobs to 2294, against 1182 usable — both undeliverable to a udp peer today, despite
-  `MaxEventBytes`' own comment claiming it was sized to fit.
+  `MaxEventBytes`' own comment claiming it was sized to fit. (That comment was corrected
+  2026-08-18 and the relationship is now pinned by tests in `netx/udpconn/world_bounds_test.go`;
+  the constants are unchanged.)
 
 ---
 
