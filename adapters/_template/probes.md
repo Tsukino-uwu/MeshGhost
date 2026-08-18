@@ -467,3 +467,20 @@ Two failures in one, and they compound:
   `CB2_Overworld`); use it as a gate before and after, instead of trusting a frame count.
 - **Clean up after itself even on failure**, exactly as a probe that edits the world restores what
   it edited. The user has to be able to pick the controller back up.
+
+### Writing the rule down is not applying it
+
+**2026-08-18, immediately after the entry above was written.** The lesson "spam B/Start to reach a
+neutral state, and do it as a *preamble* as well as a cleanup" was committed — and the very next
+run of the same script started without a preamble, into a game the previous run had left sitting
+in an open bag. The user, watching: *"you repeated the same mistake again."*
+
+**Documentation is a note to a future reader; the code is what runs.** A rule that is written but
+not implemented in the thing it is about will be violated by the next person to touch it, and the
+first such person is usually the one who wrote it, minutes later, still holding the same
+assumptions that caused it.
+
+**So when a probe or script teaches you a rule: change the script in the same pass.** Not
+afterwards, not in the next iteration — the same edit. If the rule cannot be expressed in the code,
+say why in a comment at the exact place it applies, so the next reader meets it where it matters
+rather than in a document they may never open.

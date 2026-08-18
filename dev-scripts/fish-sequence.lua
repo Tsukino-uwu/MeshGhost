@@ -8,6 +8,14 @@
 -- Fishing is a PROCESS with branches (probes.md), so this only drives the SETUP -- getting the rod
 -- in hand and cast. What happens after is what we are watching for, not something to script.
 local STEPS = {
+    -- PREAMBLE: reach a neutral overworld state before assuming anything. A previous run of this
+    -- very script left the bag open, and the run after it pressed Start into a menu -- so this is
+    -- not hypothetical tidiness. B backs out one level and does nothing in the overworld; ending
+    -- on B matters because Start would re-open the menu we just closed.
+    { wait = 120, press = "B",     shot = "00a-neutral" },
+    { wait = 20,  press = "B",     shot = "00b-neutral" },
+    { wait = 20,  press = "B",     shot = "00c-neutral" },
+    { wait = 20,  press = "B",     shot = "00d-neutral" },
     { wait = 300, press = nil,     shot = "01-start" },   -- water placed by watertile.lua by now
     { wait = 45,  press = "Start", shot = "02-menu" },
     -- The menu REMEMBERS its cursor between openings: the first attempt pressed A expecting BAG
