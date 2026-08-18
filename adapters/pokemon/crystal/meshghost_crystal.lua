@@ -226,8 +226,14 @@ local function scriptDir()
 end
 
 local SCRIPT_DIR = scriptDir()
-local logfile = io.open(string.format("%s/meshghost_crystal_%s.log", SCRIPT_DIR,
-	os.date("%Y%m%d_%H%M%S")), "w")
+-- Prefer a logs/ subfolder, so the adapter folder stays readable across a session that reloads
+-- the script many times (each run opens its own timestamped file). No mkdir needed: io.open fails
+-- when the directory is absent, and that failure IS the fallback.
+local logfile
+do
+	local name = string.format("meshghost_crystal_%s.log", os.date("%Y%m%d_%H%M%S"))
+	logfile = io.open(SCRIPT_DIR .. "/logs/" .. name, "w") or io.open(SCRIPT_DIR .. "/" .. name, "w")
+end
 
 local function log(msg)
 	console.log(msg)

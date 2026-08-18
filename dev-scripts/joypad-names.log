@@ -1,0 +1,32 @@
+=== joypad.get() -> table
+   A=false
+   B=false
+   Down=false
+   L=false
+   Left=false
+   Light Sensor=0
+   Power=false
+   R=false
+   Right=false
+   Select=false
+   Start=false
+   Tilt X=0
+   Tilt Y=0
+   Tilt Z=0
+   Up=false
+=== joypad.getimmediate() -> table
+   A=false
+   B=false
+   Down=false
+   L=false
+   Left=false
+   Light Sensor=0
+   Power=false
+   R=false
+   Right=false
+   Select=false
+   Start=false
+   Tilt X=0
+   Tilt Y=0
+   Tilt Z=0
+   Up=false

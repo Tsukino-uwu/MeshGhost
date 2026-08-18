@@ -194,7 +194,7 @@ UE4SS entry below for that last one specifically, which is currently unresolved)
   | Attach/swap/drop scripts while it runs | `bizhawk-dev-loader.lua` + its control file | confirmed, dozens of times |
   | Get past the title screen into a save | `savestate.loadslot(n)` | **confirmed end to end**: after an emulator relaunch, a `loadslot` put the game in the overworld with no button pressed by anyone |
   | Re-reach any prepared state | ten savestate slots | confirmed |
-  | Press buttons | `joypad.set` | **present and callable, NOT yet exercised** — treat as unproven until a real run uses it |
+  | Press buttons | `joypad.set` | **works** — confirmed 2026-08-18 by holding Down for 48 frames and reading the player's coordinates move (9,9) -> (9,12). **Pass NO controller index** (see below) |
   | Observe | memory reads + each script's own log file | confirmed |
 
   **What this changes:** a test that needs the game in a particular place no longer costs the user
@@ -240,6 +240,23 @@ UE4SS entry below for that last one specifically, which is currently unresolved)
 - **To enumerate what a BizHawk build actually implements**, `client.getluafunctionslist()`
   returns the real list — better than reading DLL strings, which include functions that are nil at
   runtime.
+- **Driving input: `joypad.set(buttons)` with NO controller index, and get the button names from
+  the core — 2026-08-18.** Two silent failures before this worked, and neither raised an error:
+  - **`joypad.set({Right = true}, 1)` does nothing.** The trailing `1` makes BizHawk look for the
+    player-prefixed name (`"P1 Right"`), which a single-controller core does not have. Dropping
+    the index made the same call move the player immediately. The `pcall` succeeded both times —
+    **a silent no-op, not an error**, which is the recurring shape of this whole API.
+  - **Button names differ per core**, as the user put it: GBA, DS, GB and SNES all present
+    different controls. Do not hardcode them — **`joypad.get()` returns the current input as a
+    table, so its KEYS are exactly what this core accepts.** On the GBA core they are bare
+    `A B L R Up Down Left Right Start Select`, plus `Power`, `Light Sensor` and `Tilt X/Y/Z`.
+  - `joypad.set` applies to the **next frame only**, so a held button must be re-issued every
+    frame rather than set once.
+- **Restarting the game without restarting the emulator** — BizHawk's Emulation menu has Reboot
+  Core (Ctrl+R), Soft Reset and Hard Reset; pointed out by the user 2026-08-18. Useful when a test
+  needs a cold boot: it avoids relaunching EmuHawk, which would drop every attached script and
+  release the loader. Prefer restoring a savestate where that suffices, since it is faster and
+  lands exactly where wanted.
 - **BizHawk pauses while any of its own menus or dialogs is open** — confirmed by the user
   2026-08-18, who has "pause when unfocused" already disabled. While paused, `emu.frameadvance()`
   does not return, so **the dev loader stops polling and every attached script stops ticking**.

@@ -488,8 +488,16 @@ end
 -- outside the emulator, because every message went to the Lua Console only. An adapter that can
 -- only be diagnosed by someone sitting in front of the GUI cannot be diagnosed by whoever is
 -- actually debugging it, and a user reporting a problem has nothing to send.
-local logfile = io.open(string.format("%smeshghost_emerald_%s.log", SCRIPT_DIR,
-    os.date("%Y%m%d_%H%M%S")), "w")
+-- Prefer a logs/ subfolder so the adapter folder itself stays readable -- a development session
+-- reloads the script many times and each run opens its own timestamped file, which buried the
+-- four .md files under two dozen logs in one afternoon. No mkdir: io.open simply fails if the
+-- directory is missing, which is the fallback, and creating one would mean os.execute -- the same
+-- shell call whose console-window flash was removed from this file earlier today.
+local logfile
+do
+    local name = string.format("meshghost_emerald_%s.log", os.date("%Y%m%d_%H%M%S"))
+    logfile = io.open(SCRIPT_DIR .. "logs/" .. name, "w") or io.open(SCRIPT_DIR .. name, "w")
+end
 
 local rawConsoleLog = console.log
 console.log = function(msg)
@@ -1808,7 +1816,17 @@ end
 -- normal loop below, unchanged. Without this, testing an adapter edit costs a full emulator
 -- relaunch each time, which is the cost the loader exists to remove.
 MESHGHOST_DEV_TICK = guardedFrame
-MESHGHOST_DEV_UNLOAD = despawnAllGhosts
+MESHGHOST_DEV_UNLOAD = function()
+    -- Both halves matter. Ghosts are objects living in the game and nothing else will clear them.
+    -- The log file is a real OS handle: without closing it, every reload during a development
+    -- session leaks one, and the files stay locked -- which is how eleven of them ended up
+    -- unmovable on 2026-08-18 while trying to tidy the folder they were cluttering.
+    pcall(despawnAllGhosts)
+    if logfile then
+        logfile:close()
+        logfile = nil
+    end
+end
 
 if not MESHGHOST_DEV_LOADER then
     while true do

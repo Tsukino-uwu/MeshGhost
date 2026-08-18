@@ -20,7 +20,7 @@
 -- items, repel) is inside it -- but none of that reaches the .sav file until the game itself
 -- saves. The two were confused once already, and an emulator relaunch lost the user's place.
 
-local ACTION = "save" -- "save" or "load"
+local ACTION = "load" -- "save" or "load"
 local SLOT = 2
 
 local done = false

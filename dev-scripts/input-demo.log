@@ -1,0 +1,4 @@
+start: player at (9,9); checkpointed to slot 4
+held Down for 48 frames: (9,9) -> (9,12), delta=(0,3)
+RESULT: no movement (blocked, or input is not drivable this way).
+restored slot 4; session left as it was
