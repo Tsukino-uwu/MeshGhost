@@ -400,3 +400,32 @@ apart at all.
 **The general form:** before probing a state, ask *"how many steps is this, and which of them can
 fail?"* If the answer is more than one, the probe wants a window, a log of every transition, and no
 assumption about which branch it will see.
+
+## Check what a thing IS and DOES — never assume from its name or its effect
+
+**The user, 2026-08-18, after the third time in one session:** *"check what something is/does,
+don't assume."* Each instance below cost real time, and each was one grep away from being right.
+
+**1. Assumed a message meant one thing; it meant another.** Emerald answered *"DAD's advice...
+there's a time and place for everything"* when a scripted rod use failed. That was written up as a
+story-progress gate. It is actually the generic **"you cannot use that HERE"** — the same message
+you get riding a bike indoors. The wrong explanation was plausible, fitted the evidence, and would
+have sent the next session looking at save progress instead of at the tile in front of the player.
+
+**2. Assumed an effect proved a cause.** A tile was edited to be water, the player walked into it,
+and was **blocked** — recorded as "the game treats it as water". It proved only that the tile was
+*impassable*. Behaviour and collision are different fields of the same halfword, and only one of
+them had been tested.
+
+**3. Assumed a value was correct because it produced the expected symptom.** Setting the collision
+bit made the tile solid "like water". Reading what the game actually requires
+(`IsPlayerFacingSurfableFishableWater`) showed fishing needs
+`GetCollisionAtCoords(...) == COLLISION_ELEVATION_MISMATCH` — **real water is not impassable, it is
+a different elevation**. The "fix" that made the symptom look right was the thing preventing the
+feature from working at all.
+
+**The rule, and it is cheap:** before believing what a value, flag, message or symptom means, find
+the code that produces or consumes it. `grep` the decompilation for the name; read the function
+that checks it. "What does the game do with this?" takes one command and replaces a guess that can
+survive several experiments — because a wrong assumption does not fail, it produces a result that
+looks like an answer.
