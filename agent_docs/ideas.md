@@ -1532,3 +1532,44 @@ so this is a harder tier than either Pokémon game), and check the licence of an
 loader, the syntax checker, the probe conventions, and the spawn-versus-draw question in the same
 form. What does not transfer is the address source — every address would have to be measured
 live, which is precisely why this list was worth recording.
+
+---
+
+## Emerald: turning ghost collision off, if it ever needs turning off
+
+**Decided 2026-08-18: ghosts stay SOLID.** Recorded here are the two alternatives that were
+weighed and not taken, at the user's request — *"log the other 2 as potential changes afterwards.
+if we ever want to disable collission specifically for that part"* — so a future session picks up
+the analysis rather than redoing it.
+
+**Why solid won.** It matches Crystal, whose shipped README already tells players *"It is solid,
+the same way an NPC is; you cannot walk through a friend."* It costs nothing, and it fights
+nothing — which the alternatives cannot both claim.
+
+**How collision actually works** (`DoesObjectCollideWithObjectAt`, `event_object_movement.c:4724`):
+two objects collide when they share a tile *and* `AreElevationsCompatible` says yes, which is true
+when their elevations are **equal** or when **either is `ELEVATION_TRANSITION`, which is 0**
+(`global.fieldmap.h:16`). A ghost inherits the player's elevation and the engine then recomputes it
+from the tile — observed live going 3 -> 0 within a frame. Elevation 0 collides with everything,
+which is why a ghost is solid everywhere, doorways included.
+
+**The known hazard this accepts:** a peer parked in a one-tile doorway blocks it, and in the worst
+case can shut someone into a room. Not seen in practice yet; it is a real possibility, not a
+theoretical one, and the reason the alternatives are kept on file.
+
+### Option A — solid, but never on a warp tile
+
+Keep collision; despawn (or nudge) a ghost whose target tile is a door/warp. Targeted at the actual
+hazard rather than changing physics globally, and it leaves normal "you cannot walk through a
+friend" behaviour intact. Needs a way to identify a warp tile — the map's warp events are in the
+map header, so this is a lookup, not a guess. **This is the one to reach for first** if the
+doorway problem ever bites.
+
+### Option B — pass-through ghosts
+
+Force a non-zero elevation that differs from the player's, every frame. Removes the hazard
+entirely and is a two-line change. Two real costs: it **fights the engine's own per-tile elevation
+recompute**, which is exactly the pattern this project keeps having to unlearn; and elevation also
+drives sprite priority (`SetObjectSubpriorityByElevation`), so a deliberately wrong elevation
+changes occlusion — the ghost may draw in front of or behind terrain it should not. If this is ever
+adopted, it is a compensation and belongs in `BANDAGES.md`.
