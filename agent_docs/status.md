@@ -2,10 +2,14 @@
 
 ## Active status
 
-**Phase 7 (Pseudoregalia) is the live one, and 7.7 is DONE** — two real players on two machines,
-confirmed 2026-08-16 with the Linux tester. It cleared pole rotation; the rest of the
-two-player-blocked list below is now testable but not yet re-judged.
-Phase 8 (Emerald) is open but idle since 2026-08-14; Phase 6 (TEVI) is done.
+**Phase 8 (Emerald) is the live one as of 2026-08-18** — the shipped adapter now SPAWNS a real
+object event instead of drawing an overlay, so the engine owns animation, palette and occlusion.
+Confirmed piece by piece on screen; **the end-to-end pass and five other items are still queued in
+`unverified.md`, which is the file to read next.** `phases/phase8.md`.
+
+**Phase 7 (Pseudoregalia) 7.7 is DONE** — two real players on two machines, confirmed 2026-08-16
+with the Linux tester. It cleared pole rotation; the rest of the two-player-blocked list below is
+now testable but not yet re-judged. Phase 6 (TEVI) is done.
 
 **Landed 2026-08-16** (autostart on Windows+Proton, v0.7.0, admission control, the camera/rig fix,
 no more through-wall ghosts; Go side: quic default, ordered udp, `cmd/meshghost-netsim`) and
@@ -112,7 +116,8 @@ that a peer's state genuinely differs from the local player's, which loopback co
 
 ## Links
 
-`plans.md` (roadmap) · `phases/phase6.md`|`phase7.md`|`phase8.md` (per-phase log) · `risks.md`
+`unverified.md` (**what the user has not confirmed yet** — read before claiming anything works) ·
+`plans.md` (roadmap) · `phases/phase6.md`|`phase7.md`|`phase8.md`|`phase9.md` (per-phase log) · `risks.md`
 (assumptions) · `verified.md` (confirmed facts) · `pitfalls.md` (symptom → cause → fix, and the
 diagnostic methodology rules).
 
