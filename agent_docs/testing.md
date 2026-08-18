@@ -41,6 +41,33 @@ looking at the screen, and **in every one the logs looked healthy** — a ghost 
 animation frames, a frozen ghost, a walk that should have been a run, a script firing on
 interaction, a sprite off its grid, and ghosts leaking across route boundaries.
 
+### The vanilla ROM is the promise; patched ROMs are best-effort
+
+**Added 2026-08-18, on the user's call**, and it is the one place the visual gate is tiered:
+
+> *"I think its fine if you confirm/verify Archipelago/other patches on your own as 'working' that
+> way. but the vanilla always have to be checked/confirmed by me explicitly still. the base game
+> should 100% work after i have verified it. other patches/modified rom/iso stuffs can just be
+> 'assumed to work cuz AI checked them'. but only the vanilla/base rom/iso will be personally 100%
+> verified."*
+
+- **Vanilla / base ROM — the user watches, always.** This is what the project actually promises
+  works, so nothing about it is recorded on the agent's own say-so, screenshot or not.
+- **Patched, randomised or otherwise modified ROMs — the agent may confirm from its own
+  screenshots**, and should label them as such (e.g. *"agent-verified on an Archipelago seed"*).
+  The claim being made is weaker on purpose: it is "this looked right when checked" rather than
+  "a person has seen this work".
+
+**Why the split is sound rather than a convenience:** a patched ROM is one of an unbounded number
+of generated variants that nobody can promise for, and its failures are usually address-shaped
+(something moved) rather than subtle-behaviour-shaped — which is exactly the kind of thing a
+screenshot and a log *can* settle. The vanilla ROM is a single, fixed artefact that every user
+shares, so it is worth the human's time and the others are not.
+
+**What does not change:** the agent still cannot confirm vanilla visuals, a screenshot is still not
+evidence there, and a patched-ROM confirmation must never be written up in a way that reads as
+covering vanilla too.
+
 **Screenshots do not move this line.** The agent can take and read them (`environment.md`), which
 shortens its own debugging loop — but the user's answer when asked directly was *"Keep the rule
 exactly as it is"* and *"even with a picture, I still have to verify/confirm visually as well.

@@ -1191,7 +1191,24 @@ local MOVEMENT_TYPE_NONE = 0x00
 
 -- Direction ids and the movement actions indexed by them (constants/event_object_movement.h).
 local DIR_ID = { south = 1, north = 2, west = 3, east = 4 }
-local FACE_ACTION = { [1] = 0x00, [2] = 0x01, [3] = 0x02, [4] = 0x03 }
+-- TURNING uses walk-in-place-FAST, not a face action, because that is what the player does.
+-- `PlayerTurnInPlace` (field_player_avatar.c:1027) calls GetWalkInPlaceFastMovementAction, and
+-- MOVEMENT_ACTION_FACE_* is a static pose with no leg movement -- which is exactly how a ghost
+-- using it looked: it snapped to the new direction without animating. Found by the user watching,
+-- 2026-08-18; nothing in the log distinguishes the two.
+local FACE_ACTION = { [1] = 0x21, [2] = 0x22, [3] = 0x23, [4] = 0x24 }
+-- The static poses, kept for the one case that wants no animation: placing a ghost at spawn,
+-- where there is no previous direction to have turned from.
+local FACE_STILL_ACTION = { [1] = 0x00, [2] = 0x01, [3] = 0x02, [4] = 0x03 }
+-- BUMPING into a wall. The player does not simply stand there: PlayerNotOnBikeCollide
+-- (field_player_avatar.c:1011) plays a collision sound and a walk-in-place SLOW animation, which
+-- is the little shuffle you see holding a direction against a wall. A peer doing that reports
+-- "walking" with a position that never changes, so the ghost can reproduce it.
+local BUMP_ACTION = { [1] = 0x19, [2] = 0x1a, [3] = 0x1b, [4] = 0x1c }
+-- How long a peer must be "walking but not moving" before it counts as a bump. Without this, the
+-- instant a normal step completes -- position already updated, anim still walking -- looks
+-- identical to a bump, and every step would end with a spurious shuffle.
+local BUMP_AFTER_FRAMES = 20
 local WALK_ACTION = { [1] = 0x08, [2] = 0x09, [3] = 0x0a, [4] = 0x0b }
 -- PLAYER_RUN, not WALK_FAST. Both cross a tile quickly, but WALK_FAST (0x15) reuses the WALKING
 -- frames while PLAYER_RUN (0x35) plays ANIM_RUN_*, which is what running actually looks like.
@@ -1793,9 +1810,25 @@ local function syncGhost(playerId, remote)
     local dx, dy = targetX - curX, targetY - curY
 
     if dx == 0 and dy == 0 then
-        if (r8(a + 0x18) & 0x0f) ~= dir then requestAction(g, FACE_ACTION[dir]) end
+        if (r8(a + 0x18) & 0x0f) ~= dir then
+            requestAction(g, FACE_ACTION[dir])
+            g.stillSince = nil
+            return
+        end
+        -- Facing is already right and the peer has not moved. If they are nonetheless REPORTING
+        -- movement, they are walking into something -- so bump, the way the player does.
+        local moving = (remote.anim == "walking" or remote.anim == "running")
+        if not moving then
+            g.stillSince = nil
+            return
+        end
+        g.stillSince = g.stillSince or frameCounter
+        if frameCounter - g.stillSince >= BUMP_AFTER_FRAMES then
+            requestAction(g, BUMP_ACTION[dir])
+        end
         return
     end
+    g.stillSince = nil
 
     if math.abs(dx) + math.abs(dy) == 1 then
         local stepDir
