@@ -105,6 +105,26 @@ Carry nothing forward as an exclusion, either. If a byte fails the reversal, let
 with its evidence, rather than hard-coding it out of the next probe: an exclusion list is a claim
 you stop re-testing, and the next counter just inherits the place you cleared for it.
 
+## Test it in motion, and score it against what moved
+
+Two failures from the same day, both of which produced a confident wrong answer that survived
+repetition:
+
+**A still-life test agrees with itself.** A candidate for a game-state byte survived two
+independent four-snapshot runs — right value in the overworld, right value in a battle, twice
+over. It was wrong, and it was wrong because every one of those eight snapshots was taken while
+the player stood still, which is exactly what the probe asked for. In motion the byte flickers
+several times a second. **Before believing a static agreement, sample the candidate while the game
+is actually doing the thing** — repetition of the same condition is not independent evidence.
+
+**Score against the observation, not the instruction.** A probe that asked the player to "walk
+left/right, then up/down" and attributed every change to the current phase reported that both real
+candidates moved on both axes, and rejected them. The player had drifted a tile sideways at the
+start of a phase, as anyone would. Re-scoring the same log against *which coordinate actually
+changed* made it unanimous: 70 of 70 X steps and 67 of 67 Y steps, mirrored. **What you asked for
+is an intention; only the game state is evidence** — and the fix costs nothing, since the probe is
+already reading the coordinate it needs to attribute by.
+
 ## Two parameters that trade off against each other give you one answer N times
 
 If a search varies both a base address and an offset within the entry, then `base+k` with

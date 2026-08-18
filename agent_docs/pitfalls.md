@@ -1282,15 +1282,17 @@ next adapter author doesn't re-diagnose them as adapter bugs:
 
   | address | delta from vanilla |
   | --- | --- |
+  | `wBGMapOffsetX` / `wBGMapOffsetY` | **+7** |
+  | `wMapStatus` | **+7** |
   | `wMapGroup` / `wMapNumber` / `wYCoord` / `wXCoord` | **+7** |
   | `wObjectStructs` | **+6** |
   | `wMapObjects` | **−0x2A** |
 
-  **+7 is the commonest delta, which is precisely what makes it dangerous.** A rule that is right
-  most of the time gets trusted, and the case where it is wrong looks exactly like the cases where
-  it is right — a plausible number, no crash, no error. Two of the three tables above would have
-  been silently wrong, and the object table was 42 bytes in the *opposite* direction, which no
-  amount of +7 reasoning ever reaches.
+  **Seven of the nine measured addresses are +7 — which is precisely what makes it dangerous.** A
+  rule that is right most of the time gets trusted, and the case where it is wrong looks exactly
+  like the cases where it is right: a plausible number, no crash, no error. Shipping +7 blindly
+  would have produced a working-looking adapter reading a garbage object table 42 bytes away, in
+  the *opposite* direction, which no amount of +7 reasoning ever reaches.
 - **A published address table is not a shortcut either.** AP publishes `wMapGroup = 7359`; measured,
   7359 is the X coordinate, three past where the name implied. The layout was intact and the LABEL
   was wrong, which is a failure mode a sanity check on "is this a plausible map group?" passes
@@ -1302,6 +1304,20 @@ next adapter author doesn't re-diagnose them as adapter bugs:
   unmeasured entry is `nil`, a `nil` refuses to run, and the refusal names what is missing. See
   `ADDRESSES` in `adapters/pokemon/crystal/meshghost_crystal.lua` and the method in
   `adapters/_template/probes.md`.
+- **A byte can pass every still-life test and fail the moment the game moves.** `0x0FB1` was the
+  single survivor of two four-snapshot state runs for `wMapStatus`: 2 in the overworld on four
+  maps, 0 in both battles, across two independent sessions. It is not `wMapStatus`. With the gate
+  reading it, the gate closed several times a second while the player simply stood in the
+  overworld — the byte flickers 2/1, and **all eight snapshots agreed with each other because all
+  eight were taken standing still**, which is the one condition the probe itself asked for. The
+  real one, `0x1439`, held 2 across 1103 samples of continuous walking. Sample a candidate while
+  the game is in motion before believing a static agreement, however many times it repeated.
+- **Attribute an effect to what was OBSERVED, not to the instruction you gave the human.** The
+  scroll-offset probe scored each byte by the phase it asked the player to walk ("now go
+  left/right"), reported that both candidates "move on both axes", and was wrong: the player had
+  drifted a tile sideways at the start of the up/down phase, as anyone would. Re-scoring the same
+  log against the coordinate that actually changed made it unanimous — 70/70 and 67/67. The
+  instruction is an intention; only the game state is evidence.
 - **Corroboration is not derivation.** `0x1154` is a fine candidate for `wBGMapOffsetY` *because a
   probe found it on its own merits* and it then also happens to sit at vanilla+7. The same address
   reached by starting from +7 would be a guess wearing evidence's clothes.
