@@ -7016,3 +7016,25 @@ scheduled. All established by the agent with local tools; nothing here is a visu
   `wObjectStructs` at `0x14DC` — vanilla + 6, a *different* delta from the coordinate block's +7.
   That is a prediction written down before the run, not a fact; `ap_address_probe.lua` is now
   anchored on the measured 7358/7359 and scans every base, so it can contradict it.
+
+### Crystal/AP: wObjectStructs is 0x14DC, confirmed by fingerprint (2026-08-18)
+
+- Date: 2026-08-18
+- Observed: `ap_address_probe.lua` anchored on the measured coordinates cut 32 KB of WRAM to three
+  survivors in three steps (`ap_address_20260818_030256.log`), then `ap_struct_check.lua` tested all
+  three against structure (`ap_struct_20260818_030503.log`, `..._030559.log`).
+- Source: my own reading of those logs — no visual claim, nothing watched on screen.
+- **`0x1CAF` eliminated by axis**: it followed X 15 times and Y zero times, because `0x1CAF +
+  F_MAP_X` is `0x1CBF`, the X coordinate itself. It was a shadow of the coordinate block.
+- **`0x14DE` eliminated by structure**: slot 0 has `sprite=0`, which the player's slot cannot. It is
+  the `F_LAST_MAP_X`/`F_LAST_MAP_Y` pair two bytes along, so it tracks both axes by construction —
+  walking can never separate it from the real base, and only the array layout does.
+- **`0x14DC` confirmed**, at vanilla + 6: slot 0 holds `sprite=1` with `mapobj=0` and the player's
+  own coordinates, slots 1-2 hold the map's two NPCs (`sprite=58`/`41`, `mapobj=2`/`1`), and slots
+  3-12 are entirely zero.
+- **The vanilla `+0x248` relationship to `wMapObjects` does NOT hold here**, and this is the third
+  vanilla relationship to fail on the patched build: `0x14DC + 0x248` reads `struct_id=255,
+  sprite=0, y=255`. The coordinate block moved +7 and the object array moved +6, so the tables were
+  not shifted together and **`wMapObjects` needs measuring on its own**, not deriving.
+  `ap_mapobj_probe.lua` does it by matching each live struct's sprite id against the entry its
+  `MAP_OBJECT_INDEX` points at — a multi-point constraint the struct array supplies for free.
