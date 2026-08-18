@@ -140,7 +140,17 @@ func (r *Room) handleWorld(from string, req protocol.World) {
 		// A lossy write keeps its lossy delivery: on a datagram transport a
 		// stale position is then never retransmitted late behind a newer one,
 		// which is the real value ForwardUnreliable has here.
-		unreliable = !req.Reliable
+		//
+		// A DROP is never lossy, whatever the writer asked for. The
+		// create-must-be-reliable rule above exists to put creation and
+		// deletion on the same ordered plane; honouring `reliable:false` on a
+		// drop would reopen that hole from the other side, since a lost drop
+		// is never corrected -- the relay's map has the key gone, and
+		// snapshots go only to joiners, so a peer that missed it keeps the
+		// entity standing forever. Enforced here rather than in
+		// ValidateWorld because it is a delivery choice to override, not a
+		// malformed request to refuse.
+		unreliable = !req.Reliable && req.Op != protocol.WorldDrop
 	}
 	r.mu.Unlock()
 

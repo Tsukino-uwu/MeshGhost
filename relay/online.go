@@ -445,7 +445,7 @@ func (e *escrow) isParty(id string) bool {
 	return e.parties[0] == id || e.parties[1] == id
 }
 
-// stateLocked renders the wire form. Blobs are attached ONLY once committed:
+// escrowStateLocked renders the wire form. Blobs are attached ONLY once committed:
 // until then neither side may see the other's contribution, or the second
 // depositor could decide what to offer after seeing what it was offered.
 // Caller holds r.mu.
@@ -834,9 +834,14 @@ func (s *Server) suspend(r *Room, c *Client, token string) {
 		return
 	}
 	sess.suspended = true
-	s.mu.Unlock()
-
+	// The timer is created and stored under s.mu, not after it. Every other
+	// access to sess.timer -- forgetSessionsOf's Stop, takeSession's Stop --
+	// is reached from s.mu, so assigning it outside was a genuine unguarded
+	// write: a client reconnecting with its token in the same instant the
+	// relay notices the old socket died is the routine quic takeover case,
+	// not a rare one. resumeGrace takes no lock, so this is safe to hold.
 	sess.timer = time.AfterFunc(s.resumeGrace(), func() { s.expireSuspended(token) })
+	s.mu.Unlock()
 	log.Printf("relay: %s dropped from room %q — holding its identity for %s in case it reconnects",
 		c.PlayerID, r.Name, s.resumeGrace())
 }

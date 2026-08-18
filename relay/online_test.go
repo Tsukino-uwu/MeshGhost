@@ -1354,3 +1354,34 @@ func TestSnapshotShowsPerMemberClientScopedCapabilities(t *testing.T) {
 		t.Fatalf("room features = %v, want lease.v1", room.Features)
 	}
 }
+
+// suspend used to create the session's grace timer AFTER releasing s.mu, while
+// forgetSessionsOf reads it under s.mu and takeSession reads it just after —
+// an unsynchronised write against two guarded reads. It is reachable in the
+// ordinary way, not a rare one: a client reconnecting with its token in the
+// same instant the relay notices its old socket died is the quic takeover case
+// takeSession's own doc comment calls routine.
+//
+// The consequence was mild (an un-stopped timer whose callback finds nothing to
+// do), which is exactly why it needed a test rather than an argument — this is
+// the class of bug CI's `-race` job exists for, and the one thing that reports
+// it is the race detector. Locally this passes either way; on CI it does not.
+func TestSuspendDoesNotRaceWithResumeOnTheSessionTimer(t *testing.T) {
+	s := &Server{rooms: make(map[string]*Room), ResumeGrace: time.Minute}
+	r := newRoom("emerald", "", "room1", nil)
+
+	for i := 0; i < 200; i++ {
+		token := fmt.Sprintf("tok-%d", i)
+		c := &Client{PlayerID: fmt.Sprintf("p%d", i), Conn: &recordingTransport{}}
+		r.tryAdd(c)
+		s.registerSession(r, c.PlayerID, token, "")
+
+		// All three of the paths that touch sess.timer, at once.
+		var wg sync.WaitGroup
+		wg.Add(3)
+		go func() { defer wg.Done(); s.suspend(r, c, token) }()
+		go func() { defer wg.Done(); s.takeSession(token, "room1", "emerald") }()
+		go func() { defer wg.Done(); s.forgetSessionsOf(r, c.PlayerID) }()
+		wg.Wait()
+	}
+}

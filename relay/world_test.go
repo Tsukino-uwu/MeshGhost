@@ -34,9 +34,17 @@ type recordingTransport struct {
 	block   chan struct{}
 	blocked bool
 	got     [][]byte
+	// lossy[i] records whether got[i] arrived via SendUnreliable rather than
+	// Send. Both land in the same slice -- a datagram transport delivers the
+	// same bytes either way -- so without this a test cannot tell which
+	// delivery variant the relay actually chose, which is the whole content
+	// of the reliable/lossy rules in world.go.
+	lossy []bool
 }
 
-func (rt *recordingTransport) Send(payload []byte) error {
+func (rt *recordingTransport) Send(payload []byte) error { return rt.record(payload, false) }
+
+func (rt *recordingTransport) record(payload []byte, unreliable bool) error {
 	rt.mu.Lock()
 	if rt.block != nil && !rt.blocked {
 		rt.blocked = true
@@ -48,6 +56,7 @@ func (rt *recordingTransport) Send(payload []byte) error {
 	delay := rt.delay
 	cp := append([]byte(nil), payload...)
 	rt.got = append(rt.got, cp)
+	rt.lossy = append(rt.lossy, unreliable)
 	rt.mu.Unlock()
 	if delay > 0 {
 		time.Sleep(delay)
@@ -55,11 +64,13 @@ func (rt *recordingTransport) Send(payload []byte) error {
 	return nil
 }
 
-func (rt *recordingTransport) SendUnreliable(payload []byte) error { return rt.Send(payload) }
-func (rt *recordingTransport) OnReceive(func([]byte))              {}
-func (rt *recordingTransport) OnDisconnect(func(error))            {}
-func (rt *recordingTransport) OnError(func(error))                 {}
-func (rt *recordingTransport) Close() error                        { return nil }
+func (rt *recordingTransport) SendUnreliable(payload []byte) error {
+	return rt.record(payload, true)
+}
+func (rt *recordingTransport) OnReceive(func([]byte))   {}
+func (rt *recordingTransport) OnDisconnect(func(error)) {}
+func (rt *recordingTransport) OnError(func(error))      {}
+func (rt *recordingTransport) Close() error             { return nil }
 
 // received returns the envelopes captured so far, in write order.
 func (rt *recordingTransport) received(t *testing.T) []protocol.Envelope {
@@ -797,5 +808,78 @@ func TestWorldSnapshotIsBatchedNotFragmented(t *testing.T) {
 	}
 	if len(seen) != protocol.MaxWorldKeysPerRoom {
 		t.Fatalf("the batched snapshot carried %d entities, want %d", len(seen), protocol.MaxWorldKeysPerRoom)
+	}
+}
+
+// A drop must never be delivered lossily, whatever the writer asked for.
+//
+// TestLossyWriteCannotCreateAKey covers the create side of the same invariant:
+// creation and deletion have to travel on the same ordered plane, or a stale
+// set dispatched before a reliable drop can arrive after it and resurrect the
+// entity permanently. The delete side was unguarded -- ValidateWorld accepts
+// {op:"drop", reliable:false} and handleWorld forwarded it through
+// ForwardUnreliable -- and a lost drop is never corrected: the relay's map has
+// the key gone, and snapshots go only to joiners, so a peer that missed it
+// keeps the entity standing forever.
+func TestADropIsNeverDeliveredLossily(t *testing.T) {
+	r, rts := worldRoom(t, worldFeatures, "p1", "p2")
+	r.handleLease("p1", protocol.Lease{Op: protocol.LeaseClaim, Key: "sim"})
+	setWorld(r, "p1", "sim", "boss", "alive")
+
+	rt := rts["p2"]
+	rt.mu.Lock()
+	rt.got, rt.lossy = nil, nil
+	rt.mu.Unlock()
+
+	// Asking for lossy delivery explicitly -- the relay must override it.
+	r.handleWorld("p1", protocol.World{
+		Op: protocol.WorldDrop, Authority: "sim", Key: "boss", Reliable: false,
+	})
+
+	if got := worldKeysOf(r); len(got) != 0 {
+		t.Fatalf("the drop did not take effect, room still holds %v", got)
+	}
+
+	rt.mu.Lock()
+	defer rt.mu.Unlock()
+	if len(rt.got) == 0 {
+		t.Fatal("the peer was told nothing about the drop")
+	}
+	for i, l := range rt.lossy {
+		if l {
+			t.Fatalf("message %d (a drop) went out via SendUnreliable -- a lost drop is never "+
+				"corrected, so the entity stands forever for anyone who missed it", i)
+		}
+	}
+}
+
+// The lossy plane is still used for what it is for: an ordinary update to a key
+// that already exists. Guards the fix above from being over-applied into
+// "everything world-related is reliable now", which would give up the one thing
+// ForwardUnreliable buys here -- a stale position never retransmitted late
+// behind a newer one.
+func TestAnUpdateStillHonoursLossyDelivery(t *testing.T) {
+	r, rts := worldRoom(t, worldFeatures, "p1", "p2")
+	r.handleLease("p1", protocol.Lease{Op: protocol.LeaseClaim, Key: "sim"})
+	setWorld(r, "p1", "sim", "boss", "alive")
+
+	rt := rts["p2"]
+	rt.mu.Lock()
+	rt.got, rt.lossy = nil, nil
+	rt.mu.Unlock()
+
+	r.handleWorld("p1", protocol.World{
+		Op: protocol.WorldSet, Authority: "sim", Key: "boss", Blob: blob("moved"), Reliable: false,
+	})
+
+	rt.mu.Lock()
+	defer rt.mu.Unlock()
+	if len(rt.lossy) == 0 {
+		t.Fatal("the peer was told nothing about the update")
+	}
+	for i, l := range rt.lossy {
+		if !l {
+			t.Fatalf("message %d (a lossy update) was forced onto the reliable plane", i)
+		}
 	}
 }
