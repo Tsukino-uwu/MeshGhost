@@ -33,13 +33,37 @@ Pseudoregalia `main.dll`. No game-derived binary has ever been tracked.
 here before consulting that project for anything.** If a project isn't in the table below,
 its license hasn't been checked yet — do not use it as a reference until it is.
 
+**Standing rule: a source that cannot be cited cannot be used as a source.** A private,
+invite-only, shared-in-confidence or otherwise unpublishable project is **not recorded in the table
+below and not consulted as a reference for committed work**. It is never named, linked, quoted or
+paraphrased in any tracked file, and it is never the reason a committed decision is the way it is.
+Such access is recorded in agent memory instead — no name, no URL, no branch, no identifying
+paraphrase, and **never in a committed grep or check script**, which would itself put the strings in
+the repo. Run that check ad hoc.
+
+Two reasons, and the second is the one that gets forgotten. The first is confidentiality: it was
+shared in trust and this repo is public forever. The second is **auditability** — everything above
+runs on citation, so a source that cannot be cited cannot be checked, and anything derived from it
+is permanently unverifiable by any later reader, human or otherwise. That is worse than not having
+the source at all. The firewall to hold instead: such a source may inform **what to look for**, but
+committed facts stay traceable to our own measurements.
+
+**This is the opposite handling from an access-gated but nameable dependency**, so do not reason
+from that precedent. `Re-UE4SS/UEPseudo` below is Epic-account-gated, and its name, URL and invite
+mechanism are documented here in full — correctly, because its constraint is a *redistribution*
+question, not a confidentiality one. **Gated is not confidential.** Gated gets documented;
+confidential gets no mention at all.
+
 **Standing rule: facts and addresses, never code.** Reading a decompilation or another
 project's source to learn *where a value lives* (a memory offset, a struct layout, a hook
 point) and then writing our own implementation from that understanding is the normal way
 this kind of project gets built. Copying source text, data tables, asset files, or
-structurally-identical code is a different act and is not permitted regardless of a
-project's license terms, unless that license explicitly allows redistribution and the
-copied portion is attributed per its terms.
+structurally-identical code is a different act and is **not permitted regardless of a
+project's license terms** — a permissive license is not an exception. The carve-out that used to
+end this rule ("unless that license explicitly allows redistribution and the copied portion is
+attributed") was **removed on the user's call, 2026-08-18**, from `access-models.md` and
+`CLAUDE.md`; this file was missed in that pass, so the repo stated the rule two ways until
+2026-08-18. The prohibition is unconditional. Why: `access-models.md`.
 
 [access-models.md](access-models.md)'s "What any of this means for a PUBLIC repo" applies that rule
 per approach — what may be committed and what may not, for each way of reading a game — plus the two

@@ -81,14 +81,14 @@ stays here, its reasoning goes to `agent_docs/`, with a one-line pointer. Full e
   enough: the repo must WORK for a user who has only it plus what they legitimately own.** Why,
   and the build-time-artifact carve-out: `agent_docs/access-models.md`.
 - **Read a project's license before reading its source.** See `agent_docs/licensing.md`. Learning
-  a fact from a reference project (e.g. the `pokeemerald` decompilation) is normal; copying its
-  source or assets is not. If the project isn't already listed in `licensing.md`, its license
-  hasn't been checked yet — don't use it as a reference until it is.
+  a fact from a reference project is normal; copying its source or assets is not. If a project
+  isn't listed in `licensing.md`, its license hasn't been checked — don't use it until it is.
+  **A private or invite-only source is a harder no than an unlicensed one: never named, linked,
+  cited or derived from in any tracked file** — agent memory only, and what it touches stays
+  independently measured, because a source that cannot be cited cannot be audited.
 - **Any dated fact recorded in `agent_docs/` — a license check, a tool/mod version, a closed
-  risk, a memory address — is true as of that date, not a permanent guarantee.** Installed
-  tools, mods, ROM/game patches, and external repos can all drift without this repo changing.
-  Re-check before relying on an old fact for a genuinely new use, not just reactively if a
-  change happens to be noticed.
+  risk, a memory address — is true as of that date, not a permanent guarantee.** Tools, mods,
+  ROM patches and external repos drift without this repo changing; re-check before a new use.
 - **Small runnable steps only.** Every unit of work needs a visible, observable outcome.
   "Implement the network layer" is not testable; "connect and heartbeat," "echo to self,"
   "see on second client" are.
