@@ -336,24 +336,41 @@ local function w8(addr, value)
 	pcall(memory.write_u8, addr, value, DOMAIN)
 end
 
--- Required by the spawn ADR, and not a nicety: Archipelago's Crystal patch rearranges WRAM
--- non-uniformly, so a vanilla address on a patched ROM lands on whatever now occupies it.
-local function romIsVanillaV1()
+-- ROM classification, three-way rather than pass/fail (user's call, 2026-08-18).
+--
+--   "known"        vanilla V1.0 — the addresses below were derived from a byte-identical build.
+--   "incompatible" a ROM we have POSITIVE evidence is wrong: Archipelago's Crystal patch
+--                  rearranges WRAM non-uniformly, so vanilla addresses land on whatever now
+--                  occupies them. Refused, because this is not "untested", it is "tested and known
+--                  to corrupt". Overridable with MESHGHOST_CRYSTAL_FORCE=1 for deliberate
+--                  experimentation.
+--   "unknown"      anything else — another revision, a romhack, a translation. **Warn loudly and
+--                  RUN.** Refusing guarantees an untested-but-fine ROM does not work, where trying
+--                  it might. The cost of being wrong is bounded: this adapter writes only object
+--                  RAM and never a save, so the worst case is a visual mess cleared by a map
+--                  reload or a reset.
+local function classifyRom()
 	local t = {}
 	for i = 0, 9 do
 		local c = u8(0x134 + i, ROM_DOMAIN)
 		if not c then
-			return false, "could not read the ROM domain"
+			return "unknown", "could not read the ROM domain at all"
 		end
 		t[#t + 1] = string.char(c)
 	end
-	if table.concat(t) ~= "PM_CRYSTAL" then
-		return false, string.format("ROM title is %q, expected \"PM_CRYSTAL\"", table.concat(t))
+	local title = table.concat(t)
+	if title == "PM_CRYSTAL"
+		and u8(0x14E, ROM_DOMAIN) == 0x12 and u8(0x14F, ROM_DOMAIN) == 0x9F then
+		return "known", "vanilla Crystal V1.0"
 	end
-	if u8(0x14E, ROM_DOMAIN) ~= 0x12 or u8(0x14F, ROM_DOMAIN) ~= 0x9F then
-		return false, "global checksum is not 129F — this is not vanilla Crystal V1.0"
+	-- Archipelago renames the header, which is a cheaper and stronger signal than the checksum.
+	if title:sub(1, 3) == "AP_" then
+		return "incompatible",
+			string.format("ROM title %q — Archipelago's patch moves WRAM, so these addresses "
+				.. "would land on the wrong data", title)
 	end
-	return true, "vanilla Crystal V1.0"
+	return "unknown", string.format("ROM title %q, checksum %02X%02X — not a build these addresses "
+		.. "were derived from", title, u8(0x14E, ROM_DOMAIN) or 0, u8(0x14F, ROM_DOMAIN) or 0)
 end
 
 -- The in-game gate. Established empirically in Phase 9, and BOTH terms were needed: wMapStatus
@@ -679,15 +696,28 @@ end
 -- Main loop
 ----------------------------------------------------------------------------
 
-local okRom, whyRom = romIsVanillaV1()
+local romClass, romWhy = classifyRom()
 log("=== MeshGhost — Pokémon Crystal ===")
-if not okRom then
-	log("REFUSING TO RUN: " .. whyRom)
-	log("This adapter writes object RAM, and a wrong ROM means writing to the wrong addresses.")
-	log("Archipelago support needs its own address table, not a relaxed guard. See the README.")
-	return
+if romClass == "known" then
+	log("ROM: " .. romWhy .. " — addresses verified against a byte-identical build.")
+elseif romClass == "incompatible" then
+	if os.getenv("MESHGHOST_CRYSTAL_FORCE") == "1" then
+		log("!! FORCED onto a known-incompatible ROM: " .. romWhy)
+		log("!! Expect wrong addresses. Nothing is written to any save, so a reset undoes it.")
+	else
+		log("REFUSING TO RUN: " .. romWhy)
+		log("This is not an untested ROM — it is one we know moves the addresses this adapter")
+		log("uses, so running would write to the wrong data rather than merely maybe not work.")
+		log("Supporting it needs its own address table. Set MESHGHOST_CRYSTAL_FORCE=1 to override.")
+		return
+	end
+else
+	log("!! UNKNOWN ROM — running anyway, unverified: " .. romWhy)
+	log("!! These addresses come from vanilla Crystal V1.0. On another build they may be wrong,")
+	log("!! in which case expect a ghost in the wrong place, wrong graphics, or nothing at all.")
+	log("!! Bounded risk by design: object RAM only, never a save — a reset clears anything odd.")
+	log("!! If it does work, say so and it can be added to the known-good list.")
 end
-log("ROM guard passed: " .. whyRom)
 log(string.format("Bridge target %s:%d (set MESHGHOST_BRIDGE_PORT to change).", BRIDGE_HOST, BRIDGE_PORT))
 
 local lastArea = nil

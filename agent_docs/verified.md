@@ -6858,3 +6858,24 @@ scheduled. All established by the agent with local tools; nothing here is a visu
   the user happened to have the patched ROM loaded.
 - Also confirms the LuaSocket path fix: the loader found the vendored pair via the working
   directory after `debug.getinfo` proved useless under BizHawk (`pitfalls.md`).
+
+### Crystal: the ROM guard becomes three-way — warn on unknown, refuse only the known-wrong (2026-08-18)
+
+- Date: 2026-08-18
+- Change, on the user's call: the adapter no longer refuses everything that is not vanilla V1.0.
+  It classifies instead — `known` (vanilla V1.0, run normally), `incompatible` (positive evidence
+  the addresses moved: Archipelago, detected by its `AP_` header rename — refused, overridable with
+  `MESHGHOST_CRYSTAL_FORCE=1`), and `unknown` (anything else — **warn loudly and run**).
+- Rationale, and the distinction that makes it defensible: **"untested" and "known-wrong" are not
+  the same thing.** Refusing an unknown ROM guarantees an untested-but-fine build does not work,
+  where trying it might; refusing Archipelago is refusing something measured to move the addresses
+  this adapter reads. The user's framing: keep the guard as a check that *tested* things still work,
+  not as a gate on everything else.
+- **What bounds the risk, and it is why this is acceptable rather than merely convenient**: the
+  adapter writes **object RAM only and never a save**, so the worst case on a wrong ROM is a visual
+  mess cleared by a map reload or a reset. That property is what the whole transient-RAM posture
+  was for, and it has now paid for itself twice in one day — once for a script-pointer freeze, once
+  here.
+- **Amends the 2026-08-17 spawn ADR**, which required the adapter to "positively identify the ROM
+  before writing and refuse otherwise". That still holds for Archipelago specifically, which is the
+  case the requirement was written for; it no longer holds for ROMs we simply have not tested.
