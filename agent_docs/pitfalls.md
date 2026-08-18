@@ -966,8 +966,14 @@ RE-UE4SS entry records the pin. Re-check before relying on them after a pin bump
   list it, destroys fine — `Plugin.cpp`'s `call_destroy_actor` does exactly that for the
   thrown-weapon prop, and falls back to parking when the reflection isn't there. Read the
   "permanent constraint" below as permanent for the ghost pawn only.
-- **Design (not a bug fix, a permanent constraint)**: ghosts are never destroyed. On
-  `despawn_remote`, `Plugin.cpp`'s `release_ghost` moves the ghost far offscreen via the
+- **Reversed since (recorded 2026-08-18)**: it is not a constraint at all any more.
+  `GHOST_DESTROY_ON_DESPAWN` is `true` in `Plugin.cpp`, so a `despawn_remote` **destroys** the
+  ghost; parking is now the *fallback* for when the destroy reflection isn't available, not the
+  design. The bullet below is kept because its reasoning is still the right shape for a build where
+  destroy really is unreliable — read it as history, not as current behaviour, and note that its
+  accepted cost (a frozen offscreen ghost until the next area transition) no longer applies.
+- **Original design note, superseded — ghosts were never destroyed.** On
+  `despawn_remote`, `Plugin.cpp`'s `release_ghost` moved the ghost far offscreen via the
   already-proven `call_set_actor_location_and_rotation` path (see the `FRotator` marshaling
   pitfall above for why that specific call needed its own version-aware helper) instead of
   attempting any destroy/pool/reuse. The level's own teardown on the next area transition
@@ -1004,10 +1010,16 @@ RE-UE4SS entry records the pin. Re-check before relying on them after a pin bump
     easy to assume — as happened here — that a launcher script or convention automatically
     handles per-instance port assignment when actually nothing does unless something sets the
     env var for that specific process before it starts.
-  - **Fix (procedural, not a code fix)**: a per-machine, gitignored `.local.bat` launcher for
+  - **Fix, originally procedural**: a per-machine, gitignored `.local.bat` launcher for
     each instance that sets `MESHGHOST_BRIDGE_PORT` before launching `EmuHawk.exe`, so this
     can't be silently skipped by launching the executable directly. See
     `dev-scripts/README.md`.
+  - **Now a code fix too (2026-08-18)**: both Pokémon adapters walk the bridge port.
+    `meshghost_emerald.lua` and `meshghost_crystal.lua` probe `BRIDGE_BASE_PORT` (7778) upward
+    across `BRIDGE_PORT_COUNT` (8) and accept only a core that answers `bridge_ready`, so a second
+    instance launched by double-clicking now finds its own core instead of sharing the first one's.
+    **Not yet watched live.** TEVI still connects to a single fixed port and keeps the procedural
+    fix above.
   - **Generalizes to**: any two-instance local multiplayer test where the adapter/game process
     picks its own listen/connect port from an environment variable with a same-for-everyone
     default. Don't assume a second manually-launched instance picked up a distinguishing
@@ -1563,3 +1575,62 @@ evidence the instrument is alive** —
 **Never conclude from the absence of a symptom.** A dead probe and a quiet game are
 indistinguishable from the outside, so the question is never "did anything happen?" but "is this
 thing still running?" — and that has an answer you can check.
+
+## A verification rule that reports clean while the thing it checks is broken (2026-08-18)
+
+**Symptom.** `CLAUDE.md`'s mandated public-repo leak check printed nothing, as it had for days,
+while a personal username sat in `master` in a tracked file.
+
+**Diagnosis.** The check was
+`git grep -inIF -e 'C:\Users' -e '/home/' …`. `-F` makes it a *literal* match, so it matched a
+**backslash** path only. The leak was `dev-scripts/rom-swap-test.lua`'s
+`C:/Users/<name>/Downloads/<seed>.gba` — **forward** slashes, because BizHawk Lua wants them.
+Committed 2026-08-11 in `03e0a8b`, invisible to the rule the whole time, and it leaked a
+username, a home-directory layout, a handle and an Archipelago seed name.
+
+**Fix.** Both slash directions in the check, now
+`-e 'C:\Users' -e 'C:/Users' -e '/home/'`, and the file's paths moved to
+`MESHGHOST_ROM_VANILLA`/`MESHGHOST_ROM_PATCHED` env vars with its log path derived from
+`scriptDir()` (which also fixed a hardcoded `C:/dev/MeshGhost/` in the same file).
+
+**The durable lesson is not "add a slash".** This is the shape `CLAUDE.md` already warns about
+elsewhere — *a diagnostic can break the thing it measures, and then every reading agrees with
+itself.* A clean run of a check that cannot see the failure mode is worse than no check, because
+it is read as evidence. When a rule's whole value is "this prints nothing", prove it can print
+something: run it against a known-bad string before trusting a clean result. **This one had
+never been shown to fail.** Two of the three found-live cases arrived via pasted tool output;
+this third arrived by being typed in a form the rule did not model.
+
+## Third time for the wrong-install-on-PATH trap — and it cost a capability, not just a build (2026-08-18)
+
+**Symptom.** `agent_docs/testing.md` recorded that local `-race` **"does not work on this machine
+and is not worth retrying"**, and `dev-scripts/run-gotests-race.bat` existed only to say so
+politely. The race detector was treated as CI-only, which is why a relay race on 2026-08-16 had
+to be caught by CI after a push.
+
+**Diagnosis.** Two separate wrong conclusions stacked:
+
+1. `gcc` on `PATH` resolves to devkitPro's MSYS2 copy, whose headers cgo cannot use
+   (`stddef.h: No such file or directory`). Same trap as `cmake` (2026-08-13) and `cmd`
+   (2026-08-17) — **the third instance in this repo.**
+2. The real MSYS2 GCC 15.1.0 was then tested, failed with
+   `runtime/cgo: cgo.exe: exit status 2`, and was written off as "Go's runtime/cgo doesn't build
+   with it". **It builds fine.** Setting `CC` is not enough: cgo shells out to the compiler,
+   which shells out to its own `as`/`ld` and reads its own headers, so its `bin` directory has to
+   be *ahead of devkitPro's on `PATH`*. `run-gotests-race.bat`'s probe set `CC` only — so every
+   candidate compiler failed identically, and the conclusion drawn was "no compiler works"
+   rather than "the probe is missing a step".
+
+That second part is exactly `CLAUDE.md`'s rule about **two guessed fixes failing with the
+identical symptom being a signal, not bad luck** — two compilers, one symptom, and the common
+factor was the harness, not the compilers.
+
+**Fix.** The probe now prepends the candidate's directory to `PATH` before testing it. Verified
+end to end 2026-08-18: with the `sess.timer` fix reverted, `-race` reports the race at
+`relay/online.go:844`; restored, `go test -race -count=3 ./...` is clean across every package
+including `internal/e2e`. Recipe and caveats: `testing.md`'s Race detector section.
+
+**Lesson.** A negative capability finding deserves the same scepticism as a positive one, and it
+ages worse: "we can't do X here" gets written into the docs, tooling gets built around the
+absence, and nobody re-tests it. Cost here was every race being a push-and-wait round trip for
+two days. **Treat "this doesn't work on this machine" as a dated claim, not a property.**

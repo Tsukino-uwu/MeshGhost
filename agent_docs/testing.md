@@ -169,7 +169,7 @@ adapter's own rendering, invisible in a mirror, and they stay on the list. Every
 | Cross-compile the other shipped platforms | no | yes — compile only (`linux/arm64`, `darwin/amd64`, `darwin/arm64`) | yes — these are the tarballs' real binaries |
 | Unit + integration suite | yes (`-count=2`) | yes (`-count=3`, Linux; `-count=2`, Windows) | yes (`-count=2`) |
 | End-to-end, real binaries (`internal/e2e`) | yes | yes | yes |
-| **Race detector** | **no — can't** (`run-gotests-race.bat` says why) | yes (Linux) | no |
+| **Race detector** | **yes, with the PATH recipe below** (was "can't" until 2026-08-18) | yes (Linux) | no |
 | Concurrency stress (`-shuffle`, `-cpu`, repeats) | yes (`run-gotests-stress.bat`) | no | no |
 | **Fuzzing** | seed corpus only | yes, short campaign per target (all eleven) | no |
 
@@ -222,7 +222,9 @@ and its `contents: write` permission is the reason CI is deliberately `contents:
   mostly around config/flag precedence and, for netsim, the fault injection itself.
 - **`internal/e2e`** — builds and launches the real `meshghost-server.exe` and `meshghost.exe`,
   then drives a real adapter over the bridge and asserts a ghost completes the round trip. This
-  is the only thing covering `cmd/`'s flag parsing and config wiring, and it is the automated
+  is the only thing covering `cmd/`'s flag parsing and config wiring **end to end, against the
+  real binaries** — the bullet above lists each `cmd/` package's own unit tests, which cover
+  precedence in isolation; this is the automated
   form of the loopback check that used to mean launching two `.bat` files and watching.
 - **`relay/world_test.go`** — world custody, and the file worth reading before touching
   that plane: four of its tests exist because the OBVIOUS implementation is wrong in four separate
@@ -267,16 +269,33 @@ and its `contents: write` permission is the reason CI is deliberately `contents:
 
 ### Race detector
 
-Local `-race` **does not work on this machine and is not worth retrying**:
+**Local `-race` DOES work on this machine, as of 2026-08-18.** This section said the opposite
+("does not work and is not worth retrying") from 2026-08-16 until then, and the whole
+`run-gotests-race.bat` / "CI is the only place it runs" arrangement was built on that. It was
+wrong about the *reason*, which is why the retry that disproved it was cheap.
 
-- `gcc` on `PATH` resolves to a devkitPro MSYS2 copy whose headers cgo cannot use.
-- The real MSYS2 GCC (15.1.0) cannot compile Go's `runtime/cgo` (first hit on Go 1.22,
-  re-confirmed 2026-08-16 on Go 1.25) — its internal `-Werror`
-  flags ignore `CGO_CFLAGS`, so there is no flag to work around it with.
-- No WSL installed.
+Run it exactly like this — the `PATH` prefix is the load-bearing part:
 
-CI runs it on `ubuntu-latest`, where it needs no toolchain setup at all. The Go code is
-platform-agnostic (`net`, `encoding/json`, no syscalls), so a race there is a race here.
+```sh
+export CC="C:/msys64/mingw64/bin/gcc.exe" CGO_ENABLED=1 PATH="/c/msys64/mingw64/bin:$PATH"
+go test -race -count=2 ./...
+```
+
+- Setting `CC` **alone is not enough** and fails with `runtime/cgo: cgo.exe: exit status 2`,
+  which is the failure the old note recorded and read as "this compiler cannot build cgo". The
+  compiler needs the rest of its own toolchain (`as`, `ld`, its headers) resolvable, and that
+  only happens when its `bin` directory is ahead of the devkitPro copy on `PATH`.
+- `gcc` on the bare `PATH` still resolves to the devkitPro MSYS2 copy whose headers cgo cannot
+  use (`stddef.h: No such file or directory`). That part of the old note was correct, and it is
+  the same shadowing trap `pitfalls.md` records for `cmake` and `cmd`.
+- Verified end to end on 2026-08-18: with the fix in `relay/online.go` reverted, `-race`
+  reported the `sess.timer` race at `online.go:844` against reads at `:876` and `:913`; with it
+  restored, the full suite is clean at `-count=2`. So it does not merely build — it detects.
+
+CI still runs it on `ubuntu-latest`, where it needs no toolchain setup at all, and that stays
+the authority. The Go code is platform-agnostic (`net`, `encoding/json`, no syscalls), so a race
+there is a race here — but the point of the recipe above is that a suspected race no longer has
+to be pushed to find out.
 
 **The local substitute is repetition.** `go test -count=10 ./...` has caught what `-count=1`,
 `-count=2` and `-count=3` all missed. Do this whenever touching concurrency.
@@ -289,7 +308,9 @@ Only the seed corpus runs during a normal `go test`. To run a real campaign:
 go test ./protocol -run=XXX -fuzz=FuzzValidateStateIsStableAcrossTheWire -fuzztime=10m
 ```
 
-Each target's doc comment carries its own command. `-run=XXX` matches no ordinary test, so only
+Four of the eleven targets carry that command in their own doc comment (`protocol`, `transport`,
+and both in `relay/fuzz_test.go`); for the rest, substitute the package and target name into the
+line above. `-run=XXX` matches no ordinary test, so only
 the fuzzing runs. One target at a time — Go does not support fuzzing several at once.
 
 The targets, and the property each actually tests (none is a restatement of the code's own
@@ -399,9 +420,14 @@ Two things about it are easy to get wrong:
   failure is an anecdote. (The seed fixes the draws, not the interleaving of concurrent flows —
   the tool's own doc comment is careful about that and so should any bug report be.)
 
-`-loss`/`-duplicate`/`-reorder` are udp-only and are refused rather than ignored when tcp is
-being mirrored, because dropping bytes out of a proxied tcp stream corrupts it rather than
-simulating loss — the kernel's retransmission is below where the proxy sits.
+`-loss`/`-duplicate`/`-reorder` are udp-only, and mirroring tcp alongside them is **allowed** —
+which matters, because the handshake is always tcp, so every real session needs tcp mirrored and
+refusing the combination made `-loss` unusable in exactly the case it exists for. Instead the tool
+prints a `NOTE` saying the faults reached the udp flows only; the mirrored tcp ports get
+`-latency`/`-jitter`/`-partition` and nothing else, because dropping bytes out of a proxied tcp
+stream corrupts it rather than simulating loss — the kernel's retransmission is below where the
+proxy sits. The only **refusal** is asking for those flags when *no* udp ports are mirrored at all,
+where they would silently do nothing.
 
 ## Confirming a test can actually fail
 
