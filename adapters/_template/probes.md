@@ -449,8 +449,20 @@ Two failures in one, and they compound:
 
 **So a scripted interaction should:**
 
-- **End at a known baseline** — for a Pokémon adapter, the overworld — and get there by pressing
-  B/Cancel enough times to escape any depth of menu, rather than assuming a known depth.
+- **End at a known baseline, and reach it by SPAMMING the back button.** The user's general point,
+  2026-08-18: *"you can usually exit/go back from menu's by repeatedly pressing, for example in
+  most games, to reach a neutral overworld state / no menu open"*. This is the cheapest known
+  technique in scripted-input work and it generalises across games: whatever the UI depth, whatever
+  screen you are on, pressing Cancel more times than the menu could possibly be deep lands you at
+  neutral. It needs no knowledge of the menu tree, survives the menu having more or fewer entries
+  than expected, and recovers from a sequence that went wrong halfway.
+  **Which buttons:** the user, 2026-08-18 — *"B/Start is usually for quickly/repeatedly closing
+  menus"*. B is Cancel/back one level; Start closes the whole menu outright in many games, so
+  alternating or spamming both is more robust than either alone. Neither does damage in the
+  overworld: B does nothing, Start reopens the menu — which is why a **preamble** of B/Start
+  presses should end on B, so a stray Start does not leave a menu open.
+  **Use it as a PREAMBLE too, not only a cleanup** — a scripted route that assumes it starts in the
+  overworld should make that true first, rather than inheriting whatever the last run left open.
 - **Verify, not assume.** The overworld has a checkable signature (`gMain.callback2` equals
   `CB2_Overworld`); use it as a gate before and after, instead of trusting a frame count.
 - **Clean up after itself even on failure**, exactly as a probe that edits the world restores what

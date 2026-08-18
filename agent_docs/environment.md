@@ -434,6 +434,13 @@ UE4SS entry below for that last one specifically, which is currently unresolved)
   **The standing limit is unchanged.** All of this is dev-only tooling for reaching a state faster;
   it never becomes adapter behaviour, and none of it confirms anything — the user still watches the
   end result.
+- **Do not write Lua containing backslashes through a shell heredoc.** A Lua pattern like
+  `match("^(.*)[/\][^/\]*$")` needs two backslashes in the file, and a bash heredoc plus a
+  Python string plus a regex each eat one — so the file ends up with one and Lua rejects it with
+  *"invalid escape sequence"*. This happened **four times on 2026-08-18**, twice silently enough
+  that a script simply never loaded and its absence was mistaken for the feature not working.
+  Use the Edit tool (it respects the literal text), or write the character via `chr(92)` and
+  **read the line back with `repr()` in the same command** to confirm what actually landed.
 - **`dev-scripts/lua-forward-refs.py` — a name used before its `local` definition.** In Lua that
   resolves to a **global**, which is `nil`, so the call site silently does nothing or errors
   somewhere unrelated — it never looks like what it is. This bit the Emerald adapter **three times

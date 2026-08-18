@@ -20,7 +20,7 @@ do
 	local dir = "."
 	local info = debug.getinfo(1, "S")
 	if info and info.source and info.source:sub(1, 1) == "@" then
-		dir = info.source:sub(2):match("^(.*)[/\][^/\]*$") or "."
+		dir = info.source:sub(2):match("^(.*)[/\\][^/\\]*$") or "."
 	end
 	logfile = io.open(string.format("%s/fishing_watch_%s.log", dir, os.date("%Y%m%d_%H%M%S")), "w")
 end
