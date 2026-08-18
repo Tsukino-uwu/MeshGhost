@@ -52,6 +52,8 @@ for /f "usebackq tokens=1" %%h in (`certutil -hashfile "%SRC%\Mod\src\Plugin.hpp
 for /f "usebackq tokens=1" %%h in (`certutil -hashfile "%SRC%\Mod\src\BridgeClient.cpp" SHA256 ^| findstr /v "hash CertUtil"`) do if not defined BRIDGE_CPP_HASH set BRIDGE_CPP_HASH=%%h
 for /f "usebackq tokens=1" %%h in (`certutil -hashfile "%SRC%\Mod\src\BridgeClient.hpp" SHA256 ^| findstr /v "hash CertUtil"`) do if not defined BRIDGE_HPP_HASH set BRIDGE_HPP_HASH=%%h
 for /f "usebackq tokens=1" %%h in (`certutil -hashfile "%SRC%\Mod\src\dllmain.cpp" SHA256 ^| findstr /v "hash CertUtil"`) do if not defined DLLMAIN_HASH set DLLMAIN_HASH=%%h
+for /f "usebackq tokens=1" %%h in (`certutil -hashfile "%SRC%\Mod\src\CoreLauncher.cpp" SHA256 ^| findstr /v "hash CertUtil"`) do if not defined LAUNCHER_CPP_HASH set LAUNCHER_CPP_HASH=%%h
+for /f "usebackq tokens=1" %%h in (`certutil -hashfile "%SRC%\Mod\src\CoreLauncher.hpp" SHA256 ^| findstr /v "hash CertUtil"`) do if not defined LAUNCHER_HPP_HASH set LAUNCHER_HPP_HASH=%%h
 for /f "usebackq tokens=1" %%h in (`certutil -hashfile "%SRC%\Mod\CMakeLists.txt" SHA256 ^| findstr /v "hash CertUtil"`) do if not defined CMAKELISTS_HASH set CMAKELISTS_HASH=%%h
 for /f %%c in ('git -C "%ROOT%" rev-parse HEAD') do set COMMIT=%%c
 
@@ -65,6 +67,8 @@ for /f %%c in ('git -C "%ROOT%" rev-parse HEAD') do set COMMIT=%%c
   echo BridgeClient.cpp: %BRIDGE_CPP_HASH%
   echo BridgeClient.hpp: %BRIDGE_HPP_HASH%
   echo dllmain.cpp: %DLLMAIN_HASH%
+  echo CoreLauncher.cpp: %LAUNCHER_CPP_HASH%
+  echo CoreLauncher.hpp: %LAUNCHER_HPP_HASH%
   echo CMakeLists.txt: %CMAKELISTS_HASH%
 ) > "%GAMEDIR%\MeshGhostPseudo-built-from.txt"
 

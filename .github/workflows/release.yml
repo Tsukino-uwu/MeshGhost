@@ -194,6 +194,13 @@ jobs:
             "BridgeClient.cpp" = "adapters\pseudoregalia\MeshGhostPseudo\Mod\src\BridgeClient.cpp"
             "BridgeClient.hpp" = "adapters\pseudoregalia\MeshGhostPseudo\Mod\src\BridgeClient.hpp"
             "dllmain.cpp"      = "adapters\pseudoregalia\MeshGhostPseudo\Mod\src\dllmain.cpp"
+            # CoreLauncher is what starts meshghost.exe alongside the game (autostart). It
+            # compiles into main.dll via CMakeLists' source list, but went unhashed here and in
+            # build-pseudoregalia.bat until 2026-08-18 -- so an edit to the autostart path would
+            # have shipped a stale DLL with every other gate still reporting green. Found in an
+            # audit, not by it going wrong.
+            "CoreLauncher.cpp" = "adapters\pseudoregalia\MeshGhostPseudo\Mod\src\CoreLauncher.cpp"
+            "CoreLauncher.hpp" = "adapters\pseudoregalia\MeshGhostPseudo\Mod\src\CoreLauncher.hpp"
             "CMakeLists.txt"   = "adapters\pseudoregalia\MeshGhostPseudo\Mod\CMakeLists.txt"
           }
           $stale = $false

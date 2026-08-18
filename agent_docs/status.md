@@ -36,6 +36,11 @@ Fixed-and-confirmed work is not listed here — see `verified.md` and the phase 
 
 ### Deferred by the 2026-08-18 audit-and-refactor pass
 
+(The Pseudoregalia staleness-gate gap listed here earlier is CLOSED —
+`CoreLauncher.cpp`/`.hpp` are hashed by `build-pseudoregalia.bat` and checked by `release.yml`
+as of 2026-08-18, DLL rebuilt and redeployed.)
+
+
 The pass fixed two real relay bugs, four adapter defects and ~60 stale doc claims; these were
 identified, scoped and deliberately NOT done, because each needs a live game to judge or is large
 enough that bundling it would make one confirmation pass unable to isolate a regression.
