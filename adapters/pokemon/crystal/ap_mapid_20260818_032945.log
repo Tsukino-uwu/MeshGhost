@@ -81,3 +81,9 @@ changed         58   8 |   6   6   6   0   0 153 153  24   3
 -- before 10    59   8 |   6   6   6   0   0 153 153  24   3
 transition 10: coordinates jumped 59,8 -> 0,8
 -- after 10      0   8 |   6   6   6   0   0 153 153  24   4
+
+Done: 10 transition(s) recorded.
+READ IT LIKE THIS: the live pair changes on the SAME line as the jump and then holds
+for the whole visit. A previous-map byte still shows the old value on the 'after' line
+and only catches up at the NEXT transition. Anything that moved on a 'changed' line
+without a jump is neither.

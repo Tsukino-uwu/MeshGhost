@@ -101,10 +101,39 @@ local ADDRESSES = {
 		-- So the block IS four consecutive bytes at vanilla+7 after all -- group, number, Y, X at
 		-- 0x1CBC-0x1CBF. What was wrong in the refuted derivation was the LABEL: AP publishes 7359
 		-- as wMapGroup and it is the X coordinate, three bytes past where the name implied.
-		W_MAPSTATUS = 0x0FB1, -- the single byte reading 2 in the overworld on four maps and 0 in
-		-- both battles, across two independent runs. Nowhere near vanilla's, which is the point.
-		W_BATTLEMODE = nil, -- 10 candidates read 1 in both wild battles; a trainer battle reads a
-		-- different value and separates them. ap_battlemode_probe.lua.
+		-- 0x0FB1 is the byte the GATE wants, and the name is provisional. It reads 2 during
+		-- normal overworld play, 0 in a battle, and 1 while a map is entering (the reload after a
+		-- battle ends) -- three values behaving exactly like wMapStatus's own. But Phase 9
+		-- established on VANILLA that wMapStatus alone lets a battle through, and this byte does
+		-- not, so it may well be something else that happens to track play state. The gate needs
+		-- the behaviour, not the name; do not "correct" this to a tidier address on the strength
+		-- of the label. Measured across two state runs plus two battle runs (verified.md).
+		W_MAPSTATUS = 0x0FB1,
+		-- Two candidates, deliberately unresolved. Both read 0 whenever the player is in the
+		-- overworld and 1 through a wild battle:
+		--   0x015A -- non-zero earliest and for the most of each battle.
+		--   0x1234 -- vanilla's wBattleMode (0xD22D -> flat 0x122D) plus 7, the same delta the
+		--             coordinate block moved. Corroboration from an independent direction.
+		-- Both earlier battles were WILD, so nothing has yet asked either to hold a DIFFERENT
+		-- non-zero value. A trainer battle does (vanilla semantics: 1 wild, 2 trainer), and
+		-- ap_battlemode_probe.lua reports the moment one ends. Until then this stays nil and the
+		-- adapter refuses -- picking the steadier of two on a hunch is the exact move that put
+		-- three refuted addresses in this file already.
+		W_BATTLEMODE = nil,
+
+		-- NOT the table. These are the leading unconfirmed candidates for the entries still nil
+		-- above, used only when MESHGHOST_CRYSTAL_AP_TRY=1 asks for a deliberate experiment, and
+		-- logged as unconfirmed every time. Kept separate from the real fields on purpose: a
+		-- candidate that can be read by ordinary code eventually gets treated as measured.
+		candidates = {
+			W_BATTLEMODE = 0x015A,
+			-- The scroll offsets have not been measured at all yet (ap_scroll_probe.lua). Zero is
+			-- not a guess at their address -- it is the value that makes screenCoords() fall back
+			-- to whole-tile positioning, so a ghost lands on the right TILE and can be up to a
+			-- tile out mid-step. Good enough to see a ghost; not good enough to judge smoothness.
+			W_BGMAPOFFSETX = nil,
+			W_BGMAPOFFSETY = nil,
+		},
 		W_BGMAPOFFSETX = nil,
 		W_BGMAPOFFSETY = nil,
 	},
@@ -800,12 +829,47 @@ end
 -- A missing address is a refusal, never a fallback. Falling back to vanilla's value for one entry
 -- is worse than not running: the gate would read a byte that means something else on this build,
 -- pass, and start WRITING object RAM at addresses that were never checked.
+-- Opt-in two ways, because the env var needs a BizHawk restart and an emulator is usually already
+-- running by the time anyone decides to try: MESHGHOST_CRYSTAL_AP_TRY=1, or a file named
+-- ap_try.flag beside this script. Deleting the file is how the experiment ends.
+local TRY = os.getenv("MESHGHOST_CRYSTAL_AP_TRY") == "1"
+if not TRY then
+	local f = io.open(SCRIPT_DIR .. "/ap_try.flag", "r")
+	if f then
+		f:close()
+		TRY = true
+	end
+end
 local missing = {}
 for _, name in ipairs({ "OBJECT_STRUCTS", "MAP_OBJECTS", "W_MAPGROUP", "W_MAPNUMBER", "W_YCOORD",
 	"W_XCOORD", "W_MAPSTATUS", "W_BATTLEMODE", "W_BGMAPOFFSETX", "W_BGMAPOFFSETY" }) do
 	if A[name] == nil then
-		missing[#missing + 1] = name
+		-- MESHGHOST_CRYSTAL_AP_TRY=1 is a deliberate experiment, never a default and never a
+		-- fallback: it substitutes a NAMED candidate and says so on every startup, so a session
+		-- run this way can always be told apart from a measured one afterwards. A missing
+		-- candidate still refuses -- the flag lowers the bar to "unconfirmed", not to "invented".
+		local c = TRY and A.candidates and A.candidates[name]
+		if c then
+			_G["__ap_try_" .. name] = c
+			log(string.format("UNCONFIRMED ADDRESS IN USE: %s = 0x%04X (MESHGHOST_CRYSTAL_AP_TRY=1)",
+				name, c))
+		elseif TRY and name:match("^W_BGMAPOFFSET") then
+			-- Not an address at all: zero makes screenCoords() position by whole tiles, which is
+			-- visibly right on a tile boundary and up to a tile out mid-step.
+			_G["__ap_try_" .. name] = 0
+			log(string.format("NO ADDRESS FOR %s: using 0, so ghosts are positioned per TILE and "
+				.. "will lag within a step.", name))
+		else
+			missing[#missing + 1] = name
+		end
 	end
+end
+if TRY then
+	W_BATTLEMODE = W_BATTLEMODE or _G["__ap_try_W_BATTLEMODE"]
+	W_BGMAPOFFSETX = W_BGMAPOFFSETX or _G["__ap_try_W_BGMAPOFFSETX"]
+	W_BGMAPOFFSETY = W_BGMAPOFFSETY or _G["__ap_try_W_BGMAPOFFSETY"]
+	log("This session is an EXPERIMENT: at least one address is unconfirmed. Nothing seen here")
+	log("may be written to verified.md as a fact about the game.")
 end
 if #missing > 0 then
 	log(string.format("REFUSING TO RUN on %s: %d address(es) not yet measured — %s.",

@@ -1271,6 +1271,41 @@ next adapter author doesn't re-diagnose them as adapter bugs:
   processing a new local update — a "send once, wait" test can look broken even when the
   socket is fine.
 
+### A patched build's WRAM shift is NON-UNIFORM, and being right most of the time is the trap (2026-08-18)
+
+- **Symptom**: on an Archipelago-patched Crystal ROM, addresses derived from vanilla by a known
+  delta returned plausible numbers and were wrong. The first derivation (four consecutive bytes
+  from AP's published `wMapGroup`) produced a repeating cycle of "steps" a player cannot walk, and
+  a later one pointed `wMapObjects` at `struct_id=255, sprite=0, y=255` noise.
+- **Diagnosis**: the patch does not slide WRAM by one amount. Measured on the same build, same
+  session:
+
+  | address | delta from vanilla |
+  | --- | --- |
+  | `wMapGroup` / `wMapNumber` / `wYCoord` / `wXCoord` | **+7** |
+  | `wObjectStructs` | **+6** |
+  | `wMapObjects` | **−0x2A** |
+
+  **+7 is the commonest delta, which is precisely what makes it dangerous.** A rule that is right
+  most of the time gets trusted, and the case where it is wrong looks exactly like the cases where
+  it is right — a plausible number, no crash, no error. Two of the three tables above would have
+  been silently wrong, and the object table was 42 bytes in the *opposite* direction, which no
+  amount of +7 reasoning ever reaches.
+- **A published address table is not a shortcut either.** AP publishes `wMapGroup = 7359`; measured,
+  7359 is the X coordinate, three past where the name implied. The layout was intact and the LABEL
+  was wrong, which is a failure mode a sanity check on "is this a plausible map group?" passes
+  happily.
+- **Fix, and the rule worth carrying to any patched build**: a delta may choose which address to
+  *test* next, and may never supply the value you *ship*. Both are legitimate — pointing a probe at
+  vanilla+7 first costs nothing and is right often — but an address enters the table only after it
+  was measured on the build in front of you. In this adapter that is enforced structurally: an
+  unmeasured entry is `nil`, a `nil` refuses to run, and the refusal names what is missing. See
+  `ADDRESSES` in `adapters/pokemon/crystal/meshghost_crystal.lua` and the method in
+  `adapters/_template/probes.md`.
+- **Corroboration is not derivation.** `0x1154` is a fine candidate for `wBGMapOffsetY` *because a
+  probe found it on its own merits* and it then also happens to sit at vanilla+7. The same address
+  reached by starting from +7 would be a guess wearing evidence's clothes.
+
 ## Cross-game comparison
 
 Recurring adapter tasks, and how differently each engine/game has answered them so far:
