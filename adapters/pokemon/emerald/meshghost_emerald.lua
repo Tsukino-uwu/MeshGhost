@@ -1336,14 +1336,52 @@ end
 -- Liveness by IDENTITY, never by slot state: a map load clears the array and the next map's own
 -- NPCs take the same slots, which answers "is this slot active?" perfectly plausibly. Confirmed
 -- live 2026-08-18 -- slot 4 came back as a real NPC of the new map.
+-- Identity WITHOUT the map, and that omission is the whole point.
+--
+-- Route-to-route in Emerald is a CONNECTION, not a warp: crossing the boundary changes mapNum
+-- while the object array is left intact. An identity check that included "map matches" therefore
+-- declared a perfectly live ghost dead at every route boundary -- so the adapter dropped its
+-- record and spawned a NEW ghost, while the old object stayed active with nobody tracking it.
+-- Walking back and forth left a line of them, and since ghosts are solid, enough orphans would
+-- eventually wall off the route. Found live 2026-08-18, from a screenshot of five.
+--
+-- What identifies a ghost instead: it is active, it is NOT the player, and its localId is
+-- LOCALID_PLAYER. Only our ghosts are in that state -- a real NPC always has localId < 255
+-- (map templates number from 1), and the player has isPlayer set. That survives a connection
+-- crossing (nothing changes) and correctly reports death after a warp, where the engine clears
+-- the array and any NPC given the slot arrives with a template localId.
 ghostAlive = function(g)
     local a = objAddr(g.objId)
-    local sb1 = r32(GSAVEBLOCK1PTR_ADDR)
-    if sb1 == 0 then return false end
-    return (r8(a + 0x00) & 0x01) == 1
-        and r8(a + 0x08) == g.localId
-        and r8(a + 0x0a) == r8(sb1 + 0x04)
-        and r8(a + 0x09) == r8(sb1 + 0x05)
+    if (r8(a + 0x00) & 0x01) ~= 1 then return false end          -- not active
+    if (r8(a + 0x02) & 0x01) == 1 then return false end          -- became the player somehow
+    if r8(a + 0x08) ~= GHOST_LOCAL_ID then return false end      -- slot reused by a real NPC
+    if r8(a + 0x04) ~= g.sprId then return false end             -- no longer points at our sprite
+    return (r8(sprAddr(g.sprId) + 0x3e) & 0x01) == 1             -- and that sprite still exists
+end
+
+-- Orphan sweep. Anything wearing our marker that we are not tracking is a ghost from a previous
+-- script load or a bug -- ours are the only objects that can be active, not the player, and
+-- localId LOCALID_PLAYER. Clearing them is what stops solid leftovers accumulating into a wall.
+-- Their VRAM tiles are not freed here because their ranges are unknown; the engine's own
+-- FreeSpriteTileRanges on the next map load reclaims those.
+local function sweepOrphanGhosts()
+    local mine = {}
+    for _, g in pairs(ghosts) do mine[g.objId] = true end
+    for i = 0, 15 do
+        local a = objAddr(i)
+        if not mine[i]
+            and (r8(a + 0x00) & 0x01) == 1
+            and (r8(a + 0x02) & 0x01) == 0
+            and r8(a + 0x08) == GHOST_LOCAL_ID then
+            local sprId = r8(a + 0x04)
+            w8(a + 0x00, 0)
+            if sprId < MAX_SPRITES then
+                local d = sprAddr(sprId)
+                w8(d + 0x3e, (r8(d + 0x3e) & ~0x01) | 0x04)
+            end
+            console.log(string.format("MeshGhost: cleared an orphaned ghost in object slot %d.", i))
+        end
+    end
 end
 
 local function spawnGhost(playerId, mapX, mapY, orientation)
@@ -1650,6 +1688,10 @@ local function runFrame()
     -- Once every 5s, to the log file only: enough to tell which link in the chain is quiet
     -- without reading the game. "connected" and "ready" are different questions, and so are
     -- "a peer is known" and "a ghost exists for it" -- a silent failure looks different in each.
+    if frameCounter % 60 == 0 then
+        sweepOrphanGhosts()
+    end
+
     if frameCounter % 300 == 0 then
         local nRemotes, nGhosts = 0, 0
         for _ in pairs(remotes) do nRemotes = nRemotes + 1 end

@@ -7318,3 +7318,31 @@ scheduled. All established by the agent with local tools; nothing here is a visu
 - **Worth keeping as a shape**: "is a movement flagged active" and "is this object ready for a new
   order" read like the same question and are not. The same distinction exists in Crystal's step
   code, where the idle check is `STEP_DURATION == 0`.
+
+### Emerald: route boundaries are connections, not warps — and that leaked a solid ghost every crossing (2026-08-18)
+
+- Date: 2026-08-18
+- Observed: walking back and forth between routes left a line of ghosts standing where previous
+  ones had been — the user sent a screenshot with five. On deploying the fix, the orphan sweep
+  immediately cleared four stale objects (slots 12-15) and settled to one tracked ghost.
+- Source: live session, user-watched; slot readings mine from the adapter log.
+- **Cause, and it is a distinction the adapter did not know it was making.** A ghost's identity
+  check included "the object's map matches the player's current map". That is correct across a
+  **warp** (a house, an elevator), where the engine clears the whole object array and hands the
+  slots to the new map's NPCs. It is **wrong across a connection** — route to route — where the
+  map identity changes but the object array is left intact. So at every route boundary the
+  adapter declared a live ghost dead, dropped its record, and spawned a replacement, while the
+  original object stayed active with nothing tracking it.
+- **Why this was a hazard rather than an eyesore**, in the user's words: *"they would eventually
+  just block the route itself if they get stuck/don't despawn like this"*. Ghosts are solid by
+  design (decided the same day), so leaked ones accumulate into a wall. Solid and leaking is a
+  much worse combination than either alone.
+- **Fix**: identify a ghost without reference to the map. Ours are the only objects that are
+  active, not the player, and carry `localId == LOCALID_PLAYER` — a real NPC always has a template
+  localId (numbered from 1), and the player has `isPlayer` set. That survives a connection
+  unchanged and still reports death after a warp. Plus a per-second **orphan sweep**: anything
+  wearing that marker which the adapter is not tracking gets cleared, which also cleans up after a
+  script reload.
+- **The general lesson**: "the map changed" and "the world was rebuilt" are different events, and
+  an engine can do the first without the second. Any identity check keyed on map identity inherits
+  that distinction whether or not its author considered it.
