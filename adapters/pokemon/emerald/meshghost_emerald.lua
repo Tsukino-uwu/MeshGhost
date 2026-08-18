@@ -169,7 +169,7 @@ local GAME_ID = "emerald"
 -- older client reporting "phase5.5" is now refused a room started by a
 -- "phase8" client, and vice versa, rather than silently interoperating with
 -- unverified-compatible code on the other end.
-local ADAPTER_VERSION = "phase8"
+local ADAPTER_VERSION = "phase8-spawn"
 
 local FACING = { [1] = "south", [2] = "north", [3] = "west", [4] = "east" }
 
@@ -604,6 +604,12 @@ end
 
 local sock = nil
 local connected = false
+-- Forward declaration. resetBridge() below has to drop every spawned ghost, but the spawn code
+-- that defines this is far further down (it needs the address/offset detection above it). Without
+-- the forward local, the call site would resolve to a GLOBAL, find nil, and the pcall around it
+-- would swallow that silently -- leaving a peer's ghost standing in the game forever after a
+-- bridge drop, which is exactly the bug the call exists to prevent.
+local despawnAllGhosts
 -- `connected` is a socket fact; `ready` is a protocol one. The core answers every hello with
 -- bridge_ready or reject (agent_docs/contract.md), and only bridge_ready means this core is ours.
 local ready = false
@@ -661,6 +667,10 @@ local function resetBridge()
         console.log("MeshGhost: bridge connection lost, will retry connecting.")
     end
     if sock then pcall(function() sock:close() end) end
+    -- A dropped bridge means every remote's state is now stale, so their ghosts go with it --
+    -- the same "nothing else would ever notice and clear this" failure the overlay path already
+    -- had, except a spawned object persists in the game rather than simply stopping being drawn.
+    pcall(despawnAllGhosts)
     sock = nil
     connected = false
     ready = false
@@ -1051,6 +1061,359 @@ end
 local LOOPBACK_GHOST_OFFSET_TILES_X = (os.getenv("MESHGHOST_LOOPBACK_TRAIL") and 0) or 2
 local LOOPBACK_GHOST_OFFSET_TILES_Y = 0
 
+----------------------------------------------------------------------------
+-- Spawning real object events (2026-08-18) -- the engine draws, we do not.
+--
+-- A peer is rendered by writing a real ObjectEvent plus a Sprite into free slots and letting
+-- Emerald's own engine draw, animate and walk it. This replaces the gui.drawPixel overlay
+-- (drawSpriteFrame/drawRemotes below, still used on ROMs this cannot write to safely). What it
+-- buys, confirmed on screen 2026-08-18: correct occlusion -- a ghost is hidden BEHIND the pause
+-- menu, which the overlay never was -- correct palette and gender for free, and step animation
+-- and sub-tile sliding played by the engine rather than reimplemented here.
+--
+-- The full derivation, and every trap that cost a live test, is in
+-- adapters/pokemon/emerald/probes/spawn_test.lua and agent_docs/verified.md. The three that
+-- matter most when reading this code:
+--   * the ObjectEvent is synthesised from InitObjectEventStateFromTemplate's own field list;
+--   * the Sprite is COPIED from the player's (four ROM pointers cannot be synthesised) but must
+--     then be given its OWN VRAM tiles, or it displays the player's current animation frame;
+--   * MovementType_None is the only movement type with no autonomous behaviour that still runs
+--     the generic update which plays out held movements.
+----------------------------------------------------------------------------
+
+local GSPRITES_SPAWN_ADDR = 0x02020630
+local SPRITE_STRUCT_SIZE = 0x44
+local MAX_SPRITES = 64
+local MAP_OFFSET = 7
+
+local GFIELDCAMERA_X_ADDR = 0x03005de0
+local GFIELDCAMERA_Y_ADDR = 0x03005de4
+local GTOTALCAMERAPIXELOFFSETY_ADDR = 0x03005de8
+local GTOTALCAMERAPIXELOFFSETX_ADDR = 0x03005dec
+
+local SSPRITETILEALLOCBITMAP_ADDR = 0x02021b3c
+local GRESERVEDSPRITETILECOUNT_ADDR = 0x02021b3a
+local GOBJECTEVENTGRAPHICSINFOPOINTERS_ADDR = 0x08505620
+local TOTAL_OBJ_TILE_COUNT = 1024
+local TILE_SIZE_4BPP = 32
+
+local MOVEMENTTYPE_NONE_CB = 0x0808f3e0 + 1 -- +1 selects Thumb
+local MOVEMENT_TYPE_NONE = 0x00
+
+-- Direction ids and the movement actions indexed by them (constants/event_object_movement.h).
+local DIR_ID = { south = 1, north = 2, west = 3, east = 4 }
+local FACE_ACTION = { [1] = 0x00, [2] = 0x01, [3] = 0x02, [4] = 0x03 }
+local WALK_ACTION = { [1] = 0x08, [2] = 0x09, [3] = 0x0a, [4] = 0x0b }
+local RUN_ACTION = { [1] = 0x15, [2] = 0x16, [3] = 0x17, [4] = 0x18 }
+
+local function w8(a, v) memory.write_u8(a, v & 0xff) end
+local function w16(a, v) memory.write_u16_le(a, v & 0xffff) end
+local function w32(a, v) memory.write_u32_le(a, v & 0xffffffff) end
+local function r8(a) return memory.read_u8(a) end
+local function r16(a) return memory.read_u16_le(a) end
+local function rs16(a) return memory.read_s16_le(a) end
+local function r32(a) return memory.read_u32_le(a) end
+
+local function objAddr(i) return GOBJECTEVENTS_ADDR + avatarAddrOffset + i * OBJECTEVENT_SIZE end
+local function sprAddr(i) return GSPRITES_SPAWN_ADDR + i * SPRITE_STRUCT_SIZE end
+
+local function tileIsAllocated(n)
+    return (r8(SSPRITETILEALLOCBITMAP_ADDR + (n // 8)) >> (n % 8)) & 1 == 1
+end
+
+local function setTileAllocated(n, on)
+    local a = SSPRITETILEALLOCBITMAP_ADDR + (n // 8)
+    local v = r8(a)
+    if on then v = v | (1 << (n % 8)) else v = v & ~(1 << (n % 8)) end
+    w8(a, v)
+end
+
+-- AllocSpriteTiles (sprite.c:702), imitated. Returns nil when OBJ VRAM has no run this long,
+-- which is a real outcome on a busy map rather than a theoretical one.
+local function allocSpriteTiles(tileCount)
+    local i = r16(GRESERVEDSPRITETILECOUNT_ADDR)
+    while true do
+        while tileIsAllocated(i) do
+            i = i + 1
+            if i >= TOTAL_OBJ_TILE_COUNT then return nil end
+        end
+        local start, found = i, 1
+        while found ~= tileCount do
+            i = i + 1
+            if i >= TOTAL_OBJ_TILE_COUNT then return nil end
+            if not tileIsAllocated(i) then found = found + 1 else break end
+        end
+        if found == tileCount then
+            for t = start, start + tileCount - 1 do setTileAllocated(t, true) end
+            return start
+        end
+    end
+end
+
+local function graphicsFrameTileCount(graphicsId)
+    local infoPtr = r32(GOBJECTEVENTGRAPHICSINFOPOINTERS_ADDR + graphicsId * 4)
+    if infoPtr == 0 then return nil end
+    local size = r16(infoPtr + 0x06)
+    if size == 0 then return nil end
+    return size // TILE_SIZE_4BPP
+end
+
+-- GetMapCoordsFromSpritePos (event_object_movement.c:4793) plus TrySetupObjectEventSprite's own
+-- +8 / +16+centerToCorner adjustment. Computed, never copied: copying a template's screen
+-- position is what drew Crystal's first ghost off the bottom of the screen.
+local function spriteScreenPos(mapX, mapY, centerToCornerVecY)
+    local sb1 = r32(GSAVEBLOCK1PTR_ADDR)
+    local camX, camY = 0, 0
+    local fcx = memory.read_s32_le(GFIELDCAMERA_X_ADDR)
+    local fcy = memory.read_s32_le(GFIELDCAMERA_Y_ADDR)
+    if fcx > 0 then camX = 1 elseif fcx < 0 then camX = -1 end
+    if fcy > 0 then camY = 1 elseif fcy < 0 then camY = -1 end
+    local x = (((mapX + camX) - rs16(sb1 + 0x00)) << 4) - rs16(GTOTALCAMERAPIXELOFFSETX_ADDR)
+    local y = (((mapY + camY) - rs16(sb1 + 0x02)) << 4) - rs16(GTOTALCAMERAPIXELOFFSETY_ADDR)
+    local c2cY = centerToCornerVecY
+    if c2cY > 127 then c2cY = c2cY - 256 end
+    return x + 8, y + 16 + c2cY
+end
+
+local function findFreeObjectSlot()
+    for i = 0, 15 do
+        if (r8(objAddr(i) + 0x00) & 0x01) == 0 then return i end
+    end
+    return nil
+end
+
+-- Downward: the engine's own CreateSprite takes the lowest free index, so taking a high one keeps
+-- the ghost out of the way of whatever the game allocates next.
+local function findFreeSpriteSlot()
+    for i = MAX_SPRITES - 1, 0, -1 do
+        if (r8(sprAddr(i) + 0x3e) & 0x01) == 0 then return i end
+    end
+    return nil
+end
+
+local ghostLocalIdNext = 200
+local function nextGhostLocalId()
+    local used = {}
+    for i = 0, 15 do
+        if (r8(objAddr(i) + 0x00) & 0x01) == 1 then used[r8(objAddr(i) + 0x08)] = true end
+    end
+    for n = 0, 50 do
+        local id = 200 + ((ghostLocalIdNext - 200 + n) % 51)
+        if not used[id] then
+            ghostLocalIdNext = id + 1
+            return id
+        end
+    end
+    return nil
+end
+
+-- ghosts[playerId] = { objId, sprId, localId, tileStart, tileCount, mapX, mapY }
+local ghosts = {}
+
+local function freeGhostTiles(g)
+    if g.tileStart then
+        for t = g.tileStart, g.tileStart + g.tileCount - 1 do setTileAllocated(t, false) end
+    end
+end
+
+-- Deliberately NOT an imitation of RemoveObjectEventInternal, which calls DestroySprite and frees
+-- tiles via the sprite's own images->size. We free exactly the range we allocated: simpler, and it
+-- cannot free somebody else's VRAM.
+local function despawnGhost(playerId)
+    local g = ghosts[playerId]
+    if not g then return end
+    w8(objAddr(g.objId) + 0x00, 0)
+    local d = sprAddr(g.sprId)
+    w8(d + 0x3e, (r8(d + 0x3e) & ~0x01) | 0x04) -- inUse = 0, invisible = 1
+    freeGhostTiles(g)
+    ghosts[playerId] = nil
+end
+
+despawnAllGhosts = function()
+    for playerId in pairs(ghosts) do despawnGhost(playerId) end
+end
+
+-- Liveness by IDENTITY, never by slot state: a map load clears the array and the next map's own
+-- NPCs take the same slots, which answers "is this slot active?" perfectly plausibly. Confirmed
+-- live 2026-08-18 -- slot 4 came back as a real NPC of the new map.
+local function ghostAlive(g)
+    local a = objAddr(g.objId)
+    local sb1 = r32(GSAVEBLOCK1PTR_ADDR)
+    if sb1 == 0 then return false end
+    return (r8(a + 0x00) & 0x01) == 1
+        and r8(a + 0x08) == g.localId
+        and r8(a + 0x0a) == r8(sb1 + 0x04)
+        and r8(a + 0x09) == r8(sb1 + 0x05)
+end
+
+local function spawnGhost(playerId, mapX, mapY, orientation)
+    local playerObjId = r8(GPLAYERAVATAR_ADDR + avatarAddrOffset + 0x05)
+    local pObj = objAddr(playerObjId)
+    local playerSprId = r8(pObj + 0x04)
+
+    -- Before writing a byte: the player's object event and the sprite it names must agree. This is
+    -- what proves gSprites is where we think it is -- the one thing an address shift could break
+    -- silently, and the one that would corrupt a live sprite if wrong.
+    if rs16(sprAddr(playerSprId) + 0x2e) ~= playerObjId then
+        console.log("MeshGhost: refusing to spawn -- the player's object/sprite cross-link does "
+            .. "not check out, so gSprites is not where this build expects.")
+        return nil
+    end
+
+    local objId = findFreeObjectSlot()
+    local sprId = findFreeSpriteSlot()
+    local localId = nextGhostLocalId()
+    if not objId or not sprId or not localId then
+        console.log("MeshGhost: no free slot for a ghost (objects/sprites/localIds full).")
+        return nil
+    end
+
+    local sb1 = r32(GSAVEBLOCK1PTR_ADDR)
+    local graphicsId = r8(pObj + 0x05)
+    local elevation = r8(pObj + 0x0b) & 0x0f
+    local gx, gy = mapX + MAP_OFFSET, mapY + MAP_OFFSET
+    local dir = DIR_ID[orientation] or DIR_ID.south
+
+    local tileCount = graphicsFrameTileCount(graphicsId)
+    if not tileCount then return nil end
+    local tileStart = allocSpriteTiles(tileCount)
+    if not tileStart then
+        console.log("MeshGhost: no run of free OBJ tiles for a ghost.")
+        return nil
+    end
+
+    -- The object event: zeroed, then exactly the fields InitObjectEventStateFromTemplate sets,
+    -- with movementType forced to NONE so nothing drives the ghost but us.
+    local a = objAddr(objId)
+    for off = 0, OBJECTEVENT_SIZE - 1 do w8(a + off, 0) end
+    w8(a + 0x00, 0x05) -- active | triggerGroundEffectsOnMove
+    w8(a + 0x05, graphicsId)
+    w8(a + 0x06, MOVEMENT_TYPE_NONE)
+    w8(a + 0x08, localId)
+    w8(a + 0x09, r8(sb1 + 0x05)) -- mapNum
+    w8(a + 0x0a, r8(sb1 + 0x04)) -- mapGroup
+    w8(a + 0x0b, elevation | (elevation << 4))
+    w16(a + 0x0c, gx) w16(a + 0x0e, gy)
+    w16(a + 0x10, gx) w16(a + 0x12, gy)
+    w16(a + 0x14, gx) w16(a + 0x16, gy)
+    w8(a + 0x18, dir | (dir << 4))
+    w8(a + 0x20, dir)
+    w8(a + 0x04, sprId)
+
+    -- The sprite: copied from the player's for its four ROM pointers, OAM shape and palette, then
+    -- patched -- including its OWN tiles, without which it shows the player's current frame.
+    local src, dst = sprAddr(playerSprId), sprAddr(sprId)
+    for off = 0, SPRITE_STRUCT_SIZE - 1 do w8(dst + off, r8(src + off)) end
+    local attr2 = r16(dst + 0x04)
+    w16(dst + 0x04, (attr2 & 0xfc00) | (tileStart & 0x03ff))
+    local sx, sy = spriteScreenPos(gx, gy, r8(dst + 0x29))
+    w32(dst + 0x1c, MOVEMENTTYPE_NONE_CB)
+    w16(dst + 0x20, sx) w16(dst + 0x22, sy)
+    w16(dst + 0x24, 0) w16(dst + 0x26, 0)
+    for k = 0, 7 do w16(dst + 0x2e + k * 2, 0) end
+    w16(dst + 0x2e, objId)
+    w8(dst + 0x2a, 0) w8(dst + 0x2b, 0)
+    w8(dst + 0x3e, (r8(dst + 0x3e) | 0x03) & ~0x04)
+    w8(dst + 0x3f, r8(dst + 0x3f) | 0x04)
+
+    ghosts[playerId] = {
+        objId = objId, sprId = sprId, localId = localId,
+        tileStart = tileStart, tileCount = tileCount, mapX = mapX, mapY = mapY,
+    }
+    return ghosts[playerId]
+end
+
+-- ObjectEventSetHeldMovement (event_object_movement.c:4870): three object fields plus the sprite's
+-- action-function index. The engine plays out the whole tile -- animation, slide, coordinates.
+local function requestAction(g, action)
+    local a = objAddr(g.objId)
+    w8(a + 0x1c, action)
+    w8(a + 0x00, (r8(a + 0x00) | 0x40) & ~0x80) -- heldMovementActive = 1, finished = 0
+    w16(sprAddr(g.sprId) + 0x32, 0) -- data[2] = sActionFuncId
+end
+
+local function ghostIsIdle(g)
+    return (r8(objAddr(g.objId) + 0x00) & 0x40) == 0
+end
+
+local function teleportGhost(g, mapX, mapY)
+    local a = objAddr(g.objId)
+    local gx, gy = mapX + MAP_OFFSET, mapY + MAP_OFFSET
+    w16(a + 0x0c, gx) w16(a + 0x0e, gy)
+    w16(a + 0x10, gx) w16(a + 0x12, gy)
+    w16(a + 0x14, gx) w16(a + 0x16, gy)
+    local d = sprAddr(g.sprId)
+    local sx, sy = spriteScreenPos(gx, gy, r8(d + 0x29))
+    w16(d + 0x20, sx) w16(d + 0x22, sy)
+    w16(d + 0x24, 0) w16(d + 0x26, 0)
+    g.mapX, g.mapY = mapX, mapY
+end
+
+-- One remote, one frame. Spawn if missing, step it if it moved one tile, teleport if it jumped,
+-- and turn it on the spot otherwise.
+local function syncGhost(playerId, remote)
+    local targetX = math.floor(remote.x + 0.5)
+    local targetY = math.floor(remote.y + 0.5)
+    if playerId:match("%-ghost$") then
+        targetX = targetX + LOOPBACK_GHOST_OFFSET_TILES_X
+        targetY = targetY + LOOPBACK_GHOST_OFFSET_TILES_Y
+    end
+
+    local g = ghosts[playerId]
+    if g and not ghostAlive(g) then
+        -- The engine cleared it (map load) or culled it (walked out of view). Both are normal.
+        freeGhostTiles(g)
+        ghosts[playerId] = nil
+        g = nil
+    end
+    if not g then
+        spawnGhost(playerId, targetX, targetY, remote.orientation)
+        return
+    end
+
+    if not ghostIsIdle(g) then return end -- never interrupt a half-played step
+
+    local dir = DIR_ID[remote.orientation] or DIR_ID.south
+
+    -- Trust the engine's own coordinates rather than our record of them: it owns the object once
+    -- a step is under way, and a step that got cancelled would otherwise leave us out of sync.
+    local a = objAddr(g.objId)
+    local curX = rs16(a + 0x10) - MAP_OFFSET
+    local curY = rs16(a + 0x12) - MAP_OFFSET
+    local dx, dy = targetX - curX, targetY - curY
+
+    if dx == 0 and dy == 0 then
+        if (r8(a + 0x18) & 0x0f) ~= dir then requestAction(g, FACE_ACTION[dir]) end
+        return
+    end
+
+    if math.abs(dx) + math.abs(dy) == 1 then
+        local stepDir
+        if dx == 1 then stepDir = DIR_ID.east
+        elseif dx == -1 then stepDir = DIR_ID.west
+        elseif dy == 1 then stepDir = DIR_ID.south
+        else stepDir = DIR_ID.north end
+        local actions = (remote.anim == "running") and RUN_ACTION or WALK_ACTION
+        requestAction(g, actions[stepDir])
+    else
+        -- More than a tile out: a warp, a dropped packet, or a peer moving faster than we sample.
+        -- Walking it there would fall further behind every frame, so place it.
+        teleportGhost(g, targetX, targetY)
+        if (r8(a + 0x18) & 0x0f) ~= dir then requestAction(g, FACE_ACTION[dir]) end
+    end
+end
+
+local function syncRemoteGhosts(localAreaId)
+    for playerId in pairs(ghosts) do
+        local remote = remotes[playerId]
+        -- Gone, or somewhere else. area_id is opaque and compared by equality only.
+        if not remote or remote.areaId ~= localAreaId then despawnGhost(playerId) end
+    end
+    for playerId, remote in pairs(remotes) do
+        if remote.areaId == localAreaId then syncGhost(playerId, remote) end
+    end
+end
+
 local function drawRemotes(localAreaId, playerMapX, playerMapY)
     local playerScreenX, playerScreenY = playerScreenPos()
     for playerId, remote in pairs(remotes) do
@@ -1152,6 +1515,7 @@ local function runFrame()
             -- restarted core process without restarting this script left an old peer's ghost
             -- on screen alongside the new one.
             remotes = {}
+            despawnAllGhosts()
         end
     end
 
@@ -1203,7 +1567,17 @@ local function runFrame()
         -- where state is nil (the map-transition debounce) rather than falling back to a
         -- raw read that wouldn't be consistent with what was just sent to the network.
         if connected and inOverworld() and smoothX then
-            drawRemotes(smoothAreaId, smoothX, smoothY)
+            -- SPAWN where we can, DRAW where we cannot. The spawn path writes gObjectEvents and
+            -- gSprites; gObjectEvents' Archipelago relocation is measured and applied
+            -- (avatarAddrOffset), but gSprites' is NOT -- the adapter only ever read gSprites at
+            -- its vanilla address. Reading a wrong address returns a wrong number; WRITING one
+            -- corrupts whatever now lives there, so a patched ROM keeps the overlay until that
+            -- shift is measured. Registered in BANDAGES.md as a deliberate, temporary split.
+            if avatarAddrOffset == 0 then
+                syncRemoteGhosts(smoothAreaId)
+            else
+                drawRemotes(smoothAreaId, smoothX, smoothY)
+            end
         end
     end
 end

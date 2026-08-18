@@ -67,6 +67,32 @@ rather than a constant chosen to protect the console.
   plausible value with no counter or log, which is the failure mode `CLAUDE.md` warns about. (The
   neighbouring gender/direction defaults are documented forward-compat and fine.)
 
+## Two render paths at once, until the Archipelago sprite shift is measured (2026-08-18)
+
+**What.** The adapter spawns a real object event on a vanilla ROM and falls back to the old
+`gui.drawPixel` overlay on an Archipelago-patched one (`avatarAddrOffset ~= 0`). Both renderers
+are in the file and both are live.
+
+**Why it is a bandage.** Two paths for one job is the shape a compensation takes, and the spawn
+ADR named this exact risk going in: *"if spawning proves unreliable, the tempting fix is to fall
+back to drawing and leave both paths in."* This is not that case — spawning works — but the result
+looks identical from the outside, so it is registered rather than left unremarked.
+
+**Why it is nonetheless right today.** The spawn path writes `gObjectEvents` *and* `gSprites`.
+`gObjectEvents`' Archipelago relocation is measured and applied; **`gSprites`' is not** — the
+adapter has only ever *read* `gSprites`, at its vanilla address. Reading a wrong address returns a
+wrong number, which is a cosmetic bug; **writing one corrupts whatever now lives there**, which is
+the failure the ADR's "positively identify the ROM before writing" rule exists to prevent. Keeping
+the proven read-only renderer on the ROM we cannot yet write to safely is the conservative choice,
+not a shortcut.
+
+**How it ends.** Measure `gSprites` on a patched ROM — `probes/avatar_scan_probe.lua` through
+`avatar_verify_probe.lua` are the four-stage template that already did this for `gObjectEvents`.
+The spawn path's own cross-link check (player's `objectEvent.spriteId` -> that sprite's
+`data[0]` == the player's object event id) is a live self-test that would confirm a candidate
+address in one run. When it is measured, delete `drawSpriteFrame`, `drawRemotes`,
+`advanceAnim`, the frame decode and this entry.
+
 ## Deliberate — do NOT "fix" these
 
 Recorded so a future audit does not churn them.
