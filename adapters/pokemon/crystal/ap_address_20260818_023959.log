@@ -1,3 +1,24 @@
 === MeshGhost Crystal/AP address probe (READ-ONLY) ===
 Using AP's wXCoord=7362 wYCoord=7361. Vanilla wObjectStructs is 0x14D6.
 WALK, changing direction a few times. Candidates are cut on every step.
+  (ignored a jump of -88,-4 — warp or load, re-baselining)
+  (ignored a jump of -7,-19 — warp or load, re-baselining)
+  (ignored a jump of -19,+0 — warp or load, re-baselining)
+  (ignored a jump of +66,+0 — warp or load, re-baselining)
+  (ignored a jump of -69,+0 — warp or load, re-baselining)
+  (ignored a jump of -1,-3 — warp or load, re-baselining)
+  step 1 (moved +0,-1): 15 candidate(s) left
+  (ignored a jump of +118,+27 — warp or load, re-baselining)
+  (ignored a jump of -88,-4 — warp or load, re-baselining)
+  (ignored a jump of -7,-19 — warp or load, re-baselining)
+  (ignored a jump of -19,+0 — warp or load, re-baselining)
+  (ignored a jump of +66,+0 — warp or load, re-baselining)
+  (ignored a jump of -69,+0 — warp or load, re-baselining)
+  (ignored a jump of -1,-3 — warp or load, re-baselining)
+  step 2 (moved +0,-1): 14 candidate(s) left
+  (ignored a jump of +118,+27 — warp or load, re-baselining)
+  (ignored a jump of -88,-4 — warp or load, re-baselining)
+  (ignored a jump of -7,-19 — warp or load, re-baselining)
+  (ignored a jump of -19,+0 — warp or load, re-baselining)
+  (ignored a jump of +66,+0 — warp or load, re-baselining)
+  (ignored a jump of -69,+0 — warp or load, re-baselining)

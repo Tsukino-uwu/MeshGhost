@@ -938,6 +938,35 @@ Worked examples, both real:
    it is reasonable to stop sending the moment a menu opens while leaving an already-spawned ghost
    alone until something more disruptive happens.
 
+## A probe's read budget is real — an emulator's script host is slow
+
+**Scanning a lot of memory every frame does not work, and it fails silently.** An emulator's Lua (or
+equivalent) host charges per call across a managed boundary, so a scan that looks trivial as an
+expression is thousands of those calls per frame. It does not error — the script stalls, the
+emulator drags or hangs, and **you get no log at all**, which reads as "the probe did nothing"
+rather than "the probe never ran".
+
+**Found live 2026-08-18**, hunting for an address on a patched Crystal ROM: a probe read all 32 KB
+of WRAM every other frame. It produced no output whatsoever, and the live testing done for it
+measured nothing — the run had to be repeated.
+
+**What to do instead**, cheapest first:
+
+- **Sample less often.** If the thing you are watching takes ~16 frames (one walking step, say),
+  sampling every 10 frames still cannot miss it, and costs a sixth as much.
+- **Only pay the big cost on interesting frames.** A cheap check first — has a single reference
+  byte changed? — then the wide scan only when it has. An earlier probe in the same session
+  survived a full-WRAM scan precisely because it only ran it on change frames.
+- **Narrow the range** once you can justify it, and say in the log what you excluded, so a null
+  result cannot be mistaken for "searched everywhere".
+- **Check for a bulk-read call** in the host's API, which is one boundary crossing instead of
+  thousands — but confirm it against the host's own documentation rather than assuming it exists
+  ([CLAUDE.md](../../CLAUDE.md)'s no-APIs-from-memory rule).
+
+**The general shape, worth carrying to any future emulator adapter:** a probe that is too expensive
+does not report being too expensive. Budget the reads *before* the run, and if a probe produces no
+log at all, suspect its cost before suspecting the game.
+
 ## Read the working adapter for the same host before writing a new script
 
 **If another adapter already runs on the host you are targeting — the same emulator, mod loader or
