@@ -152,3 +152,22 @@ that the mechanic can **end in a different game state entirely**.
 - **Record what the ENGINE creates at each stage**, not just what the player sees: a graphic swap, a
   companion sprite, a field effect. Surfing looks like one pose and is a pose plus a separate
   Pokemon sprite.
+
+### Label what came from PLAYING it and what came from reading it
+
+**A description from the person playing the game is evidence about the experience, not about the
+implementation — and it is the better evidence for what the mechanic IS.** The user, after
+describing Emerald's fishing stages, was careful to say so: *"idk how it actually looks
+code/function wise, but from a players perspective that is how it looks/feels like in game."*
+
+Both kinds belong in this file, and mixing them silently is the mistake. A player's account is
+authoritative for *"what happens, and in what order"* — it is the thing an adapter ultimately has
+to reproduce, and no amount of source reading substitutes for it. A memory read or a decompilation
+line is authoritative for *"which field, which value, which function"* — and says nothing about
+whether the result feels right.
+
+**So mark them.** `[player]` and `[measured]` in this repo's Emerald fishing section; any clear
+convention will do. The value shows up later: an unlabelled document invites a future session to
+"verify" a player-observed stage by finding a plausible-looking field, and to treat a measured
+field as proof the experience is reproduced. **Where only `[player]` exists, the code path is an
+open question, and the file should look like one.**

@@ -102,19 +102,27 @@ Full citation trail, including what is and is not covered:
 because an adapter that mirrors a peer has to represent whichever stage they are in, and two of the
 outcomes look identical at the end.
 
-The stages, as the game runs them:
+**Two different kinds of evidence are mixed below, and they are labelled**, because they are not
+interchangeable. **[player]** is what the game does as experienced by someone playing it — the
+user's account, 2026-08-18: *"from a players perspective that is how it looks/feels like in game.
+you start to fish, can fail/work, and then if you keep doing it a few times a battle starts (you
+catched the fish)"*. That is authoritative about the experience and says nothing about the
+implementation. **[measured]** is read from memory or from our own `pokeemerald` build. Where the
+two agree the mechanic is understood; where only `[player]` exists, the code path is still unknown.
 
-1. **Cast.** The player's `graphicsId` changes to the fishing graphic for the whole action —
+The stages:
+
+1. **[measured] Cast.** The player's `graphicsId` changes to the fishing graphic for the whole action —
    `OBJ_EVENT_GFX_BRENDAN_FISHING` (137) or `..._MAY_FISHING` (138). Position, `movementType` and
    `movementActionId` do not change; the player does not move.
-2. **Nothing bites.** The rod is put away and it ends.
-3. **Something bites and is missed.** Also ends with the rod put away — **the same pose as (2)**,
+2. **[player] Nothing bites.** The rod is put away and it ends.
+3. **[player] Something bites and is missed.** Also ends with the rod put away — **the same pose as (2)**,
    so the outcomes are indistinguishable from the final frame alone.
-4. **Something bites and the reaction succeeds**, possibly over **several rounds** of timed input,
+4. **[player] Something bites and the reaction succeeds**, possibly over **several rounds** of timed input,
    and then a **battle starts** — so fishing can end in a different game state entirely, with a
    different object array.
 
-The whole animation plays out in the **sprite's `animNum`**, not in the object's movement fields:
+**[measured]** The whole animation plays out in the **sprite's `animNum`**, not in the object's movement fields:
 
 | animNum | meaning |
 | --- | --- |
