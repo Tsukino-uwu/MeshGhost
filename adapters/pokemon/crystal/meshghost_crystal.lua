@@ -86,10 +86,28 @@ local UNASSIGNED = 0xFF
 -- Logging
 ----------------------------------------------------------------------------
 
+-- Under BizHawk, debug.getinfo's `source` is "main" rather than "@<path>", so it yields nothing
+-- usable — which is exactly why Emerald's own scriptDir() carries a pwd fallback, and why omitting
+-- one here produced four failed paths on the first run (2026-08-18).
+--
+-- The working directory IS the script's directory when BizHawk loads a Lua file, confirmed live:
+-- `cd` returned C:\dev\MeshGhost\adapters\pokemon\crystal. So pwd is the primary answer here, not
+-- the fallback.
 local function scriptDir()
 	local info = debug.getinfo(1, "S")
 	if info and info.source and info.source:sub(1, 1) == "@" then
-		return info.source:sub(2):match("^(.*)[/\\]") or "."
+		local dir = info.source:sub(2):match("^(.*)[/\\]")
+		if dir and #dir > 0 then
+			return dir
+		end
+	end
+	local p = io.popen and io.popen("cd")
+	if p then
+		local out = p:read("*l")
+		p:close()
+		if out and #out > 0 then
+			return out
+		end
 	end
 	return "."
 end

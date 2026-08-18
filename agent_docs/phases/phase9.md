@@ -199,6 +199,22 @@ read-only capture overturned it before any code was written — see the template
 **Interrupting a half-played step** is what produces a character that teleports while animating.
 Hence the idle check.
 
+## Must be dealt with BEFORE this adapter is ever released
+
+Both are dev conveniences that are correct for a loopback session and wrong for a shipped one.
+Recorded at the moment they were introduced (2026-08-18, on the user's question) rather than left
+to be noticed by a user.
+
+- [ ] **`LOOPBACK_OFFSET_X` defaults to `2` and must default to `0`.** A loopback relay echoes your
+      own state back, and this ghost has real collision, so without an offset the player stands
+      inside something solid. Shipped as-is it would place **every real peer two tiles from where
+      they actually are**, permanently and silently — the worst kind of bug, since it looks like a
+      deliberate design choice rather than a leftover.
+- [ ] **Trim the LuaSocket path fallbacks.** A release gives each game its own folder with its own
+      `lib/x64/`, so the first candidate always wins; the `../emerald/` and working-directory
+      fallbacks exist only for a source checkout and are inert but misleading in a shipped file.
+      See `packaging/README.md` for what a game folder must contain.
+
 ## Open
 
 - [ ] **A ghost looks like THIS machine's player, not like the peer.** Showing a peer's own gender
