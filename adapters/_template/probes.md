@@ -269,3 +269,53 @@ log at all, suspect its cost before suspecting the game.
   than by watching.
 - [FLAGS.md](FLAGS.md) — where a probe's switch goes once it exists, so that "off by default" is
   written down somewhere and not just believed.
+
+## Ways of finding things that worked — collected 2026-08-18
+
+A day of Emerald spawn work produced these. Each one replaced something slower or wronger, and
+they are ordered by how often they paid off.
+
+**Compare against a control that definitely works, field by field.** The player's own object and
+sprite are a live, correct example of exactly the thing being built. Log both side by side and
+every matching field is ruled out while every differing one is a candidate. This turned "the ghost
+does not render and I cannot see why" into a two-line diff showing the OAM was the only thing out
+of place. **Always log the working example next to the broken one** — it is far more informative
+than dumping the broken one in more detail.
+
+**Ask the host what it has; do not trust documentation or DLL strings.** `joypad.get()` returns a
+table whose KEYS are exactly the buttons this core accepts. `client.getluafunctionslist()` returns
+what this build actually implements. `memory.getmemorydomainlist()` returns the real domains. This
+project has already been burned by a function whose doc string existed while the function was nil
+at runtime, and by button names that differ per core.
+
+**Grep the decompilation for who WRITES a field, not for what it means.** Suspecting
+`subspriteTableNum` was wrong, one `grep -rn "subspriteTableNum" src/*.c` showed the engine sets it
+from elevation every frame — killing the hypothesis in a single call instead of an experiment.
+"Who writes this?" is usually a faster question than "what is this for?".
+
+**Dump a whole TABLE, not the one entry you care about.** Printing the graphics entry for seven
+player states at once made the answer obvious at a glance: the normal graphic is 16 wide and every
+special state is 32 wide with a different OAM and subsprite table. Asking only about the bike would
+have shown a number with nothing to compare it to. Same principle as dumping neighbouring objects
+rather than the object being debugged.
+
+**Bisect by toggling one write at a time, through globals you can flip between reloads.** Debug
+switches (`skip the OAM copy`, `share the player's tiles`) turned "some part of this rewrite is
+wrong" into three runs that named the part. **Assign every switch every time** — Lua globals
+survive a script reload, so a switch left unassigned keeps a previous experiment's value, which
+caused two confusing runs on its own.
+
+**Zoom the screenshot before judging a sprite.** A GBA frame is 240x160; a character is 16 pixels
+wide and unreadable at that size. `dev-scripts/zoom.ps1` crops and nearest-neighbour upscales, which
+is what made "is that a bike or a person?" answerable at all. Nearest-neighbour matters — smoothing
+invents detail that is not in the frame.
+
+**Decode a number, then look it up, before believing it.** Cheat codes, addresses out of a scan, a
+pointer read live: `grep` it in the decomp's `.sym`. `0xD857` becoming `wBadges` is confirmation;
+`0xD57C` becoming `wObject4Palette` is a trap caught before it corrupted anything.
+
+**And the failure mode that recurred all day: a measurement taken at the wrong moment.** A
+screenshot fired before the adapter had connected produced three convincing pictures of a game with
+no ghost in it. A probe does not fail when it measures the wrong instant — it answers a different
+question persuasively. Delay to a known state, and log the state alongside the reading so the
+mismatch is visible.
