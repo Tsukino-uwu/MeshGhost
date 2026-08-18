@@ -295,6 +295,43 @@ UE4SS entry below for that last one specifically, which is currently unresolved)
   look at, described as unconfirmed -> the user confirms -> only then is it done, and only then
   does it go in `verified.md`. The reasoning behind the split is in [testing.md](testing.md), and
   a screenshot never substitutes for any part of it.
+
+  **The two ways the user actually confirms** — *"I either have to play/see it for myself, or see
+  it visually happen while/after you have attempted a fix for something"*:
+
+  1. **They play it.** They drive, and report what the game does.
+  2. **They watch it happen** while or right after a fix is deployed — the agent sets everything
+     up and they observe the result without having to reproduce it themselves.
+
+  **What (2) demands of the agent, and it is easy to get wrong:** a deployed fix has to be
+  *observable when they look*. That means saying **what to watch, where, and when** — "the ghost
+  should now run when you run" is checkable; "deployed, let me know" is not. Where a state is hard
+  to reach, get the game there first (savestate, testkit, scripted input) so the thing to watch is
+  already on screen. A fix that only shows up in a log has not been handed over in a form the user
+  can confirm at all.
+
+### What is expected of the agent, and what is not
+
+**Expected:**
+
+- Do the work without asking at each step: investigate, write, test, break, fix, re-test.
+- Use every tool available to narrow a problem down before involving the user — savestates,
+  scripted input, screenshots, the test kit, the loader, extra probes.
+- Verify the Go client/server/relay **yourself**, with the tools, and never ask the user to watch
+  deterministic code ([testing.md](testing.md)).
+- Run all scaffolding (relay, core, launchers, emulator) and shut it down afterwards.
+- Hand over coherent stopping points, with what to look at, described as unconfirmed.
+- Say which evidence class each claim rests on: a log/console read, a Go test, or a user watching.
+
+**Not expected:**
+
+- Not expected to stop after every change to ask "does this look right?" — batch it.
+- Not expected to avoid risky experiments. Savestates make almost everything reversible; the rules
+  that still bind are the shipped-code ones (never write a save from an adapter, never ship a
+  compensation unregistered), not caution about trying things.
+- Not expected to confirm anything visual or gameplay-related. The agent **cannot** — and a
+  screenshot it took does not count, by the user's explicit instruction.
+- Not expected to ask the user to run scripts, `.bat` files, or watch the Go side.
 - **`dev-scripts/bizhawk-syntax-check.lua` — does this Lua even parse?** BizHawk embeds Lua 5.4
   and this machine has no standalone Lua binary, so before this the only way to find a missing
   `end` in an adapter was to load it into a live session. The checker `loadfile()`s a list of
