@@ -57,10 +57,10 @@ stays here, its reasoning goes to `agent_docs/`, with a one-line pointer. Full e
   failure's reproducing input downloads as the `fuzz-failure-corpus` artifact and belongs in
   `testdata/fuzz/<Target>/` as a regression test.
 - **`agent_docs/verified.md` is append-only, and human-gated for anything visual.** A claim about
-  what happens on screen or in gameplay goes in only after the user has watched it. A fact you
-  established yourself from a log line, a console read, or the Go tools above may be recorded
-  without waiting — say which it was. Never write a "confirmed" entry on the strength of a
-  successful build or a plausible-looking read.
+  what happens on screen or in gameplay goes in only after the user has watched it — **a
+  screenshot you took is NOT a substitute, ever.** A fact you established yourself from a log
+  line, a console read, or the Go tools above may be recorded without waiting — say which it was.
+  Never write "confirmed" on a successful build or a plausible read. **Why: `testing.md`'s top.**
 - **Nothing that SHIPS writes a save or game state — ever, not even as a feature.** Holds whatever
   gets added later; the event/lease/escrow/world planes make "just write the item in" newly
   tempting, world custody worst. **Dev-only test tooling MAY cheat** — a probe, never an adapter;

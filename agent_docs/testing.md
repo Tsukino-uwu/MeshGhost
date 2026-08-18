@@ -7,6 +7,51 @@ deterministic Go code. Adapters are a different standard entirely (see the botto
 Written 2026-08-16, when the tooling below was added; see `verified.md`'s entry of that date for
 the evidence behind each claim here.
 
+## Why the split exists at all: it is an anti-hallucination mechanism
+
+**The user verifies the games. The agent verifies the server, the client and the code. That
+division is the ground principle of this project and does not change.** Stated by the user
+2026-08-18, when a new capability (the agent can now read emulator screenshots) raised the
+question of whether it could move:
+
+> *"verify is the way it is to make sure everything 100% works, and no hallucination or fake
+> code/feature gets added. I verify/confirm the games, you verify/confirm the server/client and
+> code. that should never change as it would break the core/ground principle for this project."*
+
+**What each half is protecting against is different, which is why the standards are different:**
+
+- **Go side — the agent's half.** `core`, `relay`, `transport`, `bridge` and `cmd/` are
+  deterministic code against a contract this project owns. Nothing there rests on a guess about a
+  game, so it can be settled by tools that cannot be talked into agreeing: a compiler, `go vet`, a
+  suite that runs twice, `internal/e2e` driving real binaries, the race detector and the fuzzer in
+  CI. The agent must run these itself and **must not** ask the user to watch. A claim here is
+  backed by an exit code.
+- **Adapters — the user's half.** An adapter's claims are about a running game whose internals are
+  reconstructed from a decompilation and live observation. A wrong memory address does not throw:
+  it returns a plausible number. A wrong write does not crash: it moves something else. So "it ran
+  without errors" proves nothing, and **the only evidence that survives is a person watching the
+  game do the expected thing.**
+
+**The failure this prevents is specific, and it is not carelessness — it is confident wrongness.**
+An agent can write code that compiles, produces sensible logs, and describes a feature that does
+not work, then record it as done. Every link in that chain is self-consistent. The human gate
+breaks the chain at the only point where reality is consulted rather than inferred. The
+2026-08-18 Emerald session is the concrete case: six real bugs, every one caught by the user
+looking at the screen, and **in every one the logs looked healthy** — a ghost wearing the player's
+animation frames, a frozen ghost, a walk that should have been a run, a script firing on
+interaction, a sprite off its grid, and ghosts leaking across route boundaries.
+
+**Screenshots do not move this line.** The agent can take and read them (`environment.md`), which
+shortens its own debugging loop — but the user's answer when asked directly was *"Keep the rule
+exactly as it is"* and *"even with a picture, I still have to verify/confirm visually as well.
+never take pictures as proof"*. A still frame cannot show motion, which is where the bugs were.
+Use screenshots to ask a better question; never to answer one for the record.
+
+**The practical rule, both directions:** never ask the user to confirm something the tools can
+settle, and never record as confirmed something only a person can see. Getting the first wrong
+wastes their time; getting the second wrong is how a feature that does not exist ends up in
+`verified.md`.
+
 ## The short version
 
 ```
