@@ -92,10 +92,19 @@ local ADDRESSES = {
 		MAP_OBJECTS = 0x16F4, -- vanilla-0x2A; struct_id/sprite/y/x agree with the array both ways
 		W_YCOORD = 0x1CBE, -- vanilla+7; moved -1 walking up, +1 walking back down
 		W_XCOORD = 0x1CBF, -- vanilla+7; moved with left/right only
-		W_MAPGROUP = nil, -- SUSPECTED 0x1CBC, constant on one map and sitting just before Y/X --
-		W_MAPNUMBER = nil, -- and 0x1CBD. Suspicion is not measurement: needs a map transition.
-		W_MAPSTATUS = nil, -- AP's published table implies 5177, and its published wMapGroup was
-		W_BATTLEMODE = nil, -- off by three, so it is not evidence. Needs a battle to measure.
+		-- Measured by watching WHEN they change, not whether: across ten map transitions these
+		-- two moved only on the transition itself, while seven candidates that survived two
+		-- snapshot runs turned out to move constantly WITHIN a map. The group held 24 throughout
+		-- (every map visited was in one group) and the number tracked each door.
+		W_MAPGROUP = 0x1CBC,
+		W_MAPNUMBER = 0x1CBD,
+		-- So the block IS four consecutive bytes at vanilla+7 after all -- group, number, Y, X at
+		-- 0x1CBC-0x1CBF. What was wrong in the refuted derivation was the LABEL: AP publishes 7359
+		-- as wMapGroup and it is the X coordinate, three bytes past where the name implied.
+		W_MAPSTATUS = 0x0FB1, -- the single byte reading 2 in the overworld on four maps and 0 in
+		-- both battles, across two independent runs. Nowhere near vanilla's, which is the point.
+		W_BATTLEMODE = nil, -- 10 candidates read 1 in both wild battles; a trainer battle reads a
+		-- different value and separates them. ap_battlemode_probe.lua.
 		W_BGMAPOFFSETX = nil,
 		W_BGMAPOFFSETY = nil,
 	},

@@ -7038,3 +7038,27 @@ scheduled. All established by the agent with local tools; nothing here is a visu
   not shifted together and **`wMapObjects` needs measuring on its own**, not deriving.
   `ap_mapobj_probe.lua` does it by matching each live struct's sprite id against the entry its
   `MAP_OBJECT_INDEX` points at — a multi-point constraint the struct array supplies for free.
+
+### Crystal/AP: wMapGroup, wMapNumber and wMapStatus measured; the block is intact after all (2026-08-18)
+
+- Date: 2026-08-18
+- Source: my own reading of `ap_state_20260818_031536.log`, `ap_state_20260818_032504.log` and
+  `ap_mapid_20260818_032945.log` — no visual claim, nothing watched on screen.
+- **`wMapStatus` = `0x0FB1`.** Two state runs (overworld → another map → battle → back) intersected
+  to exactly one byte reading 2 on four different maps and 0 in both battles. Nowhere near
+  vanilla's `0xD432`.
+- **`wMapGroup` = `0x1CBC`, `wMapNumber` = `0x1CBD`**, and the method is the point: two snapshot
+  runs left seven map-identity candidates, and **all seven were wrong**. Watching ten real
+  transitions showed they change constantly *within* a map; only `0x1CBC`/`0x1CBD` changed on the
+  transition and nowhere else — group held 24 for every map visited, number tracked each door
+  (3→4→8→4→9→4→5→4→3→4).
+- **So the coordinate block IS four consecutive bytes at vanilla + 7** — group, number, Y, X at
+  `0x1CBC`-`0x1CBF`. The refuted derivation was wrong about the LABEL, not the layout: AP publishes
+  7359 as `wMapGroup`, and 7359 is the X coordinate, three past where the name implied.
+- **Method note worth keeping**: a two-endpoint snapshot cannot tell "changed with the map" from
+  "changes all the time and happened to differ at both ends". Seven candidates survived two runs of
+  it. Watching *when* a byte changes, against an event detected independently (the player's
+  coordinates jumping, which needs no map address), killed all seven in one 90-second run.
+- **Still open**: `wBattleMode` — 64 candidates survived the intersection, 10 of which read exactly
+  1 in both battles, both of which were wild. A trainer battle reads a different value.
+  `wBGMapOffsetX`/`Y` are untouched so far.
