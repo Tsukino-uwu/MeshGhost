@@ -283,9 +283,18 @@ UE4SS entry below for that last one specifically, which is currently unresolved)
   that may not survive the next fix, and their attention is the scarce resource the whole toolchain
   exists to protect.
 
-  **What does not change:** nothing self-tested becomes "confirmed". The agent's runs narrow the
-  work down to something worth looking at; the user looking at it is what makes it true. The
-  reasoning behind the split is in [testing.md](testing.md), and a screenshot never substitutes.
+  **The hard part, restated because it is the part that decays:** *"nothing is considered
+  done/fixed until i actually confirm it as such"* (user, 2026-08-18). Not the tests passing, not
+  the log looking right, not a screenshot, not the agent having watched a memory value change, and
+  not several of those together. **Until the user has confirmed it, a fix is a candidate fix and a
+  feature is an attempt** — say so in those words, in chat, in commits, and in `status.md`.
+  Writing "done" or "fixed" or "confirmed" ahead of that is the exact failure the split exists to
+  prevent, and it is easy to do by accident after a long run where everything went well.
+
+  So the loop is: iterate freely -> reach a coherent stopping point -> hand over a list of what to
+  look at, described as unconfirmed -> the user confirms -> only then is it done, and only then
+  does it go in `verified.md`. The reasoning behind the split is in [testing.md](testing.md), and
+  a screenshot never substitutes for any part of it.
 - **`dev-scripts/bizhawk-syntax-check.lua` — does this Lua even parse?** BizHawk embeds Lua 5.4
   and this machine has no standalone Lua binary, so before this the only way to find a missing
   `end` in an adapter was to load it into a live session. The checker `loadfile()`s a list of
