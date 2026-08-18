@@ -46,7 +46,13 @@ TEVI replaced the brief's original Ori: Will of the Wisps pick.
   because Archipelago's Crystal patch rearranges WRAM non-uniformly, so a write to a moved address
   corrupts rather than fails (`verified.md`). The Archipelago-coexistence test is **deferred, not
   waived**; it is what a patched-ROM version of this feature is still gated on. Every other
-  adapter remains read-only, and "never write a save" is untouched and absolute.
+  adapter remains read-only, and "never write a save" is untouched and absolute **for anything that
+  ships**. Clarified 2026-08-18, on the user's call: a **dev-only probe may cheat**, save data
+  included, because reaching a test state (surfing, a bike, eight badges) otherwise costs an hour
+  of play per attempt and the tester's own save is expendable during development. The carve-out is
+  a probe in `probes/`, never an adapter and never in a release; the full statement and its three
+  conditions are in `adapters/_template/README.md`, and the worked example is
+  `adapters/pokemon/emerald/probes/testkit.lua`.
 
 ## Depth beyond the cosmetic ghost (reserved, not scheduled)
 

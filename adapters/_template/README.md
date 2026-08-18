@@ -1020,6 +1020,34 @@ Two reasons, and the second is the one that will actually be tested:
 Reading is unrestricted, and so is drawing: spawn actors, draw overlays, pose clones, play
 animations. The line is at persistence and at authoritative game state, not at pixels.
 
+### The one carve-out: dev-only test tooling may cheat
+
+**The rule above governs what SHIPS. It does not govern a probe.** Added 2026-08-18, on the user's
+call — *"this is during dev/testing i don't care about my save files. its fine/expected. but a
+release should obviously still never touch/affect a save file"* — because without it stated, the
+"never, ever" reading blocks the tooling that makes testing affordable, and a future session would
+correctly refuse to build it.
+
+Reaching a state the adapter cannot yet handle — surfing, a bike, the far side of the map, eight
+badges — costs an hour of play per attempt otherwise. A dev probe may write whatever it takes,
+including save data (`adapters/pokemon/emerald/probes/testkit.lua` is the worked example).
+
+The carve-out is narrow, and each clause is load-bearing:
+
+- **A probe, never an adapter.** It lives in `probes/`, it is never imported by the adapter, and it
+  is never copied into a release. The adapter's own writes stay cosmetic.
+- **The tester's own save, knowingly.** It is their file and their call. Say plainly, in the script
+  and when handing it over, that it persists if the game is saved — the difference between this and
+  the adapter's live-RAM writes is exactly that these survive a reset.
+- **Verify the address, do not trust a code.** Published cheat codes are untrusted input; decode
+  them and look the address up in the decomp first. Two live traps are recorded in
+  `agent_docs/pitfalls.md` — a Gold/Silver code that writes into the object array Crystal spawns
+  ghosts into, and BizHawk accepting a GBA code it could not decrypt and running the garbage.
+
+**Nothing here relaxes the shipped rule by one inch.** If a probe's capability starts looking
+useful to the adapter, that is the memory-write gate in `agent_docs/plans.md`, with an ADR — not a
+file move.
+
 ## Hard rules, restated (unchanged from [agent_docs/contract.md](../../agent_docs/contract.md))
 
 - The adapter may hold a socket to its own local core process (the bridge) and nothing else —
