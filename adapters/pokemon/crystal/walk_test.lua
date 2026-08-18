@@ -400,6 +400,27 @@ local function tick()
 	if walking ~= STANDING or (u8(mine.st_base + F_STEP_DURATION) or 0) ~= 0 then
 		return
 	end
+	-- PACE / STAND cycle, so the collision question can be answered in one run.
+	--
+	-- Collision follows MAP_X/MAP_Y, and during a step that is the DESTINATION, written at the
+	-- start — so a walking character blocks the tile it is moving into before it appears to get
+	-- there. Real NPCs do this too; the difference is that they stand still most of the time and
+	-- this ghost paces almost continuously.
+	--
+	-- So: eight seconds pacing, eight seconds standing perfectly still. Walk into the ghost during
+	-- BOTH and compare. If collision only feels wrong while it is pacing, it is the engine's own
+	-- destination-leads-sprite behaviour and there is nothing to fix. If it is wrong while it is
+	-- standing still, that is a real defect and the numbers below locate it.
+	local phase = math.floor(frames / 480) % 2 -- 480 frames ~ 8s
+	if phase ~= (mine.phase or -1) then
+		mine.phase = phase
+		log(string.format("  f=%-6d ---- now %s ----", frames,
+			(phase == 0) and "PACING (walk into it now)" or "STANDING STILL (walk into it now)"))
+	end
+	if phase == 1 then
+		return -- standing still: initiate nothing
+	end
+
 	if frames < (mine.next_step or 0) then
 		return
 	end
