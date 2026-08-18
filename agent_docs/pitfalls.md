@@ -1496,3 +1496,33 @@ are different events".
 
 **The trap for testing:** each failure hides in the case the other one exercises. Passing a
 door/elevator test says nothing about a seamless boundary, and vice versa. Test both, deliberately.
+
+## A menu's contents are not fixed, and neither is its cursor
+
+**Two separate assumptions, both wrong, both found scripting Emerald's bag on 2026-08-18.**
+
+**The cursor is remembered between openings.** The first attempt pressed `Start` then `A`,
+expecting the first entry — and got **EXIT**, because an earlier run had left the cursor at the
+bottom. A menu opened twice in a session does not start where it started the first time. Drive it
+to a known end (hold one direction past the end of the list) and count from there, or verify with a
+screenshot before committing to a press.
+
+**The ENTRIES themselves change with game progress.** The user, on seeing the sequence:
+
+> *"menu's can sometimes include more/less things, similar to how a new save don't have your
+> pokemon/badge view for example... don't assume its 'always the same'"*
+
+The save being tested opens `BAG / <name> / SAVE / OPTION / EXIT` — no POKéDEX and no POKéMON,
+because neither has been obtained yet. A later save has both, so **every index below them shifts by
+two**. A sequence of button presses tuned against one save silently selects the wrong thing on
+another, and "wrong thing" can be SAVE.
+
+**So a scripted menu route is save-specific unless it is written defensively:** navigate to an
+extreme rather than counting from an assumed top, screenshot at each step while developing it, and
+treat the resulting sequence as valid for the save it was written against.
+
+**And the action can be refused for reasons that have nothing to do with the menu.** The sequence
+above reached `SUPER ROD -> USE` correctly and the game answered *"DAD's advice... there's a time
+and place"* — item use is gated by story progress this early. A scripted test that ends in a
+refusal has not necessarily navigated wrongly; check what the game SAID before assuming the route
+was the problem.

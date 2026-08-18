@@ -1,19 +1,32 @@
--- MeshGhost — DEV: drive the player through "use the Super Rod on water", screenshotting each
--- step so the sequence can be corrected without guessing.
+-- MeshGhost — DEV: drive "use the Super Rod on water", screenshotting every step.
 --
--- WHY do it in the real game rather than force the fishing graphic on a ghost: surfing taught us
--- that a state can be a pose PLUS a companion sprite, and only performing it shows what the engine
--- actually creates. See agent_docs/effect-investigation.md.
+-- Menu route, from the screenshots of the first attempt: Start opens a menu whose FIRST entry is
+-- BAG (the earlier run pressed Down twice and landed on SAVE, which is how we know). Then the bag
+-- opens on ITEMS and KEY ITEMS is the last pocket, and the rod is the third key item because the
+-- test kit added Mach Bike, Acro Bike, Super Rod in that order.
 --
--- Steps are separated by generous waits, and each writes shotN.png. Menu layouts are guessed on
--- the first run; the screenshots say where the cursor really is.
+-- Fishing is a PROCESS with branches (probes.md), so this only drives the SETUP -- getting the rod
+-- in hand and cast. What happens after is what we are watching for, not something to script.
 local STEPS = {
-    { wait = 260, press = nil,     shot = "1-start" },   -- water placed by watertile.lua by now
-    { wait = 40,  press = "Start", shot = "2-menu" },
-    { wait = 40,  press = "Down",  shot = "3-down" },
-    { wait = 30,  press = "Down",  shot = "4-down" },
-    { wait = 30,  press = "A",     shot = "5-bag" },
-    { wait = 50,  press = "Right", shot = "6-pocket" },
+    { wait = 300, press = nil,     shot = "01-start" },   -- water placed by watertile.lua by now
+    { wait = 45,  press = "Start", shot = "02-menu" },
+    -- The menu REMEMBERS its cursor between openings: the first attempt pressed A expecting BAG
+    -- and got EXIT, because an earlier run had left the cursor at the bottom. Never assume a
+    -- menu's starting position -- drive it to a known end (here, the top) and count from there.
+    { wait = 25,  press = "Up",    shot = "02a-up" },
+    { wait = 20,  press = "Up",    shot = "02b-up" },
+    { wait = 20,  press = "Up",    shot = "02c-up" },
+    { wait = 20,  press = "Up",    shot = "02d-top" },
+    { wait = 45,  press = "A",     shot = "03-bag" },
+    { wait = 60,  press = "Right", shot = "04-pocket2" },
+    { wait = 45,  press = "Right", shot = "05-pocket3" },
+    { wait = 45,  press = "Right", shot = "06-pocket4" },
+    { wait = 45,  press = "Right", shot = "07-keyitems" },
+    { wait = 45,  press = "Down",  shot = "08-down" },
+    { wait = 45,  press = "Down",  shot = "09-onrod" },
+    { wait = 45,  press = "A",     shot = "10-submenu" },
+    { wait = 60,  press = "A",     shot = "11-used" },
+    { wait = 120, press = nil,     shot = "12-after" },
 }
 local i, frames, held = 1, 0, 0
 MESHGHOST_DEV_TICK = function()
@@ -21,13 +34,12 @@ MESHGHOST_DEV_TICK = function()
     frames = frames + 1
     local step = STEPS[i]
     if frames < step.wait then return end
-    if step.press and held < 4 then
-        -- A button must be held a few frames to register, and released before the next press.
+    if step.press and held < 5 then
         pcall(function() joypad.set({ [step.press] = true }) end)
         held = held + 1
         return
     end
-    if held < 12 then held = held + 1 return end -- let the UI settle before the shot
+    if held < 14 then held = held + 1 return end -- release, and let the UI settle
     pcall(function()
         client.screenshot("C:/dev/MeshGhost/dev-scripts/step-" .. step.shot .. ".png")
     end)
