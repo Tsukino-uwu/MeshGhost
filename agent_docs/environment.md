@@ -434,6 +434,22 @@ UE4SS entry below for that last one specifically, which is currently unresolved)
   **The standing limit is unchanged.** All of this is dev-only tooling for reaching a state faster;
   it never becomes adapter behaviour, and none of it confirms anything — the user still watches the
   end result.
+- **SILENCE IS NOT A RESULT. Prove the measurement was live before reading anything into it.**
+  This went wrong **four separate ways on 2026-08-18**, and the last two were the same mistake
+  repeated after it had already been written down:
+  1. A screenshot fired before the adapter had connected — three convincing pictures of a game
+     with no ghost in it.
+  2. A probe failed to load (a lost backslash), and its empty log was read as "fishing produced no
+     data" rather than "the probe never ran".
+  3. **The emulator was paused** — BizHawk pauses while any of its own menus is open — so every
+     attached script stopped ticking and every log stopped growing.
+  4. The same empty-log-means-nothing-happened reading, again, an hour after (2) was documented.
+
+  **The check is three commands and settles all four:** is the script in the loader log as
+  `loaded`, is its log file *growing*, and is a frame counter *advancing*? An empty log answers
+  none of those. A probe that is not running produces exactly the same output as a game that did
+  nothing, and the two are indistinguishable from the outside — which is why the check has to be
+  positive evidence of life, not the absence of an error.
 - **Do not write Lua containing backslashes through a shell heredoc.** A Lua pattern like
   `match("^(.*)[/\][^/\]*$")` needs two backslashes in the file, and a bash heredoc plus a
   Python string plus a regex each eat one — so the file ends up with one and Lua rejects it with

@@ -1533,3 +1533,33 @@ wrong explanation that outlives the session that wrote it.
 For fishing it means no fishable water in front of the player — which, in this session, meant the
 tile edit had not produced what it was assumed to produce. Read the game's own words before
 adjusting the button sequence; a refusal is a specific answer, not a generic failure.
+
+## An empty log reads exactly like "the game did nothing"
+
+**Symptom.** A probe's log contains its header and one line, or stops growing partway. The obvious
+reading — "the thing I am testing did not happen" — is wrong often enough to be dangerous, and it
+sends the investigation to the game instead of to the instrument.
+
+**Four causes seen in a single session (2026-08-18), all producing identical output:**
+
+1. **The probe measured too early.** A screenshot fired a frame or two after the loader started it,
+   before the adapter had connected — producing three convincing pictures of a game that had no
+   ghost in it yet, and a debugging session aimed at a rendering bug that did not exist.
+2. **The probe never loaded.** A backslash lost through a shell heredoc left an invalid Lua escape,
+   so the file was rejected. Its empty log was read as "fishing produced no data".
+3. **The emulator was paused.** BizHawk pauses while any of its own menus or dialogs is open, so
+   `emu.frameadvance()` never returns, the dev loader stops polling, and every attached script
+   stops ticking. Nothing errors; everything simply stops.
+4. **The same misreading, repeated** an hour after (2) had been written up — because the fix was
+   documented rather than made habitual.
+
+**The fix, and it is cheap:** before drawing any conclusion from quiet output, get **positive
+evidence the instrument is alive** —
+
+- the loader log says `loaded <script>` (not `LOAD FAILED`),
+- the log file's size or timestamp is **increasing**,
+- a frame counter in the output is **advancing**.
+
+**Never conclude from the absence of a symptom.** A dead probe and a quiet game are
+indistinguishable from the outside, so the question is never "did anything happen?" but "is this
+thing still running?" — and that has an answer you can check.
