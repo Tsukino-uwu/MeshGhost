@@ -1249,6 +1249,17 @@ end
 -- ghosts use LOCALID_PLAYER (see spawnGhost), and GetObjectEventIdByLocalId scans UPWARD from 0
 -- returning the first match. Taking high slots keeps the real player -- normally slot 0 -- ahead
 -- of every ghost, so anything asking "which object is the player" still gets the player.
+-- A ghost's screen position is computed once, at spawn or teleport, and from then on the engine
+-- only applies camera DELTAS to it. So the computation has to happen at a moment when the
+-- formula is exact, and it is only exact when the camera is at rest: mid-scroll, the sub-tile
+-- remainder gets baked into the sprite permanently and the ghost renders a few pixels off its
+-- tile forever. Crystal hit the same thing. Waiting a frame costs nothing -- the camera settles
+-- constantly -- and it is the difference between a ghost on the grid and a ghost beside it.
+local function cameraIsSettled()
+    return memory.read_s32_le(GFIELDCAMERA_X_ADDR) == 0
+        and memory.read_s32_le(GFIELDCAMERA_Y_ADDR) == 0
+end
+
 local function findFreeObjectSlot()
     for i = 15, 0, -1 do
         if (r8(objAddr(i) + 0x00) & 0x01) == 0 then return i end
@@ -1279,6 +1290,10 @@ local GHOST_LOCAL_ID = 255
 -- ghosts[playerId] = { objId, sprId, localId, tileStart, tileCount, mapX, mapY }
 local ghosts = {}
 
+-- Forward declaration: despawnGhost below must ask "is this still ours" before it destroys
+-- anything, and the identity check itself reads the save block pointer defined further down.
+local ghostAlive
+
 local function freeGhostTiles(g)
     if g.tileStart then
         for t = g.tileStart, g.tileStart + g.tileCount - 1 do setTileAllocated(t, false) end
@@ -1288,13 +1303,29 @@ end
 -- Deliberately NOT an imitation of RemoveObjectEventInternal, which calls DestroySprite and frees
 -- tiles via the sprite's own images->size. We free exactly the range we allocated: simpler, and it
 -- cannot free somebody else's VRAM.
+-- IDENTITY FIRST, always. A map load runs ResetSpriteData (overworld.c:2134), which calls
+-- FreeSpriteTileRanges and ResetAllSprites, and RemoveAllObjectEventsExceptPlayer clears the
+-- object array -- then the NEW map's NPCs are given those same slots and those same tiles. So
+-- destroying "our" ghost without checking it is still ours would deactivate a real NPC and free
+-- the tiles of somebody else's sprite. Both are silent: the NPC just vanishes, and the VRAM
+-- corruption shows up later somewhere unrelated.
+--
+-- This is why the re-spawn on map change is NOT a bandage. The engine genuinely destroys every
+-- object it owns on a map load, a ghost is not one of its objects, and nothing exists to recreate
+-- it -- so re-spawning is the correct response to a documented engine lifecycle, not a patch over
+-- a bug of ours. What WOULD have been a bandage is what this replaces: cleaning up a slot we no
+-- longer own and hoping the numbers still meant what they meant.
 local function despawnGhost(playerId)
     local g = ghosts[playerId]
     if not g then return end
-    w8(objAddr(g.objId) + 0x00, 0)
-    local d = sprAddr(g.sprId)
-    w8(d + 0x3e, (r8(d + 0x3e) & ~0x01) | 0x04) -- inUse = 0, invisible = 1
-    freeGhostTiles(g)
+    if ghostAlive(g) then
+        w8(objAddr(g.objId) + 0x00, 0)
+        local d = sprAddr(g.sprId)
+        w8(d + 0x3e, (r8(d + 0x3e) & ~0x01) | 0x04) -- inUse = 0, invisible = 1
+        freeGhostTiles(g)
+    end
+    -- Not ours any more: drop the bookkeeping and touch nothing. The engine already reclaimed
+    -- both the slot and the tiles when it tore the map down.
     ghosts[playerId] = nil
 end
 
@@ -1305,7 +1336,7 @@ end
 -- Liveness by IDENTITY, never by slot state: a map load clears the array and the next map's own
 -- NPCs take the same slots, which answers "is this slot active?" perfectly plausibly. Confirmed
 -- live 2026-08-18 -- slot 4 came back as a real NPC of the new map.
-local function ghostAlive(g)
+ghostAlive = function(g)
     local a = objAddr(g.objId)
     local sb1 = r32(GSAVEBLOCK1PTR_ADDR)
     if sb1 == 0 then return false end
@@ -1452,13 +1483,17 @@ local function syncGhost(playerId, remote)
 
     local g = ghosts[playerId]
     if g and not ghostAlive(g) then
-        -- The engine cleared it (map load) or culled it (walked out of view). Both are normal.
-        freeGhostTiles(g)
+        -- The engine cleared it (map load) or culled it (walked out of view). Both are normal, and
+        -- in both cases the tiles went with it -- freeing our old range here would clear bits the
+        -- new map's sprites now own. Drop the record, free nothing.
         ghosts[playerId] = nil
         g = nil
     end
     if not g then
-        spawnGhost(playerId, targetX, targetY, remote.orientation)
+        -- Placement is only exact on a settled camera; a frame's wait is free.
+        if cameraIsSettled() then
+            spawnGhost(playerId, targetX, targetY, remote.orientation)
+        end
         return
     end
 
@@ -1488,7 +1523,9 @@ local function syncGhost(playerId, remote)
         requestAction(g, actions[stepDir])
     else
         -- More than a tile out: a warp, a dropped packet, or a peer moving faster than we sample.
-        -- Walking it there would fall further behind every frame, so place it.
+        -- Walking it there would fall further behind every frame, so place it -- but only once the
+        -- camera has settled, for the same reason as spawning.
+        if not cameraIsSettled() then return end
         teleportGhost(g, targetX, targetY)
         if (r8(a + 0x18) & 0x0f) ~= dir then requestAction(g, FACE_ACTION[dir]) end
     end

@@ -1444,3 +1444,31 @@ on what is allocated at that moment, which is why such codes come with "enable o
 switch it off". Prefer writing the real structure through `gSaveBlock1Ptr`, whose offsets are in
 the decomp and can be checked: key items at `+0x5D8`, badge flags at `+0x1270`. Contrast Crystal,
 whose GameShark codes are unencrypted and land on named symbols — see the entry above.
+
+## A spawned character renders a few pixels off its tile, forever
+
+**Symptom.** A ghost sits slightly down/right of the grid the game itself snaps to. Its collision
+is on the correct tile and it moves correctly — only the picture is offset, and the offset never
+corrects itself. **Seen on both BizHawk adapters**: Crystal first, then Emerald 2026-08-18, where
+the user recognised it immediately as "same issue as crystal had".
+
+**Cause.** A spawned object's screen position is computed **once**, at spawn or teleport, from the
+engine's own map-coords-to-screen formula. From then on the engine only applies camera *deltas* to
+that sprite. So any error in the initial value is permanent — and the formula is **only exact when
+the camera is at rest**. Place a ghost while the camera is mid-scroll (i.e. while the player is
+part-way through a step) and the sub-tile remainder is baked into the sprite for its whole life.
+
+**Fix.** Place only on a settled camera. In Emerald that is `gFieldCamera.x == 0 and
+gFieldCamera.y == 0`, checked before both spawning and teleporting; if it is moving, skip the
+frame and try the next one. The camera settles constantly, so the wait is invisible — and unlike
+nudging the sprite by a few pixels afterwards, it fixes the cause.
+
+**The wrong fix, which is tempting and is a bandage.** Adding a compensating pixel offset to the
+computed position. It "works" for the case in front of you, encodes one particular sub-tile
+remainder as if it were a constant, and breaks the moment the ghost is placed at a different point
+in the scroll cycle. If a correction like that ever ships, it belongs in the adapter's
+`BANDAGES.md` — but the settled-camera check is available and is not a compensation.
+
+**Generalises to any engine where a spawned entity's screen position is set once and then driven
+by deltas.** The question to ask at the point of placement is not "is this value right?" but "is
+the *state I am computing it from* at rest?".
