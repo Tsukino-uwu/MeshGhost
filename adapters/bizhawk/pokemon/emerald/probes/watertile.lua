@@ -36,6 +36,8 @@ local NUM_METATILES_IN_PRIMARY = 512
 local MAPGRID_METATILE_ID_MASK = 0x03ff
 local METATILE_ATTR_BEHAVIOR_MASK = 0x00ff
 local MAPGRID_COLLISION_MASK = 0x0c00
+local MAPGRID_ELEVATION_MASK = 0xf000
+local ELEVATION_SURF = 1 -- water; the player walks at ELEVATION_DEFAULT (3)
 local WATER_BEHAVIOURS = { [16] = "MB_POND_WATER", [21] = "MB_OCEAN_WATER", [18] = "MB_DEEP_WATER" }
 
 local logfile
@@ -127,14 +129,19 @@ MESHGHOST_DEV_TICK = function()
 		return
 	end
 	original = { addr = addr, value = u16(addr) }
-	-- Metatile id AND collision. Learned by getting it wrong: the first version kept the grass
-	-- tile's collision bits, so the tile had water BEHAVIOUR while remaining walkable -- and a
-	-- "walk into it" test strolled straight through and reported the edit had not worked. The two
-	-- are separate properties of the same halfword: behaviour (via the metatile id) decides what
-	-- the tile IS for surfing and fishing, collision decides whether you can step on it.
-	--   MAPGRID_COLLISION_MASK 0x0C00, elevation 0xF000 -- elevation is left alone.
-	local kept = u16(addr) & ~(MAPGRID_METATILE_ID_MASK | MAPGRID_COLLISION_MASK)
-	memory.write_u16_le(addr, kept | (waterId & MAPGRID_METATILE_ID_MASK) | (1 << 10))
+	-- Metatile id, collision ZERO, and elevation ELEVATION_SURF. Two wrong versions came first and
+	-- the second is the instructive one:
+	--   v1 changed only the metatile id, so the tile had water behaviour but stayed walkable.
+	--   v2 then set the COLLISION bit, which made it solid -- and a "walk into it" test was
+	--      blocked, which looked like success and was not. Real water is not impassable; it is a
+	--      different ELEVATION. `IsPlayerFacingSurfableFishableWater` (field_player_avatar.c:1322)
+	--      requires GetCollisionAtCoords to return COLLISION_ELEVATION_MISMATCH, which an
+	--      impassable tile never produces -- so the "fix" that made the symptom look right was
+	--      precisely what stopped fishing from working.
+	-- Water is elevation 1 (ELEVATION_SURF) against the player's 3 (ELEVATION_DEFAULT), and that
+	-- mismatch is what the game reads as "you are standing next to water".
+	local kept = u16(addr) & ~(MAPGRID_METATILE_ID_MASK | MAPGRID_COLLISION_MASK | MAPGRID_ELEVATION_MASK)
+	memory.write_u16_le(addr, kept | (waterId & MAPGRID_METATILE_ID_MASK) | (ELEVATION_SURF << 12))
 	log(string.format("tile in front (%d,%d, facing %d) -> metatile %d (%s); was 0x%04X",
 		x, y, dir, waterId, WATER_BEHAVIOURS[behaviour], original.value))
 	log("Face it and try to Surf or fish. The map is rebuilt from ROM on the next map load,")

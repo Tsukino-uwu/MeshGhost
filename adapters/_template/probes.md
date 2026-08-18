@@ -429,3 +429,29 @@ the code that produces or consumes it. `grep` the decompilation for the name; re
 that checks it. "What does the game do with this?" takes one command and replaces a guess that can
 survive several experiments — because a wrong assumption does not fail, it produces a result that
 looks like an answer.
+
+## A scripted interaction must return the game to a known state — and prove it did
+
+**Found 2026-08-18: a fishing sequence ended with the bag still open.** Every later step was then
+being driven into a menu rather than the overworld, and the session was handed back to the user
+sitting in a submenu. The script had "finished" in the sense that it ran out of steps.
+
+Two failures in one, and they compound:
+
+- **It never exited.** A sequence that opens menus must close them — and closing is not optional
+  politeness, it is what makes the next thing work at all. Input sent to a menu does something
+  different from input sent to the overworld, so a leftover menu silently changes the meaning of
+  everything that follows.
+- **It assumed a press had landed.** The final `A` was issued and the screenshot shows the submenu
+  still open, so either it did not register or the sequence moved on before the game had processed
+  it. **Pressing is not doing.** Confirm the state changed before continuing, rather than counting
+  frames and hoping.
+
+**So a scripted interaction should:**
+
+- **End at a known baseline** — for a Pokémon adapter, the overworld — and get there by pressing
+  B/Cancel enough times to escape any depth of menu, rather than assuming a known depth.
+- **Verify, not assume.** The overworld has a checkable signature (`gMain.callback2` equals
+  `CB2_Overworld`); use it as a gate before and after, instead of trusting a frame count.
+- **Clean up after itself even on failure**, exactly as a probe that edits the world restores what
+  it edited. The user has to be able to pick the controller back up.

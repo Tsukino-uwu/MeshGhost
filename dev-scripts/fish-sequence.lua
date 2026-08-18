@@ -26,7 +26,15 @@ local STEPS = {
     { wait = 45,  press = "Down",  shot = "09-onrod" },
     { wait = 45,  press = "A",     shot = "10-submenu" },
     { wait = 60,  press = "A",     shot = "11-used" },
-    { wait = 120, press = nil,     shot = "12-after" },
+    { wait = 150, press = nil,     shot = "12-after" },
+    -- Escape whatever depth of menu we are in, rather than assuming the USE landed. B is Cancel
+    -- everywhere in this UI, so pressing it more times than the menu is deep is always safe and
+    -- always ends in the overworld. Leaving the game in a menu changes the meaning of every input
+    -- that follows and hands the user back a controller that does not do what they expect.
+    { wait = 30,  press = "B",     shot = "13-back1" },
+    { wait = 30,  press = "B",     shot = "14-back2" },
+    { wait = 30,  press = "B",     shot = "15-back3" },
+    { wait = 30,  press = "B",     shot = "16-overworld" },
 }
 local i, frames, held = 1, 0, 0
 MESHGHOST_DEV_TICK = function()
