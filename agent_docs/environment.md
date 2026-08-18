@@ -176,6 +176,31 @@ UE4SS entry below for that last one specifically, which is currently unresolved)
   repel) is captured by a savestate but only reaches the `.sav` file when the game itself saves.
   Say which one is meant. Recovery, when it happens: the state FILES survive a relaunch
   (`Bizhawk/GBA/State/<rom>.mGBA.QuickSaveN.State`), so `loadslot` puts it back.
+- **A whole test cycle can now run without the user touching anything — 2026-08-18.** The pieces
+  were assembled separately today and only add up when listed together, which is the user's own
+  observation: *"this also allows you to start bizhawk, get in game without me doing anything"*
+  and *"it allows you to bypass/test things you couldn't without me before"*.
+
+  | Step | Mechanism | Status |
+  | --- | --- | --- |
+  | Start the emulator with a ROM and a script | `EmuHawk.exe --lua=... "<rom>"` | confirmed, used all day |
+  | Attach/swap/drop scripts while it runs | `bizhawk-dev-loader.lua` + its control file | confirmed, dozens of times |
+  | Get past the title screen into a save | `savestate.loadslot(n)` | **confirmed end to end**: after an emulator relaunch, a `loadslot` put the game in the overworld with no button pressed by anyone |
+  | Re-reach any prepared state | ten savestate slots | confirmed |
+  | Press buttons | `joypad.set` | **present and callable, NOT yet exercised** — treat as unproven until a real run uses it |
+  | Observe | memory reads + each script's own log file | confirmed |
+
+  **What this changes:** a test that needs the game in a particular place no longer costs the user
+  the walk to get there. Checkpoint the state once, and every later run starts from it.
+
+  **What it does NOT change, and this is the part to keep hold of:** `CLAUDE.md`'s rule that an
+  adapter claim needs *"the expected thing seen happening on screen"* stands exactly as before.
+  Every one of the six real bugs found in the 2026-08-18 Emerald session — the ghost wearing the
+  player's animation frames, the slot-machine script, the frozen ghost, the fast-walk instead of a
+  run, the off-grid placement, the leaked ghosts across route boundaries — was caught by a person
+  looking at the screen, and in every case the logs looked healthy. **Automating the mechanical
+  half of the loop is what this buys; the judging half is not automatable and should not be
+  presented as if it were.**
 - **`dev-scripts/bizhawk-syntax-check.lua` — does this Lua even parse?** BizHawk embeds Lua 5.4
   and this machine has no standalone Lua binary, so before this the only way to find a missing
   `end` in an adapter was to load it into a live session. The checker `loadfile()`s a list of
