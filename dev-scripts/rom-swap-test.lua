@@ -4,8 +4,13 @@
 -- readings -- because the earlier run had already left the other rom loaded, so both samples were
 -- the same cartridge. A carried-over state made a real difference invisible. Measure both inside
 -- one run, from a known starting point you set yourself.
-local ROM_VANILLA = "C:/ProgramData/Archipelago/bizhawk roms/Roms/gba/Pokemon - Emerald Version (USA, Europe).gba"
-local ROM_AP = "C:/Users/nyden/Downloads/P1_Tsukino_N2LVKSRcSG-V8oZzd11ehg.gba"
+-- Both ROMs come from the environment, never from a literal. You supply your own copies:
+-- MESHGHOST_ROM_VANILLA is an unmodified Emerald cartridge, MESHGHOST_ROM_PATCHED is any
+-- patched seed (Archipelago or otherwise). Set them before launching BizHawk, or edit the
+-- fallbacks below to point at wherever you keep yours. Nothing about a ROM path belongs in
+-- this repo -- the paths are personal, and the seed filenames are too.
+local ROM_VANILLA = os.getenv("MESHGHOST_ROM_VANILLA") or "<set MESHGHOST_ROM_VANILLA>"
+local ROM_AP = os.getenv("MESHGHOST_ROM_PATCHED") or "<set MESHGHOST_ROM_PATCHED>"
 
 -- The cartridge header title is the same on both (a patch keeps it), so fingerprint CODE: the
 -- region around CB2_Overworld is recompiled by the Archipelago patch (verified.md 2026-08-14).
@@ -17,7 +22,17 @@ local function fingerprint()
     return table.concat(parts, " ")
 end
 
-local f = io.open("C:/dev/MeshGhost/dev-scripts/rom-swap.log", "w")
+-- Derived from this script's own location, the same way bizhawk-dev-loader.lua does it, so a
+-- clone anywhere on disk works without editing.
+local function scriptDir()
+    local info = debug.getinfo(1, "S")
+    if info and info.source and info.source:sub(1, 1) == "@" then
+        return info.source:sub(2):match("^(.*)[/\\][^/\\]*$") or "."
+    end
+    return "."
+end
+
+local f = io.open(scriptDir() .. "/rom-swap.log", "w")
 local function log(m) console.log(m) if f then f:write(m, "\n") f:flush() end end
 
 local steps = {

@@ -115,14 +115,14 @@ stays here, its reasoning goes to `agent_docs/`, with a one-line pointer. Full e
   (a placeholder a new user edits, an environment variable) or make it relative (scripts under
   `adapters/` resolve their own directory). Cite files living outside the repo by filename
   only — an absolute prefix is unusable to a reader anyway. Suspect pasted tool output above all:
-  both live cases got in that way rather than by being typed. Verify before committing, and never
-  assume a clean run means clean —
-  `git grep -inIF -e 'C:\Users' -e '/home/' -- . ':!CLAUDE.md' ':!agent_docs/environment.md'
-  ':!agent_docs/pitfalls.md'` must print nothing (`-F` is load-bearing: as a regex the
-  backslashes silently match nothing, so the check passes while leaking. The three excluded
-  files contain the pattern by definition — this one, and the two that document it). `agent_docs/environment.md` is the one deliberate exception (a
-  factual environment record, not a template) — even there prefer the version number over a
-  path containing a username. Both found-live cases: `agent_docs/pitfalls.md`.
+  all three live cases got in that way rather than by being typed. Never assume a clean run means
+  clean — `git grep -inIF -e 'C:\Users' -e 'C:/Users' -e '/home/' -- . ':!CLAUDE.md'
+  ':!agent_docs/environment.md' ':!agent_docs/pitfalls.md'` must print nothing. **Both slash
+  directions are load-bearing**, as is `-F`: as a regex the backslashes match nothing, and a
+  forward-slash path sat leaking in `master` while the backslash-only check ran clean
+  (2026-08-18). The three excluded files hold the pattern by definition.
+  `agent_docs/environment.md` is the one deliberate exception (a factual environment record) —
+  even there prefer a version number over a path. All three cases: `agent_docs/pitfalls.md`.
 - **Never let a scripted edit write CRLF into the LF-pinned adapter sources.** `.gitattributes`
   pins TEVI's `*.cs`/`*.csproj` and Pseudoregalia's `Mod/src/*.cpp|hpp`/`CMakeLists.txt` to
   `eol=lf`, because the release staleness gate hashes them on a Windows runner that defaults to
