@@ -1,0 +1,7 @@
+2026/08/18 02:06:05 === meshghost run start === pid 12392, started manually, protocol v1, build 7291e7e0d92683788b2e2d8714f121fee5284b64, windows/amd64
+2026/08/18 02:06:05 meshghost: executable C:\dev\MeshGhost\meshghost.exe
+2026/08/18 02:06:05 meshghost: working directory C:\dev\MeshGhost (config and this log are read/written here)
+2026/08/18 02:06:05 meshghost: no config file at C:\dev\MeshGhost\config.json -- using built-in defaults (connect_to 127.0.0.1:7777). If you edited a config.json somewhere else, that is not the one being read.
+2026/08/18 02:06:05 meshghost: bridge listening on 127.0.0.1:7778
+2026/08/18 02:06:05 core: relay offers tcp:7777, udp:7777, quic:7780 — using quic at 127.0.0.1:7780
+2026/08/18 02:06:05 meshghost: connected to relay 127.0.0.1:7777 as p1 in room "default" (game "crystal")

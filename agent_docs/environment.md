@@ -330,6 +330,32 @@ there on the user's explicit instruction, 2026-08-17.
   `ConsoleEnablerMod`, `ConsoleCommandsMod`, `LineTraceMod`, `BPModLoaderMod` (`ue4ss\Mods\`
   listing, 2026-08-12).
 
+## Running the scaffolding for a local test — keep it hidden
+
+**User preference, 2026-08-18.** When starting the relay, a core, or any other helper process for a
+local/dev test, **start it hidden and redirect its output to a log**, then read the log. Never leave
+a console window per process on the user's screen.
+
+```powershell
+Start-Process -WindowStyle Hidden -FilePath ".\meshghost-relay.exe" `
+  -ArgumentList "-loopback","-send-hz=100" `
+  -RedirectStandardOutput "relay.log" -RedirectStandardError "relay.err.log"
+```
+
+Two reasons, and the second is the one that matters:
+
+- **The window is pure clutter.** Its output is already going to the log, so the window shows
+  nothing the log does not.
+- **The user is mid-test.** Windows appearing over a running game interrupt the exact thing the
+  scaffolding exists to support, and the user has to move or minimise them before playing.
+
+**Read the log to confirm startup** — `CLAUDE.md` already requires confirming the relay/core came up
+and chose the right transport, and hiding the window does not relax that. It is the log that
+proves it either way; the window never did.
+
+Live case: two visible consoles appeared over a Crystal session on 2026-08-18, which is what
+prompted the preference.
+
 ## Onboarding checklist
 
 All done on this machine — kept as the checklist a fresh setup should still follow:

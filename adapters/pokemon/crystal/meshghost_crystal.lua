@@ -34,6 +34,15 @@ local BRIDGE_HOST = "127.0.0.1"
 local BRIDGE_PORT = tonumber(os.getenv("MESHGHOST_BRIDGE_PORT") or "") or 7778
 local RECONNECT_FRAMES = 120
 
+-- DEV-ONLY loopback offset, in tiles. A loopback relay echoes your own state back to you, so
+-- without this the ghost spawns on the tile you are standing on — and this ghost is a real object
+-- event with real collision, so that means standing inside something solid.
+--
+-- Offset to the SIDE rather than trailing behind, so the ghost can be compared against the real
+-- character rather than hidden by it (user's standing preference for test ghosts). Set to 0 for a
+-- real two-machine session, where a peer's position is already their own.
+local LOOPBACK_OFFSET_X = tonumber(os.getenv("MESHGHOST_LOOPBACK_OFFSET_X") or "") or 2
+
 local DOMAIN = "WRAM"
 local ROM_DOMAIN = "ROM"
 
@@ -492,7 +501,7 @@ local function renderRemote(id, state)
 	if type(pos) ~= "table" or type(pos[1]) ~= "number" or type(pos[2]) ~= "number" then
 		return
 	end
-	local x, y = math.floor(pos[1]), math.floor(pos[2])
+	local x, y = math.floor(pos[1]) + LOOPBACK_OFFSET_X, math.floor(pos[2])
 	if x < 0 or x > 255 or y < 0 or y > 255 then
 		return
 	end

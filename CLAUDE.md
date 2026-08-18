@@ -205,7 +205,8 @@ stays here, its reasoning goes to `agent_docs/`, with a one-line pointer. Full e
 - **You run the scaffolding for a live test; the user only opens and closes the game.** Start the
   relay, the core, and any `dev-scripts` launcher yourself, confirm from the logs that they came
   up and that the right transport/bridge was actually chosen, and hand over a game that is ready
-  to play. Never ask the user to run a `.bat`. **Then close every process you started, and verify
+  to play. Never ask the user to run a `.bat`. Start them **hidden** — see `environment.md`.
+  **Then close every process you started, and verify
   they are gone** — leaving relays alive is how a later run silently binds the wrong port. If the
   test is still pending after a long wait, or has just been confirmed, **use `/loop` to re-check
   and close them** rather than trusting that you will remember. User preference, 2026-08-16.
