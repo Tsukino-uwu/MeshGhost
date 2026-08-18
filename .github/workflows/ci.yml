@@ -1,7 +1,7 @@
 name: CI
 
-# Runs the Go client/server checks CLAUDE.md requires before any change to
-# internal/ or cmd/ is called done -- build, vet, the full test suite, and a
+# Runs the Go client/server checks CLAUDE.md requires before any change to the
+# Go side is called done -- build, vet, the full test suite, and a
 # short fuzz campaign against eleven targets across four packages (protocol,
 # transport, relay, netx/udpconn). Until this existed,
 # every one of those ran only when a human remembered to run them, and
@@ -92,10 +92,24 @@ jobs:
 
       # -count=3 because this suite has caught a real race by failing
       # intermittently rather than reliably (see CLAUDE.md and the pending-
-      # payload fix in internal/transport). The race detector is the
+      # payload fix in transport, which lived in internal/transport until the
+      # 2026-08-17 move of the library packages to the repo root). The race detector is the
       # deterministic version of the "run it repeatedly and watch" ritual
       # that replaced; running both is belt and braces, and the whole suite
       # is only a few seconds.
+      # gofmt is not vet: `go vet` passes happily on misformatted source, so
+      # nothing caught cmd/meshghost-relay/main.go drifting out of gofmt shape
+      # until the 2026-08-18 audit read it. A formatting gate is cheap and the
+      # failure is always trivially fixable with `gofmt -w`.
+      - name: Check formatting
+        run: |
+          unformatted=$(gofmt -l $(git ls-files '*.go'))
+          if [ -n "$unformatted" ]; then
+            echo "::error::these files are not gofmt-clean:"
+            echo "$unformatted"
+            exit 1
+          fi
+
       - name: Test with race detector
         run: go test -race -count=3 ./...
 

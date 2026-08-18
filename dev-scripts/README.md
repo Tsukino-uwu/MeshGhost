@@ -298,7 +298,9 @@ default silently drags every dev client back down, and a ghost updating at 20Hz 
   staleness-gate pattern as `build-tevi.bat`, but CI can't build this one at all (needs the
   private UEPseudo dependency), so the build tree must already be configured locally — see
   [agent_docs/phases/phase7.md](../agent_docs/phases/phase7.md)'s 7.2 entry.
-- `stage-ue4ss-runtime.bat` — stages the RE-UE4SS runtime (UE4SS.dll, settings, stock Mods)
+- `stage-ue4ss-runtime.bat` — stages the RE-UE4SS runtime (UE4SS.dll, settings, the MIT
+  LICENSE). The stock Mods folder is deliberately NOT staged -- see the script's own header for
+  the cheat-manager/console reasoning -- and no mods.txt/mods.json ships either.
   from the pinned `adapters/pseudoregalia/MeshGhostPseudo/RE-UE4SS` submodule into
   `packaging/release/games/pseudoregalia/`, alongside whatever `build-pseudoregalia.bat` has
   staged. Re-run whenever the RE-UE4SS submodule pin changes; requires the build tree already

@@ -63,7 +63,6 @@ rem A user installing a visual-only ghost overlay was silently also installing a
 rem and a console into their game -- and, for the Linux tester, into a speedrunners game.
 rem Two of those hook keyboard input and one enumerates actors, which made them live suspects
 rem when a hard crash was investigated 2026-08-17 (verified.md) and cost real time to rule out.
-rem The staged mods.txt/mods.json are hand-written and empty of entries; see mods.txt itself.
 rem
 rem **Ship only what the adapter requires.** Not specific to this game -- see
 rem adapters/_template/README.md, which states it for every future adapter.

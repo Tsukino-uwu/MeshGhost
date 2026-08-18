@@ -97,9 +97,15 @@ core.log
 relay.log
 meshghost.log
 meshghost-server.log
-# meshghost.log appends and rotates once at 1MiB (cmd/meshghost's openLogFile), so the
-# rotated generation needs ignoring too.
-meshghost.log.1
+# These append and rotate once at 1MiB (openLogFile in both mains), so the rotated
+# generation needs ignoring too. Globbed rather than listed one name at a time: only
+# meshghost.log.1 was listed, so a relay left running past 1MiB produced an untracked
+# meshghost-server.log.1 that a `git add -A` would sweep straight in -- which is the exact
+# accident the six -live logs below record.
+meshghost.log*
+meshghost-server.log*
+core.log*
+relay.log*
 # Redirected stdout/stderr from scaffolding an agent starts for a live test (relay, core,
 # fakeadapter). These are named per-run rather than by the binary, so the entries above do not
 # catch them -- six of them were committed by accident on 2026-08-17 and removed again.
@@ -161,13 +167,11 @@ relay-*.err.log
 
 # BizHawk dev loader: its control file and log are per-session dev state, not project content
 dev-scripts/bizhawk-dev-loader.target
-dev-scripts/bizhawk-dev-loader.log
 
-# Screenshots the agent takes to debug with (dev-scripts/bizhawk-screenshot.lua). Same reasoning
-# as the probe logs above: a working aid, never project content, and never evidence -- a picture
-# is not proof of anything visual (agent_docs/testing.md).
-# Screenshots the agent takes while debugging, one folder per game so a session on one
-# adapter cannot bury another. Same reasoning as the probe logs, and never evidence.
+# Screenshots the agent takes to debug with (dev-scripts/bizhawk-screenshot.lua), one folder
+# per game so a session on one adapter cannot bury another. Same reasoning as the probe logs
+# above: a working aid, never project content, and never evidence -- a picture is not proof of
+# anything visual (agent_docs/testing.md).
 /dev-scripts/shots/
 /dev-scripts/*.png
 /dev-scripts/*.log

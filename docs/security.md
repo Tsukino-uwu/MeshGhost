@@ -233,7 +233,7 @@ either). See `agent_docs/ideas.md`'s nameplates entry if that's ever wired up fo
 process lifetime, carrying no information about the connection it came from.
 
 **The relay itself doesn't currently read or log a client's IP.** `relay`, `core`
-and `cmd/` contain no `RemoteAddr()` call site (grepped); the only occurrences in `internal/` are
+and `cmd/` contain no `RemoteAddr()` call site (grepped); the only occurrences are in `netx/` --
 the `net.Conn` method that `netx/udpconn` and `netx/quicconn` must implement, plus `udpconn`'s own
 internal keying of its connection map by remote address — which is how a single shared UDP socket
 is demultiplexed at all, and is never surfaced upward or logged. The relay is still the one party
@@ -336,7 +336,7 @@ writing any of this — findings below are cited to real files, not memory.
   `CelesteNet-TeapotVersion` header, server responds `409 Version Mismatch` on anything but an
   exact match (`HandshakerRole.cs`'s `TeapotHandshake`). We already do the direct equivalent
   for our own wire protocol (`protocol.Version`, checked in `hello` at
-  [relay.go:702](../relay/relay.go#L702)) — and, since 2026-08-14, the same reject-at-handshake
+  `relay.go`'s `releaseSlot`) — and, since 2026-08-14, the same reject-at-handshake
   shape for each adapter's own `game_version` too (see "What changed" above).
 - **Unpredictable per-connection tokens** (`CelesteNet.Shared/TokenGenerator.cs`, a Galois
   LFSR) specifically prevent a third party from hijacking someone else's *UDP* connection by

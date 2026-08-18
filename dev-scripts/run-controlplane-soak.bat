@@ -46,8 +46,21 @@ timeout /t 2 /nobreak >nul
   -event-every=300ms -lease-every=700ms -trade-every=1s ^
   -host-entities=5 -entity-hz=12 -migrate-every=3s ^
   -log-every=60s -duration=60s
+set SOAK_RC=%ERRORLEVEL%
 echo.
-echo Soak finished with exit code %ERRORLEVEL% (0 = no invariant violations).
-echo Close the "soak relay" window when done -- its -introspect lines show what the relay
-echo thought was true every 10s, which is the other half of a failed run.
+echo Soak finished with exit code %SOAK_RC% (0 = no invariant violations).
+echo.
+echo Read the "soak relay" window BEFORE it closes below -- its -introspect lines show what
+echo the relay thought was true every 10s, which is the other half of a failed run.
 pause
+REM Then close it here rather than asking the reader to. A soak relay left running holds
+REM 127.0.0.1:7911, and a later run silently binding a different port -- or this one failing to
+REM bind and looking like a relay bug -- is exactly the trap CLAUDE.md records: close every
+REM process you started, and verify it is gone.
+taskkill /FI "WINDOWTITLE eq soak relay" /T /F >nul 2>&1
+tasklist /FI "WINDOWTITLE eq soak relay" 2>nul | find /I "meshghost-relay.exe" >nul
+if not errorlevel 1 (
+  echo WARNING: a "soak relay" process is STILL running -- close it by hand before the next run,
+  echo or it will hold 127.0.0.1:7911.
+)
+exit /b %SOAK_RC%

@@ -284,7 +284,13 @@ jobs:
           # An experiment flag beside the adapter would make it run an Archipelago ROM on an
           # unconfirmed address. It is gitignored, so this only catches a stray local copy -- but
           # a release is exactly where that must not slip through.
-          if (Test-Path packaging\release\games\pokemon\crystal\ap_try.flag) {
+          #
+          # Checked at the SOURCE, not in the staging folder. This used to test the staged path,
+          # which the Copy-Item above had just built from a copy list of exactly two things (the
+          # adapter and Emerald's lib) -- so the flag could never be there and the guard could
+          # never fire. The adapter reads it from its own directory (SCRIPT_DIR .. "/ap_try.flag"),
+          # which is where a stray one actually lives.
+          if (Test-Path adapters\bizhawk\pokemon\crystal\ap_try.flag) {
             Write-Host "::error::ap_try.flag must never be packaged"
             exit 1
           }

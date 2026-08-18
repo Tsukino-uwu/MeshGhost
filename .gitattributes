@@ -18,3 +18,9 @@ adapters/pseudoregalia/MeshGhostPseudo/Mod/CMakeLists.txt text eol=lf
 # (checked 2026-08-16). A broken script would therefore look perfectly healthy in local
 # testing and only fail for the user, which is an argument for the rule, not against it.
 *.sh text eol=lf
+
+# go.mod/go.sum are pinned LF because `go mod tidy` rewrites them wholesale to LF: without this
+# they sit in the working tree as CRLF (go.mod was in fact stored MIXED), so a routine tidy
+# produces a whole-file phantom diff that looks like a dependency change and is not.
+go.mod text eol=lf
+go.sum text eol=lf
