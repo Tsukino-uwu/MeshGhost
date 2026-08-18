@@ -128,8 +128,15 @@ UE4SS entry below for that last one specifically, which is currently unresolved)
     process — **attaching, swapping or stopping a script on an already-running instance is a Lua
     Console GUI action** and nothing external can drive it.
   - **`dev-scripts/bizhawk-dev-loader.lua` closes that gap.** Attach it once with `--lua=`; it
-    polls `dev-scripts/bizhawk-dev-loader.target` (one line: a script path, or `none`) and loads,
-    swaps or drops the named script live. Writing one line to that file is now the whole
+    polls `dev-scripts/bizhawk-dev-loader.target` (**one script path per line**, or `none`) and
+    loads, swaps or drops those scripts live. **It runs several at once** — added 2026-08-18 once
+    one slot proved a false constraint: a test-state script has to top up a countdown every frame
+    to hold permanent repel, so keeping it meant dropping the adapter, and each swap silently
+    undid the other's work. A target that errors in its tick is unloaded and skipped; the rest
+    keep running. **Prefer absolute paths**: a relative one resolves against BizHawk's working
+    directory, not the loader's folder, and a script that then loads a DLL relative to itself
+    fails with "The specified module could not be found" — an error that reads as a missing file
+    when the file is present. Writing one line to that file is now the whole
     attach/detach cycle — no relaunch, no GUI, and the running game is undisturbed.
     **Confirmed live 2026-08-18**: loaded, dropped on `none`, and re-loaded, all from the loader's
     own log, with the emulator running throughout.
@@ -218,6 +225,21 @@ UE4SS entry below for that last one specifically, which is currently unresolved)
   session were motion or interaction defects — a ghost mirroring the player's animation, a frozen
   ghost, a walk that should have been a run, a script firing on interaction — and **a screenshot
   would have caught almost none of them.** The instrument is weakest exactly where the bugs were.
+- **The cheat engine is reachable from Lua, and on GBA it is a trap — 2026-08-18.**
+  `client.addcheat` / `removecheat` / `opencheats` are all callable (NLua reports them as
+  `userdata`, not `function`, so a type check rejects them wrongly). But `addcheat`'s own doc
+  string says it adds a code *"if supported"*, and a `pcall` returning true only means the call
+  did not throw. This build has a `GbaGameSharkDecoder` and **no CodeBreaker decoder**: of six
+  Emerald codes added, four were silently dropped and **two were accepted, decoded to nonsense
+  (address `0x0000000E`), and marked ACTIVE** — writing a garbage byte every frame, which would
+  later have been blamed on the adapter. Judge a cheat by the decoded ADDRESS shown in the Cheats
+  dialog, never by the API's return value, and clear what you added
+  (`dev-scripts/bizhawk-cheat-clear.lua`). Full write-up, including the Gold/Silver-code trap that
+  writes into Crystal's object array: `pitfalls.md`. **For GBA, prefer writing the real save
+  structure at decomp-verified offsets** — `adapters/pokemon/emerald/probes/testkit.lua`.
+- **To enumerate what a BizHawk build actually implements**, `client.getluafunctionslist()`
+  returns the real list — better than reading DLL strings, which include functions that are nil at
+  runtime.
 - **BizHawk pauses while any of its own menus or dialogs is open** — confirmed by the user
   2026-08-18, who has "pause when unfocused" already disabled. While paused, `emu.frameadvance()`
   does not return, so **the dev loader stops polling and every attached script stops ticking**.
