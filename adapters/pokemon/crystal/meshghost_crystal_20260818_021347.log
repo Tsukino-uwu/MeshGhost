@@ -3,3 +3,5 @@ MeshGhost: LuaSocket loaded from C:\dev\MeshGhost\adapters\pokemon\crystal/../em
 === MeshGhost — Pokémon Crystal ===
 ROM guard passed: vanilla Crystal V1.0
 Bridge target 127.0.0.1:7778 (set MESHGHOST_BRIDGE_PORT to change).
+MeshGhost: bridge connected on 127.0.0.1:7778
+MeshGhost: bridge_ready — this core is ours

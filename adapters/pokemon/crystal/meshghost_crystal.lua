@@ -701,16 +701,20 @@ log("=== MeshGhost — Pokémon Crystal ===")
 if romClass == "known" then
 	log("ROM: " .. romWhy .. " — addresses verified against a byte-identical build.")
 elseif romClass == "incompatible" then
-	if os.getenv("MESHGHOST_CRYSTAL_FORCE") == "1" then
-		log("!! FORCED onto a known-incompatible ROM: " .. romWhy)
-		log("!! Expect wrong addresses. Nothing is written to any save, so a reset undoes it.")
-	else
-		log("REFUSING TO RUN: " .. romWhy)
-		log("This is not an untested ROM — it is one we know moves the addresses this adapter")
-		log("uses, so running would write to the wrong data rather than merely maybe not work.")
-		log("Supporting it needs its own address table. Set MESHGHOST_CRYSTAL_FORCE=1 to override.")
+	-- User's call, 2026-08-18, made after the risk was stated: TRY ANYWAY. A patch may leave
+	-- enough in place to work partly, and refusing guarantees it never does. Strict refusal is
+	-- still available via MESHGHOST_CRYSTAL_STRICT=1.
+	if os.getenv("MESHGHOST_CRYSTAL_STRICT") == "1" then
+		log("REFUSING TO RUN (strict mode): " .. romWhy)
 		return
 	end
+	log("!! KNOWN-INCOMPATIBLE ROM — trying anyway: " .. romWhy)
+	log("!! This one is not merely untested: its WRAM layout was measured and it moved, so these")
+	log("!! writes will land on unrelated data. Expect a ghost in the wrong place or none at all.")
+	log("!! One extra hazard worth knowing on an Archipelago seed specifically: the moved-into")
+	log("!! addresses may belong to Archipelago's own client state, so a live AP run could be")
+	log("!! disturbed. Still no save is ever written — a reset clears anything odd.")
+	log("!! Set MESHGHOST_CRYSTAL_STRICT=1 to refuse instead.")
 else
 	log("!! UNKNOWN ROM — running anyway, unverified: " .. romWhy)
 	log("!! These addresses come from vanilla Crystal V1.0. On another build they may be wrong,")

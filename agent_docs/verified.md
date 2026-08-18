@@ -6879,3 +6879,24 @@ scheduled. All established by the agent with local tools; nothing here is a visu
 - **Amends the 2026-08-17 spawn ADR**, which required the adapter to "positively identify the ROM
   before writing and refuse otherwise". That still holds for Archipelago specifically, which is the
   case the requirement was written for; it no longer holds for ROMs we simply have not tested.
+
+### Crystal: the guard warns on EVERYTHING and refuses nothing by default (2026-08-18)
+
+- Date: 2026-08-18
+- Change, on the user's call after the risk was stated plainly: **no ROM is refused by default,
+  including Archipelago.** The classification stays — vanilla runs quietly, a known-incompatible
+  ROM warns hard and runs, an unknown ROM warns and runs — and `MESHGHOST_CRYSTAL_STRICT=1` brings
+  refusal back for anyone who wants it.
+- Rationale, in the user's terms: *"i still want it to try to work if its a patch that allows it to
+  somewhat work"*. A patch may leave enough of the layout intact to be partly useful, and refusing
+  guarantees it never is.
+- **The risk is real and is not hidden by this.** Archipelago's WRAM was *measured* to move
+  non-uniformly, so writes land on unrelated data. The warning says so, and names one hazard that
+  is specific rather than generic: **the addresses written into may belong to Archipelago's own
+  client state**, so a live AP run could be disturbed — a different thing from a cosmetic mess.
+- **Still bounded the same way**: object RAM only, never a save. A reset clears anything odd, which
+  is the property that makes "try it and see" a reasonable default here and would not be if this
+  adapter touched persistent data.
+- **Supersedes the previous entry and further amends the spawn ADR.** The ADR's "identify the ROM
+  before writing and refuse otherwise" is now a *warn* rather than a *refuse*, by explicit decision;
+  what survives unchanged is that the adapter must always identify the ROM and say what it found.
