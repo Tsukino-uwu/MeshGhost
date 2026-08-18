@@ -1,0 +1,18 @@
+=== MeshGhost BizHawk cheat-API probe ===
+Codes are added and LEFT in the list so the Cheats dialog can be read. None is armed.
+  client.addcheat     -> userdata
+  client.removecheat  -> userdata
+  client.opencheats   -> userdata
+  Littleroot Town warp (GameShark-style pair)    called -> true
+  Route 101 warp (GameShark-style pair)          called -> true
+  Surf, line 1 of 4 (CodeBreaker-style)          called -> true
+  Surf, line 2 of 4 (CodeBreaker-style)          called -> true
+  Dive, line 1 of 4 (CodeBreaker-style)          called -> true
+  Dive, line 2 of 4 (CodeBreaker-style)          called -> true
+
+Opening Tools -> Cheats. WHAT IS LISTED THERE IS THE ANSWER, not the `true`s above.
+Expectation to test, not to trust: the 8+8 map-warp pairs are GameShark GBA format and
+this build ships GbaGameSharkDecoder, so those should appear. The surf/dive lines are 8+4
+CodeBreaker format and I found no CodeBreaker decoder here, so those probably will not.
+Codes are left ADDED so they can be read; none of them is armed, since each needs its own
+button combination to fire. Clear them in that dialog when you are done looking.

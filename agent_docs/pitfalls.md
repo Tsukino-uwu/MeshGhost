@@ -1378,3 +1378,40 @@ Recurring adapter tasks, and how differently each engine/game has answered them 
   subtracting one, having noticed the ghost consistently ran 1-2 images ahead. That would have
   masked this rather than fixed it, and broken every case where the count was legitimately right —
   but the observation that something systematically over-produced is what pointed at the detector.
+
+## A Gold/Silver GameShark code run on Crystal writes into the object RAM MeshGhost spawns into
+
+**Symptom (predicted, not yet suffered — recorded before it costs a session):** ghosts misbehave,
+flicker, move on their own or vanish, shortly after a cheat is switched on for testing. Nothing in
+the adapter changed, and the adapter looks like the culprit.
+
+**Cause.** GB/GBC GameShark codes are `01 DD AA AA` — write value `DD` to address `AAAA`, stored
+byte-swapped, with no encryption at all. Published Crystal code lists routinely give **two**
+variants per effect and label the pair as one cheat, e.g. "Have All Badges: `01FF7CD5` / `01FF7DD5`
+/ `91FF57D8` / `91FF58D8`". Those are not four lines of one code. Decoded against our own
+hash-verified `pokecrystal` build:
+
+| Code | Address | Symbol |
+| --- | --- | --- |
+| `91FF57D8` | `0xD857` | `wBadges` |
+| `91FF58D8` | `0xD858` | `wKantoBadges` |
+| `91018DD8` | `0xD88D` | inside `wTMsHMs` (`0xD859`, 50 TMs then 7 HMs, so HM03 = Surf) |
+| `91XX93D8` | `0xD893` | `wItems` |
+| `01FF7CD5` | `0xD57C` | **`wObject4Palette`** |
+| `01FF7DD5` | `0xD57D` | **`wObject4Walking`** |
+| `01XXB8D5` | `0xD5B8` | **`wObject5SpriteYOffset`** |
+
+**The `91` variants are the Crystal codes and are correct. The `01` variants are the Gold/Silver
+codes, and on Crystal they land squarely in `wObjectStructs`** — the exact array the Crystal
+adapter spawns ghosts into. A tester who pastes "all four lines" gets a cheat that works (from the
+`91` half) *and* silently scribbles on our object structs (from the `01` half), which presents as a
+MeshGhost bug with a perfect alibi: the cheat did what it promised.
+
+**Fix / rule.** For Crystal, use **only** the `91` codes. Any code list is untrusted input: decode
+it (`01/91 DD AAAA`, byte-swapped) and look the address up in `pokecrystal.sym` before running it —
+that is a ten-second check against an authoritative source we already build. If an address lands in
+`wObjectStructs` (`0xD4D6`) or `wMapObjects`, it is the wrong game's code.
+
+**Generalises.** The same "published lists mix two games' codes without saying so" shape applies to
+any game with a close sibling release. The defence is not caution, it is the decode-and-look-it-up
+step, which is cheap and mechanical.
