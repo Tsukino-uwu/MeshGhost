@@ -213,6 +213,34 @@ file of its own, which is what was happening before this file existed.
       a phase file's task list — this item is listed here as a forward-looking note for what
       Phase 8 will pick up next, not a claim that it has already graduated.
 
+## For the README write-up: the workflow arc is part of this phase's story
+
+**Not yet written into `adapters/pokemon/emerald/README.md` — do it when the spawn work is
+confirmed and the build story gets its next steps.** Noted here so it is not lost, at the user's
+request 2026-08-18, in their words: *"emerald loading manually, crystal having better probes, and
+now emerald solving it all together with automation. we have improved the workflow a lot by going
+back/forth and learning new things"*.
+
+The arc across three adapters, which is a real result and not just process trivia:
+
+1. **Emerald, first time**: every probe revision meant a manual emulator relaunch and re-opening a
+   script by hand. The work got done, slowly, and the cost was invisible because there was nothing
+   to compare it to.
+2. **Crystal**: the probes themselves got better — timestamped log files beside each script, a
+   heartbeat so a quiet room reads as quiet, logging what a proposed gate WOULD have decided,
+   dumping the neighbours rather than the thing being debugged. The method improved; the loop did
+   not.
+3. **Emerald again, 2026-08-18**: `dev-scripts/bizhawk-dev-loader.lua` closed the loop. One script
+   attached at launch, then attach/swap/drop any script by writing one line to a file — no
+   relaunch, no GUI, the game undisturbed. Plus `bizhawk-syntax-check.lua`, because a machine with
+   no standalone Lua had no way to answer "does this even parse".
+
+**Why it belongs in the build story rather than only in `environment.md`:** the speed-up is not
+the agent getting better at Emerald. It is the human leaving the mechanical half of the loop — and
+what remains for them, watching the screen and saying what looks wrong, is exactly where every
+real bug of that session was caught (the ghost mirroring the player, the console window flashing,
+the ghost not appearing). Automating the wrong half would have cost the bugs.
+
 ## Notes
 
 - Every fact cited above already has its own `agent_docs/verified.md` entry with the real

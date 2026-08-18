@@ -500,6 +500,16 @@ console.log = function(msg)
     end
 end
 
+-- File only. A per-tick line in the Lua Console scrolls the startup lines out of view, and those
+-- name the ROM and every address in use -- which is what a reader actually needs. Same split
+-- Crystal's adapter uses (probes.md: detail to the log file, headlines to the console).
+local function logFile(msg)
+    if logfile then
+        logfile:write(msg, "\n")
+        logfile:flush()
+    end
+end
+
 local socketCore = loadSocketCore()
 
 ----------------------------------------------------------------------------
@@ -1572,6 +1582,19 @@ local function runFrame()
             remotes = {}
             despawnAllGhosts()
         end
+    end
+
+    -- Once every 5s, to the log file only: enough to tell which link in the chain is quiet
+    -- without reading the game. "connected" and "ready" are different questions, and so are
+    -- "a peer is known" and "a ghost exists for it" -- a silent failure looks different in each.
+    if frameCounter % 300 == 0 then
+        local nRemotes, nGhosts = 0, 0
+        for _ in pairs(remotes) do nRemotes = nRemotes + 1 end
+        for _ in pairs(ghosts) do nGhosts = nGhosts + 1 end
+        logFile(string.format(
+            "status: frame=%d connected=%s ready=%s port=%s remotes=%d ghosts=%d overworld=%s",
+            frameCounter, tostring(connected), tostring(ready), tostring(currentPort),
+            nRemotes, nGhosts, tostring(inOverworld())))
     end
 
     if connected then
