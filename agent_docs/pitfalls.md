@@ -1523,6 +1523,13 @@ treat the resulting sequence as valid for the save it was written against.
 
 **And the action can be refused for reasons that have nothing to do with the menu.** The sequence
 above reached `SUPER ROD -> USE` correctly and the game answered *"DAD's advice... there's a time
-and place"* — item use is gated by story progress this early. A scripted test that ends in a
-refusal has not necessarily navigated wrongly; check what the game SAID before assuming the route
-was the problem.
+and place for everything"*. That is Emerald's generic **"you cannot use that HERE"** — the user:
+*"whenever a thing is not usable in that specific location... for example trying to fish without
+water, or riding a bike indoors"*. It is a **location/context** refusal, not a story gate, and the
+first version of this entry guessed it was progress-related, which is exactly the kind of plausible
+wrong explanation that outlives the session that wrote it.
+
+**What that message actually tells a probe:** the route was right and the *precondition* was not.
+For fishing it means no fishable water in front of the player — which, in this session, meant the
+tile edit had not produced what it was assumed to produce. Read the game's own words before
+adjusting the button sequence; a refusal is a specific answer, not a generic failure.
