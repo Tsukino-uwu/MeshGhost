@@ -543,10 +543,23 @@ end
 -- core/relay change needed. "male"/"female" matches pokeemerald's own MALE/FEMALE naming
 -- (include/constants/global.h) for direct traceability, same pattern orientation's
 -- "south"/"north"/"west"/"east" already follows against DIR_* naming.
-local function encodeLocalState(areaId, x, y, orientation, anim, gender)
+-- The player's CURRENT graphic, which is the whole of their special state. sPlayerAvatarGfxIds
+-- (field_player_avatar.c:246) gives every state its own graphicsId per gender -- normal, both
+-- bikes, surfing, underwater, field move, fishing, watering -- so a peer's appearance is this one
+-- byte and needs no anim classifier or per-mode timing. Sent in `extras`, which contract.md
+-- defines as opaque free-form data the core never inspects.
+local function localGraphicsId()
+    if not avatarAddrConfirmed then return nil end
+    local objId = memory.read_u8(GPLAYERAVATAR_ADDR + avatarAddrOffset + 0x05)
+    if objId > 15 then return nil end
+    return memory.read_u8(GOBJECTEVENTS_ADDR + avatarAddrOffset + objId * OBJECTEVENT_SIZE + 0x05)
+end
+
+local function encodeLocalState(areaId, x, y, orientation, anim, gender, gfx)
     return string.format(
-        '{"type":"local_state","payload":{"state":{"area_id":%s,"position":[%s,%s],"orientation":%s,"anim":%s,"extras":{"gender":%s}}}}',
-        jsonString(areaId), tostring(x), tostring(y), jsonString(orientation), jsonString(anim), jsonString(gender))
+        '{"type":"local_state","payload":{"state":{"area_id":%s,"position":[%s,%s],"orientation":%s,"anim":%s,"extras":{"gender":%s,"gfx":%s}}}}',
+        jsonString(areaId), tostring(x), tostring(y), jsonString(orientation), jsonString(anim),
+        jsonString(gender), tostring(gfx or "null"))
 end
 
 local ENCODED_NO_SEND = '{"type":"local_state","payload":{"state":null}}'
@@ -1037,6 +1050,9 @@ local function handleBridgeLine(line)
                 -- absent (e.g. an older client without this field) rather than erroring, same
                 -- forward-compatibility posture the relay/core already apply.
                 r.gender = (type(st.extras) == "table" and st.extras.gender) or "male"
+                -- The peer's own graphic. Absent from an older peer, in which case the ghost
+                -- falls back to borrowing this machine's player graphic, exactly as before.
+                r.gfx = (type(st.extras) == "table" and tonumber(st.extras.gfx)) or nil
             end
         end
     elseif env.type == "despawn_remote" then
@@ -1228,12 +1244,28 @@ local function allocSpriteTiles(tileCount)
     end
 end
 
-local function graphicsFrameTileCount(graphicsId)
-    local infoPtr = r32(GOBJECTEVENTGRAPHICSINFOPOINTERS_ADDR + graphicsId * 4)
-    if infoPtr == 0 then return nil end
-    local size = r16(infoPtr + 0x06)
+-- struct ObjectEventGraphicsInfo (include/global.fieldmap.h): tileTag 0x00, paletteTag 0x02,
+-- reflectionPaletteTag 0x04, size 0x06, width 0x08, height 0x0A, paletteSlot/flags 0x0C,
+-- tracks 0x0D, oam 0x10, subspriteTables 0x14, anims 0x18, images 0x1C, affineAnims 0x20.
+local function graphicsInfo(graphicsId)
+    local ptr = r32(GOBJECTEVENTGRAPHICSINFOPOINTERS_ADDR + graphicsId * 4)
+    if ptr == 0 then return nil end
+    local size = r16(ptr + 0x06)
     if size == 0 then return nil end
-    return size // TILE_SIZE_4BPP
+    return {
+        ptr = ptr,
+        paletteTag = r16(ptr + 0x02),
+        size = size,
+        tileCount = size // TILE_SIZE_4BPP,
+        width = r16(ptr + 0x08),
+        height = r16(ptr + 0x0a),
+        paletteSlot = r8(ptr + 0x0c) & 0x0f,
+        oam = r32(ptr + 0x10),
+        subspriteTables = r32(ptr + 0x14),
+        anims = r32(ptr + 0x18),
+        images = r32(ptr + 0x1c),
+        affineAnims = r32(ptr + 0x20),
+    }
 end
 
 -- GetMapCoordsFromSpritePos (event_object_movement.c:4793) plus TrySetupObjectEventSprite's own
@@ -1392,7 +1424,44 @@ local function sweepOrphanGhosts()
     end
 end
 
-local function spawnGhost(playerId, mapX, mapY, orientation)
+-- DEV ONLY. Forces every ghost to be drawn as a given graphicsId regardless of what the peer
+-- reports, so the ASYMMETRIC case can be tested at all: loopback echoes your own state, so a peer
+-- who is on a bike while you walk cannot otherwise be produced without a second machine. Unset in
+-- normal use. Same env-var pattern as MESHGHOST_LOOPBACK_TRAIL above.
+--   Brendan: 0 normal, 1 Mach Bike, 63 Acro Bike, 2 surfing, 137 fishing
+--   May:    89 normal, 90 Mach Bike, 91 Acro Bike, 92 surfing, 138 fishing
+-- Read as a GLOBAL first, then the environment. The global is what makes this usable during a
+-- session: the dev loader loads its targets in order, so a one-line script that sets
+-- MESHGHOST_FORCE_GHOST_GFX and is listed BEFORE the adapter changes the value on a reload --
+-- whereas an environment variable would need the whole emulator restarted.
+local FORCE_GHOST_GFX = tonumber(MESHGHOST_FORCE_GHOST_GFX
+    or os.getenv("MESHGHOST_FORCE_GHOST_GFX") or "")
+
+-- What a ghost SHOULD be drawn as. Applied at the decision site rather than inside spawnGhost, so
+-- that "has the peer changed graphic?" compares like with like -- forcing it inside the spawn
+-- meant the forced value never matched what the peer reported, and the ghost was torn down and
+-- rebuilt every single frame.
+-- OFF BY DEFAULT, and this is a deliberate gate rather than an oversight.
+--
+-- Switching a ghost to a peer's own graphic renders CORRUPTED for every special state, confirmed
+-- on screen 2026-08-18. The cause is structural: normal Brendan/May is 16x32 with one OAM and
+-- subsprite table, while both bikes, surfing, underwater and fishing are all **32 wide** with a
+-- DIFFERENT OAM and a different subsprite table. This code copies both pointers but also forces
+-- `subspriteTableNum = 0`, while the engine manages that field itself -- so the layout it draws
+-- with does not match the tiles, and the ghost comes out as scrambled pieces.
+--
+-- Until that is solved, a peer's graphic is used only when it is the SAME graphic the local
+-- player is using -- which changes nothing visually but keeps the wire format and the plumbing
+-- live and exercised. Set MESHGHOST_GHOST_PEER_GFX to opt in and continue the investigation.
+local PEER_GFX_ENABLED = MESHGHOST_GHOST_PEER_GFX or os.getenv("MESHGHOST_GHOST_PEER_GFX")
+
+local function wantedGfx(remote)
+    if FORCE_GHOST_GFX then return FORCE_GHOST_GFX end
+    if PEER_GFX_ENABLED then return remote and remote.gfx or nil end
+    return nil
+end
+
+local function spawnGhost(playerId, mapX, mapY, orientation, wantGfx)
     local playerObjId = r8(GPLAYERAVATAR_ADDR + avatarAddrOffset + 0x05)
     local pObj = objAddr(playerObjId)
     local playerSprId = r8(pObj + 0x04)
@@ -1415,13 +1484,28 @@ local function spawnGhost(playerId, mapX, mapY, orientation)
     end
 
     local sb1 = r32(GSAVEBLOCK1PTR_ADDR)
-    local graphicsId = r8(pObj + 0x05)
+    local playerGfx = r8(pObj + 0x05)
     local elevation = r8(pObj + 0x0b) & 0x0f
     local gx, gy = mapX + MAP_OFFSET, mapY + MAP_OFFSET
     local dir = DIR_ID[orientation] or DIR_ID.south
 
-    local tileCount = graphicsFrameTileCount(graphicsId)
-    if not tileCount then return nil end
+    -- Use the PEER's graphic when we know it. Every player state -- both bikes, surfing,
+    -- underwater, fishing -- is simply a different graphicsId, so this is what makes a ghost show
+    -- what the peer is actually doing rather than what this machine's player is doing.
+    local playerInfo = graphicsInfo(playerGfx)
+    local graphicsId = wantGfx or playerGfx
+    local info = graphicsInfo(graphicsId)
+    -- The palette is the constraint. A ghost borrows the palette slot already loaded for the
+    -- player, so a graphic is only safe to use if it wants the SAME palette tag. Every
+    -- Brendan/May state shares one tag (OBJ_EVENT_PAL_TAG_BRENDAN / _MAY), so all of them work;
+    -- anything else would draw in the player's colours, which is worse than not switching.
+    if not info or not playerInfo or info.paletteTag ~= playerInfo.paletteTag then
+        graphicsId = playerGfx
+        info = playerInfo
+    end
+    if not info then return nil end
+
+    local tileCount = info.tileCount
     local tileStart = allocSpriteTiles(tileCount)
     if not tileStart then
         console.log("MeshGhost: no run of free OBJ tiles for a ghost.")
@@ -1446,12 +1530,46 @@ local function spawnGhost(playerId, mapX, mapY, orientation)
     w8(a + 0x20, dir)
     w8(a + 0x04, sprId)
 
-    -- The sprite: copied from the player's for its four ROM pointers, OAM shape and palette, then
-    -- patched -- including its OWN tiles, without which it shows the player's current frame.
+    -- The sprite. Start from the player's -- it is a live, engine-shaped object-event sprite, and
+    -- copying gives correct values for fields we would otherwise have to invent (the template
+    -- pointer, flags the engine set). Then replace everything that describes WHAT IS DRAWN with
+    -- the chosen graphic's own entry, so a ghost on a bike is drawn as a bike rather than as
+    -- whatever this machine's player happens to be.
     local src, dst = sprAddr(playerSprId), sprAddr(sprId)
     for off = 0, SPRITE_STRUCT_SIZE - 1 do w8(dst + off, r8(src + off)) end
-    local attr2 = r16(dst + 0x04)
-    w16(dst + 0x04, (attr2 & 0xfc00) | (tileStart & 0x03ff))
+
+    if info.oam ~= 0 then
+        -- OAM shape/size come from the graphic; tileNum and paletteNum are ours to set. Copy the
+        -- template OAM, then restore the palette slot the player's sprite is using -- the palette
+        -- is already loaded for that slot and every player-state graphic shares its tag.
+        local playerPalNum = (r16(src + 0x04) >> 12) & 0x0f
+        for off = 0, 7 do w8(dst + off, r8(info.oam + off)) end
+        local attr2 = r16(dst + 0x04)
+        local useTile = tileStart
+        if MESHGHOST_DEBUG_SHARE_PLAYER_TILES then useTile = r16(src + 0x04) & 0x03ff end
+        w16(dst + 0x04, (attr2 & 0x0c00) | (useTile & 0x03ff) | (playerPalNum << 12))
+    else
+        local attr2 = r16(dst + 0x04)
+        w16(dst + 0x04, (attr2 & 0xfc00) | (tileStart & 0x03ff))
+    end
+
+    -- The four ROM pointers that say which pixels and which animations. These cannot be
+    -- synthesised, only pointed at -- and pointing at the peer's graphic instead of copying the
+    -- player's is the whole of this feature.
+    w32(dst + 0x08, info.anims)
+    w32(dst + 0x0c, info.images)
+    w32(dst + 0x10, info.affineAnims)
+    -- Subsprite tables, wired the way SetSubspriteTables does (sprite.c:1655): a graphic with
+    -- tables gets SUBSPRITES_ON and table 0; one without gets subsprites off, or it would be
+    -- drawn through the previous graphic's layout.
+    w32(dst + 0x18, info.subspriteTables)
+    w8(dst + 0x42, 0)
+    if info.subspriteTables ~= 0 then
+        w8(dst + 0x42, (r8(dst + 0x42) & 0x3f) | (1 << 6)) -- subspriteTableNum 0, mode ON
+    end
+    -- centerToCornerVec, as TrySetupObjectEventSprite computes it from the graphic's dimensions.
+    w8(dst + 0x28, (-(info.width // 2)) & 0xff)
+    w8(dst + 0x29, (-(info.height // 2)) & 0xff)
     local sx, sy = spriteScreenPos(gx, gy, r8(dst + 0x29))
     w32(dst + 0x1c, MOVEMENTTYPE_NONE_CB)
     w16(dst + 0x20, sx) w16(dst + 0x22, sy)
@@ -1465,6 +1583,7 @@ local function spawnGhost(playerId, mapX, mapY, orientation)
     ghosts[playerId] = {
         objId = objId, sprId = sprId, localId = localId,
         tileStart = tileStart, tileCount = tileCount, mapX = mapX, mapY = mapY,
+        gfx = graphicsId, -- what this ghost is currently DRAWN as, so a change can be detected
     }
     return ghosts[playerId]
 end
@@ -1538,8 +1657,20 @@ local function syncGhost(playerId, remote)
     if not g then
         -- Placement is only exact on a settled camera; a frame's wait is free.
         if cameraIsSettled() then
-            spawnGhost(playerId, targetX, targetY, remote.orientation)
+            spawnGhost(playerId, targetX, targetY, remote.orientation, wantedGfx(remote))
         end
+        return
+    end
+
+    -- The peer changed what they are: got on a bike, started surfing, cast a rod. A graphic swap
+    -- means different images, animations, OAM shape and tile count, so the sprite is rebuilt
+    -- rather than patched -- the same thing the engine does when the player's own state changes.
+    local want = wantedGfx(remote)
+    if want and g.gfx and want ~= g.gfx and cameraIsSettled() then
+        local a = objAddr(g.objId)
+        local atX, atY = rs16(a + 0x10) - MAP_OFFSET, rs16(a + 0x12) - MAP_OFFSET
+        despawnGhost(playerId)
+        spawnGhost(playerId, atX, atY, remote.orientation, want)
         return
     end
 
@@ -1729,6 +1860,22 @@ local function runFrame()
                     rs16(gs + 0x20), rs16(gs + 0x22),
                     (r8(ga + 0x00) >> 6) & 1, (r8(ga + 0x00) >> 7) & 1, r8(gs + 0x2a),
                     r8(ga + 0x1c), tostring(remotes[playerId] and remotes[playerId].anim)))
+                logFile(string.format("         gfx: ghost drawn as %s, peer reports %s",
+                    tostring(g.gfx), tostring(remotes[playerId] and remotes[playerId].gfx)))
+                -- Ghost vs PLAYER, field by field. The player's sprite is the control: it is the
+                -- one that definitely renders, so any field that differs is a candidate and any
+                -- field that matches is ruled out. Beats reasoning about which write was wrong.
+                local ps = sprAddr(r8(pa + 0x04))
+                local function spr(tag, a)
+                    logFile(string.format(
+                        "         %s oam=%04X %04X %04X %04X flags=%02X %02X sub=%02X c2c=%d,%d "
+                            .. "anim=%d/%d img=%08X anims=%08X",
+                        tag, r16(a + 0x00), r16(a + 0x02), r16(a + 0x04), r16(a + 0x06),
+                        r8(a + 0x3e), r8(a + 0x3f), r8(a + 0x42), r8(a + 0x28), r8(a + 0x29),
+                        r8(a + 0x2a), r8(a + 0x2b), r32(a + 0x0c), r32(a + 0x08)))
+                end
+                spr("ghost ", gs)
+                spr("player", ps)
             end
         end
     end
@@ -1762,7 +1909,8 @@ local function runFrame()
             -- sending state to a core that is about to reject us is state sent to somebody
             -- else's session (agent_docs/contract.md, PROTOCOL.md's tick loop).
             if ready then
-                sendLine(encodeLocalState(state.areaId, smoothX, smoothY, state.orientation, state.anim, localGender or "male"))
+                sendLine(encodeLocalState(state.areaId, smoothX, smoothY, state.orientation,
+                    state.anim, localGender or "male", localGraphicsId()))
             end
         elseif ready then
             sendLine(ENCODED_NO_SEND)
@@ -1817,11 +1965,15 @@ end
 -- relaunch each time, which is the cost the loader exists to remove.
 MESHGHOST_DEV_TICK = guardedFrame
 MESHGHOST_DEV_UNLOAD = function()
-    -- Both halves matter. Ghosts are objects living in the game and nothing else will clear them.
-    -- The log file is a real OS handle: without closing it, every reload during a development
-    -- session leaks one, and the files stay locked -- which is how eleven of them ended up
-    -- unmovable on 2026-08-18 while trying to tidy the folder they were cluttering.
-    pcall(despawnAllGhosts)
+    -- Three things, and every one of them leaked at some point on 2026-08-18:
+    --  * the BRIDGE SOCKET. A core serves exactly one adapter, so a leaked connection makes the
+    --    core reject the next load with "busy: this core already has a game attached" -- the port
+    --    walk then correctly looks elsewhere, finds nothing, and the adapter runs with no peers.
+    --    That cost a long detour debugging an "invisible ghost" that was really no connection.
+    --  * the GHOSTS. They are objects in the game; nothing else will ever clear them.
+    --  * the LOG FILE, a real OS handle -- leaking it locks the file on disk.
+    -- resetBridge() covers the first two (it despawns ghosts as part of dropping the connection).
+    pcall(resetBridge)
     if logfile then
         logfile:close()
         logfile = nil

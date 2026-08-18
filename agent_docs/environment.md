@@ -220,6 +220,17 @@ UE4SS entry below for that last one specifically, which is currently unresolved)
   spending the user's attention, seeing which of two guesses is worth pursuing, attaching the
   failing frame to a question instead of describing it in words. It shortens the loop *before* a
   claim is made; it is not evidence *for* the claim.
+  **ALWAYS CROSS-REFERENCE A PICTURE WITH THE LOG, AND TAKE ONE RATHER THAN WAITING FOR ONE**
+  (user, 2026-08-18). Both halves were learned the same afternoon:
+  - **A screenshot alone misleads.** Three in a row showed "no ghost" and sent a session chasing a
+    rendering bug — they had been taken a frame or two after the loader started, before the
+    adapter had even connected. The log held the actual cause: `rejected (busy: this core already
+    has a game attached)`, a leaked bridge socket from the previous reload.
+  - **A log alone misses what matters.** When a ghost was finally built from a peer's own graphic,
+    every logged field looked correct — right OAM, right pointers, right tile allocation — and it
+    rendered as scrambled garbage. Only a picture showed that, and the agent had the capability to
+    take one and waited for the user's instead.
+
   **Why the limit is real and not just caution:** a still frame answers "what is on screen right
   now", never "does this look right while moving". All six real bugs in the 2026-08-18 Emerald
   session were motion or interaction defects — a ghost mirroring the player's animation, a frozen

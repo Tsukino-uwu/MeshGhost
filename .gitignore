@@ -144,3 +144,9 @@ relay-*.err.log
 # BizHawk dev loader: its control file and log are per-session dev state, not project content
 dev-scripts/bizhawk-dev-loader.target
 dev-scripts/bizhawk-dev-loader.log
+
+# Screenshots the agent takes to debug with (dev-scripts/bizhawk-screenshot.lua). Same reasoning
+# as the probe logs above: a working aid, never project content, and never evidence -- a picture
+# is not proof of anything visual (agent_docs/testing.md).
+/dev-scripts/*.png
+/dev-scripts/*.log
