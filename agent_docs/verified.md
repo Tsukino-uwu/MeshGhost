@@ -7275,3 +7275,46 @@ scheduled. All established by the agent with local tools; nothing here is a visu
   instead of copied: its own `images`/`anims`/OAM shape, tiles sized from that entry's `size`, and
   its palette resolved rather than inherited. Not attempted yet; this is the next piece of work,
   and it is the same mechanism for all eight states rather than eight special cases.
+
+### Emerald: two spawn-path bugs found by playing, not by reading (2026-08-18)
+
+- Date: 2026-08-18
+- Source: live session, user-watched; the field readings are mine from the adapter's own log file
+  (which had to be added first — this adapter logged only to the Lua Console, so nothing outside
+  the emulator could see why it was failing).
+
+**1. Talking to a ghost ran a garbage script and opened the slot-machine minigame.**
+
+- Observed: the user pressed A facing a spawned ghost and landed in the Game Corner slot machine,
+  which then reported "You've run out of COINS".
+- Cause: an A-press resolves an object's script by looking its **`localId` up in the map's
+  template table** (`GetInteractedObjectEventScript` -> `GetObjectEventScriptPointerByObjectEventId`
+  -> `GetObjectEventTemplateByLocalIdAndMap`). A synthesised ghost has no template, so the lookup
+  returns NULL and the game jumps to whatever is at that address. The decomp marks that NULL
+  dereference as a known bug of its own (`event_object_movement.c:2387`).
+- Fix: give ghosts `localId = LOCALID_PLAYER` (255). `GetInteractedObjectEventScript`
+  (`field_control_avatar.c:292`) returns NULL for any object with that id, so the ghost becomes
+  non-interactable **through the engine's own check** rather than a guard of ours. Ghost object
+  slots are now allocated from slot 15 downward, because `GetObjectEventIdByLocalId` scans upward
+  and returns the first match — keeping the real player (slot 0) ahead of every ghost.
+- **`ideas.md` predicted this exact failure for a different design** (the "hijack a live NPC"
+  variant: *"its dialogue script is presumably still attached to the same local ID — interacting
+  with 'the ghost' could plausibly trigger the real NPC's own conversation"*). The from-scratch
+  spawn path inherited the same problem for a different reason, and nobody connected the two until
+  it happened on screen.
+
+**2. A ghost took exactly one step, then froze forever.**
+
+- Observed: `held=1/1` in every status line — held movement flagged both active and finished — with
+  the ghost stuck at its spawn tile while the player walked away.
+- Cause: the engine sets `heldMovementFinished` when a step completes but **leaves
+  `heldMovementActive` set**; clearing is the caller's job (`ObjectEventClearHeldMovement`,
+  `event_object_movement.c:4895`). The adapter treated "active" as "still moving", so after the
+  first step it never issued another.
+- Fix: treat active+finished as a completed step, clear it the way the engine does (action
+  `MOVEMENT_ACTION_NONE`, both bits cleared, sprite `sTypeFuncId`/`sActionFuncId` reset), then
+  accept the next order. Confirmed live: the ghost now steps, and the user confirmed its collision
+  and its sprite line up.
+- **Worth keeping as a shape**: "is a movement flagged active" and "is this object ready for a new
+  order" read like the same question and are not. The same distinction exists in Crystal's step
+  code, where the idle check is `STEP_DURATION == 0`.

@@ -1240,8 +1240,12 @@ local function spriteScreenPos(mapX, mapY, centerToCornerVecY)
     return x + 8, y + 16 + c2cY
 end
 
+-- Downward, like the sprite scan, and for a second reason beyond staying out of the engine's way:
+-- ghosts use LOCALID_PLAYER (see spawnGhost), and GetObjectEventIdByLocalId scans UPWARD from 0
+-- returning the first match. Taking high slots keeps the real player -- normally slot 0 -- ahead
+-- of every ghost, so anything asking "which object is the player" still gets the player.
 local function findFreeObjectSlot()
-    for i = 0, 15 do
+    for i = 15, 0, -1 do
         if (r8(objAddr(i) + 0x00) & 0x01) == 0 then return i end
     end
     return nil
@@ -1256,21 +1260,16 @@ local function findFreeSpriteSlot()
     return nil
 end
 
-local ghostLocalIdNext = 200
-local function nextGhostLocalId()
-    local used = {}
-    for i = 0, 15 do
-        if (r8(objAddr(i) + 0x00) & 0x01) == 1 then used[r8(objAddr(i) + 0x08)] = true end
-    end
-    for n = 0, 50 do
-        local id = 200 + ((ghostLocalIdNext - 200 + n) % 51)
-        if not used[id] then
-            ghostLocalIdNext = id + 1
-            return id
-        end
-    end
-    return nil
-end
+-- LOCALID_PLAYER (255), deliberately, and it is the fix for a real bug found live 2026-08-18:
+-- talking to a ghost ran a garbage script and dumped the user into the slot-machine minigame.
+-- An A-press resolves a script by looking the object's localId up in the MAP'S TEMPLATE TABLE
+-- (GetObjectEventScriptPointerByObjectEventId -> GetObjectEventTemplateByLocalIdAndMap). A
+-- synthesised ghost has no template, the lookup returns NULL, and the game runs whatever is at
+-- that address -- the decomp even marks that NULL deref as a known bug.
+-- GetInteractedObjectEventScript (field_control_avatar.c:292) returns NULL outright for any
+-- object whose localId is LOCALID_PLAYER, so borrowing that id makes the ghost non-interactable
+-- using the engine's own check rather than a guard of ours.
+local GHOST_LOCAL_ID = 255
 
 -- ghosts[playerId] = { objId, sprId, localId, tileStart, tileCount, mapX, mapY }
 local ghosts = {}
@@ -1327,9 +1326,9 @@ local function spawnGhost(playerId, mapX, mapY, orientation)
 
     local objId = findFreeObjectSlot()
     local sprId = findFreeSpriteSlot()
-    local localId = nextGhostLocalId()
-    if not objId or not sprId or not localId then
-        console.log("MeshGhost: no free slot for a ghost (objects/sprites/localIds full).")
+    local localId = GHOST_LOCAL_ID
+    if not objId or not sprId then
+        console.log("MeshGhost: no free slot for a ghost (objects or sprites full).")
         return nil
     end
 
@@ -1397,8 +1396,30 @@ local function requestAction(g, action)
     w16(sprAddr(g.sprId) + 0x32, 0) -- data[2] = sActionFuncId
 end
 
+-- ObjectEventClearHeldMovement (event_object_movement.c:4895). The engine sets
+-- heldMovementFinished when a step completes but leaves heldMovementActive SET -- clearing is the
+-- caller's job. Found live 2026-08-18: a ghost took exactly one step and then froze forever,
+-- reading held=1/1 in the log, because "active" was being treated as "still moving".
+local MOVEMENT_ACTION_NONE = 0xff
+local function clearHeldMovement(g)
+    local a = objAddr(g.objId)
+    w8(a + 0x1c, MOVEMENT_ACTION_NONE)
+    w8(a + 0x00, r8(a + 0x00) & ~0xc0) -- heldMovementActive = 0, heldMovementFinished = 0
+    local d = sprAddr(g.sprId)
+    w16(d + 0x30, 0) -- data[1] = sTypeFuncId
+    w16(d + 0x32, 0) -- data[2] = sActionFuncId
+end
+
+-- "Ready for a new order", which is not the same question as "is a movement flagged active".
 local function ghostIsIdle(g)
-    return (r8(objAddr(g.objId) + 0x00) & 0x40) == 0
+    local b0 = r8(objAddr(g.objId) + 0x00)
+    local active = (b0 >> 6) & 0x01
+    local finished = (b0 >> 7) & 0x01
+    if active == 1 and finished == 1 then
+        clearHeldMovement(g)
+        return true
+    end
+    return active == 0
 end
 
 local function teleportGhost(g, mapX, mapY)
@@ -1595,6 +1616,27 @@ local function runFrame()
             "status: frame=%d connected=%s ready=%s port=%s remotes=%d ghosts=%d overworld=%s",
             frameCounter, tostring(connected), tostring(ready), tostring(currentPort),
             nRemotes, nGhosts, tostring(inOverworld())))
+        -- Collision follows the object's map coordinates; drawing follows the sprite's screen
+        -- position. A ghost whose hitbox sits away from its picture means those two disagree, so
+        -- both are logged next to the player's own pair as the control.
+        local sb1 = memory.read_u32_le(GSAVEBLOCK1PTR_ADDR)
+        if sb1 ~= 0 then
+            local pObjId = r8(GPLAYERAVATAR_ADDR + avatarAddrOffset + 0x05)
+            local pa, ps = objAddr(pObjId), sprAddr(r8(objAddr(pObjId) + 0x04))
+            logFile(string.format(
+                "  player: pos=(%d,%d) coords=(%d,%d) sprite=(%d,%d) camOff=(%d,%d)",
+                rs16(sb1 + 0x00), rs16(sb1 + 0x02), rs16(pa + 0x10), rs16(pa + 0x12),
+                rs16(ps + 0x20), rs16(ps + 0x22),
+                rs16(GTOTALCAMERAPIXELOFFSETX_ADDR), rs16(GTOTALCAMERAPIXELOFFSETY_ADDR)))
+            for playerId, g in pairs(ghosts) do
+                local ga, gs = objAddr(g.objId), sprAddr(g.sprId)
+                logFile(string.format(
+                    "  ghost %s: obj=%d spr=%d coords=(%d,%d) sprite=(%d,%d) held=%d/%d anim=%d",
+                    tostring(playerId), g.objId, g.sprId, rs16(ga + 0x10), rs16(ga + 0x12),
+                    rs16(gs + 0x20), rs16(gs + 0x22),
+                    (r8(ga + 0x00) >> 6) & 1, (r8(ga + 0x00) >> 7) & 1, r8(gs + 0x2a)))
+            end
+        end
     end
 
     if connected then
