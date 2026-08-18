@@ -28,6 +28,15 @@ player-looking character spawned on demand anywhere, that WALKS with the game's 
 animation, with the adapter drawing, animating and interpolating nothing. Networking is the
 largest remaining piece. `phases/phase9.md`.
 
+**Landed 2026-08-18**: autostart in ALL FOUR adapters (each starts its own client with no window
+and takes it down with the game — TEVI/Emerald/Crystal added this day, confirmed live including
+two-emulator and two-adapter cases); two relay bugs fixed with regression tests (a world drop sent
+lossily, a data race on the resume timer); the race detector recovered from "impossible on this
+machine" to running the whole suite locally; a username leak closed along with the check that
+could not see it; v0.9.5 cut as a pre-release; and three standing decisions recorded in
+`plans.md` (efficiency is a goal not a deferral, the ceiling belongs to the game not the server,
+Archipelago is real but always behind vanilla).
+
 Roadmap: `plans.md`. Per-phase log: `phases/`. Evidence for all of the above: `verified.md`.
 
 ## Genuinely open items
@@ -87,8 +96,9 @@ that a peer's state genuinely differs from the local player's, which loopback co
   below. Pseudoregalia's port walk is built but **not yet watched live**. `ideas.md`.
 - **TEVI's FullMap marker goes stale** — it only refreshes on a `render_remote`, so a peer who
   stops sending leaves a marker frozen where it was. Shipped bug, not hypothetical. `ideas.md`.
-- **TEVI lags the template's bridge shape** — it handles `bridge_ready`/`reject` as of 2026-08-18
-  (DLL v0.2.0); still no autostart and no port walk, and untested live. `_template/PROTOCOL.md`.
+- **TEVI lags the template's bridge shape** — handles `bridge_ready`/`reject` and autostarts a
+  core (both 2026-08-18, both confirmed live); the PORT WALK is the remaining gap.
+  `_template/PROTOCOL.md`.
 - **Emerald's shipped adapter spawns instead of drawing** — user-confirmed piece by piece
   2026-08-18 (appears, follows, walks, runs, on-grid, no leak); **no end-to-end pass yet.**
 - **Awaiting a confirmation pass**: the spawn adapter and the whole test toolchain were built and

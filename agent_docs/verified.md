@@ -7532,3 +7532,43 @@ still on 0.1.0. Not a defect — an untested change, labelled as one.
 
 CI on `aad43cb` (the commit carrying all of today's Go work) passed beforehand: build, vet,
 cross-compiles, the new gofmt gate, `-race -count=3`, and all eleven fuzz targets.
+
+### 2026-08-18 — CORRECTION: the release hash table was redundant and has been removed
+
+**Supersedes the v0.9.5 entry above**, which recorded the new `Hash the release assets` step as
+making `docs/antivirus.md`'s "every release asset shows a SHA-256" claim true for the first time.
+
+**That claim was already true.** GitHub computes and displays a `sha256:` digest beside every
+uploaded release asset, and returns the same value from the API
+(`gh api repos/.../releases/tags/v0.9.5 -q '.assets[].digest'` — checked, and it matched our table
+byte for byte). The audit that prompted the feature checked whether the WORKFLOW published a hash,
+found it did not, and concluded the docs were wrong — without checking whether GitHub published
+one.
+
+So the step was removed the same day and the release body is now just the generated changelog. The
+verification in that earlier entry — downloading the asset back and re-hashing it — was real and
+its result stands; it simply proved a number GitHub was already publishing.
+
+**The durable part is the mistake, not the feature.** "Our code does not do X" and "X does not
+happen" are different claims, and the gap between them is where a whole unnecessary feature fitted.
+
+### 2026-08-18 — Autostart works in all four adapters, confirmed live
+
+**Track: user-confirmed on screen, plus process-level checks the agent ran.**
+
+Every adapter now starts its own client and takes it down with the game. Pseudoregalia has since
+2026-08-16; TEVI, Emerald and Crystal were added today.
+
+- **TEVI**: launched with no client running; a core appeared whose path was the mod folder's own
+  copy, joined the relay over quic as p4 advertising plugin 0.2.0, and was gone after quitting.
+- **Emerald, four ways**: start/close; two adapters in one emulator reusing one core; two
+  emulators taking 7778 and 7779; closing one of two killing only its own core — verified by port
+  ownership rather than by counting.
+- **Crystal**: two instances, cores on 7778 and 7779, ROM guard reporting vanilla V1.0, closing
+  one taking exactly one core.
+
+**The bug worth remembering** was found only by the two-emulator case: the launcher spawned on
+`BRIDGE_BASE_PORT` while the port walk was correctly reporting it busy, so the second copy got a
+core that could not bind and exited instantly. It now spawns on the first port the sweep found
+empty. Single-instance testing would never have shown it — the user asked for that case
+specifically.
