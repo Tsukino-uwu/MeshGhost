@@ -39,17 +39,28 @@
 -- What to give. Set to false to skip.
 -- ---------------------------------------------------------------------------------------------
 local WANTED = {
-	mach_bike = true,   -- ITEM_MACH_BIKE  259 (0x103)
-	acro_bike = true,   -- ITEM_ACRO_BIKE  272 (0x110)
-	super_rod = true,   -- ITEM_SUPER_ROD  264 (0x108)
-	badges = true,      -- all 8, so HM moves are usable outside battle
+	mach_bike = true,     -- ITEM_MACH_BIKE  259 (0x103)
+	acro_bike = true,     -- ITEM_ACRO_BIKE  272 (0x110)
+	super_rod = true,     -- ITEM_SUPER_ROD  264 (0x108)
+	badges = true,        -- all 8, so HM moves are usable outside battle
+	hms = true,           -- HM01-HM08, the TM/HM pocket
+	master_balls = 5,     -- a count, or false. For catching something that can actually Surf.
+	rare_candies = 30,    -- levels, so a caught Pokemon can hold its own
 }
 
 local GSAVEBLOCK1PTR_ADDR = 0x03005d8c
 local GSAVEBLOCK2PTR_ADDR = 0x03005d90
 local SB2_ENCRYPTIONKEY = 0xac
+-- Pocket offsets into SaveBlock1 (include/global.h:1006-1010) and their sizes
+-- (include/constants/global.h). Each pocket is its own ItemSlot array; an item put in the wrong
+-- one simply does not appear.
 local SB1_BAG_ITEMS = 0x560
 local SB1_BAG_KEYITEMS = 0x5d8
+local SB1_BAG_POKEBALLS = 0x650
+local SB1_BAG_TMHM = 0x690
+local BAG_ITEMS_COUNT = 30
+local BAG_POKEBALLS_COUNT = 16
+local BAG_TMHM_COUNT = 64
 local SB1_FLAGS = 0x1270
 local BAG_KEYITEMS_COUNT = 30
 local ITEM_SLOT_SIZE = 4
@@ -62,6 +73,16 @@ local KEY_ITEMS = {
 	{ key = "acro_bike", id = 272, name = "Acro Bike" },
 	{ key = "super_rod", id = 264, name = "Super Rod" },
 }
+
+-- ITEM_HM01..ITEM_HM08 = 339..346: Cut, Fly, Surf, Strength, Flash, Rock Smash, Waterfall, Dive.
+local HM_ITEMS = {
+	{ id = 339, name = "HM01 Cut" }, { id = 340, name = "HM02 Fly" },
+	{ id = 341, name = "HM03 Surf" }, { id = 342, name = "HM04 Strength" },
+	{ id = 343, name = "HM05 Flash" }, { id = 344, name = "HM06 Rock Smash" },
+	{ id = 345, name = "HM07 Waterfall" }, { id = 346, name = "HM08 Dive" },
+}
+local ITEM_MASTER_BALL = 1
+local ITEM_RARE_CANDY = 68
 
 local GMAIN_CALLBACK2_ADDR = 0x030022c4
 local CB2_OVERWORLD_ADDR = 0x08085e5c
@@ -107,33 +128,34 @@ local function saveBlocks()
 	return sb1, sb2
 end
 
-local function keyItemSlotAddr(sb1, i) return sb1 + SB1_BAG_KEYITEMS + i * ITEM_SLOT_SIZE end
+local function slotAddr(sb1, pocket, i) return sb1 + pocket + i * ITEM_SLOT_SIZE end
 
-local function findKeyItem(sb1, itemId)
-	for i = 0, BAG_KEYITEMS_COUNT - 1 do
-		if u16(keyItemSlotAddr(sb1, i)) == itemId then return i end
+local function findItem(sb1, pocket, count, itemId)
+	for i = 0, count - 1 do
+		if u16(slotAddr(sb1, pocket, i)) == itemId then return i end
 	end
 	return nil
 end
 
-local function firstFreeKeyItemSlot(sb1)
-	for i = 0, BAG_KEYITEMS_COUNT - 1 do
-		if u16(keyItemSlotAddr(sb1, i)) == 0 then return i end
+local function firstFreeSlot(sb1, pocket, count)
+	for i = 0, count - 1 do
+		if u16(slotAddr(sb1, pocket, i)) == 0 then return i end
 	end
 	return nil
 end
 
-local function giveKeyItem(sb1, key, itemId, name)
-	if findKeyItem(sb1, itemId) then
-		log(string.format("  %-10s already in the bag, left alone.", name))
+local function giveItem(sb1, key, pocket, pocketCount, itemId, name, quantity)
+	quantity = quantity or 1
+	if findItem(sb1, pocket, pocketCount, itemId) then
+		log(string.format("  %-16s already in the bag, left alone.", name))
 		return
 	end
-	local slot = firstFreeKeyItemSlot(sb1)
+	local slot = firstFreeSlot(sb1, pocket, pocketCount)
 	if not slot then
-		log(string.format("  %-10s NOT GIVEN: the key items pocket is full.", name))
+		log(string.format("  %-16s NOT GIVEN: that pocket is full.", name))
 		return
 	end
-	local addr = keyItemSlotAddr(sb1, slot)
+	local addr = slotAddr(sb1, pocket, slot)
 	w16(addr, itemId)
 	-- The quantity is XOR-encrypted with SaveBlock2's key (item.c's SetBagItemQuantity). A plain
 	-- 1 here shows up as a nonsense count and the item can behave as if absent.
@@ -141,8 +163,8 @@ local function giveKeyItem(sb1, key, itemId, name)
 	-- to the key's low half. Write and read must both use that half or the count comes back as a
 	-- 32-bit-looking number (seen live 2026-08-18: 3500146689 = 0xD0A00001, i.e. a correct 1 with
 	-- the key's high half still attached by a wrong decode).
-	w16(addr + 2, 1 ~ (key & 0xffff))
-	log(string.format("  %-10s -> key item slot %d (id %d)", name, slot, itemId))
+	w16(addr + 2, quantity ~ (key & 0xffff))
+	log(string.format("  %-16s -> slot %d (id %d) x%d", name, slot, itemId, quantity))
 end
 
 local function setBadges(sb1)
@@ -176,18 +198,41 @@ local function apply()
 	log(string.format("SaveBlock1 0x%08X  SaveBlock2 0x%08X  encryptionKey 0x%08X", sb1, sb2, key))
 
 	for _, item in ipairs(KEY_ITEMS) do
-		if WANTED[item.key] then giveKeyItem(sb1, key, item.id, item.name) end
+		if WANTED[item.key] then
+			giveItem(sb1, key, SB1_BAG_KEYITEMS, BAG_KEYITEMS_COUNT, item.id, item.name)
+		end
+	end
+	if WANTED.hms then
+		for _, hm in ipairs(HM_ITEMS) do
+			giveItem(sb1, key, SB1_BAG_TMHM, BAG_TMHM_COUNT, hm.id, hm.name)
+		end
+	end
+	if WANTED.master_balls then
+		giveItem(sb1, key, SB1_BAG_POKEBALLS, BAG_POKEBALLS_COUNT, ITEM_MASTER_BALL,
+			"Master Ball", WANTED.master_balls)
+	end
+	if WANTED.rare_candies then
+		giveItem(sb1, key, SB1_BAG_ITEMS, BAG_ITEMS_COUNT, ITEM_RARE_CANDY,
+			"Rare Candy", WANTED.rare_candies)
 	end
 	if WANTED.badges then setBadges(sb1) end
 
 	-- Read back through the same decode the GAME uses, not the values just written: an echo of
 	-- our own write proves the write landed, not that the game will agree with it.
 	log("verifying, by reading the bag back and decrypting quantities the way item.c does:")
-	for i = 0, BAG_KEYITEMS_COUNT - 1 do
-		local addr = keyItemSlotAddr(sb1, i)
-		local id = u16(addr)
-		if id ~= 0 then
-			log(string.format("  key slot %2d: item %3d x%d", i, id, u16(addr + 2) ~ (key & 0xffff)))
+	for _, pocket in ipairs({
+		{ name = "key items", at = SB1_BAG_KEYITEMS, count = BAG_KEYITEMS_COUNT },
+		{ name = "TM/HM",     at = SB1_BAG_TMHM,     count = BAG_TMHM_COUNT },
+		{ name = "balls",     at = SB1_BAG_POKEBALLS, count = BAG_POKEBALLS_COUNT },
+		{ name = "items",     at = SB1_BAG_ITEMS,    count = BAG_ITEMS_COUNT },
+	}) do
+		for i = 0, pocket.count - 1 do
+			local addr = slotAddr(sb1, pocket.at, i)
+			local id = u16(addr)
+			if id ~= 0 then
+				log(string.format("  %-9s slot %2d: item %3d x%d", pocket.name, i, id,
+					u16(addr + 2) ~ (key & 0xffff)))
+			end
 		end
 	end
 	if WANTED.badges then
