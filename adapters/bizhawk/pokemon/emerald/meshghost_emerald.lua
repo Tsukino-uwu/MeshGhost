@@ -1161,14 +1161,15 @@ local STEP_DURATION_FRAMES = { walking = 16, running = 8 }
 -- reproduced here rather than the step machine that causes it: the filter follows the peer's
 -- position from a few frames ago. Same lag, none of the two-clock beating that five separate
 -- movement models produced.
-local DRAWN_DELAY_FRAMES = tonumber(MESHGHOST_EMERALD_DRAWN_DELAY_FRAMES
+-- On genderFrames rather than as a chunk local, for the ceiling reason above.
+genderFrames.drawnDelay = tonumber(MESHGHOST_EMERALD_DRAWN_DELAY_FRAMES
     or os.getenv("MESHGHOST_EMERALD_DRAWN_DELAY_FRAMES") or "") or 8
 
 local function glideRemote(r, targetX, targetY)
     -- The delay line: a short ring of recent positions, read from DRAWN_DELAY_FRAMES ago.
     r.hist = r.hist or {}
     r.hist[frameCounter % 32] = { targetX, targetY }
-    local old = r.hist[(frameCounter - DRAWN_DELAY_FRAMES) % 32]
+    local old = r.hist[(frameCounter - genderFrames.drawnDelay) % 32]
     if old then targetX, targetY = old[1], old[2] end
 
     -- First sight, a new area, or further than two tiles: a warp or a dropped peer. Snap, and do
@@ -1664,6 +1665,22 @@ local WALK_ACTION = { [1] = 0x08, [2] = 0x09, [3] = 0x0a, [4] = 0x0b }
 -- graphics, which is the one graphic in the game that has them.
 local RUN_ACTION = { [1] = 0x35, [2] = 0x36, [3] = 0x37, [4] = 0x38 }
 
+-- LEDGES. A ledge hop is not two steps, it is one JUMP that covers two tiles with an arc, and the
+-- engine has an action for exactly that: MOVEMENT_ACTION_JUMP_2_DOWN/UP/LEFT/RIGHT = 0xC..0xF
+-- (pokeemerald include/constants/event_object_movement.h:99-102), indexed here the same way every
+-- other action table is -- the decomp's DOWN/UP/LEFT/RIGHT order matches DIR_ID's south/north/
+-- west/east, which WALK_NORMAL_* at 0x8..0xB already confirms.
+--
+-- Without this a peer hopping a ledge moved two tiles in one update, which fell through to the
+-- "more than a tile out" branch and TELEPORTED the ghost across -- no arc, no hop. The user, with
+-- both renderers on screen: *"neither ghost knows how to jump down/off a ledge"* (2026-08-19).
+-- Expressed as base + (dir - 1) rather than a table, because this chunk is AT Lua's hard ceiling
+-- of 200 locals and the syntax check refused the table version outright. The arithmetic is exact:
+-- the decomp lists JUMP_2_DOWN/UP/LEFT/RIGHT consecutively from 0xC, in the same order DIR_ID
+-- numbers south/north/west/east -- which WALK_NORMAL_* at 0x8..0xB independently confirms.
+-- (0x0c is used inline below: this chunk is at Lua's 200-local ceiling, and a constant used once
+-- is the cheapest thing to inline.)
+
 local function w8(a, v) memory.write_u8(a, v & 0xff) end
 local function w16(a, v) memory.write_u16_le(a, v & 0xffff) end
 local function w32(a, v) memory.write_u32_le(a, v & 0xffffffff) end
@@ -1838,8 +1855,8 @@ local spawnSurfBlob
 local SURFING_GFX
 
 -- Tile ranges we could not free at the time, because we were in a battle and the bitmap was not
--- ours to write. Settled by settlePendingTileFrees() on the way back to the overworld.
-local pendingTileFrees = {}
+-- ours to write. Settled on the way back to the overworld. On genderFrames for the ceiling reason.
+genderFrames.pendingTileFrees = {}
 
 local function freeGhostTiles(g)
     if g.tileStart then
@@ -1890,8 +1907,8 @@ local function despawnGhost(playerId)
         -- writing the bitmap is exactly the corruption the guard exists to prevent. So it is
         -- queued, and settled on the way back in, where the identity test can say whether the
         -- range is still ours to free or whether the engine has already reset the bitmap itself.
-        pendingTileFrees[#pendingTileFrees + 1] =
-            { objId = g.objId, tileStart = g.tileStart, tileCount = g.tileCount }
+        local q = genderFrames.pendingTileFrees
+        q[#q + 1] = { objId = g.objId, tileStart = g.tileStart, tileCount = g.tileCount }
         ghosts[playerId] = nil
         return
     end
@@ -2620,6 +2637,18 @@ local function syncGhost(playerId, remote)
         -- and only an explicit action brings it back to standing. A walk does not need this --
         -- the user's own test was exact about that, "it does idle->walk fine".
         g.wasRunning = running or nil
+    elseif (math.abs(dx) == 2 and dy == 0) or (math.abs(dy) == 2 and dx == 0) then
+        -- Exactly two tiles along one axis: a LEDGE HOP. The engine jumps it, arc and all, from
+        -- the same kind of action a step uses. A dropped packet could in principle look like this
+        -- too, and the cost of being wrong is a ghost hopping where it should have walked -- much
+        -- cheaper than the teleport this replaces, which was wrong every single time.
+        local jumpDir
+        if dx == 2 then jumpDir = DIR_ID.east
+        elseif dx == -2 then jumpDir = DIR_ID.west
+        elseif dy == 2 then jumpDir = DIR_ID.south
+        else jumpDir = DIR_ID.north end
+        requestAction(g, 0x0c + jumpDir - 1)
+        g.wasRunning = nil
     else
         -- More than a tile out: a warp, a dropped packet, or a peer moving faster than we sample.
         -- Walking it there would fall further behind every frame, so place it -- but only once the
@@ -3141,17 +3170,17 @@ local function runFrame()
     -- Sweeping on the transition itself costs one array scan per battle and closes the window.
     local nowOverworld = inOverworld()
     if avatarAddrConfirmed and nowOverworld and not tiering.wasOverworld
-        and #pendingTileFrees > 0 then
+        and #genderFrames.pendingTileFrees > 0 then
         -- Back in the overworld: settle anything a battle stopped us freeing. If the slot still
         -- carries our own localId the range is genuinely still ours and freeing it is right; if it
         -- does not, the engine has already run its own reset over the bitmap and the range is
         -- long since somebody else's, so the only safe thing is to forget it.
-        for i = 1, #pendingTileFrees do
-            local p = pendingTileFrees[i]
+        for i = 1, #genderFrames.pendingTileFrees do
+            local p = genderFrames.pendingTileFrees[i]
             if p.tileStart and r8(objAddr(p.objId) + 0x08) == GHOST_LOCAL_ID then
                 for t = p.tileStart, p.tileStart + p.tileCount - 1 do setTileAllocated(t, false) end
             end
-            pendingTileFrees[i] = nil
+            genderFrames.pendingTileFrees[i] = nil
         end
     end
     if avatarAddrConfirmed and nowOverworld
