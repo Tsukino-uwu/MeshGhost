@@ -2619,6 +2619,32 @@ local function drawRemotes(localAreaId, playerMapX, playerMapY, skipSpawned, com
 
     local playerScreenX, playerScreenY = playerScreenPos()
     local panelRows = tiering.scanPanel()
+
+    -- ANCHOR ON THE ENGINE'S OWN SCROLL, NOT ON OUR ESTIMATE OF THE PLAYER.
+    --
+    -- A drawn ghost is placed relative to the local player, and it was placed against the
+    -- adapter's SMOOTHED estimate of where the player is (smoothPosition's synthetic glide) while
+    -- being drawn at the player's REAL pixel position. Those two agree only approximately -- the
+    -- file has carried a note about that mismatch since 2026-08-14 -- and the disagreement is
+    -- visible exactly when the PLAYER moves, which is why the last of the chop only ever showed up
+    -- while running. Three movement models for the GHOST could not fix it, because the ghost's
+    -- movement was never the problem.
+    --
+    -- The engine's own scroll is exact and free. Measured over 240 consecutive frames of a run
+    -- (probes/turn_and_door_probe.lua): the player's sprite position plus gTotalCameraPixelOffset
+    -- is CONSTANT to the pixel -- 120,112, zero variance -- and the offset's remainder mod 16 is
+    -- the sub-tile phase, counting evenly by 2 every frame and handing over to the tile counter
+    -- with no discontinuity:
+    --
+    --     tile 17, camPix -158 -> 17.875     tile 17, camPix -144 -> 17.0
+    --     tile 17, camPix -152 -> 17.5       tile 16, camPix -142 -> 16.875
+    --
+    -- So the player's continuous position is its tile plus that phase, with nothing estimated.
+    local sb1 = r32(GSAVEBLOCK1PTR_ADDR)
+    if sb1 ~= 0 then
+        playerMapX = rs16(sb1 + 0x00) + ((-rs16(GTOTALCAMERAPIXELOFFSETX_ADDR)) % 16) / 16
+        playerMapY = rs16(sb1 + 0x02) + ((-rs16(GTOTALCAMERAPIXELOFFSETY_ADDR)) % 16) / 16
+    end
     -- Counted and published (tiering.painted) rather than inferred: "assigned to the drawn tier"
     -- and "actually painted this frame" differ by everyone the off-screen cull skipped, and only
     -- the second one answers "is every peer I can see actually being shown".
