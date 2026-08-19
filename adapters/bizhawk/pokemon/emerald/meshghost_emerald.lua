@@ -2766,44 +2766,6 @@ local function syncGhost(playerId, remote)
         return
     end
 
-    -- The peer changed what they are: got on a bike, started surfing, cast a rod. A graphic swap
-    -- means different images, animations, OAM shape and tile count, so the sprite is rebuilt
-    -- rather than patched -- the same thing the engine does when the player's own state changes.
-    local want = wantedGfx(remote)
-    if want and g.gfx and want ~= g.gfx and cameraIsSettled() then
-        local a = objAddr(g.objId)
-        local atX, atY = rs16(a + 0x10) - MAP_OFFSET, rs16(a + 0x12) - MAP_OFFSET
-        despawnGhost(playerId)
-        spawnGhost(playerId, atX, atY, remote.orientation, want)
-        -- The new sprite's tiles are whatever was in that range; fill them with the frame the
-        -- engine is about to copy, so no frame is drawn with the old graphic's pixels.
-        local ng = ghosts[playerId]
-        if ng then loadGhostFrameNow(ng, graphicsInfo(want), remote.sanim, remote.sidx) end
-        -- SWEEP IN THE SAME FRAME. despawnGhost only clears a slot it can still prove is ours
-        -- (ghostAlive), and when that proof fails it deliberately touches nothing -- correct, but
-        -- it leaves the old object active while the new one already exists. Captured in the
-        -- fishing log: slot14 and slot15 both live across the swap, until the once-a-second sweep
-        -- caught it. Sweeping here closes that window to the frame it happens in, which is what
-        -- the user was seeing as the ghost "moving" when it casts a rod.
-        sweepOrphanGhosts()
-        -- AND APPLY THE PEER'S SPRITE OFFSET IN THE SAME FRAME. This path returns before the
-        -- mirroring block below, so without this the ghost spends a frame at pos2 0,0 with its new
-        -- 32-wide graphic -- half a tile off -- and then snaps into place when the next update
-        -- arrives. The rebuild is already a visible cut; adding a snap to it is what
-        -- *"looks a bit snappy and they also briefly move"* is made of.
-        local ng = ghosts[playerId]
-        if ng then
-            local nd = sprAddr(ng.sprId)
-            if remote.sox then w16(nd + 0x24, remote.sox & 0xffff) end
-            if remote.soy then w16(nd + 0x26, remote.soy & 0xffff) end
-            if remote.sanim then
-                w8(nd + 0x2a, remote.sanim)
-                w8(nd + 0x3f, (r8(nd + 0x3f) | 0x04) & ~0x10)
-            end
-        end
-        return
-    end
-
     -- MIRROR THE PEER'S SPRITE ANIMATION, for the states the engine will not drive for us.
     --
     -- Adopting a peer's graphicsId gives a ghost the rod; the game's fishing TASK is what makes it
@@ -2844,6 +2806,56 @@ local function syncGhost(playerId, remote)
     end
 
     if not ghostIsIdle(g) then return end -- never interrupt a half-played step
+
+    -- The graphic swap waits for the step to END, below this guard rather than above it.
+    --
+    -- A peer's state arrives while the ghost may still be mid-stride: its walk is engine-driven and
+    -- takes 16 frames from when we asked for it, so a rod that arrives partway through lands on a
+    -- WALKING ghost. The player can never do that -- you cannot start fishing mid-step -- and it
+    -- has a mechanical consequence too: the engine owns pos2 for the duration of a step, so the
+    -- peer's own sprite offset is overwritten every frame until the step finishes. Measured with a
+    -- probe loaded before the adapter: three frames of the fishing graphic at pos2 0,0, drawn 8px
+    -- left, ending exactly when the step did.
+    --
+    -- Waiting costs at most one step. It buys a ghost that stops, then fishes, like the player.
+    -- The peer changed what they are: got on a bike, started surfing, cast a rod. A graphic swap
+    -- means different images, animations, OAM shape and tile count, so the sprite is rebuilt
+    -- rather than patched -- the same thing the engine does when the player's own state changes.
+    local want = wantedGfx(remote)
+    if want and g.gfx and want ~= g.gfx and cameraIsSettled() then
+        local a = objAddr(g.objId)
+        local atX, atY = rs16(a + 0x10) - MAP_OFFSET, rs16(a + 0x12) - MAP_OFFSET
+        despawnGhost(playerId)
+        spawnGhost(playerId, atX, atY, remote.orientation, want)
+        -- The new sprite's tiles are whatever was in that range; fill them with the frame the
+        -- engine is about to copy, so no frame is drawn with the old graphic's pixels.
+        local ng = ghosts[playerId]
+        if ng then loadGhostFrameNow(ng, graphicsInfo(want), remote.sanim, remote.sidx) end
+        -- SWEEP IN THE SAME FRAME. despawnGhost only clears a slot it can still prove is ours
+        -- (ghostAlive), and when that proof fails it deliberately touches nothing -- correct, but
+        -- it leaves the old object active while the new one already exists. Captured in the
+        -- fishing log: slot14 and slot15 both live across the swap, until the once-a-second sweep
+        -- caught it. Sweeping here closes that window to the frame it happens in, which is what
+        -- the user was seeing as the ghost "moving" when it casts a rod.
+        sweepOrphanGhosts()
+        -- AND APPLY THE PEER'S SPRITE OFFSET IN THE SAME FRAME. This path returns before the
+        -- mirroring block below, so without this the ghost spends a frame at pos2 0,0 with its new
+        -- 32-wide graphic -- half a tile off -- and then snaps into place when the next update
+        -- arrives. The rebuild is already a visible cut; adding a snap to it is what
+        -- *"looks a bit snappy and they also briefly move"* is made of.
+        local ng = ghosts[playerId]
+        if ng then
+            local nd = sprAddr(ng.sprId)
+            if remote.sox then w16(nd + 0x24, remote.sox & 0xffff) end
+            if remote.soy then w16(nd + 0x26, remote.soy & 0xffff) end
+            if remote.sanim then
+                w8(nd + 0x2a, remote.sanim)
+                w8(nd + 0x3f, (r8(nd + 0x3f) | 0x04) & ~0x10)
+            end
+        end
+        return
+    end
+
 
     -- A LEDGE HOP, BEFORE ANY STEP LOGIC LOOKS AT THE DISTANCE.
     --
