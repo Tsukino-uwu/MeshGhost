@@ -1365,29 +1365,51 @@ genderFrames.runsFor = function(gender, pose, frameIndex)
     return runs
 end
 
--- clipTopPx, when given, is the top edge (in screen pixels) of a panel the GAME drew -- a text
--- box, the START menu. Rows at or below it are not painted, so a drawn ghost standing "behind" a
--- text box keeps drawing above it instead of over it, and instead of being blanked entirely. That
--- is the spawned tier's behaviour approximated: the engine hides its objects by layer priority,
--- this hides ours by row. Clipping per RUN rather than per ghost is what makes the partial case
--- work, and costs one comparison per run.
-local function drawSpriteFrame(gender, pose, frameIndex, hFlip, screenX, screenY, clipTopPx)
+-- One horizontal span of one colour. Split out because the clip can turn a single run into two,
+-- and a line-or-pixel decision repeated three times is how the two paths drift apart.
+local function drawRun(x1, x2, y, color)
+    if x2 < x1 then return end
+    if x1 == x2 then
+        gui.drawPixel(x1, y, color)
+    else
+        gui.drawLine(x1, y, x2, y, color)
+    end
+end
+
+-- panelRows, when given, is the region the GAME drew its own UI into this frame: panelRows[row]
+-- is {x1, x2} in screen pixels for that 8-pixel row, or nil where the row is clear. It comes from
+-- the background tilemap (tiering.scanPanel), i.e. from what the game DREW.
+--
+-- Clipping is per RUN and per ROW, which is what makes this behave like the engine rather than
+-- like a blunt switch: with a text box open (bottom six rows, full width) a drawn ghost keeps its
+-- head and shoulders above the box; with the START menu open (right-hand columns, rows 0-13) a
+-- ghost standing to the LEFT of the menu is untouched, and one behind it loses only the part the
+-- menu covers. Blanking every drawn ghost whenever any panel opened would be the easy version and
+-- would look wrong for exactly the case the user cares about -- most of the screen is still the
+-- world.
+local function drawSpriteFrame(gender, pose, frameIndex, hFlip, screenX, screenY, panelRows)
     local runs = genderFrames.runsFor(gender, pose, frameIndex)
     for i = 1, #runs do
         local r = runs[i]
         local y = screenY + r.y
-        if clipTopPx and y >= clipTopPx then
+        local x1, x2 = r.x1, r.x2
+        if hFlip then x1, x2 = FRAME_WIDTH_PX - 1 - r.x2, FRAME_WIDTH_PX - 1 - r.x1 end
+        local ax1, ax2 = screenX + x1, screenX + x2
+
+        -- math.floor, NOT a shift: y comes from the sub-tile smoothing and is a FLOAT, and Lua
+        -- 5.4's >> demands an integer -- "number has no integer representation" thrown once per
+        -- run, i.e. every frame, which the frame-error counter caught immediately (2026-08-19).
+        local span = panelRows and y >= 0 and panelRows[math.floor(y / 8)]
+        if span and ax2 >= span[1] and ax1 <= span[2] then
             -- Counted, because "the clip ran" and "the clip did anything" are different claims and
-            -- only the second one is evidence. Published in the status line as clipped=.
+            -- only the second is evidence. Published in the status line as clipped=.
             genderFrames.clippedRuns = (genderFrames.clippedRuns or 0) + 1
+            -- Keep whatever falls outside the panel: a run straddling the menu's left edge is
+            -- still drawn up to that edge.
+            if ax1 < span[1] then drawRun(ax1, math.min(ax2, span[1] - 1), y, r.color) end
+            if ax2 > span[2] then drawRun(math.max(ax1, span[2] + 1), ax2, y, r.color) end
         else
-            local x1, x2 = r.x1, r.x2
-            if hFlip then x1, x2 = FRAME_WIDTH_PX - 1 - r.x2, FRAME_WIDTH_PX - 1 - r.x1 end
-            if x1 == x2 then
-                gui.drawPixel(screenX + x1, y, r.color)
-            else
-                gui.drawLine(screenX + x1, y, screenX + x2, y, r.color)
-            end
+            drawRun(ax1, ax2, y, r.color)
         end
     end
 end
@@ -1435,8 +1457,11 @@ local LOOPBACK_GHOST_OFFSET_TILES_Y = 0
 --     the generic update which plays out held movements.
 ----------------------------------------------------------------------------
 
-local GSPRITES_SPAWN_ADDR = 0x02020630
-local SPRITE_STRUCT_SIZE = 0x44
+-- gSprites and its stride are already declared once at the top of this file (GSPRITES_ADDR /
+-- SPRITE_SIZE) with their provenance. The spawn path used to redeclare them here under different
+-- names and identical values: two names for one address is how a future correction gets applied
+-- to one of them and not the other -- and Lua's 200-local ceiling in the main chunk made the
+-- duplicates cost something concrete as well.
 local MAX_SPRITES = 64
 local MAP_OFFSET = 7
 
@@ -1491,7 +1516,7 @@ local function rs16(a) return memory.read_s16_le(a) end
 local function r32(a) return memory.read_u32_le(a) end
 
 local function objAddr(i) return GOBJECTEVENTS_ADDR + avatarAddrOffset + i * OBJECTEVENT_SIZE end
-local function sprAddr(i) return GSPRITES_SPAWN_ADDR + i * SPRITE_STRUCT_SIZE end
+local function sprAddr(i) return GSPRITES_ADDR + i * SPRITE_SIZE end
 
 local function tileIsAllocated(n)
     return (r8(SSPRITETILEALLOCBITMAP_ADDR + (n // 8)) >> (n % 8)) & 1 == 1
@@ -1820,30 +1845,73 @@ local tiering = {
 -- WHERE THE GAME'S OWN UI IS, so the drawn tier can stay out of it.
 --
 -- A spawned ghost is hidden behind a text box by the engine, for free. A drawn one is painted
--- after the PPU has finished and would sit on top of the text the player is reading, which is the
--- single reason the drawn tier ships off (BANDAGES.md).
+-- after the PPU has finished and would sit on top of the text the player is reading, which is why
+-- the drawn tier shipped off until this existed.
 --
--- The answer has to come from asking the GAME WHAT IT DREW, not the LCD what it is displaying.
--- The hardware route was tried first and failed: the GBA's window registers (WIN0H/WIN0V plus
--- DISPCNT's enable bits) change every frame during ordinary walking -- measured 2026-08-19, see
--- probes/uiregion_probe.lua -- so they describe the display, not the panel. The remaining route,
--- which is the one that worked on Crystal, is the background tilemaps: a panel is tiles the game
--- wrote into a BG that is otherwise empty. probes/textbox_probe.lua measures that, and confirms
--- so far only the negative half: with nothing open, BG0 is entirely empty while the map sits on
--- BG2/BG3. The positive half -- what a text box actually writes, and into which rows -- is NOT
--- measured yet, so this returns nil ("no panel known") and nothing is clipped.
+-- THE SOURCE IS THE GAME'S OWN TILEMAP, not the LCD. The hardware route was tried first and is a
+-- dead end: the GBA's window registers (WIN0H/WIN0V plus DISPCNT's enable bits) change every frame
+-- during ordinary walking, so they describe the display rather than the panel
+-- (probes/uiregion_probe.lua keeps that negative result; the same trap caught the Game Boy's
+-- window layer on Crystal). Asking what the game DREW works, and was measured on 2026-08-19 with
+-- probes/textbox_probe.lua:
+--   * nothing open   -- BG0 is entirely EMPTY; the map lives on BG2/BG3.
+--   * a text box     -- BG0 rows 14-19, every column: the bottom six rows, full width.
+--                       (Talked to the NPC in the Littleroot house; corroborated on screen.)
+--   * the START menu -- BG0 rows 0-13, right-hand columns only: the panel, and nothing else.
+-- So BG0 is the UI layer and it is quiet until the game puts a panel on it. That is the whole
+-- detector, and it is style- and revision-independent in the way tile IDs would not be: it asks
+-- WHERE something was drawn, never WHICH tiles were drawn.
 --
--- Returning nil is deliberately the safe direction for the SHIPPED default: with the drawn tier
--- off, nothing is painted at all, so an unknown panel region cannot hurt anyone. It is not safe
--- to turn the tier on while this still returns nil.
-tiering.panelTopPx = function()
-    -- Dev override: pretend a panel starts at this screen ROW (0-19), so the clipping path can be
-    -- exercised and watched without waiting for a real text box. Never set in a shipped run.
+-- The tilemap's address comes from the background's own control register (BG0CNT, screen base
+-- block in bits 8-12, 2KB units from VRAM), so no game symbol or decomp address is involved and
+-- nothing here can go stale against a ROM revision.
+local BG0CNT_ADDR = 0x04000008
+local VRAM_ADDR = 0x06000000
+
+-- Rebuilt every SCAN_EVERY_FRAMES frames and reused in between: a panel opening one frame late is
+-- invisible, and scanning 20x30 cells every frame would be the expensive shape this project keeps
+-- warning about. Rows are stored as {x1, x2} in SCREEN PIXELS -- per row, because the menu covers
+-- different columns than the text box and a single rectangle would clip the wrong screen area.
+tiering.panelRows = {}
+tiering.panelScannedAt = nil
+tiering.scanPanel = function()
+    local SCAN_EVERY_FRAMES = 4
+    if tiering.panelScannedAt and frameCounter - tiering.panelScannedAt < SCAN_EVERY_FRAMES then
+        return tiering.panelRows
+    end
+    tiering.panelScannedAt = frameCounter
+
+    local rows = {}
+    -- Dev override: pretend the game drew a full-width panel from this row down, so the clipping
+    -- path can be exercised without a real panel (FLAGS.md).
     local fake = tonumber(MESHGHOST_EMERALD_FAKE_PANEL_ROW
         or os.getenv("MESHGHOST_EMERALD_FAKE_PANEL_ROW") or "")
-    if fake then return fake * 8 end
-    return nil
+    if fake then
+        for row = fake, 19 do rows[row] = { 0, 239 } end
+        tiering.panelRows = rows
+        return rows
+    end
+
+    local base = VRAM_ADDR + ((memory.read_u16_le(BG0CNT_ADDR) >> 8) & 0x1F) * 0x800
+    for row = 0, 19 do
+        local first, last
+        for col = 0, 29 do
+            if (memory.read_u16_le(base + (row * 32 + col) * 2) & 0x3FF) ~= 0 then
+                first = first or col
+                last = col
+            end
+        end
+        -- A row is stored only if the game drew something in it, so the common case (no panel at
+        -- all) leaves an empty table and costs the draw path one nil lookup per run.
+        if first then rows[row] = { first * 8, last * 8 + 7 } end
+    end
+    tiering.panelRows = rows
+    return rows
 end
+
+-- Say which renderer this session is running, once, at load. "Is the drawn tier on?" was
+-- guessed at twice during its own bring-up because nothing on screen or in the log answered it.
+console.log("MeshGhost: drawn overflow tier = " .. (tiering.drawn and "ON" or "off"))
 
 -- How many object slots ghosts may hold on this map right now. Counted from the array itself
 -- rather than from any table of ours: "active, and not carrying our localId" is the same test the
@@ -1988,7 +2056,7 @@ local function spawnGhost(playerId, mapX, mapY, orientation, wantGfx)
     -- the chosen graphic's own entry, so a ghost on a bike is drawn as a bike rather than as
     -- whatever this machine's player happens to be.
     local src, dst = sprAddr(playerSprId), sprAddr(sprId)
-    for off = 0, SPRITE_STRUCT_SIZE - 1 do w8(dst + off, r8(src + off)) end
+    for off = 0, SPRITE_SIZE - 1 do w8(dst + off, r8(src + off)) end
 
     -- OAM: take ONLY the shape and size bits from the target graphic, leaving every other field
     -- as the live sprite already had it.
@@ -2089,7 +2157,7 @@ spawnSurfBlob = function(g, mapX, mapY)
     if not tileStart then return nil end
 
     local d = sprAddr(sprId)
-    for off = 0, SPRITE_STRUCT_SIZE - 1 do w8(d + off, 0) end
+    for off = 0, SPRITE_SIZE - 1 do w8(d + off, 0) end
     for off = 0, 7 do w8(d + off, r8(oamPtr + off)) end
     w16(d + 0x04, (r16(d + 0x04) & 0x0c00) | (tileStart & 0x03ff)) -- tileNum, paletteNum 0
     w32(d + 0x08, animsPtr)
@@ -2304,7 +2372,7 @@ local function drawRemotes(localAreaId, playerMapX, playerMapY, skipSpawned)
     -- ceiling of 200 locals, and a local inside a function is counted against the function.
     local SCREEN_WIDTH_PX, SCREEN_HEIGHT_PX = 240, 160
     local playerScreenX, playerScreenY = playerScreenPos()
-    local clipTopPx = tiering.panelTopPx()
+    local panelRows = tiering.scanPanel()
     -- Counted and published (tiering.painted) rather than inferred: "assigned to the drawn tier"
     -- and "actually painted this frame" differ by everyone the off-screen cull skipped, and only
     -- the second one answers "is every peer I can see actually being shown".
@@ -2343,7 +2411,7 @@ local function drawRemotes(localAreaId, playerMapX, playerMapY, skipSpawned)
                 end
 
                 drawSpriteFrame(remote.gender, pose, frameIndex, dirInfo.hFlip, screenX, screenY,
-                    clipTopPx)
+                    panelRows)
                 painted = painted + 1
             end
         end
@@ -2438,13 +2506,14 @@ local function runFrame()
     -- it was silently missing (found by reading, 2026-08-19):
     --   * avatarAddrConfirmed -- before detection succeeds the object array has not been located,
     --     so every read here is of an address we have not verified holds gObjectEvents;
-    --   * avatarAddrOffset == 0 -- on an Archipelago ROM this adapter deliberately does not write
-    --     (see the render-path split below and BANDAGES.md). The sweep read a relocated
-    --     gObjectEvents but would have written the VANILLA gSprites, which is exactly the
-    --     unmeasured write that split exists to avoid;
+    --     (The third condition here used to be `avatarAddrOffset == 0`, because gSprites'
+    --     Archipelago location was unmeasured and the sweep would have read a relocated
+    --     gObjectEvents while writing the vanilla gSprites. It is measured now -- gSprites does
+    --     NOT move on the Archipelago build, probes/gsprites_scan_probe.lua, verified.md
+    --     2026-08-19 -- so the sweep is correct on both builds and the condition is gone.)
     --   * inOverworld() -- outside it there is no live object array to sweep, and a ghost of ours
     --     cannot have been created, so there is nothing this could legitimately find.
-    if frameCounter % 60 == 0 and avatarAddrConfirmed and avatarAddrOffset == 0 and inOverworld() then
+    if frameCounter % 60 == 0 and avatarAddrConfirmed and inOverworld() then
         sweepOrphanGhosts()
     end
 
@@ -2572,25 +2641,29 @@ local function runFrame()
         -- where state is nil (the map-transition debounce) rather than falling back to a
         -- raw read that wouldn't be consistent with what was just sent to the network.
         if connected and inOverworld() and smoothX then
-            -- SPAWN where we can, DRAW where we cannot. The spawn path writes gObjectEvents and
-            -- gSprites; gObjectEvents' Archipelago relocation is measured and applied
-            -- (avatarAddrOffset), but gSprites' is NOT -- the adapter only ever read gSprites at
-            -- its vanilla address. Reading a wrong address returns a wrong number; WRITING one
-            -- corrupts whatever now lives there, so a patched ROM keeps the overlay until that
-            -- shift is measured. Registered in BANDAGES.md as a deliberate, temporary split.
-            if avatarAddrOffset == 0 then
-                -- TIER ONE: real object events, as many as the map can spare (nearest peers win).
-                local spawnSet = tiering.chooseSpawned(smoothAreaId, smoothX, smoothY)
-                syncRemoteGhosts(smoothAreaId, spawnSet)
-                -- TIER TWO: everyone the engine had no room for, painted over the finished frame
-                -- so that no peer is ever simply absent. Flag-gated -- see FLAGS.md and
-                -- BANDAGES.md: a drawn ghost has no engine occlusion, so until the region a text
-                -- box or menu occupies is MEASURED on this game, this tier would paint over them.
-                if tiering.drawn then
-                    drawRemotes(smoothAreaId, smoothX, smoothY, spawnSet)
-                end
-            else
-                drawRemotes(smoothAreaId, smoothX, smoothY, nil)
+            -- ONE render path on both builds, since 2026-08-19. This used to branch on
+            -- avatarAddrOffset: a patched ROM got the drawn overlay instead of real spawns,
+            -- because gObjectEvents' Archipelago relocation was measured while gSprites' was
+            -- not, and writing an unmeasured address corrupts whatever now lives there.
+            -- gSprites is measured now and it does NOT move -- gObjectEvents shifts by 0x284 on
+            -- the Archipelago build, gSprites does not shift at all (probes/gsprites_scan_probe.lua,
+            -- verified.md 2026-08-19). So the split is gone, and with it the reason the drawn
+            -- renderer had to exist for anything but the overflow tier.
+            --
+            -- Nothing here relies on that measurement being right on some FUTURE patched build:
+            -- spawnGhost() refuses to write a byte unless the player's own object/sprite
+            -- cross-link resolves through gSprites first, so a build that did move it gets a
+            -- logged refusal rather than a corrupted sprite.
+            --
+            -- TIER ONE: real object events, as many as the map can spare (nearest peers win).
+            local spawnSet = tiering.chooseSpawned(smoothAreaId, smoothX, smoothY)
+            syncRemoteGhosts(smoothAreaId, spawnSet)
+            -- TIER TWO: everyone the engine had no room for, painted over the finished frame
+            -- so that no peer is ever simply absent. Flag-gated -- see FLAGS.md and
+            -- BANDAGES.md: a drawn ghost has no engine occlusion, so until the region a text
+            -- box or menu occupies is MEASURED on this game, this tier would paint over them.
+            if tiering.drawn then
+                drawRemotes(smoothAreaId, smoothX, smoothY, spawnSet)
             end
         end
     end
