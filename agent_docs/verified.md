@@ -7913,3 +7913,28 @@ permitted here because it is a PATCHED ROM (`dev-scripts/shots/apemerald/171-gho
 names the graphics id and the table address it failed against, throttled the same way the
 out-of-slots refusal is. A refusal the log never mentions is indistinguishable from a peer who is
 not there, and it cost most of a session.
+
+## Emerald's drawn tier clips a REAL panel, not just a fake one — 2026-08-19
+
+**A counter from the adapter's own status line, not a picture** (the accompanying screenshots are of
+a vanilla ROM and are not offered as evidence).
+
+Setup: drawn overflow tier ON, `MESHGHOST_EMERALD_MAX_SPAWNED=0` (new probe flag) so the single
+loopback peer is PAINTED rather than spawned — `ghosts=0 drawn=1` — and
+`MESHGHOST_EMERALD_FAKE_PANEL_ROW` **unset**, so the only panel geometry in play is what
+`tiering.scanPanel()` read out of the BG0 tilemap.
+
+- Nothing open: `clipped=0`, sustained over many 300-frame windows.
+- With a real panel on screen and the drawn ghost overlapping it: **`clipped=475`** in one
+  300-frame window, returning to 0 the window after.
+
+That is the first time the clipping has been driven by the real detector rather than by the fake
+panel row (the earlier 1.1M-run figure was `FAKE_PANEL_ROW=0`). **What is NOT yet done is a
+controlled repeat**: the loopback ghost sits on the player's own row, and a text box only occupies
+the bottom six rows, so an overlap happens only when the camera puts the player low on screen. A
+peer whose Y genuinely differs from the player's (a synthetic peer on a private relay) or a small
+indoor map where the camera clamps is the way to make it repeatable.
+
+Reached by writing the player's coordinates (permitted for progress, 2026-08-19) — so this is a
+**state that was reached, not a state that was played to**, and it says nothing about whether a
+player walking normally would find that overlap.
