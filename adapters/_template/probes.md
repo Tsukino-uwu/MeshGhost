@@ -311,6 +311,56 @@ log at all, suspect its cost before suspecting the game.
 - [FLAGS.md](FLAGS.md) — where a probe's switch goes once it exists, so that "off by default" is
   written down somewhere and not just believed.
 
+## How to find things — the general form, collected 2026-08-19
+
+A night of adapter work produced the same handful of moves over and over. They are listed as
+moves rather than principles because each one is something to *do* when stuck.
+
+**1. Ask the system for its answer instead of re-deriving it.** Three attempts to convert the
+engine's sprite coordinates into screen pixels by reasoning each left rows and columns unfilled.
+What worked was reading OAM — what the hardware actually draws from — and calibrating against it
+every frame. Same move solved facing and animation: rather than decode how 12 tiles become a walk
+cycle, watch the engine render the player and copy the arrangement it used. **If the system
+already computes the thing correctly, read its answer.**
+
+**2. Validate the method on a case whose answer you know.** The Archipelago sprite table was found
+by scanning the ROM for a structural signature — and the same scan, run against the vanilla ROM,
+returns the address already established from the decomp. That agreement is what makes the new
+number evidence instead of a guess. **A method that cannot rediscover what you already know is not
+a method.**
+
+**3. Make the log separate the candidate causes.** "Half the screen is empty" is unactionable;
+`89 waiting, 43 drawn, 0 no sprite tiles, 40 off screen, 0 hidden by UI` names the culprit in one
+line. Design the counters so each hypothesis has its own bucket, and the next number you read
+tells you which one is true.
+
+**4. When two fixes do not move the number, stop fixing.** The ghost-snapping bug took three
+attempts; the first two were plausible, correct in themselves, and moved 64 jumps to 39 and then
+37. That flatness was the signal that the real cause was elsewhere — it turned out to be an OAM
+entry whose order flips with facing. **A fix that barely moves the measurement is evidence about
+the diagnosis, not a partial win.**
+
+**5. Cross-check from an independent direction.** The patched ROM's table was measured by scanning
+the file, then confirmed by the adapter validating it inside the running emulator. The menu
+rectangle was read from RAM, and it agreed with something the user had noticed by eye. Two
+disagreeing methods is a finding; two agreeing methods is a fact.
+
+**6. Test with a crowd, not a case.** Three leaks appeared only with dozens of peers — each
+invisible alone, because a leaked ghost looks exactly like a peer standing still. **Load is a
+different question from correctness, and it finds different bugs.**
+
+**7. Assert the number, do not describe it.** One measurement was quoted in six documents and two
+comments, wrong in all of them, because nothing checked it — the tests asserted only an
+inequality, which stays true however far off the number drifts.
+
+**8. Phrase a failure as what YOU observed.** *"Scripted input did not get past this NPC"* invites
+a one-line correction; *"the route is story-blocked"* is a claim about the game that a reader will
+believe and build on. This project has one of the latter in its record, and it was wrong.
+
+**9. Watch invariants continuously, and log only violations.** A watcher that prints nothing is a
+result. The three rules worth watching were each something that had just broken — which is the
+general recipe: **today's bug is tomorrow's invariant.**
+
 ## Ways of finding things that worked — collected 2026-08-18
 
 A day of Emerald spawn work produced these. Each one replaced something slower or wronger, and
