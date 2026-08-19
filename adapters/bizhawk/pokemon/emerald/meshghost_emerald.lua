@@ -1444,10 +1444,24 @@ end
 -- menu covers. Blanking every drawn ghost whenever any panel opened would be the easy version and
 -- would look wrong for exactly the case the user cares about -- most of the screen is still the
 -- world.
-local function drawSpriteFrame(gender, pose, frameIndex, hFlip, screenX, screenY, panelRows)
+-- `dim` is how bright the SCENE is right now, 0 (black) to 1 (full), measured from the hardware
+-- palette by the caller. A spawned ghost is drawn by the PPU and so is dimmed by every fade, cave
+-- and night the game applies; a painted one is put on top of the finished frame and is dimmed by
+-- nothing, which is why it shone through a house exit. Scaling the run colours is the same
+-- operation the hardware performs, applied where we draw instead.
+local function drawSpriteFrame(gender, pose, frameIndex, hFlip, screenX, screenY, panelRows, dim)
     local runs = genderFrames.runsFor(gender, pose, frameIndex)
     for i = 1, #runs do
         local r = runs[i]
+        local color = r.color
+        if dim and dim < 0.99 then
+            -- Per RUN, not per pixel, and only while something is actually dimming the screen:
+            -- at full brightness this whole branch is one comparison.
+            color = (0xFF << 24)
+                | (math.floor(((color >> 16) & 0xFF) * dim) << 16)
+                | (math.floor(((color >> 8) & 0xFF) * dim) << 8)
+                | math.floor((color & 0xFF) * dim)
+        end
         local y = screenY + r.y
         local x1, x2 = r.x1, r.x2
         if hFlip then x1, x2 = FRAME_WIDTH_PX - 1 - r.x2, FRAME_WIDTH_PX - 1 - r.x1 end
@@ -1463,10 +1477,10 @@ local function drawSpriteFrame(gender, pose, frameIndex, hFlip, screenX, screenY
             genderFrames.clippedRuns = (genderFrames.clippedRuns or 0) + 1
             -- Keep whatever falls outside the panel: a run straddling the menu's left edge is
             -- still drawn up to that edge.
-            if ax1 < span[1] then drawRun(ax1, math.min(ax2, span[1] - 1), y, r.color) end
-            if ax2 > span[2] then drawRun(math.max(ax1, span[2] + 1), ax2, y, r.color) end
+            if ax1 < span[1] then drawRun(ax1, math.min(ax2, span[1] - 1), y, color) end
+            if ax2 > span[2] then drawRun(math.max(ax1, span[2] + 1), ax2, y, color) end
         else
-            drawRun(ax1, ax2, y, r.color)
+            drawRun(ax1, ax2, y, color)
         end
     end
 end
@@ -2521,6 +2535,41 @@ local function drawRemotes(localAreaId, playerMapX, playerMapY, skipSpawned, com
         return
     end
 
+    -- HOW BRIGHT IS THE SCENE RIGHT NOW? Measured from the hardware palette, once per frame.
+    --
+    -- The pixels this tier draws were decoded from the CARTRIDGE's palette and cached, so they are
+    -- always full brightness -- while everything the PPU draws is dimmed by whatever fade, cave or
+    -- night the game has applied to palette RAM. That is why the drawn ghost shone through a house
+    -- EXIT (the fade-in) even after the entry case was fixed: leaving, the engine leaves the
+    -- player's sprite visible and simply fades the screen, so there is no invisible flag to catch.
+    --
+    -- The comparison is like for like: the LIVE OBJ palette the player's own sprite is using
+    -- (palette RAM at 0x05000200, GBA hardware, the same footing as the BGnCNT read that finds the
+    -- tilemaps) against the ROM palette that same character was decoded from. Their ratio is what
+    -- the hardware is doing to every character on screen, so applying it to ours is what "the same
+    -- lighting" means. It costs 32 reads a frame and nothing at all per peer.
+    local dim = 1
+    do
+        local ps = sprAddr(r8(GPLAYERAVATAR_ADDR + avatarAddrOffset + 0x04))
+        local slot = (r16(ps + 0x04) >> 12) & 0xF
+        local romPal = GOBJECTEVENTPAL_BRENDAN_ADDR + (genderFrames.romOffset or 0)
+        local sb2 = r32(GSAVEBLOCK2PTR_ADDR)
+        if sb2 ~= 0 and r8(sb2 + 0x08) == 1 then
+            romPal = GOBJECTEVENTPAL_MAY_ADDR + (genderFrames.romOffset or 0)
+        end
+        local live, ref = 0, 0
+        for i = 0, 15 do
+            local c = r16(0x05000200 + slot * 32 + i * 2)
+            live = live + (c & 0x1F) + ((c >> 5) & 0x1F) + ((c >> 10) & 0x1F)
+            local o = r16(romPal + i * 2)
+            ref = ref + (o & 0x1F) + ((o >> 5) & 0x1F) + ((o >> 10) & 0x1F)
+        end
+        -- A ratio above 1 means the slot is not holding the palette we think it is; trust the
+        -- cartridge in that case rather than brightening a ghost past what the game can show.
+        if ref > 0 then dim = live / ref end
+        if dim > 1 then dim = 1 elseif dim < 0 then dim = 0 end
+    end
+
     local playerScreenX, playerScreenY = playerScreenPos()
     local panelRows = tiering.scanPanel()
     -- Counted and published (tiering.painted) rather than inferred: "assigned to the drawn tier"
@@ -2562,20 +2611,53 @@ local function drawRemotes(localAreaId, playerMapX, playerMapY, skipSpawned, com
                 and screenY + FRAME_HEIGHT_PX > 0 and screenY < SCREEN_HEIGHT_PX then
                 local dirInfo = DIRECTION_ANIM[remote.orientation] or DIRECTION_ANIM.south
                 local frameIndex, pose
-                if remote.anim == "walking" or remote.anim == "running" then
+                -- MOVEMENT IS A POSITION FACT, NOT A TAG. A forced move -- a cutscene, an NPC
+                -- pushing you, a scripted walk -- does not put the game in runningState 2, so the
+                -- anim tag says "idle" while the peer is plainly crossing tiles. The engine walks
+                -- a spawned ghost from the movement itself and does not care what we called it;
+                -- the drawn tier believed the tag, so it slid. User, 2026-08-19, watching both:
+                -- *"the drawn one was sliding"*, *"normal ghost was walking properly"*.
+                --
+                -- The glide already knows: it is mid-step exactly while the peer is crossing from
+                -- one tile to the next, which is the same question with an answer that cannot be
+                -- mislabelled.
+                local gliding = remote.gFrame and remote.gDur
+                    and (frameCounter - remote.gFrame) < remote.gDur
+                if remote.anim == "walking" or remote.anim == "running" or gliding then
                     pose = (remote.anim == "running") and "run" or "walk"
                     frameIndex = advanceAnim(remote, dirInfo)
                 else
+                    -- A TURN IN PLACE IS AN ANIMATION, NOT A NEW STATIC FRAME.
+                    --
+                    -- The user, comparing the two renderers side by side (2026-08-19): the drawn
+                    -- one *"only faces the direction, it does not animate/move the legs"*. The
+                    -- engine gives a spawned ghost a dedicated turn animation -- probe numbers
+                    -- 8-11, one per direction, against 0-3 standing and 4-7 walking -- and it
+                    -- lasts **exactly 8 frames, 92 times out of 92, zero variance**
+                    -- (probes/turn_and_door_probe.lua). Eight frames is also exactly one
+                    -- WALK_POSE_DURATIONS hold, so what the engine plays is one stride of the new
+                    -- direction before settling: that is what is reproduced here.
+                    --
+                    -- The turn arrives as `anim=idle` with a new orientation, because the game
+                    -- reports runningState 1 for it and the classifier calls anything that is not
+                    -- 2 idle. That is why this lives in the idle branch rather than the walk one.
+                    if remote.lastOrientation ~= remote.orientation then
+                        remote.turnUntil = frameCounter + WALK_POSE_DURATIONS[1]
+                    end
                     remote.animTimer = 0
                     remote.animStepIndex = 1
                     remote.lastAnim = remote.anim
                     remote.lastOrientation = remote.orientation
                     pose = "walk" -- idle frames (0-2) only exist in the walk/Normal pic table
-                    frameIndex = dirInfo.idle
+                    if remote.turnUntil and frameCounter < remote.turnUntil then
+                        frameIndex = dirInfo.steps[1]
+                    else
+                        frameIndex = dirInfo.idle
+                    end
                 end
 
                 drawSpriteFrame(remote.gender, pose, frameIndex, dirInfo.hFlip, screenX, screenY,
-                    panelRows)
+                    panelRows, dim)
                 painted = painted + 1
             end
         end

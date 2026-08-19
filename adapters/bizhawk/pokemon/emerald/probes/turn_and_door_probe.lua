@@ -61,7 +61,8 @@ local function sample()
 
     return string.format(
         "map=%d:%d pos=%d,%d facing=%d run=%d avatarFlags=%02X sprAnim=%d/%d sprFlags=%02X "
-            .. "sprXY=%d,%d oamTile=%d img=%08X activeObjects=%d",
+            .. "sprXY=%d,%d oamTile=%d img=%08X bldcnt=%04X bldy=%04X bldalpha=%04X "
+            .. "activeObjects=%d",
         memory.read_s8(base + 0x04), memory.read_s8(base + 0x05),
         memory.read_s16_le(base + 0x00), memory.read_s16_le(base + 0x02),
         facing, runningState, flags,
@@ -71,6 +72,14 @@ local function sample()
         -- between them they name the frame a turn draws, which is the thing the drawn tier has to
         -- mirror and the one thing the animation NUMBER does not say.
         memory.read_u16_le(spr + 0x04) & 0x3FF, memory.read_u32_le(spr + 0x0c),
+        -- GBA HARDWARE blend registers -- BLDCNT/BLDALPHA/BLDY at 0x04000050-54, documented
+        -- independently of any cartridge, the same footing as the BGnCNT read that located the
+        -- tilemaps. A fade to/from black is the brightness effect, and it dims everything the PPU
+        -- draws -- which is precisely what a ghost painted AFTER the PPU never gets. If these
+        -- carry the fade, they are the signal the drawn tier should stop on; if they are busy
+        -- during ordinary play too, they are not, and this says so before anything is built on it.
+        memory.read_u16_le(0x04000050), memory.read_u16_le(0x04000054),
+        memory.read_u16_le(0x04000052),
         active)
 end
 

@@ -8020,20 +8020,43 @@ those same frame counts, snapping only when the jump exceeds one tile (a warp, o
 Also fixed alongside: the status line reported `drawn=0` while a painted ghost was on screen,
 because the count was gated on the overflow tier's flag rather than on anything being painted.
 
-### 2. A facing change draws as one static frame — open
+### 2. A facing change drew as one static frame — fixed and confirmed
 
-*"its not doing animations when standing still and doing facing directions."* The instrumentation
-added the same day (dev-gated, logs only on change) shows the data is NOT the problem: turning on
-the spot arrives as `orientation=south anim=idle` with the frame index changing, so the drawn
-renderer sees the facing change and draws the idle frame for the new direction. Whatever the
-engine plays for the spawned ghost on a turn, the drawn tier does not. **Not diagnosed further,
-and deliberately not guessed at: what the game is MEANT to do on a turn is the user's to say.**
+*"its not doing animations when standing still and doing facing directions"*, and asked what the
+spawned one does differently: *"drawn one only 'faces the direction', it does not animate/move the
+legs"*.
 
-### 3. Visible for a moment when entering a house — open
+**A turn in place is an animation in this game, and a measured one.** `probes/turn_and_door_probe.lua`
+sampled the player's own sprite frame by frame:
 
-*"the drawn one is visible for a tiny bit when entering a house unlike the spawned one."* Working
-theory, unconfirmed: the engine places and shows its own characters as the fade finishes, while the
-drawn tier starts painting the instant the peer's `area_id` matches.
+- the engine has a dedicated turn animation — animation numbers **8-11**, one per direction,
+  against **0-3** standing and **4-7** walking;
+- it lasts **exactly 8 frames, 92 times out of 92, with zero variance**;
+- and 8 frames is exactly one `WALK_POSE_DURATIONS` hold, so what it plays is **one walk stride of
+  the new direction** before settling into the standing frame.
+
+The turn reaches the adapter as `anim=idle` with a new orientation, because the game reports
+`runningState = 1` for it and anything that is not 2 classifies as idle — which is why the drawn
+tier saw a facing change with no animation attached and drew one static frame. It now plays that
+stride for those 8 frames. **User-confirmed: *"facing direction animations work now"*.**
+
+### 3. Visible for a moment during a house transition — half fixed
+
+**Entering is fixed and confirmed; leaving is not.** The two are not the same event.
+
+*Entering*, the engine hides the PLAYER's own sprite for the whole transition — the invisible bit
+(0x04) in the sprite's flags at +0x3e, set 44 frames before the map id even changes and cleared
+once the new map is up, ~50 frames end to end. The drawn tier now stops on exactly that: while the
+game will not draw its own player, there is nobody for a ghost to stand beside.
+
+*Leaving*, that flag is NOT set — the sprite is live again (flags 03) while the screen is still
+fading in, so the guard does not fire and the ghost paints through the fade. **The suspected cause
+is the one the user predicted before any of this was built:** a fade dims everything the PPU draws,
+and a ghost painted after the PPU is never dimmed by anything. Same family as a dark cave. The
+probe now also samples the GBA's own blend registers (BLDCNT/BLDALPHA at 0x04000050/52 — hardware,
+the same footing as the BGnCNT read that located the tilemaps), to find out whether the fade is
+visible there before anything is built on it. **BLDY at 0x04000054 is write-only and reads as open
+bus** (it came back as `BC01` during ordinary play), so the fade amount is not readable that way.
 
 **The instrumentation for it was written, run, and taken straight back out** — a per-frame
 `console.log` (facing changes, then 90 frames of object counts after each area change) and the
