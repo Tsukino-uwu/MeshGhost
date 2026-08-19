@@ -114,6 +114,12 @@ func IsPermanentRejectErr(err error) bool {
 // the user took (2026-08-19) on the grounds that this is the first time anyone
 // had actually measured how the setting looks.
 //
+// CHANGING THIS MEANS CHANGING THREE FILES, not one: packaging/release/config.json and
+// packaging/release/games/client-config-template.json carry explicit values that OVERRIDE this for
+// every packaged player. Raising it here and not there is a default nobody receives -- which is
+// exactly what happened on 2026-08-19 until the user asked what the release actually ships.
+// cmd/meshghost/shippedconfig_test.go now fails when they disagree.
+//
 // Overridable per-Core (see Core.InterpolationDelay).
 const DefaultInterpolationDelay = 250 * time.Millisecond
 
@@ -1693,10 +1699,26 @@ func (c *Core) resolveTransport(addr, gameID, room, displayName, roomCode, gameV
 	// precisely the fallback tlsx.Auto otherwise allows for the benefit of
 	// relays built before this feature existed. Once TLS is known to work,
 	// that allowance has no reason to apply and is withdrawn.
-	if secure && opts.Mode == tlsx.Auto {
-		opts.Mode = tlsx.Required
-	}
 	kind, dialAddr := c.chooseTransport(addr, offers)
+	if secure && opts.Mode == tlsx.Auto {
+		if kind == netx.UDP {
+			// EXCEPT ON A TRANSPORT THAT CANNOT CARRY TLS AT ALL. udp has no DTLS in Go, so
+			// escalating here would not secure the session -- it would refuse to make one, and
+			// silently kill a supported transport for anybody whose relay speaks TLS. Found by
+			// internal/e2e's transport matrix the moment `auto` became the default (2026-08-19):
+			// every udp round trip stopped, because discovery succeeded over TLS every time.
+			//
+			// Saying so is the whole obligation here. `auto` means "encrypt where that is
+			// possible, and never quietly do less than you could" -- on udp it is not possible,
+			// and the log has to be the thing that says it rather than the connection just
+			// working and looking encrypted.
+			log.Printf("core: this relay speaks TLS, but -transport udp cannot be encrypted " +
+				"(Go has no DTLS) -- this session is PLAINTEXT. Use quic for the same loss " +
+				"behaviour with encryption, or tcp.")
+		} else {
+			opts.Mode = tlsx.Required
+		}
+	}
 	return kind, dialAddr, opts, nil
 }
 

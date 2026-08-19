@@ -366,8 +366,8 @@ func main() {
 			"cannot share it, since udp takes -addr's udp port itself; serving udp and quic "+
 			"together therefore needs a port named here (e.g. "+FallbackQuicAddr+"). Ignored "+
 			"unless quic is in -transport")
-	tlsMode := flag.String("tls", tlsx.Off.String(),
-		"encrypt the tcp transport: off (the default), auto, or required. \"auto\" serves TLS "+
+	tlsMode := flag.String("tls", tlsx.Auto.String(),
+		"encrypt the tcp transport: auto (the default), off, or required. \"auto\" serves TLS "+
 			"and plaintext on the SAME port -- a TLS ClientHello and an NDJSON line are told "+
 			"apart by their first byte -- so encrypted clients are protected while netcat still "+
 			"works for debugging. \"required\" closes any connection that is not encrypted, "+

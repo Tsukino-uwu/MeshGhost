@@ -563,11 +563,12 @@ func main() {
 			"lossy connection, but CANNOT be encrypted (Go has no DTLS), so your room code "+
 			"crosses the wire in the clear. quic: same loss behaviour as udp but encrypted and "+
 			"hard to spoof")
-	tlsMode := flag.String("tls", tlsx.Off.String(),
-		"encrypt the connection to the relay: off (the default), auto, or required. This covers "+
+	tlsMode := flag.String("tls", tlsx.Auto.String(),
+		"encrypt the connection to the relay: auto (the default), off, or required. This covers "+
 			"the tcp handshake every client makes -- the one that carries your room code -- so it "+
 			"is worth setting even when -transport is quic, which only encrypts what comes after. "+
-			"auto: use TLS when the relay speaks it, and warn loudly in the log if it does not. "+
+			"auto (the default): use TLS when the relay speaks it, and warn loudly in the log if "+
+			"it does not -- so a plain relay still works, it just says so. "+
 			"required: refuse to send anything to a relay that is not encrypted. The relay's "+
 			"certificate is self-signed, so this stops someone READING your traffic; to also stop "+
 			"someone impersonating the relay, ask the host for the fingerprint their relay prints "+

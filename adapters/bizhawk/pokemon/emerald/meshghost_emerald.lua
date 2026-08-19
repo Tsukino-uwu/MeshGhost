@@ -2843,25 +2843,19 @@ local function drawGhostShadows()
     for playerId, g in pairs(ghosts) do
         local remote = remotes[playerId]
         if remote and remote.act and remote.act >= 0x0c and remote.act <= 0x0f and ghostAlive(g) then
+            -- MEASURED against the game's own shadow during a real hop, rather than sized by
+            -- eye (probes: the shadow sprite is 16x8 with c2c -8,-4, sitting at the character's
+            -- own x and 12px below its un-arced y -- so its top-left is x-8, y+8). Two earlier
+            -- versions were a 16x6 ellipse at a guessed offset, which is what "the ledge hop
+            -- shadows look off compared to the player" was.
             local d = sprAddr(g.sprId)
-            local groundX = rs16(d + 0x20) + rs16(d + 0x24) + memory.read_s8(d + 0x28)
-                + rs16(GSPRITECOORDOFFSETX_ADDR)
-            local groundY = rs16(d + 0x22) + memory.read_s8(d + 0x29)
-                + rs16(GSPRITECOORDOFFSETY_ADDR)
-            -- Centred on the character and sat at its feet: the frame is FRAME_WIDTH_PX wide and
-            -- the sprite's origin is its top-left once centerToCorner is applied above.
-            local cx = groundX + (FRAME_WIDTH_PX // 2)
-            local cy = groundY + FRAME_HEIGHT_PX - 4
-            if cx > -16 and cx < 256 and cy > -16 and cy < 176 then
-                -- Drawn, not decoded: the shadow is a field-effect graphic in a different table
-                -- from the character graphics this adapter reads, and an ellipse is honest about
-                -- being ours rather than a near-miss copy of the game's.
-                -- OPAQUE BLACK, and that is measured rather than tuned. Three rounds of walking
-                -- the alpha up (0x60, 0xA0, 0xD0) all read lighter than the player's, so the
-                -- palettes were dumped during a real jump instead: every candidate entry the game
-                -- has in play is pure black (raw 0000). The game's shadow is not a soft grey we
-                -- were failing to match -- it is black, and ours was translucent.
-                gui.drawEllipse(cx - 8, cy - 3, 16, 6, 0x00000000, 0xFF000000)
+            local sx = rs16(d + 0x20) + rs16(GSPRITECOORDOFFSETX_ADDR)
+            -- Deliberately WITHOUT pos2 (+0x24/+0x26): that carries the jump arc, and the shadow
+            -- belongs on the ground the character left, which is exactly what the game does --
+            -- its shadow sprite reads pos2 0,0 while the character mid-hop reads 0,-6.
+            local sy = rs16(d + 0x22) + rs16(GSPRITECOORDOFFSETY_ADDR)
+            if sx > -32 and sx < 272 and sy > -32 and sy < 192 then
+                gui.drawEllipse(sx - 8, sy + 8, 16, 8, 0x00000000, 0xFF000000)
             end
         end
     end
@@ -3285,8 +3279,11 @@ local function drawRemotes(localAreaId, playerMapX, playerMapY, skipSpawned, com
                 -- is where the painted ghost HAS an arc (it copies the spawned sprite's); a real
                 -- overflow peer slides across a ledge and has no ground to separate from.
                 if pinned and remote.act and remote.act >= 0x0c and remote.act <= 0x0f then
-                    gui.drawEllipse(screenX + (FRAME_WIDTH_PX // 2) - 8,
-                        screenY - pinnedArc + FRAME_HEIGHT_PX - 7, 16, 6,
+                    -- Same measured geometry as the spawned ghost's (16x8, at the character's own
+                    -- x, top-left 8px below its un-arced position). screenX/screenY here are the
+                    -- FRAME's top-left, so the character's own anchor is +8,+16 from it -- and the
+                    -- arc comes back off, because the shadow belongs on the ground.
+                    gui.drawEllipse(screenX, screenY - pinnedArc + 24, 16, 8,
                         0x00000000, 0xFF000000)
                 end
                 painted = painted + 1

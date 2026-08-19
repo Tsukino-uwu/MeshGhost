@@ -2019,7 +2019,8 @@ Format: Date / Decision / Status / Context / Options considered / Resolution / C
 
 - **Date:** 2026-08-19
 - **Decision:** TLS over the `tcp` transport, as a three-way `off` / `auto` / `required` switch
-  on both the relay and the client, off by default and turned on by a release's `config.json`.
+  on both the relay and the client, defaulting to `auto` in the flags and in a release's
+  `config.json` alike (the `off` default was retired 2026-08-19 -- see below).
 - **Status:** accepted
 - **Context:** `quic` has been encrypted since it existed and is the shipped default session
   transport, but **every client handshakes over `tcp` first and that handshake carries the room

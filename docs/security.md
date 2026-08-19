@@ -53,7 +53,7 @@ That is the whole argument, and it is a judgement, not a fact.
 
 | Transport | Encrypted? | Authenticated? | Notes |
 | --- | --- | --- | --- |
-| **tcp** | **Optional**, TLS 1.3 — off by default, on in a release (`"tls"`) | **No**, unless a fingerprint is pinned | Plaintext by default, deliberately: greppable with netcat, which is how a session gets debugged. With `tls` on it is encrypted, and under `"auto"` one port still serves both. Always carries the handshake. |
+| **tcp** | **Optional**, TLS 1.3 — **on by default** (`auto`), in a release and from the flags alike | **No**, unless a fingerprint is pinned | Encrypted by default under `auto`, which still serves plaintext on the SAME port -- so netcat debugging survives while real sessions are protected. `off` opts out; `required` refuses plaintext outright. Always carries the handshake. |
 | **quic** (default) | **Yes**, TLS 1.3 | **No** — the certificate is self-signed and unverified | Stops a passive eavesdropper. Does **not** stop an active man-in-the-middle, who presents their own certificate and is accepted. |
 | **udp** | **No** | No | Go's standard library has no DTLS, so this one cannot be fixed the same way. |
 
@@ -279,7 +279,7 @@ ADR in [agent_docs/architecture.md](../agent_docs/architecture.md).
   resource gap; what it is, is a new place a client could smuggle something into, and it is not
   inspected because by hard rule it cannot be. Same posture as `extras`, with a longer lifetime.
 - **`tcp` is plaintext by default; `udp` always.** On `tcp` that is a default rather than a limit,
-  since 2026-08-19: `"tls": "auto"` or `"required"` encrypts it, and the compiled-in default is off
+  since 2026-08-19: `"tls": "auto"` or `"required"` encrypts it, and `auto` is now the default
   to keep the "greppable with netcat" debuggability property (see "Why TCP is the mandatory
   handshake leg" below); the shipped release config sets `auto`. On `udp` it
   is *unavoidable*, since Go's standard library has no DTLS. So with `tls` off a room code crosses
@@ -303,6 +303,20 @@ ADR in [agent_docs/architecture.md](../agent_docs/architecture.md).
   A peer can still, for example, spam legitimate-looking rapid state changes right up to the
   rate cap. Revisit if a new concrete attack shape is found, the same way this pass was scoped
   from real findings rather than a hypothetical checklist.
+
+
+### Why `auto` and not `off` — a policy decision, 2026-08-19
+
+The flags used to default to `off` so that a client could not suddenly demand encryption from a
+relay that predated it. The user retired that reasoning outright: **assume everyone is on the
+latest release.** A default whose whole purpose is protecting stale versions protects nobody, and
+the cost of keeping it was real -- every fresh install ran unencrypted unless somebody found the
+setting.
+
+`auto` is the right shape for that stance because it never breaks a session: it uses TLS where the
+other end speaks it, says so in the log where it does not, and on the relay side serves TLS and
+plaintext on the same port. Debugging with netcat still works. The only setting that can refuse a
+connection is `required`, and that stays opt-in.
 
 ## A constraint to protect going forward
 

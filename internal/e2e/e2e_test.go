@@ -905,7 +905,13 @@ func TestATLSRequiredClientRefusesAPlaintextRelay(t *testing.T) {
 
 	r := newRig(t).withFreshPorts(t)
 
-	start(t, r.dir, r.relayBin, "-loopback", "-transport", "tcp", "-addr", r.relayAddr)
+	// -tls off EXPLICITLY, because this test's whole premise is a plaintext relay. It used to
+	// rely on that being the flag default, and when the default became "auto" (2026-08-19) the
+	// relay quietly started serving TLS -- so the client's "required" was satisfied and the test
+	// failed claiming a downgrade it had itself prevented. A fixture that depends on a default is
+	// a fixture that changes meaning when the default does.
+	start(t, r.dir, r.relayBin, "-loopback", "-transport", "tcp", "-addr", r.relayAddr,
+		"-tls", "off")
 	waitForListener(t, r.relayAddr)
 
 	start(t, r.dir, r.clientBin,
