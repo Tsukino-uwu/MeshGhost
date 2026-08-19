@@ -862,3 +862,44 @@ Finding the address needs a symbol source, not a guess (for Emerald, this projec
 on**: a patched build relocates code, and a hook at a stale address is a hook into whatever now
 lives there. This is the same *check-what-tools-you-actually-have* point made earlier in this file,
 and it cost several cycles of trying to fix a phase error by correcting values.
+
+## Diff what you BUILT against what the game BUILT — 2026-08-19
+
+**When to reach for this.** Any time the adapter constructs one of the engine's own objects — a
+sprite, an actor, an entity, a component — from a description rather than by calling the game's
+constructor. That covers most of what a spawned ghost is made of, and it has a failure mode that
+no amount of re-reading your own code will show you.
+
+**The trap.** A description in ROM (a sprite template, a class default, a prefab) says what a thing
+*is*. The **constructor** adds what it *computes* — derived sizes, anchors, back-links, defaults —
+and those fields exist nowhere in the description you copied from. So the object is correct in
+every field you thought about and wrong in the ones you did not know existed. Emerald's surf blob
+lost `centerToCornerVec`, which `CreateSprite` derives from the OAM shape and size; the blob then
+drew from its corner instead of its centre and sat a tile down-right of its rider, with a cause
+recorded as "unknown" for a day.
+
+**The method, and it is mechanical.** Get a LIVE instance the game made itself — the player almost
+always has one — and dump the same struct for both, side by side, every field. Then read down the
+two columns for disagreements. In Emerald that was one probe and one line each:
+
+```
+player blob: ... pal=0 oam=003d 8068 c2c=240,240 sub=150 pos2=0,-3
+ghost  blob: ... pal=0 oam=004f 8098 c2c=0,0     sub=150 pos2=0,0
+```
+
+`c2c` is the answer and it took no theory at all. **Do not diff against your expectations** — the
+whole point is that the missing fields are ones you do not know to expect.
+
+**Getting a live instance to diff against.** This is the part that needs planning, because some
+states only exist while somebody is in them: no surf blob exists unless someone is already surfing.
+Reach the state yourself (see "Or play to it" above, and "Edit the world instead of travelling to
+it") and take the dump then. A probe that quietly reports nothing because the state never occurred
+looks exactly like a probe that found no difference.
+
+**Two things the same dump answers for free**, both of which would otherwise be guessed:
+
+- **Which palette slot the thing actually resolves to** — read it off the live one rather than
+  reasoning from a palette tag.
+- **Its offset from whatever it is attached to.** Ours is right when the ghost-to-blob delta equals
+  the player-to-blob delta; that is a comparison between two pairs, so it survives both sprites
+  using different position helpers, which a single absolute number does not.

@@ -2628,6 +2628,9 @@ local GFIELDEFFECTTEMPLATE_SURFBLOB = 0x0850cbc4
 local UPDATESURFBLOBFIELDEFFECT_CB = 0x08155658 + 1
 local BOB_PLAYER_AND_MON = 1
 local SURFBLOB_SUBPRIORITY = 150
+-- The blob's frames are 32x32 (documentation.md's surfing section), which is both its tile cost
+-- and, halved and negated, its centerToCornerVec.
+local SURFBLOB_FRAME_PX = 32
 
 -- Which graphics ids ride a blob. Surfing only: underwater uses a different mechanism
 -- (StartUnderwaterSurfBlobBobbing on the player's own sprite), and is not handled here.
@@ -2667,6 +2670,16 @@ spawnSurfBlob = function(g, mapX, mapY)
     local sx = (((mapX + MAP_OFFSET) - rs16(sb1 + 0x00)) << 4) + dx + 8
     local sy = (((mapY + MAP_OFFSET) - rs16(sb1 + 0x02)) << 4) + dy + 8
     w16(d + 0x20, sx) w16(d + 0x22, sy)
+    -- centerToCornerVec, which a sprite gets from CreateSprite and this one was never given.
+    -- The hardware draws an OBJ from its top-left; every sprite the engine makes carries
+    -- -(width/2), -(height/2) so that its POSITION means its centre. Zeroing the struct and never
+    -- filling this in put the blob a full tile down and to the right of the rider it is supposed
+    -- to be under -- the "renders roughly half a tile down-right" that had been recorded as
+    -- unexplained since 2026-08-18. Measured 2026-08-19 with probes/surfblob_probe.lua against
+    -- the PLAYER's own blob, which reads 240,240 -- i.e. -16,-16 for a 32x32 frame, the same
+    -- -(w/2) the rider's own spawn path computes.
+    w8(d + 0x28, (-(SURFBLOB_FRAME_PX // 2)) & 0xff)
+    w8(d + 0x29, (-(SURFBLOB_FRAME_PX // 2)) & 0xff)
     w8(d + 0x43, SURFBLOB_SUBPRIORITY)
     w16(d + 0x2e, 0)                       -- data[0]: bob state, set below
     w8(d + 0x2e, BOB_PLAYER_AND_MON)
@@ -2916,6 +2929,26 @@ function swapGhostGraphicInPlace(g, graphicsId, sanim, sox, soy)
     end
     g.animSetFor = nil -- a new graphic always re-issues its animation, whatever the number was
     loadGhostFrameNow(g, info, sanim or 0, 0)
+
+    -- AND THE COMPANION SPRITE THE STATE OWNS. A surfing player is a rider AND the blue Pokemon
+    -- underneath (documentation.md's surfing section) -- one state, two sprites -- and only
+    -- spawnGhost knew that. Every way a peer actually ENTERS the water comes through here instead:
+    -- they were already spawned as a walker, so the graphic is patched rather than rebuilt, and
+    -- the blob was never created. Seen on screen 2026-08-19 -- *"both of the ghosts don't have the
+    -- 'blue fish' they are riding on while surfing"* -- with the log showing the ghost correctly
+    -- wearing gfx 2 and animating, and no blob line ever printed.
+    --
+    -- Both directions, because getting OFF the water is the same swap in reverse: a blob left
+    -- behind keeps following the object it names (data[2] is the ghost) and would swim along under
+    -- a peer who is walking down a road.
+    if SURFING_GFX[graphicsId] then
+        if not g.blobSprId then
+            local a = objAddr(g.objId)
+            spawnSurfBlob(g, rs16(a + 0x10) - MAP_OFFSET, rs16(a + 0x12) - MAP_OFFSET)
+        end
+    else
+        despawnSurfBlob(g)
+    end
     return true
 end
 
@@ -3091,6 +3124,15 @@ local function syncGhost(playerId, remote)
             -- different frames and the ghost flicks 8px at every alignment change. Measured:
             -- pos2 constant at 8 while OAM x went 144, 136, 144 on consecutive frames.
             if not tiering.fishAlignActive then alignFishingGhost(g) end
+        elseif g.blobSprId then
+            -- THE BOB IS THE ENGINE'S, so do not write over it. A surf blob set to
+            -- BOB_PLAYER_AND_MON drives the RIDER's pos2 as well as its own -- that is the whole
+            -- of the up-and-down on the water -- and it is already pointed at this ghost. Writing
+            -- the peer's own offset here would put two things on one field, the same shape as the
+            -- animNum fight that left a ghost stuck in a pose: our write lands between frames and
+            -- the engine's lands during one, so the ghost would bob at the peer's phase, our
+            -- phase, or neither. The peer's bob is not wanted anyway -- the ghost has a real blob
+            -- of its own now, and it should ride its own.
         else
             if remote.sox then w16(d + 0x24, remote.sox & 0xffff) end
             if remote.soy then w16(d + 0x26, remote.soy & 0xffff) end

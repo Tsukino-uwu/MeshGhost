@@ -577,6 +577,20 @@ language. See `adapters/pseudoregalia/README.md` for the worked example. Keep th
 caveats belongs there with a one-line pointer left behind. See [CLAUDE.md](../../CLAUDE.md)'s
 hard rule on this.
 
+**Any time figure is time to reach a named milestone, not total time spent** — "~10 hours from
+nothing to good enough", never "~10 hours in". All four adapter READMEs read that way, and it is
+the number a reader is actually asking for.
+
+**Why the length rule is a rule.** Found live 2026-08-15: Pseudoregalia's steps 19-22 had each
+grown to 15-20 dense lines while steps 1-18 stayed at 2-4, which made the file hard to read for
+exactly the audience it exists for. Length creeps step by step and nobody notices until the file
+is unreadable end to end, so the cap is per step rather than per file.
+
+**One standing exception, and do not "fix" it.** Granted by the user 2026-08-16 and extended
+2026-08-17: Pseudoregalia's steps 38-41 (the ultra-hop blue trail) and 43-44 (the slide pose) run
+6-10 lines each and must not be trimmed — they are that adapter's two hardest pieces of work. A
+note at the bottom of that list says so too.
+
 **Carry a "Limits that come from the game, not from us" section near the top**, before the build
 story. Every game has a ceiling — how many peers it can show at once, and what happens past it —
 and a reader deserves to meet it in the adapter's own README rather than discover it in a session.
@@ -675,6 +689,17 @@ half a player notices first.
   other games.
 - **If the extras are not done, say the state is not done.** "The animation plays" is not "the
   state is reproduced", and the difference is exactly what a person sees.
+- **Hang the extra on EVERY path into the state, and remove it on the way out.** Emerald again,
+  2026-08-19: the blob was created only where a ghost is built from scratch, while a peer walking
+  into water reaches the same state by having its graphic *patched in place* — so the code was
+  correct and never ran in the case it existed for, and the ghost rode on nothing while its log
+  said the state was right. Enumerate the doors into a state before deciding one of them is the
+  door. The exit matters as much: Emerald's blob follows an object id stored in its own data, so
+  one left behind swims along under a peer walking down a road.
+- **Build the extra by DIFFING it against a live one the game made**, never from the template
+  alone — a constructor computes fields no description contains, and the same blob spent a day
+  drawn a tile out of place because of one of them. Method: [probes.md](probes.md), "Diff what you
+  BUILT against what the game BUILT".
 
 ## Hard rule: a bandage fix is not a finished feature
 

@@ -157,18 +157,14 @@ Turned OFF by default (`MESHGHOST_GHOST_PEER_GFX`), because it is incomplete —
 
 ## Known incomplete — do NOT confirm, these are not finished
 
-- **Surfing: the blob is now spawned and the engine drives it, but it sits in the wrong place and
-  the wrong colour.** Progress worth keeping, and not finished:
-  - **What works.** `UpdateSurfBlobFieldEffect` turns out **not** to be hardcoded to the player —
-    it reads an object event id out of `sprite->data[2]` and synchronises to whatever that names.
-    Point one at a ghost and the engine animates and follows it for free. Built from
-    `gFieldEffectObjectTemplate_SurfBlob` (`0850CBC4`) because no live blob exists to copy unless
-    somebody is already surfing. Confirmed alive by its OAM Y changing every sample — that is the
-    engine's own bobbing running on our sprite.
-  - **What does not.** It renders roughly half a tile down-right of the rider instead of under it,
-    and **dark navy instead of blue** — the palette the blob expects is not loaded while the local
-    player is walking, since the game only loads it when *you* surf. Walking the ghost does not
-    correct the offset, so it is not a stale initial placement; the engine puts it there.
+- **Surfing: the SPAWNED tier is done and user-confirmed** (2026-08-19, `verified.md`) — the
+  blob's missing `centerToCornerVec` was the unexplained "half a tile down-right", and it was never
+  created at all when a peer walked into water. The DRAWN tier still has neither the blob nor a
+  water reflection; that is the open half, below.
+  - **Not yet re-checked: the "dark navy instead of blue" report from 2026-08-18.** The palette slot
+    is confirmed correct (0, matching the player's own blob), so the suspect is the palette not
+    being LOADED while the local player is on foot — the game loads it only when *you* surf. Every
+    confirmation so far had the local player surfing too, so this is untested where it bites.
   - **Fishing on synthesised water WORKS (user-confirmed 2026-08-18)** — but only its first two
     branches are reachable there. Wild encounters are per-map data (`gWildMonHeaders`), and a
     starting town defines none, so the game jumps straight to no-bite. Moved to `verified.md`.

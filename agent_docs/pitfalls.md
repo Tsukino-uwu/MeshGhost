@@ -2312,3 +2312,40 @@ both tiers.
 - **Watch for a fix that is invisible to your instrumentation.** Everything readable from Lua said
   the code was correct; only the hardware's own draw list disagreed. See `_template/probes.md`,
   "Measure what is DRAWN".
+
+## A sprite you BUILD is missing whatever the game's constructor computed — 2026-08-19, Emerald
+
+**Symptom.** Two, and only the first was ever reported as a bug. A surfing ghost rode on nothing —
+*"both of the ghosts don't have the 'blue fish' they are riding on while surfing"* — while the
+adapter's own log showed it correctly wearing the surfing graphic and animating. And when the blob
+did exist, it had been recorded since 2026-08-18 as rendering *"roughly half a tile down-right of
+the rider"*, cause unknown.
+
+**Cause 1: one construction path out of two.** The blob was spawned inside `spawnGhost`, which is
+the FULL-REBUILD path. Every way a peer actually enters the water goes through
+`swapGhostGraphicInPlace` instead — they were already spawned as a walker, so the graphic is
+patched rather than rebuilt. The companion sprite was correct code sitting on a path that the case
+it was written for never takes.
+
+**Cause 2: a field only the constructor sets.** `spawnSurfBlob` zeroes the sprite struct, copies the
+template's OAM, images, anims and callback, and sets position — everything the TEMPLATE describes.
+`centerToCornerVec` (`+0x28`/`+0x29`) is not in the template: `CreateSprite` computes it from the
+OAM's shape and size. Left at 0,0, the hardware draws a 32x32 sprite from its corner instead of its
+centre — one tile down and right, which is the unexplained offset, and it also means the blob's
+position field did not mean what every other sprite's position field means.
+
+**What ended it.** Reading the GAME'S OWN blob and diffing it field by field against ours
+(`probes/surfblob_probe.lua`). The player's read `c2c=240,240`; the ghost's read `c2c=0,0`. Nothing
+else had to be understood — not the bob, not the animation, not the field-effect system.
+
+**The rules.**
+
+- **A sprite built from a template carries what the template says and nothing the CONSTRUCTOR
+  computed.** Before trusting one, diff it against a live instance the game made; the fields that
+  differ are the constructor's. Never diff it against your own expectations.
+- **When a feature is triggered on one construction path, find every other path into the same
+  state.** Patch-in-place and rebuild are two doors into "this ghost is now surfing", and a feature
+  hung on one of them is invisible exactly when the state is reached the normal way.
+- **A companion sprite is part of the state, not a decoration** (`_template/README.md`'s
+  whole-effect rule) — so it belongs everywhere the state is entered AND left. A blob left behind
+  keeps following the object id in its own `data[2]` and swims under a peer who is walking.

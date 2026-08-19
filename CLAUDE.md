@@ -224,15 +224,15 @@ stays here, its reasoning goes to `agent_docs/`, with a one-line pointer. Full e
   loud. Field names, offsets, dump counts, sample sizes, failed-attempt trails, and dated
   evidence go to `agent_docs/phases/phaseN.md`, `verified.md`, or `pitfalls.md` — link, don't
   inline. When a step starts needing bold sub-clauses or a paragraph of caveats, that's the
-  signal it belongs in the phase file with a one-line pointer left behind. Any time figure is
-  **time to reach a named milestone, not total time spent** ("~10 hours from nothing to good
-  enough", not "~10 hours in") — all four adapter READMEs read that way, and it's
-  the number a reader is actually asking for. Found live 2026-08-15:
-  Pseudoregalia's steps 19-22 had each grown to 15-20 dense lines while 1-18 stayed at 2-4,
-  making the file hard to read for exactly the audience it's for. **Standing exception, granted by
-  the user 2026-08-16 and extended 2026-08-17: Pseudoregalia's steps 38-41 (ultra-hop blue trail)
-  and 43-44 (the slide pose) run 6-10 lines each and must not be trimmed** — the adapter's two
-  hardest pieces of work. A note at the bottom of that list says so too; don't "fix" either.
+  signal it belongs in the phase file with a one-line pointer left behind. The time-figure rule,
+  the evidence, and the ONE standing exception that must not be trimmed: `_template/README.md`.
+- **When the user confirms a fix, write down HOW it was found before moving on — in the same
+  pass, not later.** Confirmation is when the method is proven, and the method outlasts the fix:
+  a fix helps one game, a better way to FIND things helps every adapter after it. Say what the
+  wrong theories were and why they looked right, what measurement finally settled it, and what to
+  reach for first next time. Symptom → cause → fix goes to `pitfalls.md`; a new way to
+  MEASURE to `_template/probes.md`; a rule a new adapter should start with to
+  `_template/README.md`. A fix recorded with no method is a fix that gets re-derived.
 - **Agent memory is for the USER, never the project.** Preferences, ways of working and corrections
   may go there. **A project fact never does** — an address, decision, status, risk or result belongs
   in `agent_docs/` or the code, which the repo, the next session and a human all see. Memory is

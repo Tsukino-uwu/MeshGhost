@@ -8389,3 +8389,37 @@ Roughly ten live test cycles and six wrong fixes, because the symptom ("it snaps
 belonged to — and each fix exposed the next. The write-ups are in `pitfalls.md` (three entries) and
 `_template/probes.md` (two method sections). The measurement that ended it is kept as a probe
 behind `MESHGHOST_EMERALD_ANIM_TRACE`, off by default.
+
+## Emerald: the surfing ghost's Pokemon, on the spawned tier — 2026-08-19
+
+**User-confirmed on screen, vanilla ROM:** *"the fish/pokemon under the spawned ghost looks perfect
+now"*. Reported the same session as *"both of the ghosts don't have the 'blue fish' they are riding
+on while surfing"*, with a screenshot showing two ghosts sitting on open water.
+
+Two defects, and the second had been recorded as unexplained since 2026-08-18:
+
+1. **The blob was spawned on one construction path out of two.** `spawnGhost` created it; a peer
+   who walks into the water is patched in place by `swapGhostGraphicInPlace` instead, which did
+   not. The adapter's log showed the ghost correctly wearing `gfx 2` and animating, with no blob
+   line ever printed — so the state was right and its companion sprite simply never existed. Now
+   handled in both directions by the swap, because a blob left behind keeps following the object
+   id in its own `data[2]`.
+2. **`centerToCornerVec` was never set** (`+0x28`/`+0x29`). It is not part of the sprite template —
+   `CreateSprite` derives it from the OAM shape and size — so a struct built from the template
+   alone leaves it 0,0 and the hardware draws a 32x32 sprite from its corner. That is the
+   *"renders roughly half a tile down-right of the rider"* recorded on 2026-08-18.
+
+**How it was found**, since the method is worth more than the fix: `probes/surfblob_probe.lua`
+dumps the PLAYER's own live blob and the ghost's, field by field. The player's read `c2c=240,240`
+and the ghost's `c2c=0,0`; nothing about the bob, the animation or the field-effect system had to
+be understood. Agent-verified afterwards from the same dumps: the ghost's blob now sits at the same
+`0,+8` OAM offset from its rider that the player's does. Method: `_template/probes.md`, "Diff what
+you BUILT against what the game BUILT"; symptom and rules: `pitfalls.md`.
+
+**Also settled in passing, from the probe:** a surf blob set to `BOB_PLAYER_AND_MON` drives the
+RIDER's `pos2` as well as its own — the player's rider reads `pos2=0,-3` while the blob does. So the
+peer's own sprite offset is no longer written onto a ghost that has a live blob: the engine is
+already doing it, and two writers of one field is the defect shape this adapter has hit repeatedly.
+
+**Still open, same feature:** the DRAWN tier has neither the blob nor a water reflection —
+*"still nothing under/ no reflection in the water for the drawn ghost"*. `unverified.md`.
