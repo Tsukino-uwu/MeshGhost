@@ -118,6 +118,54 @@ The spawn path's own cross-link check (player's `objectEvent.spriteId` -> that s
 address in one run. When it is measured, delete `drawSpriteFrame`, `drawRemotes`,
 `advanceAnim`, the frame decode and this entry.
 
+## The drawn overflow tier — a bandage by construction (2026-08-19)
+
+**What it is.** Peers past the engine's object-event cap are painted with `gui.*` primitives
+instead of being spawned, so that every peer is visible instead of the ones past the cap simply not
+existing on screen. Asked for by the user in those terms — *"npc's always shown, ghosts try to
+fill, drawn otherwise"*, *"i don't want things to pop in/out all the time"* — and designed in
+`agent_docs/ideas.md` ("Spawn to the game's cap, then DRAW above it"), which called it a bandage
+before a line of it was written. Off by default (`MESHGHOST_EMERALD_DRAWN_OVERFLOW`, `FLAGS.md`).
+
+**Why it is a bandage and not a feature.** It does not make the game able to hold more characters;
+it paints over the game's finished frame to hide that it cannot. Every one of these costs is
+structural, not a rough edge to polish out:
+
+- **No occlusion, and this is the blocking one.** A drawn ghost is painted after the PPU has
+  finished, so nothing hides it: not a house, not the START menu, not a text box. The spawned tier
+  gets all of that free from the engine. **The clip region for Emerald is NOT yet measured** — the
+  obvious hardware source (the GBA's window registers, `WIN0H/WIN0V` and the enable bits in
+  `DISPCNT`) was probed live on 2026-08-19 and **changes every frame during ordinary walking**,
+  with values that are mid-frame states rather than panel geometry, so it cannot be used as-is.
+  Until a source IS measured, this tier stays off: shipping it on would mean painting characters
+  over the text the player is reading. `probes/uiregion_probe.lua` is the probe, now throttled.
+- **No collision and no interaction.** A drawn ghost is a picture. Arguably right for an overflow
+  tier, but it makes peers visibly unequal in a way nothing on screen explains.
+- **Nobody animates it but us.** The walk cycle, the pose per direction, and the frame timing are
+  re-implemented in this adapter, against a decode of the ROM's own sprite tiles. The spawned tier
+  deleted all of that; this brings it back.
+- **Two rendering paths that will drift.** The real long-term cost. Every future change has to be
+  made twice or deliberately once.
+
+**What it costs to run**, measured 2026-08-19 with synthetic peers standing on one indoor map, at
+the emulator's own frame rate (wall clock, not a feeling):
+
+| Peers in the area | Spawned | Painted | fps |
+|---|---|---|---|
+| 40 | 13 | 27 | 59.7 — full speed |
+| 150 | 13 | 0 (tier off, control) | 53 |
+| 150 | 13 | 137-172 | 22-31 |
+
+The control row is the one that says where the cost actually is: receiving 150 peers over the
+bridge costs ~7fps on its own, and painting the characters costs the rest. Two optimisations are
+already in and are counted in those numbers — each frame's opaque pixels are collapsed into
+horizontal runs once and cached (one `gui.drawLine` per run instead of one `gui.drawPixel` per
+pixel), and peers whose sprite falls outside the 240x160 screen are skipped entirely.
+
+**What would make it unnecessary:** nothing available. The 16-entry object array is the engine's,
+and no adapter-side cleverness adds an entry to it. The honest alternative is the pre-existing
+behaviour — peers past the cap are not shown at all — which is what the flag falls back to.
+
 ## Deliberate — do NOT "fix" these
 
 Recorded so a future audit does not churn them.

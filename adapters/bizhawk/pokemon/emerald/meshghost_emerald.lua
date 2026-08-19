@@ -928,11 +928,12 @@ end
 -- Local state reading -- identical to phase4_multiplayer.lua, see its header.
 ----------------------------------------------------------------------------
 
-local lastMapGroup, lastMapNum = nil, nil
+-- One table, not two locals: the main chunk is at Lua's 200-local ceiling (see frameErrors).
+local lastMap = { group = nil, num = nil }
 
 local function mapJustChanged(mapGroup, mapNum)
-    local changed = lastMapGroup ~= nil and (mapGroup ~= lastMapGroup or mapNum ~= lastMapNum)
-    lastMapGroup, lastMapNum = mapGroup, mapNum
+    local changed = lastMap.group ~= nil and (mapGroup ~= lastMap.group or mapNum ~= lastMap.num)
+    lastMap.group, lastMap.num = mapGroup, mapNum
     return changed
 end
 
@@ -1146,12 +1147,12 @@ end
 -- and actually moving.
 local DIAG_STEP_CURVE = false
 local DIAG_STEP_CURVE_MAX_LOGS = 3600
-local diagStepCurveLogCount = 0
-local diagPrevRealX, diagPrevRealY = nil, nil
+-- Same reason as lastMap above: diagnostics share one table so shipped behaviour keeps the
+-- scarce local slots.
+local diag = { stepCurveLogs = 0, prevRealX = nil, prevRealY = nil, screenPosLogs = 0 }
 
 local DIAG_SCREENPOS_PARTS = false
 local DIAG_SCREENPOS_PARTS_MAX_LOGS = 200
-local diagScreenPosPartsLogCount = 0
 
 local function playerScreenPos()
     local spriteId = memory.read_u8(GPLAYERAVATAR_ADDR + avatarAddrOffset + 0x04)
@@ -1176,8 +1177,8 @@ local function playerScreenPos()
     -- an upvalue from smoothPosition() above) -- found live: gating on raw fraction/timing alone
     -- also fired during the bootstrap window right after connecting, before the player had
     -- moved at all.
-    if DIAG_SCREENPOS_PARTS and inRealGlide and diagScreenPosPartsLogCount < DIAG_SCREENPOS_PARTS_MAX_LOGS then
-        diagScreenPosPartsLogCount = diagScreenPosPartsLogCount + 1
+    if DIAG_SCREENPOS_PARTS and inRealGlide and diag.screenPosLogs < DIAG_SCREENPOS_PARTS_MAX_LOGS then
+        diag.screenPosLogs = diag.screenPosLogs + 1
         console.log(string.format(
             "MeshGhost DIAG PARTS: frame=%d spriteId=%d sx=%d sy=%d sx2=%d sy2=%d cx=%d cy=%d coordOffsetX=%d coordOffsetY=%d",
             frameCounter, spriteId, sx, sy, sx2, sy2, cx, cy, coordOffsetX, coordOffsetY))
@@ -1308,13 +1309,67 @@ local function advanceAnim(remote, dirInfo)
     return dirInfo.steps[remote.animStepIndex]
 end
 
-local function drawSpriteFrame(gender, pose, frameIndex, hFlip, screenX, screenY)
+-- RUN-LENGTH CACHE for the drawn tier. One gui.drawPixel per opaque pixel is affordable for one
+-- or two overlay ghosts, which is all this path ever had to do before the two-tier renderer; it is
+-- not affordable for a screenful. Measured 2026-08-19 with 137 drawn peers: ~40,000 pixel calls a
+-- frame took the emulator to 17fps. A character's rows are mostly flat colour, so each row is
+-- collapsed into horizontal runs ONCE per (gender, pose, frame) and cached; drawing then costs one
+-- gui.drawLine per run. Mirroring is applied to a run's endpoints, so a flipped frame needs no
+-- second cache entry.
+-- The cache and its builder hang off genderFrames, the decoded-sprite table they are derived
+-- from, rather than becoming file-scope locals of their own: the main chunk is AT Lua's hard
+-- ceiling of 200 locals, and one more makes the script fail to parse (found exactly that way,
+-- 2026-08-19). genderFrames is only ever indexed by gender, so extra string keys are safe.
+genderFrames.runCache = {}
+
+genderFrames.runsFor = function(gender, pose, frameIndex)
+    local key = gender .. ":" .. pose .. ":" .. frameIndex
+    local cached = genderFrames.runCache[key]
+    if cached then return cached end
+
     local genderSet = genderFrames[gender] or genderFrames.male
     local pixels = (genderSet[pose] or genderSet.walk)[frameIndex]
+    -- Bucket by row first: the decoded pixel list is not guaranteed to be row-major, and a run
+    -- built from an unsorted list would be silently wrong rather than merely slow.
+    local rows = {}
     for i = 1, #pixels do
-        local p = pixels[i]
-        local px = hFlip and (FRAME_WIDTH_PX - 1 - p.x) or p.x
-        gui.drawPixel(screenX + px, screenY + p.y, p.color)
+        local px = pixels[i]
+        local row = rows[px.y]
+        if not row then row = {} rows[px.y] = row end
+        row[px.x] = px.color
+    end
+
+    local runs = {}
+    for y, row in pairs(rows) do
+        local x = 0
+        while x < FRAME_WIDTH_PX do
+            local color = row[x]
+            if color then
+                local x2 = x
+                while row[x2 + 1] == color do x2 = x2 + 1 end
+                runs[#runs + 1] = { y = y, x1 = x, x2 = x2, color = color }
+                x = x2 + 1
+            else
+                x = x + 1
+            end
+        end
+    end
+    genderFrames.runCache[key] = runs
+    return runs
+end
+
+local function drawSpriteFrame(gender, pose, frameIndex, hFlip, screenX, screenY)
+    local runs = genderFrames.runsFor(gender, pose, frameIndex)
+    for i = 1, #runs do
+        local r = runs[i]
+        local x1, x2 = r.x1, r.x2
+        if hFlip then x1, x2 = FRAME_WIDTH_PX - 1 - r.x2, FRAME_WIDTH_PX - 1 - r.x1 end
+        local y = screenY + r.y
+        if x1 == x2 then
+            gui.drawPixel(screenX + x1, y, r.color)
+        else
+            gui.drawLine(screenX + x1, y, screenX + x2, y, r.color)
+        end
     end
 end
 
@@ -1706,10 +1761,91 @@ local function wantedGfx(remote)
     return nil
 end
 
--- Records the frame a spawn was last refused for want of an object/sprite slot, and the frame
--- that refusal was last logged. See spawnGhost's out-of-slots branch for why both exist. One
--- table rather than two locals: this file's scope is close to Lua's 200-local ceiling.
-local spawnGate = { blockedFrame = nil, lastLogFrame = nil }
+-- TWO TIERS OF GHOST, and which peer gets which.
+--
+-- The user's rule, 2026-08-19: *"npc's always shown, ghosts try to fill, drawn otherwise"* and
+-- *"i don't want things to pop in/out all the time. i want every player/ghost to be visible all
+-- the time instead."* The engine holds 16 object events for the whole map while a screen shows
+-- ~150 tiles, so "everyone visible" and "everyone spawned" cannot both be true. Hence two tiers:
+-- spawn real object events while slots last, and DRAW the overflow with the pixel path this
+-- adapter used before the spawn work existed. Design and its costs: agent_docs/ideas.md's
+-- "Spawn to the game's cap, then DRAW above it"; the costs are also registered in BANDAGES.md.
+--
+-- Everything about the tiers lives on this one table rather than in half a dozen locals, because
+-- this file's scope sits one or two names below Lua's hard ceiling of 200 locals per function --
+-- past it the script does not misbehave, it fails to parse.
+--
+--   blockedFrame / lastLogFrame -- see spawnGhost's out-of-slots branch.
+--   drawn        -- is the drawn overflow tier on (see FLAGS.md; off until occlusion is settled).
+--   hysteresis   -- tiles of "stickiness" a spawned ghost keeps when ranked against a peer that
+--                   is not spawned. Without it two peers at nearly equal distance swap tiers
+--                   every few frames as either one drifts, and the swap is a despawn+respawn.
+--   reserve      -- object slots never handed to a ghost, so the engine keeps somewhere to put a
+--                   character of its OWN that scrolls into view. The map's cast comes first: that
+--                   is the user's rule, and an NPC that fails to load is a bug in the game, not a
+--                   missing ghost.
+--   castMax      -- per area_id, the most game-owned objects ever seen active there. The count
+--                   varies with the camera (measured 2026-08-19: Littleroot read 1, 2 and 3 at
+--                   different spots), so budgeting against the CURRENT count would hand out slots
+--                   that the engine wants back two steps later. The running maximum is the
+--                   honest budget: it only ever gives away slots the map has never needed.
+local tiering = {
+    blockedFrame = nil,
+    lastLogFrame = nil,
+    drawn = MESHGHOST_EMERALD_DRAWN_OVERFLOW or os.getenv("MESHGHOST_EMERALD_DRAWN_OVERFLOW"),
+    hysteresis = 3,
+    reserve = 1,
+    castMax = {},
+}
+
+-- How many object slots ghosts may hold on this map right now. Counted from the array itself
+-- rather than from any table of ours: "active, and not carrying our localId" is the same test the
+-- orphan sweep trusts, and it cannot drift from reality the way a bookkeeping count can.
+tiering.budget = function(localAreaId)
+    local cast = 0
+    for i = 0, 15 do
+        local a = objAddr(i)
+        if (r8(a) & 0x01) == 1 and r8(a + 0x08) ~= GHOST_LOCAL_ID then cast = cast + 1 end
+    end
+    local seen = tiering.castMax[localAreaId] or 0
+    if cast > seen then
+        seen = cast
+        tiering.castMax[localAreaId] = cast
+    end
+    local budget = 16 - seen - tiering.reserve
+    if budget < 0 then budget = 0 end
+    return budget
+end
+
+-- NEAREST WINS, not first to arrive. Join order is the worst possible answer -- it makes the
+-- quality of a peer's ghost permanent and arbitrary -- while distance puts the engine's real
+-- objects where the player is actually looking closely, and leaves the approximations out at the
+-- edge of the screen where the difference is hardest to see. Returns the set of player_ids that
+-- should hold an object slot this frame; everyone else in the area is the drawn tier's problem.
+tiering.chooseSpawned = function(localAreaId, playerX, playerY)
+    local budget = tiering.budget(localAreaId)
+    local ranked = {}
+    for playerId, remote in pairs(remotes) do
+        if remote.areaId == localAreaId then
+            local dx, dy = remote.x - playerX, remote.y - playerY
+            local d = math.sqrt(dx * dx + dy * dy)
+            -- The hysteresis band, applied as a discount to whoever already has a slot: a peer
+            -- must be MORE than this much closer to take one away, so a pair drifting past each
+            -- other cannot trade tiers frame after frame.
+            if ghosts[playerId] then d = d - tiering.hysteresis end
+            ranked[#ranked + 1] = { id = playerId, d = d }
+        end
+    end
+    table.sort(ranked, function(a, b)
+        -- player_id as the tiebreak, so the order is stable rather than pairs()-random when two
+        -- peers stand on the same tile -- an unstable order is a despawn/respawn every frame.
+        if a.d == b.d then return a.id < b.id end
+        return a.d < b.d
+    end)
+    local set = {}
+    for i = 1, math.min(#ranked, budget) do set[ranked[i].id] = true end
+    return set
+end
 
 local function spawnGhost(playerId, mapX, mapY, orientation, wantGfx)
     local playerObjId = r8(GPLAYERAVATAR_ADDR + avatarAddrOffset + 0x05)
@@ -1743,9 +1879,9 @@ local function spawnGhost(playerId, mapX, mapY, orientation, wantGfx)
         -- frame. Once one spawn has failed for want of a slot, every other spawn this frame will
         -- fail the same way -- the array does not grow mid-frame -- and each attempt re-scans both
         -- arrays before finding that out.
-        spawnGate.blockedFrame = frameCounter
-        if not spawnGate.lastLogFrame or frameCounter - spawnGate.lastLogFrame >= 300 then
-            spawnGate.lastLogFrame = frameCounter
+        tiering.blockedFrame = frameCounter
+        if not tiering.lastLogFrame or frameCounter - tiering.lastLogFrame >= 300 then
+            tiering.lastLogFrame = frameCounter
             console.log("MeshGhost: no free slot for a ghost (objects or sprites full) -- more "
                 .. "peers here than this map can hold. Further refusals are not logged for 5s.")
         end
@@ -2025,7 +2161,7 @@ local function syncGhost(playerId, remote)
         -- Nothing to spawn into: a peer this frame already found the object array full, and it
         -- cannot empty mid-frame. Skipping the rest is what keeps a room bigger than the map from
         -- costing a full array re-scan per unplaceable peer per frame.
-        if spawnGate.blockedFrame == frameCounter then return end
+        if tiering.blockedFrame == frameCounter then return end
         -- Placement is only exact on a settled camera; a frame's wait is free.
         if cameraIsSettled() then
             spawnGhost(playerId, targetX, targetY, remote.orientation, wantedGfx(remote))
@@ -2095,21 +2231,38 @@ local function syncGhost(playerId, remote)
     end
 end
 
-local function syncRemoteGhosts(localAreaId)
+-- spawnSet names the peers entitled to an object slot this frame (tiering.chooseSpawned). A peer
+-- that loses its place does NOT vanish -- the drawn tier picks it up in the same frame, which is
+-- the whole point of the split.
+local function syncRemoteGhosts(localAreaId, spawnSet)
     for playerId in pairs(ghosts) do
         local remote = remotes[playerId]
-        -- Gone, or somewhere else. area_id is opaque and compared by equality only.
-        if not remote or remote.areaId ~= localAreaId then despawnGhost(playerId) end
+        -- Gone, somewhere else, or demoted to the drawn tier. area_id is opaque and compared by
+        -- equality only.
+        if not remote or remote.areaId ~= localAreaId or not spawnSet[playerId] then
+            despawnGhost(playerId)
+        end
     end
     for playerId, remote in pairs(remotes) do
-        if remote.areaId == localAreaId then syncGhost(playerId, remote) end
+        if remote.areaId == localAreaId and spawnSet[playerId] then syncGhost(playerId, remote) end
     end
 end
 
-local function drawRemotes(localAreaId, playerMapX, playerMapY)
+-- skipSpawned, when given, names the peers the ENGINE is already drawing as real object events.
+-- Drawing those again would paint a flat copy on top of the engine's own animated one -- so the
+-- drawn tier renders exactly the peers the spawned tier could not take.
+local function drawRemotes(localAreaId, playerMapX, playerMapY, skipSpawned)
+    -- The GBA's visible display. Hardware geometry, identical on every cartridge -- not a fact
+    -- about this game. Declared inside this function on purpose: the main chunk is at Lua's hard
+    -- ceiling of 200 locals, and a local inside a function is counted against the function.
+    local SCREEN_WIDTH_PX, SCREEN_HEIGHT_PX = 240, 160
     local playerScreenX, playerScreenY = playerScreenPos()
+    -- Counted and published (tiering.painted) rather than inferred: "assigned to the drawn tier"
+    -- and "actually painted this frame" differ by everyone the off-screen cull skipped, and only
+    -- the second one answers "is every peer I can see actually being shown".
+    local painted = 0
     for playerId, remote in pairs(remotes) do
-        if remote.areaId == localAreaId then
+        if remote.areaId == localAreaId and not (skipSpawned and skipSpawned[playerId]) then
             local screenX = playerScreenX + (remote.x - playerMapX) * TILE
             local screenY = playerScreenY + (remote.y - playerMapY) * TILE
             if playerId:match("%-ghost$") then
@@ -2117,26 +2270,39 @@ local function drawRemotes(localAreaId, playerMapX, playerMapY)
                 screenY = screenY + LOOPBACK_GHOST_OFFSET_TILES_Y * TILE
             end
 
-            local dirInfo = DIRECTION_ANIM[remote.orientation] or DIRECTION_ANIM.south
-            local frameIndex, pose
-            if remote.anim == "walking" or remote.anim == "running" then
-                pose = (remote.anim == "running") and "run" or "walk"
-                frameIndex = advanceAnim(remote, dirInfo)
-            else
-                remote.animTimer = 0
-                remote.animStepIndex = 1
-                remote.lastAnim = remote.anim
-                remote.lastOrientation = remote.orientation
-                pose = "walk" -- idle frames (0-2) only exist in the walk/Normal pic table
-                frameIndex = dirInfo.idle
-            end
+            -- OFF-SCREEN PEERS COST NOTHING. A peer in this area can be anywhere on a map far
+            -- larger than the 240x160 the player can see, and drawing one at x = -900 is work
+            -- whose entire result is clipped away by the emulator. This is what makes the drawn
+            -- tier scale with what is VISIBLE rather than with room size -- the spawned tier gets
+            -- the same for free, because the engine culls its own objects.
+            -- The walk cycle advances only for peers that are actually drawn, which is why the
+            -- cull wraps the animation too rather than just the blit: a peer off screen has no
+            -- frame anyone can see, and stepping its timer would be work with no output.
+            if screenX + FRAME_WIDTH_PX > 0 and screenX < SCREEN_WIDTH_PX
+                and screenY + FRAME_HEIGHT_PX > 0 and screenY < SCREEN_HEIGHT_PX then
+                local dirInfo = DIRECTION_ANIM[remote.orientation] or DIRECTION_ANIM.south
+                local frameIndex, pose
+                if remote.anim == "walking" or remote.anim == "running" then
+                    pose = (remote.anim == "running") and "run" or "walk"
+                    frameIndex = advanceAnim(remote, dirInfo)
+                else
+                    remote.animTimer = 0
+                    remote.animStepIndex = 1
+                    remote.lastAnim = remote.anim
+                    remote.lastOrientation = remote.orientation
+                    pose = "walk" -- idle frames (0-2) only exist in the walk/Normal pic table
+                    frameIndex = dirInfo.idle
+                end
 
-            drawSpriteFrame(remote.gender, pose, frameIndex, dirInfo.hFlip, screenX, screenY)
+                drawSpriteFrame(remote.gender, pose, frameIndex, dirInfo.hFlip, screenX, screenY)
+                painted = painted + 1
+            end
         end
         -- A remote in a different area is deliberately not drawn at all --
         -- area_id is opaque and compared by equality only
         -- (agent_docs/contract.md); this is not the same as despawning it.
     end
+    tiering.painted = painted
 end
 
 ----------------------------------------------------------------------------
@@ -2237,14 +2403,18 @@ local function runFrame()
     -- without reading the game. "connected" and "ready" are different questions, and so are
     -- "a peer is known" and "a ghost exists for it" -- a silent failure looks different in each.
     if frameCounter % 300 == 0 then
-        local nRemotes, nGhosts = 0, 0
+        local nRemotes, nGhosts, nDrawn = 0, 0, 0
         for _ in pairs(remotes) do nRemotes = nRemotes + 1 end
         for _ in pairs(ghosts) do nGhosts = nGhosts + 1 end
+        -- The drawn tier's own count, so "every peer is visible" is a number in the log rather
+        -- than something to squint at: peers here, minus the ones holding an object slot. Counted
+        -- only when that tier is on, so the figure never implies pixels nobody drew.
+        if tiering.drawn then nDrawn = tiering.painted or 0 end
         logFile(string.format(
-            "status: frame=%d connected=%s ready=%s port=%s remotes=%d ghosts=%d overworld=%s "
-                .. "inGame=%s",
+            "status: frame=%d connected=%s ready=%s port=%s remotes=%d ghosts=%d drawn=%d "
+                .. "overworld=%s inGame=%s",
             frameCounter, tostring(connected), tostring(ready), tostring(currentPort),
-            nRemotes, nGhosts, tostring(inOverworld()), tostring(session.live)))
+            nRemotes, nGhosts, nDrawn, tostring(inOverworld()), tostring(session.live)))
         -- Collision follows the object's map coordinates; drawing follows the sprite's screen
         -- position. A ghost whose hitbox sits away from its picture means those two disagree, so
         -- both are logged next to the player's own pair as the control.
@@ -2317,12 +2487,12 @@ local function runFrame()
             end
             smoothX, smoothY = smoothPosition(state.x, state.y, state.areaId, state.anim)
             smoothAreaId = state.areaId
-            if DIAG_STEP_CURVE and inRealGlide and diagStepCurveLogCount < DIAG_STEP_CURVE_MAX_LOGS then
+            if DIAG_STEP_CURVE and inRealGlide and diag.stepCurveLogs < DIAG_STEP_CURVE_MAX_LOGS then
                 local realX, realY = playerScreenPos()
-                local deltaX = diagPrevRealX and (realX - diagPrevRealX) or 0
-                local deltaY = diagPrevRealY and (realY - diagPrevRealY) or 0
-                diagPrevRealX, diagPrevRealY = realX, realY
-                diagStepCurveLogCount = diagStepCurveLogCount + 1
+                local deltaX = diag.prevRealX and (realX - diag.prevRealX) or 0
+                local deltaY = diag.prevRealY and (realY - diag.prevRealY) or 0
+                diag.prevRealX, diag.prevRealY = realX, realY
+                diag.stepCurveLogs = diag.stepCurveLogs + 1
                 console.log(string.format(
                     "MeshGhost DIAG CURVE: frame=%d smoothX=%.4f smoothY=%.4f realScreenX=%d realScreenY=%d realDX=%d realDY=%d",
                     frameCounter, smoothX, smoothY, realX, realY, deltaX, deltaY))
@@ -2358,9 +2528,18 @@ local function runFrame()
             -- corrupts whatever now lives there, so a patched ROM keeps the overlay until that
             -- shift is measured. Registered in BANDAGES.md as a deliberate, temporary split.
             if avatarAddrOffset == 0 then
-                syncRemoteGhosts(smoothAreaId)
+                -- TIER ONE: real object events, as many as the map can spare (nearest peers win).
+                local spawnSet = tiering.chooseSpawned(smoothAreaId, smoothX, smoothY)
+                syncRemoteGhosts(smoothAreaId, spawnSet)
+                -- TIER TWO: everyone the engine had no room for, painted over the finished frame
+                -- so that no peer is ever simply absent. Flag-gated -- see FLAGS.md and
+                -- BANDAGES.md: a drawn ghost has no engine occlusion, so until the region a text
+                -- box or menu occupies is MEASURED on this game, this tier would paint over them.
+                if tiering.drawn then
+                    drawRemotes(smoothAreaId, smoothX, smoothY, spawnSet)
+                end
             else
-                drawRemotes(smoothAreaId, smoothX, smoothY)
+                drawRemotes(smoothAreaId, smoothX, smoothY, nil)
             end
         end
     end
@@ -2372,25 +2551,26 @@ end
 -- invisible by construction, in the one place a log is most wanted. Found by reading, 2026-08-19:
 -- an error the fix in drainBridge() removes fired on every bridge rejection and left no trace in
 -- any of the eight session logs that recorded a rejection.
-local lastFrameErrorLogged = nil
+-- Two fields on one table rather than two locals: the main chunk is AT Lua's 200-local ceiling,
+-- and the two-tier renderer needed the slot. frameErrors.lastLogged / .consecutive.
+local frameErrors = { lastLogged = nil, consecutive = 0 }
 -- BANDAGES.md entry 2: a blanket per-frame pcall cannot tell one malformed line from every frame
 -- failing. This does not close that entry, but it stops the log lying about the difference --
 -- the count says whether this is a blip or a subsystem that has been broken for 5000 frames.
-local consecutiveFrameErrors = 0
 
 local function guardedFrame()
     local ok, err = pcall(runFrame)
     if ok then
-        consecutiveFrameErrors = 0
+        frameErrors.consecutive = 0
         return
     end
-    consecutiveFrameErrors = consecutiveFrameErrors + 1
+    frameErrors.consecutive = frameErrors.consecutive + 1
     -- Rate-limited after the first: a per-frame error would otherwise spam the console every
     -- 1/60s. The FIRST one always logs, whenever it happens.
-    if not lastFrameErrorLogged or frameCounter - lastFrameErrorLogged > 300 then
+    if not frameErrors.lastLogged or frameCounter - frameErrors.lastLogged > 300 then
         console.log(string.format("MeshGhost: frame error (continuing, %d in a row): %s",
-            consecutiveFrameErrors, tostring(err)))
-        lastFrameErrorLogged = frameCounter
+            frameErrors.consecutive, tostring(err)))
+        frameErrors.lastLogged = frameCounter
     end
 end
 

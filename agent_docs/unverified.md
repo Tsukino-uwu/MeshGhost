@@ -103,6 +103,39 @@ re-measured at 59.7-59.8fps with 24 and 36 peers offered. See `pitfalls.md` for 
       that fit look and move like ghosts always have, and the map's own NPCs are all still there
       and still walking their routes. Extra peers being invisible is expected, not a fault.
 
+## Pending — Emerald: two tiers of ghost, so nobody is missing (2026-08-19)
+
+Phase 9.1's Emerald half. Peers now fall into two tiers: real spawned object events up to what the
+map can spare (**nearest peers win**, with a 3-tile hysteresis band so ghosts do not swap tiers
+while someone walks past, and a reserve so the engine always keeps a slot for a character of its
+own), and everything past that painted with the older `gui.*` pixel path so that **no peer is
+simply absent**. The drawn tier is behind `MESHGHOST_EMERALD_DRAWN_OVERFLOW` and is **off by
+default** — see `BANDAGES.md`: a drawn ghost has no engine occlusion, and the region a text box or
+the START menu occupies is not measured yet on this game, so with the flag on it would paint over
+them.
+
+Self-tested with synthetic peers on one indoor map, from the adapter's own counters: 40 peers →
+13 spawned + 27 painted at a full 59.7fps; 150 peers → 13 spawned + up to 172 painted (the ones
+left over are genuinely off screen) at 22-31fps; the same 150 with the tier off → 53fps, which is
+what says the cost is the painting rather than the network. A screenshot shows a crowded room that
+looks right, but the synthetic peers circle in tight rings and stack on each other, so it does not
+show one-per-tile.
+
+- [ ] **The spawned half did not change.** Flag off (the default), ordinary play with a few peers.
+      *Correct:* exactly as before — ghosts spawned, animated by the engine, hidden behind the
+      pause menu, on the grid. This is the half that has to be safe regardless of the other.
+- [ ] **The map's own NPCs always win.** *What to look at:* a busy map with more peers than slots.
+      *Correct:* every NPC that belongs on that map is there and behaving; ghosts fill what is
+      left, never the other way round.
+- [ ] **Ghosts do not swap tiers while you walk.** With the flag ON and more peers than slots.
+      *What to look at:* walk past a cluster. *Correct:* ghosts do not visibly flicker between
+      "engine-drawn" and "painted" as distances change; a swap should look like at most one
+      ghost changing over, not a churn.
+- [ ] **What a painted ghost looks like next to a spawned one.** *Correct:* the same character,
+      same size, on the grid — the difference should be that a painted one does not slide as
+      smoothly and is not hidden by scenery. **Expected wrong, and the reason the flag is off:**
+      a painted ghost will draw on top of a text box or the START menu.
+
 ## Pending — Crystal: a peer's sprite that the local player is NOT wearing (2026-08-19)
 
 The no-regression half is CONFIRMED and has moved to `verified.md` — a loopback ghost looks like
