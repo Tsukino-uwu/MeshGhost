@@ -186,9 +186,19 @@ of ours. A unique id re-opens a script lookup with no template behind it — a N
 decomp marks as a known bug, and the cause of the slot-machine bug the user hit on 2026-08-18.
 Trading a crash risk for a shadow is the wrong way round.
 
-**What keeps it honest.** The arc is not ours: a jumping sprite carries its hop in `pos2.y`, so the
-shadow is drawn at the sprite's position *without* that term — the exact ground it left, with no
-arc maths of ours to drift out of step. Only the ellipse's size and colour are invented.
+**What keeps it honest.** Almost nothing about it is invented any more, because guessing did not
+converge and measuring did:
+
+- the ARC is the engine's — a jumping sprite carries its hop in `pos2.y`, so the shadow is drawn at
+  the sprite's position *without* that term, the exact ground it left;
+- the COLOUR is measured — three rounds of tuning alpha all read too light, and dumping the OBJ
+  palettes during a real hop showed every candidate entry is pure black;
+- the GEOMETRY is measured twice — the sprite is 16x8 (`SHADOW_SIZE_M`, matching the player's
+  graphics info against `field_effect_objects.h`), and decoding the pixels the game had loaded
+  showed the INK is 16x5 in rows 3..7 of that box. Filling the box read as *"pretty big on the
+  ghosts compared to the player"*; 16x5 at +11 is the shape the game actually draws.
+
+What remains ours is one ellipse standing in for that 16x5 sprite's exact silhouette.
 
 **What it does NOT cover.** A peer rendered by the DRAWN tier has no arc to sit under: its
 position is the peer's smoothed coordinates, which do not hop, so it slides across a ledge. A
@@ -196,10 +206,12 @@ shadow there would sit exactly beneath the character and read as nothing. Giving
 its own jump arc means inventing motion the engine is not providing for it, which is a larger step
 than an ellipse and is deliberately not taken here.
 
-**What would retire it.** Reading the field-effect graphics table the way the character graphics
-table is already read, so the game's own shadow art is drawn instead of an ellipse. That is a real
-option, not a fantasy — the drawn tier already decodes arbitrary graphics — it simply was not worth
-it for one ellipse. The user's call, 2026-08-19, was to bandage it: the same reasoning as the drawn
+**What would retire it, and it is now one step away.** The shadow sprite's own `images` pointer is
+readable off the live sprite whenever any shadow is on screen — the ink measurement above came from
+exactly that — so the adapter could LEARN it the first time it sees one and then decode the real
+art with the same run-decoder the drawn tier already uses for peer graphics. That is the same
+self-calibrating trick Crystal's drawn tier uses to learn facing frames. The only gap is a ghost
+that hops before the local player ever has, where nothing has been seen to learn from yet. The user's call, 2026-08-19, was to bandage it: the same reasoning as the drawn
 tier, where the hardware cannot do what is wanted and we compensate visibly and on the record.
 
 ## Deliberate — do NOT "fix" these
