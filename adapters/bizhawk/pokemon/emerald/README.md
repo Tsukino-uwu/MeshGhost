@@ -59,6 +59,24 @@ tick model this adapter must implement, and
 [agent_docs/phases/phase8.md](../../../../agent_docs/phases/phase8.md) for the current
 verification task list.
 
+## Limits that come from the game, not from us
+
+Measured 2026-08-19 with real peers over the real relay. Full table and method:
+[agent_docs/crowd-limits.md](../../../../agent_docs/crowd-limits.md).
+
+- **`16 − (objects the map currently has)` ghosts**, which was **13** in Littleroot Town.
+  `gObjectEvents` has 16 entries and every NPC shares it.
+- **The ceiling moves while you walk.** The same town reported 3, 2 and 1 active objects from
+  different camera positions, so free slots change during play and a ghost can lose its slot when
+  a nearby NPC loads.
+- **The hardware is not the constraint here.** A GBA overworld character is a single OAM entry, so
+  13 ghosts plus the cast used 16 of 128. (Crystal, on the Game Boy, hits a hardware wall of ten
+  characters — this one does not.)
+- **Past the limit, extra peers are refused and never appear**; nothing is corrupted and no NPC is
+  displaced. That path used to cost the game its frame rate — 3fps at 24 peers — because the
+  adapter re-scanned and logged per unplaceable peer per frame; fixed 2026-08-19, now a flat
+  ~59.7fps with 36 peers offered.
+
 ## How this adapter was built
 
 First game targeted, so the server and client didn't exist yet either — this build included

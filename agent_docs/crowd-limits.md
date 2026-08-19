@@ -99,12 +99,41 @@ anything this project has planned, so Crystal's limit is not a constraint in pra
 a *hard* one, and it arrives silently. A room of twelve players standing in one town would show
 nine of each other, chosen by whoever arrived first.
 
-## Pokémon Emerald (Game Boy Advance)
+## Pokémon Emerald (Game Boy Advance) — measured 2026-08-19
 
-Measured separately in the same session; see the Emerald entry in `verified.md` and
-`phases/phase8.md`. Emerald's array is `OBJECT_EVENTS_COUNT` and its hardware budget is the GBA's
-128 OAM entries rather than the Game Boy's 40, so its ceiling is higher — but the same two-pool
-shape applies, and the same method produces the number.
+**Ceiling: `16 − (objects the map currently has)`, which was 13 ghosts in Littleroot Town. The
+hardware is nowhere near being the constraint — the engine's array is the whole story.**
+
+| Location | Peers offered | Ghosts rendered | Object slots | Sprite table | OAM | Frame rate |
+|---|---|---|---|---|---|---|
+| Littleroot (3 map objects) | 6 | 6 | 9 of 16 | 13 of 64 | 8–9 of 128 | 59.7 |
+| Littleroot | 12 | 12 | 15 of 16 | 19 of 64 | 15 of 128 | 59.7 |
+| Littleroot | 18 | **13** | **16 of 16 (full)** | 20 of 64 | 16 of 128 | 59.7 |
+| Littleroot | 36 | **13** | **16 of 16 (full)** | 20 of 64 | 16 of 128 | 59.7 *(after the fix below)* |
+
+- **A GBA overworld character is ONE OAM entry**, not four — 16×32 is a native object shape on
+  that hardware. So 13 ghosts plus the player and NPCs used **16 of 128** sprite entries. Where
+  Crystal's ceiling is a negotiation between the engine and the console, Emerald's is purely the
+  engine's 16-entry `gObjectEvents`, with the 64-entry sprite table a distant second.
+- **The ceiling MOVES during play.** The same town read 3, 2 and 1 active objects from different
+  camera positions, so the number of free slots changes as you walk — and a placed ghost can lose
+  its slot when a nearby NPC loads. Crystal's map objects are fixed per map; Emerald's are not.
+- **Route and indoor rows are missing** and are honestly missing: the save available is early-game,
+  Route 101 is story-blocked, and no door was reachable by driving inputs. The formula plus the
+  observed 1–3 objects per camera view is what the evidence supports; a route row needs a later
+  save or a person walking there.
+
+**The defect this measurement found, which is the reason to run it at all.** Past the ceiling
+Emerald did not degrade gracefully — it became **unplayable: 3fps at 24 peers, 1fps at 36**. For
+every peer that could not be placed, every frame, the adapter re-scanned both arrays *and* called
+`console.log`, which in BizHawk appends to a GUI window: roughly 1,400 console writes per second
+at 36 peers. Throttling the message to once per 5s and remembering the refusal for the rest of the
+frame restored 59.7–59.8fps with 13 ghosts placed. See `pitfalls.md`.
+
+**Both adapters had the same shape of bug and only one of them showed it**, which is worth
+remembering when reading the Crystal table above as reassurance: Crystal survived 62 offered peers
+at a flat 60fps because its refusal path happens to be cheap and its log line is rate-limited to
+once a minute. Nothing enforced that; it was luck, until it was measured.
 
 ## What to do about a ceiling you cannot raise
 
