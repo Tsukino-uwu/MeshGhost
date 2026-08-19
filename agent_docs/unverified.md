@@ -30,11 +30,6 @@ and live in `verified.md`** — network-paced movement, the turn animation, cuts
 single-tile walk cadence, the spawned ghost sticking after a run, both house transitions, scene
 brightness, and a smooth run. These are what is left:
 
-- [ ] **The two ghosts are pixel-locked in compare mode.** *What to look at:* run around with the
-      flag on. *Correct:* they move as one, so every remaining difference is a RENDERING one.
-      Compare mode now places the painted copy from the SPAWNED ghost's own sprite, mirrored --
-      because matching the engine's step scheduler is not reachable and five attempts at it cost a
-      run each. Real overflow peers have no spawned copy and keep the filter.
 - [ ] **The painted ghost dims in a dark cave.** *What to look at:* any cave, and any fade.
       *Correct:* it darkens exactly like the spawned one. The fade half of this is confirmed
       (both house directions); a cave has not been visited yet.
@@ -48,12 +43,6 @@ brightness, and a smooth run. These are what is left:
       very rarely"* -- the engine culls an out-of-view object and the adapter respawns it, which is
       normal and was silent. It now logs one line a second at most. *What to look at:* the log
       after it happens, not the screen.
-- [ ] **Does a longer core `-interp` soften the spawned ghost's remaining chop?** Under test with
-      250ms via a config.json in the adapter folder (**untracked, delete it afterwards**). The
-      spawned ghost can only start a step when we have been told the peer moved, and positions
-      arrive 8-20 times a second -- so this buys evenness at the price of the ghost sitting further
-      behind. If it works, the trade is the user's to pick, not ours.
-
 ### Closed as far as it goes, and NOT worth another attempt
 
 - **Ghost collision cannot be removed from a MOVING spawned ghost.** The engine drives a step from

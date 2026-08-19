@@ -8128,3 +8128,38 @@ remainder mod 16 is the sub-tile phase, counting evenly by 2 every frame and han
 tile counter with no discontinuity (tile 17 at -158 is 17.875; at -144 it is 17.0; tile 16 at -142
 is 16.875). The player's continuous position is therefore its tile plus that phase, exactly, and
 the estimate is out of the drawing path altogether.
+
+## The comparison's last two answers: pin it, and give the core more delay — 2026-08-19
+
+### Matching the engine's movement is not reachable, so compare mode stops trying
+
+Five rewrites of the drawn tier's movement were judged by eye and none matched the spawned ghost.
+The reason is structural: **a spawned ghost's timing comes from the engine's step scheduler** --
+when a step starts, how long it is held -- and the adapter does not drive that scheduler. Ours
+comes from when packets land. Average lag, smoothness and walk cadence can all be matched, and
+are; the SHAPE of the engine's starts and stops cannot be.
+
+So with `MESHGHOST_COMPARE_TIERS` the painted copy is now placed from the **spawned ghost's own
+sprite**, mirrored across the player. Pixel-locked by construction, which makes every remaining
+difference a rendering one -- occlusion, cave darkness, water reflection, palette, clipping --
+which is what the mode was asked for. Real overflow peers have no spawned copy and keep the filter.
+
+### The spawned ghost's own chop was ARRIVAL CADENCE, and `-interp` fixes it
+
+**User-confirmed, and this is the significant one for shipping:** at the core's default `-interp`
+of **100ms** the spawned ghost visibly chops during a run — *"it also feels like the spawned one
+has some slight chop during running sometimes"*. At **250ms** the user's verdict was
+*"it actually just looks 1:1:1 perfect now, drawn/player/spawn"*.
+
+Nothing about the adapter changed between those two readings. The mechanism is plain once stated:
+**an engine-driven ghost can only start a step when it has been told the peer moved**, and
+positions arrive 8-20 times a second while the game steps on its own schedule. Whatever slack the
+core does not absorb, the ghost shows as a hitch — and a tile game shows it more than most, because
+a step is a discrete commitment rather than a nudge.
+
+**This is a case for raising the shipped default, and it is the user's call**: 250ms costs a peer
+being rendered a quarter-second behind where they are — a little over a tile at walking pace — and
+buys motion nobody can fault. Recorded here rather than changed unilaterally, since it trades
+latency for smoothness for every game, not just this one. Set for the test with a `config.json`
+in the adapter's folder, which the adapter-spawned core reads from its own working directory: the
+only way to change that flag without relaunching the emulator and losing the session.
