@@ -762,11 +762,30 @@ prompted the preference.
 
 ## Working two games at once, and which model an agent gets — 2026-08-19
 
-**Shape (user's standing grant, 2026-08-19):** when two BizHawk games are worked on in one
-session, **one agent per OTHER game** — the main session drives one game and keeps talking to the
-user, an agent drives the second. A pure-manager split (the main session coordinating two agents)
-was considered and rejected as an extra hop with no extra hands. Never with worktree isolation:
-a worktree cannot share a live emulator session (`CLAUDE.md`).
+**Shape (user's standing grant, extended 2026-08-19): ONE AGENT PER BIZHAWK INSTANCE.** Not per
+game — per *instance*. The main session drives one and keeps talking to the user; every other
+emulator that gets launched, for any reason, gets its own agent. A third instance appeared the
+same evening (an Archipelago-patched ROM, booted alongside vanilla Crystal and Emerald) and the
+user's instruction was immediate: *"use a new agent for every new bizhawk instance we run/use."*
+
+Why per instance rather than per game: an emulator is a **single-owner resource**. It has one
+controller, one Lua console, one loader control file and one attached core, and two parties
+driving it produce exactly the failures this file already lists — scripts swapped underneath each
+other, savestates loaded mid-measurement, inputs fighting. Ownership is the point; the game it
+happens to be running is incidental.
+
+**Hand every instance-owning agent the same four things**, or it cannot stay in its lane:
+
+| What | Example |
+|---|---|
+| Its emulator's **pid** | `EmuHawk 11788 is yours` |
+| Its **loader control file** | `MESHGHOST_DEV_LOADER_TARGET=bizhawk-dev-loader-apcrystal.target` |
+| Its **bridge port** (and its own core) | `7783` |
+| The **off-limits list**: every other pid, port and control file | `11788, 22592, relay 7777, cores 7781/7786 — kill only by PID` |
+
+A pure-manager split (the main session coordinating and driving nothing) was considered and
+rejected as an extra hop with no extra hands. Never with worktree isolation: a worktree cannot
+share a live emulator session (`CLAUDE.md`).
 
 **Model: game agents get the top model, not a cheap one.** The cheaper tier is strong where a task
 is *known-shaped* — run this probe, tabulate these log lines, apply this edit pattern, stage a
