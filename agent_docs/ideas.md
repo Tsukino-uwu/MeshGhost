@@ -1389,6 +1389,19 @@ collision — and peers past the cap still *exist* on screen instead of vanishin
 - **A drawn ghost does not occlude.** It paints over houses, over the pause menu, over text boxes.
   Crystal's spawn path fixed exactly this class of thing, and the user called the equivalent fix
   in Emerald the clearest argument for spawning at all.
+  **Can it be detected? The user's question, and the answer splits in two** (2026-08-19):
+  - **Menus and text boxes: easy, and cheap.** Those are game *states*, not geometry — the adapter
+    already reads the equivalent for its send gate. Hide every drawn ghost while one is open and
+    the whole class disappears. No pixel reasoning involved.
+  - **Scenery: harder, but the hardware carries the answer.** On the Game Boy Color each
+    background tile has an attribute byte in VRAM bank 1, and one bit of it means *this tile draws
+    in front of sprites*. A drawn ghost could read the attribute at the tile it occupies and skip
+    itself when that bit is set. **Approximate on purpose**: it decides per tile, so a character
+    straddling two tiles is half right, and it mimics the engine's rule rather than being it. It
+    would still catch the big case — standing behind a house — which is the one a player notices.
+  - **This is worth pricing before dismissing the whole tier.** "A drawn ghost can never be
+    hidden" would be a much heavier objection than "a drawn ghost is hidden by a rule we
+    reimplement, imperfectly, at tile resolution".
 - **A drawn ghost has no collision and cannot be interacted with** — which is arguably *right*
   for an overflow tier (nine solid ghosts can already box a player in) but makes peers visibly
   unequal.
