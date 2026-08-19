@@ -177,25 +177,37 @@ Setup, once:
                and TEVI and Pseudoregalia are told theirs by their own mod,
                so nothing reads this in normal play (see "two people on the
                SAME machine" below).
-     "interp" -- how far behind real-time (e.g. "100ms", "200ms") you render
+     "interp" -- how far behind real-time (e.g. "250ms", "150ms") you render
                OTHER players' ghosts, to smooth out network jitter. This is
                entirely YOUR OWN client's setting -- it doesn't affect what
                anyone else sees, and different players in the same session
                can use different values.
 
-               Not sure? Leave it at "100ms" -- that's the default if you
-               leave this out entirely, and a reasonable starting point for
-               most connections.
+               Not sure? Leave it at "250ms" -- that's the default if you
+               leave this out entirely, and it is a MEASURED value rather
+               than a guess: with both a ghost and the real character on
+               screen together, 100ms visibly stuttered an emulated game's
+               ghost while 250ms did not (2026-08-19). The cost is that a
+               ghost is drawn a quarter-second behind where that player
+               really is -- a little over one tile at walking pace.
 
                Rough guide if you want to tune it (not scientifically
                measured for this game, just general rules of thumb -- feel
                free to experiment):
-                 "100ms"          -- default. Fine for a typical home
-                                     connection playing with friends.
-                 "150ms"-"250ms"  -- a rough, high-ping, or unstable
-                                     connection (playing across countries,
-                                     flaky wifi, etc). Ghosts look smoother
-                                     but noticeably more delayed.
+                 "250ms"          -- default, and what smooth motion was
+                                     measured at. Fine for a typical home
+                                     connection playing with friends, and
+                                     for a rough one too.
+                 "300ms"-"400ms"  -- a badly unstable connection (flaky
+                                     wifi, playing across the world).
+                                     Smoother still, and visibly delayed.
+                 "100ms"-"150ms"  -- if you would rather have ghosts closer
+                                     to where players really are and can
+                                     live with less smooth movement. On a
+                                     tile-based game (Pokemon) this is where
+                                     stutter starts to show, because each
+                                     step is a discrete hop rather than a
+                                     smooth slide.
                  below "50ms"     -- not recommended, even on a great
                                      connection: your own client only sends
                                      its position about once every 50ms (20

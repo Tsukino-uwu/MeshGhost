@@ -9,7 +9,7 @@
     "name": "player",
     "ghost_collision": "enabled",
     "local_game_bridge": "127.0.0.1:7778",
-    "interp": "100ms",
+    "interp": "250ms",
     "max_receive_hz_per_player": 0
   },
   "server": {
