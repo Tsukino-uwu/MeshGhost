@@ -2740,7 +2740,28 @@ local function syncGhost(playerId, remote)
         if tiering.blockedFrame == frameCounter then return end
         -- Placement is only exact on a settled camera; a frame's wait is free.
         if cameraIsSettled() then
-            spawnGhost(playerId, targetX, targetY, remote.orientation, wantedGfx(remote))
+            local wantNow = wantedGfx(remote)
+            spawnGhost(playerId, targetX, targetY, remote.orientation, wantNow)
+            -- EVERY path that gives a ghost a graphic must also give it that graphic's state.
+            --
+            -- The offset and the animation were applied in the graphic-SWAP path only, and a ghost
+            -- is usually re-created through THIS one instead: the engine reclaims its slot when a
+            -- menu closes, so the peer's rod arrives on a brand-new sprite that never saw the
+            -- swap. Measured with a probe loaded BEFORE the adapter, which is the only way to see
+            -- what the engine left rather than what we just wrote: two frames of the fishing
+            -- graphic at pos2 0,0 -- drawn 8px left -- and then a snap into place. Every earlier
+            -- probe read our own write back and reported a perfect 8.
+            local ng = ghosts[playerId]
+            if ng then
+                local d = sprAddr(ng.sprId)
+                if remote.sox then w16(d + 0x24, remote.sox & 0xffff) end
+                if remote.soy then w16(d + 0x26, remote.soy & 0xffff) end
+                if remote.sanim then
+                    w8(d + 0x2a, remote.sanim)
+                    w8(d + 0x3f, (r8(d + 0x3f) | 0x04) & ~0x10)
+                end
+                loadGhostFrameNow(ng, graphicsInfo(wantNow), remote.sanim, remote.sidx)
+            end
         end
         return
     end
