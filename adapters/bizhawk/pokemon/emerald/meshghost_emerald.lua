@@ -1202,7 +1202,14 @@ local function glideRemote(r, targetX, targetY)
     -- missing. So when a peer reports walking or running without moving, the cycle advances at
     -- that pace anyway -- a sixteenth of a tile per frame walking, an eighth running, which are
     -- the same 8 frames per pose the engine spends.
-    if dx + dy == 0 then
+    -- "Is the peer moving" is asked of the TARGET, not of the filter's own step. A filter
+    -- approaches a new position asymptotically and never lands exactly on it, so testing its
+    -- per-frame delta against zero was true only when the ghost had ALREADY been standing still --
+    -- exactly the difference the user found: the wall animation played *"if im next to a wall, and
+    -- walk into it"* but not *"if i walk and hit a wall and keep walking"*, where the filter was
+    -- still converging from the approach. The target is a discrete value off the wire; it either
+    -- changed this frame or it did not, with no residue to threshold.
+    if targetX == r.lastTX and targetY == r.lastTY then
         -- HALF pace, because walking into a wall is not walking: the game plays the walk-in-place
         -- SLOW animation on a collision (field_player_avatar.c:1011, already cited above where the
         -- bump action is chosen). At full walking pace the user's verdict was that the drawn ghost
@@ -1210,6 +1217,7 @@ local function glideRemote(r, targetX, targetY)
         if r.anim == "running" then r.gDist = r.gDist + 0.0625
         elseif r.anim == "walking" then r.gDist = r.gDist + 0.03125 end
     end
+    r.lastTX, r.lastTY = targetX, targetY
     return r.gX, r.gY
 end
 
@@ -2675,6 +2683,13 @@ local function syncGhost(playerId, remote)
         local atX, atY = rs16(a + 0x10) - MAP_OFFSET, rs16(a + 0x12) - MAP_OFFSET
         despawnGhost(playerId)
         spawnGhost(playerId, atX, atY, remote.orientation, want)
+        -- SWEEP IN THE SAME FRAME. despawnGhost only clears a slot it can still prove is ours
+        -- (ghostAlive), and when that proof fails it deliberately touches nothing -- correct, but
+        -- it leaves the old object active while the new one already exists. Captured in the
+        -- fishing log: slot14 and slot15 both live across the swap, until the once-a-second sweep
+        -- caught it. Sweeping here closes that window to the frame it happens in, which is what
+        -- the user was seeing as the ghost "moving" when it casts a rod.
+        sweepOrphanGhosts()
         return
     end
 
