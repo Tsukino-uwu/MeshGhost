@@ -1,7 +1,8 @@
 # Pokémon Crystal
 
 **Status: shipping.** `meshghost_crystal.lua` is a working adapter — it dials the bridge, spawns a
-real in-game object event for each peer, walks it with the game's own step mechanism, and ships in
+real in-game object event for each peer, walks it with the game's own step mechanism, **paints any
+peer the engine has no room for over the emulator instead of dropping it**, and ships in
 the release (`.github/workflows/release.yml` stages it into `games/pokemon/crystal/`). It **writes
 game RAM** — object RAM only, never a save. Last live confirmation 2026-08-18: a loopback ghost
 walked on both vanilla and an Archipelago-patched ROM.
@@ -45,13 +46,17 @@ Measured 2026-08-19 with real peers over the real relay, not estimated. Full tab
 - **Ten characters on screen at once, ever — a hardware ceiling.** The Game Boy has 40 sprite
   entries and an overworld character uses exactly 4. With the hardware fully saturated at 40 of 40,
   all ten still drew correctly on screen.
-- **Past the limit nothing breaks.** Extra peers are never given a body: no sprite, no collision,
-  no entry in either array — confirmed by a census of every slot while a crowd was live. 36 peers
-  offered against 9 slots held a flat 60fps, displaced no NPC, and crashed nothing. The adapter
-  logs the refusal once a minute, naming which pool ran out.
-- **In practice**: a room of twelve players standing in one town would see nine of each other,
-  first come first served. Ghosts stack on each other freely; they collide with the player, not
-  with one another.
+- **Past the limit, a peer is DRAWN rather than dropped** (2026-08-19, on the user's call). The
+  engine renders as many as it can hold; everything beyond that is painted over the emulator,
+  which no engine or hardware limit applies to. Measured: **a character on every visible tile —
+  89 of 89 — at 60fps**, user-confirmed. The trade is that a drawn peer has no collision, no
+  engine animation, and occlusion we re-implement; it is registered in [BANDAGES.md](BANDAGES.md)
+  with the full cost. `MESHGHOST_CRYSTAL_DRAW_OVERFLOW=0` turns it off, and then extra peers are
+  simply absent, which is the older behaviour.
+- **In practice**: everyone is visible, and the engine's slots go to whoever is actually moving.
+  A peer that has not changed tile for five seconds stops blocking and moves to the drawn tier, and
+  a peer you shove into stops blocking within half a second — so nobody can park on a doorway.
+  Ghosts stack on each other freely; they collide with the player, not with one another.
 
 ## How this adapter differs from Emerald's — the reason it exists
 
@@ -123,7 +128,8 @@ authoritative list, and [phase9.md](../../../../agent_docs/phases/phase9.md) has
   7778-7785 for a core that will have it, gates every spawn on the game's own map-state bytes,
   spawns one object event per peer (a map object plus an object struct, cross-linked, built from a
   live NPC template wearing the player's sprite), and moves each ghost by writing the game's own
-  step-initiation set once per tile. It draws, animates and interpolates nothing.
+  step-initiation set once per tile. For every peer the engine can hold, it draws, animates and interpolates nothing; only the
+overflow tier added 2026-08-19 does any of those, and only because the game cannot.
 - `documentation.md`, `BANDAGES.md`, `FLAGS.md` — how Crystal itself works, the shipped
   compensations, and the runtime switches.
 - `probes/` — every development tool, and none of it ships. Twenty-odd scripts covering the

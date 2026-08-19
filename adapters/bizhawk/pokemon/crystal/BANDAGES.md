@@ -1,10 +1,13 @@
 # Crystal — bandage register
 
-**Nearly empty, and that is the point.** Phase 9 exists because the user's call was to build this
-adapter without starting from a compensation: *"i want to actually spawn in as intended now for
-crystal, so we don't start doing this game with bandaids from the get go"* (2026-08-17). The
-adapter now ships, and it carries **no open compensations** — two entries under Deliberate, both
-measured, and nothing under Shipped.
+**It was empty until 2026-08-19, and that was the point.** Phase 9 exists because the user's call
+was to build this adapter without starting from a compensation: *"i want to actually spawn in as
+intended now for crystal, so we don't start doing this game with bandaids from the get go"*
+(2026-08-17). It carried nothing under Shipped for two days.
+
+**It carries one now, deliberately and on the user's instruction**: the drawn-overflow tier. The
+entry below is written the way the guide asks — what it compensates for, what it costs, and what
+would retire it.
 
 **A file that is present and empty is the goal; a file that is absent is a gap.** An absent register
 cannot tell you whether an adapter has no compensations or merely never wrote them down.
@@ -15,7 +18,40 @@ the user's standing position that a bandage is a state to leave rather than rest
 
 ## Shipped compensations
 
-*None.*
+### 1. The drawn-overflow tier — peers the engine has no room for are painted, not spawned
+
+**What it is.** `meshghost_crystal.lua`'s drawn tier renders a peer with `gui.*` primitives over
+the emulator's output when the engine cannot give it a slot. `MESHGHOST_CRYSTAL_DRAW_OVERFLOW`
+(FLAGS.md) turns it off; it is **ON by default**, which is the opposite polarity to Emerald's
+equivalent and is deliberate — Emerald's is off because its UI regions are not yet locatable, and
+Crystal's are (`verified.md`, 2026-08-19).
+
+**What it compensates for.** A hard ceiling that is genuinely the game's: 13 object structs, 16 map
+objects, 40 hardware sprites, 10 characters per scanline. Past that a peer would not exist at all.
+
+**Why it was taken, when this file previously named it as a temptation to resist.** The user asked
+for it directly after seeing the cap measured: *"cap it, and just draw extras instead if that is
+required. i don't want things to pop in/out all the time. i want every player/ghost to be visible
+all the time instead"* (2026-08-19). The temptation entry below was written against *"falling back
+to drawing if spawning proves unreliable"* — spawning did not prove unreliable, and the spawned
+tier is untouched and still the good one. This is an overflow, not a fallback. That distinction is
+the whole reason it is defensible, and if it ever starts carrying peers the engine *could* have
+held, it has become the thing the temptation warned about.
+
+**What it costs, honestly:**
+
+- **No engine animation.** The adapter animates a drawn peer itself, from frames it learns by
+  watching the engine render the local player.
+- **No collision, and no interaction.** Used deliberately by the collision policy — an idle peer is
+  moved to this tier precisely so it stops blocking — but it means drawn peers are unequal to
+  spawned ones in a way a player can notice.
+- **Occlusion is re-implemented, not inherited.** Text box and menu regions are detected and
+  clipped by us; the spawned tier gets that from the game for free.
+- **Two rendering paths in one adapter**, which will drift. That is the cost the guide warns about
+  most, and the reason this entry exists.
+
+**What retires it.** Nothing available: the ceiling is the hardware's. It would be retired by a
+different rendering strategy entirely, not by fixing anything.
 
 ## Deliberate — measured decisions, not bandages
 
@@ -55,10 +91,13 @@ of them stops being measured, the entry is already here to be corrected.
 Not bandages — none of these has been taken. Listed because each is a place where a compensation is
 the obvious next move, and naming them early makes taking one a decision rather than a slip.
 
-- **Falling back to drawing an overlay if spawning proves unreliable**, and leaving both paths in.
-  Named in the spawn ADR as the specific risk this adapter carries
-  (`agent_docs/architecture.md`, 2026-08-17). Emerald draws because it must; Crystal drawing
-  *as well as* spawning would be a compensation wearing a feature's clothes.
+- ~~**Falling back to drawing an overlay if spawning proves unreliable**, and leaving both paths
+  in.~~ **A drawn path was added 2026-08-19 — see Shipped entry 1 — but NOT for this reason.**
+  Kept here rather than deleted, because the distinction is the thing worth preserving: this
+  temptation was about drawing *instead of* spawning when spawning disappoints. What shipped
+  draws only what the engine has no room for, and spawning is still first choice for every peer
+  that fits. If a future change ever starts drawing peers the engine could have held, this
+  temptation has been taken after all.
 - **Writing an object struct directly instead of going through a map object.** It renders, and it
   was the first thing that worked — but it produces a half-owned object the engine does not
   maintain, with collision and sprite drifting apart. Any future use of that shortcut is a bandage
