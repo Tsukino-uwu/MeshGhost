@@ -2439,6 +2439,47 @@ genderFrames.gridBase = function()
             - (ay + MAP_OFFSET) * TILE
 end
 
+-- GRASS DRAWN OVER A PAINTED GHOST, because in this game grass is a SPRITE, not scenery.
+--
+-- A character standing in tall grass is hidden from the waist down, and the BG mask above cannot
+-- do it: measured 2026-08-20, the grass metatile's TOP layer is completely EMPTY
+-- (`BOTTOM 2012 2013 2022 2023  TOP 0000 0000 0000 0000`, layer type NORMAL), so no BG layer is
+-- covering anything. The engine spawns a field-effect SPRITE per object standing in grass and
+-- draws it above them (FldEff_TallGrass, src/field_effect_helpers.c:291-309). A spawned ghost gets
+-- one for free, being a real object event; a painted one gets nothing, and the user saw exactly
+-- that -- *"its not hidden in tall grass ... player & spawned work as intended"*.
+--
+-- So the painted tier draws the grass itself, over the character, from the field effect's own art:
+--   gFieldEffectObjectTemplate_TallGrass  0850CAA0   (MB_TALL_GRASS  2)
+--   gFieldEffectObjectTemplate_LongGrass  0850CF94   (MB_LONG_GRASS  3)
+-- both named in pokeemerald.map. Placement is the blob's helper again --
+-- SetSpritePosToOffsetMapCoords(x, y, 8, 8) puts it at the tile's centre, and a 16x16 sprite
+-- centred on a tile is a sprite at the tile's corner, so it lands on the character's own tile.
+--
+-- The PALETTE is read off a live one rather than resolved from the template's tag: the player is
+-- standing in the same grass whenever this matters, so the engine already has the answer on screen.
+-- Without one, nothing is drawn -- a wrong-coloured rectangle over a ghost is worse than no grass.
+genderFrames.grassTemplate = { [2] = 0x0850caa0, [3] = 0x0850cf94 }
+
+genderFrames.grassRuns = function(behaviour)
+    local tmpl = genderFrames.grassTemplate[behaviour]
+    if not tmpl then return nil end
+    local images = r32(tmpl + 0x0c)
+    if not isRomPtr(images) then return nil end
+    -- Find a live sprite already drawing this effect and take its palette slot.
+    local pal = nil
+    for i = 0, 63 do
+        local d = sprAddr(i)
+        if (r8(d + 0x3e) & 0x01) ~= 0 and r32(d + 0x0c) == images then
+            pal = (r16(d + 0x04) >> 12) & 0x0f
+            break
+        end
+    end
+    if not pal then return nil end
+    return genderFrames.runsFromImages(string.format("grass%d:%d", behaviour, pal),
+        images, TILE, TILE, 0, pal)
+end
+
 genderFrames.reflectiveSpans = function(left, top, width, height, who)
     -- THE GRID MUST NOT BOB.
     --
@@ -4821,6 +4862,23 @@ local function drawRemotes(localAreaId, playerMapX, playerMapY, skipSpawned, com
                         screenY, panelRows, dim,
                         genderFrames.reflectiveSpans(screenX, screenY,
                             FRAME_WIDTH_PX, FRAME_HEIGHT_PX, "sprite"))
+                end
+                -- OVER the character, which is the whole point: the engine's grass sprite sits
+                -- above the object it belongs to. Drawn on the ghost's OWN tile -- the bottom tile
+                -- of its frame -- for both draw paths, since a peer in grass may be on foot or on
+                -- a bike.
+                do
+                    local gbX2, gbY2 = genderFrames.gridBase()
+                    if gbX2 then
+                        local ggx = math.floor((screenX - gbX2) / TILE)
+                        local ggy = math.floor((screenY + TILE - gbY2) / TILE)
+                        local attr = genderFrames.attrAt(ggx, ggy)
+                        local gruns = attr and genderFrames.grassRuns(attr & 0xff)
+                        if gruns then
+                            drawRunList(gruns, TILE, false, screenX,
+                                screenY + FRAME_HEIGHT_PX - TILE, panelRows, dim)
+                        end
+                    end
                 end
                 -- The painted copy gets a shadow too, on the same terms as the spawned one: only
                 -- while the peer reports a jump, and on the ground it left rather than under its

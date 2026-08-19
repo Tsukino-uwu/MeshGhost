@@ -8604,3 +8604,32 @@ comment on the NORMAL case.
 added to the branch that draws a peer's OWN graphic — a bike, a rod, a surfboard. A peer on FOOT is
 drawn from the cached gender frames by a different function, so the mask never ran. The tell was a
 one-shot diagnostic that printed no line at all: not a quiet success, an unreached code path.
+
+## Emerald: grass drawn over a painted ghost — 2026-08-20
+
+**User-confirmed on screen, vanilla:** *"its working now ... confirmed visually by me"*. A painted
+peer standing in tall grass is now hidden from the waist down, like the player and like a spawned
+ghost.
+
+**This is a SECOND kind of occlusion, and the first one could never have done it.** The BG mask
+confirmed hours earlier handles scenery — buildings, roof edges, tree tops — because those are a
+metatile's top layer on a BG the sprite does not outrank. Grass is not scenery: measured, the grass
+metatile's top layer is completely EMPTY (`BOTTOM 2012 2013 2022 2023  TOP 0000 0000 0000 0000`,
+layer type NORMAL), so no BG layer covers anything at all. The engine spawns a field-effect SPRITE
+per object standing in grass and draws it above them (`FldEff_TallGrass`,
+src/field_effect_helpers.c:291-309).
+
+A spawned ghost gets one for free, being a real object event — the user confirmed player and spawned
+were both already right. A painted ghost gets nothing, so the painted tier now draws the grass
+itself, over the character, from the field effect's own art:
+
+- `gFieldEffectObjectTemplate_TallGrass` 0850CAA0 (`MB_TALL_GRASS` 2) and
+  `gFieldEffectObjectTemplate_LongGrass` 0850CF94 (`MB_LONG_GRASS` 3), both named in pokeemerald.map.
+- Placement is the surf blob's helper again — `SetSpritePosToOffsetMapCoords(x, y, 8, 8)` centres it
+  on the tile, and a 16x16 sprite centred on a tile is one at the tile's corner.
+- The PALETTE is read off a live grass sprite rather than resolved from the template's tag: the
+  player is standing in the same grass whenever this matters. With no live one, nothing is drawn —
+  a wrong-coloured rectangle over a ghost is worse than no grass.
+
+**So the painted tier's occlusion is complete only if BOTH are done**, and "it hides behind
+buildings" was not evidence that it hides at all in general.

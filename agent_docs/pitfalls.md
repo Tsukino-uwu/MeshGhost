@@ -2503,3 +2503,26 @@ the user to look again.
   change can need to land, and each has caught something this month.
 - **Put a diagnostic INSIDE the change, not near it.** Then "did it work" and "did it run" are
   different lines in the log rather than the same silence.
+
+## Occlusion has two sources, and one of them is a sprite — 2026-08-20, Emerald
+
+**Symptom.** A painted ghost was confirmed hiding correctly behind buildings, and then did not hide
+at all in tall grass.
+
+**Cause.** This engine occludes a character two entirely separate ways:
+
+1. **BG layers** — a metatile's top layer on a BG the sprite does not outrank. Buildings, roof
+   edges, tree tops. Handled by a per-pixel metatile mask.
+2. **Field-effect SPRITES** — the engine spawns one per object standing in grass and draws it above
+   them. Nothing about the map's layers is involved, and the grass metatile's top layer is empty.
+
+A painted tier needs both, and finishing the first reads exactly like finishing the job.
+
+**How to tell which one you are looking at, in one probe:** dump the metatile under a character who
+IS correctly occluded. If its top layer has content, it is the BG; if the top layer is empty, the
+occluder is a sprite and the map cannot tell you anything about it.
+
+**The rule.** **"Is it hidden?" is not one question.** Before believing an occlusion feature is
+done, list the things in that game that can be in front of a character — scenery, ground effects,
+weather, UI — and check that each is either handled or knowingly out of scope. A spawned ghost gets
+all of them free, which is exactly what makes the painted tier's gaps easy to miss.
