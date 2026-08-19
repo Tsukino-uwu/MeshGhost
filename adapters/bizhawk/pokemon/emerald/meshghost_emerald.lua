@@ -619,11 +619,20 @@ local function localGraphicsId()
     return memory.read_u8(GOBJECTEVENTS_ADDR + avatarAddrOffset + objId * OBJECTEVENT_SIZE + 0x05)
 end
 
-local function encodeLocalState(areaId, x, y, orientation, anim, gender, gfx)
+-- `sanim` is the player's own SPRITE ANIMATION NUMBER, and it is what `gfx` alone cannot say.
+--
+-- Adopting a peer's graphicsId makes a ghost hold a fishing rod; it does not make it FISH. The
+-- game drives that animation from its own fishing task -- and a ghost has no task, so it sits on
+-- the first frame of the animation forever. The user, watching it: *"neither of them are doing the
+-- mid fishing animations, just the starting fishing one"* (2026-08-19).
+--
+-- The animation number is the missing half. Both ends are on the same graphic by then, so the
+-- numbering matches, and the peer's own sprite is the authority on what that character is doing.
+local function encodeLocalState(areaId, x, y, orientation, anim, gender, gfx, sanim)
     return string.format(
-        '{"type":"local_state","payload":{"state":{"area_id":%s,"position":[%s,%s],"orientation":%s,"anim":%s,"extras":{"gender":%s,"gfx":%s}}}}',
+        '{"type":"local_state","payload":{"state":{"area_id":%s,"position":[%s,%s],"orientation":%s,"anim":%s,"extras":{"gender":%s,"gfx":%s,"sanim":%s}}}}',
         jsonString(areaId), tostring(x), tostring(y), jsonString(orientation), jsonString(anim),
-        jsonString(gender), tostring(gfx or "null"))
+        jsonString(gender), tostring(gfx or "null"), tostring(sanim or "null"))
 end
 
 local ENCODED_NO_SEND = '{"type":"local_state","payload":{"state":null}}'
@@ -1353,6 +1362,9 @@ local function handleBridgeLine(line)
                 -- The peer's own graphic. Absent from an older peer, in which case the ghost
                 -- falls back to borrowing this machine's player graphic, exactly as before.
                 r.gfx = (type(st.extras) == "table" and tonumber(st.extras.gfx)) or nil
+                -- Peer-controlled, so bounded like every other inbound number: animNum is a u8.
+                local sa = (type(st.extras) == "table" and tonumber(st.extras.sanim)) or nil
+                r.sanim = (sa and sa >= 0 and sa <= 255 and math.floor(sa) == sa) and sa or nil
             end
         end
     elseif env.type == "despawn_remote" then
@@ -2529,6 +2541,26 @@ local function syncGhost(playerId, remote)
         return
     end
 
+    -- MIRROR THE PEER'S SPRITE ANIMATION, for the states the engine will not drive for us.
+    --
+    -- Adopting a peer's graphicsId gives a ghost the rod; the game's fishing TASK is what makes it
+    -- fish, and a ghost has no task. So the animation number travels with the state and is applied
+    -- here, imitating StartSpriteAnim (pokeemerald src/sprite.c:1346-1351: set animNum, set
+    -- animBeginning, clear animEnded -- bits 0x04 and 0x10 of the flags byte at +0x3F per
+    -- include/sprite.h:227-232). Written only on a CHANGE, so it costs a comparison per frame.
+    --
+    -- Only while the peer is idle, deliberately: a walking ghost's animation belongs to the engine
+    -- step we asked for, and two things writing animNum would fight. Fishing, surfing on the spot
+    -- and standing poses are exactly the cases the engine is not already animating.
+    if PEER_GFX_ENABLED and remote.sanim and remote.anim ~= "walking"
+        and remote.anim ~= "running" then
+        local d = sprAddr(g.sprId)
+        if r8(d + 0x2a) ~= remote.sanim then
+            w8(d + 0x2a, remote.sanim)
+            w8(d + 0x3f, (r8(d + 0x3f) | 0x04) & ~0x10)
+        end
+    end
+
     if not ghostIsIdle(g) then return end -- never interrupt a half-played step
 
     local dir = DIR_ID[remote.orientation] or DIR_ID.south
@@ -3253,7 +3285,8 @@ local function runFrame()
             -- else's session (agent_docs/contract.md, PROTOCOL.md's tick loop).
             if ready then
                 sendLine(encodeLocalState(state.areaId, smoothX, smoothY, state.orientation,
-                    state.anim, localGender or "male", localGraphicsId()))
+                    state.anim, localGender or "male", localGraphicsId(),
+                    r8(sprAddr(r8(GPLAYERAVATAR_ADDR + avatarAddrOffset + 0x04)) + 0x2a)))
             end
         elseif ready then
             sendLine(ENCODED_NO_SEND)
