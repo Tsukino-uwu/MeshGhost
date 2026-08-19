@@ -7787,3 +7787,62 @@ Also observed on the way, unprompted, and untested states worth knowing the adap
 Prof. Elm's **phone call** panel (a full-width UI panel at the very TOP of the screen — see the
 open drawn-tier item), two wild battles with successful escapes, a Pokemon Center heal, a bag
 screen, a map transition Route 30 -> Cherrygrove City, and a **lost** battle ending in a whiteout.
+
+## A core that "would not reconnect" was dialing a relay nobody was running — 2026-08-19
+
+**Confirmed with the Go tools, not by watching a game** (`CLAUDE.md`'s client/server rule).
+
+The vanilla Emerald instance's core (bridge 7786) was the one of four that did not come back after
+the shared relay on 7777 was restarted at 08:02. Its adapter read `remotes=0` while the other
+Emerald instance read `remotes=1`. Cause, straight out of `dev-scripts/meshghost.log`:
+
+- The core started at 07:40:49 with `config loaded from ...\dev-scripts\config.json` and connected
+  to **`127.0.0.1:7787`, room `emeraldcap`** — a private crowd-test relay, not the shared one.
+- That relay exited; at 07:52:58 the core logged `dial relay: dial tcp 127.0.0.1:7787 ... — will
+  keep retrying` and then said nothing for ten minutes.
+- `dev-scripts/config.json` no longer exists (the crowd-test session cleaned it up), so nothing in
+  the tree explained the port. Restarting the relay on 7777 could never have helped it.
+
+**The reconnect loop was never broken, and that was proven rather than argued**: starting a relay
+on 127.0.0.1:7787 made the core reconnect within 15s, unprompted (`connected to relay
+127.0.0.1:7787 as p1 in room "emeraldcap"`). Killing the stale core let the adapter autostart a
+fresh one, which logged `no config file ... using built-in defaults` and joined the shared relay as
+`p12` in room `default`; the adapter's own status line then read `remotes=1`.
+
+Two facts fall out, both of which cost the investigation time:
+
+- **A core's relay address comes from `config.json` in its WORKING DIRECTORY**, which under the dev
+  loader is `dev-scripts/` — the hazard `environment.md` already warns about, now seen doing
+  exactly what it predicts. A config file that has since been deleted leaves no trace at all
+  except the run banner in the log.
+- **All four cores share `dev-scripts/meshghost.log`**, so the file is four sessions interleaved
+  and the only way to tell them apart is the run banner and the ports in each line.
+
+Fixed on the Go side: a still-failing reconnect now repeats its complaint once a minute, naming the
+relay address and how long it has been failing, instead of logging once and going silent
+(`core/core.go`, `reconnectLogInterval`; regression test
+`TestReconnectKeepsSayingItCannotReachTheRelay`, which fails without the change).
+
+## Two Emerald instances no longer share one log file — 2026-08-19
+
+**A filesystem fact, not a visual one.** Both BizHawk Emerald instances run the same adapter, whose
+log name resolved only to the second, so two instances reloading in the same second opened the same
+file and their writes landed inside each other (`atus: frame=...`). The name now carries the
+emulator's process id — `meshghost_emerald_20260819_082128_22592.log` alongside
+`meshghost_emerald_20260819_081711_15628.log`, one per emulator, confirmed on disk. Back-ported to
+the Crystal adapter unchanged, which had the identical shape.
+
+## Emerald: where the game draws its UI panels, measured on a SECOND map — 2026-08-19
+
+`probes/textbox_probe.lua`, driven by a scripted START press **outdoors in Littleroot Town** (the
+earlier sample was indoors), read from the BG tilemaps rather than the LCD:
+
+- **Nothing open:** BG0 entirely empty. BG1 is NOT empty outdoors (rows 1, 5-9, 13, 17 carry tiles)
+  — which is the reason the detector reads BG0 and only BG0.
+- **START menu open:** BG0 rows 0-13, and only in the right-hand columns (sampled columns 21, 24,
+  27 non-zero; everything left of them zero) — the panel, nothing else.
+- **Closed again:** BG0 back to entirely empty, same frame the menu disappeared.
+
+Same geometry as the indoor sample, on a different map, which is what says the detector is reading
+the panel rather than the room. The text-box half (BG0 rows 14-19, full width) has one indoor
+sample from 2026-08-19 and no second one yet.

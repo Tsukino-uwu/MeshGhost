@@ -356,6 +356,23 @@ type Core struct {
 	// waiting for the relay to come up.
 	lastConnectErr string
 
+	// lastConnectErrLoggedAt/connectFailingSince exist so that "logged again
+	// only when the message changes" does not become "logged once, then
+	// silence forever". A core whose relay address no longer has a relay on
+	// it retries the identical dial every 15s indefinitely and, before this,
+	// said so exactly once — so from the outside a core stuck dialing a dead
+	// address was indistinguishable from a core that had given up or hung.
+	// Found live 2026-08-19: one of four cores had been pointed at a
+	// crowd-test relay on a private port by a config.json that was later
+	// deleted; the relay was killed, the core dialed it for ten minutes in
+	// total silence, and the first guess was a reconnect defect (there was
+	// none — the loop was working the whole time and reconnected within 15s
+	// once something listened again). connectFailingSince dates the outage so
+	// the repeat can say how long this has been going on, which is the fact
+	// that identifies it as stale config rather than a blip.
+	lastConnectErrLoggedAt time.Time
+	connectFailingSince    time.Time
+
 	// autoRetryGameID/autoRetryAdapterGameVersion/autoRetryBridgeConn are
 	// set by ConnectRelayOnAdapterHello on every successful connect, and
 	// read by ConnectRelay's OnDisconnect handler to decide whether a later
@@ -810,16 +827,32 @@ func (c *Core) ConnectRelayOnAdapterHello(gameID, adapterGameVersion string, bri
 		reason, isReject := asRejectReason(err)
 		permanent := isReject && isPermanentRejectReason(reason)
 
+		now := time.Now()
+
 		c.mu.Lock()
 		changed := c.lastConnectErr != err.Error()
 		c.lastConnectErr = err.Error()
+		if changed || c.connectFailingSince.IsZero() {
+			c.connectFailingSince = now
+		}
+		// Repeat the same message periodically while it keeps failing —
+		// see reconnectLogInterval for why silence is the worse option.
+		stillFailing := !permanent && !changed &&
+			!c.lastConnectErrLoggedAt.IsZero() &&
+			now.Sub(c.lastConnectErrLoggedAt) >= reconnectLogInterval
+		if changed || stillFailing {
+			c.lastConnectErrLoggedAt = now
+		}
+		failingFor := now.Sub(c.connectFailingSince)
+		relayAddr := c.RelayAddr
 		if permanent {
 			c.permanentRejectGame = gameID
 			c.permanentRejectReason = reason
 		}
 		c.mu.Unlock()
 
-		if changed {
+		switch {
+		case changed:
 			// No "core: " prefix here — every error ConnectRelay can
 			// return is already self-prefixed with it (dial/send/timeout
 			// errors, and RejectError.Error()), so this used to print
@@ -829,6 +862,9 @@ func (c *Core) ConnectRelayOnAdapterHello(gameID, adapterGameVersion string, bri
 			} else {
 				log.Printf("%v — will keep retrying", err)
 			}
+		case stillFailing:
+			log.Printf("core: still cannot reach the relay at %s after %s of retrying: %v",
+				relayAddr, failingFor.Round(time.Second), err)
 		}
 		return err
 	}
@@ -837,6 +873,8 @@ func (c *Core) ConnectRelayOnAdapterHello(gameID, adapterGameVersion string, bri
 	c.relayGame = gameID
 	c.relayOwner = bridgeConn
 	c.lastConnectErr = ""
+	c.lastConnectErrLoggedAt = time.Time{}
+	c.connectFailingSince = time.Time{}
 	c.permanentRejectGame = ""
 	c.permanentRejectReason = ""
 	c.autoRetryGameID = gameID
@@ -849,6 +887,13 @@ func (c *Core) ConnectRelayOnAdapterHello(gameID, adapterGameVersion string, bri
 	}
 	return nil
 }
+
+// reconnectLogInterval is how often a still-failing reconnect repeats its
+// (identical) complaint. A var rather than a const only so a test can shrink
+// it — nothing else writes it. One minute is chosen to be cheap enough to
+// leave running for hours and frequent enough that a human reading the log
+// during a session sees the problem within a minute of looking.
+var reconnectLogInterval = 60 * time.Second
 
 // reconnectWithBackoff keeps calling ConnectRelayOnAdapterHello for
 // (gameID, adapterGameVersion, bridgeConn) until it succeeds or is

@@ -1,7 +1,9 @@
 package core
 
 import (
+	"bytes"
 	"encoding/json"
+	"log"
 	"math"
 	"net"
 	"strings"
@@ -1988,5 +1990,98 @@ func TestRateLimitedRejectIsRetryableUnlikeAConfigReject(t *testing.T) {
 		if !isPermanentRejectReason(reason) {
 			t.Fatalf("isPermanentRejectReason(%q) = false, want true (permanent)", reason)
 		}
+	}
+}
+
+// TestReconnectKeepsSayingItCannotReachTheRelay is the regression test for a
+// core that retries a relay address nothing answers on any more: it used to
+// log once and then go completely silent, because the log line was gated
+// purely on the error message CHANGING and a dead address produces a
+// byte-identical error every time.
+//
+// Found live 2026-08-19 (see lastConnectErrLoggedAt on Core): one of four
+// cores had been pointed at a crowd-test relay on a private port by a
+// config.json that was later deleted, that relay was killed, and the core
+// then dialed it for ten minutes without a word — which read from outside as
+// a broken reconnect loop rather than a wrong address. The loop was fine; the
+// reporting was not.
+func TestReconnectKeepsSayingItCannotReachTheRelay(t *testing.T) {
+	// Reserve an address and free it, so dialing it is refused rather than
+	// hanging — the same shape as a relay that has exited.
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("reserve address: %v", err)
+	}
+	addr := ln.Addr().String()
+	ln.Close()
+
+	prevInterval := reconnectLogInterval
+	reconnectLogInterval = 20 * time.Millisecond
+	t.Cleanup(func() { reconnectLogInterval = prevInterval })
+
+	var logged bytes.Buffer
+	prevOut := log.Writer()
+	prevFlags := log.Flags()
+	log.SetOutput(&logged)
+	log.SetFlags(0)
+	t.Cleanup(func() {
+		log.SetOutput(prevOut)
+		log.SetFlags(prevFlags)
+	})
+
+	c := New()
+	c.RelayAddr = addr
+	c.Room = "room1"
+	c.DisplayName = "alice"
+	c.DialTimeout = testTimeout
+
+	if err := c.ConnectRelayOnAdapterHello("emerald", "", nil); err == nil {
+		t.Fatal("expected a dial failure with nothing listening, got nil")
+	}
+	if got := strings.Count(logged.String(), "will keep retrying"); got != 1 {
+		t.Fatalf("first failure should log once, got %d:\n%s", got, logged.String())
+	}
+
+	// An immediate retry inside the interval must stay quiet — that part of
+	// the old behaviour is deliberate and must not regress into a flood.
+	if err := c.ConnectRelayOnAdapterHello("emerald", "", nil); err == nil {
+		t.Fatal("expected the retry to fail too, got nil")
+	}
+	if strings.Contains(logged.String(), "still cannot reach the relay") {
+		t.Fatalf("a retry inside the interval must not log:\n%s", logged.String())
+	}
+
+	time.Sleep(2 * reconnectLogInterval)
+	if err := c.ConnectRelayOnAdapterHello("emerald", "", nil); err == nil {
+		t.Fatal("expected the retry to fail too, got nil")
+	}
+	out := logged.String()
+	if !strings.Contains(out, "still cannot reach the relay") {
+		t.Fatalf("a retry past the interval should say so again, log was:\n%s", out)
+	}
+	// Naming the address is the whole point: the live incident was a core
+	// dialing a port nobody expected it to be dialing.
+	if !strings.Contains(out, addr) {
+		t.Fatalf("the repeat should name the relay address %s, log was:\n%s", addr, out)
+	}
+
+	// Once a relay is actually there, the complaining stops and the outage
+	// clock resets — otherwise a later blip would report a duration measured
+	// from the first outage of the session.
+	ln2, err := net.Listen("tcp", addr)
+	if err != nil {
+		t.Fatalf("listen on reserved address %s: %v", addr, err)
+	}
+	t.Cleanup(func() { ln2.Close() })
+	go relay.NewServer().Serve(ln2)
+
+	if err := c.ConnectRelayOnAdapterHello("emerald", "", nil); err != nil {
+		t.Fatalf("connect once the relay is up: %v", err)
+	}
+	c.mu.Lock()
+	failingSince := c.connectFailingSince
+	c.mu.Unlock()
+	if !failingSince.IsZero() {
+		t.Fatalf("connectFailingSince should be cleared on a successful connect, got %v", failingSince)
 	}
 }

@@ -45,7 +45,7 @@ emulators survive; the agents driving them do not. Each needs a new owner (one a
 | ROM | Bridge port | Loader control file | Where it got to |
 |---|---|---|---|
 | Vanilla Crystal | 7781 | `bizhawk-dev-loader-crystal.target` | Soak run, invariant watcher clean, ~44 synthetic peers drawn |
-| Vanilla Emerald | 7778 | `bizhawk-dev-loader-emerald.target` | Proving its drawn tier's panel clipping by counting skipped runs |
+| Vanilla Emerald | 7786 | `bizhawk-dev-loader-emerald.target` | Proving its drawn tier's panel clipping by counting skipped runs |
 | **Archipelago Crystal** | 7783 | `bizhawk-dev-loader-apcrystal.target` | **Errand done; the rival battle in Cherrygrove is the trainer battle that settles `W_BATTLEMODE`** |
 | **Archipelago Emerald** | 7784 | `bizhawk-dev-loader-apemerald.target` | **`gSprites` measured three times independently as `0x02020630` — i.e. NOT shifted from vanilla — pending confirmation that the spawn path actually engages** |
 
@@ -119,6 +119,8 @@ that a peer's state genuinely differs from the local player's, which loopback co
   (it used to hijack an NPC); a real battle still needs watching. `phase9.md`, `unverified.md`.
 - **The core dropped its relay connection twice on quic** — `use of closed network connection`,
   ~40s apart, reconnecting each time; moving to tcp stopped it. Go side. `verified.md` 2026-08-18.
+  (Separate from the 2026-08-19 "core never came back" case, which was a stale `config.json`
+  pointing at a dead relay, not a reconnect defect — `verified.md`, `pitfalls.md`.)
 - **Duplicate ghost spawn on every level load** — two ghosts per peer, the `remotes` entry going
   present -> absent within three ticks, leaving an orphaned pawn nobody tracks. `verified.md`.
 - **Two different games at once: half fixed** — the user-visible symptom of the bridge-shape gap

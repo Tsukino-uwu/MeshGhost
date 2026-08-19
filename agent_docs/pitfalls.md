@@ -1814,3 +1814,34 @@ change rather than on a timer. Full method, with the general form: `adapters/_te
 **And the corollary for talking to the user**: when they say they cannot tell whether something is
 happening, that is a measurement result, not a non-answer. It means the effect sits at the edge of
 perception, and the next move is to count it rather than ask them to look again.
+
+## Two things that share a file, and the silence that hides them — 2026-08-19
+
+Both found in one two-instance Emerald session, and they are the same mistake in two places: a
+name that is not unique per instance.
+
+- **Symptom.** Lines in `adapters/bizhawk/pokemon/emerald/logs/` mangled mid-write —
+  `atus: frame=...` where one write landed inside another.
+  **Cause.** The log name resolved only to the second (`meshghost_emerald_%Y%m%d_%H%M%S.log`), and
+  two emulators running the same adapter reload in the same second every time a shared control
+  file or a restart moves them together. Both then held the same file open.
+  **Fix.** The name carries the emulator's process id. A pid cannot collide while both processes
+  exist; a bridge port can, and is not even known at the point the log opens (it is walked).
+  Back-ported to the Crystal adapter, which had the identical shape.
+
+- **Symptom.** One of four cores did not rejoin after the shared relay was restarted; its adapter
+  read `remotes=0` for ten minutes and its log said nothing at all.
+  **Cause, and it was not the reconnect loop.** The core had been started in `dev-scripts/`, where
+  a `config.json` pointed it at a crowd-test relay on a private port; that relay had exited, and
+  the config file had since been deleted, so nothing in the tree explained the port. The retry loop
+  ran the whole time — proven by starting a relay on that port and watching it reconnect in 15s —
+  but the log line was gated on the error message CHANGING, and a dead address produces a
+  byte-identical error forever.
+  **Fix.** A still-failing reconnect repeats once a minute with the address and the elapsed time
+  (`core/core.go`, `reconnectLogInterval`).
+  **The general rule:** *"log it again only if it changed"* is right for a retry that will succeed
+  shortly and wrong for one that never will, and the two are indistinguishable at the moment the
+  first line is written. Any unbounded retry needs a heartbeat, or it is invisible exactly when it
+  matters. Corollary already in `environment.md`, now with a live case: **prefer an explicit
+  `-relay` flag to a config file when several sessions share a machine** — a flag is in the
+  process list forever, a config file can be deleted and take the explanation with it.

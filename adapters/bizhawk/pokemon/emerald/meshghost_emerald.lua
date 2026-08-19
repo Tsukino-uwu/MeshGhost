@@ -530,9 +530,27 @@ end
 -- four .md files under two dozen logs in one afternoon. No mkdir: io.open simply fails if the
 -- directory is missing, which is the fallback, and creating one would mean os.execute -- the same
 -- shell call whose console-window flash was removed from this file earlier today.
+--
+-- THE NAME CARRIES THIS EMULATOR'S PROCESS ID, and that is not decoration. Two emulators running
+-- the same game (a vanilla ROM and a patched seed, which is the normal two-instance session here)
+-- run this same script, and a name resolved only to the SECOND collides whenever both reload in
+-- the same second -- which is exactly what a control-file edit or a shared restart does. Both then
+-- hold the same file open and their lines interleave mid-write, producing mangled lines like
+-- "atus: frame=..." where one write landed inside another. Found live 2026-08-19 with two Emerald
+-- instances; a pid cannot collide while both processes exist, where a port can (the bridge port is
+-- walked, and is not known yet at this point anyway).
 local logfile
 do
-    local name = string.format("meshghost_emerald_%s.log", os.date("%Y%m%d_%H%M%S"))
+    local okPid, pid = pcall(function()
+        luanet.load_assembly("System")
+        return luanet.import_type("System.Diagnostics.Process").GetCurrentProcess().Id
+    end)
+    -- No pid available (a BizHawk build without luanet): fall back to a pinned bridge port, and
+    -- then to the clock's fractional part -- any discriminator beats none, because the failure
+    -- being prevented is silent corruption of the file rather than a missing one.
+    local tag = (okPid and pid) or BRIDGE_PORT_OVERRIDE
+        or math.floor((os.clock() % 1) * 100000)
+    local name = string.format("meshghost_emerald_%s_%s.log", os.date("%Y%m%d_%H%M%S"), tostring(tag))
     logfile = io.open(SCRIPT_DIR .. "logs/" .. name, "w") or io.open(SCRIPT_DIR .. name, "w")
 end
 
@@ -1929,6 +1947,15 @@ tiering.budget = function(localAreaId)
     end
     local budget = 16 - seen - tiering.reserve
     if budget < 0 then budget = 0 end
+    -- Dev override (FLAGS.md): cap how many peers may hold an object slot, so the DRAWN tier can
+    -- be exercised without a crowd. Proving the panel clipping needs a drawn ghost and a text box
+    -- in the same frame, and reaching the real cap means ~14 synthetic peers, which means a
+    -- second relay and a load generator -- for a question one peer can answer. Set it to 0 and the
+    -- loopback ghost itself becomes the drawn tier's problem. Deliberately re-read every call so
+    -- it can be flipped mid-session by a one-line loader script.
+    local cap = tonumber(MESHGHOST_EMERALD_MAX_SPAWNED
+        or os.getenv("MESHGHOST_EMERALD_MAX_SPAWNED") or "")
+    if cap and cap < budget then budget = cap end
     return budget
 end
 
@@ -2535,6 +2562,23 @@ local function runFrame()
                 .. "clipped=%d overworld=%s inGame=%s",
             frameCounter, tostring(connected), tostring(ready), tostring(currentPort),
             nRemotes, nGhosts, nDrawn, nClipped, tostring(inOverworld()), tostring(session.live)))
+        -- "Peers are known but none of them is being rendered" is its own failure, and the status
+        -- counts above cannot tell which of the two reasons it is: the peer is somewhere else, or
+        -- it is here and the spawn declined. area_id is opaque and compared by equality, so
+        -- printing both sides settles it in one line. Only when the counts actually disagree.
+        if nRemotes > 0 and nGhosts == 0 then
+            -- Rebuilt from memory rather than reused: the smoothed area id is a local of the
+            -- block further down and is not in scope here, and this is a once-per-300-frames
+            -- diagnostic, so a fresh read costs nothing.
+            local b = memory.read_u32_le(GSAVEBLOCK1PTR_ADDR)
+            local localArea = b ~= 0
+                and (memory.read_s8(b + 0x04) .. ":" .. memory.read_s8(b + 0x05)) or "nil"
+            for playerId, r in pairs(remotes) do
+                logFile(string.format("  unrendered %s: area=%s local=%s at=(%s,%s)",
+                    tostring(playerId), tostring(r.areaId), localArea,
+                    tostring(r.x), tostring(r.y)))
+            end
+        end
         -- Collision follows the object's map coordinates; drawing follows the sprite's screen
         -- position. A ghost whose hitbox sits away from its picture means those two disagree, so
         -- both are logged next to the player's own pair as the control.
