@@ -628,12 +628,12 @@ end
 --
 -- The animation number is the missing half. Both ends are on the same graphic by then, so the
 -- numbering matches, and the peer's own sprite is the authority on what that character is doing.
-local function encodeLocalState(areaId, x, y, orientation, anim, gender, gfx, sanim, sidx)
+local function encodeLocalState(areaId, x, y, orientation, anim, gender, gfx, sanim, sidx, act)
     return string.format(
-        '{"type":"local_state","payload":{"state":{"area_id":%s,"position":[%s,%s],"orientation":%s,"anim":%s,"extras":{"gender":%s,"gfx":%s,"sanim":%s,"sidx":%s}}}}',
+        '{"type":"local_state","payload":{"state":{"area_id":%s,"position":[%s,%s],"orientation":%s,"anim":%s,"extras":{"gender":%s,"gfx":%s,"sanim":%s,"sidx":%s,"act":%s}}}}',
         jsonString(areaId), tostring(x), tostring(y), jsonString(orientation), jsonString(anim),
         jsonString(gender), tostring(gfx or "null"), tostring(sanim or "null"),
-        tostring(sidx or "null"))
+        tostring(sidx or "null"), tostring(act or "null"))
 end
 
 local ENCODED_NO_SEND = '{"type":"local_state","payload":{"state":null}}'
@@ -1196,6 +1196,20 @@ local function glideRemote(r, targetX, targetY)
     -- Distance covered, in tiles. The engine changes pose every 8 pixels, so this keeps a tile at
     -- two poses whatever rate the peer's positions arrived at.
     r.gDist = (r.gDist or 0) + dx + dy
+    -- WALKING INTO A WALL covers no ground, and a distance-driven cycle therefore froze on a
+    -- single pose: the user, comparing, *"does not animate the walking into a wall animations, it
+    -- just does the pose and stays in it"*. The peer is plainly walking; it is the GROUND that is
+    -- missing. So when a peer reports walking or running without moving, the cycle advances at
+    -- that pace anyway -- a sixteenth of a tile per frame walking, an eighth running, which are
+    -- the same 8 frames per pose the engine spends.
+    if dx + dy == 0 then
+        -- HALF pace, because walking into a wall is not walking: the game plays the walk-in-place
+        -- SLOW animation on a collision (field_player_avatar.c:1011, already cited above where the
+        -- bump action is chosen). At full walking pace the user's verdict was that the drawn ghost
+        -- did it *"a bit too fast"*.
+        if r.anim == "running" then r.gDist = r.gDist + 0.0625
+        elseif r.anim == "walking" then r.gDist = r.gDist + 0.03125 end
+    end
     return r.gX, r.gY
 end
 
@@ -1369,6 +1383,8 @@ local function handleBridgeLine(line)
                 r.sanim = (sa and sa >= 0 and sa <= 255 and math.floor(sa) == sa) and sa or nil
                 local si = (type(st.extras) == "table" and tonumber(st.extras.sidx)) or nil
                 r.sidx = (si and si >= 0 and si <= 255 and math.floor(si) == si) and si or nil
+                local ac = (type(st.extras) == "table" and tonumber(st.extras.act)) or nil
+                r.act = (ac and ac >= 0 and ac <= 255 and math.floor(ac) == ac) and ac or nil
             end
         end
     elseif env.type == "despawn_remote" then
@@ -2741,17 +2757,19 @@ local function syncGhost(playerId, remote)
         -- and only an explicit action brings it back to standing. A walk does not need this --
         -- the user's own test was exact about that, "it does idle->walk fine".
         g.wasRunning = running or nil
-    elseif (math.abs(dx) == 2 and dy == 0) or (math.abs(dy) == 2 and dx == 0) then
-        -- Exactly two tiles along one axis: a LEDGE HOP. The engine jumps it, arc and all, from
-        -- the same kind of action a step uses. A dropped packet could in principle look like this
-        -- too, and the cost of being wrong is a ghost hopping where it should have walked -- much
-        -- cheaper than the teleport this replaces, which was wrong every single time.
-        local jumpDir
-        if dx == 2 then jumpDir = DIR_ID.east
-        elseif dx == -2 then jumpDir = DIR_ID.west
-        elseif dy == 2 then jumpDir = DIR_ID.south
-        else jumpDir = DIR_ID.north end
-        requestAction(g, 0x0c + jumpDir - 1)
+    elseif remote.act and remote.act >= 0x0c and remote.act <= 0x0f then
+        -- A LEDGE HOP, because the peer SAID SO. This was first written as "the peer moved exactly
+        -- two tiles in one update", which never fires: the core interpolates (250ms by default),
+        -- so a hop arrives as a smooth glide through both tiles and the two-tile delta the
+        -- detection needed does not exist by the time we see it. Watching positions cannot recover
+        -- an intention the interpolator has already smoothed away.
+        --
+        -- The engine records that intention as movementActionId, and JUMP_2_DOWN/UP/LEFT/RIGHT are
+        -- 0xC..0xF (pokeemerald include/constants/event_object_movement.h:99-102) -- so the peer
+        -- sends the action and the ghost performs the same one, arc and all. Passed through
+        -- verbatim rather than re-derived from a direction, because the value already IS the
+        -- direction and the engine is the authority on which one it chose.
+        requestAction(g, remote.act)
         g.wasRunning = nil
     else
         -- More than a tile out: a warp, a dropped packet, or a peer moving faster than we sample.
@@ -3153,7 +3171,17 @@ local function drawRemotes(localAreaId, playerMapX, playerMapY, skipSpawned, com
                     local runs, info, gfxFlip =
                         genderFrames.runsForPeerGfx(remote.gfx, remote.sanim, remote.sidx)
                     if runs and info then
-                        drawRunList(runs, info.width, gfxFlip, screenX, screenY, panelRows, dim)
+                        -- CENTRE IT LIKE THE ENGINE DOES. A fishing or biking frame is 32 wide
+                        -- where a walker is 16, and the engine does not shift its position for
+                        -- that -- it sets centerToCornerVec = -(width >> 1) and lets the hardware
+                        -- draw from the centre. Painting a wider frame from the walker's top-left
+                        -- puts it half the difference off, which is what the user saw: the drawn
+                        -- ghost *"moves back a bit"* on casting while the player does not move.
+                        -- Same arithmetic, applied where we draw.
+                        drawRunList(runs, info.width, gfxFlip,
+                            screenX + (FRAME_WIDTH_PX >> 1) - (info.width >> 1),
+                            screenY + (FRAME_HEIGHT_PX >> 1) - (info.height >> 1),
+                            panelRows, dim)
                         drew = true
                     end
                 end
@@ -3434,7 +3462,14 @@ local function runFrame()
                 sendLine(encodeLocalState(state.areaId, smoothX, smoothY, state.orientation,
                     state.anim, localGender or "male", localGraphicsId(),
                     r8(sprAddr(r8(GPLAYERAVATAR_ADDR + avatarAddrOffset + 0x04)) + 0x2a),
-                    r8(sprAddr(r8(GPLAYERAVATAR_ADDR + avatarAddrOffset + 0x04)) + 0x2b)))
+                    r8(sprAddr(r8(GPLAYERAVATAR_ADDR + avatarAddrOffset + 0x04)) + 0x2b),
+                    -- movementActionId (pokeemerald include/global.fieldmap.h:246, +0x1C): what
+                    -- the engine is currently making this character DO. A ledge hop is a jump
+                    -- action, and no amount of watching positions can recover that -- see the
+                    -- remote side for why.
+                    r8(GOBJECTEVENTS_ADDR + avatarAddrOffset
+                        + r8(GPLAYERAVATAR_ADDR + avatarAddrOffset + 0x05) * OBJECTEVENT_SIZE
+                        + 0x1c)))
             end
         elseif ready then
             sendLine(ENCODED_NO_SEND)
