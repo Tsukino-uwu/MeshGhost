@@ -146,7 +146,38 @@ local function dropAll(why)
 	pcall(gui.clearGraphics)
 end
 
+-- REFUSE A SCRIPT THAT WOULD NEVER GIVE THE FRAME LOOP BACK.
+--
+-- A target carrying its own `while true ... emu.frameadvance()` and no MESHGHOST_DEV_TICK does not
+-- fail -- it runs, forever, INSIDE loadTarget's pcall. The loader never returns to its own loop, so
+-- it stops polling the control file and every other target (the adapter included) silently stops
+-- ticking while the game carries on at full speed. From outside that is indistinguishable from the
+-- loader having died, and the only way out is restarting the emulator.
+--
+-- Found live 2026-08-19 with probes/surf_bike_probe.lua, one of ~33 probes written before this
+-- loader existed and never updated to its contract. They still work standalone, which is why the
+-- answer is a guard here rather than a rewrite of all of them: this file is the one place that
+-- knows a script is about to be loaded into a shared frame loop.
+--
+-- Text inspection, not execution, because by the time the chunk runs it is already too late.
+local function wouldHijackFrameLoop(path)
+	local f = io.open(path, "r")
+	if not f then return false end
+	local src = f:read("*a") or ""
+	f:close()
+	local loops = src:match("while%s+true%s+do") or src:match("emu%.frameadvance")
+	return loops ~= nil and not src:match("MESHGHOST_DEV_TICK")
+end
+
 local function loadTarget(path)
+	if wouldHijackFrameLoop(path) then
+		log("REFUSED " .. path .. " -- it runs its own frame loop and sets no MESHGHOST_DEV_TICK, "
+			.. "so loading it here would freeze every other target. Open it directly in the Lua "
+			.. "Console instead, or give it the `if MESHGHOST_DEV_LOADER then ... end` contract "
+			.. "from this file's header.")
+		failed[path] = true
+		return false
+	end
 	MESHGHOST_DEV_TICK, MESHGHOST_DEV_UNLOAD = nil, nil
 	local chunk, err = loadfile(path)
 	if not chunk then

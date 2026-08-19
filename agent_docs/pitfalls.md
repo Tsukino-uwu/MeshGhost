@@ -1905,3 +1905,32 @@ sweep (overworld -> START menu -> POKeMON submenu -> back), while the START menu
 (35-38 painted, every one of them left of `l=80`, nothing inside the rectangle) and the drawn tier
 resumed normally on exit (63 waiting, 36-38 drawn, 31-32 mid-stride). **Not yet watched by the
 user**, which is what `unverified.md` asks for.
+
+## A probe with its own frame loop freezes every other script — 2026-08-19
+
+**Symptom.** The dev loader stopped logging, stopped polling its control file, and the adapter
+stopped ticking — no bridge traffic, no ghost, no adapter log lines — while the emulator carried on
+at full speed and stayed responsive. From outside it looks exactly like the loader having quietly
+died.
+
+**Cause.** `probes/surf_bike_probe.lua` (written 2026-08-14, before the loader existed) ends in a
+bare `while true ... emu.frameadvance()` and sets no `MESHGHOST_DEV_TICK`. Loaded as a loader
+target, that loop never returns, so it runs **inside** the loader's own `loadTarget` call forever.
+The loader's header has always stated the contract; the pre-loader probes were never updated to it,
+and **~33 of them are in the same state** (`for f in adapters/bizhawk/pokemon/*/probes/*.lua; do
+grep -q 'while true do' "$f" && ! grep -q MESHGHOST_DEV_TICK "$f" && echo "$f"; done`).
+
+**Fix.** The loader now **refuses** such a target by inspecting its text before loading it, and says
+why (`wouldHijackFrameLoop` in `dev-scripts/bizhawk-dev-loader.lua`). A guard in the one place that
+knows a script is about to enter a shared frame loop beats rewriting 33 standalone probes that are
+perfectly correct on their own. `surf_bike_probe.lua` itself was given the
+`if MESHGHOST_DEV_LOADER then MESHGHOST_DEV_TICK = step else while true ... end` shape, which is the
+pattern to copy.
+
+**The cost, which is why this is worth a guard rather than a note.** There is no recovery from
+outside the emulator: no file edit, no control-file change and no signal can break that loop, so the
+instance is dead until someone restarts BizHawk by hand. It cost this instance its session on
+2026-08-19.
+
+**The general form:** a shared cooperative loop needs every participant to *return*, and a
+participant that does not cannot be detected once it is running — only refused before it starts.

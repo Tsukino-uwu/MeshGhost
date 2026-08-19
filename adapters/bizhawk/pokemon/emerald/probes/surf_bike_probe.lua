@@ -119,10 +119,26 @@ local function runFrame()
 end
 
 console.log("surf_bike_probe: running. Walk/surf/Mach-Bike/Acro-Bike a few tiles each, then copy the console output.")
-while true do
+
+local function step()
     local ok, err = pcall(runFrame)
     if not ok then
         console.log("surf_bike_probe: frame error (continuing): " .. tostring(err))
     end
-    emu.frameadvance()
+end
+
+-- TWO WAYS TO RUN, and the loader one is not optional politeness. This probe predates
+-- dev-scripts/bizhawk-dev-loader.lua and carried a bare `while true ... emu.frameadvance()`, which
+-- under the loader HIJACKS THE FRAME LOOP FOREVER: the loader never gets control back, so it stops
+-- polling its control file and every other target -- the adapter included -- silently stops
+-- ticking while the game keeps running at full speed. Found live 2026-08-19; from outside it looks
+-- exactly like the loader having quietly died, and the only recovery is restarting the emulator.
+-- The loader's own header states this contract; this file simply never got updated to it.
+if MESHGHOST_DEV_LOADER then
+    MESHGHOST_DEV_TICK = step
+else
+    while true do
+        step()
+        emu.frameadvance()
+    end
 end
