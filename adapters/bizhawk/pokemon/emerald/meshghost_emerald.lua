@@ -1120,92 +1120,47 @@ local STEP_DURATION_FRAMES = { walking = 16, running = 8 }
 -- So a drawn peer now glides between TILES over the same 16/8 frames the game gives a step, from
 -- per-peer state kept on the peer's own table (no new chunk locals -- this file is at 196 of
 -- Lua's 200). A jump longer than one tile is a warp, a respawn or first sight, and snaps.
--- WALK LIKE THE ENGINE WALKS: one tile at a time, and deaf to new information mid-step.
+-- DRAW THE PEER WHERE THE PEER SAYS IT IS. The adapter does not get a vote on movement.
 --
--- Fourth model, and the last three failed in ways worth keeping, because each was a different way
--- of getting "the ghost chases its latest position" wrong:
+-- Six attempts at making a drawn ghost move well, and the last five were all the same mistake:
+-- each invented a movement model here -- ramp from the last tile, ramp from the current position,
+-- constant speed, the engine's own step machine, then that machine at a measured speed -- and
+-- every one of them ran on its OWN clock. The world scrolls on the game's clock. Two independent
+-- clocks beat against each other, and that beat is what "a bit choppy" was, every time.
 --
---   1. Ramp from the last committed tile over 16/8 frames -- snapped backwards every step.
---   2. Ramp from the current position -- no snap, but each step covered a different distance in
---      the same fixed time, so the ghost visibly sped up and slowed down.
---   3. Constant speed toward the newest target -- even, and the closest yet, but a PURSUIT: it
---      starts moving the instant a packet lands, while the engine will not start a step until the
---      character is standing on a tile. So it kept up better than the engine's own ghost, which
---      the user spotted immediately: the drawn one *"keeps up a tiny bit faster with the player
---      compared to the spawned one while running"*.
+-- The last measurement made it undeniable (probes/tier_compare.log): the spawned ghost moved a
+-- clean -1.0 px every frame while ours sat perfectly still for ten frames, jumped +2.0 px a frame
+-- for eleven, then crawled at 0.33. Not one of those numbers is a movement bug. They are two
+-- clocks disagreeing.
 --
--- The spawned ghost's motion is not a pursuit at all. syncGhost refuses to do anything unless
--- `ghostIsIdle`, then hands the engine ONE tile; everything that arrives mid-step is ignored and
--- read again when the step ends. That discreteness is not an implementation detail of the engine,
--- it IS what the movement looks like -- including how far behind the ghost sits. So the drawn tier
--- now runs the same machine: aligned on a tile, take one step toward wherever the peer is now;
--- mid-step, take nothing.
+-- **Smoothing a peer's position between updates is the CORE's job** -- it is what `-interp`
+-- exists for, it is where the clock offset and the arrival times are known, and it is tested there
+-- (agent_docs/contract.md). By the time a position reaches this adapter it is already a smooth,
+-- continuous, sub-tile float; the drawn tier's entire job is to put a picture at it. Everything
+-- below is bookkeeping for the WALK CYCLE, which does need to know about movement -- and it takes
+-- that from distance covered, not from any model of how the covering happened.
+--
+-- The one thing this costs: with `-interp=0` a peer's position arrives in 20Hz steps and a drawn
+-- ghost will show them, because there is nothing left here to hide them. That is the honest
+-- behaviour -- the rig asked for no interpolation -- and it is what the setting means.
 local function glideRemote(r, targetX, targetY)
-    -- HOW FAST IS THIS PEER ACTUALLY MOVING? Not "what does its anim tag say".
-    --
-    -- Measured with both ghosts logged side by side per frame (probes/tier_compare.log): the peer
-    -- was advancing 0.125 tiles a frame -- running -- while our step machine was stepping it at
-    -- 0.0625, the walking duration, because that is what the tag said. So the ghost lost half a
-    -- tile every step, fell further behind until it was more than two tiles out, and SNAPPED. The
-    -- snap is the chop the user kept seeing, and no amount of adjusting the step curve could have
-    -- fixed it: the ghost was simply moving at the wrong speed.
-    --
-    -- The tag is a classification (`runningState == 2 and dashing`) and a peer can move without it
-    -- being true at all -- a cutscene already proved that, and cost a separate fix. Its own
-    -- POSITION cannot lie. An average over recent frames rides out the unevenness of an
-    -- interpolated stream without chasing it, and is clamped to sane per-tile durations so a
-    -- dropped packet or a warp cannot leave a ghost crawling or sprinting.
-    local moved = math.abs(targetX - (r.spdX or targetX)) + math.abs(targetY - (r.spdY or targetY))
-    r.spdX, r.spdY = targetX, targetY
-    r.speed = (r.speed or 0) * 0.9 + moved * 0.1
-    local dur = STEP_DURATION_FRAMES[r.anim] or STEP_DURATION_FRAMES.walking
-    if r.speed and r.speed > 0.001 then
-        dur = 1 / r.speed
-        if dur < 6 then dur = 6 elseif dur > 24 then dur = 24 end
-    end
     local prevX, prevY = r.gX, r.gY
-
-    -- First sight, a different area, or hopelessly behind: a warp, a respawn, a dropped packet.
-    if r.gX == nil or r.gAreaId ~= r.areaId
-        or math.abs(targetX - r.gX) > 2 or math.abs(targetY - r.gY) > 2 then
-        r.gX, r.gY, r.gAreaId = targetX, targetY, r.areaId
-        r.gStepping, r.gMoved = nil, false
+    if r.gAreaId ~= r.areaId then
+        prevX, prevY = targetX, targetY
+        r.gAreaId = r.areaId
+    end
+    r.gX, r.gY = targetX, targetY
+    local dx = math.abs(r.gX - (prevX or r.gX))
+    local dy = math.abs(r.gY - (prevY or r.gY))
+    -- A warp is not walking: past a tile in one frame, restart the cycle rather than spinning it.
+    if dx > 1 or dy > 1 then
+        r.gMoved, r.gDist = false, 0
         return r.gX, r.gY
     end
-    r.gAreaId = r.areaId
-
-    if r.gStepping then
-        local f = (frameCounter - r.gStepFrame) / r.gStepDur
-        if f >= 1 then
-            r.gX, r.gY = r.gToX, r.gToY
-            r.gStepping = nil
-        else
-            r.gX = r.gFromX + (r.gToX - r.gFromX) * f
-            r.gY = r.gFromY + (r.gToY - r.gFromY) * f
-        end
-    end
-
-    if not r.gStepping then
-        -- Standing on a tile: this is the only moment a new step may begin, exactly as the engine
-        -- only accepts one from an idle object.
-        local tx, ty = math.floor(r.gX + 0.5), math.floor(r.gY + 0.5)
-        local dx, dy = targetX - tx, targetY - ty
-        if dx ~= 0 or dy ~= 0 then
-            -- One axis per step, like a grid character. X first is arbitrary and only shows on a
-            -- diagonal, which a peer cannot actually walk.
-            local sx, sy = 0, 0
-            if dx ~= 0 then sx = (dx > 0) and 1 or -1 else sy = (dy > 0) and 1 or -1 end
-            r.gFromX, r.gFromY = tx, ty
-            r.gToX, r.gToY = tx + sx, ty + sy
-            r.gStepFrame, r.gStepDur = frameCounter, dur
-            r.gStepping = true
-        end
-    end
-
-    r.gMoved = r.gStepping and true or false
-    -- Distance travelled, in tiles, for the walk cycle: the engine changes pose every 8 pixels,
-    -- so counting ground covered keeps one tile at exactly two poses however long it took.
-    r.gDist = (r.gDist or 0) + math.abs(r.gX - (prevX or r.gX)) + math.abs(r.gY - (prevY or r.gY))
+    r.gMoved = (dx + dy) > 0.0001
+    -- Distance covered, in tiles. The engine changes pose every 8 pixels, so this keeps one tile
+    -- at exactly two poses however fast or slow the peer crossed it.
+    r.gDist = (r.gDist or 0) + dx + dy
     return r.gX, r.gY
 end
 
@@ -2605,16 +2560,17 @@ end
 -- found it blocked from behind but not head-on, which is a positional check with a moving object,
 -- not an elevation rule. Recorded so nobody spends the elevation afternoon twice.
 --
--- Parking is UNCONDITIONAL, including mid-step, and that is not the obvious choice -- restricting
--- it to a standing ghost was the first version and did not help, because the loopback ghost
--- mirrors the player and is therefore stepping exactly when the player walks into it (user:
--- *"the spawned ghosts collision is still not disabled"*).
+-- Parking happens ONLY while the ghost is standing still, and the unconditional version is a
+-- REVERTED experiment, not an untried idea. The reasoning for it was that this file already
+-- records the engine maintaining a ghost's sprite by camera deltas after spawn rather than
+-- re-deriving it from the coordinates -- so moving them mid-step ought to be invisible. It is not:
+-- the engine's step logic reads those coordinates to drive the movement, and the user's verdict
+-- was immediate -- *"now the spawned ghost is acting really weird"*. Reasoning, where a
+-- measurement was available.
 --
--- What makes the unconditional version safe is a fact this file already recorded for a different
--- reason: "a ghost's screen position is computed once, at spawn or teleport, and from then on the
--- engine only applies camera DELTAS to it". The picture is not re-derived from the coordinates
--- every frame, so moving them does not drag it. Restored at the top of every tick, before
--- anything -- ours or the engine's step logic -- reads them.
+-- So the honest limits of this switch: a STANDING ghost does not block, a stepping one does, for
+-- the 8 or 16 frames its step lasts. Removing collision from a moving engine-driven ghost is not
+-- possible this way, because the thing that makes it move is the thing that makes it collide.
 local function parkGhostHitboxes(park)
     if tiering.noCollision == nil then
         tiering.noCollision = (MESHGHOST_EMERALD_NO_COLLISION
@@ -2629,7 +2585,7 @@ local function parkGhostHitboxes(park)
     for _, g in pairs(ghosts) do
         local a = objAddr(g.objId)
         if park then
-            if not g.parked then
+            if not g.parked and ghostIsIdle(g) then
                 g.parked = {}
                 for i, off in ipairs(FIELDS) do g.parked[i] = r16(a + off) end
                 -- Seven tiles up: off the visible screen, but well inside the window the engine
@@ -2810,8 +2766,9 @@ local function drawRemotes(localAreaId, playerMapX, playerMapY, skipSpawned, com
         if remote.areaId == localAreaId and wanted then
             -- Tile-paced, not sample-paced: the peer's TILE is the target, and the walk between
             -- tiles is the game's own 16/8 frames rather than however far the last packet moved.
-            local glideX, glideY = glideRemote(remote,
-                math.floor(remote.x + 0.5), math.floor(remote.y + 0.5))
+            -- RAW, not rounded to a tile: the core hands us a continuous position and rounding
+            -- it here was the first step in every model that then had to re-invent the motion.
+            local glideX, glideY = glideRemote(remote, remote.x, remote.y)
             local screenX = playerScreenX + (glideX - playerMapX) * TILE
             local screenY = playerScreenY + (glideY - playerMapY) * TILE
             if isLoopback then
