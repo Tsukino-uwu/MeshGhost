@@ -109,10 +109,12 @@ that a peer's state genuinely differs from the local player's, which loopback co
 
 - **Crystal's drawn tier is unconfirmed**: animation, facing and text-box clipping all landed
   2026-08-19 after the fill-the-screen test. `unverified.md`, `crowd-limits.md`.
+- **Crystal/Emerald: ghost animation completeness** — surf/bike ride on the sprite id already sent;
+  fishing, bump, spin, emote and Fly need `OBJECT_ACTION`/`OBJECT_FACING`. `phases/phase9.md`.
 - **Crystal: a peer's own sprite is used when its tiles are resident, not otherwise** — but the
   DRAWN tier could read any sprite from ROM, which would close it. `phases/phase9.md`.
-- **Crystal/Archipelago: `wBattleMode` unmeasured** — 0x015A vs 0x1234, needs one trainer battle.
-  Everything else is measured and a loopback ghost walks on the AP ROM. `phases/phase9.md`.
+- **Crystal/Archipelago: the address table is COMPLETE** — `wBattleMode` = `0x1234`, measured
+  2026-08-19 in the rival battle; the adapter no longer refuses on that ROM. Needs a live look.
 - **Crystal: a ghost does NOT survive a battle** — answered from the code 2026-08-19 and fixed
   (it used to hijack an NPC); a real battle still needs watching. `phase9.md`, `unverified.md`.
 - **The core dropped its relay connection twice on quic** — `use of closed network connection`,

@@ -261,3 +261,111 @@ off, and that is what will happen.
       (`89 drawn (89 from the cartridge)`). **This is the fix for "a ghost looks like this
       machine's player"** — for the drawn tier. A spawned ghost still needs tiles the hardware can
       reach, so it keeps the old behaviour.
+
+## Crystal's drawn tier does NOT clip the PHONE-CALL panel at the TOP of the screen (2026-08-19)
+
+**Reported by the user, watching the Archipelago Crystal instance:** *"there is a 'text box/ui'
+thing at the top. think we forgot that one earlier for the gui draw, as it only appears when
+someone in the game call your phone."*
+
+Both of `meshghost_crystal.lua`'s occlusion tests are blind to it, and for different reasons:
+
+- `textBoxOpen()` looks for the frame's corner tile (121) and its edge (122) **at row 12 only** —
+  the constant bottom-of-screen box (`TEXTBOX_Y = SCREEN_HEIGHT - TEXTBOX_HEIGHT`). A panel drawn
+  at the top of the screen is not on that row, so it is never seen.
+- `uiPanelOpen()` latches the rectangle a **menu** publishes in `wMenuBorder*`; a text box does not
+  publish one (measured 2026-08-19), and there is no reason to assume the call panel does either.
+
+So a drawn peer standing near the top of the screen paints over an incoming call. The spawned tier
+is unaffected — the engine occludes it.
+
+**The likely fix, and why it is not just another constant:** the corner-tile test is already
+style-independent and cheap, so **scan for the frame corner on the top rows as well as row 12** and
+clip against whichever rectangle is found, rather than adding a second hard-coded row. That also
+covers any other panel this game draws in the same frame style.
+
+- [ ] **Confirm where the panel actually sits** — its first row, its height, whether it spans the
+      full width, and whether it publishes `wMenuBorder*` after all. Trigger: wait for an in-game
+      phone call, with a crowd of drawn peers on screen. A screenshot settles the geometry in one
+      frame; the tilemap read settles the detection.
+
+**Geometry SEEN 2026-08-19 on the Archipelago instance, from the agent's own screenshots** —
+`dev-scripts/shots/apcrystal/00-arrival.png` and `01-after-call.png`, Prof. Elm's "It's a
+disaster!" call on Route 30. Permitted to confirm visually because the ROM is patched
+(`CLAUDE.md`); the tilemap read is still outstanding, so the detection half of the item stands.
+
+- The panel is at the **very top of the screen**, **full width**, and about **3-4 tile rows** tall
+  (the overworld resumes at roughly screen row 4). It holds one line — the caller's name,
+  `PROF.ELM:`, with a small phone icon in the first cell.
+- **The normal bottom text box is on screen AT THE SAME TIME**, carrying the speech. So a call is
+  TWO panels, top and bottom, and `textBoxOpen()`'s row-12 test sees only the bottom one — which is
+  exactly why a drawn peer near the top of the screen is unclipped while one near the bottom is
+  fine. The proposed fix (scan the top rows for the frame corner too) is aimed correctly.
+- Not yet read: `wMenuBorder*` while it is up, and which tilemap rows the frame tiles occupy.
+
+**Measured 2026-08-19 on the VANILLA instance, and it changes the proposed fix.** The call panel
+itself was **not observed** — no call came in during the session, so its geometry is still unknown
+and the item above stands. What *was* measured is the trap the naive version of the fix walks into.
+`adapters/bizhawk/pokemon/crystal/probes/uiframe_probe.lua` scans **both** tilemaps on **every**
+row for the frame corner and logs the window registers beside it. In New Bark Town, with nothing
+open and the player walking, it found a full-width frame top at **BG row 12 while `WY` was parked
+at 144** — i.e. the frame tiles were sitting in the tilemap with **no panel on screen at all**, and
+they cleared a few seconds later as the camera scrolled other terrain into that row.
+
+So **"frame tiles are present" and "a panel is visible" are different questions**, and a scan of
+every row would hide drawn peers for no reason — the same shape as the bug that emptied the bottom
+half of the screen earlier that day. A generalised test needs the visibility half too: LCDC bit 5
+(window enabled) and `WY <= 143` / `WX <= 166`. Today's row-12 test survives this only because its
+third check (the far end of the row) happens to fail on the leftover tiles; that is luck, not
+design. **Log-line evidence, agent-verified; no visual claim.**
+
+## Pending — Crystal's drawn tier: what a crowd on VANILLA showed (2026-08-19)
+
+The queue above ("Pending — Crystal's drawn tier") asks for five things. This is what a synthetic
+crowd could establish without the user, on **vanilla Crystal in New Bark Town**, ~60 peers offered
+by `meshghost-fakeadapter.exe` in five concentric rings around the player (radii 1-5, 8-18 peers
+each, distinct periods so they do not step in lockstep). **Nothing here is a confirmation** — this
+is a vanilla ROM, so every visual claim still needs the user's eyes.
+
+**A note that changes how any of this gets checked, and cost an hour to find: BizHawk's
+`client.screenshot()` does NOT capture the drawn tier.** The drawn peers are `gui.drawLine` calls
+on the Lua overlay; `client.screenshot()` writes the emulator's video output, which contains the
+engine's own sprites (so a SPAWNED ghost appears) and none of the overlay (so a DRAWN one never
+does). Three "the crowd is invisible" screenshots were taken of a screen that was full of ghosts.
+The way to see the drawn tier is a **window capture** of the EmuHawk window (`PrintWindow` with
+`PW_RENDERFULLCONTENT`) — and that capture must be **DPI-aware**, or on a scaled display it
+silently returns the top-left two-thirds of the window and the bottom of the screen (where the text
+box is) is simply not in the picture. Both traps are in `dev-scripts/shots/crystal/`'s history:
+`10-crowd-01.png` (empty, `client.screenshot`), `30-textbox.png` (cut off, no DPI), and
+`33-dpi.png` (correct).
+
+- [x] *(agent-measured, not a confirmation)* **A drawn peer has a facing, and animates.** Counted
+      rather than photographed, because one frame cannot see a walk cycle: the adapter's
+      once-a-second line now ends `N on a walk frame, M with no facing yet`. Over 12 consecutive
+      samples with ~40 peers drawn, **14-36 were rendering a walk stride at any instant and M was
+      0 every single time** — no peer ever fell back to the "nothing learned for that facing"
+      path. *For the user:* it should look like a crowd of characters walking, each facing the way
+      it is going, not sliding while facing down.
+      **This needed a rig change**: `meshghost-fakeadapter` sent no orientation at all for a 2D
+      game, so every synthetic peer had `facing = nil` and rendered a static forward frame — which
+      looks exactly like broken animation and is not. New flag `-facing-follows-path` sends a
+      cardinal string from the circle tangent; off by default.
+- [x] *(agent-measured)* **A drawn peer does not paint over a text box.** Picture:
+      `dev-scripts/shots/crystal/33-dpi.png` — an NPC's box ("Oh! Your POKéMON is adorable!") with
+      ~40 drawn peers on screen and the box completely clean, ghosts stopping at its top edge.
+      The counter agreed both ways: 13-14 `hidden by UI` with the box open, 0 with it closed.
+- [x] *(agent-measured)* **A drawn peer does not paint over the START menu.** Picture:
+      `dev-scripts/shots/crystal/20-startmenu.full.png` — the menu's rectangle on the right half is
+      clean, ghosts stop at its left edge, 21-24 `hidden by UI`.
+- [ ] **Small anomaly worth a second look:** 3-4 peers were counted `hidden by UI` while the player
+      was walking with nothing open. Too few to be the text-box rule (that would hide everything
+      below row 12); the suspect is a stale `lastMenuBox` inside the 20-frame latch. Harmless
+      today, and not chased.
+- [ ] **Still unwatched, and not answerable with synthetic peers:** the collision half of the queue
+      — idle peers stopping blocking after five seconds, and shoving past one in a doorway.
+
+**Also settled in passing, from the log:** crossing a map boundary (Route 29 -> New Bark Town) with
+62 drawn peers on screen dropped every one of them within a second — the adapter's drawn-tier
+bookkeeping stops when the peers' `area_id` no longer matches, which is the leak fixed earlier that
+day still holding. Log-line evidence.
+

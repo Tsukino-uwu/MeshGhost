@@ -304,11 +304,60 @@ character on every visible tile. In order, because the order is the lesson:
       The patch does rearrange WRAM non-uniformly — +7, +6 and −0x2A in one build — so the adapter
       keeps one address table per ROM, selected by the header-title classifier, and an unmeasured
       entry stays `nil` so the adapter refuses rather than writing somewhere plausible.
-      Nine of ten entries are measured; `wBattleMode` needs a trainer battle to settle
-      0x015A vs 0x1234. See `verified.md` and `pitfalls.md`.
+      **All ten entries are now measured**: `wBattleMode` = `0x1234`, settled 2026-08-19 by
+      fighting the rival in Cherrygrove — 0x015A read 1 in a wild AND a trainer battle, 0x1234
+      read 1 then 2. See `verified.md` and `pitfalls.md`.
       **In scope does not mean equal priority** — settled 2026-08-18 (`plans.md`): Archipelago is a
       real goal but always comes after the original game. Vanilla is what the project promises;
       a patched ROM is best-effort until it is not.
+
+## Animation completeness — the enumeration, 2026-08-19
+
+**The user's ask, 2026-08-19:** *"base game crystal and emerald should try to fix up any/all
+animations for everything the player/ghost needs. surf/fly etc and other things."* Enumerated
+first rather than guessed, from the game's own terms (`documentation.md`, "What a character is
+DOING"), against what the adapter puts on the wire today: `area_id`, `position`,
+`orientation` (a cardinal string from `OBJECT_DIRECTION`), `anim` (`"walk"`/`"idle"`, from
+`OBJECT_WALKING`), and `extras.sprite` (the object's `OBJECT_SPRITE`).
+
+| What a player can be doing | How Crystal shows it | On the wire today | Spawned ghost | Drawn ghost |
+| --- | --- | --- | --- | --- |
+| Standing / walking, facing | `OBJECT_ACTION` STAND/STEP + `OBJECT_FACING` | direction + walk/idle | engine drives it | learned frames |
+| **Bike** | `wPlayerState` -> `SPRITE_*_BIKE` | **yes**, via `extras.sprite` | only if resident (it is not) | yes, read from ROM |
+| **Surf** | `wPlayerState` -> `SPRITE_SURF` | **yes** | only if resident | yes, read from ROM |
+| **Surfing Pikachu** | `wPlayerState` -> `SPRITE_SURFING_PIKACHU` | **yes** | only if resident | yes, read from ROM |
+| **Fishing** | `OBJECT_ACTION_FISHING` + `FACING_FISH_*` | **no** | no | no |
+| **Bumping a wall** | `OBJECT_ACTION_BUMP` | no | no | no |
+| **Spin tiles / the "!" emote** | `OBJECT_ACTION_SPIN` / `_EMOTE` | no | no | no |
+| **Fly (landing)** | `OBJECT_ACTION_SKYFALL`, `STEP_TYPE_SKYFALL_TOP` | no | no | no |
+| Door / warp / Fly (leaving) | the map is rebuilt | `area_id` changes | despawn + respawn | same |
+| Battle | the player leaves the overworld | **nothing is sent** (the in-play gate) | ghost freezes where it was | same |
+
+**The shape of the fix, and it is one change rather than eight.** Every row marked "no" above is
+the same missing pair: the adapter reads neither `OBJECT_ACTION` (`0x0b`) nor `OBJECT_FACING`
+(`0x0d`), although it already knows both offsets (`F_ACTION`, `F_FACING`) and uses them when
+writing a step. Send those two bytes as `extras`, and:
+
+- a **spawned** ghost gets the animation for free by having them written onto its struct — the
+  engine plays fishing, bump, spin, emote and the Fly landing itself, which is the whole point of
+  the spawned tier;
+- a **drawn** ghost can select the frame directly, because `OBJECT_FACING` already *is* an index
+  into the frame list — no learning from the player needed for the cases the player is not
+  currently doing.
+
+**What that does NOT fix**, and should not be conflated with it:
+
+- **A spawned ghost still cannot wear a sprite this map never loaded**, so bike and surf reach a
+  spawned ghost only when the local player happens to be doing the same thing. The drawn tier
+  already reads the cartridge, so it is unaffected. This is the same open VRAM-allocation item
+  above, not a new one.
+- **A peer in a battle sends nothing at all**, so their ghost freezes rather than animating. That
+  is a lifecycle question (Emerald answered its version by dropping the bridge), not an animation
+  one.
+- `anim` as a wire field is redundant once the action byte is sent; it stays because the contract
+  is game-agnostic and `anim` is opaque to the core.
+
+Not implemented. Enumerated, cited, and scoped so the next session can close it one row at a time.
 
 ## Method notes worth keeping
 

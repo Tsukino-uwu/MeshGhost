@@ -7751,3 +7751,39 @@ one unmeasured address on that table.
 
 Also corrected while measuring: the entry's size field is in **bytes** (192 = 12 tiles), not
 tiles, which two comments had wrong.
+
+## 2026-08-19 — Archipelago Crystal: `wBattleMode` is `0x1234`, settled by a trainer battle
+
+**Track: measured by the agent from live memory reads while driving the game. No visual claim
+about a ghost.** The one visual fact asserted — that the battle was a TRAINER battle — was
+confirmed by the agent from its own screenshot, which `CLAUDE.md` permits on a **patched** ROM:
+`dev-scripts/shots/apcrystal/auto-trainer-detected.png` shows the rival's `TOTODILE :L5` in
+Cherrygrove City, and `56-bag.png` shows the red-haired rival sprite after the win.
+
+The AP address table had two candidates and no way to separate them, because every battle fought
+so far had been WILD and both read 1 there. Vanilla semantics are 0 outside, **1 wild, 2 trainer**,
+so a trainer battle is the only thing that splits them. One was fought.
+
+| Address | Wild battle (Caterpie, Pidgey, Route 30) | Trainer battle (rival's Totodile, Cherrygrove) |
+|---|---|---|
+| `0x015A` | 1 | **1** — same value, so not the flag |
+| **`0x1234`** | **1** | **2** |
+| the other eight watched | 1 | 1, or flickering (`0x02BC` read 1/15/240), or 0 (`0x14F8`) |
+
+`0x1234` is the ONLY one of the ten candidates that held a different non-zero value in the two
+kinds of battle, and it held `2` steadily for the whole trainer battle — from the first sample
+after the battle opened to the last before it ended, across roughly 17,000 frames and every menu
+the fight passed through — then returned to **0** the moment the battle ended, with the player back
+in the overworld. Independently, `0x1234` is vanilla's `wBattleMode` (`0xD22D` -> flat `0x122D`)
+**plus 7**, the same delta the coordinate block moved, which was already the corroborating reason
+it was a candidate.
+
+Method note worth keeping: the trainer battle was found by a **failure**, not a search. The driver
+auto-escapes wild battles so a long walking leg is not broken by every patch of grass; three failed
+escapes in a row means the battle cannot be run from, which means it is a trainer battle. The
+detector and the measurement are the same event.
+
+Also observed on the way, unprompted, and untested states worth knowing the adapter passed through:
+Prof. Elm's **phone call** panel (a full-width UI panel at the very TOP of the screen — see the
+open drawn-tier item), two wild battles with successful escapes, a Pokemon Center heal, a bag
+screen, a map transition Route 30 -> Cherrygrove City, and a **lost** battle ending in a whiteout.

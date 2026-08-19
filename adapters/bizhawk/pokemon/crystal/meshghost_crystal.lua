@@ -153,17 +153,14 @@ local ADDRESSES = {
 		-- sampled while standing still and phase-locked. 0x1439 is vanilla+7 and held 2 across
 		-- 1103 samples of walking. Override with MESHGHOST_CRYSTAL_STATUS_ADDR to compare.
 		W_MAPSTATUS = tonumber(os.getenv("MESHGHOST_CRYSTAL_STATUS_ADDR") or "") or 0x1439,
-		-- Two candidates, deliberately unresolved. Both read 0 whenever the player is in the
-		-- overworld and 1 through a wild battle:
-		--   0x015A -- non-zero earliest and for the most of each battle.
-		--   0x1234 -- vanilla's wBattleMode (0xD22D -> flat 0x122D) plus 7, the same delta the
-		--             coordinate block moved. Corroboration from an independent direction.
-		-- Both earlier battles were WILD, so nothing has yet asked either to hold a DIFFERENT
-		-- non-zero value. A trainer battle does (vanilla semantics: 1 wild, 2 trainer), and
-		-- ap_battlemode_probe.lua reports the moment one ends. Until then this stays nil and the
-		-- adapter refuses -- picking the steadier of two on a hunch is the exact move that put
-		-- three refuted addresses in this file already.
-		W_BATTLEMODE = nil,
+		-- MEASURED 2026-08-19 by fighting a TRAINER battle -- the rival's Totodile in Cherrygrove
+		-- City -- after two wild battles on Route 30. Ten candidates all read 1 in a wild battle;
+		-- 0x1234 was the only one that read 2 in the trainer battle, held it for the whole fight
+		-- and returned to 0 when it ended. 0x015A, the other candidate, read 1 in BOTH, which is
+		-- what rules it out. Vanilla semantics confirmed on this build: 0 outside, 1 wild,
+		-- 2 trainer. It is also vanilla's 0xD22D -> flat 0x122D plus 7, the same delta the
+		-- coordinate block moved -- corroboration, not the derivation. See verified.md.
+		W_BATTLEMODE = 0x1234,
 		-- MEASURED 2026-08-19 by scanning the patched ROM for the table's own signature -- a run
 		-- of 6-byte entries whose address is 0x4000-0x7FFF, size is 192 or 64 bytes, type is 1-3
 		-- and palette is 0-7. The same scan finds vanilla's table at its known 0x14736 with 102
@@ -177,9 +174,9 @@ local ADDRESSES = {
 		-- above, used only when MESHGHOST_CRYSTAL_AP_TRY=1 asks for a deliberate experiment, and
 		-- logged as unconfirmed every time. Kept separate from the real fields on purpose: a
 		-- candidate that can be read by ordinary code eventually gets treated as measured.
-		candidates = {
-			W_BATTLEMODE = 0x015A,
-		},
+		-- 0x015A sat here as the leading W_BATTLEMODE candidate until 2026-08-19, when a trainer
+		-- battle showed it reading 1 exactly as it does in a wild one. Refuted, not measured.
+		candidates = {},
 		-- Pixel scroll offsets, and the only pair here measured by CORRELATION rather than by a
 		-- filter: across 137 real tile steps, 0x1153 moved on 70 of 70 X steps and 1 of 67 Y
 		-- steps, 0x1154 the exact mirror. They sweep 0,2,4..254 within a step, which is the shape
@@ -274,9 +271,27 @@ local SCRIPT_DIR = scriptDir()
 -- Prefer a logs/ subfolder, so the adapter folder stays readable across a session that reloads
 -- the script many times (each run opens its own timestamped file). No mkdir needed: io.open fails
 -- when the directory is absent, and that failure IS the fallback.
+--
+-- THE NAME CARRIES THIS EMULATOR'S PROCESS ID, and that is not decoration. Two emulators running
+-- the same game (a vanilla ROM and a patched seed, which is the normal two-instance session here)
+-- run this same script, and a name resolved only to the SECOND collides whenever both reload in
+-- the same second -- which is exactly what a control-file edit or a shared restart does. Both then
+-- hold the same file open and their lines interleave mid-write, producing mangled lines where one
+-- write landed inside another. Found live on the Emerald adapter 2026-08-19 and back-ported here
+-- unchanged, because this file has the identical shape; a pid cannot collide while both processes
+-- exist, where a port can (the bridge port is walked when it is not pinned).
 local logfile
 do
-	local name = string.format("meshghost_crystal_%s.log", os.date("%Y%m%d_%H%M%S"))
+	local okPid, pid = pcall(function()
+		luanet.load_assembly("System")
+		return luanet.import_type("System.Diagnostics.Process").GetCurrentProcess().Id
+	end)
+	-- No pid available (a BizHawk build without luanet): fall back to a pinned bridge port, and
+	-- then to the clock's fractional part -- any discriminator beats none, because the failure
+	-- being prevented is silent corruption of the file rather than a missing one.
+	local tag = (okPid and pid) or BRIDGE_PORT_OVERRIDE
+		or math.floor((os.clock() % 1) * 100000)
+	local name = string.format("meshghost_crystal_%s_%s.log", os.date("%Y%m%d_%H%M%S"), tostring(tag))
 	logfile = io.open(SCRIPT_DIR .. "/logs/" .. name, "w") or io.open(SCRIPT_DIR .. "/" .. name, "w")
 end
 
@@ -1382,6 +1397,14 @@ function drawOverflow()
 	end
 
 	local nWanted, nDrawn, nNoTile, nOffScreen, nHidden, nFromRom = 0, 0, 0, 0, 0, 0
+	-- Animation and facing are the two things a drawn peer has to do for itself, and a
+	-- screenshot cannot settle either: one frame cannot see a walk cycle, and a peer that is
+	-- merely facing the wrong way still looks like a character. So they are counted instead --
+	-- how many drawn peers were rendered on a WALK frame this frame, and how many had a facing
+	-- at all. `nNoFacing` is the one that matters: it counts peers rendered from the sprite's
+	-- raw first frame because nothing has been learned for that facing yet, which is the state
+	-- that looks exactly like broken animation.
+	local nWalking, nNoFacing = 0, 0
 	local offSample = nil
 
 	-- ANCHOR ON A CHARACTER THAT IS STANDING STILL, and measure everything else from it in TILES.
@@ -1539,6 +1562,8 @@ function drawOverflow()
 					nHidden = nHidden + 1
 				else
 					nDrawn = nDrawn + 1
+					if walkingFor then nWalking = nWalking + 1 end
+					if o.facing == nil then nNoFacing = nNoFacing + 1 end
 					-- the palette the local player's own sprite is drawn with, which is the one
 					-- these tiles were coloured for
 					drawCharacter(source, sx, sy, palette, o.facing, walkingFor)
@@ -1551,8 +1576,10 @@ function drawOverflow()
 	-- number that separates "the peers never arrived" from "they arrived and were not drawn".
 	if drawFrames % 60 == 0 and nWanted > 0 then
 		logFile(string.format("drawn tier: %d peers waiting, %d drawn (%d from the cartridge), "
-			.. "%d no sprite tiles, %d off screen, %d hidden by UI, %d spawned as real objects",
-			nWanted, nDrawn, nFromRom, nNoTile, nOffScreen, nHidden, ghostCount()))
+			.. "%d no sprite tiles, %d off screen, %d hidden by UI, %d spawned as real objects; "
+			.. "%d on a walk frame, %d with no facing yet",
+			nWanted, nDrawn, nFromRom, nNoTile, nOffScreen, nHidden, ghostCount(),
+			nWalking, nNoFacing))
 		if offSample then
 			logFile("drawn tier: example of one it discarded -- " .. offSample)
 		end
