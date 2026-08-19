@@ -110,6 +110,10 @@ local ADDRESSES = {
 		-- is the answer to "is sprite N loaded right now, and where" -- the question a peer's own
 		-- appearance depends on. Read-only here; nothing writes into it.
 		W_USEDSPRITES = flat(0xD154),
+		-- OverworldSprites, 05:4736 -> bank 5 * 0x4000 + (0x4736 - 0x4000). Six bytes per entry
+		-- (address, size, bank, type, palette), indexed by SPRITE_* - 1. Used by the drawn tier to
+		-- read a peer's graphics straight from the cartridge.
+		OVERWORLD_SPRITES_ROM = 0x14736,
 	},
 
 	-- Archipelago's Crystal patch. MEASURED, never derived -- three separate vanilla relationships
@@ -160,6 +164,12 @@ local ADDRESSES = {
 		-- adapter refuses -- picking the steadier of two on a hunch is the exact move that put
 		-- three refuted addresses in this file already.
 		W_BATTLEMODE = nil,
+		-- UNMEASURED on this build, so the drawn tier reads no cartridge graphics here and falls
+		-- back to the local player's resident tiles. The patch rewrites ROM, and this is a ROM
+		-- address: reading vanilla's offset on a patched build would take whatever bytes happen to
+		-- live there as a graphics pointer and paint garbage. Same rule as every address in this
+		-- table -- measured or nil, never derived from the vanilla one.
+		OVERWORLD_SPRITES_ROM = nil,
 
 		-- NOT the table. These are the leading unconfirmed candidates for the entries still nil
 		-- above, used only when MESHGHOST_CRYSTAL_AP_TRY=1 asks for a deliberate experiment, and
@@ -949,7 +959,8 @@ local tileCache = {}
 --   0-1 address, 2 size in tiles, 3 bank, 4 type, 5 palette
 -- six bytes per entry, indexed by SPRITE_* - 1 (the table's own comment: "entries correspond to
 -- SPRITE_* constants", which start at 1).
-local OVERWORLD_SPRITES_ROM = 0x14736 -- bank 5 * 0x4000 + (0x4736 - 0x4000)
+-- Assigned from the selected address table, and NIL on any build where nobody has measured it.
+local OVERWORLD_SPRITES_ROM
 local SPRITEDATA_STRIDE = 6
 
 local function romByte(offset)
@@ -959,7 +970,7 @@ end
 -- Returns the ROM offset of a sprite's graphics, its size in tiles, and the palette the game
 -- itself assigns it -- or nil for a sprite id the table does not cover.
 local function spriteGfxInRom(spriteId)
-	if not spriteId or spriteId < 1 or spriteId > 255 then
+	if not OVERWORLD_SPRITES_ROM or not spriteId or spriteId < 1 or spriteId > 255 then
 		return nil
 	end
 	local entry = OVERWORLD_SPRITES_ROM + (spriteId - 1) * SPRITEDATA_STRIDE
@@ -1903,6 +1914,7 @@ W_YCOORD, W_XCOORD = A.W_YCOORD, A.W_XCOORD
 W_MAPSTATUS, W_BATTLEMODE = A.W_MAPSTATUS, A.W_BATTLEMODE
 W_BGMAPOFFSETX, W_BGMAPOFFSETY = A.W_BGMAPOFFSETX, A.W_BGMAPOFFSETY
 W_USEDSPRITES = A.W_USEDSPRITES -- optional: nil means "peer appearance off on this build"
+OVERWORLD_SPRITES_ROM = A.OVERWORLD_SPRITES_ROM -- optional: nil means "no cartridge graphics here"
 
 if romClass == "known" then
 	log("ROM: " .. romWhy .. " — addresses verified against a byte-identical build.")
