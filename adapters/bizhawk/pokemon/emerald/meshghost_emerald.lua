@@ -2669,6 +2669,19 @@ local function syncGhost(playerId, remote)
         end
         ghosts[playerId] = nil
         g = nil
+        -- SWEEP HERE, at the moment an orphan can be created.
+        --
+        -- The record has just been dropped because the engine reclaimed the slot -- but if the
+        -- engine only PARTLY reclaimed it (the object still active, still wearing our localId,
+        -- while its sprite link changed) then it is orphaned as of this line: no longer tracked,
+        -- and still drawn. The periodic sweep would find it up to a second later, and the
+        -- transition sweep already ran earlier this tick while the record still existed, so it
+        -- spared it. That gap is what the user saw: *"i did briefly see a 2nd ghost after exiting
+        -- out from my inventory/bag"*.
+        --
+        -- Sweeping now closes it to zero frames, because the very next thing this function does is
+        -- spawn the replacement.
+        sweepOrphanGhosts()
     end
     if not g then
         -- Nothing to spawn into: a peer this frame already found the object array full, and it
