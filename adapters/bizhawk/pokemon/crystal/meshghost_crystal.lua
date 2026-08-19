@@ -1849,7 +1849,14 @@ local function handle(msg)
 	elseif t == "render_remote" then
 		renderRemote(tostring(p.player_id), p.state)
 	elseif t == "despawn_remote" then
-		despawnGhost(tostring(p.player_id))
+		-- BOTH tiers, and the activity record with them. despawnGhost only knows about spawned
+		-- ghosts, so before this the drawn tier kept painting a peer who had left -- forever, and
+		-- invisibly to every count except the one that says how many peers are waiting. Found by
+		-- killing 20 of 89 synthetic peers and watching the number not move (2026-08-19).
+		local gone = tostring(p.player_id)
+		despawnGhost(gone)
+		overflow[gone] = nil
+		activity[gone] = nil
 	end
 end
 
