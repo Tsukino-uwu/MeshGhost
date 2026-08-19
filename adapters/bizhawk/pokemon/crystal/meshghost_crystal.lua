@@ -47,6 +47,10 @@ local BRIDGE_PORT_COUNT = 8
 local BRIDGE_PORT_OVERRIDE = tonumber(MESHGHOST_BRIDGE_PORT or os.getenv("MESHGHOST_BRIDGE_PORT") or "")
 
 local RECONNECT_FRAMES = 120
+-- How long to leave a core alone after it says it cannot reach the relay. Long enough that the
+-- adapter is not hammering a dead relay, short enough that a relay coming back is noticed within
+-- a few seconds. 600 frames = 10s.
+local RELAY_DOWN_BACKOFF_FRAMES = 600
 -- Silence is NOT acceptance. Something that accepts a connection and never answers is far more
 -- likely an unrelated program holding a port in our range than a core, and committing to it
 -- strands the session with no ghosts and no explanation. 90 frames = 1.5s, matching Pseudoregalia.
@@ -1581,6 +1585,8 @@ local busyUntil = {}
 local currentPort = nil
 local helloSentAtFrame = nil
 local bridgeFrames = 0
+-- Set when a core reports the relay is unreachable; until then, do not walk ports or spawn cores.
+local relayDownUntil = 0
 
 local function markPortBusy(port, why)
 	if port then
@@ -1743,9 +1749,20 @@ local function handle(msg)
 		ready = true
 		log("MeshGhost: bridge_ready — this core is ours")
 	elseif t == "reject" then
-		-- The reason is for the log, never for branching on: the right response to any rejection
-		-- is the same one, which is to try the next port.
-		log("MeshGhost: rejected (" .. tostring(p.reason) .. ")")
+		local reason = tostring(p.reason)
+		log("MeshGhost: rejected (" .. reason .. ")")
+		-- ONE rejection means something different from the others, and treating them alike costs
+		-- the player their frame rate. "busy" means this core has an adapter, so the answer is to
+		-- try the next port. **"cannot reach the relay" means this core is perfectly good and the
+		-- RELAY is unavailable** -- walking on finds nothing, every port gets marked busy, and the
+		-- adapter then starts spawning fresh cores at the retry cadence. Emerald was measured at
+		-- 5fps doing exactly that while a relay was full (2026-08-19). Wait for the same core
+		-- instead: it retries the relay by itself, and reconnects when the relay comes back.
+		if reason:find("relay", 1, true) then
+			relayDownUntil = bridgeFrames + RELAY_DOWN_BACKOFF_FRAMES
+			disconnect(nil)
+			return
+		end
 		markPortBusy(currentPort, "is a core that already has an adapter")
 		disconnect(nil)
 	elseif t == "render_remote" then
@@ -1913,6 +1930,9 @@ local function tick()
 	bridgeFrames = bridgeFrames + 1
 
 	if not connected then
+		if bridgeFrames < relayDownUntil then
+			return -- a core told us the relay is down; give it time rather than spawning another
+		end
 		sinceRetry = sinceRetry + 1
 		if sinceRetry >= RECONNECT_FRAMES then
 			sinceRetry = 0
