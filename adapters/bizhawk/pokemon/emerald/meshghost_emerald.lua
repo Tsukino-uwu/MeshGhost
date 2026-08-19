@@ -3376,9 +3376,17 @@ local function drawRemotes(localAreaId, playerMapX, playerMapY, skipSpawned, com
                         -- puts it half the difference off, which is what the user saw: the drawn
                         -- ghost *"moves back a bit"* on casting while the player does not move.
                         -- Same arithmetic, applied where we draw.
-                        drawRunList(runs, info.width, gfxFlip,
-                            screenX + (FRAME_WIDTH_PX >> 1) - (info.width >> 1),
-                            screenY + (FRAME_HEIGHT_PX >> 1) - (info.height >> 1),
+                        -- The centring is only ours to do when the position was computed from
+                        -- TILES. A pinned position is copied from the spawned sprite and already
+                        -- carries that sprite's centerToCorner -- which IS the engine's centring
+                        -- for a wide frame -- so applying it again put the painted copy 8px left
+                        -- of the spawned one, in steady state, for every wide graphic.
+                        local cx, cy = 0, 0
+                        if not pinned then
+                            cx = (FRAME_WIDTH_PX >> 1) - (info.width >> 1)
+                            cy = (FRAME_HEIGHT_PX >> 1) - (info.height >> 1)
+                        end
+                        drawRunList(runs, info.width, gfxFlip, screenX + cx, screenY + cy,
                             panelRows, dim)
                         drew = true
                     end
