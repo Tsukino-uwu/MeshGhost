@@ -1529,9 +1529,11 @@ local function renderRemote(id, state)
 		return
 	end
 
-	-- A peer in a different area has no meaningful position here.
+	-- A peer in a different area has no meaningful position here -- in EITHER tier. Clearing only
+	-- the spawned one left the drawn tier painting peers from the map you just walked out of.
 	if state.area_id ~= areaId() then
 		despawnGhost(id)
+		overflow[id] = nil
 		return
 	end
 
@@ -2072,6 +2074,10 @@ local function tick()
 			for id in pairs(ghosts) do
 				ghosts[id] = nil
 			end
+			-- The drawn tier has no slots to forget, but it does have positions, and they were
+			-- computed against the OLD map's camera. Clear them too: a peer still on this map
+			-- re-registers on its next state, which is at most a frame away.
+			overflow = {}
 		end
 		lastArea = area
 	end
