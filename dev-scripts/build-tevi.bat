@@ -12,7 +12,7 @@ rem (MeshGhostTevi.dll) is fine to distribute -- it just has to be built locally
 rem committed. Requires: .NET SDK, and lib\Assembly-CSharp.dll / lib\Newtonsoft.Json.dll
 rem already copied in from your TEVI install (see adapters\tevi\README.md).
 rem
-rem Run this whenever Plugin.cs, BridgeClient.cs, or the .csproj change, then commit the
+rem Run this whenever Plugin.cs, BridgeClient.cs, CoreLauncher.cs or the .csproj change, then commit the
 rem result -- release.yml refuses to cut a release if the committed DLL is older than those
 rem sources (staleness gate, compares against built-from.txt below).
 

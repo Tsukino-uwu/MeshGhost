@@ -190,8 +190,8 @@ below, just one file instead of a whole runtime.
 
 `dev-scripts/build-tevi.bat` does that build and stages the result here, along with
 `built-from.txt` (kept one level up, outside the `MeshGhost/` drag-and-drop tree, so it never
-lands in a user's `BepInEx/plugins/` folder) recording the SHA-256 of the three source files
-(`Plugin.cs`, `BridgeClient.cs`, `MeshGhostTevi.csproj`) it was built from.
+lands in a user's `BepInEx/plugins/` folder) recording the SHA-256 of the four source files
+(`Plugin.cs`, `BridgeClient.cs`, `CoreLauncher.cs`, `MeshGhostTevi.csproj`) it was built from.
 `.github/workflows/release.yml` rehashes those same files before assembling a release and fails
 the build if they don't match — a release physically cannot ship a `MeshGhostTevi.dll` older
 than the source that's supposed to have produced it. Whoever edits the TEVI adapter re-runs

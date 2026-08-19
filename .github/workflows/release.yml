@@ -164,8 +164,14 @@ jobs:
           $builtFrom = Get-Content "$destDir\built-from.txt" -Raw
 
           $files = @{
+            # EVERY source file build-tevi.bat hashes must be listed here, or this gate
+            # passes while the DLL is stale. CoreLauncher.cs was missing until 2026-08-19:
+            # the build recorded four hashes and the gate checked three, so an
+            # autostart-only edit would have shipped a stale DLL with a green check.
+            # Pseudoregalia's identical gap was closed 2026-08-18; TEVI's was left.
             "Plugin.cs"              = "adapters\tevi\MeshGhostTevi\Plugin.cs"
             "BridgeClient.cs"        = "adapters\tevi\MeshGhostTevi\BridgeClient.cs"
+            "CoreLauncher.cs"        = "adapters\tevi\MeshGhostTevi\CoreLauncher.cs"
             "MeshGhostTevi.csproj"   = "adapters\tevi\MeshGhostTevi\MeshGhostTevi.csproj"
           }
           $stale = $false
