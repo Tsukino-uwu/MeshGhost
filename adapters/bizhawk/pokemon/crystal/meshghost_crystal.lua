@@ -657,6 +657,24 @@ local function applyPeerSprite(g, id)
 	return true
 end
 
+-- Is the camera on a tile boundary?
+--
+-- screenCoords() below is only valid when it is, and that is measured, not assumed. Walking out
+-- of Elm's lab put a fresh ghost a few pixels off its tile while walking IN was always fine
+-- (user, 2026-08-19) -- because leaving a building drops the player into a scripted step out of
+-- the doorway, so the ghost is spawned mid-scroll. A transition probe logged every object's
+-- screen coordinate against what screenCoords() would compute for it, frame by frame across a
+-- map load: the two agree exactly whenever both scroll offsets are multiples of 16, and disagree
+-- by the sub-tile remainder whenever they are not -- the window origin advances a whole tile
+-- while the pixel offset still carries the leftover, so the formula subtracts it twice.
+--
+-- The engine keeps every object's screen position itself once it exists; this only decides WHEN
+-- it is safe to compute one from scratch. So a deferral costs a frame or two, never a wrong
+-- placement that then persists for the life of the ghost.
+local function cameraSettled()
+	return (u8(W_BGMAPOFFSETX) or 0) % 16 == 0 and (u8(W_BGMAPOFFSETY) or 0) % 16 == 0
+end
+
 local function screenCoords(mx, my)
 	local wx, wy = u8(W_XCOORD) or 0, u8(W_YCOORD) or 0
 	local bx, by = u8(W_BGMAPOFFSETX) or 0, u8(W_BGMAPOFFSETY) or 0
@@ -699,6 +717,11 @@ local function despawnGhost(id)
 end
 
 local function spawnGhost(id, x, y, peerSprite)
+	-- Placing a ghost mid-scroll bakes in an offset that never corrects itself; a frame or two
+	-- later the camera is on a tile boundary and the same arithmetic is exact.
+	if not cameraSettled() then
+		return nil
+	end
 	local srcMo, srcSt = findTemplateNpc()
 	if not srcMo then
 		return nil -- no template on this map; try again next frame
@@ -782,6 +805,10 @@ local function stepGhost(g, dir)
 end
 
 local function teleportGhost(g, x, y)
+	-- Same reason as the spawn: this writes screen coordinates too.
+	if not cameraSettled() then
+		return
+	end
 	w8(g.st_base + F_WALKING, STANDING)
 	w8(g.st_base + F_STEP_DURATION, 0)
 	for _, off in ipairs({ F_MAP_X, F_LAST_MAP_X, F_INIT_X }) do
@@ -1203,8 +1230,6 @@ else
 end
 
 local lastArea = nil
--- The previous frame's wMapStatus, so a map rebuild can be noticed WITHIN one area (a battle).
-local lastStatus = nil
 
 -- Experiment-mode diagnostic (ap_try.flag / MESHGHOST_CRYSTAL_AP_TRY=1 only). Prints, twice a
 -- second, what the gate DECIDED and what it decided it from -- the Phase 9 lesson that a gate's
@@ -1271,18 +1296,19 @@ local function tick()
 	-- re-entry — so a ghost never survives either. Drop our bookkeeping rather than leaving
 	-- entries pointing at slots the game has since reused.
 	--
-	-- The AREA is not enough to notice that, and assuming it was is a real hole: a wild battle
-	-- starts and ends on the SAME map, so area_id never changes across one, while the object
-	-- array is rebuilt from ROM underneath us. The stale entry then points at a slot the game has
-	-- refilled with a REAL NPC — and the next render would walk that NPC around, which is worse
-	-- than a missing ghost by some distance. wMapStatus leaving MAPSTATUS_HANDLE is the event
-	-- that actually means "the world is being rebuilt", and it covers both cases: every map
-	-- change passes through it, and so does every battle.
-	--
 	-- FORGET, never despawn: by the time we notice, those bytes belong to the game again, and
 	-- writing zeroes into them would delete one of its NPCs.
-	local area, status = areaId(), u8(W_MAPSTATUS)
-	if area ~= lastArea or (lastStatus and status ~= lastStatus and lastStatus == MAPSTATUS_HANDLE) then
+	--
+	-- A BATTLE IS NOT A MAP CHANGE, and treating it as one is a bug in its own right. The first
+	-- version of this also cleared the bookkeeping whenever wMapStatus left MAPSTATUS_HANDLE, on
+	-- the theory that a battle rebuilds the array the way a map load does. The user watched it:
+	-- leaving a wild battle produced TWO ghosts (2026-08-19). The old object had survived the
+	-- battle perfectly well — so forgetting it only meant spawning a second one beside it, with
+	-- nothing left tracking the first. The area check stays because a map change really does
+	-- rebuild the array; everything else is left to stillOurs(), which asks whether the object we
+	-- recorded is still the object we made rather than guessing from a lifecycle event.
+	local area = areaId()
+	if area ~= lastArea then
 		if lastArea then
 			for id in pairs(ghosts) do
 				ghosts[id] = nil
@@ -1290,7 +1316,6 @@ local function tick()
 		end
 		lastArea = area
 	end
-	lastStatus = status
 
 	if ready then
 		local state = getLocalState()
