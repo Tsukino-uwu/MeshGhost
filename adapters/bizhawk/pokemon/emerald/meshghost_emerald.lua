@@ -3239,6 +3239,34 @@ local function requestAction(g, action)
     end
 end
 
+-- A CHARACTER CAN FACE ONE WAY AND MOVE ANOTHER, and only the game says so.
+--
+-- Asking for a step also turns the ghost, which is right nearly always and wrong exactly where the
+-- engine has taken the facing away from the movement. A muddy slope is that case:
+-- ForcedMovement_MuddySlope sets `facingDirectionLocked` and pushes the rider SOUTH while they go
+-- on facing NORTH (src/field_player_avatar.c:567-581) -- you watch yourself slide back down still
+-- looking up the hill. Measured over 527 frames of it, 2026-08-20: the ghost's facing was south on
+-- 181 of them while the player's never left north.
+--
+-- The peer already sends its facing, and its step direction is known here, so a disagreement
+-- between the two IS the locked case -- no new wire field needed. The ghost is then given the
+-- peer's facing and the engine's own lock bit, so the step cannot turn it back
+-- (facingDirectionLocked, bit 0x02 of byte +0x01 -- include/global.fieldmap.h:204-211, the same
+-- byte whose 0x08 is the enableAnim this file already uses).
+-- GLOBAL, like drawRunList and swapGhostGraphicInPlace: this chunk is at Lua's hard 200-local
+-- ceiling, and one more local here is a parse failure rather than a slow script.
+function lockGhostFacing(g, remote, stepDir)
+    local a = objAddr(g.objId)
+    local want = DIR_ID[remote.orientation]
+    if want and stepDir and want ~= stepDir then
+        w8(a + 0x18, (r8(a + 0x18) & 0xf0) | want)
+        w8(a + 0x01, r8(a + 0x01) | 0x02)
+    elseif (r8(a + 0x01) & 0x02) ~= 0 then
+        -- Released the moment they agree again, or the ghost would face one way for ever.
+        w8(a + 0x01, r8(a + 0x01) & ~0x02)
+    end
+end
+
 -- ObjectEventClearHeldMovement (event_object_movement.c:4895). The engine sets
 -- heldMovementFinished when a step completes but leaves heldMovementActive SET -- clearing is the
 -- caller's job. Found live 2026-08-18: a ghost took exactly one step and then froze forever,
@@ -3940,6 +3968,22 @@ local function syncGhost(playerId, remote)
     local base = nil
     if remote.pspeed == 2 then base = 0x15
     elseif remote.pspeed == 3 or remote.pspeed == 4 then base = 0x2d end
+    -- FORCED MOVEMENT: bikeSpeed is ZERO while the game is pushing you, so the field above cannot
+    -- describe it and the peer's own action must. On a muddy slope below top speed,
+    -- ForcedMovement_MuddySlope (src/field_player_avatar.c:567-581) calls
+    -- Bike_UpdateBikeCounterSpeed(0) and then pushes the rider south with PlayerWalkFast -- so
+    -- bikeSpeed reads 0 while the character is visibly moving fast. Measured over 527 frames of
+    -- slide-back, 2026-08-20: the peer reported action 21 (WALK_FAST south) on 416 of them while
+    -- the ghost used WALK_NORMAL throughout, sliding at half the peer's pace.
+    --
+    -- The action is the RIGHT source here and the wrong one for ordinary riding (it is transient,
+    -- and sampling it at 20Hz missed the fast action 6 times in 10). So it is a fallback, not a
+    -- replacement: the stable field first, the action only when the field says "standing still"
+    -- and the action says otherwise.
+    if not base and remote.act then
+        if remote.act >= 0x2d and remote.act <= 0x30 then base = 0x2d
+        elseif remote.act >= 0x15 and remote.act <= 0x18 then base = 0x15 end
+    end
 
     if math.abs(dx) + math.abs(dy) == 1 then
         local stepDir
@@ -3974,6 +4018,7 @@ local function syncGhost(playerId, remote)
         -- and only an explicit action brings it back to standing. A walk does not need this --
         -- the user's own test was exact about that, "it does idle->walk fine".
         g.wasRunning = running or nil
+        lockGhostFacing(g, remote, stepDir)
     else
         -- More than a tile out. This branch was written for a warp or a dropped packet -- cases
         -- where the ghost is somewhere it has no business being and the only honest answer is to
@@ -4001,6 +4046,7 @@ local function syncGhost(playerId, remote)
             end
             requestAction(g, base and (base + (sd - 1))
                 or ((remote.anim == "running") and RUN_ACTION or WALK_ACTION)[sd])
+            lockGhostFacing(g, remote, sd)
             return
         end
         -- Walking it there would fall further behind every frame, so place it -- but only once the

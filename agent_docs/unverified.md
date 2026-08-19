@@ -23,6 +23,20 @@ actually confirm it as such."*
 
 ---
 
+## Pending — Emerald: a ghost cannot abandon a step it has started (2026-08-20)
+
+Found while fixing the muddy slope, and it is the general form of the corner-snapping seen on the
+bike square. A ghost's step is engine-driven and runs to completion, so a peer whose direction
+INVERTS mid-step (the slope reversing them) leaves the ghost travelling the wrong way until the
+step ends. Measured: during 514 frames of the peer sliding back, the ghost's action was mostly
+`WALK_FAST` NORTH while the peer went south -- right speed, wrong way.
+
+- [ ] **How wrong does it look?** Ride the muddy slope at less than top speed with both tiers on
+      screen. *Correct:* the ghost reverses with the peer. *Known wrong:* it finishes its current
+      tile first. Whether that reads as a defect or as nothing at all decides if it is worth a fix,
+      and the fix is not obvious -- interrupting a held movement is what broke the ghost twice
+      before (`BANDAGES.md`, the parked-hitbox experiments).
+
 ## Pending — Emerald: what the two-renderer comparison left open (2026-08-19)
 
 `MESHGHOST_COMPARE_TIERS` found a dozen real defects in one session. **Most are already confirmed

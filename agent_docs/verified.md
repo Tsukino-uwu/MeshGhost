@@ -8528,3 +8528,44 @@ engine's behaviour for every character.
 
 **This is the mechanism the ghost-collision POLICY has been waiting for.** The ADR's `"disabled"`
 setting has shipped on the Go side with no adapter able to honour it (`architecture.md`, 2026-08-19).
+
+## Emerald: the muddy slope, where facing and movement come apart — 2026-08-20
+
+**User-confirmed on screen, vanilla:** *"it looks good in game, visually confirmed"*.
+
+The Mach Bike exists to climb a muddy slope, and below top speed the slope pushes the rider back —
+which turns out to be the only place in this game where a character's FACING and its MOVEMENT
+disagree, and where the field that describes a rider's speed reads zero while they are visibly
+moving fast. `ForcedMovement_MuddySlope` (pokeemerald src/field_player_avatar.c:567-581):
+
+```c
+if (movementDirection != DIR_NORTH || GetPlayerSpeed() < PLAYER_SPEED_FASTEST)
+{
+    Bike_UpdateBikeCounterSpeed(0);                 // speed counter reset to zero
+    playerObjEvent->facingDirectionLocked = TRUE;   // keeps FACING north
+    return DoForcedMovement(DIR_SOUTH, PlayerWalkFast);  // pushed SOUTH at WALK_FAST
+}
+```
+
+Both halves broke a ghost, and both were measured over 527 frames of slide-back before the fix and
+514 after:
+
+| | before | after |
+| --- | --- | --- |
+| ghost movement action | `WALK_NORMAL` (never fast) | **`WALK_FAST`**, 416 frames — matching the peer's 21 |
+| ghost facing north | 346/527 (66%) | **436/514 (85%)** |
+
+1. **Speed.** The step speed reads `gPlayerAvatar.bikeSpeed`, which is the right source for riding
+   and is forced to **0** by this very code — so the ghost slid at half the peer's pace. The peer's
+   `movementActionId` IS reliable here (the forced movement holds it), so the action is now a
+   FALLBACK used only when the field says "standing still": stable field first, transient second.
+2. **Facing.** Asking for a step also turns a ghost, which is right everywhere except where the
+   engine has taken the facing away from the movement. No new wire field was needed — the peer
+   already sends its facing and the step direction is known locally, so a DISAGREEMENT between them
+   is the locked case. The ghost is then given the peer's facing plus the engine's own lock bit
+   (`facingDirectionLocked`, bit 0x02 of byte +0x01, include/global.fieldmap.h:204-211).
+
+**Still open, and newly visible:** during the peer's slide the ghost's action is mostly `WALK_FAST`
+*north* rather than south — it is finishing the step it was already committed to while the peer is
+already sliding back. That is the same "a ghost cannot abandon a step" limit that caused corner
+snapping, showing up in the one place where a peer's direction INVERTS mid-step. `unverified.md`.

@@ -2444,3 +2444,38 @@ case they were built to rule out.
 The suspicion is what is being tested; wiring the counter into it assumes the answer. Check the gate
 conditions above a new counter before trusting a zero, and prefer a per-frame path with an explicit
 condition to a convenient nearby block.
+
+## A stable field can read zero exactly when the thing it describes is happening — 2026-08-20, Emerald
+
+**Symptom.** A ghost slid down a muddy slope at half the peer's speed, after a change that had just
+fixed bike speed everywhere else.
+
+**Cause.** The speed had been moved from `movementActionId` (transient, sampled at 20Hz, missed the
+fast action 6 times in 10) to `gPlayerAvatar.bikeSpeed` (stable, correct while riding). But
+`ForcedMovement_MuddySlope` calls `Bike_UpdateBikeCounterSpeed(0)` before pushing the rider — so on
+the one terrain built for this bike, the field reads **standing still** while the character is
+visibly moving at `WALK_FAST`.
+
+**The rule.** **"Stable" and "correct" are different properties, and a field can be authoritative in
+the ordinary case and deliberately zeroed in the special one.** Before replacing one source with
+another, look for the code paths that WRITE the new source, not just the ones that read it — a reset
+is as much a write as an update. The fix here was neither source alone: the stable field first, the
+transient one as a fallback exactly where the stable one says nothing is happening.
+
+## A character can face one way and move another — 2026-08-20, Emerald
+
+**Symptom.** A ghost faced the wrong way while being pushed down a slope; the player kept looking
+uphill, the ghost turned to look downhill.
+
+**Cause.** Asking the engine for a step also sets the object's facing, which is right nearly
+everywhere — and wrong wherever the game has separated the two. `facingDirectionLocked` exists for
+exactly that, and the muddy slope sets it.
+
+**What it cost to find, and the cheap way to see it.** Classify frames by what the PEER was doing
+(here: the sign of its coordinate delta), then tabulate the ghost's action and facing across each
+class. "The ghost faced south on 181 of 527 slide frames" is a finding; watching it is an
+impression. The fix needed no new wire field: the peer's facing is already sent and the step
+direction is known locally, so the two DISAGREEING is itself the signal.
+
+**The rule.** **Never infer a facing from a movement.** Send it, or derive it from something the
+game states, and look for a lock/override flag before assuming the two always agree.
