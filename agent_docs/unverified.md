@@ -131,6 +131,14 @@ show one-per-tile.
       *What to look at:* walk past a cluster. *Correct:* ghosts do not visibly flicker between
       "engine-drawn" and "painted" as distances change; a swap should look like at most one
       ghost changing over, not a churn.
+- [ ] **Ten seconds that would let this tier ship on: open a text box, then the START menu.**
+      *What to do:* stand anywhere, talk to an NPC or read a sign and leave the box up for a few
+      seconds, then open the START menu and leave it up for a few seconds.
+      *Why:* `probes/textbox_probe.lua` reads what the GAME drew into the background tilemaps, and
+      has already confirmed the quiet half — with nothing open, BG0 is completely empty while the
+      map sits on BG2/BG3. The other half, which rows a panel writes into, cannot be measured
+      without a panel on screen, and the drawn tier stays off until it is. Nothing to judge here:
+      the probe records it, no correctness claim is being made about what you see.
 - [ ] **What a painted ghost looks like next to a spawned one.** *Correct:* the same character,
       same size, on the grid — the difference should be that a painted one does not slide as
       smoothly and is not hidden by scenery. **Expected wrong, and the reason the flag is off:**

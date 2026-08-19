@@ -1358,17 +1358,29 @@ genderFrames.runsFor = function(gender, pose, frameIndex)
     return runs
 end
 
-local function drawSpriteFrame(gender, pose, frameIndex, hFlip, screenX, screenY)
+-- clipTopPx, when given, is the top edge (in screen pixels) of a panel the GAME drew -- a text
+-- box, the START menu. Rows at or below it are not painted, so a drawn ghost standing "behind" a
+-- text box keeps drawing above it instead of over it, and instead of being blanked entirely. That
+-- is the spawned tier's behaviour approximated: the engine hides its objects by layer priority,
+-- this hides ours by row. Clipping per RUN rather than per ghost is what makes the partial case
+-- work, and costs one comparison per run.
+local function drawSpriteFrame(gender, pose, frameIndex, hFlip, screenX, screenY, clipTopPx)
     local runs = genderFrames.runsFor(gender, pose, frameIndex)
     for i = 1, #runs do
         local r = runs[i]
-        local x1, x2 = r.x1, r.x2
-        if hFlip then x1, x2 = FRAME_WIDTH_PX - 1 - r.x2, FRAME_WIDTH_PX - 1 - r.x1 end
         local y = screenY + r.y
-        if x1 == x2 then
-            gui.drawPixel(screenX + x1, y, r.color)
+        if clipTopPx and y >= clipTopPx then
+            -- Counted, because "the clip ran" and "the clip did anything" are different claims and
+            -- only the second one is evidence. Published in the status line as clipped=.
+            genderFrames.clippedRuns = (genderFrames.clippedRuns or 0) + 1
         else
-            gui.drawLine(screenX + x1, y, screenX + x2, y, r.color)
+            local x1, x2 = r.x1, r.x2
+            if hFlip then x1, x2 = FRAME_WIDTH_PX - 1 - r.x2, FRAME_WIDTH_PX - 1 - r.x1 end
+            if x1 == x2 then
+                gui.drawPixel(screenX + x1, y, r.color)
+            else
+                gui.drawLine(screenX + x1, y, screenX + x2, y, r.color)
+            end
         end
     end
 end
@@ -1797,6 +1809,34 @@ local tiering = {
     reserve = 1,
     castMax = {},
 }
+
+-- WHERE THE GAME'S OWN UI IS, so the drawn tier can stay out of it.
+--
+-- A spawned ghost is hidden behind a text box by the engine, for free. A drawn one is painted
+-- after the PPU has finished and would sit on top of the text the player is reading, which is the
+-- single reason the drawn tier ships off (BANDAGES.md).
+--
+-- The answer has to come from asking the GAME WHAT IT DREW, not the LCD what it is displaying.
+-- The hardware route was tried first and failed: the GBA's window registers (WIN0H/WIN0V plus
+-- DISPCNT's enable bits) change every frame during ordinary walking -- measured 2026-08-19, see
+-- probes/uiregion_probe.lua -- so they describe the display, not the panel. The remaining route,
+-- which is the one that worked on Crystal, is the background tilemaps: a panel is tiles the game
+-- wrote into a BG that is otherwise empty. probes/textbox_probe.lua measures that, and confirms
+-- so far only the negative half: with nothing open, BG0 is entirely empty while the map sits on
+-- BG2/BG3. The positive half -- what a text box actually writes, and into which rows -- is NOT
+-- measured yet, so this returns nil ("no panel known") and nothing is clipped.
+--
+-- Returning nil is deliberately the safe direction for the SHIPPED default: with the drawn tier
+-- off, nothing is painted at all, so an unknown panel region cannot hurt anyone. It is not safe
+-- to turn the tier on while this still returns nil.
+tiering.panelTopPx = function()
+    -- Dev override: pretend a panel starts at this screen ROW (0-19), so the clipping path can be
+    -- exercised and watched without waiting for a real text box. Never set in a shipped run.
+    local fake = tonumber(MESHGHOST_EMERALD_FAKE_PANEL_ROW
+        or os.getenv("MESHGHOST_EMERALD_FAKE_PANEL_ROW") or "")
+    if fake then return fake * 8 end
+    return nil
+end
 
 -- How many object slots ghosts may hold on this map right now. Counted from the array itself
 -- rather than from any table of ours: "active, and not carrying our localId" is the same test the
@@ -2257,6 +2297,7 @@ local function drawRemotes(localAreaId, playerMapX, playerMapY, skipSpawned)
     -- ceiling of 200 locals, and a local inside a function is counted against the function.
     local SCREEN_WIDTH_PX, SCREEN_HEIGHT_PX = 240, 160
     local playerScreenX, playerScreenY = playerScreenPos()
+    local clipTopPx = tiering.panelTopPx()
     -- Counted and published (tiering.painted) rather than inferred: "assigned to the drawn tier"
     -- and "actually painted this frame" differ by everyone the off-screen cull skipped, and only
     -- the second one answers "is every peer I can see actually being shown".
@@ -2294,7 +2335,8 @@ local function drawRemotes(localAreaId, playerMapX, playerMapY, skipSpawned)
                     frameIndex = dirInfo.idle
                 end
 
-                drawSpriteFrame(remote.gender, pose, frameIndex, dirInfo.hFlip, screenX, screenY)
+                drawSpriteFrame(remote.gender, pose, frameIndex, dirInfo.hFlip, screenX, screenY,
+                    clipTopPx)
                 painted = painted + 1
             end
         end
@@ -2410,11 +2452,13 @@ local function runFrame()
         -- than something to squint at: peers here, minus the ones holding an object slot. Counted
         -- only when that tier is on, so the figure never implies pixels nobody drew.
         if tiering.drawn then nDrawn = tiering.painted or 0 end
+        local nClipped = genderFrames.clippedRuns or 0
+        genderFrames.clippedRuns = 0
         logFile(string.format(
             "status: frame=%d connected=%s ready=%s port=%s remotes=%d ghosts=%d drawn=%d "
-                .. "overworld=%s inGame=%s",
+                .. "clipped=%d overworld=%s inGame=%s",
             frameCounter, tostring(connected), tostring(ready), tostring(currentPort),
-            nRemotes, nGhosts, nDrawn, tostring(inOverworld()), tostring(session.live)))
+            nRemotes, nGhosts, nDrawn, nClipped, tostring(inOverworld()), tostring(session.live)))
         -- Collision follows the object's map coordinates; drawing follows the sprite's screen
         -- position. A ghost whose hitbox sits away from its picture means those two disagree, so
         -- both are logged next to the player's own pair as the control.

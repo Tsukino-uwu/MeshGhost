@@ -133,12 +133,24 @@ structural, not a rough edge to polish out:
 
 - **No occlusion, and this is the blocking one.** A drawn ghost is painted after the PPU has
   finished, so nothing hides it: not a house, not the START menu, not a text box. The spawned tier
-  gets all of that free from the engine. **The clip region for Emerald is NOT yet measured** — the
-  obvious hardware source (the GBA's window registers, `WIN0H/WIN0V` and the enable bits in
-  `DISPCNT`) was probed live on 2026-08-19 and **changes every frame during ordinary walking**,
-  with values that are mid-frame states rather than panel geometry, so it cannot be used as-is.
-  Until a source IS measured, this tier stays off: shipping it on would mean painting characters
-  over the text the player is reading. `probes/uiregion_probe.lua` is the probe, now throttled.
+  gets all of that free from the engine. **The clipping is built and proven; the DETECTOR is what
+  is still missing**, and the two are separate halves:
+  - *Clipping* — the drawn path renders cached horizontal runs, and a run at or below a panel's
+    top edge is skipped, so a ghost standing behind a text box keeps drawing above it rather than
+    over it or vanishing entirely. Proven by counter, 2026-08-19: with a forced panel at row 0 and
+    32 painted ghosts, 1.1M runs were skipped over 300 frames; 0 with nothing to clip
+    (`MESHGHOST_EMERALD_FAKE_PANEL_ROW`, `FLAGS.md`).
+  - *Detection* — where the panel actually is. The hardware route is a dead end: the GBA's window
+    registers (`WIN0H`/`WIN0V` and `DISPCNT`'s enable bits) **change every frame during ordinary
+    walking**, values that are mid-frame states rather than panel geometry (probed 2026-08-19,
+    `probes/uiregion_probe.lua`, now throttled). The route that worked on Crystal — ask the game
+    what it DREW, not the LCD what it is displaying — is being followed instead:
+    `probes/textbox_probe.lua` reads the BG tilemaps, finding each one's address from its own
+    `BGxCNT` screen-base bits so no game symbol is involved. **Half measured:** with nothing open,
+    the map sits on BG2/BG3 and **BG0 is entirely empty**, which is the blank-panel-layer shape the
+    detector needs. What a text box actually writes, and into which rows, needs a box on screen and
+    is therefore waiting on the user. Until then `tiering.panelTopPx()` returns nil and the tier
+    stays off — shipping it on would mean painting characters over the text being read.
 - **No collision and no interaction.** A drawn ghost is a picture. Arguably right for an overflow
   tier, but it makes peers visibly unequal in a way nothing on screen explains.
 - **Nobody animates it but us.** The walk cycle, the pose per direction, and the frame timing are
