@@ -805,7 +805,23 @@ protocol above is actually run and watched.
 
 ---
 
-## Relay/client — transport security (TLS)
+## Relay/client — transport security (TLS) — **CONFIDENTIALITY HALF DONE 2026-08-19**
+
+**What shipped**: `off`/`auto`/`required` on both binaries, an in-memory self-signed certificate,
+one port serving both TLS and plaintext (a one-byte sniff), optional fingerprint pinning, and no
+silent downgrade. The load-bearing test puts a recording proxy between client and relay and
+asserts the room code is **absent** from the captured bytes, with a negative control in the same
+test proving the tap is watching. ADR in `architecture.md`.
+
+**What is still open, and it is the more interesting half**: this encrypts, it does not
+authenticate. Pinning is opt-in and has to be re-copied after a relay restart. The design below
+for **channel binding** (`tls-exporter`, RFC 9266) — proving knowledge of the room code without
+putting it on the wire at all — is the eventual answer and was deliberately left out, because it
+is a protocol change with a downgrade-hole of its own. The two smaller items (open-relay default,
+per-IP cap) are also still open, and TLS makes the second one more pressing: a handshake is CPU an
+unauthenticated stranger can ask for.
+
+### Original entry
 
 Not an adapter item and not on the depth ladder at all: this is the Go side, so it's
 confirmable with the tools rather than by watching a game (`CLAUDE.md`'s split). Researched
