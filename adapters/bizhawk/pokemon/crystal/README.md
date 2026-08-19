@@ -33,6 +33,26 @@ walked on both vanilla and an Archipelago-patched ROM.
 - **[BANDAGES.md](BANDAGES.md)** carries this adapter's shipped compensations, and
   **[FLAGS.md](FLAGS.md)** its runtime switches.
 
+## Limits that come from the game, not from us
+
+Measured 2026-08-19 with real peers over the real relay, not estimated. Full table and method:
+[agent_docs/crowd-limits.md](../../../../agent_docs/crowd-limits.md).
+
+- **Nine ghosts on one map**, in both maps tested. Crystal has 13 object structs and 16 map
+  objects, and every map spends some of both on its own NPCs first — so the exact number is
+  per-map, and **which pool runs out changes**: outdoors the structs go first, indoors the map
+  objects do.
+- **Ten characters on screen at once, ever — a hardware ceiling.** The Game Boy has 40 sprite
+  entries and an overworld character uses exactly 4. With the hardware fully saturated at 40 of 40,
+  all ten still drew correctly on screen.
+- **Past the limit nothing breaks.** Extra peers are never given a body: no sprite, no collision,
+  no entry in either array — confirmed by a census of every slot while a crowd was live. 36 peers
+  offered against 9 slots held a flat 60fps, displaced no NPC, and crashed nothing. The adapter
+  logs the refusal once a minute, naming which pool ran out.
+- **In practice**: a room of twelve players standing in one town would see nine of each other,
+  first come first served. Ghosts stack on each other freely; they collide with the player, not
+  with one another.
+
 ## How this adapter differs from Emerald's — the reason it exists
 
 Emerald draws a ghost **over** the emulator with `gui.*`, fed by a hand-rolled decode of the
