@@ -115,11 +115,15 @@ Only steps that actually happened and were confirmed are listed here.
 Open as of 2026-08-18 — [agent_docs/status.md](../../../../agent_docs/status.md) is the
 authoritative list, and [phase9.md](../../../../agent_docs/phases/phase9.md) has the detail:
 
-- A ghost looks like **this** machine's player, not the peer — a peer's own gender needs their
-  sprite loaded locally.
+- A ghost wears the peer's own sprite when this map has those tiles loaded (2026-08-19), and falls
+  back to this machine's player otherwise — the other gender is never loaded, so that case still
+  looks like you. **The drawn tier could close it**: it reads pixels rather than borrowing the
+  engine's, so it is not limited to what the map loaded.
 - `W_BATTLEMODE` is still unmeasured on the Archipelago table (`0x015A` vs `0x1234`), and one
   trainer battle settles it (`probes/ap_battlemode_probe.lua`).
-- Whether a ghost survives a battle: set up twice, answered neither time.
+- A ghost does **not** survive a battle — answered from the code 2026-08-19, and the stale
+  bookkeeping it used to leave behind would drive one of the game's own NPCs around. Fixed; a
+  real battle still needs watching.
 - Two real machines: everything confirmed so far was a loopback ghost.
 
 ## What's here
