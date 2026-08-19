@@ -136,8 +136,8 @@ that a peer's state genuinely differs from the local player's, which loopback co
   self-tested the same day. Nothing in either is "done" until the user confirms the result.
 - **Emerald: a peer's own state (surf/bike/fishing) is not rendered yet** — the state is its
   `graphicsId` and all player states share one palette tag, so this is now scoped. `phase8.md`.
-- **Emerald: Archipelago ROMs still use the overlay** — `gSprites`' shift is unmeasured, so the
-  spawn path refuses to write there. `adapters/bizhawk/pokemon/emerald/BANDAGES.md`.
+- **Emerald/Archipelago now SPAWNS** — the graphics-info pointer table also shifts by `0x7530`;
+  `ghosts=0` -> `ghosts=1`, screenshot-confirmed on the patched ROM. `verified.md` 2026-08-19.
 - **Loopback offset puts the ghost inside/above sloped geometry** — a rig artefact, since a real
   peer's position is always valid. Weigh loopback-only anomalies accordingly. `verified.md`.
 - **Pseudoregalia: a hard crash mid-session after the pause menu opened twice** — not root-caused,

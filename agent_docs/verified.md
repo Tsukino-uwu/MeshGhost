@@ -7874,3 +7874,42 @@ So on the patched ROM the battle exclusion rests **entirely** on `wBattleMode`; 
 that backs it up on vanilla contributes nothing. Anything that leaves `wBattleMode` at 0 while the
 overworld is gone — the encounter transition, most obviously — is unguarded, which is the shape of
 the "ghost showing inside the battle" the user reported the same day.
+
+## Emerald/Archipelago: the graphics-info POINTER TABLE moves too, and that is why nothing spawned — 2026-08-19
+
+**The symptom, from the Archipelago Emerald instance:** peers received and in the same area as the
+player (`remotes=2`, `area=0:9 local=0:9`), and **`ghosts=0` forever**. No error, no refusal, no
+log line of any kind.
+
+**Four candidate causes were measured and cleared first** (`probes/apspawn_gate_probe.lua`, a
+read-only probe written for exactly this): the slot budget was **12**, not 0; the player's
+object/sprite cross-link through `gSprites` **checked out**, so `spawnGhost()`'s own guard was not
+firing; the field camera was **settled** (`x=0 y=0`), so `syncGhost()`'s placement gate was open;
+and the peer's `area_id` **matched the local one exactly** (an `unrendered <peer>: area=… local=…`
+line was added to the adapter's status block to settle that one, and it stays).
+
+That left exactly one path out of `spawnGhost()` that returns without logging: `if not info then
+return nil end`, where `info` comes from `graphicsInfo()` — which reads a **ROM pointer table**.
+
+**Measured** (`scratchpad/apem_gfxinfo.lua`, read-only, three ids sampled):
+
+| `gObjectEventGraphicsInfoPointers` | id 0 | id 1 | id 8 |
+|---|---|---|---|
+| vanilla `0x08505620` | `ptr=00077CCD` **not ROM** | `ptr=00007777` **not ROM** | `ptr=00000000` **not ROM** |
+| shifted `0x0850CB50` (+`0x7530`) | `08510E84`, size 512, 16 tiles, pal `1100`, 16x32 | `08510EA8`, size 512, pal `1100`, 32x32 | `08510FC8`, size 256, pal `1104`, 16x32 |
+
+So the table moves by **`0x7530`** — the same shift already measured for the sprite/palette data
+block, i.e. it is in that same relocated ROM region, and *not* the `0x284` that `gObjectEvents`
+moves by. `gSprites` still does not move at all.
+
+**Fix:** `loadGenderFrames()` now caches `detectSpriteAddrOffset()`'s result as
+`genderFrames.romOffset` (stored on that table rather than a new local — the main chunk is at
+Lua's 200-local ceiling) and `graphicsInfo()` adds it to the table address. **Result: `ghosts=0`
+became `ghosts=1` on the first reload, and a loopback ghost stands beside the player as a real
+spawned object event** — confirmed visually from a screenshot taken on this instance, which is
+permitted here because it is a PATCHED ROM (`dev-scripts/shots/apemerald/171-ghost-walk.png`).
+
+**The second fix is the one that matters more:** that `return nil` is no longer silent. It now
+names the graphics id and the table address it failed against, throttled the same way the
+out-of-slots refusal is. A refusal the log never mentions is indistinguishable from a peer who is
+not there, and it cost most of a session.

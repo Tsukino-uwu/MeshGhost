@@ -410,6 +410,15 @@ end
 
 local function loadGenderFrames()
     local offset = detectSpriteAddrOffset()
+    -- CACHED, because this offset is not only about the pictures decoded below. The same
+    -- Archipelago recompile that moved the sprite/palette block moved the ROM POINTER TABLE
+    -- graphicsInfo() reads (measured 2026-08-19: at the vanilla address its entries are not even
+    -- ROM pointers; at +0x7530 every entry is a valid graphics info struct). Nothing applied the
+    -- offset there, so on a patched ROM graphicsInfo() returned nil for every id, spawnGhost()
+    -- hit `if not info then return nil end`, and the adapter silently spawned NOTHING while
+    -- reporting peers received and in the same area. Stored on genderFrames rather than as a new
+    -- local: the main chunk is at Lua's 200-local ceiling.
+    genderFrames.romOffset = offset
     local malePalette = decodePalette(GOBJECTEVENTPAL_BRENDAN_ADDR + offset)
     local femalePalette = decodePalette(GOBJECTEVENTPAL_MAY_ADDR + offset)
     for i = 0, FRAMES_PER_PIC_TABLE - 1 do
@@ -1592,7 +1601,10 @@ local function graphicsInfo(graphicsId)
         or graphicsId < 0 or graphicsId > 255 then
         return nil
     end
-    local ptr = r32(GOBJECTEVENTGRAPHICSINFOPOINTERS_ADDR + graphicsId * 4)
+    -- The Archipelago-shifted ROM offset, or 0 on vanilla -- see loadGenderFrames(). Without it
+    -- this table read lands on the old, abandoned address and every lookup fails.
+    local ptr = r32(GOBJECTEVENTGRAPHICSINFOPOINTERS_ADDR + (genderFrames.romOffset or 0)
+        + graphicsId * 4)
     if not isRomPtr(ptr) then return nil end
     local size = r16(ptr + 0x06)
     if size == 0 then return nil end
@@ -2050,7 +2062,20 @@ local function spawnGhost(playerId, mapX, mapY, orientation, wantGfx)
         graphicsId = playerGfx
         info = playerInfo
     end
-    if not info then return nil end
+    if not info then
+        -- Was a SILENT return, and it cost most of a session: peers received, area matched, slots
+        -- free, camera settled, and no ghost and no message. A refusal the log never mentions is
+        -- indistinguishable from a peer who is not there. Throttled with the same counter the
+        -- out-of-slots refusal uses, for the same reason -- console.log is a GUI append.
+        if not tiering.lastLogFrame or frameCounter - tiering.lastLogFrame >= 300 then
+            tiering.lastLogFrame = frameCounter
+            console.log(string.format("MeshGhost: refusing to spawn -- no usable graphics info "
+                .. "for id %s (table at %08X). Further refusals are not logged for 5s.",
+                tostring(graphicsId), GOBJECTEVENTGRAPHICSINFOPOINTERS_ADDR
+                    + (genderFrames.romOffset or 0)))
+        end
+        return nil
+    end
 
     local tileCount = info.tileCount
     local tileStart = allocSpriteTiles(tileCount)

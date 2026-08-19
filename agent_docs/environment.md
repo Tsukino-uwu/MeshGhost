@@ -829,6 +829,15 @@ because they sound reasonable:
 **The main session is not exempt, and is the likeliest offender**, because it is busy coordinating:
 it owns an instance too, and coordination is not a reason for that instance to be parked.
 
+**And it owes an active CHECK, not an assumption** — the user, restating this 2026-08-19 while
+three agents were running: *"make sure something is happening on all 4 bizhawk instances, or at
+least on the 3 that are being ran by the agents. they have no excuse to slack around and not
+do/try stuffs."* An agent that has gone quiet looks exactly like an agent that is thinking, so
+the coordinator polls the evidence rather than waiting to be told: each instance's adapter log is
+still advancing its frame counter, its `dev-scripts/shots/<game>/` folder has new pictures, and
+its loader log shows probes being armed and dropped. Any of the three going flat is the signal to
+ask the agent what it is doing — and "waiting" is an answer that needs a reason attached.
+
 **What "doing something" means**, in rough order of value: measuring an open question; playing
 toward a state that gates one; a soak or regression run with the adapter attached; banking
 savestates at milestones for future sessions. Reporting that an instance is idle and why is
@@ -855,6 +864,12 @@ is highlighted. **Memory reads cannot supply that** — they give precision, not
 you are at tile 12,8 tells you nothing about what is around you unless you have already built a
 map; a screenshot tells you immediately, the same way it tells a human.
 
+**Restated by the user 2026-08-19, after watching a session go by without it:** *"use
+screenshots/pictures to help with progressing, i don't think they did that before."* So this is
+not only a reporting duty — it is **how you get anywhere**, and it belongs in the handoff every
+agent is given, alongside its pid, its control file and its port. An agent that has taken no
+pictures is navigating blind whatever else it is doing right.
+
 **The habit that follows: LOOK FIRST, then act.** Take a screenshot when you arrive somewhere new,
 before deciding what to do — not after something has failed. One picture tells you exactly where
 you are and what is around you, which is the whole of the orientation problem, and it costs a
@@ -878,6 +893,19 @@ open text box. **The picture says which one it is; the memory read says whether 
 on an event; a loop that overwrites one file is enough to watch a session evolve. They also answer
 questions no memory read does — whether a sprite is garbled, what a menu looks like — and they are
 how the user checks an agent's claim without driving the game themselves.
+
+**Capture the GAME, not the window** (user, 2026-08-19): *"only capture what is in the game
+itself."* `client.screenshot()` and nothing else — no `PrintWindow`, no
+`PW_RENDERFULLCONTENT`, no DPI-aware window grab, even though one was proposed after a real
+problem. The problem it was proposed for is genuine: **a drawn-tier ghost is a Lua overlay painted
+after the frame, so it does not appear in `client.screenshot()` output** — an agent photographed a
+screen full of ghosts three times and got an empty map. The answer is not a bigger camera.
+
+**The answer is to judge the drawn tier NUMERICALLY**, with counters sampled over time, which is
+better evidence anyway: "14-36 of ~40 peers were mid-stride at every sample, and none ever fell
+back for want of a facing" settles the question in a way no photograph does, and one frame could
+not have seen a walk cycle regardless. Pictures remain the navigation sense (what is around me,
+what is this thing, which entry is highlighted) — and for that, the game frame is all anyone needs.
 
 **Two things to know about pictures, both learned the hard way:**
 
@@ -912,13 +940,53 @@ menus, battles, warps and cutscenes nobody scripted.
 | 200% | 122.5 fps — the full 2x |
 | 400% | 138.3 fps — about **2.3x**, not 4x |
 
+**The user may set the speed themselves, and did — 2026-08-19, all four instances to 400% at
+once, with:** *"i changed all 4 bizhawk instances to 400%. please try to progress in the games.
+instead of all 4 of them being idle/not doing anything."* Two things follow. **Do not reset a speed
+you did not set** — put back only what you changed, and check `client.get_approx_framerate()` or
+frames-against-the-wall-clock before assuming your instance is at 100. And read the gesture for
+what it is: raising the speed is the user removing the excuse that progress is slow.
+
 **So a speed setting is a request, not a guarantee**: past some multiple the host CPU is the limit,
 and on a busy machine 400% buys little more than 200%. Measure what you actually got (frames
 against the wall clock) rather than assuming the multiplier, and put the speed back to 100 when
 finished so the next reader of that instance is not confused by a fast-running game.
 
-**NO CHEATING WHEN THE POINT IS THE PLAYTHROUGH — but read whatever you like.** The user's rule,
-2026-08-19: *"cheating is not allowed, but reading/knowing memory is fine. you are not allowed to
+**REVERSED 2026-08-19, later the same day: CHEATS ARE ALLOWED TO PROGRESS A PLAYTHROUGH.** The
+user's ruling, verbatim: *"new rule, cheats are allowed to progress in a playthrough."* This
+overrides everything in the rest of this subsection, which is kept below because the reasoning is
+still worth knowing — and because it says exactly what a cheated run stops proving.
+
+**What it means in practice:** writing position, setting a flag a script checks, warping, giving
+an item or a badge, and savestates are all on the table **when the point is getting further along**.
+The measurement that a state unlocks is the goal; the walk there was never the deliverable.
+
+**Including the world itself** (user, 2026-08-19, watching an agent stall against a ledge):
+*"you are allowed to turn off collision, or change a tile to something else if its in the way, do
+anything you can think of to progress."* So the map is not a constraint either — clear a tile's
+collision bits, rewrite the metatile, write the player's coordinates past the obstacle, or drop
+the collision check entirely. **A ledge, a wall, a locked door and a missing HM are all just
+memory**, and an agent grinding directional inputs at one of them is choosing the hard version of
+a solved problem.
+
+**The order to try things in, cheapest first:** walk it; if that fails twice, look at a screenshot
+(it is usually an NPC or an open text box, not geometry); if it really is geometry, write past it
+and move on. Do not spend a third attempt on inputs.
+
+**What it costs, and say so when it applies:** a run that was warped past a stretch no longer shows
+that *a player* can make that trip, and a state that was written is not evidence that the game
+produces that state. So keep the two claims apart in whatever you record — *"reached X"* and
+*"walked to X"* are different sentences, and only the second one is about the game. `verified.md`
+entries should name which they are.
+
+**Still off the table, because it is not about progress:** nothing that SHIPS may write a save or
+game state — `CLAUDE.md`'s rule stands untouched, and this permission is for a dev-driven
+playthrough, never for an adapter.
+
+The superseded rule, and its reasoning, follows.
+
+**NO CHEATING WHEN THE POINT IS THE PLAYTHROUGH — but read whatever you like.** *(Superseded, see
+above.)* The user's rule, 2026-08-19: *"cheating is not allowed, but reading/knowing memory is fine. you are not allowed to
 'spawn items/teleport to locations' etc. but you are allowed to read and understand what is around
 you/where you currently are. try to progress just as a player would."*
 
@@ -952,6 +1020,19 @@ looking at cannot plan, and every one of these was learned the hard way during t
 | Chunky cuttable grass / boulders | Needs an earned ability | **Check what this SAVE has** before planning around it |
 | A doorway or stair | A warp | Step onto it; it rebuilds the world (see the map-load rules) |
 
+**BACKTRACK AND GO AROUND — the user's reminder, 2026-08-19, after watching two agents push at
+the same tile:** *"you might have to backtrack, or 'go around things' in games. very often."* A
+building is solid; its door is the only way in. A town's exit is at one point on an edge, not
+along the whole edge — the user had to say twice that a right-hand exit was at the TOP of the
+town, not the bottom. And the way forward is frequently backwards first: the route out of an area
+can require returning to a place already visited.
+
+**So a direction that stops producing coordinate changes is not a closed route — it is the wrong
+tile.** The move is to step perpendicular along the obstacle until it clears, then resume; or to
+walk the edge looking for the gap. Pressing the same direction harder is the single most common
+way a driven run stalls, and it is indistinguishable, from the input side, from all four failures
+below.
+
 **The three failures these prevent are all the same shape**: an obstacle that is not an obstacle
 (an NPC mid-sentence), an obstacle that is one-way rather than solid (a ledge), and a plan that
 needs an ability the save has not earned. Each looks identical from a driver's seat — *"I pressed a
@@ -976,7 +1057,10 @@ Related conventions worth knowing before driving any of these: **START** usually
 menu and often doubles as OK/confirm on entry screens; **B** advances or closes dialogue as well as
 A; and a long conversation is several boxes, so one press is rarely enough.
 
-**Use the game's own guidance — talk to NPCs, read signs** (user, 2026-08-19). These games are
+**Use the game's own guidance — talk to NPCs, read signs** (user, 2026-08-19, restated the
+same day: *"they usually tell you where to go/what to do. most of the time"*). Treat an NPC as the
+game's own quest log — **pressing A on everyone who will talk is the default first move in an
+unfamiliar town**, not a last resort, and it is right often enough to plan around. These games are
 built to tell a player where to go next, and an agent that ignores that is doing the hard version
 of a solved problem. A sign at a route entrance names the town it leads to; an NPC says which way
 is blocked and why; a character's dialogue is often the flag-check you were about to go looking
@@ -1005,6 +1089,41 @@ and which tile is a one-way ledge is what makes an agent good at this rather tha
 same relationship a speedrunner has with a decomp. The prohibition is on *changing* the world, not
 on understanding it.
 
+**An Archipelago seed is the SAME GAME — share route knowledge across instances** (user,
+2026-08-19: *"ap crystal/emerald is the exact same game as crystal/emerald. feel free to cross
+share info about how to progress in the game"*). The patch randomises what is in the world, not the
+world: the towns, routes, buildings, ledges, NPCs and the order events happen in are the ones the
+vanilla game has. So an agent that has worked out how to get from New Bark to Cherrygrove, or which
+NPC has to be talked to before a door opens, is holding an answer the other instance's agent needs
+— **say it, in the report and in a message, rather than letting the other one rediscover it.**
+
+**What does NOT transfer, and mixing these up is the trap:**
+
+| Transfers | Does not |
+|---|---|
+| Routes, map layout, where a door or a ledge is | **What is in an item ball** — randomised per seed |
+| Which NPC gates what, and roughly what they say | **Which check a location gives**, and therefore what to detour for |
+| Battle order, when the rival appears | **Memory addresses** — the recompile shifts them (`gObjectEvents` +0x284 on AP Emerald) |
+| Menu conventions, how to trigger a state | **What the save has earned** — two seeds diverge immediately |
+
+**USE EVERY TOOL — the user, 2026-08-19:** *"use any possible means/tools to try/test/find/probe
+things inside of the bizhawk games. all tools are there to be used."* Said in the same breath as
+the cheats reversal above, and it is the same instruction pointed at investigation rather than
+progress: the emulator's whole surface is fair game, and reaching for the smallest one out of
+caution is the mistake.
+
+What that surface actually is, since agents keep using a third of it: `memory.read*`/`write*`
+across every domain, `mainmemory`, VRAM/OAM/palette reads, `client.screenshot()`,
+`client.speedmode()`, `joypad.set`/`get`, `savestate.save`/`load`/`saveslot`/`loadslot`,
+`event.on*` hooks, `emu.framecount`, `gui.*` for an overlay, `luanet` for .NET (that is how the
+adapter learned its own pid), plus everything outside the emulator — the decomp for facts, the
+Go rig, `meshghost-fakeadapter`, `meshghost-netsim`, the relay's `-loopback`, and probes that
+write.
+
+**The rule this replaces is "ask the user to do it".** If a state can be reached, forced, faked or
+measured by a tool you have, use the tool. Involve the user for a JUDGEMENT — does this look right
+on screen — not for labour.
+
 **Ground rules for an agent playing a game:**
 
 - **Only on an instance you own** (one agent per instance, above). Never drive an emulator the
@@ -1014,11 +1133,13 @@ on understanding it.
     **should** savestate every milestone and name the slots in the report. A state that took ten
     minutes to reach is worth more than the measurement it enabled, because every later session
     inherits it. Slot 1 is the user's everywhere; use 2+.
-  - **A full playthrough — no savestates at all.** Not saved, not loaded. The user's ruling,
-    2026-08-19: *"no save states allowed when doing a full playthrough"*, and when asked why:
-    *"its the same as not cheating."* Exactly right — **a savestate is time travel**, so it belongs
-    in the same category as spawning an item or warping. Use the game's own in-game save, as a
-    player would.
+  - **A full playthrough — savestates ALLOWED as of 2026-08-19**, when the user reversed the
+    no-cheating rule (see "CHEATS ARE ALLOWED TO PROGRESS A PLAYTHROUGH" above). The earlier
+    ruling was *"no save states allowed when doing a full playthrough"* / *"its the same as not
+    cheating"*, and the reasoning held: a savestate is time travel, in the same category as
+    spawning an item or warping. All three are now permitted **for progress**. What that costs is
+    unchanged — a rewound run no longer shows that a player could have made the trip — so say
+    which claim you are making.
   - **Why it matters beyond purity**: a playthrough's claim is *"a player can get from the start
     to here, and the adapter survives the trip"*, and a run with a retry button has not shown
     that. Worse, reloading past a problem **deletes the evidence** — the failures worth finding are
