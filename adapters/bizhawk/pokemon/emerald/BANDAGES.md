@@ -166,6 +166,36 @@ pixel), and peers whose sprite falls outside the 240x160 screen are skipped enti
 and no adapter-side cleverness adds an entry to it. The honest alternative is the pre-existing
 behaviour — peers past the cap are not shown at all — which is what the flag falls back to.
 
+## A hand-drawn shadow under a jumping ghost (2026-08-19)
+
+**What it is.** When a peer hops a ledge, the adapter paints a dark ellipse on the tile the ghost
+left, in `drawGhostShadows()`. It is our art, not the game's — an ellipse rather than the field
+effect's own graphic — and it exists because the engine's shadow cannot be made to attach to a
+ghost.
+
+**Why the engine cannot do it.** It genuinely tries: a two-tile jump runs `InitJumpRegular` ->
+`DoShadowFieldEffect` -> `StartFieldEffectForObjectEvent`, which binds the effect by passing the
+object's **localId**, and the shadow then re-finds its object every frame with
+`GetObjectEventIdByLocalIdAndMap`. Every ghost wears `LOCALID_PLAYER` (0xFF), so that lookup
+returns the **player**: a ghost's hop puts a shadow under the local player instead.
+
+**Why not simply give ghosts their own id.** That id is load-bearing for something more important:
+`GetInteractedObjectEventScript` returns NULL for any object whose localId is `LOCALID_PLAYER`,
+which is what makes a ghost non-interactable **using the engine's own check** rather than a guard
+of ours. A unique id re-opens a script lookup with no template behind it — a NULL dereference the
+decomp marks as a known bug, and the cause of the slot-machine bug the user hit on 2026-08-18.
+Trading a crash risk for a shadow is the wrong way round.
+
+**What keeps it honest.** The arc is not ours: a jumping sprite carries its hop in `pos2.y`, so the
+shadow is drawn at the sprite's position *without* that term — the exact ground it left, with no
+arc maths of ours to drift out of step. Only the ellipse's size and colour are invented.
+
+**What would retire it.** Reading the field-effect graphics table the way the character graphics
+table is already read, so the game's own shadow art is drawn instead of an ellipse. That is a real
+option, not a fantasy — the drawn tier already decodes arbitrary graphics — it simply was not worth
+it for one ellipse. The user's call, 2026-08-19, was to bandage it: the same reasoning as the drawn
+tier, where the hardware cannot do what is wanted and we compensate visibly and on the record.
+
 ## Deliberate — do NOT "fix" these
 
 Recorded so a future audit does not churn them.

@@ -2818,6 +2818,50 @@ local function syncGhost(playerId, remote)
     end
 end
 
+-- A SHADOW UNDER A JUMPING GHOST. Registered as a bandage in BANDAGES.md -- this is our art,
+-- not the game's, and the reason is worth stating exactly.
+--
+-- The engine DOES create a shadow for any object's ledge hop (InitJumpRegular ->
+-- DoShadowFieldEffect). It binds it with StartFieldEffectForObjectEvent, which passes the
+-- object's localId and then re-finds the object every frame via GetObjectEventIdByLocalIdAndMap.
+-- Our ghosts wear LOCALID_PLAYER (0xFF), so that lookup returns the PLAYER: the ghost's jump
+-- spawns a shadow under the player instead of under the ghost.
+--
+-- Wearing that id is not an accident and is not negotiable -- GetInteractedObjectEventScript
+-- returns NULL for any object with LOCALID_PLAYER, which is exactly what makes a ghost
+-- non-interactable using the engine's own check rather than a guard of ours. Giving ghosts their
+-- own id would fix the shadow and re-open the script lookup that has no template behind it, a
+-- NULL dereference the decomp itself marks as a known bug and the cause of the slot-machine bug
+-- the user already hit. The user's call, 2026-08-19: draw it ourselves, the same way the drawn
+-- tier compensates for what the hardware cannot do.
+--
+-- The one thing borrowed from the engine is the part that matters: a jumping sprite carries its
+-- ARC in pos2.y (+0x26), so taking the sprite's position WITHOUT that term is the ground it left,
+-- exactly. The shadow therefore sits still on the tile while the ghost rises and falls over it,
+-- with no arc maths of ours to drift.
+local function drawGhostShadows()
+    for playerId, g in pairs(ghosts) do
+        local remote = remotes[playerId]
+        if remote and remote.act and remote.act >= 0x0c and remote.act <= 0x0f and ghostAlive(g) then
+            local d = sprAddr(g.sprId)
+            local groundX = rs16(d + 0x20) + rs16(d + 0x24) + memory.read_s8(d + 0x28)
+                + rs16(GSPRITECOORDOFFSETX_ADDR)
+            local groundY = rs16(d + 0x22) + memory.read_s8(d + 0x29)
+                + rs16(GSPRITECOORDOFFSETY_ADDR)
+            -- Centred on the character and sat at its feet: the frame is FRAME_WIDTH_PX wide and
+            -- the sprite's origin is its top-left once centerToCorner is applied above.
+            local cx = groundX + (FRAME_WIDTH_PX // 2)
+            local cy = groundY + FRAME_HEIGHT_PX - 4
+            if cx > -16 and cx < 256 and cy > -16 and cy < 176 then
+                -- Drawn, not decoded: the shadow is a field-effect graphic in a different table
+                -- from the character graphics this adapter reads, and an ellipse is honest about
+                -- being ours rather than a near-miss copy of the game's.
+                gui.drawEllipse(cx - 8, cy - 3, 16, 6, 0x00000000, 0x60000000)
+            end
+        end
+    end
+end
+
 -- spawnSet names the peers entitled to an object slot this frame (tiering.chooseSpawned). A peer
 -- that loses its place does NOT vanish -- the drawn tier picks it up in the same frame, which is
 -- the whole point of the split.
@@ -3542,6 +3586,9 @@ local function runFrame()
             -- TIER ONE: real object events, as many as the map can spare (nearest peers win).
             local spawnSet = tiering.chooseSpawned(smoothAreaId, smoothX, smoothY)
             syncRemoteGhosts(smoothAreaId, spawnSet)
+            -- Independent of the drawn tier: a spawned ghost needs this whether or not the
+            -- overflow tier is on, so it cannot live inside drawRemotes.
+            drawGhostShadows()
             -- TIER TWO: everyone the engine had no room for, painted over the finished frame
             -- so that no peer is ever simply absent. Flag-gated -- see FLAGS.md and
             -- BANDAGES.md. A drawn ghost has no engine occlusion of its own, so it clips
