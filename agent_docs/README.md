@@ -55,6 +55,11 @@ Internal documentation for MeshGhost: architecture, planning, licensing, and ver
   value you cannot name (drive an input one way, then reverse it), instrumenting a running game
   without changing what it does, what a probe is allowed to cost, and the two ways a probe lies.
   It sits with the template rather than here because it is adapter work; read it before writing one.
+- [crowd-limits.md](crowd-limits.md) — **how many ghosts a game can actually hold**, per game and
+  per map, and what happens past that. An emulated game has a fixed array of character slots and a
+  fixed hardware sprite budget, both decided decades before multiplayer existed, so this has a hard
+  answer no amount of relay capacity changes. Includes the reusable measuring rig (synthetic peers
+  over the real relay, engine-side probe, frame-rate check). Ask it early for a new game.
 - [effect-investigation.md](effect-investigation.md) — **how to search**: the procedure for finding,
   mirroring and confirming a game's visual effect, told through the Pseudoregalia afterimage/trail
   investigation start to finish. Complements the other two rather than repeating them —

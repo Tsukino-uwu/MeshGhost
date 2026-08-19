@@ -146,3 +146,23 @@ One line each; the code stays the source of truth.
 - `object_slot_probe.lua` — the object struct array and its field layout.
 - `ingame_gate_probe.lua` — the lifecycle states above.
 - `spawn_test*.lua` — the adoption mechanism.
+
+## How many characters the game can hold at once
+
+Two separate budgets, and the smaller one wins:
+
+- **The engine's slots.** 13 **object structs** and 16 **map objects** (`NUM_OBJECT_STRUCTS` /
+  `NUM_OBJECTS`). A map spends some of both on its own cast before anything else asks: New Bark
+  Town leaves 9 free, Elm's lab also leaves 9 — but **outdoors the structs run out first and
+  indoors the map objects do**, because an indoor map declares more map objects than it has
+  characters on screen at any moment.
+- **The hardware.** 40 sprite entries (`wShadowOAM`, `00:c400`–`00:c4a0`, 4 bytes each) and an
+  overworld character occupies exactly 4 of them, so **10 characters can be on screen at once**,
+  player included. Unused entries are parked at `y=160`, one row below the 144-line screen. The
+  Game Boy also drops sprites past 10 *per scanline*; ten characters spread vertically do not
+  reach it.
+
+Measured 2026-08-19 with real synthetic peers over the relay, at 60fps throughout — including with
+36 peers offered against 9 slots, and with the sprite hardware fully saturated at 40 of 40 in the
+lab, where all ten characters still drew correctly. Method and full table:
+`agent_docs/crowd-limits.md`.

@@ -997,6 +997,32 @@ connection), and the adapter passed one live test while failing the other.
   untidy; leaked *solid* ones accumulate into a wall that can block a route. Decide collision and
   lifecycle together, not separately.
 
+## Find out how many ghosts this game can hold, and make it refuse cleanly
+
+**An old game has a fixed number of character slots and a fixed hardware sprite budget, both
+decided long before anyone thought about multiplayer.** So "how many players can share a map" has
+a hard, per-game and often per-MAP answer that no amount of relay capacity changes, and an adapter
+that does not know it will happily write into a slot it does not own.
+
+Measure it early; the method and the reusable rig are in
+[agent_docs/crowd-limits.md](../../agent_docs/crowd-limits.md). In short: generate real synthetic
+peers with `meshghost-fakeadapter` (so the whole path is exercised, not just the engine), read the
+engine's own slot counts and the hardware's sprite entries with a probe, count emulated frames
+against a wall clock so "it looked fine" is not the evidence, and repeat in more than one kind of
+map.
+
+**Two things that generalise beyond one game:**
+
+- **The binding resource changes with the map, and often for a different reason.** Crystal ran out
+  of *object structs* outdoors and *map objects* indoors, at the same total of 9 ghosts. Reporting
+  only one of them would sometimes name the wrong cause.
+- **Refuse, and SAY SO.** *"My friend is invisible"* and *"my friend is not connected"* look
+  identical from the player's chair. A rate-limited log line naming which pool ran out, and how
+  many ghosts are present, is the difference between a diagnosable session and a mystery.
+
+Record the answer in the adapter's `documentation.md` — it is a fact about the game, not a
+compensation.
+
 ## Budget a probe's reads before running it — see [probes.md](probes.md)
 
 An emulator's script host charges per call across a managed boundary, so a scan that reads trivially

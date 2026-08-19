@@ -575,6 +575,9 @@ function ghostCount()
 	return n
 end
 
+-- Rate limit for the map-is-full line below; see spawnGhost.
+local fullLoggedAt = nil
+
 local function freeMapObject()
 	for i = 1, NUM_MAP_OBJECTS - 1 do
 		if u8(MAP_OBJECTS + i * MAPOBJECT_LENGTH + M_SPRITE) == 0 then
@@ -740,6 +743,23 @@ local function spawnGhost(id, x, y, peerSprite)
 	end
 	local mo, st = freeMapObject(), freeStruct()
 	if not mo or not st then
+		-- The map is FULL: this peer gets no body until one frees up. Say so, once a minute, and
+		-- say which pool ran out -- because "my friend is invisible" and "my friend is not
+		-- connected" look identical from the player's chair, and the answer differs per map.
+		-- Crystal has 13 object structs and 16 map objects (pokecrystal's own
+		-- NUM_OBJECT_STRUCTS / NUM_OBJECTS), and every map spends some of both on its own NPCs:
+		-- New Bark Town leaves 9 for ghosts and runs out of STRUCTS first, Elm's lab also leaves
+		-- 9 and runs out of MAP OBJECTS first. Measured 2026-08-19, agent_docs/crowd-limits.md.
+		-- os.time(), not the frame counter: bridgeFrames is declared further down this file, so
+		-- reading it here would resolve to a nil GLOBAL and throw at the exact moment a map
+		-- fills up -- the forward-reference trap dev-scripts/lua-forward-refs.py exists for.
+		local now = os.time()
+		if not fullLoggedAt or (now - fullLoggedAt) >= 60 then
+			fullLoggedAt = now
+			log(string.format("MeshGhost: no room for %s on this map -- %s slots are all in use. "
+				.. "Ghosts already here: %d. This is the game's own limit, not an error.",
+				id, (not st) and "object struct" or "map object", ghostCount()))
+		end
 		return nil
 	end
 
