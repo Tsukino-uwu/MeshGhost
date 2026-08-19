@@ -34,8 +34,14 @@ The rig that produced everything below, reusable for the next game:
 
 ## Pokémon Crystal (Game Boy Color) — measured 2026-08-19
 
-**Ceiling: 9 ghosts, in both maps tested, for two different reasons. Everything past that is
-refused cleanly, and the emulator never leaves 60fps.**
+**Ceiling as measured: 9 ghosts, in both maps tested, for two different reasons. Everything past
+that is refused cleanly, and the emulator never leaves 60fps.**
+
+**The SHIPPED ceiling is now lower on purpose — see "What the crowd broke" below.** The adapter
+stops at **10 characters on screen** (about 7 ghosts in New Bark Town) because that is what the
+Game Boy can draw without dropping sprites, and it gives a ghost's slots back beyond 8 tiles so
+the game's own characters can have them. The engine's 13/16 arrays are still the outer wall; the
+hardware is the one that binds first once a crowd is actually standing around you.
 
 | Where | Peers offered | Ghosts rendered | Object structs | Map objects | Hardware sprites | Frame rate |
 |---|---|---|---|---|---|---|
@@ -84,6 +90,31 @@ nothing crashed. The adapter now logs it once a minute, naming the pool that ran
 ghosts are present, because *"my friend is invisible"* and *"my friend is not connected"* look
 identical from the player's chair.
 
+### What the crowd broke — three defects the test found, all in one evening
+
+Running the crowd was not a formality. With peers standing around New Bark the user reported, in
+this order: NPCs popping in and out, invisible collisions, and an NPC drawn in halves. All three
+were one root cause with three faces — **a ghost took engine resources the engine expected to get
+back, and took them from the end the engine allocates from.**
+
+- **Ghosts held object structs forever.** Crystal hands a struct to each of its characters as they
+  come into range and takes it back when they leave; a ghost carries `FLAG1_WONT_DELETE`, so it
+  never released. Measured at its worst: **11 of 13 structs held by ghosts, and an NPC standing
+  ONE TILE from the player simply not drawn.** Fixed two ways — a ghost now gives its slots back
+  beyond 8 tiles, and three structs are reserved for the game outright.
+- **An off-screen ghost still occupied its tile**, so the player walked into a solid character
+  they could not see. The same range rule fixes it: far away, the ghost is not there at all.
+- **The game's own NPCs lost the draw fight.** The Game Boy keeps the first ten sprites in OAM
+  order, which follows struct order — and the adapter allocated from the LOW end, putting ghosts
+  ahead of the game's cast. Both pools now allocate from the top down, so when the hardware drops
+  someone it drops a ghost. (Emerald's adapter already did this; Crystal's did not, and nobody had
+  compared them.)
+
+**The lesson for the next adapter**: a crowd is not a stress test of your code, it is a stress test
+of *the engine's assumptions about who owns its resources*. None of these three appear with one or
+two peers, and all of them are things a player would report as "the game is broken", not "MeshGhost
+is broken".
+
 **A peer with no slot has NO footprint at all** — read off the arrays, not argued from the code.
 A census taken with the crowd live showed all 16 map objects accounted for: the lab's own 7 plus
 exactly the 9 ghosts the adapter spawned, and nothing else anywhere. Collision in this game comes
@@ -106,10 +137,37 @@ hardware is nowhere near being the constraint — the engine's array is the whol
 
 | Location | Peers offered | Ghosts rendered | Object slots | Sprite table | OAM | Frame rate |
 |---|---|---|---|---|---|---|
-| Littleroot (3 map objects) | 6 | 6 | 9 of 16 | 13 of 64 | 8–9 of 128 | 59.7 |
-| Littleroot | 12 | 12 | 15 of 16 | 19 of 64 | 15 of 128 | 59.7 |
-| Littleroot | 18 | **13** | **16 of 16 (full)** | 20 of 64 | 16 of 128 | 59.7 |
-| Littleroot | 36 | **13** | **16 of 16 (full)** | 20 of 64 | 16 of 128 | 59.7 *(after the fix below)* |
+| Littleroot town (3 map objects) | 6 | 6 | 9 of 16 | 13 of 64 | 8–9 of 128 | 59.7 |
+| Littleroot town | 12 | 12 | 15 of 16 | 19 of 64 | 15 of 128 | 59.7 |
+| Littleroot town | 18 | **13** | **16 of 16 (full)** | 20 of 64 | 16 of 128 | 59.7 |
+| Littleroot town | 36 | **13** | **16 of 16 (full)** | 20 of 64 | 16 of 128 | 59.7 *(after the fix below)* |
+| **Route 101** (6 objects) | 12 | **10** | 16 of 16 (full) | 30–31 of 64 | 26–27 of 128 | 59.7–59.8 |
+| **Route 101** | 36 | **10 → 11** | 16 of 16 (full) | 28–30 of 64 | 16–25 of 128 | 59.7–59.8 |
+| **Indoors**, house, 2 NPCs | 24 | **13** | 16 of 16 (full) | 20 of 64 | 16 of 128 | 59.7–59.8 |
+| **Indoors** | 36 | **13** | 16 of 16 (full) | 20 of 64 | 16 of 128 | 59.7–59.8 |
+
+**Indoors the ceiling is stable; outdoors it is not** — and that is the sharpest difference
+between Emerald's maps. Every indoor sample at saturation was byte-identical across ~2 minutes and
+three peer counts (`16/16, 20 sprites, 16 OAM, 13 ghosts`), because an indoor map's cast is fixed
+and nothing loads or unloads with the camera. On Route 101 the same measurement gave 10 ghosts on
+16 samples and 11 on 5: the cap **moved mid-run** as a route NPC unloaded, and a queued ghost took
+the freed slot within a second, unprompted. A player walking a route has a ceiling that breathes.
+
+**Outdoors costs more sprites per character** — 16 characters used 30 sprites and 27 OAM on the
+route versus 20 and 16 for the same 16 indoors, because tall grass adds a rustle field-effect
+sprite per character moving through it. Still far from the 64/128 ceilings, so the object array
+remains the only real limit on every map type measured.
+
+**No NPC was displaced, and that is measured rather than eyeballed**: on the route with 11 ghosts
+the array held `16 − 11 = 5` game objects, the same five it held with no peers at all; indoors ids
+0–2 stayed the game's throughout while ghosts took 3–15. Ghosts allocate downward from slot 15,
+the engine upward from 0. Baselines were restored exactly when the peers left, with no orphans.
+
+**Still unobserved, and worth a human's eyes:** the reverse direction — the array saturated by
+ghosts while a *new* NPC scrolls into view. Only the unload direction was ever caught. The
+mechanism predicts the newly-visible NPC gets no slot, which would be a missing NPC on a crowded
+route. **Crystal's equivalent of this was not hypothetical** (see its section), so do not assume
+Emerald's allocation direction makes it impossible — confirm it.
 
 - **A GBA overworld character is ONE OAM entry**, not four — 16×32 is a native object shape on
   that hardware. So 13 ghosts plus the player and NPCs used **16 of 128** sprite entries. Where
@@ -140,10 +198,23 @@ remembering when reading the Crystal table above as reassurance: Crystal survive
 at a flat 60fps because its refusal path happens to be cheap and its log line is rate-limited to
 once a minute. Nothing enforced that; it was luck, until it was measured.
 
-## What to do about a ceiling you cannot raise
+## What to do about a ceiling you cannot raise — BUILT FOR CRYSTAL, 2026-08-19
 
 **Do as much as the game can handle on its own, then fake it above that cap** (the user's rule,
-2026-08-19). Spawn real objects while the engine has slots — they get animation, occlusion,
+2026-08-19). **Crystal now does exactly that, and the ceiling is gone in practice**: 89 peers
+offered on a 10x9 window rendered 89 characters at 60fps, user-confirmed — the engine holding as
+many as it can and the adapter painting the rest. Emerald's equivalent is built and shipped OFF
+until its UI regions can be located (`FLAGS.md`). Details, costs and the measurements:
+`ideas.md`, `phases/phase9.md`, and Crystal's `BANDAGES.md` entry 1.
+
+**Three leaks only a crowd could have found**, all in the new tier and all invisible individually,
+because a leaked drawn ghost looks exactly like a peer standing still: a peer who **left** kept
+being painted, a peer who walked into **another map** kept being painted, and every drawn position
+survived a **map change** having been computed against the old camera. The rule that falls out:
+with two rendering paths, every lifecycle message must reach both, and the tier that gets missed
+is the one with no engine bookkeeping to go stale.
+
+### The general form Spawn real objects while the engine has slots — they get animation, occlusion,
 priority and collision for free — and draw the overflow over the emulator's output, which is
 subject to none of the engine's or the hardware's limits because it happens after both. Hardware
 tricks like per-scanline OAM multiplexing do **not** substitute: they relieve the drawing limits
