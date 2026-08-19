@@ -2490,6 +2490,18 @@ local function syncGhost(playerId, remote)
         -- in both cases the tiles went with it -- freeing our old range here would clear bits the
         -- new map's sprites now own. Drop the record, free nothing. The blob went the same way:
         -- it lives in the same sprite array the engine reset.
+        --
+        -- SAID OUT LOUD, throttled: this is the one place a ghost can vanish and reappear without
+        -- anything being wrong, and doing it silently means a user report of *"the spawned ghost
+        -- disappears sometimes, but very rarely"* has nothing in the log to match against. One line
+        -- per second at most, and it names which of the two it was -- the map id moving says a load,
+        -- the map id holding still says a cull.
+        if not tiering.lastReclaimFrame or frameCounter - tiering.lastReclaimFrame > 60 then
+            tiering.lastReclaimFrame = frameCounter
+            console.log(string.format(
+                "MeshGhost: the engine reclaimed %s's ghost slot (%s) -- respawning.",
+                tostring(playerId), inOverworld() and "cull or map load" or "not the overworld"))
+        end
         ghosts[playerId] = nil
         g = nil
     end
@@ -2834,11 +2846,42 @@ local function drawRemotes(localAreaId, playerMapX, playerMapY, skipSpawned, com
             -- pixel over 240 frames), so it does not need reading per frame at all. Captured with
             -- the anchor, at the same standing-still moment, it becomes a constant origin -- and
             -- then the only thing that moves per frame is the camera, on its own clock, alone.
-            local screenX = (tiering.originX or playerScreenX)
+            -- COMPARE MODE: pin the painted copy to the SPAWNED one's own position.
+            --
+            -- The two renderers cannot be made to move identically, and chasing that was costing
+            -- the user run after run. The spawned ghost's timing comes from the engine's step
+            -- scheduler -- when it starts a step, how long it holds it -- and we do not drive that
+            -- scheduler; ours comes from when packets land. Average lag can be matched (and is),
+            -- smoothness can be matched (and is), the walk cadence can be matched (and is), but
+            -- the SHAPE of the engine's starts and stops cannot be, short of reimplementing its
+            -- scheduler and hoping it stays in phase -- which five separate attempts say it will
+            -- not.
+            --
+            -- So in compare mode the painted copy is placed from the spawned ghost's own sprite,
+            -- mirrored to the other side. The two are then pixel-locked BY CONSTRUCTION, and every
+            -- difference that remains is a RENDERING difference -- occlusion, a cave's darkness, a
+            -- water reflection, palette, clipping -- which is what this mode exists to show, and
+            -- what the user asked for when they asked for it. Real overflow peers, which have no
+            -- spawned copy by definition, keep the filter above.
+            local screenX, screenY
+            local pinned = COMPARE_TIERS and ghosts[playerId]
+            if pinned then
+                local gs = sprAddr(pinned.sprId)
+                screenX = rs16(gs + 0x20) + rs16(gs + 0x24) + memory.read_s8(gs + 0x28)
+                    + rs16(GSPRITECOORDOFFSETX_ADDR)
+                    + (COMPARE_DRAWN_OFFSET_TILES_X - LOOPBACK_GHOST_OFFSET_TILES_X) * TILE
+                screenY = rs16(gs + 0x22) + rs16(gs + 0x26) + memory.read_s8(gs + 0x29)
+                    + rs16(GSPRITECOORDOFFSETY_ADDR)
+            end
+
+            local unpinnedX = (tiering.originX or playerScreenX)
                 + (glideX - (tiering.anchorX or playerMapX)) * TILE + camPixX
-            local screenY = (tiering.originY or playerScreenY)
+            local unpinnedY = (tiering.originY or playerScreenY)
                 + (glideY - (tiering.anchorY or playerMapY)) * TILE + camPixY
-            if isLoopback then
+            if not pinned then screenX, screenY = unpinnedX, unpinnedY end
+            -- The pinned branch already carries the mirror to the other side of the player, so the
+            -- loopback nudge below would apply it twice.
+            if isLoopback and not pinned then
                 screenX = screenX + (COMPARE_TIERS and COMPARE_DRAWN_OFFSET_TILES_X
                     or LOOPBACK_GHOST_OFFSET_TILES_X) * TILE
                 screenY = screenY + LOOPBACK_GHOST_OFFSET_TILES_Y * TILE
