@@ -4462,6 +4462,11 @@ local function drawRemotes(localAreaId, playerMapX, playerMapY, skipSpawned, com
                             -- lookup grid for the whole reflection instead of one per run.
                             local wet = rruns and genderFrames.reflectiveSpans(
                                 screenX + cx, rtop, info.width, info.height)
+                            -- Once a second: where this ghost stands, and every tile its
+                            -- reflection is allowed to paint over, with that tile's behaviour.
+                            -- Painting over a non-water behaviour is a bug; painting only over
+                            -- water behaviours means the leak is art INSIDE a water tile, which is
+                            -- a different problem with a different answer.
                             if rruns then
                                 drawRunList(rruns, info.width, gfxFlip, screenX + cx, rtop,
                                     panelRows, dim, info.height,
