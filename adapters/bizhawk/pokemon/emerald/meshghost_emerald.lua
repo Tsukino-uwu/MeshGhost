@@ -637,15 +637,24 @@ local function localGraphicsId()
     local sox = memory.read_s16_le(GSPRITES_ADDR
         + memory.read_u8(GPLAYERAVATAR_ADDR + avatarAddrOffset + 0x04) * SPRITE_SIZE + 0x24)
     if gfx ~= genderFrames.sentGfx then
-        -- A change: publish it only once this graphic's own offset has held for a frame.
-        if gfx == genderFrames.pendingGfx and sox == genderFrames.pendingSox then
-            genderFrames.sentGfx = gfx
+        -- HOW LONG TO HOLD IS MEASURED, not picked. The offset arrives four frames after the
+        -- graphic (probes: pos2 0,0 for four frames, then 8,0), and "the same value twice" is
+        -- useless against that -- two of those four frames agree with each other, which is exactly
+        -- why the first version of this published the unsettled state anyway. Holding SIX frames
+        -- clears the measured settle with room to spare, and 100ms is invisible behind the 250ms
+        -- of interpolation already in front of it.
+        -- Counted in CALLS, not frames: frameCounter is declared further down this file and a
+        -- forward reference reads a nil global (caught by the syntax/forward-ref check, and by the
+        -- adapter's own error count, within one reload). This runs once per frame from the send
+        -- path, so a call is a frame.
+        if gfx ~= genderFrames.pendingGfx then
+            genderFrames.pendingGfx, genderFrames.pendingTicks = gfx, 0
         else
-            genderFrames.pendingGfx, genderFrames.pendingSox = gfx, sox
-            return genderFrames.sentGfx
+            genderFrames.pendingTicks = (genderFrames.pendingTicks or 0) + 1
+            if genderFrames.pendingTicks >= 6 then genderFrames.sentGfx = gfx end
         end
+        if gfx ~= genderFrames.sentGfx then return genderFrames.sentGfx end
     end
-    genderFrames.pendingGfx, genderFrames.pendingSox = gfx, sox
     return gfx
 end
 
