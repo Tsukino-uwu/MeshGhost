@@ -7653,3 +7653,21 @@ house), and together they are the strongest evidence for the spawn-over-draw dec
 re-implemented, imperfectly, by an adapter that draws.** What that re-implementation would cost is
 priced in `ideas.md` under "Spawn to the game's cap, then DRAW above it" — and the drawn tier is
 the only place the question can still arise.
+
+### 2026-08-19 — Crystal publishes its own menu rectangle, and it matches what the screen showed
+
+**Track: probe log, read by the agent, corroborated by an independent user observation.**
+
+`wMenuBorderTopCoord`/`Left`/`Bottom`/`Right` (`00:cf82`–`cf85`, tile coordinates, from our
+hash-verified `pokecrystal` build) hold the real rectangle while the pause menu is open:
+**`top=0 left=10 bottom=15 right=19`** — columns 10–19 of 20 and rows 0–15 of 18, the right half
+of the screen, stopping two rows short of the bottom.
+
+**What makes this more than a register read:** the user, looking at the same moment with nine
+ghosts on screen, reported that the ghosts were hidden by the menu *except one at the very
+bottom*. That ghost is below row 15. Two independent observations of the same boundary.
+
+The values flip to `0,0,0,0` and back several times a second while the menu is displayed — the
+menu code rewrites them as it redraws — so anything consuming them must latch the last non-zero
+rectangle rather than reading raw. Relevant only to the drawn-overflow tier in `ideas.md`; the
+shipped spawn path needs none of this, because the game occludes real objects itself.

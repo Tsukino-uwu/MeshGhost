@@ -1404,10 +1404,17 @@ collision — and peers past the cap still *exist* on screen instead of vanishin
       returned to 144 while the menu was still open. So the register tracks a transition, not the
       panel — clipping on it would blank the screen for a moment and then stop working.
     - *The game's own menu rectangle*, `wMenuBorderTopCoord`/`Left`/`Bottom`/`Right`
-      (`00:cf82`–`cf85`, tile coordinates, from our hash-verified `pokecrystal` build). Read
-      `0,0,0,0` in the one sample taken, with no box confirmed open at that moment, so this is
-      **unresolved rather than refuted** — it needs a probe watched across a box that is
-      definitely open (talk to an NPC, open the pack) before anyone builds on it.
+      (`00:cf82`–`cf85`, tile coordinates, from our hash-verified `pokecrystal` build).
+      **This one works — measured 2026-08-19 with the pause menu open**: `top=0 left=10 bottom=15
+      right=19`, i.e. columns 10–19 of 20 and rows 0–15 of 18 — the right half of the screen,
+      stopping two rows short of the bottom. It corroborates itself against what the user saw
+      independently: the one ghost still visible with the menu open was the one standing *below*
+      row 15. So a drawn ghost could be clipped out of exactly the panel and keep drawing
+      elsewhere, which was the user's own model of the problem before any of this was read.
+      **One wrinkle to handle**: the four values flip back to `0,0,0,0` and return several times a
+      second while the menu is up — the menu code rewrites them as it redraws — so a consumer has
+      to latch the last non-zero rectangle while a panel is open rather than reading them raw, or
+      the clip region will strobe.
   - **Scenery: harder, but the hardware carries the answer.** On the Game Boy Color each
     background tile has an attribute byte in VRAM bank 1, and one bit of it means *this tile draws
     in front of sprites*. A drawn ghost could read the attribute at the tile it occupies and skip
