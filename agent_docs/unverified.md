@@ -200,3 +200,27 @@ Turned OFF by default (`MESHGHOST_GHOST_PEER_GFX`), because it is incomplete —
     screen, and no rod has successfully been cast on it yet.**
 - **Archipelago ROMs still use the old drawn overlay.** See `adapters/bizhawk/pokemon/emerald/BANDAGES.md`
   — one live run on a patched seed either closes it or refuses safely.
+
+## Pending — Crystal's drawn tier (2026-08-19)
+
+The screen-filling half is **confirmed** (`verified.md`); these landed after that and have not
+been watched. All of them concern peers past the engine's cap, which are painted rather than
+spawned.
+
+- [ ] **A drawn peer faces the way it is walking, and animates.** *What to look at:* a peer moving
+      across the screen while the engine is already full. *Correct:* it turns to face its
+      direction and its legs move, rather than sliding while facing down.
+      (The frames are learned from watching the engine render YOUR character, so if your own
+      sprite animates correctly, a drawn one should match it.)
+- [ ] **A drawn peer does not paint over a text box.** *What to look at:* talk to an NPC with a
+      crowd on screen. *Correct:* nothing is drawn over the bottom six rows while the box is up,
+      and they come back when it closes. (Measured working both ways from the adapter's counters:
+      32 peers hidden with a box open, 0 with it closed — but not watched.)
+- [ ] **A drawn peer does not paint over the START menu.** Same, for the menu's own rectangle,
+      which is the right half of the screen.
+- [ ] **Idle peers stop blocking, moving ones do not.** *What to look at:* stand next to a peer
+      who stops moving — after five seconds you should be able to walk through them; a peer who is
+      actively walking should still block. Turning on the spot must NOT count as moving.
+- [ ] **Shoving past a peer works.** *What to look at:* hold a direction into a peer that is
+      blocking a doorway. *Correct:* after about half a second they stop blocking and you walk
+      through.

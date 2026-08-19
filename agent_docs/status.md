@@ -2,53 +2,26 @@
 
 ## Active status
 
-**Phase 8 (Emerald) is the live one as of 2026-08-18** — the shipped adapter now SPAWNS a real
-object event instead of drawing an overlay, so the engine owns animation, palette and occlusion.
-Confirmed piece by piece on screen; **the end-to-end pass and five other items are still queued in
-`unverified.md`, which is the file to read next.** `phases/phase8.md`.
+**Phase 9 (Crystal) is the live one as of 2026-08-19.** `phases/phase9.md`, `plans.md` 9.1.
 
-**Phase 7 (Pseudoregalia) 7.7 is DONE** — two real players on two machines, confirmed 2026-08-16
-with the Linux tester. It cleared pole rotation; the rest of the two-player-blocked list below is
-now testable but not yet re-judged. Phase 6 (TEVI) is done.
+- **Crystal renders peers in TWO tiers now**: spawned real objects up to what the game can draw,
+  and everything past that PAINTED over the emulator. A character on every visible tile at 60fps,
+  user-confirmed. `verified.md` 2026-08-19, `crowd-limits.md`.
+- **Emerald's equivalent is built but ships OFF** (`MESHGHOST_EMERALD_DRAWN_OVERFLOW`) — its UI
+  regions could not be located reliably, so a drawn ghost would paint over text boxes.
+- Phases 6 (TEVI), 7 (Pseudoregalia) and 8 (Emerald) are done; 8's queue is in `unverified.md`.
 
-**Landed 2026-08-16** (autostart on Windows+Proton, v0.7.0, admission control, the camera/rig fix,
-no more through-wall ghosts; Go side: quic default, ordered udp, `cmd/meshghost-netsim`) and
-**2026-08-17** (a sliding ghost posed via the game's own crouch path, retiring the +43 render-Z
-bandage; Go side: the planes past cosmetic — events, sequencer, leases, escrow, snapshots,
-resumption, clock sync, and world custody, all opt-in and unused by any adapter) — full record in `verified.md`,
-`plans.md`, `architecture.md` and `adapters/pseudoregalia/BANDAGES.md`.
+**Everything below this line is an INDEX of what is open.** Two lines per item, and the detail
+lives in `verified.md`, `pitfalls.md` or a phase file — see the update guidance at the bottom.
 
-**Also 2026-08-17, Go side:** two handshake races CI's race job caught and local runs never did
-(a message could beat a client's own Welcome; a rejected connect left a half-open relay behind),
-and the six library packages moved out of `internal/` to the repo root under the module's real
-path — importable from outside, with no stability promised. See the ADR in `architecture.md`.
-
-**Phase 9 (Crystal): the whole cosmetic mechanism is DONE, confirmed on screen 2026-08-18** — a
-player-looking character spawned on demand anywhere, that WALKS with the game's own step
-animation, with the adapter drawing, animating and interpolating nothing. Networking is the
-largest remaining piece. `phases/phase9.md`.
-
-**Landed 2026-08-18**: autostart in ALL FOUR adapters (each starts its own client with no window
-and takes it down with the game — TEVI/Emerald/Crystal added this day, confirmed live including
-two-emulator and two-adapter cases); two relay bugs fixed with regression tests (a world drop sent
-lossily, a data race on the resume timer); the race detector recovered from "impossible on this
-machine" to running the whole suite locally; a username leak closed along with the check that
-could not see it; v0.9.5 cut as a pre-release; and three standing decisions recorded in
-`plans.md` (efficiency is a goal not a deferral, the ceiling belongs to the game not the server,
-Archipelago is real but always behind vanilla).
-
-Roadmap: `plans.md`. Per-phase log: `phases/`. Evidence for all of the above: `verified.md`.
+Roadmap: `plans.md`. Per-phase log: `phases/`. Evidence: `verified.md`. What the user has not
+confirmed yet: `unverified.md`.
 
 ## Genuinely open items
 
 Fixed-and-confirmed work is not listed here — see `verified.md` and the phase files.
 
 ### Deferred by the 2026-08-18 audit-and-refactor pass
-
-(The Pseudoregalia staleness-gate gap listed here earlier is CLOSED —
-`CoreLauncher.cpp`/`.hpp` are hashed by `build-pseudoregalia.bat` and checked by `release.yml`
-as of 2026-08-18, DLL rebuilt and redeployed.)
-
 
 The pass fixed two real relay bugs, four adapter defects and ~60 stale doc claims; these were
 identified, scoped and deliberately NOT done, because each needs a live game to judge or is large
@@ -70,8 +43,6 @@ enough that bundling it would make one confirmation pass unable to isolate a reg
 Two real players on two machines, confirmed on screen — `verified.md`. These need re-judging now
 that a peer's state genuinely differs from the local player's, which loopback could never show:
 
-- ~~A fresh ghost shows the LOCAL player's state, not the peer's.~~ **CLOSED 2026-08-17** — a
-  synthetic peer rendered with default appearance, not the local save. `verified.md`.
 - **Ghost collision: keeping it ON, still WIP.** Enemies can no longer hit the ghost (confirmed
   2026-08-17); the player still can. `risks.md`, `verified.md`.
 - **Killing a ghost leaves the player respawning at 0/empty health** — player melee only; the HUD
@@ -83,10 +54,10 @@ that a peer's state genuinely differs from the local player's, which loopback co
 
 ### Open, not blocked
 
-- **Crystal: invisible collisions, and ghosts popping in/out as you walk near them** — user-seen
-  2026-08-19 with a crowd standing around; two candidate causes, probe attached. `pitfalls.md`.
-- **Crystal: a peer's own sprite is used when its tiles are resident (2026-08-19), not otherwise**
-  — the other gender never is, so that half needs VRAM work. `phases/phase9.md`, `unverified.md`.
+- **Crystal's drawn tier is unconfirmed**: animation, facing and text-box clipping all landed
+  2026-08-19 after the fill-the-screen test. `unverified.md`, `crowd-limits.md`.
+- **Crystal: a peer's own sprite is used when its tiles are resident, not otherwise** — but the
+  DRAWN tier could read any sprite from ROM, which would close it. `phases/phase9.md`.
 - **Crystal/Archipelago: `wBattleMode` unmeasured** — 0x015A vs 0x1234, needs one trainer battle.
   Everything else is measured and a loopback ghost walks on the AP ROM. `phases/phase9.md`.
 - **Crystal: a ghost does NOT survive a battle** — answered from the code 2026-08-19 and fixed
