@@ -506,6 +506,17 @@ end
 ----------------------------------------------------------------------------
 
 local function u8(addr, domain)
+	-- A NIL ADDRESS MUST NOT READ AS ZERO. BizHawk's memory.read_u8(nil) succeeds and returns 0
+	-- rather than failing -- measured 2026-08-19, not assumed. An unmeasured entry in an ADDRESSES
+	-- table is nil by design, and phase9.md's promise is that the adapter then "refuses rather
+	-- than writing somewhere plausible". Without this guard that promise was not kept: nil read as
+	-- byte 0, so `u8(W_BATTLEMODE) == 0` was silently ALWAYS TRUE on any build with that entry
+	-- unmeasured -- i.e. the adapter believed no battle was ever happening, and drew ghosts over
+	-- the battle screen. Reported by the user on the Archipelago build, whose W_BATTLEMODE was nil
+	-- until it was measured that same day.
+	if addr == nil then
+		return nil
+	end
 	local ok, v = pcall(memory.read_u8, addr, domain or DOMAIN)
 	if ok and type(v) == "number" then
 		return v
@@ -560,11 +571,28 @@ end
 
 -- The in-game gate. Established empirically in Phase 9, and BOTH terms were needed: wMapStatus
 -- alone lets a battle through, and adding the event/script flags makes it flicker every step.
+-- IS THE OVERWORLD THE THING ON SCREEN RIGHT NOW?
+--
+-- A POSITIVE test, never a list of things to avoid. A battle, a full-screen menu, an evolution
+-- screen, the naming screen, the Pokedex, a cutscene and the title screen are all one case -- "not
+-- the overworld" -- and a deny-list of them will never be finished, while every entry it is
+-- missing shows up as a ghost painted over that screen. Two such reports arrived on 2026-08-19,
+-- one for menus and one for battles; see pitfalls.md.
+--
+-- Every term must be a KNOWN value. `nil` is "this build has not been measured here", and it makes
+-- the answer no -- it must never be allowed to satisfy a term by accident, which is what happened
+-- before u8() guarded a nil address (see there).
 local function inPlay()
-	return u8(W_MAPSTATUS) == MAPSTATUS_HANDLE
-		and u8(W_BATTLEMODE) == 0
-		and not (u8(W_MAPGROUP) == 0 and u8(W_MAPNUMBER) == 0)
-		and (u8(OBJECT_STRUCTS + F_SPRITE) or 0) ~= 0
+	local status, battle = u8(W_MAPSTATUS), u8(W_BATTLEMODE)
+	local group, number = u8(W_MAPGROUP), u8(W_MAPNUMBER)
+	local playerSprite = u8(OBJECT_STRUCTS + F_SPRITE)
+	if status == nil or battle == nil or group == nil or number == nil or playerSprite == nil then
+		return false -- an unmeasured address, or a read that failed: refuse rather than guess
+	end
+	return status == MAPSTATUS_HANDLE
+		and battle == 0
+		and not (group == 0 and number == 0)
+		and playerSprite ~= 0
 end
 
 local function areaId()
@@ -1421,6 +1449,14 @@ function drawOverflow()
 
 	-- IS THE OVERWORLD ON SCREEN AT ALL? If it is not, paint nothing.
 	--
+	-- A POSITIVE test, deliberately, rather than a deny-list. Two user reports on 2026-08-19 --
+	-- ghosts over a full-screen MENU, ghosts inside a BATTLE -- are one defect: the drawn tier
+	-- paints after the frame with none of the engine's context, so everything not explicitly
+	-- excluded gets painted over. A list of screens to avoid (battle, menu, evolution, naming,
+	-- Pokedex, cutscene, title) will never be finished, and every entry missing from it is a bug
+	-- someone has to see first. Asking instead "is the overworld what is on screen" is one
+	-- question with one answer.
+	--
 	-- A FULL-SCREEN menu (POKeMON, BAG, the PokeGear) publishes no wMenuBorder* rectangle, so
 	-- there is nothing to clip against -- and it happens to trip textBoxOpen(), so the adapter
 	-- protected only the bottom six rows and painted ghosts over the whole top two-thirds of the
@@ -1437,14 +1473,25 @@ function drawOverflow()
 	--
 	-- Deliberately NOT a state flag: wStateFlags bit 0 was tried first and strobes between 01,
 	-- 40 and 41 within a single state, the same way the WY-alone heuristic did.
-	local liveSprites = 0
+	local liveSprites, playerSpriteEntries = 0, 0
 	for i = 0, 39 do
 		local y = memory.read_u8(i * 4, "OAM") or 0
 		if y > 0 and y < 160 then
 			liveSprites = liveSprites + 1
+			if i < 4 then
+				playerSpriteEntries = playerSpriteEntries + 1
+			end
 		end
 	end
-	if liveSprites == 0 then
+	-- The second term is the stronger one, and it is not a new assumption: this tier ALREADY
+	-- treats OAM entries 0-3 as the local player's four sprites -- that is what the anchor
+	-- calibration below measures its screen positions against. So "is the engine drawing this
+	-- player's character right now" is answerable from the same four bytes, and if it is not, the
+	-- calibration has nothing valid to work from either. It catches what a state flag misses: the
+	-- ENCOUNTER TRANSITION, where the overworld is already gone but wBattleMode is still 0 (the
+	-- Archipelago agent measured wMapStatus never leaving 2 through an entire battle on that
+	-- build, so wBattleMode is the only battle term there and this is its gap).
+	if liveSprites == 0 or playerSpriteEntries == 0 then
 		return
 	end
 

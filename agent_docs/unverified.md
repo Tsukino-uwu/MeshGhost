@@ -399,3 +399,20 @@ and the drawn tier resuming normally on exit.
       text box open. *Correct:* ghosts still visible above the text box exactly as before — the fix
       must not have turned into "hide everything whenever anything is open".
 
+## Pending -- Crystal: a drawn ghost inside a BATTLE (2026-08-19)
+
+**The user, watching the Archipelago instance:** *"ap crystal is showing a ghost inside of the
+battle and stuffs now. think its a drawn one?"* Same defect as the menu report, and now handled by
+the same positive test -- the drawn tier draws only when the engine is actually drawing the
+overworld, including the local player's own character. Two contributing causes, both closed: a nil
+address reading as byte 0 (so the battle term was always true on an unmeasured build), and the
+state gate having only one battle term on a build where `wMapStatus` never leaves the in-play
+value. Both in `pitfalls.md`.
+
+- [ ] **A battle with a crowd on screen.** *What to look at:* walk into tall grass with peers
+      around you and fight a wild Pokemon through to the end. *Correct:* no ghost anywhere on the
+      encounter transition, the battle screen, or the fade back -- and when you return to the
+      overworld the ghosts are all there again and moving. **Not self-tested on vanilla**: the walk
+      to grass was blocked by our own spawned ghosts boxing the player in, so this rests on the
+      Archipelago agent's memory reads rather than on a run of the fixed build.
+

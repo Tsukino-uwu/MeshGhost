@@ -1934,3 +1934,57 @@ instance is dead until someone restarts BizHawk by hand. It cost this instance i
 
 **The general form:** a shared cooperative loop needs every participant to *return*, and a
 participant that does not cannot be detected once it is running — only refused before it starts.
+
+## Crystal: a nil address reads as byte 0, so an unmeasured entry SATISFIES a gate instead of refusing
+
+**Measured 2026-08-19, not reasoned about:** `memory.read_u8(nil)` under BizHawk **succeeds and
+returns 0**. It does not error, so `pcall` does not catch it.
+
+That silently inverts a promise this adapter makes in writing. `phases/phase9.md` states that an
+unmeasured entry in an `ADDRESSES` table "stays `nil` so the adapter refuses rather than writing
+somewhere plausible" -- but `inPlay()` tested `u8(W_BATTLEMODE) == 0`, and with a nil address that
+term reads byte 0 and is **always true**. The adapter would believe no battle was ever happening,
+which is one of the two ways a ghost gets painted over a battle screen.
+
+**Fixed** by making `u8()` return `nil` for a nil address, and by making `inPlay()` require every
+term to be a known value -- any `nil` means "this build has not been measured here" and the answer
+is no. The startup refusal for missing addresses already existed and is unchanged; this closes the
+case where a nil reaches a read at runtime anyway.
+
+**The general lesson, worth carrying to every adapter:** "unmeasured" must fail CLOSED, and a
+language that coerces nil into a valid argument will quietly make it fail open. Test what your read
+primitive does with a nil address before relying on nil to mean refusal.
+
+## Crystal: the drawn tier needs a POSITIVE "is the overworld on screen", not a list of screens to avoid
+
+Two user reports on 2026-08-19 -- ghosts painted over a full-screen **menu**, ghosts painted inside
+a **battle** -- are one defect. The drawn tier paints after the frame with none of the engine's
+context, so anything not explicitly excluded gets painted over: a battle, a menu, an evolution
+screen, the naming screen, the Pokedex, a cutscene, the title screen. **A deny-list of those will
+never be finished, and every entry missing from it is a bug a user has to find first.**
+
+Why the state gate was not enough alone, measured by the Archipelago agent on that build:
+`wMapStatus` reads **2 right through an entire battle** and never leaves the in-play value, so the
+battle exclusion rests **entirely** on `wBattleMode` with nothing behind it. Anything leaving
+`wBattleMode` at 0 while the overworld is gone -- the encounter transition most obviously -- is
+unguarded. They also A/B'd the gate itself: writing `wBattleMode = 2` in the overworld silenced the
+drawn tier completely (0 log lines in 8s) and restoring 0 brought it back (32 lines in 8s), so
+`drawOverflow()`'s early return works exactly as written and the terms were the problem.
+`0x0FB1` is **not** a usable second term -- it reads 0 in some indoor maps.
+
+**The test now asks the engine what it is drawing**, which no ROM revision can shift:
+
+1. `inPlay()` -- the state gate, now nil-safe (above).
+2. **At least one live hardware sprite** (OAM `y` in 1..159). Measured: overworld 28-34, behind a
+   text box 30+, behind the START menu 28-30, **full-screen menu exactly 0**.
+3. **The local player's own character is being drawn** -- OAM entries 0-3, which this tier already
+   treats as the player's four sprites for its anchor calibration. This is the term that covers the
+   encounter transition, where the overworld is gone before any state flag says so; and if it is
+   false, the calibration those screen positions depend on has nothing valid to work from either.
+
+Verified on vanilla across a full menu sweep: **zero** full-screen-menu draws after the change
+against 31-34 painted peers per sample before it, the START menu case unchanged (13 dumps, every
+painted peer outside its rectangle), and the overworld unaffected (38 drawn, 26 mid-stride, 7
+spawned). **A vanilla battle was not reached** -- the walk to grass was blocked by our own spawned
+ghosts boxing the player in, which `crowd-limits.md` predicts -- so the battle half rests on the
+Archipelago agent's measurements above and still wants watching.
