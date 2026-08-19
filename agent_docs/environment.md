@@ -784,6 +784,38 @@ An agent spawned with no model override **inherits the parent's**, which is how 
 on 2026-08-19 ran on the top model — correct there, but by inheritance rather than by decision.
 Say which, deliberately, each time.
 
+## Running several agents on DIFFERENT work at once — 2026-08-19
+
+Two games in parallel is one shape (above). This is the other: agents working on unrelated things
+in the same repo at the same time — e.g. one on a Go transport feature, one auditing documents,
+while the main session changes an adapter live. It works, and every collision seen so far came
+from a **shared resource nobody declared owning**. Declare them up front:
+
+- **Files.** Give every agent an explicit hold list of files it must NOT edit, naming the ones
+  being written live, and tell it to *report findings on those instead of fixing them*. A docs
+  audit will otherwise walk straight into the file the main session is appending to.
+  **`git add -A` is the other half of this**: it sweeps in another agent's half-finished work.
+  Stage explicit paths when other agents are running — a probe file belonging to another agent was
+  committed by accident this way.
+- **Processes and ports.** Name the ports and pids that are live and off-limits. Real cases in one
+  evening: an agent's `Stop-Process -Name meshghost-relay` killed another's relay mid-measurement;
+  a broad `CommandLine -like '*dev-loader*'` kill took down the other game's emulator; and both
+  adapters walking the same bridge range (7778-7785) had one game's adapter attach to the other
+  game's core while it was reconnecting. **Set `MESHGHOST_BRIDGE_PORT` per emulator**, and kill by
+  **pid**, never by name or a wildcard.
+- **The core inherits the emulator's working directory**, which under the dev loader is
+  `dev-scripts/`. A `config.json` an agent leaves there silently redirects the *other* session's
+  core to its relay — which looked, from the far end, like peers vanishing. Clean up config files,
+  and prefer an explicit `-relay` flag over a file when two sessions share a machine.
+- **A shared relay is a shared resource with a cap.** One side's load test filled `-max-clients`
+  and the other side's core could not join at all; worse, its adapter then respawned a core every
+  ten seconds and took that emulator to 5fps. Give a load test **its own relay on its own port**.
+
+**The orchestration itself is the main session's job**, not a background one: the main session
+holds the hold lists, the port assignments and the merge order, because it is the only party that
+knows what every agent is doing. User's call, 2026-08-19: *"you can manage/orchestrate them if you
+think that is the right way to handle it."*
+
 ## Onboarding checklist
 
 All done on this machine — kept as the checklist a fresh setup should still follow:

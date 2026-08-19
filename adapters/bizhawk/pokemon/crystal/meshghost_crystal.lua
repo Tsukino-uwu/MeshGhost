@@ -999,30 +999,87 @@ end
 -- This is the same principle as calibrating the screen position against OAM: the engine is
 -- already doing the work correctly every frame, so read its answer instead of recomputing it.
 -- It also means the mapping is automatically right for whichever sprite the player is wearing.
-local facingFrames = {} -- facing (0..3) -> { {tile, xflip}, x4 }
+-- facing (0..3) -> { stand = frame, walk = { frame, frame } }, where a frame is the four OAM
+-- parts the engine used. Walk frames are collected while the player is mid-step, and the two
+-- alternates are told apart by which tiles they use rather than by any assumption about the
+-- sprite's layout.
+local facingFrames = {}
 
-local function learnFacingFromPlayer()
-	local facing = ((u8(OBJECT_STRUCTS + F_DIRECTION) or 0) // 4) & 3
+local function readPlayerOamFrame()
 	local frame = {}
+	local baseX, baseY = memory.read_u8(1, "OAM") or 0, memory.read_u8(0, "OAM") or 0
 	for i = 0, 3 do
 		local y = memory.read_u8(i * 4, "OAM") or 0
 		if y == 0 or y >= 160 then
-			return -- the player is not on screen this frame; learn nothing
+			return nil -- the player is not on screen this frame; learn nothing
 		end
 		frame[i + 1] = {
 			tile = memory.read_u8(i * 4 + 2, "OAM") or 0,
 			xflip = ((memory.read_u8(i * 4 + 3, "OAM") or 0) & 0x20) ~= 0,
-			dx = (memory.read_u8(i * 4 + 1, "OAM") or 0) - (memory.read_u8(1, "OAM") or 0),
-			dy = (memory.read_u8(i * 4, "OAM") or 0) - (memory.read_u8(0, "OAM") or 0),
+			dx = (memory.read_u8(i * 4 + 1, "OAM") or 0) - baseX,
+			dy = y - baseY,
 		}
 	end
-	facingFrames[facing] = frame
+	return frame
+end
+
+local function sameFrame(a, b)
+	if not a or not b then
+		return false
+	end
+	for i = 1, 4 do
+		if a[i].tile ~= b[i].tile or a[i].xflip ~= b[i].xflip then
+			return false
+		end
+	end
+	return true
+end
+
+local function learnFacingFromPlayer()
+	local facing = ((u8(OBJECT_STRUCTS + F_DIRECTION) or 0) // 4) & 3
+	local frame = readPlayerOamFrame()
+	if not frame then
+		return
+	end
+	local entry = facingFrames[facing]
+	if not entry then
+		entry = { walk = {} }
+		facingFrames[facing] = entry
+	end
+	if (u8(OBJECT_STRUCTS + F_WALKING) or STANDING) == STANDING then
+		entry.stand = frame
+		return
+	end
+	-- Mid-step: this is a walk frame. Keep up to two distinct ones -- the engine alternates a
+	-- left and a right stride -- identified by their tiles, so nothing here assumes how the
+	-- sprite's 12 tiles are laid out.
+	for _, known in ipairs(entry.walk) do
+		if sameFrame(known, frame) then
+			return
+		end
+	end
+	if #entry.walk < 2 then
+		entry.walk[#entry.walk + 1] = frame
+	end
 end
 
 -- One drawn character: the 2x2 tile block starting at its sprite's tile base.
-local function drawCharacter(tile, sx, sy, palIndex, facing)
+-- A drawn peer walks by alternating the two learned strides while it is moving, and stands
+-- still otherwise. The engine drives a spawned ghost's animation for us; a drawn one has nobody
+-- to drive it, so this is the one piece of animation the adapter genuinely has to do itself --
+-- and it is registered as part of the drawn tier's cost in BANDAGES.md.
+local WALK_FRAME_HOLD = 8 -- frames per stride, matching the engine's own cadence closely enough
+
+local function drawCharacter(tile, sx, sy, palIndex, facing, walkingFor)
 	local colors = paletteColors(palIndex or 0)
-	local frame = facing and facingFrames[facing]
+	local entry = facing and facingFrames[facing]
+	local frame = nil
+	if entry then
+		if walkingFor and #entry.walk > 0 then
+			frame = entry.walk[((walkingFor // WALK_FRAME_HOLD) % #entry.walk) + 1]
+		end
+		frame = frame or entry.stand or entry.walk[1]
+	end
 	if frame then
 		-- The engine's own arrangement for this facing: its tile ids, its flips, its offsets.
 		for _, part in ipairs(frame) do
@@ -1197,6 +1254,33 @@ local function uiPanelOpen()
 	return uiSeenAt ~= nil and (drawFrames - uiSeenAt) < UI_LATCH_FRAMES
 end
 
+-- IS A TEXT BOX OPEN? Read the background tilemap and look for the box's own corner.
+--
+-- The decomp settles this: LoadFrame copies the six frame tiles ('┌' to '┘') to `vTiles2 tile
+-- '┌'`, which its own comment gives as $79 -- so a text box's top-left corner is tile 121 and the
+-- edge beside it is 122, whichever of the nine frame STYLES the player has chosen (the style
+-- changes the graphics copied into those ids, not the ids). Measured live the same day: with a
+-- box open the tilemap read 121,122 at row 12, and 30,31 (map terrain) with it closed.
+--
+-- Row 12 because the box is a constant: TEXTBOX_Y = SCREEN_HEIGHT - TEXTBOX_HEIGHT = 18 - 6.
+local BGMAP_LO, BGMAP_HI = 0x1800, 0x1C00 -- 0x9800 / 0x9C00, selected by LCDC bit 3
+local TEXTBOX_ROW = 12
+local TILE_FRAME_CORNER, TILE_FRAME_EDGE = 121, 122
+
+local function textBoxOpen()
+	local lcdc = memory.read_u8(0xFF40, "System Bus") or 0
+	local map = ((lcdc & 0x08) ~= 0) and BGMAP_HI or BGMAP_LO
+	local row = map + TEXTBOX_ROW * 32
+	-- Three cells, not one. Terrain shares this index space, so a single tile matching 121 could
+	-- be a hillside; a corner AND its edge AND the far end of the same row being frame tiles is
+	-- the box. Cheap, and it cannot be imitated by one unlucky tile.
+	local left = memory.read_u8(row, "VRAM") or 0
+	local next1 = memory.read_u8(row + 1, "VRAM") or 0
+	local right = memory.read_u8(row + 19, "VRAM") or 0
+	return left == TILE_FRAME_CORNER and next1 == TILE_FRAME_EDGE
+		and right >= TILE_FRAME_CORNER and right <= TILE_FRAME_CORNER + 5
+end
+
 local lastMenuBox = nil
 
 function drawOverflow()
@@ -1206,6 +1290,7 @@ function drawOverflow()
 	end
 	learnFacingFromPlayer()
 	local uiOpen = uiPanelOpen()
+	local boxOpen = textBoxOpen()
 	local t, l, b, r = u8(W_MENUBOX_TOP), u8(W_MENUBOX_LEFT), u8(W_MENUBOX_BOTTOM), u8(W_MENUBOX_RIGHT)
 	if (b or 0) > 0 and (r or 0) > 0 then
 		lastMenuBox = { top = t * 8, left = l * 8, bottom = (b + 1) * 8, right = (r + 1) * 8 }
@@ -1229,6 +1314,13 @@ function drawOverflow()
 	local calY = (playerOamY - 16) - (u8(OBJECT_STRUCTS + F_SPRITE_Y) or 0)
 	for id, o in pairs(overflow) do
 		nWanted = nWanted + 1
+		-- Is this peer moving? Its own position changes are the only signal a drawn ghost has --
+		-- nothing in the engine is animating it. A peer that has changed tile within the last
+		-- half second is treated as walking, which is roughly how long a step takes.
+		if o.lastX ~= o.x or o.lastY ~= o.y then
+			o.lastX, o.lastY, o.movedAt = o.x, o.y, drawFrames
+		end
+		local walkingFor = (o.movedAt and (drawFrames - o.movedAt) < 30) and (drawFrames - o.movedAt) or nil
 		local tile = residentSpriteTile(o.sprite) or residentSpriteTile(u8(OBJECT_STRUCTS + F_SPRITE))
 		if not tile then nNoTile = nNoTile + 1 end
 		if tile then
@@ -1263,6 +1355,10 @@ function drawOverflow()
 			end
 			if onScreen then
 				local hidden = false
+				-- The text box occupies the bottom six rows at full width, always.
+				if boxOpen and sy + 16 > TEXTBOX_ROW * 8 then
+					hidden = true
+				end
 				if uiOpen and lastMenuBox and sx + 16 > lastMenuBox.left and sx < lastMenuBox.right
 					and sy + 16 > lastMenuBox.top and sy < lastMenuBox.bottom then
 					hidden = true
@@ -1273,7 +1369,8 @@ function drawOverflow()
 					nDrawn = nDrawn + 1
 					-- the palette the local player's own sprite is drawn with, which is the one
 					-- these tiles were coloured for
-					drawCharacter(tile, sx, sy, u8(OBJECT_STRUCTS + F_PALETTE) or 0, o.facing)
+					drawCharacter(tile, sx, sy, u8(OBJECT_STRUCTS + F_PALETTE) or 0, o.facing,
+						walkingFor)
 				end
 			end
 		end
@@ -1381,7 +1478,10 @@ local function renderRemote(id, state)
 		if ghosts[id] then
 			despawnGhost(id)
 		end
-		overflow[id] = { x = x, y = y, sprite = peerSprite, facing = ORIENTATION_TO_DIR[state.orientation] }
+		local prev = overflow[id]
+		overflow[id] = { x = x, y = y, sprite = peerSprite,
+			facing = ORIENTATION_TO_DIR[state.orientation],
+			lastX = prev and prev.lastX, lastY = prev and prev.lastY, movedAt = prev and prev.movedAt }
 		return
 	end
 
@@ -1391,8 +1491,11 @@ local function renderRemote(id, state)
 		if spawnGhost(id, x, y, peerSprite) then
 			overflow[id] = nil
 		else
+			local prev = overflow[id]
 			overflow[id] = { x = x, y = y, sprite = peerSprite,
-				facing = ORIENTATION_TO_DIR[state.orientation] }
+				facing = ORIENTATION_TO_DIR[state.orientation],
+				lastX = prev and prev.lastX, lastY = prev and prev.lastY,
+				movedAt = prev and prev.movedAt }
 		end
 		return
 	end
