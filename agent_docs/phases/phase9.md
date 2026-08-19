@@ -218,6 +218,46 @@ to be noticed by a user.
       fallbacks exist only for a source checkout and are inert but misleading in a shipped file.
       See `packaging/README.md` for what a game folder must contain.
 
+**Two tiers, and a screen that fills (2026-08-19)**
+
+The day started with the adapter spawning real objects and nothing else. It ended with a
+character on every visible tile. In order, because the order is the lesson:
+
+23. **Measured the ceiling instead of assuming it.** Real synthetic peers over the real relay,
+    an engine-side probe, a wall-clock frame counter: **9 ghosts**, and the binding resource
+    changes with the map (structs outdoors, map objects indoors). Under both sits the hardware:
+    40 sprite entries at 4 per character = **10 characters on screen, ever**.
+    `agent_docs/crowd-limits.md` holds the tables and the rig.
+24. **The crowd broke three things, all one root cause.** A ghost took engine resources the
+    engine expected back, and took them from the end the engine allocates from. NPCs popped in
+    and out (ghosts held 11 of 13 structs — an NPC one tile away simply not drawn), off-screen
+    ghosts were invisible walls, and the game's own cast lost the per-scanline sprite fight.
+    Fixed by giving slots back beyond 8 tiles, reserving three structs outright, and allocating
+    from the top down so the hardware drops a GHOST when it must drop someone.
+25. **Then the cap became a feature.** The user's call: cap at what the hardware can draw so
+    nothing flickers, and **draw the overflow** so every peer is still visible. Both halves
+    shipped the same evening.
+26. **The drawn tier, built by measurement at every step.** VRAM bank 1 (bit 3 of the OAM
+    attribute), the game's own `wOBPals1` palettes, tiles decoded once and drawn as horizontal
+    runs, and — after three failed attempts at deriving screen position from the engine's
+    coordinates — **calibration against OAM every frame**, which is the trick that made it work.
+    89 of 89 peers drawn at 60fps, user-confirmed.
+27. **Facing and animation learned from the engine**, not from the sprite format: the adapter
+    watches the engine render the local player and records which tiles, flips and offsets it
+    used per facing, keeping the standing frame and two strides apart by their tiles.
+28. **Occlusion the drawn tier does not inherit**: a text box is the game's own frame tiles at a
+    fixed row (`$79`, from `LoadFrame`), a menu publishes `wMenuBorder*`. Both measured live,
+    both clipped. The first attempt used the hardware window register and blanked half the
+    screen during normal play — the game drives that register constantly.
+29. **Collision became a rendering decision.** A peer that should not block is simply drawn
+    instead of spawned: idle for five seconds, or being shoved into. That is why doorways clear
+    without the adapter knowing where doors are.
+30. **Cartridge-sourced sprites** (`OverworldSprites`, `05:4736`): a drawn peer can wear a sprite
+    this map never loaded, which is the answer to the oldest item on this adapter.
+31. **Three leaks the crowd found and nothing else would have.** A peer who left kept being
+    painted; so did a peer who walked into another map; so did every drawn position after a map
+    change. Each looked exactly like a peer standing still.
+
 ## Open
 
 - [~] **A ghost looks like THIS machine's player, not like the peer — HALF DONE 2026-08-19.**
