@@ -467,6 +467,36 @@ step animation. **Networking is in and works**: `meshghost_crystal.lua` carries 
 `render_remote` and `despawn_remote` over the bridge, and a loopback ghost was watched moving and
 facing correctly (`verified.md`, `phases/phase9.md`).
 
+### Phase 9.1 — Crystal: cap at what the hardware can draw, then DRAW the overflow
+
+**Scheduled 2026-08-19, on the user's explicit call**, moved here from `ideas.md` (which keeps the
+full technical write-up and the costs). Their words, answering a direct question about what a
+player should get past the hardware's limit: *"cap it, and just draw extras instead if that is
+required. i don't want things to pop in/out all the time. i want every player/ghost to be visible
+all the time instead."*
+
+**Half of it is done and live.** The adapter now stops spawning at
+`HARDWARE_CHARACTER_LIMIT = 10` characters on screen — the Game Boy draws at most 10 sprites per
+scanline and an overworld character is 4 of them, so an eleventh loses pieces of itself no matter
+whose it is. Measured after the change: **no scanline overflow at all, and no NPC starved**, where
+minutes earlier a crowd had an NPC one tile from the player simply not drawn. Ghosts also give
+their slots back beyond 8 tiles, the way the engine's own characters do, and both pools allocate
+from the top down so the game's cast keeps the hardware's draw priority.
+
+**The remaining half landed the same evening**: peers past the cap are **drawn over the emulator**,
+so every peer is visible all the time — 89 on a full screen at 60fps, user-confirmed. Facing,
+walk animation, text-box and menu clipping, cartridge-sourced sprites and the collision policy all
+followed. What is NOT confirmed is anything after the screen-filling test itself; `unverified.md`
+lists the six things a person still has to judge. Design, costs and the two occlusion
+mechanisms (a text box is the fixed bottom six rows; a menu publishes `wMenuBorder*`) are in
+`ideas.md` under "Spawn to the game's cap, then DRAW above it". The pixels are the near-term
+question: a peer past the cap is usually wearing a sprite already resident in VRAM, which the
+adapter can already identify via `wUsedSprites`.
+
+**This is a deliberate bandage and gets registered as one** in `BANDAGES.md` the day it ships,
+with its honest costs: no engine animation, no collision, occlusion re-implemented at tile
+resolution, and two rendering paths in one adapter.
+
 ### Room codes / relay safety
 
 **Set as the current/next priority 2026-08-13; core work done 2026-08-14.** Full record: the
