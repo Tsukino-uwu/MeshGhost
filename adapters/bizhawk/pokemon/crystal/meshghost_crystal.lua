@@ -653,6 +653,7 @@ local function applyPeerSprite(g, id)
 	w8(g.st_base + F_SPRITE, id)
 	w8(g.st_base + F_SPRITE_TILE, tile)
 	w8(g.mo_base + M_SPRITE, id)
+	g.sprite = id -- keep stillOurs()'s expectation in step with what the ghost now wears
 	return true
 end
 
@@ -662,9 +663,31 @@ local function screenCoords(mx, my)
 	return (((mx - wx) & 0x0F) * 16 - bx) & 0xFF, (((my - wy) & 0x0F) * 16 - by) & 0xFF
 end
 
+-- Is the object we recorded still the object we made?
+--
+-- Everything the adapter writes goes through a slot number it wrote down earlier, and the game
+-- rebuilds that array from ROM on every map load and every battle. So before writing, check the
+-- three things we set ourselves are all still there: the cross-link both ways, and the sprite the
+-- ghost was given. A rebuilt slot holding a real NPC fails this, and the entry is dropped instead
+-- of being driven around or zeroed — the identity check phase9.md asks for, at the point where
+-- being wrong costs someone else's NPC.
+local function stillOurs(g)
+	return g ~= nil
+		and u8(g.mo_base + M_STRUCT_ID) == g.st
+		and u8(g.st_base + F_MAP_OBJECT_INDEX) == g.mo
+		and (g.sprite == nil or u8(g.st_base + F_SPRITE) == g.sprite)
+end
+
 local function despawnGhost(id)
 	local g = ghosts[id]
 	if not g then
+		return
+	end
+	if not stillOurs(g) then
+		-- Those bytes belong to the game again. Forget the entry; zeroing it would delete
+		-- whatever the map load put there.
+		ghosts[id] = nil
+		log("MeshGhost: dropped stale bookkeeping for " .. id .. " (its slot is the game's again)")
 		return
 	end
 	w8(g.st_base + F_SPRITE, 0)
@@ -721,7 +744,8 @@ local function spawnGhost(id, x, y, peerSprite)
 
 	w8(stBase + F_FLAGS1, (u8(stBase + F_FLAGS1) or 0) | FLAG1_WONT_DELETE)
 
-	ghosts[id] = { mo = mo, st = st, mo_base = moBase, st_base = stBase, area = areaId() }
+	ghosts[id] = { mo = mo, st = st, mo_base = moBase, st_base = stBase, area = areaId(),
+		sprite = u8(stBase + F_SPRITE) }
 
 	-- ...unless the peer's own sprite is already loaded on this map, in which case they get to
 	-- look like themselves rather than like whoever is sitting at this machine.
@@ -796,6 +820,12 @@ local function renderRemote(id, state)
 	local peerSprite = state.extras and tonumber(state.extras.sprite) or nil
 
 	local g = ghosts[id]
+	if g and not stillOurs(g) then
+		-- A map load or a battle rebuilt the array under us. Drop the entry and spawn again
+		-- below; the alternative is writing steps into whatever the game put in that slot.
+		log("MeshGhost: " .. id .. "'s slot is the game's again — respawning")
+		ghosts[id], g = nil, nil
+	end
 	if not g then
 		spawnGhost(id, x, y, peerSprite)
 		return
@@ -1173,6 +1203,8 @@ else
 end
 
 local lastArea = nil
+-- The previous frame's wMapStatus, so a map rebuild can be noticed WITHIN one area (a battle).
+local lastStatus = nil
 
 -- Experiment-mode diagnostic (ap_try.flag / MESHGHOST_CRYSTAL_AP_TRY=1 only). Prints, twice a
 -- second, what the gate DECIDED and what it decided it from -- the Phase 9 lesson that a gate's
@@ -1238,8 +1270,19 @@ local function tick()
 	-- Object state is rebuilt from ROM on every map load, and a battle exit is also a map
 	-- re-entry — so a ghost never survives either. Drop our bookkeeping rather than leaving
 	-- entries pointing at slots the game has since reused.
-	local area = areaId()
-	if area ~= lastArea then
+	--
+	-- The AREA is not enough to notice that, and assuming it was is a real hole: a wild battle
+	-- starts and ends on the SAME map, so area_id never changes across one, while the object
+	-- array is rebuilt from ROM underneath us. The stale entry then points at a slot the game has
+	-- refilled with a REAL NPC — and the next render would walk that NPC around, which is worse
+	-- than a missing ghost by some distance. wMapStatus leaving MAPSTATUS_HANDLE is the event
+	-- that actually means "the world is being rebuilt", and it covers both cases: every map
+	-- change passes through it, and so does every battle.
+	--
+	-- FORGET, never despawn: by the time we notice, those bytes belong to the game again, and
+	-- writing zeroes into them would delete one of its NPCs.
+	local area, status = areaId(), u8(W_MAPSTATUS)
+	if area ~= lastArea or (lastStatus and status ~= lastStatus and lastStatus == MAPSTATUS_HANDLE) then
 		if lastArea then
 			for id in pairs(ghosts) do
 				ghosts[id] = nil
@@ -1247,6 +1290,7 @@ local function tick()
 		end
 		lastArea = area
 	end
+	lastStatus = status
 
 	if ready then
 		local state = getLocalState()

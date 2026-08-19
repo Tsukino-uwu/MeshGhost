@@ -760,6 +760,30 @@ proves it either way; the window never did.
 Live case: two visible consoles appeared over a Crystal session on 2026-08-18, which is what
 prompted the preference.
 
+## Working two games at once, and which model an agent gets — 2026-08-19
+
+**Shape (user's standing grant, 2026-08-19):** when two BizHawk games are worked on in one
+session, **one agent per OTHER game** — the main session drives one game and keeps talking to the
+user, an agent drives the second. A pure-manager split (the main session coordinating two agents)
+was considered and rejected as an extra hop with no extra hands. Never with worktree isolation:
+a worktree cannot share a live emulator session (`CLAUDE.md`).
+
+**Model: game agents get the top model, not a cheap one.** The cheaper tier is strong where a task
+is *known-shaped* — run this probe, tabulate these log lines, apply this edit pattern, stage a
+release — and weak where the work is *discovery*-shaped: forming a hypothesis, designing a probe
+that cannot fool itself, noticing that two runs only agree because they were phase-locked. Adapter
+work here is overwhelmingly the second kind, and this file is full of the evidence: a screenshot
+loop whose period divided the walk cycle so every shot looked identical (2026-08-19); a sprite
+question that only opened up once `AddOutdoorSprites` turned out to be per-REGION rather than
+per-map; three refuted Crystal addresses that each looked settled. **A confident wrong answer here
+costs a live test, which costs the user's time — the expensive resource in this project is not
+tokens.** So: game-driver agents on the top model; the cheap tier for chores with a written
+procedure. If cost binds, tighten the agent's scope and prompt before downgrading its model.
+
+An agent spawned with no model override **inherits the parent's**, which is how the Emerald agent
+on 2026-08-19 ran on the top model — correct there, but by inheritance rather than by decision.
+Say which, deliberately, each time.
+
 ## Onboarding checklist
 
 All done on this machine — kept as the checklist a fresh setup should still follow:

@@ -958,6 +958,18 @@ func (s *Server) finishLeave(r *Room, playerID string) {
 	if err == nil {
 		r.Forward(leave, r.roster())
 	}
+
+	// The join line's own comment calls join and leave a pair of lifecycle
+	// events -- but only the join was ever printed, so a live session log
+	// showed (2026-08-19) seventeen joins and not one departure, and a host
+	// reading it could not tell who was still in a room or whether anything
+	// was leaking. One line per occurrence, and it belongs HERE rather than at
+	// a call site because finishLeave is the single choke point every real
+	// departure passes through -- which is the reason this function exists.
+	// The two call sites that already print WHY (the resume grace expired, a
+	// token could not be minted) still do; this says it actually completed.
+	log.Printf("relay: %s left room %q (%d still there)", playerID, r.Name, r.size())
+
 	s.dropIfEmpty(r)
 }
 
