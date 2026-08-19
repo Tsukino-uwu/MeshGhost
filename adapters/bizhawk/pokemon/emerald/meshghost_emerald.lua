@@ -2657,6 +2657,38 @@ local function teleportGhost(g, mapX, mapY)
     g.mapX, g.mapY = mapX, mapY
 end
 
+-- LOAD THE FIRST FRAME OURSELVES, so a new graphic is never worn over the old graphic's pixels.
+--
+-- Measured, per frame, across a rod being cast (probes/tilewatch, 2026-08-19):
+--
+--   f=11  ghost gfx=0    tile=44  pixels=250A6BD5   -- walker
+--   f=12  ghost gfx=137  tile=44  pixels=250A6BD5   -- fishing SHAPE, walker PIXELS
+--   f=13  ghost gfx=137  tile=44  pixels=AD0B1438   -- fishing pixels arrive
+--
+-- The engine's own tile copy is queued and executes at the next VBlank, so there is always exactly
+-- one frame where the sprite has the new graphic's 32-wide shape and the previous graphic's
+-- content. That single frame is the snap: the user, with the painted copy beside it as the
+-- control, *"it still snaps compared to the drawn & player"* -- and the painted copy cannot show
+-- it, because it decodes from ROM every frame and has no VRAM waiting to be filled.
+--
+-- So the pixels are written at the moment the graphic is applied -- the same bytes the engine will
+-- copy a frame later, from the same place: images[frame] resolved through the graphic's own
+-- animation table. Nothing here races the engine; it simply gets there first.
+--
+-- A GLOBAL because this chunk is at Lua's 200-local ceiling.
+function loadGhostFrameNow(g, info, animNum, animIdx)
+    if not info or info.anims == 0 or info.images == 0 or not g.tileStart then return end
+    local animPtr = r32(info.anims + (animNum or 0) * 4)
+    if not isRomPtr(animPtr) then return end
+    local frame = r32(animPtr + (animIdx or 0) * 4) & 0xFFFF
+    local src = r32(info.images + frame * 8)
+    if not isRomPtr(src) then return end
+    -- OBJ VRAM, 32 bytes per 4bpp tile. info.size is the graphic's own byte count, so this copies
+    -- exactly one frame and never spills into a neighbour's range.
+    local dst = 0x06010000 + g.tileStart * 32
+    for off = 0, info.size - 4, 4 do w32(dst + off, r32(src + off)) end
+end
+
 -- One remote, one frame. Spawn if missing, step it if it moved one tile, teleport if it jumped,
 -- and turn it on the spot otherwise.
 local function syncGhost(playerId, remote)
@@ -2722,6 +2754,10 @@ local function syncGhost(playerId, remote)
         local atX, atY = rs16(a + 0x10) - MAP_OFFSET, rs16(a + 0x12) - MAP_OFFSET
         despawnGhost(playerId)
         spawnGhost(playerId, atX, atY, remote.orientation, want)
+        -- The new sprite's tiles are whatever was in that range; fill them with the frame the
+        -- engine is about to copy, so no frame is drawn with the old graphic's pixels.
+        local ng = ghosts[playerId]
+        if ng then loadGhostFrameNow(ng, graphicsInfo(want), remote.sanim, remote.sidx) end
         -- SWEEP IN THE SAME FRAME. despawnGhost only clears a slot it can still prove is ours
         -- (ghostAlive), and when that proof fails it deliberately touches nothing -- correct, but
         -- it leaves the old object active while the new one already exists. Captured in the
