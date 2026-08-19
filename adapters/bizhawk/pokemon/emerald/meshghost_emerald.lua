@@ -628,12 +628,14 @@ end
 --
 -- The animation number is the missing half. Both ends are on the same graphic by then, so the
 -- numbering matches, and the peer's own sprite is the authority on what that character is doing.
-local function encodeLocalState(areaId, x, y, orientation, anim, gender, gfx, sanim, sidx, act)
+local function encodeLocalState(areaId, x, y, orientation, anim, gender, gfx, sanim, sidx, act,
+    sox, soy)
     return string.format(
-        '{"type":"local_state","payload":{"state":{"area_id":%s,"position":[%s,%s],"orientation":%s,"anim":%s,"extras":{"gender":%s,"gfx":%s,"sanim":%s,"sidx":%s,"act":%s}}}}',
+        '{"type":"local_state","payload":{"state":{"area_id":%s,"position":[%s,%s],"orientation":%s,"anim":%s,"extras":{"gender":%s,"gfx":%s,"sanim":%s,"sidx":%s,"act":%s,"sox":%s,"soy":%s}}}}',
         jsonString(areaId), tostring(x), tostring(y), jsonString(orientation), jsonString(anim),
         jsonString(gender), tostring(gfx or "null"), tostring(sanim or "null"),
-        tostring(sidx or "null"), tostring(act or "null"))
+        tostring(sidx or "null"), tostring(act or "null"),
+        tostring(sox or "null"), tostring(soy or "null"))
 end
 
 local ENCODED_NO_SEND = '{"type":"local_state","payload":{"state":null}}'
@@ -1393,6 +1395,12 @@ local function handleBridgeLine(line)
                 r.sidx = (si and si >= 0 and si <= 255 and math.floor(si) == si) and si or nil
                 local ac = (type(st.extras) == "table" and tonumber(st.extras.act)) or nil
                 r.act = (ac and ac >= 0 and ac <= 255 and math.floor(ac) == ac) and ac or nil
+                -- Peer-controlled, so bounded: a sprite offset beyond a tile or two is not a pose,
+                -- it is someone trying to put a ghost through a wall.
+                local ox = (type(st.extras) == "table" and tonumber(st.extras.sox)) or nil
+                local oy = (type(st.extras) == "table" and tonumber(st.extras.soy)) or nil
+                r.sox = (ox and ox >= -32 and ox <= 32) and math.floor(ox) or nil
+                r.soy = (oy and oy >= -32 and oy <= 32) and math.floor(oy) or nil
             end
         end
     elseif env.type == "despawn_remote" then
@@ -2722,6 +2730,14 @@ local function syncGhost(playerId, remote)
             w8(d + 0x2a, remote.sanim)
             w8(d + 0x3f, (r8(d + 0x3f) | 0x04) & ~0x10)
         end
+        -- AND THE SPRITE OFFSET THE TASK APPLIES. Measured: the engine sets the fishing player's
+        -- pos2 to 8,0, which is what keeps the character on its tile inside a 32-wide frame. Our
+        -- ghost has no fishing task to do that, so it sat half a tile to the side from the moment
+        -- it picked up the rod -- *"both ghosts move while fishing"*, reported repeatedly while
+        -- every position measurement said the ghost was exactly where it should be. It was: the
+        -- OFFSET was missing, not the position.
+        if remote.sox then w16(d + 0x24, remote.sox & 0xffff) end
+        if remote.soy then w16(d + 0x26, remote.soy & 0xffff) end
     end
 
     if not ghostIsIdle(g) then return end -- never interrupt a half-played step
@@ -3648,7 +3664,13 @@ local function runFrame()
                     -- remote side for why.
                     r8(GOBJECTEVENTS_ADDR + avatarAddrOffset
                         + r8(GPLAYERAVATAR_ADDR + avatarAddrOffset + 0x05) * OBJECTEVENT_SIZE
-                        + 0x1c)))
+                        + 0x1c),
+                    -- pos2 (+0x24/+0x26): the sprite offset the game's own TASKS move a character
+                    -- by. Fishing shifts it to 8,0 to keep the character on its tile inside a
+                    -- 32-wide frame -- and a ghost has no task, so without this it sits half a
+                    -- tile off exactly when it picks up the rod.
+                    rs16(sprAddr(r8(GPLAYERAVATAR_ADDR + avatarAddrOffset + 0x04)) + 0x24),
+                    rs16(sprAddr(r8(GPLAYERAVATAR_ADDR + avatarAddrOffset + 0x04)) + 0x26)))
             end
         elseif ready then
             sendLine(ENCODED_NO_SEND)
