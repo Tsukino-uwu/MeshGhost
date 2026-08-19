@@ -995,7 +995,7 @@ Format: Date / Decision / Status / Context / Options considered / Resolution / C
   - **Not done, deliberately, in this change:** advertising `max_receive_hz_per_player` back to
     the sender (a sender has no way to know a given recipient is receiving it throttled) and
     deriving `InterpolationDelay` automatically from the effective rate (a room or cap set below
-    ~10Hz needs `-interp` raised by hand or ghosts will visibly stutter, since the 100ms default
+    ~10Hz needs `-interp` raised by hand or ghosts will visibly stutter, since even the 250ms default
     interpolation buffer no longer spans the gap between samples) are both real, known gaps —
     left for `agent_docs/ideas.md` rather than scope-creeping this change.
 

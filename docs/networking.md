@@ -209,7 +209,7 @@ player. Surviving states are appended to that remote's `remoteBuffer` (`interp.g
 keeps the last 8 snapshots — enough to smooth a couple of dropped packets, not a replay log.
 
 **Core → adapter.** Every adapter frame, `tickRenders` (`core.go`) computes
-`renderTime = now - InterpolationDelay` (100ms by default) and asks `remoteStatesAt`
+`renderTime = now - InterpolationDelay` (250ms by default) and asks `remoteStatesAt`
 (`core.go`) for each remote's state at that moment. `remoteBuffer.at` (`interp.go`)
 finds the two snapshots bracketing `renderTime` and lerps position between them; `area_id`,
 `anim`, `orientation` and `extras` are opaque and are never interpolated — they're taken from

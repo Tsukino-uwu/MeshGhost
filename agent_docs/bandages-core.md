@@ -40,13 +40,18 @@ to stay correct.
 
 ## Open compensations
 
-### 1. `DefaultInterpolationDelay` is an admitted guess that is now load-bearing
+### 1. `DefaultInterpolationDelay` is measured now, but the protocol floor above it is not
 
-`core/core.go:94-100` says it outright: *"100ms is a starting guess for tile-grid movement,
-not a measured value."* Since then `protocol/limits.go:75-91` built the `MinSendHz = 10`
-protocol floor **on top of it**. So a guess underpins a protocol constant — and a client using the
-documented, supported `min_send: 150ms` lands silently in exactly the degraded regime that floor
-exists to prevent.
+**Half of this closed on 2026-08-19.** The constant used to say of itself: *"100ms is a starting
+guess for tile-grid movement, not a measured value."* It has now been measured — Emerald with both
+renderers on screen at once, judged at each setting: 100ms visibly chops an engine-driven ghost
+while running, 250ms is *"1:1:1 perfect"* (`verified.md`). The default is 250ms and the comment
+says why, including what it costs.
+
+**What has NOT closed:** `protocol/limits.go:75-91` built the `MinSendHz = 10` floor on top of the
+old number, and a client using the documented, supported `min_send: 150ms` still lands in exactly
+the degraded regime that floor exists to prevent. The floor was derived from a guess; it now sits
+under a measurement it was never re-checked against.
 
 **Fix:** derive it from `effectiveSendInterval()`, the way `DefaultMinSendInterval` is already
 rederived from `protocol.DefaultSendHz` specifically "so the two numbers cannot drift apart".

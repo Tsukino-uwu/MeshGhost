@@ -365,7 +365,7 @@ latest state, now. That tradeoff doesn't bite the way it would in a competitive 
   is the fallback when nothing else applies; the actual rate is
   `Core.effectiveSendInterval()` — the slower of a relay's advertised `Welcome.SendHz` and a
   client's own explicit `Core.MinSendInterval`, `core.go`; see the send/receive rate-control ADR
-  in `architecture.md`), and rendering already runs `InterpolationDelay` (100ms default) behind
+  in `architecture.md`), and rendering already runs `InterpolationDelay` (250ms default) behind
   the newest sample specifically to smooth network jitter. A TCP stall is at most one send
   interval (~50ms at the 20Hz default, as low as ~10ms at the 100Hz ceiling) — invisible against
   delay already absorbed by design at the default rate, not a new cost UDP would meaningfully
@@ -396,5 +396,5 @@ delivery until it is *retransmitted*, so the bound is retransmit timing, not sen
 retransmit needs three subsequent packets, which at 20Hz is already ~150ms, so the RTO timer —
 floored near 200ms on common stacks — is likely to dominate instead. **This is reasoning, not a
 measurement**: nobody has run MeshGhost over a genuinely lossy link and watched. It does not
-change the conclusion (100ms of interpolation absorbs a lot, and a ghost is cosmetic), but the
+change the conclusion (250ms of interpolation absorbs a lot, and a ghost is cosmetic), but the
 number should be re-derived rather than cited if this comparison is ever re-opened.
