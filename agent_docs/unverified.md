@@ -23,29 +23,44 @@ actually confirm it as such."*
 
 ---
 
-## Pending — Emerald: five gaps the two-renderer comparison found (2026-08-19)
+## Pending — Emerald: what the two-renderer comparison left open (2026-08-19)
 
-`MESHGHOST_COMPARE_TIERS` puts the spawned and painted renderers on screen at once, and the user
-found these within minutes of first looking. **Two are already confirmed and live in `verified.md`**
-(the drawn tier moving at the network's pace rather than the game's; a turn drawn as one static
-frame). These five are fixed but **not yet judged**:
+`MESHGHOST_COMPARE_TIERS` found a dozen real defects in one session. **Most are already confirmed
+and live in `verified.md`** — network-paced movement, the turn animation, cutscene sliding, the
+single-tile walk cadence, the spawned ghost sticking after a run, both house transitions, scene
+brightness, and a smooth run. These are what is left:
 
-- [ ] **A forced move no longer slides.** *What to look at:* any cutscene or scripted walk, both
-      ghosts. *Correct:* the painted one walks, legs moving, like the spawned one — it used to
-      glide along in a standing pose. (A forced move never sets `runningState = 2`, so the peer
-      honestly reports "idle" while crossing tiles; the drawn tier now takes movement from its own
-      position instead of the tag.)
-- [ ] **Running one direction is smooth.** *What to look at:* hold a run in a straight line and
-      watch the painted ghost. *Correct:* an even glide, no per-tile stutter. **Fourth attempt, and
-      the first one aimed at the right thing:** three tries adjusted how the GHOST moves and none
-      worked, because the ghost was being positioned against the adapter's smoothed estimate of the
-      PLAYER while drawn at the player's real pixel position. It is now anchored on the engine's own
-      scroll counter, measured exact to the pixel over 240 frames (`verified.md`).
-- [ ] **The painted ghost is as dark as everything else.** *What to look at:* a dark cave, and any
-      fade. *Correct:* it dims exactly like the spawned one, rather than shining at full brightness
-      over a dark scene. **This is the gap the user predicted before any of it was built.** It now
-      measures the live OBJ palette the player's own sprite is using against the ROM palette the
-      pixels were decoded from, and scales by that ratio.
+- [ ] **The two ghosts are pixel-locked in compare mode.** *What to look at:* run around with the
+      flag on. *Correct:* they move as one, so every remaining difference is a RENDERING one.
+      Compare mode now places the painted copy from the SPAWNED ghost's own sprite, mirrored --
+      because matching the engine's step scheduler is not reachable and five attempts at it cost a
+      run each. Real overflow peers have no spawned copy and keep the filter.
+- [ ] **The painted ghost dims in a dark cave.** *What to look at:* any cave, and any fade.
+      *Correct:* it darkens exactly like the spawned one. The fade half of this is confirmed
+      (both house directions); a cave has not been visited yet.
+- [ ] **The garbled NPC does not come back.** A tile leak, introduced the same day by the battle
+      guard and fixed by queueing ranges: a despawn outside the overworld could not free its tile
+      range, so the engine ran short of OBJ VRAM and drew one of its own NPCs from whatever was
+      left -- *"a garbled 3rd ghost... has collision, and i can talk to it"*, which was never a
+      ghost. *What to look at:* a long session with battles in it. *Correct:* no character ever
+      renders as garbage.
+- [ ] **A reclaimed ghost slot now explains itself.** *"the spawned ghost disappears sometimes, but
+      very rarely"* -- the engine culls an out-of-view object and the adapter respawns it, which is
+      normal and was silent. It now logs one line a second at most. *What to look at:* the log
+      after it happens, not the screen.
+- [ ] **Does a longer core `-interp` soften the spawned ghost's remaining chop?** Under test with
+      250ms via a config.json in the adapter folder (**untracked, delete it afterwards**). The
+      spawned ghost can only start a step when we have been told the peer moved, and positions
+      arrive 8-20 times a second -- so this buys evenness at the price of the ghost sitting further
+      behind. If it works, the trade is the user's to pick, not ours.
+
+### Closed as far as it goes, and NOT worth another attempt
+
+- **Ghost collision cannot be removed from a MOVING spawned ghost.** The engine drives a step from
+  the same coordinates the collision scan reads, so parking them frees the hitbox and breaks the
+  movement -- confirmed twice on screen, once with all three coordinate pairs and once with only
+  `currentCoords`. Elevation is not the mechanism either: 0, 1 and 15 all block.
+  `MESHGHOST_EMERALD_NO_COLLISION` therefore frees a STANDING ghost and nothing more.
 
 ## Pending — Emerald: no ghost until you are actually in the game (2026-08-19)
 
