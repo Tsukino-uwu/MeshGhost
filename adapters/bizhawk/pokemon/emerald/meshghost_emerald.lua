@@ -1403,8 +1403,20 @@ local function handleBridgeLine(line)
                 -- of delay on a state change -- invisible next to the interpolation already in
                 -- front of it -- and nothing at all in the steady state.
                 local newGfx = (type(st.extras) == "table" and tonumber(st.extras.gfx)) or nil
-                if newGfx == r.gfxSeen then r.gfx = newGfx end
-                r.gfxSeen = newGfx
+                local newSox = (type(st.extras) == "table" and tonumber(st.extras.sox)) or 0
+                -- The graphic AND its offset have to agree twice, not the graphic alone.
+                --
+                -- First attempt required two consecutive updates to agree on the GRAPHIC, which
+                -- did not help: the player holds the new graphic at pos2 0 for four frames while
+                -- its task catches up, and at 20Hz that spans two updates -- so both carried the
+                -- unsettled pair and the ghost adopted it anyway. Traced from inside the adapter:
+                -- gfx=137 arriving with sox=0, twice, then sox=8.
+                --
+                -- Pairing them means a state is taken only once it has stopped changing, which is
+                -- what the player looks like by the time anyone can see it.
+                local pair = tostring(newGfx) .. ":" .. tostring(newSox)
+                if pair == r.statePair then r.gfx = newGfx end
+                r.statePair = pair
                 if r.gfx == nil then r.gfx = newGfx end
                 -- Peer-controlled, so bounded like every other inbound number: animNum is a u8.
                 local sa = (type(st.extras) == "table" and tonumber(st.extras.sanim)) or nil
@@ -2805,6 +2817,21 @@ local function syncGhost(playerId, remote)
         if remote.soy then w16(d + 0x26, remote.soy & 0xffff) end
     end
 
+    -- TEMPORARY dev trace (COMPARE_TIERS only, file, no console): which branch this frame took and
+    -- what it was working from. Removed once the fishing swap is settled.
+    if COMPARE_TIERS and remote.gfx and remote.gfx ~= 0 then
+        local tf = io.open(SCRIPT_DIR .. "probes/synctrace.log", "a")
+        if tf then
+            tf:write(string.format(
+                "f=%d idle=%s gfx=%d g.gfx=%s sox=%s dx=%d dy=%d act=%s%s",
+                frameCounter, tostring(ghostIsIdle(g)), remote.gfx, tostring(g.gfx),
+                tostring(remote.sox), math.floor(remote.x + 0.5) - (rs16(objAddr(g.objId) + 0x10)
+                    - MAP_OFFSET) + LOOPBACK_GHOST_OFFSET_TILES_X,
+                math.floor(remote.y + 0.5) - (rs16(objAddr(g.objId) + 0x12) - MAP_OFFSET),
+                tostring(remote.act), string.char(10)))
+            tf:close()
+        end
+    end
     if not ghostIsIdle(g) then return end -- never interrupt a half-played step
 
     -- The graphic swap waits for the step to END, below this guard rather than above it.
