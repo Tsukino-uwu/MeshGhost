@@ -83,6 +83,8 @@ that a peer's state genuinely differs from the local player's, which loopback co
 
 ### Open, not blocked
 
+- **Crystal: invisible collisions, and ghosts popping in/out as you walk near them** — user-seen
+  2026-08-19 with a crowd standing around; two candidate causes, probe attached. `pitfalls.md`.
 - **Crystal: a peer's own sprite is used when its tiles are resident (2026-08-19), not otherwise**
   — the other gender never is, so that half needs VRAM work. `phases/phase9.md`, `unverified.md`.
 - **Crystal/Archipelago: `wBattleMode` unmeasured** — 0x015A vs 0x1234, needs one trainer battle.

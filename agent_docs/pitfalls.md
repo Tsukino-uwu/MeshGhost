@@ -1750,3 +1750,36 @@ is what they look like in the wild:
 **What to do instead.** When a game interrupts a driven run: **press A through it and try again**
 before concluding anything \u2014 dialogue is the single most common interruption in these games and
 the cheapest thing to clear. If it still will not pass, say what was observed, and ask.
+
+## OPEN (2026-08-19) — Crystal: invisible collisions, and ghosts popping in and out
+
+**Symptom, user-reported while a crowd of stationary ghosts stood around New Bark Town:** walking
+into collisions with nothing visible on the tile, and characters appearing and disappearing as the
+player walks toward or away from them.
+
+**What is already measured**, from a probe reading both of Crystal's arrays at once:
+
+- **The engine itself keeps a map object without an object struct for distant characters.** With
+  no ghosts present at all, the game's own NPCs at distance 5 and 10 read `NO-STRUCT` while the
+  one at distance 1 was drawn — and a struct was seen being *re-assigned* as the player moved
+  closer. So "a tile is occupied but nothing is drawn on it" is a **normal state in this game**,
+  not something MeshGhost invented.
+
+**Two candidate causes, which need different fixes, and the difference matters:**
+
+1. **An off-screen ghost still blocks its tile.** A peer standing just past the screen edge is an
+   invisible wall. Arguably the game's own rule, since its NPCs behave identically — but a player
+   can *see* an NPC coming and cannot see a peer who is off-screen.
+2. **A ghost's struct is culled and re-assigned as the player approaches, and `stillOurs()` reads
+   the empty struct as "this slot is no longer ours"** — dropping the record and respawning. That
+   would produce exactly the popping described, and it would be **ours**, not the engine's. The
+   identity check was added the same day (for the battle case) and was never tested against
+   distance-based culling, which is precisely the kind of gap a same-day fix leaves.
+
+**How to tell them apart:** the attached probe logs, per ghost, whether the map object and the
+struct each still exist, plus the distance to the player. Cause 2 shows the struct disappearing
+while the map object stays, followed by a *new* spawn line in the adapter log. Cause 1 shows both
+halves intact throughout, with the player simply walking into a tile off the visible area.
+
+**Not yet reproduced under the probe** — a scripted walk-away could not be driven while a human
+was at the controls, and this needs the player to move a screen away and come back.
