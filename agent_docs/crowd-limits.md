@@ -106,6 +106,19 @@ Measured separately in the same session; see the Emerald entry in `verified.md` 
 128 OAM entries rather than the Game Boy's 40, so its ceiling is higher — but the same two-pool
 shape applies, and the same method produces the number.
 
+## What to do about a ceiling you cannot raise
+
+**Do as much as the game can handle on its own, then fake it above that cap** (the user's rule,
+2026-08-19). Spawn real objects while the engine has slots — they get animation, occlusion,
+priority and collision for free — and draw the overflow over the emulator's output, which is
+subject to none of the engine's or the hardware's limits because it happens after both. Hardware
+tricks like per-scanline OAM multiplexing do **not** substitute: they relieve the drawing limits
+while the engine still has nowhere to record another character.
+
+Filed, not scheduled, with the costs and the which-peers-get-the-good-tier question:
+`ideas.md`, "Spawn to the game's cap, then DRAW above it". The rule itself is in
+`adapters/_template/README.md`.
+
 ## For a new adapter
 
 Put the answer in the adapter's `documentation.md` (it is a fact about the game, not a

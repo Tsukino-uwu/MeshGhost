@@ -1357,6 +1357,58 @@ the game**, or you end up with an adapter that can read perfectly and cannot sho
 adapter is ever built, the emulator is chosen first and the game second — and `access-models.md`
 argues Dolphin is the strongest candidate of the emulators surveyed.
 
+## Spawn to the game's cap, then DRAW above it — a two-tier ghost (Tier 1-2, unscheduled)
+
+**The user's framing, 2026-08-19, and it is the whole idea in one line: *do as much as the game
+can handle on its own, then bandage/fake it above that cap.***
+
+Crystal's ceiling is measured (`crowd-limits.md`): **9 ghosts**, because the engine has 13 object
+structs and 16 map objects and the map spends some of both on its own cast. Peer number ten gets
+nothing today — no body, no sprite, no collision — and the adapter logs a refusal. That is honest,
+and it is also a hard wall that no cleverness at the hardware level moves: even perfect sprite
+multiplexing (rewriting OAM per scanline, which real Game Boy games did) only helps the *drawing*
+limits underneath, while the engine still has nowhere to record a fourteenth character.
+
+**The way past it is to stop asking the engine for the overflow.** A drawn ghost — `gui.*`
+primitives painted onto the emulator's output, which is how Emerald's adapter works — is not a
+sprite at all. It happens after the PPU has finished, so it is subject to **none** of the three
+limits: not the 13 object structs, not the 40 OAM entries, not the 10-sprites-per-scanline rule.
+Twenty ghosts in one town is a rendering question at that point, not a hardware one.
+
+So: **spawn real objects while slots last, draw the rest.** The first N peers get everything the
+engine gives for free — animation, palettes, priority, occlusion behind houses and text boxes,
+collision — and peers past the cap still *exist* on screen instead of vanishing.
+
+**What it costs, stated honestly, because this is a bandage by construction and belongs in
+`BANDAGES.md` the day it ships:**
+
+- **Two rendering paths in one adapter**, which is the real risk. Every future change has to be
+  made twice or deliberately once, and the two drift. Emerald's own history is the evidence: its
+  drawn path needed a hand-rolled sprite decode, a manual walk cycle, and a pile of compensations
+  that the spawn path deleted outright.
+- **A drawn ghost does not occlude.** It paints over houses, over the pause menu, over text boxes.
+  Crystal's spawn path fixed exactly this class of thing, and the user called the equivalent fix
+  in Emerald the clearest argument for spawning at all.
+- **A drawn ghost has no collision and cannot be interacted with** — which is arguably *right*
+  for an overflow tier (nine solid ghosts can already box a player in) but makes peers visibly
+  unequal.
+- **Someone has to animate it.** The engine will not.
+- **Where the pixels come from is easier here than in Emerald**, and worth noting before anyone
+  assumes otherwise: a peer past the cap usually wears a sprite that is *already resident in
+  VRAM* (`wUsedSprites` says so, and the adapter already reads it for peer appearance). Copying
+  loaded tiles beats Emerald's decode-from-ROM path.
+
+**The policy question to answer before building it:** *which* peers get the real slots. "First to
+arrive" is what happens today and is the worst answer — it makes the quality of a peer's ghost
+depend on join order forever. **Nearest-wins** is better: the peers you can actually look at
+closely are the ones the engine draws, and the drawn approximations are the distant ones where the
+difference is least visible. That also means re-assigning slots as people move, which needs a
+hysteresis band or ghosts will churn between tiers while someone walks past.
+
+**Not scheduled.** Nine simultaneous peers in one town is far past anything planned, so this buys
+nothing today — it is filed because the *shape* is right and generalises (see the same rule in
+`adapters/_template/README.md`), not because Crystal needs it.
+
 ## Crystal: a ghost you can talk to — and eventually battle
 
 **Status: discovered by accident 2026-08-18, nothing built, nothing scheduled.** Recorded because it

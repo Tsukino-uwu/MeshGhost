@@ -1013,6 +1013,34 @@ connection), and the adapter passed one live test while failing the other.
   untidy; leaked *solid* ones accumulate into a wall that can block a route. Decide collision and
   lifecycle together, not separately.
 
+## Do as much as the game can handle on its own, then fake it above that cap
+
+**The user's rule, 2026-08-19.** It resolves a tension this file otherwise leaves open: everywhere
+else says *let the game do the work* and *a bandage is not a finished feature* — so what happens
+when the game genuinely cannot do the work at all, because it ran out of a fixed array that was
+sized in 1998?
+
+The answer is not to pick one path for everything. It is to **use the engine to its limit, and
+only then fall back** — and to know exactly where that limit is, because it is the seam between
+the two.
+
+- **Below the cap, the engine wins on every axis.** Animation, palettes, draw priority, occlusion
+  behind scenery and menus, collision, and every future engine behaviour you have not thought of,
+  all for free and all correct.
+- **Above the cap, something faked beats nothing at all.** A ghost drawn over the emulator's
+  output is subject to none of the engine's or the hardware's limits, because it happens after
+  both. The peer exists on screen instead of silently not being there.
+- **The fallback is a bandage, and it is registered as one**, with its costs written down — in
+  Crystal's case: no occlusion, no collision, no engine animation, and two rendering paths in one
+  adapter that will drift. That is the point of `BANDAGES.md`: a compensation you chose on purpose
+  and can defend is fine, one you forgot you were making is not.
+- **Decide which peers get the good tier.** Join order is the default and the worst answer — it
+  freezes a peer's visual quality on when they connected. Nearest-wins is usually right, with a
+  hysteresis band so ghosts do not churn between tiers as someone walks past.
+
+Worked reasoning for a specific game, including why hardware-level tricks (sprite multiplexing)
+fix the wrong limit: `agent_docs/ideas.md`, "Spawn to the game's cap, then DRAW above it".
+
 ## Find out how many ghosts this game can hold, and make it refuse cleanly
 
 **An old game has a fixed number of character slots and a fixed hardware sprite budget, both
