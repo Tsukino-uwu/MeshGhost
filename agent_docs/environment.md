@@ -140,6 +140,17 @@ UE4SS entry below for that last one specifically, which is currently unresolved)
     the first try). This is the only handle BizHawk itself exposes to anything outside the
     process — **attaching, swapping or stopping a script on an already-running instance is a Lua
     Console GUI action** and nothing external can drive it.
+    - **Quote the ROM path INSIDE the PowerShell argument, not just around it — 2026-08-19.**
+      `Start-Process -ArgumentList '--lua=...','C:\...\Pokemon - Emerald Version (USA,
+      Europe).gba'` splits the ROM path at its spaces, and BizHawk answers with a modal
+      **`Exception: failed to parse command-line arguments: Unrecognized command or argument`**
+      window over whatever the user is doing — a broken emulator, not a silent no-op. The
+      argument has to carry its own quotes: `'\"C:\...\Pokemon - Emerald ... .gba\"'`. Found
+      live 2026-08-19, on both emulators of a two-game session.
+    - **`--lua=` also opens BizHawk's Lua Console window**, one per instance, and it takes
+      focus as it appears. Expected, not a fault — but it is a real window over the user's
+      screen, so a two-emulator session puts two of them there. Unrelated to the core's own
+      windowless autostart below, which is what a flash during startup is usually blamed on.
   - **`dev-scripts/bizhawk-dev-loader.lua` closes that gap.** Attach it once with `--lua=`; it
     polls `dev-scripts/bizhawk-dev-loader.target` (**one script path per line**, or `none`) and
     loads, swaps or drops those scripts live. **It runs several at once** — added 2026-08-18 once

@@ -21,7 +21,7 @@
 -- saves. The two were confused once already, and an emulator relaunch lost the user's place.
 
 local ACTION = "load" -- "save" or "load"
-local SLOT = 6
+local SLOT = 2
 
 local done = false
 MESHGHOST_DEV_TICK = function()

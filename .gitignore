@@ -171,8 +171,10 @@ core-*.err.log
 relay-*.log
 relay-*.err.log
 
-# BizHawk dev loader: its control file and log are per-session dev state, not project content
+# BizHawk dev loader: its control file and log are per-session dev state, not project content.
+# The wildcard covers the per-instance files a two-game session makes (MESHGHOST_DEV_LOADER_TARGET).
 dev-scripts/bizhawk-dev-loader.target
+dev-scripts/bizhawk-dev-loader*.target
 
 # Screenshots the agent takes to debug with (dev-scripts/bizhawk-screenshot.lua), one folder
 # per game so a session on one adapter cannot bury another. Same reasoning as the probe logs

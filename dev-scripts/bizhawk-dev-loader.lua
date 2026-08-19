@@ -19,6 +19,11 @@
 --   - the word `none` / an empty file, meaning "run nothing" -- the detach case.
 -- Lines starting with # are ignored, as is leading/trailing whitespace.
 --
+-- With TWO emulators open at once (a two-game session), set MESHGHOST_DEV_LOADER_TARGET per
+-- instance before launching it -- otherwise both poll the same file, load the same scripts and
+-- write one interleaved log, so neither can be driven on its own. The log is named after the
+-- control file.
+--
 -- Multiple targets were added 2026-08-18, because one slot turned out to be a false constraint:
 -- keeping a test-state script alive (it tops up a countdown every frame) meant dropping the
 -- adapter, so the two could never run together and each swap silently undid the other's work.
@@ -57,11 +62,30 @@ local function scriptDir()
 end
 
 local DIR = scriptDir()
-local CONTROL_FILE = DIR .. "/bizhawk-dev-loader.target"
+
+-- One control file per emulator, when there is more than one. Two BizHawk instances (a
+-- two-game session -- Emerald and Crystal side by side) share this folder, so a single
+-- hardcoded control file makes them load the SAME target set and write into one interleaved
+-- log: neither can be driven independently, which is the whole point of the loader. Set
+-- MESHGHOST_DEV_LOADER_TARGET before launching an instance to give it its own. Absolute, or
+-- relative to this folder. The log follows the control file's name so the pairing is obvious.
+local CONTROL_FILE = os.getenv("MESHGHOST_DEV_LOADER_TARGET")
+if CONTROL_FILE and CONTROL_FILE ~= "" then
+	if not CONTROL_FILE:match("^%a:[/\\]") and not CONTROL_FILE:match("^[/\\]") then
+		CONTROL_FILE = DIR .. "/" .. CONTROL_FILE
+	end
+else
+	CONTROL_FILE = DIR .. "/bizhawk-dev-loader.target"
+end
+
+local LOG_FILE = CONTROL_FILE:gsub("%.target$", "") .. ".log"
+if LOG_FILE == CONTROL_FILE then
+	LOG_FILE = CONTROL_FILE .. ".log"
+end
 
 local logfile
 do
-	local f = io.open(DIR .. "/bizhawk-dev-loader.log", "a")
+	local f = io.open(LOG_FILE, "a")
 	if f then logfile = f end
 end
 

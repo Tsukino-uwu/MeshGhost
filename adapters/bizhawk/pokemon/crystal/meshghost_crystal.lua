@@ -1191,7 +1191,29 @@ event.onexit(function()
 	end)
 end)
 
-while true do
-	tick()
-	emu.frameadvance()
+-- Dev affordance, and the only one in this file: when loaded by dev-scripts/bizhawk-dev-loader.lua
+-- (a development tool, never shipped), hand it the per-frame function instead of taking the frame
+-- loop. Emerald's adapter has done this since 2026-08-18; Crystal's did not, so under the loader
+-- it seized the loop, the loader never polled its control file again, and no probe, savestate or
+-- screenshot script could run beside it -- the adapter looked fine while the tool around it was
+-- dead. A player opening this file in the Lua Console sets neither global and gets the normal
+-- loop below, unchanged.
+MESHGHOST_DEV_TICK = tick
+MESHGHOST_DEV_UNLOAD = function()
+	-- The same three things Emerald's unload lists, for the same reasons: a leaked bridge socket
+	-- makes the next load bounce off "busy: this core already has a game attached"; ghosts are
+	-- real objects in the game that nothing else will clear; and the log file is an OS handle that
+	-- stays locked on disk. disconnect() covers the first two -- it despawns every ghost.
+	pcall(disconnect, nil)
+	if logfile then
+		pcall(function() logfile:close() end)
+		logfile = nil
+	end
+end
+
+if not MESHGHOST_DEV_LOADER then
+	while true do
+		tick()
+		emu.frameadvance()
+	end
 end
