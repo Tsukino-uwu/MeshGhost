@@ -55,14 +55,39 @@ run against this version rather than yesterday's.
       confirmed vanilla address; a bridge rejection no longer throws; a peer's `graphicsId` is
       bounds-checked before it indexes a ROM table; the frame-error log no longer swallows the
       first 300 frames.
-- [ ] **A question, not a claim — should the adapter be broadcasting from the main menu?**
-      Observed in the live log, not decided: `gSaveBlock1Ptr` is already populated at the
-      **continue screen**, so the adapter sends the saved position (`pos=(10,10)`,
-      `overworld=false`) for as long as someone sits there. `contract.md`'s closed question says
-      `nil` is warranted only when that pointer reads null ("title screen / no save loaded"), which
-      this technically is not. **A peer would see a ghost of you standing at your last save point
-      while you are in the main menu.** Left alone deliberately — it is a change to what a player
-      sees, so it needs the user's answer first.
+
+## Pending — Emerald: no ghost until you are actually in the game (2026-08-19)
+
+The question above ("should the adapter be broadcasting from the main menu?") is **answered** — the
+user, 2026-08-19: *"it should not show/send the ghost for other people if you are in the main
+menu/intro. should only show when you are actually in game."* The adapter now sends nothing at all
+until the player is confirmed in the overworld, and when the game goes back to the title screen it
+**drops its bridge connection**, which the core turns into a real relay leave and every peer into a
+despawn — rather than leaving the ghost frozen at the last position, which is what simply going
+quiet would do (the core never expires a peer's newest sample on its own).
+
+Self-tested from the adapter's own log on a real session, with the game driven by a scratch input
+probe rather than by a person: cold boot to the title, the continue screen and the intro all logged
+`overworld=false inGame=false` with nothing sent; the moment the save loaded into the overworld,
+`in game -- now sending local state`; a soft reset logged `left the game (title screen) -- dropping
+the bridge`, and the relay issued this client a new player id a second later — which is the leave
+the peers would have seen. What a log cannot show is the other player's screen.
+
+- [ ] **A peer's ghost of you disappears when you go back to the title screen.** Needs two clients,
+      or one client plus the relay's loopback ghost. *What to look at:* the ghost, while the other
+      player soft-resets (A+B+Start+Select) back to the title. *Correct:* it vanishes within about
+      a second. Wrong: it stands there frozen where they were.
+- [ ] **No ghost at all while someone is in the main menu / intro.** *What to look at:* the other
+      player boots the game and sits on the title, the continue screen and the intro without
+      entering the world. *Correct:* no ghost anywhere on your screen the whole time — in
+      particular, none standing at their last save point, which is what used to happen.
+- [ ] **The ghost comes back, and nothing else changed, once they are in.** *What to look at:* they
+      choose CONTINUE and walk around. *Correct:* the ghost appears beside you within a second or
+      two of them reaching the overworld, and everything else behaves as before — pause menu,
+      doors, battles, route changes. The gate is a latch and is deliberately NOT re-tested per
+      frame, so a battle or a warp must NOT make the ghost blink out.
+- [ ] **Two sessions in a row.** Soft reset, then continue again. *Correct:* one ghost, not two,
+      and it wears the right character (gender is re-read per session now).
 
 ## Pending — Crystal: a peer's sprite that the local player is NOT wearing (2026-08-19)
 

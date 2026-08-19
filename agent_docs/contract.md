@@ -882,8 +882,21 @@ never from memory.
 - [x] What does `get_local_state()` return when the player is in a menu, cutscene, or other
       non-renderable state — `nil`, or a state with a sentinel `anim`? **Decided:** position
       stayed valid through every pause menu, dialogue, forced-movement cutscene, warp, and
-      battle tested — none of those warrant `nil`. `nil` is only warranted when
-      `gSaveBlock1Ptr` reads as null (title screen / no save loaded yet). Separately, the
+      battle tested — none of those warrant `nil`. **Revised 2026-08-19:** "not in the game
+      yet" does, and it is a wider state than the pointer test first used for it. The player
+      sitting at Emerald's CONTINUE screen has `gSaveBlock1Ptr` already populated, so the
+      adapter was broadcasting their last save point while they were in the main menu — a
+      ghost of them standing in the world they are not in. The user's answer: a ghost is only
+      shown "when you are actually in game". So the rule is a LATCH, not a per-frame test —
+      it opens the first frame the player is confirmed in the overworld and closes only when
+      the game is back at the title screen with no save loaded, which keeps every menu,
+      cutscene, warp and battle above sending exactly as decided. **Leaving the game must be
+      announced, not merely gone quiet about:** the core holds a peer's newest sample forever
+      (`core/interp.go`'s `remoteBuffer.at` never expires one), so an adapter that just stops
+      sending leaves its ghost frozen on every other screen. The adapter drops its bridge
+      connection instead, which the core already turns into a relay leave and every peer into
+      a despawn (`core_test.go`'s `TestBridgeDisconnectDespawnsForPeer`), and reconnects
+      immediately. Separately, the
       adapter should debounce one frame around any `mapGroup`/`mapNum` change: a transient
       placeholder read was observed exactly at the moment the save block's pointer relocates
       during some (not all) transitions — see `agent_docs/verified.md`'s "placeholder-glitch"

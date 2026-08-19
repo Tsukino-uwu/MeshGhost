@@ -936,9 +936,53 @@ local function mapJustChanged(mapGroup, mapNum)
     return changed
 end
 
+-- SESSION GATE: nothing is sent until the player is actually IN THE GAME.
+-- gSaveBlock1Ptr being non-null is NOT that question. Observed live 2026-08-19: the pointer is
+-- already populated at the CONTINUE screen, so the adapter used to broadcast the player's saved
+-- position (pos=(10,10), overworld=false) for as long as anyone sat in the main menu -- a peer
+-- saw a ghost of them standing at their last save point while they were in a menu. The user's
+-- answer (2026-08-19): "it should not show/send the ghost for other people if you are in the main
+-- menu/intro. should only show when you are actually in game."
+--
+-- The gate is a LATCH, not a per-frame inOverworld() test, and the difference matters. Being
+-- outside the overworld is not by itself "not in game": a battle, a warp fade and a map load all
+-- leave CB2 pointing somewhere else for a while, and contract.md's closed question already
+-- decided that position stays valid (and worth sending) through all of them -- the ghost simply
+-- stands still. So: the latch OPENS on the first frame the player is confirmed in the overworld,
+-- and CLOSES only when gSaveBlock1Ptr reads null again, which is the title screen / intro with no
+-- save loaded -- the one state contract.md always agreed warrants nil, and the state a soft reset
+-- lands in on its way back to the continue screen.
+--
+-- One TABLE rather than two plain locals on purpose: Lua's compiler allows at most 200 local
+-- variables per function, the main chunk included, and this script's file scope is already at
+-- 198 of them -- two more would be within one edit of "too many local variables" at load time,
+-- which is a hard parse failure, not a warning.
+--   session.live  -- the latch itself.
+--   session.ended -- set on the latch's true->false edge, consumed by runFrame.
+--
+-- Leaving the game has to be ANNOUNCED, not merely gone quiet about. The core holds a peer's newest sample forever
+-- (core/interp.go's remoteBuffer.at does not expire), so a client that just stops sending leaves
+-- its ghost FROZEN on every other screen rather than gone. Dropping the bridge is the mechanism
+-- the core already documents and tests for exactly this ("backing out to the main menu",
+-- core_test.go's TestBridgeDisconnectDespawnsForPeer): the core turns a bridge disconnect into a
+-- goodbye to the relay, the relay into a real leave, and every peer despawns the ghost. The
+-- adapter reconnects on the next frame and sits there sending nothing, so re-entering the game
+-- starts sending immediately.
+local session = { live = false, ended = false }
+
 local function getLocalState()
     local base = memory.read_u32_le(GSAVEBLOCK1PTR_ADDR)
-    if base == 0 then return nil end
+    if base == 0 then
+        if session.live then session.ended = true end
+        session.live = false
+        return nil
+    end
+
+    if not session.live then
+        if not inOverworld() then return nil end
+        session.live = true
+        console.log("MeshGhost: in game -- now sending local state.")
+    end
 
     local x = memory.read_s16_le(base + 0x00)
     local y = memory.read_s16_le(base + 0x02)
@@ -2169,9 +2213,10 @@ local function runFrame()
         for _ in pairs(remotes) do nRemotes = nRemotes + 1 end
         for _ in pairs(ghosts) do nGhosts = nGhosts + 1 end
         logFile(string.format(
-            "status: frame=%d connected=%s ready=%s port=%s remotes=%d ghosts=%d overworld=%s",
+            "status: frame=%d connected=%s ready=%s port=%s remotes=%d ghosts=%d overworld=%s "
+                .. "inGame=%s",
             frameCounter, tostring(connected), tostring(ready), tostring(currentPort),
-            nRemotes, nGhosts, tostring(inOverworld())))
+            nRemotes, nGhosts, tostring(inOverworld()), tostring(session.live)))
         -- Collision follows the object's map coordinates; drawing follows the sprite's screen
         -- position. A ghost whose hitbox sits away from its picture means those two disagree, so
         -- both are logged next to the player's own pair as the control.
@@ -2216,6 +2261,21 @@ local function runFrame()
 
     if connected then
         local state = getLocalState()
+        -- The session ended (title screen / soft reset). Announce it by dropping the bridge --
+        -- see the session table's declaration for why going quiet is not enough. Cleared
+        -- unconditionally so a drop is attempted exactly once per edge even if resetBridge
+        -- throws; the next frame reconnects.
+        if session.ended then
+            session.ended = false
+            console.log("MeshGhost: left the game (title screen) -- dropping the bridge so peers "
+                .. "stop seeing this ghost.")
+            -- Resolved once per session, and the next session may be a different save or a new
+            -- game with the other gender chosen -- keeping the old answer would dress every peer's
+            -- view of this player in the previous save's character for the rest of the emulator
+            -- session, since readLocalGender only ever runs while this is nil.
+            localGender = nil
+            resetBridge()
+        end
         local smoothX, smoothY, smoothAreaId
         if state then
             -- inOverworld() gate added 2026-08-14 -- see readLocalGender's header comment for
