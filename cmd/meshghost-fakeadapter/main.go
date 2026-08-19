@@ -319,6 +319,21 @@ func main() {
 	migrateEvery := flag.Duration("migrate-every", 0, "if set, the holder releases -world-authority this "+
 		"often, forcing a real handover into contention. Without it the run tests custody but never "+
 		"migration, which is the half that can actually go wrong")
+	enemies := flag.Int("enemies", 0, "if set (and event.v1 is in -features), each peer damages this "+
+		"many shared synthetic enemies over the event plane and checks the kill-credit invariants "+
+		"(agent_docs/kill-credit.md). No game and no world plane needed: the whole model is "+
+		"arithmetic over an ordered stream")
+	hitEvery := flag.Duration("hit-every", 250*time.Millisecond, "how often each peer damages one enemy (see -enemies)")
+	enemyResetEvery := flag.Duration("enemy-reset-every", 20*time.Second,
+		"how often each peer advances one enemy to a new generation, which is what a leash, a wipe or "+
+			"a respawn looks like on the ledger. 0 disables resets")
+	hitDupEvery := flag.Duration("hit-dup-every", 3*time.Second,
+		"how often each peer deliberately re-sends its previous damage report. A reliable transport "+
+			"never duplicates, so without this the exactly-once applied-set is never exercised. 0 disables")
+	playerDeathEvery := flag.Duration("player-death-every", 15*time.Second,
+		"how often each peer spends a window dead, which is what gives 'tag it once then die' "+
+			"something to be judged against. 0 means nobody ever dies")
+	playerDeathFor := flag.Duration("player-death-for", 4*time.Second, "how long each -player-death-every window lasts")
 	duration := flag.Duration("duration", 0, "stop and print the summary after this long. 0 (the "+
 		"default) means run until interrupted, which is right when a human is watching and wrong "+
 		"for a script -- a soak or CI job needs the process to end on its own and report, and "+
@@ -387,6 +402,22 @@ func main() {
 			entityHz:  *entityHz,
 			migrate:   *migrateEvery,
 		},
+		credit: creditConfig{
+			on:         *enemies > 0,
+			enemies:    *enemies,
+			hitEvery:   *hitEvery,
+			resetEvery: *enemyResetEvery,
+			dupEvery:   *hitDupEvery,
+			deathEvery: *playerDeathEvery,
+			deathFor:   *playerDeathFor,
+		},
+	}
+	if cpCfg.credit.on && !protocol.HasFeature(featureList, protocol.FeatureEventV1) {
+		// Refused rather than warned: the credit plane is nothing but events,
+		// so a run without the capability would negotiate a cosmetic room and
+		// then check eight invariants against a stream that never arrives --
+		// reporting a clean result for a test that did not run.
+		log.Fatalf("meshghost-fakeadapter: -enemies needs %q in -features", protocol.FeatureEventV1)
 	}
 	// Two keys per entity: a reliable one for discrete state, a lossy one for
 	// position. See world.go's entityKey for why they must not be one blob.
@@ -403,7 +434,7 @@ func main() {
 			protocol.FeatureWorldV1, protocol.FeatureLeaseV1)
 	}
 	cpCfg.anyPlaneOn = len(featureList) > 0 &&
-		(*eventEvery > 0 || *leaseEvery > 0 || *tradeEvery > 0 || cpCfg.world.on)
+		(*eventEvery > 0 || *leaseEvery > 0 || *tradeEvery > 0 || cpCfg.world.on || cpCfg.credit.on)
 	if len(featureList) > 0 && !cpCfg.anyPlaneOn {
 		// Advertising a capability and then never using it is a real and
 		// confusing state: the room negotiates it, every cosmetic client is
@@ -505,6 +536,13 @@ func main() {
 				// Built before attach, which is what registers its OnWorldState.
 				cp.world = newWorldChecker(cpCfg.world, "", reportViolation)
 			}
+			if cpCfg.credit.on {
+				// Each client gets a DIFFERENT difficulty scale, which is the
+				// whole point: a run where everyone agrees on maximum health
+				// never ratchets, so it would check the easy half of the model
+				// and call the hard half green.
+				cp.credit = newCreditChecker(cpCfg.credit, "", creditScale(i), reportViolation)
+			}
 			cp.attach(c)
 			planes = append(planes, cp)
 		}
@@ -517,6 +555,10 @@ func main() {
 			if cpCfg.world.on {
 				wg.Add(1)
 				go cp.runWorld(stop, &wg, cpCfg.world)
+			}
+			if cpCfg.credit.on {
+				wg.Add(1)
+				go cp.runCredit(stop, &wg, cpCfg.credit)
 			}
 		}
 	}

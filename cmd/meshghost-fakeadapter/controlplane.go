@@ -88,6 +88,11 @@ type controlPlane struct {
 	// notice one that never finished.
 	openExchanges map[string]time.Time
 
+	// credit is the kill-credit checker, or nil when that plane is off. Its own
+	// type in credit.go for the same reason world is: eight invariants of its
+	// own, sharing nothing with the three above beyond the sequencer stamp.
+	credit *creditChecker
+
 	// world is the world-custody checker, or nil when that plane is off. Its
 	// own type in world.go rather than more fields here: it has five
 	// invariants of its own and shares nothing with the three above beyond
@@ -128,6 +133,9 @@ func (cp *controlPlane) attach(c *core.Core) {
 		cp.world.self = cp.selfID
 		c.OnWorldState = cp.world.onWorldState
 	}
+	if cp.credit != nil {
+		cp.credit.self = cp.selfID
+	}
 }
 
 // checkSeq is invariant 1. Caller must not hold cp.mu.
@@ -153,6 +161,13 @@ func (cp *controlPlane) checkSeq(kind string, seq uint64) {
 func (cp *controlPlane) onEvent(ev protocol.Event) {
 	cp.checkSeq("event", ev.Seq)
 	cp.eventsSeen.Add(1)
+	if cp.credit != nil {
+		// The credit plane rides events, so it folds every one of them --
+		// including this client's own echo, which is how a dealer learns where
+		// its own hit landed in the order. Anything not a credit report is
+		// ignored inside the checker rather than filtered here.
+		cp.credit.onEvent(ev)
+	}
 	if ev.From == "" || ev.From == cp.selfID {
 		return
 	}
@@ -371,6 +386,7 @@ type controlPlaneConfig struct {
 	leaseEvery  time.Duration
 	leaseKey    string
 	world       worldConfig
+	credit      creditConfig
 	leaseHold   time.Duration
 	tradeEvery  time.Duration
 	statsEvery  time.Duration
@@ -469,6 +485,41 @@ func summarize(planes []*controlPlane, elapsed time.Duration) {
 			// broken relay.
 			log.Printf("meshghost-fakeadapter: warning: no handover ever happened -- pass -migrate-every " +
 				"to make a holder give the authority up, or this tested custody without testing migration")
+		}
+	}
+
+	var hits, kills, rewards, agreed, resets uint64
+	creditOn := false
+	for _, cp := range planes {
+		if cp.credit == nil {
+			continue
+		}
+		creditOn = true
+		hits += cp.credit.hits.Load()
+		kills += cp.credit.kills.Load()
+		rewards += cp.credit.rewards.Load()
+		agreed += cp.credit.agreedOn.Load()
+		resets += cp.credit.resets.Load()
+	}
+	if creditOn {
+		log.Printf("meshghost-fakeadapter: credit summary: %d hits applied, %d kills, %d rewards taken, "+
+			"%d death(s) agreed with a peer, %d generation(s) reset", hits, kills, rewards, agreed, resets)
+		// **Zero kills is a VIOLATION, for exactly the reason zero writes is
+		// above**: a run where nothing ever died checked the arithmetic of an
+		// empty ledger and reported it as a pass. That is the failure mode this
+		// whole rig exists to rule out.
+		if kills == 0 {
+			reportViolation("the credit plane was on and nothing ever died -- nothing was " +
+				"exercised, so this run proves nothing. The usual cause is -hit-every being too " +
+				"slow for -duration, or every peer sitting in a death window")
+		}
+		// Invariant 13 only speaks about generations created by a reset this
+		// client watched, so a run with resets on, more than one client, and no
+		// agreement at all checked the most valuable invariant zero times.
+		if len(planes) > 1 && resets > 0 && agreed == 0 {
+			reportViolation("the credit plane saw %d reset(s) across %d clients and not one death "+
+				"was ever agreed with a peer -- invariant 13 never ran, so the run says nothing "+
+				"about whether participants die together", resets, len(planes))
 		}
 	}
 	if v := violations.Load(); v > 0 {

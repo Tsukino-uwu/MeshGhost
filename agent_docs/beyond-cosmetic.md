@@ -107,6 +107,11 @@ What it costs instead, and none of it is relay work:
   client is not merely lying about itself. Fine among friends, which is this project's setting;
   worth being explicit that it is not a security model.
 
+**Peer authority answers who *simulates* an enemy and not who may *kill* it.** The moment several
+clients share one, "is it dead?" and "who gets the reward?" become separate questions with no
+obvious default, and neither is answerable from anything in this section. That is worked out in
+`kill-credit.md`, which is a precondition for enemy/boss sync rather than a refinement of it.
+
 #### Who is the host, and what happens when they leave
 
 The obvious follow-up — the first player joins and is host, then leaves after others have arrived —
@@ -516,6 +521,7 @@ as a green light is misreading it.
 
 ## Links
 
-`plans.md` (depth ladder, non-goals) · `contract.md` (event plane, packet schema, transport
-contract) · `architecture.md` (the exclusion, and the ADR log) · `access-models.md` (what each game
+`plans.md` (depth ladder, non-goals) · `kill-credit.md` (the worked design for one problem this
+file leaves open: who gets the reward, and when a shared enemy is dead) · `contract.md` (event
+plane, packet schema, transport contract) · `architecture.md` (the exclusion, and the ADR log) · `access-models.md` (what each game
 lets you read) · `bandages-core.md` (Go-side compensations)

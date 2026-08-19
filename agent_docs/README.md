@@ -36,6 +36,11 @@ Internal documentation for MeshGhost: architecture, planning, licensing, and ver
   models, the five authority models and which of them need game knowledge, the readiness gaps a
   fuller online mode would have to close, and the rule that keeps the door open (capability is
   adapter-opt-in via `features`, never relay-imposed via `game_id`). Nothing in it is scheduled.
+- [kill-credit.md](kill-credit.md) — **who gets the reward, and when an enemy is actually dead**,
+  for any future enemy/boss sync. Sync damage rather than death and let each client's own game
+  kill the enemy itself; participation, liveness, difficulty and player-count scaling are four
+  independent per-entity-class policies. Carries the hard-case list and the MMO/co-op prior art.
+  Sits under `beyond-cosmetic.md`. Nothing in it is scheduled.
 - [bandages-core.md](bandages-core.md) — shipped compensations in the Go side (core, relay,
   transport), and the ones deliberately left alone. **Per-adapter bandages live in each adapter's
   own `BANDAGES.md`**, next to its `README.md`; the rule and the how-to-spot-one guide are in

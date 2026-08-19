@@ -249,6 +249,30 @@ and its `contents: write` permission is the reason CI is deliberately `contents:
   ghosts, but of the control-plane invariant CHECKERS it grew 2026-08-17. A checker with no test
   of its own passes forever, including on every run where the thing it was watching was broken,
   which is the worst failure available to a tool whose whole job is to notice.
+  **`credit_test.go` (2026-08-19) is the third checker and a different kind of thing**: it is where
+  `kill-credit.md`'s design is executable. Its claims are arithmetic over an ordered stream — a
+  duplicate cannot double-count, a ratchet cannot resurrect, a stale generation cannot leak,
+  participants cannot disagree about when something died — so they are settled here rather than by
+  watching a game. Writing the tests immediately falsified two pieces of the first implementation
+  (a bystander folded nothing and so had nothing to adopt when it joined in; an encounter first
+  seen mid-fight wrongly claimed to have watched it from the start), which is the argument for
+  writing them before believing a model.
+  The live form is `-enemies N -features event.v1`, best run through `cmd/meshghost-netsim` on udp
+  so loss and reordering are real:
+
+  ```
+  meshghost-relay.exe -addr 127.0.0.1:7777 -transport udp
+  meshghost-netsim.exe -listen 127.0.0.2 -target 127.0.0.1 -loss 0.05 -jitter 25ms -latency 20ms -reorder 0.05
+  meshghost-fakeadapter.exe -relay 127.0.0.2:7777 -transport udp -room soak -clients 4       -game-id credittest -features event.v1 -enemies 3 -enemy-reset-every 8s -duration 60s
+  ```
+
+  Each client gets a different difficulty scale, so the ratchet actually fires; a run where
+  everyone agreed on maximum health would check the easy half of the model and call the hard half
+  green. **Zero kills, and zero agreed deaths in a multi-client run with resets on, are both
+  reported as violations rather than warnings** — same rule as the world plane's zero-writes check,
+  and for the same reason: a checker that reports success for a run it never started is worse than
+  no checker. Verified to have teeth on 2026-08-19 by regressing one client's fold and watching
+  invariant 13 name it against the two healthy peers.
 - **`netx/conformance_test.go`** — **the transport conformance suite: one set of
   behavioural assertions run against tcp, udp AND quic.** The point of `netx` is that the
   three are interchangeable behind one interface, so a behaviour that holds on one and not another

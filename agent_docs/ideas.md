@@ -1667,3 +1667,100 @@ tested, which is the whole reason it survived.
 
 **Not scheduled.** Filed because a Linux user asking "why do only two of the four games work for
 me" deserves an answer better than silence, and because the README was actively wrong about it.
+
+## osu! — online co-op, "tag co-op without the tag", filed 2026-08-19
+
+**The idea.** osu!'s existing multi mode has *Tag Co-op*: players share one beatmap and one combo,
+but they alternate — one person plays a section, then hands off. The idea here is Tag Co-op
+**without the taking turns**: everyone plays the same map at the same time, on the same objects,
+sharing one score/combo, so a note anyone hits counts once for the group. In Tag Co-op only one
+player can "click" a circle at any moment; here everyone plays the whole map at once.
+
+**Two possible homes, undecided.** Either **inside the multiplayer lobby**, where it would be
+picked from the same list as Standard and Tag Co-op and simply lets everyone play at once — the
+tidier fit, since the lobby already exists to hold a shared map and a shared result. Or **on top
+of normal singleplayer**, which is where MeshGhost's other adapters live. **If it is the
+singleplayer route it must be an unranked mod** — a play with other people in it is not a solo
+score and must never be submitted as one. Deciding between the two is the first thing to settle,
+because it decides everything else: the lobby route is a mode inside the game's own multiplayer,
+the singleplayer route is an adapter in this project's usual shape.
+
+**Where it lands.** Not Tier 0 — a shared combo is shared *state*, and whether a note is hit is a
+gameplay outcome, not a cosmetic one. Two honest reads of the tier: presenting each other's
+cursors and hit results as decoration on top of an otherwise-normal solo play is Tier 1-2, and
+actually letting one player's hit satisfy an object for everybody is Tier 3, the cliff. Only the
+first is anywhere near what MeshGhost promises today.
+
+**What's unknown and would have to be checked first**, in order:
+- osu!'s access model (`access-models.md`) — osu!(lazer) is open source, osu!(stable) is not,
+  and which one this targets changes the entire difficulty question. Read the licence before
+  reading anything else (`licensing.md`).
+- Whether an adapter can observe hit events at all without writing anything, since the cosmetic
+  version of this needs only that.
+- Whether the game already refuses to run modified clients online, which is a policy question,
+  not a technical one, and could make the whole entry moot for anything touching osu!'s own
+  servers. A purely local/offline arrangement is the version that stays inoffensive.
+
+**Not scheduled.** Filed as a game candidate plus a mode idea; nothing checked yet.
+
+## Dark Souls 3 / Elden Ring — full online sync, filed 2026-08-19
+
+**The idea.** Not ghosts: real shared-world play — the same enemies, the same bosses, the same
+world, several players in it at once, without the host/summon model the games ship with.
+
+**This is the far end of the ladder** — Tier 3 and past it, for every subsystem at once
+(enemy state, boss state, damage, death, loot, progression). It is the entry that most needs
+`beyond-cosmetic.md` read first: the authority taxonomy, the sync model, and what actually has
+to be closed before any of it is coherent. The kill-credit entry below is not a detail of this
+one, it is a *precondition* of it.
+
+**What it would collide with, before any code:**
+- Both games have their own online services and their own anti-cheat, and this is handled the way
+  the existing online mods for these games handle it: **the mod forces the game offline first**,
+  and only then does MeshGhost carry the online part. The game runs in its own singleplayer/
+  offline mode, never touching the official servers, so nobody is playing modded while connected
+  and nobody gets banned for it. Forcing offline is therefore not a caveat on this entry, it is
+  a required part of the feature and the first thing the adapter must do — before any sync, and
+  reliably enough that it can't silently fail open. How the existing mods do it is the obvious
+  reference, and each one's licence gets checked before its source is read (`licensing.md`).
+  **It is the same class of rule as "nothing that ships writes a save", and held the same way**:
+  an invariant that protects the player from an accident, not a preference to be weighed against
+  convenience. The failure it exists to prevent is someone ending up online *without meaning to*
+  while modded, and eating a hardware/IP ban for it — a consequence that lands outside the game
+  and that we cannot undo for them. So it fails closed: if the adapter cannot confirm the game is
+  offline, it does not sync.
+- Access model: neither game is open source, so everything is runtime observation
+  (`access-models.md`), and the existing modding ecosystems are the obvious reference — but each
+  one's licence gets checked before it is read, and a private or invite-only source stays out of
+  every tracked file entirely.
+- Nothing that ships writes a save. A shared world that persists is exactly where that rule gets
+  tested hardest, and it does not bend.
+
+**Not scheduled**, and further from scheduled than anything else in this file.
+
+## Enemy/boss kill credit and participation, filed 2026-08-19
+
+**The problem.** The moment several clients share an enemy, "is it dead?" and "who gets the
+reward?" stop being the same question, and neither has an obvious default. If the server just
+broadcasts "boss died", it dies for everyone who never touched it — they lose the fight and the
+reward both, and the enemy can't be killed again for the drop. If it doesn't, nobody's kill ever
+resolves.
+
+**The rule.** **Damage buys participation.** Deal even 1 damage to an enemy and you are in — when
+it dies, it dies for you, and you get the reward exactly as if you had killed it solo. Never damage
+it and it stays alive on your client; when it dies for the others, nothing happens for you. The
+target feel is *not* a new mechanic — it is "you killed an enemy in this game", unchanged, just
+reachable by contributing rather than only by landing the last hit.
+
+**Fully designed 2026-08-19 — see [kill-credit.md](kill-credit.md).** The model, the per-game
+policy axes (liveness, credit, difficulty, player-count scaling), the difficulty ratchet, 19 hard
+cases, and the MMO/co-op prior art all live there. The short version: don't sync "the enemy is
+dead", sync *damage*, and let every client's own game arrive at death by itself — which needs no
+change to `relay`, `core` or the wire contract.
+
+**Why it's filed here and not under a game.** This is the general precondition for any
+full-enemy/boss sync (see the Dark Souls entry above): without a credit model there is no
+principled answer to whether a shared enemy is dead, so shared enemies aren't buildable, in any
+game.
+
+**Not scheduled**, and gated behind an ADR per game like everything at Tier 3.
