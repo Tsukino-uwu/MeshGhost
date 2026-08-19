@@ -109,6 +109,37 @@ matching its pose, and the behaviour now comes from the game — so cases nobody
 handled because the game handles them. That last one is the real return, and it is invisible by
 definition.
 
+## The ONE legitimate kind: a hardware ceiling — user, 2026-08-19
+
+**The line is what is being worked around, and it is sharper than "last resort".** The user:
+*"preferably we wouldn't need any bandages at all, but there are exceptions like the max 9 player
+cap on Crystal due to hardware, think its fine to use bandage fixes to bypass hardware limitations,
+we shouldn't use bandage/temp fixes for things the game can actually already do properly due to us
+being lazy."*
+
+So sort every candidate into one of two piles, and the sorting question is **not** "how hard would
+the proper fix be" — it is **"is there a proper fix at all?"**
+
+- **A hardware or engine CEILING — legitimate.** The console runs out of something and no amount
+  of searching produces a mechanism, because the game does not have one either. Crystal's object
+  cap is the worked example: the Game Boy has the hardware sprites it has, so "spawn to the cap,
+  then PAINT the overflow" is the only way every peer is visible, and the painted tier is a
+  compensation this project is glad to own (`agent_docs/crowd-limits.md`). The tell is that the
+  game hits the same wall: it cannot show a tenth character either.
+- **A mechanism we have not found — not legitimate, and this is the common case.** The game does
+  the thing perfectly well for the player, so an implementation exists and is reachable
+  (`_template/README.md`, "anything the player can do, anything else should be able to do"). A
+  compensation here is laziness wearing a result, and it is refused however good it looks.
+
+**The honest test, when you cannot tell which pile you are in:** *does the player have this?* If the
+player does, it is the second pile — keep searching. If the console physically cannot, it is the
+first, and the compensation is the feature.
+
+**A ceiling bandage still owes the register an entry**, because its COST is real even when its
+existence is justified — a painted ghost has no engine occlusion, no reflection and no shadow
+unless each is separately reproduced, which is most of what the Emerald drawn tier's work has been.
+Legitimate does not mean free.
+
 ## How to tell a bandage from a proper fix
 
 **This is the canonical version. The per-adapter registers carry a compact form and link here.**

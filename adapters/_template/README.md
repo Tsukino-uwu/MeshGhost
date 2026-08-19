@@ -687,10 +687,15 @@ acceptable resting place.
 
 **The proper mechanism is the goal, not the fallback.** User, 2026-08-19: *"I prefer doing things
 the proper/intended way when achieving 1:1, so we should not try to use bandages often/for
-everything."* A bandage is a **last resort for a case where the game's own mechanism has been
-found and genuinely cannot be reached** — not the thing to reach for when the search gets long. If
-you are considering one, the honest question is usually "have I actually found the mechanism yet?",
-and the answer is usually no.
+everything"*, and *"we shouldn't use bandage/temp fixes for things the game can actually already do
+properly due to us being lazy."*
+
+**The test is what is being worked around, not how hard the fix looks.** A HARDWARE CEILING is the
+legitimate case — the console runs out of something and the game has no mechanism either, because
+it hits the same wall (Crystal's object cap, and the painted overflow tier that answers it). A
+mechanism we have simply not found yet is not, and it is the common case: **if the player has this,
+an implementation exists and is reachable.** Full sorting rule, and the cost a legitimate ceiling
+bandage still owes: [BANDAGES.md](BANDAGES.md).
 
 The 1:1 test is what a bandage must still pass if one is ever justified — the same user, on the
 same day: *"its probly a bandage then, but think thats fine if we can get it to look identical to
