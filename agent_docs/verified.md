@@ -8066,3 +8066,65 @@ the minute; the log went back to its normal cadence and the counters read the sa
 it measures**, and BizHawk's console is expensive enough that once per frame is already too much.
 Whatever measures this next has to sample into a buffer and print once, or write straight to a
 file — not to the console, and not every frame.
+
+## The comparison keeps paying: four more, and one of them was the SPAWNED tier — 2026-08-19
+
+All found by looking at both renderers at once (`MESHGHOST_COMPARE_TIERS`), all **user-confirmed on
+screen** the same session.
+
+### A spawned ghost stuck in a running pose — fixed
+
+*"the injected/spawned ghost gets stuck in a wrong pose/sprite after stopping after a run, the drawn
+one looks fine"*, and then, precisely: *"it does idle->walk fine. but can't do run -> idle without
+getting stuck in the run animation"*. We drive a run by issuing one run action per tile; when the
+peer stops we simply stop issuing them, and the engine leaves the object parked on the last frame.
+A walk ends on a standing frame by itself, which is exactly why only `run -> idle` showed it. The
+ghost now asks the engine to face the way it already faces — the game's own way of settling a
+character. **Confirmed: *"spawned ghost looks fine now, not getting stuck after running anymore"*.**
+
+**This is the first defect the comparison found on the spawned side**, and it had been shipping.
+
+### Door transitions, both directions — fixed, and the second attempt was the better design
+
+Entering was fixed first with a hard cut on the engine hiding the player's own sprite. It worked,
+and the user's comparison found something better in our own fix for the *other* direction:
+*"leaving the house even looks better than entering the house"* — because leaving is carried by the
+scene-brightness scaling, which FADES the ghost out with everything else, while entering snapped it
+away. The flag is now only a backstop for the part of the transition where the screen is already
+black, and the fade does the visible work both ways.
+
+Neither signal alone would do: a dark cave is dim with the player perfectly visible, and the first
+frames of a door are hidden while the scene is still bright. **Confirmed: *"leaving a house hides
+the drawn ghost properly now"*, then *"enter/leaving a house looks great now"*.**
+
+### Scene brightness, which is the gap the user predicted before any of this existed
+
+Painted pixels are decoded from the CARTRIDGE palette, so they were always full brightness while
+everything the PPU draws is dimmed by whatever fade, cave or night sits in palette RAM. The drawn
+tier now measures the live OBJ palette the player's own sprite is using against the ROM palette its
+own pixels came from, and scales its runs by that ratio: 32 reads a frame, nothing per peer, one
+comparison when nothing is dimming. The house-exit confirmation above is this working.
+
+**A negative worth keeping: BLDCNT is NOT the fade signal on this game.** It reads `1E40` through
+ordinary play and through the transition alike, and BLDY at 0x04000054 is write-only, returning
+open bus (`BC01`). The palette is where the fade is visible.
+
+### And the one that took four attempts, because it was the wrong question three times
+
+A drawn ghost looked choppy *while running*. Three movement models were tried and rejected on the
+user's eyes — ramp from the last tile (snapped back every step), ramp from the current position
+(each step covered a different distance in fixed time, so the speed visibly varied), and constant
+speed at the engine's rate. The last is right and stayed; it was not enough, because the ghost's
+movement was never the problem.
+
+**The clue was which "running" mattered: the PLAYER's.** A drawn ghost is positioned relative to
+the local player, against the adapter's SMOOTHED estimate of them, while being drawn at their real
+pixel position — a mismatch this file has carried a note about since 2026-08-14. It is invisible
+until the player moves, which is why it looked like a ghost problem.
+
+Measured over 240 consecutive frames of a run: **the player's sprite position plus
+`gTotalCameraPixelOffset` is constant to the pixel — 120,112, zero variance** — and that offset's
+remainder mod 16 is the sub-tile phase, counting evenly by 2 every frame and handing over to the
+tile counter with no discontinuity (tile 17 at -158 is 17.875; at -144 it is 17.0; tile 16 at -142
+is 16.875). The player's continuous position is therefore its tile plus that phase, exactly, and
+the estimate is out of the drawing path altogether.

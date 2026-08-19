@@ -36,19 +36,11 @@ frame). These five are fixed but **not yet judged**:
       honestly reports "idle" while crossing tiles; the drawn tier now takes movement from its own
       position instead of the tag.)
 - [ ] **Running one direction is smooth.** *What to look at:* hold a run in a straight line and
-      watch the painted ghost. *Correct:* an even glide, no per-tile stutter. **Third attempt** —
-      the first two both tied the ghost's speed to packet arrival (see the code comment on
-      `glideRemote`); it now moves at the engine's fixed rate and simply trails by a constant
-      distance instead.
-- [ ] **A ghost that stops running stands up properly.** **This is the SPAWNED one** — the first
-      defect the comparison found on that side. *What to look at:* run, then stop. *Correct:* it
-      settles into a standing pose rather than freezing in a running frame. **Second attempt** —
-      the settle was written first and never fired, because the flag it keys off was never set.
-      Only `run -> idle` is affected: a walk already ends on a standing frame.
-- [ ] **Leaving a house no longer shows the painted ghost.** *What to look at:* walk out of a
-      door. *Correct:* both ghosts are equally invisible until the fade finishes. Entering was
-      fixed separately and is already confirmed; leaving is a different mechanism — the engine
-      keeps the player's sprite visible and just fades the screen.
+      watch the painted ghost. *Correct:* an even glide, no per-tile stutter. **Fourth attempt, and
+      the first one aimed at the right thing:** three tries adjusted how the GHOST moves and none
+      worked, because the ghost was being positioned against the adapter's smoothed estimate of the
+      PLAYER while drawn at the player's real pixel position. It is now anchored on the engine's own
+      scroll counter, measured exact to the pixel over 240 frames (`verified.md`).
 - [ ] **The painted ghost is as dark as everything else.** *What to look at:* a dark cave, and any
       fade. *Correct:* it dims exactly like the spawned one, rather than shining at full brightness
       over a dark scene. **This is the gap the user predicted before any of it was built.** It now
