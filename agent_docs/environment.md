@@ -884,6 +884,24 @@ playthrough tests a different claim: **"a player can get from here to there, and
 survives the trip."** Cheat and you have tested nothing — you have confirmed that the state you
 wrote is the state you wrote.
 
+**The world's vocabulary — what the things on screen ARE.** A driver that cannot name what it is
+looking at cannot plan, and every one of these was learned the hard way during the 2026-08-19 runs:
+
+| On screen | What it is | What to do |
+|---|---|---|
+| A person | NPC — may block, may talk, may battle you | Face and press A. **Talking is not the same as being refused** |
+| A small board | Sign | Face and press A — usually names the route or town ahead |
+| A red ball on the ground | An item pickup (in an Archipelago seed, a randomised check) | Walk to it and press A |
+| A one-tile step down | **Ledge — a one-way edge.** Passable downward only | Route around; find the gap and go up through it |
+| Tall grass | Wild encounters, walkable | Walk through, or around if avoiding battles |
+| Chunky cuttable grass / boulders | Needs an earned ability | **Check what this SAVE has** before planning around it |
+| A doorway or stair | A warp | Step onto it; it rebuilds the world (see the map-load rules) |
+
+**The three failures these prevent are all the same shape**: an obstacle that is not an obstacle
+(an NPC mid-sentence), an obstacle that is one-way rather than solid (a ledge), and a plan that
+needs an ability the save has not earned. Each looks identical from a driver's seat — *"I pressed a
+direction and did not move"* — and each has a different answer.
+
 **Menus are cursor-then-confirm, and A does not mean "do the obvious thing"** (user, 2026-08-19).
 The convention across these games, and most others: **A confirms/activates WHATEVER IS CURRENTLY
 SELECTED; B goes back, cancels, declines.** So every menu interaction is two steps — move the
