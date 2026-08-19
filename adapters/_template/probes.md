@@ -381,6 +381,25 @@ state**, on an instance it owns, with `client.speedmode()` to make it cheap.
 **When editing still wins:** a state that is a single well-understood value, a state you need
 hundreds of times, or anything where the walk is long and the value is already known.
 
+**Finding the route is a deliverable, not overhead** (user, 2026-08-19). When an agent has to get
+somewhere in a game, *how* it worked out the way is worth recording — the next agent dropped into
+an unfamiliar map can reuse a method, and cannot reuse a sequence of button presses. The user's
+framing when they gave a stuck agent one hint and deliberately withheld the rest: *"i want it to
+figure it out mostly on its own, as that would be great to document/log how to do/search/find
+things"*. So a hint exists to stop a dead stop, not to replace the search. What to capture:
+
+- **What you READ to decide where to go.** A decomp gives you map connections, warp events and each
+  map's own object list — route-planning from data is the same discipline as probe-planning from
+  data, and beats wandering by a wide margin.
+- **How you distinguished "blocked" from "not talked to yet" from "wrong tile".** That exact
+  distinction cost this project a false finding in the record (`pitfalls.md`, the NPC that was read
+  as a story block).
+- **What the adapter already tells you for free.** Map group/number and coordinates are read every
+  frame by the adapter itself — a position fix with no screenshot and no ambiguity.
+- **What you did when a picture was ambiguous**, remembering that one frame cannot see a blinking
+  prompt.
+- **The dead ends, briefly.** A route that did not work is the more useful half of a map.
+
 **Practicalities**, all measured on this project's own hardware (`agent_docs/environment.md`):
 speed settings are a request rather than a guarantee — 400% delivered about 2.3x on a loaded host
 while 200% delivered its full 2x — so measure frames against the wall clock rather than trusting
