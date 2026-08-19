@@ -875,7 +875,7 @@ The line is **observe freely, intervene never**:
 | Reading the decomp to know what a script checks | Setting the flag that script checks |
 | Reading tile behaviour to plan a route | Warping, teleporting, walking through walls |
 | Screenshots, OAM, tilemaps, anything on screen | Spawning an item, a badge, or money |
-| Savestates as checkpoints of legitimate progress | Savestates used to skip something not yet earned |
+| — | **Savestates, at all, during a playthrough run** (see below) |
 
 **Why this is not the same as the dev-tooling carve-out.** `CLAUDE.md` permits a *probe* to cheat
 — `probes/watertile.lua` writes a water tile so fishing can be measured without walking to a
@@ -917,9 +917,23 @@ on understanding it.
 
 - **Only on an instance you own** (one agent per instance, above). Never drive an emulator the
   user is sitting at.
-- **Savestate every milestone**, and say which slot in your report. A state that took ten minutes
-  of scripted play to reach is worth more than the measurement it enabled, because the next
-  session gets it for free. Slot 1 is the user's everywhere; use 2+.
+- **Savestates depend on which kind of run this is, and the distinction is the whole point.**
+  - **A targeted measurement trip** — "get to a trainer battle so `wBattleMode` can be read" —
+    **should** savestate every milestone and name the slots in the report. A state that took ten
+    minutes to reach is worth more than the measurement it enabled, because every later session
+    inherits it. Slot 1 is the user's everywhere; use 2+.
+  - **A full playthrough — no savestates at all.** Not saved, not loaded. The user's ruling,
+    2026-08-19: *"no save states allowed when doing a full playthrough"*, and when asked why:
+    *"its the same as not cheating."* Exactly right — **a savestate is time travel**, so it belongs
+    in the same category as spawning an item or warping. Use the game's own in-game save, as a
+    player would.
+  - **Why it matters beyond purity**: a playthrough's claim is *"a player can get from the start
+    to here, and the adapter survives the trip"*, and a run with a retry button has not shown
+    that. Worse, reloading past a problem **deletes the evidence** — the failures worth finding are
+    exactly the ones an agent would instinctively rewind out of.
+  - **A run that ends badly is a result.** Stuck, lost, softlocked: report it and start again from
+    the beginning. That is data about the game and about the adapter, and it is the data a
+    savestate would have hidden.
 - **Write down what you learn on the way**, not only the thing you set out for — the untested
   states passed through (a battle, a menu, a cutscene, a warp) are exactly where adapter bugs live.
 - **Reading the decomp is normal and encouraged here**: knowing what a script checks turns "wander

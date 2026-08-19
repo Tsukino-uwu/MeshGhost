@@ -382,7 +382,9 @@ state**, on an instance it owns, with `client.speedmode()` to make it cheap.
 hundreds of times, or anything where the walk is long and the value is already known.
 
 **But if the PLAYTHROUGH is the test, editing is disqualifying** (user, 2026-08-19): no spawned
-items, no teleporting, no warping past something not yet earned. Reading is unrestricted —
+items, no teleporting, no warping past something not yet earned — **and no savestates either**,
+because a savestate is time travel and lands in the same category ("its the same as not
+cheating"). Reading is unrestricted —
 position, flags, tile behaviour, the decomp itself — because the rule is *observe freely, intervene
 never*. The two claims are simply different: a probe that fakes water tests "what does the fishing
 code do", a playthrough tests "a player can get there and the adapter survives the trip", and a
