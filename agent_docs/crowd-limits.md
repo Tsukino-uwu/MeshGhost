@@ -203,8 +203,10 @@ once a minute. Nothing enforced that; it was luck, until it was measured.
 **Do as much as the game can handle on its own, then fake it above that cap** (the user's rule,
 2026-08-19). **Crystal now does exactly that, and the ceiling is gone in practice**: 89 peers
 offered on a 10x9 window rendered 89 characters at 60fps, user-confirmed — the engine holding as
-many as it can and the adapter painting the rest. Emerald's equivalent is built and shipped OFF
-until its UI regions can be located (`FLAGS.md`). Details, costs and the measurements:
+many as it can and the adapter painting the rest. Emerald's equivalent is built and still shipped
+OFF (`MESHGHOST_EMERALD_DRAWN_OVERFLOW`, `FLAGS.md`); its UI regions were measured on two maps
+2026-08-19 and it does clip a real panel, but no end-to-end pass has been watched yet
+(`status.md`, `verified.md`). Details, costs and the measurements:
 `ideas.md`, `phases/phase9.md`, and Crystal's `BANDAGES.md` entry 1.
 
 **Three leaks only a crowd could have found**, all in the new tier and all invisible individually,
@@ -214,7 +216,9 @@ survived a **map change** having been computed against the old camera. The rule 
 with two rendering paths, every lifecycle message must reach both, and the tier that gets missed
 is the one with no engine bookkeeping to go stale.
 
-### The general form Spawn real objects while the engine has slots — they get animation, occlusion,
+### The general form
+
+Spawn real objects while the engine has slots — they get animation, occlusion,
 priority and collision for free — and draw the overflow over the emulator's output, which is
 subject to none of the engine's or the hardware's limits because it happens after both. Hardware
 tricks like per-scanline OAM multiplexing do **not** substitute: they relieve the drawing limits

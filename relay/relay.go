@@ -694,6 +694,21 @@ type Server struct {
 	// MaxMessagesPerSecondFor). See the ADR in agent_docs/architecture.md.
 	SendHz int
 
+	// GhostCollision is the room-wide ghost-collision policy this relay
+	// advertises to every client in its Welcome:
+	// protocol.GhostCollisionEnabled, protocol.GhostCollisionDisabled, or ""
+	// for "the operator set nothing", which is the same thing as enabled to
+	// every client and is what an older relay sends by not having the field.
+	//
+	// Advisory in exactly the sense SendHz is, and rather more so: the relay
+	// has no game knowledge at all, so it cannot tell whether an adapter
+	// honored this, cannot verify a ghost is non-solid, and has no lever if
+	// one isn't. It publishes a house rule; the adapters keep it. Normalized
+	// at the use site (resolveGhostCollision) rather than refused, same
+	// resolve-late convention as SendHz and MaxClients. See the ADR in
+	// agent_docs/architecture.md.
+	GhostCollision string
+
 	// Offers is what a QueryOnly Hello is answered with: the transports
 	// this relay actually serves, and their ports. Set by
 	// cmd/meshghost-relay from the listeners it created, because only the
@@ -767,6 +782,17 @@ func (s *Server) resolveSendHz() int {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return protocol.ClampSendHz(s.SendHz)
+}
+
+// resolveGhostCollision returns this relay's configured ghost-collision
+// policy, normalized through protocol.NormalizeGhostCollision. "" is
+// preserved rather than defaulted: a client has to be able to tell "nobody
+// configured a policy" from "the host chose enabled", the same distinction
+// Welcome.SendHz's zero carries.
+func (s *Server) resolveGhostCollision() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return protocol.NormalizeGhostCollision(s.GhostCollision)
 }
 
 // Serve accepts connections on ln, handling each on its own goroutine,
@@ -1269,9 +1295,10 @@ func (s *Server) handleConn(conn net.Conn) {
 				newID, hello.DisplayName, hello.Room, hello.GameID, transportName(conn))
 
 			sendEnvelope(nd, protocol.TypeWelcome, protocol.Welcome{
-				PlayerID: newID,
-				Roster:   rosterBeforeJoin,
-				SendHz:   sendHz,
+				PlayerID:       newID,
+				Roster:         rosterBeforeJoin,
+				SendHz:         sendHz,
+				GhostCollision: s.resolveGhostCollision(),
 				// The room's agreed set PLUS whatever client-scoped
 				// capabilities this particular client asked for and got — so
 				// what a client reads back is what is actually in force for

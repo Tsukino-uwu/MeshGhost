@@ -235,6 +235,18 @@ type Welcome struct {
 	// be a bug worth seeing rather than eliding. See the ADR in
 	// agent_docs/architecture.md.
 	SendHz int `json:"send_hz"`
+	// GhostCollision is the room-wide ghost-collision policy this relay is
+	// configured for: GhostCollisionEnabled, GhostCollisionDisabled, or ""
+	// from a relay that predates the field. A client resolves it against its
+	// own configured preference with ResolveGhostCollision (more restrictive
+	// wins) and hands the answer to its adapter over the bridge.
+	//
+	// omitempty, unlike SendHz: "" here is the ordinary shape of an older
+	// relay AND of a current relay whose operator set nothing, and both mean
+	// the same thing — nobody expressed a policy, so every adapter's own
+	// default stands. SendHz is deliberately not omitempty because a current
+	// relay always has a real rate to state; this one genuinely may not.
+	GhostCollision string `json:"ghost_collision,omitempty"`
 	// Features is the room's agreed feature set — normalized, and identical
 	// for every member (see Hello.Features). Echoed back so a client can see
 	// what the room actually settled on rather than assuming its own request

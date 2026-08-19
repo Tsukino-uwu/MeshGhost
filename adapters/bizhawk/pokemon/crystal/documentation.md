@@ -116,8 +116,13 @@ is what the engine's own step logic writes.
 
 ## Position, and the two coordinate spaces
 
-- `wXCoord` / `wYCoord` (`01:dcb8` / `01:dcb7`) — the player's map position, and the space
-  `CheckObjectEnteringVisibleRange` compares against.
+- `wXCoord` / `wYCoord` (`01:dcb8` / `01:dcb7`) — despite the names, the **origin of the visible
+  window** in map space, not the player's own position, and the space
+  `CheckObjectEnteringVisibleRange` compares against. Two independent things say so: the
+  `wYCoord - 1` / `wYCoord + 9` scan rows above bracket a window rather than sitting symmetrically
+  around a walker, and converting a map coordinate to a screen one is `(mx - wXCoord) & 0x0F`
+  — subtracting a window origin, which would put the player in the top-left corner if this were
+  the player's own position.
 - An object struct carries **map** coordinates (`OBJECT_MAP_X`/`MAP_Y`, offsets 0x10/0x11) *and*
   **screen** coordinates (`OBJECT_SPRITE_X`/`Y`, 0x17/0x18) as separate fields.
 
@@ -203,5 +208,5 @@ is covered by hardware priority — the game's own NPCs and any object written i
 alike. A character standing *outside* the panel's region keeps drawing normally.
 
 Confirmed on screen 2026-08-19 with nine spawned ghosts and the pause menu open. Recorded here
-because it is a property of the game rather than anything MeshGhost does: the adapter has no menu
-detection, no clipping and no draw-priority handling, and needs none.
+because it is a property of the game: hardware priority does this for anything the engine itself
+is drawing, with nothing asked of whoever put the character in the array.

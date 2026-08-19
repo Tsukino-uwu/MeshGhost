@@ -50,7 +50,7 @@ mismatch. Leave it empty (or omit the field) if you have no version concept at a
 `game_version` is never treated as a mismatch against a room that already has one declared.
 
 `features` is the third optional field, and the only way an adapter opts into anything past cosmetic
-ghosts (`internal/bridge`'s `Hello.Features`, merged into whatever the core itself was configured
+ghosts (`bridge`'s `Hello.Features`, merged into whatever the core itself was configured
 with and forwarded to the relay). **Omit it unless you have actually implemented a plane.** A room's
 feature set is matched *exactly* and is sticky for that room's life, so advertising a capability you
 do not use is not a spare ability — it makes your adapter unable to share a room with any adapter
@@ -59,7 +59,7 @@ that did not advertise the identical list. All four shipped adapters omit it. Wh
 
 ### Every `hello` is answered — `bridge_ready` or `reject`
 
-Added 2026-08-16 (`internal/bridge/bridge.go`, ADR in `agent_docs/architecture.md`). The core
+Added 2026-08-16 (`bridge/bridge.go`, ADR in `agent_docs/architecture.md`). The core
 replies with exactly one of:
 
 | Message | Meaning |
@@ -195,7 +195,7 @@ checks `extras.room_x`/`room_y` before they reach a map-lookup call. Write the e
 whatever your engine's own render call would otherwise do with an unbounded value.
 
 Those four types are the whole cosmetic contract, and three of them are the three functions above.
-The bridge defines **nine more** (`internal/bridge/bridge.go`), every one of them inert unless your
+The bridge defines **nine more** (`bridge/bridge.go`), every one of them inert unless your
 `hello` asked for the matching plane: `bridge_ready`/`reject` are the handshake pair above, and the
 other seven are in "Beyond cosmetic" at the bottom of this file.
 
@@ -261,7 +261,7 @@ Six things in that loop are there because a shipped adapter got them wrong first
   what Emerald shipped in Phase 3 and Pseudoregalia repeated in C++; it silently converts a dead
   connection into a permanently frozen ghost.
 - **Keep sending `local_state` every frame, including `null`.** The core only emits
-  `render_remote`/`despawn_remote` in reply to a local frame (`internal/core/core.go`'s
+  `render_remote`/`despawn_remote` in reply to a local frame (`core/core.go`'s
   `onAdapterFrame`) — there is no independent push. An adapter that optimizes away nil or
   unchanged sends stops receiving ghost updates entirely, and it looks like a frozen ghost, not
   a protocol error. For the same reason, **stay connected through menus and pauses and send
@@ -298,7 +298,7 @@ missing or wrong-typed value overwrite known-good state.
 
 ## Limits your adapter must respect
 
-Enforced by `internal/protocol/limits.go` and `online.go`, and the relay (`internal/relay/limits.go`
+Enforced by `protocol/limits.go` and `online.go`, and the relay (`relay/limits.go`
 for the two handshake fields). Oversized *values* are dropped *silently* — the bridge itself doesn't enforce
 them, so a too-big `extras` sails across the bridge and disappears later, which is a miserable
 thing to debug:
@@ -342,7 +342,7 @@ engine-level:
 ## `area_id` gates rendering — it is not just metadata
 
 The core drops any remote whose `area_id` differs from your last non-nil local `area_id`
-(`internal/core/core.go`'s `remoteStatesAt`), and interpolation refuses to blend across an
+(`core/core.go`'s `remoteStatesAt`), and interpolation refuses to blend across an
 `area_id` change. So an unstable `area_id`, or returning nil during transitions, makes remotes
 despawn and reappear for no visible reason. Note there are **three** ghost states, not two: alive,
 hidden-because-the-peer-is-elsewhere (still in your map, just not drawn), and actually despawned.
@@ -484,7 +484,7 @@ Five rules, each of which fails silently rather than loudly:
   next snapshot spreads the regression instead of repairing it. Discrete state on its own key,
   reliable; position on another, lossy.
 
-Bounds (`internal/protocol/online.go`), dropped silently like the cosmetic ones — and derived from
+Bounds (`protocol/online.go`), dropped silently like the cosmetic ones — and derived from
 the **datagram** limit rather than `MaxLineBytes`, because an oversized datagram is refused *even on
 the reliable plane* and reported only as a line in the relay's log:
 

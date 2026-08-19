@@ -182,7 +182,7 @@ Adapter → bridge → core → relay → other cores → their adapters. What h
 silence instead of a confusing half-message — then **stamp `st.PlayerID = id` from the
 connection's own assigned id** (`relay.go`), never trusting the payload's. A peer could
 otherwise claim someone else's id. Then
-`r.ForwardUnreliable(stateEnv, r.stateRecipients(id, time.Now()))` (`relay.go`).
+`r.ForwardUnreliable(stateEnv, r.stateRecipients(id, st.AreaID, len(stateEnv.Payload), time.Now()))` (`relay.go`).
 
 **The per-recipient receive cap.** `stateRecipients` (`relay.go`) asks each *other* member
 whether it currently wants a sample from this sender, via `Client.allowStateFrom`
@@ -417,7 +417,10 @@ The three implementations:
   1.3, so the session is encrypted with no configuration; the certificate is self-signed and
   in-memory and the client sets `InsecureSkipVerify` (`quicconn.go`) because `connect_to` is
   a bare IP with no CA and no hostname to check. That is encryption against someone watching the
-  network, not proof of who is on the other end — see `docs/security.md`.
+  network, not proof of who is on the other end — and the `"tls_fingerprint"` pin does not change
+  it here: `netx.DialWithTLS` wraps only tcp, and `quicconn.Listen` builds its own certificate via
+  `tlsx.ServerConfig`, so a relay serving tcp+TLS and quic presents two different certificates and
+  the fingerprint it prints is the tcp one. See `docs/security.md`.
 
 The seam between "reliable" and "lossy" is a **type assertion**, not a field:
 `NDJSONConn.SendUnreliable` (`transport.go`) checks whether its `net.Conn` implements
@@ -477,7 +480,7 @@ happens when each one trips*.
   equals `udpconn`'s reorder window because a reliable burst wider than that window goes unacked
   and is retried until the connection closes. Asserted in
   `netx/udpconn/world_bounds_test.go`. Two pre-existing constants do NOT satisfy this:
-  `MaxEventBytes` (a maximal `Event` marshals to ~1310 bytes, over the 1200-byte datagram) and
+  `MaxEventBytes` (a maximal `Event` marshals to 1441 bytes, over the 1200-byte datagram) and
   `MaxEscrowBlobBytes` (a *committed* `EscrowState` carries two of them and overshoots in every
   case, not just the maximal one). Shrinking either is a contract revision, so both are pinned by
   `TestMaximalEventDoesNotFitAUDPDatagram`/`TestMaximalCommittedEscrowDoesNotFitAUDPDatagram` and

@@ -23,7 +23,8 @@ players are non-interactive props with no collision, no damage, no AI. The goal 
 friends moving around in the same space while playing. That's it.
 
 > Since superseded on one point: ghost collision became an opt-in per-adapter feature
-> 2026-08-15, on the user's own request — see `plans.md`. Everything else here still holds.
+> 2026-08-15, on the user's own request, and a host-set room policy by the 2026-08-19 ADR in
+> `architecture.md` — see also `plans.md`. Everything else here still holds.
 
 ### Explicit non-goals
 

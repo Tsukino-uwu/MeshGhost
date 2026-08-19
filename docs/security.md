@@ -61,16 +61,26 @@ So the honest summary is **encrypted-by-default, authenticated-only-if-you-ask**
 the bar from "anyone with the address" to "anyone with the address and the code" — not to "safe
 against a network-level attacker".
 
-**Authentication, since 2026-08-19, has exactly one form and it is opt-in**: the relay prints its
-TLS certificate's SHA-256 fingerprint at startup, and a player who was handed that string by some
-other route puts it in `"tls_fingerprint"`. A relay presenting anything else is then refused rather
-than trusted. Without it, TLS (on `tcp`) and quic alike give you encryption and no proof of who is
-on the other end. Two caveats worth saying out loud: it only helps if someone actually compares the
-string, and the certificate is regenerated on every relay restart, so the pin has to be re-copied
-after the host restarts theirs. There is no CA anywhere in this design and none is planned. The
-other route to authentication — TLS channel binding, which would remove the room code from the wire
-entirely rather than encrypting it — is designed and unbuilt (`agent_docs/ideas.md`, transport
-security).
+**Authentication, since 2026-08-19, has exactly one form, it is opt-in, and it covers one leg**: the
+relay prints its TLS certificate's SHA-256 fingerprint at startup, and a player who was handed that
+string by some other route puts it in `"tls_fingerprint"`. A relay presenting anything else is then
+refused rather than trusted. Without it, TLS (on `tcp`) and quic alike give you encryption and no
+proof of who is on the other end.
+
+**The pin authenticates the tcp leg only.** `netx.DialWithTLS` returns a plain dial for anything
+that is not tcp, so the fingerprint is never consulted on the quic path; `netx/quicconn`'s client
+always sets `InsecureSkipVerify`, and `quicconn.Listen` builds its own certificate — so a relay
+serving tcp+TLS and quic is presenting *two different* certificates, and the fingerprint it prints
+at startup is the tcp one. The leg the pin does cover is the leg that carries the room code, which
+is exactly why it is the one worth closing. But the consequence is worth stating plainly: with a
+fingerprint pinned, **`tcp` is stronger than `quic`, not equal to it** — the quic session stays
+encrypted-but-unverified either way.
+
+Two more caveats worth saying out loud: it only helps if someone actually compares the string, and
+the certificate is regenerated on every relay restart, so the pin has to be re-copied after the host
+restarts theirs. There is no CA anywhere in this design and none is planned. The other route to
+authentication — TLS channel binding, which would remove the room code from the wire entirely rather
+than encrypting it — is designed and unbuilt (`agent_docs/ideas.md`, transport security).
 
 **What plain `udp` does have**, since it is otherwise the weakest of the three: an HMAC cookie so an
 unauthenticated stranger cannot make the listener allocate memory for a spoofed address, a
@@ -86,81 +96,47 @@ with people I don't know" has a real, checkable answer instead of a guess — se
 [CLAUDE.md](../CLAUDE.md)'s "no addresses or APIs from memory" rule applied to security
 claims, not just game memory.
 
-**Bottom line up front, updated 2026-08-14: MeshGhost now supports room-code auth and a peer
-game-version check, and the relay/core have been hardened against several concrete
-malicious-peer attack shapes (see "What changed" below). It is safer to use with people you
-don't personally know than it was — but two real limits remain, and neither is closed by this
-work: the wire is not authenticated unless someone pins a fingerprint. On `udp` there is no
-encryption at all and cannot be, so a room code crosses in plaintext; on `quic`, the default path
-since 2026-08-16, and on `tcp` with `"tls"` turned on, since 2026-08-19, the handshake is TLS 1.3
-but the certificate is unverified by default, so it stops a passive eavesdropper and not an active
-man-in-the-middle. **`tcp` is plaintext until `"tls"` is set**, which is the built-in default and
-what a dev session runs on. Either way this raises the bar from "anyone with the address" to "anyone with
-the address and the code," not to "safe against a network-level attacker". And room-code auth is
-enforced entirely by the relay, so it provides
-zero protection if the relay itself is an outdated build, regardless of what any client sends
-or believes it configured — see "A new risk this creates" below.** Full record of this pass:
-the ADR in [agent_docs/architecture.md](../agent_docs/architecture.md) (search
-"room-code/version ADR").
+**Bottom line up front, current as of 2026-08-19.** MeshGhost supports room-code auth and a peer
+game-version check, and the relay/core have been hardened against several concrete malicious-peer
+attack shapes (the 2026-08-14 pass, see "What changed" below). It is safer to use with people you
+don't personally know than it was — but the wire is not *authenticated* unless someone pins a
+fingerprint, and a pin covers the tcp leg only. `quic`, the default session path since 2026-08-16,
+is always TLS 1.3; `tcp` gained optional TLS on 2026-08-19; `udp` has no encryption at all and
+cannot have any, since Go's standard library has no DTLS. Certificates are self-signed and
+unverified by default, so encryption stops a passive eavesdropper and not an active
+man-in-the-middle. **On `tcp`, two different defaults are both true and worth separating: the
+compiled-in default is `"tls"` off** (`cmd/meshghost/main.go`), which is what a dev session or a
+`go run` pair uses, **while the shipped `packaging/release/config.json` sets `"tls": "auto"` on both
+client and server**, so a release pair does encrypt the tcp leg. Either way, all of this raises the
+bar from "anyone with the address" to "anyone with the address and the code," not to "safe against a
+network-level attacker" — and room-code auth is enforced entirely by the relay, so it provides zero
+protection if the relay itself is an outdated build, regardless of what any client sends or believes
+it configured (see "A new risk this creates" below). Full record of the 2026-08-14 pass: the ADR in
+[agent_docs/architecture.md](../agent_docs/architecture.md) (search "room-code/version ADR").
 
-## How a client actually connects (added 2026-08-16)
+## How a client actually connects, and why it matters here
 
-Worth having up front, because it explains where the security properties below apply. **Every
-client handshakes over tcp, always, and no config setting can change that.** `"transport"` in
-`config.json` is not *how* you connect — it is what you move to *once* connected.
+**Every client handshakes over tcp, always, and no config setting can change that.** `"transport"`
+in `config.json` is not *how* you connect — it is what you move to *once* connected. The mechanics
+— the query-only handshake, the offer list, what happens when a relay does not serve the preference
+you asked for — are in [docs/networking.md](networking.md)'s Transports section, which is the
+canonical description; they are not repeated here.
 
-```text
-STEP 1 — the handshake. ALWAYS tcp. Not configurable.
-
-    client  ───────  tcp connect + "what do you serve?"  ──────►  relay
-    client  ◄──────  "tcp:7777, quic:7777"               ───────  relay
-                     (a relay also serving plain udp answers
-                      "tcp:7777, udp:7777, quic:7780" — quic
-                      is the one that has to move)
-
-    The relay answers only AFTER the room-code check, then hangs up.
-    Nothing joins a room. No player_id is assigned. Nobody is told anything.
-
-STEP 2 — the session. Whatever "transport" asked for.
-
-    transport: "auto"   ──►  best on offer (THE DEFAULT; prefers quic,
-                             never udp unless it is the only thing there)
-    transport: "tcp"    ──►  stay put            client ◄═══ tcp  ═══► relay
-    transport: "udp"    ──►  reconnect :7777     client ◄═══ udp  ═══► relay
-    transport: "quic"   ──►  reconnect :7777     client ◄═══ quic ═══► relay
-                             (quic shares -addr's port number; it moves only
-                             when plain udp is served and has taken it)
-
-    relay does not serve what you asked for?
-                        ──►  stay on tcp, and say so in the log
-```
-
-Three things follow from that shape, and they are the reason for it:
-
-- **A client never needs to know a port.** quic normally shares `-addr`'s port number, but moves
-  when the plain udp transport is served and takes that udp port first — so its port is not
-  guessable in general, and is told rather than assumed. `connect_to` only ever needs the tcp
-  address.
-- **A wrong preference degrades instead of failing.** Ask for quic from a relay that does not
-  serve it and you get a working tcp session plus a log line, not a timeout with no explanation.
-- **tcp is mandatory on the relay too.** `netx.ParseKinds` adds it whether or not the operator
-  names it, because a relay without tcp would be unreachable by every client — including ones
-  configured for the transports it *does* serve. Found by `internal/e2e`, not by reasoning.
-
-The security consequence: the handshake, and therefore the room-code check, always happens over
-tcp. **That leg is plaintext unless `"tls"` is turned on** — which is why TLS over tcp matters even
-for a session that ends up on quic: the room code crosses here, before quic is ever reached. With
-`"tls": "required"` on both ends it is encrypted too. See "known gaps" below for what that does and
-does not mean, and note `udp` cannot be encrypted at all while `quic` always is.
+The security consequence is the part that belongs here: the handshake, and therefore the room-code
+check, **always happens over tcp**. The room code crosses that leg before quic is ever reached,
+which is why TLS over tcp matters even for a session that ends up on quic, and why the tcp leg is
+the one a pinned fingerprint authenticates. **That leg is plaintext unless `"tls"` is turned on**;
+`udp` cannot be encrypted at all, and `quic` always is. See "known gaps" below for what each of
+those does and does not mean.
 
 **The tcp handshake grants no session identity.** It is query-only: nothing joins, no `player_id`
 is assigned, and the connection that follows authenticates itself independently. So the udp leg
 defends itself, with two separate mechanisms — an address-validation cookie gating admission
 (blocks blind spoofing and reflection), and a per-connection unpredictable token required on
 every datagram afterwards (blocks injection by anyone who merely guessed a live client's
-ip:port). The second is the measure the CelesteNet notes below describe; it was added 2026-08-16
-after the first version shipped with only the former. Neither is encryption: an attacker already
-on the path reads both out of the traffic, exactly as they would a TCP sequence number.
+ip:port). The second was added 2026-08-16, after the first version shipped with only the former.
+Neither is encryption: an attacker already on the path reads both out of the traffic, exactly as
+they would a TCP sequence number.
 
 ## What changed (2026-08-14 relay-safety hardening pass)
 
@@ -279,15 +255,14 @@ during the read itself, not after), `MaxExtrasBytes` (1024), `MaxPositionLen` (8
 limit is `max(120, send_hz * RateLimitHeadroomMultiple)`, and that multiple is 6),
 `DefaultHelloTimeout` (10s). The opt-in planes carry their own, in `protocol/online.go`
 rather than `limits.go`: `MaxEventBytes` (1024), `MaxLeaseKeyLen` (128), `MaxEscrowBlobBytes`
-(1024), `MaxWorldKeyLen` (64), `MaxWorldBlobBytes` (768) — all **meant to be derived from the
-datagram limit rather than `MaxLineBytes`**, because an oversized datagram is refused even on the
-reliable plane and reported only as a log line. Two of them do not actually achieve that, and the
-comments that claimed otherwise were corrected 2026-08-18: a **maximal `Event` marshals to ~1310
-bytes, over `udpconn.MaxDatagramBytes` (1200)**, and a committed `EscrowState` carrying two blobs
-overshoots in every case. Both are pinned by tests in `netx/udpconn` and recorded as an open
-decision in `agent_docs/risks.md` rather than quietly reduced — plus
+(1024), `MaxWorldKeyLen` (64), `MaxWorldBlobBytes` (768), plus
 `MaxLeasesPerRoom`/`MaxEscrowsPerRoom`/`MaxWorldKeysPerRoom`, which are per-room **memory** bounds
-rather than per-message ones and are the only limits here of that kind. Originally
+rather than per-message ones and are the only limits here of that kind. Those plane bounds are meant
+to be derived from the udp datagram limit rather than `MaxLineBytes`, and two of them are not —
+corrected 2026-08-18, pinned by tests in `netx/udpconn` rather than quietly reduced, and recorded as
+an open decision in `agent_docs/risks.md`. What each limit does when it trips, and the full account
+of that overshoot, are in [docs/networking.md](networking.md)'s "Limits and backpressure" section;
+neither is repeated here. Originally
 generous rather than tight (no-auth was the accepted state through Phase 4); audited with an
 adversarial peer in mind as of the 2026-08-14 hardening pass — see "What changed" above and the
 ADR in [agent_docs/architecture.md](../agent_docs/architecture.md).
@@ -304,17 +279,20 @@ ADR in [agent_docs/architecture.md](../agent_docs/architecture.md).
   resource gap; what it is, is a new place a client could smuggle something into, and it is not
   inspected because by hard rule it cannot be. Same posture as `extras`, with a longer lifetime.
 - **`tcp` is plaintext by default; `udp` always.** On `tcp` that is a default rather than a limit,
-  since 2026-08-19: `"tls": "auto"` or `"required"` encrypts it, and off is the default to keep the
-  "greppable with netcat" debuggability property (see "Why TCP is the default" below). On `udp` it
+  since 2026-08-19: `"tls": "auto"` or `"required"` encrypts it, and the compiled-in default is off
+  to keep the "greppable with netcat" debuggability property (see "Why TCP is the mandatory
+  handshake leg" below); the shipped release config sets `auto`. On `udp` it
   is *unavoidable*, since Go's standard library has no DTLS. So with `tls` off a room code crosses
   either in the clear: anyone positioned between a client and the relay can read it. That is the
   honest ceiling of what room-code auth buys in that configuration — "anyone with the address and
-  the code," not "safe against a network-level attacker." With `tls` on, `tcp` reaches exactly
-  quic's level below — encrypted, and unauthenticated unless a fingerprint is pinned — no further.
+  the code," not "safe against a network-level attacker." With `tls` on, `tcp` reaches quic's level
+  below — encrypted, unauthenticated by default — and with a fingerprint pinned it goes one step
+  *past* quic, because the pin covers the tcp leg and nothing else (see above).
   **`quic` is the exception, since 2026-08-16**: its handshake *is* TLS 1.3, so the session is
   encrypted and the source address cannot be forged. What it still does not give is proof of *who*
   the relay is — the certificate is self-signed and unverified, because `connect_to` is a bare IP
-  with no CA and no hostname to check. Closing that (by binding the room code to the TLS session)
+  with no CA and no hostname to check, and the `"tls_fingerprint"` pin does not reach this path at
+  all. Closing that (by binding the room code to the TLS session)
   is scoped and unscheduled in [agent_docs/ideas.md](../agent_docs/ideas.md); the keying material
   it needs is confirmed reachable from a quic-go connection.
 - **Room-code auth depends on the relay being current** — see "A new risk this creates" above.
@@ -338,63 +316,36 @@ That now covers a **world blob** as well as `extras`: it is opaque, retained for
 and handed to clients its author never met, so anything an adapter puts in one should be treated as
 published to the room's future members rather than sent to its current ones.
 
-## Prior art: how CelesteNet handles this (researched 2026-08-13)
+## Prior art: CelesteNet (researched 2026-08-13)
 
-CelesteNet is already an approved read-only design reference
-([agent_docs/licensing.md](../agent_docs/licensing.md), MIT).
-Read its actual server source (not assumed) via `gh api` against `0x0ade/CelesteNet` before
-writing any of this — findings below are cited to real files, not memory.
+CelesteNet — an approved read-only design reference
+([agent_docs/licensing.md](../agent_docs/licensing.md), MIT) — was read at the source to check this
+posture against a shipped example in the same genre. Four conclusions came out of it and all four
+are already reflected above: a self-hosted CelesteNet server is **also** open by default, so no-auth
+is the normal baseline for a friend-hosted relay rather than a MeshGhost shortcut; its account/ban
+system solves a problem only an always-on public server has, and was deliberately not copied; its
+reject-at-handshake version check *was* the shape adopted here, for `protocol.Version` and, on
+2026-08-14, for `game_version` and the room code; and its unpredictable per-connection UDP tokens
+turned out to be necessary here too, once a udp transport existed (`netx/udpconn`, 2026-08-16).
+Explicitly out of scope: their hardware-fingerprint anti-ban-evasion collection (machine GUID,
+registry paths, MAC-derived identifiers), which conflicts directly with the constraint above.
 
-- **Self-hosted CelesteNet is open by default too.**
-  `CelesteNetServerSettings.AuthOnly` defaults to `false`
-  (`CelesteNet.Server/CelesteNetServerSettings.cs`) — a self-hosted server accepts any client
-  with just a display name, no key required
-  (`CelesteNet.Server/ConPlus/HandshakerRole.cs`'s `AuthenticatePlayerNameKey`, the
-  `else if (!Server.Settings.AuthOnly)` branch). Their baseline posture is the same as ours
-  today — no-auth isn't a MeshGhost-specific shortcut, it's the normal default for a
-  friend-hosted relay in this genre.
-- **Key-based auth exists, but it's scoped to their one large public server, not the
-  baseline.** A `#<key>` prefix on the player name maps to a persistent account UID
-  (`Server.UserData.GetUID`), checked against a stored ban list on connect. This solves a
-  different problem than ours: an always-on server open to the whole internet needs a
-  persistent identity for a ban to mean anything. A friend-hosted session with a shared
-  address/room code doesn't have that problem — mirroring their full account+ban system would
-  be over-engineering for MeshGhost's actual model, unless an always-on public relay ever
-  becomes a real goal (it isn't one today).
-- **Version check at connection time, before any data flows**: a
-  `CelesteNet-TeapotVersion` header, server responds `409 Version Mismatch` on anything but an
-  exact match (`HandshakerRole.cs`'s `TeapotHandshake`). We already do the direct equivalent
-  for our own wire protocol (`protocol.Version`, checked in `hello` at
-  `relay.go`'s `releaseSlot`) — and, since 2026-08-14, the same reject-at-handshake
-  shape for each adapter's own `game_version` too (see "What changed" above).
-- **Unpredictable per-connection tokens** (`CelesteNet.Shared/TokenGenerator.cs`, a Galois
-  LFSR) specifically prevent a third party from hijacking someone else's *UDP* connection by
-  guessing or spamming its token. This defends against a UDP-specific weakness (UDP is
-  connectionless and trivially spoofable) that didn't apply to us while `transport` was
-  TCP-only. **Update 2026-08-16: it applies now.** We added a udp transport and had to solve
-  exactly this — `netx/udpconn` carries an 8-byte per-connection token, checked on every
-  datagram, for the same reason CelesteNet does. Ported after all, independently.
-- **Deliberately not a model to copy**: `CelesteNet.Server/ConPlus/ExtendedHandshake.cs`
-  collects machine GUID / registry paths / MAC-derived identifiers as a hardware-fingerprint
-  anti-ban-evasion check for their public server. That's real, invasive identity collection,
-  and it directly conflicts with the "constraint to protect" above and this project's own
-  privacy posture. Explicitly out of scope here regardless of what CelesteNet does.
+## Why TCP is the mandatory handshake leg (recorded 2026-08-13; revised 2026-08-16 and 2026-08-19)
 
-**Takeaway for our own design**: aim for the *shape* of their version-check pattern (a shared
-secret checked once at handshake, reject outright on mismatch, before any state is exchanged)
-for room codes — not their full public-server account/ban/fingerprinting stack, which solves a
-problem MeshGhost doesn't have. **Implemented 2026-08-14** — see "What changed" above.
-
-## Why TCP is the default (recorded 2026-08-13; UDP and QUIC became selectable 2026-08-16)
-
-**Update 2026-08-16:** the transport is a `config.json` setting — `auto`, `tcp`, `udp`, or `quic`.
-**Superseded later the same day**: the client now defaults to `auto` and the relay serves
-`tcp,quic`, so quic is the common path and tcp the fallback — see the two transport ADRs in
-[agent_docs/architecture.md](../agent_docs/architecture.md). tcp is still the *handshake* and still
-what everything degrades to. The reasoning below is why it holds those roles. Two things it
-did not anticipate: `udp` cannot be encrypted at all in Go (no DTLS in the standard library), and
-QUIC gets the loss behaviour and encryption together, so it is the one to reach for rather than
-plain UDP if either matters.
+**tcp is not the default session, and has not been since 2026-08-16**, when the transport became a
+`config.json` setting — `auto`, `tcp`, `udp` or `quic`. The client ships `auto` and the relay serves
+`tcp,quic`, so a default pair runs quic and drops to tcp only when quic cannot be established (the
+two transport ADRs in [agent_docs/architecture.md](../agent_docs/architecture.md)). What tcp still
+is, is the **mandatory handshake leg and the universal fallback**: the only transport readable with
+`netcat` or a packet capture while debugging — which it still is by default, and still is against a
+relay running `"tls": "auto"` — the one that **did** gain optional TLS, on 2026-08-19, and the only
+choice that changes nothing for an existing user. The reasoning below is why it holds those roles
+rather than why it was once the default. Two things that reasoning did not anticipate: `udp` cannot
+be encrypted at all in Go (no DTLS in the standard library), and QUIC gets the loss behaviour and
+encryption together, so QUIC is the one to reach for rather than plain UDP if either matters. `udp`
+and `quic` exist for the cases the reasoning genuinely does not cover — a lossy connection, or a
+relay near the 100Hz ceiling — and, just as much, because having three implementations behind one
+interface is what makes the "swappable network boundary" claim true rather than aspirational.
 
 `transport` was TCP-only when this was written (NDJSON framing,
 [agent_docs/contract.md](../agent_docs/contract.md)'s Transport section — it now applies that same
@@ -447,15 +398,3 @@ floored near 200ms on common stacks — is likely to dominate instead. **This is
 measurement**: nobody has run MeshGhost over a genuinely lossy link and watched. It does not
 change the conclusion (100ms of interpolation absorbs a lot, and a ghost is cosmetic), but the
 number should be re-derived rather than cited if this comparison is ever re-opened.
-
-**Conclusion (2026-08-16 revision): TCP remains the mandatory handshake leg and the universal
-fallback, but it is no longer the default session** — the client ships `auto` and the relay
-`tcp,quic`, so a default pair runs quic and drops to tcp only when quic cannot be established.
-The reasoning below is why tcp stayed the floor rather than why it stayed the default. It is the
-only
-transport that can be read with `netcat` or a packet capture while debugging — which it still is by
-default, and still is against a relay running `"tls": "auto"` — the one that **did** gain optional
-TLS, on 2026-08-19, and the only choice that changes nothing for an existing user. `udp` and
-`quic` are there for the cases the reasoning above genuinely does not cover — a lossy connection,
-or a relay near the 100Hz ceiling — and, just as much, because having three implementations behind
-one interface is what makes the "swappable network boundary" claim true rather than aspirational.

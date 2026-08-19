@@ -8,6 +8,7 @@
     "room": "default",
     "room_code": "",
     "name": "player",
+    "ghost_collision": "enabled",
     "interp": "100ms",
     "max_receive_hz_per_player": 0,
     "show_console": false

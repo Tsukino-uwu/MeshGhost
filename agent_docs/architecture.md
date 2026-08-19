@@ -504,7 +504,7 @@ Format: Date / Decision / Status / Context / Options considered / Resolution / C
   no-auth and safe only for a friend you hand an address to, not for people you don't
   personally know, including someone actively trying to be malicious with the server/client.
   Two named gaps (no auth, no peer game-version check) plus a broader malicious-peer audit.
-  Researched CelesteNet's own prior art first (`docs/security.md`'s prior-art section, MIT,
+  Researched CelesteNet's own prior art first (the prior-art section at the end of this file, MIT,
   approved reference per `licensing.md`) rather than designing from scratch — its self-hosted
   default is no-auth too (mirroring our own starting posture), and its version-check pattern
   (reject outright at handshake, before any state exchange) is the shape this ADR reuses for
@@ -1207,7 +1207,7 @@ Format: Date / Decision / Status / Context / Options considered / Resolution / C
   carrying kind+port pairs. Shipped `config.json` sets the client to `auto`; the relay still
   defaults to `tcp`.
 - **Status:** Implemented, same day as selectable transports. **The relay default is superseded
-  by the quic-default ADR at the end of this file** — the relay now ships `tcp,quic`, so `auto`
+  by the quic-default ADR later in this file** — the relay now ships `tcp,quic`, so `auto`
   lands on quic out of the box. The client's `auto` and the discovery mechanism itself stand.
 - **Context:** Selectable transports shipped with no way for a client to learn what a relay
   offers, so a host had to say "use quic, port 7780" out of band and a mismatch produced a bare
@@ -2116,3 +2116,148 @@ Format: Date / Decision / Status / Context / Options considered / Resolution / C
     that already draw false positives. Mitigated by the default being `off` — nothing generates
     a certificate unless someone turns it on — and by the SignPath code-signing work that entry
     sequences ahead of it, still unstarted.
+
+### 2026-08-19 — Ghost collision becomes a room policy the host sets, with a client override one way only
+
+- **Decision:** Add `server.ghost_collision`, values `"enabled"` (the default) and `"disabled"`.
+  The relay advertises it in `Welcome` beside `SendHz`; the core forwards it to the adapter over a
+  new `session_policy` bridge message; the adapter honours it. `"enabled"` does **not** mean
+  "force collision on" — it means "each adapter's own default stands, including the places an
+  adapter already makes a ghost passable". `"disabled"` is binding: no ghost blocks anything, in
+  any game, at any time. A client may set `client.ghost_collision` to `"disabled"` as well, and
+  **the more restrictive of the two wins** — a host can take collision away from a room, and can
+  never force it onto a player who does not want it.
+- **Status:** **Implemented 2026-08-19, Go side complete and confirmed with the tools.**
+  `server.ghost_collision` / `client.ghost_collision` in `config.json`, `-ghost-collision` on both
+  binaries, `Welcome.GhostCollision` on the wire, `bridge.SessionPolicy` down to the adapter.
+  `contract.md`'s bridge section is amended. Covered by `protocol/ghostcollision_test.go` (the
+  resolution rule, every combination), `core/ghostcollision_test.go` (the full hop chain plus the
+  ordering race below), and `internal/e2e/ghostcollision_e2e_test.go`, which drives the real
+  `.exe`s. Full suite, `-race`, and `-count=10` on the touched packages all clean.
+
+  **Adapters do not honour it yet** — that is the remaining half, and it is per-game work needing
+  live confirmation. Until an adapter reads the message, setting this changes nothing on screen.
+
+  **One real bug was found by building it.** The first cut pushed the policy from the `Welcome`
+  handler, which runs on the relay read goroutine, while `bridge_ready` is sent on the adapter read
+  goroutine — so `session_policy` could reach an adapter *before* the message that tells it the
+  core is usable at all, and an adapter is entitled to discard that. It was not hypothetical: with
+  the gate removed the ordering test fails on iteration 0, every run. Fixed with an `adapterReady`
+  gate; the test exists because deleting the post-ready push did not fail anything, which is what
+  exposed the `Welcome` path as the one actually delivering.
+- **Context:** `brief.md` originally promised remote players were "non-interactive props with no
+  collision"; that line was superseded 2026-08-15 when ghost collision became an opt-in per-adapter
+  feature on the user's own request. It has been uneven ever since. Pseudoregalia ships
+  `GHOST_COLLISION_ENABLED = true` as a deliberate feature, while TEVI's `BANDAGES.md` asserts
+  "a cosmetic ghost must never collide with anything" — two shipped adapters stating opposite
+  rules. Meanwhile `crowd-limits.md` recorded a Crystal ghost occupying a tile off-screen so the
+  player walked into a solid character they could not see, and its entry still ends "it can still
+  box the player in". The user's own yes/no call on keeping collision was deferred 2026-08-15
+  pending a real two-player session, that session ran 2026-08-16, and the question was never
+  re-judged — `status.md` lists it under "was blocked on a two-player session". This ADR does not
+  answer that yes/no; it makes it a setting instead, which is the answer that survives either way.
+- **Options considered:** (1) **Client-only** — cheapest by a wide margin, needs no contract change
+  at all, and is technically sufficient because collision here is *purely local*: your game only
+  ever blocks your own movement against your own copy of a ghost, and nothing about it is
+  negotiated between peers (`plans.md`'s standing non-goal). Rejected because it cannot give a host
+  one consistent answer for a crowded room, which is the actual request. (2) **Server-only and
+  binding** — simplest to document, but leaves a player with no recourse in an `"enabled"` room.
+  (3) **Server floor plus a one-way client override.**
+- **Resolution:** Option 3, which is `Welcome.SendHz`'s existing idiom applied to a boolean: there,
+  the relay's rate is prescriptive for a client that has not expressed a preference, but a client
+  that deliberately configured a slower one keeps it, and the slower of the two wins. Here the more
+  restrictive of the two wins, for the same reason — the host owns the room's rules, and a player
+  owns their own comfort. Nothing new has to be invented to explain it.
+- **Why a new bridge message rather than a field on `BridgeReady`:** `BridgeReady` is documented as
+  deliberately carrying no payload, on the argument that anything worth knowing is "either the
+  adapter's own input or none of its business". A host-set room policy is a genuine third category
+  that did not exist when that was written, so the argument does not exclude it — but a one-shot
+  field on the handshake would still be wrong, because the core can re-handshake with the relay in
+  the background (`reconnectWithBackoff`) without the adapter ever reconnecting, and a reconnecting
+  client already "re-reads the room's advertised send_hz from the new Welcome". A policy that can
+  change mid-session needs a message that can be sent again. `BridgeReady`'s ordering is fine
+  either way: `ConnectRelayOnAdapterHello` completes before it is sent, so the `Welcome` is already
+  in hand.
+- **Consequences:** It is **advisory, not enforceable.** The relay has no game knowledge and cannot
+  tell whether an adapter obeyed — exactly like `send_hz`. Shipped adapters honour it; nothing
+  makes them, and this must be said plainly in the host-facing docs rather than implied.
+
+  **The cost of `"disabled"` is very uneven per game, and three of the four are not free.** TEVI is
+  already there — it destroys every `Collider2D`/`Rigidbody2D` at clone time, so `"disabled"` is a
+  no-op and `"enabled"` would mean nothing without changing that `Destroy` to a disable.
+  Pseudoregalia is cheap and clean: one `SetActorEnableCollision(false)`, and its animation
+  pipeline was built while collision was off, so nothing in the pose path reads collision state —
+  but a re-enable path must re-apply `bCanBeDamaged = false` and the `ECC_WorldDynamic` retype,
+  which today sit inside `if constexpr (GHOST_COLLISION_ENABLED)` and would otherwise be silently
+  skipped, returning the ghost damageable.
+
+  **Emerald and Crystal are the expensive case, and the reason is structural.** Neither adapter
+  writes a collision field at all; a ghost is solid because it *is* a real engine object holding a
+  tile, and map coordinates are what drive collision. There is no bit to clear. "Off" therefore
+  means demoting the peer to the drawn tier — a painted overlay that loses the engine's animation,
+  draw priority and occlusion. Crystal can do this today (`shouldBlock` already demotes idle and
+  pushed-into peers, which is the same mechanism); Emerald needs its dormant
+  `MESHGHOST_EMERALD_DRAWN_OVERFLOW` shipped on first, and that flag carries its own known
+  problem — a peer crossing the spawn budget changes from solid to walk-through with nothing on
+  screen explaining it.
+
+  **This makes drawn-tier visual parity a prerequisite rather than a nice-to-have**, on the user's
+  explicit call: a demoted ghost must not feel worse than a spawned one, which means occlusion,
+  shadows and water reflection have to be reached for in the drawn path before `"disabled"` is a
+  good experience in the two Pokemon games. Tracked separately — that is per-game rendering
+  research needing live confirmation, not something this ADR schedules.
+
+  A genuinely non-solid *spawned* ghost — keeping engine animation while not blocking — has no
+  implemented path in either Pokemon game and no cited source for the field that would do it.
+  Emerald's object elevation byte at `0x0b` is the candidate to research and is **uncited
+  inference**; per the address rule it needs a real decomp citation before anyone writes it. If it
+  works, it collapses the whole expensive case above.
+
+
+## Prior art: how CelesteNet handles this (researched 2026-08-13)
+
+Moved here from `docs/security.md` on 2026-08-19: it is research history behind several
+ADRs above (room-code auth, the game-version check, the udp per-connection token), not
+part of a user-facing security posture. Cited from this file's own ADRs and from
+`contract.md`. Findings below were read from real files in the MIT-licensed
+`0x0ade/CelesteNet` source, an approved read-only reference per `licensing.md` — facts
+and citations only, never its code.
+- **Self-hosted CelesteNet is open by default too.**
+  `CelesteNetServerSettings.AuthOnly` defaults to `false`
+  (`CelesteNet.Server/CelesteNetServerSettings.cs`) — a self-hosted server accepts any client
+  with just a display name, no key required
+  (`CelesteNet.Server/ConPlus/HandshakerRole.cs`'s `AuthenticatePlayerNameKey`, the
+  `else if (!Server.Settings.AuthOnly)` branch). Their baseline posture is the same as ours
+  today — no-auth isn't a MeshGhost-specific shortcut, it's the normal default for a
+  friend-hosted relay in this genre.
+- **Key-based auth exists, but it's scoped to their one large public server, not the
+  baseline.** A `#<key>` prefix on the player name maps to a persistent account UID
+  (`Server.UserData.GetUID`), checked against a stored ban list on connect. This solves a
+  different problem than ours: an always-on server open to the whole internet needs a
+  persistent identity for a ban to mean anything. A friend-hosted session with a shared
+  address/room code doesn't have that problem — mirroring their full account+ban system would
+  be over-engineering for MeshGhost's actual model, unless an always-on public relay ever
+  becomes a real goal (it isn't one today).
+- **Version check at connection time, before any data flows**: a
+  `CelesteNet-TeapotVersion` header, server responds `409 Version Mismatch` on anything but an
+  exact match (`HandshakerRole.cs`'s `TeapotHandshake`). We already do the direct equivalent
+  for our own wire protocol (`protocol.Version`, checked in `hello` at
+  `relay.go`'s `handleConn`) — and, since 2026-08-14, the same reject-at-handshake
+  shape for each adapter's own `game_version` too — the room-code/version ADR above.
+- **Unpredictable per-connection tokens** (`CelesteNet.Shared/TokenGenerator.cs`, a Galois
+  LFSR) specifically prevent a third party from hijacking someone else's *UDP* connection by
+  guessing or spamming its token. This defends against a UDP-specific weakness (UDP is
+  connectionless and trivially spoofable) that didn't apply to us while `transport` was
+  TCP-only. **Update 2026-08-16: it applies now.** We added a udp transport and had to solve
+  exactly this — `netx/udpconn` carries an 8-byte per-connection token, checked on every
+  datagram, for the same reason CelesteNet does. Ported after all, independently.
+- **Deliberately not a model to copy**: `CelesteNet.Server/ConPlus/ExtendedHandshake.cs`
+  collects machine GUID / registry paths / MAC-derived identifiers as a hardware-fingerprint
+  anti-ban-evasion check for their public server. That's real, invasive identity collection,
+  and it directly conflicts with this project's own privacy posture
+  (`docs/security.md`). Explicitly out of scope here regardless of what CelesteNet does.
+
+**Takeaway for our own design**: aim for the *shape* of their version-check pattern (a shared
+secret checked once at handshake, reject outright on mismatch, before any state is exchanged)
+for room codes — not their full public-server account/ban/fingerprinting stack, which solves a
+problem MeshGhost doesn't have. **Implemented 2026-08-14** — the room-code/version ADR above.

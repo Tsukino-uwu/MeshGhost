@@ -121,6 +121,14 @@ type fileConfig struct {
 	// means uncapped (the pre-existing behavior). Per-peer, not a total —
 	// see core.Core.MaxReceiveHz and the ADR in agent_docs/architecture.md.
 	MaxReceiveHzPerPlayer *int `json:"max_receive_hz_per_player"`
+	// GhostCollision is this player's OWN ghost-collision preference, and it
+	// only ever works in the restrictive direction: "disabled" turns ghost
+	// collision off for this player whatever the room is set to, while
+	// "enabled" (or absent, the default) accepts whatever the host chose. A
+	// host can take collision away; a host cannot force it onto someone who
+	// does not want it. See core.Core.GhostCollision and the ADR in
+	// agent_docs/architecture.md.
+	GhostCollision *string `json:"ghost_collision"`
 	// Features turns on capabilities beyond the cosmetic ghost overlay --
 	// the event plane, leases, escrow, late-join snapshots, session
 	// resumption, clock sync (see protocol's Feature* constants and
@@ -185,21 +193,22 @@ type rootConfig struct {
 // support would have pushed it to seven; a struct keeps each field's name
 // at the call site instead of relying on positional order.
 type configTargets struct {
-	relayAddr    *string
-	bridgeAddr   *string
-	gameID       *string
-	room         *string
-	name         *string
-	interp       *time.Duration
-	minSend      *time.Duration
-	roomCode     *string
-	gameVersion  *string
-	maxReceiveHz *int
-	transport    *string
-	tlsMode      *string
-	tlsPin       *string
-	showConsole  *bool
-	features     *string
+	relayAddr      *string
+	bridgeAddr     *string
+	gameID         *string
+	room           *string
+	name           *string
+	interp         *time.Duration
+	minSend        *time.Duration
+	roomCode       *string
+	gameVersion    *string
+	maxReceiveHz   *int
+	ghostCollision *string
+	transport      *string
+	tlsMode        *string
+	tlsPin         *string
+	showConsole    *bool
+	features       *string
 }
 
 // applyFileConfig loads path (leaving every flag alone if it doesn't exist, so
@@ -375,6 +384,9 @@ func applyFileConfig(path string, explicit map[string]bool, t configTargets) {
 	if fc.MaxReceiveHzPerPlayer != nil && !explicit["max-receive-hz-per-player"] {
 		*t.maxReceiveHz = *fc.MaxReceiveHzPerPlayer
 	}
+	if fc.GhostCollision != nil && !explicit["ghost-collision"] {
+		*t.ghostCollision = *fc.GhostCollision
+	}
 	if fc.Transport != nil && !explicit["transport"] {
 		*t.transport = *fc.Transport
 	}
@@ -536,6 +548,11 @@ func main() {
 			"35 updates/sec inbound, not 5. Only affects your own download and nobody else's view "+
 			"of you. Valid range 10-100 if set; values below ~10 will look stuttery unless you "+
 			"also raise -interp")
+	ghostCollision := flag.String("ghost-collision", "",
+		"this player's own ghost collision preference: \"disabled\" turns ghost "+
+			"collision off for you whatever the room is set to. \"enabled\" or empty "+
+			"accepts the host's choice -- it cannot force collision on in a room where "+
+			"the host turned it off")
 	transportName := flag.String("transport", netx.Auto.String(),
 		"which transport to move to AFTER connecting. The handshake is always tcp and this "+
 			"cannot be changed -- so you never need to know which port a transport is on, and a "+
@@ -599,21 +616,22 @@ func main() {
 	flag.Visit(func(f *flag.Flag) { explicit[f.Name] = true })
 
 	applyFileConfig(*configPath, explicit, configTargets{
-		relayAddr:    relayAddr,
-		bridgeAddr:   bridgeAddr,
-		gameID:       gameID,
-		room:         room,
-		name:         name,
-		interp:       interp,
-		minSend:      minSend,
-		roomCode:     roomCode,
-		gameVersion:  gameVersion,
-		maxReceiveHz: maxReceiveHz,
-		transport:    transportName,
-		tlsMode:      tlsMode,
-		tlsPin:       tlsPin,
-		showConsole:  showConsole,
-		features:     features,
+		relayAddr:      relayAddr,
+		bridgeAddr:     bridgeAddr,
+		gameID:         gameID,
+		room:           room,
+		name:           name,
+		interp:         interp,
+		minSend:        minSend,
+		roomCode:       roomCode,
+		gameVersion:    gameVersion,
+		maxReceiveHz:   maxReceiveHz,
+		ghostCollision: ghostCollision,
+		transport:      transportName,
+		tlsMode:        tlsMode,
+		tlsPin:         tlsPin,
+		showConsole:    showConsole,
+		features:       features,
 	})
 
 	// stderr stays in the list unconditionally: when this client was run from a
@@ -679,6 +697,10 @@ func main() {
 	c.InterpolationDelay = *interp
 	c.MinSendInterval = *minSend
 	c.MaxReceiveHz = *maxReceiveHz
+	// Only ever restrictive: "enabled" here does not override a host who
+	// turned collision off. protocol.ResolveGhostCollision is where that is
+	// actually enforced -- this just carries the preference.
+	c.GhostCollision = *ghostCollision
 	c.Features = parseFeatures(*features)
 	c.RelayAddr = *relayAddr
 	c.Room = *room

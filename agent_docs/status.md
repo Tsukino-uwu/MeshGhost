@@ -82,8 +82,8 @@ enough that bundling it would make one confirmation pass unable to isolate a reg
 Two real players on two machines, confirmed on screen — `verified.md`. These need re-judging now
 that a peer's state genuinely differs from the local player's, which loopback could never show:
 
-- **Ghost collision: keeping it ON, still WIP.** Enemies can no longer hit the ghost (confirmed
-  2026-08-17); the player still can. `risks.md`, `verified.md`.
+- **Ghost collision: answered as a setting, not a yes/no.** ADR 2026-08-19 in `architecture.md`
+  makes it a host-set room policy with a one-way client override; decided, not implemented.
 - **Killing a ghost leaves the player respawning at 0/empty health** — player melee only; the HUD
   is fine, the value isn't. Suspect shared health state. `verified.md` 2026-08-17.
 - **Ghost vanishes while a peer is on a pole**, then returns stuck in a climb pose. Cause unknown,
@@ -93,6 +93,10 @@ that a peer's state genuinely differs from the local player's, which loopback co
 
 ### Open, not blocked
 
+- **Ghost collision policy: Go side DONE, adapters not wired.** Config, wire and bridge all ship
+  and are tested; no adapter reads `session_policy` yet, so nothing changes on screen. ADR 2026-08-19.
+- **Drawn-tier visual parity: occlusion, shadows, water reflection.** A prerequisite for the
+  policy's `"disabled"` in Emerald and Crystal, on the user's call. Per-game, needs live watching.
 - **A vanilla battle with a crowd was never reached** — our own spawned ghosts boxed the player in
   on the way to grass, which `crowd-limits.md` predicts. `unverified.md`, `pitfalls.md`.
 - **Emerald's real-panel clip count was REACHED, not played to** — the position was written, so it
@@ -115,9 +119,8 @@ that a peer's state genuinely differs from the local player's, which loopback co
   below. Pseudoregalia's port walk is built but **not yet watched live**. `ideas.md`.
 - **TEVI's FullMap marker goes stale** — it only refreshes on a `render_remote`, so a peer who
   stops sending leaves a marker frozen where it was. Shipped bug, not hypothetical. `ideas.md`.
-- **TEVI lags the template's bridge shape** — handles `bridge_ready`/`reject` and autostarts a
-  core (both 2026-08-18, both confirmed live); the PORT WALK is the remaining gap.
-  `_template/PROTOCOL.md`.
+- **TEVI lags the template's bridge shape** — `bridge_ready`/`reject` and autostart landed
+  2026-08-18; the PORT WALK is the remaining gap. `_template/PROTOCOL.md`.
 - **Emerald's shipped adapter spawns instead of drawing** — user-confirmed piece by piece
   2026-08-18 (appears, follows, walks, runs, on-grid, no leak); **no end-to-end pass yet.**
 - **Awaiting a confirmation pass**: the spawn adapter and the whole test toolchain were built and

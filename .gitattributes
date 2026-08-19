@@ -10,13 +10,13 @@ adapters/pseudoregalia/MeshGhostPseudo/Mod/src/*.cpp text eol=lf
 adapters/pseudoregalia/MeshGhostPseudo/Mod/src/*.hpp text eol=lf
 adapters/pseudoregalia/MeshGhostPseudo/Mod/CMakeLists.txt text eol=lf
 
-# Shell scripts are pinned LF as a standing rule rather than for a file that exists today:
-# nothing currently ships one (the release's Linux/macOS packages are tarred on a Linux runner,
-# which keeps the executable bit and removed the need for a chmod helper). The rule stays
-# because a CRLF shell script is the classic "$'\r': command not found" failure on Linux and
-# macOS, and this machine CANNOT demonstrate it -- Git Bash's sh tolerates CRLF happily
-# (checked 2026-08-16). A broken script would therefore look perfectly healthy in local
-# testing and only fail for the user, which is an argument for the rule, not against it.
+# Shell scripts are pinned LF, and this rule is load-bearing right now, not hypothetical:
+# .github/workflows/ci.yml's fuzz job runs `bash dev-scripts/ci-fuzz.sh` on ubuntu-latest, so a
+# CRLF copy of it breaks CI outright with the classic "$'\r': command not found". This machine
+# CANNOT demonstrate that failure -- Git Bash's sh tolerates CRLF happily (checked 2026-08-16) --
+# so a broken script looks perfectly healthy in local testing and only fails on the runner.
+# (The release's Linux/macOS packages are tarred on a Linux runner, which keeps the executable
+# bit; that is why no chmod helper is needed, not why this rule exists.)
 *.sh text eol=lf
 
 # go.mod/go.sum are pinned LF because `go mod tidy` rewrites them wholesale to LF: without this

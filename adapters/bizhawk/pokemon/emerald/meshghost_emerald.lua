@@ -2729,8 +2729,9 @@ local function runFrame()
             syncRemoteGhosts(smoothAreaId, spawnSet)
             -- TIER TWO: everyone the engine had no room for, painted over the finished frame
             -- so that no peer is ever simply absent. Flag-gated -- see FLAGS.md and
-            -- BANDAGES.md: a drawn ghost has no engine occlusion, so until the region a text
-            -- box or menu occupies is MEASURED on this game, this tier would paint over them.
+            -- BANDAGES.md. A drawn ghost has no engine occlusion of its own, so it clips
+            -- against the panel regions tiering.scanPanel() measures per row, rather than
+            -- painting over a text box or menu the way an unclipped overlay would.
             if tiering.drawn then
                 drawRemotes(smoothAreaId, smoothX, smoothY, spawnSet)
             end

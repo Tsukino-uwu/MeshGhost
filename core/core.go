@@ -308,6 +308,43 @@ type Core struct {
 	// rate.
 	serverSendInterval time.Duration
 
+	// GhostCollision is this client's OWN ghost-collision preference,
+	// protocol.GhostCollisionDisabled or "" (no preference). Set from
+	// client.ghost_collision. It is resolved against the relay's advertised
+	// policy by protocol.ResolveGhostCollision, more restrictive wins — so
+	// setting this to "disabled" turns ghost collision off for this player
+	// whatever the room says, and setting it to "enabled" does NOT override
+	// a host who turned it off. See the ADR in agent_docs/architecture.md.
+	GhostCollision string
+
+	// relayGhostCollision is what the relay advertised in Welcome, or "" for
+	// an older relay or one whose operator set nothing. Guarded by mu; set
+	// per connection in handleRelayMessage's Welcome case and cleared on
+	// disconnect, exactly like serverSendInterval above, so a reconnect to a
+	// differently-configured relay never inherits a stale policy.
+	relayGhostCollision string
+
+	// adapterReady is true once bridge_ready has been sent on the current
+	// adapter connection. Guarded by mu.
+	//
+	// It exists because Welcome arrives on the RELAY read goroutine while
+	// bridge_ready is sent on the ADAPTER read goroutine, and the relay
+	// handshake is what ConnectRelayOnAdapterHello is waiting for — so
+	// without this gate the two race, and a session_policy could reach an
+	// adapter before the bridge_ready it is supposed to follow. An adapter
+	// keys off bridge_ready to decide the core is usable at all, so anything
+	// arriving first is entitled to be discarded. Caught by
+	// TestGhostCollisionPolicyArrivesAfterBridgeReady, which failed
+	// intermittently before this existed.
+	adapterReady bool
+
+	// sentGhostCollision is the last value actually pushed to the adapter, so
+	// a re-resolve that changes nothing sends nothing. Guarded by mu. Empty
+	// means "never sent on this bridge connection" and is reset when an
+	// adapter attaches, so a NEW adapter always gets a policy even if the
+	// resolved value happens to match what the previous one was told.
+	sentGhostCollision string
+
 	// HeartbeatInterval overrides DefaultHeartbeatInterval for this Core —
 	// how often sendHeartbeats pings an otherwise-quiet relay connection.
 	// <= 0 disables heartbeats entirely (used by core_test.go to reproduce
@@ -610,6 +647,10 @@ func (c *Core) ConnectRelay(gameID string) error {
 			// "nothing advertised yet" fallback instead of inheriting this
 			// connection's now-stale rate.
 			c.serverSendInterval = 0
+			// Cleared with the rate above so a reconnect to a
+			// differently-configured relay never inherits a stale policy. The
+			// adapter is told the new value once the next Welcome lands.
+			c.relayGhostCollision = ""
 			// Per-connection too: the room's agreed capabilities, the clock
 			// offset (a different relay has a different clock, and even the
 			// same one restarted may have jumped), the outstanding ping
@@ -998,6 +1039,12 @@ func (c *Core) handleRelayMessage(payload []byte, welcome chan<- protocol.Welcom
 			if w.SendHz > 0 {
 				c.serverSendInterval = time.Second / time.Duration(protocol.ClampSendHz(w.SendHz))
 			}
+			// Normalized on receive rather than trusted as sent, the same
+			// defence-in-depth against a hostile relay as clamping SendHz
+			// above — and here an unrecognized value normalizes to
+			// "disabled", so a relay cannot talk this client into a physical
+			// effect by sending garbage.
+			c.relayGhostCollision = protocol.NormalizeGhostCollision(w.GhostCollision)
 			// The room's agreed set, normalized again on receive rather than
 			// trusted as sent — same defence-in-depth against a hostile relay
 			// as clamping SendHz above.
@@ -1008,6 +1055,11 @@ func (c *Core) handleRelayMessage(payload []byte, welcome chan<- protocol.Welcom
 				c.resumeToken = w.ResumeToken
 			}
 			c.mu.Unlock()
+			// A Welcome can land long after the adapter came up: a background
+			// reconnect, or a resume into a relay configured differently from
+			// the one this session started on. Re-push so the adapter follows
+			// the room it is actually in now. No-ops when nothing changed.
+			c.pushSessionPolicy()
 			logResumeOutcome(w, hadToken)
 			select {
 			case welcome <- w:
@@ -1191,6 +1243,7 @@ func (c *Core) handleBridgeConn(netConn net.Conn) {
 		// port every time.
 		if c.attachedAdapter == nd {
 			c.attachedAdapter = nil
+			c.adapterReady = false
 		}
 		if owns {
 			// Disarm auto-retry (see autoRetryGameID's doc comment) before
@@ -1258,6 +1311,13 @@ func (c *Core) handleBridgeConn(netConn net.Conn) {
 			busy := c.attachedAdapter != nil && c.attachedAdapter != nd
 			if !busy {
 				c.attachedAdapter = nd
+				c.adapterReady = false
+				// A new adapter has been told nothing yet, whatever the
+				// previous one heard. Without this reset, an adapter
+				// reconnecting into an unchanged policy would come up with no
+				// session_policy at all and fall back to its compiled-in
+				// default -- the exact case a re-launched game hits.
+				c.sentGhostCollision = ""
 			}
 			c.mu.Unlock()
 			if busy {
@@ -1280,6 +1340,7 @@ func (c *Core) handleBridgeConn(netConn net.Conn) {
 				c.mu.Lock()
 				if c.attachedAdapter == nd {
 					c.attachedAdapter = nil
+					c.adapterReady = false
 				}
 				c.mu.Unlock()
 				// The reason reaches the adapter now, where it used to be
@@ -1290,6 +1351,15 @@ func (c *Core) handleBridgeConn(netConn net.Conn) {
 				return
 			}
 			sendBridgeEnvelope(nd, bridge.TypeBridgeReady, bridge.BridgeReady{})
+			c.mu.Lock()
+			c.adapterReady = true
+			c.mu.Unlock()
+			// The relay handshake above has already completed, so the room's
+			// policy is known by now and the adapter gets it as part of
+			// coming up rather than a tick later. Order matters: an adapter
+			// keys off bridge_ready to start sending, so the policy has to
+			// follow it, not precede it.
+			c.pushSessionPolicy()
 		case bridge.TypeLocalState:
 			var msg bridge.LocalState
 			if err := json.Unmarshal(env.Payload, &msg); err != nil {
@@ -1815,6 +1885,46 @@ func rejectBridge(nd transport.Transport, reason string) {
 	log.Printf("core: refused an adapter: %s", reason)
 	sendBridgeEnvelope(nd, bridge.TypeReject, bridge.Reject{Reason: reason})
 	_ = nd.Close()
+}
+
+// pushSessionPolicy resolves the room policy against this Core's own
+// preference and sends it to the attached adapter, if it has changed since
+// the last time we told that adapter.
+//
+// Called after BridgeReady (the adapter's first policy) and again from the
+// Welcome handler (a reconnect, or a resume into a differently-configured
+// relay). Sending only on change is what makes the second call cheap enough
+// to make unconditionally: the common reconnect re-advertises the same
+// policy and this does nothing.
+//
+// The send happens OUTSIDE mu deliberately. transport.Send can block on a
+// slow or wedged adapter socket, and holding the Core's lock across that
+// would stall every relay message for the whole process — the adapter is a
+// separate process and is not trusted to drain promptly.
+func (c *Core) pushSessionPolicy() {
+	c.mu.Lock()
+	effective := protocol.ResolveGhostCollision(c.relayGhostCollision, c.GhostCollision)
+	nd := c.attachedAdapter
+	if nd == nil || !c.adapterReady || effective == c.sentGhostCollision {
+		c.mu.Unlock()
+		return
+	}
+	c.sentGhostCollision = effective
+	c.mu.Unlock()
+
+	sendBridgeEnvelope(nd, bridge.TypeSessionPolicy, bridge.SessionPolicy{
+		GhostCollision: effective,
+	})
+	// Logged because this is the one place a player can see WHY their ghosts
+	// are or are not solid: the value is the resolution of two settings in two
+	// different files, one of which is on someone else's machine. Says which
+	// side decided it, so "I set it to enabled and it's off" answers itself.
+	source := "the room"
+	if protocol.NormalizeGhostCollision(c.GhostCollision) == protocol.GhostCollisionDisabled &&
+		effective == protocol.GhostCollisionDisabled {
+		source = "your own config"
+	}
+	log.Printf("core: ghost collision %s (set by %s) — told the adapter", effective, source)
 }
 
 func sendBridgeEnvelope(nd transport.Transport, t bridge.MessageType, payload any) {

@@ -37,8 +37,8 @@
 
 - **A maximal `event`, and a committed `escrow_state`, are silently undeliverable to any udp peer
   — pre-existing, found 2026-08-17 while sizing the world plane, and NOT fixed.** Measured:
-  a maximal `Event` (payload 1024 + `to` 128 + `corr_id` 64 + scaffolding) renders to **1321
-  bytes**, and a committed `EscrowState` carrying two 1024-byte blobs to **2294**, against
+  a maximal `Event` (payload 1024 + `to` 128 + `corr_id` 64 + scaffolding) renders to **1441
+  bytes**, and a committed `EscrowState` carrying two 1024-byte blobs to **3302**, against
   `udpconn.MaxDatagramBytes` (1200) minus 18 bytes of framing = **1182 usable**. Both fail
   `udpconn.checkWritable` — *including on the reliable plane* — and the refusal surfaces only as a
   `relay: send to pX failed:` line, so the message is lost for that recipient and never superseded.
@@ -161,7 +161,11 @@
   not confidentiality**: the certificate is unverified, so quic stops a passive eavesdropper and
   not an active man-in-the-middle. Its `tls.ConnectionState` exposes a working
   `ExportKeyingMaterial`, so the channel-binding design that would close this drops straight in.
-  TLS-over-`tcp` remains unbuilt, and `tcp`/`udp` remain plaintext when chosen explicitly.
+  **TLS-over-`tcp` was built 2026-08-19** (`netx/tlsx`; `tls: off`/`auto`/`required` on both ends,
+  the binaries defaulting to `off` and `packaging/release/config.json` to `auto`), so both default
+  transports now encrypt and `netx/tls_test.go` asserts the room code is absent from the bytes on
+  the wire. Unchanged: the certificate is still unverified (encrypted, not authenticated), and
+  `udp` remains plaintext with no fix available.
 - **`udp` cannot be encrypted, ever, and this is not fixable** (added 2026-08-16 with selectable
   transports). Go's standard library has no DTLS, so a client choosing `transport: "udp"` sends
   its `room_code` in the clear with no option available to change that. **The real mitigation

@@ -40,16 +40,20 @@ one game sets `server.only_game` to that game's id — `emerald`, `crystal`, `te
 1. Grab the latest release zip from the [Releases page](../../releases) and unzip it.
 2. Edit `config.json`: `connect_to` (the host's address), `room` (must match everyone else's),
    and `name`. If the host set a `room_code`, enter that too.
-3. Run `meshghost.exe` — everyone does this, **except for Pseudoregalia, where the mod starts it
-   for you with no window** (its settings then live in the `config.json` beside the mod). Whoever
-   is hosting also runs `meshghost-server.exe` and forwards port 7777 — **both `tcp` and `udp`,
-   which are two separate rules on most routers**. The server prints exactly what to forward when
-   it starts.
-4. Load your game's mod from `games\<publisher>\<game>\` (BizHawk Lua Console for Emerald and
-   Crystal, BepInEx for TEVI, UE4SS for Pseudoregalia) — for Emerald, Crystal and TEVI, **after**
-   `meshghost.exe` is already running. For Pseudoregalia there is no order to get right: starting
-   the game is the whole thing. (The two Pokémon games are the only ones with a `<publisher>`
-   subfolder: `games\pokemon\emerald\` and `games\pokemon\crystal\`.)
+3. Load your game's mod from `games\<publisher>\<game>\` — BizHawk's Lua Console for Emerald and
+   Crystal, BepInEx for TEVI, UE4SS for Pseudoregalia. **You do not start `meshghost.exe` yourself:
+   every adapter starts one for you, with no window, and closes it again with the game.** There is
+   no order to get right and nothing to leave open. (The two Pokémon games are the only ones with a
+   `<publisher>` subfolder: `games\pokemon\emerald\` and `games\pokemon\crystal\`.)
+4. Whoever is hosting also runs `meshghost-server.exe` and forwards port 7777 — **both `tcp` and
+   `udp`, which are two separate rules on most routers**. The server prints exactly what to forward
+   when it starts.
+
+TEVI and Pseudoregalia install their mod *into* the game, so they need `meshghost.exe` copied into
+that mod's folder once, and they read the `config.json` that sits beside it rather than the one in
+the folder you unzipped. Emerald and Crystal run from the release folder itself and need neither.
+Setting `MESHGHOST_NO_AUTOSTART` in your environment turns autostart off in all four, if you would
+rather run the client by hand.
 
 Full walkthrough: `packaging/release/README.txt`, which ships in the zip.
 
@@ -58,8 +62,18 @@ Full walkthrough: `packaging/release/README.txt`, which ships in the zip.
 - Up to 8 players per server by default, counted across all rooms — the host can raise it.
 - Bring your own legally-obtained copy of each game. No ROMs or game assets are shipped here.
 - `room` is a label, not a password. `room_code` is the optional actual secret.
-- Archipelago and other mods/patches: a goal, not a tested guarantee. An AP-patched Emerald ROM
-  can shift where facing and running are read from, so treat it as "should work", not confirmed.
+- Archipelago-patched ROMs are handled rather than merely hoped for: Emerald detects the patch's
+  relocated addresses at startup and adjusts, and Crystal identifies the patch from its ROM header
+  and switches to its own separately-measured address set. Both are tied to the base patch each was
+  measured against, so a future Archipelago world update can move things again. Any other romhack
+  or translation is untested — the adapter says so on startup and runs anyway.
+- **Ghosts can be solid, and the host decides.** Whether you can bump into a friend's ghost
+  depends on the game — a Pokémon ghost is a real character standing on a real tile, a TEVI ghost
+  is a picture with no physical presence at all. `server.ghost_collision: "disabled"` asks every
+  game to stop, room-wide; a player can also set `client.ghost_collision` for themselves, and the
+  stricter of the two wins, so a host can take collision away but never force it on. It is a
+  request the adapters honour, not something the relay can enforce — the relay has no idea what
+  collision means in any game.
 - Flagged by your antivirus? That is expected and worth understanding rather than waving away —
   [docs/antivirus.md](docs/antivirus.md).
 
@@ -73,7 +87,7 @@ working. Nothing to configure.
 | | Default | What it's for |
 | --- | --- | --- |
 | `quic` | **yes** — what you actually run on | Encrypted, and drops a stale position instead of delaying the ones behind it |
-| `tcp` | **yes** — always the handshake, and the fallback | Works everywhere, readable on the wire when debugging |
+| `tcp` | **yes** — always the handshake, and the fallback | Works everywhere; encrypted too when `tls` is on, and still inspectable by hand when it isn't |
 | `udp` | no — opt in | Same loss behaviour as quic but **cannot be encrypted**; there if quic is blocked |
 
 `quic` shares the server's port *number* (`7777/udp` alongside `7777/tcp`), so hosting still means
@@ -81,10 +95,22 @@ forwarding one number — as two separate router rules. Set `"transport"` in `co
 override: `auto` (the default — prefers quic, never silently picks the unencrypted one), or
 `tcp`/`udp`/`quic` to pin it.
 
-**Encrypted is not authenticated.** quic hides your traffic and your `room_code` from anyone
-watching the network, but the server's certificate is not verified, so it is not proof of *who*
-you reached. Full posture: [docs/security.md](docs/security.md). Why it works this way:
-[agent_docs/architecture.md](agent_docs/architecture.md)'s transport ADRs.
+**The tcp handshake is encrypted too.** It has to be: every client makes first contact over tcp
+whatever transport it ends up on, and that is the leg carrying the `room_code`. `"tls"` in
+`config.json` is set to `auto` on both sides in the shipped file — encrypt whenever the other end
+can, fall back to plaintext with a warning in the log when it can't, which is what keeps an older
+copy able to connect. `required` refuses a peer that can't encrypt; `off` is plaintext. Under
+`auto` a single port still serves both, so debugging a relay by hand keeps working.
+
+**Encrypted is not authenticated.** Every certificate here is self-signed and generated in memory,
+so encryption hides your traffic without proving *who* you reached, and there is no CA anywhere in
+this design. One partial answer exists: the relay prints a `tls certificate fingerprint:` line at
+startup, and a player who pastes it into `"tls_fingerprint"` authenticates **the tcp leg** — which
+is the leg carrying the `room_code`, so it is the one worth closing. It does not extend to the quic
+session, which uses a separate certificate and is encrypted-but-unverified either way. Pinning is
+opt-in, nothing distributes the fingerprint for you, and the relay generates a new certificate on
+every restart. Full posture: [docs/security.md](docs/security.md). Why it works this way:
+[agent_docs/architecture.md](agent_docs/architecture.md)'s transport and TLS ADRs.
 
 ## How it works
 

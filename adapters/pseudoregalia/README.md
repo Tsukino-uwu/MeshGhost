@@ -125,8 +125,9 @@ Roughly in order:
     (un-committable) submodule. (7.6)
 16. Fixed the ghost getting stuck in a falling animation. (7.6)
 17. Fixed the ghost getting stuck in a ledge-hang animation. (7.6)
-18. Ghosts can't actually be deleted on this build, so a leaving ghost is moved into the void
-    instead, until the next stage transition clears it out. (7.5)
+18. A leaving ghost was moved into the void rather than deleted, because `K2_DestroyActor`
+    appeared to silently no-op — a property of the *hijacked* actor, not of the build. Since the
+    ghost became one we spawn, it is destroyed properly; parking is only the fallback. (7.5)
 19. Went after the remaining visual gaps (weapon, outfit, ability VFX) by rebuilding a
     generalized reflection dumper and turning on UE4SS's own console/actor-dumper mods, then
     mapping every in-game ability to real internal field names — and a follow-up live *value*
@@ -225,8 +226,9 @@ Roughly in order:
     who tried this said the separate client exe defeated the point — the good encounters were the
     unplanned ones, and nobody launches a second program for those. The mod now spawns it hidden
     when it finds nothing on the bridge, which also means a client that's already running gets used
-    rather than duplicated. It passes no relay settings, only a working directory, so the core still
-    reads its own config and the adapter still knows nothing about the relay. (7.7)
+    rather than duplicated. It passes no relay settings — only the bridge port and its own
+    process id, with the core reading its own config out of the working directory — so the
+    adapter still knows nothing about the relay. (7.7)
 
 43. Stopped a sliding ghost sinking into the floor — the quick way, and the wrong object. A slide
     halves the character's capsule and drops its centre by the same amount, so a ghost teleported to

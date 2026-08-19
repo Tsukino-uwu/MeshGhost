@@ -2,8 +2,9 @@ MeshGhost -- setup
 ===================
 
 What's in this folder:
-- meshghost.exe        -- the client. EVERYONE playing runs this, whether
-                            hosting or not.
+- meshghost.exe        -- the client. Every player needs it, but you do
+                            NOT run it yourself: your game's mod starts it
+                            and stops it for you.
 - meshghost-server.exe  -- the server. Only ONE person in your group needs
                             this -- whoever is hosting the session.
 - config.json            -- THE ONLY FILE YOU SHOULD NEED TO EDIT. Has a
@@ -13,11 +14,12 @@ What's in this folder:
                             for the game you're playing matters to you.
 
 Status: Pokemon Emerald and Pokemon Crystal are tested and working. TEVI and
-Pseudoregalia are both
-EXPERIMENTAL. TEVI has been confirmed working with two real players (two local
-instances on one machine; not yet confirmed over a network between two separate
-machines). Pseudoregalia has been confirmed with two real players on two separate
-machines. See games\tevi\README.txt and games\pseudoregalia\README.txt.
+Pseudoregalia are both EXPERIMENTAL. TEVI has been confirmed working with two
+real players, but as two local instances on one machine -- not yet over a
+network between two separate machines. Pseudoregalia HAS been confirmed with
+two real players on two separate machines, and is still marked experimental
+because that is one session on one pair of machines rather than broad testing.
+See games\tevi\README.txt and games\pseudoregalia\README.txt.
 
 Setup, once:
 1. Open config.json in a text editor (Notepad is fine).
@@ -35,6 +37,14 @@ Setup, once:
                off by default. If they did set one, you must enter it
                exactly or you'll be refused.
      "name"  -- whatever you want your ghost to show as to others.
+     "ghost_collision" -- whether other players' ghosts can be solid in
+               YOUR game -- bumped into, stood on, in the way. "enabled"
+               (the default) accepts whatever the host chose. "disabled"
+               turns it off for you no matter what the host set, which is
+               the one thing this setting can do that theirs can't: a host
+               can take collision away from everyone, but cannot force it
+               on you. Whether a ghost was ever solid in the first place
+               depends on the game -- see the note at the end of this file.
      "tls"   -- LEAVE THIS AS "auto". It encrypts the first contact your
                client makes with the host, which is the part that carries
                your room_code. "auto" uses encryption whenever the host
@@ -67,9 +77,11 @@ Setup, once:
                to happen (ask them). "tcp" keeps you on the plain, most
                predictable one. There's a full pros/cons rundown in
                "Transports -- tcp vs udp vs quic" near the bottom.
-     "local_game_bridge" -- internal, on your own PC only. Leave this alone
-               unless you're running two copies on the SAME machine (see
-               below).
+     "local_game_bridge" -- internal, on your own PC only. Leave this
+               alone. Emerald and Crystal pick a free port by themselves,
+               and TEVI and Pseudoregalia are told theirs by their own mod,
+               so nothing reads this in normal play (see "two people on the
+               SAME machine" below).
      "interp" -- how far behind real-time (e.g. "100ms", "200ms") you render
                OTHER players' ghosts, to smooth out network jitter. This is
                entirely YOUR OWN client's setting -- it doesn't affect what
@@ -160,9 +172,10 @@ Setup, once:
                Adding "udp" is the one case that needs more: udp takes the
                same UDP port quic wants, so you must also set
                "listen_quic" (e.g. "0.0.0.0:7780") and forward that too.
-               The server refuses to start and tells you if you forget. Pros/cons of each are in "Transports --
-               tcp vs udp vs quic" near the bottom, along with which ports
-               you need to forward for each.
+               The server refuses to start and tells you if you forget.
+               Pros/cons of each are in "Transports -- tcp vs udp vs quic"
+               near the bottom, along with which ports you need to forward
+               for each.
      "listen_quic" -- leave it as "" (the default). quic then shares
                "listen_on"'s port number, so hosting stays one number to
                forward. Only set it if you serve plain "udp" as well,
@@ -202,6 +215,16 @@ Setup, once:
                silently ignores this setting and keeps hosting every game
                with no warning. If in doubt, re-download the latest
                release.
+     "ghost_collision" -- whether ghosts may be solid for players in your
+               rooms. "enabled" (the default) leaves each game to its own
+               behavior. "disabled" turns it off for EVERYONE in every
+               room, which is what you want if a crowd keeps blocking
+               people in doorways or you'd rather ghosts were purely
+               something you look at. Players can each turn it off for
+               themselves as well; they cannot turn it back on if you
+               turned it off. Your server prints which one it read on
+               startup. See the note at the end of this file for what it
+               actually does per game.
      "max_clients" -- how many players this relay accepts in total,
                including you -- across every room, if your group ever
                uses more than one room name on the same relay at once. 8
@@ -359,38 +382,52 @@ Hosting (skip this section if you're not the host):
 4. To stop hosting: close the window (or Ctrl+C).
 
 Playing, every session (everyone, including the host):
-1. Pseudoregalia and TEVI: just start the game. The mod starts MeshGhost
-   for you, with no window -- there is nothing to run and nothing to leave
-   open -- and closes it again when you quit. Both need the one-time copy
-   of meshghost.exe into that game's mod folder, described in
-   games\<your game>\README.txt.
+1. Just start the game. ALL FOUR mods start MeshGhost for you, with no
+   window -- there is nothing to run first and nothing to leave open --
+   and close it again when you quit. There is no order to get right.
 
-   Their settings live in that same mod folder's config.json, NOT the
-   config.json next to this README: once you drag the mod into your game,
-   that's the copy it reads.
+   Pseudoregalia and TEVI install their mod INTO the game, so they each
+   need the one-time copy of meshghost.exe into that game's mod folder,
+   described in games\<your game>\README.txt. Their settings then live in
+   that same mod folder's config.json, NOT the config.json next to this
+   README: once you drag the mod into your game, that's the copy it reads.
 
-   Emerald and Crystal: double-click meshghost.exe first and leave the
-   window open -- it should say "no game set -- waiting for a game to
-   connect and say hello...". If it prints a warning about config.json
-   instead, you probably broke the JSON syntax above -- the warning will
-   say what's wrong. These two run from this folder, so they use the
-   config.json right here and need nothing copied.
+   Emerald and Crystal run from this folder. The script finds
+   meshghost.exe and config.json right here on its own, so there is
+   nothing to copy and nothing to edit anywhere else.
 2. Open your game and load its MeshGhost mod/script -- see games\<your
    game>\README.txt for exactly how (BizHawk Lua Console for Emerald and
    Crystal; BepInEx for TEVI and UE4SS for Pseudoregalia, both of which
-   load themselves). Where there is a meshghost.exe window, it should change to say
-   "connected to relay ... in room ..." -- that's your "it worked" signal.
-   Where there isn't one, the same line is in meshghost.log beside the mod.
+   load themselves). Your "it worked" signal is a "connected to relay ...
+   in room ..." line: in BizHawk's Lua Console for Emerald and Crystal,
+   and in meshghost.log beside the mod for TEVI and Pseudoregalia. If the
+   log warns about config.json instead, you probably broke the JSON syntax
+   above -- the warning will say what's wrong.
+
+   Prefer to run the client yourself (an antivirus that objects to one
+   program starting another, or you just want to watch its window)? Set
+   the environment variable MESHGHOST_NO_AUTOSTART to anything, and
+   double-click meshghost.exe before starting the game as before. That
+   path is unchanged and fully supported in all four games.
 3. Walk around. Once a friend joins the same server in the same room,
    you'll see their character as a ghost -- correct sprite/model, facing,
    and movement, tracking their real position. No shared world state:
    items, battles/fights, and story progress are all still fully
    independent per player.
 
-Playing with two people on the SAME machine (testing/local): each instance
-needs its own local_game_bridge port. Copy this whole folder a second time,
-and in the second copy's config.json change "local_game_bridge" to
-"127.0.0.1:7779" (must differ from the first copy's).
+Playing with two people on the SAME machine (testing/local): each copy
+needs its own local bridge port, and how you get one depends on the game.
+
+  Emerald and Crystal: nothing to do. Each BizHawk instance walks
+  127.0.0.1:7778-7785 looking for a port nobody has taken, so a second
+  emulator finds its own and starts its own client automatically.
+
+  TEVI: the port lives in BepInEx's own config for that install
+  (BepInEx\config\dev.meshghost.tevi.cfg, [Network] BridgePort), so two
+  TEVI installs can be given different ones.
+
+  Pseudoregalia: its mod always uses 7778, so two copies on one machine
+  does not currently work for this game.
 
 Something not working? Both meshghost.exe and meshghost-server.exe also
 write everything they print to a log file (meshghost.log /
@@ -413,10 +450,10 @@ Common things to check:
   typos are the usual cause of "nothing happens."
 - If playing over the internet (not the same network), the HOST needs their
   port forwarded -- that's their setup, not yours.
-- meshghost.exe's window still says "waiting for a game to connect" after
-  you loaded your game's mod/script? Double-check you loaded it from the
-  right folder under games\, and (for TEVI and Emerald) that meshghost.exe
-  was already running first.
+- Loaded your game's mod/script and nothing happened? Double-check you
+  loaded it from the right folder under games\. For TEVI and
+  Pseudoregalia, check you did the one-time copy of meshghost.exe into
+  that game's mod folder -- their log names the exact folder it looked in.
 - Pseudoregalia, and nothing happens at all? Check meshghost.log in the
   MeshGhostPseudo folder. No log file means the mod never started the
   client: look in ue4ss\UE4SS.log, which will say whether meshghost.exe was
@@ -521,12 +558,53 @@ Nothing is lost by that. MeshGhost exits with the game under Proton, confirmed
 on a real Linux setup 2026-08-16 across six sessions, including when the game
 is killed outright rather than quit normally.
 
-One exception worth knowing: the Pokemon Emerald and Pokemon Crystal adapters
-are BizHawk Lua scripts (games\pokemon\emerald\ and games\pokemon\crystal\ in
-this zip), and BizHawk itself runs natively on Linux and macOS. Nothing about
-those scripts is Windows-specific -- though nobody has yet tried them off
-Windows.
+The Pokemon adapters are NOT an exception, despite looking like one. Emerald
+and Crystal are BizHawk Lua scripts (games\pokemon\emerald\ and
+games\pokemon\crystal\ in this zip) and BizHawk itself runs natively on Linux
+and macOS -- but the scripts reach the network through a LuaSocket library
+shipped here as a WINDOWS dll (libd\socket-windows-5-4.dll), and there is
+no Linux or macOS build of it in this package. Everything else about those
+scripts is portable; it is only the socket that is not. Running BizHawk itself
+through Proton/Wine is the only route with any chance of working today, and
+nobody has tried it.
 
+
+Ghost collision -- can you bump into a friend's ghost?
+------------------------------------------------------
+Sometimes, and it depends entirely on which game. There is no single
+answer because a ghost is built differently in each one.
+
+  Pokemon Emerald and Pokemon Crystal -- yes. A ghost there is a real
+    character standing on a real tile, the same as any NPC, so it takes up
+    space and you cannot walk through it. Crystal already gets out of your
+    way on its own: a ghost that hasn't moved for a few seconds, or that
+    you push against for a moment, becomes walk-through.
+  Pseudoregalia -- partly. The ghost is physically present, but reports so
+    far are that it does not actually block you; what it does do is shove
+    things around if you end up inside one.
+  TEVI -- no, never. That ghost is a picture and has no physical presence
+    at all.
+
+"ghost_collision": "disabled" asks every game to stop doing any of it. The
+host sets it for the whole server; each player can also set it just for
+themselves. The strictest setting wins, so a player who turns it off keeps
+it off, and a player cannot turn it back on in a room where the host
+turned it off.
+
+Two honest caveats:
+
+  It is a REQUEST, not a rule the server can enforce. The server has no
+  idea what any of these games are or what collision means in them -- it
+  publishes the setting and the game mods honor it. Nothing on the server
+  can check that a mod did, and an old mod that predates the setting will
+  ignore it entirely. If ghosts are still solid after you set this, the
+  mod is the thing to update.
+
+  Turning it off is not free in the two Pokemon games. Solidity there
+  comes from the ghost being a real engine character, so the only way to
+  make it non-solid is to draw it as an overlay instead -- and an overlay
+  doesn't get hidden behind buildings the way a real character does.
+  Improving that is being worked on.
 
 Transports -- tcp vs udp vs quic
 ---------------------------------

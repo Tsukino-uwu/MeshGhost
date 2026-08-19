@@ -157,9 +157,10 @@ downloaded release folder and run against its `meshghost-server.exe` instead.
   that a key is never held by two clients at once, that every exchange terminates without an abort
   delivering a deposit, and that the world never goes backwards, loses an entity across a handover,
   resurrects a dropped one, or accepts a stale host's write. Exits non-zero if any of that fails,
-  so it can go in a script rather than needing someone to watch. Point its `-relay` at
-  `run-netsim.bat` to soak the same thing under loss and jitter, and run the relay with
-  `-introspect` to see what it believed while it ran.
+  so it can go in a script rather than needing someone to watch. It hardcodes
+  `-relay=127.0.0.1:7911` and forwards no arguments, so soaking the same thing under loss and
+  jitter means editing the script to point `-relay` at a `run-netsim.bat` proxy address rather
+  than passing a flag; run the relay with `-introspect` to see what it believed while it ran.
 
   **Read the summary even on a pass** — a run with 0 claims denied, 0 exchanges committed, or 0
   worlds adopted is a green result that exercised nothing. And know its measured limit: against a deliberately broken
@@ -220,10 +221,13 @@ default silently drags every dev client back down, and a ghost updating at 20Hz 
 
   Start a relay as usual, run this, then point a client at `127.0.0.2:7777`. **The seed is printed
   at startup** — pass it back with `-seed` to replay a fault sequence, which is the difference
-  between a bug report and an anecdote. Note `-loss`/`-duplicate`/`-reorder` are udp-only and are
-  *refused* rather than ignored while mirroring tcp: dropping bytes out of a proxied tcp stream
-  corrupts it instead of simulating loss, and silently ignoring the flag would let a clean run be
-  reported as evidence the stack survives loss.
+  between a bug report and an anecdote. Note `-loss`/`-duplicate`/`-reorder` are udp-only —
+  dropping bytes out of a proxied tcp stream corrupts it instead of simulating loss, so they are
+  applied to the udp/quic flows and skipped on tcp. Combining them with a mirrored tcp port is
+  fine and is the normal case: the handshake is ALWAYS tcp, so every real session needs tcp
+  mirrored. The tool refuses only the combination that would do nothing at all — those flags with
+  no udp ports mirrored (an earlier version made *any* tcp mirroring fatal, which made `-loss`
+  unusable in exactly the case it exists for).
 - `run-relay-loopback.bat` — a relay that echoes a lone client's own state back as
   `<id>-ghost`. Pair with any single core (`run-core-emerald.bat`, `run-core-tevi.bat`,
   `run-core-pseudoregalia.bat`) to see a real network round trip and your own ghost with only
@@ -317,3 +321,127 @@ default silently drags every dev client back down, and a ghost updating at 20Hz 
   staged. The stock Mods folder is deliberately NOT staged -- see the script's own header for the
   cheat-manager/console reasoning -- and no mods.txt/mods.json ships either. Re-run whenever the
   RE-UE4SS submodule pin changes; requires the build tree already built once.
+
+## CI and repo hygiene
+
+Not launchers at all, and not strays — one of them CI calls by name.
+
+- `ci-fuzz.sh` — **CI runs this, do not move or delete it.** `.github/workflows/ci.yml`'s fuzz job
+  invokes `bash dev-scripts/ci-fuzz.sh <package> <FuzzTarget> <fuzztime>` once per target (11 of
+  them as of 2026-08-19), so renaming this file breaks the fuzz job. It exists because `go test
+  -fuzz` can exit non-zero with nothing but `context deadline exceeded` when its own `-fuzztime`
+  elapses mid-execution — no crashing input, nothing written to `testdata`, green on the next run.
+  This wrapper fails only on a real finding, so a red fuzz run stays worth reading. Seen on CI
+  2026-08-17; the script's own header has the numbers.
+- `lua-forward-refs.py` — mechanical check for a name used *before* its file-scope `local` in a
+  Lua file, which Lua silently resolves to a nil global rather than erroring where you would see
+  it. Deliberately crude (it flags candidates, it does not parse Lua) and it understands forward
+  declarations. Bit the Emerald adapter three times on 2026-08-18, each costing a live test.
+- `preflight.ps1` — documented above, with the Go test scripts.
+
+## BizHawk dev loader, screenshots and savestates
+
+The loader is the entry point for everything in the three sections below it: BizHawk only accepts
+a Lua script on the command line (`--lua=...`), and attaching or swapping one on an
+ALREADY-RUNNING instance is a Lua Console GUI action nothing outside the emulator can drive.
+
+- `bizhawk-dev-loader.lua` — attached once at launch, then watches a plain-text control file
+  (`bizhawk-dev-loader.target` beside it, gitignored — `*.target` has its own `.gitignore` entry)
+  naming one script per line, or `none` to run nothing. Change the file and it swaps to the new
+  set on the next poll, with no relaunch and without disturbing the running game. Loaded scripts
+  hook in by assigning `MESHGHOST_DEV_TICK`. Reach for it any time you would otherwise relaunch
+  the emulator to try a revised probe.
+- `bizhawk-screenshot.lua` — one screenshot after a fixed delay (600 frames / 10s), because the
+  first version fired on its first tick and produced three "the ghost is invisible" shots of a
+  game that had not spawned one yet. Use when you want the state some seconds into a session.
+- `bizhawk-screenshot-loop.lua` — a numbered PNG every N frames (default 120) into a per-game
+  shots folder (`MESHGHOST_SHOT_DIR` / `_PREFIX` / `_INTERVAL`, per-game because two emulators run
+  at once and one shared folder means two agents overwriting each other's evidence). Use when the
+  question is "what has been happening" rather than "what is on screen now" — one frame cannot
+  see a blinking thing.
+- `bizhawk-savestate.lua` — saves or loads one savestate slot once, then stops; edit `ACTION`/
+  `SLOT` and point the loader at it. Slot 1 is the user's own, 2-10 are agent checkpoints. Use it
+  to make a repeated or risky test cheap instead of re-walking to the state by hand. A savestate
+  is not an in-game save.
+- `bizhawk-syntax-check.lua` — `loadfile()`s each named Lua file and reports whether it *compiles*,
+  running none of them, so no adapter socket or frame loop starts and nothing touches the game.
+  Exists because the machine has no standalone Lua binary and BizHawk embeds Lua 5.4; use it to
+  catch a missing `end` without a live session.
+- `zoom.ps1` — crops and nearest-neighbour upscales a region of the last screenshot so a sprite in
+  a 240x160 GBA frame is legible (`-X -Y -W -H -Scale -Game -In -Out`). Nearest-neighbour on
+  purpose: no smoothing inventing detail that is not there.
+
+## BizHawk capability probes
+
+All read-only "what can this host actually do?" scripts. A doc string in BizHawk's DLL is not
+proof a function is callable — `memory.hash_region` had one and was nil at runtime — so these ask
+the live build rather than trusting a list. Each writes a `.log` beside itself.
+
+- `bizhawk-capabilities.lua` — dumps `client.getluafunctionslist()`, every function this build
+  actually implements. The first thing to run when asking "what else can we drive from here?".
+- `bizhawk-api-dump.lua` — the fallback for a build where that call is missing (it is absent in
+  this one, checked 2026-08-18): walks the global tables (`client`, `emu`, `os`, `io`, `comm`,
+  `bizstring`) and lists their keys.
+- `bizhawk-savestate-probe.lua` — reports which of `savestate.save` / `load` / `saveslot` /
+  `loadslot` / `saveslots` exist. Saves nothing and loads nothing.
+- `bizhawk-input-probe.lua` — reports what the `joypad` and `input` libraries expose. Presses
+  nothing, deliberately: driving input while someone is playing fights them for the controller.
+- `bizhawk-joypad-names.lua` — dumps the keys of `joypad.get()` / `getimmediate()`, which are the
+  exact button names this core expects. Reach for it when `joypad.set` silently does nothing for a
+  direction, instead of guessing a third spelling.
+- `bizhawk-spawn-probe.lua` — asks whether a process started via `luanet` (NLua's .NET bridge,
+  `System.Diagnostics.Process`) is actually *invisible*, where `os.execute`/`io.popen` always
+  flash a console window whatever shape they are given. Three countdown-paced phases ending in a
+  deliberate positive control that SHOULD flash; a human watches the screen, since no machine can
+  answer this one.
+- `bizhawk-cheat-probe.lua` — asks which cheat-code formats this build's cheat engine accepts
+  (`client.addcheat`), the question that has to come first before using cheats to reach a game
+  state that would otherwise cost hours of play: BizHawk ships a GameShark decoder, and a
+  CodeBreaker code fed to it does not fail loudly — it decodes to a *different* address and writes
+  there. Adds codes, presses nothing.
+- `bizhawk-cheat-clear.lua` — removes the six codes that probe added. Written 2026-08-18 when a
+  screenshot showed BizHawk had accepted two of them, decoded them to nonsense low addresses, and
+  marked them ACTIVE — an active cheat writing an arbitrary byte every frame is exactly the kind
+  of thing later blamed on the adapter. Run it after the probe.
+
+## BizHawk input driving
+
+- `bizhawk-input-test.lua` — can a script actually MOVE the player, or does `joypad.set` merely
+  exist? Checkpoints to slot 3, reads the player's map coordinates, holds RIGHT for a fixed number
+  of frames (re-issued every frame — `joypad.set` applies to the next frame only), reads the
+  coordinates again and reports the **delta**, then restores the checkpoint. Those coordinates are
+  the independent witness; "the call did not raise an error" is not one.
+- `bizhawk-input-demo.lua` — the same behavioural test in the other direction (holds Down, slot 4),
+  with screenshots either side for looking at, NOT for proof.
+
+## Adapter-specific investigation tools
+
+Emerald-side one-offs, kept because the questions recur. Each is loaded through
+`bizhawk-dev-loader.lua` and writes its own `.log` under `dev-scripts/`.
+
+- `tile-inspect.lua` — reads the tile the player faces the way the game does and names its
+  behaviour (pond/deep/ocean water, tall grass, normal). Written when the Super Rod was refused
+  with "not usable here" and it was unclear whether the edited tile or the facing was wrong.
+  Read-only.
+- `walk-into-tile.lua` — the behavioural version of the same question: walk into the tile and see
+  whether the game blocks you, which needs no redraw and no menus.
+- `walk-and-shoot.lua` — walks a few tiles then screenshots, because the surf blob is only
+  repositioned by the engine when its rider MOVES (`SynchronizeSurfPosition`), so a stationary
+  frame cannot show whether an initial placement error corrects itself.
+- `fish-sequence.lua` — drives the menu route to "Super Rod cast at water", screenshotting every
+  step, and starts by backing out to a neutral overworld rather than assuming one. It scripts the
+  SETUP only; fishing itself is a branching process, which is the part being watched rather than
+  driven.
+- `rom-swap-test.lua` — proves `client.openrom` loads an arbitrary ROM, fingerprinting the code
+  around `CB2_Overworld` before *and* after within one run (a first attempt compared two separate
+  runs and saw no difference, because the earlier run had left the other ROM loaded). Both paths
+  come from `MESHGHOST_ROM_VANILLA` / `MESHGHOST_ROM_PATCHED`; you supply your own copies, and no
+  ROM path or seed filename belongs in this repo.
+- `gfxinfo-probe.lua` — dumps `ObjectEventGraphicsInfo` field by field for a handful of graphics
+  ids (size, tile count, OAM shape, subsprite table), for comparing a graphic that renders as
+  garbage against the player's own.
+- `force-ghost-gfx.lua` — the switchboard for Emerald's ghost-graphics debug globals
+  (`MESHGHOST_FORCE_GHOST_GFX`, `MESHGHOST_GHOST_PEER_GFX`, `MESHGHOST_DEBUG_SKIP_OAM_COPY`,
+  `MESHGHOST_DEBUG_SHARE_PLAYER_TILES`). It assigns every one of them unconditionally because
+  globals survive a loader script swap, and as committed they are all `nil` — so the file's job in
+  its checked-in state is clearing that state back to the default. Edit a value to force one.

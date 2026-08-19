@@ -895,7 +895,7 @@ room-code auth could not do (`risks.md:101-110`).
   reach users.
 - **Reading a real session off the wire stops working.** netcat-driving survives under `auto`,
   but a packet capture between two real binaries goes opaque — the property
-  `docs/security.md`'s "Why TCP is the default" section argues for. `tls: off` is the way back.
+  `docs/security.md`'s "Why TCP is the mandatory handshake leg" section argues for. `tls: off` is the way back.
 - **~10-15% more traffic.** Roughly 25 bytes of TLS record overhead per message; at 20 Hz that's
   about 1.8 MB/hour per direction against 150-250 byte packets. Post-handshake CPU is
   immeasurable — AES-GCM moves gigabytes per second and this sends four kilobytes.

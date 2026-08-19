@@ -81,42 +81,25 @@ subsystem on a sustained run of failures, rather than a constant chosen to prote
   plausible value with no counter or log, which is the failure mode `CLAUDE.md` warns about. (The
   neighbouring gender/direction defaults are documented forward-compat and fine.)
 
-## Two render paths at once, until the Archipelago sprite shift is measured (2026-08-18)
+## CLOSED — two render paths at once, until the Archipelago sprite shift is measured (2026-08-18, closed 2026-08-19)
 
-**What.** The adapter spawns a real object event on a vanilla ROM and falls back to the old
-`gui.drawPixel` overlay on an Archipelago-patched one (`avatarAddrOffset ~= 0`). Both renderers
-are in the file and both are live.
+**What it was.** The adapter spawned a real object event on a vanilla ROM and fell back to the
+`gui.drawPixel` overlay on an Archipelago-patched one, because `gObjectEvents`' relocation under
+that patch was measured while `gSprites`' was not — and a wrong *read* returns a wrong number
+where a wrong *write* corrupts whatever now occupies the address. Two paths for one job is the
+shape a compensation takes, and the spawn ADR had named this exact risk going in.
 
-**Why it is a bandage.** Two paths for one job is the shape a compensation takes, and the spawn
-ADR named this exact risk going in: *"if spawning proves unreliable, the tempting fix is to fall
-back to drawing and leave both paths in."* This is not that case — spawning works — but the result
-looks identical from the outside, so it is registered rather than left unremarked.
+**How it closed.** `probes/gsprites_scan_probe.lua` measured `gSprites` on a patched build
+(`agent_docs/verified.md`, 2026-08-19): `gObjectEvents` shifts by `0x284` on the Archipelago
+build and **`gSprites` does not shift at all**. The split is gone — `meshghost_emerald.lua` runs
+one render path on both builds. Nothing rests on that measurement holding for some future patched
+build either: `spawnGhost()` refuses to write a byte unless the player's own object/sprite
+cross-link resolves through `gSprites` first, so a build that did move it gets a logged refusal
+rather than a corrupted sprite.
 
-**Why it is nonetheless right today — with a correction, 2026-08-18.** The first version of this
-entry said `gSprites`' Archipelago relocation was "unmeasured". That overstated the unknown, and
-the evidence was already in this adapter's own README: `sprite_anchor_verify_probe.lua` was
-written specifically to check whether `gSprites` (and the sprite coord offsets) were shifted like
-`gObjectEvents` was, and the answer was **no** — `playerScreenPos()` uses those three addresses
-unmodified and the ghost has been repeatedly confirmed correctly anchored on a patched ROM.
-
-So the honest position is weaker than "we cannot write there" and stronger than "it is fine":
-**the address is very likely correct, and was never verified for WRITING specifically.** Reading a
-wrong address returns a wrong number, a cosmetic bug; writing one corrupts whatever now lives
-there. That asymmetry is why the fallback stays for now rather than because the address is unknown.
-
-**What makes this cheap to close.** The spawn path already performs a live self-check before it
-writes a single byte: it reads the player's `objectEvent.spriteId`, then checks that sprite's
-`data[0]` holds the player's own object event id. If `gSprites` were wrong on a patched ROM, that
-round trip cannot succeed, and the adapter refuses and logs. **So enabling the spawn path on an
-Archipelago ROM is guarded by construction** — one live run on a patched seed either confirms it
-or refuses safely. That run has not happened yet, which is the only reason this entry still exists.
-
-**How it ends.** Measure `gSprites` on a patched ROM — `probes/avatar_scan_probe.lua` through
-`avatar_verify_probe.lua` are the four-stage template that already did this for `gObjectEvents`.
-The spawn path's own cross-link check (player's `objectEvent.spriteId` -> that sprite's
-`data[0]` == the player's object event id) is a live self-test that would confirm a candidate
-address in one run. When it is measured, delete `drawSpriteFrame`, `drawRemotes`,
-`advanceAnim`, the frame decode and this entry.
+**What survived, and why it is still registered.** `drawSpriteFrame`, `drawRemotes`, `advanceAnim`
+and the frame decode were *not* deleted, because the drawn path found a second job the same day —
+the overflow tier below. Deleting them is no longer what ends this; the entry below is.
 
 ## The drawn overflow tier — a bandage by construction (2026-08-19)
 
@@ -144,13 +127,18 @@ structural, not a rough edge to polish out:
     registers (`WIN0H`/`WIN0V` and `DISPCNT`'s enable bits) **change every frame during ordinary
     walking**, values that are mid-frame states rather than panel geometry (probed 2026-08-19,
     `probes/uiregion_probe.lua`, now throttled). The route that worked on Crystal — ask the game
-    what it DREW, not the LCD what it is displaying — is being followed instead:
-    `probes/textbox_probe.lua` reads the BG tilemaps, finding each one's address from its own
-    `BGxCNT` screen-base bits so no game symbol is involved. **Half measured:** with nothing open,
-    the map sits on BG2/BG3 and **BG0 is entirely empty**, which is the blank-panel-layer shape the
-    detector needs. What a text box actually writes, and into which rows, needs a box on screen and
-    is therefore waiting on the user. Until then `tiering.panelTopPx()` returns nil and the tier
-    stays off — shipping it on would mean painting characters over the text being read.
+    what it DREW, not the LCD what it is displaying — is what shipped instead:
+    `tiering.scanPanel()` reads BG0's tilemap, finding its address from `BG0CNT`'s own screen-base
+    bits so no game symbol or decomp address is involved. **Measured 2026-08-19 with
+    `probes/textbox_probe.lua`:** nothing open — BG0 entirely empty, the map on BG2/BG3; a text box
+    — BG0 rows 14-19, full width; the START menu — BG0 rows 0-13, right-hand columns only. So BG0
+    is the UI layer and it is quiet until the game puts a panel on it, which makes the detector
+    style- and revision-independent: it asks WHERE something was drawn, never WHICH tiles. First
+    clip driven by the real detector rather than the forced panel, 2026-08-19: one drawn loopback
+    ghost with a real panel on screen, 475 runs skipped in a 300-frame window against 0 with
+    nothing open. **Not yet a controlled repeat** — the loopback ghost shares the player's row, so
+    it only meets a bottom-of-screen text box when the camera puts the player low; that run was
+    reached by warp, not played to.
 - **No collision and no interaction.** A drawn ghost is a picture. Arguably right for an overflow
   tier, but it makes peers visibly unequal in a way nothing on screen explains.
 - **Nobody animates it but us.** The walk cycle, the pose per direction, and the frame timing are

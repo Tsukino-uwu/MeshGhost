@@ -69,7 +69,7 @@ enforced rather than assumed.
 
 | Message | Meaning |
 |---|---|
-| `bridge_ready` | accepted; this core is yours |
+| `bridge_ready` | accepted; this core is yours (a `session_policy` follows it) |
 | `reject` (with a `reason`) | not available — the core closes immediately after |
 
 The acknowledgement exists because silence used to be ambiguous. A core only ever sent
@@ -84,6 +84,33 @@ strands the adapter with no ghosts and no explanation. Skipping a core that is m
 nothing by comparison: the adapter starts its own on a free port and everything works. This was
 briefly the other way round, and a test that squats a port with a listener that never speaks
 (`internal/e2e`'s `TestPortWalkFindsAFreeCore`) showed the trade was backwards.
+
+**`session_policy` (core -> adapter, added 2026-08-19)** carries the room-wide rules the host set
+that only the adapter can actually apply. Sent immediately after `bridge_ready` — never before it,
+since an adapter is entitled to discard anything arriving ahead of the message that tells it the
+core is usable — and again whenever the resolved value changes, which is why it is a message of its
+own rather than a field on `bridge_ready`: the core can re-handshake with the relay in the
+background without the adapter reconnecting, so a value delivered once on the bridge handshake
+would go stale.
+
+| Field | Meaning |
+|---|---|
+| `ghost_collision` | `"enabled"` or `"disabled"`, never empty |
+
+`"enabled"` means **the adapter's own defaults stand**, including any place it already makes a
+ghost passable. It is not an instruction to make a ghost solid — the core has no idea what
+collision means in this game. `"disabled"` is binding: no ghost blocks anything, at any time.
+
+The value is resolved by the core from the relay's `Welcome.ghost_collision` and the client's own
+`client.ghost_collision`, and **the more restrictive of the two wins** — the same rule
+`Welcome.send_hz` uses for rates, so a host can take collision away from a room and can never force
+it onto a player who does not want it. Absent on both sides resolves to `"enabled"`, which is why a
+client talking to a relay built before this field behaves exactly as it did before.
+
+**It is advisory.** The relay has no game knowledge and cannot verify an adapter honoured it, the
+same way nothing enforces `send_hz`. An adapter that ignores the message is unaffected by its
+existence; an adapter that *cannot* honour `"disabled"` should say so in its own log once rather
+than appearing to comply. See the 2026-08-19 ADR in `architecture.md`.
 
 **Bridge lifecycle is tied to the relay connection:** if the bridge connection ends (the
 adapter/game closes, or its socket otherwise drops), the core closes its relay connection too,
@@ -310,14 +337,15 @@ both opaque to the core and relay (never parsed, compared only where noted below
   against its own configured code before accepting a join. An empty configured code (the
   default) means auth is off — the original friend-hosted posture. **Crosses the wire in
   plaintext unless the session is encrypted** — `quic` always is, and `tcp` is when the `tls`
-  setting is on (off by default; see the TLS-over-tcp ADR in `architecture.md`). Encrypted or
+  setting is on (the binaries default to `off`; the shipped `packaging/release/config.json`
+  sets `auto` on both sides — see the TLS-over-tcp ADR in `architecture.md`). Encrypted or
   not, the code itself is still what is sent, so this raises the bar from "anyone with the
   address" to "anyone with the address and the code," not to "safe against a network-level
   attacker." See `docs/security.md`.
 
 Both are refused with `reject` (see the message table above) before any `state` is exchanged,
 the same "reject at handshake" shape the protocol-version check already used — researched
-against CelesteNet's own version-check pattern (`docs/security.md`'s prior-art section) before
+against CelesteNet's own version-check pattern (`architecture.md`'s prior-art section) before
 building this.
 
 ### `send_hz` and `max_receive_hz_per_player`
@@ -558,7 +586,8 @@ ends and the next begins.
   - **`udp` cannot be encrypted.** Go's standard library has no DTLS, so `room_code` crosses
     that transport in the clear with no fix available. `quic` is always encrypted — its
     handshake is TLS 1.3 — and `tcp` optionally so, via the `tls` setting on both ends
-    (`off`/`auto`/`required`, off by default). That setting also covers the tcp discovery
+    (`off`/`auto`/`required`; `off` is the binaries' default, `auto` what a release ships).
+    That setting also covers the tcp discovery
     handshake every client makes, which is where `room_code` goes even on a quic session.
   - **Ports:** `tcp` and `udp` share `listen_on` (independent port spaces), and `quic` shares
     that port number too by default (`listen_quic: ""`). Because quic is itself carried over
@@ -816,8 +845,8 @@ alongside room-code auth (see the architecture.md ADR) — treat the numbers bel
   means the same thing everywhere and needs no size negotiation.
   **Correction, 2026-08-18: it does NOT keep a whole event envelope under
   `udpconn.MaxDatagramBytes` (1200), and this file previously claimed it was chosen to.** It was
-  sized against the *payload* alone. Measured: a maximal `Event` renders to **1321 bytes** and a
-  committed `EscrowState` to **2294**, against 1182 usable after 18 bytes of framing — both are
+  sized against the *payload* alone. Measured: a maximal `Event` renders to **1441 bytes** and a
+  committed `EscrowState` to **3302**, against 1182 usable after 18 bytes of framing — both are
   refused by `udpconn.checkWritable`, on the reliable plane too, and lost for that recipient. See
   `risks.md`, which has the full measurement, and `bandages-core.md`. Unreached today: no adapter
   uses these planes. Fixing it is a contract change with its own trade-offs and its own decision. **There is no application-level

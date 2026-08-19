@@ -46,6 +46,11 @@ const (
 	// good enough.
 	TypeBridgeReady MessageType = "bridge_ready"
 	TypeReject      MessageType = "reject"
+	// TypeSessionPolicy is core -> adapter, added 2026-08-19: the room-wide
+	// rules the host set, that the adapter is the only party able to apply.
+	// See SessionPolicy for why this is a message of its own rather than a
+	// field on BridgeReady.
+	TypeSessionPolicy MessageType = "session_policy"
 	// The planes past cosmetic, added 2026-08-17 — see
 	// agent_docs/beyond-cosmetic.md and the ADR in agent_docs/architecture.md.
 	// An adapter that never sends one of these, and never asks for the
@@ -197,6 +202,50 @@ type WorldState struct {
 // you -- and anything else worth knowing (the game, the relay) is already
 // either the adapter's own input or none of its business.
 type BridgeReady struct{}
+
+// SessionPolicy is sent core -> adapter: the room-wide policy in force for
+// this session, resolved by the core from what the relay advertised and what
+// this client configured for itself.
+//
+// # Why this is not a field on BridgeReady
+//
+// BridgeReady is documented as deliberately payload-free, on the argument
+// that anything worth knowing is "either the adapter's own input or none of
+// its business". A host-set room policy is a third category that did not
+// exist when that was written -- it is not the adapter's input, and it is
+// squarely the adapter's business, because the adapter is the only party in
+// the whole system that can actually apply it.
+//
+// The reason it still is not a handshake field is timing, not category. The
+// core can re-handshake with the relay in the background (reconnectWithBackoff)
+// without the adapter ever reconnecting, and a reconnecting client re-reads
+// the room's advertised values from the new Welcome -- so a policy delivered
+// once, on the bridge handshake, would silently go stale the first time the
+// relay came back with different settings, or when a client resumed into a
+// different relay entirely. A policy that can change mid-session needs a
+// message that can be sent again.
+//
+// Sent immediately after BridgeReady, and again whenever the resolved value
+// changes. An adapter that ignores it is unaffected by its existence, which
+// is what keeps it compatible with an adapter built before it: the core does
+// not wait for a reply and there is none to send.
+type SessionPolicy struct {
+	// GhostCollision is protocol.GhostCollisionEnabled or
+	// protocol.GhostCollisionDisabled -- never "", because the core resolves
+	// absent-on-both-sides to enabled before sending. An adapter therefore
+	// never has to know about the unset case or carry a default of its own.
+	//
+	// "enabled" means the adapter's OWN defaults stand, including any place
+	// it already makes a ghost passable. It is not an instruction to make a
+	// ghost solid: the core has no idea what collision means in this game and
+	// is in no position to demand it. "disabled" is binding -- no ghost
+	// blocks anything, at any time.
+	//
+	// An adapter that CANNOT honor "disabled" should say so in its own log
+	// once, rather than silently appearing to comply. Nothing checks, and
+	// nothing can: this is advisory the whole way down.
+	GhostCollision string `json:"ghost_collision"`
+}
 
 // Reject is sent core -> adapter when a Hello cannot be accepted, immediately
 // before the core closes the connection. Reason is human-readable and meant for

@@ -10,7 +10,8 @@ Internal documentation for MeshGhost: architecture, planning, licensing, and ver
 - [contract.md](contract.md) — **the durable artifact.** Packet schema, message types, adapter
   interface, transport, tick model, limits. Changes here are contract revisions, not routine
   edits — record the "why" in [architecture.md](architecture.md)'s decision log.
-- [architecture.md](architecture.md) — system shape and the architecture decision log (ADRs).
+- [architecture.md](architecture.md) — system shape and the architecture decision log (ADRs),
+  plus the CelesteNet prior-art notes several of those ADRs were researched against.
 - [plans.md](plans.md) — live roadmap, phase status, non-goals.
 - [ideas.md](ideas.md) — unscheduled feature backlog. Not the roadmap — researched enough to
   act on when picked, but nothing here is committed until it moves into [plans.md](plans.md).
@@ -49,6 +50,7 @@ Internal documentation for MeshGhost: architecture, planning, licensing, and ver
   `adapters/_template/`. Each adapter also carries a **`FLAGS.md`** (its compile-time flag
   register — shipped behaviour / probe / dormant) and a **`documentation.md`** (how that GAME
   works, never our compensations). All four shipped adapters have all three, as of 2026-08-18.
+
 **The one-line map, if you are new here** (user's framing, 2026-08-19, corrected on one point):
 
 | Kind | Where | Lifetime |

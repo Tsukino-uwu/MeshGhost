@@ -1028,13 +1028,14 @@ func (s *Server) resumeInto(nd transport.Transport, transportName string, r *Roo
 	r.mu.Unlock()
 
 	sendEnvelope(nd, protocol.TypeWelcome, protocol.Welcome{
-		PlayerID:     sess.playerID,
-		Roster:       roster,
-		SendHz:       sendHz,
-		Features:     effectiveFeatures(r, resumed),
-		ResumeToken:  newToken,
-		Resumed:      true,
-		ServerTimeMs: time.Now().UnixMilli(),
+		PlayerID:       sess.playerID,
+		Roster:         roster,
+		SendHz:         sendHz,
+		GhostCollision: s.resolveGhostCollision(),
+		Features:       effectiveFeatures(r, resumed),
+		ResumeToken:    newToken,
+		Resumed:        true,
+		ServerTimeMs:   time.Now().UnixMilli(),
 	})
 
 	// Welcome is on the wire; release the hold and deliver anything the room

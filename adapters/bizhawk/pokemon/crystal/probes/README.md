@@ -14,6 +14,14 @@ has been read, its conclusion belongs in `agent_docs/verified.md`.
 live, with no emulator relaunch. See `agent_docs/environment.md`. Older probes here predate the
 loader and run their own frame loop, so they still work opened directly in the Lua Console.
 
+## Ten of these WRITE game RAM. Read this before running one.
+
+Called out here rather than only in their own headers, because a folder index that hides a
+memory-writing tool is the worst kind of gap — nobody reads a header they did not know existed.
+All ten write **object RAM only, never a save**, and a reset or a map load rebuilds what they
+touched: `object_slot_probe.lua`, `spawn_test.lua` through `spawn_test7.lua`,
+`struct_diff_probe.lua`, `walk_test.lua`. Everything else in this folder is read-only.
+
 ## Understanding the game
 
 | Probe | What it answered |
@@ -23,6 +31,7 @@ loader and run their own frame loop, so they still work opened directly in the L
 | `object_slot_probe.lua` | How many of the 13 object structs are free during real play, and what a map load does to them. |
 | `step_watch_probe.lua` | What a real NPC's fields look like across one step — the read that overturned the movement plan before any code was written. |
 | `struct_diff_probe.lua` | Our hand-built object against one the engine built, field by field. |
+| `uiframe_probe.lua` | Read-only. Which screen rows a UI frame actually appears on, and whether "frame tiles are in the tilemap" means "a panel is on screen" — the two things that have to be measured before the drawn tier's row-12 text-box test can be generalised to the top-of-screen phone-call box. |
 
 ## Spawning, in the order it was worked out
 
@@ -55,7 +64,7 @@ wrong. Results and what is still unmeasured: `phase9.md` and `agent_docs/verifie
 | `ap_state_probe.lua` | the map-identity and game-state addresses |
 | `ap_scroll_probe.lua` | `wBGMapOffsetX` / `wBGMapOffsetY` |
 | `ap_scroll_watch.lua` | watches the scroll-offset neighbourhood directly |
-| `ap_battlemode_probe.lua` | `wBattleMode` — **still open**, 0x015A vs 0x1234, needs one trainer battle |
+| `ap_battlemode_probe.lua` | `wBattleMode` — **settled 2026-08-19** by one trainer battle: `0x1234` read 2 for the whole fight and returned to 0; `0x015A` read 1 in both a wild and a trainer battle, which is what ruled it out |
 
 ## Not a probe
 

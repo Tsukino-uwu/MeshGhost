@@ -35,10 +35,11 @@ and the "Further work past 'good enough'" section below for what's still open.
 - **Rendering: the engine draws the ghost, not us.** A peer is spawned as a real object event
   plus a sprite and Emerald animates, walks and occludes it itself (step 18 below) — which is why
   a ghost is correctly hidden behind the pause menu, something the old overlay never was.
-  **The `gui.drawPixel` overlay is still in the file and is still live, as the fallback on an
-  Archipelago-patched ROM only** — the spawn path writes `gSprites`, whose relocation under that
-  patch was never verified for *writing*. Registered in [BANDAGES.md](BANDAGES.md) as a
-  deliberate, temporary split with one live run standing between it and deletion. Earlier phases
+  **The `gui.drawPixel` overlay is still in the file, but no longer as a per-ROM fallback** —
+  `gSprites` was measured on a patched build 2026-08-19 (it does not shift; `gObjectEvents` does)
+  and there is now one render path on both. The overlay survives as the *overflow tier*, which
+  paints peers the engine had no room for and is off by default. Both are registered in
+  [BANDAGES.md](BANDAGES.md). Earlier phases
   (`phase2_ghost.lua` through `phase4_multiplayer.lua`) used `gui.drawImage` for a flat
   placeholder box, before the real sprite decode replaced it in Phase 5.5 and the spawn replaced
   that in Phase 8.
@@ -64,8 +65,10 @@ verification task list.
 Measured 2026-08-19 with real peers over the real relay. Full table and method:
 [agent_docs/crowd-limits.md](../../../../agent_docs/crowd-limits.md).
 
-- **`16 − (objects the map currently has)` ghosts**, which was **13** in Littleroot Town.
-  `gObjectEvents` has 16 entries and every NPC shares it.
+- **`16 − (the most objects this map has ever shown) − 1 reserved` ghosts**, which was **13** in
+  Littleroot Town. `gObjectEvents` has 16 entries and every NPC shares it. The budget is measured
+  against the running *maximum* rather than the current count, because budgeting against the
+  current one hands out slots the engine wants back two steps later.
 - **The ceiling moves while you walk.** The same town reported 3, 2 and 1 active objects from
   different camera positions, so free slots change during play and a ghost can lose its slot when
   a nearby NPC loads.
@@ -219,6 +222,7 @@ before running any of them. The adapter's own switches are in [FLAGS.md](FLAGS.m
   Archipelago-shifted (unlike `gObjectEvents`/`gPlayerAvatar`, which were). Its result was never
   separately written up, but is implicit in every later live test:
   `meshghost_emerald.lua`'s `playerScreenPos()` uses these exact three addresses unmodified
-  (`meshghost_emerald.lua:76-79`), and the ghost has been repeatedly confirmed correctly
+  (the constants are defined together near the top of the file; `playerScreenPos()` reads them),
+  and the ghost has been repeatedly confirmed correctly
   anchored on this Archipelago-patched ROM since (see `agent_docs/verified.md`) — so these
   three, unlike the avatar/object-event addresses, are not shifted.

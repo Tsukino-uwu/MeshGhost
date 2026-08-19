@@ -104,8 +104,11 @@ comment is candid: *"Not confirmed to exist on this object (PixelCharacter.cs it
 none), but a hitbox collider living on a child sprite object would be a real, silent bug ... if one
 turned out to be there."*
 
-**Defensive-by-default is the right instinct here** — a cosmetic ghost must never collide with
+**Defensive-by-default is the right instinct here** — a TEVI ghost must never collide with
 anything, and the cost of being wrong is a silent gameplay effect a player would blame on the game.
+(Stated narrowly on purpose: this is not a project-wide rule, and reading it as one would be wrong.
+Pseudoregalia ships solid ghosts deliberately, and the 2026-08-19 ADR in `agent_docs/architecture.md`
+makes collision a host-set room policy rather than a fixed property of being cosmetic.)
 It is registered anyway because it is code acting on an unmeasured premise, and that premise is
 cheap to settle: **enumerate the clone's components once and log them.** Either the strip is
 removing something real, and the entry becomes a documented fact in `documentation.md`, or it is

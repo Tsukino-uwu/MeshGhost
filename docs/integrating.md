@@ -61,8 +61,9 @@ to it on `127.0.0.1:7778` and exchanges **one JSON object per line**. Nothing of
 into your binary and nothing of yours into ours.
 
 This is not a fallback, it is how MeshGhost is actually built: the four shipped adapters are
-written in **Lua, C# and C++**, share no code, and each is a few hundred lines. Rust, Python,
-Godot, Java, Zig — all the same shape.
+written in **Lua, C# and C++**, share no library and no linked code — the two BizHawk Lua ones do
+follow the same structure, since they solve the same problem in the same host — and each is a few
+hundred lines. Rust, Python, Godot, Java, Zig — all the same shape.
 
 ### What a correct client must do
 
@@ -129,14 +130,15 @@ the way you would take a TLS library. If your runtime does not have one you can 
 
 ### You do not have to handshake over TCP first
 
-Our own client always makes a throwaway TCP connection first, asks the relay what it serves, and
-then reconnects on the best answer. **That is a client-side convenience, not a relay requirement.**
-Every transport gets its own listener feeding the same server, and the relay never learns which one
-a connection arrived on.
+Our own client normally makes a throwaway TCP connection first, asks the relay what it serves, and
+then reconnects on the best answer — described in full in
+[`docs/networking.md`](networking.md)'s Transports section. **That is a client-side convenience, not
+a relay requirement.** Every transport gets its own listener feeding the same server, and the relay
+never learns which one a connection arrived on.
 
-So if you configure your own address and port — which you almost certainly do, since your users have
-to type one anyway — **connect straight over QUIC and send `hello`.** You never need a TCP
-implementation at all.
+So what you have to do is nothing: if you configure your own address and port — which you almost
+certainly do, since your users have to type one anyway — **connect straight over QUIC and send
+`hello`.** You never need a TCP implementation at all.
 
 The discovery step is available if you want it: send a `hello` with `"query_only": true` and you get
 back a list of offers instead of joining. Real exchange, captured from a running relay:

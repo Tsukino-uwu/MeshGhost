@@ -82,9 +82,16 @@ of them stops being measured, the entry is already here to be corrected.
   apart afterwards; and it announces that nothing seen in that session may be written to
   `verified.md` as a fact. **It lowers the bar to *unconfirmed*, never to *invented*** — a missing
   candidate still refuses. `release.yml` fails the build if `ap_try.flag` reaches the package.
-  **What would let it go:** measuring the addresses it stands in for. `W_BATTLEMODE` on the
-  Archipelago table is the last one, and it needs a single trainer battle
-  (`probes/ap_battlemode_probe.lua`). Registered in [FLAGS.md](FLAGS.md) as a runtime switch.
+  **It is currently INERT, and that is the interesting part.** Every address the startup check
+  requires has now been measured (`W_BATTLEMODE`, the last holdout, on 2026-08-19 with
+  `probes/ap_battlemode_probe.lua`), and `candidates` is an empty table — so the flag has nothing
+  left to substitute and turning it on changes nothing. The one address still unmeasured on the
+  Archipelago build, `W_USEDSPRITES`, is not in the required list at all: it is optional by
+  design, and its absence switches the peer's own appearance off rather than refusing to run.
+  **What would let it go:** deleting it, once someone is satisfied that no further Archipelago
+  address will need the same treatment. Kept for now because the mechanism is the valuable part
+  and rebuilding it correctly is harder than leaving it. Registered in [FLAGS.md](FLAGS.md) as a
+  runtime switch.
 
 ## Known temptations, recorded before they are taken
 

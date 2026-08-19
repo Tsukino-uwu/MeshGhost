@@ -96,8 +96,8 @@ These are the values we have actually seen; each enum certainly has more.
 | `animJumpType` | `13 → 11 → 0` over a backflip · `2` bubble boost · `6` drop-down · `0` neutral |
 
 Alongside them: `CapsuleHalfHeight`, `horizontalSpeed`/`verticalSpeed`, `afterImagesToSpawn`,
-`afterimageColor`, and the uptime timers (`actionStateUptime`, `moveStateUptime`, and their `prev*`
-counterparts) measuring how long the current state has been held.
+`afterimageColor`, and the uptime timers (`actionStateUptime`, `moveStateUptime`, and their
+`previousMoveState`/`previousActionState` counterparts) measuring how long the current state has been held.
 
 Full field inventory and sync status: `PLAYER_FIELDS.md`.
 
@@ -134,6 +134,27 @@ move; the enums alone are not safe (see Crouch).
 disables the engine feature outright — `bWantsToCrouch` is ignored, no resize happens, no
 `OnStartCrouch` fires. Every value above is the game's own code doing it by hand, and the `+1` in
 the mesh law is the fingerprint: engine crouch would seat the mesh exactly at the capsule bottom.
+
+### Sliding: a held slide is a chain of repeats, not one long one
+
+A held slide is **not one continuous crouch**. The slide is a fixed-duration action of roughly
+**600ms** that re-triggers for as long as the input is held, and the character's capsule genuinely
+returns to its standing half-height (65.0) in the seam between two repeats before dropping back to
+the sliding value (22.0).
+
+Measured 2026-08-17 across 53 capsule transitions in one session. The two populations are sharply
+separated, with nothing at all in between:
+
+| | Observed |
+|---|---|
+| Slide (capsule 22.0) | ~600ms, tightly clustered (mean 624ms over 26 samples) |
+| Seam between repeats (capsule 65.0) | 14, 20, 36, 70, 70, 153ms |
+| A real stand-up (capsule 65.0) | 244ms and longer |
+
+The seams are invisible to the player because their mesh is animation-blended through them — the
+capsule is a physics shape, not what is drawn. That distinction matters for anything that mirrors a
+character's pose rather than its animation: the capsule tells you what the game *is doing*, not
+what the player *sees*.
 
 ## Crouch
 
@@ -232,7 +253,7 @@ writes, so a player with that mod has already changed it. Ultra-hop images measu
 
 ## Wall ride (Cling Gem)
 
-> **Fields** `moveState 4` · `obtainedWallRide?` · `wallRideButtonHeld?` · `wallRideHeld?` · `wallRideVFX` · `wallRideSFX`
+> **Fields** `moveState 4` · `wallRideButtonHeld?` · `wallRideVFX` · `wallRideSFX`
 > **Function** `doWallRun`, plus `wallRunTick`/`doWallRunJump` — `Plugin.cpp`, `call_do_wall_run`
 
 `moveState == 4` is the marker. Note the naming: internally this is **wall ride/run**, matching
@@ -281,24 +302,3 @@ does and how confident you are, and link the evidence in `verified.md` instead o
 
 If you catch yourself writing "so we…", stop — that sentence belongs in `BANDAGES.md` or the
 `README.md`.
-
-## Sliding
-
-A held slide is **not one continuous crouch**. The slide is a fixed-duration action of roughly
-**600ms** that re-triggers for as long as the input is held, and the character's capsule genuinely
-returns to its standing half-height (65.0) in the seam between two repeats before dropping back to
-the sliding value (22.0).
-
-Measured 2026-08-17 across 53 capsule transitions in one session. The two populations are sharply
-separated, with nothing at all in between:
-
-| | Observed |
-|---|---|
-| Slide (capsule 22.0) | ~600ms, tightly clustered (mean 624ms over 26 samples) |
-| Seam between repeats (capsule 65.0) | 14, 20, 36, 70, 70, 153ms |
-| A real stand-up (capsule 65.0) | 244ms and longer |
-
-The seams are invisible to the player because their mesh is animation-blended through them — the
-capsule is a physics shape, not what is drawn. That distinction matters for anything that mirrors a
-character's pose rather than its animation: the capsule tells you what the game *is doing*, not
-what the player *sees*.

@@ -69,7 +69,7 @@ exist," not "confirmed to do what the name suggests."
 | Slide | `obtainedSlide?`, `canSlide` |
 | Slide Jump | `obtainedSlideJump` |
 | Solar Wind (passive Slide Jump upgrade — no unlock flag of its own) | `bunnyhopJumpCap`; plausibly also tunes `slideDuration`/`SlideCurve`, unconfirmed |
-| Cling Gem (internal name differs from both the community name and an obvious guess — no "glide" string exists anywhere in the dump) | `wallRide*`/`wallRun*` cluster: `obtainedWallRide?`, `wallRideButtonHeld?`, `wallRideVFX`, `wallRideSFX` |
+| Cling Gem (internal name differs from both the community name and an obvious guess — no "glide" string exists anywhere in the dump) | `wallRide*`/`wallRun*` cluster: `wallRideButtonHeld?`, `wallRideVFX`, `wallRideSFX` |
 | Sun Greaves | `wallKick*`/`airKick*` cluster: `wallKickActive`, `tryWeaponKick?`, `obtainedAirKick?`, `currentAirKicks`, and one literally named `'wall event kick thing'` |
 | Ascendant Light | `obtainedLight?` |
 | Costumes (not on the trending-pages list; found because a real player-visual feature, same category as the outfit-swap this doc exists partly to support) | `outfitDataTable`, `changeActiveOutfit`, `tryAddOutfitToUnlockedList`. **Turned out to be a genuinely separate gap from Dream Breaker visibility, not the same one** — both looked identical at first (spawn-time snapshot, no live update), but the weapon bug's real cause (a call-order bug specific to `changeEquippedWeapon`/`updateWeaponEquip`) doesn't generalize: a live costume change still didn't propagate to the ghost even after that fix shipped (screenshot-confirmed, 2026-08-15). It needed its own investigation, and got one — outfit sync now ships (`RemoteGhost::target_outfit_mesh`, README step 22), via a different route again: the mesh asset's object path, resolved by name and applied with `SetSkeletalMeshAsset` before the raw write. |
@@ -247,7 +247,7 @@ Three things worth carrying to the next field on this actor:
 2. **Collision must stay off** — the actor carries a `PlayerPickup` box, so a collidable copy would
    let the local player pick up a peer's phantom sword. That is a game-state effect, not a cosmetic
    one, and outside this project's visual-only posture.
-3. **The stock engine bools in this actor's dump are garbage.** `bHidden`,
-   `bActorIsBeingDestroyed` and `bIsEditorOnlyActor` all read `true` on a live, working actor —
+3. **The stock engine bools in this actor's dump are garbage.** `bHidden`
+   and `bActorIsBeingDestroyed` both read `true` on a live, working actor —
    UE packs them into a bitfield and the byte-wide read returns true for any non-zero byte. The
    Blueprint-defined bools (`isEmbedded?`, `hasLight?`) are separate properties and read correctly.

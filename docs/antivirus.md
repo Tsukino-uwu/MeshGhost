@@ -16,7 +16,7 @@ happens to Go programs generally, and Go's own FAQ says so
 from a machine-learning model rather than a signature match — Defender is not saying "this is a
 known bad file", it's saying "this *looks* like one". And the profile it matches on is, honestly,
 accurate about MeshGhost: the binaries are unsigned, they're downloaded by very few people so they
-have no reputation, they open network connections, and for Pseudoregalia the game's mod starts one
+have no reputation, they open network connections, and the game-side adapter starts one
 *for* you rather than you double-clicking it. That combination is also what a dropper looks like.
 The heuristic isn't being stupid; it just can't tell the difference yet.
 
@@ -29,7 +29,7 @@ The heuristic isn't being stupid; it just can't tell the difference yet.
   so it is not something we could get wrong or forge. Check yours with
   `Get-FileHash <file> -Algorithm SHA256` on Windows or `shasum -a 256 <file>` elsewhere; if it
   matches, it's the file CI produced.
-- If it's specifically the Pseudoregalia mod starting `meshghost.exe` that your scanner objects to,
+- If it's specifically an adapter starting `meshghost.exe` that your scanner objects to,
   set the environment variable `MESHGHOST_NO_AUTOSTART` to anything and start the client yourself —
   that path is unchanged and fully supported.
 

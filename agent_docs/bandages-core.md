@@ -24,7 +24,7 @@ afterwards? Correcting afterwards means the cause is still running. Then: *"what
 unnecessary?"* (a proper fix has no answer) and *"where did this number come from?"* — measuring
 the mechanism, or trying values until it looked right?
 
-**The Go side has its own dominant shape**, visible in both open items below: a constant in one
+**The Go side has its own dominant shape**, visible in the open items below: a constant in one
 package hand-picked as a "margin" against a constant in another, rather than *derived* from it.
 Prose asserting the relationship is not the relationship. If the two can drift apart without a test
 failing, it belongs here.
@@ -42,8 +42,8 @@ to stay correct.
 
 ### 1. `DefaultInterpolationDelay` is an admitted guess that is now load-bearing
 
-`core/core.go:88-93` says it outright: *"100ms is a starting guess for tile-grid movement,
-not a measured value."* Since then `protocol/limits.go:79-83` built the `MinSendHz = 10`
+`core/core.go:94-100` says it outright: *"100ms is a starting guess for tile-grid movement,
+not a measured value."* Since then `protocol/limits.go:75-91` built the `MinSendHz = 10`
 protocol floor **on top of it**. So a guess underpins a protocol constant — and a client using the
 documented, supported `min_send: 150ms` lands silently in exactly the degraded regime that floor
 exists to prevent.
@@ -53,7 +53,7 @@ rederived from `protocol.DefaultSendHz` specifically "so the two numbers cannot 
 
 ### 2. `DefaultHeartbeatInterval` is a hand-picked margin against another package's constant
 
-`core/core.go:120-132`. The heartbeat itself is the correct fix for a real, live-diagnosed
+`core/core.go:129-141`. The heartbeat itself is the correct fix for a real, live-diagnosed
 bug (idle timeout → fresh `player_id` every minute → every peer sees a despawn/respawn). The
 **constant** is the bandage: 20s was chosen as "comfortable margin" under `transport`'s 60s, but
 `relay.Server.IdleTimeout` is a per-server override, so a relay configured below ~20s silently
@@ -69,8 +69,8 @@ margin against a constant in another, with prose asserting a relationship that d
 `MaxEventBytes`' own doc comment used to say it keeps an event "comfortably under"
 `udpconn.MaxDatagramBytes` (1200), and `contract.md` repeated the claim — it was sized against the
 **payload** alone, not the envelope. **The comment was corrected 2026-08-18** and now states the
-real relationship; the constant is unchanged, so the compensation is still open. Measured 2026-08-17: a maximal `Event` renders to **1321
-bytes** and a committed `EscrowState` to **2294**, against **1182** usable after 18 bytes of
+real relationship; the constant is unchanged, so the compensation is still open. Measured (2026-08-17, figures corrected 2026-08-18 against the assertion tests): a maximal `Event` renders to **1441
+bytes** and a committed `EscrowState` to **3302**, against **1182** usable after 18 bytes of
 framing. Both are refused by `udpconn.checkWritable` — on the reliable plane too — surfacing only
 as a `relay: send to pX failed:` line, so the message is lost for that recipient and never
 superseded. Registered here 2026-08-18; the measurement and the full trade-off are in `risks.md`.
@@ -87,7 +87,7 @@ transport-dependent (`beyond-cosmetic.md` §9) — its own decision, not a hot-f
 
 ## Borderline — noted, not urgent
 
-- **`udpconn.go:127-133`.** Retry budget asserted to fit inside `relay.DefaultHelloTimeout` in
+- **`udpconn.go:134-140`.** Retry budget asserted to fit inside `relay.DefaultHelloTimeout` in
   prose only, not derived. Same drift shape as #2, lower impact.
 - **`cmd/meshghost/parent_windows.go:31-43`.** Windows PID reuse could make a dead parent look alive forever; not
   called out anywhere.

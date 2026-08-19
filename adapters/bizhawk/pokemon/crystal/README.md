@@ -15,8 +15,8 @@ walked on both vanilla and an Archipelago-patched ROM.
   its patch rearranges WRAM non-uniformly and no constant offset recovers vanilla's addresses
   ([verified.md](../../../../agent_docs/verified.md), 2026-08-17). An entry nobody has measured stays
   `nil`, and a `nil` makes the adapter **refuse to run** rather than write somewhere plausible —
-  `W_BATTLEMODE` on the Archipelago table is still `nil` and still needs one trainer battle to
-  settle. An unrecognised build runs on vanilla's table with a one-line "untested" log, or refuses
+  `W_USEDSPRITES` on the Archipelago table is still `nil` — the last unmeasured entry, which
+  switches a peer's own appearance off on that build rather than reading a plausible address. An unrecognised build runs on vanilla's table with a one-line "untested" log, or refuses
   outright under `MESHGHOST_CRYSTAL_STRICT=1`. Every switch: [FLAGS.md](FLAGS.md).
 - Adapter language: Lua (BizHawk's scripting host), as Emerald.
 - **How the game is read: an external source decompilation** —
@@ -119,8 +119,8 @@ authoritative list, and [phase9.md](../../../../agent_docs/phases/phase9.md) has
   back to this machine's player otherwise — the other gender is never loaded, so that case still
   looks like you. **The drawn tier could close it**: it reads pixels rather than borrowing the
   engine's, so it is not limited to what the map loaded.
-- `W_BATTLEMODE` is still unmeasured on the Archipelago table (`0x015A` vs `0x1234`), and one
-  trainer battle settles it (`probes/ap_battlemode_probe.lua`).
+- `W_USEDSPRITES` is still unmeasured on the Archipelago table, so a peer's own sprite is off
+  there. (`W_BATTLEMODE` was settled 2026-08-19 by one trainer battle: `0x1234`.)
 - A ghost does **not** survive a battle — answered from the code 2026-08-19, and the stale
   bookkeeping it used to leave behind would drive one of the game's own NPCs around. Fixed; a
   real battle still needs watching.

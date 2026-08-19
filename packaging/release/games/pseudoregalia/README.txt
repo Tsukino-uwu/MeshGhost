@@ -88,7 +88,7 @@ check ue4ss\UE4SS.log, and see the antivirus note in the main README.txt.
 
 Prefer to run it yourself? Set the environment variable MESHGHOST_NO_AUTOSTART to anything
 and the mod won't start one; double-click meshghost.exe (in the folder you unzipped)
-before launching the game, exactly as Emerald and Crystal do.
+before launching the game. The same variable does the same thing in all four games.
 
 Two important notes specific to Pseudoregalia:
 - The mod always uses local bridge port 7778, and the config.json beside it deliberately

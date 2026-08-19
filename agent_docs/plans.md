@@ -506,8 +506,9 @@ still leaves open:
 
 - **Auth** — `hello` now carries an optional `room_code`, constant-time-checked against the
   relay's own configured `Server.RoomCode`; empty/unset (the default) still means auth is off,
-  unchanged from the original friend-hosted posture. **Open limit**: no TLS, so the code crosses
-  the wire in plaintext (`risks.md`'s new TLS entry); **and** auth only works if the relay
+  unchanged from the original friend-hosted posture. **Open limit at the time**: no TLS, so the
+  code crossed the wire in plaintext (closed since — quic 2026-08-16, tcp 2026-08-19; see the
+  "Partly overtaken" paragraph below); **and** auth only works if the relay
   binary is current — a stale relay silently ignores the field and stays open with no warning
   (`risks.md`'s new "stale relay" entry, found from the user asking what an old client/server
   does against new ones).
@@ -533,8 +534,10 @@ work — see `risks.md`); the "stale relay" gap has no protocol-level fix, only 
 one (tell hosts to update); TEVI's `game_version` doesn't yet reflect a real Steam build number.
 
 **Partly overtaken 2026-08-16 by selectable transports** (ADR in `architecture.md`): `quic` is
-encrypted, so a room code on that transport no longer crosses the wire in the clear. TLS over
-`tcp` is still unbuilt, and `udp` can never have it at all. **The shipped defaults then changed
+encrypted, so a room code on that transport no longer crosses the wire in the clear. **TLS over
+`tcp` landed 2026-08-19** (`netx/tlsx`, `tls: off`/`auto`/`required` on both ends — the binaries
+default to `off`, the shipped `packaging/release/config.json` to `auto`), so both default
+transports encrypt; `udp` can never have it at all. **The shipped defaults then changed
 2026-08-16**: `config.json` now ships `client.transport: "auto"` (prefers quic) and
 `server.transport: "tcp,quic"`, so quic is the normal path and tcp the fallback. Encrypted is
 still not authenticated — the certificate is unverified.
@@ -594,7 +597,8 @@ plan that was never implemented). Full record: the ADR in `agent_docs/architectu
 pass `-min-send=10ms` — faster than the (now fallback-only) 20Hz default — which under "slower
 wins" against an unconfigured relay would have silently capped every one of them back down to
 50ms, undoing the exact fast-local-timing setup Phase 8 chose deliberately
-(`agent_docs/phases/phase8.md`). Both relay dev scripts now pass `-send-hz=100`.
+(`agent_docs/phases/phase8.md`). Every relay dev script now passes `-send-hz=100`
+(`run-relay.bat`, `run-relay-loopback.bat`, `run-relay-online.bat`).
 
 **Not done, deliberately**: advertising a recipient's cap back to the sender (no way for a
 sender to know a given peer is receiving it throttled); auto-deriving `-interp` from the

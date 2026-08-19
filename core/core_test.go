@@ -69,6 +69,15 @@ type fakeAdapter struct {
 	// so a test that never reads them cannot wedge the receive callback.
 	ready   chan struct{}
 	rejects chan string
+	// policies receives every session_policy the core pushes, in order, so a
+	// test can assert both the value and that a re-push did or did not happen.
+	policies chan string
+	// order records the sequence of message types as they actually arrive, so
+	// a test can assert bridge_ready precedes session_policy. The two are
+	// produced on DIFFERENT goroutines inside the Core (the adapter read loop
+	// and the relay read loop), so their order is a real property worth
+	// pinning rather than an implementation detail.
+	order chan bridge.MessageType
 }
 
 func dialFakeAdapter(t *testing.T, bridgeAddr string) *fakeAdapter {
@@ -84,12 +93,18 @@ func dialFakeAdapter(t *testing.T, bridgeAddr string) *fakeAdapter {
 		despawns: make(chan string, 16),
 		ready:    make(chan struct{}, 4),
 		rejects:  make(chan string, 4),
+		policies: make(chan string, 8),
+		order:    make(chan bridge.MessageType, 32),
 	}
 	conn.OnReceive(func(payload []byte) {
 		var env bridge.Envelope
 		if err := json.Unmarshal(payload, &env); err != nil {
 			t.Errorf("adapter received malformed envelope: %v", err)
 			return
+		}
+		select {
+		case fa.order <- env.Type:
+		default:
 		}
 		switch env.Type {
 		case bridge.TypeRenderRemote:
@@ -114,6 +129,16 @@ func dialFakeAdapter(t *testing.T, bridgeAddr string) *fakeAdapter {
 		case bridge.TypeBridgeReady:
 			select {
 			case fa.ready <- struct{}{}:
+			default:
+			}
+		case bridge.TypeSessionPolicy:
+			var sp bridge.SessionPolicy
+			if err := json.Unmarshal(env.Payload, &sp); err != nil {
+				t.Errorf("unmarshal session_policy: %v", err)
+				return
+			}
+			select {
+			case fa.policies <- sp.GhostCollision:
 			default:
 			}
 		case bridge.TypeReject:

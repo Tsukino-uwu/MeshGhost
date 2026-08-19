@@ -76,6 +76,11 @@ type fileConfig struct {
 	// or 0 means protocol.DefaultSendHz. See the ADR in
 	// agent_docs/architecture.md for the send/receive rate-control feature.
 	SendHz *int `json:"send_hz"`
+	// GhostCollision is the room-wide ghost-collision policy this relay
+	// advertises: "enabled" (the default, and what an absent value means) or
+	// "disabled". Advisory -- the relay cannot verify an adapter honored it.
+	// See the ADR in agent_docs/architecture.md.
+	GhostCollision *string `json:"ghost_collision"`
 	// ResumeGraceSeconds is how long this relay holds a dropped client's
 	// identity -- its player_id, its leases and its in-flight exchanges --
 	// waiting for it to reconnect, before telling the room it left. Absent or
@@ -122,15 +127,16 @@ type rootConfig struct {
 // the same trigger cmd/meshghost's own struct cites (a struct keeps each
 // field's name at the call site instead of relying on positional order).
 type configTargets struct {
-	addr        *string
-	roomCode    *string
-	onlyGame    *string
-	maxClients  *int
-	sendHz      *int
-	resumeGrace *int
-	transport   *string
-	quicAddr    *string
-	tlsMode     *string
+	addr           *string
+	roomCode       *string
+	onlyGame       *string
+	maxClients     *int
+	sendHz         *int
+	ghostCollision *string
+	resumeGrace    *int
+	transport      *string
+	quicAddr       *string
+	tlsMode        *string
 }
 
 // stripBOM removes a leading UTF-8 byte-order mark from a config file's
@@ -249,6 +255,9 @@ func applyFileConfig(path string, explicit map[string]bool, t configTargets) {
 	if rc.Server.SendHz != nil && !explicit["send-hz"] {
 		*t.sendHz = *rc.Server.SendHz
 	}
+	if rc.Server.GhostCollision != nil && !explicit["ghost-collision"] {
+		*t.ghostCollision = *rc.Server.GhostCollision
+	}
 	if rc.Server.ResumeGraceSeconds != nil && !explicit["resume-grace"] {
 		*t.resumeGrace = *rc.Server.ResumeGraceSeconds
 	}
@@ -327,6 +336,11 @@ func main() {
 			"default) means 20s. Only used by rooms whose members negotiated resume.v1 -- a "+
 			"cosmetic room holds nothing and this changes nothing for it. Higher hides a flaky "+
 			"connection better; lower frees a genuinely departed player's keys sooner")
+	ghostCollision := flag.String("ghost-collision", "",
+		"room-wide ghost collision policy advertised to every client: \"enabled\" "+
+			"(each adapter's own defaults stand) or \"disabled\" (no ghost blocks "+
+			"anything, in any game). Empty means enabled. Advisory: shipped adapters "+
+			"honor it, but this relay cannot verify that they did")
 	sendHz := flag.Int("send-hz", protocol.DefaultSendHz,
 		"how many times per second every player sends their position to this room (a \"20 tick\" "+
 			"relay = 20Hz = an update every 50ms; higher/lower are the same idea in different "+
@@ -378,15 +392,16 @@ func main() {
 	explicit := map[string]bool{}
 	flag.Visit(func(f *flag.Flag) { explicit[f.Name] = true })
 	applyFileConfig(*configPath, explicit, configTargets{
-		addr:        addr,
-		roomCode:    roomCode,
-		onlyGame:    onlyGame,
-		maxClients:  maxClients,
-		sendHz:      sendHz,
-		resumeGrace: resumeGrace,
-		transport:   transportNames,
-		quicAddr:    quicAddr,
-		tlsMode:     tlsMode,
+		addr:           addr,
+		roomCode:       roomCode,
+		onlyGame:       onlyGame,
+		maxClients:     maxClients,
+		sendHz:         sendHz,
+		ghostCollision: ghostCollision,
+		resumeGrace:    resumeGrace,
+		transport:      transportNames,
+		quicAddr:       quicAddr,
+		tlsMode:        tlsMode,
 	})
 
 	// Fatal on an unrecognized tls mode, same reasoning as the transport
@@ -563,6 +578,7 @@ func main() {
 	server.Offers = offers
 	server.MaxClients = *maxClients
 	server.SendHz = *sendHz
+	server.GhostCollision = *ghostCollision
 	server.ResumeGrace = time.Duration(*resumeGrace) * time.Second
 	if *introspect > 0 {
 		go func() {
@@ -588,6 +604,26 @@ func main() {
 	}
 	log.Printf("meshghost-relay: room send rate: %dHz (per-client message cap: %d/sec)",
 		effectiveSendHz, relay.MaxMessagesPerSecondFor(effectiveSendHz))
+	// Say what was actually read, the same reason only_game logs its value: a
+	// typo here is silently the RESTRICTIVE choice (NormalizeGhostCollision
+	// sends anything unrecognized to "disabled"), so a host who fat-fingers
+	// this would otherwise see ghosts quietly stop being solid with nothing
+	// explaining it.
+	switch effectiveCollision := protocol.NormalizeGhostCollision(*ghostCollision); effectiveCollision {
+	case protocol.GhostCollisionDisabled:
+		if *ghostCollision != protocol.GhostCollisionDisabled {
+			log.Printf("meshghost-relay: warning: ghost_collision %q is not a value I recognize, "+
+				"reading it as %q -- the safe direction, but probably not what you meant "+
+				"(valid: %q, %q)",
+				*ghostCollision, protocol.GhostCollisionDisabled,
+				protocol.GhostCollisionEnabled, protocol.GhostCollisionDisabled)
+		}
+		log.Printf("meshghost-relay: ghost collision: DISABLED for every client in every room. " +
+			"Advisory -- shipped adapters honor it, but nothing here can verify a game did.")
+	default:
+		log.Printf("meshghost-relay: ghost collision: enabled -- each game's own defaults stand " +
+			"(set server.ghost_collision to \"disabled\" to turn it off room-wide)")
+	}
 	if *loopback {
 		log.Printf("meshghost-relay: -loopback enabled — dev-only, do not use with real peers")
 	}

@@ -341,9 +341,10 @@ Only the seed corpus runs during a normal `go test`. To run a real campaign:
 go test ./protocol -run=XXX -fuzz=FuzzValidateStateIsStableAcrossTheWire -fuzztime=10m
 ```
 
-Four of the eleven targets carry that command in their own doc comment (`protocol`, `transport`,
-and both in `relay/fuzz_test.go`); for the rest, substitute the package and target name into the
-line above. `-run=XXX` matches no ordinary test, so only
+Four of the eleven targets carry a version of that command in their own doc comment (`protocol`,
+`transport`, and both in `relay/fuzz_test.go` — those say `-fuzztime=60s`, and the two older ones
+say `-run=Fuzz` rather than `-run=XXX`); for the rest, substitute the package and target name into
+the line above. `-run=XXX` matches no ordinary test, so only
 the fuzzing runs. One target at a time — Go does not support fuzzing several at once.
 
 The targets, and the property each actually tests (none is a restatement of the code's own

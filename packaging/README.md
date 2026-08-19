@@ -3,11 +3,12 @@
 What actually goes in a release, and why it's laid out the way it is. Consumed by
 `.github/workflows/release.yml` — this folder holds the hand-written parts (the config
 template, player-facing READMEs, and the committed TEVI/Pseudoregalia plugins); the workflow
-adds the freshly-built Go `.exe`s and the Emerald and Crystal adapter files on top, stages a copy of the
-client beside the Pseudoregalia mod (the only one that starts a client for you) along with
-`client-config-template.json` renamed to `config.json`,
-and zips the whole `packaging/release/` folder as the Windows release asset. Two more assets go
-out beside it — the Linux and macOS client+server tarballs; see "Three assets" below.
+adds the freshly-built Go `.exe`s and the Emerald and Crystal adapter files on top, drops
+`client-config-template.json` into each mod folder that installs into a game (TEVI's and
+Pseudoregalia's) renamed to `config.json`, and zips the whole `packaging/release/` folder as the
+Windows release asset. It does **not** stage a copy of the client beside those mods — see "One
+copy of the client, copied in by hand" below. Two more assets go
+out beside it — the Linux and macOS client+server tarballs; see "…and then two more, for Linux and macOS" below.
 
 ## Why one zip
 
@@ -60,8 +61,10 @@ Two decisions worth keeping:
   deleting that instruction is most of the point. It also means the dev machine cannot verify this
   part: a local dry run got the packaging right and the mode bits wrong, on NTFS, unavoidably.
 - **No adapters in them.** Every shipped adapter targets a Windows game, so a native Unix build
-  has nothing to hook. The two Pokemon Lua scripts are the ones that could plausibly run elsewhere
-  (BizHawk is cross-platform), and they stay in the main zip rather than being duplicated.
+  has nothing to hook. BizHawk is cross-platform, so the two Pokemon Lua scripts look like the
+  exception — but they load LuaSocket as a Windows dll (`lib/x64/socket-windows-5-4.dll`) and no
+  Unix build of it is vendored, so they are Windows-only in practice too. Making that untrue needs
+  a LuaSocket `.so`/`.dylib` built against BizHawk's Lua 5.4, and someone to actually run it.
 
 ## No launcher `.bat` files
 
@@ -73,6 +76,32 @@ the window open long enough to read it. Removed once `cmd/meshghost`/`cmd/meshgh
 started writing their own `meshghost.log`/`meshghost-server.log` next to the `.exe` (tee'd
 alongside stderr, appended to across runs) — that file survives the window closing, so the `.bat`
 files stopped doing anything a user couldn't already get by double-clicking the `.exe` itself.
+
+## One copy of the client, copied in by hand (changed 2026-08-18)
+
+**Every adapter now starts its own client** — Pseudoregalia since 2026-08-16, TEVI, Emerald and
+Crystal since 2026-08-18 (`agent_docs/verified.md`). Nobody double-clicks `meshghost.exe` any more;
+the mod spawns one with no window, passes it a bridge port and `-exit-with-pid`, and it dies with
+the game. That changed what packaging has to do, in two different directions for the two kinds of
+adapter:
+
+- **TEVI and Pseudoregalia install INTO the game**, out of reach of the release folder, so each
+  mod folder gets its own `config.json` (from `client-config-template.json`) and needs a
+  `meshghost.exe` beside the DLL. The workflow ships the config — 1 KB — and leaves the exe as a
+  **one-time manual copy**, called out in each game's `README.txt`.
+- **Emerald and Crystal load from the release folder itself.** Their Lua walks up to the release
+  root to find `meshghost.exe` and `config.json`, so nothing is copied and nothing is duplicated.
+
+Shipping a client copy per mod was the obvious alternative and was rejected on the user's call: it
+grows the download by ~2.6 MB (stripped, compressed) per game forever, and the other option — a
+`%LOCALAPPDATA%` breadcrumb pointing at one shared client — is machinery this project would have to
+own, going stale when the folder moves and silently picking the wrong one when two installs exist.
+Copying a file is something a user already understands and that cannot rot. The cost is a forgotten
+copy, so both mods name the exact folder in their log when the exe is missing rather than doing
+nothing.
+
+`MESHGHOST_NO_AUTOSTART` (set to anything) turns the whole thing off in all four adapters, which is
+the documented answer for an antivirus that objects to one program starting another.
 
 ## Room-code auth (added 2026-08-14)
 
@@ -180,7 +209,7 @@ fresh by CI. TEVI is different because **CI cannot build it**: `MeshGhostTevi.cs
 against `adapters/tevi/MeshGhostTevi/lib/*.dll`, copies of the developer's own proprietary TEVI
 install that are gitignored and never committed
 ([agent_docs/licensing.md](../agent_docs/licensing.md)). Our own output —
-~23 KB, `<Private>false</Private>` so no game DLL is embedded in it — is fine to distribute,
+~27 KB, `<Private>false</Private>` so no game DLL is embedded in it — is fine to distribute,
 it just has to be built on a machine that already has TEVI installed.
 
 The DLL is staged under a `MeshGhost/` subfolder rather than flat in `games/tevi/` so the whole
@@ -222,15 +251,9 @@ Two dev scripts stage this folder, and they're independent of each other:
   `pseudoregalia/Binaries/Win64/ue4ss/Mods/MeshGhostPseudo/`, recording source hashes to
   `MeshGhostPseudo-built-from.txt` — same staleness-gate pattern as TEVI's `built-from.txt`
   above.
-- **Ship the bare minimum.** A release contains exactly what an adapter needs to run and nothing
-  more — TEVI is the model, shipping a single DLL. Anything else bundled is software installed into
-  a stranger's game by someone who only asked for a ghost overlay. Stated as a hard rule for every
-  future adapter in [adapters/_template/README.md](../adapters/_template/README.md), after
-  Pseudoregalia was found on 2026-08-17 to be shipping RE-UE4SS's stock Lua mods — a cheat manager,
-  a console, keybind hooks, an actor dumper — **enabled**, none of them used.
 - `dev-scripts/stage-ue4ss-runtime.bat` stages the RE-UE4SS runtime itself (`UE4SS.dll`,
-  `dwmapi.dll` and `UE4SS-settings.ini`, but deliberately none of the stock Lua mods — see the
-  bullet above) from the pinned RE-UE4SS submodule, recording its own provenance to
+  `dwmapi.dll` and `UE4SS-settings.ini`, but deliberately none of the stock Lua mods — see
+  "Ship the bare minimum" below) from the pinned RE-UE4SS submodule, recording its own provenance to
   `ue4ss-runtime-built-from.txt`. This one is a deliberate exception to the project's normal
   "never redistribute the modding tool, user installs it themselves" posture — RE-UE4SS is
   MIT-licensed, and this ships its own `LICENSE` alongside the binaries per MIT's terms (see
@@ -240,6 +263,13 @@ Both stage into the same `pseudoregalia/Binaries/Win64/...` tree, mirroring the 
 install's own folder layout, so the whole `pseudoregalia/` folder is one drag-and-drop into a
 user's Steam install root — same onboarding as the AP randomizer. Whoever edits the C++ mod or
 bumps the RE-UE4SS submodule pin re-runs the relevant script and commits the result.
+
+**Ship the bare minimum.** A release contains exactly what an adapter needs to run and nothing
+more — TEVI is the model, shipping a single DLL. Anything else bundled is software installed into
+a stranger's game by someone who only asked for a ghost overlay. Stated as a hard rule for every
+future adapter in [adapters/_template/README.md](../adapters/_template/README.md), after
+Pseudoregalia was found on 2026-08-17 to be shipping RE-UE4SS's stock Lua mods — a cheat manager,
+a console, keybind hooks, an actor dumper — **enabled**, none of them used.
 
 ## Cutting a release
 

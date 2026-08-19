@@ -38,8 +38,8 @@ scene: `EventManager.Instance` exposes **`mainCharacter`**.
 
 One practical detail, discovered the hard way and worth stating because it is a property of the
 build rather than of our code: `mainCharacter` is a **property backed by a private field** in the
-current build. Which of the two exists is a version-dependent fact, so the adapter resolves it by
-reflection instead of binding to one shape at compile time.
+current build. Which of the two exists is a version-dependent fact, so anything reading it
+has to tolerate either shape.
 
 Both `EventManager.Instance` and `mainCharacter` can legitimately be **null** — during loads, menus
 and scene changes. That is normal game state, not an error condition.
@@ -59,7 +59,7 @@ offset.
 ## Animation: a Unity `Animator` on a sprite, addressed by clip name
 
 **Playable characters are not Spine.** They are a plain `SpriteRenderer` plus a Unity `Animator`;
-`PixelCharacter` carries no Spine reference at all. Spine *is* used in this game — roughly a dozen
+`PixelCharacter` carries no Spine reference at all. Spine *is* used in this game — around fourteen
 boss and environment types use it — so "TEVI uses Spine" is true of the game and false of the
 player, and that distinction is the one that matters when cloning a character.
 
@@ -81,7 +81,7 @@ flipping one and not the other produces a visibly half-mirrored character.
 ## The map screen is its own system
 
 The full map screen is a separate component (`FullMap`) with its own representation of where the
-player is — a private `playerPos`, a `maxroom` bound, and per-room tiles (`FullMapTile`) that carry
+player is — a private `playerPos`, a `maxroom` **stride** into its flat room-tile list, and per-room tiles (`FullMapTile`) that carry
 their own transforms. Marking a position on the map screen means placing something at a *tile's*
 transform, in the map screen's own space, rather than converting world coordinates.
 

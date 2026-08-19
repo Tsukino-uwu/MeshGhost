@@ -7,6 +7,7 @@
     "room": "default",
     "room_code": "",
     "name": "player",
+    "ghost_collision": "enabled",
     "local_game_bridge": "127.0.0.1:7778",
     "interp": "100ms",
     "max_receive_hz_per_player": 0
@@ -18,6 +19,7 @@
     "tls": "auto",
     "room_code": "",
     "only_game": "",
+    "ghost_collision": "enabled",
     "max_clients": 8,
     "send_hz": 20
   }

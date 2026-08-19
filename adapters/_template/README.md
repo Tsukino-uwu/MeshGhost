@@ -2,7 +2,7 @@
 
 **First written 2026-08-11**, at the end of Phase 5, and kept current since with what the four
 shipped adapters learned the hard way (last swept 2026-08-17, against `agent_docs/contract.md`,
-`internal/bridge`, and the four shipped adapters' own docs; last recount 2026-08-18, when Crystal
+`bridge`, and the four shipped adapters' own docs; last recount 2026-08-18, when Crystal
 shipped and every "three" in this folder became wrong at once; re-swept later the same day against
 all four adapters' sources and the repo-wide tooling — `dev-scripts/preflight.ps1`, `meshghost
 -stats`, the relay's `-introspect`). The core was proven to run against a fake
@@ -64,11 +64,11 @@ The counterpart rule for content lives in each file: `BANDAGES.md` for compensat
   (pseudocode, wire envelope examples), because the game it was written for next (TEVI,
   Phase 6) was Unity/C#, not BizHawk Lua — a Lua-specific stub would not have transferred, and
   Pseudoregalia's UE4SS C++ mod after it proved the point twice. Every real adapter, in any language,
-  implements this same shape by speaking the bridge wire protocol (`internal/bridge/bridge.go`);
+  implements this same shape by speaking the bridge wire protocol (`bridge/bridge.go`);
   nothing here is Go-specific.
-- The `core.Adapter` Go interface (`internal/core/core.go`) is a *different* thing: an
+- The `core.Adapter` Go interface (`core/core.go`) is a *different* thing: an
   in-process shortcut used only by `cmd/meshghost-fakeadapter` and Go tests
-  (`internal/core/core_test.go`'s `TestRunAdapterInProcess`) to drive the core without a socket
+  (`core/core_test.go`'s `TestRunAdapterInProcess`) to drive the core without a socket
   at all. A real adapter — including TEVI's — never implements it; it dials the bridge and
   speaks NDJSON, exactly like `adapters/bizhawk/pokemon/emerald/meshghost_emerald.lua` does. See
   [PROTOCOL.md](PROTOCOL.md) for why this distinction matters and where to look for a worked
@@ -100,6 +100,7 @@ same as any two unrelated games — grouping by franchise just keeps the top lev
 | `documentation.md` | **Immediately** — start it with the first mechanic you learn | [documentation.md](documentation.md) |
 | `BANDAGES.md` | **Immediately, empty** — an empty register is the goal, an absent one is a gap | [BANDAGES.md](BANDAGES.md) |
 | `FLAGS.md` | Once you pass a handful of compile-time switches — sooner than feels necessary | [FLAGS.md](FLAGS.md) |
+| `probes/README.md` | Once `probes/` holds more than a couple of scripts — an index of what each one answered | no template; see Emerald's and Crystal's |
 
 **`README.md`, `BANDAGES.md` and `documentation.md` are expected of EVERY adapter, with no
 exceptions.** Create all three when the folder is created.
@@ -210,7 +211,7 @@ deliberately no template, since a stub with no content would go stale immediatel
    hook, or API call from memory — everything traceable to a source, and nothing in
    [agent_docs/verified.md](../../agent_docs/verified.md) until it's been watched happening on
    screen.
-8. Do not modify `internal/core` or `internal/relay` for game-specific reasons. If something
+8. Do not modify `core` or `relay` for game-specific reasons. If something
    about the new game seems to require that, stop — it means either the contract needs a real,
    ADR'd revision (rare), or the adapter is trying to do something the boundary doesn't allow
    (much more likely).
@@ -632,8 +633,8 @@ Region variants, exact file names and hashes are a separate question and belong 
   a reader trusts most.
 - **"Further work past 'good enough'"** — what is still open, with `agent_docs/status.md` named as
   the authoritative list. This is the section that stops the numbered story turning into a status
-  file: anything still open goes here, not into a step. Three of the four carry it; Crystal, the
-  newest, does not yet, which is a gap rather than a precedent.
+  file: anything still open goes here, not into a step. All four shipped adapters carry it
+  (Crystal's was the last to land).
 - **"Custom features"** — anything this adapter does that isn't required of an adapter (TEVI and
   Pseudoregalia both have one). Keeps game-specific extras out of the build story.
 - **"Dev tools"** — an index of the probe scripts the adapter accumulated. Emerald's dozen-plus
