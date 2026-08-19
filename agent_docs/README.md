@@ -72,6 +72,10 @@ Internal documentation for MeshGhost: architecture, planning, licensing, and ver
   the repo root (`protocol/`, `core/`, …) — see the module-rename ADR in
   [architecture.md](architecture.md). Those paths are left as written rather than rewritten,
   because a phase file records what was true while the phase ran.
+- [claude-md-cap.md](claude-md-cap.md) — why `CLAUDE.md` holds a hard 300-line cap, and why
+  `status.md`'s cap is per-item rather than a flat line count. The evidence behind two rules
+  that otherwise read as arbitrary.
+
 **`../docs/` is the other half of the documentation, and it is not this folder's job.** It is
 written for people *using* MeshGhost; `agent_docs/` is the internal record of how it was built.
 Four files, all one level up:
@@ -92,9 +96,6 @@ Four files, all one level up:
   a real captured wire transcript, and what the relay answers versus drops in silence.
 - [../docs/antivirus.md](../docs/antivirus.md) — why the unsigned Go binaries get flagged, the
   two separate causes, and what a user can verify instead of taking our word for it.
-- [claude-md-cap.md](claude-md-cap.md) — why `CLAUDE.md` holds a hard 300-line cap, and why
-  `status.md`'s cap is per-item rather than a flat line count. The evidence behind two rules
-  that otherwise read as arbitrary.
 
 ## How to use this folder
 
