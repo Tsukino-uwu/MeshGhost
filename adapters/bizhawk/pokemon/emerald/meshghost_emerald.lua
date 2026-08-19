@@ -1120,45 +1120,46 @@ local STEP_DURATION_FRAMES = { walking = 16, running = 8 }
 -- So a drawn peer now glides between TILES over the same 16/8 frames the game gives a step, from
 -- per-peer state kept on the peer's own table (no new chunk locals -- this file is at 196 of
 -- Lua's 200). A jump longer than one tile is a warp, a respawn or first sight, and snaps.
+-- CONSTANT SPEED, NOT "ARRIVE IN N FRAMES". This is the third model tried, and the reason the
+-- first two looked wrong is the same in both cases: they made the ghost's SPEED depend on when a
+-- packet happened to land.
+--
+--   1. Ramp from the last committed tile over 16/8 frames. Every step snapped backwards by
+--      whatever had already been travelled -- "constant running in 1 direction looks a bit choppy".
+--   2. Same ramp, continuing from the current position. No snap, but now each step covers a
+--      slightly different distance in the same fixed 8 frames, depending on how late its packet
+--      was -- so the ghost visibly speeds up and slows down, step to step. Still choppy.
+--
+-- The engine does not do either. It moves a character at a FIXED rate -- one tile per 16 frames
+-- walking, per 8 running -- and simply takes as long as it takes. Matching that makes network
+-- jitter show up as a small constant TRAILING DISTANCE, which nobody can see, instead of as a
+-- varying speed, which everybody can.
 local function glideRemote(r, targetX, targetY)
-    local dur = STEP_DURATION_FRAMES[r.anim] or STEP_DURATION_FRAMES.walking
+    local speed = 1 / (STEP_DURATION_FRAMES[r.anim] or STEP_DURATION_FRAMES.walking)
 
-    -- Where the ghost actually IS this frame, before anything is decided. A new step has to
-    -- continue from here, not from the tile the last step aimed at.
-    local cx, cy = targetX, targetY
-    if r.gTileX ~= nil then
-        local f0 = (frameCounter - r.gFrame) / r.gDur
-        if f0 > 1 then f0 = 1 elseif f0 < 0 then f0 = 0 end
-        cx = r.gPrevX + (r.gTileX - r.gPrevX) * f0
-        cy = r.gPrevY + (r.gTileY - r.gPrevY) * f0
-    end
-
-    if r.gTileX == nil or r.gAreaId ~= r.areaId
-        or math.abs(targetX - r.gTileX) > 1 or math.abs(targetY - r.gTileY) > 1 then
-        r.gPrevX, r.gPrevY = targetX, targetY
-        r.gTileX, r.gTileY = targetX, targetY
-        r.gFrame, r.gDur = frameCounter, dur
-    elseif targetX ~= r.gTileX or targetY ~= r.gTileY then
-        -- CONTINUE FROM THE CURRENT POSITION, NOT FROM THE LAST TILE.
-        --
-        -- Restarting each step at the previously committed tile snaps the ghost backwards by
-        -- however far it had got, every single step. Standing still or walking that is invisible;
-        -- running one direction continuously it is a stutter per tile, which is what the user saw
-        -- in the side-by-side (2026-08-19): *"constant running in 1 direction looks a bit choppy
-        -- for the drawn ghost"*. Peer samples arrive on the network's cadence and steps happen on
-        -- the game's, so the two never line up and the snap is permanent.
-        --
-        -- Carrying the real position over also makes the glide self-correcting: a ghost that has
-        -- fallen behind has further to travel in the same 8 or 16 frames, so it closes the gap
-        -- instead of accumulating it.
-        r.gPrevX, r.gPrevY = cx, cy
-        r.gTileX, r.gTileY = targetX, targetY
-        r.gFrame, r.gDur = frameCounter, dur
+    -- First sight, a different area, or further than a couple of tiles: a warp, a respawn, or a
+    -- peer we have simply lost track of. Walking there would take longer the further behind it is.
+    if r.gX == nil or r.gAreaId ~= r.areaId
+        or math.abs(targetX - r.gX) > 2 or math.abs(targetY - r.gY) > 2 then
+        r.gX, r.gY, r.gAreaId, r.gMoved = targetX, targetY, r.areaId, false
+        return r.gX, r.gY
     end
     r.gAreaId = r.areaId
-    local f = (frameCounter - r.gFrame) / r.gDur
-    if f > 1 then f = 1 elseif f < 0 then f = 0 end
-    return r.gPrevX + (r.gTileX - r.gPrevX) * f, r.gPrevY + (r.gTileY - r.gPrevY) * f
+
+    -- Grid movement is axis-aligned, so each axis closes on its own at the same fixed rate.
+    local moved = false
+    local dx = targetX - r.gX
+    if dx ~= 0 then
+        if math.abs(dx) <= speed then r.gX = targetX else r.gX = r.gX + (dx > 0 and speed or -speed) end
+        moved = true
+    end
+    local dy = targetY - r.gY
+    if dy ~= 0 then
+        if math.abs(dy) <= speed then r.gY = targetY else r.gY = r.gY + (dy > 0 and speed or -speed) end
+        moved = true
+    end
+    r.gMoved = moved
+    return r.gX, r.gY
 end
 
 local prevTileX, prevTileY = nil, nil
@@ -2512,8 +2513,13 @@ local function syncGhost(playerId, remote)
         elseif dx == -1 then stepDir = DIR_ID.west
         elseif dy == 1 then stepDir = DIR_ID.south
         else stepDir = DIR_ID.north end
-        local actions = (remote.anim == "running") and RUN_ACTION or WALK_ACTION
+        local running = (remote.anim == "running")
+        local actions = running and RUN_ACTION or WALK_ACTION
         requestAction(g, actions[stepDir])
+        -- Remembered so the stop above can settle it: a run leaves the object on a running frame
+        -- and only an explicit action brings it back to standing. A walk does not need this --
+        -- the user's own test was exact about that, "it does idle->walk fine".
+        g.wasRunning = running or nil
     else
         -- More than a tile out: a warp, a dropped packet, or a peer moving faster than we sample.
         -- Walking it there would fall further behind every frame, so place it -- but only once the
@@ -2658,8 +2664,7 @@ local function drawRemotes(localAreaId, playerMapX, playerMapY, skipSpawned, com
                 -- The glide already knows: it is mid-step exactly while the peer is crossing from
                 -- one tile to the next, which is the same question with an answer that cannot be
                 -- mislabelled.
-                local gliding = remote.gFrame and remote.gDur
-                    and (frameCounter - remote.gFrame) < remote.gDur
+                local gliding = remote.gMoved
                 if remote.anim == "walking" or remote.anim == "running" or gliding then
                     pose = (remote.anim == "running") and "run" or "walk"
                     frameIndex = advanceAnim(remote, dirInfo)

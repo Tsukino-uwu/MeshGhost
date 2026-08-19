@@ -23,6 +23,34 @@ actually confirm it as such."*
 
 ---
 
+## Pending — Emerald: five gaps the two-renderer comparison found (2026-08-19)
+
+`MESHGHOST_COMPARE_TIERS` puts the spawned and painted renderers on screen at once, and the user
+found these within minutes of first looking. **Two are already confirmed and live in `verified.md`**
+(the drawn tier moving at the network's pace rather than the game's; a turn drawn as one static
+frame). These five are fixed but **not yet judged**:
+
+- [ ] **A forced move no longer slides.** *What to look at:* any cutscene or scripted walk, both
+      ghosts. *Correct:* the painted one walks, legs moving, like the spawned one — it used to
+      glide along in a standing pose. (A forced move never sets `runningState = 2`, so the peer
+      honestly reports "idle" while crossing tiles; the drawn tier now takes movement from its own
+      position instead of the tag.)
+- [ ] **Running one direction is smooth.** *What to look at:* hold a run in a straight line and
+      watch the painted ghost. *Correct:* an even glide, no per-tile stutter. Each step now
+      continues from where the ghost actually is rather than restarting at the last tile.
+- [ ] **A ghost that stops running stands up properly.** **This is the SPAWNED one** — the first
+      defect the comparison found on that side. *What to look at:* run, then stop. *Correct:* it
+      settles into a standing pose rather than freezing in a running frame.
+- [ ] **Leaving a house no longer shows the painted ghost.** *What to look at:* walk out of a
+      door. *Correct:* both ghosts are equally invisible until the fade finishes. Entering was
+      fixed separately and is already confirmed; leaving is a different mechanism — the engine
+      keeps the player's sprite visible and just fades the screen.
+- [ ] **The painted ghost is as dark as everything else.** *What to look at:* a dark cave, and any
+      fade. *Correct:* it dims exactly like the spawned one, rather than shining at full brightness
+      over a dark scene. **This is the gap the user predicted before any of it was built.** It now
+      measures the live OBJ palette the player's own sprite is using against the ROM palette the
+      pixels were decoded from, and scales by that ratio.
+
 ## Pending — Emerald: no ghost until you are actually in the game (2026-08-19)
 
 The question above ("should the adapter be broadcasting from the main menu?") is **answered** — the
