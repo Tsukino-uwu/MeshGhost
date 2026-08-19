@@ -848,11 +848,29 @@ its screenshots into the session's own scratch directory — which is per-sessio
 it — and the two Archipelago instances had taken none at all. Nobody could see what three of the
 four games were doing.
 
+**When PLAYING, a picture is the primary sense, not a verification aid** (user, 2026-08-19). A
+player navigates by looking: they see that there is a door up and to the right, that the thing
+ahead is a person rather than a rock, that a step is a ledge, that a menu is open and which entry
+is highlighted. **Memory reads cannot supply that** — they give precision, not situation. Knowing
+you are at tile 12,8 tells you nothing about what is around you unless you have already built a
+map; a screenshot tells you immediately, the same way it tells a human.
+
+So the two are a **pair, and neither replaces the other**:
+
+| Question | Answer it with |
+|---|---|
+| *What is around me? Where can I go? What is this thing?* | **A picture** |
+| *Did my input actually do anything?* | **A memory read** (coordinates, map id, menu state) |
+| *Is this rare/periodic thing happening?* | **A counter over time** — one frame cannot see it |
+
+That pairing is also the answer to the failure that dogged this project's driven runs: *"I pressed
+a direction and did not move"* is the same signal for a wall, a ledge, an NPC mid-sentence and an
+open text box. **The picture says which one it is; the memory read says whether it changed.**
+
 **Use pictures.** `dev-scripts/bizhawk-screenshot.lua` writes a PNG a probe can drop on a timer or
-on an event; a loop that overwrites one file is enough to watch a session evolve. They answer
-questions no memory read does — what a menu looks like, whether a sprite is garbled, where the
-player visually is — and they are how the user checks an agent's claim without driving the game
-themselves.
+on an event; a loop that overwrites one file is enough to watch a session evolve. They also answer
+questions no memory read does — whether a sprite is garbled, what a menu looks like — and they are
+how the user checks an agent's claim without driving the game themselves.
 
 **Two things to know about pictures, both learned the hard way:**
 
