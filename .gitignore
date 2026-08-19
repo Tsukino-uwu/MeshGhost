@@ -171,6 +171,12 @@ core-*.err.log
 relay-*.log
 relay-*.err.log
 
+# A core reads config.json from its WORKING DIRECTORY, and under the dev loader that is
+# dev-scripts/ -- so a config left here silently redirects a session's core to whatever relay it
+# names. That cost a live debugging detour on 2026-08-19 (four peers dialling a dead relay port,
+# looking like peers vanishing). Never commit one; delete strays.
+dev-scripts/config.json
+
 # BizHawk dev loader: its control file and log are per-session dev state, not project content.
 # The wildcard covers the per-instance files a two-game session makes (MESHGHOST_DEV_LOADER_TARGET).
 dev-scripts/bizhawk-dev-loader.target
