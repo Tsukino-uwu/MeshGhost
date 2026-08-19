@@ -67,8 +67,9 @@ stays here, its reasoning goes to `agent_docs/`, with a one-line pointer. Full e
   which. Never write "confirmed" on a build or a plausible read. **Why: `testing.md`'s top.**
 - **THE BAR IS 1:1 WITH THE REAL THING** (user, 2026-08-19: *"not sloppy/bandage/good enought"*):
   done means indistinguishable from what the game itself would draw. "Close", "slightly off" and
-  "only during the transition" are OPEN — say so and keep measuring. A shipped compensation is debt
-  in `BANDAGES.md`, and reading the game's own asset beats approximating it (`pitfalls.md`).
+  "only during the transition" are OPEN — keep measuring. **Never offer a rate/tick/architecture
+  change as the answer; that is an excuse for the defect.** Fix the cause. `BANDAGES.md` for real
+  debt; reading the game's own asset beats approximating it (`pitfalls.md`).
 - **Nothing that SHIPS writes a save or game state — ever, not even as a feature.** Holds whatever
   gets added later; the event/lease/escrow/world planes make "just write the item in" newly
   tempting, world custody worst. **Dev-only test tooling MAY cheat** — a probe, never an adapter;
@@ -144,8 +145,7 @@ stays here, its reasoning goes to `agent_docs/`, with a one-line pointer. Full e
 - **Never log the value you just wrote as proof it worked.** Read back an independent value
   instead (e.g. a real getter call, not the local variable you wrote into) — an echoed log
   line proves your code ran, not that the world actually changed.
-- **Two guessed fixes failing with the identical symptom is a signal, not bad luck.** Stop and
-  isolate by subtraction — one diagnostic, one variable — instead of trying a third.
+- **Two guessed fixes failing the same way is a signal.** Isolate by subtraction, never a third guess.
 - **After ~3 failed live-test iterations, STOP and write the results as a table (config vs
   outcome) before building anything else — and try the untested COMBINATION.** "A alone does
   nothing, B alone does nothing" never implies A+B does nothing; game code is full of
