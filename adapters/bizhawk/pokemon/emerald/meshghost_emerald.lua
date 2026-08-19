@@ -1141,7 +1141,28 @@ local STEP_DURATION_FRAMES = { walking = 16, running = 8 }
 -- now runs the same machine: aligned on a tile, take one step toward wherever the peer is now;
 -- mid-step, take nothing.
 local function glideRemote(r, targetX, targetY)
+    -- HOW FAST IS THIS PEER ACTUALLY MOVING? Not "what does its anim tag say".
+    --
+    -- Measured with both ghosts logged side by side per frame (probes/tier_compare.log): the peer
+    -- was advancing 0.125 tiles a frame -- running -- while our step machine was stepping it at
+    -- 0.0625, the walking duration, because that is what the tag said. So the ghost lost half a
+    -- tile every step, fell further behind until it was more than two tiles out, and SNAPPED. The
+    -- snap is the chop the user kept seeing, and no amount of adjusting the step curve could have
+    -- fixed it: the ghost was simply moving at the wrong speed.
+    --
+    -- The tag is a classification (`runningState == 2 and dashing`) and a peer can move without it
+    -- being true at all -- a cutscene already proved that, and cost a separate fix. Its own
+    -- POSITION cannot lie. An average over recent frames rides out the unevenness of an
+    -- interpolated stream without chasing it, and is clamped to sane per-tile durations so a
+    -- dropped packet or a warp cannot leave a ghost crawling or sprinting.
+    local moved = math.abs(targetX - (r.spdX or targetX)) + math.abs(targetY - (r.spdY or targetY))
+    r.spdX, r.spdY = targetX, targetY
+    r.speed = (r.speed or 0) * 0.9 + moved * 0.1
     local dur = STEP_DURATION_FRAMES[r.anim] or STEP_DURATION_FRAMES.walking
+    if r.speed and r.speed > 0.001 then
+        dur = 1 / r.speed
+        if dur < 6 then dur = 6 elseif dur > 24 then dur = 24 end
+    end
     local prevX, prevY = r.gX, r.gY
 
     -- First sight, a different area, or hopelessly behind: a warp, a respawn, a dropped packet.
@@ -2584,9 +2605,16 @@ end
 -- found it blocked from behind but not head-on, which is a positional check with a moving object,
 -- not an elevation rule. Recorded so nobody spends the elevation afternoon twice.
 --
--- Parking happens only while the ghost is STANDING. Mid-step the engine is animating the sprite
--- from those very coordinates, so moving them would drag the picture; a stepping ghost keeps its
--- hitbox for those 8 or 16 frames. Restored at the top of every tick, before anything reads them.
+-- Parking is UNCONDITIONAL, including mid-step, and that is not the obvious choice -- restricting
+-- it to a standing ghost was the first version and did not help, because the loopback ghost
+-- mirrors the player and is therefore stepping exactly when the player walks into it (user:
+-- *"the spawned ghosts collision is still not disabled"*).
+--
+-- What makes the unconditional version safe is a fact this file already recorded for a different
+-- reason: "a ghost's screen position is computed once, at spawn or teleport, and from then on the
+-- engine only applies camera DELTAS to it". The picture is not re-derived from the coordinates
+-- every frame, so moving them does not drag it. Restored at the top of every tick, before
+-- anything -- ours or the engine's step logic -- reads them.
 local function parkGhostHitboxes(park)
     if tiering.noCollision == nil then
         tiering.noCollision = (MESHGHOST_EMERALD_NO_COLLISION
@@ -2601,7 +2629,7 @@ local function parkGhostHitboxes(park)
     for _, g in pairs(ghosts) do
         local a = objAddr(g.objId)
         if park then
-            if not g.parked and ghostIsIdle(g) then
+            if not g.parked then
                 g.parked = {}
                 for i, off in ipairs(FIELDS) do g.parked[i] = r16(a + off) end
                 -- Seven tiles up: off the visible screen, but well inside the window the engine
@@ -2735,12 +2763,31 @@ local function drawRemotes(localAreaId, playerMapX, playerMapY, skipSpawned, com
     if sb1 ~= 0 then
         local camX = rs16(GTOTALCAMERAPIXELOFFSETX_ADDR)
         local camY = rs16(GTOTALCAMERAPIXELOFFSETY_ADDR)
-        if camX % 16 == 0 or tiering.anchorX == nil or tiering.anchorArea ~= localAreaId then
-            tiering.anchorX = rs16(sb1 + 0x00) + camX / 16
+        -- ONLY CALIBRATE WHILE THE PLAYER IS STANDING STILL.
+        --
+        -- Measured with both ghosts logged per frame: the spawned ghost moves a clean -2.0 px
+        -- every frame while ours went -0.67, -0.67, -0.67, +2.0, -0.67 -- oscillating -- even
+        -- though the glide itself was perfectly smooth at -0.167 tiles a frame throughout. So the
+        -- jitter was never in the ghost; it was in this anchor.
+        --
+        -- The cause is the tile counter's other habit: moving in the positive direction it flips
+        -- to the DESTINATION tile the instant a step begins, a whole tile ahead of the picture.
+        -- Calibrating whenever the camera happened to be tile-aligned sometimes sampled exactly
+        -- that moment, and put a one-tile spike into the anchor once per step.
+        --
+        -- A stationary player cannot have a step in flight, so the two cannot disagree. The
+        -- constant only has to be caught once per map -- it does not decay -- and standing still
+        -- for four frames happens constantly in normal play.
+        local tx, ty = rs16(sb1 + 0x00), rs16(sb1 + 0x02)
+        if tiering.lastTileX ~= tx or tiering.lastTileY ~= ty then
+            tiering.lastTileX, tiering.lastTileY, tiering.tileStill = tx, ty, 0
+        else
+            tiering.tileStill = (tiering.tileStill or 0) + 1
         end
-        if camY % 16 == 0 or tiering.anchorY == nil or tiering.anchorArea ~= localAreaId then
-            tiering.anchorY = rs16(sb1 + 0x02) + camY / 16
-        end
+        local settled = (tiering.tileStill or 0) >= 4
+        local fresh = tiering.anchorX == nil or tiering.anchorArea ~= localAreaId
+        if fresh or (settled and camX % 16 == 0) then tiering.anchorX = tx + camX / 16 end
+        if fresh or (settled and camY % 16 == 0) then tiering.anchorY = ty + camY / 16 end
         tiering.anchorArea = localAreaId
         playerMapX = tiering.anchorX - camX / 16
         playerMapY = tiering.anchorY - camY / 16
