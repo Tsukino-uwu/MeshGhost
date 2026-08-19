@@ -685,12 +685,20 @@ hardware applies for free (priority, occlusion, palette, flip) has to be found a
 than approximated. That is real work and it is the work; "the painted one cannot do that" is not an
 acceptable resting place.
 
-**A bandage is permitted here only under the 1:1 test.** The user, in the same conversation: *"its
-probly a bandage then, but think thats fine if we can get it to look identical to the player and
-spawned ghost. I want 1:1 after all"*. So a compensation may ship **when the result is
-indistinguishable on screen from what the player does**, and it is registered in that adapter's
-`BANDAGES.md` with what the real mechanism is and why it was not used. A bandage that merely gets
-close is still refused — see the bandage rule below.
+**The proper mechanism is the goal, not the fallback.** User, 2026-08-19: *"I prefer doing things
+the proper/intended way when achieving 1:1, so we should not try to use bandages often/for
+everything."* A bandage is a **last resort for a case where the game's own mechanism has been
+found and genuinely cannot be reached** — not the thing to reach for when the search gets long. If
+you are considering one, the honest question is usually "have I actually found the mechanism yet?",
+and the answer is usually no.
+
+The 1:1 test is what a bandage must still pass if one is ever justified — the same user, on the
+same day: *"its probly a bandage then, but think thats fine if we can get it to look identical to
+the player and spawned ghost. I want 1:1 after all."* So it is a floor, not a licence: a
+compensation that merely gets close is refused outright (see the bandage rule below), and one that
+is indistinguishable on screen is still registered in that adapter's `BANDAGES.md` naming the real
+mechanism and why it could not be used. **Two bandages for the same feature is a sign the mechanism
+was never found**, and the right move then is to go back and find it.
 
 **It cuts the other way too:** a ghost should not be judged on what a player CANNOT do. The compare
 rig offsets a painted ghost sideways by a couple of tiles, which can put a surfer on grass;
