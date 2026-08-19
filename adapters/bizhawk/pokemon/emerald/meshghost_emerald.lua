@@ -2572,7 +2572,53 @@ end
 -- spawnSet names the peers entitled to an object slot this frame (tiering.chooseSpawned). A peer
 -- that loses its place does NOT vanish -- the drawn tier picks it up in the same frame, which is
 -- the whole point of the split.
+-- DEV ONLY -- MESHGHOST_EMERALD_NO_COLLISION: take a ghost's HITBOX off its picture.
+--
+-- Requested for testing (user, 2026-08-19): a ghost standing two tiles away is a wall in the
+-- middle of whatever is being compared. There is no flag in this engine to switch collision off --
+-- it is purely positional, so the fix is positional too, and the adapter already knows the two
+-- halves are separable: "collision follows the object's map coordinates; drawing follows the
+-- sprite's screen position".
+--
+-- Elevation was tried first and does NOT do it: at 1 the ghost still blocked, and at 15 the user
+-- found it blocked from behind but not head-on, which is a positional check with a moving object,
+-- not an elevation rule. Recorded so nobody spends the elevation afternoon twice.
+--
+-- Parking happens only while the ghost is STANDING. Mid-step the engine is animating the sprite
+-- from those very coordinates, so moving them would drag the picture; a stepping ghost keeps its
+-- hitbox for those 8 or 16 frames. Restored at the top of every tick, before anything reads them.
+local function parkGhostHitboxes(park)
+    if tiering.noCollision == nil then
+        tiering.noCollision = (MESHGHOST_EMERALD_NO_COLLISION
+            or os.getenv("MESHGHOST_EMERALD_NO_COLLISION")) and true or false
+        if tiering.noCollision then
+            console.log("MeshGhost: PROBE FLAG IN USE -- MESHGHOST_EMERALD_NO_COLLISION: ghost "
+                .. "hitboxes are parked off their pictures while standing still. Dev only.")
+        end
+    end
+    if not tiering.noCollision then return end
+    local FIELDS = { 0x0c, 0x0e, 0x10, 0x12, 0x14, 0x16 }
+    for _, g in pairs(ghosts) do
+        local a = objAddr(g.objId)
+        if park then
+            if not g.parked and ghostIsIdle(g) then
+                g.parked = {}
+                for i, off in ipairs(FIELDS) do g.parked[i] = r16(a + off) end
+                -- Seven tiles up: off the visible screen, but well inside the window the engine
+                -- keeps objects loaded in, so nothing gets culled out from under us.
+                w16(a + 0x0e, g.parked[2] - 7)
+                w16(a + 0x12, g.parked[4] - 7)
+                w16(a + 0x16, g.parked[6] - 7)
+            end
+        elseif g.parked then
+            for i, off in ipairs(FIELDS) do w16(a + off, g.parked[i]) end
+            g.parked = nil
+        end
+    end
+end
+
 local function syncRemoteGhosts(localAreaId, spawnSet)
+    parkGhostHitboxes(false)
     for playerId in pairs(ghosts) do
         local remote = remotes[playerId]
         -- Gone, somewhere else, or demoted to the drawn tier. area_id is opaque and compared by
@@ -2584,6 +2630,7 @@ local function syncRemoteGhosts(localAreaId, spawnSet)
     for playerId, remote in pairs(remotes) do
         if remote.areaId == localAreaId and spawnSet[playerId] then syncGhost(playerId, remote) end
     end
+    parkGhostHitboxes(true)
 end
 
 -- skipSpawned, when given, names the peers the ENGINE is already drawing as real object events.
@@ -2799,6 +2846,26 @@ local function drawRemotes(localAreaId, playerMapX, playerMapY, skipSpawned, com
                     end
                 end
 
+                -- COMPARE_TIERS measurement: the two renderers of the SAME peer, side by side,
+                -- to a FILE, buffered, flushed once a second (a per-frame console.log lagged the
+                -- game once already). Five attempts at the drawn tier's movement have each been
+                -- judged by eye; this logs where each ghost actually is, per frame, so the sixth
+                -- is aimed at a number. Off unless the compare flag is set.
+                local g = ghosts[playerId]
+                if COMPARE_TIERS and g and tiering.moveLog then
+                    local gs = sprAddr(g.sprId)
+                    tiering.moveLog[#tiering.moveLog + 1] = string.format(
+                        "f=%d spawned=%d,%d drawn=%.2f,%.2f peer=%.2f,%.2f glide=%.3f,%.3f "
+                            .. "player=%.3f,%.3f step=%s",
+                        frameCounter,
+                        rs16(gs + 0x20) + rs16(gs + 0x24) + memory.read_s8(gs + 0x28)
+                            + rs16(GSPRITECOORDOFFSETX_ADDR),
+                        rs16(gs + 0x22) + rs16(gs + 0x26) + memory.read_s8(gs + 0x29)
+                            + rs16(GSPRITECOORDOFFSETY_ADDR),
+                        screenX, screenY, remote.x, remote.y,
+                        remote.gX or -1, remote.gY or -1, playerMapX, playerMapY,
+                        tostring(remote.gStepping))
+                end
                 drawSpriteFrame(remote.gender, pose, frameIndex, dirInfo.hFlip, screenX, screenY,
                     panelRows, dim)
                 painted = painted + 1
@@ -2809,6 +2876,21 @@ local function drawRemotes(localAreaId, playerMapX, playerMapY, skipSpawned, com
         -- (agent_docs/contract.md); this is not the same as despawning it.
     end
     tiering.painted = painted
+
+    -- Flush the comparison samples once a second. Buffered on purpose: the writes are what cost,
+    -- not the reads, and this file learned that the expensive way earlier the same day.
+    if COMPARE_TIERS then
+        tiering.moveLog = tiering.moveLog or {}
+        if #tiering.moveLog >= 60 then
+            local f = io.open(SCRIPT_DIR .. "probes/tier_compare.log", "a")
+            if f then
+                local NL = string.char(10)
+                f:write(table.concat(tiering.moveLog, NL), NL)
+                f:close()
+            end
+            tiering.moveLog = {}
+        end
+    end
 end
 
 ----------------------------------------------------------------------------
