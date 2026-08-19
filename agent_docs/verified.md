@@ -7846,3 +7846,31 @@ earlier sample was indoors), read from the BG tilemaps rather than the LCD:
 Same geometry as the indoor sample, on a different map, which is what says the detector is reading
 the panel rather than the room. The text-box half (BG0 rows 14-19, full width) has one indoor
 sample from 2026-08-19 and no second one yet.
+
+### Same day, an A/B that closes it from the adapter's own side
+
+**Track: agent-run experiment on the live Archipelago instance, read from the adapter's log. No
+visual claim.** Filling `W_BATTLEMODE = 0x1234` was the last nil in the AP table, so the adapter
+**ran on that ROM for the first time** — classified `ROM title "AP_CRYSTAL"`, connected to its
+bridge on 127.0.0.1:7783, spawned a loopback ghost (`p327-ghost`, map object 15 <-> struct 12) and
+drove the drawn tier from the cartridge.
+
+With it running, the address was then exercised directly rather than only observed: `0x1234` was
+**written** to 2 while the player stood in the overworld (permitted — cheats are allowed to
+progress a dev playthrough, `environment.md`).
+
+| `0x1234` | `drawn tier:` lines emitted in 8 seconds |
+|---|---|
+| forced to **2** | **0** |
+| restored to **0** | **32** |
+
+`drawOverflow()` early-returns on `not inPlay()`, and `inPlay()`'s only battle term is
+`wBattleMode == 0` — so the drawn tier going completely silent on a 2 and resuming on a 0 is the
+adapter's own gate agreeing, from a third direction, that `0x1234` is the byte.
+
+**And it names the real exposure on this build.** `W_MAPSTATUS` (`0x1439` on Archipelago) was
+observed reading **2 throughout every battle in this session** — it never leaves the in-play value.
+So on the patched ROM the battle exclusion rests **entirely** on `wBattleMode`; the map-status term
+that backs it up on vanilla contributes nothing. Anything that leaves `wBattleMode` at 0 while the
+overworld is gone — the encounter transition, most obviously — is unguarded, which is the shape of
+the "ghost showing inside the battle" the user reported the same day.
