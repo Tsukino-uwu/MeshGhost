@@ -95,8 +95,8 @@ that a peer's state genuinely differs from the local player's, which loopback co
 
 - **Ghost collision policy: Go side DONE, adapters not wired.** Config, wire and bridge all ship
   and are tested; no adapter reads `session_policy` yet, so nothing changes on screen. ADR 2026-08-19.
-- **Drawn-tier visual parity: occlusion, shadows, water reflection.** A prerequisite for the
-  policy's `"disabled"` in Emerald and Crystal, on the user's call. Per-game, needs live watching.
+- **Drawn-tier visual parity: EMERALD IS DONE** (occlusion, shadow, reflection all confirmed
+  2026-08-20, `verified.md`). Crystal's tier still has none of it.
 - **A vanilla battle with a crowd was never reached** — our own spawned ghosts boxed the player in
   on the way to grass, which `crowd-limits.md` predicts. `unverified.md`, `pitfalls.md`.
 - **Emerald's real-panel clip count was REACHED, not played to** — the position was written, so it

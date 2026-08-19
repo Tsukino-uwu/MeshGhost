@@ -1647,9 +1647,14 @@ end
 -- and night the game applies; a painted one is put on top of the finished frame and is dimmed by
 -- nothing, which is why it shone through a house exit. Scaling the run colours is the same
 -- operation the hardware performs, applied where we draw instead.
-local function drawSpriteFrame(gender, pose, frameIndex, hFlip, screenX, screenY, panelRows, dim)
+-- keepSpans reaches this path too, and forgetting it here is why the first occlusion attempt
+-- changed nothing on screen: a peer on FOOT is drawn from the gender frames, not from the peer's
+-- own graphic, so the mask was applied to the branch that only runs on a bike, a rod or a
+-- surfboard. Both paths draw a character and both need hiding behind the map.
+local function drawSpriteFrame(gender, pose, frameIndex, hFlip, screenX, screenY, panelRows, dim,
+    keepSpans)
     drawRunList(genderFrames.runsFor(gender, pose, frameIndex), FRAME_WIDTH_PX, hFlip,
-        screenX, screenY, panelRows, dim)
+        screenX, screenY, panelRows, dim, nil, nil, keepSpans)
 end
 
 -- One run list, at a screen position: the clip against the game's own panels and the scene-
@@ -2244,8 +2249,29 @@ end
 genderFrames.coverCache = {}
 genderFrames.coverLayout = nil
 
-genderFrames.coverMask = function(metatileId)
-    local cached = genderFrames.coverCache[metatileId]
+-- `who` is "sprite" for an ordinary character or "reflection" for one, and the answer genuinely
+-- differs, because the two are drawn at different OAM priorities and a BG only covers a sprite it
+-- outranks. sElevationToPriority (src/event_object_movement.c:7729) puts a character on ordinary
+-- ground at priority 2; SetUpReflection pins a reflection at 3. Against BG1/BG2/BG3 at priorities
+-- 1/2/3 (sOverworldBgTemplates), with OBJ winning ties:
+--
+--                     BG1 (prio 1)   BG2 (prio 2)   BG3 (prio 3)
+--   character (2)     covers         ties, OBJ wins  no
+--   reflection (3)    covers         covers          ties, OBJ wins
+--
+-- Crossed with where DrawMetatile puts each layer (src/field_camera.c:255-300):
+--
+--   NORMAL   ground->BG2, top->BG1 : character hidden by the TOP layer only;
+--                                    reflection hidden by BOTH (this is grass, and it hides one).
+--   COVERED  ground->BG3, top->BG2 : character hidden by NOTHING; reflection by the top layer.
+--   SPLIT    ground->BG3, top->BG1 : both hidden by the top layer only.
+--
+-- The character row is what makes a drawn ghost disappear behind a building: the roof edge and the
+-- tree tops that overlap a walkable tile are that tile's TOP layer, which is exactly the layer the
+-- engine puts above sprites.
+genderFrames.coverMask = function(metatileId, who)
+    local key = (who or "reflection") .. metatileId
+    local cached = genderFrames.coverCache[key]
     if cached ~= nil then return cached end
 
     local layout = r32(0x02037318)
@@ -2255,19 +2281,25 @@ genderFrames.coverMask = function(metatileId)
     else
         tileset, index = r32(layout + 0x14), metatileId - 512
     end
-    if tileset == 0 then genderFrames.coverCache[metatileId] = false return false end
+    if tileset == 0 then genderFrames.coverCache[key] = false return false end
     local metatiles = r32(tileset + 0x0c)
     local attrs = r32(tileset + 0x10)
     if metatiles == 0 or attrs == 0 then
-        genderFrames.coverCache[metatileId] = false
+        genderFrames.coverCache[key] = false
         return false
     end
     local layerType = (r16(attrs + index * 2) >> 12) & 0x0f
 
     local rows = {}
     for i = 0, 15 do rows[i] = 0 end
-    -- The top layer always covers; on a NORMAL metatile the ground does as well.
-    for _, lay in ipairs(layerType == 0 and { 0, 4 } or { 4 }) do
+    -- Which layers can cover THIS kind of sprite, per the table above.
+    local layers
+    if who == "sprite" then
+        layers = (layerType == 1) and {} or { 4 }   -- COVERED hides a character not at all
+    else
+        layers = (layerType == 0) and { 0, 4 } or { 4 }
+    end
+    for _, lay in ipairs(layers) do
         for quad = 0, 3 do
             local e = r16(metatiles + (index * 8 + lay + quad) * 2)
             local tileIndex = e & 0x03ff
@@ -2296,7 +2328,7 @@ genderFrames.coverMask = function(metatileId)
             end
         end
     end
-    genderFrames.coverCache[metatileId] = rows
+    genderFrames.coverCache[key] = rows
     return rows
 end
 
@@ -2407,7 +2439,7 @@ genderFrames.gridBase = function()
             - (ay + MAP_OFFSET) * TILE
 end
 
-genderFrames.reflectiveSpans = function(left, top, width, height)
+genderFrames.reflectiveSpans = function(left, top, width, height, who)
     -- THE GRID MUST NOT BOB.
     --
     -- The first version derived it from the tier's own anchors (originY, captured from
@@ -2448,7 +2480,7 @@ genderFrames.reflectiveSpans = function(left, top, width, height)
         local list, openFrom = {}, nil
         for gx = gxMin, gxMax do
             local id = genderFrames.metatileAt(gx, gy)
-            local mask = id and genderFrames.coverMask(id)
+            local mask = id and genderFrames.coverMask(id, who)
             -- Off the map, or a metatile we could not decode: treat it as covering, so an unknown
             -- never becomes a reason to paint somewhere.
             -- mask == true means "this metatile covers everywhere" (see coverMask); a table is
@@ -4744,7 +4776,7 @@ local function drawRemotes(localAreaId, playerMapX, playerMapY, skipSpawned, com
                             -- ask the map. Computed here rather than inside the draw so it is one
                             -- lookup grid for the whole reflection instead of one per run.
                             local wet = rruns and genderFrames.reflectiveSpans(
-                                screenX + cx, rtop, info.width, info.height)
+                                screenX + cx, rtop, info.width, info.height, "reflection")
                             -- Once a second: where this ghost stands, and every tile its
                             -- reflection is allowed to paint over, with that tile's behaviour.
                             -- Painting over a non-water behaviour is a bug; painting only over
@@ -4765,18 +4797,30 @@ local function drawRemotes(localAreaId, playerMapX, playerMapY, skipSpawned, com
                                     genderFrames.dirOf[remote.orientation] or 1)
                             if bruns then
                                 drawRunList(bruns, SURFBLOB_FRAME_PX, bflip, screenX + cx,
-                                    screenY + cy + 8, panelRows, dim)
+                                    screenY + cy + 8, panelRows, dim, nil, nil,
+                                    genderFrames.reflectiveSpans(screenX + cx, screenY + cy + 8,
+                                        SURFBLOB_FRAME_PX, SURFBLOB_FRAME_PX, "sprite"))
                             end
                         end
 
+                        -- HIDDEN BY THE MAP, the way a spawned ghost is for free. A painted
+                        -- character is put on top of the finished frame, so without this it walks
+                        -- OVER the roof edges and tree tops that the engine draws above sprites --
+                        -- reported on screen 2026-08-20: *"the drawn ghost not hiding behind
+                        -- buildings"*. The mask is the same machinery as the reflection's, asked
+                        -- the question for a priority-2 sprite instead of a priority-3 one.
+                        local occl = genderFrames.reflectiveSpans(screenX + cx, screenY + cy,
+                            info.width, info.height, "sprite")
                         drawRunList(runs, info.width, gfxFlip, screenX + cx, screenY + cy,
-                            panelRows, dim)
+                            panelRows, dim, nil, nil, occl)
                         drew = true
                     end
                 end
                 if not drew then
                     drawSpriteFrame(remote.gender, pose, frameIndex, dirInfo.hFlip, screenX,
-                        screenY, panelRows, dim)
+                        screenY, panelRows, dim,
+                        genderFrames.reflectiveSpans(screenX, screenY,
+                            FRAME_WIDTH_PX, FRAME_HEIGHT_PX, "sprite"))
                 end
                 -- The painted copy gets a shadow too, on the same terms as the spawned one: only
                 -- while the peer reports a jump, and on the ground it left rather than under its

@@ -8569,3 +8569,38 @@ Both halves broke a ghost, and both were measured over 527 frames of slide-back 
 *north* rather than south — it is finishing the step it was already committed to while the peer is
 already sliding back. That is the same "a ghost cannot abandon a step" limit that caused corner
 snapping, showing up in the one place where a peer's direction INVERTS mid-step. `unverified.md`.
+
+## Emerald: a drawn ghost hides behind the map — 2026-08-20
+
+**User-confirmed on screen, vanilla:** *"works properly now, confirmed"*. A painted peer now passes
+behind buildings, roof edges and tree tops exactly as a spawned one does.
+
+This was the oldest gap in the drawn tier and the last of the three the tier shipped OFF for
+(`status.md`: *"drawn-tier visual parity: occlusion, shadows, water reflection"*). It needed no new
+machinery — the reflection work had already built the per-pixel metatile decoder, and occlusion is
+the same question asked for a different OAM priority.
+
+**The whole rule, and it is the game's own.** A sprite is hidden where a BG layer it does not
+outrank is opaque. `sElevationToPriority` (src/event_object_movement.c:7729) draws a character on
+ordinary ground at priority **2**; `SetUpReflection` pins a reflection at **3**. The overworld gives
+BG1/BG2/BG3 priorities 1/2/3 (`sOverworldBgTemplates`), and OBJ wins ties:
+
+| | BG1 (prio 1) | BG2 (prio 2) | BG3 (prio 3) |
+| --- | --- | --- | --- |
+| character (2) | covers | ties, sprite wins | no |
+| reflection (3) | covers | covers | ties, sprite wins |
+
+Crossed with where `DrawMetatile` puts each layer (src/field_camera.c:255-300):
+
+- **NORMAL** — a character is hidden by the TOP layer only; a reflection by both.
+- **COVERED** — a character by NOTHING; a reflection by the top layer.
+- **SPLIT** — both by the top layer.
+
+The character row is exactly what a building is: the roof edge that overlaps a walkable tile is that
+tile's top layer, which is the layer the engine draws above sprites — the source says so in a
+comment on the NORMAL case.
+
+**The first attempt changed nothing, and the log said why before the screen did.** The occlusion was
+added to the branch that draws a peer's OWN graphic — a bike, a rod, a surfboard. A peer on FOOT is
+drawn from the cached gender frames by a different function, so the mask never ran. The tell was a
+one-shot diagnostic that printed no line at all: not a quiet success, an unreached code path.

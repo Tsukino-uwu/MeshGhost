@@ -2479,3 +2479,27 @@ direction is known locally, so the two DISAGREEING is itself the signal.
 
 **The rule.** **Never infer a facing from a movement.** Send it, or derive it from something the
 game states, and look for a lock/override flag before assuming the two always agree.
+
+## Two draw paths, and a fix applied to one of them — 2026-08-20, Emerald
+
+**Symptom.** Occlusion for the painted tier was implemented, reloaded, and the ghost still walked
+over the building.
+
+**Cause.** The painted tier draws a character two ways: from the peer's OWN graphic when it has one
+(a bike, a rod, a surfboard) and from the cached gender frames when it does not. Every session
+recently had been spent in the first path, so the fix went there and nowhere else — and the peer was
+on foot.
+
+**What made it obvious, and it is worth copying.** The change shipped with a one-shot diagnostic
+beside it, which printed NOTHING. An empty diagnostic is not a quiet success and not a broken
+probe by default: **first check whether the code it lives in ran at all.** That distinguished
+"the mask is wrong" from "the mask never executed" in one reload, without a guess and without asking
+the user to look again.
+
+**The rules.**
+
+- **Count the paths before fixing one.** Ask what else renders, spawns or moves the same thing.
+  This adapter has two draw paths, two tiers, and a spawn path plus an in-place swap — four places a
+  change can need to land, and each has caught something this month.
+- **Put a diagnostic INSIDE the change, not near it.** Then "did it work" and "did it run" are
+  different lines in the log rather than the same silence.
