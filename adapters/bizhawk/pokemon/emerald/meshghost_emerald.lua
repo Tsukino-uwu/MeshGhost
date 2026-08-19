@@ -1122,13 +1122,36 @@ local STEP_DURATION_FRAMES = { walking = 16, running = 8 }
 -- Lua's 200). A jump longer than one tile is a warp, a respawn or first sight, and snaps.
 local function glideRemote(r, targetX, targetY)
     local dur = STEP_DURATION_FRAMES[r.anim] or STEP_DURATION_FRAMES.walking
+
+    -- Where the ghost actually IS this frame, before anything is decided. A new step has to
+    -- continue from here, not from the tile the last step aimed at.
+    local cx, cy = targetX, targetY
+    if r.gTileX ~= nil then
+        local f0 = (frameCounter - r.gFrame) / r.gDur
+        if f0 > 1 then f0 = 1 elseif f0 < 0 then f0 = 0 end
+        cx = r.gPrevX + (r.gTileX - r.gPrevX) * f0
+        cy = r.gPrevY + (r.gTileY - r.gPrevY) * f0
+    end
+
     if r.gTileX == nil or r.gAreaId ~= r.areaId
         or math.abs(targetX - r.gTileX) > 1 or math.abs(targetY - r.gTileY) > 1 then
         r.gPrevX, r.gPrevY = targetX, targetY
         r.gTileX, r.gTileY = targetX, targetY
         r.gFrame, r.gDur = frameCounter, dur
     elseif targetX ~= r.gTileX or targetY ~= r.gTileY then
-        r.gPrevX, r.gPrevY = r.gTileX, r.gTileY
+        -- CONTINUE FROM THE CURRENT POSITION, NOT FROM THE LAST TILE.
+        --
+        -- Restarting each step at the previously committed tile snaps the ghost backwards by
+        -- however far it had got, every single step. Standing still or walking that is invisible;
+        -- running one direction continuously it is a stutter per tile, which is what the user saw
+        -- in the side-by-side (2026-08-19): *"constant running in 1 direction looks a bit choppy
+        -- for the drawn ghost"*. Peer samples arrive on the network's cadence and steps happen on
+        -- the game's, so the two never line up and the snap is permanent.
+        --
+        -- Carrying the real position over also makes the glide self-correcting: a ghost that has
+        -- fallen behind has further to travel in the same 8 or 16 frames, so it closes the gap
+        -- instead of accumulating it.
+        r.gPrevX, r.gPrevY = cx, cy
         r.gTileX, r.gTileY = targetX, targetY
         r.gFrame, r.gDur = frameCounter, dur
     end
@@ -2459,6 +2482,20 @@ local function syncGhost(playerId, remote)
         local moving = (remote.anim == "walking" or remote.anim == "running")
         if not moving then
             g.stillSince = nil
+            -- SETTLE A GHOST THAT WAS RUNNING. We drive a run by issuing a run action per tile;
+            -- when the peer stops we simply stop issuing them, and the engine leaves the object on
+            -- whatever frame the last one ended on -- so the ghost stands there in a running pose.
+            -- The player never looks like that because the game returns them to standing itself.
+            -- Found by the user 2026-08-19 in the side-by-side, and it is the SPAWNED half that
+            -- was wrong for once: *"the injected/spawned ghost gets stuck in a wrong pose/sprite
+            -- after stopping after a run, the drawn one looks fine"*.
+            --
+            -- Asking the engine to face the way it already faces is how the game itself settles a
+            -- character, so the standing frame comes from the same place every other pose does.
+            if g.wasRunning then
+                g.wasRunning = nil
+                requestAction(g, FACE_ACTION[dir])
+            end
             return
         end
         g.stillSince = g.stillSince or frameCounter
