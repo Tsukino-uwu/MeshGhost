@@ -1120,46 +1120,70 @@ local STEP_DURATION_FRAMES = { walking = 16, running = 8 }
 -- So a drawn peer now glides between TILES over the same 16/8 frames the game gives a step, from
 -- per-peer state kept on the peer's own table (no new chunk locals -- this file is at 196 of
 -- Lua's 200). A jump longer than one tile is a warp, a respawn or first sight, and snaps.
--- DRAW THE PEER WHERE THE PEER SAYS IT IS. The adapter does not get a vote on movement.
+-- SMOOTH WITH A FILTER, WHICH HAS NO CLOCK OF ITS OWN.
 --
--- Six attempts at making a drawn ghost move well, and the last five were all the same mistake:
--- each invented a movement model here -- ramp from the last tile, ramp from the current position,
--- constant speed, the engine's own step machine, then that machine at a measured speed -- and
--- every one of them ran on its OWN clock. The world scrolls on the game's clock. Two independent
--- clocks beat against each other, and that beat is what "a bit choppy" was, every time.
+-- Seven attempts at moving a drawn ghost, and the measurements finally separate the two questions
+-- that were tangled together the whole time:
 --
--- The last measurement made it undeniable (probes/tier_compare.log): the spawned ghost moved a
--- clean -1.0 px every frame while ours sat perfectly still for ten frames, jumped +2.0 px a frame
--- for eleven, then crawled at 0.33. Not one of those numbers is a movement bug. They are two
--- clocks disagreeing.
+--   * WHY it looked wrong. Every model before this one had its own timing -- a step duration, a
+--     speed, a state machine -- running against a world that scrolls on the game's clock. Two
+--     clocks beat, and the beat was the chop. That diagnosis was right and is why nothing here
+--     schedules anything any more.
+--   * Why "just draw the peer where it is" was ALSO wrong. Measured
+--     (probes/tier_compare.log): a peer's position changes in 549 frames out of 4140 -- one frame
+--     in eight -- in jumps of 2 to 4 pixels. The core interpolates (`-interp`, 100ms by default)
+--     but it DELIVERS at the relay's rate, around 8-20 a second, while this tier redraws at 60.
+--     Between deliveries the position is a constant, so drawing it faithfully draws a staircase.
+--     The engine hides the same staircase for a spawned ghost by walking it a tile at a time.
 --
--- **Smoothing a peer's position between updates is the CORE's job** -- it is what `-interp`
--- exists for, it is where the clock offset and the arrival times are known, and it is tested there
--- (agent_docs/contract.md). By the time a position reaches this adapter it is already a smooth,
--- continuous, sub-tile float; the drawn tier's entire job is to put a picture at it. Everything
--- below is bookkeeping for the WALK CYCLE, which does need to know about movement -- and it takes
--- that from distance covered, not from any model of how the covering happened.
+-- So the adapter does have to smooth -- it just must not schedule. An exponential filter is the
+-- shape that fits: it has a lag and nothing else. No step duration to disagree with the game's,
+-- no phase to drift, no state machine to be out of sync with the world's scroll. Whatever rate
+-- positions arrive at, and however uneven, it turns them into continuous motion, and it cannot
+-- beat against anything because there is no periodicity in it to beat with.
 --
--- The one thing this costs: with `-interp=0` a peer's position arrives in 20Hz steps and a drawn
--- ghost will show them, because there is nothing left here to hide them. That is the honest
--- behaviour -- the rig asked for no interpolation -- and it is what the setting means.
+-- MATCHING THE SPAWNED GHOST, deliberately: the user's call, 2026-08-19, asked for the two
+-- renderers to be *"1:1 to the spawned ghost as much as possible"*.
+--
+-- A drawn ghost is naturally AHEAD of a spawned one -- not by error, but because the engine cannot
+-- begin a step until its object is standing on a tile, so an engine-driven ghost always trails the
+-- truth by up to one step. Ours has no such rule and sits where the peer actually is. That is the
+-- better behaviour for a real peer and the wrong one for a comparison, so the trailing distance is
+-- reproduced here rather than the step machine that causes it: the filter follows the peer's
+-- position from a few frames ago. Same lag, none of the two-clock beating that five separate
+-- movement models produced.
+local DRAWN_DELAY_FRAMES = tonumber(MESHGHOST_EMERALD_DRAWN_DELAY_FRAMES
+    or os.getenv("MESHGHOST_EMERALD_DRAWN_DELAY_FRAMES") or "") or 8
+
 local function glideRemote(r, targetX, targetY)
-    local prevX, prevY = r.gX, r.gY
-    if r.gAreaId ~= r.areaId then
-        prevX, prevY = targetX, targetY
-        r.gAreaId = r.areaId
-    end
-    r.gX, r.gY = targetX, targetY
-    local dx = math.abs(r.gX - (prevX or r.gX))
-    local dy = math.abs(r.gY - (prevY or r.gY))
-    -- A warp is not walking: past a tile in one frame, restart the cycle rather than spinning it.
-    if dx > 1 or dy > 1 then
+    -- The delay line: a short ring of recent positions, read from DRAWN_DELAY_FRAMES ago.
+    r.hist = r.hist or {}
+    r.hist[frameCounter % 32] = { targetX, targetY }
+    local old = r.hist[(frameCounter - DRAWN_DELAY_FRAMES) % 32]
+    if old then targetX, targetY = old[1], old[2] end
+
+    -- First sight, a new area, or further than two tiles: a warp or a dropped peer. Snap, and do
+    -- not drag a filter across a discontinuity that is not movement.
+    if r.gX == nil or r.gAreaId ~= r.areaId
+        or math.abs(targetX - r.gX) > 2 or math.abs(targetY - r.gY) > 2 then
+        r.gX, r.gY, r.gAreaId = targetX, targetY, r.areaId
         r.gMoved, r.gDist = false, 0
         return r.gX, r.gY
     end
-    r.gMoved = (dx + dy) > 0.0001
-    -- Distance covered, in tiles. The engine changes pose every 8 pixels, so this keeps one tile
-    -- at exactly two poses however fast or slow the peer crossed it.
+    r.gAreaId = r.areaId
+
+    -- 0.25 a frame: settles a 2-4px delivery in about five frames, which is under a tenth of a
+    -- second and shorter than the gap between deliveries, so it is smoothing rather than lagging.
+    local prevX, prevY = r.gX, r.gY
+    r.gX = r.gX + (targetX - r.gX) * 0.25
+    r.gY = r.gY + (targetY - r.gY) * 0.25
+    local dx, dy = math.abs(r.gX - prevX), math.abs(r.gY - prevY)
+
+    -- Movement, for the walk cycle: a filter never quite arrives, so "is it moving" is a question
+    -- about whether it is still meaningfully closing, not about being exactly equal.
+    r.gMoved = (math.abs(targetX - r.gX) + math.abs(targetY - r.gY)) > 0.02
+    -- Distance covered, in tiles. The engine changes pose every 8 pixels, so this keeps a tile at
+    -- two poses whatever rate the peer's positions arrived at.
     r.gDist = (r.gDist or 0) + dx + dy
     return r.gX, r.gY
 end
@@ -1801,6 +1825,10 @@ local despawnSurfBlob
 local spawnSurfBlob
 local SURFING_GFX
 
+-- Tile ranges we could not free at the time, because we were in a battle and the bitmap was not
+-- ours to write. Settled by settlePendingTileFrees() on the way back to the overworld.
+local pendingTileFrees = {}
+
 local function freeGhostTiles(g)
     if g.tileStart then
         for t = g.tileStart, g.tileStart + g.tileCount - 1 do setTileAllocated(t, false) end
@@ -1839,6 +1867,19 @@ local function despawnGhost(playerId)
     -- reclaims both the slot and the tiles when it tears the map down, which is exactly what the
     -- "not ours any more" case below has always relied on.
     if not inOverworld() then
+        -- The tile range is REMEMBERED, not forgotten. Dropping it silently leaks those bits in
+        -- the engine's own allocation bitmap: nothing frees them, the engine's later allocations
+        -- have less VRAM to work with, and when it finally runs short its own NPCs render from
+        -- whatever tiles it can get. That is what the user saw after a long session of reloads --
+        -- *"a garbled 3rd ghost... has collision, and i can talk to it"*, which is not a ghost at
+        -- all but a real NPC drawn with the wrong tiles.
+        --
+        -- It cannot be freed here: outside the overworld those tiles belong to the battle, and
+        -- writing the bitmap is exactly the corruption the guard exists to prevent. So it is
+        -- queued, and settled on the way back in, where the identity test can say whether the
+        -- range is still ours to free or whether the engine has already reset the bitmap itself.
+        pendingTileFrees[#pendingTileFrees + 1] =
+            { objId = g.objId, tileStart = g.tileStart, tileCount = g.tileCount }
         ghosts[playerId] = nil
         return
     end
@@ -2581,6 +2622,15 @@ local function parkGhostHitboxes(park)
         end
     end
     if not tiering.noCollision then return end
+    -- ALL THREE coordinate pairs, and ONLY while the ghost is STANDING STILL. Both halves of that
+    -- are settled by testing rather than reasoning, and each cost the user a broken-looking ghost:
+    --   * all three parked MID-STEP: *"really choppy/teleporting/invisible popping in and out"*;
+    --   * only currentCoords parked mid-step, on the theory that collision and movement might read
+    --     different pairs: *"the spawned ghost is teleporting/doing weird things now"*.
+    -- The engine drives a step from the same coordinates the collision scan reads, so there is no
+    -- pair to separate them by, and no version of this that frees a MOVING ghost. Freeing a
+    -- standing one is the whole of what this switch can offer, and saying so is more useful than
+    -- another attempt.
     local FIELDS = { 0x0c, 0x0e, 0x10, 0x12, 0x14, 0x16 }
     for _, g in pairs(ghosts) do
         local a = objAddr(g.objId)
@@ -3015,6 +3065,20 @@ local function runFrame()
     -- draw it when the map comes back. Waiting up to 60 frames to notice is what made it visible.
     -- Sweeping on the transition itself costs one array scan per battle and closes the window.
     local nowOverworld = inOverworld()
+    if avatarAddrConfirmed and nowOverworld and not tiering.wasOverworld
+        and #pendingTileFrees > 0 then
+        -- Back in the overworld: settle anything a battle stopped us freeing. If the slot still
+        -- carries our own localId the range is genuinely still ours and freeing it is right; if it
+        -- does not, the engine has already run its own reset over the bitmap and the range is
+        -- long since somebody else's, so the only safe thing is to forget it.
+        for i = 1, #pendingTileFrees do
+            local p = pendingTileFrees[i]
+            if p.tileStart and r8(objAddr(p.objId) + 0x08) == GHOST_LOCAL_ID then
+                for t = p.tileStart, p.tileStart + p.tileCount - 1 do setTileAllocated(t, false) end
+            end
+            pendingTileFrees[i] = nil
+        end
+    end
     if avatarAddrConfirmed and nowOverworld
         and (frameCounter % 60 == 0 or not tiering.wasOverworld) then
         sweepOrphanGhosts()
