@@ -1387,7 +1387,25 @@ local function handleBridgeLine(line)
                 r.gender = (type(st.extras) == "table" and st.extras.gender) or "male"
                 -- The peer's own graphic. Absent from an older peer, in which case the ghost
                 -- falls back to borrowing this machine's player graphic, exactly as before.
-                r.gfx = (type(st.extras) == "table" and tonumber(st.extras.gfx)) or nil
+                -- ADOPT A NEW GRAPHIC ONLY ONCE IT HAS SETTLED.
+                --
+                -- Measured frame by frame: when the player picks up a rod, the game gives it the
+                -- 32-wide fishing graphic FOUR FRAMES before its fishing task applies the pos2
+                -- that keeps the character on its tile. The player is visible throughout, so those
+                -- four frames are real -- but they land while the bag is still closing, where an
+                -- 8px hop is invisible. A ghost replaying them 250ms later, in a clean frame, is
+                -- the only thing moving on screen, and it reads as a snap.
+                --
+                -- The bar is that a ghost LOOKS like the player doing it (CLAUDE.md), so a pose
+                -- the player's own hop was imperceptible in is not one to reproduce. Taking the
+                -- graphic only after two consecutive updates agree means the swap lands together
+                -- with the settled offset, and the intermediate is never drawn. Costs one update
+                -- of delay on a state change -- invisible next to the interpolation already in
+                -- front of it -- and nothing at all in the steady state.
+                local newGfx = (type(st.extras) == "table" and tonumber(st.extras.gfx)) or nil
+                if newGfx == r.gfxSeen then r.gfx = newGfx end
+                r.gfxSeen = newGfx
+                if r.gfx == nil then r.gfx = newGfx end
                 -- Peer-controlled, so bounded like every other inbound number: animNum is a u8.
                 local sa = (type(st.extras) == "table" and tonumber(st.extras.sanim)) or nil
                 r.sanim = (sa and sa >= 0 and sa <= 255 and math.floor(sa) == sa) and sa or nil
