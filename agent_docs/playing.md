@@ -224,6 +224,34 @@ and which tile is a one-way ledge is what makes an agent good at this rather tha
 same relationship a speedrunner has with a decomp. The prohibition is on *changing* the world, not
 on understanding it.
 
+## Drive the game YOURSELF before asking — user, 2026-08-19
+
+*"try to do things in the game on your own, before asking me. you can cheat/use inputs/savestates
+etc. make sure you actually make use of those tools."*
+
+**The tools in this file are not a last resort, they are the first move.** Input driving, savestates,
+memory edits and the test-kit cheats exist so that an agent can reach a state, hold it, and repeat
+it — and every one of them is already permitted. Asking the user to perform something reproducible
+is spending their time on what a script does better.
+
+**It is also better evidence.** A person cannot hold a game's fastest movement steady for a minute
+while watching a ghost for defects, and they should not have to: the Mach Bike work spent several
+rounds with empty counters purely because the sample window and the riding never lined up. Ten
+lines of `joypad.set` fixed that — `probes/bikeloop_probe.lua` rides a square at top speed, reports
+the speed it actually reached, and produced in one run the sustained data that hand-riding had
+failed to produce in six.
+
+**What to script, in rough order of how often it is wanted:** reaching a state (ride, surf, fish,
+walk a route), holding one steady while something is measured, repeating one exactly after a change,
+and returning to a checkpoint so a run is free to redo (savestates, slots 2+).
+
+**What still needs the user:** judging what is on screen. That gate does not move —
+`agent_docs/verified.md`'s rule stands, and scripting the *input* does not make the agent's *eyes*
+count. Script the run; ask about the picture.
+
+**The tell that this rule is being broken:** a message that ends by asking the user to go and do
+something in the game, when nothing about it required a human hand.
+
 ## Screenshots — the navigation sense
 
 **A screenshot is still never proof.** `environment.md`'s BizHawk section holds that rule and the

@@ -682,14 +682,24 @@ end
 --
 -- The animation number is the missing half. Both ends are on the same graphic by then, so the
 -- numbering matches, and the peer's own sprite is the authority on what that character is doing.
+-- `spaused` is the third thing a sprite's animation state is made of, after the number and the
+-- frame -- IS IT RUNNING. A ghost has no task to start or stop its animation, so this decides
+-- whether the engine should be handed the animation to play or told to hold one frame.
+--
+-- Without it every mirrored state was un-paused, which is right for fishing (the game's task really
+-- is animating the player) and wrong for a bike standing still: measured 2026-08-19, the player's
+-- own Mach Bike sprite idles at anim 7 frame 3 with animPaused SET, while a spawned ghost pedalled
+-- on the spot. The user: *"idle it looks fine on the drawn ghost already, but on the spawned one
+-- its doing a 'moving' animation when idle"*.
 local function encodeLocalState(areaId, x, y, orientation, anim, gender, gfx, sanim, sidx, act,
-    sox, soy)
+    sox, soy, spaused, pspeed)
     return string.format(
-        '{"type":"local_state","payload":{"state":{"area_id":%s,"position":[%s,%s],"orientation":%s,"anim":%s,"extras":{"gender":%s,"gfx":%s,"sanim":%s,"sidx":%s,"act":%s,"sox":%s,"soy":%s}}}}',
+        '{"type":"local_state","payload":{"state":{"area_id":%s,"position":[%s,%s],"orientation":%s,"anim":%s,"extras":{"gender":%s,"gfx":%s,"sanim":%s,"sidx":%s,"act":%s,"sox":%s,"soy":%s,"spaused":%s,"pspeed":%s}}}}',
         jsonString(areaId), tostring(x), tostring(y), jsonString(orientation), jsonString(anim),
         jsonString(gender), tostring(gfx or "null"), tostring(sanim or "null"),
         tostring(sidx or "null"), tostring(act or "null"),
-        tostring(sox or "null"), tostring(soy or "null"))
+        tostring(sox or "null"), tostring(soy or "null"), tostring(spaused or "null"),
+        tostring(pspeed or "null"))
 end
 
 local ENCODED_NO_SEND = '{"type":"local_state","payload":{"state":null}}'
@@ -1485,6 +1495,12 @@ local function handleBridgeLine(line)
                 local oy = (type(st.extras) == "table" and tonumber(st.extras.soy)) or nil
                 r.sox = (ox and ox >= -32 and ox <= 32) and math.floor(ox) or nil
                 r.soy = (oy and oy >= -32 and oy <= 32) and math.floor(oy) or nil
+                -- Whether the peer's own sprite is HELD or running. nil (an older peer) keeps the
+                -- previous behaviour of handing the animation to the engine.
+                local sp = (type(st.extras) == "table" and tonumber(st.extras.spaused)) or nil
+                r.spaused = sp ~= nil and sp ~= 0 or nil
+                local ps = (type(st.extras) == "table" and tonumber(st.extras.pspeed)) or nil
+                r.pspeed = (ps and ps >= 0 and ps <= 4 and math.floor(ps) == ps) and ps or nil
             end
         end
     elseif env.type == "despawn_remote" then
@@ -1989,9 +2005,50 @@ genderFrames.peerRunCache = {}
 -- The palette slot is part of the cache key, not just the frame: the reflection is the same
 -- pixels in different colours, and keying on the image alone would hand the first one decoded to
 -- both.
+-- A CHEAP FINGERPRINT OF ONE LIVE OBJ PALETTE, memoised for the frame.
+--
+-- The cache below bakes colours at decode time, so an entry made while the palette was not the
+-- steady-state one -- mid-fade, or with a different map's palettes loaded -- stayed wrong for the
+-- rest of the session. Found exactly that way 2026-08-20: the adapter was reloaded while the game
+-- sat in a battle, the first decode after it took the battle's palette, and every drawn ghost was
+-- washed out from then on while the spawned one looked normal.
+--
+-- So the cache is keyed on WHAT THE PALETTE HELD as well as on the frame. Recomputing the stamp is
+-- 16 halfword reads, and memoising it per frame per slot keeps that at 16 reads per slot per frame
+-- no matter how many peers ask -- the same footing as the scene-brightness read, which costs 32.
+genderFrames.palStamp = {}
+genderFrames.palStampFrame = -1
+genderFrames.paletteStamp = function(slot)
+    slot = slot & 0x0f
+    local fc = emu.framecount()
+    if genderFrames.palStampFrame ~= fc then
+        genderFrames.palStampFrame = fc
+        genderFrames.palStamp = {}
+    end
+    local s = genderFrames.palStamp[slot]
+    if s then return s end
+    s = 0
+    for i = 0, 15 do
+        s = (s * 33 + r16(0x05000200 + slot * 32 + i * 2)) % 0x100000000
+    end
+    genderFrames.palStamp[slot] = s
+    return s
+end
+
+-- Forward-declared here and filled in much further down, the same pattern the surf-blob helpers
+-- use. It has to be ABOVE the first reference, not merely above the table: a local declared later
+-- in this chunk is not in scope for an earlier function, so it compiles to a global read of nil
+-- and throws on the first frame that reaches it. That is exactly what happened -- the palette-stamp
+-- counter below referenced `tiering` from up here while the declaration sat 140 lines lower, and
+-- the drawn tier threw every frame for 302 frames straight and rendered nothing at all. Moving the
+-- declaration costs no extra local, which matters at this chunk's 200 ceiling.
+local tiering
+
 genderFrames.runsFromImages = function(cacheKey, imagesPtr, width, height, imageIndex, paletteSlot)
+    local stamp = genderFrames.paletteStamp(paletteSlot)
     local cached = genderFrames.peerRunCache[cacheKey]
-    if cached then return cached end
+    if cached and cached.palStamp == stamp then return cached end
+    if cached then tiering.palRedecodes = (tiering.palRedecodes or 0) + 1 end
 
     local pixels = r32(imagesPtr + imageIndex * 8)
     if not isRomPtr(pixels) then return nil end
@@ -2032,6 +2089,11 @@ genderFrames.runsFromImages = function(cacheKey, imagesPtr, width, height, image
             end
         end
     end
+    -- STAMP THE ENTRY, or the invalidation above can never match and every peer re-decodes from
+    -- ROM every frame. The comparison was written without this and read `cached.palStamp` as nil
+    -- forever -- a cache that always misses, which is worse than no cache at all: it pays the
+    -- lookup AND the decode. Caught by reading the write site rather than the read site.
+    runs.palStamp = stamp
     genderFrames.peerRunCache[cacheKey] = runs
     return runs
 end
@@ -2127,11 +2189,6 @@ genderFrames.reflectionXScale = function()
     return 256.0 / math.abs(a)
 end
 
--- Forward-declared here and filled in further down, the same pattern the surf-blob helpers use:
--- the reflection mask below needs the tier anchors, and a local declared LATER in this chunk is
--- not in scope for an earlier function -- it silently compiles to a global read of nil. Declaring
--- it here rather than moving the table costs no extra local, which matters at the 200 ceiling.
-local tiering
 
 -- WHERE A REFLECTION MAY BE PAINTED -- which is a question about DEPTH, not about water.
 --
@@ -3162,6 +3219,24 @@ local function requestAction(g, action)
     w8(a + 0x1c, action)
     w8(a + 0x00, (r8(a + 0x00) | 0x40) & ~0x80) -- heldMovementActive = 1, finished = 0
     w16(sprAddr(g.sprId) + 0x32, 0) -- data[2] = sActionFuncId
+    -- AND GIVE THE ANIMATION BACK, because we may have taken it.
+    --
+    -- Mirroring a HELD peer sets the sprite's animPaused bit, which is right while the peer stands
+    -- still and disastrous the moment it moves: nothing here clears it, so the engine played the
+    -- step -- position, timing, everything -- with the legs frozen. That is a character travelling
+    -- without moving, and the user called it exactly: *"they are 'sliding/gliding' at some parts"*.
+    -- It only showed after an idle spell, which is what made it look like a movement bug rather
+    -- than an animation one.
+    --
+    -- Done here, at the one place every step goes through, rather than in the mirror -- the mirror
+    -- deliberately does not run while a peer is moving, so it is the wrong place to undo something
+    -- that matters only then. `enableAnim` is the game's own switch (TryEnableObjectEventAnim,
+    -- src/event_object_movement.c:7335-7343): it clears animPaused and disableAnim, then clears
+    -- itself.
+    if (r8(sprAddr(g.sprId) + 0x2c) & 0x40) ~= 0 then
+        w8(a + 0x01, r8(a + 0x01) | 0x08)
+        g.animSetFor = nil -- the engine owns it again; the mirror must re-arm when it takes over
+    end
 end
 
 -- ObjectEventClearHeldMovement (event_object_movement.c:4895). The engine sets
@@ -3233,6 +3308,10 @@ function loadGhostFrameNow(g, info, animNum, animIdx)
     -- exactly one frame and never spills into a neighbour's range.
     local dst = 0x06010000 + g.tileStart * 32
     for off = 0, info.size - 4, 4 do w32(dst + off, r32(src + off)) end
+    -- A frame copy is info.size/4 read+write pairs -- 128 of each for a 32x32 graphic. Cheap once,
+    -- ruinous per frame, so it is counted and published: this is the shape of cost that has
+    -- silently taxed this adapter before (pitfalls.md's diagnostic-cost entries).
+    tiering.frameCopies = (tiering.frameCopies or 0) + 1
 end
 
 -- CHANGE A GHOST'S GRAPHIC IN PLACE. The rebuild is the glitch.
@@ -3517,7 +3596,18 @@ local function syncGhost(playerId, remote)
     -- guess about timing: the swap applies both in one batch, and this block only maintains them
     -- afterwards.
     if PEER_GFX_ENABLED and remote.sanim and not engineDrivesAnim and g.gfx == remote.gfx
-        and remote.anim ~= "walking" and remote.anim ~= "running" then
+        and remote.anim ~= "walking" and remote.anim ~= "running"
+        -- AND NOT WHILE THE PEER IS MOVING AT ALL. The pose string only ever says "walking" or
+        -- "running", so it cannot describe a bike -- a riding peer falls through it and the mirror
+        -- writes animNum while the engine is also animating the step we asked for. Two writers on
+        -- one field is the exact shape that left a ghost *"stuck in the wrong pose after turning
+        -- directions"* during the fishing work.
+        --
+        -- gPlayerAvatar.bikeSpeed answers it directly: PLAYER_SPEED_STANDING is 0, anything above
+        -- is movement the engine is already driving on our side (include/bike.h:16-25). Peers that
+        -- do not send it (an older adapter) keep the previous behaviour.
+        and (remote.pspeed == nil or remote.pspeed == 0)
+        and ghostIsIdle(g) then
         local d = sprAddr(g.sprId)
         -- SET THE ANIMATION, DO NOT RE-SET IT. The engine advances a ghost's animation perfectly
         -- well on its own -- measured: 3/0, 3/1, 3/2 with its pixels tracking the player's a beat
@@ -3540,7 +3630,35 @@ local function syncGhost(playerId, remote)
         -- 3, and the next cast of animation 3 never re-enabled. The condition is therefore about
         -- what the sprite IS, not what we last told it.
         if (r8(d + 0x2c) & 0x40) ~= 0 then g.animSetFor = nil end
-        if g.animSetFor ~= remote.sanim then
+
+        -- IS THE PEER'S ANIMATION EVEN RUNNING? A number and a frame do not describe a sprite on
+        -- their own; the third part is whether it is playing, and the overworld PAUSES an idle
+        -- character's sprite.
+        --
+        -- Handing every mirrored state to the engine is right for fishing, where the game's own
+        -- task really is animating the player, and wrong for anything a character can simply SIT
+        -- in. Measured 2026-08-19: the player's own Mach Bike idles at anim 7 frame 3 with
+        -- animPaused SET, while a spawned ghost given the same number pedalled on the spot.
+        --
+        -- So a held peer is reproduced as held: its exact frame index, the paused bit set, and its
+        -- pixels loaded -- because a paused sprite is never going to copy them itself. No
+        -- animBeginning here, which would reset the index to 0 and show the wrong frame of the
+        -- loop.
+        tiering.spd = tiering.spd or {}
+        tiering.spd["MIRROR"] = (tiering.spd["MIRROR"] or 0) + 1
+        if remote.spaused and remote.sidx then
+            if r8(d + 0x2a) ~= remote.sanim or r8(d + 0x2b) ~= remote.sidx
+                or (r8(d + 0x2c) & 0x40) == 0
+            then
+                w8(d + 0x2a, remote.sanim)
+                w8(d + 0x2b, remote.sidx)
+                w8(d + 0x2c, r8(d + 0x2c) | 0x40)
+                loadGhostFrameNow(g, graphicsInfo(g.gfx), remote.sanim, remote.sidx)
+                -- Remember it as issued, so the running path below re-arms properly when the peer
+                -- starts moving again.
+                g.animSetFor = remote.sanim
+            end
+        elseif g.animSetFor ~= remote.sanim then
             w8(d + 0x2a, remote.sanim)
             w8(d + 0x3f, (r8(d + 0x3f) | 0x04) & ~0x10)
             -- AND ASK THE ENGINE TO ACTUALLY PLAY IT. Setting the animation number alone is not
@@ -3585,6 +3703,30 @@ local function syncGhost(playerId, remote)
             if remote.sox then w16(d + 0x24, remote.sox & 0xffff) end
             if remote.soy then w16(d + 0x26, remote.soy & 0xffff) end
         end
+    end
+
+    -- IS THE GHOST ANIMATING WHILE IT MOVES? "Sliding" is a character whose position advances
+    -- while its legs do not, and no position or speed counter can see it -- the sprite's own frame
+    -- index can. Counted per second: frames the ghost was mid-step, split by whether its
+    -- animCmdIndex moved, plus frames it was moving while PAUSED. STEPPING>0 with LEGS=0 is a
+    -- slide; PAUSEDWHILEMOVING>0 says the hand-back in requestAction is not working.
+    --
+    -- On the per-frame path deliberately: the first version of this counter sat inside the mirror
+    -- block, which is gated on the peer standing STILL -- so it recorded nothing at all during the
+    -- one thing it was built to measure, and 71 laps of riding produced an empty column.
+    if tiering.spd then
+        local gd = sprAddr(g.sprId)
+        local idx = r8(gd + 0x2b)
+        if not ghostIsIdle(g) then
+            tiering.spd["STEPPING"] = (tiering.spd["STEPPING"] or 0) + 1
+            if g.lastIdx ~= nil and g.lastIdx ~= idx then
+                tiering.spd["LEGS"] = (tiering.spd["LEGS"] or 0) + 1
+            end
+            if (r8(gd + 0x2c) & 0x40) ~= 0 then
+                tiering.spd["PAUSEDWHILEMOVING"] = (tiering.spd["PAUSEDWHILEMOVING"] or 0) + 1
+            end
+        end
+        g.lastIdx = idx
     end
 
     -- THE ANIMATION-ALIGNMENT TRACE (probe, off by default -- MESHGHOST_EMERALD_ANIM_TRACE).
@@ -3771,21 +3913,89 @@ local function syncGhost(playerId, remote)
     end
     g.stillSince = nil
 
+    -- PLAYER_SPEED_* -> the game's own action for that speed, shared by the step below and the
+    -- catch-up path further down so both move at the peer's pace.
+    --   FAST -> WALK_FAST 0x15, FASTER/FASTEST -> WALK_FASTER 0x2D
+    --   (include/constants/event_object_movement.h:108,132; sMachBikeSpeedCallbacks is
+    --   PlayerWalkNormal/Fast/Faster against speeds NORMAL/FAST/FASTEST, src/bike.c:75-111.)
+    local base = nil
+    if remote.pspeed == 2 then base = 0x15
+    elseif remote.pspeed == 3 or remote.pspeed == 4 then base = 0x2d end
+
     if math.abs(dx) + math.abs(dy) == 1 then
         local stepDir
         if dx == 1 then stepDir = DIR_ID.east
         elseif dx == -1 then stepDir = DIR_ID.west
         elseif dy == 1 then stepDir = DIR_ID.south
         else stepDir = DIR_ID.north end
+        -- HOW FAST, TAKEN FROM THE PEER'S OWN ACTION rather than guessed from a pose.
+        --
+        -- A walk/run pair cannot describe a bike. The Mach Bike accelerates through THREE speeds --
+        -- sMachBikeSpeedCallbacks is PlayerWalkNormal, PlayerWalkFast, PlayerWalkFaster
+        -- (pokeemerald src/bike.c:75-80) -- and its top speed is the fastest movement in the game,
+        -- faster than running. A ghost stepping at walk pace after a peer at that speed falls a
+        -- tile behind per step, until the distance trips the "more than a tile out" branch and it
+        -- is PLACED. That is what *"the ghosts are teleporting around after me"* is made of: not a
+        -- position bug, a speed one.
+        --
+        -- So the speed comes from `movementActionId`, which the peer already sends because the
+        -- ledge hop needed it -- the engine's own statement of what it is doing. The DIRECTION
+        -- stays ours (we know it from the tile delta, and the peer's action may be a turn or NONE
+        -- mid-step); only the speed class is adopted, and the ghost then performs the game's own
+        -- action for that speed. Bases from include/constants/event_object_movement.h:95,108,132:
+        -- WALK_NORMAL 0x08, WALK_FAST 0x15, WALK_FASTER 0x2D, each DOWN/UP/LEFT/RIGHT consecutive
+        -- in DIR_ID order -- the same layout every other action table here relies on.
+        tiering.spd = tiering.spd or {}
+        tiering.spd["pose:" .. tostring(remote.anim)] =
+            (tiering.spd["pose:" .. tostring(remote.anim)] or 0) + 1
+        local k = base and string.format("%02X", base) or "walk/run"
+        tiering.spd[k] = (tiering.spd[k] or 0) + 1
+        tiering.spd["act" .. string.format("%02X", remote.act or 0)] =
+            (tiering.spd["act" .. string.format("%02X", remote.act or 0)] or 0) + 1
         local running = (remote.anim == "running")
-        local actions = running and RUN_ACTION or WALK_ACTION
-        requestAction(g, actions[stepDir])
+        if base then
+            requestAction(g, base + (stepDir - 1))
+        else
+            requestAction(g, (running and RUN_ACTION or WALK_ACTION)[stepDir])
+        end
         -- Remembered so the stop above can settle it: a run leaves the object on a running frame
         -- and only an explicit action brings it back to standing. A walk does not need this --
         -- the user's own test was exact about that, "it does idle->walk fine".
         g.wasRunning = running or nil
     else
-        -- More than a tile out: a warp, a dropped packet, or a peer moving faster than we sample.
+        tiering.spd = tiering.spd or {}
+        tiering.spd["PLACED"] = (tiering.spd["PLACED"] or 0) + 1
+        tiering.spd["dist" .. tostring(math.abs(dx) + math.abs(dy))] =
+            (tiering.spd["dist" .. tostring(math.abs(dx) + math.abs(dy))] or 0) + 1
+        -- More than a tile out. This branch was written for a warp or a dropped packet -- cases
+        -- where the ghost is somewhere it has no business being and the only honest answer is to
+        -- put it right. It was also catching something entirely different: a peer simply moving
+        -- faster than one tile per step.
+        --
+        -- At Mach Bike top speed the ghost settles about two tiles back -- the interpolation delay
+        -- made visible -- and a one-tile step cannot close that against a peer travelling at the
+        -- same speed, so the gap sat at 2 and this branch fired again and again. Measured over 300
+        -- frames of riding: PLACED=13, every one of them dist2, against 54 correctly-sped steps.
+        -- That is what *"they are still teleporting a tiny bit"* is.
+        --
+        -- So a SHORT gap is walked, not placed. The ghost trails a couple of tiles while the peer
+        -- is at speed and closes it the moment they slow or stop, which is what a person follows
+        -- like -- and never snaps. A long gap is still a warp and still gets placed.
+        local far = math.abs(dx) + math.abs(dy)
+        if far <= 3 then
+            -- Dominant axis: with the gap this small the peer is on a line, and stepping the long
+            -- side first is what keeps a diagonal-looking approach from zig-zagging.
+            local sd
+            if math.abs(dx) >= math.abs(dy) then
+                sd = dx > 0 and DIR_ID.east or DIR_ID.west
+            else
+                sd = dy > 0 and DIR_ID.south or DIR_ID.north
+            end
+            requestAction(g, base and (base + (sd - 1))
+                or ((remote.anim == "running") and RUN_ACTION or WALK_ACTION)[sd])
+            tiering.spd["CHASED"] = (tiering.spd["CHASED"] or 0) + 1
+            return
+        end
         -- Walking it there would fall further behind every frame, so place it -- but only once the
         -- camera has settled, for the same reason as spawning.
         if not cameraIsSettled() then return end
@@ -4006,7 +4216,19 @@ end
 -- drawn tier renders exactly the peers the spawned tier could not take.
 -- compareOnly: draw NOTHING except the loopback ghost. That is the MESHGHOST_COMPARE_TIERS case
 -- where the overflow tier itself is off -- the comparison ghost is wanted, a painted crowd is not.
+-- Timed separately from the rest of the adapter, because "the script is slow" is not actionable
+-- until it says WHICH part. The painted tier is the obvious suspect -- it issues a gui draw call
+-- per colour run per peer per frame -- and a suspect is not a measurement.
+-- GLOBAL, like drawRunList and swapGhostGraphicInPlace: this chunk is at Lua's hard 200-local
+-- ceiling, and one more local here is a parse failure rather than a slow script.
 local function drawRemotes(localAreaId, playerMapX, playerMapY, skipSpawned, compareOnly)
+    local t0 = os.clock()
+    local a, b = drawRemotesInner(localAreaId, playerMapX, playerMapY, skipSpawned, compareOnly)
+    tiering.cpuDraw = (tiering.cpuDraw or 0) + (os.clock() - t0)
+    return a, b
+end
+
+function drawRemotesInner(localAreaId, playerMapX, playerMapY, skipSpawned, compareOnly)
     -- The GBA's visible display. Hardware geometry, identical on every cartridge -- not a fact
     -- about this game. Declared inside this function on purpose: the main chunk is at Lua's hard
     -- ceiling of 200 locals, and a local inside a function is counted against the function.
@@ -4692,9 +4914,22 @@ local function runFrame()
         genderFrames.clippedRuns = 0
         logFile(string.format(
             "status: frame=%d connected=%s ready=%s port=%s remotes=%d ghosts=%d drawn=%d "
-                .. "clipped=%d overworld=%s inGame=%s",
+                .. "clipped=%d overworld=%s inGame=%s frameCopies=%d ms/frame=%.2f "
+                .. "ms/draw=%.2f spd=%s",
             frameCounter, tostring(connected), tostring(ready), tostring(currentPort),
-            nRemotes, nGhosts, nDrawn, nClipped, tostring(inOverworld()), tostring(session.live)))
+            nRemotes, nGhosts, nDrawn, nClipped, tostring(inOverworld()), tostring(session.live),
+            tiering.frameCopies or 0,
+            (tiering.cpuFrames or 0) > 0 and (tiering.cpu / tiering.cpuFrames * 1000) or 0,
+            (tiering.cpuFrames or 0) > 0
+                and ((tiering.cpuDraw or 0) / tiering.cpuFrames * 1000) or 0,
+            (function()
+                local t = {}
+                for k, v in pairs(tiering.spd or {}) do t[#t + 1] = k .. "=" .. v end
+                table.sort(t)
+                return table.concat(t, ",")
+            end)()))
+        tiering.frameCopies, tiering.spd = 0, {}
+        tiering.cpu, tiering.cpuFrames, tiering.cpuDraw = 0, 0, 0
         -- "Peers are known but none of them is being rendered" is its own failure, and the status
         -- counts above cannot tell which of the two reasons it is: the peer is somewhere else, or
         -- it is here and the spawn declined. area_id is opaque and compared by equality, so
@@ -4817,7 +5052,22 @@ local function runFrame()
                     -- Taken from localGraphicsId's paired values, NOT read fresh here: while a new
                     -- graphic is being held back, its offset must be held with it, or the peer
                     -- gets the old graphic wearing the new offset.
-                    genderFrames.sendSox or 0, genderFrames.sendSoy or 0))
+                    genderFrames.sendSox or 0, genderFrames.sendSoy or 0,
+                    -- animPaused (bit 0x40 of the sprite's +0x2C): whether the animation is
+                    -- RUNNING. The overworld pauses an idle character's sprite, so this is what
+                    -- tells a ghost to hold a frame rather than play the loop.
+                    ((r8(sprAddr(r8(GPLAYERAVATAR_ADDR + avatarAddrOffset + 0x04)) + 0x2c) & 0x40)
+                        ~= 0) and 1 or 0,
+                    -- gPlayerAvatar.bikeSpeed (+0x0B, include/global.fieldmap.h:355): the game's
+                    -- OWN statement of how fast this character is moving, as a PLAYER_SPEED_*
+                    -- (include/bike.h:16-25 -- STANDING 0, NORMAL 1, FAST 2, FASTER 3, FASTEST 4).
+                    --
+                    -- A stable field, which is the point. The first attempt read the speed out of
+                    -- movementActionId, and that is a TRANSIENT: sampled at 20Hz it caught
+                    -- WALK_NORMAL or a turn as often as the fast action, so six steps in ten fell
+                    -- back to walking pace behind a peer at bike speed (measured 2026-08-19,
+                    -- `spd=` counters: walk/run=6 against 2D=3 and 15=1).
+                    r8(GPLAYERAVATAR_ADDR + avatarAddrOffset + 0x0b)))
             end
         elseif ready then
             sendLine(ENCODED_NO_SEND)
@@ -4885,7 +5135,15 @@ local frameErrors = { lastLogged = nil, consecutive = 0 }
 -- the count says whether this is a blip or a subsystem that has been broken for 5000 frames.
 
 local function guardedFrame()
+    -- WHAT THIS SCRIPT COSTS, measured rather than argued. "It feels laggy" and "the adapter is
+    -- slow" are different claims, and this project has been misled by the second before: a
+    -- diagnostic can break the thing it measures, and a suspicion can send a whole session after
+    -- the wrong subsystem. os.clock is CPU time for this process, which is what a Lua hot path
+    -- actually consumes; totalled per frame and published in the status line as ms/frame.
+    local t0 = os.clock()
     local ok, err = pcall(runFrame)
+    tiering.cpu = (tiering.cpu or 0) + (os.clock() - t0)
+    tiering.cpuFrames = (tiering.cpuFrames or 0) + 1
     if ok then
         frameErrors.consecutive = 0
         return
