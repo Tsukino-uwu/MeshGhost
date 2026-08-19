@@ -65,6 +65,10 @@ stays here, its reasoning goes to `agent_docs/`, with a one-line pointer. Full e
   (Archipelago etc.) you MAY confirm visually yourself, from your own screenshot** — say so.
   A fact from a log line, a console read, or the Go tools may be recorded without waiting — say
   which. Never write "confirmed" on a build or a plausible read. **Why: `testing.md`'s top.**
+- **THE BAR IS 1:1 WITH THE REAL THING** (user, 2026-08-19: *"not sloppy/bandage/good enought"*):
+  done means indistinguishable from what the game itself would draw. "Close", "slightly off" and
+  "only during the transition" are OPEN — say so and keep measuring. A shipped compensation is debt
+  in `BANDAGES.md`, and reading the game's own asset beats approximating it (`pitfalls.md`).
 - **Nothing that SHIPS writes a save or game state — ever, not even as a feature.** Holds whatever
   gets added later; the event/lease/escrow/world planes make "just write the item in" newly
   tempting, world custody worst. **Dev-only test tooling MAY cheat** — a probe, never an adapter;
@@ -93,9 +97,8 @@ stays here, its reasoning goes to `agent_docs/`, with a one-line pointer. Full e
 - **Any dated fact recorded in `agent_docs/` — a license check, a tool/mod version, a closed
   risk, a memory address — is true as of that date, not a permanent guarantee.** Tools, mods,
   ROM patches and external repos drift without this repo changing; re-check before a new use.
-- **Small runnable steps only.** Every unit of work needs a visible, observable outcome.
-  "Implement the network layer" is not testable; "connect and heartbeat," "echo to self,"
-  "see on second client" are.
+- **Small runnable steps only.** Every unit needs a visible outcome: "connect and heartbeat",
+  "echo to self", "see on second client" — never "implement the network layer".
 - **Ask before touching anything outside `C:\dev\MeshGhost`.**
 - **Commit freely; never create a branch; push only with explicit permission, asked for every
   time.** The user normally pushes themselves. Pushing is allowed when they say so in that
@@ -141,8 +144,8 @@ stays here, its reasoning goes to `agent_docs/`, with a one-line pointer. Full e
 - **Never log the value you just wrote as proof it worked.** Read back an independent value
   instead (e.g. a real getter call, not the local variable you wrote into) — an echoed log
   line proves your code ran, not that the world actually changed.
-- **Two guessed fixes failing with the identical symptom is a signal, not bad luck.** Stop guessing
-  and isolate by subtraction (one diagnostic, one variable, at a time) instead of trying a third.
+- **Two guessed fixes failing with the identical symptom is a signal, not bad luck.** Stop and
+  isolate by subtraction — one diagnostic, one variable — instead of trying a third.
 - **After ~3 failed live-test iterations, STOP and write the results as a table (config vs
   outcome) before building anything else — and try the untested COMBINATION.** "A alone does
   nothing, B alone does nothing" never implies A+B does nothing; game code is full of
@@ -160,8 +163,8 @@ stays here, its reasoning goes to `agent_docs/`, with a one-line pointer. Full e
   real rate/duration before marking it closed — a one-shot round trip and a real sustained
   stream can behave completely differently. Found live: a single successful round trip closed
   a risk that reopened the same day once tested under real sustained traffic.
-- **Treat "access denied" as a question to research, not a wall to route around** — who gates this,
-  and how does anyone actually get past it — especially before investing in an expensive workaround.
+- **Treat "access denied" as a question to research, not a wall** — who gates it, how do people
+  get past it — before investing in a workaround.
 - **Anything on `PATH` may resolve to the wrong install — including `cmd` itself.** Confirm the
   real copy (`C:\Program Files\CMake\bin`, `$env:ComSpec`) before believing a build failure;
   prefer an absolute path for the interpreter. Twice live, both a devkitPro/MSYS2 shadow:
@@ -194,14 +197,11 @@ stays here, its reasoning goes to `agent_docs/`, with a one-line pointer. Full e
   flag disables the cost, or revert the commit. **When a regression appears, bisect real commits
   early**: build the last-known-good commit, confirm it is good, then halve. It is mechanical,
   needs no theory, and can't be fooled by a partial revert.
-- **Cite dates, not durations.** Write "since 2026-08-15" or "the day before", never "for a year"
-  or "after months" — this repo is days old (first commit 2026-08-11; `LICENSE` carries the year),
-  and invented durations are both false on arrival and worse with age. Found live 2026-08-16: three
-  such claims in `pitfalls.md` and the adapter template, all describing five-day-old code.
-- **When giving the user test/local-testing instructions, use plain directions (up/down/
-  left/right), never compass points.** User preference, specifically about talking to them —
-  compass directions (north/south/east/west) remain fine anywhere in code/comments where
-  that's the clearer choice.
+- **Cite dates, not durations.** "since 2026-08-15", never "for a year" — this repo is days old
+  (first commit 2026-08-11), so invented durations are false on arrival and worse with age.
+  Found live 2026-08-16, three times, all describing five-day-old code.
+- **Test instructions use plain directions (up/down/left/right), never compass points.** User
+  preference, about talking to them — compass points stay fine in code and comments.
 - **You run the scaffolding for a live test; the user only opens and closes the game.** Start the
   relay, the core, and any `dev-scripts` launcher yourself, confirm from the logs that they came
   up and that the right transport/bridge was actually chosen, and hand over a game that is ready

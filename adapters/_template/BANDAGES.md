@@ -29,6 +29,32 @@ TEVI's had drifted too. Both were rewritten to name functions instead. The long 
 
 ---
 
+## The bar is 1:1, and a bandage is never "done" — 2026-08-19
+
+**The standard for every adapter, set by the user:** *"i want it all to be 1:1 / perfect. not
+sloppy/bandage/good enought."* A ghost is finished when it is indistinguishable from what the game
+itself would draw — position, motion, animation, sprite offsets, effects, timing. Not "close",
+not "slightly off", not "only wrong during the transition".
+
+**This does not forbid bandages. It forbids CALLING one finished.** Where the engine genuinely
+cannot do the thing for a ghost — a shadow that binds by an id a ghost cannot safely wear, a crowd
+past the hardware's sprite budget — a compensation ships and is registered here as debt, with what
+would retire it. That is the honest half of the same standard.
+
+**Three things this session showed are worth doing before declaring anything done:**
+
+- **Prefer the game's own asset to a lookalike.** Three rounds of tuning an ellipse against
+  Emerald's jump shadow never converged, because the original was on screen beside it. Reading the
+  real sprite's pixels ended it immediately — and the same decode had already been built for peer
+  graphics.
+- **"Nearly right" usually means the wrong quantity is being measured.** A fishing ghost was
+  reported as displaced five times; its position was measured five times and was correct every
+  time. What was missing was `pos2`, the sprite OFFSET the game's own task applies. Position and
+  drawn location are different claims.
+- **A remaining difference is a finding, not a rounding error.** Say which frames it happens on and
+  how big it is. "It snaps a tiny bit" turned out to be two separate bugs plus one artifact of the
+  game's own startup, and none of that was visible from "it looks mostly fine".
+
 ## The standing position on bandages — user, 2026-08-16
 
 **A bandage is a state this project is passing through, never where it stops.** The user's words,
