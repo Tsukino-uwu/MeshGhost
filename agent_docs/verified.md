@@ -7686,3 +7686,36 @@ Taken with the menu rectangle measured the same day, the screen regions a UI pan
 now fully accounted for: **fixed bottom six rows for a text box, latched `wMenuBorder*` for a
 menu.** Only the drawn-overflow tier in `ideas.md` would ever need them; the shipped spawn path is
 occluded by the game itself.
+
+### 2026-08-19 — Crystal: a character on EVERY visible tile, at full speed
+
+**Track: USER-CONFIRMED on screen** — *"Crystal properly filled every single tile with a sprite"* —
+with the adapter's own counters and a wall-clock frame-rate probe agreeing:
+
+```
+89 peers offered (one per visible tile) -> 89 rendered, 0 off screen, 0 discarded
+59.6 - 59.8 fps
+```
+
+The visible window is 10x9 tiles; 89 is all of them except the player's own. **This is past every
+limit the game has** — 13 object structs, 16 map objects, 40 hardware sprites, 10 characters per
+scanline — because peers past the engine's cap are painted over the emulator's output after the
+PPU has finished, where none of those limits exist.
+
+**What it took, and every wrong turn was a measurement rather than an opinion:**
+
+- **VRAM bank 1, not bank 0.** Bit 3 of the OAM attribute says which bank a sprite's tiles live
+  in; reading bank 0 decoded unrelated tiles and drew garbage, which is exactly what the user
+  reported first.
+- **The game's own palettes** (`wOBPals1`, `05:d040`), not a hand-picked four-colour approximation
+  — the user's verdict on the approximation was *"really pale, compared to the player"*.
+- **Screen position CALIBRATED against OAM every frame.** The engine's sprite coordinates are in
+  its own scrolled space, and three attempts to convert them by reasoning left rows and columns
+  empty (43, then 50, then 47 of 81 drawn). The player is always struct 0 and always has OAM
+  entries, so the difference between the two is the offset for everyone else. 72 of 81 at once.
+- **Cost engineering that mattered**: tiles decoded once and cached, and drawn as horizontal RUNS
+  rather than pixels. The naive version is ~20,000 draw calls a frame for a full screen.
+- **The last gaps were not the renderer.** A grid placed `player-5..player+4` when the visible
+  window is `player-4..player+5` left the right-hand column empty, and four peers were dialling a
+  stale relay port left in a `config.json` — the core inherits the emulator's working directory,
+  which under the dev loader is `dev-scripts/`.

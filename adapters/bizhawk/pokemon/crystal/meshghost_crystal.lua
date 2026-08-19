@@ -663,8 +663,29 @@ local JOY_RIGHT, JOY_LEFT, JOY_UP, JOY_DOWN = 0x01, 0x02, 0x04, 0x08
 --
 -- Returns false when the peer is idle, or when the player is shoving into it -- and the caller
 -- then renders it through the drawn tier, which has no collision at all.
+-- Per-FRAME state for the policy, refreshed once by beginPolicyFrame() rather than re-read for
+-- every peer. With a crowd this is the difference between a handful of memory reads a frame and
+-- several hundred: measured 2026-08-19, the per-peer version cost ~9% of the frame rate on its
+-- own (60fps -> 54.5) with a screen full of peers and nothing drawn at all.
+local frameState = { px = 0, py = 0, standing = true, wantX = 0, wantY = 0 }
+
+local function beginPolicyFrame()
+	policyFrames = policyFrames + 1 -- ONCE per frame; incrementing per peer made "five seconds"
+	                                -- mean five seconds divided by the number of peers.
+	local px, py = u8(OBJECT_STRUCTS + F_MAP_X) or 0, u8(OBJECT_STRUCTS + F_MAP_Y) or 0
+	frameState.px, frameState.py = px, py
+	frameState.standing = (u8(OBJECT_STRUCTS + F_WALKING) or STANDING) == STANDING
+	frameState.wantX, frameState.wantY = px, py
+	if frameState.standing then
+		local joy = memory.read_u8(H_JOYPAD_DOWN, "System Bus") or 0
+		if (joy & JOY_RIGHT) ~= 0 then frameState.wantX = px + 1
+		elseif (joy & JOY_LEFT) ~= 0 then frameState.wantX = px - 1
+		elseif (joy & JOY_DOWN) ~= 0 then frameState.wantY = py + 1
+		elseif (joy & JOY_UP) ~= 0 then frameState.wantY = py - 1 end
+	end
+end
+
 local function shouldBlock(id, x, y)
-	policyFrames = policyFrames + 1
 	local a = activity[id]
 	if not a then
 		a = { x = x, y = y, movedAt = policyFrames, passableUntil = 0 }
@@ -674,25 +695,15 @@ local function shouldBlock(id, x, y)
 		a.x, a.y, a.movedAt = x, y, policyFrames
 	end
 
-	-- Is the player pressing into this peer's tile without getting anywhere? Facing alone is not
+	-- Is the player pressing INTO this peer's tile without getting anywhere? Facing alone is not
 	-- enough: a player can stand facing a friend all day. The d-pad has to be held, and the
 	-- player has to still be standing (a successful step means nothing was blocking).
-	local px, py = u8(OBJECT_STRUCTS + F_MAP_X) or 0, u8(OBJECT_STRUCTS + F_MAP_Y) or 0
-	local standing = (u8(OBJECT_STRUCTS + F_WALKING) or STANDING) == STANDING
-	if standing then
-		local joy = memory.read_u8(H_JOYPAD_DOWN, "System Bus") or 0
-		local wantX, wantY = px, py
-		if (joy & JOY_RIGHT) ~= 0 then wantX = px + 1
-		elseif (joy & JOY_LEFT) ~= 0 then wantX = px - 1
-		elseif (joy & JOY_DOWN) ~= 0 then wantY = py + 1
-		elseif (joy & JOY_UP) ~= 0 then wantY = py - 1 end
-		if (wantX ~= px or wantY ~= py) and wantX == x and wantY == y then
-			a.pushedFor = (a.pushedFor or 0) + 1
-			if a.pushedFor >= PUSH_FRAMES_BEFORE_PASSABLE then
-				a.passableUntil = policyFrames + PASSABLE_HOLD_FRAMES
-			end
-		else
-			a.pushedFor = 0
+	local fs = frameState
+	if fs.standing and (fs.wantX ~= fs.px or fs.wantY ~= fs.py)
+		and fs.wantX == x and fs.wantY == y then
+		a.pushedFor = (a.pushedFor or 0) + 1
+		if a.pushedFor >= PUSH_FRAMES_BEFORE_PASSABLE then
+			a.passableUntil = policyFrames + PASSABLE_HOLD_FRAMES
 		end
 	else
 		a.pushedFor = 0
@@ -957,13 +968,14 @@ local function decodeTile(tileIndex)
 	return rows
 end
 
-local function drawTile(tileIndex, sx, sy, colors)
+local function drawTile(tileIndex, sx, sy, colors, xflip)
 	local rows = decodeTile(tileIndex)
 	for row = 0, 7 do
 		local y = sy + row
 		if y >= 0 and y < 144 then
 			for _, run in ipairs(rows[row]) do
-				local x1 = sx + run.x
+				local rx = xflip and (8 - run.x - run.len) or run.x
+				local x1 = sx + rx
 				local x2 = x1 + run.len - 1
 				if x2 >= 0 and x1 < 160 then
 					local color = colors[run.idx]
@@ -976,9 +988,51 @@ local function drawTile(tileIndex, sx, sy, colors)
 	end
 end
 
+-- WHICH FOUR TILES, AND FLIPPED HOW -- learned from the engine, not guessed.
+--
+-- A walking sprite is 12 tiles (GetSpriteLength), and how those become a facing plus a walk
+-- frame is the engine's business: it picks tile ids and per-sprite x-flips as it builds OAM. So
+-- rather than reverse-engineer the layout, the drawn tier WATCHES the local player -- who is
+-- always object struct 0 and always has the first four OAM entries -- and records what the engine
+-- used for each facing. A drawn peer facing the same way then renders with exactly those tiles.
+--
+-- This is the same principle as calibrating the screen position against OAM: the engine is
+-- already doing the work correctly every frame, so read its answer instead of recomputing it.
+-- It also means the mapping is automatically right for whichever sprite the player is wearing.
+local facingFrames = {} -- facing (0..3) -> { {tile, xflip}, x4 }
+
+local function learnFacingFromPlayer()
+	local facing = ((u8(OBJECT_STRUCTS + F_DIRECTION) or 0) // 4) & 3
+	local frame = {}
+	for i = 0, 3 do
+		local y = memory.read_u8(i * 4, "OAM") or 0
+		if y == 0 or y >= 160 then
+			return -- the player is not on screen this frame; learn nothing
+		end
+		frame[i + 1] = {
+			tile = memory.read_u8(i * 4 + 2, "OAM") or 0,
+			xflip = ((memory.read_u8(i * 4 + 3, "OAM") or 0) & 0x20) ~= 0,
+			dx = (memory.read_u8(i * 4 + 1, "OAM") or 0) - (memory.read_u8(1, "OAM") or 0),
+			dy = (memory.read_u8(i * 4, "OAM") or 0) - (memory.read_u8(0, "OAM") or 0),
+		}
+	end
+	facingFrames[facing] = frame
+end
+
 -- One drawn character: the 2x2 tile block starting at its sprite's tile base.
-local function drawCharacter(tile, sx, sy, palIndex)
+local function drawCharacter(tile, sx, sy, palIndex, facing)
 	local colors = paletteColors(palIndex or 0)
+	local frame = facing and facingFrames[facing]
+	if frame then
+		-- The engine's own arrangement for this facing: its tile ids, its flips, its offsets.
+		for _, part in ipairs(frame) do
+			drawTile(part.tile, sx + part.dx, sy + part.dy, colors, part.xflip)
+		end
+		return
+	end
+	-- Nothing learned for that facing yet (the player has not faced that way since the map
+	-- loaded). The sprite's own first frame is a reasonable stand-in and is never wrong-looking,
+	-- only wrong-facing.
 	drawTile(tile + 0, sx, sy, colors)
 	drawTile(tile + 1, sx + 8, sy, colors)
 	drawTile(tile + 2, sx, sy + 8, colors)
@@ -1150,6 +1204,7 @@ function drawOverflow()
 	if not DRAW_OVERFLOW or not inPlay() then
 		return
 	end
+	learnFacingFromPlayer()
 	local uiOpen = uiPanelOpen()
 	local t, l, b, r = u8(W_MENUBOX_TOP), u8(W_MENUBOX_LEFT), u8(W_MENUBOX_BOTTOM), u8(W_MENUBOX_RIGHT)
 	if (b or 0) > 0 and (r or 0) > 0 then
@@ -1218,7 +1273,7 @@ function drawOverflow()
 					nDrawn = nDrawn + 1
 					-- the palette the local player's own sprite is drawn with, which is the one
 					-- these tiles were coloured for
-					drawCharacter(tile, sx, sy, u8(OBJECT_STRUCTS + F_PALETTE) or 0)
+					drawCharacter(tile, sx, sy, u8(OBJECT_STRUCTS + F_PALETTE) or 0, o.facing)
 				end
 			end
 		end
@@ -1326,7 +1381,7 @@ local function renderRemote(id, state)
 		if ghosts[id] then
 			despawnGhost(id)
 		end
-		overflow[id] = { x = x, y = y, sprite = peerSprite }
+		overflow[id] = { x = x, y = y, sprite = peerSprite, facing = ORIENTATION_TO_DIR[state.orientation] }
 		return
 	end
 
@@ -1336,7 +1391,8 @@ local function renderRemote(id, state)
 		if spawnGhost(id, x, y, peerSprite) then
 			overflow[id] = nil
 		else
-			overflow[id] = { x = x, y = y, sprite = peerSprite }
+			overflow[id] = { x = x, y = y, sprite = peerSprite,
+				facing = ORIENTATION_TO_DIR[state.orientation] }
 		end
 		return
 	end
@@ -1776,6 +1832,8 @@ local function tick()
 		disconnect(nil)
 		return
 	end
+
+	beginPolicyFrame()
 
 	receive()
 	if not connected then
