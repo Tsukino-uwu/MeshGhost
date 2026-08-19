@@ -2698,6 +2698,21 @@ local function syncGhost(playerId, remote)
         -- caught it. Sweeping here closes that window to the frame it happens in, which is what
         -- the user was seeing as the ghost "moving" when it casts a rod.
         sweepOrphanGhosts()
+        -- AND APPLY THE PEER'S SPRITE OFFSET IN THE SAME FRAME. This path returns before the
+        -- mirroring block below, so without this the ghost spends a frame at pos2 0,0 with its new
+        -- 32-wide graphic -- half a tile off -- and then snaps into place when the next update
+        -- arrives. The rebuild is already a visible cut; adding a snap to it is what
+        -- *"looks a bit snappy and they also briefly move"* is made of.
+        local ng = ghosts[playerId]
+        if ng then
+            local nd = sprAddr(ng.sprId)
+            if remote.sox then w16(nd + 0x24, remote.sox & 0xffff) end
+            if remote.soy then w16(nd + 0x26, remote.soy & 0xffff) end
+            if remote.sanim then
+                w8(nd + 0x2a, remote.sanim)
+                w8(nd + 0x3f, (r8(nd + 0x3f) | 0x04) & ~0x10)
+            end
+        end
         return
     end
 
