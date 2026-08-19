@@ -71,6 +71,26 @@ local BUSY_PORT_COOLDOWN_FRAMES = 600
 -- environment variable. See run_second_client.lua.
 local LOOPBACK_OFFSET_X = tonumber(MESHGHOST_LOOPBACK_OFFSET_X or os.getenv("MESHGHOST_LOOPBACK_OFFSET_X") or "") or 0
 
+-- SIDE-BY-SIDE TIER COMPARISON (dev only, off by default) -- MESHGHOST_COMPARE_TIERS.
+--
+-- The loopback ghost is rendered TWICE from the same peer state: SPAWNED two tiles to the right,
+-- where the engine draws it and gives it occlusion, palettes and whatever a cave or water does to
+-- a character for free; PAINTED two tiles to the left, where it gets none of that unless we built
+-- it. What the drawn tier is missing is a question about a place -- a dark cave, a water
+-- reflection, a doorway -- and no amount of flag-flipping between two runs answers it, because
+-- the place is gone by the time the other renderer is on. Both at once, in one frame, does.
+--
+-- The user's request and the intended dev default for eyeballing a BizHawk drawn tier,
+-- 2026-08-19. It applies ONLY to the "<id>-ghost" loopback echo -- a real peer is never
+-- duplicated -- and it supplies its own +2 for the spawned side when no offset was set, since two
+-- ghosts stacked on the player is the comparison this exists to avoid.
+local COMPARE_TIERS = (MESHGHOST_COMPARE_TIERS or os.getenv("MESHGHOST_COMPARE_TIERS")) and true or false
+local COMPARE_DRAWN_OFFSET_X = -2
+local COMPARE_SPAWNED_OFFSET_X = 2
+-- The drawn copy lives in `overflow` under a key of its own, so it animates frame to frame like
+-- any other drawn peer while never colliding with the spawned copy's entry under the real id.
+local function compareKey(id) return id .. " (drawn copy)" end
+
 local DOMAIN = "WRAM"
 local ROM_DOMAIN = "ROM"
 
@@ -895,6 +915,11 @@ if FORCE_PEER_SPRITE then
 		FORCE_PEER_SPRITE))
 end
 
+if COMPARE_TIERS then
+	log("PROBE FLAG IN USE: MESHGHOST_COMPARE_TIERS -- the loopback ghost is rendered TWICE, "
+		.. "spawned 2 tiles right and painted 2 tiles left. Two ghosts is the flag, not a bug.")
+end
+
 local function applyPeerSprite(g, id)
 	id = FORCE_PEER_SPRITE or id
 	local tile = residentSpriteTile(id)
@@ -1420,7 +1445,9 @@ local anchorIndex = nil
 
 function drawOverflow()
 	drawFrames = drawFrames + 1
-	if not DRAW_OVERFLOW or not inPlay() then
+	-- COMPARE_TIERS keeps this running even with the tier switched off: the comparison ghost is
+	-- the only thing `overflow` holds in that configuration, and looking at it is the point.
+	if (not DRAW_OVERFLOW and not COMPARE_TIERS) or not inPlay() then
 		return
 	end
 	learnFacingFromPlayer()
@@ -1566,7 +1593,15 @@ function drawOverflow()
 		anchorPx = anchorPx + calX
 		anchorPy = anchorPy + calY
 	end
-	for id, o in pairs(overflow) do
+	-- With the tier switched off but COMPARE_TIERS on, the comparison ghost is the only thing that
+	-- may be painted -- `overflow` still fills with real peers the engine had no room for, and
+	-- painting those would be the tier running under a flag that says it is off.
+	local paintable = overflow
+	if not DRAW_OVERFLOW then
+		paintable = {}
+		for pid, po in pairs(overflow) do if po.compare then paintable[pid] = po end end
+	end
+	for id, o in pairs(paintable) do
 		nWanted = nWanted + 1
 		-- Is this peer moving? Its own position changes are the only signal a drawn ghost has --
 		-- nothing in the engine is animating it. A peer that has changed tile within the last
@@ -1744,7 +1779,11 @@ local function renderRemote(id, state)
 	if type(pos) ~= "table" or type(pos[1]) ~= "number" or type(pos[2]) ~= "number" then
 		return
 	end
-	local x, y = math.floor(pos[1]) + LOOPBACK_OFFSET_X, math.floor(pos[2])
+	local isLoopback = id:match("%-ghost$") ~= nil
+	local baseX = math.floor(pos[1])
+	local offsetX = LOOPBACK_OFFSET_X
+	if COMPARE_TIERS and isLoopback and offsetX == 0 then offsetX = COMPARE_SPAWNED_OFFSET_X end
+	local x, y = baseX + offsetX, math.floor(pos[2])
 	if x < 0 or x > 255 or y < 0 or y > 255 then
 		return
 	end
@@ -1754,6 +1793,7 @@ local function renderRemote(id, state)
 	if state.area_id ~= areaId() then
 		despawnGhost(id)
 		overflow[id] = nil
+		overflow[compareKey(id)] = nil
 		return
 	end
 
@@ -1771,7 +1811,20 @@ local function renderRemote(id, state)
 	local px, py = u8(OBJECT_STRUCTS + F_MAP_X) or 0, u8(OBJECT_STRUCTS + F_MAP_Y) or 0
 	if math.max(math.abs(x - px), math.abs(y - py)) > GHOST_RANGE_TILES then
 		despawnGhost(id)
+		overflow[compareKey(id)] = nil
 		return
+	end
+
+	-- MESHGHOST_COMPARE_TIERS: the same peer, painted on the other side of the player, so the two
+	-- renderers can be judged against each other in one frame. Written every frame like any drawn
+	-- peer, and carrying its own movement history so it animates rather than sliding.
+	if COMPARE_TIERS and isLoopback then
+		local ck = compareKey(id)
+		local prev = overflow[ck]
+		overflow[ck] = { compare = true, x = baseX + COMPARE_DRAWN_OFFSET_X, y = y,
+			sprite = FORCE_PEER_SPRITE or (state.extras and tonumber(state.extras.sprite)) or nil,
+			facing = ORIENTATION_TO_DIR[state.orientation],
+			lastX = prev and prev.lastX, lastY = prev and prev.lastY, movedAt = prev and prev.movedAt }
 	end
 
 	-- FORCE_PEER_SPRITE substitutes here rather than only inside applyPeerSprite, so the probe
@@ -2078,6 +2131,7 @@ local function handle(msg)
 		local gone = tostring(p.player_id)
 		despawnGhost(gone)
 		overflow[gone] = nil
+		overflow[compareKey(gone)] = nil
 		activity[gone] = nil
 	end
 end

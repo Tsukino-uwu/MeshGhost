@@ -533,6 +533,16 @@ the expensive way:
   something solid rather than about telling two sprites apart, and a tester raises it by hand when
   they want a side-by-side comparison. So this is four adapters and three defaults — pick yours
   from what your ghost *is*, not from what the others chose.
+- **If your adapter renders peers TWO ways, make the loopback ghost show BOTH at once.** Any
+  adapter with a second, hand-written renderer beside the engine's — the Pokémon adapters paint an
+  overflow tier over the emulator, and any game with a hard cap on spawnable characters will end up
+  with the same shape — inherits a question the engine answers for free and the painted path does
+  not: occlusion, a dark cave, a water reflection, a doorway. `MESHGHOST_COMPARE_TIERS` is how both
+  BizHawk adapters answer it: the one loopback ghost is rendered twice in the same frame, engine
+  copy two tiles right, painted copy two tiles left, so a missing effect is visible next to a
+  correct copy of itself in the same lighting. **Comparing across two runs cannot do this** — the
+  place has changed by the time the other renderer is on. Dev-only, off by default, announced in
+  the log as `PROBE FLAG IN USE`, and never applied to a real peer. User's request, 2026-08-19.
 - **Loopback cannot exercise cross-area filtering, join/leave, or despawn** — it always echoes
   your own area back. Those bugs only appear with two real instances, which is why the bridge
   port has to be per-instance overridable (see [PROTOCOL.md](PROTOCOL.md)). `run-fakeadapter1/2`

@@ -1464,6 +1464,30 @@ end
 local LOOPBACK_GHOST_OFFSET_TILES_X = (os.getenv("MESHGHOST_LOOPBACK_TRAIL") and 0) or 2
 local LOOPBACK_GHOST_OFFSET_TILES_Y = 0
 
+-- SIDE-BY-SIDE TIER COMPARISON (dev only, off by default) -- MESHGHOST_COMPARE_TIERS.
+--
+-- The two renderers are hard to judge one at a time. A spawned ghost is drawn by the engine and
+-- gets its occlusion, its palette and its cave/water treatment for free; a painted one is put on
+-- top of the finished frame and gets none of that unless we build it. Which of those the drawn
+-- tier is MISSING is a question about a specific place -- a dark cave, water with a reflection,
+-- a doorway, tall grass -- and switching flags between two runs cannot answer it, because the
+-- place has changed by the time the other renderer is on.
+--
+-- So: with this set, the ONE loopback ghost is rendered TWICE, both at once, from the same peer
+-- state -- spawned two tiles to the right (where it has always been), painted two tiles to the
+-- LEFT. Whatever the painted one is missing is then visible in the same frame, in the same
+-- lighting, next to a correct copy of itself. The user's request, 2026-08-19, and the intended
+-- default way to eyeball a BizHawk adapter's drawn tier in dev.
+--
+-- Deliberately NOT gated on MESHGHOST_EMERALD_DRAWN_OVERFLOW: the whole point is to look at the
+-- drawn tier while it is shipped off. With the overflow tier off, the loopback ghost is the ONLY
+-- peer painted; with it on, it is painted in addition to the real overflow. Deliberately also
+-- ignores MESHGHOST_LOOPBACK_TRAIL's zero offset -- two ghosts stacked on the player is exactly
+-- the comparison this mode exists to avoid.
+-- ONE top-level local, not two: this chunk sits at 197 of Lua's hard 200, and the painted side's
+-- offset is only ever needed inside drawRemotes, where it is declared instead.
+local COMPARE_TIERS = (MESHGHOST_COMPARE_TIERS or os.getenv("MESHGHOST_COMPARE_TIERS")) and true or false
+
 ----------------------------------------------------------------------------
 -- Spawning real object events (2026-08-18) -- the engine draws, we do not.
 --
@@ -1942,6 +1966,10 @@ end
 -- Say which renderer this session is running, once, at load. "Is the drawn tier on?" was
 -- guessed at twice during its own bring-up because nothing on screen or in the log answered it.
 console.log("MeshGhost: drawn overflow tier = " .. (tiering.drawn and "ON" or "off"))
+if COMPARE_TIERS then
+    console.log("MeshGhost: PROBE FLAG IN USE -- MESHGHOST_COMPARE_TIERS: the loopback ghost is "
+        .. "rendered twice, spawned 2 tiles right and painted 2 tiles left. Dev only.")
+end
 
 -- How many object slots ghosts may hold on this map right now. Counted from the array itself
 -- rather than from any table of ours: "active, and not carrying our localId" is the same test the
@@ -2418,11 +2446,15 @@ end
 -- skipSpawned, when given, names the peers the ENGINE is already drawing as real object events.
 -- Drawing those again would paint a flat copy on top of the engine's own animated one -- so the
 -- drawn tier renders exactly the peers the spawned tier could not take.
-local function drawRemotes(localAreaId, playerMapX, playerMapY, skipSpawned)
+-- compareOnly: draw NOTHING except the loopback ghost. That is the MESHGHOST_COMPARE_TIERS case
+-- where the overflow tier itself is off -- the comparison ghost is wanted, a painted crowd is not.
+local function drawRemotes(localAreaId, playerMapX, playerMapY, skipSpawned, compareOnly)
     -- The GBA's visible display. Hardware geometry, identical on every cartridge -- not a fact
     -- about this game. Declared inside this function on purpose: the main chunk is at Lua's hard
     -- ceiling of 200 locals, and a local inside a function is counted against the function.
     local SCREEN_WIDTH_PX, SCREEN_HEIGHT_PX = 240, 160
+    -- Where the painted comparison copy goes: the other side of the player from the spawned one.
+    local COMPARE_DRAWN_OFFSET_TILES_X = -2
     local playerScreenX, playerScreenY = playerScreenPos()
     local panelRows = tiering.scanPanel()
     -- Counted and published (tiering.painted) rather than inferred: "assigned to the drawn tier"
@@ -2430,11 +2462,21 @@ local function drawRemotes(localAreaId, playerMapX, playerMapY, skipSpawned)
     -- the second one answers "is every peer I can see actually being shown".
     local painted = 0
     for playerId, remote in pairs(remotes) do
-        if remote.areaId == localAreaId and not (skipSpawned and skipSpawned[playerId]) then
+        -- The loopback ghost is the one peer allowed to be in BOTH tiers at once, and only in
+        -- compare mode: everyone else is painted exactly when the engine had no room for them.
+        local isLoopback = playerId:match("%-ghost$") ~= nil
+        local wanted
+        if compareOnly then
+            wanted = isLoopback
+        else
+            wanted = (COMPARE_TIERS and isLoopback) or not (skipSpawned and skipSpawned[playerId])
+        end
+        if remote.areaId == localAreaId and wanted then
             local screenX = playerScreenX + (remote.x - playerMapX) * TILE
             local screenY = playerScreenY + (remote.y - playerMapY) * TILE
-            if playerId:match("%-ghost$") then
-                screenX = screenX + LOOPBACK_GHOST_OFFSET_TILES_X * TILE
+            if isLoopback then
+                screenX = screenX + (COMPARE_TIERS and COMPARE_DRAWN_OFFSET_TILES_X
+                    or LOOPBACK_GHOST_OFFSET_TILES_X) * TILE
                 screenY = screenY + LOOPBACK_GHOST_OFFSET_TILES_Y * TILE
             end
 
@@ -2734,6 +2776,9 @@ local function runFrame()
             -- painting over a text box or menu the way an unclipped overlay would.
             if tiering.drawn then
                 drawRemotes(smoothAreaId, smoothX, smoothY, spawnSet)
+            elseif COMPARE_TIERS then
+                -- Compare mode with the overflow tier off: the loopback ghost, and only it.
+                drawRemotes(smoothAreaId, smoothX, smoothY, spawnSet, true)
             end
         end
     end

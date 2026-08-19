@@ -102,6 +102,17 @@ downloaded release folder and run against its `meshghost-server.exe` instead.
   `meshghost_emerald.lua`'s `LOOPBACK_GHOST_OFFSET_TILES_X` comment for the full rationale, and
   the same pattern applies to Pseudoregalia's/TEVI's own loopback-ghost offset if/when they get
   an equivalent launcher.
+- **`MESHGHOST_COMPARE_TIERS=1` — the default way to eyeball a BizHawk drawn tier in dev.** Set it
+  on the emulator launch (either Pokémon adapter honours it) and the ONE loopback ghost is rendered
+  **twice at once from the same peer state**: spawned two tiles to the RIGHT, where the engine
+  draws it, and painted two tiles to the LEFT, where our own pixel path does. The two are then in
+  the same frame, the same lighting and the same place, which is the only way to see what the
+  painted one is *missing* — no engine occlusion, a cave's darkness drawn straight over, a water
+  reflection the spawned copy has and it does not, a doorway that swallows one and not the other.
+  Comparing across two runs cannot answer that, because the place has changed by the time the other
+  renderer is on. Pair with `run-relay-loopback.bat`. It announces itself in the log as
+  `PROBE FLAG IN USE`; two ghosts is the flag, not a duplicate-spawn bug. User's request,
+  2026-08-19 — see each adapter's `FLAGS.md` row.
 - `run-core-emerald-trail.bat` — pairs specifically with
   `run-bizhawk-emerald-loopback-trail.local.bat` above. Unlike the instant-by-default
   `run-core-emerald.bat`, this keeps a real `-interp=200ms` (the same value Phase 3 confirmed
