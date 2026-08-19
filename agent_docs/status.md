@@ -17,6 +17,27 @@ lives in `verified.md`, `pitfalls.md` or a phase file — see the update guidanc
 Roadmap: `plans.md`. Per-phase log: `phases/`. Evidence: `verified.md`. What the user has not
 confirmed yet: `unverified.md`.
 
+## Picking this up in a new session — written 2026-08-19, and the first thing to read
+
+**Four BizHawk instances were left RUNNING when the session that built all this ended.** The
+emulators survive; the agents driving them do not. Each needs a new owner (one agent per instance
+— `environment.md`), and each was mid-task:
+
+| ROM | Bridge port | Loader control file | Where it got to |
+|---|---|---|---|
+| Vanilla Crystal | 7781 | `bizhawk-dev-loader-crystal.target` | Soak run, invariant watcher clean, ~44 synthetic peers drawn |
+| Vanilla Emerald | 7778 | `bizhawk-dev-loader-emerald.target` | Proving its drawn tier's panel clipping by counting skipped runs |
+| **Archipelago Crystal** | 7783 | `bizhawk-dev-loader-apcrystal.target` | **Errand done; the rival battle in Cherrygrove is the trainer battle that settles `W_BATTLEMODE`** |
+| **Archipelago Emerald** | 7784 | `bizhawk-dev-loader-apemerald.target` | **`gSprites` measured three times independently as `0x02020630` — i.e. NOT shifted from vanilla — pending confirmation that the spawn path actually engages** |
+
+(pids change; find them with `Get-CimInstance Win32_Process -Filter "Name='EmuHawk.exe'"` and match
+on the `--lua=` control file. A relay is on 7777 with `-max-clients=250`.)
+
+**Two Archipelago measurements are one step from landing**, and both are worth finishing before
+anything new: Crystal needs a trainer battle fought on the way back to Cherrygrove, and Emerald
+needs a peer spawned to prove the render path switches. Neither address is written into an
+`ADDRESSES` table yet — deliberately, since neither is confirmed.
+
 ## Genuinely open items
 
 Fixed-and-confirmed work is not listed here — see `verified.md` and the phase files.
