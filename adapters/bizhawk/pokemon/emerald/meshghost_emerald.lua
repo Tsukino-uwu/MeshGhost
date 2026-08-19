@@ -2750,6 +2750,62 @@ function loadGhostFrameNow(g, info, animNum, animIdx)
     for off = 0, info.size - 4, 4 do w32(dst + off, r32(src + off)) end
 end
 
+-- CHANGE A GHOST'S GRAPHIC IN PLACE. The rebuild is the glitch.
+--
+-- Evidence, not preference: the artifact appears at BOTH graphic changes -- picking the rod up and
+-- putting it away -- on the spawned tier only, while the painted copy is perfect through both
+-- (user, 2026-08-19: *"it snaps a bit at the start, and towards the end it snaps + looks really
+-- glitch"*). The painted copy decodes from ROM every frame and is never rebuilt; the spawned one
+-- is destroyed and re-created, and that is the one thing they do not share.
+--
+-- What a rebuild costs, all of it avoidable: the object is cleared and re-initialised, a new
+-- sprite slot is taken (draw order can change), a new tile range is allocated, and every field the
+-- engine had settled -- position, pos2, animation phase, ground-effect state -- is rebuilt from
+-- scratch in one frame. Patching instead touches only what describes the GRAPHIC and leaves the
+-- rest exactly where the engine had it.
+--
+-- Falls back to the rebuild if it cannot do the whole job, because a half-applied graphic (new
+-- shape, old tiles) is worse than a rebuild.
+function swapGhostGraphicInPlace(g, graphicsId, sanim)
+    local info = graphicsInfo(graphicsId)
+    if not info or not ghostAlive(g) then return false end
+    -- Allocate before freeing: nothing runs between these writes, and a failed allocation must
+    -- leave the sprite pointing at a range it still owns.
+    local tileStart = allocSpriteTiles(info.tileCount)
+    if not tileStart then return false end
+    if g.tileStart then
+        for t = g.tileStart, g.tileStart + g.tileCount - 1 do setTileAllocated(t, false) end
+    end
+
+    w8(objAddr(g.objId) + 0x05, graphicsId)
+
+    local d = sprAddr(g.sprId)
+    w16(d + 0x04, (r16(d + 0x04) & 0xfc00) | (tileStart & 0x03ff))
+    if info.oam ~= 0 then
+        -- Shape and size only -- the rest of a template OAM puts a live sprite out of step with
+        -- the engine's own per-frame building, which spawnGhost records at length.
+        w16(d + 0x00, (r16(d + 0x00) & 0x3fff) | (r16(info.oam + 0x00) & 0xc000))
+        w16(d + 0x02, (r16(d + 0x02) & 0x3fff) | (r16(info.oam + 0x02) & 0xc000))
+    end
+    w32(d + 0x08, info.anims)
+    w32(d + 0x0c, info.images)
+    w32(d + 0x10, info.affineAnims)
+    w32(d + 0x18, info.subspriteTables)
+    w8(d + 0x42, 0)
+    if info.subspriteTables ~= 0 then w8(d + 0x42, (r8(d + 0x42) & 0x3f) | (1 << 6)) end
+    w8(d + 0x28, (-(info.width // 2)) & 0xff)
+    w8(d + 0x29, (-(info.height // 2)) & 0xff)
+    -- Start the new graphic's animation, and put its first frame in the new tiles NOW: the
+    -- engine's own copy is queued to the next VBlank, which is one frame of the old pixels worn
+    -- through the new shape.
+    w8(d + 0x2a, sanim or 0)
+    w8(d + 0x2b, 0)
+    w8(d + 0x3f, (r8(d + 0x3f) | 0x04) & ~0x10)
+    g.gfx, g.tileStart, g.tileCount = graphicsId, tileStart, info.tileCount
+    loadGhostFrameNow(g, info, sanim or 0, 0)
+    return true
+end
+
 -- One remote, one frame. Spawn if missing, step it if it moved one tile, teleport if it jumped,
 -- and turn it on the spot otherwise.
 local function syncGhost(playerId, remote)
@@ -2894,6 +2950,17 @@ local function syncGhost(playerId, remote)
     -- left, ending exactly when the step did.
     --
     -- Waiting costs at most one step. It buys a ghost that stops, then fishes, like the player.
+    -- The peer changed what they are: got on a bike, started surfing, cast a rod. Patched in place
+    -- where possible -- position, pos2 and the engine's own settled state all survive, so there is
+    -- no frame where the ghost is missing, doubled, or wearing the previous graphic's pixels.
+    local wantNow = wantedGfx(remote)
+    if wantNow and g.gfx and wantNow ~= g.gfx
+        and swapGhostGraphicInPlace(g, wantNow, remote.sanim) then
+        if remote.sox then w16(sprAddr(g.sprId) + 0x24, remote.sox & 0xffff) end
+        if remote.soy then w16(sprAddr(g.sprId) + 0x26, remote.soy & 0xffff) end
+        return
+    end
+
     -- The peer changed what they are: got on a bike, started surfing, cast a rod. A graphic swap
     -- means different images, animations, OAM shape and tile count, so the sprite is rebuilt
     -- rather than patched -- the same thing the engine does when the player's own state changes.
