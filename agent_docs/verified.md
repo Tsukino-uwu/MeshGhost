@@ -7994,3 +7994,52 @@ The detector reads the tilemap base out of `BG0CNT` at runtime, so none of this 
 
 What this does **not** settle is whether `MESHGHOST_EMERALD_DRAWN_OVERFLOW` should ship on: the
 UI-clipping objection to it is now answered, but occlusion, shadows and water reflection are not.
+
+## Both renderers side by side, and the first two gaps it found — 2026-08-19
+
+`MESHGHOST_COMPARE_TIERS` renders the one loopback ghost twice from the same peer state: spawned
+two tiles right (the engine draws it), painted two tiles left (our pixel path). The user's request
+and the intended dev default for this question — see each adapter's `FLAGS.md`.
+
+It paid for itself immediately. **Within a minute of the first look**, three differences that
+months of one-renderer-at-a-time testing had not surfaced:
+
+### 1. The drawn tier moved at the NETWORK's pace, not the game's — fixed and confirmed
+
+*"really stuttery/choppy"* while moving, and *"moving/catching up with the player too fast"*
+next to a spawned ghost that *"properly follows"*. **One bug behind both.** A spawned ghost is
+walked by the engine, tile to tile, over the game's own 16 frames (8 running); the drawn tier
+painted the peer wherever the newest sample said it was. Samples arrive at the relay's rate in
+jumps of whatever distance had accumulated, so the ghost moved at 20Hz in packet-sized steps.
+
+The fix reuses the pacing the adapter already had for the local player (`STEP_DURATION_FRAMES`,
+measured live 2026-08-11 and re-confirmed 2026-08-14): a drawn peer now glides between TILES over
+those same frame counts, snapping only when the jump exceeds one tile (a warp, or first sight).
+**User-confirmed after the fix: *"think they look/feel identical now"*.**
+
+Also fixed alongside: the status line reported `drawn=0` while a painted ghost was on screen,
+because the count was gated on the overflow tier's flag rather than on anything being painted.
+
+### 2. A facing change draws as one static frame — open
+
+*"its not doing animations when standing still and doing facing directions."* The instrumentation
+added the same day (dev-gated, logs only on change) shows the data is NOT the problem: turning on
+the spot arrives as `orientation=south anim=idle` with the frame index changing, so the drawn
+renderer sees the facing change and draws the idle frame for the new direction. Whatever the
+engine plays for the spawned ghost on a turn, the drawn tier does not. **Not diagnosed further,
+and deliberately not guessed at: what the game is MEANT to do on a turn is the user's to say.**
+
+### 3. Visible for a moment when entering a house — open
+
+*"the drawn one is visible for a tiny bit when entering a house unlike the spawned one."* Working
+theory, unconfirmed: the engine places and shows its own characters as the fade finishes, while the
+drawn tier starts painting the instant the peer's `area_id` matches.
+
+**The instrumentation for it was written, run, and taken straight back out** — a per-frame
+`console.log` (facing changes, then 90 frames of object counts after each area change) and the
+user's next words were *"its spamming the console lag, and the game is lagging"*. Removed within
+the minute; the log went back to its normal cadence and the counters read the same as before.
+`CLAUDE.md`'s rule earned again, in the smallest possible way: **a diagnostic can break the thing
+it measures**, and BizHawk's console is expensive enough that once per frame is already too much.
+Whatever measures this next has to sample into a buffer and print once, or write straight to a
+file — not to the console, and not every frame.

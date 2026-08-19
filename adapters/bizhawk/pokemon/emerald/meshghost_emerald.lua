@@ -1108,6 +1108,36 @@ end
 -- with zero variance across many real continuous steps -- see agent_docs/verified.md.
 local STEP_DURATION_FRAMES = { walking = 16, running = 8 }
 
+-- The SAME pacing, applied to a DRAWN peer. A spawned ghost never needed this: the engine walks
+-- it tile to tile at exactly these durations, which is most of why it looks right. A drawn one had
+-- nobody doing that, so it was painted wherever the newest sample said -- and the user, seeing
+-- both renderers side by side for the first time (MESHGHOST_COMPARE_TIERS, 2026-08-19), described
+-- precisely what that does: *"really stuttery/choppy"*, and *"moving/catching up with the player
+-- too fast"* next to a spawned ghost that "properly follows". Both are one bug. Samples arrive at
+-- the relay's rate, not the game's, so a renderer that follows them literally moves at the
+-- NETWORK's pace, in jumps of whatever distance arrived.
+--
+-- So a drawn peer now glides between TILES over the same 16/8 frames the game gives a step, from
+-- per-peer state kept on the peer's own table (no new chunk locals -- this file is at 196 of
+-- Lua's 200). A jump longer than one tile is a warp, a respawn or first sight, and snaps.
+local function glideRemote(r, targetX, targetY)
+    local dur = STEP_DURATION_FRAMES[r.anim] or STEP_DURATION_FRAMES.walking
+    if r.gTileX == nil or r.gAreaId ~= r.areaId
+        or math.abs(targetX - r.gTileX) > 1 or math.abs(targetY - r.gTileY) > 1 then
+        r.gPrevX, r.gPrevY = targetX, targetY
+        r.gTileX, r.gTileY = targetX, targetY
+        r.gFrame, r.gDur = frameCounter, dur
+    elseif targetX ~= r.gTileX or targetY ~= r.gTileY then
+        r.gPrevX, r.gPrevY = r.gTileX, r.gTileY
+        r.gTileX, r.gTileY = targetX, targetY
+        r.gFrame, r.gDur = frameCounter, dur
+    end
+    r.gAreaId = r.areaId
+    local f = (frameCounter - r.gFrame) / r.gDur
+    if f > 1 then f = 1 elseif f < 0 then f = 0 end
+    return r.gPrevX + (r.gTileX - r.gPrevX) * f, r.gPrevY + (r.gTileY - r.gPrevY) * f
+end
+
 local prevTileX, prevTileY = nil, nil
 local committedTileX, committedTileY = nil, nil
 local committedAreaId = nil
@@ -2472,8 +2502,12 @@ local function drawRemotes(localAreaId, playerMapX, playerMapY, skipSpawned, com
             wanted = (COMPARE_TIERS and isLoopback) or not (skipSpawned and skipSpawned[playerId])
         end
         if remote.areaId == localAreaId and wanted then
-            local screenX = playerScreenX + (remote.x - playerMapX) * TILE
-            local screenY = playerScreenY + (remote.y - playerMapY) * TILE
+            -- Tile-paced, not sample-paced: the peer's TILE is the target, and the walk between
+            -- tiles is the game's own 16/8 frames rather than however far the last packet moved.
+            local glideX, glideY = glideRemote(remote,
+                math.floor(remote.x + 0.5), math.floor(remote.y + 0.5))
+            local screenX = playerScreenX + (glideX - playerMapX) * TILE
+            local screenY = playerScreenY + (glideY - playerMapY) * TILE
             if isLoopback then
                 screenX = screenX + (COMPARE_TIERS and COMPARE_DRAWN_OFFSET_TILES_X
                     or LOOPBACK_GHOST_OFFSET_TILES_X) * TILE
@@ -2621,7 +2655,10 @@ local function runFrame()
         -- The drawn tier's own count, so "every peer is visible" is a number in the log rather
         -- than something to squint at: peers here, minus the ones holding an object slot. Counted
         -- only when that tier is on, so the figure never implies pixels nobody drew.
-        if tiering.drawn then nDrawn = tiering.painted or 0 end
+        -- COMPARE_TIERS counts too: it paints the loopback ghost with the tier itself off, and a
+        -- status line reading drawn=0 while a painted ghost is on screen is a counter that lies
+        -- about the one thing this mode exists to look at.
+        if tiering.drawn or COMPARE_TIERS then nDrawn = tiering.painted or 0 end
         local nClipped = genderFrames.clippedRuns or 0
         genderFrames.clippedRuns = 0
         logFile(string.format(
