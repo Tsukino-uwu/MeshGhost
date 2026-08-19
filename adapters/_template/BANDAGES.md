@@ -32,9 +32,15 @@ TEVI's had drifted too. Both were rewritten to name functions instead. The long 
 ## The bar is 1:1, and a bandage is never "done" — 2026-08-19
 
 **The standard for every adapter, set by the user:** *"i want it all to be 1:1 / perfect. not
-sloppy/bandage/good enought."* A ghost is finished when it is indistinguishable from what the game
-itself would draw — position, motion, animation, sprite offsets, effects, timing. Not "close",
-not "slightly off", not "only wrong during the transition".
+sloppy/bandage/good enought."* And their definition of it: *"1:1 = it looks exactly the same as the
+player doing it / perfect / intended."*
+
+**That makes the test VISUAL, not numeric.** A ghost is finished when it is indistinguishable from
+what the game itself draws — position, motion, animation, sprite offsets, effects, timing. Numbers
+matching in memory is evidence, never the verdict: a ghost that faithfully reproduces a state the
+game never SHOWED (an intermediate value that settles before it is drawn, a frame the player was
+hidden for) is not 1:1, however exactly the fields agree. Not "close", not "slightly off", not
+"only wrong during the transition".
 
 **This does not forbid bandages. It forbids CALLING one finished.** Where the engine genuinely
 cannot do the thing for a ghost — a shadow that binds by an id a ghost cannot safely wear, a crowd
