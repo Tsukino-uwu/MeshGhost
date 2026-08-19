@@ -8296,3 +8296,38 @@ exactly the right place and still put its character half a tile away.
   (a graphicsId the engine swaps, driven by a task) so they are likely to work — but "likely" is
   not "watched", and the `pos2` bug above would have looked identical on a bike.
 - **A cave**, for the painted tier's scene dimming. The fade half is confirmed; a cave is not.
+
+## The fishing snap: four real defects, and what "1:1" turned out to mean — 2026-08-19
+
+The last of the fishing reports, and the most instructive sequence of the session. Five separate
+reports, five position measurements that were all CORRECT, and four genuine defects underneath.
+
+| # | Defect | How it was found |
+| --- | --- | --- |
+| 1 | `pos2` never sent — the game's fishing TASK offsets the sprite by 8,0 to keep the character on its tile inside a 32-wide frame, and a ghost has no task | Dumping every field the hardware draws from, not just position |
+| 2 | The painted copy was centred twice — a pinned position already carries the spawned sprite's `centerToCorner` | Reading the two draw paths against each other |
+| 3 | A second ghost survived up to a second after the bag closed — the transition sweep runs while the stale ghost is still TRACKED, so it spares it, and by the time `syncGhost` drops the record the sweep for that tick is done | The user saw it; the frame log confirmed two live objects. Fixed by sweeping at the moment the record is dropped |
+| 4 | The ghost faithfully replayed four frames the player was visible for but nobody could see | Frame-by-frame capture with the player's own visibility and offset |
+
+**Defect 4 is the one worth keeping.** The game gives the player the 32-wide fishing graphic FOUR
+FRAMES before its task applies the compensating `pos2`. The player is visible (`vis=1`) throughout,
+so those frames are genuinely displayed — but they land while the bag is still closing, where an
+8px hop is imperceptible. The ghost replayed them 250ms later in a clean frame, as the only moving
+thing on screen, and it read as a snap. **Verified after the fix: 90 of 90 frames at the correct
+x=400, with the intermediate x=392 gone entirely.**
+
+**And the definition that settled it, from the user:** *"1:1 = it looks exactly the same as the
+player doing it / perfect / intended."* Under a numbers-match reading, defect 4 was not a defect at
+all — the ghost matched the player exactly. Under the real standard it was, because the standard is
+what is SEEN. That is now in `CLAUDE.md` and the adapter template.
+
+**Two process notes, both earned:**
+
+- *"lets fix the actual issue instead of making excuses"* — offering a send-rate change or a
+  graphics-swap rework as "paths to 1:1" was rejected, and rightly: neither addressed the cause.
+  The eventual fix changed no rate, no tick and no swap mechanism. It removed the intermediate
+  state, which was the defect.
+- The user's own observation is what aimed the search: *"the drawn ghost is still perfect, its just
+  the spawned one"*. Both are drawn from the same position, so a position bug would show on both —
+  which ruled out an entire class of causes in one sentence and pointed straight at the object
+  array, where the duplicate was.
