@@ -289,8 +289,8 @@ stays here, its reasoning goes to `agent_docs/`, with a one-line pointer. Full e
 - `agent_docs/effect-investigation.md` is the how-to-search playbook for a game's visual effects —
   read before starting effect/VFX work on a new adapter, not after it goes wrong.
 - `agent_docs/access-models.md`: what can be read about each game, and why it predicts difficulty.
-- `agent_docs/phases/` holds a file per phase, kept as an archive after the phase ends;
-  `agent_docs/environment.md` is the toolchain/tool/mod version record, filled in as phases run.
+- `agent_docs/phases/` archives a file per phase; `agent_docs/environment.md` is the toolchain and
+  tool/mod version record; `agent_docs/playing.md` is what an agent may do to a RUNNING game.
 - `agent_docs/verified.md` is the append-only log for confirmed runtime facts.
 - `agent_docs/testing.md` is how to run every automated Go-side check, what CI adds, and the
   testing traps worth not rediscovering. Read it before adding a test or chasing a flake.

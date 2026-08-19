@@ -20,6 +20,8 @@ Internal documentation for MeshGhost: architecture, planning, licensing, and ver
   outside project.
 - [environment.md](environment.md) — toolchain and environment notes, filled in as phases
   actually run.
+- [playing.md](playing.md) — everything about driving a running game: what an agent may change,
+  how to steer input, how to navigate, how to use screenshots. **Read before driving any game.**
 - [verified.md](verified.md) — append-only, human-gated log of confirmed runtime facts.
 - [unverified.md](unverified.md) — the waiting room for it: things the agent believes work and the
   user has not seen yet, with what to look at and what correct looks like. A checklist to work
@@ -56,6 +58,7 @@ Internal documentation for MeshGhost: architecture, planning, licensing, and ver
 | **What we know** | `verified.md` (append-only, dated), `pitfalls.md` (symptom → cause → fix), `phases/` | Permanent |
 | **What we intend** | `plans.md` (committed), `ideas.md` (not) | Until done or dropped |
 | **The machine and the conventions** | `environment.md` | Updated as the setup moves |
+| **Driving a running game** | `playing.md` | Updated when the user rules on what is allowed |
 | **Who the USER is** | agent memory, outside the repo | Permanent — and **never project facts**, which the repo must own |
 
 The correction worth making explicit: **agent memory is long-term memory about the user, not about

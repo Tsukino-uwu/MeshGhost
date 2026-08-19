@@ -333,11 +333,9 @@ capture the drawn tier.** The drawn peers are `gui.drawLine` calls on the Lua ov
 (so a SPAWNED ghost appears) and none of the overlay (so a DRAWN one never does). Three "the crowd
 is invisible" screenshots were taken of a screen that was full of ghosts.
 
-**The answer is NOT to photograph the emulator window.** A window capture of EmuHawk was tried and
-the user ruled it out the same day, 2026-08-19: *"this is not required. don't do this. only capture
-what is in the game itself."* `client.screenshot()` is the only screenshot tool here, and a picture
-of the window — chrome, menu bar, title and all — is not a picture of the game. The tooling was
-removed rather than left lying around for someone to reach for.
+**The answer is NOT to photograph the emulator window** — that was tried and the user ruled it
+out the same day; `client.screenshot()` is the only screenshot tool here. The rule and its wording
+live in `playing.md`, "Screenshots", rather than being restated here.
 
 **So the drawn tier is judged NUMERICALLY, and that is the better evidence anyway** — the same
 reason the collision policy and the crowd ceiling were settled with counters. One frame cannot see

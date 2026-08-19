@@ -7,8 +7,8 @@
 - **Crystal renders peers in TWO tiers now**: spawned real objects up to what the game can draw,
   and everything past that PAINTED over the emulator. A character on every visible tile at 60fps,
   user-confirmed. `verified.md` 2026-08-19, `crowd-limits.md`.
-- **Emerald's equivalent is built but ships OFF** (`MESHGHOST_EMERALD_DRAWN_OVERFLOW`) — its UI
-  regions could not be located reliably, so a drawn ghost would paint over text boxes.
+- **Emerald's equivalent is built and its UI regions are now measured** on two maps, and it clips a
+  real panel — still flag-gated (`MESHGHOST_EMERALD_DRAWN_OVERFLOW`). `verified.md` 2026-08-19.
 - Phases 6 (TEVI), 7 (Pseudoregalia) and 8 (Emerald) are done; 8's queue is in `unverified.md`.
 
 **Everything below this line is an INDEX of what is open.** Two lines per item, and the detail
@@ -17,58 +17,44 @@ lives in `verified.md`, `pitfalls.md` or a phase file — see the update guidanc
 Roadmap: `plans.md`. Per-phase log: `phases/`. Evidence: `verified.md`. What the user has not
 confirmed yet: `unverified.md`.
 
-## Picking this up in a new session — written 2026-08-19, and the first thing to read
+## Picking this up in a new session — rewritten 2026-08-19 evening, and the first thing to read
 
-**The opening move, in order.** Four emulators are running and nobody owns them; a session that
-starts working without doing this will drive an instance another agent is also driving.
+**Four emulators, four cores and a relay are RUNNING and unowned.** Nothing is paused this time —
+they are simply idle, with every driver and probe removed. Claim one before touching it.
 
-1. **Find the four instances** and match each to its ROM:
-   `Get-CimInstance Win32_Process -Filter "Name='EmuHawk.exe'" | ForEach-Object { $_.ProcessId; $_.CommandLine }`
-   — the `--lua=` argument names the loader control file, which is what identifies it.
-2. **Keep ONE instance for yourself** — vanilla Crystal is the natural choice, it is the adapter
-   with the most recent unconfirmed work — and **spawn one agent per remaining instance** (three).
-   That is the standing rule, not a suggestion: `environment.md`, "One agent per BizHawk INSTANCE".
-3. **Hand each agent four things**, or it cannot stay in its lane: its emulator's **pid**, its
-   **loader control file**, its **bridge port**, and the **off-limits list** of every other pid,
-   port and control file — plus "kill only by PID, never by name or wildcard".
-4. **Start with the two measurements that are one step from landing** (below). Both unblock a
-   patched-ROM build that currently refuses to run or falls back to an older render path.
-5. **Take screenshots into `dev-scripts/shots/<game>/`** and look before acting — three of four
-   games produced no pictures at all last session, which left nobody able to see what they did.
-
-
-
-**Four BizHawk instances were left RUNNING when the session that built all this ended.** The
-emulators survive; the agents driving them do not. Each needs a new owner (one agent per instance
-— `environment.md`), and each was mid-task:
-
-| ROM | Bridge port | Loader control file | Where it got to |
+| ROM | BizHawk pid | Bridge | Loader control file |
 |---|---|---|---|
-| Vanilla Crystal | 7781 | `bizhawk-dev-loader-crystal.target` | Soak run, invariant watcher clean, ~44 synthetic peers drawn |
-| Vanilla Emerald | 7786 | `bizhawk-dev-loader-emerald.target` | Proving its drawn tier's panel clipping by counting skipped runs |
-| **Archipelago Crystal** | 7783 | `bizhawk-dev-loader-apcrystal.target` | **Errand done; the rival battle in Cherrygrove is the trainer battle that settles `W_BATTLEMODE`** |
-| **Archipelago Emerald** | 7784 | `bizhawk-dev-loader-apemerald.target` | **`gSprites` measured three times independently as `0x02020630` — i.e. NOT shifted from vanilla — pending confirmation that the spawn path actually engages** |
+| Archipelago Crystal | 2356 | 7783 | `bizhawk-dev-loader-apcrystal.target` |
+| Vanilla Crystal | 11788 | 7781 | `bizhawk-dev-loader-crystal.target` |
+| Archipelago Emerald | 15628 | 7784 | `bizhawk-dev-loader-apemerald.target` |
+| Vanilla Emerald | 18252 | 7786 | `bizhawk-dev-loader-emerald.target` |
 
-(pids change; find them with `Get-CimInstance Win32_Process -Filter "Name='EmuHawk.exe'"` and match
-on the `--lua=` control file. A relay is on 7777 with `-max-clients=250`.)
+(pids change; match on the `--lua=` argument. **The relay on 7777 is still carrying `-loopback`**,
+so every client sees a self-ghost — restart it without that flag before judging anything about
+real peers.)
 
-**All four were deliberately PAUSED before the session ended**, so nothing is mid-action:
+**State everything was left in:** every control file reduced to the adapter alone (no drivers, no
+probes, no input), all synthetic peers stopped, no agent running, working tree clean and committed.
+The emulators may have been left at 400% speed — the user set that, so check rather than assume.
 
-- **Every loader control file was reduced to the adapter alone** — no driver scripts, no probes,
-  no input. Add scripts back to a control file to resume that instance (remember: the loader
-  reloads when the SET OF PATHS changes, so re-adding a path is what triggers it).
-- **All synthetic peers were stopped.** Relaunch a screen-filling crowd with
-  `scratchpad/grid3.ps1 -px <x> -py <y>` (one peer per visible tile, positioned round the player)
-  or a smaller set with `meshghost-fakeadapter.exe` directly — see `crowd-limits.md` for the flags.
-- **The emulators, their cores and the relay are still running**, so an instance is one control
-  file edit away from working again. Nothing needs relaunching unless a window has been closed.
-- **No agent is running.** Every one was stopped explicitly; their work is committed, including
-  two agents' in-flight Emerald changes saved as an explicit WIP commit.
+**The opening move, in order:**
 
-**Two Archipelago measurements are one step from landing**, and both are worth finishing before
-anything new: Crystal needs a trainer battle fought on the way back to Cherrygrove, and Emerald
-needs a peer spawned to prove the render path switches. Neither address is written into an
-`ADDRESSES` table yet — deliberately, since neither is confirmed.
+1. **Claim instances.** One agent per BizHawk INSTANCE, and hand each its pid, control file, bridge
+   port and the off-limits list of everyone else's — `environment.md`. Kill only by PID, never by
+   name or wildcard.
+2. **Read `playing.md` before driving anything.** Cheats are permitted to make progress as of
+   2026-08-19, including collision and tile edits; that file is the whole permission set.
+3. **Resume the four missions**, which are settled and should not be re-derived:
+   - **Archipelago Crystal and Archipelago Emerald: full playthroughs**, start to finish. Every
+     state they pass through is adapter coverage nobody scripted.
+   - **Vanilla Crystal and Vanilla Emerald: ghost animation completeness** — surf, Fly, bikes,
+     fishing and the rest. The enumeration is already in `phases/phase9.md`.
+4. **Screenshot into `dev-scripts/shots/<game>/` and look before acting.** `client.screenshot()`
+   only — never a window capture — and remember it cannot see a drawn-tier ghost.
+
+**Both Archipelago blockers are CLOSED** (`wBattleMode` = `0x1234`; the graphics-info pointer table
+shifts by `0x7530`), so neither adapter refuses on a patched ROM any more. What replaced them at
+the top of the list is below.
 
 ## Genuinely open items
 
@@ -107,20 +93,22 @@ that a peer's state genuinely differs from the local player's, which loopback co
 
 ### Open, not blocked
 
+- **A vanilla battle with a crowd was never reached** — our own spawned ghosts boxed the player in
+  on the way to grass, which `crowd-limits.md` predicts. `unverified.md`, `pitfalls.md`.
+- **Emerald's real-panel clip count was REACHED, not played to** — the position was written, so it
+  says nothing about whether ordinary play produces that overlap. `verified.md` 2026-08-19.
+- **Crystal's phone-call panel is two panels** — full-width at the top plus the ordinary bottom
+  box; the row-12 test sees only the bottom one. Detection unwritten. `unverified.md`.
 - **Crystal's drawn tier is unconfirmed**: animation, facing and text-box clipping all landed
   2026-08-19 after the fill-the-screen test. `unverified.md`, `crowd-limits.md`.
 - **Crystal/Emerald: ghost animation completeness** — surf/bike ride on the sprite id already sent;
   fishing, bump, spin, emote and Fly need `OBJECT_ACTION`/`OBJECT_FACING`. `phases/phase9.md`.
 - **Crystal: a peer's own sprite is used when its tiles are resident, not otherwise** — but the
   DRAWN tier could read any sprite from ROM, which would close it. `phases/phase9.md`.
-- **Crystal/Archipelago: the address table is COMPLETE** — `wBattleMode` = `0x1234`, measured
-  2026-08-19 in the rival battle; the adapter no longer refuses on that ROM. Needs a live look.
 - **Crystal: a ghost does NOT survive a battle** — answered from the code 2026-08-19 and fixed
   (it used to hijack an NPC); a real battle still needs watching. `phase9.md`, `unverified.md`.
 - **The core dropped its relay connection twice on quic** — `use of closed network connection`,
-  ~40s apart, reconnecting each time; moving to tcp stopped it. Go side. `verified.md` 2026-08-18.
-  (Separate from the 2026-08-19 "core never came back" case, which was a stale `config.json`
-  pointing at a dead relay, not a reconnect defect — `verified.md`, `pitfalls.md`.)
+  ~40s apart; moving to tcp stopped it. Go side. `verified.md` 2026-08-18.
 - **Duplicate ghost spawn on every level load** — two ghosts per peer, the `remotes` entry going
   present -> absent within three ticks, leaving an orphaned pawn nobody tracks. `verified.md`.
 - **Two different games at once: half fixed** — the user-visible symptom of the bridge-shape gap
@@ -136,8 +124,6 @@ that a peer's state genuinely differs from the local player's, which loopback co
   self-tested the same day. Nothing in either is "done" until the user confirms the result.
 - **Emerald: a peer's own state (surf/bike/fishing) is not rendered yet** — the state is its
   `graphicsId` and all player states share one palette tag, so this is now scoped. `phase8.md`.
-- **Emerald/Archipelago now SPAWNS** — the graphics-info pointer table also shifts by `0x7530`;
-  `ghosts=0` -> `ghosts=1`, screenshot-confirmed on the patched ROM. `verified.md` 2026-08-19.
 - **Loopback offset puts the ghost inside/above sloped geometry** — a rig artefact, since a real
   peer's position is always valid. Weigh loopback-only anomalies accordingly. `verified.md`.
 - **Pseudoregalia: a hard crash mid-session after the pause menu opened twice** — not root-caused,

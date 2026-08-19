@@ -1988,3 +1988,123 @@ painted peer outside its rectangle), and the overworld unaffected (38 drawn, 26 
 spawned). **A vanilla battle was not reached** -- the walk to grass was blocked by our own spawned
 ghosts boxing the player in, which `crowd-limits.md` predicts -- so the battle half rests on the
 Archipelago agent's measurements above and still wants watching.
+
+## Calibrating on OAM entry 0: the entry ORDER swaps when the sprite flips
+
+**Symptom** (Crystal, 2026-08-19): drawn peers snapped around by 8px while the local player walked,
+and only while walking. Standing still, everything sat correctly.
+
+**Two plausible causes were ruled out first**, and both looked right on paper: the positions were
+being computed in the engine's scrolled space (correct only at the instants the engine recomputes
+it), and the anchor object was being re-chosen each frame. Fixing both reduced the jumping and did
+not remove it.
+
+**The real cause is a hardware behaviour, and it is not specific to this game.** A character's
+four OAM entries are emitted **mirrored when the sprite is flipped**, so the entry that happens to
+be the left-hand one changes with the direction the character faces. Calibrating the drawn tier's
+origin on *entry 0* therefore gave an x that alternated by exactly 8px as the player turned --
+which is why it only appeared in motion.
+
+**Fix:** take the **minimum x across the four entries** rather than reading one of them. That is
+invariant under the flip, because the set of four is the same set either way. Measured **64
+discontinuities of 8 and 16px in a 20-second walk, down to 0 across 1,199 samples**.
+
+**Carry this to any adapter that reads OAM to locate something.** "Entry 0 is the top-left one" is
+an assumption about the current facing, not about the hardware, and it holds right up until the
+character turns round.
+
+## Lua 5.4 refuses a bit shift on a float, and a smoothed position is a float
+
+**Symptom** (Emerald, 2026-08-19): a per-frame error, once every frame, from the drawn tier's
+panel clipping.
+
+**Cause:** the clip row was computed by shifting a screen position right to get a tile row -- and
+that position comes from the **sub-tile smoothing**, so it is a float like `114.5`, not an integer.
+Lua 5.4 raises rather than truncating (`number has no integer representation`), unlike 5.1/5.3
+semantics some of us carry in our heads.
+
+**Fix:** `math.floor` before the shift. **The general form: any value that has been through
+interpolation or smoothing is a float**, however integral it looks in a log line, and every bitwise
+operator and array index downstream of it is a trap. Grep for `>>`, `<<`, `&` and `|` on anything
+derived from a smoothed coordinate.
+
+Worth noting what hid it: the blanket per-frame `pcall` caught it, so the adapter kept running and
+the clipping silently did nothing. `adapters/bizhawk/pokemon/emerald/BANDAGES.md` entry 2.
+
+## A bridge port pinned in the environment cannot pin an ALREADY-RUNNING instance
+
+**Symptom** (Emerald, 2026-08-19, with four emulators up): an instance launched with
+`MESHGHOST_BRIDGE_PORT` set was port-walked anyway, walked into two other instances' cores, and
+**attached to one of them** -- so two emulators drove one core and a third had none.
+
+**Cause:** the Emerald adapter read the pin from the **environment only**. An environment variable
+is fixed at process launch, so it can pin an emulator you are *starting* and can do nothing for one
+that is *already running* -- which is every instance in a long session. Crystal had already learned
+this and read a Lua global as well; Emerald had not been back-ported.
+
+**Fix:** read the Lua global first, then the environment. A global can be set into a live emulator
+from a control-file script, so the pin works on an instance nobody wants to restart.
+
+**The wider rule for multi-instance sessions:** a port walk is a convenience for a single instance
+and a hazard for several. When more than one emulator is up, **pin every bridge explicitly and
+verify from the adapter's own log which port it settled on** (`bridge_ready on port N -- this core
+is ours`). See `environment.md`, "One agent per BizHawk INSTANCE".
+
+## A hardcoded ROM address slipped past the refuse-if-unmeasured discipline an hour after it was built
+
+**Symptom** (Crystal, 2026-08-19): none, yet. It was caught by reading, not by a failure.
+
+**Cause:** the cartridge sprite table had just been given a **per-ROM-build table with a nil for
+any build nobody had measured**, precisely so an unmeasured build refuses instead of guessing. An
+hour later a second code path used `OverworldSprites` as a **hardcoded constant**, on any build,
+bypassing that table entirely. On the Archipelago ROM -- where the table lives at `0x14564`, not
+vanilla's `0x14736` -- it would have painted peers from arbitrary ROM bytes.
+
+**Why this keeps happening: "derived from the vanilla address" has now produced four wrong
+addresses on this project.** A relocated build moves things in several independent blocks, and
+today's Emerald case proved two of them can move by different amounts in one ROM
+(`gObjectEvents` +0x284, the graphics-info pointer table +0x7530, `gSprites` not at all).
+
+**The discipline, and it needs enforcing rather than documenting:** an address used on more than
+one build belongs in the per-build table, always, with a nil where nobody measured it -- and a
+constant that names a ROM location is a code smell on sight. **Grep for the constant's name after
+adding the table**, because the path that bypasses it is usually written by the same person in the
+same hour.
+
+## Frame tiles in the tilemap are not the same thing as a panel on screen
+
+**Symptom** (Crystal, 2026-08-19): a probe scanning every tilemap row for the text box's frame
+corner found a full-width frame top at BG row 12 **with no panel visible on screen** and the window
+register `WY` parked at its off value of 144. It cleared seconds later as the camera scrolled.
+
+**Cause:** the tilemap holds what was last written there, not what is being displayed. A panel that
+has been closed, or one scrolled out of the visible window, leaves its tiles behind.
+
+**Why it matters:** the obvious generalisation of Crystal's text-box test -- "scan every row for
+the corner tile instead of just row 12" -- would therefore **hide drawn peers for no reason**,
+which is the same class of over-hiding as the earlier WY-alone heuristic that emptied the bottom
+half of the screen. A tilemap test needs the window to actually be on: LCDC bit 5, `WY<=143`,
+`WX<=166`.
+
+This one was found *before* it shipped, by a probe written to check the assumption rather than to
+confirm it -- which is the only reason it is a pitfall entry and not an incident.
+
+## A stray dev-scripts/config.json silently redirects a core to a relay nobody is running
+
+**Symptom** (2026-08-19, twice): once, four synthetic peers went to a dead port and rendered
+nothing; once, a core sat retrying a relay that had exited hours earlier while everyone assumed it
+had lost the shared one -- and the reconnect log said nothing, because it only logged when the
+error message *changed* (fixed the same day, `verified.md`).
+
+**Cause:** a core reads `config.json` from its **working directory**, and a core autostarted by the
+BizHawk loader has `dev-scripts/` as its cwd. A config left there by an earlier session pointed at
+`127.0.0.1:7787`, room `emeraldcap`. The file was then deleted, so **nothing in the tree explained
+the port any more** -- the process was the only witness.
+
+**Fixes, both applied:** `dev-scripts/config.json` is gitignored so it can never be committed, and
+the retry now keeps saying which address it cannot reach.
+
+**The habit that catches it:** when a core connects somewhere unexpected, read its **command line**
+(`Get-CimInstance Win32_Process`) rather than the repo -- a flag survives in the process list, a
+config file's contents do not. Prefer an explicit `-relay` flag over a config file whenever
+sessions share a machine.
