@@ -43,6 +43,27 @@ pieces were confirmed individually during the session; these are the ones that w
       a few places. *Correct:* nothing happens at all — no text box, no minigame.
       (The bug this fixed launched the slot-machine minigame.)
 
+## Pending — Emerald robustness pass (2026-08-19)
+
+Four defects found by reading and fixed; none changes what a ghost is supposed to look like, so
+the only thing to watch for is that nothing got *worse*. The end-to-end item above now has to be
+run against this version rather than yesterday's.
+
+- [ ] **Nothing regressed.** *What to look at:* the same walk-around the end-to-end item asks for.
+      *Correct:* exactly as before — one ghost, two tiles to your right, on the grid, hidden behind
+      the pause menu. The changes were: the orphan sweep is now gated to the overworld on a
+      confirmed vanilla address; a bridge rejection no longer throws; a peer's `graphicsId` is
+      bounds-checked before it indexes a ROM table; the frame-error log no longer swallows the
+      first 300 frames.
+- [ ] **A question, not a claim — should the adapter be broadcasting from the main menu?**
+      Observed in the live log, not decided: `gSaveBlock1Ptr` is already populated at the
+      **continue screen**, so the adapter sends the saved position (`pos=(10,10)`,
+      `overworld=false`) for as long as someone sits there. `contract.md`'s closed question says
+      `nil` is warranted only when that pointer reads null ("title screen / no save loaded"), which
+      this technically is not. **A peer would see a ghost of you standing at your last save point
+      while you are in the main menu.** Left alone deliberately — it is a change to what a player
+      sees, so it needs the user's answer first.
+
 ## Pending — peer graphics: bikes, surfing, fishing (2026-08-18)
 
 Turned OFF by default (`MESHGHOST_GHOST_PEER_GFX`), because it is incomplete — see below.

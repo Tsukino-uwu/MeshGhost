@@ -91,6 +91,7 @@ Run in this order; each narrows what the previous one found. Full story: `phases
 | `vram_probe.lua` | Stage 1 of the VRAM/sprite-injection investigation (`agent_docs/ideas.md`); stages 2-5 never ran |
 | `surf_bike_probe.lua` | Built for the open surf/Mach Bike/Acro Bike question — **written, never yet run** |
 | `probe_render_remote_trace.lua` | A headless companion that speaks the same bridge protocol, for tracing `render_remote` without a game |
+| `sweep_guard_probe.lua` | Read-only. Whether `sweepOrphanGhosts()`'s "active, not the player, `localId` 255" predicate ever matches something that is not one of ours — the measurement behind gating that sweep on the overworld and on a confirmed vanilla address (2026-08-19). |
 
 ## Frozen phase snapshots
 

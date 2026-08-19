@@ -7572,3 +7572,30 @@ Every adapter now starts its own client and takes it down with the game. Pseudor
 core that could not bind and exited instantly. It now spawns on the first port the sweep found
 empty. Single-instance testing would never have shown it — the user asked for that case
 specifically.
+
+### 2026-08-19 — Emerald: the orphan sweep's predicate never fired outside the overworld
+
+**Track: probe log, read by the agent. No visual claim, and nothing here needs the user.**
+
+`meshghost_emerald.lua`'s `sweepOrphanGhosts()` clears any object event that is *active, not the
+player, `localId == LOCALID_PLAYER`*, on the argument that only our own spawned ghosts can be in
+that state. Until today it ran unconditionally every 60 frames — including before the object array
+had been located, outside the overworld, and on an Archipelago ROM, where it would have read a
+**relocated** `gObjectEvents` and then written the **vanilla** `gSprites`. That last combination is
+exactly the unmeasured write the adapter's render-path split exists to avoid (`BANDAGES.md`).
+
+`probes/sweep_guard_probe.lua` (read-only) measured the predicate directly on the vanilla ROM,
+sitting at the title/continue screen: **5,760 frames, zero matches**, with the player's own object
+event findable at the vanilla base the whole time (`playerObjAt(vanilla)=true`, `overworld=false`).
+
+So on vanilla the sweep was harmless in practice, and the gate added the same day
+(`avatarAddrConfirmed and avatarAddrOffset == 0 and inOverworld()`) is **defensive, not a fix for
+an observed corruption**. The Archipelago half of the argument is untested — no patched ROM was
+loaded — and remains the real reason the gate is there.
+
+**Also confirmed the same day, from the adapter's own session log:** a bridge `reject` (port 7779,
+Crystal's core, during the normal port walk) is now handled without a Lua error, and the adapter
+went on to start its own core on 7778 and reach `bridge_ready`. Before the fix the reject left
+`drainBridge()` indexing a nil socket; the error was invisible because the frame-error rate limiter
+started at frame 0 and could not log anything in the first 300 frames — which is why none of the
+eight earlier session logs that record a rejection shows it.

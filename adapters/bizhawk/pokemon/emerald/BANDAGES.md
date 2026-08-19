@@ -64,8 +64,16 @@ to once per 300 frames. The resilience posture is right for a Lua script that wo
 otherwise die for the session — but it cannot tell one malformed line from every frame failing. A
 systematically broken read reports once per ~5s and the ghost silently stops updating.
 
-**Fix:** a consecutive-failure counter that logs loudly and disables the offending subsystem,
-rather than a constant chosen to protect the console.
+**Worse than described, until 2026-08-19:** the limiter started at frame 0, so `frameCounter -
+0 > 300` was false for the whole first 300 frames — the window that contains connecting, the port
+walk, address detection and the first spawns. A startup error could not be logged at all. Proof it
+mattered: the `drainBridge()`/`reject` defect fixed the same day threw on **every** bridge
+rejection and appears in none of the eight session logs that record one. The first error now
+always logs, and the message carries a consecutive-failure count.
+
+**Still open, and this is what closes it:** the count is reported but nothing acts on it — a
+subsystem failing every frame is now visible, not disabled. **Fix:** disable the offending
+subsystem on a sustained run of failures, rather than a constant chosen to protect the console.
 
 ## Borderline — noted, not urgent
 

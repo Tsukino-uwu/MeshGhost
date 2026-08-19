@@ -668,7 +668,13 @@ local function decodeArray(s, i)
     while true do
         local val
         val, i = decodeValue(s, i)
-        table.insert(arr, val)
+        -- NOT table.insert: decodeValue returns nil for JSON `null`, and table.insert(t, nil)
+        -- is an error in Lua 5.4 -- so a single null anywhere inside an array threw, jsonDecode
+        -- swallowed it, and the WHOLE line was dropped. `extras` is free-form peer-controlled
+        -- data (contract.md), so a peer can put one there; the effect was that peer's ghost
+        -- silently freezing while every other message kept flowing. Assigning leaves a hole
+        -- instead, which the `if pos[1] and pos[2]` guard below already rejects on its own.
+        arr[#arr + 1] = val
         i = skipWs(s, i)
         local c = s:sub(i, i)
         if c == "," then
@@ -1200,6 +1206,12 @@ end
 
 local function drainBridge()
     while true do
+        -- handleBridgeLine() below can tear the connection down from inside this loop: a
+        -- `reject` calls resetBridge(), which closes the socket and sets `sock` to nil. Without
+        -- this check the very next iteration indexes a nil `sock` and throws, so every single
+        -- rejection -- the ordinary outcome of the port walk meeting somebody else's core --
+        -- cost a Lua error and the rest of that frame's work. Found by reading, 2026-08-19.
+        if not connected or not sock then return end
         -- With settimeout(0), a line straddling this call's read boundary comes back as
         -- nil, "timeout", partial -- LuaSocket 3.0's documented behavior for a pattern that
         -- can't complete before the timeout (see adapters/bizhawk/pokemon/emerald/lib/x64/
@@ -1399,11 +1411,40 @@ end
 -- struct ObjectEventGraphicsInfo (include/global.fieldmap.h): tileTag 0x00, paletteTag 0x02,
 -- reflectionPaletteTag 0x04, size 0x06, width 0x08, height 0x0A, paletteSlot/flags 0x0C,
 -- tracks 0x0D, oam 0x10, subspriteTables 0x14, anims 0x18, images 0x1C, affineAnims 0x20.
+-- ROM is 0x08000000-0x09FFFFFF on the GBA (the two 16 MB waitstate mirrors of the cartridge).
+-- Used below to sanity-check a pointer before anything is read through it or written into a
+-- live sprite: everything in this table, and everything it points at, is ROM data.
+local function isRomPtr(p) return p >= 0x08000000 and p <= 0x09ffffff end
+
+-- The graphicsId reaching here can come from a PEER over the wire (extras.gfx), so it is
+-- untrusted input, not a local read -- `_template/PROTOCOL.md`'s peer-controlled-data note, and
+-- status.md's open "adapters' parsing never audited". Unvalidated it indexes a ROM pointer table
+-- with an arbitrary integer, and the four pointers pulled out of whatever that lands on are
+-- written straight into a live sprite for the engine to dereference. Two bounds, neither invented:
+--   * 0-255, because the field this ends up in is `objectEvent.graphicsId`, a u8 -- the same fact
+--     the `w8(a + 0x05, graphicsId)` in spawnGhost already relies on. A value outside it could
+--     never have described this ghost anyway.
+--   * every pointer must actually point into ROM. That rejects a table entry past the real end of
+--     the table without this file having to assert a count it cannot cite.
 local function graphicsInfo(graphicsId)
+    if type(graphicsId) ~= "number" or graphicsId ~= math.floor(graphicsId)
+        or graphicsId < 0 or graphicsId > 255 then
+        return nil
+    end
     local ptr = r32(GOBJECTEVENTGRAPHICSINFOPOINTERS_ADDR + graphicsId * 4)
-    if ptr == 0 then return nil end
+    if not isRomPtr(ptr) then return nil end
     local size = r16(ptr + 0x06)
     if size == 0 then return nil end
+    -- The four pointers below are written verbatim into a live sprite for the ENGINE to
+    -- dereference, so a bad one is not a wrong picture, it is a crash in the game's own code.
+    -- anims/images must exist; oam, subspriteTables and affineAnims are legitimately allowed to
+    -- be null (a graphic without subsprites, an unanimated one) but never anything else.
+    local anims, images = r32(ptr + 0x18), r32(ptr + 0x1c)
+    local oam, subs, affine = r32(ptr + 0x10), r32(ptr + 0x14), r32(ptr + 0x20)
+    if not isRomPtr(anims) or not isRomPtr(images) then return nil end
+    if oam ~= 0 and not isRomPtr(oam) then return nil end
+    if subs ~= 0 and not isRomPtr(subs) then return nil end
+    if affine ~= 0 and not isRomPtr(affine) then return nil end
     return {
         ptr = ptr,
         paletteTag = r16(ptr + 0x02),
@@ -2105,13 +2146,24 @@ local function runFrame()
         end
     end
 
-    -- Once every 5s, to the log file only: enough to tell which link in the chain is quiet
-    -- without reading the game. "connected" and "ready" are different questions, and so are
-    -- "a peer is known" and "a ghost exists for it" -- a silent failure looks different in each.
-    if frameCounter % 60 == 0 then
+    -- The orphan sweep WRITES gObjectEvents and gSprites, so it runs only where this adapter is
+    -- allowed to write at all -- the same three conditions the spawn path itself is under, which
+    -- it was silently missing (found by reading, 2026-08-19):
+    --   * avatarAddrConfirmed -- before detection succeeds the object array has not been located,
+    --     so every read here is of an address we have not verified holds gObjectEvents;
+    --   * avatarAddrOffset == 0 -- on an Archipelago ROM this adapter deliberately does not write
+    --     (see the render-path split below and BANDAGES.md). The sweep read a relocated
+    --     gObjectEvents but would have written the VANILLA gSprites, which is exactly the
+    --     unmeasured write that split exists to avoid;
+    --   * inOverworld() -- outside it there is no live object array to sweep, and a ghost of ours
+    --     cannot have been created, so there is nothing this could legitimately find.
+    if frameCounter % 60 == 0 and avatarAddrConfirmed and avatarAddrOffset == 0 and inOverworld() then
         sweepOrphanGhosts()
     end
 
+    -- Once every 5s, to the log file only: enough to tell which link in the chain is quiet
+    -- without reading the game. "connected" and "ready" are different questions, and so are
+    -- "a peer is known" and "a ghost exists for it" -- a silent failure looks different in each.
     if frameCounter % 300 == 0 then
         local nRemotes, nGhosts = 0, 0
         for _ in pairs(remotes) do nRemotes = nRemotes + 1 end
@@ -2226,16 +2278,31 @@ local function runFrame()
     end
 end
 
-local lastFrameErrorLogged = 0
+-- nil, NOT 0. Starting at 0 made the rate limit swallow every error in the first 300 frames --
+-- `frameCounter - 0 > 300` is false there -- which is exactly the window connecting, the port
+-- walk, address detection and the first spawns all happen in. A startup error was therefore
+-- invisible by construction, in the one place a log is most wanted. Found by reading, 2026-08-19:
+-- an error the fix in drainBridge() removes fired on every bridge rejection and left no trace in
+-- any of the eight session logs that recorded a rejection.
+local lastFrameErrorLogged = nil
+-- BANDAGES.md entry 2: a blanket per-frame pcall cannot tell one malformed line from every frame
+-- failing. This does not close that entry, but it stops the log lying about the difference --
+-- the count says whether this is a blip or a subsystem that has been broken for 5000 frames.
+local consecutiveFrameErrors = 0
 
 local function guardedFrame()
     local ok, err = pcall(runFrame)
-    if not ok then
-        -- Rate-limited: a per-frame error would otherwise spam the console every 1/60s.
-        if frameCounter - lastFrameErrorLogged > 300 then
-            console.log("MeshGhost: frame error (continuing): " .. tostring(err))
-            lastFrameErrorLogged = frameCounter
-        end
+    if ok then
+        consecutiveFrameErrors = 0
+        return
+    end
+    consecutiveFrameErrors = consecutiveFrameErrors + 1
+    -- Rate-limited after the first: a per-frame error would otherwise spam the console every
+    -- 1/60s. The FIRST one always logs, whenever it happens.
+    if not lastFrameErrorLogged or frameCounter - lastFrameErrorLogged > 300 then
+        console.log(string.format("MeshGhost: frame error (continuing, %d in a row): %s",
+            consecutiveFrameErrors, tostring(err)))
+        lastFrameErrorLogged = frameCounter
     end
 end
 
@@ -2256,6 +2323,11 @@ MESHGHOST_DEV_UNLOAD = function()
     --  * the LOG FILE, a real OS handle -- leaking it locks the file on disk.
     -- resetBridge() covers the first two (it despawns ghosts as part of dropping the connection).
     pcall(resetBridge)
+    -- A fourth: console.log itself. This script REPLACES the emulator's global console.log with a
+    -- wrapper that also writes the log file, and never put it back -- so under the dev loader each
+    -- reload wrapped the previous wrapper, one layer deeper every time, with every dead layer
+    -- still on the call path for the rest of the emulator session. Restore what was there.
+    if rawConsoleLog then console.log = rawConsoleLog end
     if logfile then
         logfile:close()
         logfile = nil
