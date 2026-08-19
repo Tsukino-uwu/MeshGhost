@@ -236,11 +236,19 @@ to be noticed by a user.
 - [x] **Networking exists and works.** Bridge, socket, `get_local_state`, `render_remote` and
       `despawn_remote` are all in, and a loopback ghost was watched walking on 2026-08-18 —
       on the Archipelago ROM, which was the harder of the two targets.
-- [ ] **Lifecycle: re-spawn on every map load AND every battle**, since a battle exit is also a map
-      re-entry. Understood, not yet implemented.
-- [ ] **Does a ghost survive a battle?** Set up twice and answered neither time — the first run
-      confounded by two scripts, the second by a false-positive adoption. Needs one script, one
-      variable, watching a *specific* object rather than a count.
+- [~] **Lifecycle: re-spawn on every map load AND every battle — IMPLEMENTED 2026-08-19, not yet
+      watched.** `wMapStatus` leaving `MAPSTATUS_HANDLE` is the event that means "the world is
+      being rebuilt", and it covers both cases; the area check alone could not see a battle at all,
+      because a wild battle begins and ends on the same map.
+- [~] **Does a ghost survive a battle? ANSWERED FROM THE CODE 2026-08-19: no — and until today it
+      took an NPC with it.** The array is rebuilt from ROM on the way back out, so the ghost is
+      gone; the adapter's bookkeeping was not, and it pointed at a slot the game had refilled. The
+      next render would have walked a REAL NPC around, and a despawn would have zeroed it. Fixed
+      two ways (the status-change clear above, and `stillOurs()` — the cross-link both ways plus
+      the sprite — checked before every write, which FORGETS rather than zeroes). Self-tested by
+      breaking the cross-link from a probe mid-session: the adapter logged *"its slot is the game's
+      again — respawning"* and rebuilt into a fresh pair instead of writing. **A real battle still
+      has to be watched**, which is what `unverified.md` asks for.
 - [ ] **The struct reshuffle.** Inserting an object caused an existing NPC to be bumped out of the
       struct pool and stay invisible until re-triggered. Not exhaustion (a struct was free
       throughout); mechanism unknown.

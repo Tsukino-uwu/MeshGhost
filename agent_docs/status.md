@@ -87,7 +87,8 @@ that a peer's state genuinely differs from the local player's, which loopback co
   — the other gender never is, so that half needs VRAM work. `phases/phase9.md`, `unverified.md`.
 - **Crystal/Archipelago: `wBattleMode` unmeasured** — 0x015A vs 0x1234, needs one trainer battle.
   Everything else is measured and a loopback ghost walks on the AP ROM. `phases/phase9.md`.
-- **Crystal: does a ghost survive a battle?** Set up twice, answered neither time. `phase9.md`.
+- **Crystal: a ghost does NOT survive a battle** — answered from the code 2026-08-19 and fixed
+  (it used to hijack an NPC); a real battle still needs watching. `phase9.md`, `unverified.md`.
 - **The core dropped its relay connection twice on quic** — `use of closed network connection`,
   ~40s apart, reconnecting each time; moving to tcp stopped it. Go side. `verified.md` 2026-08-18.
 - **Duplicate ghost spawn on every level load** — two ghosts per peer, the `remotes` entry going

@@ -83,6 +83,20 @@ loopback session where the peer's sprite IS the player's, which must look unchan
       *Correct:* it is the RIVAL's character, drawn cleanly, while you are still yourself.
       (An agent screenshot looks right; a screenshot is not proof, so this is here.)
 
+## Pending — Crystal: a ghost across a battle (2026-08-19)
+
+Found by reading, fixed, and self-tested only by SIMULATING the event (a probe broke the ghost's
+cross-link; the adapter noticed and respawned instead of writing). A real battle has never been
+watched.
+
+- [ ] **Walk into the grass until a wild battle starts, then finish or run from it.**
+      *What to look at:* the ghost, and the NPCs on that map, once you are back in the overworld.
+      *Correct:* the ghost reappears beside you within a second or two, **and every NPC that was
+      on the map is still there and still behaves normally**. The bug this fixes would have had
+      the adapter walking one of the game's own NPCs around, or deleting it outright.
+- [ ] **The same across a door** (into a house and back out), which was already working — it is
+      here only because the code that handles it changed. *Correct:* as before.
+
 ## Pending — peer graphics: bikes, surfing, fishing (2026-08-18)
 
 Turned OFF by default (`MESHGHOST_GHOST_PEER_GFX`), because it is incomplete — see below.
