@@ -653,8 +653,18 @@ local function localGraphicsId()
             genderFrames.pendingTicks = (genderFrames.pendingTicks or 0) + 1
             if genderFrames.pendingTicks >= 6 then genderFrames.sentGfx = gfx end
         end
-        if gfx ~= genderFrames.sentGfx then return genderFrames.sentGfx end
+        if gfx ~= genderFrames.sentGfx then
+            -- HOLD THE OFFSET WITH THE GRAPHIC. They describe one state, and sending the new
+            -- offset with the old graphic is the same defect wearing different clothes: the peer
+            -- would see a WALKER shifted 8px for two frames. The send path takes the offset from
+            -- here, not from the sprite, for exactly this reason.
+            genderFrames.sendSox, genderFrames.sendSoy = 0, 0
+            return genderFrames.sentGfx
+        end
     end
+    genderFrames.sendSox = sox
+    genderFrames.sendSoy = memory.read_s16_le(GSPRITES_ADDR
+        + memory.read_u8(GPLAYERAVATAR_ADDR + avatarAddrOffset + 0x04) * SPRITE_SIZE + 0x26)
     return gfx
 end
 
@@ -3858,8 +3868,11 @@ local function runFrame()
                     -- by. Fishing shifts it to 8,0 to keep the character on its tile inside a
                     -- 32-wide frame -- and a ghost has no task, so without this it sits half a
                     -- tile off exactly when it picks up the rod.
-                    rs16(sprAddr(r8(GPLAYERAVATAR_ADDR + avatarAddrOffset + 0x04)) + 0x24),
-                    rs16(sprAddr(r8(GPLAYERAVATAR_ADDR + avatarAddrOffset + 0x04)) + 0x26)))
+                    --
+                    -- Taken from localGraphicsId's paired values, NOT read fresh here: while a new
+                    -- graphic is being held back, its offset must be held with it, or the peer
+                    -- gets the old graphic wearing the new offset.
+                    genderFrames.sendSox or 0, genderFrames.sendSoy or 0))
             end
         elseif ready then
             sendLine(ENCODED_NO_SEND)
