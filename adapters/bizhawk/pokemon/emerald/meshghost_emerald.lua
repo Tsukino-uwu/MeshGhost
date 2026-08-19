@@ -1785,6 +1785,23 @@ end
 local function despawnGhost(playerId)
     local g = ghosts[playerId]
     if not g then return end
+    -- NEVER WRITE INTO THE ARRAYS OUTSIDE THE OVERWORLD, not even to clean up after ourselves.
+    --
+    -- `ghostAlive` asks the OBJECT array, which a battle leaves alone -- but the SPRITE array it
+    -- reuses, so the slot this would blank is whatever the battle put there. Found live
+    -- 2026-08-19: the adapter was reloaded during a wild battle and the user's next words were
+    -- "reloading the script mid fight made it look weird, removed the hp bar of the wild pokemon".
+    -- That is our despawn write landing on a battle sprite.
+    --
+    -- **This is a SHIPPED bug, not a dev-loader one.** `resetBridge()` despawns every ghost when
+    -- the bridge drops, and a bridge drop during a battle -- a core restart, a network blip -- is
+    -- ordinary. Dropping the bookkeeping and touching nothing is correct anyway: the engine
+    -- reclaims both the slot and the tiles when it tears the map down, which is exactly what the
+    -- "not ours any more" case below has always relied on.
+    if not inOverworld() then
+        ghosts[playerId] = nil
+        return
+    end
     if ghostAlive(g) then
         despawnSurfBlob(g)
         w8(objAddr(g.objId) + 0x00, 0)
@@ -2485,6 +2502,25 @@ local function drawRemotes(localAreaId, playerMapX, playerMapY, skipSpawned, com
     local SCREEN_WIDTH_PX, SCREEN_HEIGHT_PX = 240, 160
     -- Where the painted comparison copy goes: the other side of the player from the spawned one.
     local COMPARE_DRAWN_OFFSET_TILES_X = -2
+    -- THE ENGINE HIDES ITS OWN PLAYER DURING A DOOR/WARP TRANSITION -- so we hide ours.
+    --
+    -- "the drawn one is shown a bit during the transition into a house, unlike the spawned one"
+    -- (user, 2026-08-19, from the side-by-side comparison). A spawned ghost vanishes because the
+    -- engine tears the map's cast down and rebuilds it; a painted one had nothing telling it to
+    -- stop, so it kept painting over the fade.
+    --
+    -- The tell is MEASURED, not assumed, and it is the engine's own decision rather than a fade
+    -- length: probes/turn_and_door_probe.lua sampled a Littleroot house entry frame by frame and
+    -- the PLAYER's own sprite flags (+0x3e) carry 0x04 for the whole transition -- set 44 frames
+    -- before the map id even changes, still set across the load, and cleared once the new map is
+    -- on screen (~50 frames end to end). While the game will not draw its own player, there is
+    -- nobody for a ghost to stand next to, so drawing one is always wrong.
+    local playerSprite = sprAddr(r8(GPLAYERAVATAR_ADDR + avatarAddrOffset + 0x04))
+    if (r8(playerSprite + 0x3e) & 0x04) ~= 0 then
+        tiering.painted = 0
+        return
+    end
+
     local playerScreenX, playerScreenY = playerScreenPos()
     local panelRows = tiering.scanPanel()
     -- Counted and published (tiering.painted) rather than inferred: "assigned to the drawn tier"
