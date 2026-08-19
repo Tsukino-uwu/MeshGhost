@@ -2704,8 +2704,19 @@ local function syncGhost(playerId, remote)
     -- Only while the peer is idle, deliberately: a walking ghost's animation belongs to the engine
     -- step we asked for, and two things writing animNum would fight. Fishing, surfing on the spot
     -- and standing poses are exactly the cases the engine is not already animating.
-    if PEER_GFX_ENABLED and remote.sanim and remote.anim ~= "walking"
-        and remote.anim ~= "running" then
+    -- ONLY FOR GRAPHICS THE ENGINE IS NOT ALREADY DRIVING. The walking graphic (BRENDAN_NORMAL 0,
+    -- MAY_NORMAL 89 -- pokeemerald include/constants/event_objects.h:7,96) is animated by the
+    -- movement actions we request: steps, turns, bumps. Writing animNum over the top of those left
+    -- the ghost stuck in whatever pose the collision landed on -- the user, after this shipped:
+    -- *"the spawned ghost's facing animations are wrong now, its stuck in the wrong pose after
+    -- turning directions"*, and again after running. Two things writing one field.
+    --
+    -- A fishing rod, a bike or a surfboard is the opposite case: the engine has no action of ours
+    -- driving it, so without this the ghost holds the animation's first frame forever. So the rule
+    -- is exactly that -- mirror the peer's animation only where nothing else is doing it.
+    local engineDrivesAnim = (remote.gfx == nil or remote.gfx == 0 or remote.gfx == 89)
+    if PEER_GFX_ENABLED and remote.sanim and not engineDrivesAnim
+        and remote.anim ~= "walking" and remote.anim ~= "running" then
         local d = sprAddr(g.sprId)
         if r8(d + 0x2a) ~= remote.sanim then
             w8(d + 0x2a, remote.sanim)
