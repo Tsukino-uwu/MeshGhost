@@ -1950,3 +1950,41 @@ principled answer to whether a shared enemy is dead, so shared enemies aren't bu
 game.
 
 **Not scheduled**, and gated behind an ADR per game like everything at Tier 3.
+
+## ROM hacks and randomizers worth supporting — candidate list, NOTHING CHECKED (2026-08-19)
+
+**Status: a list, and only a list.** None of these has been downloaded, run, read, or licence-checked,
+and none may be until it gets a row in `licensing.md` — that is the rule for any third-party project,
+and a list of URLs is exactly the point at which it is cheap to honour. Logged here because the
+user gathered them from what a streamer actually plays, which is better evidence of what people
+would want to use MeshGhost with than anything we would guess.
+
+**Why they matter to this project specifically.** Both Pokémon adapters already carry a patched-ROM
+story: Archipelago's Emerald build relocates `gObjectEvents` by 0x284 and the graphics-info pointer
+table by 0x7530, and Crystal's has its own shifted addresses. Every hack below is another recompile
+that may move the same things, so each is a test of whether the adapters' *detection* generalises —
+`detect_rom_variant()` and the measured-vs-candidate address discipline — rather than a new feature.
+A hack that only shuffles data (item/type/map randomizers) is far likelier to just work than one
+that recompiles the engine.
+
+| Project | Kind | What it would test |
+| --- | --- | --- |
+| [pokeemerald-ex-speedchoice](https://github.com/ProjectRevoTPP/pokeemerald-ex-speedchoice/releases/) | Emerald engine recompile | Address detection against a rebuilt binary, the Archipelago case again with different offsets |
+| [pokeemerald-speedchoice](https://github.com/ProjectRevoTPP/pokeemerald-speedchoice) | Emerald engine recompile | Same, and whether one detection covers both speedchoice builds |
+| [pokecrystal-speedchoice](https://github.com/choatix/pokecrystal-speedchoice/releases/) | Crystal engine recompile | Crystal's equivalent; GB/GBC addresses only exist after a build, so this needs its own `.sym` |
+| [Universal Pokemon Randomizer ZX](https://github.com/Ajarmar/universal-pokemon-randomizer-zx/releases) | Patcher over a vanilla ROM | Data-only in the main modes — likely the easiest win, and the most widely used |
+| [Crystal Key Item Randomizer](https://github.com/erudnick-cohen/Pokemon-Crystal-Item-Randomizer/releases) | Crystal patcher | Whether item shuffling leaves the overworld structures alone |
+| [Pokemon Type Chart Randomizer](https://github.com/NPO-197/PokemonTypeChartRandomizer/releases) | Data patcher | Almost certainly irrelevant to an overworld ghost — a useful negative control |
+| [Emerald/Platinum Map Rando](https://warprandomizer.com/) | Warp/map patcher | **The interesting one for us**: `area_id` is map group/number, so a warp randomizer changes what "the same area" means without changing the engine |
+| [Emerald EX Map Rando](https://kittypboxx.github.io/Emerald-Ex-Map-Rando/dist/RomMaker/) | Map patcher on the EX base | Both of the above at once |
+| [HGSS Map Randomizer](https://github.com/adrienntindall/hgss-map-randomizer/releases) | DS-era map patcher | Nothing today — logged because HGSS would be a new adapter, not a variant |
+| [Crystal Map Rando](https://github.com/iFatRain/pokemon-crystal-map-randomizer) | Crystal map patcher | Crystal's `area_id` under a warp shuffle |
+
+Also useful, and not a ROM at all: a [type-chart tracker](https://demki.github.io/poketypechart/) the
+same streamer uses — noted only because it shows the shape of the audience.
+
+**Deliberately not listed here:** the invite-only Crystal Archipelago fork. It stays out of every
+tracked file by the rule in `CLAUDE.md` — a source that cannot be cited cannot be audited.
+
+**Before touching any of them:** licence row first (`licensing.md`), then a ROM-variant detection
+check, then `verified.md` for whatever addresses come out. The order matters more than the speed.
