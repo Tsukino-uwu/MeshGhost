@@ -567,6 +567,15 @@ end
 
 local ghosts = {} -- player_id -> { mo, st, mo_base, st_base, area }
 
+-- Peers the engine had no room for. They are DRAWN instead of spawned (see the drawn tier below),
+-- so every peer is visible even past the game's own limits -- the user's requirement, 2026-08-19.
+local overflow = {} -- player_id -> { x, y, sprite }
+
+-- Per-peer activity, for the collision policy: the frame each peer last CHANGED TILE, and the
+-- frame until which it has been made passable by someone shoving into it.
+local activity = {} -- player_id -> { x, y, movedAt, passableUntil }
+local policyFrames = 0
+
 function ghostCount()
 	local n = 0
 	for _ in pairs(ghosts) do
@@ -612,11 +621,129 @@ end
 -- not appear is the player's own game breaking.
 local RESERVED_STRUCTS_FOR_THE_GAME = 3
 
+-- The Game Boy draws at most 10 sprites on a scanline, and an overworld character is 4 of them
+-- (2x2 of 8x8 tiles) -- so ten characters is the hardware's own ceiling and the eleventh loses
+-- pieces of itself, whoever it is. Spawning past that does not add a peer, it adds FLICKER.
+--
+-- The user's call, 2026-08-19, asked directly: "cap it... i don't want things to pop in/out all
+-- the time. i want every player/ghost to be visible all the time instead." So the adapter stops
+-- at what the hardware can actually draw, and everything it does draw is solid. Peers past the
+-- cap are cleanly absent -- the same honest absence as a peer past the slot limit -- until the
+-- drawn-overflow tier exists to carry them (agent_docs/ideas.md).
+local HARDWARE_CHARACTER_LIMIT = 10
+
 -- How far a peer can be before its ghost gives its slots back. The visible window is 10x9 tiles,
 -- so this keeps a ghost alive a little past the edge -- far enough that walking toward a peer
 -- never shows a character appearing out of nothing, close enough that a peer across the map is
 -- not holding a struct the game needs. See renderRemote for what this fixes.
 local GHOST_RANGE_TILES = 8
+
+-- COLLISION POLICY (user's design, 2026-08-19). A spawned ghost is a real object and blocks its
+-- tile, which is right while a peer is playing and wrong the moment they wander off for coffee on
+-- a doorstep. Rather than inventing a collision flag, a peer that should not be blocking is
+-- rendered by the DRAWN tier instead -- a drawn ghost has no tile at all, so it cannot block
+-- anything, and its engine slot goes to somebody who is actually moving.
+--
+-- Two rules decide it:
+--   IDLE. A peer that has not CHANGED TILE for this long stops blocking. Turning on the spot does
+--   not count as activity, deliberately -- the user's words: "include just facing directions as
+--   nothing... have you actually move a tile or something to be considered active".
+local IDLE_FRAMES_BEFORE_PASSABLE = 300 -- 5 seconds
+--   BLOCKED. If the player is pressing INTO a ghost and not moving, that ghost stops blocking
+--   almost immediately. This is what makes doorways and route exits work without the adapter
+--   needing to know where they are: the map's warp table lives in ROM behind a bank pointer, and
+--   a rule based on "someone is trying to get past you" covers every chokepoint, not just doors.
+local PUSH_FRAMES_BEFORE_PASSABLE = 30 -- half a second of shoving
+local PASSABLE_HOLD_FRAMES = 180 -- and it stays passable for a few seconds afterwards
+
+local H_JOYPAD_DOWN = 0xFFA4 -- hJoypadDown, read from System Bus
+local JOY_RIGHT, JOY_LEFT, JOY_UP, JOY_DOWN = 0x01, 0x02, 0x04, 0x08
+
+-- Should this peer be solid right now? See the collision policy constants above.
+--
+-- Returns false when the peer is idle, or when the player is shoving into it -- and the caller
+-- then renders it through the drawn tier, which has no collision at all.
+local function shouldBlock(id, x, y)
+	policyFrames = policyFrames + 1
+	local a = activity[id]
+	if not a then
+		a = { x = x, y = y, movedAt = policyFrames, passableUntil = 0 }
+		activity[id] = a
+	end
+	if a.x ~= x or a.y ~= y then
+		a.x, a.y, a.movedAt = x, y, policyFrames
+	end
+
+	-- Is the player pressing into this peer's tile without getting anywhere? Facing alone is not
+	-- enough: a player can stand facing a friend all day. The d-pad has to be held, and the
+	-- player has to still be standing (a successful step means nothing was blocking).
+	local px, py = u8(OBJECT_STRUCTS + F_MAP_X) or 0, u8(OBJECT_STRUCTS + F_MAP_Y) or 0
+	local standing = (u8(OBJECT_STRUCTS + F_WALKING) or STANDING) == STANDING
+	if standing then
+		local joy = memory.read_u8(H_JOYPAD_DOWN, "System Bus") or 0
+		local wantX, wantY = px, py
+		if (joy & JOY_RIGHT) ~= 0 then wantX = px + 1
+		elseif (joy & JOY_LEFT) ~= 0 then wantX = px - 1
+		elseif (joy & JOY_DOWN) ~= 0 then wantY = py + 1
+		elseif (joy & JOY_UP) ~= 0 then wantY = py - 1 end
+		if (wantX ~= px or wantY ~= py) and wantX == x and wantY == y then
+			a.pushedFor = (a.pushedFor or 0) + 1
+			if a.pushedFor >= PUSH_FRAMES_BEFORE_PASSABLE then
+				a.passableUntil = policyFrames + PASSABLE_HOLD_FRAMES
+			end
+		else
+			a.pushedFor = 0
+		end
+	else
+		a.pushedFor = 0
+	end
+
+	if policyFrames < (a.passableUntil or 0) then
+		return false
+	end
+	return (policyFrames - a.movedAt) < IDLE_FRAMES_BEFORE_PASSABLE
+end
+
+-- THE PRIORITY ORDER, in the user's words (2026-08-19): "npc's always shown, ghosts try to fill,
+-- drawn otherwise". So the budget is computed from the game's needs first, not from what happens
+-- to be free at this instant:
+--
+--   1. The game's own characters near the player are counted BEFORE any ghost is placed, and
+--      their slots are simply not on offer. An NPC walking into view never has to compete with a
+--      ghost for one, which is the failure the user watched: a crowd of peers left an NPC one
+--      tile away undrawn.
+--   2. Ghosts fill whatever the hardware can still draw.
+--   3. Anything past that is the drawn-overflow tier's problem (plans.md, phase 9.1) -- absent
+--      for now, and absent cleanly rather than flickering.
+--
+-- Counting near map objects rather than live structs is deliberate: a struct appears only once a
+-- character is already in range, so budgeting from structs reserves the slot one moment too late.
+local function gameCharactersNearby()
+	local px, py = u8(OBJECT_STRUCTS + F_MAP_X) or 0, u8(OBJECT_STRUCTS + F_MAP_Y) or 0
+	local ours = {}
+	for _, g in pairs(ghosts) do
+		ours[g.mo] = true
+	end
+	local n = 1 -- the player, who always has one
+	for i = 1, NUM_MAP_OBJECTS - 1 do
+		if not ours[i] then
+			local base = MAP_OBJECTS + i * MAPOBJECT_LENGTH
+			if (u8(base + M_SPRITE) or 0) ~= 0 then
+				local mx, my = u8(base + M_X) or 0, u8(base + M_Y) or 0
+				if math.max(math.abs(mx - px), math.abs(my - py)) <= GHOST_RANGE_TILES then
+					n = n + 1
+				end
+			end
+		end
+	end
+	return n
+end
+
+-- How many ghosts the hardware can still draw here, after the game's own cast is paid for.
+local function ghostBudget()
+	return HARDWARE_CHARACTER_LIMIT - gameCharactersNearby()
+end
+
 
 local function freeStruct()
 	local free = {}
@@ -626,6 +753,11 @@ local function freeStruct()
 		end
 	end
 	if #free <= RESERVED_STRUCTS_FOR_THE_GAME then
+		return nil
+	end
+	-- Never take the game past what it can draw without flicker, and never spend a slot the
+	-- game's own cast is going to need.
+	if ghostCount() >= ghostBudget() then
 		return nil
 	end
 	return free[#free] -- the highest free index; see freeMapObject for why
@@ -725,6 +857,132 @@ end
 -- placement that then persists for the life of the ghost.
 local function cameraSettled()
 	return (u8(W_BGMAPOFFSETX) or 0) % 16 == 0 and (u8(W_BGMAPOFFSETY) or 0) % 16 == 0
+end
+
+-- ---------------------------------------------------------------------------
+-- The drawn tier: peers the engine has no room for
+-- ---------------------------------------------------------------------------
+--
+-- Everything above this point asks the GAME to render a peer, which is the whole design of this
+-- adapter. But the engine has 13 character slots and the Game Boy can draw 10 characters at once,
+-- and a full room has more peers than that -- so past the cap a peer would simply not exist.
+--
+-- The user's call, 2026-08-19: "cap it, and just draw extras instead... i want every player/ghost
+-- to be visible all the time instead." So peers past the cap are PAINTED over the emulator's
+-- output, which is subject to none of the engine's limits because it happens after the PPU has
+-- finished. Spawned ghosts stay the good tier; this is the overflow.
+--
+-- THIS IS A BANDAGE and is registered as one in BANDAGES.md: no engine animation, no collision,
+-- no draw priority, and occlusion that we have to re-implement rather than get for free.
+--
+-- Pixels come from VRAM, not from ROM. A peer's sprite is already loaded (wUsedSprites says at
+-- which tile), so the drawn tier reads the same tiles the engine is drawing the spawned ghosts
+-- from -- 4 tiles of 2bpp, 16 bytes each, in a 2x2 block.
+local DRAW_OVERFLOW = (MESHGHOST_CRYSTAL_DRAW_OVERFLOW or os.getenv("MESHGHOST_CRYSTAL_DRAW_OVERFLOW")) ~= "0"
+
+-- THE GAME'S OWN COLOURS, not an approximation of them.
+--
+-- The first version hardcoded a white/red/black palette and the user's verdict was immediate:
+-- "the crystal sprites look really pale, compared to the player". They were -- a drawn ghost
+-- stood beside a spawned one wearing the real thing.
+--
+-- wOBPals1 (05:d040 -> flat 0x5040, WRAM bank 5 in this domain's flat layout) holds the eight
+-- object palettes the game is actually using, four BGR555 colours each. Read them and a drawn
+-- ghost is coloured by the same bytes the hardware is colouring the spawned ghosts with.
+local W_OBPALS = 0x5040
+
+local function paletteColors(palIndex)
+	local base = W_OBPALS + (palIndex & 7) * 8
+	local colors = { [0] = nil } -- colour 0 of an object palette is transparent
+	for i = 1, 3 do
+		local lo = u8(base + i * 2) or 0
+		local hi = u8(base + i * 2 + 1) or 0
+		local c = lo | (hi << 8)
+		-- BGR555 -> 8 bits per channel. The <<3 | >>2 scaling keeps white at 0xFF rather than
+		-- 0xF8, which is what makes a hand-rolled conversion look washed out.
+		local r = ((c & 0x1F) << 3) | ((c & 0x1F) >> 2)
+		local g = (((c >> 5) & 0x1F) << 3) | (((c >> 5) & 0x1F) >> 2)
+		local b = (((c >> 10) & 0x1F) << 3) | (((c >> 10) & 0x1F) >> 2)
+		colors[i] = 0xFF000000 | (r << 16) | (g << 8) | b
+	end
+	return colors
+end
+
+-- Decoded tiles are cached, and drawn as horizontal RUNS rather than pixels.
+--
+-- Both are about cost, and the cost is the whole feasibility question: filling a screen means
+-- ~80 characters, and a character is 256 pixels, so the naive version is ~20,000 gui calls per
+-- frame. Emerald has already shown this project what a few thousand per-frame calls do to an
+-- emulator (60fps -> 3fps, 2026-08-19). A run of same-coloured pixels is one drawLine instead of
+-- up to eight drawPixels, and a tile's decode is reused by every character wearing that sprite.
+--
+-- The cache is cleared on every map load, because VRAM is rebuilt then and a stale decode would
+-- draw the previous map's graphics.
+local VRAM_BANK1 = 0x2000
+local tileCache = {}
+
+local function decodeTile(tileIndex)
+	local cached = tileCache[tileIndex]
+	if cached then
+		return cached
+	end
+	-- VRAM BANK 1, not bank 0. The BizHawk domain lays both banks flat (16 KB), bank 1 starting at
+	-- 0x2000, and the OAM attribute byte's bit 3 selects the bank -- a live dump of this game's own
+	-- characters reads attr=8 and attr=0x28, so bit 3 is set and the graphics are in bank 1.
+	-- Reading bank 0 decodes whatever unrelated tiles sit at the same index, which draws as
+	-- garbage: found on screen 2026-08-19, the first thing the user said about the drawn tier.
+	local base = VRAM_BANK1 + tileIndex * 16
+	local rows = {}
+	for row = 0, 7 do
+		local lo = memory.read_u8(base + row * 2, "VRAM") or 0
+		local hi = memory.read_u8(base + row * 2 + 1, "VRAM") or 0
+		local runs, runStart, runIdx = {}, nil, nil
+		for bit = 0, 8 do -- 8 is one past the end, to close the final run
+			local idx = nil
+			if bit < 8 then
+				local mask = 1 << (7 - bit)
+				idx = ((lo & mask) ~= 0 and 1 or 0) | (((hi & mask) ~= 0 and 1 or 0) << 1)
+				if idx == 0 then idx = nil end -- colour 0 is transparent
+			end
+			if idx ~= runIdx then
+				if runIdx then
+					runs[#runs + 1] = { x = runStart, len = bit - runStart, idx = runIdx }
+				end
+				runStart, runIdx = bit, idx
+			end
+		end
+		rows[row] = runs
+	end
+	tileCache[tileIndex] = rows
+	return rows
+end
+
+local function drawTile(tileIndex, sx, sy, colors)
+	local rows = decodeTile(tileIndex)
+	for row = 0, 7 do
+		local y = sy + row
+		if y >= 0 and y < 144 then
+			for _, run in ipairs(rows[row]) do
+				local x1 = sx + run.x
+				local x2 = x1 + run.len - 1
+				if x2 >= 0 and x1 < 160 then
+					local color = colors[run.idx]
+					if color then
+						gui.drawLine(math.max(x1, 0), y, math.min(x2, 159), y, color)
+					end
+				end
+			end
+		end
+	end
+end
+
+-- One drawn character: the 2x2 tile block starting at its sprite's tile base.
+local function drawCharacter(tile, sx, sy, palIndex)
+	local colors = paletteColors(palIndex or 0)
+	drawTile(tile + 0, sx, sy, colors)
+	drawTile(tile + 1, sx + 8, sy, colors)
+	drawTile(tile + 2, sx, sy + 8, colors)
+	drawTile(tile + 3, sx + 8, sy + 8, colors)
 end
 
 local function screenCoords(mx, my)
@@ -848,6 +1106,136 @@ local function spawnGhost(id, x, y, peerSprite)
 	return ghosts[id]
 end
 
+-- Paint every peer the engine had no room for. Called once per frame; BizHawk clears its own
+-- drawing layer each frame, so this redraws rather than accumulating.
+--
+-- Occlusion, which a drawn character does not get for free: skip anything inside the game's UI.
+-- Crystal's text box is a compile-time constant -- the bottom six rows, full width
+-- (TEXTBOX_Y = SCREEN_HEIGHT - TEXTBOX_HEIGHT, from the decomp) -- and its menus publish their
+-- own rectangle in wMenuBorder*, which strobes back to zero as the menu redraws, so the last
+-- non-zero one is latched. Measured 2026-08-19; see verified.md.
+-- wMenuBorderTop/Left/Bottom/Right, 00:cf82-cf85, tile coordinates. Menus fill these in; text
+-- boxes do not (measured 2026-08-19 -- a text box left them at zero), which is why the two panels
+-- are handled separately below.
+local W_MENUBOX_TOP, W_MENUBOX_LEFT, W_MENUBOX_BOTTOM, W_MENUBOX_RIGHT = 0x0F82, 0x0F83, 0x0F84, 0x0F85
+
+-- Is a UI panel on screen at all? Both a menu and a text box drive the Game Boy's window layer
+-- (WY leaves its parked 144), and both strobe it, so this latches for a moment rather than
+-- trusting a single frame. A HEURISTIC, and labelled as one: it decides only whether a DRAWN
+-- ghost is painted, never anything about game state, and the spawned tier -- which is most
+-- ghosts -- is occluded by the game itself and needs none of this.
+local UI_LATCH_FRAMES = 20
+local uiSeenAt, drawFrames = nil, 0
+
+-- WY IS NOT THE SIGNAL, and using it cost half the screen.
+--
+-- First version latched on the Game Boy's window register leaving its parked 144, on the theory
+-- that any UI panel drives it. It does -- but so does normal play: this game toggles WY several
+-- times a second with nothing open, so the latch was permanently on and every drawn ghost below
+-- row 12 was hidden. The user's report was exact: "all of the bottom half is empty".
+--
+-- What IS reliable is the menu rectangle the game publishes (wMenuBorder*, measured 2026-08-19),
+-- so that is the only thing consulted. Text boxes do not publish one and are not clipped yet --
+-- a drawn ghost can currently paint over a text box, which is an honest known gap rather than a
+-- heuristic that hides things it should not. The spawned tier, which is most ghosts, is occluded
+-- by the game itself either way.
+local function uiPanelOpen()
+	return uiSeenAt ~= nil and (drawFrames - uiSeenAt) < UI_LATCH_FRAMES
+end
+
+local lastMenuBox = nil
+
+function drawOverflow()
+	drawFrames = drawFrames + 1
+	if not DRAW_OVERFLOW or not inPlay() then
+		return
+	end
+	local uiOpen = uiPanelOpen()
+	local t, l, b, r = u8(W_MENUBOX_TOP), u8(W_MENUBOX_LEFT), u8(W_MENUBOX_BOTTOM), u8(W_MENUBOX_RIGHT)
+	if (b or 0) > 0 and (r or 0) > 0 then
+		lastMenuBox = { top = t * 8, left = l * 8, bottom = (b + 1) * 8, right = (r + 1) * 8 }
+		uiSeenAt = drawFrames -- the rectangle strobes to zero as the menu redraws; latch it
+	elseif not uiOpen then
+		lastMenuBox = nil -- no panel is up, so the last rectangle is stale
+	end
+
+	local nWanted, nDrawn, nNoTile, nOffScreen, nHidden = 0, 0, 0, 0, 0
+	local offSample = nil
+
+	-- CALIBRATE AGAINST THE HARDWARE, rather than deriving a screen position from first
+	-- principles. The engine's F_SPRITE_X/Y are in its own scrolled space, not screen pixels, and
+	-- three attempts at converting them by reasoning each put whole rows off screen. OAM is not
+	-- ambiguous: it is what the PPU draws from, in screen pixels (offset by 8 and 16 by the
+	-- hardware). The player is always object struct 0 and always has OAM entries, so the
+	-- difference between the two is the offset that applies to everything else this frame.
+	local playerOamY = memory.read_u8(0x00, "OAM") or 0
+	local playerOamX = memory.read_u8(0x01, "OAM") or 0
+	local calX = (playerOamX - 8) - (u8(OBJECT_STRUCTS + F_SPRITE_X) or 0)
+	local calY = (playerOamY - 16) - (u8(OBJECT_STRUCTS + F_SPRITE_Y) or 0)
+	for id, o in pairs(overflow) do
+		nWanted = nWanted + 1
+		local tile = residentSpriteTile(o.sprite) or residentSpriteTile(u8(OBJECT_STRUCTS + F_SPRITE))
+		if not tile then nNoTile = nNoTile + 1 end
+		if tile then
+			-- SIGNED screen coordinates, computed here rather than borrowed from screenCoords().
+			-- That helper answers in the engine's sprite space, which is taken mod 256 and offset
+			-- by 16 -- fine for the engine, wrong here: a peer above or left of the camera wraps
+			-- to ~240 and reads as "off screen". Live case 2026-08-19: 40 of 83 waiting peers
+			-- discarded that way, which the user saw as half a screen never filling.
+			-- The engine's own formula, then the wrap undone. Crystal addresses its tilemap
+			-- MODULO 16 tiles and subtracts a pixel scroll of up to 255, so a character left of
+			-- or above the camera comes out near 256 rather than negative. Taking that back to a
+			-- signed value is what puts the left column and the top rows on screen; without it
+			-- they read as "off screen" and simply never draw.
+			-- The engine's OWN formula, which a probe confirmed matches every real object's
+			-- sprite position exactly at rest (off=0,0 for all 13, 2026-08-19) -- then its
+			-- wrapped 0-255 answer converted back to a screen position. A character left of or
+			-- above the camera comes back near 256, not negative, and reading that as "off
+			-- screen" is what left rows and columns empty. Y is +16 in this space (the player at
+			-- tile row 8 with the window at row 4 reads 80, not 64).
+			local sx, sy = screenCoords(o.x, o.y)
+			sx = sx + calX
+			sy = sy + calY
+			if sx >= 240 then sx = sx - 256 end
+			if sy >= 240 then sy = sy - 256 end
+			local onScreen = sx > -16 and sx < 160 and sy > -16 and sy < 144
+			if not onScreen then
+				nOffScreen = nOffScreen + 1
+				if not offSample then
+					offSample = string.format("%s at map %d,%d -> screen %d,%d (window %d,%d)",
+						id, o.x, o.y, sx, sy, u8(W_XCOORD) or 0, u8(W_YCOORD) or 0)
+				end
+			end
+			if onScreen then
+				local hidden = false
+				if uiOpen and lastMenuBox and sx + 16 > lastMenuBox.left and sx < lastMenuBox.right
+					and sy + 16 > lastMenuBox.top and sy < lastMenuBox.bottom then
+					hidden = true
+				end
+				if hidden then
+					nHidden = nHidden + 1
+				else
+					nDrawn = nDrawn + 1
+					-- the palette the local player's own sprite is drawn with, which is the one
+					-- these tiles were coloured for
+					drawCharacter(tile, sx, sy, u8(OBJECT_STRUCTS + F_PALETTE) or 0)
+				end
+			end
+		end
+	end
+
+	-- Once a second, say what the drawn tier actually did. "Half the screen is empty" needs a
+	-- number that separates "the peers never arrived" from "they arrived and were not drawn".
+	if drawFrames % 60 == 0 and nWanted > 0 then
+		logFile(string.format("drawn tier: %d peers waiting, %d drawn, %d no sprite tiles, "
+			.. "%d off screen, %d hidden by UI, %d spawned as real objects",
+			nWanted, nDrawn, nNoTile, nOffScreen, nHidden, ghostCount()))
+		if offSample then
+			logFile("drawn tier: example of one it discarded -- " .. offSample)
+		end
+	end
+end
+
 -- The inverse of DIR_NAMES: a peer sends orientation as a name, and we need the numeric dir.
 local ORIENTATION_TO_DIR = { down = 0, up = 1, left = 2, right = 3 }
 
@@ -932,18 +1320,33 @@ local function renderRemote(id, state)
 
 	local peerSprite = state.extras and tonumber(state.extras.sprite) or nil
 
+	-- A peer that should not be blocking is DRAWN rather than spawned: no tile, no collision,
+	-- and its engine slot freed for a peer who is actually moving.
+	if not shouldBlock(id, x, y) then
+		if ghosts[id] then
+			despawnGhost(id)
+		end
+		overflow[id] = { x = x, y = y, sprite = peerSprite }
+		return
+	end
+
 	local g = ghosts[id]
+	if not g then
+		-- Try the good tier first, every frame: a slot may have freed up since last time.
+		if spawnGhost(id, x, y, peerSprite) then
+			overflow[id] = nil
+		else
+			overflow[id] = { x = x, y = y, sprite = peerSprite }
+		end
+		return
+	end
+	overflow[id] = nil
 	if g and not stillOurs(g) then
 		-- A map load or a battle rebuilt the array under us. Drop the entry and spawn again
 		-- below; the alternative is writing steps into whatever the game put in that slot.
 		log("MeshGhost: " .. id .. "'s slot is the game's again — respawning")
 		ghosts[id], g = nil, nil
 	end
-	if not g then
-		spawnGhost(id, x, y, peerSprite)
-		return
-	end
-
 	-- A peer's sprite is not fixed for the session: it changes with their state (on a bike, and
 	-- with the gender the sprite tables are keyed on), and what is RESIDENT changes under us on
 	-- every map load. So this is re-checked here rather than only at spawn.
@@ -997,6 +1400,7 @@ local function disconnect(why)
 	for id in pairs(ghosts) do
 		despawnGhost(id)
 	end
+	overflow = {} -- drawn peers leave with the connection, the same as spawned ones
 	if why then
 		log("MeshGhost: bridge lost (" .. why .. ")")
 	end
@@ -1408,6 +1812,8 @@ local function tick()
 		diagnose(state)
 		send({ type = "local_state", payload = { state = state } })
 	end
+
+	drawOverflow()
 end
 
 event.onexit(function()
