@@ -578,20 +578,57 @@ end
 -- Rate limit for the map-is-full line below; see spawnGhost.
 local fullLoggedAt = nil
 
+-- ALLOCATE FROM THE TOP DOWN, because the engine allocates from the bottom up.
+--
+-- Two reasons, and the second is a real bug the user found on 2026-08-19:
+--   * Taking slots from the opposite end keeps ghosts and the game's own characters out of each
+--     other's way as both pools fill.
+--   * The Game Boy draws at most 10 sprites on a scanline and keeps the FIRST TEN IN OAM ORDER,
+--     which follows struct order. Allocating low put ghosts ahead of the game's own cast in that
+--     queue, so when a crowd shared a row the NPCs were the ones that lost halves of themselves --
+--     watched on screen, and confirmed by a probe counting sprites per scanline. Allocating high
+--     inverts it: when the hardware has to drop someone, it drops a GHOST. Emerald's adapter
+--     already allocates from the top for the same reason.
 local function freeMapObject()
-	for i = 1, NUM_MAP_OBJECTS - 1 do
+	for i = NUM_MAP_OBJECTS - 1, 1, -1 do
 		if u8(MAP_OBJECTS + i * MAPOBJECT_LENGTH + M_SPRITE) == 0 then
 			return i
 		end
 	end
 end
 
+-- Structs the engine must always be able to get, no matter how many peers turn up.
+--
+-- THIS IS NOT TUNING, IT IS A BUG FIX. The engine hands a struct to each of its own characters as
+-- they come into range and takes it back when they leave; a ghost carries FLAG1_WONT_DELETE, so
+-- it holds one FOREVER, anywhere on the map. With a crowd of peers standing around, ghosts held
+-- 11 of the 13 structs and the game had none left for itself -- measured 2026-08-19 with an NPC
+-- standing ONE TILE from the player and simply not drawn, plus its own cast flickering in and out
+-- as slots happened to free up. The user saw both before the probe did.
+--
+-- Ghosts are guests in this array. Three is enough for the NPCs that can be near the player at
+-- once on the maps measured; the cost is a lower ghost ceiling (9 -> 6 in New Bark Town), which is
+-- the right trade in a heartbeat: a peer who does not appear is a missing ghost, an NPC who does
+-- not appear is the player's own game breaking.
+local RESERVED_STRUCTS_FOR_THE_GAME = 3
+
+-- How far a peer can be before its ghost gives its slots back. The visible window is 10x9 tiles,
+-- so this keeps a ghost alive a little past the edge -- far enough that walking toward a peer
+-- never shows a character appearing out of nothing, close enough that a peer across the map is
+-- not holding a struct the game needs. See renderRemote for what this fixes.
+local GHOST_RANGE_TILES = 8
+
 local function freeStruct()
+	local free = {}
 	for i = 1, NUM_OBJECT_STRUCTS - 1 do
 		if u8(OBJECT_STRUCTS + i * OBJECT_LENGTH + F_SPRITE) == 0 then
-			return i
+			free[#free + 1] = i
 		end
 	end
+	if #free <= RESERVED_STRUCTS_FOR_THE_GAME then
+		return nil
+	end
+	return free[#free] -- the highest free index; see freeMapObject for why
 end
 
 -- An object the engine is driving, to use as a behaviour template. Skips anything wearing the
@@ -872,6 +909,23 @@ local function renderRemote(id, state)
 
 	-- A peer in a different area has no meaningful position here.
 	if state.area_id ~= areaId() then
+		despawnGhost(id)
+		return
+	end
+
+	-- A ghost that is nowhere near the player gives its slots back, because the engine's own
+	-- characters do. This is not an optimisation, it is the fix for two symptoms the user saw
+	-- within a minute of each other on 2026-08-19:
+	--   * NPCs popping in and out. Crystal hands a struct to each of its characters as they come
+	--     into range and takes it back when they leave. A ghost carries FLAG1_WONT_DELETE, so it
+	--     held one FOREVER -- and a crowd of peers held nearly all 13, leaving the game none for
+	--     its own cast. Measured: an NPC standing ONE TILE from the player, simply not drawn.
+	--   * Invisible collisions. A ghost off the screen still occupied its tile, so the player
+	--     walked into a solid character they could not see. An NPC that far away is not there.
+	-- Beyond the visible window (10x9 tiles), so a ghost exists slightly before it can be seen and
+	-- nothing pops in at the screen edge.
+	local px, py = u8(OBJECT_STRUCTS + F_MAP_X) or 0, u8(OBJECT_STRUCTS + F_MAP_Y) or 0
+	if math.max(math.abs(x - px), math.abs(y - py)) > GHOST_RANGE_TILES then
 		despawnGhost(id)
 		return
 	end
