@@ -19,6 +19,25 @@ confirmed yet: `unverified.md`.
 
 ## Picking this up in a new session — written 2026-08-19, and the first thing to read
 
+**The opening move, in order.** Four emulators are running and nobody owns them; a session that
+starts working without doing this will drive an instance another agent is also driving.
+
+1. **Find the four instances** and match each to its ROM:
+   `Get-CimInstance Win32_Process -Filter "Name='EmuHawk.exe'" | ForEach-Object { $_.ProcessId; $_.CommandLine }`
+   — the `--lua=` argument names the loader control file, which is what identifies it.
+2. **Keep ONE instance for yourself** — vanilla Crystal is the natural choice, it is the adapter
+   with the most recent unconfirmed work — and **spawn one agent per remaining instance** (three).
+   That is the standing rule, not a suggestion: `environment.md`, "One agent per BizHawk INSTANCE".
+3. **Hand each agent four things**, or it cannot stay in its lane: its emulator's **pid**, its
+   **loader control file**, its **bridge port**, and the **off-limits list** of every other pid,
+   port and control file — plus "kill only by PID, never by name or wildcard".
+4. **Start with the two measurements that are one step from landing** (below). Both unblock a
+   patched-ROM build that currently refuses to run or falls back to an older render path.
+5. **Take screenshots into `dev-scripts/shots/<game>/`** and look before acting — three of four
+   games produced no pictures at all last session, which left nobody able to see what they did.
+
+
+
 **Four BizHawk instances were left RUNNING when the session that built all this ended.** The
 emulators survive; the agents driving them do not. Each needs a new owner (one agent per instance
 — `environment.md`), and each was mid-task:
