@@ -2856,11 +2856,12 @@ local function drawGhostShadows()
                 -- Drawn, not decoded: the shadow is a field-effect graphic in a different table
                 -- from the character graphics this adapter reads, and an ellipse is honest about
                 -- being ours rather than a near-miss copy of the game's.
-                -- Alpha walked up twice against the game's own shadow, which is the only
-                -- reference that matters here: 0x60 read as faint, 0xA0 still lighter than the
-                -- player's (user, 2026-08-19). 0xD0 is nearly opaque while still letting the tile
-                -- show, which is what the game's does.
-                gui.drawEllipse(cx - 8, cy - 3, 16, 6, 0x00000000, 0xD0000000)
+                -- OPAQUE BLACK, and that is measured rather than tuned. Three rounds of walking
+                -- the alpha up (0x60, 0xA0, 0xD0) all read lighter than the player's, so the
+                -- palettes were dumped during a real jump instead: every candidate entry the game
+                -- has in play is pure black (raw 0000). The game's shadow is not a soft grey we
+                -- were failing to match -- it is black, and ours was translucent.
+                gui.drawEllipse(cx - 8, cy - 3, 16, 6, 0x00000000, 0xFF000000)
             end
         end
     end
@@ -3286,7 +3287,7 @@ local function drawRemotes(localAreaId, playerMapX, playerMapY, skipSpawned, com
                 if pinned and remote.act and remote.act >= 0x0c and remote.act <= 0x0f then
                     gui.drawEllipse(screenX + (FRAME_WIDTH_PX // 2) - 8,
                         screenY - pinnedArc + FRAME_HEIGHT_PX - 7, 16, 6,
-                        0x00000000, 0xD0000000)
+                        0x00000000, 0xFF000000)
                 end
                 painted = painted + 1
             end
