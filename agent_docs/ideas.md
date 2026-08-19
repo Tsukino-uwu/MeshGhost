@@ -1373,6 +1373,51 @@ the game**, or you end up with an adapter that can read perfectly and cannot sho
 adapter is ever built, the emulator is chosen first and the game second — and `access-models.md`
 argues Dolphin is the strongest candidate of the emulators surveyed.
 
+## A reusable game driver — agents that can understand and play any of our games (unscheduled)
+
+**The user's framing, 2026-08-19: *"being able to automatically understand/play all of the games
+will be useful in the future."*** Recorded as a capability rather than a one-off, because tonight
+made the argument for it: two separate measurements were gated behind game states nobody had
+reached, and one agent turned an NPC's dialogue into a false "story-blocked" claim in the record
+while trying to reach one.
+
+**What it would buy, in order of how soon it pays:**
+
+1. **States that gate measurements.** `wBattleMode` on Archipelago Crystal needs a **trainer**
+   battle; surfing and fishing need water and a rod; "does a ghost survive X" needs an X. Each one
+   currently waits for a human to walk there.
+2. **Regression testing across a whole game.** Walk a long route with the adapter attached and
+   watch for faults nobody scripted — the crowd test found three leaks in one evening precisely
+   because it drove the adapter through situations no one had thought to try.
+3. **Untested states, found rather than predicted.** The interesting bugs this project has had
+   were all in transitions somebody had not visited yet.
+4. **A savestate library**: every milestone banked once and inherited by every later session. This
+   is the compounding part — a state that costs ten minutes of play costs nothing the second time.
+
+**What it actually needs** (none of it exotic, and most already exists in pieces):
+
+- **Position and state from the adapter, not from pixels.** Every adapter already reads the map and
+  coordinates each frame; that is a position fix with no screenshot and no ambiguity. Screenshots
+  are for the things only a picture shows — and one picture cannot see a blinking prompt.
+- **Route data from the decomp**: map connections, warp events, per-map object lists. Planning a
+  route from data is the same discipline as planning a probe from data, and it is what separates
+  "walk here, press this" from "wander and hope".
+- **A verify-by-state loop**: issue input, confirm the coordinate actually changed, retry or
+  re-plan. Every failure phrased as *"scripted input did not get past X"*, never as a claim about
+  the game.
+- **Speed control**, measured rather than assumed — 200% delivers 2x, 400% delivered ~2.3x on a
+  loaded host (`environment.md`).
+- **One agent per emulator instance**, which is already the standing rule.
+
+**Hard constraints.** This is dev tooling and never ships: `CLAUDE.md`'s rule is that nothing
+shipped writes a save or game state, and the carve-out for dev-only test tooling is exactly this
+case — a driver may cheat, an adapter may not. And a driven session is still only evidence of what
+it actually did: a route that worked once is not a route that works, until it works twice.
+
+**Not scheduled.** Filed because the pieces keep arriving anyway (the decomps are built, adapters
+already read position, speed control is confirmed, the per-instance agent convention exists), and
+the day someone wants a full playthrough as a test, this entry is the plan.
+
 ## Spawn to the game's cap, then DRAW above it — a two-tier ghost (Tier 1-2, unscheduled)
 
 **The user's framing, 2026-08-19, and it is the whole idea in one line: *do as much as the game
