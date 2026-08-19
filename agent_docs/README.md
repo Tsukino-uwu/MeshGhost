@@ -47,6 +47,22 @@ Internal documentation for MeshGhost: architecture, planning, licensing, and ver
   `adapters/_template/`. Each adapter also carries a **`FLAGS.md`** (its compile-time flag
   register — shipped behaviour / probe / dormant) and a **`documentation.md`** (how that GAME
   works, never our compensations). All four shipped adapters have all three, as of 2026-08-18.
+**The one-line map, if you are new here** (user's framing, 2026-08-19, corrected on one point):
+
+| Kind | Where | Lifetime |
+|---|---|---|
+| **The rules** | `CLAUDE.md` | Permanent, always loaded, hard 300-line cap |
+| **Working state** — what is open right now | `status.md` | Deliberately volatile: overwritten in place, items deleted when done |
+| **What we know** | `verified.md` (append-only, dated), `pitfalls.md` (symptom → cause → fix), `phases/` | Permanent |
+| **What we intend** | `plans.md` (committed), `ideas.md` (not) | Until done or dropped |
+| **The machine and the conventions** | `environment.md` | Updated as the setup moves |
+| **Who the USER is** | agent memory, outside the repo | Permanent — and **never project facts**, which the repo must own |
+
+The correction worth making explicit: **agent memory is long-term memory about the user, not about
+the work.** The project's own long-term memory is `verified.md` + `pitfalls.md` + the phase files —
+the things a human, a future session and CI can all read. Anything about the code that lives only
+in agent memory is invisible to all three and goes stale with nothing to catch it.
+
 - [access-models.md](access-models.md) — **what you can read about a game**, which predicts an
   adapter's difficulty better than its engine does. What each shipped adapter used (decompilation /
   self-documenting artifact / runtime reflection), the other approaches that exist, and a checklist
