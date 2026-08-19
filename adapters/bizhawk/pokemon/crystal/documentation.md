@@ -85,6 +85,35 @@ so a struct captured at the instant of spawn does not yet show the final appeara
 Sprite *graphics* are a separate matter: `wUsedSprites` (`01:d154`) is a per-map list of which
 sprite ids have tiles loaded, built at map load and capped at `SPRITE_GFX_LIST_CAPACITY` (32).
 
+## What a character is DOING: action and facing
+
+Appearance (above) is only half of what a character looks like. The other half is two more fields
+of the same object struct, and between them they cover **every animation this game can put a
+character into** — there is no third mechanism:
+
+- `OBJECT_ACTION` (offset `0x0b`) indexes `ObjectActionPairPointers`
+  (`engine/overworld/map_object_action.asm`). The whole set, from
+  `constants/map_object_constants.asm`: `STAND` (1), `STEP` (2), `BUMP` (3), `SPIN` (4),
+  `SPIN_FLICKER` (5), `FISHING` (6), `SHADOW` (7), `EMOTE` (8), `BIG_DOLL_SYM` (9), `BOUNCE` (0a),
+  `WEIRD_TREE` (0b), `BIG_DOLL_ASYM` (0c), `BIG_DOLL` (0d), `BOULDER_DUST` (0e), `GRASS_SHAKE`
+  (0f), `SKYFALL` (10).
+- `OBJECT_FACING` (offset `0x0d`) indexes `data/sprites/facings.asm`, which is a flat list rather
+  than a direction plus a frame number: `STEP_DOWN_0..3`, `STEP_UP_0..3`, `STEP_LEFT_0..3`,
+  `STEP_RIGHT_0..3`, then `FISH_DOWN`, `FISH_UP`, `FISH_LEFT`, `FISH_RIGHT`, `EMOTE`, `SHADOW`,
+  and the doll/tree entries.
+
+Two consequences worth stating plainly, because they are what makes a peer's animation tractable:
+
+- **Fishing and the "!" emote are not sprite changes**, so they do not appear in the
+  `wPlayerState` table above at all. They are an action plus a facing on the ordinary character —
+  which is why a character reading "fishing" still wears its normal sprite.
+- **The four walking frames per direction are in the facing list itself.** A direction is not a
+  separate field from an animation frame: `STEP_DOWN_0` through `STEP_DOWN_3` are four entries of
+  one list, so a single byte says both which way a character faces and which stride it is on.
+
+`OBJECT_DIRECTION` (offset `0x08`) is the coarser value — the direction alone, in steps of 4 — and
+is what the engine's own step logic writes.
+
 ## Position, and the two coordinate spaces
 
 - `wXCoord` / `wYCoord` (`01:dcb8` / `01:dcb7`) — the player's map position, and the space

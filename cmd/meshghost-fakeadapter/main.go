@@ -94,7 +94,15 @@ type circleAdapter struct {
 	anim        string
 	orientation json.RawMessage
 	yawFollows  bool
-	extras      map[string]any
+	// facingFollows sends orientation as one of the four cardinal strings
+	// ("up"/"down"/"left"/"right") chosen from the circle tangent, which is
+	// what a 2D grid game's adapter expects -- Crystal and Emerald both key
+	// a ghost's facing (and therefore its walk animation) off that string.
+	// Without it a synthetic peer sends no orientation at all, and a drawn
+	// ghost has no facing to animate: it renders a static forward-facing
+	// frame, which reads as "animation is broken" when nothing is broken.
+	facingFollows bool
+	extras        map[string]any
 
 	// quiet suppresses this client's own per-remote render logging. With N
 	// clients in one process every client sees every other, so leaving all
@@ -122,7 +130,13 @@ func (a *circleAdapter) inChurnWindow(elapsed time.Duration) bool {
 }
 
 func (a *circleAdapter) GetLocalState() (protocol.State, bool) {
-	elapsed := time.Since(a.start)
+	return a.stateAt(time.Since(a.start))
+}
+
+// stateAt is GetLocalState with the clock passed in, so the deterministic
+// part (the circle, the facing, the churn window) can be tested at a chosen
+// point on the path instead of at whatever moment the test happened to run.
+func (a *circleAdapter) stateAt(elapsed time.Duration) (protocol.State, bool) {
 	t := elapsed.Seconds()
 	angle := 2*math.Pi*t/a.periodSeconds + a.phase
 
@@ -142,6 +156,23 @@ func (a *circleAdapter) GetLocalState() (protocol.State, bool) {
 	}
 
 	orient := a.orientation
+	if a.facingFollows {
+		// The tangent of a counter-clockwise circle leads the radius by 90
+		// degrees; quantise it to the nearest cardinal so it reads like a
+		// character walking a path on a tile grid.
+		tx, ty := -math.Sin(angle), math.Cos(angle)
+		dir := "right"
+		if math.Abs(tx) >= math.Abs(ty) {
+			if tx < 0 {
+				dir = "left"
+			}
+		} else if ty < 0 {
+			dir = "up"
+		} else {
+			dir = "down"
+		}
+		orient = json.RawMessage(`"` + dir + `"`)
+	}
 	if a.yawFollows {
 		// Face along the circle's tangent so the ghosts look like they're
 		// walking their path rather than sliding sideways — the tangent of
@@ -288,6 +319,8 @@ func main() {
 	anim := flag.String("anim", "walking", "anim tag to send (opaque; must be one the target game's adapter understands)")
 	extrasSpec := flag.String("extras", "", "game-specific extras as a literal JSON object, or @path to a file containing one")
 	yawFollows := flag.Bool("yaw-follows-path", false, "send orientation as [pitch,yaw,roll] with yaw following the circle tangent")
+	facingFollows := flag.Bool("facing-follows-path", false, "send orientation as a cardinal string "+
+		"(\"up\"/\"down\"/\"left\"/\"right\") following the circle tangent -- what a 2D tile game's adapter reads")
 	tick := flag.Duration("tick", 16*time.Millisecond, "how often to drive a frame (~60fps default)")
 	interp := flag.Duration("interp", core.DefaultInterpolationDelay, "interpolation delay for remote ghosts")
 	logEvery := flag.Duration("log-every", 500*time.Millisecond, "minimum time between console prints per remote (the core still ticks at -tick regardless)")
@@ -497,6 +530,7 @@ func main() {
 			churnOffset:   time.Duration(int64(*churnEvery) * int64(i) / int64(*clients)),
 			anim:          *anim,
 			yawFollows:    *yawFollows,
+			facingFollows: *facingFollows,
 			extras:        cloneExtras(extras),
 			// Only client 0 narrates. See circleAdapter.quiet.
 			quiet:     i != 0,
