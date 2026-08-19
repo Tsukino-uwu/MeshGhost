@@ -2726,6 +2726,31 @@ local function syncGhost(playerId, remote)
 
     if not ghostIsIdle(g) then return end -- never interrupt a half-played step
 
+    -- A LEDGE HOP, BEFORE ANY STEP LOGIC LOOKS AT THE DISTANCE.
+    --
+    -- Two earlier attempts failed and the capture says why. First: "the peer moved two tiles in
+    -- one update" -- it never does. The engine advances the tile counter ONE TILE AT A TIME
+    -- through a hop (measured: coords 16,18 -> 16,19 -> 16,20 while act stayed 12), and the core's
+    -- interpolation smooths it further. Second: the same test as an `elseif` after the one-tile
+    -- branch -- unreachable, because a one-tile delta is exactly what a hop looks like every
+    -- frame, so the walk branch always matched first and the ghost walked down the ledge.
+    --
+    -- What the peer sends is the ENGINE'S OWN INTENTION: movementActionId, which is
+    -- JUMP_2_DOWN/UP/LEFT/RIGHT (0xC..0xF) for the whole hop. Acting on that has to come first,
+    -- because by the time distance is being measured the hop is indistinguishable from walking.
+    --
+    -- Issued ONCE per hop: the action stays set for the whole jump, and re-issuing it every frame
+    -- would send the ghost hopping across the map. The latch clears when the peer stops reporting
+    -- a jump, so the next ledge is a fresh one.
+    local jumping = remote.act and remote.act >= 0x0c and remote.act <= 0x0f
+    if not jumping then g.jumped = nil end
+    if jumping and not g.jumped then
+        g.jumped = true
+        g.wasRunning = nil
+        requestAction(g, remote.act)
+        return
+    end
+
     local dir = DIR_ID[remote.orientation] or DIR_ID.south
 
     -- Trust the engine's own coordinates rather than our record of them: it owns the object once
@@ -2783,20 +2808,6 @@ local function syncGhost(playerId, remote)
         -- and only an explicit action brings it back to standing. A walk does not need this --
         -- the user's own test was exact about that, "it does idle->walk fine".
         g.wasRunning = running or nil
-    elseif remote.act and remote.act >= 0x0c and remote.act <= 0x0f then
-        -- A LEDGE HOP, because the peer SAID SO. This was first written as "the peer moved exactly
-        -- two tiles in one update", which never fires: the core interpolates (250ms by default),
-        -- so a hop arrives as a smooth glide through both tiles and the two-tile delta the
-        -- detection needed does not exist by the time we see it. Watching positions cannot recover
-        -- an intention the interpolator has already smoothed away.
-        --
-        -- The engine records that intention as movementActionId, and JUMP_2_DOWN/UP/LEFT/RIGHT are
-        -- 0xC..0xF (pokeemerald include/constants/event_object_movement.h:99-102) -- so the peer
-        -- sends the action and the ghost performs the same one, arc and all. Passed through
-        -- verbatim rather than re-derived from a direction, because the value already IS the
-        -- direction and the engine is the authority on which one it chose.
-        requestAction(g, remote.act)
-        g.wasRunning = nil
     else
         -- More than a tile out: a warp, a dropped packet, or a peer moving faster than we sample.
         -- Walking it there would fall further behind every frame, so place it -- but only once the
