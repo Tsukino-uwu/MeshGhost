@@ -2,9 +2,10 @@ MeshGhost -- setup
 ===================
 
 What's in this folder:
-- meshghost.exe        -- the client. Every player needs it, but you do
-                            NOT run it yourself: your game's mod starts it
-                            and stops it for you.
+- meshghost.exe        -- the client. Every player needs it running while
+                            they play. You can open it yourself, or have
+                            your game's mod open and close it for you --
+                            see "Two ways to run the client" below.
 - meshghost-server.exe  -- the server. Only ONE person in your group needs
                             this -- whoever is hosting the session.
 - config.json            -- THE ONLY FILE YOU SHOULD NEED TO EDIT. Has a
@@ -20,6 +21,35 @@ network between two separate machines. Pseudoregalia HAS been confirmed with
 two real players on two separate machines, and is still marked experimental
 because that is one session on one pair of machines rather than broad testing.
 See games\tevi\README.txt and games\pseudoregalia\README.txt.
+
+Two ways to run the client -- pick either:
+
+  1. OPEN IT YOURSELF (works everywhere)
+     Double-click meshghost.exe before you start the game, and close it when
+     you are done.
+
+     KEEP config.json NEXT TO IT. The client reads config.json from the folder
+     it is run from -- which, when you double-click it, is the folder it sits
+     in -- so if you move the exe somewhere else, move config.json with it.
+     They travel as a pair. On its own, the client falls back to built-in
+     defaults (it will try 127.0.0.1:7777, i.e. your own machine) and quietly
+     fail to reach your host. Simplest is to leave both here in the root
+     folder, which is already set up that way.
+
+  2. LET THE GAME OPEN AND CLOSE IT (optional -- location DOES matter)
+     Put meshghost.exe in the game's mod folder and the mod will start it
+     hidden when you launch the game and shut it down when you quit. Nothing
+     to open and nothing to remember. Each game's README in games\ says
+     exactly which folder, and it is the only thing that has to be in a
+     particular place.
+
+     Two things to know: an antivirus may object to one program starting
+     another (option 1 is the answer if it does), and the same pairing rule
+     applies -- a copy in a mod folder reads the config.json next to IT, not
+     this one, so that is the file you edit for your host's address.
+
+Either way the client must be running while you play; the only difference is
+who starts it, and whether the exe has to sit somewhere specific.
 
 Setup, once:
 1. Open config.json in a text editor (Notepad is fine).

@@ -16,22 +16,32 @@ Setup, every time you play:
 3. Walk around. Once a friend joins the same server in the same room, you should see
    their character walking around your game, facing the way they face.
 
-You do NOT start meshghost.exe yourself. The script finds it three folders up (in the
-MeshGhost root, next to config.json), starts it with no window, and closes it again when
-you close the emulator. It reads that same root config.json, so there is nothing to copy
-and nothing to edit anywhere else. Set MESHGHOST_NO_AUTOSTART to anything if you would
-rather run the client by hand.
+Running the client -- two ways, pick either:
 
-What makes Crystal different from the other games here:
-- The ghost is a real map object, made out of the same parts the game uses for its own
-  NPCs -- so it walks with the game's own step animation and this mod draws nothing
-  itself. It is solid, the same way an NPC is; you cannot walk through a friend.
-- A ghost does not survive a map change or a battle, because the game rebuilds its
-  objects from scratch on both. It comes back a moment later on its own.
-- A ghost wears the sprite of the player it represents, read from your own cartridge.
-  This needs the mod to know where your ROM keeps its sprite table, so it works on
-  vanilla and is off on ROMs where that has not been measured -- there a ghost falls
-  back to wearing this machine's own sprite, and the log says so on startup.
+  1. OPEN IT YOURSELF (works everywhere)
+     Double-click meshghost.exe before you load the script, and close it when you
+     are done.
+
+     KEEP config.json NEXT TO IT. The client reads the config.json in its own folder,
+     so if you move the exe, move config.json with it -- they travel as a pair. On its
+     own the client falls back to built-in defaults (127.0.0.1:7777, your own machine)
+     and never reaches your host. Leaving both in the MeshGhost root is simplest, and
+     it is also what option 2 needs.
+
+  2. LET THE EMULATOR OPEN AND CLOSE IT (optional -- location DOES matter)
+     Leave meshghost.exe in the MeshGhost root, three folders up from this one, and
+     the script finds it there by itself: it starts it with no window when you load
+     the script and shuts it down when you close the emulator. That folder is the
+     BizHawk equivalent of a mod folder -- it is where the script looks, and the only
+     place this works from. It reads the config.json next to it, so there is nothing
+     to copy and nothing to edit anywhere else.
+
+     If an antivirus objects to one program starting another -- or you simply want to
+     watch the client's window -- set the environment variable MESHGHOST_NO_AUTOSTART
+     to anything and use option 1 instead.
+
+Either way, the Lua Console prints what happened, including the
+"connected to relay ... in room ..." line that means it worked.
 
 Two copies on one machine:
 - Nothing to set up. Each BizHawk instance walks 127.0.0.1:7778-7785 for a free bridge

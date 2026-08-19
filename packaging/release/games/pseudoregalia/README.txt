@@ -46,15 +46,20 @@ ALREADY USING OTHER MODS? Read this one paragraph.
    needs; the rest of what is bundled exists only so someone with no UE4SS at all can
    install in one drag.
 
-Setup, once more -- the one file you copy yourself:
-3. Copy meshghost.exe (from the folder you unzipped, next to the outer config.json) INTO the
-   MeshGhostPseudo mod folder you just installed, so you end up with
+Setup, once more -- OPTIONAL, and only for auto open/close:
+3. If you want the game to start and stop the client for you, copy meshghost.exe (from the
+   folder you unzipped, next to the outer config.json) INTO the MeshGhostPseudo mod folder
+   you just installed, so you end up with
 
        ...\Pseudoregalia\pseudoregalia\Binaries\Win64\ue4ss\Mods\MeshGhostPseudo\meshghost.exe
 
    sitting in the same folder as config.json and the dlls\ folder.
 
-   Do this again whenever you update MeshGhost.
+   You can skip this entirely and just open meshghost.exe yourself before you play -- then
+   it can live anywhere you like, AS LONG AS a config.json sits in the same folder as it.
+   The client reads the config.json next to itself, so the two travel as a pair; on its own
+   it falls back to 127.0.0.1:7777 and never reaches your host. This mod folder is the ONLY
+   place the exe has to be for the mod to start it for you. If you do copy it, do it again whenever you update MeshGhost.
 
 Setup, once more -- where your settings live:
 4. Open config.json in the MeshGhostPseudo mod folder you just installed
@@ -64,9 +69,12 @@ Setup, once more -- where your settings live:
    unzipped. Once the mod is installed inside your game, that outer one is out of reach.
 
 Setup, every time you play:
-1. Launch Pseudoregalia normally. That's the whole thing -- the mod starts MeshGhost for
-   you, with no window to leave open and nothing to run first. The mod loads automatically
-   via UE4SS and tells MeshGhost which game it is on its own.
+1. Launch Pseudoregalia normally.
+   - If you copied meshghost.exe into the mod folder: that's the whole thing -- the mod
+     starts it for you, with no window to leave open and nothing to run first.
+   - If you did not: open meshghost.exe yourself first, from wherever you keep it.
+   The mod loads automatically via UE4SS either way, and tells MeshGhost which game it is
+   on its own.
 2. Walk around. Once a friend joins the same server in the same room, you should see their
    goat as a ghost -- correct position, facing, and movement animations.
 
