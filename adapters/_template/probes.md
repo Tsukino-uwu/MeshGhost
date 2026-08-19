@@ -201,6 +201,22 @@ So, when instrumenting an effect:
   between two sides measured by one instrument is not correctness — a shared blind spot makes them
   agree and describes neither.
 
+## Screenshot to your own game's folder, and actually take them — 2026-08-19
+
+`dev-scripts/shots/<game>/`, one folder per game **and per patched variant** (`crystal/`,
+`apcrystal/`, and so on); create it if missing. `bizhawk-screenshot.lua` is the tool, and a probe
+that overwrites one PNG on a timer is enough to watch a session evolve.
+
+**Why it is a rule and not a preference**: a session ran four emulators for hours and produced
+screenshots for exactly one of them, because the other three wrote into a per-session scratch
+directory that then disappeared. Nobody — including the user — could see what three games were
+doing.
+
+A picture is a working aid, never evidence (`agent_docs/testing.md`), and the tree is gitignored
+accordingly. But it is how a human checks an agent's claim cheaply, and how an agent notices the
+thing it was not looking for. Take them; and when a picture is ambiguous, answer the question with
+a counter instead — see the entry below.
+
 ## One sample cannot see a blinking thing — 2026-08-19
 
 **The user's example, and it is the clearest one: "PRESS START" flashing on a title screen.** Take

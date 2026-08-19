@@ -834,6 +834,36 @@ toward a state that gates one; a soak or regression run with the adapter attache
 savestates at milestones for future sessions. Reporting that an instance is idle and why is
 acceptable; leaving it idle silently is not.
 
+## Take screenshots, and put them in your game's own folder — 2026-08-19
+
+**One folder per game AND per patched variant**, under `dev-scripts/shots/`:
+`emerald/`, `crystal/`, `apcrystal/`, `apemerald/`. Create yours if it does not exist. The whole
+tree is gitignored (a picture is a working aid, never project content and never evidence), but it
+is the agreed place, so the user can look at any instance's output without asking which folder
+some agent invented.
+
+**The failure this fixes, found by the user 2026-08-19**: after a whole session with four
+emulators running, `dev-scripts/shots/` contained **only `emerald/`**. The Crystal work had written
+its screenshots into the session's own scratch directory — which is per-session and disappears with
+it — and the two Archipelago instances had taken none at all. Nobody could see what three of the
+four games were doing.
+
+**Use pictures.** `dev-scripts/bizhawk-screenshot.lua` writes a PNG a probe can drop on a timer or
+on an event; a loop that overwrites one file is enough to watch a session evolve. They answer
+questions no memory read does — what a menu looks like, whether a sprite is garbled, where the
+player visually is — and they are how the user checks an agent's claim without driving the game
+themselves.
+
+**Two things to know about pictures, both learned the hard way:**
+
+- **One frame cannot see a blinking thing** (probes.md has the entry). Sample over time, and pick
+  an interval that cannot align with what you are watching.
+- **An agent may lose the ability to READ images mid-session** — this happened on 2026-08-19, when
+  the API began rejecting them after a long conversation had accumulated many. **Keep taking them
+  anyway**: the user can still look, and they remain the record of what happened. Then answer the
+  question numerically instead — counters, invariants, register reads — which is the better evidence
+  regardless, and is what settled every visual question in that session.
+
 ## Playing the game to reach a state — permitted, and how fast — 2026-08-19
 
 **The user's grant:** *"i don't really want or need you to 'play the whole game'. but feel free to
