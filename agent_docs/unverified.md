@@ -23,39 +23,6 @@ actually confirm it as such."*
 
 ---
 
-## Pending — Emerald spawn adapter (2026-08-18)
-
-The adapter now renders peers as real spawned object events instead of drawing them. Several
-pieces were confirmed individually during the session; these are the ones that were **not**.
-
-- [ ] **End-to-end, in one sitting.** Each behaviour below was confirmed separately as it was
-      fixed, but never all together after the last change. *What to look at:* walk around, run,
-      cross a route boundary, enter and leave a building, open the pause menu.
-      *Correct:* one ghost, always exactly two tiles to your right, matching your movement, on the
-      grid, hidden behind the menu, and never more than one.
-- [ ] **On-grid placement after the settled-camera fix.** *What to look at:* the ghost's feet
-      against the tile grid while standing still, after several map changes.
-      *Correct:* square on a tile, never a few pixels off it.
-- [ ] **House and elevator transitions.** Clean across 57 log samples, but not watched.
-      *Correct:* the ghost disappears during the transition and reappears beside you, and **no
-      real NPC goes missing** from the map you left or entered.
-- [ ] **Ghosts are non-interactable.** *What to look at:* press A facing the ghost, repeatedly, in
-      a few places. *Correct:* nothing happens at all — no text box, no minigame.
-      (The bug this fixed launched the slot-machine minigame.)
-
-## Pending — Emerald robustness pass (2026-08-19)
-
-Four defects found by reading and fixed; none changes what a ghost is supposed to look like, so
-the only thing to watch for is that nothing got *worse*. The end-to-end item above now has to be
-run against this version rather than yesterday's.
-
-- [ ] **Nothing regressed.** *What to look at:* the same walk-around the end-to-end item asks for.
-      *Correct:* exactly as before — one ghost, two tiles to your right, on the grid, hidden behind
-      the pause menu. The changes were: the orphan sweep is now gated to the overworld on a
-      confirmed vanilla address; a bridge rejection no longer throws; a peer's `graphicsId` is
-      bounds-checked before it indexes a ROM table; the frame-error log no longer swallows the
-      first 300 frames.
-
 ## Pending — Emerald: no ghost until you are actually in the game (2026-08-19)
 
 The question above ("should the adapter be broadcasting from the main menu?") is **answered** — the
@@ -73,21 +40,12 @@ probe rather than by a person: cold boot to the title, the continue screen and t
 the bridge`, and the relay issued this client a new player id a second later — which is the leave
 the peers would have seen. What a log cannot show is the other player's screen.
 
-- [ ] **A peer's ghost of you disappears when you go back to the title screen.** Needs two clients,
-      or one client plus the relay's loopback ghost. *What to look at:* the ghost, while the other
-      player soft-resets (A+B+Start+Select) back to the title. *Correct:* it vanishes within about
-      a second. Wrong: it stands there frozen where they were.
-- [ ] **No ghost at all while someone is in the main menu / intro.** *What to look at:* the other
-      player boots the game and sits on the title, the continue screen and the intro without
-      entering the world. *Correct:* no ghost anywhere on your screen the whole time — in
-      particular, none standing at their last save point, which is what used to happen.
-- [ ] **The ghost comes back, and nothing else changed, once they are in.** *What to look at:* they
-      choose CONTINUE and walk around. *Correct:* the ghost appears beside you within a second or
-      two of them reaching the overworld, and everything else behaves as before — pause menu,
-      doors, battles, route changes. The gate is a latch and is deliberately NOT re-tested per
-      frame, so a battle or a warp must NOT make the ghost blink out.
-- [ ] **Two sessions in a row.** Soft reset, then continue again. *Correct:* one ghost, not two,
-      and it wears the right character (gender is re-read per session now).
+- [ ] **A peer's ghost of you disappears when you go back to the title screen.** The one item here
+      that survived 2026-08-19: the other three were confirmed that day (hard reset rather than
+      soft — `verified.md`), but this one is about the OTHER player's screen, and under `-loopback`
+      the ghost is your own echo, so it cannot be told apart from the local render stopping.
+      **Needs two clients.** *What to look at:* the ghost, while the other player resets back to
+      the title. *Correct:* it vanishes within about a second. Wrong: it stands there frozen.
 
 ## Pending — Emerald: a room bigger than the map (2026-08-19)
 
@@ -131,14 +89,6 @@ show one-per-tile.
       *What to look at:* walk past a cluster. *Correct:* ghosts do not visibly flicker between
       "engine-drawn" and "painted" as distances change; a swap should look like at most one
       ghost changing over, not a churn.
-- [ ] **Ten seconds that would let this tier ship on: open a text box, then the START menu.**
-      *What to do:* stand anywhere, talk to an NPC or read a sign and leave the box up for a few
-      seconds, then open the START menu and leave it up for a few seconds.
-      *Why:* `probes/textbox_probe.lua` reads what the GAME drew into the background tilemaps, and
-      has already confirmed the quiet half — with nothing open, BG0 is completely empty while the
-      map sits on BG2/BG3. The other half, which rows a panel writes into, cannot be measured
-      without a panel on screen, and the drawn tier stays off until it is. Nothing to judge here:
-      the probe records it, no correctness claim is being made about what you see.
 - [ ] **What a painted ghost looks like next to a spawned one.** *Correct:* the same character,
       same size, on the grid — the difference should be that a painted one does not slide as
       smoothly and is not hidden by scenery. **Expected wrong, and the reason the flag is off:**
@@ -232,27 +182,6 @@ spawned.
 - [ ] **Shoving past a peer works.** *What to look at:* hold a direction into a peer that is
       blocking a doorway. *Correct:* after about half a second they stop blocking and you walk
       through.
-
-## Pending — ten seconds of input in EMERALD, to unblock its drawn tier (2026-08-19)
-
-Emerald's drawn-overflow tier is built but **shipped off**, because a drawn ghost would paint over
-text boxes and nothing reliable said where the UI is. The Crystal method (ask the game what it
-drew, not the LCD what it is displaying) has been ported — `probes/textbox_probe.lua` computes each
-background's tilemap address from the GBA's own `BGnCNT` registers, so it cannot go stale against a
-ROM revision, and it costs nothing measurable (59.8fps with it running).
-
-It already shows the map on BG2/BG3 with **BG0 completely empty**, which is the shape the answer
-predicts: the panel layer stays blank until the game draws a panel into it. What is missing is a
-sample of the other state.
-
-- [ ] **Talk to an NPC in the Littleroot house (or read any sign)**, leave the text box up for
-      about three seconds, then close it.
-- [ ] **Open the START menu**, leave it up about three seconds, then close it.
-
-That is the whole request. A watcher is running on the probe's log for the first frame where BG0
-stops being empty; the rows and tile ids it captures decide whether the drawn tier can ship on.
-If BG0 turns out to carry other things too (HUD, weather), the honest answer is to leave the flag
-off, and that is what will happen.
 
 - [ ] **A drawn peer can wear a sprite this map never loaded** (2026-08-19). *What to look at:* set
       `MESHGHOST_CRYSTAL_FORCE_PEER_SPRITE=6` (SPRITE_RED, which New Bark does not load) with a

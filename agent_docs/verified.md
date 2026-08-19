@@ -7938,3 +7938,59 @@ indoor map where the camera clamps is the way to make it repeatable.
 Reached by writing the player's coordinates (permitted for progress, 2026-08-19) — so this is a
 **state that was reached, not a state that was played to**, and it says nothing about whether a
 player walking normally would find that overlap.
+
+## Emerald's spawn adapter, end to end in one sitting — 2026-08-19
+
+**User-confirmed on screen**, vanilla ROM, one loopback peer, drawn-overflow tier off (the
+default), a single session of ordinary play a little over two hours long.
+
+Walking, running, a route boundary, in and out of a building, the pause menu, and pressing A at
+the ghost repeatedly: *"works fine"*. That closes, together and against the current build rather
+than piece by piece:
+
+- one ghost, two tiles to the right, on the tile grid, hidden behind the pause menu;
+- on-grid placement after the settled-camera fix, across several map changes;
+- house transitions, with no real NPC lost from either map;
+- ghosts non-interactable — pressing A at one does nothing (this is what used to launch the
+  slot-machine minigame);
+- the 2026-08-19 robustness pass regressed nothing (gated orphan sweep, non-throwing bridge
+  rejection, bounds-checked `graphicsId`, un-swallowed frame errors).
+
+**From the adapter's own log for the same session** (tool-side, not a claim about the screen):
+**zero** lines matching `error` in 14,731; `ghosts=` never once read higher than 1 across 6,372
+status samples; four orphan-slot clears in total, at transitions.
+
+### The in-game gate, exercised by a HARD reset
+
+The user could not soft-reset, so this ran as a power-cycle instead — the adapter sees the same
+title screen either way, and the log shows the same path taken: `left the game (title screen) --
+dropping the bridge` at 13:36:49, matched a second later by the core's own bridge disconnect, then
+`in game -- now sending local state` with `local gender = male` re-read for the new session. No
+ghost anywhere during the title, the continue screen or the intro; one ghost — not two — after
+CONTINUE, wearing the right character.
+
+**Still open, and loopback cannot answer it:** whether a peer's ghost of *you* disappears from
+*their* screen within about a second of you returning to the title. Under `-loopback` the ghost is
+your own echo, so its disappearing and the local render stopping are the same event. Two clients.
+
+## Emerald: where the game draws its panels, measured with a box and a menu open — 2026-08-19
+
+**Agent-measured from `probes/textbox_probe.log`** during the session above (a log read, not a
+picture), which is what the "ten seconds of input" request in `unverified.md` was for.
+
+BG0 is the panel layer, and nothing else uses it:
+
+| State | BG0 rows | Columns | Border tile ids |
+|---|---|---|---|
+| Nothing open | *completely empty* | — | — |
+| Text box | 14-19 | full width | 513/516 top and bottom, 519 left edge |
+| START menu | 0-13 | right-hand only, from col ~21 | 532/535/538 |
+
+97 samples with a panel-free BG0 were taken while walking around, so the quiet case is not a
+one-frame accident. This **confirms both premises `tiering.scanPanel()` was written on**: a
+non-empty BG0 cell means the game drew a panel there, and a per-ROW first/last-column span is the
+right shape — a full-width band at the bottom for a box, a right-hand column range for the menu.
+The detector reads the tilemap base out of `BG0CNT` at runtime, so none of this is a ROM address.
+
+What this does **not** settle is whether `MESHGHOST_EMERALD_DRAWN_OVERFLOW` should ship on: the
+UI-clipping objection to it is now answered, but occlusion, shadows and water reflection are not.

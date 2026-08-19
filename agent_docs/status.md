@@ -7,8 +7,8 @@
 - **Crystal renders peers in TWO tiers now**: spawned real objects up to what the game can draw,
   and everything past that PAINTED over the emulator. A character on every visible tile at 60fps,
   user-confirmed. `verified.md` 2026-08-19, `crowd-limits.md`.
-- **Emerald's equivalent is built and its UI regions are now measured** on two maps, and it clips a
-  real panel — still flag-gated (`MESHGHOST_EMERALD_DRAWN_OVERFLOW`). `verified.md` 2026-08-19.
+- **Emerald's spawned tier passed end to end** and its panel geometry is confirmed from a real box
+  and menu; the drawn tier stays flag-gated on occlusion, not UI. `verified.md` 2026-08-19.
 - Phases 6 (TEVI), 7 (Pseudoregalia) and 8 (Emerald) are done; 8's queue is in `unverified.md`.
 
 **Everything below this line is an INDEX of what is open.** Two lines per item, and the detail
@@ -17,25 +17,20 @@ lives in `verified.md`, `pitfalls.md` or a phase file — see the update guidanc
 Roadmap: `plans.md`. Per-phase log: `phases/`. Evidence: `verified.md`. What the user has not
 confirmed yet: `unverified.md`.
 
-## Picking this up in a new session — rewritten 2026-08-19 evening, and the first thing to read
+## Picking this up in a new session — rewritten 2026-08-19 afternoon, and the first thing to read
 
-**Four emulators, four cores and a relay are RUNNING and unowned.** Nothing is paused this time —
-they are simply idle, with every driver and probe removed. Claim one before touching it.
+**The four-emulator session described here before is GONE** — none of those processes survived.
+What is running now is a single vanilla Emerald instance, left up after its end-to-end
+confirmation pass:
 
 | ROM | BizHawk pid | Bridge | Loader control file |
 |---|---|---|---|
-| Archipelago Crystal | 2356 | 7783 | `bizhawk-dev-loader-apcrystal.target` |
-| Vanilla Crystal | 11788 | 7781 | `bizhawk-dev-loader-crystal.target` |
-| Archipelago Emerald | 15628 | 7784 | `bizhawk-dev-loader-apemerald.target` |
-| Vanilla Emerald | 18252 | 7786 | `bizhawk-dev-loader-emerald.target` |
+| Vanilla Emerald | 31012 | 7778 | `bizhawk-dev-loader-emerald.target` |
 
-(pids change; match on the `--lua=` argument. **The relay on 7777 is still carrying `-loopback`**,
-so every client sees a self-ghost — restart it without that flag before judging anything about
-real peers.)
-
-**State everything was left in:** every control file reduced to the adapter alone (no drivers, no
-probes, no input), all synthetic peers stopped, no agent running, working tree clean and committed.
-The emulators may have been left at 400% speed — the user set that, so check rather than assume.
+(pids change; match on the `--lua=` argument. The relay on 7777 carries `-loopback`, so the one
+client sees a self-ghost; the core is pinned to `-transport=tcp`, deliberately, to keep a quic drop
+from being mistaken for a ghost bug. The loader control file holds the adapter plus
+`probes/textbox_probe.lua`; drop the probe before judging performance.)
 
 **The opening move, in order:**
 
@@ -51,6 +46,9 @@ The emulators may have been left at 400% speed — the user set that, so check r
      fishing and the rest. The enumeration is already in `phases/phase9.md`.
 4. **Screenshot into `dev-scripts/shots/<game>/` and look before acting.** `client.screenshot()`
    only — never a window capture — and remember it cannot see a drawn-tier ghost.
+5. **Launching BizHawk from PowerShell: quote the ROM path inside a single argument string.**
+   `Start-Process -ArgumentList` on PS 5.1 does not quote array elements, so a path with spaces
+   arrives split and EmuHawk opens an `Exception` window instead of the game (2026-08-19).
 
 **Both Archipelago blockers are CLOSED** (`wBattleMode` = `0x1234`; the graphics-info pointer table
 shifts by `0x7530`), so neither adapter refuses on a patched ROM any more. What replaced them at
@@ -121,10 +119,6 @@ that a peer's state genuinely differs from the local player's, which loopback co
   stops sending leaves a marker frozen where it was. Shipped bug, not hypothetical. `ideas.md`.
 - **TEVI lags the template's bridge shape** — `bridge_ready`/`reject` and autostart landed
   2026-08-18; the PORT WALK is the remaining gap. `_template/PROTOCOL.md`.
-- **Emerald's shipped adapter spawns instead of drawing** — user-confirmed piece by piece
-  2026-08-18 (appears, follows, walks, runs, on-grid, no leak); **no end-to-end pass yet.**
-- **Awaiting a confirmation pass**: the spawn adapter and the whole test toolchain were built and
-  self-tested the same day. Nothing in either is "done" until the user confirms the result.
 - **Emerald: a peer's own state (surf/bike/fishing) is not rendered yet** — the state is its
   `graphicsId` and all player states share one palette tag, so this is now scoped. `phase8.md`.
 - **Loopback offset puts the ghost inside/above sloped geometry** — a rig artefact, since a real

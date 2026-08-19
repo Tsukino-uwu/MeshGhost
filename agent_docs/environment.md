@@ -763,6 +763,25 @@ proves it either way; the window never did.
 Live case: two visible consoles appeared over a Crystal session on 2026-08-18, which is what
 prompted the preference.
 
+## Launching BizHawk from PowerShell — quote the ROM path yourself, 2026-08-19
+
+`Start-Process -FilePath EmuHawk.exe -ArgumentList '--lua=...', 'C:\...\bizhawk roms\...gba'`
+looks right and is wrong on **Windows PowerShell 5.1**, which joins `-ArgumentList` elements with
+spaces and **does not quote the ones containing spaces**. EmuHawk then receives the ROM path in
+pieces, cannot open any of them, and puts up a window whose entire title is `Exception` — no game,
+and nothing in any MeshGhost log to explain it, because MeshGhost never started.
+
+Pass one argument string with the quotes embedded instead:
+
+```powershell
+$rom = '"C:\...\bizhawk roms\Roms\gba\Pokemon - Emerald Version (USA, Europe).gba"'
+Start-Process -FilePath $emuhawk -ArgumentList "--lua=$loader $rom"
+```
+
+**The tell is the window title**, since a `Get-Process` check reports the emulator running either
+way. Check `MainWindowTitle` after a launch: `Lua Console` means it came up, `Exception` means it
+did not. Found live 2026-08-19, launching vanilla Emerald for its end-to-end confirmation pass.
+
 ## Working two games at once, and which model an agent gets — 2026-08-19
 
 **Shape (user's standing grant, extended 2026-08-19): ONE AGENT PER BIZHAWK INSTANCE.** Not per
