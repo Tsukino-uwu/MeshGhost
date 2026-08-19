@@ -1706,6 +1706,11 @@ local function wantedGfx(remote)
     return nil
 end
 
+-- Records the frame a spawn was last refused for want of an object/sprite slot, and the frame
+-- that refusal was last logged. See spawnGhost's out-of-slots branch for why both exist. One
+-- table rather than two locals: this file's scope is close to Lua's 200-local ceiling.
+local spawnGate = { blockedFrame = nil, lastLogFrame = nil }
+
 local function spawnGhost(playerId, mapX, mapY, orientation, wantGfx)
     local playerObjId = r8(GPLAYERAVATAR_ADDR + avatarAddrOffset + 0x05)
     local pObj = objAddr(playerObjId)
@@ -1724,7 +1729,26 @@ local function spawnGhost(playerId, mapX, mapY, orientation, wantGfx)
     local sprId = findFreeSpriteSlot()
     local localId = GHOST_LOCAL_ID
     if not objId or not sprId then
-        console.log("MeshGhost: no free slot for a ghost (objects or sprites full).")
+        -- OUT OF SLOTS, and this is a normal state, not an error: the engine's object array holds
+        -- 16 entries shared with every NPC, so a busy room simply offers more peers than the game
+        -- can hold. Two things are therefore deliberate here.
+        --
+        -- ONE: the message is throttled. It used to print once per unplaceable peer per frame, and
+        -- BizHawk's console.log is a GUI append -- measured 2026-08-19 with synthetic peers, 24
+        -- peers in a 3-NPC town (13 ghosts placed, 11 refused) dropped the emulator from 60fps to
+        -- 3, and 36 peers to 1. That is the adapter making the game unplayable to say "no" loudly,
+        -- which is worse than any missing ghost.
+        --
+        -- TWO: the refusal is recorded, so syncRemoteGhosts can stop asking for the rest of this
+        -- frame. Once one spawn has failed for want of a slot, every other spawn this frame will
+        -- fail the same way -- the array does not grow mid-frame -- and each attempt re-scans both
+        -- arrays before finding that out.
+        spawnGate.blockedFrame = frameCounter
+        if not spawnGate.lastLogFrame or frameCounter - spawnGate.lastLogFrame >= 300 then
+            spawnGate.lastLogFrame = frameCounter
+            console.log("MeshGhost: no free slot for a ghost (objects or sprites full) -- more "
+                .. "peers here than this map can hold. Further refusals are not logged for 5s.")
+        end
         return nil
     end
 
@@ -1998,6 +2022,10 @@ local function syncGhost(playerId, remote)
         g = nil
     end
     if not g then
+        -- Nothing to spawn into: a peer this frame already found the object array full, and it
+        -- cannot empty mid-frame. Skipping the rest is what keeps a room bigger than the map from
+        -- costing a full array re-scan per unplaceable peer per frame.
+        if spawnGate.blockedFrame == frameCounter then return end
         -- Placement is only exact on a settled camera; a frame's wait is free.
         if cameraIsSettled() then
             spawnGhost(playerId, targetX, targetY, remote.orientation, wantedGfx(remote))

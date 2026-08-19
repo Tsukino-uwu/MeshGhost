@@ -89,6 +89,20 @@ the peers would have seen. What a log cannot show is the other player's screen.
 - [ ] **Two sessions in a row.** Soft reset, then continue again. *Correct:* one ghost, not two,
       and it wears the right character (gender is re-read per session now).
 
+## Pending — Emerald: a room bigger than the map (2026-08-19)
+
+Measured with synthetic peers, not with people: the engine's 16-entry object array is shared with
+the map's own NPCs, so a town holding the player and two NPCs fits exactly **13 ghosts**; peers
+past that are refused and simply never appear. Past the ceiling the adapter used to log a refusal
+per unplaceable peer per frame, which cost 60fps → 3fps at 24 peers and 1fps at 36; that is fixed
+(throttled message, and no further spawn attempts once the array is full for the frame) and
+re-measured at 59.7-59.8fps with 24 and 36 peers offered. See `pitfalls.md` for the full story.
+
+- [ ] **A crowded map still plays normally.** *What to look at:* full speed, and the ghosts that
+      are there. *Correct:* the game runs at normal speed with a dozen ghosts around you, the ones
+      that fit look and move like ghosts always have, and the map's own NPCs are all still there
+      and still walking their routes. Extra peers being invisible is expected, not a fault.
+
 ## Pending — Crystal: a peer's sprite that the local player is NOT wearing (2026-08-19)
 
 The no-regression half is CONFIRMED and has moved to `verified.md` — a loopback ghost looks like

@@ -1694,3 +1694,27 @@ is read from is the difference between a five-minute check and a plausible false
 **Generalises.** `CLAUDE.md` already says a diagnostic can break the thing it measures. This is
 its quieter cousin: a diagnostic can keep changing what everyone sees **after it is gone**, and
 the reading it corrupts is not the probe's own — it is the next person's.
+
+## Saying "no" once per peer per frame costs more than the work being refused (2026-08-19, Emerald)
+
+**Symptom.** With synthetic peers (`meshghost-fakeadapter`) aimed at the map the player was
+standing on, Emerald placed ghosts normally up to the engine's ceiling and then fell apart:
+**24 peers dropped the emulator from 60fps to 3, and 36 peers to 1** — measured as frames counted
+against the wall clock, not as a feeling. Nothing was wrong with the ghosts that DID spawn; the
+game itself was simply unplayable while too many peers were present.
+
+**Diagnosis.** `gObjectEvents` holds 16 entries shared with the map's own NPCs, so a town with the
+player plus two NPCs fits exactly 13 ghosts. Every peer past that failed to find a slot — and the
+failure path did two expensive things once per unplaceable peer **per frame**: it re-scanned both
+the object and sprite arrays, and it called `console.log`, which in BizHawk is a GUI append. At 36
+peers that is 23 refusals × 60 frames ≈ 1,400 console writes a second. The adapter was spending the
+frame budget announcing that it had nothing to do.
+
+**Fix.** Throttle the message to once per 5 seconds, and record the refusal in `spawnGate` so
+`syncGhost` stops attempting spawns for the rest of that frame — the array cannot grow mid-frame,
+so the first "full" answer is the answer for every remaining peer. Re-measured: 24 and 36 peers
+both hold 59.7-59.8fps with the same 13 ghosts placed.
+
+**The general shape:** a diagnostic on a failure path is priced per failure, and failures scale
+with load while successes are capped. Anything that logs unconditionally where the count is
+attacker- (or room-) controlled belongs behind a throttle from the start.
