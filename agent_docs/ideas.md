@@ -1415,6 +1415,16 @@ collision — and peers past the cap still *exist* on screen instead of vanishin
       second while the menu is up — the menu code rewrites them as it redraws — so a consumer has
       to latch the last non-zero rectangle while a panel is open rather than reading them raw, or
       the clip region will strobe.
+    - *Text boxes are not in that variable at all, and do not need to be.* With a text box open the
+      four values stayed `0,0,0,0` (measured 2026-08-19), because the box is a **constant**:
+      `pokecrystal`'s `constants/text_constants.asm` defines `TEXTBOX_X = 0`,
+      `TEXTBOX_WIDTH = SCREEN_WIDTH`, `TEXTBOX_HEIGHT = 6` and
+      `TEXTBOX_Y = SCREEN_HEIGHT - TEXTBOX_HEIGHT` — tiles 0–19 across, rows 12–17 down, the bottom
+      six rows at full width, every time. Nothing in RAM changes because nothing has to.
+    - **So the clip region is fully known**: the fixed bottom six rows while a text box is open,
+      plus the latched `wMenuBorder*` rectangle while a menu is open. The user's model of this
+      — *"the text box is always at the bottom, the menu is on the right, just do not draw
+      there"* — turned out to be literally how the game is written.
   - **Scenery: harder, but the hardware carries the answer.** On the Game Boy Color each
     background tile has an attribute byte in VRAM bank 1, and one bit of it means *this tile draws
     in front of sprites*. A drawn ghost could read the attribute at the tile it occupies and skip

@@ -7671,3 +7671,18 @@ The values flip to `0,0,0,0` and back several times a second while the menu is d
 menu code rewrites them as it redraws — so anything consuming them must latch the last non-zero
 rectangle rather than reading raw. Relevant only to the drawn-overflow tier in `ideas.md`; the
 shipped spawn path needs none of this, because the game occludes real objects itself.
+
+### 2026-08-19 — Crystal's text box is a constant, its menu is a variable
+
+**Track: probe log plus a decomp citation. No visual claim.**
+
+With a text box open, `wMenuBorderTop/Left/Bottom/Right` stayed `0,0,0,0` — that variable is for
+menus. The text box does not need one: `pokecrystal`'s `constants/text_constants.asm` defines
+`TEXTBOX_X = 0`, `TEXTBOX_WIDTH = SCREEN_WIDTH`, `TEXTBOX_HEIGHT = 6`, and
+`TEXTBOX_Y = SCREEN_HEIGHT - TEXTBOX_HEIGHT`, so the box is always tiles 0–19 across and rows
+12–17 down — the bottom six rows, full width.
+
+Taken with the menu rectangle measured the same day, the screen regions a UI panel can occupy are
+now fully accounted for: **fixed bottom six rows for a text box, latched `wMenuBorder*` for a
+menu.** Only the drawn-overflow tier in `ideas.md` would ever need them; the shipped spawn path is
+occluded by the game itself.
