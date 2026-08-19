@@ -2856,7 +2856,10 @@ local function drawGhostShadows()
                 -- Drawn, not decoded: the shadow is a field-effect graphic in a different table
                 -- from the character graphics this adapter reads, and an ellipse is honest about
                 -- being ours rather than a near-miss copy of the game's.
-                gui.drawEllipse(cx - 8, cy - 3, 16, 6, 0x00000000, 0x60000000)
+                -- 0xA0 alpha, not 0x60: the first attempt read as too faint against the game's
+                -- own shadow (user, 2026-08-19). Still translucent rather than solid black, which
+                -- is what the game's is.
+                gui.drawEllipse(cx - 8, cy - 3, 16, 6, 0x00000000, 0xA0000000)
             end
         end
     end

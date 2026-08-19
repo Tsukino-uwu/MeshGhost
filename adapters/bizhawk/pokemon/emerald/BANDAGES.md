@@ -190,6 +190,12 @@ Trading a crash risk for a shadow is the wrong way round.
 shadow is drawn at the sprite's position *without* that term — the exact ground it left, with no
 arc maths of ours to drift out of step. Only the ellipse's size and colour are invented.
 
+**What it does NOT cover.** A peer rendered by the DRAWN tier has no arc to sit under: its
+position is the peer's smoothed coordinates, which do not hop, so it slides across a ledge. A
+shadow there would sit exactly beneath the character and read as nothing. Giving the painted tier
+its own jump arc means inventing motion the engine is not providing for it, which is a larger step
+than an ellipse and is deliberately not taken here.
+
 **What would retire it.** Reading the field-effect graphics table the way the character graphics
 table is already read, so the game's own shadow art is drawn instead of an ellipse. That is a real
 option, not a fantasy — the drawn tier already decodes arbitrary graphics — it simply was not worth
