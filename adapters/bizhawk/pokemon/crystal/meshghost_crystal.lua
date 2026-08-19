@@ -1361,6 +1361,9 @@ local function textBoxOpen()
 end
 
 local lastMenuBox = nil
+-- Which object struct the drawn tier is measuring from; held across frames on purpose (see
+-- drawOverflow), and cleared when the world is rebuilt.
+local anchorIndex = nil
 
 function drawOverflow()
 	drawFrames = drawFrames + 1
@@ -1381,16 +1384,77 @@ function drawOverflow()
 	local nWanted, nDrawn, nNoTile, nOffScreen, nHidden, nFromRom = 0, 0, 0, 0, 0, 0
 	local offSample = nil
 
-	-- CALIBRATE AGAINST THE HARDWARE, rather than deriving a screen position from first
-	-- principles. The engine's F_SPRITE_X/Y are in its own scrolled space, not screen pixels, and
-	-- three attempts at converting them by reasoning each put whole rows off screen. OAM is not
-	-- ambiguous: it is what the PPU draws from, in screen pixels (offset by 8 and 16 by the
-	-- hardware). The player is always object struct 0 and always has OAM entries, so the
-	-- difference between the two is the offset that applies to everything else this frame.
-	local playerOamY = memory.read_u8(0x00, "OAM") or 0
-	local playerOamX = memory.read_u8(0x01, "OAM") or 0
+	-- ANCHOR ON A CHARACTER THAT IS STANDING STILL, and measure everything else from it in TILES.
+	--
+	-- No scroll arithmetic at all: a reference object's OAM entry is its true position in screen
+	-- pixels, and a peer N tiles away is N*16 pixels away. That is exact whatever the camera is
+	-- doing, which is the point -- the previous version worked in the engine's own scrolled space
+	-- and was only correct at the instants the engine recomputes it. In between, the hardware
+	-- scrolls and the drawn peers did not follow: measured as 64 discontinuities of 8 and 16 px
+	-- in a 20-second walk, and reported by the user as ghosts snapping around while moving.
+	--
+	-- STANDING is what makes a reference usable. A character mid-step has already had its MAP_X/Y
+	-- written to the tile it is walking TO (that is how this engine initiates a step), while its
+	-- sprite is still up to a whole tile behind -- so anchoring on a walking character, the player
+	-- included, is wrong by exactly the 16 px seen above.
+	-- STICK TO ONE ANCHOR. Choosing the first standing character each frame looks harmless and is
+	-- not: characters differ by a few pixels in how their sprite sits relative to their tile (an
+	-- idle animation, a different sprite shape), so switching anchor moves every drawn peer by
+	-- that difference. Measured: the first version cut the jumps from 64 to 39 and the survivors
+	-- were all exactly +/-8 px horizontally -- the adapter alternating between two anchors.
+	--
+	-- So: keep last frame's anchor while it is still standing and still on this map; only choose
+	-- again when it is not, and prefer the player, whose sprite-to-tile relationship is the one
+	-- everything else is calibrated against anyway.
+	local function usable(i)
+		local base = OBJECT_STRUCTS + i * OBJECT_LENGTH
+		return (u8(base + F_SPRITE) or 0) ~= 0
+			and (u8(base + F_WALKING) or STANDING) == STANDING
+	end
+
+	if not (anchorIndex and usable(anchorIndex)) then
+		anchorIndex = nil
+		if usable(0) then
+			anchorIndex = 0
+		else
+			for i = 1, NUM_OBJECT_STRUCTS - 1 do
+				if usable(i) then
+					anchorIndex = i
+					break
+				end
+			end
+		end
+	end
+
+	local anchorTileX, anchorTileY, anchorPx, anchorPy = nil, nil, nil, nil
+	if anchorIndex then
+		local base = OBJECT_STRUCTS + anchorIndex * OBJECT_LENGTH
+		anchorTileX, anchorTileY = u8(base + F_MAP_X), u8(base + F_MAP_Y)
+		anchorPx, anchorPy = u8(base + F_SPRITE_X) or 0, u8(base + F_SPRITE_Y) or 0
+	end
+	-- The engine's sprite space and the screen differ by a constant this frame; the player's own
+	-- OAM entry gives it, and it is valid whether or not the PLAYER is the anchor.
+	-- THE CORNER, not entry 0. A character occupies four OAM entries in a 2x2, and which one the
+	-- engine writes first is not stable -- it swaps with facing, because a flipped sprite is
+	-- emitted in the mirrored order. Reading entry 0 therefore gives an x that alternates by 8 px
+	-- as the player turns, and every drawn peer inherited that: measured as 37 jumps of exactly
+	-- +/-8 px in a 20-second walk, which survived two other fixes because neither was the cause.
+	-- The minimum across the four is the character's top-left corner, which does not care about
+	-- ordering or flips.
+	local playerOamX, playerOamY = 255, 255
+	for i = 0, 3 do
+		local y = memory.read_u8(i * 4, "OAM") or 255
+		local x = memory.read_u8(i * 4 + 1, "OAM") or 255
+		if y < playerOamY then playerOamY = y end
+		if x < playerOamX then playerOamX = x end
+	end
 	local calX = (playerOamX - 8) - (u8(OBJECT_STRUCTS + F_SPRITE_X) or 0)
 	local calY = (playerOamY - 16) - (u8(OBJECT_STRUCTS + F_SPRITE_Y) or 0)
+	if anchorTileX then
+		-- Anchor available: screen position of its tile, then tile deltas from there.
+		anchorPx = anchorPx + calX
+		anchorPy = anchorPy + calY
+	end
 	for id, o in pairs(overflow) do
 		nWanted = nWanted + 1
 		-- Is this peer moving? Its own position changes are the only signal a drawn ghost has --
@@ -1436,11 +1500,23 @@ function drawOverflow()
 			-- above the camera comes back near 256, not negative, and reading that as "off
 			-- screen" is what left rows and columns empty. Y is +16 in this space (the player at
 			-- tile row 8 with the window at row 4 reads 80, not 64).
-			local sx, sy = screenCoords(o.x, o.y)
-			sx = sx + calX
-			sy = sy + calY
-			if sx >= 240 then sx = sx - 256 end
-			if sy >= 240 then sy = sy - 256 end
+			local sx, sy
+			if anchorTileX then
+				-- Tile deltas from a standing character: no scroll arithmetic, so nothing to be
+				-- out of date. Signed on purpose -- a peer left of or above the anchor is a
+				-- negative delta, not a wrapped one.
+				sx = anchorPx + (o.x - anchorTileX) * 16
+				sy = anchorPy + (o.y - anchorTileY) * 16
+			else
+				-- Nobody is standing still this frame (an empty map while the player walks).
+				-- Fall back to the engine-space computation, which is right at rest and drifts by
+				-- at most a tile mid-step -- better than not drawing at all.
+				sx, sy = screenCoords(o.x, o.y)
+				sx = sx + calX
+				sy = sy + calY
+				if sx >= 240 then sx = sx - 256 end
+				if sy >= 240 then sy = sy - 256 end
+			end
 			local onScreen = sx > -16 and sx < 160 and sy > -16 and sy < 144
 			if not onScreen then
 				nOffScreen = nOffScreen + 1
@@ -2113,6 +2189,7 @@ local function tick()
 			-- computed against the OLD map's camera. Clear them too: a peer still on this map
 			-- re-registers on its next state, which is at most a frame away.
 			overflow = {}
+			anchorIndex = nil -- the object array is rebuilt; last map's anchor means nothing
 		end
 		lastArea = area
 	end
