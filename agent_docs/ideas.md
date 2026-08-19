@@ -1393,6 +1393,21 @@ collision — and peers past the cap still *exist* on screen instead of vanishin
   - **Menus and text boxes: easy, and cheap.** Those are game *states*, not geometry — the adapter
     already reads the equivalent for its send gate. Hide every drawn ghost while one is open and
     the whole class disappears. No pixel reasoning involved.
+  - **Better than hiding: clip by REGION** (the user's refinement, 2026-08-19). A text box sits at
+    the bottom, a menu down the right — so do not draw into that rectangle and keep drawing
+    everywhere else, instead of blanking every peer whenever anyone reads a sign.
+    **Where the rectangle comes from is not settled**, and two candidates were probed live:
+    - *The Game Boy's own window layer* (`LCDC` bit 5, `WY` at `0xFF4A`, `WX` at `0xFF4B`) looked
+      ideal — the hardware stating where overlaid UI is, for free. **It is not usable as-is**:
+      Crystal leaves the window enabled and parks `WY` at 144, one row below the screen, and
+      opening the start menu drove `WY` to 0 (the whole screen) for about a second before it
+      returned to 144 while the menu was still open. So the register tracks a transition, not the
+      panel — clipping on it would blank the screen for a moment and then stop working.
+    - *The game's own menu rectangle*, `wMenuBorderTopCoord`/`Left`/`Bottom`/`Right`
+      (`00:cf82`–`cf85`, tile coordinates, from our hash-verified `pokecrystal` build). Read
+      `0,0,0,0` in the one sample taken, with no box confirmed open at that moment, so this is
+      **unresolved rather than refuted** — it needs a probe watched across a box that is
+      definitely open (talk to an NPC, open the pack) before anyone builds on it.
   - **Scenery: harder, but the hardware carries the answer.** On the Game Boy Color each
     background tile has an attribute byte in VRAM bank 1, and one bit of it means *this tile draws
     in front of sprites*. A drawn ghost could read the attribute at the tile it occupies and skip
