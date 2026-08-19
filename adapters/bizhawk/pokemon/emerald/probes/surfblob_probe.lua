@@ -56,6 +56,16 @@ local function objAddr(id) return GOBJECTEVENTS_ADDR + AVATAR_OFFSET + id * OBJE
 
 local DIRS = { [1] = "south", [2] = "north", [3] = "west", [4] = "east" }
 
+-- THE REFLECTION'S AFFINE MATRICES. A moving reflection is not a plain vertical flip: the engine
+-- sets ST_OAM_AFFINE_NORMAL on it and points it at matrix 0, or matrix 1 when the character is
+-- horizontally flipped (SetUpReflection / UpdateObjectReflectionSprite, pokeemerald
+-- src/field_effect_helpers.c:47-68 and :124-172). Nothing in the overworld source writes those
+-- two matrices, so what makes a reflection ripple is a question for measurement rather than
+-- reading -- hence this. gOamMatrices 02021BC0 (pokeemerald.map), 32 entries of four s16: a, b,
+-- c, d. For a purely horizontal squeeze only `a` moves, and the drawn width is width * 256 / a.
+local GOAMMATRICES = 0x02021bc0
+local lastMatrix = nil
+
 local logPath = ("%s/surfblob_probe_%s.log"):format(
     (debug.getinfo(1, "S").source:sub(2):match("^(.*)[/\\][^/\\]*$") or "."),
     os.date("%Y%m%d_%H%M%S"))
@@ -70,6 +80,18 @@ say("watching for a live surf blob -- surf, then face each direction")
 local lastKey = nil
 
 local function tick()
+    do
+        local m0 = string.format("%d,%d,%d,%d", rs16(GOAMMATRICES + 0), rs16(GOAMMATRICES + 2),
+            rs16(GOAMMATRICES + 4), rs16(GOAMMATRICES + 6))
+        local m1 = string.format("%d,%d,%d,%d", rs16(GOAMMATRICES + 8), rs16(GOAMMATRICES + 10),
+            rs16(GOAMMATRICES + 12), rs16(GOAMMATRICES + 14))
+        local k = m0 .. "|" .. m1
+        if k ~= lastMatrix then
+            lastMatrix = k
+            say(string.format("oamMatrix[0]=%s  oamMatrix[1]=%s", m0, m1))
+        end
+    end
+
     local objId = r8(GPLAYERAVATAR_ADDR + AVATAR_OFFSET + 0x05)
     if objId > 15 then return end
     local o = objAddr(objId)

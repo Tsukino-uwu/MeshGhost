@@ -294,6 +294,20 @@ back for want of a facing" settles the question in a way no photograph does, and
 not have seen a walk cycle regardless. Pictures remain the navigation sense (what is around me,
 what is this thing, which entry is highlighted) — and for that, the game frame is all anyone needs.
 
+**But the same blind spot makes a screenshot the RIGHT instrument for the other half.** It captures
+exactly what the drawn tier is not: the BG layers and the engine's own sprites. So when the
+question is *"what should the painted version look like here"*, photograph the engine doing it and
+measure the pixels. That is how the surfing reflection's clipping was finally pinned down
+2026-08-19: the engine's own reflection was captured at a shoreline and read row by row -- ink to
+y=103, the pond's stone lip at 104, grass below -- which gave an exact target no amount of reading
+the decompilation had produced. **Photograph the reference, count the painted one.**
+
+**Take the picture and the numbers in the SAME FRAME.** The first attempt at that comparison had a
+probe screenshot on one schedule and the adapter's log on another, seconds apart, and the two
+described different scenes -- then the difference got blamed on the player moving, who was in fact
+idle. If a dump is meant to line up with a picture, the same code takes both, one after the other,
+with no `frameadvance` between.
+
 **Two things to know about pictures, both learned the hard way:**
 
 - **One frame cannot see a blinking thing** (probes.md has the entry). Sample over time, and pick

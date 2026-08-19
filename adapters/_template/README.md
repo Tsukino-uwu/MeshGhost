@@ -665,6 +665,38 @@ Region variants, exact file names and hashes are a separate question and belong 
   probes are only findable because its README lists them; write this the moment you have more
   than two.
 
+## Hard rule: anything the player can do, anything else should be able to do
+
+**User, 2026-08-19:** *"anything the player can do, anything else should be able to do"*, and, when
+told a piece of behaviour might not be reproducible: *"it is, we just have to figure out how. the
+game is doing it on the player itself after all"*.
+
+**This is the standing answer to "the engine cannot do that for a ghost".** A ghost is a character
+the same way the player is, so the game already contains a working implementation of whatever is
+being asked for — reflections, bobbing, animation, shadows, occlusion. If it looks impossible, the
+mechanism has not been found yet; that is a statement about the search, not about the game.
+[effect-investigation.md](../../agent_docs/effect-investigation.md) is the how-to-search playbook,
+and the surf blob is the worked example: `UpdateSurfBlobFieldEffect` looked hardcoded to the player
+and turned out to read an object id out of its own sprite data, so pointing it at a ghost drives the
+whole effect for free.
+
+**Where this bites hardest is a PAINTED tier**, which has no engine behind it — so every rule the
+hardware applies for free (priority, occlusion, palette, flip) has to be found and reproduced rather
+than approximated. That is real work and it is the work; "the painted one cannot do that" is not an
+acceptable resting place.
+
+**A bandage is permitted here only under the 1:1 test.** The user, in the same conversation: *"its
+probly a bandage then, but think thats fine if we can get it to look identical to the player and
+spawned ghost. I want 1:1 after all"*. So a compensation may ship **when the result is
+indistinguishable on screen from what the player does**, and it is registered in that adapter's
+`BANDAGES.md` with what the real mechanism is and why it was not used. A bandage that merely gets
+close is still refused — see the bandage rule below.
+
+**It cuts the other way too:** a ghost should not be judged on what a player CANNOT do. The compare
+rig offsets a painted ghost sideways by a couple of tiles, which can put a surfer on grass;
+artefacts seen only there are the rig's, not the adapter's. Say so plainly rather than building a
+rule around them.
+
 ## Hard rule: reproduce the WHOLE effect — the animation and its extras
 
 **A state is not just a pose.** If the game spawns something alongside it, the ghost needs that

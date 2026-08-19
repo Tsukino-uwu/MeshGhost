@@ -1642,7 +1642,21 @@ end
 --
 -- A GLOBAL, deliberately: this chunk is at 198 of Lua's 200 locals, and a shared helper is a
 -- better use of the remaining budget than a name. Assigned before anything calls it.
-function drawRunList(runs, frameWidth, hFlip, screenX, screenY, panelRows, dim)
+-- vFlipHeight: draw the frame upside down within a box that tall, for a REFLECTION. The engine
+-- makes one by copying the sprite with ST_OAM_VFLIP (SetUpReflection, pokeemerald
+-- src/field_effect_helpers.c:47-68); this tier has no OAM to set a flip bit on, so the row index
+-- is mirrored instead. nil for everything that is not a reflection, which is everything else.
+-- xScale: squeeze or stretch the frame horizontally about its own centre, for a rippling
+-- reflection. 1.0 (or nil) for everything else.
+--
+-- keepSpans: draw ONLY inside these x ranges, keyed by absolute screen y -- the opposite of
+-- panelRows, which excludes. A reflection needs it because the engine keeps one off the land with
+-- OAM priority 3 (SetUpReflection, pokeemerald src/field_effect_helpers.c:53) and a painted tier
+-- has no priority at all: it draws on top of the finished frame, so a reflection that reaches past
+-- the shore lands on the grass. Reported on screen 2026-08-19: *"the drawn ghosts reflection,
+-- draws outside of water as well"*. nil means "no restriction", which is every other caller.
+function drawRunList(runs, frameWidth, hFlip, screenX, screenY, panelRows, dim, vFlipHeight,
+    xScale, keepSpans)
     for i = 1, #runs do
         local r = runs[i]
         local color = r.color
@@ -1654,25 +1668,50 @@ function drawRunList(runs, frameWidth, hFlip, screenX, screenY, panelRows, dim)
                 | (math.floor(((color >> 8) & 0xFF) * dim) << 8)
                 | math.floor((color & 0xFF) * dim)
         end
-        local y = screenY + r.y
+        local y = screenY + (vFlipHeight and (vFlipHeight - 1 - r.y) or r.y)
         local x1, x2 = r.x1, r.x2
         if hFlip then x1, x2 = frameWidth - 1 - r.x2, frameWidth - 1 - r.x1 end
+        if xScale then
+            -- About the CENTRE, which is what an affine sprite scales about. The run's far edge is
+            -- transformed as x2+1 and brought back, so neighbouring runs stay contiguous instead of
+            -- opening a one-pixel seam wherever the rounding of two independent edges disagrees.
+            local mid = frameWidth / 2
+            x1 = math.floor(mid + (x1 - mid) * xScale)
+            x2 = math.ceil(mid + (x2 + 1 - mid) * xScale) - 1
+            if x2 < x1 then x2 = x1 end
+        end
         local ax1, ax2 = screenX + x1, screenX + x2
 
-        -- math.floor, NOT a shift: y comes from the sub-tile smoothing and is a FLOAT, and Lua
-        -- 5.4's >> demands an integer -- "number has no integer representation" thrown once per
-        -- run, i.e. every frame, which the frame-error counter caught immediately (2026-08-19).
-        local span = panelRows and y >= 0 and panelRows[math.floor(y / 8)]
-        if span and ax2 >= span[1] and ax1 <= span[2] then
-            -- Counted, because "the clip ran" and "the clip did anything" are different claims and
-            -- only the second is evidence. Published in the status line as clipped=.
-            genderFrames.clippedRuns = (genderFrames.clippedRuns or 0) + 1
-            -- Keep whatever falls outside the panel: a run straddling the menu's left edge is
-            -- still drawn up to that edge.
-            if ax1 < span[1] then drawRun(ax1, math.min(ax2, span[1] - 1), y, color) end
-            if ax2 > span[2] then drawRun(math.max(ax1, span[2] + 1), ax2, y, color) end
-        else
-            drawRun(ax1, ax2, y, color)
+        -- A run can survive as several pieces once it is cut to the water, so the panel clip below
+        -- runs per piece. Without keepSpans there is exactly one piece and this costs one compare.
+        local pieces = keepSpans and keepSpans[math.floor(y)]
+        local nPieces = 1
+        if keepSpans then nPieces = pieces and #pieces or 0 end
+        for k = 1, nPieces do
+            local kx1, kx2 = ax1, ax2
+            if pieces then
+                local pc = pieces[k]
+                if kx1 < pc[1] then kx1 = pc[1] end
+                if kx2 > pc[2] then kx2 = pc[2] end
+            end
+            if kx1 <= kx2 then
+                -- math.floor, NOT a shift: y comes from the sub-tile smoothing and is a FLOAT, and
+                -- Lua 5.4's >> demands an integer -- "number has no integer representation" thrown
+                -- once per run, i.e. every frame, which the frame-error counter caught immediately
+                -- (2026-08-19).
+                local span = panelRows and y >= 0 and panelRows[math.floor(y / 8)]
+                if span and kx2 >= span[1] and kx1 <= span[2] then
+                    -- Counted, because "the clip ran" and "the clip did anything" are different
+                    -- claims and only the second is evidence. Published as clipped=.
+                    genderFrames.clippedRuns = (genderFrames.clippedRuns or 0) + 1
+                    -- Keep whatever falls outside the panel: a run straddling the menu's left edge
+                    -- is still drawn up to that edge.
+                    if kx1 < span[1] then drawRun(kx1, math.min(kx2, span[1] - 1), y, color) end
+                    if kx2 > span[2] then drawRun(math.max(kx1, span[2] + 1), kx2, y, color) end
+                else
+                    drawRun(kx1, kx2, y, color)
+                end
+            end
         end
     end
 end
@@ -1938,6 +1977,456 @@ end
 -- cartridge palette table is the next thing to find if it bites.
 genderFrames.peerRunCache = {}
 
+-- ONE FRAME'S PIXELS, from an explicit images pointer, size and palette slot.
+--
+-- Split out of runsForPeerGfx so the same decoder can serve things that are not object-event
+-- graphics at all, because two of them turned out to be needed the moment a peer went in the
+-- water: the SURF BLOB (a field-effect sprite template, with its own images and no graphicsId)
+-- and a REFLECTION (the very same frame, decoded once more in the reflection palette). Nothing
+-- about 4bpp tiles or run-building is specific to a character, so nothing here needed to be
+-- written twice.
+--
+-- The palette slot is part of the cache key, not just the frame: the reflection is the same
+-- pixels in different colours, and keying on the image alone would hand the first one decoded to
+-- both.
+genderFrames.runsFromImages = function(cacheKey, imagesPtr, width, height, imageIndex, paletteSlot)
+    local cached = genderFrames.peerRunCache[cacheKey]
+    if cached then return cached end
+
+    local pixels = r32(imagesPtr + imageIndex * 8)
+    if not isRomPtr(pixels) then return nil end
+
+    -- 4bpp tiles, 8x8, laid out row of tiles by row of tiles -- the same decode the gender path
+    -- uses, with the dimensions passed in rather than assumed.
+    local wTiles = width // 8
+    local pal = {}
+    for i = 0, 15 do
+        local c = r16(0x05000200 + (paletteSlot & 0x0f) * 32 + i * 2)
+        pal[i] = (0xFF << 24) | (expand5to8(c & 0x1F) << 16)
+            | (expand5to8((c >> 5) & 0x1F) << 8) | expand5to8((c >> 10) & 0x1F)
+    end
+
+    local runs = {}
+    for py = 0, height - 1 do
+        local tileRow, localY = py // 8, py % 8
+        local x = 0
+        while x < width do
+            local tileIndex = tileRow * wTiles + (x // 8)
+            local b = r8(pixels + tileIndex * 32 + localY * 4 + ((x % 8) // 2))
+            local idx = (x % 2 == 0) and (b & 0x0F) or ((b >> 4) & 0x0F)
+            if idx ~= 0 then
+                local color = pal[idx]
+                local x2 = x
+                -- Extend the run while the colour holds, exactly like the gender path.
+                while x2 + 1 < width do
+                    local ti = tileRow * wTiles + ((x2 + 1) // 8)
+                    local nb = r8(pixels + ti * 32 + localY * 4 + (((x2 + 1) % 8) // 2))
+                    local ni = ((x2 + 1) % 2 == 0) and (nb & 0x0F) or ((nb >> 4) & 0x0F)
+                    if ni == 0 or pal[ni] ~= color then break end
+                    x2 = x2 + 1
+                end
+                runs[#runs + 1] = { y = py, x1 = x, x2 = x2, color = color }
+                x = x2 + 1
+            else
+                x = x + 1
+            end
+        end
+    end
+    genderFrames.peerRunCache[cacheKey] = runs
+    return runs
+end
+
+-- Declared here rather than beside the spawn code further down, because the DRAWN tier below is
+-- the first use and a local declared later in this chunk is not in scope for an earlier function
+-- -- it compiles to a global lookup and silently reads nil. Provenance for both, and the rest of
+-- the field effect's numbers, is in the surf-blob section that spawns it.
+--   gFieldEffectObjectTemplate_SurfBlob  0850CBC4  (images at +0x0C, anims at +0x08)
+-- The blob's frames are 32x32 (documentation.md's surfing section), which is both its tile cost
+-- and, halved and negated, its centerToCornerVec.
+local GFIELDEFFECTTEMPLATE_SURFBLOB = 0x0850cbc4
+local SURFBLOB_FRAME_PX = 32
+-- gOamMatrices 02021BC0 (pokeemerald.map), 32 entries of four s16 -- a, b, c, d. Entries 0 and 1
+-- are the ones a MOVING reflection is drawn through; see reflectionXScale below. A FIELD, not a
+-- local: adding one more local here is what pushed this chunk past Lua's hard ceiling of 200 and
+-- turned the whole adapter into "too many local variables", which is a parse failure rather than
+-- a misbehaviour -- the file loads not at all.
+genderFrames.oamMatricesAddr = 0x02021bc0
+
+-- THE SURF BLOB, FOR THE TIER THAT HAS NO ENGINE TO HAND IT TO.
+--
+-- A spawned ghost gets its blob for free: build the sprite, point its data[2] at the ghost, and
+-- UpdateSurfBlobFieldEffect animates and follows it every frame. A DRAWN peer has no sprite and
+-- no object event, so the frame it would be showing has to be resolved here instead.
+--
+-- Which is one lookup, because the blob's animation table is as simple as a table gets: four
+-- animations, one frame each, one per facing (pokeemerald src/data/field_effects/
+-- field_effect_objects.h:179-209 -- sSurfBlobAnim_FaceSouth/North/West/East, holding images
+-- 0, 1, 2 and 2-with-hFlip). So animNum is the facing minus one, in DIR_* order
+-- (DIR_SOUTH 1, DIR_NORTH 2, DIR_WEST 3, DIR_EAST 4 -- include/constants/global.h), and east is
+-- west mirrored. CONFIRMED LIVE as well as read: probes/surfblob_probe.lua watched the game's own
+-- blob report anim 0 / image 0 while the player faced south, 2026-08-19.
+--
+-- The images pointer is read from the template in ROM rather than written down, so it stays
+-- correct on a build where the data moved; the palette slot is read off the game's own blob
+-- (measured 0, the same probe).
+-- Fields on genderFrames rather than new locals: this chunk sits one or two names below Lua's
+-- hard ceiling of 200 locals per function, past which the script does not misbehave, it fails to
+-- parse. Same reason the tiering table exists.
+genderFrames.blobPaletteSlot = 0
+-- The reverse of FACING, so a peer's orientation string picks the blob's animation.
+genderFrames.dirOf = { south = 1, north = 2, west = 3, east = 4 }
+genderFrames.blobDirImage = { [1] = 0, [2] = 1, [3] = 2, [4] = 2 }
+
+genderFrames.runsForSurfBlob = function(facing)
+    local imageIndex = genderFrames.blobDirImage[facing or 1] or 0
+    local images = r32(GFIELDEFFECTTEMPLATE_SURFBLOB + 0x0c)
+    if not isRomPtr(images) then return nil end
+    local runs = genderFrames.runsFromImages(
+        string.format("blob:%d", imageIndex), images,
+        SURFBLOB_FRAME_PX, SURFBLOB_FRAME_PX, imageIndex, genderFrames.blobPaletteSlot)
+    -- East is the west frame mirrored, which is the flag the anim command carries.
+    return runs, (facing == 4)
+end
+
+-- A REFLECTION IN THE WATER, likewise.
+--
+-- The engine makes one by COPYING the sprite (SetUpReflection, pokeemerald
+-- src/field_effect_helpers.c:47-68): same tiles, same shape, vertically flipped, priority 3 and
+-- subpriority 152 so it sits behind everything, and -- the part that makes it read as a
+-- reflection rather than an upside-down character -- a DIFFERENT palette, gReflectionEffectPaletteMap
+-- (src/event_object_movement.c:182). Its vertical offset is the graphic's own height minus two
+-- (GetReflectionVerticalOffset, :70-73), and its y2 is the main sprite's negated (:145).
+--
+-- So the drawn tier needs the same frame decoded a second time in the mapped palette, and drawn
+-- flipped at +height-2. No approximation is involved anywhere in that, which matters: an
+-- invented reflection is exactly the kind of lookalike that never converges (pitfalls.md,
+-- "Approximating the game's own art never converges").
+-- THE RIPPLE, WHICH IS THE HALF OF A REFLECTION THAT IS NOT A FLIP.
+--
+-- A moving reflection is not drawn as a plain vertical flip: SetUpReflection sets
+-- ST_OAM_AFFINE_NORMAL on it and points it at OAM matrix 0, or matrix 1 when the character itself
+-- is horizontally flipped (pokeemerald src/field_effect_helpers.c:66-68 and :158-166). Nothing in
+-- the overworld source writes those two matrices, so what they DO was measured rather than read --
+-- probes/surfblob_probe.lua, 2026-08-19, watching them while the player surfed:
+--
+--   oamMatrix[0] = 256,0,0,-256 -> 260,... -> 252,... -> 256,...   one step per frame
+--   oamMatrix[1] = the same with `a` negated -- that is the horizontal flip, nothing more
+--
+-- So `d` is a constant -256 (the vertical flip, which this tier does by mirroring the row index)
+-- and `a` is a triangle wave between 252 and 260. On an affine sprite the texture is stepped by
+-- `a`, so the DRAWN width is width * 256 / a: about a pixel of total width, breathing in and out
+-- once a second or so. That is the *"left/right shrink thing"*.
+--
+-- Read live rather than reproduced from those numbers, because the game already computes it and a
+-- reconstruction would have its own phase to keep in step -- the failure this adapter has hit more
+-- than any other. The magnitude is taken from entry 0: entry 1 differs only in the sign that this
+-- tier already expresses through hFlip.
+genderFrames.reflectionXScale = function()
+    local a = rs16(genderFrames.oamMatricesAddr)
+    if a == 0 then return 1.0 end
+    return 256.0 / math.abs(a)
+end
+
+-- Forward-declared here and filled in further down, the same pattern the surf-blob helpers use:
+-- the reflection mask below needs the tier anchors, and a local declared LATER in this chunk is
+-- not in scope for an earlier function -- it silently compiles to a global read of nil. Declaring
+-- it here rather than moving the table costs no extra local, which matters at the 200 ceiling.
+local tiering
+
+-- WHERE A REFLECTION MAY BE PAINTED -- which is a question about DEPTH, not about water.
+--
+-- The first version of this clipped to reflective water tiles and was wrong in the way the user
+-- named exactly: *"its supposed to go under the edge but still draw, but not get drawn on top of
+-- the grass"*. A reflection is not clipped to the pond; it is a sprite at OAM priority 3
+-- (SetUpReflection, pokeemerald src/field_effect_helpers.c:53) and the map covers it or does not.
+--
+-- Which the map decides per metatile, through its LAYER TYPE (field_camera.c's DrawMetatile,
+-- :255-300 -- and the game's own comment on the NORMAL case says it outright, "which covers object
+-- event sprites"):
+--
+--   NORMAL  (0)  ground -> BG2, top -> BG1.  BG2 is ABOVE a priority-3 sprite, so grass, sand and
+--                ordinary ground HIDE a reflection completely. This is the case that was painting
+--                over the grass.
+--   COVERED (1)  ground -> BG3, top -> BG2.  BG3 is BELOW the sprite, so the reflection shows,
+--                and the top layer on BG2 covers whatever part of it the edge art occupies --
+--                which is precisely "goes under the edge but still draws".
+--   SPLIT   (2)  ground -> BG3, top -> BG1.  Same story for the part that matters here.
+--
+-- So the test is "is this tile's ground drawn on the bottom layer", i.e. layer type is not NORMAL.
+-- Water tiles are COVERED/SPLIT (that is what lets a surfing character be drawn over them at all),
+-- so this keeps every case the water test got right and fixes the shore.
+--
+--   attributes: behaviour = bits 0-7, layer type = bits 12-15 (include/global.fieldmap.h:39-47)
+-- WHICH PIXELS OF A METATILE COVER A SPRITE -- a 16-row bitmask, decoded once per metatile.
+--
+-- Tile-granular was not enough, and the shore is where it shows: clipping whole 16px cells kept
+-- the reflection over the grass half of the pond's border tiles -- *"its still trying to draw
+-- outside the water on the grass at the side"*. The engine has no such granularity problem
+-- because it is not clipping at all; the BG simply covers the sprite pixel by pixel. So this
+-- asks the same question per pixel.
+--
+-- Which layers cover a priority-3 reflection is decided by the metatile's LAYER TYPE, because
+-- that is what chooses the BG each layer is drawn on (DrawMetatile, pokeemerald
+-- src/field_camera.c:255-300) and the overworld gives BG1 priority 1, BG2 priority 2 and BG3
+-- priority 3 (sOverworldBgTemplates, src/overworld.c:266-303 -- and read back live from BG1CNT/
+-- BG2CNT/BG3CNT to be sure). A sprite at priority 3 loses to BG1 and BG2 and WINS against BG3,
+-- since OBJ takes ties.
+--
+--   NORMAL  (0)  ground -> BG2, top -> BG1.  BOTH cover. Grass hides a reflection completely.
+--   COVERED (1)  ground -> BG3, top -> BG2.  Only the top layer covers -- the pond's stone lip.
+--   SPLIT   (2)  ground -> BG3, top -> BG1.  Only the top layer covers.
+--
+-- A metatile is 8 tilemap entries: four for the bottom layer then four for the top, each 2x2 in
+-- reading order, and each carrying a tile index plus the two flip bits (struct Tileset.metatiles
+-- at +0x0C, include/global.fieldmap.h:64-73; NUM_TILES_PER_METATILE 8, NUM_TILES_IN_PRIMARY 512).
+-- The pixels come from VRAM rather than the tileset's own `tiles` pointer, because that data is
+-- usually COMPRESSED in ROM while VRAM always holds it decompressed and ready -- confirmed
+-- readable first, with probes/bgread_probe.lua, since this project has a recorded case of a VRAM
+-- region reading back as all zeros and that answer looks like a finding.
+--
+-- Decoded once per metatile and cached; the cache is dropped when the map layout changes.
+genderFrames.coverCache = {}
+genderFrames.coverLayout = nil
+
+genderFrames.coverMask = function(metatileId)
+    local cached = genderFrames.coverCache[metatileId]
+    if cached ~= nil then return cached end
+
+    local layout = r32(0x02037318)
+    local tileset, index
+    if metatileId < 512 then
+        tileset, index = r32(layout + 0x10), metatileId
+    else
+        tileset, index = r32(layout + 0x14), metatileId - 512
+    end
+    if tileset == 0 then genderFrames.coverCache[metatileId] = false return false end
+    local metatiles = r32(tileset + 0x0c)
+    local attrs = r32(tileset + 0x10)
+    if metatiles == 0 or attrs == 0 then
+        genderFrames.coverCache[metatileId] = false
+        return false
+    end
+    local layerType = (r16(attrs + index * 2) >> 12) & 0x0f
+
+    local rows = {}
+    for i = 0, 15 do rows[i] = 0 end
+    -- The top layer always covers; on a NORMAL metatile the ground does as well.
+    for _, lay in ipairs(layerType == 0 and { 0, 4 } or { 4 }) do
+        for quad = 0, 3 do
+            local e = r16(metatiles + (index * 8 + lay + quad) * 2)
+            local tileIndex = e & 0x03ff
+            local hflip, vflip = (e & 0x0400) ~= 0, (e & 0x0800) ~= 0
+            local ox, oy = (quad % 2) * 8, (quad // 2) * 8
+            for py = 0, 7 do
+                local sy = vflip and (7 - py) or py
+                local w0 = r16(0x06000000 + tileIndex * 32 + sy * 4)
+                local w1 = r16(0x06000000 + tileIndex * 32 + sy * 4 + 2)
+                local row = rows[oy + py]
+                for px = 0, 7 do
+                    local sx = hflip and (7 - px) or px
+                    -- A 4bpp tile row is FOUR bytes for EIGHT pixels, so the byte holding pixel
+                    -- sx is sx // 2 -- not sx. Indexing by the pixel read every second byte and
+                    -- called the odd pixels transparent, which would have punched holes through
+                    -- half of every covering tile.
+                    local bi = sx // 2
+                    local byte
+                    if bi < 2 then byte = (w0 >> (bi * 8)) & 0xff
+                    else byte = (w1 >> ((bi - 2) * 8)) & 0xff end
+                    -- Two pixels per byte, low nibble first.
+                    local v = (sx % 2 == 0) and (byte & 0x0f) or ((byte >> 4) & 0x0f)
+                    if v ~= 0 then row = row | (1 << (ox + px)) end
+                end
+                rows[oy + py] = row
+            end
+        end
+    end
+    genderFrames.coverCache[metatileId] = rows
+    return rows
+end
+
+-- The metatile id at a grid coordinate, and the cache guard that goes with it.
+genderFrames.metatileAt = function(x, y)
+    local width = memory.read_s32_le(0x03005dc0)
+    local map = r32(0x03005dc0 + 0x08)
+    if map == 0 or width <= 0 then return nil end
+    local height = memory.read_s32_le(0x03005dc0 + 0x04)
+    if x < 0 or y < 0 or x >= width or y >= height then return nil end
+    return r16(map + (x + width * y) * 2) & 0x03ff
+end
+
+-- Whether a peer HAS a reflection at all is the separate question, and the engine answers it from
+-- the metatile behaviour below the character -- ObjectEventGetNearbyReflectionType
+-- (src/event_object_movement.c:7625-7650) scans downward from currentCoords.y + 1 --
+-- against MetatileBehavior_IsReflective (src/metatile_behavior.c:199-210), a short fixed list.
+-- Note what is NOT on it: MB_OCEAN_WATER. The sea does not reflect in this game, so a peer surfing
+-- at sea correctly gets nothing, and drawing one there was our invention.
+--   MB_POND_WATER 16, MB_SOOTOPOLIS_DEEP_WATER 20, MB_PUDDLE 22,
+--   MB_UNUSED_SOOTOPOLIS_DEEP_WATER_2 26, MB_ICE 32, MB_REFLECTION_UNDER_BRIDGE 43
+--   (include/constants/metatile_behaviors.h, enum from 0 -- cross-checked against the two values
+--   this repo already had measured, MB_POND_WATER 16 and MB_OCEAN_WATER 21.)
+genderFrames.reflectiveBehaviour = {
+    [16] = true, [20] = true, [22] = true, [26] = true, [32] = true, [43] = true,
+}
+
+-- THE ENGINE'S SCAN, and it is wider than one tile in both senses.
+--
+-- ObjectEventGetNearbyReflectionType (src/event_object_movement.c:7625-7650) walks a region
+-- (info->width + 8) >> 4 tiles across and (info->height + 8) >> 4 down, starting one row BELOW the
+-- character, and it does so around the PREVIOUS coordinates as well as the current ones.
+--
+-- Both parts matter, and the second is what a first reading loses. Because previousCoords is
+-- included, a character stepping off the water keeps its reflection for the whole of that step --
+-- so the reflection slides along under the bank and is eaten by the land pixels covering it,
+-- rather than blinking out the instant the tile beneath changes. The user, watching a drawn ghost
+-- with only the current tile tested: *"for the player it kinda glides and smoothly goes away, for
+-- the drawn ghost the reflection just cuts and gets removed"*.
+--
+-- Coordinates are grid coordinates (map + MAP_OFFSET); prev may be nil, which just means the scan
+-- is done once.
+genderFrames.hasReflection = function(x, y, px, py, w, h)
+    for i = 0, (h or 2) - 1 do
+        for pass = 1, (px and 2 or 1) do
+            local cx, cy = x, y
+            if pass == 2 then cx, cy = px, py end
+            for j = 0, (w or 2) - 1 do
+                -- j = 0 is the character's own column; past that the engine checks both sides.
+                for _, dx in ipairs(j == 0 and { 0 } or { j, -j }) do
+                    local attr = genderFrames.attrAt(cx + dx, cy + 1 + i)
+                    if attr and genderFrames.reflectiveBehaviour[attr & 0xff] then
+                        return true
+                    end
+                end
+            end
+        end
+    end
+    return false
+end
+
+-- The metatile ATTRIBUTES at a map coordinate: the map grid gives a metatile id, and which of the
+-- two loaded tilesets owns it decides where its attributes live. Same reads as
+-- probes/watertile.lua, which measured them.
+--   gBackupMapLayout 03005DC0 { s32 width 0x00, s32 height 0x04, u16 *map 0x08 }
+--   gMapHeader       02037318 -> mapLayout 0x00 -> primary 0x10, secondary 0x14, attributes 0x10
+--   MAPGRID_METATILE_ID_MASK 0x03FF, primary metatile count 512
+genderFrames.attrAt = function(x, y)
+    local width = memory.read_s32_le(0x03005dc0)
+    local map = r32(0x03005dc0 + 0x08)
+    if map == 0 or width <= 0 then return nil end
+    local height = memory.read_s32_le(0x03005dc0 + 0x04)
+    if x < 0 or y < 0 or x >= width or y >= height then return nil end
+    local metatileId = r16(map + (x + width * y) * 2) & 0x03ff
+    local layout = r32(0x02037318)
+    if layout == 0 then return nil end
+    local tileset, index
+    if metatileId < 512 then
+        tileset, index = r32(layout + 0x10), metatileId
+    else
+        tileset, index = r32(layout + 0x14), metatileId - 512
+    end
+    if tileset == 0 then return nil end
+    local attrs = r32(tileset + 0x10)
+    if attrs == 0 then return nil end
+    return r16(attrs + index * 2)
+end
+
+-- The x ranges, per screen row, a reflection may be painted in -- nil for "cannot tell right now",
+-- an empty list for "all of this is covered".
+--
+-- Screen pixel to map tile is the exact INVERSE of the placement this tier already uses
+-- (`originX + (mapX - anchorX) * TILE + camPix`), so it needs no new assumption about the camera.
+-- The one correction is that the placement maps a map coordinate to the FRAME's top-left while the
+-- character stands on the frame's bottom tile, hence the FRAME_HEIGHT_PX - TILE term.
+--
+-- Nine tile lookups at most, not one per pixel: the tiles under a 32x32 frame are a 3x3 grid at
+-- worst, so the attributes are read once and the pixel ranges come out of arithmetic. A per-pixel
+-- version would be ~1000 reads a frame, which is the read budget this file keeps warning about
+-- (_template/probes.md).
+-- The screen->grid origin, shared by everything that asks where a painted thing is standing.
+genderFrames.gridBase = function()
+    local ax, ox = tiering.anchorX, tiering.originXStill
+    local ay, oy = tiering.anchorY, tiering.originYStill
+    if not (ax and ox and ay and oy) then return nil end
+    return ox + rs16(GTOTALCAMERAPIXELOFFSETX_ADDR) - (ax + MAP_OFFSET) * TILE,
+        oy + rs16(GTOTALCAMERAPIXELOFFSETY_ADDR) + (FRAME_HEIGHT_PX - TILE)
+            - (ay + MAP_OFFSET) * TILE
+end
+
+genderFrames.reflectiveSpans = function(left, top, width, height)
+    -- THE GRID MUST NOT BOB.
+    --
+    -- The first version derived it from the tier's own anchors (originY, captured from
+    -- playerScreenY). That reads the player's sprite position -- which INCLUDES pos2, and while
+    -- anyone is surfing pos2 is the bob. So the entire tile grid bobbed up and down with the
+    -- player by a few pixels, and the reflection was cut two or three rows early: measured
+    -- 2026-08-19, ink 90..109 with the mask keeping only 90..101, where the engine's own ink ran
+    -- to 103 and was covered by the pond's stone lip from 104.
+    --
+    -- The self-check that was supposed to catch a bad grid could not: it ran the PLAYER's own
+    -- frame position through the same inverse, so both sides carried the same bias and agreed
+    -- perfectly. A consistency check between two things sharing an input proves they share it.
+    --
+    -- So it uses the still copy of the origin captured beside the anchor. Everything else is the
+    -- same inverse as before, with MAP_OFFSET folded in so ty and tx come out in the GRID
+    -- coordinates the attribute lookups take.
+    local baseX, baseY = genderFrames.gridBase()
+    if not baseX then return nil end
+    local txMin = math.floor((left - baseX) / TILE)
+    local txMax = math.floor((left + width - 1 - baseX) / TILE)
+    local tyMin = math.floor((top - baseY) / TILE)
+    local tyMax = math.floor((top + height - 1 - baseY) / TILE)
+
+    -- Drop the decoded masks when the map changes -- a new layout means new tilesets, and a
+    -- metatile id means something else entirely under them.
+    local layout = r32(0x02037318)
+    if layout == 0 then return nil end
+    if genderFrames.coverLayout ~= layout then
+        genderFrames.coverCache, genderFrames.coverLayout = {}, layout
+    end
+
+    local gxMin = math.floor((left - baseX) / TILE)
+    local gxMax = math.floor((left + width - 1 - baseX) / TILE)
+    local spans = {}
+    for py = math.floor(top), math.floor(top) + height - 1 do
+        local gy = math.floor((py - baseY) / TILE)
+        local inTile = py - baseY - gy * TILE
+        local list, openFrom = {}, nil
+        for gx = gxMin, gxMax do
+            local id = genderFrames.metatileAt(gx, gy)
+            local mask = id and genderFrames.coverMask(id)
+            -- Off the map, or a metatile we could not decode: treat it as covering, so an unknown
+            -- never becomes a reason to paint somewhere.
+            -- mask == true means "this metatile covers everywhere" (see coverMask); a table is
+            -- the per-pixel case; nil or false means we could not read it, and an unknown never
+            -- becomes a reason to paint.
+            local rowBits = 0xffff
+            if type(mask) == "table" then rowBits = mask[inTile] or 0xffff end
+            local tileLeft = baseX + gx * TILE
+            for bx = 0, TILE - 1 do
+                if (rowBits >> bx) & 1 == 0 then
+                    if not openFrom then openFrom = tileLeft + bx end
+                elseif openFrom then
+                    list[#list + 1] = { openFrom, tileLeft + bx - 1 }
+                    openFrom = nil
+                end
+            end
+        end
+        if openFrom then
+            list[#list + 1] = { openFrom, baseX + (gxMax + 1) * TILE - 1 }
+        end
+        spans[py] = list
+    end
+    return spans
+end
+
+genderFrames.reflectionPalette = {
+    -- Every entry from the game's own table, so a graphic that lives in an NPC slot reflects
+    -- correctly too rather than borrowing the player's colours. The reflection slots map to
+    -- themselves, which is what makes a reflection of a reflection harmless.
+    [0] = 1, [1] = 1, [2] = 6, [3] = 7, [4] = 8, [5] = 9,
+    [6] = 6, [7] = 7, [8] = 8, [9] = 9, [10] = 11, [11] = 11,
+}
+
+
 genderFrames.runsForPeerGfx = function(gfx, animNum, animIdx)
     local info = graphicsInfo(gfx)
     if not info or info.anims == 0 or info.images == 0 then return nil end
@@ -1954,51 +2443,14 @@ genderFrames.runsForPeerGfx = function(gfx, animNum, animIdx)
         return nil
     end
 
-    local key = string.format("%d:%d", gfx, imageIndex)
-    local cached = genderFrames.peerRunCache[key]
-    if cached then return cached, info, hFlip end
-
-    local pixels = r32(info.images + imageIndex * 8)
-    if not isRomPtr(pixels) then return nil end
-
-    -- 4bpp tiles, 8x8, laid out row of tiles by row of tiles -- the same decode the gender path
-    -- uses, with the dimensions taken from the graphic instead of assumed.
-    local wTiles, hTiles = info.width // 8, info.height // 8
-    local pal = {}
-    for i = 0, 15 do
-        local c = r16(0x05000200 + (info.paletteSlot & 0x0f) * 32 + i * 2)
-        pal[i] = (0xFF << 24) | (expand5to8(c & 0x1F) << 16)
-            | (expand5to8((c >> 5) & 0x1F) << 8) | expand5to8((c >> 10) & 0x1F)
-    end
-
-    local runs = {}
-    for py = 0, info.height - 1 do
-        local tileRow, localY = py // 8, py % 8
-        local x = 0
-        while x < info.width do
-            local tileIndex = tileRow * wTiles + (x // 8)
-            local b = r8(pixels + tileIndex * 32 + localY * 4 + ((x % 8) // 2))
-            local idx = (x % 2 == 0) and (b & 0x0F) or ((b >> 4) & 0x0F)
-            if idx ~= 0 then
-                local color = pal[idx]
-                local x2 = x
-                -- Extend the run while the colour holds, exactly like the gender path.
-                while x2 + 1 < info.width do
-                    local ti = tileRow * wTiles + ((x2 + 1) // 8)
-                    local nb = r8(pixels + ti * 32 + localY * 4 + (((x2 + 1) % 8) // 2))
-                    local ni = ((x2 + 1) % 2 == 0) and (nb & 0x0F) or ((nb >> 4) & 0x0F)
-                    if ni == 0 or pal[ni] ~= color then break end
-                    x2 = x2 + 1
-                end
-                runs[#runs + 1] = { y = py, x1 = x, x2 = x2, color = color }
-                x = x2 + 1
-            else
-                x = x + 1
-            end
-        end
-    end
-    genderFrames.peerRunCache[key] = runs
-    return runs, info, hFlip
+    local runs = genderFrames.runsFromImages(
+        string.format("g%d:%d", gfx, imageIndex), info.images, info.width, info.height,
+        imageIndex, info.paletteSlot)
+    if not runs then return nil end
+    -- The image index comes back too: a reflection is this exact frame in another palette, and
+    -- resolving it twice invites the two halves disagreeing about which frame they describe --
+    -- the defect shape this adapter has hit more than any other.
+    return runs, info, hFlip, imageIndex
 end
 
 -- GetMapCoordsFromSpritePos (event_object_movement.c:4793) plus TrySetupObjectEventSprite's own
@@ -2264,7 +2716,7 @@ end
 --                   different spots), so budgeting against the CURRENT count would hand out slots
 --                   that the engine wants back two steps later. The running maximum is the
 --                   honest budget: it only ever gives away slots the map has never needed.
-local tiering = {
+tiering = {
     blockedFrame = nil,
     lastLogFrame = nil,
     drawn = MESHGHOST_EMERALD_DRAWN_OVERFLOW or os.getenv("MESHGHOST_EMERALD_DRAWN_OVERFLOW"),
@@ -2624,13 +3076,9 @@ end
 -- Its data slots (field_effect_helpers.c:990): data[0] bob state, data[2] object event id,
 -- data[3] velocity, data[6]/data[7] previous x/y. FldEff_SurfBlob seeds velocity and prev to -1,
 -- sets coordOffsetEnabled, palette 0 and subpriority 150 -- all reproduced below.
-local GFIELDEFFECTTEMPLATE_SURFBLOB = 0x0850cbc4
 local UPDATESURFBLOBFIELDEFFECT_CB = 0x08155658 + 1
 local BOB_PLAYER_AND_MON = 1
 local SURFBLOB_SUBPRIORITY = 150
--- The blob's frames are 32x32 (documentation.md's surfing section), which is both its tile cost
--- and, halved and negated, its centerToCornerVec.
-local SURFBLOB_FRAME_PX = 32
 
 -- Which graphics ids ride a blob. Surfing only: underwater uses a different mechanism
 -- (StartUnderwaterSurfBlobBobbing on the player's own sprite), and is not handled here.
@@ -3679,11 +4127,20 @@ local function drawRemotes(localAreaId, playerMapX, playerMapY, skipSpawned, com
         end
         local settled = (tiering.tileStill or 0) >= 4
         local fresh = tiering.anchorX == nil or tiering.anchorArea ~= localAreaId
+        -- playerScreenY READS pos2, which while anyone is surfing is the BOB. Anything that wants
+        -- a fixed tile grid has to have that term removed, or the grid rises and falls with the
+        -- character a few pixels at a time -- which is what cut the drawn reflection two or three
+        -- rows early. Captured here, at the same moment as the anchor it belongs to, because pos2
+        -- is only knowable then; the bobbing copy is left exactly as it was, since placing a ghost
+        -- against the player's actual sprite is what it is for.
+        local pspr = sprAddr(r8(GPLAYERAVATAR_ADDR + avatarAddrOffset + 0x04))
         if fresh or (settled and camX % 16 == 0) then
             tiering.anchorX, tiering.originX = tx + camX / 16, playerScreenX
+            tiering.originXStill = playerScreenX - rs16(pspr + 0x24)
         end
         if fresh or (settled and camY % 16 == 0) then
             tiering.anchorY, tiering.originY = ty + camY / 16, playerScreenY
+            tiering.originYStill = playerScreenY - rs16(pspr + 0x26)
         end
         tiering.anchorArea = localAreaId
         playerMapX = tiering.anchorX - camX / 16
@@ -3871,7 +4328,7 @@ local function drawRemotes(localAreaId, playerMapX, playerMapY, skipSpawned, com
                 -- ordinary case keeps the cached gender path and costs nothing extra.
                 local drew = false
                 if PEER_GFX_ENABLED and remote.gfx and remote.gfx ~= 0 and remote.sanim then
-                    local runs, info, gfxFlip =
+                    local runs, info, gfxFlip, imgIdx =
                         genderFrames.runsForPeerGfx(remote.gfx, remote.sanim, remote.sidx)
                     if runs and info then
                         -- CENTRE IT LIKE THE ENGINE DOES. A fishing or biking frame is 32 wide
@@ -3899,6 +4356,131 @@ local function drawRemotes(localAreaId, playerMapX, playerMapY, skipSpawned, com
                                 remote.sidx, remote.orientation == "west")
                             cx, cy = cx + fx2, cy + fy2
                         end
+
+                        -- BEHIND THE CHARACTER, IN PAINT ORDER: the engine expresses depth with
+                        -- priority and subpriority, and this tier has neither -- what it has is
+                        -- the order the calls are made in. Reflection first (priority 3,
+                        -- subpriority 152), then the blob (150), then the rider. Getting this
+                        -- backwards would put a reflection over the character that casts it.
+
+                        -- THE REFLECTION IN THE WATER. The same frame, decoded once more in the
+                        -- mapped palette, drawn upside down height-2 pixels lower --
+                        -- SetUpReflection and GetReflectionVerticalOffset, cited where
+                        -- reflectionPalette is defined. Only while the peer is SURFING: a peer
+                        -- standing beside water is reflected too, but whether a given tile
+                        -- reflects is a property of the tile the peer is on, and this tier does
+                        -- not look that up yet. Surfing is the case that is certain -- you cannot
+                        -- surf anywhere else -- and it is the one that was reported.
+                        if SURFING_GFX[remote.gfx] then
+                            -- THE BOB, WHICH IS ONE TERM AND EXPLAINS TWO SYMPTOMS.
+                            --
+                            -- A surf blob set to BOB_PLAYER_AND_MON moves its RIDER's pos2 as
+                            -- well as its own -- measured equal on the same frame, `blob.pos2=0,-3
+                            -- | rider.pos2=0,-3` (probes/surfblob_probe.lua) -- and the engine
+                            -- gives the reflection the NEGATED value (`y2 = -mainSprite->y2`,
+                            -- pokeemerald src/field_effect_helpers.c:145). So the gap between a
+                            -- character and its reflection is not the vertical offset alone, it is
+                            -- that offset MINUS TWICE the bob: they separate as the rider rises
+                            -- and close as it falls.
+                            --
+                            -- Leaving the term out therefore drew the reflection both slightly
+                            -- too high AND perfectly still -- *"the reflection is slightly
+                            -- offset/does not wobble"*, which reads as two faults and is one.
+                            --
+                            -- Where the bob comes from depends on which position this tier is
+                            -- painting at. A pinned copy takes it from the spawned sprite, where
+                            -- the engine has already applied it; an overflow peer has no spawned
+                            -- counterpart, so its own sample carries it and the rider (and its
+                            -- blob, which bobs by the same amount) is shifted here to match.
+                            local bob = pinned and pinnedArc or (remote.soy or 0)
+                            if not pinned then cy = cy + bob end
+
+                            -- DOES THIS GHOST HAVE A REFLECTION AT ALL -- the engine's own test,
+                            -- on the tiles below the character rather than the one it is on.
+                            --
+                            -- ASKED WHERE THE GHOST IS DRAWN, not where the peer is, and that
+                            -- distinction is the whole of the last bug. In compare mode the
+                            -- painted copy is deliberately offset a couple of tiles from the peer,
+                            -- so a peer out on a pond has its drawn twin standing on the grass
+                            -- beside it -- and the gate, asked about the PEER, happily authorised a
+                            -- reflection there. It then showed wherever the bank's art happened to
+                            -- live in the bottom layer, which reads as *"still showing a bit
+                            -- outside the water"*.
+                            --
+                            -- What settled it was moving the SPAWNED ghost onto that same grass and
+                            -- photographing it (a spawned ghost is engine-drawn, so a screenshot
+                            -- sees it): the engine gave it no reflection at all. Not a clipped one
+                            -- -- none. `hasReflection` is false off reflective ground, so the
+                            -- sprite is never created.
+                            local gbX, gbY = genderFrames.gridBase()
+                            local rpal
+                            if gbX then
+                                local ggx = math.floor((screenX - gbX) / TILE)
+                                local ggy = math.floor((screenY - bob + TILE - gbY) / TILE)
+                                -- The previous tile this ghost stood on -- this tier's stand-in
+                                -- for the engine's previousCoords, and it EXPIRES.
+                                --
+                                -- The engine's lag lasts a movement: previousCoords is what the
+                                -- ground-effect update compares against while a step plays out,
+                                -- which is what makes a reflection slide out from under a
+                                -- character leaving the water instead of blinking off. Holding the
+                                -- previous tile indefinitely turns that into something else
+                                -- entirely -- a ghost parked at the shore keeps claiming the water
+                                -- tile it arrived from, and paints a reflection across the bank
+                                -- for as long as it stands there. Reported immediately after this
+                                -- was added: *"it draws on top of the edge as well, that sits
+                                -- between the grass/water"*.
+                                --
+                                -- So it is kept only for the length of one step. A step is 16
+                                -- frames of engine-driven movement (the walk cadence measured for
+                                -- this game), and standing still collapses previous back onto
+                                -- current, exactly as it is for a character who has stopped.
+                                tiering.lastTile = tiering.lastTile or {}
+                                local lt = tiering.lastTile[playerId]
+                                if lt and (lt[3] ~= remote.areaId
+                                    or frameCounter - lt[4] > 16) then lt = nil end
+                                rpal = genderFrames.hasReflection(ggx, ggy,
+                                    lt and lt[1], lt and lt[2],
+                                    (info.width + 8) >> 4, (info.height + 8) >> 4)
+                                    and genderFrames.reflectionPalette[info.paletteSlot & 0x0f]
+                                local cur = tiering.lastTile[playerId]
+                                if not cur or cur[5] ~= ggx or cur[6] ~= ggy then
+                                    -- Slots 1,2 are the tile stepped FROM; 5,6 the current one, so
+                                    -- "did it change" is answered without losing the previous.
+                                    tiering.lastTile[playerId] = {
+                                        cur and cur[5] or ggx, cur and cur[6] or ggy,
+                                        remote.areaId, frameCounter, ggx, ggy,
+                                    }
+                                end
+                            end
+                            local rruns = rpal and genderFrames.runsFromImages(
+                                string.format("r%d:%d:%d", remote.gfx, imgIdx, rpal),
+                                info.images, info.width, info.height, imgIdx, rpal)
+                            local rtop = screenY + cy + info.height - 2 - 2 * bob
+                            -- ONLY OVER WATER. The engine gets this from OAM priority; we have to
+                            -- ask the map. Computed here rather than inside the draw so it is one
+                            -- lookup grid for the whole reflection instead of one per run.
+                            local wet = rruns and genderFrames.reflectiveSpans(
+                                screenX + cx, rtop, info.width, info.height)
+                            if rruns then
+                                drawRunList(rruns, info.width, gfxFlip, screenX + cx, rtop,
+                                    panelRows, dim, info.height,
+                                    genderFrames.reflectionXScale(), wet)
+                            end
+                            -- AND THE POKEMON BEING RIDDEN. Measured against the game's own pair
+                            -- rather than guessed: the blob's sprite sits at the rider's position
+                            -- plus (0, +8), with the same centerToCorner, so in top-left terms it
+                            -- is eight pixels lower and not moved sideways at all
+                            -- (probes/surfblob_probe.lua, 2026-08-19).
+                            local bruns, bflip =
+                                genderFrames.runsForSurfBlob(
+                                    genderFrames.dirOf[remote.orientation] or 1)
+                            if bruns then
+                                drawRunList(bruns, SURFBLOB_FRAME_PX, bflip, screenX + cx,
+                                    screenY + cy + 8, panelRows, dim)
+                            end
+                        end
+
                         drawRunList(runs, info.width, gfxFlip, screenX + cx, screenY + cy,
                             panelRows, dim)
                         drew = true
