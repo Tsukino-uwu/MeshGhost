@@ -2859,6 +2859,12 @@ local function syncGhost(playerId, remote)
         if cameraIsSettled() then
             local wantNow = wantedGfx(remote)
             spawnGhost(playerId, targetX, targetY, remote.orientation, wantNow)
+            if COMPARE_TIERS then
+                local tf = io.open(SCRIPT_DIR .. "probes/pathtrace.log", "a")
+                if tf then
+                    tf:write("RESPAWN -> " .. tostring(wantNow) .. string.char(10)) tf:close()
+                end
+            end
             -- EVERY path that gives a ghost a graphic must also give it that graphic's state.
             --
             -- The offset and the animation were applied in the graphic-SWAP path only, and a ghost
@@ -2908,9 +2914,22 @@ local function syncGhost(playerId, remote)
     if PEER_GFX_ENABLED and remote.sanim and not engineDrivesAnim
         and remote.anim ~= "walking" and remote.anim ~= "running" then
         local d = sprAddr(g.sprId)
-        if r8(d + 0x2a) ~= remote.sanim then
+        -- DRIVE THE ANIMATION FRAME BY FRAME, because nothing else will.
+        --
+        -- A walking ghost animates as a side effect of the movement actions we hand the engine.
+        -- A FISHING ghost has no action behind it, so the engine advances nothing and it holds
+        -- whatever frame it was last given -- the user, casting with the registered rod rather than
+        -- through the bag: *"it gets stuck in an animation instead of doing the animation"*.
+        --
+        -- The peer already sends both halves of its own animation state (number and command
+        -- index), so the ghost is stepped through exactly the frames the player is showing, at the
+        -- player's own pace, with the pixels for each frame written as it changes. That is the
+        -- same mechanism the graphic change uses, applied per frame instead of once.
+        if r8(d + 0x2a) ~= remote.sanim or (remote.sidx and r8(d + 0x2b) ~= remote.sidx) then
             w8(d + 0x2a, remote.sanim)
+            w8(d + 0x2b, remote.sidx or 0)
             w8(d + 0x3f, (r8(d + 0x3f) | 0x04) & ~0x10)
+            loadGhostFrameNow(g, graphicsInfo(remote.gfx), remote.sanim, remote.sidx)
         end
         -- AND THE SPRITE OFFSET THE TASK APPLIES. Measured: the engine sets the fishing player's
         -- pos2 to 8,0, which is what keeps the character on its tile inside a 32-wide frame. Our
@@ -2956,6 +2975,13 @@ local function syncGhost(playerId, remote)
     local wantNow = wantedGfx(remote)
     if wantNow and g.gfx and wantNow ~= g.gfx
         and swapGhostGraphicInPlace(g, wantNow, remote.sanim) then
+        if COMPARE_TIERS then
+            local tf = io.open(SCRIPT_DIR .. "probes/pathtrace.log", "a")
+            if tf then tf:write("INPLACE -> " .. tostring(wantNow) .. string.char(10)) tf:close() end
+            -- Shoot the next few frames from HERE, the exact moment the graphic changes. Every
+            -- probe so far armed on a value it could only notice a frame late.
+            tiering.shotsLeft, tiering.shotSeq = 8, (tiering.shotSeq or 0) + 1
+        end
         if remote.sox then w16(sprAddr(g.sprId) + 0x24, remote.sox & 0xffff) end
         if remote.soy then w16(sprAddr(g.sprId) + 0x26, remote.soy & 0xffff) end
         return
@@ -2968,6 +2994,14 @@ local function syncGhost(playerId, remote)
     if want and g.gfx and want ~= g.gfx and cameraIsSettled() then
         local a = objAddr(g.objId)
         local atX, atY = rs16(a + 0x10) - MAP_OFFSET, rs16(a + 0x12) - MAP_OFFSET
+        if COMPARE_TIERS then
+            local tf = io.open(SCRIPT_DIR .. "probes/pathtrace.log", "a")
+            if tf then
+                tf:write("REBUILD " .. tostring(g.gfx) .. " -> " .. tostring(want)
+                    .. string.char(10))
+                tf:close()
+            end
+        end
         despawnGhost(playerId)
         spawnGhost(playerId, atX, atY, remote.orientation, want)
         -- The new sprite's tiles are whatever was in that range; fill them with the frame the
@@ -3978,6 +4012,15 @@ local function runFrame()
             -- Independent of the drawn tier: a spawned ghost needs this whether or not the
             -- overflow tier is on, so it cannot live inside drawRemotes.
             drawGhostShadows()
+            -- Dev only: the frames around a graphic change, written where shots go.
+            if COMPARE_TIERS and (tiering.shotsLeft or 0) > 0 then
+                tiering.shotsLeft = tiering.shotsLeft - 1
+                pcall(function()
+                    client.screenshot(string.format(
+                        "C:/dev/MeshGhost/dev-scripts/shots/emerald/swap%d_%d.png",
+                        tiering.shotSeq, 8 - tiering.shotsLeft))
+                end)
+            end
             -- TIER TWO: everyone the engine had no room for, painted over the finished frame
             -- so that no peer is ever simply absent. Flag-gated -- see FLAGS.md and
             -- BANDAGES.md. A drawn ghost has no engine occlusion of its own, so it clips
