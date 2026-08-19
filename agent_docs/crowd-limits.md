@@ -62,9 +62,21 @@ sprite entries** (`wShadowOAM`, `00:c400`–`00:c4a0`, 4 bytes each), and a raw 
 overworld character using **exactly 4** of them, with every unused entry parked at `y=160`, one row
 below the 144-line screen. **40 ÷ 4 = 10 characters on screen at once, ever** — player included.
 In the lab the crowd pinned it at 40 of 40, i.e. the hardware completely saturated, and the user
-confirmed **all ten still drew correctly, with no flicker or dropout**. (The Game Boy also drops
-sprites past 10 *per scanline*; ten characters spread vertically never hit it. A row of characters
-side by side would, and has not been tested.)
+confirmed **all ten still drew correctly, with no flicker or dropout**.
+
+**The per-scanline limit is the one that actually bites, and it was measured rather than watched.**
+The Game Boy draws at most **10 sprites on any single scanline** whatever the 40-entry total says,
+and the user's honest answer to "can you see flicker?" was *"kinda hard to tell"* — which is the
+correct answer for a 60fps effect and a good reason not to settle it by eye. A probe computed it
+instead, counting for every scanline how many shadow-OAM entries overlap it:
+
+- **Spread out naturally: never exceeded.**
+- **Packed into a clump** (12 peers at radius 1.5 tiles, ghosts shoulder to shoulder): the worst
+  scanline held **12** sprites, and **6–8 frames out of every 300** went over the limit — about
+  2–3% of frames, each losing a quarter of one character. Real, and close to invisible.
+- **Which one blinks is predictable**: the hardware keeps the first ten sprites in OAM order and
+  drops the rest, and ghosts are appended after the map's own cast — so it is always the most
+  recently arrived peer, never an NPC and never the player.
 
 **What happens past the limit: nothing bad.** The extra peers are simply never given a body. With
 36 peers offered against 9 slots, the game held 60fps exactly, no NPC was displaced or lost, and
