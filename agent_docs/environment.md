@@ -884,6 +884,25 @@ playthrough tests a different claim: **"a player can get from here to there, and
 survives the trip."** Cheat and you have tested nothing — you have confirmed that the state you
 wrote is the state you wrote.
 
+**Menus are cursor-then-confirm, and A does not mean "do the obvious thing"** (user, 2026-08-19).
+The convention across these games, and most others: **A confirms/activates WHATEVER IS CURRENTLY
+SELECTED; B goes back, cancels, declines.** So every menu interaction is two steps — move the
+selection, *then* confirm — and an agent that presses A without checking what is highlighted keeps
+activating the wrong entry. Live case: an agent on a naming screen pressed A expecting "accept the
+name" and kept typing the same letter, because the cursor was still on the letter grid rather than
+on OK.
+
+**This is the failure mode worth internalising: a wrong menu press looks exactly like being
+stuck.** Nothing errors, the screen barely changes, and the driver concludes the game is
+unresponsive. The general defence is the same one that applies to movement — **check the state
+after the press rather than assuming the press did what you meant.** Did the cursor move? Did the
+box close? Did the coordinate change? If not, the question is "what is selected", not "why is this
+game broken".
+
+Related conventions worth knowing before driving any of these: **START** usually opens the main
+menu and often doubles as OK/confirm on entry screens; **B** advances or closes dialogue as well as
+A; and a long conversation is several boxes, so one press is rarely enough.
+
 **Use the game's own guidance — talk to NPCs, read signs** (user, 2026-08-19). These games are
 built to tell a player where to go next, and an agent that ignores that is doing the hard version
 of a solved problem. A sign at a route entrance names the town it leads to; an NPC says which way
