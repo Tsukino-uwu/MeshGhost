@@ -2856,10 +2856,11 @@ local function drawGhostShadows()
                 -- Drawn, not decoded: the shadow is a field-effect graphic in a different table
                 -- from the character graphics this adapter reads, and an ellipse is honest about
                 -- being ours rather than a near-miss copy of the game's.
-                -- 0xA0 alpha, not 0x60: the first attempt read as too faint against the game's
-                -- own shadow (user, 2026-08-19). Still translucent rather than solid black, which
-                -- is what the game's is.
-                gui.drawEllipse(cx - 8, cy - 3, 16, 6, 0x00000000, 0xA0000000)
+                -- Alpha walked up twice against the game's own shadow, which is the only
+                -- reference that matters here: 0x60 read as faint, 0xA0 still lighter than the
+                -- player's (user, 2026-08-19). 0xD0 is nearly opaque while still letting the tile
+                -- show, which is what the game's does.
+                gui.drawEllipse(cx - 8, cy - 3, 16, 6, 0x00000000, 0xD0000000)
             end
         end
     end
@@ -3132,12 +3133,16 @@ local function drawRemotes(localAreaId, playerMapX, playerMapY, skipSpawned, com
             -- spawned copy by definition, keep the filter above.
             local screenX, screenY
             local pinned = COMPARE_TIERS and ghosts[playerId]
+            local pinnedArc = 0
             if pinned then
                 local gs = sprAddr(pinned.sprId)
+                -- pos2.y is the jump arc; kept separately so the shadow below can be put on the
+                -- ground the ghost left rather than under its feet in mid-air.
+                pinnedArc = rs16(gs + 0x26)
                 screenX = rs16(gs + 0x20) + rs16(gs + 0x24) + memory.read_s8(gs + 0x28)
                     + rs16(GSPRITECOORDOFFSETX_ADDR)
                     + (COMPARE_DRAWN_OFFSET_TILES_X - LOOPBACK_GHOST_OFFSET_TILES_X) * TILE
-                screenY = rs16(gs + 0x22) + rs16(gs + 0x26) + memory.read_s8(gs + 0x29)
+                screenY = rs16(gs + 0x22) + pinnedArc + memory.read_s8(gs + 0x29)
                     + rs16(GSPRITECOORDOFFSETY_ADDR)
             end
 
@@ -3272,6 +3277,16 @@ local function drawRemotes(localAreaId, playerMapX, playerMapY, skipSpawned, com
                 if not drew then
                     drawSpriteFrame(remote.gender, pose, frameIndex, dirInfo.hFlip, screenX,
                         screenY, panelRows, dim)
+                end
+                -- The painted copy gets a shadow too, on the same terms as the spawned one: only
+                -- while the peer reports a jump, and on the ground it left rather than under its
+                -- feet -- which is what subtracting the arc does. Compare mode only, because that
+                -- is where the painted ghost HAS an arc (it copies the spawned sprite's); a real
+                -- overflow peer slides across a ledge and has no ground to separate from.
+                if pinned and remote.act and remote.act >= 0x0c and remote.act <= 0x0f then
+                    gui.drawEllipse(screenX + (FRAME_WIDTH_PX // 2) - 8,
+                        screenY - pinnedArc + FRAME_HEIGHT_PX - 7, 16, 6,
+                        0x00000000, 0xD0000000)
                 end
                 painted = painted + 1
             end
