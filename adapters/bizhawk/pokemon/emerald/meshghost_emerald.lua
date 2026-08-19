@@ -4133,14 +4133,35 @@ local function drawRemotes(localAreaId, playerMapX, playerMapY, skipSpawned, com
         -- rows early. Captured here, at the same moment as the anchor it belongs to, because pos2
         -- is only knowable then; the bobbing copy is left exactly as it was, since placing a ghost
         -- against the player's actual sprite is what it is for.
+        -- TWO terms have to come off this before it can anchor a TILE GRID, and both are
+        -- properties of the player's current GRAPHIC rather than of the map.
+        --
+        -- pos2 is the first: while anyone is surfing it carries the bob, so the grid rises and
+        -- falls with the character.
+        --
+        -- centerToCornerVec is the second, and it is the one that survived a whole investigation.
+        -- playerScreenPos returns the FRAME's top-left, which is the anchor plus -(width/2). A
+        -- walking player is 16 wide so that term is -8; a SURFING one is 32 wide, so it is -16.
+        -- The grid was therefore 8px too far left for exactly as long as the player was surfing,
+        -- which is exactly when a reflection is being judged -- and it let the mask permit 8px of
+        -- ledge and grass down the left of a shoreline tile. Measured 2026-08-19: the grid put
+        -- metatile 184 at x 72..87 while the screen has it at 80..95.
+        --
+        -- Vertically the same term is -16 for both graphics, which is why the vertical edge was
+        -- correct throughout and only the side ever looked wrong -- and why this hid so well.
+        --
+        -- Normalised to the walker's own centring so the grid means the same thing whatever the
+        -- player happens to be riding.
         local pspr = sprAddr(r8(GPLAYERAVATAR_ADDR + avatarAddrOffset + 0x04))
         if fresh or (settled and camX % 16 == 0) then
             tiering.anchorX, tiering.originX = tx + camX / 16, playerScreenX
             tiering.originXStill = playerScreenX - rs16(pspr + 0x24)
+                - memory.read_s8(pspr + 0x28) - (FRAME_WIDTH_PX // 2)
         end
         if fresh or (settled and camY % 16 == 0) then
             tiering.anchorY, tiering.originY = ty + camY / 16, playerScreenY
             tiering.originYStill = playerScreenY - rs16(pspr + 0x26)
+                - memory.read_s8(pspr + 0x29) - (FRAME_HEIGHT_PX // 2)
         end
         tiering.anchorArea = localAreaId
         playerMapX = tiering.anchorX - camX / 16

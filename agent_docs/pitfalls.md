@@ -2349,3 +2349,47 @@ else had to be understood — not the bob, not the animation, not the field-effe
 - **A companion sprite is part of the state, not a decoration** (`_template/README.md`'s
   whole-effect rule) — so it belongs everywhere the state is entered AND left. A blob left behind
   keeps following the object id in its own `data[2]` and swims under a peer who is walking.
+
+## A world-space anchor built from a SPRITE carries the sprite's own terms — 2026-08-19, Emerald
+
+**Symptom.** A painted reflection drew a few pixels onto the ledge and grass at a pond's edge, when
+the player's own reflection stopped cleanly at the water. Reported five times across a long session
+in slightly different words -- *"it draws on top of the edge as well, that sits between the
+grass/water"*, *"its only supposed to draw on the water"* -- and survived four different clipping
+rules, each of which was independently correct.
+
+**Cause.** The drawn tier converts a screen pixel back to a map tile using an origin captured from
+the PLAYER'S SPRITE position. That position is not a world coordinate: it is the sprite's frame
+top-left, which carries two terms belonging to the graphic rather than to the map.
+
+1. **`pos2`** -- while anyone is surfing this is the BOB, so the whole tile grid rose and fell a few
+   pixels with the character. Found first, and it was cutting the reflection short vertically.
+2. **`centerToCornerVec`** -- the frame's own centring, `-(width/2)`. A walking player is 16 wide so
+   it is **-8**; a SURFING player is 32 wide so it is **-16**. The grid was therefore **8px too far
+   left for exactly as long as the player was surfing** -- which is exactly when a reflection is on
+   screen to be judged.
+
+Vertically the same term is -16 for both graphics, so the vertical edge was correct throughout and
+only the SIDE ever looked wrong. That asymmetry is what made it read as a clipping-rule problem for
+so long: every rule tried was tested against a boundary that happened to be right.
+
+**Why the obvious check could not catch it.** A self-check ran the player's own frame position
+through the same inverse and compared it against the object's coordinates. It agreed perfectly on
+every sample -- because both sides carried the same bias. **A consistency check between two values
+that share an input proves only that they share it.**
+
+**What ended it.** Aligning the computed grid against the SCREEN, using a tile whose appearance is
+not ambiguous: metatile 161 is four copies of one water tile, so it must render as 16px of uniform
+bright water. The grid said it started at x 88; the pixels said 96. Everything else followed.
+Method: `_template/probes.md`, "Check a computed grid against the screen".
+
+**The rules.**
+
+- **An origin for world space must be free of every term that belongs to the SPRITE**: animation
+  offsets, bob, alignment, and the frame's own centring. Normalise them out, or derive the origin
+  from the camera instead. A sprite's screen position is not a world coordinate.
+- **A term that varies with the GRAPHIC will hide until the graphic changes.** This was correct for
+  every walking test ever run and wrong only while surfing.
+- **When one fix closes two symptoms, it was one cause.** The user, on this one: *"it also fixed the
+  issue of drawing when outside of the water at the same time"* -- the leak onto grass and the leak
+  onto the ledge were the same 8px.

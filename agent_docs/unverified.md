@@ -33,7 +33,10 @@ brightness, and a smooth run. These are what is left:
 - [ ] **The painted ghost dims in a dark cave.** *What to look at:* any cave. *Correct:* it darkens
       like the spawned one. The fade half is confirmed (both house directions); a cave has not been
       visited yet.
-- [ ] **Bikes and surfing, on BOTH tiers.** Fishing is now confirmed on both (`verified.md`,
+- [x] **Surfing is CONFIRMED on both tiers** (2026-08-19, `verified.md`) — the spawned ghost's
+      Pokemon, and the drawn ghost's reflection with its bob, ripple and per-pixel clipping. Bikes
+      are the remaining half of this item.
+- [ ] **Bikes, on BOTH tiers.** Fishing is now confirmed on both (`verified.md`,
       2026-08-19), and these are the same class of state: a task-driven `graphicsId` whose animation
       the engine will not run for a ghost unaided, and whose sprite offset may likewise be *derived*
       per frame rather than stored. Expect the same two questions to decide it — does the ghost

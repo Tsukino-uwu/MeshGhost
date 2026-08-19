@@ -903,3 +903,38 @@ looks exactly like a probe that found no difference.
 - **Its offset from whatever it is attached to.** Ours is right when the ghost-to-blob delta equals
   the player-to-blob delta; that is a comparison between two pairs, so it survives both sprites
   using different position helpers, which a single absolute number does not.
+
+## Check a computed grid against the SCREEN, not against another computed value — 2026-08-19
+
+**When to reach for this.** Any time adapter code converts between screen pixels and world/tile
+coordinates -- placing a painted ghost, clipping to terrain, deciding what a peer is standing on.
+An error of a few pixels there does not look like a coordinate bug. It looks like whatever rule
+consumes the coordinate is wrong, and you will rewrite that rule several times before suspecting
+its input.
+
+**The failing check to avoid.** The natural self-test is to run something whose answer you know --
+the player -- through the same conversion and compare. Emerald did exactly this, printing "the
+inverse says (43,5), the object says (43,5)" every second, and it agreed on every sample while the
+grid was 8px out. Both sides were built from the same origin, so **they shared the bias and the
+check could only confirm they shared it**.
+
+**The check that works: find a LANDMARK whose appearance is unambiguous, and compare the grid's
+prediction against the actual pixels.**
+
+1. Pick a tile whose graphics you can identify with certainty from its data -- ideally one that is
+   uniform, so there is no doubt which pixels are it. In Emerald that was a metatile built from
+   four copies of a single water tile: it must render as 16 pixels of one flat colour.
+2. In ONE frame, take a screenshot and log the grid's predicted screen rectangle for that tile.
+3. Read the pixels. If the flat-colour run starts 8px from where the grid says, the grid is 8px out
+   -- and you now know the size and the direction of the error, which is usually enough to name the
+   term responsible.
+
+**Print the ids and their predicted screen ranges together**, e.g. `x80..95:id=184  x96..111:id=161`,
+so the comparison is a glance rather than arithmetic. Take the screenshot from the same code, in the
+same frame -- the earlier attempt at this used a separate probe on its own schedule and compared two
+different moments.
+
+**What to suspect when it IS out.** Almost always a term that belongs to the sprite you anchored on
+rather than to the world: an animation offset, a bob, a frame-centring vector. See `pitfalls.md`,
+"A world-space anchor built from a SPRITE carries the sprite's own terms" -- and note that such a
+term can be correct for every test you have ever run and wrong only for one graphic.

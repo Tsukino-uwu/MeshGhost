@@ -8423,3 +8423,45 @@ already doing it, and two writers of one field is the defect shape this adapter 
 
 **Still open, same feature:** the DRAWN tier has neither the blob nor a water reflection —
 *"still nothing under/ no reflection in the water for the drawn ghost"*. `unverified.md`.
+
+## Emerald: a drawn ghost's water reflection, 1:1 with the engine — 2026-08-19
+
+**User-confirmed on screen, vanilla:** *"it looks good now, it also fixed the issue of drawing when
+outside of the water at the same time. confirmed visually now."*
+
+The painted tier has no hardware behind it, so every rule a reflection gets for free had to be
+located and reproduced. All of these are the game's own, none approximated:
+
+- **It is a copy of the sprite, flipped, `height - 2` lower, in a mapped palette** — `SetUpReflection`
+  and `gReflectionEffectPaletteMap`.
+- **Its `y2` is the NEGATED rider's `y2`**, so the gap between character and reflection is
+  `height - 2 - 2 * bob`. Missing that term made it sit a little high AND perfectly still, which
+  reads as two faults and is one.
+- **A moving reflection is an AFFINE sprite, not a plain flip.** Nothing in the overworld source
+  writes its matrices, so they were measured: `oamMatrix[0]` sweeps `a` between 252 and 260 one step
+  per frame with `d = -256`. Drawn width is `width * 256 / a` — read live rather than reconstructed,
+  so there is no phase of ours to keep in step.
+- **Coverage is per pixel, decoded from the metatiles**: a priority-3 sprite loses to BG1 and BG2
+  and wins against BG3, so a NORMAL metatile's ground hides it while a COVERED/SPLIT one's does not.
+- **Whether a reflection exists at all** is the engine's own scan — a region `(w+8)>>4` by `(h+8)>>4`
+  starting one row below the character, around the previous coordinates as well as the current ones.
+  The previous-coordinate half is what makes a reflection slide out from under a character leaving
+  the water instead of blinking off; it must expire after a step, or a ghost parked at the shore
+  keeps claiming the water it came from.
+
+**The bug that took the longest was not in any of that.** The tile grid was anchored to the
+player's sprite position, which carries `pos2` (the bob) and `centerToCornerVec` (the frame's own
+centring, **-8 for the 16-wide walker and -16 for the 32-wide surfer**). So the grid was 8px too far
+left for exactly as long as the player was surfing, and the mask permitted 8px of ledge and grass.
+Vertically both graphics are -16, so the vertical edge was right the whole time and only the side
+looked wrong — which is why four different clipping rules were tried first. `pitfalls.md`.
+
+**How it was finally caught**, since the method outlasts the fix: the computed grid was compared
+against the SCREEN using a landmark whose appearance is unambiguous — a metatile built from four
+copies of one water tile, which must render as 16px of flat colour. The grid said x 88, the pixels
+said 96. `_template/probes.md`, "Check a computed grid against the screen".
+
+**Agent-verified numbers at the moment of the fix:** `gbX` -680 → -672; metatile 184 relocated to
+x 80..95, matching the visible ledge at 80-83 and water from 84; the allowed span moved from
+`76-103` to `84-111`, i.e. beginning at the first water pixel. Two reported symptoms — painting on
+the grass and painting on the ledge — closed together, which is what says they were one cause.
