@@ -2048,7 +2048,6 @@ genderFrames.runsFromImages = function(cacheKey, imagesPtr, width, height, image
     local stamp = genderFrames.paletteStamp(paletteSlot)
     local cached = genderFrames.peerRunCache[cacheKey]
     if cached and cached.palStamp == stamp then return cached end
-    if cached then tiering.palRedecodes = (tiering.palRedecodes or 0) + 1 end
 
     local pixels = r32(imagesPtr + imageIndex * 8)
     if not isRomPtr(pixels) then return nil end
@@ -2774,6 +2773,7 @@ end
 --                   that the engine wants back two steps later. The running maximum is the
 --                   honest budget: it only ever gives away slots the map has never needed.
 tiering = {
+    slide = { step = 0, legs = 0, paused = 0 },
     blockedFrame = nil,
     lastLogFrame = nil,
     drawn = MESHGHOST_EMERALD_DRAWN_OVERFLOW or os.getenv("MESHGHOST_EMERALD_DRAWN_OVERFLOW"),
@@ -3308,10 +3308,9 @@ function loadGhostFrameNow(g, info, animNum, animIdx)
     -- exactly one frame and never spills into a neighbour's range.
     local dst = 0x06010000 + g.tileStart * 32
     for off = 0, info.size - 4, 4 do w32(dst + off, r32(src + off)) end
-    -- A frame copy is info.size/4 read+write pairs -- 128 of each for a 32x32 graphic. Cheap once,
-    -- ruinous per frame, so it is counted and published: this is the shape of cost that has
-    -- silently taxed this adapter before (pitfalls.md's diagnostic-cost entries).
-    tiering.frameCopies = (tiering.frameCopies or 0) + 1
+    -- A frame copy is info.size/4 read+write pairs -- 128 of each for a 32x32 graphic. Cheap once
+    -- and ruinous per frame, so it must stay on a CHANGE and never become per-frame work.
+    -- Measured 2026-08-20 in ordinary play: 1 per 300 frames.
 end
 
 -- CHANGE A GHOST'S GRAPHIC IN PLACE. The rebuild is the glitch.
@@ -3401,6 +3400,11 @@ end
 
 -- The two graphics the rule belongs to (pokeemerald include/constants/event_objects.h:144-145).
 function isFishingGfx(gfx) return gfx == 137 or gfx == 138 end
+
+-- Mach and Acro, both genders: Brendan 1/63, May 90/91 (verified.md's graphicsId table).
+function isBikeGfx(gfx)
+    return gfx == 1 or gfx == 63 or gfx == 90 or gfx == 91
+end
 
 function swapGhostGraphicInPlace(g, graphicsId, sanim, sox, soy)
     local info = graphicsInfo(graphicsId)
@@ -3596,7 +3600,25 @@ local function syncGhost(playerId, remote)
     -- guess about timing: the swap applies both in one batch, and this block only maintains them
     -- afterwards.
     if PEER_GFX_ENABLED and remote.sanim and not engineDrivesAnim and g.gfx == remote.gfx
-        and remote.anim ~= "walking" and remote.anim ~= "running"
+        -- ...unless the peer is on a BIKE, where the engine's own choice is provably wrong.
+        --
+        -- Letting the engine animate a moving ghost is right for the WALKING graphic: the movement
+        -- action we request carries the matching walk cycle, and mirroring on top of it put two
+        -- writers on one field and left ghosts stuck in a pose after a turn. A bike is the
+        -- opposite. Measured with MESHGHOST_EMERALD_ANIM_TRACE at top speed, 2026-08-20:
+        --
+        --   f=597  P.anim=4/0 | R.sanim=4/0 | G.anim=8/3
+        --   f=605  P.anim=4/1 | R.sanim=4/1 | G.anim=8/3   <- ten frames on one frame
+        --
+        -- The player rides on animation 4; the action-derived animation for that graphic is 8,
+        -- which runs to its last frame and holds there while the ghost keeps moving. A character
+        -- travelling with its legs stopped is exactly what the user reported as *"sliding/gliding
+        -- at top speed"*. The peer was sending the right number the whole time.
+        --
+        -- So on a bike the peer's number wins even while moving. The number ONLY -- no
+        -- animBeginning, no enableAnim -- so the engine keeps advancing the frames at its own rate
+        -- and there is still only one thing driving them.
+        and (remote.anim ~= "walking" and remote.anim ~= "running" or isBikeGfx(remote.gfx))
         -- AND NOT WHILE THE PEER IS MOVING AT ALL. The pose string only ever says "walking" or
         -- "running", so it cannot describe a bike -- a riding peer falls through it and the mirror
         -- writes animNum while the engine is also animating the step we asked for. Two writers on
@@ -3606,8 +3628,8 @@ local function syncGhost(playerId, remote)
         -- gPlayerAvatar.bikeSpeed answers it directly: PLAYER_SPEED_STANDING is 0, anything above
         -- is movement the engine is already driving on our side (include/bike.h:16-25). Peers that
         -- do not send it (an older adapter) keep the previous behaviour.
-        and (remote.pspeed == nil or remote.pspeed == 0)
-        and ghostIsIdle(g) then
+        and (remote.pspeed == nil or remote.pspeed == 0 or isBikeGfx(remote.gfx))
+        and (ghostIsIdle(g) or isBikeGfx(remote.gfx)) then
         local d = sprAddr(g.sprId)
         -- SET THE ANIMATION, DO NOT RE-SET IT. The engine advances a ghost's animation perfectly
         -- well on its own -- measured: 3/0, 3/1, 3/2 with its pixels tracking the player's a beat
@@ -3644,9 +3666,12 @@ local function syncGhost(playerId, remote)
         -- pixels loaded -- because a paused sprite is never going to copy them itself. No
         -- animBeginning here, which would reset the index to 0 and show the wrong frame of the
         -- loop.
-        tiering.spd = tiering.spd or {}
-        tiering.spd["MIRROR"] = (tiering.spd["MIRROR"] or 0) + 1
-        if remote.spaused and remote.sidx then
+        if isBikeGfx(remote.gfx) and not remote.spaused then
+            -- Number only, and only when it differs: restarting here would reset the cycle every
+            -- time the peer's animation ticked, which is the "stuck on frame 0" failure from the
+            -- fishing work wearing different clothes.
+            if r8(d + 0x2a) ~= remote.sanim then w8(d + 0x2a, remote.sanim) end
+        elseif remote.spaused and remote.sidx then
             if r8(d + 0x2a) ~= remote.sanim or r8(d + 0x2b) ~= remote.sidx
                 or (r8(d + 0x2c) & 0x40) == 0
             then
@@ -3705,25 +3730,19 @@ local function syncGhost(playerId, remote)
         end
     end
 
-    -- IS THE GHOST ANIMATING WHILE IT MOVES? "Sliding" is a character whose position advances
-    -- while its legs do not, and no position or speed counter can see it -- the sprite's own frame
-    -- index can. Counted per second: frames the ghost was mid-step, split by whether its
-    -- animCmdIndex moved, plus frames it was moving while PAUSED. STEPPING>0 with LEGS=0 is a
-    -- slide; PAUSEDWHILEMOVING>0 says the hand-back in requestAction is not working.
-    --
-    -- On the per-frame path deliberately: the first version of this counter sat inside the mirror
-    -- block, which is gated on the peer standing STILL -- so it recorded nothing at all during the
-    -- one thing it was built to measure, and 71 laps of riding produced an empty column.
-    if tiering.spd then
+    -- SLIDE COUNTER (temporary). "Sliding" is a character whose position advances while its legs
+    -- do not, and no position counter can see it. Per second: frames the ghost was mid-step, how
+    -- many of those changed its animCmdIndex, and how many it spent PAUSED while moving.
+    if tiering.slide then
         local gd = sprAddr(g.sprId)
         local idx = r8(gd + 0x2b)
         if not ghostIsIdle(g) then
-            tiering.spd["STEPPING"] = (tiering.spd["STEPPING"] or 0) + 1
+            tiering.slide.step = tiering.slide.step + 1
             if g.lastIdx ~= nil and g.lastIdx ~= idx then
-                tiering.spd["LEGS"] = (tiering.spd["LEGS"] or 0) + 1
+                tiering.slide.legs = tiering.slide.legs + 1
             end
             if (r8(gd + 0x2c) & 0x40) ~= 0 then
-                tiering.spd["PAUSEDWHILEMOVING"] = (tiering.spd["PAUSEDWHILEMOVING"] or 0) + 1
+                tiering.slide.paused = tiering.slide.paused + 1
             end
         end
         g.lastIdx = idx
@@ -3945,13 +3964,6 @@ local function syncGhost(playerId, remote)
         -- action for that speed. Bases from include/constants/event_object_movement.h:95,108,132:
         -- WALK_NORMAL 0x08, WALK_FAST 0x15, WALK_FASTER 0x2D, each DOWN/UP/LEFT/RIGHT consecutive
         -- in DIR_ID order -- the same layout every other action table here relies on.
-        tiering.spd = tiering.spd or {}
-        tiering.spd["pose:" .. tostring(remote.anim)] =
-            (tiering.spd["pose:" .. tostring(remote.anim)] or 0) + 1
-        local k = base and string.format("%02X", base) or "walk/run"
-        tiering.spd[k] = (tiering.spd[k] or 0) + 1
-        tiering.spd["act" .. string.format("%02X", remote.act or 0)] =
-            (tiering.spd["act" .. string.format("%02X", remote.act or 0)] or 0) + 1
         local running = (remote.anim == "running")
         if base then
             requestAction(g, base + (stepDir - 1))
@@ -3963,10 +3975,6 @@ local function syncGhost(playerId, remote)
         -- the user's own test was exact about that, "it does idle->walk fine".
         g.wasRunning = running or nil
     else
-        tiering.spd = tiering.spd or {}
-        tiering.spd["PLACED"] = (tiering.spd["PLACED"] or 0) + 1
-        tiering.spd["dist" .. tostring(math.abs(dx) + math.abs(dy))] =
-            (tiering.spd["dist" .. tostring(math.abs(dx) + math.abs(dy))] or 0) + 1
         -- More than a tile out. This branch was written for a warp or a dropped packet -- cases
         -- where the ghost is somewhere it has no business being and the only honest answer is to
         -- put it right. It was also catching something entirely different: a peer simply moving
@@ -3993,7 +4001,6 @@ local function syncGhost(playerId, remote)
             end
             requestAction(g, base and (base + (sd - 1))
                 or ((remote.anim == "running") and RUN_ACTION or WALK_ACTION)[sd])
-            tiering.spd["CHASED"] = (tiering.spd["CHASED"] or 0) + 1
             return
         end
         -- Walking it there would fall further behind every frame, so place it -- but only once the
@@ -4133,70 +4140,69 @@ end
 -- spawnSet names the peers entitled to an object slot this frame (tiering.chooseSpawned). A peer
 -- that loses its place does NOT vanish -- the drawn tier picks it up in the same frame, which is
 -- the whole point of the split.
--- DEV ONLY -- MESHGHOST_EMERALD_NO_COLLISION: take a ghost's HITBOX off its picture.
+-- MESHGHOST_EMERALD_NO_COLLISION: a ghost you can walk through, using the engine's own rule.
 --
--- Requested for testing (user, 2026-08-19): a ghost standing two tiles away is a wall in the
--- middle of whatever is being compared. There is no flag in this engine to switch collision off --
--- it is purely positional, so the fix is positional too, and the adapter already knows the two
--- halves are separable: "collision follows the object's map coordinates; drawing follows the
--- sprite's screen position".
+-- THE ENGINE DOES HAVE A SWITCH FOR THIS, and this file said twice that it did not -- *"there is
+-- no flag in this engine to switch collision off, it is purely positional"*. That was wrong, and
+-- it cost two rounds of positional hacks that each broke the ghost's movement.
 --
--- Elevation was tried first and does NOT do it: at 1 the ghost still blocked, and at 15 the user
--- found it blocked from behind but not head-on, which is a positional check with a moving object,
--- not an elevation rule. Recorded so nobody spends the elevation afternoon twice.
+-- DoesObjectCollideWithObjectAt (pokeemerald src/event_object_movement.c:4724-4742) only reports a
+-- collision when the two objects' ELEVATIONS are compatible, and AreElevationsCompatible (:7789)
+-- is three lines:
 --
--- Parking happens ONLY while the ghost is standing still, and the unconditional version is a
--- REVERTED experiment, not an untried idea. The reasoning for it was that this file already
--- records the engine maintaining a ghost's sprite by camera deltas after spawn rather than
--- re-deriving it from the coordinates -- so moving them mid-step ought to be invisible. It is not:
--- the engine's step logic reads those coordinates to drive the movement, and the user's verdict
--- was immediate -- *"now the spawned ghost is acting really weird"*. Reasoning, where a
--- measurement was available.
+--     if (a == ELEVATION_TRANSITION || b == ELEVATION_TRANSITION) return TRUE;  // 0 collides
+--     if (a != b) return FALSE;                                                 // different: no
+--     return TRUE;
 --
--- So the honest limits of this switch: a STANDING ghost does not block, a stepping one does, for
--- the 8 or 16 frames its step lasts. Removing collision from a moving engine-driven ghost is not
--- possible this way, because the thing that makes it move is the thing that makes it collide.
-local function parkGhostHitboxes(park)
+-- So two NON-ZERO, DIFFERENT elevations do not collide at all. That is the mechanism, and it is
+-- the game's own: it is how a bridge and the water under it hold two characters on one tile.
+--
+-- WHY IT LOOKED LIKE ELEVATION DID NOT WORK. The earlier attempt set 0, 1 and 15 and found all
+-- three still blocked, and concluded elevation was not the mechanism. The missing piece is
+-- ObjectEventUpdateElevation (:7759-7771): the engine REWRITES currentElevation from the map tile
+-- whenever an object moves. Set once, it was reset within a step to whatever the ghost was
+-- standing on -- which is the same terrain the player is on, hence equal, hence colliding. The
+-- value was never wrong; it just did not survive.
+--
+-- So it is re-applied every frame, and chosen against the player's CURRENT elevation rather than
+-- fixed, so it can never accidentally match: the player is 3 on land and 1 while surfing
+-- (ELEVATION_DEFAULT/ELEVATION_SURF, include/global.fieldmap.h:16-19).
+--
+-- ONLY currentElevation, which is the LOW nibble of +0x0B. The HIGH nibble is previousElevation,
+-- and that is what SetObjectSubpriorityByElevation draws with (:7776) -- leaving it alone means
+-- the ghost keeps its exact draw order behind and in front of scenery. Collision changes;
+-- rendering does not.
+--
+-- A transition frame still collides (the player's own elevation reads 0 while stepping between
+-- levels, and the rule above says 0 collides with everything). That is the engine's behaviour for
+-- every character, so a ghost sharing it is correct rather than a limit.
+local function freeGhostCollision()
     if tiering.noCollision == nil then
         tiering.noCollision = (MESHGHOST_EMERALD_NO_COLLISION
             or os.getenv("MESHGHOST_EMERALD_NO_COLLISION")) and true or false
         if tiering.noCollision then
-            console.log("MeshGhost: PROBE FLAG IN USE -- MESHGHOST_EMERALD_NO_COLLISION: ghost "
-                .. "hitboxes are parked off their pictures while standing still. Dev only.")
+            console.log("MeshGhost: PROBE FLAG IN USE -- MESHGHOST_EMERALD_NO_COLLISION: ghosts "
+                .. "are walk-through (elevation made incompatible with the player's). Dev only.")
         end
     end
-    if not tiering.noCollision then return end
-    -- ALL THREE coordinate pairs, and ONLY while the ghost is STANDING STILL. Both halves of that
-    -- are settled by testing rather than reasoning, and each cost the user a broken-looking ghost:
-    --   * all three parked MID-STEP: *"really choppy/teleporting/invisible popping in and out"*;
-    --   * only currentCoords parked mid-step, on the theory that collision and movement might read
-    --     different pairs: *"the spawned ghost is teleporting/doing weird things now"*.
-    -- The engine drives a step from the same coordinates the collision scan reads, so there is no
-    -- pair to separate them by, and no version of this that frees a MOVING ghost. Freeing a
-    -- standing one is the whole of what this switch can offer, and saying so is more useful than
-    -- another attempt.
-    local FIELDS = { 0x0c, 0x0e, 0x10, 0x12, 0x14, 0x16 }
+    if not tiering.noCollision or not avatarAddrConfirmed then return end
+
+    local pObj = r8(GPLAYERAVATAR_ADDR + avatarAddrOffset + 0x05)
+    if pObj > 15 then return end
+    local pe = r8(objAddr(pObj) + 0x0b) & 0x0f
+    -- Non-zero and never equal to the player's, whatever the player is standing on.
+    local want = (pe == 3) and 4 or 3
+
     for _, g in pairs(ghosts) do
-        local a = objAddr(g.objId)
-        if park then
-            if not g.parked and ghostIsIdle(g) then
-                g.parked = {}
-                for i, off in ipairs(FIELDS) do g.parked[i] = r16(a + off) end
-                -- Seven tiles up: off the visible screen, but well inside the window the engine
-                -- keeps objects loaded in, so nothing gets culled out from under us.
-                w16(a + 0x0e, g.parked[2] - 7)
-                w16(a + 0x12, g.parked[4] - 7)
-                w16(a + 0x16, g.parked[6] - 7)
-            end
-        elseif g.parked then
-            for i, off in ipairs(FIELDS) do w16(a + off, g.parked[i]) end
-            g.parked = nil
+        if ghostAlive(g) then
+            local a = objAddr(g.objId)
+            local cur = r8(a + 0x0b)
+            if (cur & 0x0f) ~= want then w8(a + 0x0b, (cur & 0xf0) | want) end
         end
     end
 end
 
 local function syncRemoteGhosts(localAreaId, spawnSet)
-    parkGhostHitboxes(false)
     for playerId in pairs(ghosts) do
         local remote = remotes[playerId]
         -- Gone, somewhere else, or demoted to the drawn tier. area_id is opaque and compared by
@@ -4208,7 +4214,7 @@ local function syncRemoteGhosts(localAreaId, spawnSet)
     for playerId, remote in pairs(remotes) do
         if remote.areaId == localAreaId and spawnSet[playerId] then syncGhost(playerId, remote) end
     end
-    parkGhostHitboxes(true)
+    freeGhostCollision()
 end
 
 -- skipSpawned, when given, names the peers the ENGINE is already drawing as real object events.
@@ -4216,19 +4222,7 @@ end
 -- drawn tier renders exactly the peers the spawned tier could not take.
 -- compareOnly: draw NOTHING except the loopback ghost. That is the MESHGHOST_COMPARE_TIERS case
 -- where the overflow tier itself is off -- the comparison ghost is wanted, a painted crowd is not.
--- Timed separately from the rest of the adapter, because "the script is slow" is not actionable
--- until it says WHICH part. The painted tier is the obvious suspect -- it issues a gui draw call
--- per colour run per peer per frame -- and a suspect is not a measurement.
--- GLOBAL, like drawRunList and swapGhostGraphicInPlace: this chunk is at Lua's hard 200-local
--- ceiling, and one more local here is a parse failure rather than a slow script.
 local function drawRemotes(localAreaId, playerMapX, playerMapY, skipSpawned, compareOnly)
-    local t0 = os.clock()
-    local a, b = drawRemotesInner(localAreaId, playerMapX, playerMapY, skipSpawned, compareOnly)
-    tiering.cpuDraw = (tiering.cpuDraw or 0) + (os.clock() - t0)
-    return a, b
-end
-
-function drawRemotesInner(localAreaId, playerMapX, playerMapY, skipSpawned, compareOnly)
     -- The GBA's visible display. Hardware geometry, identical on every cartridge -- not a fact
     -- about this game. Declared inside this function on purpose: the main chunk is at Lua's hard
     -- ceiling of 200 locals, and a local inside a function is counted against the function.
@@ -4914,22 +4908,12 @@ local function runFrame()
         genderFrames.clippedRuns = 0
         logFile(string.format(
             "status: frame=%d connected=%s ready=%s port=%s remotes=%d ghosts=%d drawn=%d "
-                .. "clipped=%d overworld=%s inGame=%s frameCopies=%d ms/frame=%.2f "
-                .. "ms/draw=%.2f spd=%s",
+                .. "clipped=%d overworld=%s inGame=%s slide=%d/%d paused=%d",
             frameCounter, tostring(connected), tostring(ready), tostring(currentPort),
             nRemotes, nGhosts, nDrawn, nClipped, tostring(inOverworld()), tostring(session.live),
-            tiering.frameCopies or 0,
-            (tiering.cpuFrames or 0) > 0 and (tiering.cpu / tiering.cpuFrames * 1000) or 0,
-            (tiering.cpuFrames or 0) > 0
-                and ((tiering.cpuDraw or 0) / tiering.cpuFrames * 1000) or 0,
-            (function()
-                local t = {}
-                for k, v in pairs(tiering.spd or {}) do t[#t + 1] = k .. "=" .. v end
-                table.sort(t)
-                return table.concat(t, ",")
-            end)()))
-        tiering.frameCopies, tiering.spd = 0, {}
-        tiering.cpu, tiering.cpuFrames, tiering.cpuDraw = 0, 0, 0
+            (tiering.slide or {}).legs or 0, (tiering.slide or {}).step or 0,
+            (tiering.slide or {}).paused or 0))
+        tiering.slide = { step = 0, legs = 0, paused = 0 }
         -- "Peers are known but none of them is being rendered" is its own failure, and the status
         -- counts above cannot tell which of the two reasons it is: the peer is somewhere else, or
         -- it is here and the spawn declined. area_id is opaque and compared by equality, so
@@ -5135,15 +5119,7 @@ local frameErrors = { lastLogged = nil, consecutive = 0 }
 -- the count says whether this is a blip or a subsystem that has been broken for 5000 frames.
 
 local function guardedFrame()
-    -- WHAT THIS SCRIPT COSTS, measured rather than argued. "It feels laggy" and "the adapter is
-    -- slow" are different claims, and this project has been misled by the second before: a
-    -- diagnostic can break the thing it measures, and a suspicion can send a whole session after
-    -- the wrong subsystem. os.clock is CPU time for this process, which is what a Lua hot path
-    -- actually consumes; totalled per frame and published in the status line as ms/frame.
-    local t0 = os.clock()
     local ok, err = pcall(runFrame)
-    tiering.cpu = (tiering.cpu or 0) + (os.clock() - t0)
-    tiering.cpuFrames = (tiering.cpuFrames or 0) + 1
     if ok then
         frameErrors.consecutive = 0
         return

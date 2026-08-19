@@ -8465,3 +8465,66 @@ said 96. `_template/probes.md`, "Check a computed grid against the screen".
 x 80..95, matching the visible ledge at 80-83 and water from 84; the allowed span moved from
 `76-103` to `84-111`, i.e. beginning at the first water pixel. Two reported symptoms — painting on
 the grass and painting on the ledge — closed together, which is what says they were one cause.
+
+## Emerald: the Mach Bike, and walk-through ghosts — 2026-08-20
+
+**User-confirmed on screen, vanilla, both tiers.** Four separate defects, each found by measurement
+after a guess had already failed:
+
+1. **Idle on a bike pedalled on the spot.** A sprite's animation state is three things — the number,
+   the frame, and whether it is RUNNING — and only two were on the wire. The overworld PAUSES an
+   idle character's sprite (measured: the player's own Mach Bike idles at anim 7 frame 3 with
+   `animPaused` set), so `spaused` now travels with the other two and a held peer is reproduced as
+   held: exact frame index, paused bit set, pixels loaded, and no `animBeginning` (which would
+   reset to frame 0 and show the wrong frame of the loop).
+2. **Ghosts teleported when the peer rode fast.** The step speed was being read from
+   `movementActionId`, which is TRANSIENT: sampled at 20Hz it caught `WALK_NORMAL` or a turn as
+   often as a fast action, so 6 steps in 10 fell back to walking pace behind a peer at bike speed
+   (`walk/run=6` against `2D=3`, `15=1`). It now reads `gPlayerAvatar.bikeSpeed` (+0x0B), a STABLE
+   field holding the game's own `PLAYER_SPEED_*`, and maps it to that speed's action —
+   `FAST -> WALK_FAST 0x15`, `FASTEST -> WALK_FASTER 0x2D` (`sMachBikeSpeedCallbacks`, src/bike.c:75-80).
+3. **The place-it branch was catching the wrong thing.** Written for a warp or a dropped packet, it
+   also fired whenever a peer simply moved faster than one tile per step: at top speed the ghost
+   settles ~2 tiles back (the interpolation delay made visible) and a one-tile step cannot close
+   that. Measured: `PLACED=13`, every one `dist2`, against 54 correctly-sped steps. A gap of 3 tiles
+   or less is now WALKED at the peer's own speed; a longer one is still a warp and still placed.
+4. **The ghost slid at top speed** — the last one, and the only one the counters could not see,
+   because the sprite was neither paused (`paused=0`) nor frozen (`slide=150/225`). The per-frame
+   trace showed why: the ghost was on a DIFFERENT animation from the player and stuck on its last
+   frame — `P.anim=4/0 | R.sanim=4/0 | G.anim=8/3`, held ten-plus frames. Letting the engine pick a
+   moving ghost's animation from the movement action is right for the WALKING graphic and wrong for
+   a bike: the player rides on animation 4 while the action-derived one is 8, which runs out and
+   holds. On a bike the peer's number now wins even while moving — the number only, so the engine
+   still advances the frames and there is still one writer.
+
+**Agent-verified afterwards, over 1920 traced frames of scripted riding at top speed:** the ghost's
+animation number matched the peer's on **1920/1920 frames (100%)**, and its frame index advanced 958
+times and held 961 with a longest hold of **2 frames** — *identical* to the player's 958/961/2. The
+held frames are the animation's own delay, not a stall.
+
+## Emerald: a ghost you can walk through, using the engine's own rule — 2026-08-20
+
+**User-confirmed:** *"collision on the spawned ghost seems to be removed/working properly now"*.
+
+`DoesObjectCollideWithObjectAt` only reports a collision when the two objects' elevations are
+COMPATIBLE, and `AreElevationsCompatible` (src/event_object_movement.c:7789) is three lines: 0
+collides with anything, equal collides, and **two different non-zero elevations do not collide at
+all**. That is the switch, and it is the game's own — it is how a bridge and the water under it hold
+two characters on one tile.
+
+**Why this file twice said no such switch exists.** An earlier attempt set elevation 0, 1 and 15,
+saw all three still block, and concluded elevation was not the mechanism — leaving two positional
+hacks that each broke the ghost's movement. The missing piece is `ObjectEventUpdateElevation`
+(:7759): the engine REWRITES `currentElevation` from the map tile whenever an object moves, so the
+value was reset within a step to whatever the ghost stood on — the same terrain as the player, hence
+equal, hence colliding. It is now re-applied every frame and chosen against the player's current
+elevation, so it can never match.
+
+Only the LOW nibble of +0x0B is touched. The high nibble is `previousElevation`, which
+`SetObjectSubpriorityByElevation` draws with, so the ghost keeps its exact ordering behind and in
+front of scenery: collision changes, rendering does not. A transition frame still collides, because
+the player's own elevation reads 0 mid-step and the rule says 0 collides with everything — the
+engine's behaviour for every character.
+
+**This is the mechanism the ghost-collision POLICY has been waiting for.** The ADR's `"disabled"`
+setting has shipped on the Go side with no adapter able to honour it (`architecture.md`, 2026-08-19).

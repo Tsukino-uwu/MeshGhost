@@ -2393,3 +2393,54 @@ Method: `_template/probes.md`, "Check a computed grid against the screen".
 - **When one fix closes two symptoms, it was one cause.** The user, on this one: *"it also fixed the
   issue of drawing when outside of the water at the same time"* -- the leak onto grass and the leak
   onto the ledge were the same 8px.
+
+## A rule that is right for one graphic can be wrong for another — 2026-08-20, Emerald
+
+**Symptom.** A ghost on a Mach Bike moved with its legs stopped — *"sliding/gliding at top speed"* —
+while the same code animated a walking ghost perfectly.
+
+**Why the counters said it was fine.** Two of them, both honest and both blind to this: the sprite
+was never paused while moving (`paused=0`) and its frame index advanced on 67% of stepping frames
+(`slide=150/225`). Nothing about "is it animating" was false. What was false was WHICH animation.
+
+**Cause.** While a peer moves, the adapter lets the ENGINE animate the ghost, from the movement
+action it was asked to perform. That is correct for the walking graphic — the action carries the
+matching walk cycle, and mirroring on top of it put two writers on one field and left ghosts stuck
+in a pose after a turn (2026-08-19). On a bike it is wrong: the player rides on animation 4, while
+the action-derived animation for that graphic is 8, which runs to its last frame and holds.
+
+**What ended it.** The per-frame trace that logs the PLAYER's animation state beside the GHOST's on
+one line (`MESHGHOST_EMERALD_ANIM_TRACE`), which makes "different animation" and "same animation,
+stalled" distinguishable at a glance:
+
+```
+f=597  P.anim=4/0 | R.sanim=4/0 | G.anim=8/3
+f=605  P.anim=4/1 | R.sanim=4/1 | G.anim=8/3   <- ten frames on one frame
+```
+
+The peer had been sending the right number the whole time.
+
+**The rules.**
+
+- **A rule scoped to "while moving" or "while idle" is probably scoped to the wrong thing.** Ask
+  which GRAPHIC it is true for. Walking, biking, fishing and surfing are animated by different parts
+  of the engine, and a rule derived from one of them is a guess about the others.
+- **A counter can only disprove the defect it was built for.** `paused` and `frame advanced` were
+  both built for the previous slide, and both passed while a different slide was on screen. When a
+  measurement clears something the user can still see, the measurement is answering a narrower
+  question than the report.
+- **Trace the reference and the copy on ONE line.** Every animation defect this adapter has had was
+  invisible in a trace of either side alone.
+
+## Counters placed inside a gated block measure nothing — 2026-08-20, Emerald
+
+**Symptom.** 71 laps of scripted riding produced an empty counter column.
+
+**Cause.** The counters for "is the ghost animating while it moves" were added inside the animation
+mirror — which is deliberately gated on the peer standing STILL. So they could only ever record the
+case they were built to rule out.
+
+**The rule.** **Put a measurement on the path the event happens on, not near the code you suspect.**
+The suspicion is what is being tested; wiring the counter into it assumes the answer. Check the gate
+conditions above a new counter before trusting a zero, and prefer a per-frame path with an explicit
+condition to a convenient nearby block.
