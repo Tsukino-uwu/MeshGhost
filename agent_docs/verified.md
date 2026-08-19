@@ -8188,3 +8188,81 @@ that graphic's own images pointer and palette tag, and Crystal's drawn tier alre
 non-resident character out of the cartridge this way — but the frame SIZE also varies by graphic
 (a bike is wider than a walker), so the decode cache has to key on the graphic rather than assume
 one shape.
+
+## Emerald: peer STATE, ledges and shadows — a long confirmation pass, 2026-08-19
+
+All user-confirmed on screen, with both renderers up (`MESHGHOST_COMPARE_TIERS`), on vanilla.
+
+### A peer's state renders on both tiers now
+
+- **Fishing, spawned tier**: *"the spawned ghost is fishing"*. Needed no new code — `extras.gfx`
+  already carried the graphics id and `spawnGhost` already rebuilt on a change; the adapter simply
+  declined to adopt it behind `MESHGHOST_GHOST_PEER_GFX`.
+- **The full fishing ANIMATION, not just its first frame**: *"neither of them are doing the mid
+  fishing animations"* → fixed by sending the peer's sprite `animNum`/`animCmdIndex` and starting
+  the animation the way the game does (`StartSpriteAnim`: set the number, set `animBeginning`,
+  clear `animEnded`).
+- **The drawn tier draws the actual graphic** — rod, bike, surfboard — by resolving
+  `anims[animNum][animCmdIndex]` to an image index and decoding from that graphic's own `images`,
+  with the frame SIZE taken from the graphic too. Colours come from the live palette slot, so a
+  drawn peer keeps dimming with fades and caves.
+- **A regression this caused, and its fix**: mirroring the peer's animation also fired on the plain
+  walking graphic, where the engine already drives the ghost through our step/turn/bump actions.
+  Two writers of one field left it stuck — *"its stuck in the wrong pose after turning
+  directions"*, and after running. Scoped to graphics the engine is NOT driving.
+
+### Ledge hops — three attempts, and only the measurement worked
+
+*"neither ghost knows how to jump down/off a ledge"*. Two failures first, both recorded because
+they look reasonable and are not:
+
+1. **"the peer moved two tiles in one update"** — never happens. The engine advances the tile
+   counter ONE TILE AT A TIME through a hop (measured: 16,18 → 16,19 → 16,20 with the action
+   holding at 12 throughout), and the core's interpolation smooths it further.
+2. **The same test as an `elseif` after the one-tile branch** — unreachable, because a one-tile
+   delta is exactly what a hop looks like every frame, so the ghost walked down the ledge.
+
+What works is the ENGINE'S OWN INTENTION: `movementActionId` (+0x1C) reads `JUMP_2_*` (0xC..0xF)
+for the whole hop, so the peer sends it and the ghost performs the same action, arc and all —
+checked BEFORE any distance is measured, and latched so one hop is one jump.
+
+### The jump shadow — a bandage, and almost none of it is invented
+
+The engine does create a shadow for any object's hop, and it cannot reach a ghost: it binds by
+`localId` and re-finds its object every frame, and ghosts wear `LOCALID_PLAYER` — which is exactly
+what makes them non-interactable through the engine's own check, so it is not negotiable. The
+user's call was to draw it ourselves. Everything about it was then measured rather than tuned:
+
+| Property | How it was settled |
+| --- | --- |
+| Arc | The engine's: a jumping sprite carries its hop in `pos2.y`, so the shadow is drawn without that term |
+| Colour | Three alpha guesses all read too light; dumping the OBJ palettes mid-hop showed every candidate entry is pure black |
+| Position | The shadow sprite sits at the character's own x, 12px below its un-arced y |
+| Size | The sprite is 16x8 (`SHADOW_SIZE_M`), but decoding its pixels showed the INK is **16x5**, rows 3..7 — filling the box read as *"pretty big on the ghosts"* |
+
+**User-confirmed after that: *"think they look fine now"*.** What remains ours is one ellipse
+standing in for the 16x5 silhouette, and `BANDAGES.md` records that the real art is one step away —
+the shadow's `images` pointer is readable off any shadow on screen.
+
+### Also confirmed in the same pass
+
+- **Walking into a wall animates**, at the half pace the game uses for a collision (walk-in-place
+  SLOW). Two bugs here: a distance-driven cycle has no distance to work with when you walk into a
+  wall, and the first fix tested the FILTER's per-frame movement against exactly zero — true only
+  when the ghost had already stopped, which is why it worked *"if im next to a wall"* and not
+  *"if i walk and hit a wall and keep walking"*. The peer's target is discrete and cannot be
+  thresholded wrong.
+- **A tile leak, found by a garbled NPC the user could talk to.** The battle guard added the same
+  day dropped a ghost's record without freeing its VRAM tile range (it could not: outside the
+  overworld that bitmap belongs to the battle), so the engine ran short and drew one of its own
+  NPCs from whatever was left. Ranges are queued and settled on the way back in.
+
+### Still open from this pass
+
+**"Both ghosts move while fishing"** is NOT reproduced and NOT explained. Every measurement says
+the ghost holds a clean +2 tile offset for the entire sequence (33 of 33 samples), with coordinates
+and sprite position unchanged across the graphic swap. One real defect was found while looking —
+both object slots live during the rebuild, now swept in the same frame — but the user still saw
+movement afterwards. The remaining hypothesis is that the fishing frame's art sits differently
+within its 32-wide box, which would shift BOTH the player and the ghost equally and be easier to
+notice on a ghost. Unconfirmed either way.

@@ -30,19 +30,16 @@ and live in `verified.md`** — network-paced movement, the turn animation, cuts
 single-tile walk cadence, the spawned ghost sticking after a run, both house transitions, scene
 brightness, and a smooth run. These are what is left:
 
-- [ ] **The painted ghost dims in a dark cave.** *What to look at:* any cave, and any fade.
-      *Correct:* it darkens exactly like the spawned one. The fade half of this is confirmed
-      (both house directions); a cave has not been visited yet.
-- [ ] **The garbled NPC does not come back.** A tile leak, introduced the same day by the battle
-      guard and fixed by queueing ranges: a despawn outside the overworld could not free its tile
-      range, so the engine ran short of OBJ VRAM and drew one of its own NPCs from whatever was
-      left -- *"a garbled 3rd ghost... has collision, and i can talk to it"*, which was never a
-      ghost. *What to look at:* a long session with battles in it. *Correct:* no character ever
-      renders as garbage.
-- [ ] **A reclaimed ghost slot now explains itself.** *"the spawned ghost disappears sometimes, but
-      very rarely"* -- the engine culls an out-of-view object and the adapter respawns it, which is
-      normal and was silent. It now logs one line a second at most. *What to look at:* the log
-      after it happens, not the screen.
+- [ ] **The painted ghost dims in a dark cave.** *What to look at:* any cave. *Correct:* it darkens
+      like the spawned one. The fade half is confirmed (both house directions); a cave has not been
+      visited yet.
+- [ ] **Bikes and surfing on the drawn tier.** Fishing is confirmed there; the same decode path
+      serves a bike and a surfboard and has not been watched.
+- [ ] **"Both ghosts move while fishing"** — reported repeatedly, never reproduced in any
+      measurement (`verified.md` has the numbers: 33 of 33 samples hold a clean +2 offset). Needs
+      one deliberate look at whether the PLAYER's own character also sits half a tile off its tile
+      while fishing; if it does, we match the game and there is nothing to fix.
+
 ### Closed as far as it goes, and NOT worth another attempt
 
 - **Ghost collision cannot be removed from a MOVING spawned ghost.** The engine drives a step from
