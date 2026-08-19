@@ -381,6 +381,13 @@ state**, on an instance it owns, with `client.speedmode()` to make it cheap.
 **When editing still wins:** a state that is a single well-understood value, a state you need
 hundreds of times, or anything where the walk is long and the value is already known.
 
+**But if the PLAYTHROUGH is the test, editing is disqualifying** (user, 2026-08-19): no spawned
+items, no teleporting, no warping past something not yet earned. Reading is unrestricted —
+position, flags, tile behaviour, the decomp itself — because the rule is *observe freely, intervene
+never*. The two claims are simply different: a probe that fakes water tests "what does the fishing
+code do", a playthrough tests "a player can get there and the adapter survives the trip", and a
+faked state answers only the first. See `agent_docs/environment.md`.
+
 **Finding the route is a deliverable, not overhead** (user, 2026-08-19). When an agent has to get
 somewhere in a game, *how* it worked out the way is worth recording — the next agent dropped into
 an unfamiliar map can reuse a method, and cannot reuse a sequence of button presses. The user's

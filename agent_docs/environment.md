@@ -831,6 +831,33 @@ and on a busy machine 400% buys little more than 200%. Measure what you actually
 against the wall clock) rather than assuming the multiplier, and put the speed back to 100 when
 finished so the next reader of that instance is not confused by a fast-running game.
 
+**NO CHEATING WHEN THE POINT IS THE PLAYTHROUGH — but read whatever you like.** The user's rule,
+2026-08-19: *"cheating is not allowed, but reading/knowing memory is fine. you are not allowed to
+'spawn items/teleport to locations' etc. but you are allowed to read and understand what is around
+you/where you currently are. try to progress just as a player would."*
+
+The line is **observe freely, intervene never**:
+
+| Allowed — observation | Not allowed — intervention |
+|---|---|
+| Reading position, map, flags, party, inventory | Writing any of them |
+| Reading the decomp to know what a script checks | Setting the flag that script checks |
+| Reading tile behaviour to plan a route | Warping, teleporting, walking through walls |
+| Screenshots, OAM, tilemaps, anything on screen | Spawning an item, a badge, or money |
+| Savestates as checkpoints of legitimate progress | Savestates used to skip something not yet earned |
+
+**Why this is not the same as the dev-tooling carve-out.** `CLAUDE.md` permits a *probe* to cheat
+— `probes/watertile.lua` writes a water tile so fishing can be measured without walking to a
+route, and that is fine, because the claim being tested is *"what does the fishing code do"*. A
+playthrough tests a different claim: **"a player can get from here to there, and the adapter
+survives the trip."** Cheat and you have tested nothing — you have confirmed that the state you
+wrote is the state you wrote.
+
+**Perfect information is not cheating.** Knowing exactly where you are, what the game is checking,
+and which tile is a one-way ledge is what makes an agent good at this rather than lucky; it is the
+same relationship a speedrunner has with a decomp. The prohibition is on *changing* the world, not
+on understanding it.
+
 **Ground rules for an agent playing a game:**
 
 - **Only on an instance you own** (one agent per instance, above). Never drive an emulator the
