@@ -33,6 +33,19 @@ emulators survive; the agents driving them do not. Each needs a new owner (one a
 (pids change; find them with `Get-CimInstance Win32_Process -Filter "Name='EmuHawk.exe'"` and match
 on the `--lua=` control file. A relay is on 7777 with `-max-clients=250`.)
 
+**All four were deliberately PAUSED before the session ended**, so nothing is mid-action:
+
+- **Every loader control file was reduced to the adapter alone** — no driver scripts, no probes,
+  no input. Add scripts back to a control file to resume that instance (remember: the loader
+  reloads when the SET OF PATHS changes, so re-adding a path is what triggers it).
+- **All synthetic peers were stopped.** Relaunch a screen-filling crowd with
+  `scratchpad/grid3.ps1 -px <x> -py <y>` (one peer per visible tile, positioned round the player)
+  or a smaller set with `meshghost-fakeadapter.exe` directly — see `crowd-limits.md` for the flags.
+- **The emulators, their cores and the relay are still running**, so an instance is one control
+  file edit away from working again. Nothing needs relaunching unless a window has been closed.
+- **No agent is running.** Every one was stopped explicitly; their work is committed, including
+  two agents' in-flight Emerald changes saved as an explicit WIP commit.
+
 **Two Archipelago measurements are one step from landing**, and both are worth finishing before
 anything new: Crystal needs a trainer battle fought on the way back to Cherrygrove, and Emerald
 needs a peer spawned to prove the render path switches. Neither address is written into an
