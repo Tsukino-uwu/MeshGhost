@@ -2108,3 +2108,40 @@ the retry now keeps saying which address it cannot reach.
 (`Get-CimInstance Win32_Process`) rather than the repo -- a flag survives in the process list, a
 config file's contents do not. Prefer an explicit `-relay` flag over a config file whenever
 sessions share a machine.
+
+## "A bit choppy" cost six rewrites, because it was three separate bugs and none were where I looked — 2026-08-19
+
+**Symptom.** A drawn (painted) ghost in Emerald looked subtly wrong next to the engine-spawned one:
+choppy, then too fast, then choppy again. Six movement models were written and judged by eye.
+
+**What it actually was**, once both ghosts were logged per frame instead:
+
+1. **Running at walking speed.** The step machine took its duration from the peer's `anim` tag,
+   which said walking while the peer ran. The ghost lost half a tile per step, fell behind, and
+   SNAPPED when it passed two tiles. The snap was the visible chop.
+2. **A one-tile spike in the anchor, once per step.** The player's tile counter flips to the
+   DESTINATION tile the moment a step begins, so calibrating against it mid-step put a whole tile
+   of error in. Direction-dependent, which is why it looked fine one way and terrible the other.
+3. **A ±2px beat every frame** from mixing two camera counters — `gSpriteCoordOffset` (inside the
+   player's screen position) and `gTotalCameraPixelOffset` (inside the anchor) — which the game
+   does not write at the same point in the frame.
+
+And the last one was not in the adapter at all: the remaining hitch on the SPAWNED ghost was the
+core's `-interp`, 100ms, too short to cover a 20Hz arrival rate. At 250ms it was perfect.
+
+**The lessons, in the order they would have saved time.**
+
+- **`CLAUDE.md` says stop after ~3 failed live iterations and tabulate. That rule was ignored for
+  six.** The first measurement — logging both renderers' actual positions per frame — found bug 1
+  immediately, and each subsequent one found the next. Every model rewritten before that was aimed
+  at a symptom whose cause was somewhere else entirely.
+- **"Smooth it" and "schedule it" are different jobs.** Any model with its own timing — a step
+  duration, a speed, a state machine — runs against a world that scrolls on the game's clock, and
+  two clocks beat. A filter has a lag and no phase, so it cannot beat with anything. Smoothing
+  between updates is the adapter's job; deciding WHEN things move is not.
+- **A state tag can lie; a position cannot.** `anim` is a classification of the sender's state, and
+  a cutscene, a forced walk or a turn can all move a character without setting it. Ask the peer's
+  own coordinates what it is doing.
+- **When two renderers must agree, pin one to the other rather than reproducing its schedule.**
+  Compare mode now places the painted ghost from the spawned one's own sprite, which makes every
+  remaining difference a rendering difference — which is what the mode was for.

@@ -7,8 +7,10 @@
 - **Crystal renders peers in TWO tiers now**: spawned real objects up to what the game can draw,
   and everything past that PAINTED over the emulator. A character on every visible tile at 60fps,
   user-confirmed. `verified.md` 2026-08-19, `crowd-limits.md`.
-- **Emerald's spawned tier passed end to end** and its panel geometry is confirmed from a real box
-  and menu; the drawn tier stays flag-gated on occlusion, not UI. `verified.md` 2026-08-19.
+- **Emerald's spawned tier passed end to end**, and `MESHGHOST_COMPARE_TIERS` (both renderers on
+  screen at once) then found a dozen defects in one session. `verified.md` 2026-08-19.
+- **The core's `-interp` default is 250ms**, measured rather than guessed — 100ms visibly chopped
+  an engine-driven ghost. `verified.md`, `bandages-core.md` entry 1.
 - Phases 6 (TEVI), 7 (Pseudoregalia) and 8 (Emerald) are done; 8's queue is in `unverified.md`.
 
 **Everything below this line is an INDEX of what is open.** Two lines per item, and the detail
@@ -119,8 +121,8 @@ that a peer's state genuinely differs from the local player's, which loopback co
   stops sending leaves a marker frozen where it was. Shipped bug, not hypothetical. `ideas.md`.
 - **TEVI lags the template's bridge shape** — `bridge_ready`/`reject` and autostart landed
   2026-08-18; the PORT WALK is the remaining gap. `_template/PROTOCOL.md`.
-- **Emerald: a peer's own state (surf/bike/fishing) is not rendered yet** — the state is its
-  `graphicsId` and all player states share one palette tag, so this is now scoped. `phase8.md`.
+- **Emerald: a peer's own state (surf/bike/fishing) is not rendered yet** — now REACHABLE to test:
+  `probes/grant_test_kit.lua` grants HMs, badges, bikes and the rod. `phase8.md`.
 - **Loopback offset puts the ghost inside/above sloped geometry** — a rig artefact, since a real
   peer's position is always valid. Weigh loopback-only anomalies accordingly. `verified.md`.
 - **Pseudoregalia: a hard crash mid-session after the pause menu opened twice** — not root-caused,
