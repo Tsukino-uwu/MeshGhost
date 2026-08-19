@@ -121,8 +121,8 @@ that a peer's state genuinely differs from the local player's, which loopback co
   stops sending leaves a marker frozen where it was. Shipped bug, not hypothetical. `ideas.md`.
 - **TEVI lags the template's bridge shape** — `bridge_ready`/`reject` and autostart landed
   2026-08-18; the PORT WALK is the remaining gap. `_template/PROTOCOL.md`.
-- **Emerald: a peer's own state (surf/bike/fishing) is not rendered yet** — now REACHABLE to test:
-  `probes/grant_test_kit.lua` grants HMs, badges, bikes and the rod. `phase8.md`.
+- **Emerald peer state: SPAWNED tier confirmed (fishing), DRAWN tier cannot** — the painted path
+  only knows the walk/run pic tables, so a bike/surf/rod peer paints as walking. `verified.md`.
 - **Loopback offset puts the ghost inside/above sloped geometry** — a rig artefact, since a real
   peer's position is always valid. Weigh loopback-only anomalies accordingly. `verified.md`.
 - **Pseudoregalia: a hard crash mid-session after the pause menu opened twice** — not root-caused,
