@@ -48,13 +48,45 @@ Two ways to run the client -- pick either:
      it or quarantine meshghost.exe. That is not a fault to work around and
      nothing is wrong with your install -- just open the client yourself
      instead. Option 1 does exactly the same job; the only thing you lose is
-     not having to open it. (Every game's mod also honours the environment
-     variable MESHGHOST_NO_AUTOSTART -- set it to anything and the mod stops
-     trying, so nothing has to be uninstalled.)
+     There is also a switch that tells the mods to stop trying, so you do
+     not have to uninstall anything -- see "The MESHGHOST_NO_AUTOSTART
+     switch" below.
 
      The pairing rule applies here too: a copy in a mod folder reads the
      config.json next to IT, not this one, so that is the file you edit for
      your host's address.
+
+The MESHGHOST_NO_AUTOSTART switch (only if you want it):
+
+  WHAT IT IS. An environment variable -- a named setting you give to Windows
+  itself rather than a line in any of MeshGhost's files. Programs can read it
+  when they start.
+
+  WHAT IT DOES. Every game's mod checks for it before starting the client. If
+  it is set, the mod does not start anything: it just uses whichever client is
+  already running, and never touches meshghost.exe. Nothing else changes --
+  ghosts, config and everything else behave exactly the same.
+
+  WHEN YOU WANT IT. When your antivirus objects to the game launching the
+  client, when you want to watch the client's window, or when you want to
+  start the client yourself for any other reason. It is a supported way to
+  run MeshGhost, not a debug setting.
+
+  YOU MAY NOT NEED IT AT ALL. For TEVI and Pseudoregalia, the mod only starts
+  the client because you copied meshghost.exe into the mod folder -- do not
+  copy it in (or take it out again) and there is nothing to switch off. The
+  switch matters most for the two Pokemon games, where the script looks for
+  the client in the MeshGhost root and finds it whether you want it to or not.
+
+  HOW TO SET IT ON WINDOWS. Press Start, type "environment variables", and
+  choose "Edit the system environment variables", then "Environment
+  Variables...". Under "User variables", click "New...", enter
+  MESHGHOST_NO_AUTOSTART as the name and 1 as the value, and click OK. Any
+  value works -- the mods only check whether it exists. Start the game after
+  that, since programs read it when they launch.
+
+  TO UNDO IT, delete that entry the same way, and the mods go back to starting
+  the client for you.
 
 Windows, Linux and macOS:
 
@@ -469,7 +501,8 @@ Playing, every session (everyone, including the host):
 
    Prefer to run the client yourself (an antivirus that objects to one
    program starting another, or you just want to watch its window)? Set
-   the environment variable MESHGHOST_NO_AUTOSTART to anything, and
+   the MESHGHOST_NO_AUTOSTART switch -- explained under "The
+   MESHGHOST_NO_AUTOSTART switch" above, including how to set it -- and
    double-click meshghost.exe before starting the game as before. That
    path is unchanged and fully supported in all four games.
 3. Walk around. Once a friend joins the same server in the same room,
@@ -521,8 +554,10 @@ Common things to check:
   MeshGhostPseudo folder. No log file means the mod never started the
   client: look in ue4ss\UE4SS.log, which will say whether meshghost.exe was
   missing (antivirus is a real possibility -- see the note below) or the
-  start itself failed. Also make sure MESHGHOST_NO_AUTOSTART isn't set in
-  your environment; that switches the whole thing off deliberately.
+  start itself failed. Also make sure the MESHGHOST_NO_AUTOSTART switch
+  isn't set (see its section above) -- that deliberately tells the mod not to
+  start the client, so it is the expected result rather than a fault if
+  somebody set it earlier and forgot.
 - Edited config.json and nothing changed? Open meshghost.log and find the
   "config loaded from ..." line -- it prints the full path of the file it
   actually read. With a mod that starts MeshGhost for you, that's the copy

@@ -94,9 +94,19 @@ quit normally.
 If meshghost.log does not exist at all, the mod never got as far as starting the client --
 check ue4ss\UE4SS.log, and see the antivirus note in the main README.txt.
 
-Prefer to run it yourself? Set the environment variable MESHGHOST_NO_AUTOSTART to anything
-and the mod won't start one; double-click meshghost.exe (in the folder you unzipped)
-before launching the game. The same variable does the same thing in all four games.
+Prefer to run it yourself? Two ways, and the first needs no settings at all:
+
+  - Do not copy meshghost.exe into the MeshGhostPseudo folder (or take it back out). With
+    nothing there to start, the mod uses whichever client is already running.
+  - Or set MESHGHOST_NO_AUTOSTART and leave the exe where it is. That is an environment
+    variable: a named setting you give Windows rather than a line in a MeshGhost file.
+    Every game's mod checks for it before starting a client, and if it exists the mod
+    starts nothing and uses whichever client is already running. Any value works -- the
+    mods only check whether it exists. The main README in the folder you unzipped has
+    step-by-step instructions under "The MESHGHOST_NO_AUTOSTART switch".
+
+Either way, double-click meshghost.exe yourself before launching the game -- and remember
+it reads the config.json sitting next to it, so keep the two together.
 
 Two important notes specific to Pseudoregalia:
 - The mod always uses local bridge port 7778, and the config.json beside it deliberately
