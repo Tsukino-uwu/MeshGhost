@@ -50,7 +50,7 @@ stays here, its reasoning goes to `agent_docs/`, with a one-line pointer. Full e
   build, vet, and the whole suite twice, including `internal/e2e`, which launches the real binaries
   and drives a real adapter over the bridge (no game, no watching). **`-race` runs locally too now**
   (`dev-scripts/run-gotests-race.bat`, fixed 2026-08-18) — run it when touching concurrency. Only
-  the fuzz campaign is still CI-only, so a green script is not quite a green CI. Repeat the suite
+  fuzzing and cross-compiling are CI-only, so a green script is not a green CI. Repeat the suite
   too: `-count=10` has caught what `-count=1` and `-count=2` both miss, most recently 2026-08-16.
   A behaviour change wants a regression test that fails without the fix.
 - **After any `.go` commit, go look at what CI did with it — `gh run list -L 5` — and at the start
@@ -135,7 +135,7 @@ stays here, its reasoning goes to `agent_docs/`, with a one-line pointer. Full e
   endings. Found live twice, most recently 2026-08-15.
 - **Rebuild the Go binaries before testing via a `.bat` launcher, not just before shipping.**
   `go build ./...`/`go vet`/`go test` don't refresh `meshghost.exe`/`meshghost-relay.exe`/
-  `meshghost-fakeadapter.exe` at the repo root — `dev-scripts/*.bat` launches those exact named
+  `meshghost-fakeadapter.exe`/`meshghost-netsim.exe` at the repo root — `dev-scripts/*.bat` launches those exact named
   binaries. Rebuild explicitly with `-o` first. Found live 2026-08-14: a bug repro ran against
   binaries a full day stale.
 - **Never log the value you just wrote as proof it worked.** Read back an independent value
@@ -226,7 +226,7 @@ stays here, its reasoning goes to `agent_docs/`, with a one-line pointer. Full e
   inline. When a step starts needing bold sub-clauses or a paragraph of caveats, that's the
   signal it belongs in the phase file with a one-line pointer left behind. Any time figure is
   **time to reach a named milestone, not total time spent** ("~10 hours from nothing to good
-  enough", not "~10 hours in") — the three existing adapter READMEs all read that way, and it's
+  enough", not "~10 hours in") — all four adapter READMEs read that way, and it's
   the number a reader is actually asking for. Found live 2026-08-15:
   Pseudoregalia's steps 19-22 had each grown to 15-20 dense lines while 1-18 stayed at 2-4,
   making the file hard to read for exactly the audience it's for. **Standing exception, granted by

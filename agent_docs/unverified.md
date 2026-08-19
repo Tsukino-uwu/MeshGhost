@@ -224,3 +224,24 @@ spawned.
 - [ ] **Shoving past a peer works.** *What to look at:* hold a direction into a peer that is
       blocking a doorway. *Correct:* after about half a second they stop blocking and you walk
       through.
+
+## Pending — ten seconds of input in EMERALD, to unblock its drawn tier (2026-08-19)
+
+Emerald's drawn-overflow tier is built but **shipped off**, because a drawn ghost would paint over
+text boxes and nothing reliable said where the UI is. The Crystal method (ask the game what it
+drew, not the LCD what it is displaying) has been ported — `probes/textbox_probe.lua` computes each
+background's tilemap address from the GBA's own `BGnCNT` registers, so it cannot go stale against a
+ROM revision, and it costs nothing measurable (59.8fps with it running).
+
+It already shows the map on BG2/BG3 with **BG0 completely empty**, which is the shape the answer
+predicts: the panel layer stays blank until the game draws a panel into it. What is missing is a
+sample of the other state.
+
+- [ ] **Talk to an NPC in the Littleroot house (or read any sign)**, leave the text box up for
+      about three seconds, then close it.
+- [ ] **Open the START menu**, leave it up about three seconds, then close it.
+
+That is the whole request. A watcher is running on the probe's log for the first frame where BG0
+stops being empty; the rows and tile ids it captures decide whether the drawn tier can ship on.
+If BG0 turns out to carry other things too (HUD, weather), the honest answer is to leave the flag
+off, and that is what will happen.

@@ -116,7 +116,7 @@ const (
 	// and 1024 was picked as the uniform answer.
 	//
 	// **It does not actually achieve that, and this comment used to claim it
-	// did.** A maximal Event marshals to ~1310 bytes, over
+	// did.** A maximal Event marshals to 1441 bytes, over
 	// udpconn.MaxDatagramBytes (1200), so it is refused by checkWritable for
 	// every udp peer with nothing but a relay log line to show for it — the
 	// "difference that only shows up in the field" this number was chosen to

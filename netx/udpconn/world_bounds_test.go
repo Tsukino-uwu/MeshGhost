@@ -8,7 +8,7 @@ package udpconn
 //
 // **These are the tests that would have caught the pre-existing sizing bug.**
 // MaxEventBytes' own comment claims it was sized to fit under MaxDatagramBytes
-// and it is not: a maximal Event marshals to ~1310 bytes and cannot be
+// and it is not: a maximal Event marshals to 1441 bytes and cannot be
 // delivered to a udp peer at all, failing checkWritable with nothing but a log
 // line. Shrinking those constants is a contract change with its own trade-offs,
 // so it is recorded in agent_docs/risks.md as its own decision rather than made
@@ -143,10 +143,29 @@ func maximalEventLine(t *testing.T) int {
 // Shrinking MaxEventBytes is a contract revision with its own trade-offs and is
 // recorded in agent_docs/risks.md as its own decision, so this test asserts
 // reality, and names the gap in its failure message rather than hiding it.
+// The sizes themselves, asserted rather than described. Three files carried a
+// figure for "how big is a maximal event" and all three were wrong (~1310 in
+// two comments, 1321 in agent_docs/risks.md, against a real 1441) because
+// nothing checked them -- the tests above assert only the INEQUALITY, which
+// stays true however far off the number is. A prose number nobody can fail is
+// a number that drifts; these two constants fail loudly instead.
+//
+// If a protocol change moves them, update the constants and every place that
+// quotes them (the failure message names them).
+const (
+	maximalEventLineBytes  = 1441
+	maximalEscrowLineBytes = 3302
+)
+
 func TestMaximalEventDoesNotFitAUDPDatagram(t *testing.T) {
 	const framing = 2 + tokenLen + seqLen
 
 	line := maximalEventLine(t)
+	if line != maximalEventLineBytes {
+		t.Errorf("a maximal event line is now %d bytes, not %d -- update "+
+			"maximalEventLineBytes here, protocol.MaxEventBytes' doc comment, and "+
+			"agent_docs/risks.md, all of which quote it", line, maximalEventLineBytes)
+	}
 	if line+framing <= MaxDatagramBytes {
 		t.Fatalf("a maximal event now fits a datagram (%d bytes, %d with framing, limit %d) -- "+
 			"if MaxEventBytes was deliberately shrunk to make this true, invert this test into "+
@@ -180,6 +199,11 @@ func TestMaximalCommittedEscrowDoesNotFitAUDPDatagram(t *testing.T) {
 	line, err := json.Marshal(protocol.Envelope{Type: protocol.TypeEscrowState, Payload: payload})
 	if err != nil {
 		t.Fatalf("marshal envelope: %v", err)
+	}
+	if len(line) != maximalEscrowLineBytes {
+		t.Errorf("a maximal committed escrow_state line is now %d bytes, not %d -- update "+
+			"maximalEscrowLineBytes here and agent_docs/risks.md, which quotes it",
+			len(line), maximalEscrowLineBytes)
 	}
 	if len(line)+framing <= MaxDatagramBytes {
 		t.Fatalf("a maximal committed escrow_state now fits a datagram (%d bytes, %d with "+
