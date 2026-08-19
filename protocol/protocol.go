@@ -128,11 +128,14 @@ type Hello struct {
 	// against its own configured code before allowing a join. An empty
 	// configured code on the relay means auth is off — the pre-existing,
 	// still-supported posture for a friend-hosted session where a bare
-	// address is enough. Crosses the wire in plaintext, same as every other
-	// field here: transport has no TLS, so this raises the bar
-	// from "anyone with the address" to "anyone with the address and the
-	// code," not to "safe against a network-level attacker." See
-	// docs/security.md and the ADR in agent_docs/architecture.md.
+	// address is enough. Whether it crosses the wire readable depends on the
+	// transport and the tls setting: quic is always encrypted, tcp is when
+	// tls is on (off by default -- see netx/tlsx and the TLS-over-tcp ADR),
+	// and udp never can be. Encrypted or not, the code itself is what is
+	// sent -- so this raises the bar from "anyone with the address" to
+	// "anyone with the address and the code," not to "safe against a
+	// network-level attacker." See docs/security.md and the ADRs in
+	// agent_docs/architecture.md.
 	RoomCode string `json:"room_code,omitempty"`
 	// GameVersion is the adapter-reported game/DLC version, opaque to the
 	// relay and core (same discipline as GameID/AreaID/Anim — compared only

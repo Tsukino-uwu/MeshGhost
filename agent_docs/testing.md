@@ -213,10 +213,16 @@ and its `contents: write` permission is the reason CI is deliberately `contents:
   dials the core's bridge listener with `transport.Dial` and speaks real bridge NDJSON. The
   bridge is therefore *not* an untested seam, despite `cmd/meshghost-fakeadapter` using an
   in-process shortcut.
-- **`netx`, `netx/udpconn`, `netx/quicconn`** — the transport
+- **`netx`, `netx/udpconn`, `netx/quicconn`, `netx/tlsx`** — the transport
   implementations behind the `net.Listener`/`net.Conn` seam. `udpconn` carries the most, since it
   is the only one that hand-rolls reliability and ordering: sequence numbers, acks, the retry
-  loop, the reorder window, and the per-connection token.
+  loop, the reorder window, and the per-connection token. `tlsx` (TLS over tcp, 2026-08-19) is
+  tested for its own behaviour — the first-byte sniff, refusing plaintext under `required`,
+  fingerprint pinning — while `netx/tls_test.go` asserts the thing that actually matters, with a
+  recording proxy between client and relay: **the room code is not present in the bytes on the
+  wire**. That test has a deliberate negative control in the same function (with `tls` off the
+  room code *is* captured), so it fails both when the feature breaks and when the test stops
+  watching the right traffic.
 - **`bridge`** — **no test files of its own.** It is types and limits only, and it is
   covered where it is used: `core`'s `dialFakeAdapter` speaks real bridge NDJSON, and
   `internal/e2e` drives a real adapter across it. Worth knowing before assuming a bridge change

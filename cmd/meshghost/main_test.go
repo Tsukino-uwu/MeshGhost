@@ -34,17 +34,25 @@ func applyTestConfig(path string) (relayAddr, roomCode string) {
 // corresponding key, so a partially-populated struct here would turn a real
 // crash into a test that passes by never exercising the field.
 func applyTestConfigFull(path string) (relayAddr, roomCode, transport string) {
-	var bridgeAddr, gameID, room, name, gameVersion string
+	relayAddr, roomCode, transport, _, _ = applyTestConfigWithTLS(path, map[string]bool{})
+	return relayAddr, roomCode, transport
+}
+
+// applyTestConfigWithTLS is applyTestConfigFull plus the two tls keys, and
+// takes the explicit-flag set so a test can assert flag-beats-file.
+func applyTestConfigWithTLS(path string, explicit map[string]bool) (relayAddr, roomCode, transport, tlsMode, tlsPin string) {
+	var bridgeAddr, gameID, room, name, gameVersion, features string
 	var interp, minSend time.Duration
 	var maxReceiveHz int
 	var showConsole bool
-	applyFileConfig(path, map[string]bool{}, configTargets{
+	applyFileConfig(path, explicit, configTargets{
 		relayAddr: &relayAddr, bridgeAddr: &bridgeAddr, gameID: &gameID,
 		room: &room, name: &name, interp: &interp, minSend: &minSend,
 		roomCode: &roomCode, gameVersion: &gameVersion, maxReceiveHz: &maxReceiveHz,
-		transport: &transport, showConsole: &showConsole,
+		transport: &transport, tlsMode: &tlsMode, tlsPin: &tlsPin,
+		showConsole: &showConsole, features: &features,
 	})
-	return relayAddr, roomCode, transport
+	return relayAddr, roomCode, transport, tlsMode, tlsPin
 }
 
 // TestConfigWithUTF8BOMIsStillRead is the regression test for a config file
@@ -304,5 +312,38 @@ func TestWatchParentPIDIgnoresZero(t *testing.T) {
 		func() { t.Error("onGone fired for pid 0, want no watch at all") })
 	if called {
 		t.Error("probe was called for pid 0, want the watch skipped entirely")
+	}
+}
+
+// TestTLSKeysAreReadFromConfig: config.json is the only surface a player
+// actually uses -- an autostarted client is spawned with no flags at all --
+// so both keys have to work from the file.
+func TestTLSKeysAreReadFromConfig(t *testing.T) {
+	path := writeConfig(t, nil, `{"client":{"tls":"required","tls_fingerprint":"AB:CD"}}`)
+	_, _, _, tlsMode, tlsPin := applyTestConfigWithTLS(path, map[string]bool{})
+	if tlsMode != "required" {
+		t.Errorf("tls = %q, want it read from the config file", tlsMode)
+	}
+	if tlsPin != "AB:CD" {
+		t.Errorf("tls_fingerprint = %q, want it read verbatim (normalizing is tlsx's job)", tlsPin)
+	}
+}
+
+// TestTLSAbsentFromConfigLeavesTheFlagDefault: an existing config file must
+// behave exactly as it did before this feature existed.
+func TestTLSAbsentFromConfigLeavesTheFlagDefault(t *testing.T) {
+	path := writeConfig(t, nil, `{"client":{"connect_to":"1.2.3.4:7777"}}`)
+	_, _, _, tlsMode, tlsPin := applyTestConfigWithTLS(path, map[string]bool{})
+	if tlsMode != "" || tlsPin != "" {
+		t.Fatalf("tls = %q / fingerprint = %q, want both left alone", tlsMode, tlsPin)
+	}
+}
+
+// TestAnExplicitTLSFlagBeatsTheConfigFile, matching every other setting.
+func TestAnExplicitTLSFlagBeatsTheConfigFile(t *testing.T) {
+	path := writeConfig(t, nil, `{"client":{"tls":"off"}}`)
+	_, _, _, tlsMode, _ := applyTestConfigWithTLS(path, map[string]bool{"tls": true})
+	if tlsMode != "" {
+		t.Fatalf("tls = %q, want the file ignored because the flag was passed explicitly", tlsMode)
 	}
 }

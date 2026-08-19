@@ -822,3 +822,111 @@ func TestAutoTransportUpgradesToQUIC(t *testing.T) {
 		t.Fatalf("client did not report upgrading to quic on %s. Log was:\n%s", quicAddr, logText)
 	}
 }
+
+// TestReleaseBinariesRoundTripAGhostOverTLS is the TLS feature end to end,
+// through the shipped flags rather than the packages: a real relay told
+// -tls required, a real client told the same, and a real ghost carried from
+// the adapter's bridge socket out over an encrypted tcp session and back.
+//
+// tcp on purpose. quic has been encrypted since it existed, so proving
+// anything there would prove nothing about this feature; tcp is the leg
+// that was plaintext, and it is also the leg every client uses for the
+// handshake that carries the room code.
+//
+// The room code is set here for the same reason: it is the thing worth
+// protecting, so this asserts the whole path works while it is in play, not
+// just an empty-code session.
+func TestReleaseBinariesRoundTripAGhostOverTLS(t *testing.T) {
+	if testing.Short() {
+		t.Skip("builds and launches real binaries; skipped under -short")
+	}
+
+	r := newRig(t).withFreshPorts(t)
+
+	start(t, r.dir, r.relayBin,
+		"-loopback",
+		"-transport", "tcp",
+		"-tls", "required",
+		"-room-code", "e2e-secret",
+		"-addr", r.relayAddr,
+	)
+	waitForListener(t, r.relayAddr)
+
+	start(t, r.dir, r.clientBin,
+		"-relay", r.relayAddr,
+		"-bridge", r.bridgeAddr,
+		"-transport", "tcp",
+		"-tls", "required",
+		"-room-code", "e2e-secret",
+		"-game", "e2egame",
+		"-room", "e2eroom",
+		"-interp", "0ms",
+		"-min-send", "10ms",
+	)
+	waitForListener(t, r.bridgeAddr)
+
+	renders, stop := startAdapter(t, r.bridgeAddr, "e2egame")
+	defer stop()
+
+	select {
+	case rr := <-renders:
+		if rr.State.AreaID != "e2earea" {
+			t.Fatalf("ghost came back in area %q, want %q", rr.State.AreaID, "e2earea")
+		}
+	case <-time.After(testTimeout):
+		t.Fatalf("no render_remote reached the adapter over tls within %s", testTimeout)
+	}
+
+	// The fingerprint is the only thing a host can hand out to make this
+	// authenticated rather than merely encrypted, so it has to be in the
+	// log they actually read — a feature that works but is undiscoverable
+	// is not shipped.
+	logBytes, err := os.ReadFile(filepath.Join(r.dir, "meshghost-server.log"))
+	if err != nil {
+		t.Fatalf("read relay log: %v", err)
+	}
+	if !strings.Contains(string(logBytes), "tls certificate fingerprint:") {
+		t.Fatalf("the relay never printed its certificate fingerprint. Log was:\n%s", logBytes)
+	}
+}
+
+// TestATLSRequiredClientRefusesAPlaintextRelay is the downgrade guard, run
+// against the real binaries: the relay is left at its plaintext default and
+// the client is told tls=required, so nothing must ever reach the adapter.
+//
+// This is the property room-code auth never had. A stale relay silently
+// disables room-code checking with no way for a client to notice
+// (agent_docs/risks.md); a required client cannot be disabled from the
+// other end, and this asserts that difference rather than describing it.
+func TestATLSRequiredClientRefusesAPlaintextRelay(t *testing.T) {
+	if testing.Short() {
+		t.Skip("builds and launches real binaries; skipped under -short")
+	}
+
+	r := newRig(t).withFreshPorts(t)
+
+	start(t, r.dir, r.relayBin, "-loopback", "-transport", "tcp", "-addr", r.relayAddr)
+	waitForListener(t, r.relayAddr)
+
+	start(t, r.dir, r.clientBin,
+		"-relay", r.relayAddr,
+		"-bridge", r.bridgeAddr,
+		"-transport", "tcp",
+		"-tls", "required",
+		"-game", "e2egame",
+		"-room", "e2eroom",
+		"-interp", "0ms",
+		"-min-send", "10ms",
+	)
+	waitForListener(t, r.bridgeAddr)
+
+	renders, stop := startAdapter(t, r.bridgeAddr, "e2egame")
+	defer stop()
+
+	select {
+	case rr := <-renders:
+		t.Fatalf("a ghost (%s) came back from a PLAINTEXT relay while the client was configured "+
+			"tls=required — the session was silently downgraded", rr.PlayerID)
+	case <-time.After(3 * time.Second):
+	}
+}

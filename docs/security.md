@@ -53,14 +53,24 @@ That is the whole argument, and it is a judgement, not a fact.
 
 | Transport | Encrypted? | Authenticated? | Notes |
 | --- | --- | --- | --- |
-| **tcp** | **No** — plaintext NDJSON | No | Deliberate: greppable with netcat, which is how a session gets debugged. Always carries the handshake. |
+| **tcp** | **Optional**, TLS 1.3 — off by default, on in a release (`"tls"`) | **No**, unless a fingerprint is pinned | Plaintext by default, deliberately: greppable with netcat, which is how a session gets debugged. With `tls` on it is encrypted, and under `"auto"` one port still serves both. Always carries the handshake. |
 | **quic** (default) | **Yes**, TLS 1.3 | **No** — the certificate is self-signed and unverified | Stops a passive eavesdropper. Does **not** stop an active man-in-the-middle, who presents their own certificate and is accepted. |
 | **udp** | **No** | No | Go's standard library has no DTLS, so this one cannot be fixed the same way. |
 
-So the honest summary is **encrypted-by-default, authenticated-nowhere**. A room code raises the bar
-from "anyone with the address" to "anyone with the address and the code" — not to "safe against a
-network-level attacker". What would close the authentication gap is TLS channel binding rather than
-certificates; it is designed but unbuilt (`agent_docs/ideas.md`, transport security).
+So the honest summary is **encrypted-by-default, authenticated-only-if-you-ask**. A room code raises
+the bar from "anyone with the address" to "anyone with the address and the code" — not to "safe
+against a network-level attacker".
+
+**Authentication, since 2026-08-19, has exactly one form and it is opt-in**: the relay prints its
+TLS certificate's SHA-256 fingerprint at startup, and a player who was handed that string by some
+other route puts it in `"tls_fingerprint"`. A relay presenting anything else is then refused rather
+than trusted. Without it, TLS (on `tcp`) and quic alike give you encryption and no proof of who is
+on the other end. Two caveats worth saying out loud: it only helps if someone actually compares the
+string, and the certificate is regenerated on every relay restart, so the pin has to be re-copied
+after the host restarts theirs. There is no CA anywhere in this design and none is planned. The
+other route to authentication — TLS channel binding, which would remove the room code from the wire
+entirely rather than encrypting it — is designed and unbuilt (`agent_docs/ideas.md`, transport
+security).
 
 **What plain `udp` does have**, since it is otherwise the weakest of the three: an HMAC cookie so an
 unauthenticated stranger cannot make the listener allocate memory for a spoofed address, a
@@ -80,10 +90,12 @@ claims, not just game memory.
 game-version check, and the relay/core have been hardened against several concrete
 malicious-peer attack shapes (see "What changed" below). It is safer to use with people you
 don't personally know than it was — but two real limits remain, and neither is closed by this
-work: the wire is not authenticated. On `tcp` and `udp` there is no encryption at all, so a room
-code crosses in plaintext; on `quic`, the default path since 2026-08-16, the handshake is TLS 1.3
-but the certificate is unverified, so it stops a passive eavesdropper and not an active
-man-in-the-middle. Either way this raises the bar from "anyone with the address" to "anyone with
+work: the wire is not authenticated unless someone pins a fingerprint. On `udp` there is no
+encryption at all and cannot be, so a room code crosses in plaintext; on `quic`, the default path
+since 2026-08-16, and on `tcp` with `"tls"` turned on, since 2026-08-19, the handshake is TLS 1.3
+but the certificate is unverified by default, so it stops a passive eavesdropper and not an active
+man-in-the-middle. **`tcp` is plaintext until `"tls"` is set**, which is the built-in default and
+what a dev session runs on. Either way this raises the bar from "anyone with the address" to "anyone with
 the address and the code," not to "safe against a network-level attacker". And room-code auth is
 enforced entirely by the relay, so it provides
 zero protection if the relay itself is an outdated build, regardless of what any client sends
@@ -136,8 +148,10 @@ Three things follow from that shape, and they are the reason for it:
   configured for the transports it *does* serve. Found by `internal/e2e`, not by reasoning.
 
 The security consequence: the handshake, and therefore the room-code check, always happens over
-tcp — which is **not encrypted**. See "known gaps" below for what that does and does not mean,
-and note `udp` cannot be encrypted at all while `quic` can.
+tcp. **That leg is plaintext unless `"tls"` is turned on** — which is why TLS over tcp matters even
+for a session that ends up on quic: the room code crosses here, before quic is ever reached. With
+`"tls": "required"` on both ends it is encrypted too. See "known gaps" below for what that does and
+does not mean, and note `udp` cannot be encrypted at all while `quic` always is.
 
 **The tcp handshake grants no session identity.** It is query-only: nothing joins, no `player_id`
 is assigned, and the connection that follows authenticates itself independently. So the udp leg
@@ -232,12 +246,20 @@ either). See `agent_docs/ideas.md`'s nameplates entry if that's ever wired up fo
 (`fmt.Sprintf("p%d", n)`, `relay/relay.go`'s `nextPlayerID`) — `p1`, `p2`, ... per
 process lifetime, carrying no information about the connection it came from.
 
-**The relay itself doesn't currently read or log a client's IP.** `relay`, `core`
-and `cmd/` contain no `RemoteAddr()` call site (re-grepped 2026-08-18); the only occurrences are in
-`netx/` -- the `net.Conn` method that `netx/udpconn` and `netx/quicconn` must implement, plus a
-stub on a fake conn in `transport`'s own tests -- plus `udpconn`'s own
-internal keying of its connection map by remote address — which is how a single shared UDP socket
-is demultiplexed at all, and is never surfaced upward or logged. The relay is still the one party
+**The relay itself doesn't read a client's IP, and logs one only when TLS is enabled and a
+connection is refused.** `relay`, `core` and `cmd/` contain no `RemoteAddr()` call site
+(re-grepped 2026-08-19); the occurrences are in `netx/` -- the `net.Conn` method that
+`netx/udpconn` and `netx/quicconn` must implement, plus a stub on a fake conn in `transport`'s own
+tests -- plus `udpconn`'s own internal keying of its connection map by remote address, which is how
+a single shared UDP socket is demultiplexed at all and is never surfaced upward or logged.
+
+**The one exception, added 2026-08-19 with TLS over tcp:** `netx/tlsx`'s listener names the peer
+address in two log lines — a plaintext connection refused under `"tls": "required"`, and a failed
+TLS handshake. Both are refusals, both go only to the host's own `meshghost-server.log`, and
+neither can happen at all while `tls` is `off`, which is the built-in default. It is a deliberate
+narrowing of the property above rather than an oversight: "your friend cannot connect and the log
+does not say who was turned away" is the support case this exists for. Nothing logs the address of
+a connection that *succeeds*, so a normal session still leaves no IP anywhere. The relay is still the one party
 that *could* see a real IP — it's the actual TCP endpoint every client connects to, which is
 unavoidable for any relay architecture — but right now it doesn't even use that information.
 
@@ -281,12 +303,14 @@ ADR in [agent_docs/architecture.md](../agent_docs/architecture.md).
   `MaxWorldBlobBytes`, ~58KB per room, freed with the room) and opt-in per room, so it is not a
   resource gap; what it is, is a new place a client could smuggle something into, and it is not
   inspected because by hard rule it cannot be. Same posture as `extras`, with a longer lifetime.
-- **No TLS on `tcp` or `udp`.** Both are plaintext NDJSON — deliberate on `tcp`, for the
-  "greppable with netcat" debuggability property (see "Why TCP is the default" below), and
-  *unavoidable* on `udp`, since Go's standard library has no DTLS. A room code therefore crosses
-  either in the clear: anyone positioned between a client and the relay can read it. This is the
-  honest ceiling of what room-code auth buys on those two — "anyone with the address and the
-  code," not "safe against a network-level attacker."
+- **`tcp` is plaintext by default; `udp` always.** On `tcp` that is a default rather than a limit,
+  since 2026-08-19: `"tls": "auto"` or `"required"` encrypts it, and off is the default to keep the
+  "greppable with netcat" debuggability property (see "Why TCP is the default" below). On `udp` it
+  is *unavoidable*, since Go's standard library has no DTLS. So with `tls` off a room code crosses
+  either in the clear: anyone positioned between a client and the relay can read it. That is the
+  honest ceiling of what room-code auth buys in that configuration — "anyone with the address and
+  the code," not "safe against a network-level attacker." With `tls` on, `tcp` reaches exactly
+  quic's level below — encrypted, and unauthenticated unless a fingerprint is pinned — no further.
   **`quic` is the exception, since 2026-08-16**: its handshake *is* TLS 1.3, so the session is
   encrypted and the source address cannot be forged. What it still does not give is proof of *who*
   the relay is — the certificate is self-signed and unverified, because `connect_to` is a bare IP
@@ -429,8 +453,9 @@ fallback, but it is no longer the default session** — the client ships `auto` 
 `tcp,quic`, so a default pair runs quic and drops to tcp only when quic cannot be established.
 The reasoning below is why tcp stayed the floor rather than why it stayed the default. It is the
 only
-transport that can be read with `netcat` or a packet capture while debugging, the only one that
-could gain TLS later, and the only choice that changes nothing for an existing user. `udp` and
+transport that can be read with `netcat` or a packet capture while debugging — which it still is by
+default, and still is against a relay running `"tls": "auto"` — the one that **did** gain optional
+TLS, on 2026-08-19, and the only choice that changes nothing for an existing user. `udp` and
 `quic` are there for the cases the reasoning above genuinely does not cover — a lossy connection,
 or a relay near the 100Hz ceiling — and, just as much, because having three implementations behind
 one interface is what makes the "swappable network boundary" claim true rather than aspirational.

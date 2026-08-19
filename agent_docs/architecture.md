@@ -65,7 +65,9 @@ relay      — room membership, forwarding, limits. Imports protocol, transport.
 netx       — transport selection (tcp|udp|quic) as net.Listener/net.Conn. Added
                        2026-08-16. No deps on our own packages, same leaf discipline as
                        transport; subpackages netx/udpconn and netx/quicconn hold the
-                       datagram implementations. Deliberately NOT a second Transport
+                       datagram implementations, and netx/tlsx holds TLS over tcp — the
+                       self-signed certificate, the first-byte sniffing listener and the
+                       optional fingerprint pin (added 2026-08-19). Deliberately NOT a second Transport
                        implementation — see the transport ADR for why the seam sits at
                        net.Conn.
 
@@ -2012,3 +2014,105 @@ Format: Date / Decision / Status / Context / Options considered / Resolution / C
   coordinates both leave a window around the player, so a ghost is culled by the engine when the
   peer walks off-screen and has to be re-spawned when they come back — which is closer to correct
   than it sounds, since an off-screen ghost has nothing to draw.
+
+---
+
+- **Date:** 2026-08-19
+- **Decision:** TLS over the `tcp` transport, as a three-way `off` / `auto` / `required` switch
+  on both the relay and the client, off by default and turned on by a release's `config.json`.
+- **Status:** accepted
+- **Context:** `quic` has been encrypted since it existed and is the shipped default session
+  transport, but **every client handshakes over `tcp` first and that handshake carries the room
+  code** (`core.queryTransports`, and `docs/security.md`'s "How a client actually connects"). So
+  a session that ends up on quic still handed its room code to anyone watching the network, on
+  the discovery leg, before quic was ever reached. Naming `tcp` explicitly was worse again — the
+  whole session was plaintext NDJSON. The room code is the thing worth protecting: it is the
+  only secret in the protocol, and `relay.Server` enforces it entirely on its own side, so
+  reading it off the wire is enough to join any room on that relay.
+  Scoped in `agent_docs/ideas.md`'s transport-security entry, which reached a full design on
+  2026-08-16 and deliberately left it unscheduled.
+- **Options considered:**
+  - **Nothing; rely on quic.** Rejected by the discovery leg above — it is not optional and it
+    is not quic.
+  - **A separate TLS port**, the way quic has its own. Rejected: hosting is where people give
+    up, and this project already spent a decision (`quicSharesAddrPort`) on keeping port
+    forwarding to one number. A second tcp port would undo that for a security feature nobody
+    would then enable.
+  - **TLS channel binding (`tls-exporter`, RFC 9266) replacing the room code on the wire**, the
+    shape `ideas.md` designed. Still the right eventual answer for *authentication*, and
+    deliberately not built here: it is a protocol change (two new optional `protocol` fields and
+    a second room-code comparison path), and that plan's own risk note says getting the split
+    wrong creates a downgrade hole where none exists today. This ADR is confidentiality only,
+    with no protocol change at all — `protocol.Version` stays at 1 and no message gained a
+    field.
+  - **On by default.** Rejected, and this is the one worth stating: plaintext is how a session
+    gets debugged here — netcat against the relay, a packet capture between two binaries,
+    `cmd/meshghost-netsim`. Encrypting by default would take the project's cheapest diagnostic
+    away from every developer in order to protect a dev-loopback room code that is not secret.
+    The built-in default is `off`; a release turns it on in `config.json`, which is the same
+    lever `transport` already uses.
+  - **`required` as the release default**, which is what `ideas.md`'s plan proposed. Rejected in
+    favour of `auto` on both sides, for a reason specific to how this project is distributed: a
+    release is a zip a host and their friends copy around at different times, so `required` on
+    either side hard-fails against anyone still on an older copy. `auto` on both sides gives a
+    matched pair of current releases an encrypted session **always** — the relay serves TLS, the
+    client uses it, and the no-downgrade rule below then forbids falling back — while a mismatched
+    pair still connects. `required` is documented in `packaging/release/README.txt` as the
+    stricter setting for someone who wants the guarantee over the compatibility.
+- **Resolution:**
+  - A new leaf package `netx/tlsx` holds the mode, the self-signed certificate, the sniffing
+    listener and the client wrap. `netx` gains `ListenWithTLS`/`DialWithTLS` beside
+    `Listen`/`Dial`. Nothing in `relay`, `transport`, `protocol` or `core`'s message handling
+    changed: `relay.Serve` takes any `net.Listener` and `handleConn` any `net.Conn`, which is
+    exactly the property that made this a seam-level change rather than a rewrite.
+  - **One port serves both, and this is the compatibility story.** A TLS ClientHello starts with
+    the byte `0x16`; an NDJSON line starts with `{`. The listener reads exactly one byte and
+    decides, so a relay in `auto` serves encrypted clients and plaintext ones — including netcat
+    and every client built before this existed — on the same port, with no new configuration and
+    no second port to forward. That sniff happens on the connection's own goroutine, never
+    inside `Accept`: done in `Accept`, one client that connects and then says nothing would
+    stall every other client for the whole handshake timeout.
+  - **Certificates: self-signed, generated in memory, never written to disk.** The same choice
+    `netx/quicconn` already made, for the same reason — nothing verifies it by default, so a key
+    file next to the exe would buy zero security while putting a private key inside a zip people
+    re-share. **This is encryption without authentication**: it stops passive capture, and it
+    does not stop an active man-in-the-middle, who presents their own self-signed certificate
+    and is accepted. Exactly what `quic` has offered since 2026-08-16 — no more is claimed for
+    tcp than quic already gets. There is no CA story and none is planned.
+  - **Authentication is opt-in, via a fingerprint a human compares.** The relay prints its
+    certificate's SHA-256 at startup; a player who was given it out of band puts it in
+    `"tls_fingerprint"`, and a relay presenting anything else is refused instead of trusted.
+    This is the only thing in the design that authenticates a relay, it works only if someone
+    actually compares the string, and the certificate is regenerated on every relay restart so
+    the pin has to be re-copied then. All three of those are stated in the relay's own startup
+    log, not only here.
+  - **No silent downgrade, by three separate mechanisms.** (1) `required` never sends a byte of
+    application data to a relay it could not handshake with — the first MeshGhost security
+    setting a stale peer cannot disable from the other end, which room-code auth explicitly
+    cannot claim (`docs/security.md`, "A new risk this creates"). (2) `auto`'s fallback to
+    plaintext exists only for relays that predate this feature, and it logs a warning naming the
+    downgrade in those words. (3) Once the *discovery* leg to a relay has completed over TLS,
+    `auto` is raised to `required` for that connection attempt's session leg — the relay has
+    just proven it speaks TLS, so a plaintext session to the same relay could only be
+    interference.
+  - `udp` is untouched and untouchable (Go's standard library has no DTLS). `udp` plus
+    `required` is a refusal rather than a silently plaintext session. `quic` satisfies
+    `required` by construction and is not double-wrapped.
+- **Consequences:**
+  - **A packet capture between two real binaries goes opaque once it is on.** That is the point,
+    and it is also a real loss; `tls: off` is the way back, and `auto` keeps netcat working
+    against the relay regardless.
+  - **Roughly 25 bytes of TLS record overhead per message** — about 10-15% on 150-250 byte
+    packets, ~1.8 MB/hour per direction at 20Hz. Post-handshake CPU is immeasurable at this
+    traffic volume.
+  - **A new way for a version mismatch to break a session.** A `required` client hard-fails
+    against an old relay instead of limping along. Intended, and still a new support case.
+  - **Handshake CPU is now something an unauthenticated stranger can ask for.** Bounded by a
+    per-connection handshake timeout. A real per-IP cap remains unbuilt and needs its own
+    decision, since it would need `conn.RemoteAddr()`, which `docs/security.md` currently
+    asserts is never called anywhere as a privacy property (`ideas.md` records this).
+  - **The antivirus risk `ideas.md` flagged is now real rather than hypothetical**: certificate
+    generation plus encrypted outbound traffic are two classic heuristic triggers, on binaries
+    that already draw false positives. Mitigated by the default being `off` — nothing generates
+    a certificate unless someone turns it on — and by the SignPath code-signing work that entry
+    sequences ahead of it, still unstarted.

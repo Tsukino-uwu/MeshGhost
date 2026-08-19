@@ -309,7 +309,9 @@ both opaque to the core and relay (never parsed, compared only where noted below
 - `room_code` is a shared secret the relay compares (`crypto/subtle.ConstantTimeCompare`)
   against its own configured code before accepting a join. An empty configured code (the
   default) means auth is off — the original friend-hosted posture. **Crosses the wire in
-  plaintext** — `transport` has no TLS — so this raises the bar from "anyone with the
+  plaintext unless the session is encrypted** — `quic` always is, and `tcp` is when the `tls`
+  setting is on (off by default; see the TLS-over-tcp ADR in `architecture.md`). Encrypted or
+  not, the code itself is still what is sent, so this raises the bar from "anyone with the
   address" to "anyone with the address and the code," not to "safe against a network-level
   attacker." See `docs/security.md`.
 
@@ -554,8 +556,10 @@ ends and the next begins.
     a fragmented datagram is lost whole when any one fragment is lost. Large `extras` therefore
     means `tcp`.
   - **`udp` cannot be encrypted.** Go's standard library has no DTLS, so `room_code` crosses
-    that transport in the clear with no fix available. `quic` is the encrypted option — its
-    handshake is TLS 1.3.
+    that transport in the clear with no fix available. `quic` is always encrypted — its
+    handshake is TLS 1.3 — and `tcp` optionally so, via the `tls` setting on both ends
+    (`off`/`auto`/`required`, off by default). That setting also covers the tcp discovery
+    handshake every client makes, which is where `room_code` goes even on a quic session.
   - **Ports:** `tcp` and `udp` share `listen_on` (independent port spaces), and `quic` shares
     that port number too by default (`listen_quic: ""`). Because quic is itself carried over
     UDP, it collides with plain `udp` — serving both at once therefore requires naming a

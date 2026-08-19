@@ -33,14 +33,20 @@ func applyTestConfig(path string) (addr, onlyGame string) {
 // corresponding key, so a partially-populated struct here would turn a real
 // crash into a test that passes by never exercising the field.
 func applyTestConfigFull(path string) (addr, onlyGame, transport, quicAddr string) {
-	var maxClients, sendHz int
+	addr, onlyGame, transport, quicAddr, _ = applyTestConfigWithTLS(path)
+	return addr, onlyGame, transport, quicAddr
+}
+
+// applyTestConfigWithTLS is applyTestConfigFull plus the tls key.
+func applyTestConfigWithTLS(path string) (addr, onlyGame, transport, quicAddr, tlsMode string) {
+	var maxClients, sendHz, resumeGrace int
 	var roomCode string
 	applyFileConfig(path, map[string]bool{}, configTargets{
 		addr: &addr, roomCode: &roomCode, onlyGame: &onlyGame,
-		maxClients: &maxClients, sendHz: &sendHz,
-		transport: &transport, quicAddr: &quicAddr,
+		maxClients: &maxClients, sendHz: &sendHz, resumeGrace: &resumeGrace,
+		transport: &transport, quicAddr: &quicAddr, tlsMode: &tlsMode,
 	})
-	return addr, onlyGame, transport, quicAddr
+	return addr, onlyGame, transport, quicAddr, tlsMode
 }
 
 // TestConfigWithUTF8BOMIsStillRead is the regression test for a config file
@@ -157,5 +163,50 @@ func TestEmptyConfigFileIsSilentlyIgnored(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// TestTLSIsReadFromConfig: "tls" has to be settable from config.json, not
+// only from a flag -- a release ships a config file, and nobody hosting for
+// friends passes flags.
+func TestTLSIsReadFromConfig(t *testing.T) {
+	path := writeConfig(t, nil, `{"server": {"tls": "required"}}`)
+	_, _, _, _, tlsMode := applyTestConfigWithTLS(path)
+	if tlsMode != "required" {
+		t.Fatalf("tls = %q, want it read from the config file", tlsMode)
+	}
+}
+
+// TestTLSAbsentFromConfigLeavesTheFlagDefault: an existing config file with
+// no "tls" key must not have its behaviour changed by this feature
+// existing.
+func TestTLSAbsentFromConfigLeavesTheFlagDefault(t *testing.T) {
+	path := writeConfig(t, nil, testServerConfig)
+	tlsMode := "off"
+	var addr, onlyGame, roomCode, transport, quicAddr string
+	var maxClients, sendHz, resumeGrace int
+	applyFileConfig(path, map[string]bool{}, configTargets{
+		addr: &addr, roomCode: &roomCode, onlyGame: &onlyGame,
+		maxClients: &maxClients, sendHz: &sendHz, resumeGrace: &resumeGrace,
+		transport: &transport, quicAddr: &quicAddr, tlsMode: &tlsMode,
+	})
+	if tlsMode != "off" {
+		t.Fatalf("tls = %q, want the flag default left alone", tlsMode)
+	}
+}
+
+// TestAnExplicitTLSFlagBeatsTheConfigFile, matching every other key.
+func TestAnExplicitTLSFlagBeatsTheConfigFile(t *testing.T) {
+	path := writeConfig(t, nil, `{"server": {"tls": "off"}}`)
+	tlsMode := "required"
+	var addr, onlyGame, roomCode, transport, quicAddr string
+	var maxClients, sendHz, resumeGrace int
+	applyFileConfig(path, map[string]bool{"tls": true}, configTargets{
+		addr: &addr, roomCode: &roomCode, onlyGame: &onlyGame,
+		maxClients: &maxClients, sendHz: &sendHz, resumeGrace: &resumeGrace,
+		transport: &transport, quicAddr: &quicAddr, tlsMode: &tlsMode,
+	})
+	if tlsMode != "required" {
+		t.Fatalf("tls = %q, want the explicit flag to win over the file", tlsMode)
 	}
 }

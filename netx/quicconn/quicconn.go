@@ -49,20 +49,17 @@ package quicconn
 import (
 	"bufio"
 	"context"
-	"crypto/ed25519"
-	"crypto/rand"
 	"crypto/tls"
-	"crypto/x509"
-	"crypto/x509/pkix"
 	"fmt"
 	"io"
-	"math/big"
 	"net"
 	"os"
 	"sync"
 	"time"
 
 	quic "github.com/quic-go/quic-go"
+
+	"github.com/Tsukino-uwu/MeshGhost/netx/tlsx"
 )
 
 const (
@@ -85,33 +82,16 @@ const (
 // freshly generated in-memory certificate. Exported so a caller can reuse
 // one config across listeners; generating per connection would be a free
 // CPU lever for an unauthenticated stranger.
+//
+// The certificate generation itself lives in netx/tlsx, shared with TLS
+// over the tcp transport so there is one self-signed-certificate story in
+// this project rather than two that can drift apart.
 func NewSelfSignedTLSConfig() (*tls.Config, error) {
-	pub, priv, err := ed25519.GenerateKey(rand.Reader)
+	cfg, _, err := tlsx.ServerConfig(alpn)
 	if err != nil {
-		return nil, fmt.Errorf("quicconn: generate key: %w", err)
+		return nil, err
 	}
-	serial, err := rand.Int(rand.Reader, new(big.Int).Lsh(big.NewInt(1), 128))
-	if err != nil {
-		return nil, fmt.Errorf("quicconn: generate serial: %w", err)
-	}
-	tmpl := &x509.Certificate{
-		SerialNumber:          serial,
-		Subject:               pkix.Name{CommonName: "meshghost-relay"},
-		NotBefore:             time.Now().Add(-time.Hour),
-		NotAfter:              time.Now().Add(10 * 365 * 24 * time.Hour),
-		KeyUsage:              x509.KeyUsageDigitalSignature,
-		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
-		BasicConstraintsValid: true,
-	}
-	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, pub, priv)
-	if err != nil {
-		return nil, fmt.Errorf("quicconn: create certificate: %w", err)
-	}
-	return &tls.Config{
-		Certificates: []tls.Certificate{{Certificate: [][]byte{der}, PrivateKey: priv}},
-		NextProtos:   []string{alpn},
-		MinVersion:   tls.VersionTLS13,
-	}, nil
+	return cfg, nil
 }
 
 func clientTLSConfig() *tls.Config {

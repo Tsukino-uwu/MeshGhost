@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/Tsukino-uwu/MeshGhost/netx"
+	"github.com/Tsukino-uwu/MeshGhost/netx/tlsx"
 	"github.com/Tsukino-uwu/MeshGhost/protocol"
 	"github.com/Tsukino-uwu/MeshGhost/relay"
 )
@@ -97,6 +98,15 @@ type fileConfig struct {
 	// transport is served too, since quic is itself carried over udp and the
 	// two would collide; the relay refuses to start rather than guess.
 	QuicAddr *string `json:"listen_quic"`
+	// TLS turns on encryption for the tcp transport: "off" (the built-in
+	// default), "auto" (serve TLS and plaintext on the same port) or
+	// "required" (refuse plaintext). quic is always encrypted regardless
+	// and plain udp can never be; this key concerns tcp only. A release
+	// config ships "required"; the built-in default is off so that
+	// netcat, a packet capture and cmd/meshghost-netsim keep working
+	// while a session is being debugged. See the TLS-over-tcp ADR in
+	// agent_docs/architecture.md.
+	TLS *string `json:"tls"`
 }
 
 // rootConfig is the top-level shape of the config file: a "server" section
@@ -120,6 +130,7 @@ type configTargets struct {
 	resumeGrace *int
 	transport   *string
 	quicAddr    *string
+	tlsMode     *string
 }
 
 // stripBOM removes a leading UTF-8 byte-order mark from a config file's
@@ -247,6 +258,9 @@ func applyFileConfig(path string, explicit map[string]bool, t configTargets) {
 	if rc.Server.QuicAddr != nil && !explicit["listen-quic"] {
 		*t.quicAddr = *rc.Server.QuicAddr
 	}
+	if rc.Server.TLS != nil && !explicit["tls"] {
+		*t.tlsMode = *rc.Server.TLS
+	}
 }
 
 // FallbackQuicAddr is where quic goes when it cannot share -addr's port,
@@ -338,6 +352,17 @@ func main() {
 			"cannot share it, since udp takes -addr's udp port itself; serving udp and quic "+
 			"together therefore needs a port named here (e.g. "+FallbackQuicAddr+"). Ignored "+
 			"unless quic is in -transport")
+	tlsMode := flag.String("tls", tlsx.Off.String(),
+		"encrypt the tcp transport: off (the default), auto, or required. \"auto\" serves TLS "+
+			"and plaintext on the SAME port -- a TLS ClientHello and an NDJSON line are told "+
+			"apart by their first byte -- so encrypted clients are protected while netcat still "+
+			"works for debugging. \"required\" closes any connection that is not encrypted, "+
+			"which is the only MeshGhost setting a stale client cannot silently ignore. This "+
+			"matters even for quic sessions: every client handshakes over tcp first and that "+
+			"handshake carries the room code. The certificate is self-signed, generated in "+
+			"memory and never written to disk, so this stops someone READING the network, not "+
+			"someone actively impersonating this relay -- unless you hand players the "+
+			"fingerprint printed below at startup and they set \"tls_fingerprint\"")
 	configPath := flag.String("config", "config.json",
 		"path to an optional JSON config file with a \"server\" section "+
 			"({\"listen_on\": \"...\", \"listen_quic\": \"...\", \"room_code\": \"...\", "+
@@ -361,7 +386,17 @@ func main() {
 		resumeGrace: resumeGrace,
 		transport:   transportNames,
 		quicAddr:    quicAddr,
+		tlsMode:     tlsMode,
 	})
+
+	// Fatal on an unrecognized tls mode, same reasoning as the transport
+	// list below: tlsx.Off is the zero value, so a lenient parse would hand
+	// an operator who asked for "requried" a relay that quietly accepts
+	// plaintext.
+	tlsChoice, err := tlsx.ParseMode(*tlsMode)
+	if err != nil {
+		log.Fatalf("meshghost-relay: %v", err)
+	}
 
 	// Fatal on an unrecognized transport rather than falling back to tcp:
 	// netx.Kind's zero value IS tcp, so a lenient parse would quietly hand
@@ -409,18 +444,64 @@ func main() {
 		kind netx.Kind
 		ln   net.Listener
 	}
+	// One certificate for the whole process, generated once. Per-connection
+	// generation would be a free CPU lever for an unauthenticated stranger,
+	// and a per-listener one would print two different fingerprints for one
+	// relay.
+	var tlsOpts netx.TLSOptions
+	var fingerprint string
+	if tlsChoice != tlsx.Off {
+		cfg, fp, err := tlsx.ServerConfig(netx.TLSALPN)
+		if err != nil {
+			log.Fatalf("meshghost-relay: tls: %v", err)
+		}
+		tlsOpts = netx.TLSOptions{Mode: tlsChoice, Server: cfg}
+		fingerprint = fp
+	}
+
 	var listeners []boundListener
 	for _, k := range kinds {
 		bind := *addr
 		if k == netx.QUIC {
 			bind = *quicAddr
 		}
-		ln, err := netx.Listen(k, bind)
+		ln, err := netx.ListenWithTLS(k, bind, tlsOpts)
 		if err != nil {
 			log.Fatalf("meshghost-relay: listen %s on %s: %v", k, bind, err)
 		}
 		listeners = append(listeners, boundListener{kind: k, ln: ln})
-		log.Printf("meshghost-relay: listening on %s (%s)", ln.Addr(), k)
+		label := k.String()
+		if k == netx.TCP && tlsChoice != tlsx.Off {
+			label = fmt.Sprintf("%s, tls %s", k, tlsChoice)
+		}
+		log.Printf("meshghost-relay: listening on %s (%s)", ln.Addr(), label)
+	}
+
+	// Say what encryption is and is not doing, in the log the host actually
+	// reads, rather than leaving it to a document. The fingerprint is the
+	// ONLY thing here that authenticates this relay, and only if a player
+	// copies it -- so it is printed with the instruction attached.
+	switch tlsChoice {
+	case tlsx.Off:
+		if *roomCode != "" {
+			log.Printf("meshghost-relay: NOTE: tls is off, so the room code crosses the network " +
+				"readable on the tcp handshake every client makes -- including clients that then " +
+				"move to quic. Set \"tls\": \"required\" in config.json (or -tls required) to " +
+				"encrypt it.")
+		}
+	default:
+		log.Printf("meshghost-relay: tls %s on the tcp transport (quic is always encrypted; plain udp never is)", tlsChoice)
+		log.Printf("meshghost-relay: tls certificate fingerprint: %s", fingerprint)
+		log.Printf("meshghost-relay: this certificate is self-signed and regenerated every " +
+			"restart. Encryption alone stops someone READING the traffic, not someone " +
+			"impersonating this relay. To close that too, send players the fingerprint above " +
+			"by some other means (not through this relay) and have them set \"tls_fingerprint\" " +
+			"in their config.json -- they will need the new one after every restart.")
+		if servesUDP {
+			log.Printf("meshghost-relay: WARNING: the plain udp transport is being served and " +
+				"CANNOT be encrypted (Go has no DTLS). A client that chooses udp is unencrypted " +
+				"no matter what tls says. Drop udp from -transport if that matters.")
+		}
 	}
 
 	// What a client with transport "auto" is told. Built from the listeners

@@ -25,12 +25,15 @@
 package netx
 
 import (
+	"crypto/tls"
 	"fmt"
+	"log"
 	"net"
 	"strings"
 	"time"
 
 	"github.com/Tsukino-uwu/MeshGhost/netx/quicconn"
+	"github.com/Tsukino-uwu/MeshGhost/netx/tlsx"
 	"github.com/Tsukino-uwu/MeshGhost/netx/udpconn"
 )
 
@@ -191,4 +194,112 @@ func Dial(k Kind, addr string, timeout time.Duration) (net.Conn, error) {
 	default:
 		return nil, fmt.Errorf("netx: unknown transport %v", int(k))
 	}
+}
+
+// TLSALPN is the ALPN identifier for MeshGhost's NDJSON protocol carried
+// over TLS on the tcp transport. Both ends must agree or the handshake
+// fails outright, which is the wanted outcome when something else entirely
+// is listening on the port.
+const TLSALPN = "meshghost"
+
+// TLSOptions turns TLS on for the tcp transport. It is deliberately
+// separate from Kind: TLS is not a fourth transport, it is a property of
+// one of them.
+//
+// The other two are unaffected and cannot be affected. quic's handshake is
+// already TLS 1.3, so it satisfies Required by construction. udp cannot be
+// encrypted at all (Go's standard library has no DTLS), so Required plus
+// udp is an error rather than a silently unencrypted session — the same
+// refusal-over-degradation choice ParseKind makes for a typo'd transport
+// name.
+type TLSOptions struct {
+	// Mode is off / auto / required. The zero value is off, so a
+	// zero-valued TLSOptions is exactly the pre-TLS behaviour.
+	Mode tlsx.Mode
+
+	// Server is the listener's certificate config (tlsx.ServerConfig).
+	// Listen-side only, and required when Mode is not off — the caller
+	// builds it so it can log the fingerprint and reuse one certificate
+	// across the process.
+	Server *tls.Config
+
+	// Fingerprint is the client-side pin: the relay's certificate
+	// fingerprint, compared out of band. Empty means encryption without
+	// authentication. Dial-side only.
+	Fingerprint string
+
+	// Logf receives the downgrade warning and the listener's per-connection
+	// notices. Nil means the standard logger.
+	Logf func(format string, args ...any)
+}
+
+func (o TLSOptions) logf(format string, args ...any) {
+	if o.Logf != nil {
+		o.Logf(format, args...)
+		return
+	}
+	log.Printf(format, args...)
+}
+
+// ListenWithTLS is Listen plus TLS on the tcp transport.
+//
+// Under tlsx.Auto one port serves TLS and plaintext together, so a relay
+// with TLS on is still drivable by hand with netcat. Under tlsx.Required a
+// plaintext connection is closed without being handed to the caller.
+func ListenWithTLS(k Kind, addr string, opts TLSOptions) (net.Listener, error) {
+	ln, err := Listen(k, addr)
+	if err != nil {
+		return nil, err
+	}
+	if k != TCP || opts.Mode == tlsx.Off {
+		return ln, nil
+	}
+	wrapped, err := tlsx.NewListener(ln, tlsx.ListenConfig{
+		Mode: opts.Mode,
+		TLS:  opts.Server,
+		Logf: opts.Logf,
+	})
+	if err != nil {
+		_ = ln.Close()
+		return nil, err
+	}
+	return wrapped, nil
+}
+
+// DialWithTLS is Dial plus TLS on the tcp transport.
+//
+// The fallback rule is the whole security-relevant part, so it is stated
+// plainly: under tlsx.Required there is no fallback at all — a relay that
+// cannot handshake gets no bytes, not even a hello. Under tlsx.Auto a
+// failed handshake falls back to plaintext once, with a warning naming the
+// downgrade, which is what lets a TLS-configured client still reach a relay
+// built before this feature existed. Nothing downgrades quietly.
+func DialWithTLS(k Kind, addr string, timeout time.Duration, opts TLSOptions) (net.Conn, error) {
+	if opts.Mode == tlsx.Off {
+		return Dial(k, addr, timeout)
+	}
+	if k == UDP && opts.Mode == tlsx.Required {
+		return nil, fmt.Errorf("netx: transport udp cannot be encrypted (Go has no DTLS) but tls is %q — choose quic, or tcp with tls, or set tls to off", opts.Mode)
+	}
+	if k != TCP {
+		// quic is already TLS 1.3; udp under auto is unencryptable and
+		// stays as it was. Neither has anything for this layer to add.
+		return Dial(k, addr, timeout)
+	}
+
+	conn, err := Dial(TCP, addr, timeout)
+	if err != nil {
+		return nil, err
+	}
+	secure, err := tlsx.Client(conn, TLSALPN, opts.Fingerprint, timeout)
+	if err == nil {
+		return secure, nil
+	}
+	if opts.Mode == tlsx.Required {
+		return nil, fmt.Errorf("netx: tls is required but the relay at %s did not complete a TLS handshake: %w", addr, err)
+	}
+	opts.logf("netx: WARNING: the relay at %s does not speak TLS (%v) — falling back to an "+
+		"UNENCRYPTED tcp session, so the room code crosses the network in the clear. Set tls to "+
+		"\"required\" to refuse this instead.", addr, err)
+	return Dial(TCP, addr, timeout)
 }

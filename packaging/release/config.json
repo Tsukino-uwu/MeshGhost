@@ -2,6 +2,8 @@
   "client": {
     "connect_to": "127.0.0.1:7777",
     "transport": "auto",
+    "tls": "auto",
+    "tls_fingerprint": "",
     "room": "default",
     "room_code": "",
     "name": "player",
@@ -13,6 +15,7 @@
     "listen_on": "0.0.0.0:7777",
     "listen_quic": "",
     "transport": "tcp,quic",
+    "tls": "auto",
     "room_code": "",
     "only_game": "",
     "max_clients": 8,

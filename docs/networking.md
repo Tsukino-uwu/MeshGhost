@@ -379,8 +379,11 @@ whole no-locking argument rests on. Doing the demultiplexing *below* that layer 
 
 The three implementations:
 
-- **tcp** — `net.Listen`/`net.DialTimeout`, plain NDJSON over a stream. Readable with netcat.
-  `SendUnreliable` is exactly `Send`.
+- **tcp** — `net.Listen`/`net.DialTimeout`, plain NDJSON over a stream. Readable with netcat,
+  which is the default and the reason it is. Optionally wrapped in TLS 1.3 since 2026-08-19
+  (`netx/tlsx`, `netx.ListenWithTLS`/`DialWithTLS`): a listener in `auto` mode tells a TLS
+  ClientHello from an NDJSON line by its first byte and serves both on one port, so netcat keeps
+  working either way. `SendUnreliable` is exactly `Send`.
 - **udp** (`netx/udpconn`) — one shared socket presented as a `net.Listener`,
   demultiplexed by remote address. One datagram carries exactly one NDJSON line. *Every*
   datagram — payload as much as control — is framed with a leading `0xFF` plus a type byte,

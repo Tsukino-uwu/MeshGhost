@@ -35,6 +35,21 @@ Setup, once:
                off by default. If they did set one, you must enter it
                exactly or you'll be refused.
      "name"  -- whatever you want your ghost to show as to others.
+     "tls"   -- LEAVE THIS AS "auto". It encrypts the first contact your
+               client makes with the host, which is the part that carries
+               your room_code. "auto" uses encryption whenever the host
+               supports it and still connects to hosts that don't (saying
+               so in meshghost.log). "required" refuses to talk to a host
+               that can't encrypt -- stricter, but a friend on an older
+               version then can't host for you. "off" is plaintext.
+     "tls_fingerprint" -- leave empty unless your host gave you a long
+               string of letters and numbers. Encryption on its own hides
+               your traffic from anyone watching; it does not prove the
+               server you reached is really your friend's. Pasting the
+               fingerprint they read out of their own server window is
+               what proves that. Note it CHANGES every time they restart
+               their server, so you'd need the new one each time -- which
+               is why it's optional and off by default.
      "transport" -- LEAVE THIS AS "auto" unless you have a reason not to.
                "auto" takes the best your host offers, preferring "quic",
                which is the only one that ENCRYPTS your session (including
@@ -116,6 +131,21 @@ Setup, once:
      "listen_on" -- what port to accept connections on. "0.0.0.0:7777"
                (the default) means "accept from anywhere," which is what
                you want. Only change the port number if you need to.
+     "tls"   -- "auto" (the default) encrypts tcp connections for players
+               whose client asks for it, while still accepting ones that
+               don't -- including plain tools you might use to test. This
+               matters even though quic is already encrypted: EVERY player
+               makes first contact over tcp, and that is where their
+               room_code is sent. "required" refuses unencrypted players
+               outright; "off" is plaintext.
+               When this is on, your server window prints a "tls
+               certificate fingerprint:" line at startup. That string is
+               how a player can verify they reached YOUR server and not
+               someone pretending -- send it to them some other way (chat,
+               not through the server) and they put it in
+               "tls_fingerprint". It changes every restart. Nobody has to
+               do this; without it the traffic is still encrypted, just
+               not proven to be yours.
      "transport" -- "tcp,quic" (the default), or "tcp", "udp", "quic", or
                any list of them. The default serves quic alongside tcp so
                your players get an ENCRYPTED session without anyone doing
@@ -522,7 +552,11 @@ matters, since players find whatever you turn on by themselves.
       it's the easiest to get help with.
     - A lost packet holds up the positions queued behind it until it gets
       resent, so a bad connection can look "stuttery then catch up".
-    - Not encrypted: your room_code travels in the clear.
+    - Not encrypted BY DEFAULT: your room_code travels in the clear
+      unless "tls" is on (it is set to "auto" in the config you were
+      given, so between two up-to-date copies it already is encrypted).
+      Turning it on does not stop tcp being the inspectable one: on
+      "auto" a plain tool still connects to the same port.
 
   udp  (never chosen for you -- you have to ask for it by name)
     + Handles a bad/lossy connection better -- a dropped position is just
@@ -536,8 +570,9 @@ matters, since players find whatever you turn on by themselves.
 
   quic  (the other half of the "tcp,quic" server default)
     + Same loss handling as udp, so the same benefit on a bad connection.
-    + Encrypted, and very hard to spoof. The only one where your room_code
-      is protected in transit.
+    + Encrypted, and very hard to spoof. Encrypted always, with nothing
+      to switch on -- tcp can be encrypted too now, but only if "tls" is
+      on at both ends.
     + Shares the same port NUMBER as tcp, so hosting stays one number --
       but it rides on UDP, so forward that number on BOTH tcp and udp.
     - Only if you serve plain udp as well does quic need a port of its own
@@ -553,6 +588,8 @@ is SMOOTHNESS on a bad connection, not lower ping on a good one.
 Short version:
   Playing, not hosting?           auto (the default -- just leave it)
   Want your room_code encrypted?  auto already does this on a default host
+                                  -- and with "tls": "auto" the tcp first
+                                  contact that carries it is encrypted too
   Hosting, just want it to work?  tcp,quic  (the default)
   Hosting, keep it simplest?      tcp
   Hosting for a flaky group?      tcp,udp   (see the udp warning above --

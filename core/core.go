@@ -34,6 +34,7 @@ import (
 
 	"github.com/Tsukino-uwu/MeshGhost/bridge"
 	"github.com/Tsukino-uwu/MeshGhost/netx"
+	"github.com/Tsukino-uwu/MeshGhost/netx/tlsx"
 	"github.com/Tsukino-uwu/MeshGhost/protocol"
 	"github.com/Tsukino-uwu/MeshGhost/transport"
 )
@@ -241,6 +242,27 @@ type Core struct {
 	// and no adapter can observe this field. See the transport ADR in
 	// agent_docs/architecture.md.
 	Transport netx.Kind
+	// TLS turns on encryption for this Core's tcp legs — both the
+	// discovery handshake and, when the session itself stays on tcp, the
+	// session. The zero value (tlsx.Off) is plaintext, the behaviour every
+	// pre-2026-08-19 Core had, so an unset Core is on the identical code
+	// path.
+	//
+	// This matters even for a quic session: the discovery leg is always
+	// tcp and always carries the room code, so a quic client with TLS off
+	// still hands the room code to anyone watching the network. See the
+	// TLS-over-tcp ADR in agent_docs/architecture.md.
+	//
+	// tlsx.Required refuses to talk to a relay that cannot handshake.
+	// tlsx.Auto falls back to plaintext with a warning, and never after a
+	// TLS leg to that same relay has already succeeded — see
+	// resolveTransport.
+	TLS tlsx.Mode
+	// TLSFingerprint optionally pins the relay's self-signed certificate:
+	// the SHA-256 the relay prints in its own log, compared out of band by
+	// a human. Empty means encryption without authentication, which is
+	// exactly what quic already gives (docs/security.md).
+	TLSFingerprint string
 	// MaxReceiveHz is sent as Hello.MaxReceiveHz — the highest rate, per
 	// peer, at which this client asks the relay to forward other players'
 	// state to it. Zero (DefaultMaxReceiveHz) means uncapped. A request, not
@@ -496,7 +518,7 @@ func (c *Core) ConnectRelay(gameID string) error {
 	// The handshake always happens over tcp, whatever Transport says, and
 	// that is not configurable. Only after it does this Core move to the
 	// transport the user actually asked for. See resolveTransport.
-	kind, dialAddr, err := c.resolveTransport(addr, gameID, room, displayName, roomCode, gameVersion)
+	kind, dialAddr, tlsOpts, err := c.resolveTransport(addr, gameID, room, displayName, roomCode, gameVersion)
 	if err != nil {
 		return fmt.Errorf("core: dial relay: %w", err)
 	}
@@ -508,9 +530,13 @@ func (c *Core) ConnectRelay(gameID string) error {
 	// not this call's `timeout`, matches what transport.DialWithLimits used
 	// internally before this change — `timeout` bounds the wait for Welcome
 	// further down, which is a different thing.
-	netConn, err := netx.Dial(kind, dialAddr, transport.DefaultDialTimeout)
+	netConn, err := netx.DialWithTLS(kind, dialAddr, transport.DefaultDialTimeout, tlsOpts)
 	if err != nil {
 		return fmt.Errorf("core: dial relay: %w", err)
+	}
+	if kind == netx.TCP && c.TLS != tlsx.Off && !tlsx.IsTLS(netConn) {
+		log.Printf("core: WARNING: this session is UNENCRYPTED tcp — the relay at %s does not "+
+			"speak TLS, so the room code and everything else cross the network in the clear", dialAddr)
 	}
 	conn := transport.FromConnWithLimits(netConn, protocol.MaxLineBytes, 0, 0)
 	c.mu.Lock()
@@ -1520,17 +1546,34 @@ const discoverTransportTimeout = 3 * time.Second
 // failure (old relay, refused room code, malformed answer) returns tcp at
 // the configured address, letting the real connect attempt surface the real
 // problem.
-func (c *Core) resolveTransport(addr, gameID, room, displayName, roomCode, gameVersion string) (netx.Kind, string, error) {
+func (c *Core) resolveTransport(addr, gameID, room, displayName, roomCode, gameVersion string) (netx.Kind, string, netx.TLSOptions, error) {
+	opts := c.tlsOptions()
 	if c.Transport == netx.TCP {
-		return netx.TCP, addr, nil
+		return netx.TCP, addr, opts, nil
 	}
 
-	offers, err := c.queryTransports(addr, gameID, room, displayName, roomCode, gameVersion)
+	offers, secure, err := c.queryTransports(addr, gameID, room, displayName, roomCode, gameVersion)
 	if err != nil {
-		return netx.TCP, addr, err
+		return netx.TCP, addr, opts, err
+	}
+	// No downgrade after a successful TLS leg. The discovery connection
+	// just proved this relay speaks TLS, so a plaintext session connection
+	// to the same relay could only be someone interfering — which is
+	// precisely the fallback tlsx.Auto otherwise allows for the benefit of
+	// relays built before this feature existed. Once TLS is known to work,
+	// that allowance has no reason to apply and is withdrawn.
+	if secure && opts.Mode == tlsx.Auto {
+		opts.Mode = tlsx.Required
 	}
 	kind, dialAddr := c.chooseTransport(addr, offers)
-	return kind, dialAddr, nil
+	return kind, dialAddr, opts, nil
+}
+
+// tlsOptions is this Core's TLS configuration as netx wants it. Kept in one
+// place so the discovery leg and the session leg can never disagree about
+// what was asked for.
+func (c *Core) tlsOptions() netx.TLSOptions {
+	return netx.TLSOptions{Mode: c.TLS, Fingerprint: c.TLSFingerprint}
 }
 
 // queryTransports performs the tcp handshake leg: connect, ask what the
@@ -1544,11 +1587,15 @@ func (c *Core) resolveTransport(addr, gameID, room, displayName, roomCode, gameV
 //
 // An error is returned only for an unreachable relay. Anything else yields
 // a nil list, meaning "nothing to upgrade to".
-func (c *Core) queryTransports(addr, gameID, room, displayName, roomCode, gameVersion string) ([]protocol.TransportOffer, error) {
-	netConn, err := netx.Dial(netx.TCP, addr, discoverTransportTimeout)
+func (c *Core) queryTransports(addr, gameID, room, displayName, roomCode, gameVersion string) ([]protocol.TransportOffer, bool, error) {
+	netConn, err := netx.DialWithTLS(netx.TCP, addr, discoverTransportTimeout, c.tlsOptions())
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
+	// Whether THIS leg ended up encrypted, which is what the caller uses to
+	// refuse a downgrade on the session leg. The room code rides this
+	// connection, so it is also the answer to "was the room code protected".
+	secure := tlsx.IsTLS(netConn)
 	conn := transport.FromConnWithLimits(netConn, protocol.MaxLineBytes, 0, 0)
 	defer conn.Close()
 
@@ -1574,14 +1621,14 @@ func (c *Core) queryTransports(addr, gameID, room, displayName, roomCode, gameVe
 		QueryOnly:       true,
 	})
 	if err != nil {
-		return nil, nil
+		return nil, secure, nil
 	}
 	env, err := json.Marshal(protocol.Envelope{Type: protocol.TypeHello, Payload: hello})
 	if err != nil {
-		return nil, nil
+		return nil, secure, nil
 	}
 	if err := conn.Send(env); err != nil {
-		return nil, nil
+		return nil, secure, nil
 	}
 
 	select {
@@ -1590,9 +1637,9 @@ func (c *Core) queryTransports(addr, gameID, room, displayName, roomCode, gameVe
 		case protocol.TypeTransports:
 			var t protocol.Transports
 			if err := json.Unmarshal(reply.Payload, &t); err != nil {
-				return nil, nil
+				return nil, secure, nil
 			}
-			return t.Offers, nil
+			return t.Offers, secure, nil
 		case protocol.TypeWelcome:
 			// An older relay: it does not know query_only, so it treated
 			// this as a real hello and joined us. Nothing to upgrade to, so
@@ -1601,15 +1648,15 @@ func (c *Core) queryTransports(addr, gameID, room, displayName, roomCode, gameVe
 			// join/leave against pre-2026-08-16 relays only, and the price
 			// of the field being additive rather than a version bump.
 			log.Printf("core: relay at %s does not support transport discovery (older build) — using tcp", addr)
-			return nil, nil
+			return nil, secure, nil
 		default:
 			// A reject (wrong room code, wrong version, ...). Let the real
 			// connect attempt surface it, with its reason, rather than
 			// duplicating that logic here.
-			return nil, nil
+			return nil, secure, nil
 		}
 	case <-time.After(discoverTransportTimeout):
-		return nil, nil
+		return nil, secure, nil
 	}
 }
 

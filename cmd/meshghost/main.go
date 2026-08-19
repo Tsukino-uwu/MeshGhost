@@ -20,6 +20,7 @@ import (
 
 	"github.com/Tsukino-uwu/MeshGhost/core"
 	"github.com/Tsukino-uwu/MeshGhost/netx"
+	"github.com/Tsukino-uwu/MeshGhost/netx/tlsx"
 	"github.com/Tsukino-uwu/MeshGhost/protocol"
 )
 
@@ -144,6 +145,24 @@ type fileConfig struct {
 	// packaging/release/README.txt and the transport discovery ADR in
 	// agent_docs/architecture.md.
 	Transport *string `json:"transport"`
+	// TLS encrypts this client's tcp legs: "off" (the built-in default),
+	// "auto" or "required". It applies to the discovery handshake as well
+	// as the session, which is why it matters even when "transport" is
+	// quic -- that handshake is always tcp and it carries the room code.
+	//
+	// "auto" falls back to plaintext, with a warning in the log, if the
+	// relay cannot handshake; "required" refuses to send anything at all
+	// to a relay that is not encrypted. See the TLS-over-tcp ADR in
+	// agent_docs/architecture.md.
+	TLS *string `json:"tls"`
+	// TLSFingerprint optionally pins the relay's certificate: the
+	// SHA-256 the relay prints in its own log at startup, given to you by
+	// the host through some other channel. Absent or empty means the
+	// session is encrypted but the relay is not authenticated -- exactly
+	// what quic already gives today (docs/security.md). The relay
+	// regenerates its certificate on every restart, so a pin has to be
+	// re-copied after the host restarts it.
+	TLSFingerprint *string `json:"tls_fingerprint"`
 	// ShowConsole opens a console window for a client that an adapter started
 	// with no window. Absent or false is the point of autostart -- MeshGhost
 	// should feel like part of launching the game, not a third thing to run --
@@ -177,6 +196,8 @@ type configTargets struct {
 	gameVersion  *string
 	maxReceiveHz *int
 	transport    *string
+	tlsMode      *string
+	tlsPin       *string
 	showConsole  *bool
 	features     *string
 }
@@ -357,6 +378,12 @@ func applyFileConfig(path string, explicit map[string]bool, t configTargets) {
 	if fc.Transport != nil && !explicit["transport"] {
 		*t.transport = *fc.Transport
 	}
+	if fc.TLS != nil && !explicit["tls"] {
+		*t.tlsMode = *fc.TLS
+	}
+	if fc.TLSFingerprint != nil && !explicit["tls-fingerprint"] {
+		*t.tlsPin = *fc.TLSFingerprint
+	}
 	if fc.ShowConsole != nil && !explicit["show-console"] {
 		*t.showConsole = *fc.ShowConsole
 	}
@@ -519,6 +546,21 @@ func main() {
 			"lossy connection, but CANNOT be encrypted (Go has no DTLS), so your room code "+
 			"crosses the wire in the clear. quic: same loss behaviour as udp but encrypted and "+
 			"hard to spoof")
+	tlsMode := flag.String("tls", tlsx.Off.String(),
+		"encrypt the connection to the relay: off (the default), auto, or required. This covers "+
+			"the tcp handshake every client makes -- the one that carries your room code -- so it "+
+			"is worth setting even when -transport is quic, which only encrypts what comes after. "+
+			"auto: use TLS when the relay speaks it, and warn loudly in the log if it does not. "+
+			"required: refuse to send anything to a relay that is not encrypted. The relay's "+
+			"certificate is self-signed, so this stops someone READING your traffic; to also stop "+
+			"someone impersonating the relay, ask the host for the fingerprint their relay prints "+
+			"at startup and put it in -tls-fingerprint")
+	tlsPin := flag.String("tls-fingerprint", "",
+		"the relay certificate fingerprint you were given by the host, out of band. When set, a "+
+			"relay presenting anything else is refused instead of trusted. Empty (the default) "+
+			"means an encrypted session with no proof of who is on the other end. Note the relay "+
+			"regenerates its certificate every restart, so this has to be updated when the host "+
+			"restarts theirs")
 	exitWithPID := flag.Int("exit-with-pid", 0,
 		"exit when the process with this pid does -- set by a game adapter that starts this "+
 			"client for you, so a crashed game can't leave an invisible orphan holding the bridge "+
@@ -568,6 +610,8 @@ func main() {
 		gameVersion:  gameVersion,
 		maxReceiveHz: maxReceiveHz,
 		transport:    transportName,
+		tlsMode:      tlsMode,
+		tlsPin:       tlsPin,
 		showConsole:  showConsole,
 		features:     features,
 	})
@@ -615,8 +659,23 @@ func main() {
 		log.Fatalf("meshghost: %v", err)
 	}
 
+	// Fatal on a bad value, same reasoning as -transport directly above:
+	// tlsx.Off is the zero value, so a lenient parse would hand someone who
+	// typed "requried" an unencrypted session with no complaint.
+	tlsChoice, err := tlsx.ParseMode(*tlsMode)
+	if err != nil {
+		log.Fatalf("meshghost: %v", err)
+	}
+	if tlsChoice == tlsx.Required && transportKind == netx.UDP {
+		log.Fatalf("meshghost: -transport udp cannot be encrypted (Go has no DTLS) and -tls is "+
+			"%q. Choose quic (encrypted, same loss behaviour) or tcp, or set -tls off if you "+
+			"really want plaintext udp.", tlsChoice)
+	}
+
 	c := core.New()
 	c.Transport = transportKind
+	c.TLS = tlsChoice
+	c.TLSFingerprint = *tlsPin
 	c.InterpolationDelay = *interp
 	c.MinSendInterval = *minSend
 	c.MaxReceiveHz = *maxReceiveHz
