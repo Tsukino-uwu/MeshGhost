@@ -1375,6 +1375,16 @@ local function textBoxOpen()
 		and right >= TILE_FRAME_CORNER and right <= TILE_FRAME_CORNER + 5
 end
 
+-- DIAGNOSTIC, off unless MESHGHOST_CRYSTAL_UI_DEBUG is set. Answers the only question that
+-- matters when the user says "a ghost is drawn over a menu" and the counters say peers are being
+-- hidden: WHICH peers were painted, WHERE they sat, and what rectangle the adapter thought it was
+-- protecting. A count of 21 hidden is compatible with 20 more painted straight over the panel --
+-- that is exactly the gap this dump closes, and it is why the count was never enough on its own.
+-- An env var cannot be changed without relaunching the emulator, and this has to be switchable
+-- during a live session someone is watching -- so a global works too, set by a dev-loader script
+-- before or after this file loads. Read once per frame, never per peer.
+local UI_DEBUG_ENV = (os.getenv("MESHGHOST_CRYSTAL_UI_DEBUG") or "") ~= ""
+
 local lastMenuBox = nil
 -- Which object struct the drawn tier is measuring from; held across frames on purpose (see
 -- drawOverflow), and cleared when the world is rebuilt.
@@ -1405,7 +1415,38 @@ function drawOverflow()
 	-- raw first frame because nothing has been learned for that facing yet, which is the state
 	-- that looks exactly like broken animation.
 	local nWalking, nNoFacing = 0, 0
+	local UI_DEBUG = UI_DEBUG_ENV or _G.MESHGHOST_CRYSTAL_UI_DEBUG == true
+	local paintedSamples = {}
 	local offSample = nil
+
+	-- IS THE OVERWORLD ON SCREEN AT ALL? If it is not, paint nothing.
+	--
+	-- A FULL-SCREEN menu (POKeMON, BAG, the PokeGear) publishes no wMenuBorder* rectangle, so
+	-- there is nothing to clip against -- and it happens to trip textBoxOpen(), so the adapter
+	-- protected only the bottom six rows and painted ghosts over the whole top two-thirds of the
+	-- menu. Reported by the user 2026-08-19: "the ghost is being drawn while in the menu's",
+	-- against counters that said peers were being hidden. Both were true; see pitfalls.md.
+	--
+	-- The test is the engine's own output rather than another guess at game state, and it follows
+	-- from what this tier IS: the drawn tier paints ALONGSIDE the characters the engine renders.
+	-- If the engine is rendering no characters at all, there is nothing to paint alongside, the
+	-- anchor this code calibrates against does not exist either, and the honest answer is to draw
+	-- nothing. Measured 2026-08-19 across a full sweep: overworld 28-34 live sprite entries, the
+	-- START menu 28-30 (map still behind it, ghosts correctly clipped by its rectangle), a text
+	-- box 30+ (map still there) -- and a full-screen submenu exactly 0.
+	--
+	-- Deliberately NOT a state flag: wStateFlags bit 0 was tried first and strobes between 01,
+	-- 40 and 41 within a single state, the same way the WY-alone heuristic did.
+	local liveSprites = 0
+	for i = 0, 39 do
+		local y = memory.read_u8(i * 4, "OAM") or 0
+		if y > 0 and y < 160 then
+			liveSprites = liveSprites + 1
+		end
+	end
+	if liveSprites == 0 then
+		return
+	end
 
 	-- ANCHOR ON A CHARACTER THAT IS STANDING STILL, and measure everything else from it in TILES.
 	--
@@ -1564,12 +1605,28 @@ function drawOverflow()
 					nDrawn = nDrawn + 1
 					if walkingFor then nWalking = nWalking + 1 end
 					if o.facing == nil then nNoFacing = nNoFacing + 1 end
+					if UI_DEBUG and (boxOpen or uiOpen) and #paintedSamples < 8 then
+						paintedSamples[#paintedSamples + 1] =
+							string.format("%s@%d,%d", id, sx, sy)
+					end
 					-- the palette the local player's own sprite is drawn with, which is the one
 					-- these tiles were coloured for
 					drawCharacter(source, sx, sy, palette, o.facing, walkingFor)
 				end
 			end
 		end
+	end
+
+	if UI_DEBUG and (boxOpen or uiOpen) and drawFrames % 15 == 0 then
+		local mb = lastMenuBox
+		logFile(string.format("UI DEBUG: boxOpen=%s uiOpen=%s rect=%s wy=%d wx=%d "
+			.. "-- %d painted, %d hidden; painted at: %s",
+			tostring(boxOpen), tostring(uiOpen),
+			mb and string.format("l=%d t=%d r=%d b=%d", mb.left, mb.top, mb.right, mb.bottom)
+				or "none",
+			memory.read_u8(0xFF4A, "System Bus") or 0, memory.read_u8(0xFF4B, "System Bus") or 0,
+			nDrawn, nHidden,
+			(#paintedSamples > 0) and table.concat(paintedSamples, " ") or "(none)"))
 	end
 
 	-- Once a second, say what the drawn tier actually did. "Half the screen is empty" needs a

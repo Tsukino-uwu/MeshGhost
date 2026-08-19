@@ -376,3 +376,26 @@ the numbers, and the two entries below rest on them rather than on any image.
 bookkeeping stops when the peers' `area_id` no longer matches, which is the leak fixed earlier that
 day still holding. Log-line evidence.
 
+## Pending — Crystal: a drawn ghost no longer paints over a full-screen menu (2026-08-19)
+
+**The user reported this while watching:** *"the ghost is being drawn while in the menu's."* The
+cause was not the menu clipping being broken in general — the START menu was always clipped
+correctly — but that a **full-screen** menu (POKeMON, BAG, the PokeGear) publishes no
+`wMenuBorder*` rectangle and *does* trip the text-box test, so the adapter protected only the
+bottom six rows and painted ghosts over the whole top two-thirds. Mechanism, the measured table and
+the two rejected heuristics: `pitfalls.md`.
+
+Fixed by drawing nothing when the engine has **no live hardware sprites at all** (measured: 28-34
+in the overworld, 28-30 behind the START menu, 30+ behind a text box, exactly **0** in a
+full-screen menu). Self-tested from the adapter's own per-peer dump across a full sweep: 31-34
+peers painted per sample in that state before, **none** after, with the START menu case unchanged
+and the drawn tier resuming normally on exit.
+
+- [ ] **Open the menus with a crowd on screen.** *What to look at:* press START, then go into
+      POKeMON, the BAG and the POKeGEAR, and come back out. *Correct:* no ghost anywhere on any
+      full-screen menu; the START menu's own box stays clean as before; and when you close
+      everything the ghosts are all still there and moving, not missing or frozen.
+- [ ] **Nothing got quieter that should not have.** *What to look at:* ordinary walking with a
+      text box open. *Correct:* ghosts still visible above the text box exactly as before — the fix
+      must not have turned into "hide everything whenever anything is open".
+

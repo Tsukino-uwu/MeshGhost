@@ -1845,3 +1845,63 @@ name that is not unique per instance.
   matters. Corollary already in `environment.md`, now with a live case: **prefer an explicit
   `-relay` flag to a config file when several sessions share a machine** — a flag is in the
   process list forever, a config file can be deleted and take the explanation with it.
+
+## Crystal: a drawn ghost paints over a FULL-SCREEN menu, because the adapter reads it as a text box
+
+**Symptom** (user, watching vanilla Crystal, 2026-08-19): *"the ghost is being drawn while in the
+menu's."* The adapter's own counters denied it — 21-24 peers `hidden by UI` with a menu open — and
+the counters were the thing that was wrong, exactly as `CLAUDE.md` says to assume.
+
+**What the counter missed, and why a count can never settle this.** "21 hidden" is perfectly
+compatible with "and 33 more painted straight over the panel". A per-peer dump was added
+(`MESHGHOST_CRYSTAL_UI_DEBUG`, off by default: the rectangle, the two open-flags, and where each
+painted peer actually sat) and it separates three states that the summary line had been blurring
+into one:
+
+| On screen | `textBoxOpen()` | `uiPanelOpen()` | `wMenuBorder*` rect | Result |
+| --- | --- | --- | --- | --- |
+| Overworld, nothing open | false | false | none | everything painted — correct |
+| **START menu** (a box on the right) | false | **true** | `l=80 t=0 r=160 b=128` | 35 painted / 9 hidden — the painted ones are all left of the rectangle, i.e. **correct** |
+| **Full-screen submenu** (POKéMON, BAG…) | **true** | false | **none** | **31-34 painted / ~11 hidden — the defect** |
+
+**Diagnosis.** A full-screen menu publishes **no** `wMenuBorder*` rectangle, so `uiPanelOpen()` is
+false and there is nothing to clip against. What it *does* trip is `textBoxOpen()` — so the adapter
+believes a bottom text box is up and protects **only the bottom six rows**. Every peer above screen
+row 12 is painted over the menu: the dump shows them at `sy` = -4, 12, 28, 44, 60 and 76, which is
+the whole top two-thirds. The loopback self-ghost is in there too (`p258-ghost@64,28`).
+
+**So the top-level START menu was never the broken case, and that is why this was missed** — it was
+the only menu tested, it is the one that publishes a rectangle, and it clips correctly.
+
+**The obvious fix is a trap, and the probe proves it.** "Scan every row for the frame corner and
+hide everything" fails on measured evidence: `uiframe_probe.lua` logged `bg row=0 col=10
+edgerun=8` — the START menu's own box, still sitting in the tilemap — repeatedly during ordinary
+walking with `WY` parked at 144, i.e. **frame tiles present with no panel on screen**. Same shape as
+the WY-alone heuristic that blanked half the screen earlier that day. The tiles persist; only the
+display state says whether anyone can see them.
+
+**The fix, and it is not a third heuristic.** `wStateFlags` bit 0 ("overworld sprite updating
+on/off") was tried first and rejected on measurement: it strobes between `01`, `40` and `41` inside
+a single unchanging state, exactly like the WY-alone heuristic. What does separate the states
+cleanly is the engine's own output — **how many hardware sprite entries are live** (OAM `y` in
+1..159), sampled every frame and logged on change:
+
+| On screen | Live OAM entries |
+| --- | --- |
+| Overworld, walking | 28-34 |
+| Text box open (map still behind it) | 30+ |
+| START menu (map still behind it) | 28-30 |
+| **Full-screen submenu** | **exactly 0** |
+
+So the drawn tier now returns early when **no** sprite is on screen. That follows from what the
+tier *is* rather than being bolted on: it paints **alongside** the characters the engine renders,
+so if the engine is rendering none, there is nothing to paint alongside — and the anchor this code
+calibrates its screen positions against does not exist either, which is precisely why the old
+fallback path produced plausible-looking coordinates over a menu.
+
+**Verified numerically, same session**: the per-peer dump produced 31-34 painted peers per sample
+in the submenu before the change and **zero dumps in that state at all** after it, across a full
+sweep (overworld -> START menu -> POKeMON submenu -> back), while the START menu case was unchanged
+(35-38 painted, every one of them left of `l=80`, nothing inside the rectangle) and the drawn tier
+resumed normally on exit (63 waiting, 36-38 drawn, 31-32 mid-stride). **Not yet watched by the
+user**, which is what `unverified.md` asks for.
