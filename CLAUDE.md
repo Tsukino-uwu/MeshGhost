@@ -65,11 +65,11 @@ stays here, its reasoning goes to `agent_docs/`, with a one-line pointer. Full e
   (Archipelago etc.) you MAY confirm visually yourself, from your own screenshot** — say so.
   A fact from a log line, a console read, or the Go tools may be recorded without waiting — say
   which. Never write "confirmed" on a build or a plausible read. **Why: `testing.md`'s top.**
-- **THE BAR IS 1:1 WITH THE REAL THING** (user, 2026-08-19: *"not sloppy/bandage/good enought"*):
-  done means indistinguishable from what the game itself would draw. "Close", "slightly off" and
-  "only during the transition" are OPEN — keep measuring. **Never offer a rate/tick/architecture
-  change as the answer; that is an excuse for the defect.** Fix the cause. `BANDAGES.md` for real
-  debt; reading the game's own asset beats approximating it (`pitfalls.md`).
+- **THE BAR IS 1:1** — user, 2026-08-19: *"not sloppy/bandage/good enought"*, and *"1:1 = it looks
+  exactly the same as the player doing it"*. **Judged ON SCREEN, not by matching numbers**: copying
+  a state the game never displayed is not 1:1. "Close" and "only during the transition" are OPEN.
+  **Never offer a rate/tick/architecture change as the answer — that is an excuse for the defect.**
+  Fix the cause. `BANDAGES.md` for real debt; read the game's own asset, never a lookalike.
 - **Nothing that SHIPS writes a save or game state — ever, not even as a feature.** Holds whatever
   gets added later; the event/lease/escrow/world planes make "just write the item in" newly
   tempting, world custody worst. **Dev-only test tooling MAY cheat** — a probe, never an adapter;
