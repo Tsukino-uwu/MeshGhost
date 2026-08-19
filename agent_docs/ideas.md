@@ -1414,6 +1414,11 @@ collision — and peers past the cap still *exist* on screen instead of vanishin
     itself when that bit is set. **Approximate on purpose**: it decides per tile, so a character
     straddling two tiles is half right, and it mimics the engine's rule rather than being it. It
     would still catch the big case — standing behind a house — which is the one a player notices.
+  - **The spawned tier already has all of this, confirmed on screen 2026-08-19**: with nine ghosts
+    around them the user opened the pause menu and found them properly hidden behind it, while a
+    ghost outside the menu's region kept drawing — region-accurate occlusion, from an adapter
+    containing no menu detection whatsoever. That is the bar the drawn tier has to approximate,
+    and it is worth being honest that approximating it is the *whole* cost of this idea.
   - **This is worth pricing before dismissing the whole tier.** "A drawn ghost can never be
     hidden" would be a much heavier objection than "a drawn ghost is hidden by a rule we
     reimplement, imperfectly, at tile resolution".

@@ -7634,3 +7634,22 @@ the no-regression half; the id→tile lookup runs on every spawn regardless.
   It reproduced perfectly consistently, because `SPRITE_RIVAL` genuinely is resident in New Bark
   and genuinely is not in the lab. The flag now prints `PROBE FLAG IN USE` on every startup.
   Confirmed corrected on screen after the global was cleared.
+
+### 2026-08-19 — Crystal: the pause menu hides ghosts, and the adapter does nothing to make that happen
+
+**Track: USER-CONFIRMED on screen.** The user opened the pause menu with nine ghosts standing
+around and reported them **properly hidden behind it**, with the one ghost outside the menu's
+region still drawn normally.
+
+**The point worth recording is that there is no code for this.** The adapter contains no menu
+detection, no clipping, no priority handling and no state gate for drawing — because a Crystal
+ghost is a real object event, so the game covers it with its own UI by hardware priority, exactly
+as it covers its own NPCs. Region-accurate occlusion, for free, including the part where a
+character outside the panel keeps drawing.
+
+This is the same property the user confirmed for Emerald the same day (a ghost hidden behind a
+house), and together they are the strongest evidence for the spawn-over-draw decision in
+`architecture.md`'s 2026-08-17 ADR: **every one of these behaviours would have to be
+re-implemented, imperfectly, by an adapter that draws.** What that re-implementation would cost is
+priced in `ideas.md` under "Spawn to the game's cap, then DRAW above it" — and the drawn tier is
+the only place the question can still arise.

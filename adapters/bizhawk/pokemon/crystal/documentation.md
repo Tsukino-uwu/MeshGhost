@@ -166,3 +166,13 @@ Measured 2026-08-19 with real synthetic peers over the relay, at 60fps throughou
 36 peers offered against 9 slots, and with the sprite hardware fully saturated at 40 of 40 in the
 lab, where all ten characters still drew correctly. Method and full table:
 `agent_docs/crowd-limits.md`.
+
+## The game's UI covers characters by itself
+
+A text box or the pause menu is drawn by the game over the map, and every character underneath it
+is covered by hardware priority — the game's own NPCs and any object written into the arrays
+alike. A character standing *outside* the panel's region keeps drawing normally.
+
+Confirmed on screen 2026-08-19 with nine spawned ghosts and the pause menu open. Recorded here
+because it is a property of the game rather than anything MeshGhost does: the adapter has no menu
+detection, no clipping and no draw-priority handling, and needs none.
