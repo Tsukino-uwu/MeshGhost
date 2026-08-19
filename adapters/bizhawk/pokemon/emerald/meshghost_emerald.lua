@@ -1120,49 +1120,71 @@ local STEP_DURATION_FRAMES = { walking = 16, running = 8 }
 -- So a drawn peer now glides between TILES over the same 16/8 frames the game gives a step, from
 -- per-peer state kept on the peer's own table (no new chunk locals -- this file is at 196 of
 -- Lua's 200). A jump longer than one tile is a warp, a respawn or first sight, and snaps.
--- CONSTANT SPEED, NOT "ARRIVE IN N FRAMES". This is the third model tried, and the reason the
--- first two looked wrong is the same in both cases: they made the ghost's SPEED depend on when a
--- packet happened to land.
+-- WALK LIKE THE ENGINE WALKS: one tile at a time, and deaf to new information mid-step.
 --
---   1. Ramp from the last committed tile over 16/8 frames. Every step snapped backwards by
---      whatever had already been travelled -- "constant running in 1 direction looks a bit choppy".
---   2. Same ramp, continuing from the current position. No snap, but now each step covers a
---      slightly different distance in the same fixed 8 frames, depending on how late its packet
---      was -- so the ghost visibly speeds up and slows down, step to step. Still choppy.
+-- Fourth model, and the last three failed in ways worth keeping, because each was a different way
+-- of getting "the ghost chases its latest position" wrong:
 --
--- The engine does not do either. It moves a character at a FIXED rate -- one tile per 16 frames
--- walking, per 8 running -- and simply takes as long as it takes. Matching that makes network
--- jitter show up as a small constant TRAILING DISTANCE, which nobody can see, instead of as a
--- varying speed, which everybody can.
+--   1. Ramp from the last committed tile over 16/8 frames -- snapped backwards every step.
+--   2. Ramp from the current position -- no snap, but each step covered a different distance in
+--      the same fixed time, so the ghost visibly sped up and slowed down.
+--   3. Constant speed toward the newest target -- even, and the closest yet, but a PURSUIT: it
+--      starts moving the instant a packet lands, while the engine will not start a step until the
+--      character is standing on a tile. So it kept up better than the engine's own ghost, which
+--      the user spotted immediately: the drawn one *"keeps up a tiny bit faster with the player
+--      compared to the spawned one while running"*.
+--
+-- The spawned ghost's motion is not a pursuit at all. syncGhost refuses to do anything unless
+-- `ghostIsIdle`, then hands the engine ONE tile; everything that arrives mid-step is ignored and
+-- read again when the step ends. That discreteness is not an implementation detail of the engine,
+-- it IS what the movement looks like -- including how far behind the ghost sits. So the drawn tier
+-- now runs the same machine: aligned on a tile, take one step toward wherever the peer is now;
+-- mid-step, take nothing.
 local function glideRemote(r, targetX, targetY)
-    local speed = 1 / (STEP_DURATION_FRAMES[r.anim] or STEP_DURATION_FRAMES.walking)
+    local dur = STEP_DURATION_FRAMES[r.anim] or STEP_DURATION_FRAMES.walking
+    local prevX, prevY = r.gX, r.gY
 
-    -- First sight, a different area, or further than a couple of tiles: a warp, a respawn, or a
-    -- peer we have simply lost track of. Walking there would take longer the further behind it is.
+    -- First sight, a different area, or hopelessly behind: a warp, a respawn, a dropped packet.
     if r.gX == nil or r.gAreaId ~= r.areaId
         or math.abs(targetX - r.gX) > 2 or math.abs(targetY - r.gY) > 2 then
-        r.gX, r.gY, r.gAreaId, r.gMoved = targetX, targetY, r.areaId, false
+        r.gX, r.gY, r.gAreaId = targetX, targetY, r.areaId
+        r.gStepping, r.gMoved = nil, false
         return r.gX, r.gY
     end
     r.gAreaId = r.areaId
 
-    -- Grid movement is axis-aligned, so each axis closes on its own at the same fixed rate.
-    local moved = false
-    local dx = targetX - r.gX
-    if dx ~= 0 then
-        if math.abs(dx) <= speed then r.gX = targetX else r.gX = r.gX + (dx > 0 and speed or -speed) end
-        moved = true
+    if r.gStepping then
+        local f = (frameCounter - r.gStepFrame) / r.gStepDur
+        if f >= 1 then
+            r.gX, r.gY = r.gToX, r.gToY
+            r.gStepping = nil
+        else
+            r.gX = r.gFromX + (r.gToX - r.gFromX) * f
+            r.gY = r.gFromY + (r.gToY - r.gFromY) * f
+        end
     end
-    local dy = targetY - r.gY
-    if dy ~= 0 then
-        if math.abs(dy) <= speed then r.gY = targetY else r.gY = r.gY + (dy > 0 and speed or -speed) end
-        moved = true
+
+    if not r.gStepping then
+        -- Standing on a tile: this is the only moment a new step may begin, exactly as the engine
+        -- only accepts one from an idle object.
+        local tx, ty = math.floor(r.gX + 0.5), math.floor(r.gY + 0.5)
+        local dx, dy = targetX - tx, targetY - ty
+        if dx ~= 0 or dy ~= 0 then
+            -- One axis per step, like a grid character. X first is arbitrary and only shows on a
+            -- diagonal, which a peer cannot actually walk.
+            local sx, sy = 0, 0
+            if dx ~= 0 then sx = (dx > 0) and 1 or -1 else sy = (dy > 0) and 1 or -1 end
+            r.gFromX, r.gFromY = tx, ty
+            r.gToX, r.gToY = tx + sx, ty + sy
+            r.gStepFrame, r.gStepDur = frameCounter, dur
+            r.gStepping = true
+        end
     end
-    r.gMoved = moved
-    -- Distance travelled, in tiles, for the walk cycle below. The engine advances a pose every 8
-    -- pixels -- half a tile -- so a step is always exactly two poses no matter how long it took.
-    r.gDist = (r.gDist or 0) + math.abs(dx ~= 0 and math.min(math.abs(dx), speed) or 0)
-        + math.abs(dy ~= 0 and math.min(math.abs(dy), speed) or 0)
+
+    r.gMoved = r.gStepping and true or false
+    -- Distance travelled, in tiles, for the walk cycle: the engine changes pose every 8 pixels,
+    -- so counting ground covered keeps one tile at exactly two poses however long it took.
+    r.gDist = (r.gDist or 0) + math.abs(r.gX - (prevX or r.gX)) + math.abs(r.gY - (prevY or r.gY))
     return r.gX, r.gY
 end
 
