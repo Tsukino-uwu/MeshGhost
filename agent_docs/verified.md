@@ -7719,3 +7719,35 @@ PPU has finished, where none of those limits exist.
   window is `player-4..player+5` left the right-hand column empty, and four peers were dialling a
   stale relay port left in a `config.json` — the core inherits the emulator's working directory,
   which under the dev loader is `dev-scripts/`.
+
+### 2026-08-19 — Crystal: where the sprite table lives on the Archipelago build
+
+**Track: measured by the agent from the ROM files, then confirmed by the adapter on the running
+patched ROM. No visual claim.**
+
+The drawn tier reads a peer's graphics out of the cartridge (`OverworldSprites`), which is a ROM
+address — and the Archipelago patch rewrites ROM, so vanilla's offset cannot be assumed.
+
+**Method, and it validates itself**: scan a ROM for the table's own signature — consecutive
+6-byte entries whose address is `0x4000`–`0x7FFF`, size is 192 or 64 bytes, type is 1–3 and
+palette is 0–7. Run against the **vanilla** ROM it finds **102 entries at `0x14736`**, which is
+the address already established from the decomp; that agreement is what makes the result on the
+patched ROM trustworthy rather than a guess.
+
+- **Vanilla: `0x14736`, 102 entries.**
+- **Archipelago (`AP_CRYSTAL`): `0x14564`, 102 entries.**
+
+**Cross-checked by content, not just shape**: following each entry to its graphics, **97 of the
+102 sprites are byte-identical between the two ROMs**, including `SPRITE_CHRIS` (1), `SPRITE_KRIS`
+(60) and `SPRITE_RED` (6) — the ones a player ever wears. The five that differ are ids 98–102, the
+tail the patch adds.
+
+**Confirmed from the other direction**: the patched ROM was booted in its own emulator instance
+with the adapter attached. It classified as `ROM title "AP_CRYSTAL" — Archipelago's Crystal patch`
+and the adapter's new six-byte sanity check on that address **passed** (it refuses to read
+cartridge graphics at all when the check fails, so a build nobody has measured cannot paint
+garbage). That instance still refuses to run for a different reason — `W_BATTLEMODE` remains the
+one unmeasured address on that table.
+
+Also corrected while measuring: the entry's size field is in **bytes** (192 = 12 tiles), not
+tiles, which two comments had wrong.

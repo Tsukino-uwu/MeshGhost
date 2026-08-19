@@ -164,12 +164,14 @@ local ADDRESSES = {
 		-- adapter refuses -- picking the steadier of two on a hunch is the exact move that put
 		-- three refuted addresses in this file already.
 		W_BATTLEMODE = nil,
-		-- UNMEASURED on this build, so the drawn tier reads no cartridge graphics here and falls
-		-- back to the local player's resident tiles. The patch rewrites ROM, and this is a ROM
-		-- address: reading vanilla's offset on a patched build would take whatever bytes happen to
-		-- live there as a graphics pointer and paint garbage. Same rule as every address in this
-		-- table -- measured or nil, never derived from the vanilla one.
-		OVERWORLD_SPRITES_ROM = nil,
+		-- MEASURED 2026-08-19 by scanning the patched ROM for the table's own signature -- a run
+		-- of 6-byte entries whose address is 0x4000-0x7FFF, size is 192 or 64 bytes, type is 1-3
+		-- and palette is 0-7. The same scan finds vanilla's table at its known 0x14736 with 102
+		-- entries, which is what makes the method trustworthy rather than a guess; on the patched
+		-- ROM it finds 102 entries at 0x14564. Cross-checked by content: 97 of the 102 sprites'
+		-- graphics are byte-identical between the two ROMs, including CHRIS, KRIS and RED, and the
+		-- five that differ are the tail the patch adds. See verified.md.
+		OVERWORLD_SPRITES_ROM = 0x14564,
 
 		-- NOT the table. These are the leading unconfirmed candidates for the entries still nil
 		-- above, used only when MESHGHOST_CRYSTAL_AP_TRY=1 asks for a deliberate experiment, and
@@ -956,7 +958,7 @@ local tileCache = {}
 --
 -- The table is `OverworldSprites` at 05:4736, from our own hash-verified pokecrystal build, and
 -- its shape is stated by the game's own struct (constants/sprite_data_constants.asm):
---   0-1 address, 2 size in tiles, 3 bank, 4 type, 5 palette
+--   0-1 address, 2 size in BYTES (192 = 12 tiles), 3 bank, 4 type, 5 palette
 -- six bytes per entry, indexed by SPRITE_* - 1 (the table's own comment: "entries correspond to
 -- SPRITE_* constants", which start at 1).
 -- Assigned from the selected address table, and NIL on any build where nobody has measured it.
@@ -967,7 +969,7 @@ local function romByte(offset)
 	return memory.read_u8(offset, ROM_DOMAIN) or 0
 end
 
--- Returns the ROM offset of a sprite's graphics, its size in tiles, and the palette the game
+-- Returns the ROM offset of a sprite's graphics, its size in bytes, and the palette the game
 -- itself assigns it -- or nil for a sprite id the table does not cover.
 local function spriteGfxInRom(spriteId)
 	if not OVERWORLD_SPRITES_ROM or not spriteId or spriteId < 1 or spriteId > 255 then
@@ -1915,6 +1917,27 @@ W_MAPSTATUS, W_BATTLEMODE = A.W_MAPSTATUS, A.W_BATTLEMODE
 W_BGMAPOFFSETX, W_BGMAPOFFSETY = A.W_BGMAPOFFSETX, A.W_BGMAPOFFSETY
 W_USEDSPRITES = A.W_USEDSPRITES -- optional: nil means "peer appearance off on this build"
 OVERWORLD_SPRITES_ROM = A.OVERWORLD_SPRITES_ROM -- optional: nil means "no cartridge graphics here"
+
+-- CHECK THE TABLE IS WHERE WE THINK IT IS, before anything reads a graphics pointer out of it.
+-- An address is measured per ROM build, but a build nobody has seen still gets vanilla's table by
+-- way of the untested-build fallback, and a wrong ROM offset paints garbage rather than failing.
+-- SPRITE_CHRIS is entry 0 and is the same on both builds measured (address 0x4000, 192 bytes,
+-- bank 0x30, WALKING_SPRITE, palette 0), so it is a cheap six-byte assertion.
+if OVERWORLD_SPRITES_ROM then
+	local e = OVERWORLD_SPRITES_ROM
+	local addr = (memory.read_u8(e, ROM_DOMAIN) or 0) | ((memory.read_u8(e + 1, ROM_DOMAIN) or 0) << 8)
+	local size = memory.read_u8(e + 2, ROM_DOMAIN) or 0
+	local bank = memory.read_u8(e + 3, ROM_DOMAIN) or 0
+	local kind = memory.read_u8(e + 4, ROM_DOMAIN) or 0
+	if not (addr >= 0x4000 and addr < 0x8000 and (size == 192 or size == 64)
+		and bank > 0 and bank < 0x80 and kind >= 1 and kind <= 3) then
+		log(string.format("MeshGhost: the sprite table is not at 0x%05X on this ROM "
+			.. "(read addr=0x%04X size=%d bank=0x%02X type=%d) -- drawing peers from the "
+			.. "cartridge is OFF, and they will wear this machine's sprite instead.",
+			OVERWORLD_SPRITES_ROM, addr, size, bank, kind))
+		OVERWORLD_SPRITES_ROM = nil
+	end
+end
 
 if romClass == "known" then
 	log("ROM: " .. romWhy .. " — addresses verified against a byte-identical build.")
