@@ -61,7 +61,7 @@ local function sample()
 
     return string.format(
         "map=%d:%d pos=%d,%d facing=%d run=%d avatarFlags=%02X sprAnim=%d/%d sprFlags=%02X "
-            .. "sprXY=%d,%d camPix=%d,%d anchorX=%d anchorY=%d "
+            .. "sprXY=%d,%d pos2=%d,%d coordOff=%d,%d camPix=%d,%d origin=%d,%d "
             .. "activeObjects=%d",
         memory.read_s8(base + 0x04), memory.read_s8(base + 0x05),
         memory.read_s16_le(base + 0x00), memory.read_s16_le(base + 0x02),
@@ -78,9 +78,21 @@ local function sample()
         -- (player sprite pixel + camera pixel offset) is CONSTANT while running, that sum is an
         -- exact anchor and the smoothing can be taken out of the path entirely. If it wobbles,
         -- it is not, and the fourth attempt should not be built on it either.
+        -- pos2 is the engine's OWN sub-tile step offset for a sprite, and coordOffset is what
+        -- playerScreenPos already adds. If (screen position - pos2) is the screen position of the
+        -- player's TILE, it must hold still within a step and move by exactly 16 when the tile
+        -- counter changes -- in EVERY direction. Reconstructing that offset from the camera
+        -- counter instead was right going down and left and a whole tile out going up and right
+        -- ("looks horrible when running up or right"), which is what this settles.
+        memory.read_s16_le(spr + 0x24), memory.read_s16_le(spr + 0x26),
+        memory.read_s16_le(0x02021bbc), memory.read_s16_le(0x02021bbe),
         memory.read_s16_le(0x03005dec), memory.read_s16_le(0x03005de8),
-        memory.read_s16_le(spr + 0x20) + memory.read_s16_le(0x03005dec),
-        memory.read_s16_le(spr + 0x22) + memory.read_s16_le(0x03005de8),
+        memory.read_s16_le(spr + 0x20) + memory.read_s16_le(spr + 0x24)
+            + memory.read_s8(spr + 0x28) + memory.read_s16_le(0x02021bbc)
+            - memory.read_s16_le(spr + 0x24),
+        memory.read_s16_le(spr + 0x22) + memory.read_s16_le(spr + 0x26)
+            + memory.read_s8(spr + 0x29) + memory.read_s16_le(0x02021bbe)
+            - memory.read_s16_le(spr + 0x26),
         active)
 end
 

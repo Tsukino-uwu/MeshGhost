@@ -1159,6 +1159,10 @@ local function glideRemote(r, targetX, targetY)
         moved = true
     end
     r.gMoved = moved
+    -- Distance travelled, in tiles, for the walk cycle below. The engine advances a pose every 8
+    -- pixels -- half a tile -- so a step is always exactly two poses no matter how long it took.
+    r.gDist = (r.gDist or 0) + math.abs(dx ~= 0 and math.min(math.abs(dx), speed) or 0)
+        + math.abs(dy ~= 0 and math.min(math.abs(dy), speed) or 0)
     return r.gX, r.gY
 end
 
@@ -2158,6 +2162,19 @@ local function spawnGhost(playerId, mapX, mapY, orientation, wantGfx)
     local sb1 = r32(GSAVEBLOCK1PTR_ADDR)
     local playerGfx = r8(pObj + 0x05)
     local elevation = r8(pObj + 0x0b) & 0x0f
+    -- DEV ONLY -- MESHGHOST_EMERALD_GHOST_ELEVATION: put the ghost on a different elevation from
+    -- the player, which is how this game already lets a character be walked past rather than
+    -- collided with. Requested for testing (user, 2026-08-19): a ghost two tiles away that blocks
+    -- is a wall in the middle of whatever is being compared. Shipped default is unset, so a ghost
+    -- keeps taking the player's own elevation and behaves exactly as before.
+    --
+    -- **A value, not a boolean, deliberately**: which elevation makes a character non-blocking is
+    -- a fact about the game that this repo has not measured, and guessing one is how a plausible
+    -- number gets written into an adapter. Setting it is the experiment -- try a value, walk into
+    -- the ghost, and the answer is on screen in a second.
+    local devElevation = tonumber(MESHGHOST_EMERALD_GHOST_ELEVATION
+        or os.getenv("MESHGHOST_EMERALD_GHOST_ELEVATION") or "")
+    if devElevation then elevation = devElevation & 0x0f end
     local gx, gy = mapX + MAP_OFFSET, mapY + MAP_OFFSET
     local dir = DIR_ID[orientation] or DIR_ID.south
 
@@ -2622,29 +2639,44 @@ local function drawRemotes(localAreaId, playerMapX, playerMapY, skipSpawned, com
 
     -- ANCHOR ON THE ENGINE'S OWN SCROLL, NOT ON OUR ESTIMATE OF THE PLAYER.
     --
-    -- A drawn ghost is placed relative to the local player, and it was placed against the
-    -- adapter's SMOOTHED estimate of where the player is (smoothPosition's synthetic glide) while
-    -- being drawn at the player's REAL pixel position. Those two agree only approximately -- the
-    -- file has carried a note about that mismatch since 2026-08-14 -- and the disagreement is
-    -- visible exactly when the PLAYER moves, which is why the last of the chop only ever showed up
-    -- while running. Three movement models for the GHOST could not fix it, because the ghost's
-    -- movement was never the problem.
+    -- A drawn ghost is placed relative to the local player, and it used to be placed against the
+    -- adapter's SMOOTHED estimate of the player while being drawn at the player's real pixel
+    -- position -- a mismatch the file has carried a note about since 2026-08-14. It is invisible
+    -- until the player moves, which is why three attempts at fixing the GHOST's movement all
+    -- failed: the ghost's movement was never the problem.
     --
-    -- The engine's own scroll is exact and free. Measured over 240 consecutive frames of a run
-    -- (probes/turn_and_door_probe.lua): the player's sprite position plus gTotalCameraPixelOffset
-    -- is CONSTANT to the pixel -- 120,112, zero variance -- and the offset's remainder mod 16 is
-    -- the sub-tile phase, counting evenly by 2 every frame and handing over to the tile counter
-    -- with no discontinuity:
+    -- MEASURED, over ~1000 frames of running in every direction (probes/turn_and_door_probe.lua):
     --
-    --     tile 17, camPix -158 -> 17.875     tile 17, camPix -144 -> 17.0
-    --     tile 17, camPix -152 -> 17.5       tile 16, camPix -142 -> 16.875
+    --   * The player NEVER MOVES ON SCREEN. Its screen position is constant and its sprite's own
+    --     sub-tile offset (pos2) is 0 in every single sample. All the motion is the camera's.
+    --   * gTotalCameraPixelOffset moves exactly 2px per frame while running, DOWN as the player
+    --     moves right/down and UP as it moves left/up. So the player's continuous position is
+    --     C - camPix/16 for some per-map constant C, exactly, with nothing estimated.
+    --   * The TILE COUNTER cannot supply the sub-tile part, and this is where the first attempt
+    --     went wrong in one direction only. Moving negative the counter flips 2px into the step;
+    --     moving POSITIVE it flips to the DESTINATION tile immediately, a whole tile ahead of what
+    --     is on screen. Reconstructing the phase from it was therefore right going one way and a
+    --     full tile out going the other -- the user, exactly: *"looks horrible when running up or
+    --     right, down/left seems fine"*.
     --
-    -- So the player's continuous position is its tile plus that phase, with nothing estimated.
+    -- So the tile counter is used for one thing only: calibrating C at a moment when the two
+    -- cannot disagree -- when camPix is a whole number of tiles, the player is aligned on its tile
+    -- and the counter is unambiguous. That happens once per tile of movement, so C is never stale.
     local sb1 = r32(GSAVEBLOCK1PTR_ADDR)
     if sb1 ~= 0 then
-        playerMapX = rs16(sb1 + 0x00) + ((-rs16(GTOTALCAMERAPIXELOFFSETX_ADDR)) % 16) / 16
-        playerMapY = rs16(sb1 + 0x02) + ((-rs16(GTOTALCAMERAPIXELOFFSETY_ADDR)) % 16) / 16
+        local camX = rs16(GTOTALCAMERAPIXELOFFSETX_ADDR)
+        local camY = rs16(GTOTALCAMERAPIXELOFFSETY_ADDR)
+        if camX % 16 == 0 or tiering.anchorX == nil or tiering.anchorArea ~= localAreaId then
+            tiering.anchorX = rs16(sb1 + 0x00) + camX / 16
+        end
+        if camY % 16 == 0 or tiering.anchorY == nil or tiering.anchorArea ~= localAreaId then
+            tiering.anchorY = rs16(sb1 + 0x02) + camY / 16
+        end
+        tiering.anchorArea = localAreaId
+        playerMapX = tiering.anchorX - camX / 16
+        playerMapY = tiering.anchorY - camY / 16
     end
+
     -- Counted and published (tiering.painted) rather than inferred: "assigned to the drawn tier"
     -- and "actually painted this frame" differ by everyone the off-screen cull skipped, and only
     -- the second one answers "is every peer I can see actually being shown".
@@ -2697,7 +2729,24 @@ local function drawRemotes(localAreaId, playerMapX, playerMapY, skipSpawned, com
                 local gliding = remote.gMoved
                 if remote.anim == "walking" or remote.anim == "running" or gliding then
                     pose = (remote.anim == "running") and "run" or "walk"
-                    frameIndex = advanceAnim(remote, dirInfo)
+                    -- BY DISTANCE, NOT BY TIME. advanceAnim counts frames, which is right for a
+                    -- peer whose movement we are not also interpolating -- but a drawn ghost's
+                    -- glide can take longer than a tile's worth of frames whenever it is catching
+                    -- up, and a time-driven cycle then plays extra strides for a single step. The
+                    -- user, watching one tile at a time next to the engine's own ghost: the drawn
+                    -- one is *"moving/animating a bit too much when walking single tiles"*.
+                    --
+                    -- The engine advances a pose every 8 pixels -- half a tile -- so tying the
+                    -- cycle to distance travelled makes one tile exactly two poses, always, and
+                    -- makes a catching-up ghost animate faster rather than longer, which is what
+                    -- covering more ground actually looks like.
+                    if remote.lastOrientation ~= remote.orientation then
+                        remote.gDist = 0
+                        remote.lastOrientation = remote.orientation
+                    end
+                    remote.lastAnim = remote.anim
+                    frameIndex = dirInfo.steps[
+                        (math.floor((remote.gDist or 0) * 2) % #dirInfo.steps) + 1]
                 else
                     -- A TURN IN PLACE IS AN ANIMATION, NOT A NEW STATIC FRAME.
                     --
@@ -2831,9 +2880,21 @@ local function runFrame()
     --     2026-08-19 -- so the sweep is correct on both builds and the condition is gone.)
     --   * inOverworld() -- outside it there is no live object array to sweep, and a ghost of ours
     --     cannot have been created, so there is nothing this could legitimately find.
-    if frameCounter % 60 == 0 and avatarAddrConfirmed and inOverworld() then
+    -- Every second, AND immediately on the way back into the overworld.
+    --
+    -- Coming out of a battle the user saw *"a 3rd ghost temporarily shown right after ending a
+    -- battle, and then went away"* (2026-08-19), which is this sweep doing its job a beat late.
+    -- It is the direct consequence of the despawn guard added the same day: outside the overworld
+    -- we drop a ghost's bookkeeping without writing to the arrays, because a battle has re-used
+    -- the sprite slots -- so an object of ours can outlive its record and the engine will happily
+    -- draw it when the map comes back. Waiting up to 60 frames to notice is what made it visible.
+    -- Sweeping on the transition itself costs one array scan per battle and closes the window.
+    local nowOverworld = inOverworld()
+    if avatarAddrConfirmed and nowOverworld
+        and (frameCounter % 60 == 0 or not tiering.wasOverworld) then
         sweepOrphanGhosts()
     end
+    tiering.wasOverworld = nowOverworld
 
     -- Once every 5s, to the log file only: enough to tell which link in the chain is quiet
     -- without reading the game. "connected" and "ready" are different questions, and so are
