@@ -2145,3 +2145,30 @@ core's `-interp`, 100ms, too short to cover a 20Hz arrival rate. At 250ms it was
 - **When two renderers must agree, pin one to the other rather than reproducing its schedule.**
   Compare mode now places the painted ghost from the spawned one's own sprite, which makes every
   remaining difference a rendering difference — which is what the mode was for.
+
+## Approximating the game's own art never converges — read it instead, 2026-08-19
+
+**Symptom.** A hand-drawn ellipse standing in for Emerald's ledge-jump shadow went through three
+rounds of correction — too faint, still lighter than the player's, then too big, then *"or slightly
+big still not sure"* — with each round costing the user a live test.
+
+**Why it could not converge.** The thing it imitates is on screen next to it. Any difference in
+size, shade or placement is directly comparable, so "close enough" is never reached; each fix moves
+the discrepancy somewhere else. Measuring helped every time and still did not finish the job: the
+palette dump gave the colour, the sprite dump gave the position, decoding the pixels gave the ink
+extent (16x5, not the 16x8 sprite box) — and it was *still* arguably a touch big, because an
+ellipse is not that silhouette.
+
+**What ended it.** Reading the game's actual art. A shadow is an ordinary sprite, so the first time
+the local player hops there is one on screen with its own `images` pointer and palette: decode it
+once, draw those runs for every ghost. Confirmed perfect immediately, and it dims and clips for
+free because it goes through the same draw path as everything else.
+
+**The rule.** When compensating for something the engine will not do for a ghost, prefer reading
+the engine's own asset over drawing a lookalike — and identify that asset by WHAT IT IS (in use,
+this size, next to the player, during this action) rather than by an address, so nothing goes stale
+against a ROM revision. Crystal's drawn tier already learns facing frames this way; the same trick
+works for effects.
+
+**Where an approximation is still correct:** as a fallback for the case that has nothing to learn
+from yet — here, a ghost that hops before the local player ever does.

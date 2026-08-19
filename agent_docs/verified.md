@@ -8240,9 +8240,15 @@ user's call was to draw it ourselves. Everything about it was then measured rath
 | Position | The shadow sprite sits at the character's own x, 12px below its un-arced y |
 | Size | The sprite is 16x8 (`SHADOW_SIZE_M`), but decoding its pixels showed the INK is **16x5**, rows 3..7 — filling the box read as *"pretty big on the ghosts"* |
 
-**User-confirmed after that: *"think they look fine now"*.** What remains ours is one ellipse
-standing in for the 16x5 silhouette, and `BANDAGES.md` records that the real art is one step away —
-the shadow's `images` pointer is readable off any shadow on screen.
+**Then it stopped being ours at all.** *"think they look fine now"* was followed by *"or slightly
+big still not sure"* — which is the tell that an approximation is being judged against the original
+and will keep losing. So the original is read instead: `learnShadowArt()` waits for the local
+player's first hop, finds the shadow sprite by what it IS (in use, 16x8, beside the player,
+mid-jump — never by an address), and decodes its pixels and palette once. The adapter says so in
+its own log: *"learned the game's own jump shadow (5 runs) -- ghosts now use it instead of an
+ellipse."* **User-confirmed after that: *"yee think its good/perfect now"*.**
+
+The ellipse survives only as the fallback for a ghost that hops before the player ever has.
 
 ### Also confirmed in the same pass
 
