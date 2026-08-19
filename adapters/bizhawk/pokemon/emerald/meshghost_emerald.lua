@@ -2716,9 +2716,10 @@ local function drawRemotes(localAreaId, playerMapX, playerMapY, skipSpawned, com
     -- cannot disagree -- when camPix is a whole number of tiles, the player is aligned on its tile
     -- and the counter is unambiguous. That happens once per tile of movement, so C is never stale.
     local sb1 = r32(GSAVEBLOCK1PTR_ADDR)
+    local camPixX = rs16(GTOTALCAMERAPIXELOFFSETX_ADDR)
+    local camPixY = rs16(GTOTALCAMERAPIXELOFFSETY_ADDR)
     if sb1 ~= 0 then
-        local camX = rs16(GTOTALCAMERAPIXELOFFSETX_ADDR)
-        local camY = rs16(GTOTALCAMERAPIXELOFFSETY_ADDR)
+        local camX, camY = camPixX, camPixY
         -- ONLY CALIBRATE WHILE THE PLAYER IS STANDING STILL.
         --
         -- Measured with both ghosts logged per frame: the spawned ghost moves a clean -2.0 px
@@ -2742,8 +2743,12 @@ local function drawRemotes(localAreaId, playerMapX, playerMapY, skipSpawned, com
         end
         local settled = (tiering.tileStill or 0) >= 4
         local fresh = tiering.anchorX == nil or tiering.anchorArea ~= localAreaId
-        if fresh or (settled and camX % 16 == 0) then tiering.anchorX = tx + camX / 16 end
-        if fresh or (settled and camY % 16 == 0) then tiering.anchorY = ty + camY / 16 end
+        if fresh or (settled and camX % 16 == 0) then
+            tiering.anchorX, tiering.originX = tx + camX / 16, playerScreenX
+        end
+        if fresh or (settled and camY % 16 == 0) then
+            tiering.anchorY, tiering.originY = ty + camY / 16, playerScreenY
+        end
         tiering.anchorArea = localAreaId
         playerMapX = tiering.anchorX - camX / 16
         playerMapY = tiering.anchorY - camY / 16
@@ -2769,8 +2774,20 @@ local function drawRemotes(localAreaId, playerMapX, playerMapY, skipSpawned, com
             -- RAW, not rounded to a tile: the core hands us a continuous position and rounding
             -- it here was the first step in every model that then had to re-invent the motion.
             local glideX, glideY = glideRemote(remote, remote.x, remote.y)
-            local screenX = playerScreenX + (glideX - playerMapX) * TILE
-            local screenY = playerScreenY + (glideY - playerMapY) * TILE
+            -- ONE CAMERA COUNTER, NOT TWO. The obvious form of this line -- the player's screen
+            -- position plus the tile delta -- mixes gSpriteCoordOffset (inside playerScreenPos)
+            -- with gTotalCameraPixelOffset (inside the anchor), and the two are not written at
+            -- the same point in the frame. Measured: that put a ±2px flip on the ghost EVERY
+            -- FRAME, which is exactly one camera step, oscillating 40 -> 42 -> 40 -> 42.
+            --
+            -- The player's screen position never changes while walking (measured: constant to the
+            -- pixel over 240 frames), so it does not need reading per frame at all. Captured with
+            -- the anchor, at the same standing-still moment, it becomes a constant origin -- and
+            -- then the only thing that moves per frame is the camera, on its own clock, alone.
+            local screenX = (tiering.originX or playerScreenX)
+                + (glideX - (tiering.anchorX or playerMapX)) * TILE + camPixX
+            local screenY = (tiering.originY or playerScreenY)
+                + (glideY - (tiering.anchorY or playerMapY)) * TILE + camPixY
             if isLoopback then
                 screenX = screenX + (COMPARE_TIERS and COMPARE_DRAWN_OFFSET_TILES_X
                     or LOOPBACK_GHOST_OFFSET_TILES_X) * TILE
