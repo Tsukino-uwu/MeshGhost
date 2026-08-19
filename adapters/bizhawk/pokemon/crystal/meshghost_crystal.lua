@@ -936,8 +936,44 @@ end
 local VRAM_BANK1 = 0x2000
 local tileCache = {}
 
-local function decodeTile(tileIndex)
-	local cached = tileCache[tileIndex]
+-- SPRITE GRAPHICS STRAIGHT FROM THE CARTRIDGE, for a peer whose sprite this map never loaded.
+--
+-- The drawn tier reading VRAM can only show sprites the game already put there -- which is why a
+-- peer of the other gender still looks like the local player: Crystal loads the map's own cast
+-- plus YOUR sprite, and never theirs. Reading the tiles out of ROM removes that limit entirely,
+-- and it is a thing only the drawn tier can do (a spawned ghost needs tiles the hardware can
+-- reach, i.e. in VRAM).
+--
+-- The table is `OverworldSprites` at 05:4736, from our own hash-verified pokecrystal build, and
+-- its shape is stated by the game's own struct (constants/sprite_data_constants.asm):
+--   0-1 address, 2 size in tiles, 3 bank, 4 type, 5 palette
+-- six bytes per entry, indexed by SPRITE_* - 1 (the table's own comment: "entries correspond to
+-- SPRITE_* constants", which start at 1).
+local OVERWORLD_SPRITES_ROM = 0x14736 -- bank 5 * 0x4000 + (0x4736 - 0x4000)
+local SPRITEDATA_STRIDE = 6
+
+local function romByte(offset)
+	return memory.read_u8(offset, ROM_DOMAIN) or 0
+end
+
+-- Returns the ROM offset of a sprite's graphics, its size in tiles, and the palette the game
+-- itself assigns it -- or nil for a sprite id the table does not cover.
+local function spriteGfxInRom(spriteId)
+	if not spriteId or spriteId < 1 or spriteId > 255 then
+		return nil
+	end
+	local entry = OVERWORLD_SPRITES_ROM + (spriteId - 1) * SPRITEDATA_STRIDE
+	local addr = romByte(entry) | (romByte(entry + 1) << 8)
+	local size, bank, palette = romByte(entry + 2), romByte(entry + 3), romByte(entry + 5)
+	if size == 0 or bank == 0 or addr < 0x4000 then
+		return nil -- not a banked graphics pointer; refuse rather than read somewhere plausible
+	end
+	return bank * 0x4000 + (addr - 0x4000), size, palette
+end
+
+-- key: a VRAM tile index, or "rom:<offset>" for cartridge graphics.
+local function decodeTileAt(key, readByte, base)
+	local cached = tileCache[key]
 	if cached then
 		return cached
 	end
@@ -946,11 +982,10 @@ local function decodeTile(tileIndex)
 	-- characters reads attr=8 and attr=0x28, so bit 3 is set and the graphics are in bank 1.
 	-- Reading bank 0 decodes whatever unrelated tiles sit at the same index, which draws as
 	-- garbage: found on screen 2026-08-19, the first thing the user said about the drawn tier.
-	local base = VRAM_BANK1 + tileIndex * 16
 	local rows = {}
 	for row = 0, 7 do
-		local lo = memory.read_u8(base + row * 2, "VRAM") or 0
-		local hi = memory.read_u8(base + row * 2 + 1, "VRAM") or 0
+		local lo = readByte(base + row * 2)
+		local hi = readByte(base + row * 2 + 1)
 		local runs, runStart, runIdx = {}, nil, nil
 		for bit = 0, 8 do -- 8 is one past the end, to close the final run
 			local idx = nil
@@ -968,12 +1003,23 @@ local function decodeTile(tileIndex)
 		end
 		rows[row] = runs
 	end
-	tileCache[tileIndex] = rows
+	tileCache[key] = rows
 	return rows
 end
 
-local function drawTile(tileIndex, sx, sy, colors, xflip)
-	local rows = decodeTile(tileIndex)
+local function readVram(a) return memory.read_u8(a, "VRAM") or 0 end
+
+local function decodeTile(tileIndex)
+	return decodeTileAt(tileIndex, readVram, VRAM_BANK1 + tileIndex * 16)
+end
+
+-- The same, for a tile inside a sprite's cartridge graphics.
+local function decodeRomTile(gfxOffset, tileWithinSprite)
+	local at = gfxOffset + tileWithinSprite * 16
+	return decodeTileAt("rom:" .. at, romByte, at)
+end
+
+local function drawRows(rows, sx, sy, colors, xflip)
 	for row = 0, 7 do
 		local y = sy + row
 		if y >= 0 and y < 144 then
@@ -1011,6 +1057,7 @@ local facingFrames = {}
 
 local function readPlayerOamFrame()
 	local frame = {}
+	local playerTileBase = u8(OBJECT_STRUCTS + F_SPRITE_TILE) or 0
 	local baseX, baseY = memory.read_u8(1, "OAM") or 0, memory.read_u8(0, "OAM") or 0
 	for i = 0, 3 do
 		local y = memory.read_u8(i * 4, "OAM") or 0
@@ -1018,6 +1065,10 @@ local function readPlayerOamFrame()
 			return nil -- the player is not on screen this frame; learn nothing
 		end
 		frame[i + 1] = {
+			-- an OFFSET within the sprite's own graphics, not an absolute VRAM tile: that is what
+			-- lets the same learned arrangement be applied to a sprite read from the cartridge,
+			-- which has its own tiles and no VRAM home at all.
+			offset = ((memory.read_u8(i * 4 + 2, "OAM") or 0) - playerTileBase) & 0xFF,
 			tile = memory.read_u8(i * 4 + 2, "OAM") or 0,
 			xflip = ((memory.read_u8(i * 4 + 3, "OAM") or 0) & 0x20) ~= 0,
 			dx = (memory.read_u8(i * 4 + 1, "OAM") or 0) - baseX,
@@ -1032,7 +1083,7 @@ local function sameFrame(a, b)
 		return false
 	end
 	for i = 1, 4 do
-		if a[i].tile ~= b[i].tile or a[i].xflip ~= b[i].xflip then
+		if a[i].offset ~= b[i].offset or a[i].xflip ~= b[i].xflip then
 			return false
 		end
 	end
@@ -1074,7 +1125,10 @@ end
 -- and it is registered as part of the drawn tier's cost in BANDAGES.md.
 local WALK_FRAME_HOLD = 8 -- frames per stride, matching the engine's own cadence closely enough
 
-local function drawCharacter(tile, sx, sy, palIndex, facing, walkingFor)
+-- source is { vram = <tile base> } for a sprite the map has loaded, or { rom = <gfx offset> } for
+-- one read straight from the cartridge. Everything else is identical, which is the point: the
+-- arrangement is learned once from the engine and applies to both.
+local function drawCharacter(source, sx, sy, palIndex, facing, walkingFor)
 	local colors = paletteColors(palIndex or 0)
 	local entry = facing and facingFrames[facing]
 	local frame = nil
@@ -1084,20 +1138,28 @@ local function drawCharacter(tile, sx, sy, palIndex, facing, walkingFor)
 		end
 		frame = frame or entry.stand or entry.walk[1]
 	end
+	local function partRows(offset)
+		if source.rom then
+			return decodeRomTile(source.rom, offset)
+		end
+		return decodeTile((source.vram + offset) & 0xFF)
+	end
+
 	if frame then
-		-- The engine's own arrangement for this facing: its tile ids, its flips, its offsets.
+		-- The engine's own arrangement for this facing: which tile of the sprite goes where, and
+		-- which way round.
 		for _, part in ipairs(frame) do
-			drawTile(part.tile, sx + part.dx, sy + part.dy, colors, part.xflip)
+			drawRows(partRows(part.offset), sx + part.dx, sy + part.dy, colors, part.xflip)
 		end
 		return
 	end
 	-- Nothing learned for that facing yet (the player has not faced that way since the map
 	-- loaded). The sprite's own first frame is a reasonable stand-in and is never wrong-looking,
 	-- only wrong-facing.
-	drawTile(tile + 0, sx, sy, colors)
-	drawTile(tile + 1, sx + 8, sy, colors)
-	drawTile(tile + 2, sx, sy + 8, colors)
-	drawTile(tile + 3, sx + 8, sy + 8, colors)
+	drawRows(partRows(0), sx, sy, colors)
+	drawRows(partRows(1), sx + 8, sy, colors)
+	drawRows(partRows(2), sx, sy + 8, colors)
+	drawRows(partRows(3), sx + 8, sy + 8, colors)
 end
 
 local function screenCoords(mx, my)
@@ -1303,7 +1365,7 @@ function drawOverflow()
 		lastMenuBox = nil -- no panel is up, so the last rectangle is stale
 	end
 
-	local nWanted, nDrawn, nNoTile, nOffScreen, nHidden = 0, 0, 0, 0, 0
+	local nWanted, nDrawn, nNoTile, nOffScreen, nHidden, nFromRom = 0, 0, 0, 0, 0, 0
 	local offSample = nil
 
 	-- CALIBRATE AGAINST THE HARDWARE, rather than deriving a screen position from first
@@ -1325,9 +1387,26 @@ function drawOverflow()
 			o.lastX, o.lastY, o.movedAt = o.x, o.y, drawFrames
 		end
 		local walkingFor = (o.movedAt and (drawFrames - o.movedAt) < 30) and (drawFrames - o.movedAt) or nil
-		local tile = residentSpriteTile(o.sprite) or residentSpriteTile(u8(OBJECT_STRUCTS + F_SPRITE))
-		if not tile then nNoTile = nNoTile + 1 end
+		-- Resident tiles first -- they are what the engine is drawing everyone else from, so a
+		-- drawn peer beside a spawned one matches exactly. Failing that, read the peer's sprite
+		-- out of the cartridge, which is how a peer wearing a sprite THIS map never loaded (the
+		-- other gender, most obviously) gets to look like themselves.
+		local source, palette = nil, u8(OBJECT_STRUCTS + F_PALETTE) or 0
+		local tile = residentSpriteTile(o.sprite)
 		if tile then
+			source = { vram = tile }
+		else
+			local gfx, _, pal = spriteGfxInRom(o.sprite)
+			if gfx then
+				source, palette = { rom = gfx }, pal
+				nFromRom = nFromRom + 1
+			else
+				local own = residentSpriteTile(u8(OBJECT_STRUCTS + F_SPRITE))
+				source = own and { vram = own } or nil
+			end
+		end
+		if not source then nNoTile = nNoTile + 1 end
+		if source then
 			-- SIGNED screen coordinates, computed here rather than borrowed from screenCoords().
 			-- That helper answers in the engine's sprite space, which is taken mod 256 and offset
 			-- by 16 -- fine for the engine, wrong here: a peer above or left of the camera wraps
@@ -1373,8 +1452,7 @@ function drawOverflow()
 					nDrawn = nDrawn + 1
 					-- the palette the local player's own sprite is drawn with, which is the one
 					-- these tiles were coloured for
-					drawCharacter(tile, sx, sy, u8(OBJECT_STRUCTS + F_PALETTE) or 0, o.facing,
-						walkingFor)
+					drawCharacter(source, sx, sy, palette, o.facing, walkingFor)
 				end
 			end
 		end
@@ -1383,9 +1461,9 @@ function drawOverflow()
 	-- Once a second, say what the drawn tier actually did. "Half the screen is empty" needs a
 	-- number that separates "the peers never arrived" from "they arrived and were not drawn".
 	if drawFrames % 60 == 0 and nWanted > 0 then
-		logFile(string.format("drawn tier: %d peers waiting, %d drawn, %d no sprite tiles, "
-			.. "%d off screen, %d hidden by UI, %d spawned as real objects",
-			nWanted, nDrawn, nNoTile, nOffScreen, nHidden, ghostCount()))
+		logFile(string.format("drawn tier: %d peers waiting, %d drawn (%d from the cartridge), "
+			.. "%d no sprite tiles, %d off screen, %d hidden by UI, %d spawned as real objects",
+			nWanted, nDrawn, nFromRom, nNoTile, nOffScreen, nHidden, ghostCount()))
 		if offSample then
 			logFile("drawn tier: example of one it discarded -- " .. offSample)
 		end
@@ -1474,7 +1552,10 @@ local function renderRemote(id, state)
 		return
 	end
 
-	local peerSprite = state.extras and tonumber(state.extras.sprite) or nil
+	-- FORCE_PEER_SPRITE substitutes here rather than only inside applyPeerSprite, so the probe
+	-- flag reaches BOTH tiers. It claimed to substitute "every peer" and did not touch the drawn
+	-- one, which made a test of the cartridge path silently measure nothing (2026-08-19).
+	local peerSprite = FORCE_PEER_SPRITE or (state.extras and tonumber(state.extras.sprite)) or nil
 
 	-- A peer that should not be blocking is DRAWN rather than spawned: no tile, no collision,
 	-- and its engine slot freed for a peer who is actually moving.

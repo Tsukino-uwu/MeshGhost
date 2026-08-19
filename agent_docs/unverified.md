@@ -253,3 +253,11 @@ That is the whole request. A watcher is running on the probe's log for the first
 stops being empty; the rows and tile ids it captures decide whether the drawn tier can ship on.
 If BG0 turns out to carry other things too (HUD, weather), the honest answer is to leave the flag
 off, and that is what will happen.
+
+- [ ] **A drawn peer can wear a sprite this map never loaded** (2026-08-19). *What to look at:* set
+      `MESHGHOST_CRYSTAL_FORCE_PEER_SPRITE=6` (SPRITE_RED, which New Bark does not load) with a
+      crowd on screen. *Correct:* they render as that character, cleanly, in its own colours.
+      Measured: 89 of 89 drawn from the cartridge at 59.6fps, and the adapter says so in its log
+      (`89 drawn (89 from the cartridge)`). **This is the fix for "a ghost looks like this
+      machine's player"** — for the drawn tier. A spawned ghost still needs tiles the hardware can
+      reach, so it keeps the old behaviour.
