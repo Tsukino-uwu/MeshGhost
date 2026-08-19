@@ -869,6 +869,14 @@ Three reasons this is not just flavour:
   exactly the state where a drawn ghost must be clipped, where the send gate must behave, and
   where Crystal's occlusion work was measured. Talking to people is free coverage.
 
+**Check what this SAVE has, not what the game has.** A decomp makes every mechanic visible and
+therefore feel available, so an agent plans around abilities it has not earned — live case
+2026-08-19: an agent working toward a trainer battle started planning around cutting grass, which
+is optional, is not on the critical path, and which that save could not do anyway. The question is
+never *"does this game have Cut"* but *"does this save have Cut"*, and party, bag and badges are
+all readable in one go. **A plan that depends on a capability you do not have fails exactly like a
+wall does** — the driver does not move, and the wrong conclusion is one sentence away.
+
 **Perfect information is not cheating.** Knowing exactly where you are, what the game is checking,
 and which tile is a one-way ledge is what makes an agent good at this rather than lucky; it is the
 same relationship a speedrunner has with a decomp. The prohibition is on *changing* the world, not
