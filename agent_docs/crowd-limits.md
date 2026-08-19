@@ -72,6 +72,16 @@ nothing crashed. The adapter now logs it once a minute, naming the pool that ran
 ghosts are present, because *"my friend is invisible"* and *"my friend is not connected"* look
 identical from the player's chair.
 
+**A peer with no slot has NO footprint at all** — read off the arrays, not argued from the code.
+A census taken with the crowd live showed all 16 map objects accounted for: the lab's own 7 plus
+exactly the 9 ghosts the adapter spawned, and nothing else anywhere. Collision in this game comes
+from those arrays, so an unspawned peer cannot block a tile, be talked to, or be drawn. The only
+cost it carries is a few memory reads per frame while the adapter re-tries.
+
+**Ghosts stack on each other freely** — the same census had three on one tile and three on
+another. The engine checks collision against the player's movement, not object against object, so
+a crowd never jams itself; it can still box the player in.
+
 **What this means for a real session.** Nine simultaneous visible peers on one map is far past
 anything this project has planned, so Crystal's limit is not a constraint in practice — but it is
 a *hard* one, and it arrives silently. A room of twelve players standing in one town would show

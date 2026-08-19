@@ -19,6 +19,11 @@
 --   - the word `none` / an empty file, meaning "run nothing" -- the detach case.
 -- Lines starting with # are ignored, as is leading/trailing whitespace.
 --
+-- The loader reloads when the resulting SET OF PATHS changes, not when the file's bytes do -- so
+-- touching the file, or editing a comment in it, does NOT re-run anything. To force a reload of
+-- an unchanged set (after editing a target script), drop a path and add it back. Worth knowing:
+-- it looks exactly like the loader having stopped polling.
+--
 -- With TWO emulators open at once (a two-game session), set MESHGHOST_DEV_LOADER_TARGET per
 -- instance before launching it -- otherwise both poll the same file, load the same scripts and
 -- write one interleaved log, so neither can be driven on its own. The log is named after the
