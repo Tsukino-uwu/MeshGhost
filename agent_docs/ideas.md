@@ -1376,8 +1376,31 @@ argues Dolphin is the strongest candidate of the emulators surveyed.
 ## A reusable game driver — agents that can understand and play any of our games (unscheduled)
 
 **The user's framing, 2026-08-19: *"being able to automatically understand/play all of the games
-will be useful in the future."*** Recorded as a capability rather than a one-off, because tonight
-made the argument for it: two separate measurements were gated behind game states nobody had
+will be useful in the future"* — and then the sharper version: *"or at least understanding 'how a
+game works' in a general sense. how to progress/backtrack and do things."***
+
+**That second sentence is the actual goal, and it is a smaller and better one than a playthrough
+bot.** What is worth having is a *model of the game*: what advances it, how to get back, and what
+the game does when it will not let you. A driver that can play is a consequence of having that
+model; a driver without one is a button-masher that gets stuck and writes "story-blocked" into the
+record.
+
+**The model, per game — and it belongs in that adapter's `documentation.md`**, which already
+exists to describe how the GAME works rather than how our code does:
+
+- **Topology.** Maps and how they connect: warps, edge connections, which are one-way, what a door
+  actually is. This is the difference between "backtrack a bit and go up/around" being a hint a
+  human gives and a route an agent computes.
+- **Progression gates.** What advances state (an NPC spoken to, a flag, a badge, an item) and, just
+  as importantly, **how the game says "not yet"** — a temporary interruption, a permanent refusal,
+  and a wrong tile all look identical to a driver that only sees "I did not move".
+- **The verbs.** What A does in each context, what menus exist, what closes them. Mundane, and the
+  thing that actually costs an agent its time.
+- **The tells.** How the game shows it is busy, in a script, in a battle, or waiting for input —
+  which is exactly the family of gates every adapter here already had to work out for its send
+  loop, so the knowledge is half-written already.
+
+Recorded as a capability rather than a one-off, because tonight made the argument for it: two separate measurements were gated behind game states nobody had
 reached, and one agent turned an NPC's dialogue into a false "story-blocked" claim in the record
 while trying to reach one.
 
