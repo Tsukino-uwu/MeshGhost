@@ -628,11 +628,12 @@ end
 --
 -- The animation number is the missing half. Both ends are on the same graphic by then, so the
 -- numbering matches, and the peer's own sprite is the authority on what that character is doing.
-local function encodeLocalState(areaId, x, y, orientation, anim, gender, gfx, sanim)
+local function encodeLocalState(areaId, x, y, orientation, anim, gender, gfx, sanim, sidx)
     return string.format(
-        '{"type":"local_state","payload":{"state":{"area_id":%s,"position":[%s,%s],"orientation":%s,"anim":%s,"extras":{"gender":%s,"gfx":%s,"sanim":%s}}}}',
+        '{"type":"local_state","payload":{"state":{"area_id":%s,"position":[%s,%s],"orientation":%s,"anim":%s,"extras":{"gender":%s,"gfx":%s,"sanim":%s,"sidx":%s}}}}',
         jsonString(areaId), tostring(x), tostring(y), jsonString(orientation), jsonString(anim),
-        jsonString(gender), tostring(gfx or "null"), tostring(sanim or "null"))
+        jsonString(gender), tostring(gfx or "null"), tostring(sanim or "null"),
+        tostring(sidx or "null"))
 end
 
 local ENCODED_NO_SEND = '{"type":"local_state","payload":{"state":null}}'
@@ -1366,6 +1367,8 @@ local function handleBridgeLine(line)
                 -- Peer-controlled, so bounded like every other inbound number: animNum is a u8.
                 local sa = (type(st.extras) == "table" and tonumber(st.extras.sanim)) or nil
                 r.sanim = (sa and sa >= 0 and sa <= 255 and math.floor(sa) == sa) and sa or nil
+                local si = (type(st.extras) == "table" and tonumber(st.extras.sidx)) or nil
+                r.sidx = (si and si >= 0 and si <= 255 and math.floor(si) == si) and si or nil
             end
         end
     elseif env.type == "despawn_remote" then
@@ -1513,7 +1516,17 @@ end
 -- nothing, which is why it shone through a house exit. Scaling the run colours is the same
 -- operation the hardware performs, applied where we draw instead.
 local function drawSpriteFrame(gender, pose, frameIndex, hFlip, screenX, screenY, panelRows, dim)
-    local runs = genderFrames.runsFor(gender, pose, frameIndex)
+    drawRunList(genderFrames.runsFor(gender, pose, frameIndex), FRAME_WIDTH_PX, hFlip,
+        screenX, screenY, panelRows, dim)
+end
+
+-- One run list, at a screen position: the clip against the game's own panels and the scene-
+-- brightness scaling, shared by both draw paths. Split out when the peer-graphic path arrived --
+-- a second copy of the clipping is exactly how two paths drift apart.
+--
+-- A GLOBAL, deliberately: this chunk is at 198 of Lua's 200 locals, and a shared helper is a
+-- better use of the remaining budget than a name. Assigned before anything calls it.
+function drawRunList(runs, frameWidth, hFlip, screenX, screenY, panelRows, dim)
     for i = 1, #runs do
         local r = runs[i]
         local color = r.color
@@ -1527,7 +1540,7 @@ local function drawSpriteFrame(gender, pose, frameIndex, hFlip, screenX, screenY
         end
         local y = screenY + r.y
         local x1, x2 = r.x1, r.x2
-        if hFlip then x1, x2 = FRAME_WIDTH_PX - 1 - r.x2, FRAME_WIDTH_PX - 1 - r.x1 end
+        if hFlip then x1, x2 = frameWidth - 1 - r.x2, frameWidth - 1 - r.x1 end
         local ax1, ax2 = screenX + x1, screenX + x2
 
         -- math.floor, NOT a shift: y comes from the sub-tile smoothing and is a FLOAT, and Lua
@@ -1779,6 +1792,97 @@ local function graphicsInfo(graphicsId)
         images = r32(ptr + 0x1c),
         affineAnims = r32(ptr + 0x20),
     }
+end
+
+-- DRAW A PEER AS WHATEVER IT ACTUALLY IS -- a bike, a surfer, someone fishing.
+--
+-- The painted tier decoded only the walk and run pic tables for the local player's gender, so it
+-- could draw a character walking and nothing else: with the spawned ghost fishing correctly beside
+-- it, the user's report was *"the drawn one is not doing the starting fishing or mid fishing
+-- animations at all"* (2026-08-19). Everything needed was already parsed by graphicsInfo() and
+-- simply never used.
+--
+-- Three ROM reads turn a peer's animation state into a picture, all of them from that struct:
+--   * anims[animNum]                 -- the animation table for the state (fishing, biking, ...)
+--   * [animCmdIndex]                 -- the command currently playing, 4 bytes, imageValue in the
+--                                       low 16 bits and hFlip at bit 22 (pokeemerald
+--                                       include/sprite.h:48-57, union AnimCmd:74-80)
+--   * images[imageValue]             -- struct SpriteFrameImage {const u8 *data; u16 size;}, so
+--                                       8 bytes per entry and the pixels are the first pointer
+--
+-- The peer sends animNum and animCmdIndex; both ends are on the same graphic, so both resolve to
+-- the same frame. SIZE comes from the graphic too (a bike is wider than a walker), which is why
+-- this cannot reuse the fixed-size path above.
+--
+-- COLOURS come from the LIVE OBJ palette at the graphic's own slot, not from ROM. That is exact
+-- whenever the palette is loaded -- which it is whenever anything on the map wears that graphic,
+-- including the peer's own spawned copy -- and it also means a drawn peer dims with every fade and
+-- cave for free, the same way the scene-brightness scaling does. When it is NOT loaded the colours
+-- would be another character's; that is the known limit of this route, and the reason the
+-- cartridge palette table is the next thing to find if it bites.
+genderFrames.peerRunCache = {}
+
+genderFrames.runsForPeerGfx = function(gfx, animNum, animIdx)
+    local info = graphicsInfo(gfx)
+    if not info or info.anims == 0 or info.images == 0 then return nil end
+
+    local animPtr = r32(info.anims + (animNum or 0) * 4)
+    if not isRomPtr(animPtr) then return nil end
+    local cmd = r32(animPtr + (animIdx or 0) * 4)
+    local imageIndex = cmd & 0xFFFF
+    local hFlip = ((cmd >> 22) & 1) == 1
+    -- A loop/jump command rather than a frame: its "imageValue" is a marker, not an index. Frames
+    -- are bounded by the graphic's own image count, so an out-of-range value is the tell.
+    local frameCount = info.size > 0 and (info.width * info.height // 2) or 0
+    if frameCount == 0 or imageIndex * (info.width * info.height // 2) >= 0x10000000 then
+        return nil
+    end
+
+    local key = string.format("%d:%d", gfx, imageIndex)
+    local cached = genderFrames.peerRunCache[key]
+    if cached then return cached, info, hFlip end
+
+    local pixels = r32(info.images + imageIndex * 8)
+    if not isRomPtr(pixels) then return nil end
+
+    -- 4bpp tiles, 8x8, laid out row of tiles by row of tiles -- the same decode the gender path
+    -- uses, with the dimensions taken from the graphic instead of assumed.
+    local wTiles, hTiles = info.width // 8, info.height // 8
+    local pal = {}
+    for i = 0, 15 do
+        local c = r16(0x05000200 + (info.paletteSlot & 0x0f) * 32 + i * 2)
+        pal[i] = (0xFF << 24) | (expand5to8(c & 0x1F) << 16)
+            | (expand5to8((c >> 5) & 0x1F) << 8) | expand5to8((c >> 10) & 0x1F)
+    end
+
+    local runs = {}
+    for py = 0, info.height - 1 do
+        local tileRow, localY = py // 8, py % 8
+        local x = 0
+        while x < info.width do
+            local tileIndex = tileRow * wTiles + (x // 8)
+            local b = r8(pixels + tileIndex * 32 + localY * 4 + ((x % 8) // 2))
+            local idx = (x % 2 == 0) and (b & 0x0F) or ((b >> 4) & 0x0F)
+            if idx ~= 0 then
+                local color = pal[idx]
+                local x2 = x
+                -- Extend the run while the colour holds, exactly like the gender path.
+                while x2 + 1 < info.width do
+                    local ti = tileRow * wTiles + ((x2 + 1) // 8)
+                    local nb = r8(pixels + ti * 32 + localY * 4 + (((x2 + 1) % 8) // 2))
+                    local ni = ((x2 + 1) % 2 == 0) and (nb & 0x0F) or ((nb >> 4) & 0x0F)
+                    if ni == 0 or pal[ni] ~= color then break end
+                    x2 = x2 + 1
+                end
+                runs[#runs + 1] = { y = py, x1 = x, x2 = x2, color = color }
+                x = x2 + 1
+            else
+                x = x + 1
+            end
+        end
+    end
+    genderFrames.peerRunCache[key] = runs
+    return runs, info, hFlip
 end
 
 -- GetMapCoordsFromSpritePos (event_object_movement.c:4793) plus TrySetupObjectEventSprite's own
@@ -3041,8 +3145,22 @@ local function drawRemotes(localAreaId, playerMapX, playerMapY, skipSpawned, com
                         remote.gX or -1, remote.gY or -1, playerMapX, playerMapY,
                         tostring(remote.gStepping))
                 end
-                drawSpriteFrame(remote.gender, pose, frameIndex, dirInfo.hFlip, screenX, screenY,
-                    panelRows, dim)
+                -- A peer wearing its OWN graphic -- bike, surf, fishing -- is drawn from that
+                -- graphic's own frames. Only when it differs from the plain walker (0), so the
+                -- ordinary case keeps the cached gender path and costs nothing extra.
+                local drew = false
+                if PEER_GFX_ENABLED and remote.gfx and remote.gfx ~= 0 and remote.sanim then
+                    local runs, info, gfxFlip =
+                        genderFrames.runsForPeerGfx(remote.gfx, remote.sanim, remote.sidx)
+                    if runs and info then
+                        drawRunList(runs, info.width, gfxFlip, screenX, screenY, panelRows, dim)
+                        drew = true
+                    end
+                end
+                if not drew then
+                    drawSpriteFrame(remote.gender, pose, frameIndex, dirInfo.hFlip, screenX,
+                        screenY, panelRows, dim)
+                end
                 painted = painted + 1
             end
         end
@@ -3315,7 +3433,8 @@ local function runFrame()
             if ready then
                 sendLine(encodeLocalState(state.areaId, smoothX, smoothY, state.orientation,
                     state.anim, localGender or "male", localGraphicsId(),
-                    r8(sprAddr(r8(GPLAYERAVATAR_ADDR + avatarAddrOffset + 0x04)) + 0x2a)))
+                    r8(sprAddr(r8(GPLAYERAVATAR_ADDR + avatarAddrOffset + 0x04)) + 0x2a),
+                    r8(sprAddr(r8(GPLAYERAVATAR_ADDR + avatarAddrOffset + 0x04)) + 0x2b)))
             end
         elseif ready then
             sendLine(ENCODED_NO_SEND)
