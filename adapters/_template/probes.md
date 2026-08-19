@@ -361,6 +361,34 @@ no ghost in it. A probe does not fail when it measures the wrong instant — it 
 question persuasively. Delay to a known state, and log the state alongside the reading so the
 mismatch is visible.
 
+## Or play to it — reaching a state is a legitimate way to measure it (2026-08-19)
+
+The section below says to edit the world rather than travel to it, and that is usually right. The
+complement, granted by the user on 2026-08-19: **an agent may simply play the game to reach a
+state**, on an instance it owns, with `client.speedmode()` to make it cheap.
+
+**When playing beats editing:**
+
+- **The state is a whole situation, not a value.** A trainer battle is a script, a party, a menu
+  and an opponent — writing a byte that says "in a trainer battle" gets you a number, not the
+  situation, and the thing you wanted to measure is usually a consequence of the situation.
+- **You do not yet know which value to write.** The Archipelago Crystal `wBattleMode` question is
+  exactly this: the whole point is to find out which address holds it, so there is nothing to
+  fake — the game has to actually be in a trainer battle.
+- **The journey is a test.** Walking to a state drags the adapter through menus, warps, cutscenes
+  and battles nobody scripted, which is where bugs of the kind a crowd test finds tend to live.
+
+**When editing still wins:** a state that is a single well-understood value, a state you need
+hundreds of times, or anything where the walk is long and the value is already known.
+
+**Practicalities**, all measured on this project's own hardware (`agent_docs/environment.md`):
+speed settings are a request rather than a guarantee — 400% delivered about 2.3x on a loaded host
+while 200% delivered its full 2x — so measure frames against the wall clock rather than trusting
+the multiplier. **Savestate every milestone** and name the slot in your report: a state that cost
+ten minutes of scripted play is worth more than the measurement it unlocked, because the next
+session inherits it. And read the decomp to plan the route — knowing what a script checks turns
+"wander and hope" into "walk here, press this".
+
 ## Edit the world instead of travelling to it — 2026-08-18
 
 **If the game decides something from a value, the cheapest way to reach that state is to write the

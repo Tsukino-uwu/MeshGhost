@@ -803,6 +803,48 @@ An agent spawned with no model override **inherits the parent's**, which is how 
 on 2026-08-19 ran on the top model — correct there, but by inheritance rather than by decision.
 Say which, deliberately, each time.
 
+## Playing the game to reach a state — permitted, and how fast — 2026-08-19
+
+**The user's grant:** *"i don't really want or need you to 'play the whole game'. but feel free to
+try and progress/do things in the game on your own if you can as it might unlock new things like
+'fighting trainers' or possibly finding new/untested things along the way."* And on scale:
+*"completing the whole game would give us a lot of information actually."*
+
+**Why it is worth doing rather than a novelty.** Several measurements this project needs are gated
+behind game states nobody has reached: `wBattleMode` on the Archipelago build needs a **trainer**
+battle to tell 1 from 2, surfing and fishing need water and a rod, and the whole
+"does a ghost survive X" family needs an X. Reaching those states by playing is often cheaper than
+inventing them — and the walk there is itself a test, because it exercises the adapter through
+menus, battles, warps and cutscenes nobody scripted.
+
+**Speed control, measured 2026-08-19.** `client.speedmode(n)` is exposed to Lua on this build
+(confirmed at runtime, not from a doc string — `n` ∈ 50/75/100/150/200/400):
+
+| Requested | Measured on a loaded host (4 emulators, a crowd of drawn ghosts) |
+|---|---|
+| 100% | 59.8 fps |
+| 200% | 122.5 fps — the full 2x |
+| 400% | 138.3 fps — about **2.3x**, not 4x |
+
+**So a speed setting is a request, not a guarantee**: past some multiple the host CPU is the limit,
+and on a busy machine 400% buys little more than 200%. Measure what you actually got (frames
+against the wall clock) rather than assuming the multiplier, and put the speed back to 100 when
+finished so the next reader of that instance is not confused by a fast-running game.
+
+**Ground rules for an agent playing a game:**
+
+- **Only on an instance you own** (one agent per instance, above). Never drive an emulator the
+  user is sitting at.
+- **Savestate every milestone**, and say which slot in your report. A state that took ten minutes
+  of scripted play to reach is worth more than the measurement it enabled, because the next
+  session gets it for free. Slot 1 is the user's everywhere; use 2+.
+- **Write down what you learn on the way**, not only the thing you set out for — the untested
+  states passed through (a battle, a menu, a cutscene, a warp) are exactly where adapter bugs live.
+- **Reading the decomp is normal and encouraged here**: knowing what a script checks turns "wander
+  until something happens" into "walk here, press this". Facts only, per `licensing.md`.
+- **It is a test, not an obligation.** Finishing a game is a fine goal and an interesting one; not
+  finishing costs nothing, and a state reached is a state banked.
+
 ## Running several agents on DIFFERENT work at once — 2026-08-19
 
 Two games in parallel is one shape (above). This is the other: agents working on unrelated things
