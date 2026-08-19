@@ -566,6 +566,22 @@ language. See `adapters/pseudoregalia/README.md` for the worked example. Keep th
 caveats belongs there with a one-line pointer left behind. See [CLAUDE.md](../../CLAUDE.md)'s
 hard rule on this.
 
+**Carry a "Limits that come from the game, not from us" section near the top**, before the build
+story. Every game has a ceiling — how many peers it can show at once, and what happens past it —
+and a reader deserves to meet it in the adapter's own README rather than discover it in a session.
+`adapters/bizhawk/pokemon/crystal/README.md` has the worked example; the numbers and the measuring
+rig live in [agent_docs/crowd-limits.md](../../agent_docs/crowd-limits.md), and the README carries
+the short version with a link.
+
+**This matters most for emulated games, and it is also easiest there** — which is the whole reason
+to insist on it. An emulator hands you the engine's arrays and the console's own sprite hardware to
+read directly, so the ceiling is a *measurement* rather than an estimate: slot counts, hardware
+sprite entries, frames per second under load, all readable from a probe in an afternoon. A native
+PC game usually cannot be pinned down that precisely, so an emulated adapter that shrugs at the
+question is leaving free, exact knowledge on the table. State the number, say which resource runs
+out, and say what a player sees past it — **including that it is the game's limit and not a bug**,
+because from the player's chair an invisible friend and a disconnected friend look identical.
+
 **Also state the access model up top**, as a bullet alongside platform and adapter language:
 **"How the game is read: ..."** — decompilation, self-documenting artifact, runtime reflection,
 modding API, and so on, per the section above. All four shipped adapters carry this bullet. It is
