@@ -612,11 +612,41 @@ end
 -- bikes, surfing, underwater, field move, fishing, watering -- so a peer's appearance is this one
 -- byte and needs no anim classifier or per-mode timing. Sent in `extras`, which contract.md
 -- defines as opaque free-form data the core never inspects.
+-- DO NOT PUBLISH A STATE THE GAME HAS NOT FINISHED SETTING UP.
+--
+-- When the player picks up a rod, the game sets the 32-wide fishing graphic about four frames
+-- before its fishing task applies the pos2 that re-centres the character on its tile. Those frames
+-- are real and briefly visible, but they land while the bag is closing, where an 8px hop cannot be
+-- seen. Sent on the wire they become a ghost adopting the rod 8px to the side and then snapping --
+-- in a quiet frame, where it is the only thing moving.
+--
+-- Filtering it at the RECEIVER was tried twice and cannot work: the transient outlives one update
+-- and spans two at 20Hz, so "the same state twice" is satisfied by the unsettled state itself.
+-- The sender is the only place that sees every frame, so it is the only place that can tell a
+-- settled state from a half-built one. A new graphic is held until its offset stops changing --
+-- typically two frames, and the peer simply keeps seeing the previous state meanwhile, which is
+-- exactly what the player looked like then.
 local function localGraphicsId()
     if not avatarAddrConfirmed then return nil end
     local objId = memory.read_u8(GPLAYERAVATAR_ADDR + avatarAddrOffset + 0x05)
     if objId > 15 then return nil end
-    return memory.read_u8(GOBJECTEVENTS_ADDR + avatarAddrOffset + objId * OBJECTEVENT_SIZE + 0x05)
+    local gfx = memory.read_u8(GOBJECTEVENTS_ADDR + avatarAddrOffset + objId * OBJECTEVENT_SIZE
+        + 0x05)
+    -- Inlined rather than via sprAddr/rs16: those are defined much further down this file, and a
+    -- forward reference here would silently read a nil global.
+    local sox = memory.read_s16_le(GSPRITES_ADDR
+        + memory.read_u8(GPLAYERAVATAR_ADDR + avatarAddrOffset + 0x04) * SPRITE_SIZE + 0x24)
+    if gfx ~= genderFrames.sentGfx then
+        -- A change: publish it only once this graphic's own offset has held for a frame.
+        if gfx == genderFrames.pendingGfx and sox == genderFrames.pendingSox then
+            genderFrames.sentGfx = gfx
+        else
+            genderFrames.pendingGfx, genderFrames.pendingSox = gfx, sox
+            return genderFrames.sentGfx
+        end
+    end
+    genderFrames.pendingGfx, genderFrames.pendingSox = gfx, sox
+    return gfx
 end
 
 -- `sanim` is the player's own SPRITE ANIMATION NUMBER, and it is what `gfx` alone cannot say.
