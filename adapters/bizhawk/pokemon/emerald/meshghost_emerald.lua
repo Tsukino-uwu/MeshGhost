@@ -654,11 +654,16 @@ local function localGraphicsId()
             if genderFrames.pendingTicks >= 6 then genderFrames.sentGfx = gfx end
         end
         if gfx ~= genderFrames.sentGfx then
-            -- HOLD THE OFFSET WITH THE GRAPHIC. They describe one state, and sending the new
-            -- offset with the old graphic is the same defect wearing different clothes: the peer
-            -- would see a WALKER shifted 8px for two frames. The send path takes the offset from
-            -- here, not from the sprite, for exactly this reason.
-            genderFrames.sendSox, genderFrames.sendSoy = 0, 0
+            -- HOLD THE OFFSET WITH THE GRAPHIC -- by FREEZING it, not zeroing it. They describe
+            -- one state, and the six frames of hold must publish the pair that was true together:
+            -- the graphic still on the wire and the offset it was last sent with. Zeroing was the
+            -- first attempt at this and it is wrong in exactly one direction: putting the rod
+            -- AWAY held gfx 137 while already sending sox 0, so every cast ended with the peer's
+            -- ghost obeying a mismatched pair -- a 32-wide fishing frame at a walker's offset,
+            -- 8px off for the length of the hold. Measured at all six cast-ends in one trace
+            -- (f=2512, 3027, 5301, 5452, 5613, 5753): sox flips ~9 frames before gfx does.
+            -- Leaving sendSox/sendSoy untouched here publishes 137+8 for the hold, then 0+0
+            -- together, and the start direction stays right too: a walker's frozen offset is 0.
             return genderFrames.sentGfx
         end
     end
@@ -2266,6 +2271,20 @@ local tiering = {
     hysteresis = 3,
     reserve = 1,
     castMax = {},
+    -- MESHGHOST_EMERALD_ANIM_TRACE -- a PROBE, off unless asked for. It writes a per-frame line
+    -- comparing the player's sprite animation state with each ghost's, and the real OAM entry
+    -- both are drawn from. That trace is what finally located the fishing misalignment after two
+    -- guessed fixes failed the same way, and bikes and surfing are the same class of state, so it
+    -- is kept rather than deleted (adapters/_template/probes.md).
+    --
+    -- Deliberately NOT folded into MESHGHOST_COMPARE_TIERS, though it was written there: compare
+    -- mode is the intended dev default for judging the drawn tier, and leaving per-frame file I/O
+    -- inside it would tax every future comparison with the cost of a diagnostic nobody asked for
+    -- -- the exact trap CLAUDE.md records. A field, not a top-level local: this chunk is at Lua's
+    -- 200-local ceiling.
+    animTrace = (MESHGHOST_EMERALD_ANIM_TRACE
+        or os.getenv("MESHGHOST_EMERALD_ANIM_TRACE")) and true or false,
+    animTraceBuf = nil,
 }
 
 -- WHERE THE GAME'S OWN UI IS, so the drawn tier can stay out of it.
@@ -2341,6 +2360,11 @@ console.log("MeshGhost: drawn overflow tier = " .. (tiering.drawn and "ON" or "o
 if COMPARE_TIERS then
     console.log("MeshGhost: PROBE FLAG IN USE -- MESHGHOST_COMPARE_TIERS: the loopback ghost is "
         .. "rendered twice, spawned 2 tiles right and painted 2 tiles left. Dev only.")
+end
+if tiering.animTrace then
+    console.log("MeshGhost: PROBE FLAG IN USE -- MESHGHOST_EMERALD_ANIM_TRACE: writing a per-frame "
+        .. "player-vs-ghost animation trace to probes/animtrace.log. Dev only, and it costs a "
+        .. "file write every 120 frames.")
 end
 
 -- How many object slots ghosts may hold on this map right now. Counted from the array itself
@@ -2766,7 +2790,79 @@ end
 --
 -- Falls back to the rebuild if it cannot do the whole job, because a half-applied graphic (new
 -- shape, old tiles) is worse than a rebuild.
-function swapGhostGraphicInPlace(g, graphicsId, sanim)
+-- WHAT THE HARDWARE IS ACTUALLY TOLD TO DRAW -- used only by the animation trace above, which is
+-- off unless MESHGHOST_EMERALD_ANIM_TRACE is set. Scans the 128 OAM entries (0x07000000, 8 bytes
+-- apart) for the one using the ghost's tile range and the one using the player's, and reports
+-- their raw screen x/y plus shape/size bits.
+--
+-- This is the ground truth that every sprite struct field only FEEDS, and reading it is what ended
+-- the fishing investigation: pos2, animNum and animCmdIndex all agreed with each other for frames
+-- in which the OAM x moved 8px and back. If a snap exists, it is visible here, on an exact frame,
+-- by an exact number of pixels.
+function oamEntryFor(ghostTile, playerTile)
+    local gout, pout = "-", "-"
+    for i = 0, 127 do
+        local a0 = r16(0x07000000 + i * 8)
+        if (a0 & 0x0300) ~= 0x0200 then -- skip disabled (bit 9 set without affine)
+            local a2 = r16(0x07000000 + i * 8 + 4)
+            local t = a2 & 0x3ff
+            local a1 = r16(0x07000000 + i * 8 + 2)
+            local e = string.format("x=%d y=%d sh=%d sz=%d",
+                a1 & 0x1ff, a0 & 0xff, (a0 >> 14) & 3, (a1 >> 14) & 3)
+            if ghostTile and t == ghostTile then gout = e end
+            if playerTile and t == playerTile then pout = e end
+        end
+    end
+    return "gOAM[" .. gout .. "] pOAM[" .. pout .. "]"
+end
+
+-- THE FISHING OFFSET IS COMPUTED, NOT COPIED. The fishing sprite's frames are not all aligned the
+-- same inside their 32-wide canvas, so the game re-derives the sprite offset from the frame being
+-- DISPLAYED, every frame: AlignFishingAnimationFrames (pokeemerald src/field_player_avatar.c:
+-- 2045-2078) reads anims[animNum][animCmdIndex].type -- for a frame command that is its image
+-- index -- and sets x2=8 for images 1/2/3 (-8 facing west, DIR_WEST=3 per
+-- include/constants/global.h:140), y2=-8 for image 5, y2=8 for images 10/11.
+--
+-- Copying the player's offset over the wire was therefore wrong by construction: the ghost's
+-- animation lags the player's, so it kept receiving the offset for a frame it was not yet
+-- showing. Measured at every cast end in one trace -- the wire honestly said sox=0 (the player's
+-- new frame) while the ghost still displayed the old one, and the OAM x moved 8px for exactly
+-- those frames. The player and the drawn tier never move because for both of them offset and
+-- image change together; this gives the spawned ghost the same property, from the same rule,
+-- driven by its OWN animCmdIndex.
+-- The rule itself, shared by BOTH tiers: given an anims table and a frame within it, the shift
+-- that frame needs. One implementation, because the defect all day has been two consumers of the
+-- same state disagreeing about which frame it belongs to.
+function fishingFrameShift(anims, animNum, idx, facingWest)
+    if not anims or anims == 0 then return 0, 0 end
+    local animPtr = r32(anims + animNum * 4)
+    if animPtr == 0 then return 0, 0 end
+    local t = r16(animPtr + idx * 4)
+    -- ANIMCMD_END (-1) means the index sits one past the last frame; the game steps back one.
+    if t == 0xffff and idx > 0 then t = r16(animPtr + (idx - 1) * 4) end
+    if t == 1 or t == 2 or t == 3 then
+        if facingWest then return -8, 0 end
+        return 8, 0
+    elseif t == 5 then
+        return 0, -8
+    elseif t == 10 or t == 11 then
+        return 0, 8
+    end
+    return 0, 0
+end
+
+function alignFishingGhost(g)
+    local d = sprAddr(g.sprId)
+    local x2, y2 = fishingFrameShift(r32(d + 0x08), r8(d + 0x2a), r8(d + 0x2b),
+        (r8(objAddr(g.objId) + 0x18) & 0x0f) == 3)
+    w16(d + 0x24, x2 & 0xffff)
+    w16(d + 0x26, y2 & 0xffff)
+end
+
+-- The two graphics the rule belongs to (pokeemerald include/constants/event_objects.h:144-145).
+function isFishingGfx(gfx) return gfx == 137 or gfx == 138 end
+
+function swapGhostGraphicInPlace(g, graphicsId, sanim, sox, soy)
     local info = graphicsInfo(graphicsId)
     if not info or not ghostAlive(g) then return false end
     -- Allocate before freeing: nothing runs between these writes, and a failed allocation must
@@ -2801,7 +2897,24 @@ function swapGhostGraphicInPlace(g, graphicsId, sanim)
     w8(d + 0x2a, sanim or 0)
     w8(d + 0x2b, 0)
     w8(d + 0x3f, (r8(d + 0x3f) | 0x04) & ~0x10)
+    -- AND THE SPRITE OFFSET, IN THE SAME BATCH AS THE SHAPE. These two belong to each other: a
+    -- fishing frame is 32 wide and sits on its tile only because the game's task offsets it by 8,
+    -- so a frame drawn with the new shape and the old offset is a frame drawn half a tile to the
+    -- side. Applying the offset from the mirror block instead left exactly that gap -- the mirror
+    -- runs earlier in the same frame, so the offset could never land before the shape did.
+    --
+    -- Measured across a cast: the ghost took the fishing graphic on one frame with pos2 still 0,0
+    -- and only reached 8,0 two frames later, then the same in reverse when the rod was put away.
+    -- That is both halves of *"it snaps at the start & at the end"* -- an 8px step out and back,
+    -- at each end of the swap. Nothing else moved: position and coords were constant throughout.
     g.gfx, g.tileStart, g.tileCount = graphicsId, tileStart, info.tileCount
+    if isFishingGfx(graphicsId) then
+        alignFishingGhost(g)
+    else
+        if sox then w16(d + 0x24, sox & 0xffff) end
+        if soy then w16(d + 0x26, soy & 0xffff) end
+    end
+    g.animSetFor = nil -- a new graphic always re-issues its animation, whatever the number was
     loadGhostFrameNow(g, info, sanim or 0, 0)
     return true
 end
@@ -2859,12 +2972,6 @@ local function syncGhost(playerId, remote)
         if cameraIsSettled() then
             local wantNow = wantedGfx(remote)
             spawnGhost(playerId, targetX, targetY, remote.orientation, wantNow)
-            if COMPARE_TIERS then
-                local tf = io.open(SCRIPT_DIR .. "probes/pathtrace.log", "a")
-                if tf then
-                    tf:write("RESPAWN -> " .. tostring(wantNow) .. string.char(10)) tf:close()
-                end
-            end
             -- EVERY path that gives a ghost a graphic must also give it that graphic's state.
             --
             -- The offset and the animation were applied in the graphic-SWAP path only, and a ghost
@@ -2877,11 +2984,17 @@ local function syncGhost(playerId, remote)
             local ng = ghosts[playerId]
             if ng then
                 local d = sprAddr(ng.sprId)
-                if remote.sox then w16(d + 0x24, remote.sox & 0xffff) end
-                if remote.soy then w16(d + 0x26, remote.soy & 0xffff) end
                 if remote.sanim then
                     w8(d + 0x2a, remote.sanim)
                     w8(d + 0x3f, (r8(d + 0x3f) | 0x04) & ~0x10)
+                end
+                -- After the animation write, so the offset is computed from the frame the ghost
+                -- will actually show.
+                if isFishingGfx(wantNow) then
+                    alignFishingGhost(ng)
+                else
+                    if remote.sox then w16(d + 0x24, remote.sox & 0xffff) end
+                    if remote.soy then w16(d + 0x26, remote.soy & 0xffff) end
                 end
                 loadGhostFrameNow(ng, graphicsInfo(wantNow), remote.sanim, remote.sidx)
             end
@@ -2911,49 +3024,119 @@ local function syncGhost(playerId, remote)
     -- driving it, so without this the ghost holds the animation's first frame forever. So the rule
     -- is exactly that -- mirror the peer's animation only where nothing else is doing it.
     local engineDrivesAnim = (remote.gfx == nil or remote.gfx == 0 or remote.gfx == 89)
-    if PEER_GFX_ENABLED and remote.sanim and not engineDrivesAnim
+    -- AND ONLY ONCE THE GHOST IS ACTUALLY WEARING THAT GRAPHIC. An offset describes a shape: 8px
+    -- is what keeps a 32-wide fishing frame on its tile, and it is simply wrong for the 16-wide
+    -- walker. The peer's graphic is held six frames on the way out (it has to be -- the sender
+    -- measures an unsettled state otherwise), but the offset and the animation are not, so for a
+    -- frame the wire says "walking graphic, fishing offset". Applying that drew the ghost half a
+    -- tile to the side and then snapped it back as the swap landed -- measured: pos2 8,0 with
+    -- gfx 0 at f=2474, gfx 137 at f=2475.
+    --
+    -- Matching on the ghost's own graphic is what makes the two arrive together, and it needs no
+    -- guess about timing: the swap applies both in one batch, and this block only maintains them
+    -- afterwards.
+    if PEER_GFX_ENABLED and remote.sanim and not engineDrivesAnim and g.gfx == remote.gfx
         and remote.anim ~= "walking" and remote.anim ~= "running" then
         local d = sprAddr(g.sprId)
-        -- DRIVE THE ANIMATION FRAME BY FRAME, because nothing else will.
+        -- SET THE ANIMATION, DO NOT RE-SET IT. The engine advances a ghost's animation perfectly
+        -- well on its own -- measured: 3/0, 3/1, 3/2 with its pixels tracking the player's a beat
+        -- later. What it cannot survive is being restarted: writing animNum with animBeginning
+        -- every time the peer's number changes puts it back to the first frame before it can play
+        -- one, which is what *"it gets stuck in an animation instead of doing the animation"* is.
         --
-        -- A walking ghost animates as a side effect of the movement actions we hand the engine.
-        -- A FISHING ghost has no action behind it, so the engine advances nothing and it holds
-        -- whatever frame it was last given -- the user, casting with the registered rod rather than
-        -- through the bag: *"it gets stuck in an animation instead of doing the animation"*.
-        --
-        -- The peer already sends both halves of its own animation state (number and command
-        -- index), so the ghost is stepped through exactly the frames the player is showing, at the
-        -- player's own pace, with the pixels for each frame written as it changes. That is the
-        -- same mechanism the graphic change uses, applied per frame instead of once.
-        if r8(d + 0x2a) ~= remote.sanim or (remote.sidx and r8(d + 0x2b) ~= remote.sidx) then
+        -- So the number is written only when the ghost is not already playing that animation, and
+        -- the engine is left to run it. Stepping it frame by frame from the peer was tried and was
+        -- worse -- *"it looks really bad/off"* -- because two things were then advancing it.
+        -- Compared against what we LAST SET, never against the sprite's live value: the engine
+        -- moves that on every frame it animates, so testing it means re-issuing the same animation
+        -- forever. The fishing sequence really does move through several animations, and each one
+        -- should start exactly once.
+        -- RE-ARM WHENEVER THE ENGINE HAS PAUSED IT, not only when the number changes. The engine
+        -- re-pauses the sprite every time the ghost goes back to a plain standing graphic, and
+        -- `animSetFor` remembers the number across that. So a SECOND cast of the same rod matched
+        -- the remembered number, skipped the enable, and held one pose for the whole state --
+        -- measured: at the revert the paused bit came back on (0x2C = 0xcd) with animSetFor still
+        -- 3, and the next cast of animation 3 never re-enabled. The condition is therefore about
+        -- what the sprite IS, not what we last told it.
+        if (r8(d + 0x2c) & 0x40) ~= 0 then g.animSetFor = nil end
+        if g.animSetFor ~= remote.sanim then
             w8(d + 0x2a, remote.sanim)
-            w8(d + 0x2b, remote.sidx or 0)
             w8(d + 0x3f, (r8(d + 0x3f) | 0x04) & ~0x10)
-            loadGhostFrameNow(g, graphicsInfo(remote.gfx), remote.sanim, remote.sidx)
+            -- AND ASK THE ENGINE TO ACTUALLY PLAY IT. Setting the animation number alone is not
+            -- enough, and this is the thing two earlier attempts both missed: the overworld PAUSES
+            -- an idle object event's sprite, so the ghost held the animation's first frame for the
+            -- entire cast. Measured across one: the ghost sat at 3/0 for 256 frames and then 11/0
+            -- for the rest, while the player's own frame index cycled 0, 1, 3 throughout.
+            --
+            -- Done through the game's own switch rather than by clearing the paused bit ourselves.
+            -- `enableAnim` (include/global.fieldmap.h:1, byte +0x01 bit 0x08) is what the engine
+            -- reads in TryEnableObjectEventAnim (src/event_object_movement.c:7335-7343): it clears
+            -- animPaused AND disableAnim, then clears itself. So one write per animation start
+            -- hands the whole thing back to the engine, which is what makes the frames advance at
+            -- the game's own rate instead of one we would have had to invent.
+            w8(objAddr(g.objId) + 0x01, r8(objAddr(g.objId) + 0x01) | 0x08)
+            g.animSetFor = remote.sanim
         end
+
         -- AND THE SPRITE OFFSET THE TASK APPLIES. Measured: the engine sets the fishing player's
         -- pos2 to 8,0, which is what keeps the character on its tile inside a 32-wide frame. Our
         -- ghost has no fishing task to do that, so it sat half a tile to the side from the moment
         -- it picked up the rod -- *"both ghosts move while fishing"*, reported repeatedly while
         -- every position measurement said the ghost was exactly where it should be. It was: the
         -- OFFSET was missing, not the position.
-        if remote.sox then w16(d + 0x24, remote.sox & 0xffff) end
-        if remote.soy then w16(d + 0x26, remote.soy & 0xffff) end
+        if isFishingGfx(g.gfx) then
+            -- Owned by the BuildOamBuffer hook when it is active (registered at the bottom of
+            -- this file): a write from HERE lands between emulated frames, and the engine then
+            -- advances the animation before building OAM -- so image and offset change on
+            -- different frames and the ghost flicks 8px at every alignment change. Measured:
+            -- pos2 constant at 8 while OAM x went 144, 136, 144 on consecutive frames.
+            if not tiering.fishAlignActive then alignFishingGhost(g) end
+        else
+            if remote.sox then w16(d + 0x24, remote.sox & 0xffff) end
+            if remote.soy then w16(d + 0x26, remote.soy & 0xffff) end
+        end
     end
 
-    -- TEMPORARY dev trace (COMPARE_TIERS only, file, no console): which branch this frame took and
-    -- what it was working from. Removed once the fishing swap is settled.
-    if COMPARE_TIERS and remote.gfx and remote.gfx ~= 0 then
-        local tf = io.open(SCRIPT_DIR .. "probes/synctrace.log", "a")
-        if tf then
-            tf:write(string.format(
-                "f=%d idle=%s gfx=%d g.gfx=%s sox=%s dx=%d dy=%d act=%s%s",
-                frameCounter, tostring(ghostIsIdle(g)), remote.gfx, tostring(g.gfx),
-                tostring(remote.sox), math.floor(remote.x + 0.5) - (rs16(objAddr(g.objId) + 0x10)
-                    - MAP_OFFSET) + LOOPBACK_GHOST_OFFSET_TILES_X,
-                math.floor(remote.y + 0.5) - (rs16(objAddr(g.objId) + 0x12) - MAP_OFFSET),
-                tostring(remote.act), string.char(10)))
-            tf:close()
+    -- THE ANIMATION-ALIGNMENT TRACE (probe, off by default -- MESHGHOST_EMERALD_ANIM_TRACE).
+    --
+    -- One line per frame carrying the PLAYER's sprite animation state and the GHOST's TOGETHER,
+    -- plus the real OAM entry each is drawn from. Both halves on one line is the whole point: the
+    -- fishing misalignment was two consumers disagreeing about which frame a value belonged to,
+    -- and that is invisible in any trace that follows one of them at a time. The OAM columns are
+    -- what settled it -- every struct field agreed with every other while the pixels on screen
+    -- did not.
+    --
+    -- Buffered and flushed in batches, never console.log: per-frame console output visibly lags
+    -- the game, and even a per-frame io.open is a probe heavy enough to change what it measures.
+    if tiering.animTrace then
+        local pd = sprAddr(r8(GPLAYERAVATAR_ADDR + avatarAddrOffset + 0x04))
+        local gd = sprAddr(g.sprId)
+        tiering.animTraceBuf = tiering.animTraceBuf or {}
+        do
+            tiering.animTraceBuf[#tiering.animTraceBuf + 1] = string.format(
+                "f=%d P.gfx=%s P.anim=%d/%d P.2c=%02x P.fl=%02x P.pos2=%d,%d | R.gfx=%s R.sanim=%s/%s R.anim=%s R.act=%s R.sox=%s | G.gfx=%s G.anim=%d/%d G.2c=%02x G.fl=%02x G.pos2=%d,%d G.setFor=%s | idle=%s | G.pos1=%d,%d G.crd=%d,%d R.xy=%.3f,%.3f objdir=%d act=%d | %s",
+                frameCounter, tostring(localGraphicsId()),
+                r8(pd + 0x2a), r8(pd + 0x2b), r8(pd + 0x2c), r8(pd + 0x3f), rs16(pd + 0x24), rs16(pd + 0x26),
+                tostring(remote.gfx), tostring(remote.sanim), tostring(remote.sidx),
+                tostring(remote.anim), tostring(remote.act), tostring(remote.sox),
+                tostring(g.gfx), r8(gd + 0x2a), r8(gd + 0x2b), r8(gd + 0x2c), r8(gd + 0x3f),
+                rs16(gd + 0x24), rs16(gd + 0x26), tostring(g.animSetFor),
+                tostring(ghostIsIdle(g)),
+                rs16(gd + 0x20), rs16(gd + 0x22),
+                rs16(objAddr(g.objId) + 0x10) - MAP_OFFSET,
+                rs16(objAddr(g.objId) + 0x12) - MAP_OFFSET,
+                remote.x, remote.y,
+                r8(objAddr(g.objId) + 0x18) & 0x0f,
+                r8(objAddr(g.objId) + 0x1c),
+                oamEntryFor(g.tileStart, r16(pd + 0x04) & 0x3ff))
+        end
+        if #tiering.animTraceBuf >= 120 then
+            local tf = io.open(SCRIPT_DIR .. "probes/animtrace.log", "a")
+            if tf then
+                tf:write(table.concat(tiering.animTraceBuf, string.char(10)) .. string.char(10))
+                tf:close()
+            end
+            tiering.animTraceBuf = {}
         end
     end
     if not ghostIsIdle(g) then return end -- never interrupt a half-played step
@@ -2974,16 +3157,12 @@ local function syncGhost(playerId, remote)
     -- no frame where the ghost is missing, doubled, or wearing the previous graphic's pixels.
     local wantNow = wantedGfx(remote)
     if wantNow and g.gfx and wantNow ~= g.gfx
-        and swapGhostGraphicInPlace(g, wantNow, remote.sanim) then
-        if COMPARE_TIERS then
-            local tf = io.open(SCRIPT_DIR .. "probes/pathtrace.log", "a")
-            if tf then tf:write("INPLACE -> " .. tostring(wantNow) .. string.char(10)) tf:close() end
-            -- Shoot the next few frames from HERE, the exact moment the graphic changes. Every
-            -- probe so far armed on a value it could only notice a frame late.
-            tiering.shotsLeft, tiering.shotSeq = 8, (tiering.shotSeq or 0) + 1
-        end
-        if remote.sox then w16(sprAddr(g.sprId) + 0x24, remote.sox & 0xffff) end
-        if remote.soy then w16(sprAddr(g.sprId) + 0x26, remote.soy & 0xffff) end
+        and swapGhostGraphicInPlace(g, wantNow, remote.sanim, remote.sox or 0, remote.soy or 0)
+    then
+        -- No offset write here: swapGhostGraphicInPlace set it in the same batch as the shape,
+        -- from the right source for the graphic. Writing the wire value on top of that -- which
+        -- this path did until 2026-08-19 -- put the PLAYER'S current frame's offset onto the
+        -- ghost's several-frames-older one, an 8px flash on the exact frame of every swap.
         return
     end
 
@@ -2994,14 +3173,6 @@ local function syncGhost(playerId, remote)
     if want and g.gfx and want ~= g.gfx and cameraIsSettled() then
         local a = objAddr(g.objId)
         local atX, atY = rs16(a + 0x10) - MAP_OFFSET, rs16(a + 0x12) - MAP_OFFSET
-        if COMPARE_TIERS then
-            local tf = io.open(SCRIPT_DIR .. "probes/pathtrace.log", "a")
-            if tf then
-                tf:write("REBUILD " .. tostring(g.gfx) .. " -> " .. tostring(want)
-                    .. string.char(10))
-                tf:close()
-            end
-        end
         despawnGhost(playerId)
         spawnGhost(playerId, atX, atY, remote.orientation, want)
         -- The new sprite's tiles are whatever was in that range; fill them with the frame the
@@ -3020,14 +3191,21 @@ local function syncGhost(playerId, remote)
         -- 32-wide graphic -- half a tile off -- and then snaps into place when the next update
         -- arrives. The rebuild is already a visible cut; adding a snap to it is what
         -- *"looks a bit snappy and they also briefly move"* is made of.
-        local ng = ghosts[playerId]
         if ng then
             local nd = sprAddr(ng.sprId)
-            if remote.sox then w16(nd + 0x24, remote.sox & 0xffff) end
-            if remote.soy then w16(nd + 0x26, remote.soy & 0xffff) end
             if remote.sanim then
                 w8(nd + 0x2a, remote.sanim)
                 w8(nd + 0x3f, (r8(nd + 0x3f) | 0x04) & ~0x10)
+                -- And let the engine play it -- a rebuilt ghost is paused exactly like a swapped
+                -- one, and without this it holds the first frame for the whole state.
+                w8(objAddr(ng.objId) + 0x01, r8(objAddr(ng.objId) + 0x01) | 0x08)
+                ng.animSetFor = remote.sanim
+            end
+            if isFishingGfx(ng.gfx) then
+                alignFishingGhost(ng)
+            else
+                if remote.sox then w16(nd + 0x24, remote.sox & 0xffff) end
+                if remote.soy then w16(nd + 0x26, remote.soy & 0xffff) end
             end
         end
         return
@@ -3525,7 +3703,15 @@ local function drawRemotes(localAreaId, playerMapX, playerMapY, skipSpawned, com
                 -- pos2.y is the jump arc; kept separately so the shadow below can be put on the
                 -- ground the ghost left rather than under its feet in mid-air.
                 pinnedArc = rs16(gs + 0x26)
-                screenX = rs16(gs + 0x20) + rs16(gs + 0x24) + memory.read_s8(gs + 0x28)
+                -- While the spawned sprite wears a fishing graphic, its pos2 is the alignment
+                -- for ITS current frame -- and this tier paints the WIRE's frame, which can be a
+                -- different one. Inheriting that offset re-created today's whole defect class in
+                -- the painted copy: right image, someone else's alignment. So the pinned position
+                -- takes only the sprite's true anchor, and the paint code below adds the shift
+                -- for the exact frame it draws, from the same shared rule.
+                local pinnedAlignX = rs16(gs + 0x24)
+                if isFishingGfx(pinned.gfx) then pinnedAlignX, pinnedArc = 0, 0 end
+                screenX = rs16(gs + 0x20) + pinnedAlignX + memory.read_s8(gs + 0x28)
                     + rs16(GSPRITECOORDOFFSETX_ADDR)
                     + (COMPARE_DRAWN_OFFSET_TILES_X - LOOPBACK_GHOST_OFFSET_TILES_X) * TILE
                 screenY = rs16(gs + 0x22) + pinnedArc + memory.read_s8(gs + 0x29)
@@ -3662,6 +3848,14 @@ local function drawRemotes(localAreaId, playerMapX, playerMapY, skipSpawned, com
                         if not pinned then
                             cx = (FRAME_WIDTH_PX >> 1) - (info.width >> 1)
                             cy = (FRAME_HEIGHT_PX >> 1) - (info.height >> 1)
+                        end
+                        -- The shift for the frame THIS tier paints, from the shared rule --
+                        -- image and alignment from the same wire sample, atomically, which is
+                        -- what the game itself guarantees on screen.
+                        if isFishingGfx(remote.gfx) and remote.sanim and remote.sidx then
+                            local fx2, fy2 = fishingFrameShift(info.anims, remote.sanim,
+                                remote.sidx, remote.orientation == "west")
+                            cx, cy = cx + fx2, cy + fy2
                         end
                         drawRunList(runs, info.width, gfxFlip, screenX + cx, screenY + cy,
                             panelRows, dim)
@@ -4012,15 +4206,6 @@ local function runFrame()
             -- Independent of the drawn tier: a spawned ghost needs this whether or not the
             -- overflow tier is on, so it cannot live inside drawRemotes.
             drawGhostShadows()
-            -- Dev only: the frames around a graphic change, written where shots go.
-            if COMPARE_TIERS and (tiering.shotsLeft or 0) > 0 then
-                tiering.shotsLeft = tiering.shotsLeft - 1
-                pcall(function()
-                    client.screenshot(string.format(
-                        "C:/dev/MeshGhost/dev-scripts/shots/emerald/swap%d_%d.png",
-                        tiering.shotSeq, 8 - tiering.shotsLeft))
-                end)
-            end
             -- TIER TWO: everyone the engine had no room for, painted over the finished frame
             -- so that no peer is ever simply absent. Flag-gated -- see FLAGS.md and
             -- BANDAGES.md. A drawn ghost has no engine occlusion of its own, so it clips
@@ -4071,6 +4256,45 @@ end
 -- any probe. A player opening this file in the Lua Console sets neither global and gets the
 -- normal loop below, unchanged. Without this, testing an adapter edit costs a full emulator
 -- relaunch each time, which is the cost the loader exists to remove.
+-- ATOMIC FISHING ALIGNMENT. The game recomputes the fishing sprite's offset from the frame being
+-- displayed, INSIDE the frame update, so image and offset can never disagree on screen
+-- (AlignFishingAnimationFrames, pokeemerald src/field_player_avatar.c:2045-2078). A Lua script's
+-- own writes land between frames, which is measurably too early or too late -- the engine steps
+-- the animation before it builds OAM, so a between-frames offset is one frame out of phase with
+-- the image, and the ghost flicks 8px sideways at every alignment change while the player and the
+-- painted tier stay still.
+--
+-- So the alignment runs from a code hook at BuildOamBuffer (0x08006a0c, vanilla, from our own
+-- pokeemerald.map build -- agent_docs/environment.md): sprite animations for the frame are final,
+-- OAM is not yet built. The same point in the pipeline the game's own task has, which is what
+-- makes it the same on screen. Vanilla-gated: an Archipelago ROM relocates code, so there the
+-- alignment stays at the frame boundary (the mirror block above) until that ROM's address is
+-- measured. Registered once per load: under the dev loader the previous load's hook survives in
+-- the emulator, so it is unregistered first, and MESHGHOST_DEV_UNLOAD drops it with the sockets.
+if MESHGHOST_FISH_ALIGN_HOOK then
+    pcall(event.unregisterbyid, MESHGHOST_FISH_ALIGN_HOOK)
+    MESHGHOST_FISH_ALIGN_HOOK = nil
+end
+tiering.fishAlignActive = false
+if avatarAddrOffset == 0 then
+    -- On tiering, not locals: the main chunk is at Lua's 200-local ceiling.
+    tiering.hookOk, tiering.hookId = pcall(event.onmemoryexecute, function()
+        local aok = pcall(function()
+            for _, g in pairs(ghosts) do
+                if g.gfx and isFishingGfx(g.gfx) then alignFishingGhost(g) end
+            end
+        end)
+        if not aok then tiering.fishAlignActive = false end
+    end, 0x08006A0C, "meshghost_fish_align")
+    if tiering.hookOk and tiering.hookId then
+        MESHGHOST_FISH_ALIGN_HOOK = tiering.hookId
+        tiering.fishAlignActive = true
+    else
+        console.log("MeshGhost: BuildOamBuffer hook unavailable ("
+            .. tostring(tiering.hookId) .. "); fishing alignment stays at the frame boundary.")
+    end
+end
+
 MESHGHOST_DEV_TICK = guardedFrame
 MESHGHOST_DEV_UNLOAD = function()
     -- Three things, and every one of them leaked at some point on 2026-08-18:
@@ -4082,6 +4306,10 @@ MESHGHOST_DEV_UNLOAD = function()
     --  * the LOG FILE, a real OS handle -- leaking it locks the file on disk.
     -- resetBridge() covers the first two (it despawns ghosts as part of dropping the connection).
     pcall(resetBridge)
+    if MESHGHOST_FISH_ALIGN_HOOK then
+        pcall(event.unregisterbyid, MESHGHOST_FISH_ALIGN_HOOK)
+        MESHGHOST_FISH_ALIGN_HOOK = nil
+    end
     -- A fourth: console.log itself. This script REPLACES the emulator's global console.log with a
     -- wrapper that also writes the log file, and never put it back -- so under the dev loader each
     -- reload wrapped the previous wrapper, one layer deeper every time, with every dead layer

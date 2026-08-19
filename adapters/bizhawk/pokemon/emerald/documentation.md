@@ -179,6 +179,36 @@ rod, east), `anim 7` (put away — a bite that got away), `anim 3` again, `anim 
 finally back to `gfx 89`. `PLAYER_AVATAR_FLAG_ON_FOOT | PLAYER_AVATAR_FLAG_CONTROLLABLE` stayed set
 throughout.
 
+**[measured] The animation is driven by a TASK, and the sprite is otherwise paused.** The overworld
+leaves an idle character's sprite with `animPaused` set (bit `0x40` of the sprite struct's `+0x2C`;
+`animDelayCounter` occupies bits 0-5 — `include/sprite.h:211-212`). Nothing about holding a fishing
+graphic changes that on its own: it is the fishing task that un-pauses the sprite and lets the
+frames advance. The engine's own switch for this is the object event's `enableAnim` bit (byte
+`+0x01` bit `0x08`), which `TryEnableObjectEventAnim` (`src/event_object_movement.c:7335-7343`)
+consumes — it clears both `animPaused` and `disableAnim`, then clears itself.
+
+**[measured] The sprite offset during fishing is DERIVED PER FRAME, not held.** A fishing frame is
+32px wide where a walking frame is 16, and the frames are not all aligned the same way inside that
+canvas. So the game recomputes the sprite's offset **every frame from the frame currently being
+displayed** — `AlignFishingAnimationFrames` (`src/field_player_avatar.c:2045-2078`) looks up
+`anims[animNum][animCmdIndex].type`, which for a frame command is that frame's image index, and
+sets:
+
+| image index | offset |
+| --- | --- |
+| 1, 2, 3 | `x2 = 8` (`x2 = -8` when facing west; `DIR_WEST = 3`, `include/constants/global.h:140`) |
+| 5 | `y2 = -8` |
+| 10, 11 | `y2 = 8` |
+
+`ANIMCMD_END` is `-1`, and when the index lands on it the game steps back one frame before reading
+the type. This is why the player never appears to shift while fishing even though the offset
+changes several times per cast: the image and its offset are chosen together, inside the same frame
+update, so they can never be seen disagreeing.
+
+**Observed again on a Brendan save, vanilla, 2026-08-19** (`verified.md`): `gfx 0 -> 137`, then
+`anim 3` (take out rod, east) → `anim 11` (hooked, east) → `anim 7` (put away, east) → `gfx 0`,
+with the per-frame offset moving between `0,0` and `8,0` throughout — matching the table above.
+
 **Not yet established:** whether fishing also owns a companion sprite the way surfing does
 (surfing attaches a separate Pokemon sprite through the object event's `fieldEffectSpriteId`).
 `probes/fishing_watch.lua` exists to answer exactly that and has not been run through a full set of

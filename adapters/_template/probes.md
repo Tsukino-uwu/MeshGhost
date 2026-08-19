@@ -765,3 +765,100 @@ capability was in the file the whole time; only the framing was missing.
 the game, which is a completely different promise from a cosmetic ghost — off by default, never
 shipped, and gated the way `agent_docs/beyond-cosmetic.md` gates anything past cosmetic. The first
 milestone is the smallest observable one: reach a loaded save from the main menu, and nothing else.
+
+## Trace the producer and the consumer on the SAME LINE, on the same frame — 2026-08-19
+
+**The single change that ended a ten-cycle investigation.** Emerald's spawned ghost would not
+fish correctly, and two guessed fixes had already failed the same way. What broke it open was one
+trace line per frame carrying **both** sides:
+
+```
+f=2474 P.gfx=137 P.anim=3/3 P.2c=02 P.pos2=8,0 | R.gfx=137 R.sanim=3/1 R.sox=8 |
+       G.gfx=0 G.anim=3/0 G.2c=c7 G.pos2=8,0 | gOAM[x=136 y=56] pOAM[x=304 y=160]
+```
+
+`P.` is the player (the producer), `R.` is what arrived over the wire, `G.` is the ghost (the
+consumer). Every defect found that day was a **disagreement between those columns on a single
+frame** — a ghost frozen at `3/0` while the player cycled `0,1,3`; an offset of `8` sitting beside
+a graphic of `0`; a wire that said `sox=8` while it still said `gfx=0`.
+
+**Why one line and not two traces.** Every one of those is invisible when you follow one side at a
+time, because each side is *individually plausible*. The ghost's numbers looked fine. The player's
+numbers looked fine. Only their relationship was wrong, and a relationship cannot be seen in two
+files with different timestamps.
+
+**The practical form:**
+
+- **Buffer, and flush in batches.** Per-frame `console.log` visibly lags the emulator — the user
+  reported it within a minute (*"its spamming the console lag, and the game is lagging"*). Even a
+  per-frame `io.open` is a probe heavy enough to change what it measures. Accumulate into a table
+  and write every ~120 lines.
+- **Print raw values, not interpretations.** `G.2c=c7` is what let the paused bit (`0x40`) be
+  spotted after the fact. A field printed as `paused=false` by code that had the polarity wrong
+  would have hidden it forever.
+- **Collapse to transitions when reading.** 60fps of identical lines is unreadable; the answer is
+  always at the changes. One `awk` pass that prints a line only when the interesting columns differ
+  from the previous line turns 6000 lines into 30:
+
+  ```
+  awk '{k=$3" "$5" "$9; if(k!=p){print; p=k}}' animtrace.log
+  ```
+
+- **Keep the timestamp/frame number in every line**, so a symptom the user describes by *when* it
+  happened ("at the start and at the end") can be found without guessing.
+
+**Keep the trace when it is done.** This one is now behind its own off-by-default flag rather than
+deleted, because the next states in the queue (bikes, surfing) are the same class of problem. But
+give it **its own** flag — it was originally written inside the two-renderer comparison flag, which
+is the intended dev default for judging a drawn tier, and leaving per-frame file I/O in there would
+have taxed every future comparison with a diagnostic nobody asked for.
+
+## Measure what is DRAWN, not the fields that feed it — 2026-08-19
+
+**The trap.** A ghost visibly flicked 8px sideways while **every readable struct field was
+correct on every frame**. Position, offset, animation number, frame index: all right, all stable.
+The fields were not lying — they were just not the thing being drawn.
+
+**The fix is to read the hardware's own draw list.** On GBA that is OAM at `0x07000000`: 128
+entries, 8 bytes each, `attr0` at `+0`, `attr1` at `+2`, `attr2` at `+4`. Screen Y is
+`attr0 & 0xFF`, screen X is `attr1 & 0x1FF`, and the tile number (`attr2 & 0x3FF`) is what lets you
+find *your* sprite among all of them — match it against the tile range the adapter allocated.
+
+With that column added, the answer appeared immediately: `pos2` held constant at `8,0` across
+frames where the OAM x went `144, 136, 144`. That is a **phase** error, not a value error, and it
+is not visible in any amount of struct reading. See `pitfalls.md`, "A script's writes land between
+frames".
+
+**The general rule:** every engine has a stage where its own state stops being authoritative and
+the hardware's takes over — a draw list, a command buffer, a submitted frame. When the numbers all
+agree and the screen disagrees, that stage is where to look, and it is usually one read away.
+
+### Two traps that come with this, both hit the same day
+
+- **A dud instrument reads as a finding.** A checksum of the ghost's VRAM tiles (`0x06010000`)
+  returned `00000000` on every frame. Taken at face value that says "the pixels never change" — a
+  dramatic and completely false conclusion. The *reader* was broken (that region did not read back
+  through the domain in use). **Before believing a measurement, check that the instrument can
+  produce a non-trivial result at all.** A reading that is constant, zero, or suspiciously tidy is
+  a claim about your probe until proven otherwise.
+- **A measurement carries the conditions it was taken under.** An earlier note in this project read
+  "the engine advances a ghost's animation fine — measured `3/0 → 3/1 → 3/2`". That observation was
+  genuine, but it had **not** been taken on a paused idle ghost, which was the case under
+  investigation. Two wrong fixes were justified by it. Record the conditions with the number, and
+  when a measurement contradicts a symptom, suspect the *scope* of the measurement before
+  suspecting the symptom.
+
+### The capability note: you may not be limited to frame boundaries
+
+A script that can only act between frames cannot keep a value in lockstep with something the engine
+updates *inside* a frame. That reads like a hard limit and is not one: BizHawk exposes
+`event.onmemoryexecute`, which fires when the CPU reaches an address. Hooking the engine's own
+pipeline point — here `BuildOamBuffer`, after animations are final and before OAM is built — put
+the adapter's write at exactly the place the game's own code does the same job, and that is what
+made the result identical on screen rather than merely close.
+
+Finding the address needs a symbol source, not a guess (for Emerald, this project's own
+`pokeemerald.map` — see `environment.md`), and it should be **gated on the ROM you measured it
+on**: a patched build relocates code, and a hook at a stale address is a hook into whatever now
+lives there. This is the same *check-what-tools-you-actually-have* point made earlier in this file,
+and it cost several cycles of trying to fix a phase error by correcting values.

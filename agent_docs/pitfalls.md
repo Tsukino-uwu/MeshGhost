@@ -2172,3 +2172,143 @@ works for effects.
 
 **Where an approximation is still correct:** as a fallback for the case that has nothing to learn
 from yet — here, a ghost that hops before the local player ever does.
+
+## A ghost has no task, so nothing ever un-pauses its animation — 2026-08-19, Emerald
+
+**Symptom.** A spawned ghost that picked up a fishing rod held the animation's **first frame** for
+the entire state. The graphic was right, the pose was right, the position was right; it simply
+never moved. Reported as *"its not doing the fishing animation/s"*, and later, after a wrong fix,
+*"it gets stuck in an animation instead of doing the animation"*.
+
+**Why it survived two fixes.** The obvious reading is "nothing is advancing the animation, so
+advance it" — and both attempts did exactly that, from the peer's animation number. Both looked
+*worse*, because the actual cause was one layer down: the sprite was **paused**.
+
+The overworld pauses an idle object event's sprite (`animPaused`, bit `0x40` of the sprite struct's
+`+0x2C` — `pokeemerald` `include/sprite.h:211-212`, where `animDelayCounter:6` precedes it). The
+player's fishing **task** un-pauses it as part of running the animation. A ghost has no task. So
+the ghost sat paused, and every write of `animNum` on top of a paused sprite just re-selected an
+animation that was never going to play — and writing it repeatedly (with `animBeginning`) actively
+made things worse, restarting frame 0 faster than the engine could leave it.
+
+**What ended it.** Measuring the sprite instead of reasoning about it. One trace line carrying the
+player's animation state and the ghost's on the **same frame** showed the ghost pinned at `3/0` for
+256 consecutive frames and then `11/0` for the rest, while the player's frame index cycled
+`0, 1, 3` throughout. `+0x2C` read `0xc7` on the ghost — `0x40` set — and the answer was in the
+bit, not in the number.
+
+**The fix uses the engine's own switch, not the bit.** `ObjectEvent.enableAnim` (byte `+0x01`,
+bit `0x08` — `include/global.fieldmap.h`) is what `TryEnableObjectEventAnim`
+(`src/event_object_movement.c:7335-7343`) reads: it clears `animPaused` **and** `disableAnim`, then
+clears itself. One write per animation start hands the whole job back to the engine, which is what
+makes the frames advance at the game's own rate rather than one we would have had to invent.
+
+**The rules.**
+
+- **An engine pauses work it believes nobody needs, and a synthetic entity is precisely the thing
+  it believes nobody needs.** Before concluding "the engine will not do X for a ghost", check
+  whether the engine has been *told not to*. Idle-pausing, culling, sleep flags and LOD are all the
+  same shape, and all of them make a ghost look broken in a way that reads like a missing feature.
+- **Prefer the engine's own enable switch over clearing the state yourself.** Clearing `animPaused`
+  directly would have worked this frame and been re-set the next; going through `enableAnim` means
+  the engine stays the owner and its own bookkeeping (`disableAnim`) stays consistent.
+- **A memo of "what we last told it" is not a memo of "what it is".** The first version of this fix
+  remembered the animation number it had issued, so a **second** cast of the same rod matched the
+  remembered number, skipped the enable, and froze again — after the engine had silently re-paused
+  the sprite at the end of the first cast (measured: `+0x2C` back to `0xcd` with the memo still
+  reading `3`). Condition on the observable state, not on your own history.
+
+## A value the game DERIVES cannot be COPIED — 2026-08-19, Emerald
+
+**Symptom.** A fishing ghost sat 8px to the side of where it belonged, or stepped 8px sideways and
+back, at the start and end of every cast. Reported over many iterations as *"it snaps"*, *"it gets
+pulled back a tiny bit"*, and finally *"it still looks like it snap/move at the start~ and end~ of
+the fishing compared to the drawn & player"*.
+
+**Why it was hard.** The offset is real, small, and *sometimes correct*, so every measurement of it
+looked nearly right. Four separate defects produced the same 8px symptom, and each fix revealed the
+next:
+
+1. **Shape and offset applied on different frames.** The graphic swap wrote the new sprite's
+   dimensions; the offset was left to a block that had already run earlier in the same frame, so
+   the offset always landed one frame after the shape. A 32-wide fishing frame drawn at a walker's
+   offset is exactly half a tile off.
+2. **The wire carried a mismatched pair.** The sender deliberately **holds** the graphic for six
+   frames before publishing it (so peers never see an unsettled state) but did not hold the offset.
+   At every cast *end* it therefore published the fishing graphic together with the walker's
+   offset, and at the start the reverse. A hold applied to one half of a pair **creates** the
+   mismatch it was built to prevent.
+3. **The receiver applied it to the wrong graphic.** With the pair briefly disagreeing on the wire,
+   the ghost adopted a fishing offset while still wearing the walking graphic.
+4. **The real cause: the offset is not a transmissible property at all.** The game recomputes it
+   **every frame from the frame currently displayed** — `AlignFishingAnimationFrames`
+   (`src/field_player_avatar.c:2045-2078`) reads `anims[animNum][animCmdIndex].type`, which for a
+   frame command is that frame's image index, and sets `x2=8` for images 1/2/3 (`-8` when facing
+   west, `DIR_WEST=3`, `include/constants/global.h:140`), `y2=-8` for image 5, `y2=8` for images
+   10/11.
+
+Because a ghost's animation **lags** the player's by the interpolation delay, the player's offset
+is *always* the offset for a frame the ghost is not showing yet. Copying it was wrong by
+construction — and no amount of tightening the pairing could fix that, which is why fixes 1-3 each
+removed a real defect and left the symptom.
+
+**What ended it.** Computing the offset locally, from the ghost's **own** displayed frame, with the
+game's own rule.
+
+**The rules.**
+
+- **Before putting a field on the wire, ask whether the game STORES it or RECOMPUTES it.** A stored
+  field is a fact about the peer and travels fine. A derived field is only meaningful *alongside
+  the exact input it was derived from*, and a ghost — running behind, by design — never holds that
+  input at the same time. **Send the input; derive locally.**
+- **A settle/hold must cover every field of a pair, or none.** Half a held state is a state that
+  never existed.
+- **Two consumers of one state must agree about which MOMENT it describes**, not just about its
+  value. Nearly every defect in this investigation was that same disagreement wearing a different
+  hat.
+
+## A script's writes land between frames; the game's land inside one — 2026-08-19, Emerald
+
+**Symptom.** With the offset finally computed correctly from the ghost's own frame, the ghost
+**still** flicked 8px sideways — now mid-animation rather than at the ends. Every struct field read
+back exactly right on every frame.
+
+**Why no value was ever going to fix it.** A Lua script acts at a frame boundary. The engine,
+within one frame, **advances sprite animations and then builds OAM**. So a value written from Lua
+is paired with whatever image the engine selects *afterwards* — structurally one step out of phase.
+The offset was right for the frame we could see and wrong for the frame that got drawn, forever, no
+matter how correct the arithmetic was. The game's own fishing task has no such problem because it
+runs *inside* that same update, which is precisely why the player never flickers.
+
+**How it was proved.** By reading OAM directly (`0x07000000`, 128 entries, 8 bytes each) rather
+than the sprite structs that feed it. `pos2` was constant at `8,0` across frames in which the OAM x
+went `144, 136, 144`. When every struct field agrees and the screen disagrees, the structs are not
+the thing being drawn.
+
+**The fix.** Run the alignment from an `event.onmemoryexecute` hook at **`BuildOamBuffer`**
+(`0x08006A0C` on the vanilla ROM, from this project's own `pokeemerald.map` build — see
+`environment.md`): animations for the frame are final, OAM is not yet built. That is the same point
+in the pipeline the game's own task occupies, which is what makes it identical on screen. It is
+vanilla-gated — an Archipelago build relocates code, so there it falls back to the frame-boundary
+path until that ROM's address is measured (the adapter's `BANDAGES.md`).
+
+**And then it broke the OTHER renderer.** The painted tier pins its position to the spawned
+sprite — which had just acquired an offset specific to the *spawned* ghost's current frame — while
+painting the frame the **wire** reported. Right image, another sprite's alignment: the same defect
+class, in the last place it could still hide. Fixed by dropping the alignment from the pin and
+having the painted tier compute the shift for the frame **it** draws, from a rule now shared by
+both tiers.
+
+**The rules.**
+
+- **When a value must stay in lockstep with something the engine updates mid-frame, a
+  frame-boundary write is structurally wrong, not merely mistimed.** Correcting the value cannot
+  fix a phase error. Find the engine's own pipeline point and act there — `event.onmemoryexecute`
+  makes this available on BizHawk, and it converts "I can only act between frames" into "I can act
+  where the game does".
+- **A phase fix must be applied to every consumer at once.** Fixing one renderer while another
+  inherits its now frame-specific output just moves the defect. When two renderers must agree,
+  share the *rule*, not the *result*.
+- **Watch for a fix that is invisible to your instrumentation.** Everything readable from Lua said
+  the code was correct; only the hardware's own draw list disagreed. See `_template/probes.md`,
+  "Measure what is DRAWN".

@@ -33,8 +33,13 @@ brightness, and a smooth run. These are what is left:
 - [ ] **The painted ghost dims in a dark cave.** *What to look at:* any cave. *Correct:* it darkens
       like the spawned one. The fade half is confirmed (both house directions); a cave has not been
       visited yet.
-- [ ] **Bikes and surfing on the drawn tier.** Fishing is confirmed there; the same decode path
-      serves a bike and a surfboard and has not been watched.
+- [ ] **Bikes and surfing, on BOTH tiers.** Fishing is now confirmed on both (`verified.md`,
+      2026-08-19), and these are the same class of state: a task-driven `graphicsId` whose animation
+      the engine will not run for a ghost unaided, and whose sprite offset may likewise be *derived*
+      per frame rather than stored. Expect the same two questions to decide it — does the ghost
+      animate at all, and does it sit still while it does. `MESHGHOST_EMERALD_ANIM_TRACE` is the
+      probe for exactly this, and the shared `fishingFrameShift()` is the shape any equivalent rule
+      should take. Read `pitfalls.md`'s three 2026-08-19 Emerald entries before starting.
 
 ### Closed as far as it goes, and NOT worth another attempt
 

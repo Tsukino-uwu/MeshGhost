@@ -8,7 +8,7 @@
   and everything past that PAINTED over the emulator. A character on every visible tile at 60fps,
   user-confirmed. `verified.md` 2026-08-19, `crowd-limits.md`.
 - **Emerald's spawned tier passed end to end**, and `MESHGHOST_COMPARE_TIERS` (both renderers on
-  screen at once) then found a dozen defects in one session. `verified.md` 2026-08-19.
+  screen at once) then found a dozen defects in one session, fishing last. `verified.md` 2026-08-19.
 - **The core's `-interp` default is 250ms**, measured rather than guessed — 100ms visibly chopped
   an engine-driven ghost. `verified.md`, `bandages-core.md` entry 1.
 - Phases 6 (TEVI), 7 (Pseudoregalia) and 8 (Emerald) are done; 8's queue is in `unverified.md`.
@@ -105,8 +105,10 @@ that a peer's state genuinely differs from the local player's, which loopback co
   box; the row-12 test sees only the bottom one. Detection unwritten. `unverified.md`.
 - **Crystal's drawn tier is unconfirmed**: animation, facing and text-box clipping all landed
   2026-08-19 after the fill-the-screen test. `unverified.md`, `crowd-limits.md`.
-- **Crystal/Emerald: ghost animation completeness** — surf/bike ride on the sprite id already sent;
-  fishing, bump, spin, emote and Fly need `OBJECT_ACTION`/`OBJECT_FACING`. `phases/phase9.md`.
+- **Crystal/Emerald: ghost animation completeness** — Emerald fishing is DONE and 1:1 on both tiers
+  (`verified.md` 2026-08-19); bikes and surfing are next, same class. `unverified.md`.
+- **Crystal has none of 2026-08-19's Emerald animation fixes**, and its drawn tier ships ON —
+  the paused-sprite and derived-offset traps apply there too. `pitfalls.md`, three Emerald entries.
 - **Crystal: a peer's own sprite is used when its tiles are resident, not otherwise** — but the
   DRAWN tier could read any sprite from ROM, which would close it. `phases/phase9.md`.
 - **Crystal: a ghost does NOT survive a battle** — answered from the code 2026-08-19 and fixed

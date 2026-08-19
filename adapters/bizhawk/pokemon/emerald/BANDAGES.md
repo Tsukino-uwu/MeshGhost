@@ -75,6 +75,34 @@ always logs, and the message carries a consecutive-failure count.
 subsystem failing every frame is now visible, not disabled. **Fix:** disable the offending
 subsystem on a sustained run of failures, rather than a constant chosen to protect the console.
 
+### 3. Fishing alignment falls back to the frame boundary on an Archipelago ROM
+
+`meshghost_emerald.lua`, `alignFishingGhost()` and the `BuildOamBuffer` hook registered near the
+bottom of the file.
+
+**What the shipped compensation is.** A fishing sprite's offset is recomputed by the game every
+frame from the frame being displayed, *inside* the frame update. To match that, the adapter hooks
+`BuildOamBuffer` (`0x08006A0C`) with `event.onmemoryexecute` — animations final, OAM not yet built
+— and recomputes the ghost's offset there. That is what makes it 1:1 (`verified.md`, 2026-08-19).
+
+**The hook is registered only when `avatarAddrOffset == 0`, i.e. on the vanilla ROM.** An
+Archipelago build relocates code, so `0x08006A0C` is not `BuildOamBuffer` there, and hooking it
+would run our callback at an arbitrary point in whatever now occupies that address. On a patched
+ROM the adapter therefore falls back to writing the offset at the frame boundary — which is the
+path that was **measured to be one step out of phase** with the image, and which produced a visible
+8px flick on vanilla before the hook existed.
+
+**So the compensation is: a known-imperfect render on Archipelago, silently.** It is a bandage and
+not a bug because it is deliberate and it degrades safely — a slight flick during fishing, never
+wrong data on the wire and never a crash — but the adapter does not say it is happening, and
+nobody has watched fishing on a patched ROM to see how bad it looks.
+
+**Fix:** measure `BuildOamBuffer` in the Archipelago build (its symbol table or a ROM diff against
+the same shift used for the graphics-info table), and gate the hook per detected ROM rather than
+per `avatarAddrOffset == 0`. Failing that, log once when the fallback is in use, so a report of
+"the ghost flicks while fishing" is immediately attributable rather than re-investigated from
+scratch — the whole investigation this came from cost about ten live cycles.
+
 ## Borderline — noted, not urgent
 
 - **`getLocalState()` — `FACING[facingRaw] or "south"`.** Turns a bad memory read into a

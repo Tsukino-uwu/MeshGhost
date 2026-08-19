@@ -167,10 +167,18 @@ order:
     different events.** A house rebuilds the world, a route boundary does not, and an identity
     check keyed on the map is wrong in exactly the case the other one hides. Houses had tested
     perfectly clean. ([_template/README.md](../../../_template/README.md))
-21. Not yet done: surf, Mach Bike, Acro Bike, ledges, and Mach Bike rail sections. Half of this
-    is now solved — every special state is simply its own `graphicsId`, so no anim classifier is
-    needed. What remains is rendering it: a ghost borrows the player's graphics, so showing a
-    surfing peer while you walk needs the sprite built from the graphics table instead of copied.
+21. Not yet done at the time: surf, Mach Bike, Acro Bike, ledges and rail sections. Half was
+    already solved — every special state is simply its own `graphicsId`, so no anim classifier is
+    needed — and what remained was rendering it, since a ghost borrows the player's graphics.
+    Ledges and fishing have since been confirmed; the bikes and surfing are what is left.
+22. Made a peer's fishing look exactly like the player's, on both renderers. A ghost holds a
+    rod because it copies the peer's `graphicsId`, but the rod only *moves* because the game's own
+    fishing task drives it — and a ghost has no task, so it sat on the animation's first frame and
+    slid 8px sideways whenever the frame changed. Two things fixed it: asking the engine to animate
+    the ghost through its own `enableAnim` switch, and computing the sprite offset from the frame
+    the ghost is actually showing rather than copying the player's, at the point in the frame where
+    the game itself does it. ([pitfalls.md](../../../../agent_docs/pitfalls.md) has all three
+    write-ups; [probes.md](../../../_template/probes.md) has how it was finally measured.)
 
 **~2 hours from a drawn ghost to a spawned one**, on top of the ~10 hours the drawn one took —
 most of it spent on the six bugs above rather than on the spawn itself.

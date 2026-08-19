@@ -8331,3 +8331,61 @@ what is SEEN. That is now in `CLAUDE.md` and the adapter template.
   the spawned one"*. Both are drawn from the same position, so a position bug would show on both —
   which ruled out an entire class of causes in one sentence and pointed straight at the object
   array, where the duplicate was.
+
+## Emerald: fishing is 1:1 on BOTH tiers — 2026-08-19
+
+**User-confirmed, visually, on the vanilla ROM:** *"Its working 1:1 / perfect now"*, after a
+final double-cast test with `MESHGHOST_COMPARE_TIERS` on — the painted ghost, the spawned ghost and
+the player all casting side by side. Confirms: the ghost plays the full fishing animation
+(cast, the reel loop, and the put-away), it does not move at the start or the end of a cast, and a
+**second** cast behaves identically to the first. Judged against the player and the painted tier in
+the same frame, which is what the compare mode exists for.
+
+Everything below is the evidence trail. **The three mechanism facts are from the `pokeemerald`
+decomp with file/line citations; the behavioural readings are from an in-adapter per-frame trace,
+not from watching.**
+
+### The mechanisms (decomp-cited, so citable rather than measured)
+
+| Fact | Source |
+|---|---|
+| `animPaused` is bit `0x40` of the sprite struct's `+0x2C` (`animDelayCounter:6` occupies bits 0-5) | `include/sprite.h:211-212` |
+| `ObjectEvent.enableAnim` is byte `+0x01` bit `0x08` (after `frozen` `0x01`, `facingDirectionLocked` `0x02`, `disableAnim` `0x04`); `TryEnableObjectEventAnim` clears `animPaused` and `disableAnim`, then clears itself | `include/global.fieldmap.h`; `src/event_object_movement.c:7335-7343` |
+| The fishing sprite offset is **recomputed every frame** from the displayed frame's image index: `x2=8` for images 1/2/3 (`-8` facing west), `y2=-8` for image 5, `y2=8` for images 10/11 | `AlignFishingAnimationFrames`, `src/field_player_avatar.c:2045-2078`; `DIR_WEST=3` per `include/constants/global.h:140` |
+| Fishing graphics ids are 137 (Brendan) and 138 (May) | `include/constants/event_objects.h:144-145` |
+| `BuildOamBuffer` is at `0x08006A0C` on the vanilla ROM | this project's own `pokeemerald.map` build (`environment.md`) |
+
+### The behavioural readings (from `probes/animtrace.log`, agent-read, no watching involved)
+
+- **A ghost's sprite is paused while idle, exactly like the player's.** Both read `0x40` set at
+  `+0x2C` while standing (`P.2c=48`, `G.2c=47`). The player is un-paused by its fishing task; the
+  ghost has nothing to do that, so it held frame 0 for **256 consecutive frames** of a cast
+  (`G.anim=3/0` throughout) and then `11/0` for the remainder, while the player's frame index
+  cycled `0, 1, 3`.
+- **After the `enableAnim` fix the engine drives the ghost's animation itself**, at the game's own
+  rate: `3/0 → 3/1 → 3/2 → 3/3`, then the reel loop `11/0 ↔ 11/1 ↔ 11/3`, with the paused bit clear
+  (`G.2c=0x80|delay`).
+- **The sender published a mismatched pair at every cast end.** The graphic is held six frames
+  before publishing; the offset was not. Measured at all six cast-ends in one trace (f=2512, 3027,
+  5301, 5452, 5613, 5753): `sox` flipped to 0 roughly **9 frames before** `gfx` did.
+- **A frame-boundary write is one step out of phase with the image.** With `pos2` held constant at
+  `8,0`, the ghost's real OAM x went `144, 136, 144` on consecutive frames — a phase error
+  invisible in every sprite struct field.
+- **After the `BuildOamBuffer` hook: zero frames** in a whole multi-cast run where the ghost's
+  offset and its graphic disagreed (previously the defining symptom).
+
+### Capability confirmed
+
+**`event.onmemoryexecute` works in this BizHawk build** and can hook a GBA ROM address: registered
+at `0x08006A0C`, fires per frame, and the adapter runs with 0 frame errors and no
+`hook unavailable` fallback line. This is the first use of a code hook in any adapter here — until
+now every adapter acted only at frame boundaries. Vanilla-gated; not measured on an Archipelago
+ROM, which relocates code (the adapter's `BANDAGES.md`).
+
+### What it cost, for the next estimate
+
+Roughly ten live test cycles and six wrong fixes, because the symptom ("it snaps") was produced by
+**five different defects of one class** — two consumers disagreeing about which frame a value
+belonged to — and each fix exposed the next. The write-ups are in `pitfalls.md` (three entries) and
+`_template/probes.md` (two method sections). The measurement that ended it is kept as a probe
+behind `MESHGHOST_EMERALD_ANIM_TRACE`, off by default.
