@@ -327,17 +327,22 @@ by `meshghost-fakeadapter.exe` in five concentric rings around the player (radii
 each, distinct periods so they do not step in lockstep). **Nothing here is a confirmation** — this
 is a vanilla ROM, so every visual claim still needs the user's eyes.
 
-**A note that changes how any of this gets checked, and cost an hour to find: BizHawk's
-`client.screenshot()` does NOT capture the drawn tier.** The drawn peers are `gui.drawLine` calls
-on the Lua overlay; `client.screenshot()` writes the emulator's video output, which contains the
-engine's own sprites (so a SPAWNED ghost appears) and none of the overlay (so a DRAWN one never
-does). Three "the crowd is invisible" screenshots were taken of a screen that was full of ghosts.
-The way to see the drawn tier is a **window capture** of the EmuHawk window (`PrintWindow` with
-`PW_RENDERFULLCONTENT`) — and that capture must be **DPI-aware**, or on a scaled display it
-silently returns the top-left two-thirds of the window and the bottom of the screen (where the text
-box is) is simply not in the picture. Both traps are in `dev-scripts/shots/crystal/`'s history:
-`10-crowd-01.png` (empty, `client.screenshot`), `30-textbox.png` (cut off, no DPI), and
-`33-dpi.png` (correct).
+**A note that changes how any of this gets checked: BizHawk's `client.screenshot()` does NOT
+capture the drawn tier.** The drawn peers are `gui.drawLine` calls on the Lua overlay;
+`client.screenshot()` writes the emulator's video output, which contains the engine's own sprites
+(so a SPAWNED ghost appears) and none of the overlay (so a DRAWN one never does). Three "the crowd
+is invisible" screenshots were taken of a screen that was full of ghosts.
+
+**The answer is NOT to photograph the emulator window.** A window capture of EmuHawk was tried and
+the user ruled it out the same day, 2026-08-19: *"this is not required. don't do this. only capture
+what is in the game itself."* `client.screenshot()` is the only screenshot tool here, and a picture
+of the window — chrome, menu bar, title and all — is not a picture of the game. The tooling was
+removed rather than left lying around for someone to reach for.
+
+**So the drawn tier is judged NUMERICALLY, and that is the better evidence anyway** — the same
+reason the collision policy and the crowd ceiling were settled with counters. One frame cannot see
+a walk cycle or a facing, and a counter over time can: the adapter's own once-a-second line carries
+the numbers, and the two entries below rest on them rather than on any image.
 
 - [x] *(agent-measured, not a confirmation)* **A drawn peer has a facing, and animates.** Counted
       rather than photographed, because one frame cannot see a walk cycle: the adapter's
@@ -350,13 +355,15 @@ box is) is simply not in the picture. Both traps are in `dev-scripts/shots/cryst
       game, so every synthetic peer had `facing = nil` and rendered a static forward frame — which
       looks exactly like broken animation and is not. New flag `-facing-follows-path` sends a
       cardinal string from the circle tangent; off by default.
-- [x] *(agent-measured)* **A drawn peer does not paint over a text box.** Picture:
-      `dev-scripts/shots/crystal/33-dpi.png` — an NPC's box ("Oh! Your POKéMON is adorable!") with
-      ~40 drawn peers on screen and the box completely clean, ghosts stopping at its top edge.
-      The counter agreed both ways: 13-14 `hidden by UI` with the box open, 0 with it closed.
-- [x] *(agent-measured)* **A drawn peer does not paint over the START menu.** Picture:
-      `dev-scripts/shots/crystal/20-startmenu.full.png` — the menu's rectangle on the right half is
-      clean, ghosts stop at its left edge, 21-24 `hidden by UI`.
+- [x] *(agent-measured, from the counter)* **A drawn peer is withheld while a text box is open.**
+      With ~40 drawn peers around the player and an NPC's box up, the adapter counted **13-14
+      `hidden by UI`**, and **0** with the box closed — measured both ways, so it is the box doing
+      it rather than a latch stuck on. What a counter cannot say is whether the withheld ones are
+      exactly the ones overlapping the box, which is the part still needing the user's eyes.
+- [x] *(agent-measured, from the counter)* **A drawn peer is withheld while the START menu is
+      open.** Same crowd, menu open: **21-24 `hidden by UI`**, against 0 with nothing open. More
+      than the text box withholds, which is the right direction — the menu's rectangle covers the
+      right half of the screen where most of this crowd was standing.
 - [ ] **Small anomaly worth a second look:** 3-4 peers were counted `hidden by UI` while the player
       was walking with nothing open. Too few to be the text-box rule (that would hide everything
       below row 12); the suspect is a stale `lastMenuBox` inside the 20-frame latch. Harmless
