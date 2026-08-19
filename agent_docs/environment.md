@@ -855,6 +855,13 @@ is highlighted. **Memory reads cannot supply that** — they give precision, not
 you are at tile 12,8 tells you nothing about what is around you unless you have already built a
 map; a screenshot tells you immediately, the same way it tells a human.
 
+**The habit that follows: LOOK FIRST, then act.** Take a screenshot when you arrive somewhere new,
+before deciding what to do — not after something has failed. One picture tells you exactly where
+you are and what is around you, which is the whole of the orientation problem, and it costs a
+frame. Every stretch of wasted effort in the 2026-08-19 driven runs began with an agent choosing an
+action from coordinates alone and only looking at the screen once it was already stuck. (The same
+rule already exists for probes, one section down: *look first, then write the script*.)
+
 So the two are a **pair, and neither replaces the other**:
 
 | Question | Answer it with |
