@@ -151,7 +151,14 @@ local BRIDGE_HOST = "127.0.0.1"
 local BRIDGE_BASE_PORT = 7778
 local BRIDGE_PORT_COUNT = 8
 -- An explicit port is honoured and then NOT walked: someone who names a port means that port.
-local BRIDGE_PORT_OVERRIDE = tonumber(os.getenv("MESHGHOST_BRIDGE_PORT") or "")
+-- Global FIRST, then the environment -- the same order Crystal's adapter uses, and the reason
+-- matters when more than one emulator is open: an environment variable is fixed when BizHawk
+-- launches, while a global can be set by whatever loads this script, which is how a dev loader
+-- pins an already-running instance to its own core. Emerald read only the environment until
+-- 2026-08-19, so a session that pinned the port by global was silently port-walked instead --
+-- and walked straight into two other instances' cores, attaching to one of them.
+local BRIDGE_PORT_OVERRIDE = tonumber(MESHGHOST_BRIDGE_PORT
+    or os.getenv("MESHGHOST_BRIDGE_PORT") or "")
 -- Silence is NOT acceptance -- see PROTOCOL.md. 90 frames = 1.5s, matching the other adapters.
 local HELLO_ANSWER_FRAMES = 90
 local BUSY_PORT_COOLDOWN_FRAMES = 600 -- 10s
