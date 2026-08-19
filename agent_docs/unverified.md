@@ -64,38 +64,27 @@ run against this version rather than yesterday's.
       while you are in the main menu.** Left alone deliberately — it is a change to what a player
       sees, so it needs the user's answer first.
 
-## Pending — Crystal: a ghost can wear the peer's own sprite (2026-08-19)
+## Pending — Crystal: a peer's sprite that the local player is NOT wearing (2026-08-19)
 
-The adapter now looks a peer's sprite id up in `wUsedSprites` and gives the ghost that sprite and
-its VRAM tile when the tiles are already loaded on this map; otherwise nothing changes and the
-ghost wears the local player's sprite, exactly as before. Self-tested two ways — a RAM read-back
-showing the ghost's `sprite`/`tile` equal to the engine's own object wearing that sprite, and a
-loopback session where the peer's sprite IS the player's, which must look unchanged.
+The no-regression half is CONFIRMED and has moved to `verified.md` — a loopback ghost looks like
+the player, indoors and out. What is still unwatched is the case the lookup exists for.
 
-- [ ] **A loopback ghost still looks right.** This is the no-regression half, and the one that
-      matters: in loopback the peer's sprite is your own, so the new path runs on every spawn.
-      *What to look at:* the ghost beside you, standing and walking.
-      *Correct:* exactly as before — a clean character, correct colours, not scrambled and not
-      half-drawn.
 - [ ] **A ghost wearing a sprite you are not wearing.** Set
-      `MESHGHOST_CRYSTAL_FORCE_PEER_SPRITE=4` (an id New Bark Town has resident) with
-      `MESHGHOST_LOOPBACK_OFFSET_X=2`. *What to look at:* the ghost two tiles to your right.
-      *Correct:* it is the RIVAL's character, drawn cleanly, while you are still yourself.
-      (An agent screenshot looks right; a screenshot is not proof, so this is here.)
+      `MESHGHOST_CRYSTAL_FORCE_PEER_SPRITE=4` (an id New Bark Town has resident, and the lab does
+      not) with `MESHGHOST_LOOPBACK_OFFSET_X=2`. *What to look at:* the ghost two tiles to your
+      right, outdoors. *Correct:* it is the RIVAL's character, drawn cleanly, while you are still
+      yourself — and indoors it falls back to your own sprite rather than drawing garbage.
+      **The adapter prints `PROBE FLAG IN USE` while this is set; clear it afterwards.**
 
-## Pending — Crystal: a ghost across a battle (2026-08-19)
+## Pending — Crystal: re-check the battle and the door after the fixes (2026-08-19)
 
-Found by reading, fixed, and self-tested only by SIMULATING the event (a probe broke the ghost's
-cross-link; the adapter noticed and respawned instead of writing). A real battle has never been
-watched.
+Both were WATCHED and both were broken — see `verified.md` for what was seen. Fixed the same
+session; the fixes themselves have not been watched.
 
-- [ ] **Walk into the grass until a wild battle starts, then finish or run from it.**
-      *What to look at:* the ghost, and the NPCs on that map, once you are back in the overworld.
-      *Correct:* the ghost reappears beside you within a second or two, **and every NPC that was
-      on the map is still there and still behaves normally**. The bug this fixes would have had
-      the adapter walking one of the game's own NPCs around, or deleting it outright.
-- [ ] **The same across a door** (into a house and back out), which was already working — it is
-      here only because the code that handles it changed. *Correct:* as before.
+- [ ] **One wild battle.** *Correct:* exactly ONE ghost afterwards (it duplicated before), and
+      every NPC on the map still there and behaving.
+- [ ] **Out of Elm's lab.** *Correct:* the ghost square on its tile, not a few pixels off it.
+- [ ] **In and out of a door generally**, since the placement code changed for every case.
 
 ## Pending — peer graphics: bikes, surfing, fishing (2026-08-18)
 
