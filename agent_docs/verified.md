@@ -8263,12 +8263,36 @@ The ellipse survives only as the fallback for a ghost that hops before the playe
   overworld that bitmap belongs to the battle), so the engine ran short and drew one of its own
   NPCs from whatever was left. Ranges are queued and settled on the way back in.
 
+### "Both ghosts move while fishing" — CLOSED, and it was two real bugs plus an illusion
+
+Reported five times while every position measurement said the ghost was exactly where it belonged.
+All of those measurements were right, and none of them was the question. Dumping every field the
+hardware draws from — not just position — found it:
+
+1. **`pos2` was missing.** The game's fishing TASK sets the player's sprite offset to 8,0, which is
+   what keeps the character on its tile inside a 32-wide frame (a walker is 16). A ghost has no
+   task, so it wore the wider frame with no correction and sat half a tile to the side. `pos2` now
+   travels with the state, under the same gate as the peer's animation number, and is applied in
+   the same frame as a graphic rebuild rather than the frame after.
+2. **The painted copy was centred twice.** A pinned position is copied from the spawned sprite and
+   already carries that sprite's `centerToCorner` — which IS the engine's centring for a wide frame
+   — and the drawn tier applied its own on top: 8px left, in steady state, for every wide graphic.
+   User-confirmed after the fix: *"the drawn one is perfect now"*.
+3. **What was left is not the ghost.** Frame by frame across the swap: the ghost reads an effective
+   400 the entire time and never moves; the PLAYER reads 360 for two or three frames and then 368.
+   The game hands the player the wide frame slightly before its own task applies the compensating
+   offset, so the gap between the two characters changes for a moment — and watching the ghost
+   while the reference moves reads as the ghost snapping. The ghost is provably still.
+
+**The lesson, and it cost a lot of live tests:** *"the ghost moved"* and *"the ghost is drawn
+somewhere else"* are different claims, and only the second one was ever true. Position was measured
+five times and was correct five times. What needed measuring was everything ELSE the hardware uses
+to draw — `pos2`, `centerToCorner`, OAM shape, the animation frame — because a sprite can be in
+exactly the right place and still put its character half a tile away.
+
 ### Still open from this pass
 
-**"Both ghosts move while fishing"** is NOT reproduced and NOT explained. Every measurement says
-the ghost holds a clean +2 tile offset for the entire sequence (33 of 33 samples), with coordinates
-and sprite position unchanged across the graphic swap. One real defect was found while looking —
-both object slots live during the rebuild, now swept in the same frame — but the user still saw
-movement afterwards. The remaining hypothesis is that the fishing frame's art sits differently
-within its 32-wide box, which would shift BOTH the player and the ghost equally and be easier to
-notice on a ghost. Unconfirmed either way.
+- **Bikes and surfing** on both tiers: fishing is confirmed, and they are the same class of state
+  (a graphicsId the engine swaps, driven by a task) so they are likely to work — but "likely" is
+  not "watched", and the `pos2` bug above would have looked identical on a bike.
+- **A cave**, for the painted tier's scene dimming. The fade half is confirmed; a cave is not.

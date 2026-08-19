@@ -35,10 +35,6 @@ brightness, and a smooth run. These are what is left:
       visited yet.
 - [ ] **Bikes and surfing on the drawn tier.** Fishing is confirmed there; the same decode path
       serves a bike and a surfboard and has not been watched.
-- [ ] **"Both ghosts move while fishing"** — reported repeatedly, never reproduced in any
-      measurement (`verified.md` has the numbers: 33 of 33 samples hold a clean +2 offset). Needs
-      one deliberate look at whether the PLAYER's own character also sits half a tile off its tile
-      while fishing; if it does, we match the game and there is nothing to fix.
 
 ### Closed as far as it goes, and NOT worth another attempt
 
