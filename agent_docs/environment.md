@@ -803,6 +803,37 @@ An agent spawned with no model override **inherits the parent's**, which is how 
 on 2026-08-19 ran on the top model — correct there, but by inheritance rather than by decision.
 Say which, deliberately, each time.
 
+## Every running emulator has a job — 2026-08-19
+
+**The user's rule, stated when two of four instances were sitting idle:** *"can you make it so all
+4 instances of bizhawk is actually doing something... the other agents should not slack and have
+no good excuses."*
+
+An emulator instance is expensive — host CPU, a window on someone's screen, a core, a relay slot —
+and an idle one is pure cost. **If an instance is running, its owner owes it work.**
+
+**The two excuses that turned out to be wrong the day this was written**, both worth recognising
+because they sound reasonable:
+
+- **"I am blocked waiting for the user."** One agent had been waiting twenty minutes for ten
+  seconds of human input to open a text box — while holding an emulator it was allowed to drive
+  itself. The restriction that created the wait ("the user is at these controls") had been true
+  earlier and nobody had lifted it. **A blocked agent should say what would unblock it, and then
+  go and do that itself if it is permitted to.** If it genuinely cannot, it should do adjacent
+  work on the same instance rather than idle.
+- **"My measurement is finished."** An instance that has answered its question is a free game with
+  an adapter attached, which is exactly what regression testing wants: walk it, open menus, fight
+  something, cross a map boundary, and watch the adapter through states nobody scripted. Every
+  crowd-test defect this project has found came from doing precisely that.
+
+**The main session is not exempt, and is the likeliest offender**, because it is busy coordinating:
+it owns an instance too, and coordination is not a reason for that instance to be parked.
+
+**What "doing something" means**, in rough order of value: measuring an open question; playing
+toward a state that gates one; a soak or regression run with the adapter attached; banking
+savestates at milestones for future sessions. Reporting that an instance is idle and why is
+acceptable; leaving it idle silently is not.
+
 ## Playing the game to reach a state — permitted, and how fast — 2026-08-19
 
 **The user's grant:** *"i don't really want or need you to 'play the whole game'. but feel free to
