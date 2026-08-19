@@ -61,7 +61,7 @@ local function sample()
 
     return string.format(
         "map=%d:%d pos=%d,%d facing=%d run=%d avatarFlags=%02X sprAnim=%d/%d sprFlags=%02X "
-            .. "sprXY=%d,%d oamTile=%d img=%08X bldcnt=%04X bldy=%04X bldalpha=%04X "
+            .. "sprXY=%d,%d camPix=%d,%d anchorX=%d anchorY=%d "
             .. "activeObjects=%d",
         memory.read_s8(base + 0x04), memory.read_s8(base + 0x05),
         memory.read_s16_le(base + 0x00), memory.read_s16_le(base + 0x02),
@@ -71,15 +71,16 @@ local function sample()
         -- Which frame the hardware is actually showing, and which image struct the engine chose:
         -- between them they name the frame a turn draws, which is the thing the drawn tier has to
         -- mirror and the one thing the animation NUMBER does not say.
-        memory.read_u16_le(spr + 0x04) & 0x3FF, memory.read_u32_le(spr + 0x0c),
-        -- GBA HARDWARE blend registers -- BLDCNT/BLDALPHA/BLDY at 0x04000050-54, documented
-        -- independently of any cartridge, the same footing as the BGnCNT read that located the
-        -- tilemaps. A fade to/from black is the brightness effect, and it dims everything the PPU
-        -- draws -- which is precisely what a ghost painted AFTER the PPU never gets. If these
-        -- carry the fade, they are the signal the drawn tier should stop on; if they are busy
-        -- during ordinary play too, they are not, and this says so before anything is built on it.
-        memory.read_u16_le(0x04000050), memory.read_u16_le(0x04000054),
-        memory.read_u16_le(0x04000052),
+        -- THE ANCHOR QUESTION. A drawn ghost is placed relative to the local player, so the
+        -- anchor it is placed against has to move exactly as the engine moves the world. Ours is
+        -- the adapter's own SMOOTHED estimate of the player, and the residual chop while RUNNING
+        -- points straight at it. The engine's own scroll is gTotalCameraPixelOffset, so if
+        -- (player sprite pixel + camera pixel offset) is CONSTANT while running, that sum is an
+        -- exact anchor and the smoothing can be taken out of the path entirely. If it wobbles,
+        -- it is not, and the fourth attempt should not be built on it either.
+        memory.read_s16_le(0x03005dec), memory.read_s16_le(0x03005de8),
+        memory.read_s16_le(spr + 0x20) + memory.read_s16_le(0x03005dec),
+        memory.read_s16_le(spr + 0x22) + memory.read_s16_le(0x03005de8),
         active)
 end
 

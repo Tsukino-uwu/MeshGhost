@@ -2559,24 +2559,21 @@ local function drawRemotes(localAreaId, playerMapX, playerMapY, skipSpawned, com
     local SCREEN_WIDTH_PX, SCREEN_HEIGHT_PX = 240, 160
     -- Where the painted comparison copy goes: the other side of the player from the spawned one.
     local COMPARE_DRAWN_OFFSET_TILES_X = -2
-    -- THE ENGINE HIDES ITS OWN PLAYER DURING A DOOR/WARP TRANSITION -- so we hide ours.
+    -- THE ENGINE HIDES ITS OWN PLAYER DURING A DOOR/WARP TRANSITION -- so we hide ours, but only
+    -- once the fade has actually finished.
     --
-    -- "the drawn one is shown a bit during the transition into a house, unlike the spawned one"
-    -- (user, 2026-08-19, from the side-by-side comparison). A spawned ghost vanishes because the
-    -- engine tears the map's cast down and rebuilds it; a painted one had nothing telling it to
-    -- stop, so it kept painting over the fade.
+    -- Entering a house, the engine sets the invisible bit (0x04) on the PLAYER's own sprite flags
+    -- (+0x3e) for the whole transition -- 44 frames before the map id even changes, cleared once
+    -- the new map is up (probes/turn_and_door_probe.lua). Cutting the ghost on that alone worked,
+    -- and looked worse than the exit case, which the scene-brightness scaling below carries: the
+    -- user, comparing them, *"leaving the house even looks better than entering the house"* --
+    -- because leaving FADES the ghost out with everything else while entering snapped it away.
     --
-    -- The tell is MEASURED, not assumed, and it is the engine's own decision rather than a fade
-    -- length: probes/turn_and_door_probe.lua sampled a Littleroot house entry frame by frame and
-    -- the PLAYER's own sprite flags (+0x3e) carry 0x04 for the whole transition -- set 44 frames
-    -- before the map id even changes, still set across the load, and cleared once the new map is
-    -- on screen (~50 frames end to end). While the game will not draw its own player, there is
-    -- nobody for a ghost to stand next to, so drawing one is always wrong.
+    -- So the hard cut is kept as a backstop for the part of the transition where there is nothing
+    -- on screen at all, and the fade does the visible work. Same rule as ever: while the game will
+    -- not draw its own player, there is nobody for a ghost to stand beside.
     local playerSprite = sprAddr(r8(GPLAYERAVATAR_ADDR + avatarAddrOffset + 0x04))
-    if (r8(playerSprite + 0x3e) & 0x04) ~= 0 then
-        tiering.painted = 0
-        return
-    end
+    local playerHidden = (r8(playerSprite + 0x3e) & 0x04) ~= 0
 
     -- HOW BRIGHT IS THE SCENE RIGHT NOW? Measured from the hardware palette, once per frame.
     --
@@ -2611,6 +2608,13 @@ local function drawRemotes(localAreaId, playerMapX, playerMapY, skipSpawned, com
         -- cartridge in that case rather than brightening a ghost past what the game can show.
         if ref > 0 then dim = live / ref end
         if dim > 1 then dim = 1 elseif dim < 0 then dim = 0 end
+    end
+    -- The backstop: hidden player AND a screen that has already gone dark. Either alone is a
+    -- state the ghost should still be drawn in -- a dark cave is dim with the player visible, and
+    -- the first frames of a door are hidden while the scene is still bright and fading.
+    if playerHidden and dim < 0.15 then
+        tiering.painted = 0
+        return
     end
 
     local playerScreenX, playerScreenY = playerScreenPos()
