@@ -92,14 +92,30 @@ func IsPermanentRejectErr(err error) bool {
 }
 
 // DefaultInterpolationDelay is how far behind the most recent samples the
-// core renders remotes by default, to smooth over network jitter. The
-// brief's "10Hz sync looks fine" was the original hypothesis; the actual
-// send rate (DefaultMinSendInterval, 20Hz) has since been live-confirmed
-// across three games, see agent_docs/contract.md's Limits section. 100ms
-// is a starting guess for tile-grid movement, not a measured value.
-// Overridable per-Core (see Core.InterpolationDelay) — Phase 3's loopback
-// test runs ~200ms so the trailing ghost is plainly visible on screen.
-const DefaultInterpolationDelay = 100 * time.Millisecond
+// core renders remotes by default, to smooth over network jitter.
+//
+// MEASURED, 2026-08-19, and no longer the guess this comment used to admit to.
+// Emerald was run with both renderers on screen at once
+// (MESHGHOST_COMPARE_TIERS) and judged by the user at each setting: at 100ms an
+// engine-driven ghost visibly chops while running; at 250ms, with nothing else
+// changed, "it actually just looks 1:1:1 perfect now, drawn/player/spawn".
+// agent_docs/verified.md has the run.
+//
+// Why a tile game is the demanding case, and why this value should hold for
+// others: a ghost driven by the game's own movement can only START A STEP when
+// it has been told the peer moved, and positions arrive at the room's send rate
+// (DefaultMinSendInterval, 20Hz) rather than per frame. Whatever slack this
+// delay does not absorb, the ghost shows as a hitch — and a tile game shows it
+// hardest, because a step is a discrete commitment rather than a nudge an
+// action game can blend away.
+//
+// The cost is honest and bounded: a peer renders a quarter-second behind where
+// they actually are, a little over one tile at walking pace. That is the trade
+// the user took (2026-08-19) on the grounds that this is the first time anyone
+// had actually measured how the setting looks.
+//
+// Overridable per-Core (see Core.InterpolationDelay).
+const DefaultInterpolationDelay = 250 * time.Millisecond
 
 // DefaultMinSendInterval is this Core's fallback send interval when neither
 // the relay advertised a rate nor this Core's own MinSendInterval was set
