@@ -151,6 +151,16 @@ UE4SS entry below for that last one specifically, which is currently unresolved)
       focus as it appears. Expected, not a fault — but it is a real window over the user's
       screen, so a two-emulator session puts two of them there. Unrelated to the core's own
       windowless autostart below, which is what a flash during startup is usually blamed on.
+  - **Two emulators at once need one control file EACH — 2026-08-19.** The loader had a single
+    hardcoded `bizhawk-dev-loader.target` and one log, so a Crystal instance and an Emerald
+    instance polled the same file, loaded the same script set and interleaved one log: neither
+    could be driven alone, which is the entire purpose of the loader. Set
+    **`MESHGHOST_DEV_LOADER_TARGET`** (absolute, or relative to `dev-scripts/`) before launching
+    each instance — e.g. `bizhawk-dev-loader-crystal.target` and `-emerald.target`; the log is
+    named after it. Both names are gitignored. Found live the first time two games were worked on
+    in one session. The other two collisions that session are already handled and were watched
+    working: each adapter **walks bridge ports 7778-7785** so two cores coexist, and each core is
+    **spawned windowless by its own adapter** and exits with its own emulator.
   - **`dev-scripts/bizhawk-dev-loader.lua` closes that gap.** Attach it once with `--lua=`; it
     polls `dev-scripts/bizhawk-dev-loader.target` (**one script path per line**, or `none`) and
     loads, swaps or drops those scripts live. **It runs several at once** — added 2026-08-18 once

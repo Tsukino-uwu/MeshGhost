@@ -99,6 +99,13 @@ local ADDRESSES = {
 		W_BATTLEMODE = flat(0xD22D),
 		W_BGMAPOFFSETX = flat(0xD14C),
 		W_BGMAPOFFSETY = flat(0xD14D),
+		-- 01:d154, 32 two-byte entries ending at 01:d194 (wUsedSpritesEnd), which is
+		-- SPRITE_GFX_LIST_CAPACITY * 2. Each entry is [sprite id, VRAM tile base]: the id is put
+		-- there by AddSpriteGFX as the map loads, and ArrangeUsedSprites then overwrites the
+		-- second byte with the tile the sprite's graphics were actually placed at. So this table
+		-- is the answer to "is sprite N loaded right now, and where" -- the question a peer's own
+		-- appearance depends on. Read-only here; nothing writes into it.
+		W_USEDSPRITES = flat(0xD154),
 	},
 
 	-- Archipelago's Crystal patch. MEASURED, never derived -- three separate vanilla relationships
@@ -170,6 +177,10 @@ local ADDRESSES = {
 local OBJECT_STRUCTS, MAP_OBJECTS
 local W_MAPGROUP, W_MAPNUMBER, W_YCOORD, W_XCOORD
 local W_MAPSTATUS, W_BATTLEMODE, W_BGMAPOFFSETX, W_BGMAPOFFSETY
+-- nil on any build where it has not been measured (Archipelago's), which switches the peer's own
+-- appearance off rather than reading a plausible address.
+local W_USEDSPRITES
+local USED_SPRITES_CAPACITY = 32 -- SPRITE_GFX_LIST_CAPACITY
 
 local OBJECT_LENGTH, MAPOBJECT_LENGTH = 0x28, 0x10
 local NUM_OBJECT_STRUCTS, NUM_MAP_OBJECTS = 13, 16
@@ -595,6 +606,56 @@ local function findTemplateNpc()
 	end
 end
 
+-- Is sprite `id` loaded on THIS map right now, and at which VRAM tile?
+--
+-- A peer sends the sprite id they are wearing, but an id is not a picture: the tiles have to be
+-- resident locally, and Crystal decides what is resident per map (the map's own objects indoors,
+-- a fixed per-region list outdoors) plus the local player's own sprite. So the honest answer to
+-- "show the peer as themselves" is: only when the game already has those tiles. This returns nil
+-- otherwise, and the caller falls back to the local player's sprite -- today's behaviour, which
+-- is at least always drawable. Loading a peer's tiles that are NOT resident is a separate and
+-- much larger job (VRAM allocation), still open in phases/phase9.md.
+local function residentSpriteTile(id)
+	if not W_USEDSPRITES or not id or id == 0 then
+		return nil
+	end
+	for i = 0, USED_SPRITES_CAPACITY - 1 do
+		local entry = W_USEDSPRITES + i * 2
+		local sprite = u8(entry)
+		if not sprite or sprite == 0 then
+			return nil -- the list is packed; a zero is the end of it
+		end
+		if sprite == id then
+			return u8(entry + 1)
+		end
+	end
+	return nil
+end
+
+-- Give a ghost the peer's own sprite when its tiles happen to be resident, otherwise leave it
+-- wearing the local player's. Returns true when the peer's own was applied.
+-- PROBE FLAG, off unless set. Substitutes one sprite id for every peer, so "does a ghost wear a
+-- sprite the local player is not wearing" can be asked without a second machine and a peer of the
+-- other gender. Pick an id the current map actually has loaded (an NPC standing on it) -- a
+-- non-resident id changes nothing by design, which is the fallback working, not a failure.
+local FORCE_PEER_SPRITE = tonumber(MESHGHOST_CRYSTAL_FORCE_PEER_SPRITE
+	or os.getenv("MESHGHOST_CRYSTAL_FORCE_PEER_SPRITE") or "")
+
+local function applyPeerSprite(g, id)
+	id = FORCE_PEER_SPRITE or id
+	local tile = residentSpriteTile(id)
+	if not tile then
+		return false
+	end
+	if u8(g.st_base + F_SPRITE) == id and u8(g.st_base + F_SPRITE_TILE) == tile then
+		return true -- already wearing it; writing every frame would fight nothing but cost reads
+	end
+	w8(g.st_base + F_SPRITE, id)
+	w8(g.st_base + F_SPRITE_TILE, tile)
+	w8(g.mo_base + M_SPRITE, id)
+	return true
+end
+
 local function screenCoords(mx, my)
 	local wx, wy = u8(W_XCOORD) or 0, u8(W_YCOORD) or 0
 	local bx, by = u8(W_BGMAPOFFSETX) or 0, u8(W_BGMAPOFFSETY) or 0
@@ -614,7 +675,7 @@ local function despawnGhost(id)
 	log("MeshGhost: despawned " .. id)
 end
 
-local function spawnGhost(id, x, y)
+local function spawnGhost(id, x, y, peerSprite)
 	local srcMo, srcSt = findTemplateNpc()
 	if not srcMo then
 		return nil -- no template on this map; try again next frame
@@ -661,7 +722,13 @@ local function spawnGhost(id, x, y)
 	w8(stBase + F_FLAGS1, (u8(stBase + F_FLAGS1) or 0) | FLAG1_WONT_DELETE)
 
 	ghosts[id] = { mo = mo, st = st, mo_base = moBase, st_base = stBase, area = areaId() }
-	log(string.format("MeshGhost: spawned %s at %d,%d (map object %d <-> struct %d)", id, x, y, mo, st))
+
+	-- ...unless the peer's own sprite is already loaded on this map, in which case they get to
+	-- look like themselves rather than like whoever is sitting at this machine.
+	local own = applyPeerSprite(ghosts[id], peerSprite)
+
+	log(string.format("MeshGhost: spawned %s at %d,%d (map object %d <-> struct %d)%s", id, x, y,
+		mo, st, own and " wearing its own sprite" or ""))
 	return ghosts[id]
 end
 
@@ -726,11 +793,18 @@ local function renderRemote(id, state)
 		return
 	end
 
+	local peerSprite = state.extras and tonumber(state.extras.sprite) or nil
+
 	local g = ghosts[id]
 	if not g then
-		spawnGhost(id, x, y)
+		spawnGhost(id, x, y, peerSprite)
 		return
 	end
+
+	-- A peer's sprite is not fixed for the session: it changes with their state (on a bike, and
+	-- with the gender the sprite tables are keyed on), and what is RESIDENT changes under us on
+	-- every map load. So this is re-checked here rather than only at spawn.
+	applyPeerSprite(g, peerSprite)
 
 	-- Only act while the ghost is idle; interrupting a step is what makes a character teleport
 	-- while animating.
@@ -1015,6 +1089,7 @@ W_MAPGROUP, W_MAPNUMBER = A.W_MAPGROUP, A.W_MAPNUMBER
 W_YCOORD, W_XCOORD = A.W_YCOORD, A.W_XCOORD
 W_MAPSTATUS, W_BATTLEMODE = A.W_MAPSTATUS, A.W_BATTLEMODE
 W_BGMAPOFFSETX, W_BGMAPOFFSETY = A.W_BGMAPOFFSETX, A.W_BGMAPOFFSETY
+W_USEDSPRITES = A.W_USEDSPRITES -- optional: nil means "peer appearance off on this build"
 
 if romClass == "known" then
 	log("ROM: " .. romWhy .. " — addresses verified against a byte-identical build.")

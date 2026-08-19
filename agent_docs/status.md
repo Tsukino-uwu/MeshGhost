@@ -83,8 +83,8 @@ that a peer's state genuinely differs from the local player's, which loopback co
 
 ### Open, not blocked
 
-- **Crystal: a ghost looks like THIS machine's player, not the peer** — a peer's own gender needs
-  their sprite loaded locally. `phases/phase9.md`.
+- **Crystal: a peer's own sprite is used when its tiles are resident (2026-08-19), not otherwise**
+  — the other gender never is, so that half needs VRAM work. `phases/phase9.md`, `unverified.md`.
 - **Crystal/Archipelago: `wBattleMode` unmeasured** — 0x015A vs 0x1234, needs one trainer battle.
   Everything else is measured and a loopback ghost walks on the AP ROM. `phases/phase9.md`.
 - **Crystal: does a ghost survive a battle?** Set up twice, answered neither time. `phase9.md`.

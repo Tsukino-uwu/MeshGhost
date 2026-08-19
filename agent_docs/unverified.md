@@ -64,6 +64,25 @@ run against this version rather than yesterday's.
       while you are in the main menu.** Left alone deliberately — it is a change to what a player
       sees, so it needs the user's answer first.
 
+## Pending — Crystal: a ghost can wear the peer's own sprite (2026-08-19)
+
+The adapter now looks a peer's sprite id up in `wUsedSprites` and gives the ghost that sprite and
+its VRAM tile when the tiles are already loaded on this map; otherwise nothing changes and the
+ghost wears the local player's sprite, exactly as before. Self-tested two ways — a RAM read-back
+showing the ghost's `sprite`/`tile` equal to the engine's own object wearing that sprite, and a
+loopback session where the peer's sprite IS the player's, which must look unchanged.
+
+- [ ] **A loopback ghost still looks right.** This is the no-regression half, and the one that
+      matters: in loopback the peer's sprite is your own, so the new path runs on every spawn.
+      *What to look at:* the ghost beside you, standing and walking.
+      *Correct:* exactly as before — a clean character, correct colours, not scrambled and not
+      half-drawn.
+- [ ] **A ghost wearing a sprite you are not wearing.** Set
+      `MESHGHOST_CRYSTAL_FORCE_PEER_SPRITE=4` (an id New Bark Town has resident) with
+      `MESHGHOST_LOOPBACK_OFFSET_X=2`. *What to look at:* the ghost two tiles to your right.
+      *Correct:* it is the RIVAL's character, drawn cleanly, while you are still yourself.
+      (An agent screenshot looks right; a screenshot is not proof, so this is here.)
+
 ## Pending — peer graphics: bikes, surfing, fishing (2026-08-18)
 
 Turned OFF by default (`MESHGHOST_GHOST_PEER_GFX`), because it is incomplete — see below.

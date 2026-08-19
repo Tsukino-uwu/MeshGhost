@@ -220,9 +220,19 @@ to be noticed by a user.
 
 ## Open
 
-- [ ] **A ghost looks like THIS machine's player, not like the peer.** Showing a peer's own gender
-      needs their sprite's tiles loaded on the local map — the `wUsedSprites` allocation question,
-      deliberately deferred. Worth attacking once there is a real peer to represent.
+- [~] **A ghost looks like THIS machine's player, not like the peer — HALF DONE 2026-08-19.**
+      A peer already sends the sprite id they are wearing, and the adapter now looks that id up in
+      `wUsedSprites` (01:d154, 32 entries of `[sprite id, VRAM tile]`, packed and zero-terminated)
+      and gives the ghost the peer's own sprite **whenever those tiles are already resident**,
+      falling back to the local player's otherwise. Established with
+      `MESHGHOST_CRYSTAL_FORCE_PEER_SPRITE` (`FLAGS.md`): the ghost took `SPRITE_RIVAL`'s id **and
+      its tile 108**, matching byte for byte the engine's own object wearing that sprite on the
+      same map — a read-back of two fields nothing in the adapter derives from each other.
+      **What is still open is the case that actually matters**: the other gender's sprite is never
+      resident, since Crystal loads the map's own objects indoors and a fixed per-region list
+      outdoors (`AddIndoorSprites` / `AddOutdoorSprites`), plus the local player's own. Making that
+      work needs tiles put into VRAM that the game did not load — an allocation this adapter has
+      so far avoided entirely, and the reason the item is not closed.
 - [x] **Networking exists and works.** Bridge, socket, `get_local_state`, `render_remote` and
       `despawn_remote` are all in, and a loopback ghost was watched walking on 2026-08-18 —
       on the Archipelago ROM, which was the harder of the two targets.
