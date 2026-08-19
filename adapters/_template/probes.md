@@ -201,6 +201,47 @@ So, when instrumenting an effect:
   between two sides measured by one instrument is not correctness — a shared blind spot makes them
   agree and describes neither.
 
+## One sample cannot see a blinking thing — 2026-08-19
+
+**The user's example, and it is the clearest one: "PRESS START" flashing on a title screen.** Take
+a screenshot on the wrong frame and the prompt is simply not there. Nothing failed, nothing
+errored, and the picture is perfectly sharp — it just shows a screen with no instruction on it,
+and a reader concludes the game is stuck, or that there is no prompt, or that the script is not
+running. **A single sample of a periodic thing is a coin flip you did not know you were tossing.**
+
+This is not a screenshot problem. It is a **sampling-rate problem**, and it applies to every probe
+that reads a value once:
+
+- **Anything that blinks**: a prompt, a cursor, a selected menu entry, a flashing low-health bar.
+- **Anything that strobes as a side effect of being redrawn**: Crystal's menu rectangle
+  (`wMenuBorder*`) returns to `0,0,0,0` and back several times a second **while the menu is
+  plainly on screen**, so a single read says "no menu" half the time.
+- **Anything that happens on a small fraction of frames**: the Game Boy dropping sprites past its
+  per-scanline limit happened on **2-3% of frames** with a crowd on screen. A screenshot would
+  essentially never catch it, and the user's own honest answer to "can you see flicker?" was
+  *"kinda hard to tell"* — which is the correct answer, and the reason it was settled by counting
+  sprites per scanline instead.
+- **Anything alternating**: a two-frame walk cycle, an animation that swaps between two poses.
+
+**What to do instead:**
+
+- **Sample across time and report the RANGE**, not the instant: min, max, and "was it ever true".
+  The crowd probe logs `oam=14..38 of 40` per window for exactly this reason — the 14 and the 38
+  are both true, and either alone is a lie.
+- **Sample for longer than the period you are looking for**, and if you do not know the period,
+  log every change rather than every Nth frame. "Log a window, not an event" above is the same
+  advice from the other direction.
+- **Beware a sampling interval that shares a factor with the thing you are watching.** A
+  screenshot loop firing every 120 frames against a walk cycle of 240 produced *identical* pictures
+  every time, which read as "nothing is moving" — the game was moving fine. Pick an interval that
+  cannot align (a prime number of frames is a cheap way), or trigger on change instead.
+- **When a human says they cannot tell, that is data.** It means the effect is near the edge of
+  perception, so measure it rather than asking them to look harder.
+
+**The general form**: a probe that reads once answers *"what was true at this instant"*, and it is
+easy to read that as *"what is true"*. If the thing can change faster than you sample, those are
+different questions.
+
 ## Two more probe traps
 
 - **A probe that returns nothing is a result, not a malfunction.** Ask what a genuine zero would

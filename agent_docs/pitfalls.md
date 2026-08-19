@@ -1783,3 +1783,34 @@ halves intact throughout, with the player simply walking into a tile off the vis
 
 **Not yet reproduced under the probe** — a scripted walk-away could not be driven while a human
 was at the controls, and this needs the player to move a screen away and come back.
+
+## A single screenshot cannot see a blinking thing (2026-08-19)
+
+**Symptom.** A picture is taken to answer a question about the screen, and it answers a different
+question: *what was on screen during one 60th of a second*.
+
+**The user's example, which is the clearest form of it**: "PRESS START" flashing on a title
+screen. Mistime the screenshot and the prompt is absent. The image is sharp, nothing errored, and
+the obvious readings — the game is stuck, there is no prompt, the script did not run — are all
+wrong.
+
+**Three live cases the same evening, all the same shape:**
+
+- **Crystal's menu rectangle strobes.** `wMenuBorder*` returns to `0,0,0,0` and back several times
+  a second *while the menu is plainly on screen*, so a single read says "no menu" about half the
+  time. The fix was to latch the last non-zero rectangle while a panel is up.
+- **Sprite dropping happens on 2–3% of frames.** With a crowd packed together the Game Boy exceeds
+  its 10-sprites-per-scanline limit on roughly one frame in forty. A screenshot would essentially
+  never catch it; the user's honest *"kinda hard to tell"* was correct, and it was settled by
+  counting sprites per scanline instead of looking.
+- **A screenshot loop aliased with the walk cycle.** Firing every 120 frames against a 240-frame
+  cycle produced identical pictures, which read as "nothing is moving" while the game moved fine.
+
+**The rule.** Sample across time and report the **range** (`oam=14..38 of 40`), sample longer than
+the period you are looking for, and choose an interval that cannot align with it — or trigger on
+change rather than on a timer. Full method, with the general form: `adapters/_template/probes.md`,
+"One sample cannot see a blinking thing".
+
+**And the corollary for talking to the user**: when they say they cannot tell whether something is
+happening, that is a measurement result, not a non-answer. It means the effect sits at the edge of
+perception, and the next move is to count it rather than ask them to look again.
