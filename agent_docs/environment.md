@@ -853,6 +853,22 @@ playthrough tests a different claim: **"a player can get from here to there, and
 survives the trip."** Cheat and you have tested nothing — you have confirmed that the state you
 wrote is the state you wrote.
 
+**Use the game's own guidance — talk to NPCs, read signs** (user, 2026-08-19). These games are
+built to tell a player where to go next, and an agent that ignores that is doing the hard version
+of a solved problem. A sign at a route entrance names the town it leads to; an NPC says which way
+is blocked and why; a character's dialogue is often the flag-check you were about to go looking
+for in the decomp, stated in English.
+
+Three reasons this is not just flavour:
+
+- **It is usually the fastest route-planning available**, and it needs no map data at all.
+- **It distinguishes the failures that look identical.** An NPC who talks and then steps aside is
+  not the wall an agent reported it as (`pitfalls.md`) — and you only learn that by *reading what
+  they said*.
+- **It is a test of the adapter in its own right.** Every text box is a UI panel over the world:
+  exactly the state where a drawn ghost must be clipped, where the send gate must behave, and
+  where Crystal's occlusion work was measured. Talking to people is free coverage.
+
 **Perfect information is not cheating.** Knowing exactly where you are, what the game is checking,
 and which tile is a one-way ledge is what makes an agent good at this rather than lucky; it is the
 same relationship a speedrunner has with a decomp. The prohibition is on *changing* the world, not
