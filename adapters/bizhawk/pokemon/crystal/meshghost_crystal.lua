@@ -640,6 +640,18 @@ end
 -- non-resident id changes nothing by design, which is the fallback working, not a failure.
 local FORCE_PEER_SPRITE = tonumber(MESHGHOST_CRYSTAL_FORCE_PEER_SPRITE
 	or os.getenv("MESHGHOST_CRYSTAL_FORCE_PEER_SPRITE") or "")
+if FORCE_PEER_SPRITE then
+	-- SAY SO, every startup, the way AP_TRY does. A global survives a dev-loader reload -- the
+	-- loader swaps SCRIPTS, not the Lua state -- so one set for an experiment stays set for
+	-- every later run in that emulator, silently. Live case 2026-08-19: a forced SPRITE_RIVAL
+	-- left over from a probe made a ghost look like the player indoors and like an NPC outdoors,
+	-- which is precisely the shape of a real bug (sprite 4 is resident outdoors and not in Elm's
+	-- lab), and cost the user a report. A probe that changes what is on screen has to announce
+	-- itself in the log the session is read from.
+	log(string.format("PROBE FLAG IN USE: every peer is forced to sprite %d "
+		.. "(MESHGHOST_CRYSTAL_FORCE_PEER_SPRITE). Ghosts will NOT look like their peers.",
+		FORCE_PEER_SPRITE))
+end
 
 local function applyPeerSprite(g, id)
 	id = FORCE_PEER_SPRITE or id

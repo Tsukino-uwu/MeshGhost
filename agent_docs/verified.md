@@ -7599,3 +7599,38 @@ went on to start its own core on 7778 and reach `bridge_ready`. Before the fix t
 `drainBridge()` indexing a nil socket; the error was invisible because the frame-error rate limiter
 started at frame 0 and could not log anything in the first 300 frames — which is why none of the
 eight earlier session logs that record a rejection shows it.
+
+### 2026-08-19 — Crystal and Emerald, both watched by the user in one two-game session
+
+**Track: USER-CONFIRMED on screen.** Two emulators running side by side, each with its own core
+on its own bridge port (7778 Emerald, 7779 Crystal), one loopback relay.
+
+**Emerald.** The walk-around the queue asked for, against the day's six-defect robustness pass:
+one ghost, two tiles to the right, on the grid, and **hidden properly behind a house as well as
+behind the pause menu and text boxes** — occlusion the old drawn overlay could never have, and the
+clearest single argument for the spawn path. Nothing regressed.
+
+**Crystal — a ghost wears the peer's sprite, and it is the right one.** With the peer-sprite
+lookup live (`wUsedSprites`), the user confirmed the ghost looks like the player, standing and
+walking, indoors and outdoors. In loopback the peer's sprite *is* the local player's, so this is
+the no-regression half; the id→tile lookup runs on every spawn regardless.
+
+**Crystal — three real defects the user found by playing, all fixed the same session:**
+
+- **A ghost duplicated on leaving a wild battle.** Cause was this session's own earlier fix: it
+  cleared the ghost bookkeeping whenever `wMapStatus` left `MAPSTATUS_HANDLE`, assuming a battle
+  rebuilds the object array like a map load. It does not — the object survives, so forgetting it
+  spawned a second one beside the first. The lifecycle guess was replaced by `stillOurs()`, an
+  identity check (cross-link both ways plus the sprite) asked before every write.
+- **A ghost spawned on the way OUT of Elm's lab sat a few pixels off its tile**, while walking in
+  was always fine. Same class as `pitfalls.md`'s existing "renders a few pixels off its tile,
+  forever" — which already said *"seen on both adapters"* and whose fix had only ever been applied
+  to Emerald. Crystal's predicate is `wBGMapOffsetX % 16 == 0 and wBGMapOffsetY % 16 == 0`,
+  measured with a transition probe that logged every object's real screen coordinate beside what
+  the adapter's formula computed for it across a map load.
+- **A ghost looked like the player indoors and like an NPC outdoors.** Not a bug in the adapter: a
+  `MESHGHOST_CRYSTAL_FORCE_PEER_SPRITE` global left over from an agent experiment an hour earlier,
+  which survived every dev-loader reload because the loader swaps scripts and not the Lua state.
+  It reproduced perfectly consistently, because `SPRITE_RIVAL` genuinely is resident in New Bark
+  and genuinely is not in the lab. The flag now prints `PROBE FLAG IN USE` on every startup.
+  Confirmed corrected on screen after the global was cleared.

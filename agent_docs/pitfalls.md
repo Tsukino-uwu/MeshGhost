@@ -1475,6 +1475,19 @@ gFieldCamera.y == 0`, checked before both spawning and teleporting; if it is mov
 frame and try the next one. The camera settles constantly, so the wait is invisible — and unlike
 nudging the sprite by a few pixels afterwards, it fixes the cause.
 
+**It came back on Crystal on 2026-08-19, because only Emerald ever got the check.** This entry
+already said "seen on both adapters", and the fix was written down here — but Crystal's adapter
+was never given the equivalent predicate, so the same bug was reported again by the user, this
+time only when walking OUT of a building: leaving one drops the player into a scripted step out
+of the doorway, so a ghost spawned there is placed mid-scroll, while walking in happens with the
+world already at rest. Crystal's predicate is `wBGMapOffsetX % 16 == 0 and wBGMapOffsetY % 16 ==
+0`, measured rather than assumed: a transition probe logged every object's real screen coordinate
+beside what the adapter's formula computed for it, frame by frame across a map load, and the two
+agree exactly on those boundaries and disagree by the sub-tile remainder off them. **The
+transferable lesson is not about cameras** — it is that a pitfall recorded here is not a pitfall
+fixed, and a lesson learned on one adapter has to be back-ported to its siblings deliberately
+(`CLAUDE.md`'s `_template/` rule says the same thing about the template).
+
 **The wrong fix, which is tempting and is a bandage.** Adding a compensating pixel offset to the
 computed position. It "works" for the case in front of you, encodes one particular sub-tile
 remainder as if it were a constant, and breaks the moment the ghost is placed at a different point
@@ -1658,3 +1671,26 @@ suspect first if a future TEVI build ever nulls the player on pause.
 **The tell.** You are about to change a *visible* behaviour and your only evidence is what the
 source implies. That is the same shape as "it ran without errors" — self-consistent, and untested
 against the one person who decides what correct looks like.
+
+## A probe global outlives the probe, and then looks exactly like a real bug (2026-08-19)
+
+**Symptom.** A Crystal ghost looked like the player inside Elm's lab and like an NPC out in the
+town. A perfectly plausible bug report — and a completely coherent one, which is what made it
+dangerous: sprite 4 really is resident outdoors in New Bark and really is not loaded in the lab,
+so the "bug" behaved consistently with a genuine appearance fault every time it was looked at.
+
+**Cause.** A scratch script had set `MESHGHOST_CRYSTAL_FORCE_PEER_SPRITE = 4` as a Lua **global**
+for one experiment an hour earlier. **`dev-scripts/bizhawk-dev-loader.lua` swaps SCRIPTS, not the
+Lua state** — globals set by a dropped script persist in the emulator for the rest of its life. So
+every later run in that emulator was still forcing every peer to `SPRITE_RIVAL`, and the fallback
+(wear the local player's sprite when the peer's tiles are not resident) did the rest.
+
+**Fix, both halves.** Clear the global in the session's own setup script rather than assuming a
+dropped script took its settings with it — and, more durably, **any flag that changes what is on
+screen announces itself in the log on every startup**, which is what `MESHGHOST_CRYSTAL_AP_TRY`
+already did and this one now does too (`PROBE FLAG IN USE: ...`). One line in the log the session
+is read from is the difference between a five-minute check and a plausible false report.
+
+**Generalises.** `CLAUDE.md` already says a diagnostic can break the thing it measures. This is
+its quieter cousin: a diagnostic can keep changing what everyone sees **after it is gone**, and
+the reading it corrupts is not the probe's own — it is the next person's.
