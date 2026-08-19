@@ -118,10 +118,15 @@ hardware is nowhere near being the constraint — the engine's array is the whol
 - **The ceiling MOVES during play.** The same town read 3, 2 and 1 active objects from different
   camera positions, so the number of free slots changes as you walk — and a placed ghost can lose
   its slot when a nearby NPC loads. Crystal's map objects are fixed per map; Emerald's are not.
-- **Route and indoor rows are missing** and are honestly missing: the save available is early-game,
-  Route 101 is story-blocked, and no door was reachable by driving inputs. The formula plus the
-  observed 1–3 objects per camera view is what the evidence supports; a route row needs a later
-  save or a person walking there.
+- **Route and indoor rows are missing, and the stated reason for that was WRONG.** The agent that
+  measured this reported Route 101 as *story-blocked*, having driven into an NPC who spoke to it.
+  **The user corrected it the same day: nothing was blocking anything.** That NPC is the *"please
+  go help"* stop — it interrupts you, says its piece, and then lets you walk straight up into the
+  route. The genuinely blocking version of that NPC (*"it's dangerous, you can't go there yet"*)
+  had already been cleared earlier in the save. The agent stopped one **A press** short of the
+  measurement and wrote the wall into the record as a fact about the game.
+  **The lesson is `pitfalls.md`'s, not this file's**: an NPC talking to you is not an NPC blocking
+  you, and "I could not get there" is a statement about the driver, not about the game.
 
 **The defect this measurement found, which is the reason to run it at all.** Past the ceiling
 Emerald did not degrade gracefully — it became **unplayable: 3fps at 24 peers, 1fps at 36**. For

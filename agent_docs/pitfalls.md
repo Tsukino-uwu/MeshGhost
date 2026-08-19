@@ -1718,3 +1718,35 @@ both hold 59.7-59.8fps with the same 13 ghosts placed.
 **The general shape:** a diagnostic on a failure path is priced per failure, and failures scale
 with load while successes are capped. Anything that logs unconditionally where the count is
 attacker- (or room-) controlled belongs behind a throttle from the start.
+
+## "The game blocked me" was an NPC finishing a sentence (2026-08-19)
+
+**Symptom.** A measurement was abandoned and its absence written into the record as a property of
+the game: *"Route 101 is story-blocked"*, offered as the reason a route row was missing from
+Emerald's crowd-limit table.
+
+**What actually happened.** An agent driving the game with scripted inputs walked into an NPC who
+stopped it and started talking. It read the interruption as a wall, turned around, and reported the
+route as unreachable. The user \u2014 who knows the game \u2014 corrected it immediately: that NPC is the
+*"please go help"* stop, which says its piece and then lets you walk straight past. The genuinely
+blocking version of the same character (*"it's dangerous, you can't go there yet"*) had been
+cleared earlier in that save. **The route was one A press away.**
+
+**Why it survived.** The false conclusion was *plausible, self-consistent and untestable from the
+inside*: the character really did stop moving, the dialogue really was about not going somewhere,
+and an agent with no memory of the save's story state has no way to tell "temporarily interrupting
+you" from "permanently refusing you". Nothing failed. It simply stopped, and then explained.
+
+**The rules it violates**, both already in `CLAUDE.md` and both worth pointing at here because this
+is what they look like in the wild:
+
+- **Never assume what a game is MEANT to do \u2014 ask.** The person who owns the save knows in one
+  sentence what an agent cannot derive in twenty minutes of probing.
+- **"I could not get there" is a statement about the driver, not about the game.** Write it that
+  way. *"Scripted input did not get past an NPC interaction"* is true and invites the one-line
+  correction; *"the route is story-blocked"* is a claim about the game that a reader will believe
+  and build on.
+
+**What to do instead.** When a game interrupts a driven run: **press A through it and try again**
+before concluding anything \u2014 dialogue is the single most common interruption in these games and
+the cheapest thing to clear. If it still will not pass, say what was observed, and ask.
