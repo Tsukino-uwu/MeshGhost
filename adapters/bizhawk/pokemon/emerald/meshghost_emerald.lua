@@ -2839,31 +2839,106 @@ end
 -- ARC in pos2.y (+0x26), so taking the sprite's position WITHOUT that term is the ground it left,
 -- exactly. The shadow therefore sits still on the tile while the ghost rises and falls over it,
 -- with no arc maths of ours to drift.
+-- LEARN THE GAME'S OWN SHADOW, then draw that. The ellipse below is only the fallback.
+--
+-- Three rounds of "is it too big / too dark / too high" said the same thing each time: an
+-- approximation of someone else's art is judged against the original, and loses. The original is
+-- readable -- a shadow is an ordinary sprite, so when the LOCAL player hops a ledge there is one
+-- on screen with its own images pointer and palette. Learned once per session, decoded with the
+-- same run path the drawn tier uses for peer graphics, and drawn for every ghost thereafter.
+--
+-- Identified by what it is rather than by an address: in use, 16x8 (shape 1, size 0 -- the
+-- SHADOW_SIZE_M template the player's graphics info asks for), sitting near the player, while the
+-- player is mid-jump. That is the same discipline as every other lookup here: describe the thing,
+-- do not memorise where it lives.
+-- GLOBAL, like drawRunList above: this chunk is at Lua's hard 200-local ceiling, and a helper
+-- that is called once a frame is a better use of the remaining budget than a name.
+function learnShadowArt()
+    if genderFrames.shadowArt ~= nil then return end
+    local pObj = objAddr(r8(GPLAYERAVATAR_ADDR + avatarAddrOffset + 0x05))
+    local act = r8(pObj + 0x1c)
+    if act < 0x0c or act > 0x0f then return end
+    local ps = sprAddr(r8(GPLAYERAVATAR_ADDR + avatarAddrOffset + 0x04))
+    local px = rs16(ps + 0x20)
+    for i = 0, 63 do
+        local d = sprAddr(i)
+        if (r8(d + 0x3e) & 0x01) == 1
+            and ((r16(d + 0x00) >> 14) & 3) == 1 and ((r16(d + 0x02) >> 14) & 3) == 0
+            and math.abs(rs16(d + 0x20) - px) < 40 then
+            local images = r32(d + 0x0c)
+            if isRomPtr(images) then
+                local pixels = r32(images)
+                if isRomPtr(pixels) then
+                    local slot = (r16(d + 0x04) >> 12) & 0x0f
+                    local pal = {}
+                    for k = 0, 15 do
+                        local c = r16(0x05000200 + slot * 32 + k * 2)
+                        pal[k] = (0xFF << 24) | (expand5to8(c & 0x1F) << 16)
+                            | (expand5to8((c >> 5) & 0x1F) << 8) | expand5to8((c >> 10) & 0x1F)
+                    end
+                    -- 16x8, two 8x8 4bpp tiles side by side, built into runs like every other
+                    -- decoded frame here.
+                    local runs = {}
+                    for y = 0, 7 do
+                        local x = 0
+                        while x < 16 do
+                            local b = r8(pixels + (x // 8) * 32 + y * 4 + ((x % 8) // 2))
+                            local idx = (x % 2 == 0) and (b & 0x0F) or ((b >> 4) & 0x0F)
+                            if idx ~= 0 then
+                                local x2 = x
+                                while x2 + 1 < 16 do
+                                    local nb = r8(pixels + ((x2 + 1) // 8) * 32 + y * 4
+                                        + (((x2 + 1) % 8) // 2))
+                                    local ni = ((x2 + 1) % 2 == 0) and (nb & 0x0F)
+                                        or ((nb >> 4) & 0x0F)
+                                    if ni ~= idx then break end
+                                    x2 = x2 + 1
+                                end
+                                runs[#runs + 1] = { y = y, x1 = x, x2 = x2, color = pal[idx] }
+                                x = x2 + 1
+                            else
+                                x = x + 1
+                            end
+                        end
+                    end
+                    if #runs > 0 then
+                        genderFrames.shadowArt = runs
+                        console.log("MeshGhost: learned the game's own jump shadow ("
+                            .. #runs .. " runs) -- ghosts now use it instead of an ellipse.")
+                    end
+                end
+            end
+            return
+        end
+    end
+end
+
+-- Draw one shadow at a character's un-arced position. `sx`,`sy` are that character's sprite
+-- position in SCREEN space; the sprite box's top-left is x-8, y-4 (the shadow sprite's own c2c),
+-- and the shadow sits 12px below the character's y -- all measured, see BANDAGES.md.
+function drawOneShadow(sx, sy, dim)
+    local left, top = sx - 8, sy + 8
+    if genderFrames.shadowArt then
+        drawRunList(genderFrames.shadowArt, 16, false, left, top, nil, dim)
+    else
+        -- Until a shadow has been seen to learn from: the measured ink extent, 16x5 at rows 3..7.
+        gui.drawEllipse(left, top + 3, 16, 5, 0x00000000, 0xFF000000)
+    end
+end
+
 local function drawGhostShadows()
+    learnShadowArt()
     for playerId, g in pairs(ghosts) do
         local remote = remotes[playerId]
         if remote and remote.act and remote.act >= 0x0c and remote.act <= 0x0f and ghostAlive(g) then
-            -- MEASURED TWICE, and the second measurement is the one that matters.
-            --
-            -- First: the shadow SPRITE is 16x8 with c2c -8,-4, at the character's own x and 12px
-            -- below its un-arced y -- so the box's top-left is x-8, y+8. Drawing a filled 16x8
-            -- ellipse there was still wrong, because a sprite box is not ink: *"the shadows look
-            -- pretty big on the ghosts compared to the player"*.
-            --
-            -- Second: the shadow's own pixels were decoded from the sprite the game was drawing
-            -- (its images pointer, the frame its animation had selected, 4bpp). The INK is 16 wide
-            -- and 5 tall, occupying rows 3..7 of the box -- so it is drawn at x-8, y+11, 16x5.
-            -- The player's graphic asks for SHADOW_SIZE_M, which is the 16x8 template
-            -- (pokeemerald src/data/field_effects/field_effect_objects.h), confirming the sprite
-            -- picked out of the dump was the right one.
             local d = sprAddr(g.sprId)
             local sx = rs16(d + 0x20) + rs16(GSPRITECOORDOFFSETX_ADDR)
             -- Deliberately WITHOUT pos2 (+0x24/+0x26): that carries the jump arc, and the shadow
-            -- belongs on the ground the character left, which is exactly what the game does --
-            -- its shadow sprite reads pos2 0,0 while the character mid-hop reads 0,-6.
+            -- belongs on the ground the character left -- which is what the game does, its shadow
+            -- sprite reading pos2 0,0 while the character mid-hop reads 0,-6.
             local sy = rs16(d + 0x22) + rs16(GSPRITECOORDOFFSETY_ADDR)
             if sx > -32 and sx < 272 and sy > -32 and sy < 192 then
-                gui.drawEllipse(sx - 8, sy + 11, 16, 5, 0x00000000, 0xFF000000)
+                drawOneShadow(sx, sy, 1)
             end
         end
     end
@@ -3287,12 +3362,11 @@ local function drawRemotes(localAreaId, playerMapX, playerMapY, skipSpawned, com
                 -- is where the painted ghost HAS an arc (it copies the spawned sprite's); a real
                 -- overflow peer slides across a ledge and has no ground to separate from.
                 if pinned and remote.act and remote.act >= 0x0c and remote.act <= 0x0f then
-                    -- Same measured geometry as the spawned ghost's: 16x5 of ink at the
-                    -- character's own x, 11px below its un-arced position. screenX/screenY here
-                    -- are the FRAME's top-left, so the character's anchor is +8,+16 from it, and
+                    -- Through the same helper, so both tiers get the learned art (or the same
+                    -- fallback) rather than two copies drifting apart. screenX/screenY are the
+                    -- FRAME's top-left here, so the character's own anchor is +8,+16 from it, and
                     -- the arc comes off because the shadow belongs on the ground.
-                    gui.drawEllipse(screenX, screenY - pinnedArc + 27, 16, 5,
-                        0x00000000, 0xFF000000)
+                    drawOneShadow(screenX + 8, screenY - pinnedArc + 16, dim)
                 end
                 painted = painted + 1
             end

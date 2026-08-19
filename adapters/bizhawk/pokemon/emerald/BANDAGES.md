@@ -206,12 +206,18 @@ shadow there would sit exactly beneath the character and read as nothing. Giving
 its own jump arc means inventing motion the engine is not providing for it, which is a larger step
 than an ellipse and is deliberately not taken here.
 
-**What would retire it, and it is now one step away.** The shadow sprite's own `images` pointer is
-readable off the live sprite whenever any shadow is on screen — the ink measurement above came from
-exactly that — so the adapter could LEARN it the first time it sees one and then decode the real
-art with the same run-decoder the drawn tier already uses for peer graphics. That is the same
-self-calibrating trick Crystal's drawn tier uses to learn facing frames. The only gap is a ghost
-that hops before the local player ever has, where nothing has been seen to learn from yet. The user's call, 2026-08-19, was to bandage it: the same reasoning as the drawn
+**RETIRED IN PRACTICE, 2026-08-19 — the adapter now draws the game's own shadow.** Three rounds of
+"too big / too dark / too high" made the point that an approximation of someone else's art is
+always judged against the original and always loses. So it is not approximated any more:
+`learnShadowArt()` waits until the LOCAL player hops a ledge, finds the shadow sprite on screen by
+what it IS (in use, 16x8, beside the player, mid-jump — never by an address), decodes its pixels
+and palette, and every ghost is drawn with those exact runs from then on, through the same
+`drawRunList` the rest of the drawn tier uses — so it clips and dims like everything else.
+
+**What is still a bandage, and why this entry stays open.** The ELLIPSE remains as the fallback for
+one case: a ghost that hops before the local player ever has, where nothing has been seen to learn
+from yet. Closing that means finding the field-effect template table in ROM, which is a real
+address hunt for a case that resolves itself the first time the player jumps. The user's call, 2026-08-19, was to bandage it: the same reasoning as the drawn
 tier, where the hardware cannot do what is wanted and we compensate visibly and on the record.
 
 ## Deliberate — do NOT "fix" these
