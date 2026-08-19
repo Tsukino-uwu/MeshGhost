@@ -43,10 +43,43 @@ Two ways to run the client -- pick either:
      exactly which folder, and it is the only thing that has to be in a
      particular place.
 
-     Two things to know: an antivirus may object to one program starting
-     another (option 1 is the answer if it does), and the same pairing rule
-     applies -- a copy in a mod folder reads the config.json next to IT, not
-     this one, so that is the file you edit for your host's address.
+     IF THIS TRIPS YOUR ANTIVIRUS, USE OPTION 1. A game launching a second
+     program is a shape antivirus software watches for, and some will block
+     it or quarantine meshghost.exe. That is not a fault to work around and
+     nothing is wrong with your install -- just open the client yourself
+     instead. Option 1 does exactly the same job; the only thing you lose is
+     not having to open it. (Every game's mod also honours the environment
+     variable MESHGHOST_NO_AUTOSTART -- set it to anything and the mod stops
+     trying, so nothing has to be uninstalled.)
+
+     The pairing rule applies here too: a copy in a mod folder reads the
+     config.json next to IT, not this one, so that is the file you edit for
+     your host's address.
+
+Windows, Linux and macOS:
+
+  The CLIENT and the SERVER are built for all three, and the Linux and macOS
+  builds are their own downloads on the release page (this zip is the Windows
+  one). They are the same programs, not a lesser port -- a Linux or macOS host
+  runs the server just as well as a Windows one, and it is a perfectly good
+  choice for a server that stays up.
+
+  Mix freely. The client and server do not care what the other end is running:
+  a Windows player, a Linux player and a macOS host are one ordinary session.
+
+  The GAMES are the part that cannot promise the same, because a mod is written
+  against the game as it ships -- and these ship for Windows. If you play on
+  Linux or macOS you are already running the game through Proton or Wine, and
+  the Windows client runs there alongside it the same way, so it is expected to
+  work; it just is not something every game and every setup can be promised in
+  advance.
+
+  Two practical notes if you are on Proton or Wine:
+  - Running the client YOURSELF (option 1) is the more predictable choice
+    there, since it does not depend on the game being able to launch a second
+    program from inside the prefix.
+  - A native Linux or macOS SERVER has no game involved at all, so it carries
+    none of this uncertainty. If you are hosting, that is the easy part.
 
 Either way the client must be running while you play; the only difference is
 who starts it, and whether the exe has to sit somewhere specific.
