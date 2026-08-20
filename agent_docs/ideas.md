@@ -2047,3 +2047,7 @@ being refused by every existing relay until its host opts in is the wanted behav
 blocklist half of this entry is dropped rather than parked -- it exists only to serve default-allow,
 which nobody has asked for. **What is left to build is one thing: `only_game` takes a list, and
 still accepts a bare string.**
+
+**The whole specification, in the user's words: two states and no third.** Unset -- host everything.
+Set -- host exactly the listed games and nothing else. There is no partial mode, no precedence rule
+and no interaction with anything, which is what makes this a small change rather than a policy.
