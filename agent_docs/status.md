@@ -3,15 +3,19 @@
 ## Active status
 
 **Phase 9 (Crystal) is still the named phase, but 2026-08-19/20 was spent entirely on EMERALD's
-peer states**, and that work is done and confirmed: `verified.md` has an entry per item.
+peer states.** Most of it is confirmed -- `verified.md` has an entry per item -- and the Acro Bike
+is the part that is not.
 
-- **Emerald peer states: fishing, surfing, Mach Bike, Acro Bike all CONFIRMED on both tiers.**
-  Ledge hops, the muddy slope, jumps and wheelie hops too. `verified.md` 2026-08-19/20.
-- **Emerald's drawn tier reached visual parity**: occlusion behind scenery, water reflection with
-  its ripple, tall grass, shadows. Each was a separate mechanism -- `pitfalls.md`.
+- **Emerald peer states: fishing, surfing and the MACH Bike are confirmed on both tiers**, with
+  ledge hops and the muddy slope. `verified.md` 2026-08-19/20.
+- **The ACRO Bike is NOT finished.** Riding, following, hops and jumps are confirmed; the wheelie
+  pose, the landing dust and the shadow sprite are not. See below and `unverified.md`.
+- **Emerald's drawn tier: occlusion behind scenery, the water reflection with its ripple, tall
+  grass and shadows are confirmed.** Landing dust is drawn but unwatched -- `pitfalls.md`.
 - **A ghost can be walked through**, using the engine's own elevation rule. That is what the
   ghost-collision policy's `"disabled"` has been waiting for. `verified.md` 2026-08-20.
-- Phases 6 (TEVI), 7 (Pseudoregalia) and 8 (Emerald) are done; Crystal has none of this work.
+- Phases 6 (TEVI) and 7 (Pseudoregalia) are done; 8 (Emerald) is all but the Acro Bike's
+  leftovers. Crystal has none of this work at all.
 
 **The one rule this session kept proving:** measure against the engine's own state before changing
 anything. Every guess was wrong; every measurement was right first time. `pitfalls.md`'s
