@@ -1014,3 +1014,22 @@ until the reading is taken. The user's own screenshots outrank any the agent tak
 fixed block per figure per frame and print the frame where each changed. One run turned "still
 slower" into "7 frames, 6 of which are the sender's hold" — an argument nothing verbal was
 settling. Point `MESHGHOST_SHOT_DIR` at the scratchpad; 400 PNGs do not belong in the repo.
+
+## Two instruments from the vanishing-hat hunt (Emerald, 2026-08-20)
+
+**Dump the art itself when a sprite looks wrong** (`probes/framedump.lua`): decode a graphic's
+animation frames straight from ROM through its own anim table and write them as image files. It
+answers "is the art what I think it is" in one look — here it retired both an art theory and a
+decode theory in a single dump, and measuring each image's true top row (row 9) later converted a
+suspicious user observation ("the ruler sits 1.5 heads above the sprite") into a NORMAL reading.
+
+**Give the user a ruler when they are the only sensor.** The drawn tier is invisible to
+`client.screenshot`, so when only the user can see the defect, paint a reference line at the
+coordinate under test and let them describe the relationship. One magenta line at the frame-top
+row split "painter puts the box in the wrong place" from "the box is right and pixels die later"
+without a single log line. Remove it the moment it has answered.
+
+And the meta-rule the whole hunt kept teaching: **intersect the user's qualifiers before
+instrumenting anything.** "Drawn only" names the tier; "downwards only" names the screen band a
+trailing follower occupies; the two together pointed at the one subsystem that clips that band on
+that tier. Six instruments measured innocent before that intersection was taken seriously.

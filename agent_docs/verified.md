@@ -8860,3 +8860,18 @@ and biking; the static cross-map peer unaffected throughout, as it always was.
 rebases firing on every armed crossing. Root cause and the contract change (`render_all_areas`,
 bridge hello) are in `architecture.md`'s ADR; the diagnosis chain is `pitfalls.md`'s entry of the
 same day. Full Go suite green twice (`run-gotests.bat`) after the core change.
+
+---
+
+## 2026-08-20 — Emerald: the drawn ghost's hat survives Mach speed, confirmed
+
+**User-confirmed on screen:** *"yee it looks fine/good now, the hat stays on"* — including full
+speed built before a seam and a descent straight through the crossing. Cause was the panel
+scanner's banner flicker clipping screen rows 0-4, drawn tier only; fix is a stability gate
+(two-scan debounce, five-scan streak for the banner band). `pitfalls.md` same date has the six
+innocent suspects and the method. Driven verification: clipped=0 across fast rides with four seam
+crossings, zero despawns, zero frame errors.
+
+**Also shipped in the same hunt, compare mode only:** the pinned drawn twin now takes its
+animation frame from the spawned sprite's LIVE fields, the same source its position already
+pins to — the wire-rate frame strobe at top speed is gone with it.

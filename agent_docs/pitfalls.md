@@ -2750,3 +2750,43 @@ that translates maps owns area visibility; the core delivers and decides nothing
 - **An asymmetric survivor is a bisection for free.** One peer immune + one peer affected =
   the difference between their code paths IS the bug's address. The user handed that over in one
   sentence: *"the static ghost stays fine all the time."*
+
+## Emerald: the vanishing hat — the panel scanner's flicker, and six innocent suspects (2026-08-20)
+
+**Symptom.** The DRAWN ghost's hat-top vanished at Mach speed, sustained, downward rides only,
+restored on stopping or turning. The spawned ghost beside it: never affected. User-confirmed fixed
+the same evening, including the hardest case (full speed built before a seam, descent through it).
+
+**Cause.** `tiering.scanPanel()` reads BG0's tilemap with no notion of the map-name banner's
+mid-flight tilemap redraws: riding at speed it flickered between "no panel" and "panel rows 0-4"
+every few scans. Those rows are screen y 0-39 — exactly the band a TRAILING ghost's hat occupies
+when the player rides DOWN (the follower trails up-screen). Riding up, the follower trails
+down-screen, outside the band: the entire direction asymmetry, which the user kept correctly
+insisting on, was geometry. The clip is drawn-tier-only by design, which is why the spawned ghost
+never flickered — the second correct user observation that named the subsystem.
+
+**Fix, two layers in `scanPanel`:** rows only clip when present in two consecutive scans (a real
+panel is rock-stable), and rows 0-4 with LEFT-side spans — the banner's home, START menu spans
+start right of midscreen — need a five-scan streak. An intermediate attempt gated those rows to a
+time window after a map change instead: wrong, because riding away from a fresh crossing is
+exactly when the user tests, so the window re-admitted the flicker for their whole ride. Stability
+is the discriminator, not time.
+
+**The six suspects that measured innocent first, in order — the expensive part:** occlusion spans
+(384/384 kept, always), the screen edge (never nearer than y=28), the walker fallback (0 firings),
+the ROM art (all twelve fast-family frames carry full hats — `probes/framedump.lua`), the frame
+resolution (raw anim commands logged clean), and the emitted runs (min row 9, matching the art's
+own top row exactly). The instrument that finally pointed upstream was `clipped=` — a counter that
+already existed — read next to a per-frame panel-rows dump.
+
+**Rules worth keeping:**
+- **"Which direction breaks it" is data about GEOMETRY.** Down-only + drawn-only intersected to
+  one subsystem before any code was read: something clipping the top screen band, painted tier
+  only. The user supplied both halves; the mistake was not intersecting them sooner.
+- **A visible ruler beats an invisible log when the user is the sensor.** One magenta line at the
+  paint row let the user report the box-vs-art relationship directly — and its "1-1.5 heads above"
+  reading turned out to be NORMAL (the art starts 9 rows into the box), which retired a whole
+  false lead in one look.
+- **When a fix depends on when the user tests, the fix is wrong.** The map-change window failed
+  precisely because the user's habits sat inside it. A structural discriminator (stability) does
+  not care who is testing.
