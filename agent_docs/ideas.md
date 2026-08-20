@@ -1951,6 +1951,29 @@ game.
 
 **Not scheduled**, and gated behind an ADR per game like everything at Tier 3.
 
+**Amendment, 2026-08-20: a room toggle, and OFF must mean cosmetic-pure.** The user: kill credit/
+participation *"should also have a config toggle for the server (for example if someone is
+speedrunning, so that items/enemies etc are not affected for them, while still being able to just
+visually see other players)"*. Same shape as `ghost_collision` and the share-items idea -- a room
+policy the relay advertises at join -- and the speedrun case sharpens what OFF means: not "less
+interaction" but a GUARANTEE that nothing in the game's state is touched by peers, so a run is
+submittable. That guarantee is exactly the shipped cosmetic default, which means the toggle's off
+position costs nothing to build -- it is the on position that waits for the Tier 3 ADR. Worth
+noting for any future toggle's docs: a speedrunner's burden of proof is to a THIRD party
+(moderators), so "off" should be verifiable from logs, not merely true.
+
+**Refined by the user in the same breath into something better than per-feature toggles: ONE
+"speedrunner" mode** -- *"could maybe just be a 'speedrunner' toggle or something, to force visual
+only and less interactions between people, so its sterile/sane for speedrunning without affecting
+things"*. That is a PROFILE, not a setting: one switch that forces cosmetic-only regardless of what
+individual toggles say, the way the depth ladder in `plans.md` already frames tiers. It composes
+cleanly with everything above: collision off, no item sharing, no kill credit, no event plane --
+each of those toggles gains a master override rather than a sibling. And it is the right shape for
+the moderator-proof point: "the room ran in speedrun mode" is ONE log line to verify instead of
+five settings to audit. A client-side counterpart ("I am speedrunning, force MY session sterile
+whatever the room says") is the same one-way override direction the collision policy already
+established -- a client may always choose LESS interaction, never more.
+
 ## ROM hacks and randomizers worth supporting — candidate list, NOTHING CHECKED (2026-08-19)
 
 **Status: a list, and only a list.** None of these has been downloaded, run, read, or licence-checked,
