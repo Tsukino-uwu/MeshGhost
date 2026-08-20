@@ -436,3 +436,18 @@ bit"*) but standing still is a placeholder, not a measured answer.
       engine gives a blocked rider is what a ghost should perform. `probes/wheelie_watch.lua` is the
       shape to copy -- drive it, log the player's object per frame. Until then a blocked ghost on a
       bike is silent where the player is not.
+
+## Pending — Emerald: two edges the mount/dismount fixes may have (2026-08-20)
+
+The transitions themselves are user-confirmed 1:1. These are the trades the fixes made, believed
+invisible, not yet watched for deliberately:
+
+- [ ] **A swap landing mid-step now runs the rest of that step with the new graphic paused.**
+      *What to look at:* mount or change state at the exact moment the ghost is mid-stride
+      (walk up to the bike and mount instantly, repeatedly). *Known worst case:* legs frozen for
+      up to half a tile. If visible, the fix is releasing the pause when the step's animation is
+      the one running, not another gate.
+- [ ] **Fishing kept both delays on purpose** — the mid-step deferral and the sender's 6-frame
+      hold — so a rod cast is now the one state that changes later than the painted copy.
+      *Correct:* nobody notices, because a cast starts from a standstill. If a cast ever reads as
+      laggy, the offset-pairing problem the hold solves has to be solved another way first.
