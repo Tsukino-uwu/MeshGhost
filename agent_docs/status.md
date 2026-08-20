@@ -41,7 +41,9 @@ confirmation pass:
 | Vanilla Emerald | 28328 | 7778 | `bizhawk-dev-loader-emerald.target` |
 
 (pids as of 2026-08-20 afternoon; they change — match on the `--lua=` argument. The relay on 7777
-is pid 10196 with `-loopback -ghost-collision=disabled`, the core pid 2412 pinned `-transport=tcp`.
+is pid 10196 with `-loopback -ghost-collision=disabled`, the core pid 20552 pinned `-transport=tcp`
+(REBUILT with render_all_areas -- an old binary re-breaks seam crossings). Killing the core makes
+the adapter AUTOSTART a default-flags one within seconds; start yours before it wins the port.
 The loader set is the syntax check, a scratchpad `flags_compare.lua` setting the three dev flags —
 `MESHGHOST_COMPARE_TIERS`, `MESHGHOST_GHOST_PEER_GFX`, `MESHGHOST_EMERALD_NO_COLLISION` — and the
 adapter. That trio plus the relay flag is the standing dev-session default; the flags file lives in
