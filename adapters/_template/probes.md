@@ -1033,3 +1033,24 @@ And the meta-rule the whole hunt kept teaching: **intersect the user's qualifier
 instrumenting anything.** "Drawn only" names the tier; "downwards only" names the screen band a
 trailing follower occupies; the two together pointed at the one subsystem that clips that band on
 that tier. Six instruments measured innocent before that intersection was taken seriously.
+
+## Identical results across conditions are a probe bug until proven otherwise (Emerald, 2026-08-20)
+
+A probe ran six conditions -- the same wheelie action issued in each of four directions, plus two
+control cases -- and every one of them finished in **exactly eleven frames**. That looked like a
+clean negative result and was written up as one, in a comment that then justified a real behaviour
+change. It was a bug: the table carried a per-condition action id, and the line that issued the
+action ignored it and re-derived the id from the object's own facing. All six conditions issued the
+same id. The question the run was built to ask was never asked.
+
+**The rules that come out of it:**
+
+- **A table of conditions needs one line proving each condition is DIFFERENT.** Log the value you
+  actually wrote, not the one you meant to write -- the same reason nothing here logs the variable
+  it just set as proof. One extra field in the header line (`issuing %02X`) is the whole fix.
+- **Suspiciously identical outcomes are a signal, the way two guessed fixes failing the same way
+  are.** Real conditions vary by a frame or two; six runs agreeing to the frame means they were the
+  same run six times.
+- **A negative result deserves the same scepticism as a positive one.** "Nothing reproduced the
+  hang" closed an investigation and re-enabled behaviour that had been dropped for a reason. If a
+  result is about to change what ships, re-read what the probe actually did before it does.

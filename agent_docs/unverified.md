@@ -468,3 +468,22 @@ player). These are the specific leftovers:
 - [ ] **The 7-second arming window per adapter load.** Before the ROM scan completes, cross-map is
       off and crossings tear down the old way. Live it reads as "the first crossing after a load
       reloads the ghosts once"; if that ever bothers, the scan result could be cached to a file.
+
+## Pending — Emerald: a reversal while hopping leaves the SPAWNED ghost facing the old way (2026-08-20)
+
+**User, 2026-08-20:** *"when i was going right, the spawned ghost was still facing left, and hopping
+backwards"*, and, asked which tier: *"the drawn ghost was fine, only the spawned one had this
+issue"*. Same data into both tiers, one of them wrong, so the fault is in what the spawned tier
+DOES with it -- the same diagnosis shape that found the travelling-action lurch earlier that day.
+
+One instance is already in the measured log (`probes/hopwatch.lua`, 2026-08-20): across a
+turnaround the ghost held `act=0x72 dir=west` for ~16 frames while the player was already
+`act=0x73 dir=east`. Whether that is the whole symptom or only its edge is unmeasured.
+
+- [ ] **Capture a real reversal.** `hopwatch.lua` now logs a facing disagreement with its LENGTH
+      and any ghost tile step taken opposite to the player's direction of travel. A few frames is
+      the interpolation delay; a sustained one is a defect.
+- [ ] **The likely mechanism to test first, not to assume:** a ghost cannot abandon a step it has
+      started (the standing open item above), so a hop issued just before the peer reverses must
+      finish -- and `stepDir` comes from the tile delta, which can point backwards for a beat if
+      the ghost overshot. Both are measurable from the same capture.

@@ -78,6 +78,11 @@ end
 -- have yet. The three ids the watchdog kept freeing were 0x69, 0x6B and 0x6D -- never the `+0`
 -- south member, which is the one a probe facing south would produce. So: issue all four members of
 -- the family to a ghost, whatever way it happens to be facing, and see which of them hang.
+--
+-- ROUND FOUR'S FIRST RUN (`wheelie_ghost_20260820_114119.log`) DOES NOT ANSWER THAT and must not
+-- be cited: the issuing line ignored each condition's `act` and re-derived the id from the ghost's
+-- facing, so all six conditions issued 0x6B and all six finished in eleven frames. Fixed below;
+-- the header line now records the id actually written and the ghost's facing at the time.
 local CONDS = {
     { name = "pop wheelie, direction matching the ghost's own facing", frames = 120 },
     { name = "pop wheelie SOUTH (0x68) regardless of facing", frames = 120, act = 0x68 },
@@ -128,11 +133,16 @@ local function tick()
 
     if n == 1 then
         say(string.format("condition %d/%d: %s", ci, #CONDS, CONDS[ci].name))
-        line(string.format("# condition %d %s (interrupting action %02X, data1=%d)",
-            ci, CONDS[ci].name, r8(a + 0x1c), memory.read_s16_le(s + 0x30)))
+        -- ROUND FOUR'S RESULT WAS A PROBE BUG, found 2026-08-20 by reading the log rather than the
+        -- summary: every condition issued `ACTION + facing` and the per-condition `act` field was
+        -- never read, so all six "directions" were the same id (0x6B, the ghost facing east) and
+        -- all six finished in eleven frames. The mismatched-direction question was never asked.
+        local want = CONDS[ci].act or (ACTION + (r8(a + 0x18) & 0x0f) - 1)
+        line(string.format("# condition %d %s (issuing %02X, ghost facing %02X, interrupting action %02X, data1=%d)",
+            ci, CONDS[ci].name, want, r8(a + 0x18), r8(a + 0x1c), memory.read_s16_le(s + 0x30)))
         -- Issued exactly the way the adapter does: action id, heldMovementActive set and finished
         -- cleared, and the step function's sub-state reset.
-        w8(a + 0x1c, ACTION + (r8(a + 0x18) & 0x0f) - 1)
+        w8(a + 0x1c, want)
         w8(a + 0x00, (r8(a) | 0x40) & ~0x80)
         w16(s + 0x32, 0)
         if CONDS[ci].clearType then w16(s + 0x30, 0) end

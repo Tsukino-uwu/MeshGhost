@@ -4915,11 +4915,17 @@ local function syncGhost(playerId, remote)
     -- Measured instead of guessed (probes/wheelie_watch.lua and probes/wheelie_ghost.lua, both in
     -- verified.md). On the player every one of these actions completes -- 0x6B ran nine frames and
     -- reported finished. On a GHOST they complete too, in eleven frames, under every condition the
-    -- hang was blamed on: sitting idle, issued on top of a step already running, with the sprite's
-    -- paused bit set or cleared, and in all four directions including the exact ids the watchdog
-    -- had been freeing. Nothing reproduced the hang, so what caused it was something else in the
-    -- state of that session, and the same day's paused-sprite and graphic-swap fixes are the
-    -- candidates.
+    -- hang was blamed on: sitting idle, issued on top of a step already running, and with the
+    -- sprite's paused bit set or cleared. Nothing reproduced the hang, so what caused it was
+    -- something else in the state of that session, and the same day's paused-sprite and
+    -- graphic-swap fixes are the candidates.
+    --
+    -- CORRECTED 2026-08-20: this comment used to add "and in all four directions including the
+    -- exact ids the watchdog had been freeing". That was never measured. The probe's issuing line
+    -- ignored each condition's action id and re-derived it from the ghost's own facing, so all six
+    -- "directions" issued the same id -- which is why all six finished in exactly eleven frames.
+    -- A mismatched direction remains UNTESTED. `probes/wheelie_ghost.lua`'s header carries the
+    -- detail and the fix.
     --
     -- The watchdog stays exactly as it is: it costs nothing, it logs what it frees, and it is the
     -- reason this was diagnosable at all. If the hang comes back, it will say so by name.

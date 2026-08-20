@@ -8875,3 +8875,30 @@ crossings, zero despawns, zero frame errors.
 **Also shipped in the same hunt, compare mode only:** the pinned drawn twin now takes its
 animation frame from the spawned sprite's LIVE fields, the same source its position already
 pins to — the wire-rate frame strobe at top speed is gone with it.
+
+---
+
+## 2026-08-20 — Emerald: plain Acro Bike riding left/right is correct, and no ghost invents a hop
+
+**User-confirmed on screen:** *"moving left/right looks correct now"*, after a report the same
+session that ghosts were hopping while riding normally.
+
+**Agent-measured, from a driven ride** (`probes/acroride.lua`, vanilla ROM, loopback with
+COMPARE_TIERS): three tiles left, three right, three laps. The player's object reported **only
+`RIDE_WATER_CURRENT` 0x2B/0x2C** throughout -- no wheelie or hop id appeared at all -- the adapter
+classified them `inPlace=false travels=false`, and **both sprites stayed on the ground on every
+sampled frame** (`pos2 y = 0`). So plain riding does not produce a hop on either side.
+
+**Agent-measured, from the user's own hopping** (`probes/hopwatch.lua`): 66 ghost hops captured,
+and **every one had the player in a hop action too** (0x72/0x73 standing, 0x76/0x77 travelling).
+Zero ghost hops occurred while the player was on a plain ride action. The watcher's own control
+passed in the same run -- it was silent through the left/right riding and fired immediately once
+real hops began, so the silence was evidence rather than an unarmed probe.
+
+**Also measured, and NOT a defect on its own:** the ghost's hop starts on the frame the player's
+hop ends -- consistently about half a hop cycle behind. That is the interpolation delay made
+visible, the same shape as every other trailing measurement in this file.
+
+**Open, from the same session:** turning left-to-right while hopping left the ghost facing the old
+way for ~16 frames, and the user reports it hopping backwards there -- spawned tier only, the drawn
+tier fine. Measurement armed, not yet captured; `unverified.md`.
