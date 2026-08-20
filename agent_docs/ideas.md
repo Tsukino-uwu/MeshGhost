@@ -2109,3 +2109,42 @@ question of HOW an item actually arrives last -- because that answer decides whe
 feature or a rule change.
 
 **Not scheduled.** Nothing here is committed until it moves into `plans.md`.
+
+## Split releases: platform-only and per-category bundles beside the full one — filed 2026-08-20
+
+**The ask, in the user's own structure** (*"to kinda be future proof if we ever get a lot of
+adapters/games"*), keeping the full release at the top:
+
+- FULL — what ships today: Windows binaries plus every adapter
+- emulator games
+- indie games
+- AAA games
+- windows server/client only
+- linux server/client only
+- mac server/client only
+
+**Why it is cheap to build and worth having.** The release zip is assembled by staging in
+`release.yml`, and every split above is a different staging list over artifacts that already
+exist -- the Go side already cross-compiles in CI, so the linux/mac server-client rows are mostly
+"stop discarding what CI already builds". The category split maps cleanly onto the repo's own
+layout (`adapters/bizhawk/` IS the emulator category; TEVI/Pseudoregalia are the indie one; AAA is
+empty today, which is fine -- the row exists so the scheme does not need reshaping when it stops
+being empty).
+
+**The two decisions worth making deliberately:**
+
+- **Category names are a public promise.** "indie vs AAA" is a marketing distinction users
+  understand, but it drifts (what is a AAA adapter this repo could even ship?). Engine-based names
+  (emulator / Unity / Unreal) never drift, and the current games already sort perfectly into them
+  -- worth choosing before the first split release, because renaming a release artifact later
+  breaks every guide that linked it.
+- **The server-client-only rows change who downloads MeshGhost.** A relay host today downloads a
+  zip full of game adapters they will never load. A small server-only artifact is also the natural
+  thing to point a VPS guide at (the hosting question the user asked 2026-08-20), and it makes the
+  "run your own relay" story one download with nothing scary in it.
+
+**Prerequisite worth naming:** the release staleness gate hashes the committed DLLs; a split
+release must reuse the SAME staged artifacts, not rebuild per bundle, or the gate's guarantees
+fragment across zips.
+
+**Not scheduled.** Nothing here is committed until it moves into `plans.md`.
