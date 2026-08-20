@@ -1253,6 +1253,9 @@ local function glideRemote(r, targetX, targetY)
     -- The delay line: a short ring of recent positions, read from DRAWN_DELAY_FRAMES ago.
     r.hist = r.hist or {}
     r.hist[frameCounter % 32] = { targetX, targetY }
+    -- Kept before the delay lookup overwrites targetX/Y: the speed measurement below wants where
+    -- the peer actually IS, not where the delay line is replaying from.
+    local rawTargetX, rawTargetY = targetX, targetY
     local old = r.hist[(frameCounter - genderFrames.drawnDelay) % 32]
     if old then targetX, targetY = old[1], old[2] end
 
@@ -1281,8 +1284,31 @@ local function glideRemote(r, targetX, targetY)
     -- never overshoot. The delay line above still provides the trailing distance the engine's own
     -- step machine would produce; this only decides how the ground between is covered.
     local prevX, prevY = r.gX, r.gY
+    -- TARGET SPEED OVER A WINDOW, NOT FRAME TO FRAME -- fixed 2026-08-21, and the frame-to-frame
+    -- version was a real defect rather than a rough edge.
+    --
+    -- The peer's position stream is bursty by nature: it advances a little for several frames and
+    -- then jumps at a tile boundary (the Mach Bike measurement in the comment above). Measured
+    -- between consecutive frames, tspd is therefore ZERO on most frames, which collapses the limit
+    -- below to its 0.02 floor -- and a ghost that may move 0.025 tiles a frame cannot follow a
+    -- player RUNNING at 0.25. It falls further behind every frame until the two-tile discontinuity
+    -- guard above fires and snaps it forward.
+    --
+    -- Measured on the scripted left/right ride (probes/tier_compare.log, 2026-08-21): the camera
+    -- moved 4px a frame while the glide advanced 1.25px, and the ghost sawtoothed -- drifting ~3px
+    -- a frame for seventeen frames and then jumping 2.4 tiles. That is what the user saw as
+    -- *"really choppy"* and *"lagging behind"*. It was never the tier being judged; all three
+    -- non-engine renderers share this filter.
+    --
+    -- The same history ring the delay line uses already holds where the target was N frames ago, so
+    -- average speed is one subtraction and needs no new state. Averaging over the window turns
+    -- "nothing arrived this frame" into the peer's real speed instead of a standstill.
+    local WINDOW = 8
+    local was = r.hist[(frameCounter - WINDOW) % 32]
     local tspd = 0
-    if r.tgtPrevX then
+    if was then
+        tspd = (math.abs(rawTargetX - was[1]) + math.abs(rawTargetY - was[2])) / WINDOW
+    elseif r.tgtPrevX then
         tspd = math.abs(targetX - r.tgtPrevX) + math.abs(targetY - r.tgtPrevY)
     end
     r.tgtPrevX, r.tgtPrevY = targetX, targetY
@@ -5662,10 +5688,27 @@ end
 -- DRAWN tier is off entirely, which is the shipping default -- otherwise the anchor is never
 -- calibrated at all and every hardware sprite lands at the wrong offset.
 --
--- Idempotent within a frame, so calling it from both tiers costs a few reads and changes nothing.
+-- ONCE PER FRAME, AND THE CACHE IS LOAD-BEARING. The first version of this said it was idempotent
+-- and could simply be called from both tiers. That was wrong, and it produced a real defect: the
+-- calibration counts how many consecutive frames the player has stood on the same tile, and only
+-- refreshes the anchor once that count passes four. Called twice a frame the counter advances twice
+-- as fast, so the anchor refreshes while the player is mid-step -- exactly the one-tile spike the
+-- "stand still first" guard below exists to prevent.
+--
+-- The symptom was the hardware ghost drifting 2-3px a frame and then jumping about two tiles back,
+-- while the painted copy beside it sat perfectly still. User, 2026-08-21: *"its also lagging
+-- behind"*. Found from probes/tier_compare.log rather than by eye -- the painted copy is PINNED to
+-- the spawned ghost's own sprite in compare mode, so it could not show the fault at all, and only
+-- the third column made it visible.
+--
+-- So the state advances once per frame and every later caller gets the same four numbers back.
 --
 -- A GLOBAL because this chunk is at Lua's 200-local ceiling.
 function anchorFrame(localAreaId, playerScreenX, playerScreenY, playerMapX, playerMapY)
+    if tiering.anchorAt == frameCounter and tiering.anchorCache then
+        local c = tiering.anchorCache
+        return c[1], c[2], c[3], c[4]
+    end
     local sb1 = r32(GSAVEBLOCK1PTR_ADDR)
     local camPixX = rs16(GTOTALCAMERAPIXELOFFSETX_ADDR)
     local camPixY = rs16(GTOTALCAMERAPIXELOFFSETY_ADDR)
@@ -5734,6 +5777,8 @@ function anchorFrame(localAreaId, playerScreenX, playerScreenY, playerMapX, play
         playerMapX = tiering.anchorX - camX / 16
         playerMapY = tiering.anchorY - camY / 16
     end
+    tiering.anchorAt = frameCounter
+    tiering.anchorCache = { camPixX, camPixY, playerMapX, playerMapY }
     return camPixX, camPixY, playerMapX, playerMapY
 end
 
@@ -5772,6 +5817,10 @@ tiering.hw = {
     -- gDummyOamData, the engine's own "hidden" encoding: off-screen, 8x8, priority 3. Releasing with
     -- the engine's value rather than zeroes leaves a slot indistinguishable from one never used.
     d0 = 0x00a0, d1 = 0x0130, d2 = 0x0c00,
+    -- Compare-mode nudge, in tiles, off the spawned ghost this tier is overlaid on. 0,0 means
+    -- exactly on top of it, which is the default and the sharper comparison.
+    cmpDX = tonumber(MESHGHOST_EMERALD_HW_COMPARE_DX or "") or 0,
+    cmpDY = tonumber(MESHGHOST_EMERALD_HW_COMPARE_DY or "") or 0,
     byPeer = {},   -- player_id -> { slot, tileStart, tileCount, gfx, animNum, animIdx }
     slotUsed = {}, -- slot -> player_id
     area = nil,    -- the area those tile allocations belong to
@@ -5852,7 +5901,13 @@ tiering.chooseHardware = function(localAreaId, playerX, playerY, spawnSet)
     if not tiering.hw.on then return set end
     local ranked = {}
     for playerId, remote in pairs(remotes) do
-        if remote.areaId == localAreaId and not (spawnSet and spawnSet[playerId]) then
+        -- The loopback ghost is the one peer allowed into every tier at once, and only in compare
+        -- mode -- that is the whole point of compare mode. Everyone else lands here exactly when the
+        -- engine had no room for them.
+        local alsoSpawned = COMPARE_TIERS and playerId:match("%-ghost$") ~= nil
+        if remote.areaId == localAreaId
+            and (alsoSpawned or not (spawnSet and spawnSet[playerId]))
+        then
             local dx, dy = remote.x - playerX, remote.y - playerY
             local d = math.sqrt(dx * dx + dy * dy)
             if tiering.hw.byPeer[playerId] then d = d - tiering.hysteresis end
@@ -5882,6 +5937,11 @@ end
 function renderHardwareGhosts(localAreaId, playerMapX, playerMapY, hwSet)
     tiering.hw.placed = 0
     if not tiering.hw.on then return end
+    if not next(hwSet) and (not tiering.hw.lastEmpty
+        or frameCounter - tiering.hw.lastEmpty > 300) then
+        tiering.hw.lastEmpty = frameCounter
+        logFile("hw tier: on, but no peer was assigned to it this frame")
+    end
     -- VANILLA ONLY, for now. gMain's address comes from our own build of the decomp, and an
     -- Archipelago ROM relocates code and data -- the same gate the fishing hook uses. On a patched
     -- ROM this tier simply does not engage and its peers fall through to the painted one.
@@ -5920,6 +5980,16 @@ function renderHardwareGhosts(localAreaId, playerMapX, playerMapY, hwSet)
                 rec = nil
             end
             if not rec then rec = hwAcquire(playerId, info) end
+            -- WHY NOTHING APPEARED, said once every 5 seconds rather than never. A tier that
+            -- silently renders nobody is indistinguishable from one that is switched off, and that
+            -- cost a whole test cycle on 2026-08-21. Throttled to the file, never the console.
+            if not rec and (not tiering.hw.lastWhy
+                or frameCounter - tiering.hw.lastWhy > 300) then
+                tiering.hw.lastWhy = frameCounter
+                logFile(string.format(
+                    "hw tier: no slot/tiles for %s (free slots=%d, wanted %d tiles, gfx=%s)",
+                    tostring(playerId), tiering.hwBudget(), info.tileCount, tostring(remote.gfx)))
+            end
             if rec then
                 -- WHERE ON SCREEN. The same origin + delta + camera-pixel form the painted tier
                 -- uses, and it is already the sprite's TOP-LEFT in screen pixels -- which is exactly
@@ -5934,8 +6004,30 @@ function renderHardwareGhosts(localAreaId, playerMapX, playerMapY, hwSet)
                 -- peer cannot be taken behind a building to check occlusion, and the loopback one
                 -- goes wherever the player goes.
                 if playerId:match("%-ghost$") then
-                    glideX = glideX + LOOPBACK_GHOST_OFFSET_TILES_X
-                    glideY = glideY + LOOPBACK_GHOST_OFFSET_TILES_Y
+                    if COMPARE_TIERS then
+                        -- THREE-WAY COMPARE: the same peer rendered by all three tiers at once --
+                        -- spawned 2 tiles right, painted 2 tiles left, and this one wherever the
+                        -- offsets below put it. The user's call, 2026-08-21: *"i want to compare all
+                        -- 3 to each other. only testing OAM alone is dumb"*, and they are right --
+                        -- "is it choppy" is not a question a single renderer can answer, because the
+                        -- peer's position pipeline is shared by all three and would look identical
+                        -- in each.
+                        --
+                        -- DEFAULT: exactly ON the spawned ghost, and that is the sharper test of the
+                        -- two. Side by side, a difference of a pixel or a frame has to be held in
+                        -- memory across the gap between them; overlapped, it is simply visible --
+                        -- and because a hardware entry above the engine's range always loses an
+                        -- overlap tie, a perfectly matched pair shows ONE ghost and any mismatch
+                        -- shows this one peeking out from behind it. User's call, same date: *"can
+                        -- you move the OAM 2 tiles to the right ? so its on top of the spawned one
+                        -- instead ?"*. tiering.hw.cmpDX/cmpDY move it off again from a loader
+                        -- script, without an emulator restart, when separation is wanted instead.
+                        glideX = glideX + LOOPBACK_GHOST_OFFSET_TILES_X + (tiering.hw.cmpDX or 0)
+                        glideY = glideY + LOOPBACK_GHOST_OFFSET_TILES_Y + (tiering.hw.cmpDY or 0)
+                    else
+                        glideX = glideX + LOOPBACK_GHOST_OFFSET_TILES_X
+                        glideY = glideY + LOOPBACK_GHOST_OFFSET_TILES_Y
+                    end
                 end
                 local sx = (tiering.originX or playerScreenX)
                     + (glideX - (tiering.anchorX or playerMapX)) * TILE + camPixX
@@ -5970,13 +6062,40 @@ function renderHardwareGhosts(localAreaId, playerMapX, playerMapY, hwSet)
                         rec.gfx, rec.animNum, rec.animIdx = remote.gfx, an, ai
                     end
 
+                    -- FACING IS IN THE ANIMATION COMMAND, NOT IN THE FRAME. Emerald has no
+                    -- east-facing artwork: east is the WEST frames with the hardware's horizontal
+                    -- flip set, which is why animNum 2 serves both directions. The flip lives at
+                    -- bit 22 of the animation command word -- the same bit the painted tier reads
+                    -- for the same reason -- and an entry that ignores it shows a character facing
+                    -- the wrong way exactly half the time. User, 2026-08-21, comparing the three
+                    -- tiers: *"OAM is facing left, whenever i face right"*.
+                    --
+                    -- Bit 12 of the second halfword is hFlip when the entry is not affine, which is
+                    -- ours: the template's affine bits are copied unchanged and overworld characters
+                    -- are never affine.
+                    local flip = 0
+                    local aptr = r32(info.anims + an * 4)
+                    if isRomPtr(aptr) and ((r32(aptr + ai * 4) >> 22) & 1) == 1 then
+                        flip = 0x1000
+                    end
                     w16(a + 0, (t0 & 0xff00) | (sy & 0xff))
-                    w16(a + 2, (t1 & 0xfe00) | (sx & 0x1ff))
+                    w16(a + 2, (t1 & 0xfe00) | (sx & 0x1ff) | flip)
                     -- Priority and palette buy the occlusion and the fades. Priority 2 is ordinary
                     -- ground, which is what the engine gives its own overworld characters; the
                     -- palette slot comes from the graphic's own descriptor, not from anything ours.
                     w16(a + 4, (rec.tileStart & 0x3ff) | (2 << 10) | ((info.paletteSlot or 0) << 12))
                     tiering.hw.placed = tiering.hw.placed + 1
+                    -- Published for the three-way compare log in drawRemotes, which runs after this
+                    -- in the same frame. Where the OTHER two tiers put the same peer is already on
+                    -- that line; without this one there is no way to tell "the hardware tier lags"
+                    -- from "the peer's position pipeline lags and all three inherit it".
+                    if COMPARE_TIERS then
+                        tiering.hwLastX, tiering.hwLastY = sx, sy
+                        -- The formula's four inputs, so a drift can be attributed to one of them
+                        -- rather than argued about. Compare mode only.
+                        tiering.hwDbg = string.format("gX=%.3f anch=%s orig=%s cam=%d",
+                            glideX, tostring(tiering.anchorX), tostring(tiering.originX), camPixX)
+                    end
                 end
             end
         end
@@ -6269,10 +6388,12 @@ local function drawRemotes(localAreaId, playerMapX, playerMapY, skipSpawned, com
                     -- user found the drawn ghost still for a single tile at half speed.
                     tiering.moveLog[#tiering.moveLog] = tiering.moveLog[#tiering.moveLog]
                         .. string.format(" | pose=%s frame=%s gDist=%.3f gMoved=%s gfx=%s "
-                            .. "sanim=%s/%s",
+                            .. "sanim=%s/%s hw=%s,%s",
                             tostring(pose), tostring(frameIndex), remote.gDist or -1,
                             tostring(remote.gMoved), tostring(remote.gfx),
-                            tostring(remote.sanim), tostring(remote.sidx))
+                            tostring(remote.sanim), tostring(remote.sidx),
+                            tostring(tiering.hwLastX), tostring(tiering.hwLastY))
+                        .. " | " .. tostring(tiering.hwDbg)
                 end
                 -- THE SHADOW GOES DOWN FIRST, because paint order IS depth on this tier.
                 --

@@ -1692,6 +1692,48 @@ the right one wherever the decoration has to be hidden by scenery like the body 
 decoration, measure, and do not let "which tier is this ghost" become a single answer it does not
 have to be.
 
+## A SPEEDRUN toggle: spawned and hardware only, never painted — filed 2026-08-21
+
+**The user's rule, and the reasoning is theirs:** *"a 'speedrun' toggle should have drawn
+disabled. only spawned & OAM. so that it can never hurt performance/make the run slower for
+them."*
+
+**Why this deserves a switch rather than a note.** The three tiers are not merely different
+qualities of ghost, they are different COST CURVES, and only one of them can take the frame rate
+down (`verified.md`, 2026-08-21):
+
+| tier | cost as peers grow | ceiling |
+| --- | --- | --- |
+| spawned | rides along with work the engine already does | the engine's object array, ~11 in practice |
+| hardware sprite | flat -- 56 measured identical to a bare emulator | the 56-entry OAM window, then OBJ tiles |
+| painted | ~0.6ms per visible ghost, every frame | none, and that is the problem |
+
+The first two have HARD CEILINGS, and a hard ceiling is exactly what a runner wants: whatever else
+happens in the room, the cost of other players is bounded by the game's own limits and cannot
+exceed them. The painted tier has no ceiling at all -- 56 painted peers measured 39.6 fps and 150
+measured 10.4 -- so a crowded room can cost a runner their run through no action of their own.
+
+**What the toggle does, and it is small:** force the painted tier off while leaving the other two
+alone. Peers past both ceilings are then simply not shown, which is the pre-2026-08-19 behaviour
+and is the right trade here. The standing rule against pop-in was about ORDINARY PLAY; a runner is
+explicitly buying predictability with visibility, which is a different bargain.
+
+**Do not implement it as a new rendering path.** It is a policy over the existing ladder, not a
+fourth tier: the same dispatch with the last rung disabled. Anything more is a second way for the
+tiers to disagree.
+
+**Open questions before it is scheduled:**
+
+- **Is it the runner's switch or the room's?** A local toggle protects one player and lets the room
+  stay mixed; a room-wide one makes every client behave the same and becomes a `features` question,
+  with all the compatibility weight that carries (`architecture.md`'s room-code ADR).
+- **Should it also cap the SPAWNED tier?** Spawning is cheap but not free, and a runner may prefer a
+  known small number to the engine's whole budget.
+- **Does it need to be visible to other players?** A ghost not drawn for you is still drawn for
+  them; nothing here is negotiated, and it probably should stay that way.
+
+**Not scheduled.** Nothing here is committed until it moves into `plans.md`.
+
 ## Crystal: a ghost you can talk to — and eventually battle
 
 **Status: discovered by accident 2026-08-18, nothing built, nothing scheduled.** Recorded because it
