@@ -1459,6 +1459,275 @@ end
 
 local remotes = {}
 
+-- ===== CROSS-MAP GHOSTS: a peer across a route seam is visible, a peer in a house is not =====
+--
+-- The user's ask, 2026-08-20: *"see ghosts when going between routes, but still hide them when
+-- entering houses"*, with distance culling so nothing far away costs anything, and *"i want it to
+-- exist before appearing on a screen so that ghosts never pop in/out"*.
+--
+-- The game's own map system already draws this exact line. Maps join two ways: CONNECTIONS (route
+-- touching town -- seamless, you can see across) and WARPS (doors, cave mouths). Houses are only
+-- ever reached by warp, so the rule "translate peers on maps CONNECTED to mine, hide everyone
+-- else" is routes-visible-houses-hidden with no house special-case, and it is also the distance
+-- cull: two maps away is not in my connection list, so it does not exist for me.
+--
+-- HOW: translated AT INGEST into the local map's tile frame, so the entire downstream pipeline --
+-- anchor, glide, both tiers, collision -- sees ordinary local coordinates and needs no changes.
+-- Re-translated every frame from the stored wire coordinates, so the local player crossing a seam
+-- rebases every peer the same frame instead of waiting a delivery.
+--
+-- Structures measured live 2026-08-20 (`probes/connections.lua`, and its log): the header copy at
+-- 02037318 carries the connections pointer at +0x0C -> {count s32, list ptr}, entries 12 bytes
+-- {direction u8, offset s32 +4, mapGroup u8 +8, mapNum u8 +9}, directions 1/2/3/4 =
+-- south/north/west/east. Verified on both sides of a real seam, including a double west
+-- connection whose offset=20 is the field doing its job. Field names from pokeemerald
+-- include/global.h; the layout is the probe's measurement, not trust.
+--
+-- gMapGroups (group:num -> ROM header, for a NEIGHBOR's dimensions) is SELF-LOCATED, never
+-- hardcoded: find the ROM original of the live header copy by its own first 16 bytes, then the
+-- pointer to it, then the pointer to that -- each step read back before use, the same posture as
+-- the Archipelago sprite-shift detection. Located across ~6s of frames in 128KB chunks; until it
+-- completes, cross-map stays off and behaviour is exactly yesterday's.
+--
+-- THE MARGIN is the no-pop rule: a translated peer within 7 tiles of the map edge exists on both
+-- tiers, and 7 is the engine's own border width -- one tile more than the screen can show past a
+-- seam vertically. (The far screen CORNER can exceed it by a tile; accepted for v1 and noted.)
+genderFrames.xmap = { scanStep = 1, scanAt = 0, hits = {}, groupsAt = nil,
+    conns = nil, connsFor = nil, ourW = 0, ourH = 0 }
+
+genderFrames.xmapLocalKey = function()
+    local sb1 = memory.read_u32_le(0x03005d8c)
+    if sb1 == 0 then return nil end
+    return memory.read_u8(sb1 + 0x04) .. ":" .. memory.read_u8(sb1 + 0x05)
+end
+
+-- One 128KB chunk of the ROM scan per frame; three passes as in the probe.
+genderFrames.xmapScan = function()
+    local xm = genderFrames.xmap
+    -- A failed pass RETRIES rather than giving up: the scan takes ~400 frames, and the player
+    -- crossing a seam mid-pass swaps the header under it -- the verify then finds zero candidates
+    -- and a permanent give-up leaves cross-map off for the whole session, measured live when a
+    -- driven crossing raced the scan. A short pause between attempts keeps the retry polite.
+    if xm.groupsAt then return end
+    if xm.scanStep > 3 then
+        if not xm.retryAt then xm.retryAt = frameCounter + 300 end
+        if frameCounter < xm.retryAt then return end
+        xm.scanStep, xm.scanAt, xm.retryAt = 1, 0, nil
+    end
+    local GMH = 0x02037318
+    if xm.scanAt == 0 then
+        xm.scanAt = 0x08000000
+        xm.hits = {}
+        if xm.scanStep == 1 then
+            xm.target = memory.read_u32_le(GMH)
+            -- SNAPSHOT, not a live comparison: the pass takes ~130 frames and the player crossing
+            -- a seam mid-pass swaps the header under it -- verifying against the LIVE copy then
+            -- fails every pass that straddles a crossing, and in real roaming the scan can retry
+            -- for minutes. The signature and the map identity are captured HERE, so the pass finds
+            -- the map it started on regardless of where the player has wandered since.
+            xm.sig = {}
+            for k = 0, 12, 4 do xm.sig[k] = memory.read_u32_le(GMH + k) end
+            local sb1s = memory.read_u32_le(0x03005d8c)
+            xm.sigGrp, xm.sigNum = memory.read_u8(sb1s + 0x04), memory.read_u8(sb1s + 0x05)
+        elseif xm.scanStep == 2 then xm.target = xm.romHeader
+        else xm.target = xm.groupArray end
+        if not xm.target or xm.target == 0 then xm.scanStep = 4 return end
+    end
+    local b = memory.read_bytes_as_array(xm.scanAt, 0x20000)
+    local t = xm.target
+    local b0, b1 = t % 256, math.floor(t / 256) % 256
+    local b2, b3 = math.floor(t / 65536) % 256, math.floor(t / 16777216) % 256
+    for i = 1, 0x20000 - 3, 4 do
+        if b[i] == b0 and b[i + 1] == b1 and b[i + 2] == b2 and b[i + 3] == b3 then
+            xm.hits[#xm.hits + 1] = xm.scanAt + i - 1
+        end
+    end
+    xm.scanAt = xm.scanAt + 0x20000
+    if xm.scanAt < 0x09000000 then return end
+    -- pass complete: interpret
+    local sb1 = memory.read_u32_le(0x03005d8c)
+    if sb1 == 0 then xm.scanAt = 0 return end
+    if xm.scanStep == 1 then
+        local m
+        local count = 0
+        for _, a in ipairs(xm.hits) do
+            local ok = true
+            for k = 0, 12, 4 do
+                if memory.read_u32_le(a + k) ~= xm.sig[k] then ok = false break end
+            end
+            if ok then m = a count = count + 1 end
+        end
+        if count ~= 1 then xm.scanStep = 4 return end   -- ambiguous: the retry re-snapshots
+        xm.romHeader = m
+    elseif xm.scanStep == 2 then
+        local num = xm.sigNum
+        for _, a in ipairs(xm.hits) do
+            if memory.read_u32_le(a - num * 4 + num * 4) == xm.romHeader then
+                xm.groupArray = a - num * 4
+                break
+            end
+        end
+        if not xm.groupArray then xm.scanStep = 4 return end
+    else
+        local grp = xm.sigGrp
+        for _, a in ipairs(xm.hits) do
+            local base = a - grp * 4
+            if memory.read_u32_le(base + grp * 4) == xm.groupArray then xm.groupsAt = base break end
+        end
+        if xm.groupsAt then
+            console.log("MeshGhost: cross-map ghosts armed (gMapGroups self-located at "
+                .. string.format("%08X", xm.groupsAt) .. ")")
+        end
+        xm.scanStep = 4
+        return
+    end
+    xm.scanStep = xm.scanStep + 1
+    xm.scanAt = 0
+end
+
+genderFrames.xmapDims = function(g, n)
+    local xm = genderFrames.xmap
+    local hdr = memory.read_u32_le(memory.read_u32_le(xm.groupsAt + g * 4) + n * 4)
+    if hdr < 0x08000000 or hdr >= 0x09000000 then return nil end
+    local lay = memory.read_u32_le(hdr)
+    if lay < 0x08000000 then return nil end
+    return memory.read_s32_le(lay), memory.read_s32_le(lay + 4)
+end
+
+genderFrames.xmapBuild = function(localKey)
+    local xm = genderFrames.xmap
+    xm.conns, xm.connsFor = {}, localKey
+    local sb1 = memory.read_u32_le(0x03005d8c)
+    local g, n = memory.read_u8(sb1 + 0x04), memory.read_u8(sb1 + 0x05)
+    local w, h = genderFrames.xmapDims(g, n)
+    if not w or w <= 0 or w > 1000 then return end
+    xm.ourW, xm.ourH = w, h
+    local connPtr = memory.read_u32_le(0x02037318 + 0x0c)
+    if connPtr < 0x08000000 or connPtr >= 0x09000000 then return end   -- a house: no connections
+    local count = memory.read_s32_le(connPtr)
+    local list = memory.read_u32_le(connPtr + 4)
+    if count < 0 or count > 8 or list < 0x08000000 then return end
+    for i = 0, count - 1 do
+        local c = list + i * 12
+        local dir = memory.read_u8(c)
+        if dir >= 1 and dir <= 4 then                 -- dive/emerge are warps in spirit: excluded
+            local cg, cn = memory.read_u8(c + 8), memory.read_u8(c + 9)
+            local nw, nh = genderFrames.xmapDims(cg, cn)
+            if nw then
+                xm.conns[cg .. ":" .. cn] =
+                    { dir = dir, off = memory.read_s32_le(c + 4), w = nw, h = nh }
+            end
+        end
+    end
+end
+
+-- Mutates r.x / r.y / r.areaId from the stored wire values. Local peers pass through untouched;
+-- connected peers inside the margin arrive in OUR tile frame; everyone else keeps their real
+-- areaId and stays hidden exactly as before this feature existed.
+genderFrames.xmapTranslate = function(r, localKey)
+    if not r.srcAreaId then return end
+    if r.srcAreaId == localKey then
+        r.areaId, r.x, r.y = localKey, r.sx, r.sy
+        return
+    end
+    local xm = genderFrames.xmap
+    local c = xm.conns and xm.connsFor == localKey and xm.conns[r.srcAreaId] or nil
+    if not c then r.areaId = r.srcAreaId return end
+    local lx, ly
+    -- The engine's own stitch arithmetic (pokeemerald src/fieldmap.c's connection handling);
+    -- the offset shifts along the seam. Signs verified live with a test peer before shipping.
+    if c.dir == 2 then lx, ly = r.sx + c.off, r.sy - c.h          -- north: neighbor above
+    elseif c.dir == 1 then lx, ly = r.sx + c.off, r.sy + xm.ourH  -- south
+    elseif c.dir == 3 then lx, ly = r.sx - c.w, r.sy + c.off      -- west
+    else lx, ly = r.sx + xm.ourW, r.sy + c.off end                -- east
+    -- 10, not the border 7: the user, 2026-08-20 -- *"2-3 tiles extra as a safety measure, just
+    -- to make sure its always spawned before appearing on the screen"*. Existence reaches 10
+    -- tiles past the edge; the SPAWNED tier still stops at the engine border (its grid coordinate
+    -- would go negative past 7 -- chooseSpawned gates it), so a peer in the 8..10 band exists for
+    -- the tier system and promotes to a real object well before the screen can show it.
+    if lx >= -10 and ly >= -10 and lx <= xm.ourW + 9 and ly <= xm.ourH + 9 then
+        r.areaId, r.x, r.y = localKey, lx, ly
+    else
+        r.areaId = r.srcAreaId                                     -- connected but out of range
+    end
+end
+
+-- MESHGHOST_EMERALD_TEST_PEER = "g:n,x,y" (x may be the literal "px" for the player's own x):
+-- injects a synthetic standing peer so cross-map rendering is testable without a second client.
+-- Probe flag, never shipped set; the loopback ghost cannot test this because it always shares the
+-- player's own map.
+genderFrames.xmapTestPeer = function(localKey)
+    local cfg = MESHGHOST_EMERALD_TEST_PEER or os.getenv("MESHGHOST_EMERALD_TEST_PEER")
+    if not cfg then return end
+    local area, xs, ys = string.match(cfg, "^([%d]+:[%d]+),([%w]+),([%-%d]+)$")
+    if not area then return end
+    local x
+    if xs == "px" then
+        local sb1 = memory.read_u32_le(0x03005d8c)
+        x = memory.read_s16_le(sb1 + 0x00)
+        -- The player's x only means anything on the neighbor's frame when the seam offset is 0;
+        -- good enough for a dev flag.
+    else
+        x = tonumber(xs)
+    end
+    local r = remotes["xmap-test"]
+    if not r then
+        r = { animTimer = 0, animStepIndex = 0 }
+        remotes["xmap-test"] = r
+    end
+    r.srcAreaId, r.sx, r.sy = area, x, tonumber(ys)
+    r.orientation, r.anim, r.gender = "south", "idle", "male"
+    r.gfx, r.sanim, r.sidx, r.act, r.spaused, r.sox, r.soy = 0, 4, 1, 0, 1, 0, 0
+end
+
+-- CROSSING A SEAM REBASES EVERYTHING, IN THE FRAME IT HAPPENS. When the local player walks over a
+-- connection the whole coordinate frame shifts by the seam delta, and every piece of per-peer
+-- state that holds old-frame numbers -- the glide filter, its delay ring, a spawned ghost's
+-- bookkeeping -- suddenly reads as "this peer teleported a map away", which tears the ghost down
+-- and rebuilds it: *"the ghosts that are following are still reloading whenever i go between
+-- routes"*. The delta is knowable from the OLD map's connection entry toward the new map
+-- (crossing north into B: y += B's height, x -= the seam offset), so shift the state instead of
+-- letting it be wrong. A WARP has no connection entry, deltas stay nil, and the old teardown
+-- behaviour stands -- which is exactly right for a door.
+genderFrames.xmapRebase = function(newKey)
+    local xm = genderFrames.xmap
+    local c = xm.conns and xm.conns[newKey] or nil
+    if not c then return end
+    xm.rebasedAt = frameCounter
+    local dx, dy
+    if c.dir == 2 then dx, dy = -c.off, c.h
+    elseif c.dir == 1 then dx, dy = -c.off, -xm.ourH
+    elseif c.dir == 3 then dx, dy = c.w, -c.off
+    else dx, dy = -xm.ourW, -c.off end
+    for _, r in pairs(remotes) do
+        if r.gX then r.gX, r.gY = r.gX + dx, r.gY + dy end
+        if r.tgtPrevX then r.tgtPrevX, r.tgtPrevY = r.tgtPrevX + dx, r.tgtPrevY + dy end
+        if r.hist then
+            for _, p in pairs(r.hist) do p[1], p[2] = p[1] + dx, p[2] + dy end
+        end
+    end
+    -- Count only: ghostAlive is ALSO defined later than this function, the same late-binding trap
+    -- that just cost an hour with `ghosts` itself. The count is enough for the log.
+    local n = 0
+    for _, g in pairs(genderFrames.xmapGhosts or {}) do
+        if g.mapX then g.mapX, g.mapY = g.mapX + dx, g.mapY + dy end
+        n = n + 1
+    end
+    logFile(string.format("f=%d XMAP rebase -> %s d=%d,%d ghosts=%d", frameCounter, newKey, dx, dy, n))
+end
+
+genderFrames.xmapTick = function()
+    local localKey = genderFrames.xmapLocalKey()
+    if not localKey then return end
+    local xm = genderFrames.xmap
+    if not xm.groupsAt then genderFrames.xmapScan() end
+    if xm.lastKey and xm.lastKey ~= localKey then genderFrames.xmapRebase(localKey) end
+    xm.lastKey = localKey
+    if xm.groupsAt and xm.connsFor ~= localKey then genderFrames.xmapBuild(localKey) end
+    genderFrames.xmapTestPeer(localKey)
+    for _, r in pairs(remotes) do genderFrames.xmapTranslate(r, localKey) end
+end
+
 local function handleBridgeLine(line)
     local env = jsonDecode(line)
     if not env or type(env) ~= "table" then return end
@@ -1489,6 +1758,13 @@ local function handleBridgeLine(line)
                 r.areaId = st.area_id
                 r.x = pos[1]
                 r.y = pos[2]
+                -- The wire truth, kept beside the working copy: xmapTranslate rewrites areaId/x/y
+                -- into the LOCAL map's frame when the peer stands on a connected neighbor, and it
+                -- re-runs every frame from these -- so the local player crossing a seam rebases
+                -- every peer immediately instead of a delivery later. Translated inline here too,
+                -- so a fresh state is never one frame stale.
+                r.srcAreaId, r.sx, r.sy = st.area_id, pos[1], pos[2]
+                genderFrames.xmapTranslate(r, genderFrames.xmapLocalKey())
                 r.orientation = st.orientation
                 r.anim = st.anim
                 -- extras is free-form/opaque per agent_docs/contract.md; default to "male" if
@@ -2892,6 +3168,11 @@ local GHOST_LOCAL_ID = 255
 
 -- ghosts[playerId] = { objId, sprId, localId, tileStart, tileCount, mapX, mapY }
 local ghosts = {}
+-- Registered for the cross-map rebase, which is defined a thousand lines EARLIER than this local
+-- and cannot close over it -- referencing `ghosts` there silently read a nil global and killed
+-- every frame on the far side of a seam until the guard's console-only error finally reached a
+-- file (pitfalls.md, 2026-08-20).
+genderFrames.xmapGhosts = ghosts
 
 -- Forward declaration: despawnGhost below must ask "is this still ours" before it destroys
 -- anything, and the identity check itself reads the save block pointer defined further down.
@@ -3236,7 +3517,19 @@ tiering.chooseSpawned = function(localAreaId, playerX, playerY)
     local budget = tiering.budget(localAreaId)
     local ranked = {}
     for playerId, remote in pairs(remotes) do
-        if remote.areaId == localAreaId then
+        -- A translated cross-map peer may stand up to 10 tiles past the edge (its existence
+        -- margin), but a real OBJECT cannot: past the engine's 7-tile border its grid coordinate
+        -- goes negative and a u16 write wraps it across the map. Outside the border it simply
+        -- takes no slot -- it exists, and promotes to spawned at the border, before the screen.
+        -- FAIL OPEN: until the self-location scan has produced real map dimensions, ourW/ourH are
+        -- 0 and this gate would refuse EVERY spawn -- measured live as ghosts=0 with a same-map
+        -- peer standing on the player. Cross-map peers cannot exist before the scan finishes
+        -- (translation needs the same table), so the ungated case is exactly the old behaviour.
+        local xmW, xmH = genderFrames.xmap.ourW, genderFrames.xmap.ourH
+        if remote.areaId == localAreaId
+            and (xmW == 0 or (remote.x >= -7 and remote.y >= -7
+                and remote.x <= xmW + 6 and remote.y <= xmH + 6))
+        then
             local dx, dy = remote.x - playerX, remote.y - playerY
             local d = math.sqrt(dx * dx + dy * dy)
             -- The hysteresis band, applied as a discount to whoever already has a slot: a peer
@@ -4883,6 +5176,14 @@ local function syncGhost(playerId, remote)
         -- above must be re-armed: without this a second stop finds its key unchanged and skips.
         g.frameFor = nil
         lockGhostFacing(g, remote, stepDir)
+    elseif frameCounter - (genderFrames.xmap.rebasedAt or -99) <= 3 then
+        -- A SEAM CROSSING IS MID-FLIGHT. The engine rebases every live object one frame AFTER the
+        -- map key flips (measured, probes/coordwatch.log: NPCs at y=6 read y=146 a frame later),
+        -- and our own rebase lands the frame OF the flip -- so for a beat the ghost reads a whole
+        -- map-height out of place while being exactly where it belongs. Acting on that with the
+        -- teleport below would move it, and then the engine's shift would move it AGAIN. Coast
+        -- for the handful of frames the two rebases need to both land.
+        return
     else
         -- More than a tile out. This branch was written for a warp or a dropped packet -- cases
         -- where the ghost is somewhere it has no business being and the only honest answer is to
@@ -5836,6 +6137,9 @@ local function drawRemotes(localAreaId, playerMapX, playerMapY, skipSpawned, com
                             tostring(remote.anim), tostring(remote.act), tostring(remote.gMoved),
                             tostring(remote.lastMoveAnim), tostring(remote.orientation)))
                     end
+                    -- (The MASK/RUNS instrumentation that lived here found the seam-crossing
+                    -- frame-killer and came out once the lesson was in pitfalls.md -- every stage
+                    -- of this paint path measured innocent; the tick was dying before it ran.)
                     drawSpriteFrame(remote.gender, pose, frameIndex, dirInfo.hFlip, screenX,
                         screenY, panelRows, dim,
                         genderFrames.reflectiveSpans(screenX, screenY,
@@ -6003,7 +6307,22 @@ local localGender = nil -- resolved lazily, first frame a save is loaded (see re
 -- a frame instead of a single Lua error killing the whole adapter for the rest of the session.
 local function runFrame()
     frameCounter = frameCounter + 1
-    gui.clearGraphics()
+    -- CLEAR ONLY WHAT WILL BE REPAINTED. A map transition deliberately returns nil local state
+    -- for a frame or two (mapJustChanged), and the whole render block sits inside `if state` --
+    -- so an unconditional clear here wiped the overlay on exactly the frames nothing repaints,
+    -- which the user saw as both ghosts blinking at every route crossing. Keeping the previous
+    -- frame's paint through those frames costs at most two frames of overlay lag against a
+    -- scrolling camera; a title-screen exit still clears, so nothing lingers after a session.
+    -- ONE state read per frame, up here: getLocalState advances the map-change tracker as a side
+    -- effect, so a second call in the same frame would eat the transition edge the sender pauses
+    -- on. The connected block below uses this same value.
+    local frameState = getLocalState()
+    if not (session.live and frameState == nil) then
+        gui.clearGraphics()
+    end
+    -- Cross-map upkeep: the gMapGroups self-location (one 128KB chunk a frame until found), the
+    -- connection table on map change, and the per-frame re-translation of every peer.
+    genderFrames.xmapTick()
 
     if not avatarAddrConfirmed then
         tryDetectAvatarAddrOffset()
@@ -6174,7 +6493,7 @@ local function runFrame()
     end
 
     if connected then
-        local state = getLocalState()
+        local state = frameState
         -- The session ended (title screen / soft reset). Announce it by dropping the bridge --
         -- see the session table's declaration for why going quiet is not enough. Cleared
         -- unconditionally so a drop is attempted exactly once per edge even if resetBridge
@@ -6329,6 +6648,10 @@ local function guardedFrame()
     -- 1/60s. The FIRST one always logs, whenever it happens.
     if not frameErrors.lastLogged or frameCounter - frameErrors.lastLogged > 300 then
         console.log(string.format("MeshGhost: frame error (continuing, %d in a row): %s",
+            frameErrors.consecutive, tostring(err)))
+        -- To the FILE as well: the console is invisible to log greps, and a per-frame error on
+        -- one side of a route seam hid behind exactly that for an hour on 2026-08-20.
+        logFile(string.format("FRAME ERROR (%d in a row): %s",
             frameErrors.consecutive, tostring(err)))
         frameErrors.lastLogged = frameCounter
     end
