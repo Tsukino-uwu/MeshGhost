@@ -363,3 +363,28 @@ tile's collision bits, and whether any live object event is already standing on 
 **The elevation nibble is the same rule that lets a bridge and the water under it hold two
 characters on one tile** -- two non-zero, different elevations do not collide, and elevation zero
 collides with everything. That is the game's own mechanism, not a special case.
+
+## Maps join two different ways, and only one of them is seamless
+
+**[measured]** A map's header carries a **connections** list (`probes/connections.lua`,
+2026-08-20): for each seam, a direction, an offset along the seam, and which map lies on the other
+side. A route touching a town is a connection — the engine stitches the two into one continuous
+world, you can see across the boundary, and crossing it never fades the screen. A door, a cave
+mouth or a stair is a **warp** — a scripted teleport with a fade, recorded in the events data, not
+in the connections list. An indoor map simply has no connections at all: measured, its connections
+pointer does not point anywhere valid.
+
+**The offset field is what lets one long route border two towns**: measured live, Route 0:26
+carries TWO west connections, the second at offset 20 — the neighbor's frame is shifted 20 tiles
+along the shared edge.
+
+**Crossing a connection rebases every loaded object, one frame after the map identity changes.**
+Measured (`probes/coordwatch.log`): the frame the save block's map group/number flip, live objects
+still hold old-frame coordinates; the next frame every one of them reads shifted by exactly the
+seam delta (a city NPC at y=6 reads y=146 after crossing into the 140-tall route above). Nothing
+despawns — the same object slots persist with translated coordinates, which is why NPCs near a
+seam never visually jump when you cross it.
+
+**Consequence an adapter can rely on:** "is this other map adjacent and visible" is a lookup in
+the current map's own connection list, and "hide peers who went indoors" needs no house detection
+at all — an indoor map's empty connection list already says it.

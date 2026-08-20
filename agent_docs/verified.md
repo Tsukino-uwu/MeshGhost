@@ -8811,3 +8811,39 @@ its struct tile entry parked at 0 — so comparing any sprite's VRAM "against th
 garbage. The ROM-frame comparison in `probes/posediff.lua` is the trustworthy instrument, and the
 frame-by-frame screenshot burst (player at frame 22, ghost at 29) is what turned "slower" into a
 number.
+
+---
+
+## 2026-08-20 — Emerald: cross-map ghosts — the structures, the engine's behaviour, and the feature
+
+**User-confirmed on screen:** a peer standing on a CONNECTED neighboring route is visible across
+the seam on both tiers (*"i can see it in the other route"*), and after the frame-killer fix both
+following ghosts cross a seam with the player (*"Both ghosts follow me across the route properly
+now"*). The remaining transition blink was measured to be the drawn tier only and fixed; the fix
+awaits the user's eye. Requested, designed and shipped in one day.
+
+**Agent-measured, each with a probe and a log:**
+
+- **The map header's connection structures** (`probes/connections.lua`): connections ptr at header
+  +0x0C -> {count s32, list}, entries 12 bytes {direction u8, offset s32 +4, group u8 +8, num u8
+  +9}, directions 1/2/3/4 south/north/west/east. Verified from both sides of a real seam; a
+  double-west pair with offset=20 confirmed the offset field's meaning. Indoor maps carry no
+  connections pointer at all -- which is the whole house-hiding rule.
+- **gMapGroups self-located at 08486578** by three chained ROM scans, each verified by reading
+  back, found independently by the probe and the adapter. Never hardcoded: the adapter re-locates
+  per session (~7s of 128KB chunks), and a scan pass snapshots its target header first so the
+  player crossing a seam mid-pass cannot invalidate it (it did, and cost three of four rebases
+  before the snapshot).
+- **The engine rebases every live object one frame AFTER a connection crossing**
+  (`probes/coordwatch.log`): same slots, coordinates shifted by exactly the seam delta. Ghost
+  objects survive crossings; across four driven crossings the sprite invisible flag NEVER went up
+  (`probes/blinkwatch.log`), so the spawned tier does not blink -- the observed blink was the
+  drawn tier being cleared on the transition frames that deliberately skip repainting.
+
+**The design that shipped** (all adapter-side; core and wire untouched, `area_id` still opaque):
+peers are translated at ingest into the local frame when their map is in the current map's own
+connection list, re-translated every frame so the local player's crossing rebases everyone the
+same frame, with a 10-tile existence margin (the user's +3 safety over the engine's 7-tile border)
+and the spawned tier gated at the border where object coordinates stay engine-safe. Crossing a
+connection shifts every peer's glide state and ghost bookkeeping by the seam delta; a warp has no
+connection entry and keeps the teardown, which is exactly right for a door.

@@ -14,6 +14,9 @@ is the part that is not.
   player-tile compare is garbage by construction, and a loader reload respawns (and so resets) a ghost.
 - **The drawn tier moves at a constant speed now, not an ease** -- and collision is readable, so a
   scripted ride can path instead of counting tiles blind. `verified.md` 2026-08-20.
+- **CROSS-MAP GHOSTS shipped: peers on a CONNECTED route are visible across the seam and follow
+  through crossings; houses still hide (a warp has no connection).** `verified.md` 2026-08-20;
+  the leftovers (transition blink recheck, an offset seam, the 7s arming window) in `unverified.md`.
 - **Emerald's drawn tier: occlusion behind scenery, the water reflection with its ripple, tall
   grass and shadows are confirmed.** Landing dust is drawn but unwatched -- `pitfalls.md`.
 - **A ghost can be walked through**, using the engine's own elevation rule. That is what the

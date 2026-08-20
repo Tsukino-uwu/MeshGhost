@@ -451,3 +451,21 @@ invisible, not yet watched for deliberately:
       hold — so a rod cast is now the one state that changes later than the painted copy.
       *Correct:* nobody notices, because a cast starts from a standstill. If a cast ever reads as
       laggy, the offset-pairing problem the hold solves has to be solved another way first.
+
+## Pending — Emerald: cross-map ghosts, what still needs the user's eye (2026-08-20)
+
+The feature is user-confirmed working (peers visible across a seam, followers crossing with the
+player). These are the specific leftovers:
+
+- [ ] **The transition blink, after the conditional-clear fix.** *What to look at:* cross a seam
+      both directions at walking pace and on a bike. *Correct:* both ghosts stay visible through
+      the crossing. The spawned tier is measured blink-free; the fix is for the drawn tier.
+- [ ] **A seam with a real offset.** Every test so far crossed an offset=0 seam, so the offset
+      SIGN in the translation has never been exercised — a peer near an offset seam (Route 0:26's
+      west pair, offset 20) could be drawn 20 tiles displaced with everything else correct.
+      *What to look at:* the test peer on such a seam standing on the correct column.
+- [ ] **A house still clears ghosts.** By design a warp keeps the old teardown; watched only in
+      passing. *Correct:* enter any door — every ghost is gone until you come out.
+- [ ] **The 7-second arming window per adapter load.** Before the ROM scan completes, cross-map is
+      off and crossings tear down the old way. Live it reads as "the first crossing after a load
+      reloads the ghosts once"; if that ever bothers, the scan result could be cached to a file.

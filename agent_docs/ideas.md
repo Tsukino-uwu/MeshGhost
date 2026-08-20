@@ -2133,11 +2133,12 @@ being empty).
 
 **The two decisions worth making deliberately:**
 
-- **Category names are a public promise.** "indie vs AAA" is a marketing distinction users
-  understand, but it drifts (what is a AAA adapter this repo could even ship?). Engine-based names
-  (emulator / Unity / Unreal) never drift, and the current games already sort perfectly into them
-  -- worth choosing before the first split release, because renaming a release artifact later
-  breaks every guide that linked it.
+- **Category names: DECIDED by the user, 2026-08-20 -- emulator / indie / AAA, by what type of
+  game it is.** Engine-based names were raised as the drift-proof alternative and rejected for the
+  right reason: *"the average gamer wont even know the difference between the game engines"* --
+  the categories exist for the person downloading, and "indie" tells them more than "Unity". The
+  drift cost is accepted knowingly; if a game ever sits awkwardly between indie and AAA, that is a
+  judgment call at release time, not a schema problem.
 - **The server-client-only rows change who downloads MeshGhost.** A relay host today downloads a
   zip full of game adapters they will never load. A small server-only artifact is also the natural
   thing to point a VPS guide at (the hosting question the user asked 2026-08-20), and it makes the
