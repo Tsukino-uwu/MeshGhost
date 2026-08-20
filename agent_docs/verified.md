@@ -9227,3 +9227,64 @@ check"*. **Occlusion remains unjudged.**
 wherever the player goes -- which is what an occlusion test needs and a fixed synthetic peer can
 never provide. The hardware tier now applies the same two-tile side offset the other two tiers give
 a loopback ghost, so it stands beside the player rather than on them and can be judged at all.
+
+## 2026-08-21 — Emerald: the hardware-sprite tier renders correctly (user-confirmed)
+
+**User-confirmed**, watching the three-way compare -- one loopback ghost drawn by all three tiers at
+once, spawned 2 tiles right, its hardware copy 2 tiles above that, painted 2 tiles left: *"and yes
+the OAM looks fine now"*, after two rounds of defects they found by comparing rather than by
+looking at the tier alone.
+
+**What that confirms:** the renderer. Sprite, palette, facing, pose and animation match the engine's
+own ghost beside it. **Position is deliberately NOT in that claim** -- the compare copy is pinned to
+the spawned ghost's sprite (see the entry below), which is what makes the rest judgeable.
+
+### The two defects, and what each one actually was
+
+**1. Facing was inverted half the time.** *"OAM is facing left, whenever i face right"*. Emerald ships
+no east-facing artwork: east is the WEST frames with the hardware's horizontal flip set, which is
+why one animation number serves both directions. The flip lives at **bit 22 of the animation command
+word** -- the same bit the painted tier already reads -- and an OAM entry that ignores it faces the
+wrong way exactly half the time. Fixed by reading it from the peer's own current animation command.
+
+**2. The trailing was the SHARED GLIDE, not this tier -- and it was a real shipped bug.** Reported
+twice (*"really choppy"*, then *"still trailing behind/not following properly"*). The compare log gave
+the number: the camera moved **4px a frame while the glide advanced 1.25**, sawtoothing -- drift for
+seventeen frames, then a 2.4-tile snap when the discontinuity guard fired.
+
+Cause: `glideRemote`'s speed limit was measured **between consecutive frames**, and a peer's position
+stream is bursty by nature (it creeps for several frames, then jumps at a tile boundary). On most
+frames that measured ZERO, collapsing the limit to its 0.02-tile floor -- and a ghost that may move
+0.025 tiles a frame cannot follow a player RUNNING at 0.25. Fixed by measuring target speed over an
+**8-frame window**, using the history ring the delay line already keeps, so *"nothing arrived this
+frame"* reads as the peer's real speed instead of a standstill.
+
+**This affected the PAINTED tier identically and had gone unnoticed since that tier shipped**, for a
+structural reason worth remembering: in compare mode the painted copy is pinned to the spawned
+ghost's sprite and does not use its own position at all, so the one instrument pointed at it could
+not show the fault. It took a THIRD column to make it visible.
+
+### The compare copy is pinned, and that is the point
+
+After the glide fix the hardware copy still trailed while moving, and correctly so: the glide carries
+a **deliberate** trailing delay (`genderFrames.drawnDelay`, 8 frames) that reproduces the distance
+the engine's own step machine lags by. Any compare copy placed from the glide is therefore 8 frames
+behind the reference BY DESIGN -- measured as 0px aligned for 1243 standing frames and up to ~30px
+mid-run.
+
+So the hardware compare copy is pinned to the spawned ghost's sprite, exactly as the painted one has
+always been. **Verified on the same ride that showed the fault: x offset spawned-vs-hardware is 0 on
+all 2520 frames**, y exactly the two-tile park, 58.0 avg fps. Position is removed from the
+comparison; what remains different on screen is the renderer, which is what compare mode is for.
+
+### OBJ VRAM: a 944-tile leak that predates this tier
+
+For one test cycle the tier rendered nobody, and the reason was **OBJ VRAM at 996/1024 used** --
+`allocSpriteTiles` could not find a 16-tile run. Not this tier's doing: a map load runs the engine's
+own `ResetSpriteData`, which frees every range, and the baseline came back **52/1024**. With all
+three renderers live afterwards it held steady at **100/1024** over 1440 frames -- flat, no leak.
+The ~944 tiles were leaked earlier in the long-running emulator session by something else.
+
+**What was missing was the ability to tell "switched off" from "rendering nobody"**, which cost a whole
+cycle. Acquisition failure now logs its reason -- free slots, tiles wanted, graphic id -- throttled
+to once per 5 seconds, to the file.

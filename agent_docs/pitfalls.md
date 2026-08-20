@@ -1770,6 +1770,74 @@ is the cheapest possible illustration — the probe existed to price a feature a
 itself, and it very nearly convicted OAM writing of a cost it does not have. When something
 measures slow, subtract the instrument before believing the subject.
 
+## Comparing two renderers: four ways to measure the wrong thing (2026-08-21, Emerald)
+
+Pricing the new hardware-sprite tier against the painted one took **four invalid measurements**
+before a valid one. Every single one was convincing at the time, and the user caught two of them
+from the screen before any instrument did. They are worth having as a set, because they are traps
+about COMPARISON rather than about either renderer.
+
+### 1. The instrument cost more than the thing measured
+
+A probe logging **one `console.log` per second** measured 50.7 avg fps against a 58.1 control. The
+OAM writes and the sprite were free; the log line was the whole 7.4 fps. Its own entry above has the
+detail. **Subtract the instrument before believing the subject.**
+
+### 2. The load never arrived, and the failure looked like a catastrophic result
+
+Eight painted peers measured **2-3 fps** -- so bad it read as a damning result for the painted tier.
+It was the relay's **`-max-clients` default of 8** refusing every peer: the adapter logged `relay
+refused connection: server full` and finished with `remotes=0 ghosts=0 drawn=0`. It was measuring an
+adapter thrashing to reconnect, with nothing rendered at all. The user saw the same thing from the
+other side -- *"i never saw any drawn ghosts either"*.
+
+**The lesson is not "raise max-clients".** It is that a load generator's success has to be CONFIRMED
+from the receiving side before its numbers mean anything. The adapter prints exactly that
+(`remotes=N ghosts=N hw=N drawn=N`) and it was sitting there unread.
+
+### 3. One side of the comparison was off screen
+
+The next run looked reasonable, which made it worse. Synthetic peers from `meshghost-fakeadapter`
+orbit a **fixed map coordinate**, while the hardware-sprite probe positioned its copies **relative to
+the player**. Riding `fpsride`'s left/right route therefore walked away from the painted crowd while
+carrying the hardware one along -- and the painted tier's own off-screen cull then made its peers
+nearly free. A loaded tier was being compared against an unloaded one.
+
+The user caught it: *"the drawn ghosts are not following when you go to the left. not accurate
+testing"*. The adapter's status line had been printing `drawn=0` mid-ride the whole time, and it had
+been read past twice.
+
+**The fix is a different instrument, not a tweak.** `probes/fpsride.lua` is right for *"does this cost
+the player anything while they play"* and structurally wrong for putting two renderers side by side.
+`probes/fpshold.lua` exists for the second question: the player stands still, the peers are centred
+on them, and the load stays on screen for the whole window.
+
+### 4. The reference hid the defect it shared
+
+With the tiers finally priced, the hardware ghost still looked *"really choppy"*. The cause was in the
+**shared position pipeline** -- `glideRemote` measuring target speed frame-to-frame against a bursty
+stream, which collapsed its speed limit and left the ghost unable to follow a running player
+(`verified.md`, same date). The painted tier had the identical defect and had shipped with it.
+
+**Why nobody had seen it:** in compare mode the painted copy is **pinned to the spawned ghost's own
+sprite** and never uses its own position, so the one instrument aimed at that tier was structurally
+incapable of showing the fault. It took a THIRD renderer, placed from the pipeline, to expose a bug
+in code the second one had been running for days.
+
+**Two rules out of this.** A comparison harness that pins one side has removed a whole class of
+defect from view -- know which class. And when a new implementation looks worse than an old one,
+check whether the old one is being measured on the same path at all before concluding anything about
+the new one.
+
+### And the one that was not a measurement error at all
+
+Between 3 and 4 the tier rendered **nobody** for a full cycle. OBJ VRAM was 996/1024 used and
+`allocSpriteTiles` could not find a run. **A tier that silently renders no one is indistinguishable
+from a tier that is switched off**, and there was no way to tell them apart. Acquisition failure now
+logs its reason, throttled, to the file. A map load frees every range (the engine's own
+`ResetSpriteData`), which is how the 52/1024 baseline was recovered and the leak shown to predate
+this work.
+
 ## "The game blocked me" was an NPC finishing a sentence (2026-08-19)
 
 **Symptom.** A measurement was abandoned and its absence written into the record as a property of

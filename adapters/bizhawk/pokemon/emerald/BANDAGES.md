@@ -131,6 +131,21 @@ the overflow tier below. Deleting them is no longer what ends this; the entry be
 
 ## The drawn overflow tier — a bandage by construction (2026-08-19)
 
+**Updated 2026-08-21: it is no longer the SECOND rung, it is the third, and that shrinks the
+exposure without closing this entry.** A hardware-sprite tier now sits between spawning and
+painting (`FLAGS.md`, `plans.md` Phase 8.1, the 2026-08-21 ADR): peers past the engine's object cap
+get a real hardware sprite -- with the background priority and live palette that every cost below
+is about faking -- and painting is reached only when a peer can get neither an object slot nor a
+VRAM tile range. Measured: 56 peers cost nothing on that tier and 39.6 fps on this one.
+
+**This entry stays open, and deliberately.** The painted tier is not removed, because it is the only
+one of the three with no ceiling, and *"every peer visible all the time"* needs exactly that.
+Everything below is still true of it; it is simply reached less often. **One cost has also moved
+the other way**: the shared movement filter both non-engine tiers use was found to have a real bug
+on 2026-08-21 (it could not follow a running player), which means this tier had been shipping with
+it -- see `pitfalls.md`, and `unverified.md` for the re-judgement that owes.
+
+
 **What it is.** Peers past the engine's object-event cap are painted with `gui.*` primitives
 instead of being spawned, so that every peer is visible instead of the ones past the cap simply not
 existing on screen. Asked for by the user in those terms — *"npc's always shown, ghosts try to

@@ -487,3 +487,40 @@ turnaround the ghost held `act=0x72 dir=west` for ~16 frames while the player wa
       started (the standing open item above), so a hop issued just before the peer reverses must
       finish -- and `stepDir` comes from the tile delta, which can point backwards for a beat if
       the ghost overshot. Both are measurable from the same capture.
+
+
+## Pending — Emerald: the hardware-sprite tier, what still needs the user's eye (2026-08-21)
+
+The tier is built, measured and **confirmed as a renderer** -- *"and yes the OAM looks fine now"*,
+judged in the three-way compare (`verified.md`). It ships **off** (`MESHGHOST_EMERALD_HW_OVERFLOW`)
+until the list below is closed. Four things are open, and the first is the one the tier exists for.
+
+1. **OCCLUSION, deliberately and specifically.** The user's word so far is *"I think its hidden/under
+   things properly as well ?"* -- tentative, and offered before the peers could be walked anywhere
+   (fixed synthetic peers do not follow the player; the loopback ghost does). What is wanted is a
+   deliberate look at three cases: a ghost passing **behind a building or roof**, one covered by a
+   **text box**, one covered by the **START menu**. This is the whole reason to prefer this tier over
+   painting, and it is the one claim with no measurement behind it.
+2. **Scene brightness.** A hardware sprite reads the live OBJ palette, so it should dim with a door
+   fade, a cave and weather with nothing of ours involved. Never watched.
+3. **UNPINNED position quality.** Every confirmation so far is from compare mode, where the copy is
+   pinned to the spawned ghost's sprite. How the tier looks placed from the glide -- which is what a
+   REAL peer gets -- has not been judged. Expect the deliberate 8-frame trailing delay to be visible
+   at running speed; whether that reads as correct or as lag is a question about how it looks.
+4. **Sprite-vs-sprite ordering, as an accepted artifact rather than a bug.** Entries above the
+   engine's range always lose an overlap tie, so a hardware ghost passes BEHIND the player and behind
+   NPCs. Predicted, recorded in the ADR, never watched. Worth one look to confirm it is as harmless
+   as expected.
+
+## Pending — Emerald: the DRAWN tier after the glide fix (2026-08-21)
+
+**Shipped, user-confirmed code changed underneath.** `glideRemote` now measures target speed over an
+8-frame window instead of frame-to-frame (`verified.md`, `pitfalls.md`). That was a real defect --
+the filter could not follow a RUNNING player and snapped every ~17 frames -- and the painted tier had
+been living with it since it shipped.
+
+**So the painted tier's movement is due a re-judgement, and it was never re-watched after the
+change.** The expectation is that it is strictly better, especially at running speed, and especially
+on a bike. But the tier's movement has been through five separate attempts and several rounds of the
+user's eye, and a change to its filter is exactly the kind that trades one artifact for another.
+Watch a peer walking single tiles, running, and on the Mach Bike, against the spawned ghost.

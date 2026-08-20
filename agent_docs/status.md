@@ -2,41 +2,34 @@
 
 ## Active status
 
-**Phase 9 (Crystal) is still the named phase, but 2026-08-19/20 was spent entirely on EMERALD's
-peer states.** Most of it is confirmed -- `verified.md` has an entry per item -- and the Acro Bike
-is the part that is not.
+**Phase 8.1 -- Emerald's hardware-sprite tier -- was built and measured on 2026-08-21, and it is the
+live piece of work.** The ladder is now `spawn -> OAM -> drawn`. Full record: `verified.md` and
+`pitfalls.md` for that date, design in `plans.md` Phase 8.1 and the two 2026-08-21 ADRs.
 
-- **Emerald peer states: fishing, surfing and the MACH Bike are confirmed on both tiers**, with
-  ledge hops and the muddy slope. `verified.md` 2026-08-19/20.
+- **The hardware tier is built, off by default (`MESHGHOST_EMERALD_HW_OVERFLOW`), and confirmed as a
+  renderer.** Open: occlusion, fades, and how it looks UNPINNED -- `unverified.md`, four items.
+- **BizHawk adapters are Lua-only, no ROM patch, ever** -- standing rule, cross-patch compatibility.
+  ADR 2026-08-21 in `architecture.md`; non-goal in `plans.md`; opening section of `_template`.
+- **The shared movement filter was fixed on 2026-08-21** (it could not follow a RUNNING player). The
+  painted tier shipped with that bug, so its movement is due a re-judgement -- `unverified.md`.
+- **Costs, measured standing still with the crowd on screen:** at 16 peers all three tiers equal a
+  bare emulator; at 56, OAM 60.0 vs painted 39.6; both cheap tiers full (67 characters) still 60.0.
+- **Do not re-propose HBlank multiplexing.** Refuted on its premise, not untried -- the 2026-08-21
+  ADR has the three independent reasons. `ideas.md` keeps the entry.
 - **The ACRO Bike: plain left/right riding is user-confirmed 1:1 and no ghost invents a hop.** Open:
   landing dust, the shadow sprite, and a reversal that leaves the SPAWNED ghost facing the old way.
-- **Frame rate is a SHIPPING requirement now, and the adapter meets it** -- 56.9 avg / 27 worst
-  against a bare-emulator control of 58.1 / 37, same scripted route. `verified.md` 2026-08-20.
-- **Read `pitfalls.md`'s "mount/dismount pose war" before trusting any sprite comparison**: the
-  player-tile compare is garbage by construction, and a loader reload respawns (and so resets) a ghost.
-- **The drawn tier moves at a constant speed now, not an ease** -- and collision is readable, so a
-  scripted ride can path instead of counting tiles blind. `verified.md` 2026-08-20.
-- **CROSS-MAP GHOSTS shipped and crossing-clean, user-confirmed** — visible across seams, followers
-  ride through crossings, houses still hide; the crossing pop was the CORE's area filter
-  (`render_all_areas` ADR 2026-08-20). Left: an offset seam and a house check, `unverified.md`.
-- **The drawn ghost's hat survives Mach speed** — the panel scanner's banner flicker was clipping
-  screen rows 0-4, drawn tier only; fixed with a stability gate. Confirmed 2026-08-20, `pitfalls.md`.
-- **Emerald's drawn tier: occlusion behind scenery, the water reflection with its ripple, tall
-  grass and shadows are confirmed.** Landing dust is drawn but unwatched -- `pitfalls.md`.
-- **A ghost can be walked through**, using the engine's own elevation rule. That is what the
-  ghost-collision policy's `"disabled"` has been waiting for. `verified.md` 2026-08-20.
-- **NEW, Phase 8.1: the Emerald hardware-sprite tier is scheduled and the mechanism is settled**
-  (`plans.md`; `verified.md` 2026-08-21). Nothing built yet -- next step is the read-only shadow-OAM probe.
-- **BizHawk adapters are Lua-only, no ROM patch, ever** -- standing rule as of 2026-08-21, for
-  cross-patch compatibility. ADR in `architecture.md`; non-goal in `plans.md`.
-- Phases 6 (TEVI) and 7 (Pseudoregalia) are done; 8 (Emerald) is all but the Acro Bike's
-  leftovers. Crystal has none of this work at all.
+- **Frame rate is a SHIPPING requirement and nothing may pass that breaks it** -- user, 2026-08-21:
+  *"there can't be any fps drops like this in a shipped/release"*. Measure against a bare control.
+- **Read `pitfalls.md`'s 2026-08-21 entries before comparing any two renderers.** Four invalid
+  measurements preceded the valid one, and each was convincing. Two were caught by the user, not me.
+- Phases 6 (TEVI) and 7 (Pseudoregalia) are done. Crystal has none of the hardware-tier work.
 
-**The one rule this session kept proving:** measure against the engine's own state before changing
-anything. Every guess was wrong; every measurement was right first time. `pitfalls.md`'s
-2026-08-19/20 entries are the specific traps, and `_template/probes.md` has the methods.
+**The rule this session kept proving, again:** the instrument is the suspect before the subject. A
+probe's own logging cost 7.4 fps; a load generator silently refused every peer; a ride harness walked
+away from half the comparison; and the reference renderer was pinned in a way that hid a bug it
+shared. `_template/probes.md` has the methods; `probes/fpshold.lua` is the new one.
 
-## Picking this up in a new session — rewritten 2026-08-19 afternoon, and the first thing to read
+## Picking this up in a new session — rewritten 2026-08-21, and the first thing to read
 
 **The four-emulator session described here before is GONE** — none of those processes survived.
 What is running now is a single vanilla Emerald instance, left up after its end-to-end
@@ -58,14 +51,42 @@ environment, so an unset global keeps whatever the last session gave it (`pitfal
 invalidated a measurement on 2026-08-20). The standing dev default is:
 
 ```lua
-MESHGHOST_COMPARE_TIERS = true      -- the ghost rendered twice: spawned right, drawn left
-MESHGHOST_GHOST_PEER_GFX = true     -- a ghost wears the PEER's graphic (bikes, surf, rod)
+MESHGHOST_COMPARE_TIERS = true       -- one ghost, THREE renderers: spawned right, its OAM copy
+                                     -- 2 tiles above that, painted left. Both non-engine copies
+                                     -- are PINNED to the spawned sprite, so position is out of
+                                     -- the comparison and only the renderer differs.
+MESHGHOST_EMERALD_HW_OVERFLOW = true -- the hardware-sprite tier (ships OFF; on for dev)
+MESHGHOST_EMERALD_DRAWN_OVERFLOW = true
+MESHGHOST_EMERALD_MAX_SPAWNED = nil  -- set 0 to force every peer past the engine tier
+MESHGHOST_EMERALD_TEST_PEER = "off"  -- retires the leftover cross-map peer; see below
+MESHGHOST_GHOST_PEER_GFX = true      -- a ghost wears the PEER's graphic (bikes, surf, rod)
 MESHGHOST_EMERALD_NO_COLLISION = true
 MESHGHOST_EMERALD_ANIM_TRACE = false
-MESHGHOST_EMERALD_PROFILE = false   -- per-frame + per-section Lua timing, FLAGS.md
+MESHGHOST_EMERALD_PROFILE = false    -- per-frame + per-section Lua timing, FLAGS.md
 MESHGHOST_EMERALD_NO_FISH_HOOK = false
 MESHGHOST_DEV_TICK = function() end
 ```
+
+**Nothing of mine is running as of the end of 2026-08-21** -- relay, core and load generator were
+all shut down and verified gone. The EMULATOR is still up with the adapter loaded. To bring the rig
+back (all from the repo root, hidden):
+
+```
+meshghost-relay.exe -loopback -max-clients=200 -send-hz=100 -ghost-collision=disabled
+meshghost.exe -game=emerald -bridge=127.0.0.1:7778 -name=player1 -interp=0ms -min-send=10ms
+meshghost-fakeadapter.exe -clients=N -game-id=emerald -room=default -relay=127.0.0.1:7777 \
+    -area-id=<the player's map, from probes/capacity_probe.lua> -center=<their tile> -dims=2 \
+    -radius=4 -period=6 -facing-follows-path
+```
+
+**`-max-clients` DEFAULTS TO 8** and silently refuses everyone past it -- that produced a fake
+"2 fps" result that read as a damning verdict on a whole tier (`pitfalls.md` 2026-08-21). Always
+confirm the load ARRIVED from the adapter's own status line (`remotes=N ghosts=N hw=N drawn=N`)
+before believing any number.
+
+**Synthetic peers orbit a FIXED map point and do not follow the player**, so they cannot be walked
+behind a building. Use the relay's `-loopback` ghost for anything positional or occlusion-related;
+use synthetic peers for load.
 
 **The emulator's own environment still carries `MESHGHOST_EMERALD_TEST_PEER`** from an earlier
 launch, so an instance can come up with TWO peers: the loopback ghost and a synthetic cross-map

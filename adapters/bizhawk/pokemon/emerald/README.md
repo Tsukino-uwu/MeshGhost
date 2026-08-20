@@ -180,6 +180,27 @@ order:
     the game itself does it. ([pitfalls.md](../../../../agent_docs/pitfalls.md) has all three
     write-ups; [probes.md](../../../_template/probes.md) has how it was finally measured.)
 
+23. Added a THIRD renderer between the two: extra characters drawn by the console's own sprite
+    hardware, from entries we write into the range of the game's sprite table its per-frame code
+    never touches. The engine transfers that whole table every frame regardless, so the entries
+    reach the screen for free -- and the game itself parks a sprite up there for the same reason.
+    Costs three halfword writes per ghost per frame against ~0.6ms of painting, and brings real
+    background priority and the live palette, which the painted tier can only fake.
+24. Priced all three against each other, standing still with the crowd on screen. At 16 peers they
+    are indistinguishable from a bare emulator; at 56 the hardware tier still is, while painting
+    the same 56 costs a third of the frame rate. Both cheap tiers full at once -- 67 characters --
+    is still 60fps. That measurement is the reason the ladder is ordered the way it is.
+25. Two defects the user found by comparing rather than by looking at the new tier alone: facing
+    was inverted (this game has no east-facing art -- east is west plus the hardware flip, and the
+    flip lives in the animation command), and the ghost trailed. The trailing turned out to be a
+    bug in the SHARED movement filter that the painted tier had shipped with: it measured the
+    peer's speed frame-to-frame against a stream that arrives in bursts, so it read zero on most
+    frames and could not follow a running player. ([pitfalls.md](../../../../agent_docs/pitfalls.md)
+    has that one and the four ways the comparison itself was measured wrong first.)
+
+**~3 hours for the hardware tier**, most of it spent discovering that the comparison harness, not
+either renderer, was what kept producing wrong answers.
+
 **~2 hours from a drawn ghost to a spawned one**, on top of the ~10 hours the drawn one took —
 most of it spent on the six bugs above rather than on the spawn itself.
 
