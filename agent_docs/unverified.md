@@ -23,6 +23,29 @@ actually confirm it as such."*
 
 ---
 
+## Pending — Emerald: what 2026-08-20 left unwatched (2026-08-20)
+
+Everything else from that session is user-confirmed and in `verified.md`. These are the leftovers,
+each with what to look at and what correct looks like.
+
+- [ ] **Landing dust, both tiers.** Painted from `gFieldEffectObjectTemplate_GroundImpactDust`
+      (0850CCA0): frames 0,1,2 at eight game-frames each, drawn on the tile a jump lands on.
+      *What to look at:* hop on a bike. *Correct:* a small puff under the ghost as it lands, gone
+      within half a second, on BOTH ghosts. It is painted over our own shadow deliberately -- the
+      engine's dust for the spawned ghost is hidden behind that shadow and cannot be raised while
+      the shadow sprite below is disabled.
+- [ ] **A REAL shadow sprite for a spawned ghost -- WRITTEN AND DISABLED, do not simply re-enable.**
+      `genderFrames.shadowSpriteEnabled` is false because turning it on RESET THE GAME on every
+      jump. The likely fault is the tile allocation: the frame's byte count is read from the
+      template's `SpriteFrameImage` and, if wrong, the copy writes past the range it owns and over
+      OBJ VRAM. Before switching it on again, LOG the byte count and tile range and prove they are
+      sane -- writing first is what cost the user a reset. Working, it would put the shadow under
+      the character (subpriority 148, as the engine does), stop it covering the dust, and let the
+      painted-shadow bandage come out of `BANDAGES.md`.
+- [ ] **A ghost cannot abandon a step it has started.** The general form of the corner snapping:
+      when the muddy slope reverses a peer mid-tile the ghost finishes its current tile first.
+      Measured, not yet judged on screen -- it may read as nothing.
+
 ## Pending — Emerald: the Acro Bike's wheelie poses are not reproduced (2026-08-20)
 
 A ghost never COMPLETES the wheelie transition actions. Measured by the watchdog added to

@@ -4165,7 +4165,10 @@ local function syncGhost(playerId, remote)
         end
     end
 
-    -- SLIDE COUNTER (temporary). "Sliding" is a character whose position advances while its legs
+    -- SLIDE COUNTER, kept rather than temporary: between them these two numbers found the paused
+    -- sprite on the Mach Bike, the frozen legs on the Acro Bike, and the stranded ghost -- three
+    -- faults no position or speed reading could see. A moving character with `paused` high is
+    -- sliding, and that is invisible in any other measurement. "Sliding" is a character whose position advances while its legs
     -- do not, and no position counter can see it. Per second: frames the ghost was mid-step, how
     -- many of those changed its animCmdIndex, and how many it spent PAUSED while moving.
     if tiering.slide then
@@ -4558,14 +4561,6 @@ local function syncGhost(playerId, remote)
         -- action for that speed. Bases from include/constants/event_object_movement.h:95,108,132:
         -- WALK_NORMAL 0x08, WALK_FAST 0x15, WALK_FASTER 0x2D, each DOWN/UP/LEFT/RIGHT consecutive
         -- in DIR_ID order -- the same layout every other action table here relies on.
-        tiering.spd = tiering.spd or {}
-        local k = acroBase and string.format("acro%02X", acroBase)
-            or (base and string.format("%02X", base)) or "walk/run"
-        tiering.spd[k] = (tiering.spd[k] or 0) + 1
-        tiering.spd["act" .. string.format("%02X", remote.act or 0)] =
-            (tiering.spd["act" .. string.format("%02X", remote.act or 0)] or 0) + 1
-        tiering.spd["pspeed" .. tostring(remote.pspeed)] =
-            (tiering.spd["pspeed" .. tostring(remote.pspeed)] or 0) + 1
         local running = (remote.anim == "running")
         if acroBase then
             requestAction(g, acroBase + (stepDir - 1))
@@ -4595,8 +4590,6 @@ local function syncGhost(playerId, remote)
         -- is at speed and closes it the moment they slow or stop, which is what a person follows
         -- like -- and never snaps. A long gap is still a warp and still gets placed.
         local far = math.abs(dx) + math.abs(dy)
-        tiering.spd = tiering.spd or {}
-        tiering.spd["gap" .. tostring(far)] = (tiering.spd["gap" .. tostring(far)] or 0) + 1
         if far <= 3 then
             -- Dominant axis: with the gap this small the peer is on a line, and stepping the long
             -- side first is what keeps a diagonal-looking approach from zig-zagging.
@@ -5697,19 +5690,12 @@ local function runFrame()
         genderFrames.clippedRuns = 0
         logFile(string.format(
             "status: frame=%d connected=%s ready=%s port=%s remotes=%d ghosts=%d drawn=%d "
-                .. "clipped=%d overworld=%s inGame=%s slide=%d/%d paused=%d spd=%s",
+                .. "clipped=%d overworld=%s inGame=%s slide=%d/%d paused=%d",
             frameCounter, tostring(connected), tostring(ready), tostring(currentPort),
             nRemotes, nGhosts, nDrawn, nClipped, tostring(inOverworld()), tostring(session.live),
             (tiering.slide or {}).legs or 0, (tiering.slide or {}).step or 0,
-            (tiering.slide or {}).paused or 0,
-            (function()
-                local t = {}
-                for k, v in pairs(tiering.spd or {}) do t[#t + 1] = k .. "=" .. v end
-                table.sort(t)
-                return table.concat(t, ",")
-            end)()))
+            (tiering.slide or {}).paused or 0))
         tiering.slide = { step = 0, legs = 0, paused = 0 }
-        tiering.spd = {}
         -- "Peers are known but none of them is being rendered" is its own failure, and the status
         -- counts above cannot tell which of the two reasons it is: the peer is somewhere else, or
         -- it is here and the spawn declined. area_id is opaque and compared by equality, so

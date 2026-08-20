@@ -2,22 +2,20 @@
 
 ## Active status
 
-**Phase 9 (Crystal) is the live one as of 2026-08-19.** `phases/phase9.md`, `plans.md` 9.1.
+**Phase 9 (Crystal) is still the named phase, but 2026-08-19/20 was spent entirely on EMERALD's
+peer states**, and that work is done and confirmed: `verified.md` has an entry per item.
 
-- **Crystal renders peers in TWO tiers now**: spawned real objects up to what the game can draw,
-  and everything past that PAINTED over the emulator. A character on every visible tile at 60fps,
-  user-confirmed. `verified.md` 2026-08-19, `crowd-limits.md`.
-- **Emerald's spawned tier passed end to end**, and `MESHGHOST_COMPARE_TIERS` (both renderers on
-  screen at once) then found a dozen defects in one session, fishing last. `verified.md` 2026-08-19.
-- **The core's `-interp` default is 250ms**, measured rather than guessed — 100ms visibly chopped
-  an engine-driven ghost. `verified.md`, `bandages-core.md` entry 1.
-- Phases 6 (TEVI), 7 (Pseudoregalia) and 8 (Emerald) are done; 8's queue is in `unverified.md`.
+- **Emerald peer states: fishing, surfing, Mach Bike, Acro Bike all CONFIRMED on both tiers.**
+  Ledge hops, the muddy slope, jumps and wheelie hops too. `verified.md` 2026-08-19/20.
+- **Emerald's drawn tier reached visual parity**: occlusion behind scenery, water reflection with
+  its ripple, tall grass, shadows. Each was a separate mechanism -- `pitfalls.md`.
+- **A ghost can be walked through**, using the engine's own elevation rule. That is what the
+  ghost-collision policy's `"disabled"` has been waiting for. `verified.md` 2026-08-20.
+- Phases 6 (TEVI), 7 (Pseudoregalia) and 8 (Emerald) are done; Crystal has none of this work.
 
-**Everything below this line is an INDEX of what is open.** Two lines per item, and the detail
-lives in `verified.md`, `pitfalls.md` or a phase file — see the update guidance at the bottom.
-
-Roadmap: `plans.md`. Per-phase log: `phases/`. Evidence: `verified.md`. What the user has not
-confirmed yet: `unverified.md`.
+**The one rule this session kept proving:** measure against the engine's own state before changing
+anything. Every guess was wrong; every measurement was right first time. `pitfalls.md`'s
+2026-08-19/20 entries are the specific traps, and `_template/probes.md` has the methods.
 
 ## Picking this up in a new session — rewritten 2026-08-19 afternoon, and the first thing to read
 
@@ -133,8 +131,12 @@ that a peer's state genuinely differs from the local player's, which loopback co
   2026-08-16 transition crash, which is fixed.
 - **TEVI: charged-attack VFX missing on the ghost** — animations play, effects don't.
   `phase6.md` (2026-08-15).
-- **Emerald: surf, Mach/Acro Bike, ledges, rails** — ghost snaps badly; combined probe script
-  ready, **not yet run**. `phase8.md`.
+- **Emerald: the Acro Bike's wheelie POSE is not reproduced** — those actions never report
+  finished for a ghost and strand it; the watchdog frees it. `unverified.md`.
+- **Emerald: a real shadow SPRITE for a spawned ghost is written but DISABLED** — it reset the game
+  on every jump, almost certainly a bad VRAM tile range. `unverified.md`.
+- **Emerald: landing dust is painted on both tiers but unconfirmed**, and the spawned ghost's own
+  dust sits behind our painted shadow until the sprite above works. `unverified.md`.
 - **Emerald: VRAM/sprite injection** — Stage 1 ran 2026-08-14 and is written up; Stages 2–5 not
   started. `ideas.md`, `environment.md`.
 - **Receive rate cap** — `max_receive_hz_per_player` never watched live; needs two clients at
