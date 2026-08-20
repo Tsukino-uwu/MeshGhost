@@ -2685,3 +2685,38 @@ fields. *Fix:* the tile/ROM comparison above, now a standing probe.
 **The meta-lesson, worth more than any fix here: when N fixes in a row "don't work", stop fixing
 and audit the instrument.** Six attempts failed against bad metrics; the seventh with a good
 metric was one of the six, re-applied.
+
+## Emerald: the seam-crossing frame-killer, and the two habits that hid it (2026-08-20)
+
+**Symptom.** After cross-map ghosts shipped, crossing a route seam made the drawn ghost vanish and
+the spawned one stop following — on the far side only, healing on return. Every internal
+measurement insisted the paints were happening: position right, occlusion spans full, pixels
+decoded, no dim, no panel clip.
+
+**Cause.** The cross-map rebase, defined early in the file, referenced `ghosts` and `ghostAlive` —
+locals defined a THOUSAND lines below it. Lua resolves those as nil globals silently, the function
+threw, and because the throw landed before `lastKey` updated, it re-fired every frame on the far
+side: the whole tick died after `gui.clearGraphics()` but before both the paint and the ghost sync.
+Clear-without-repaint IS "the drawn ghost vanished"; no sync IS "the spawned one stopped".
+
+**Why it took an hour: two observability habits, both now fixed.**
+
+- **The per-frame error guard logged to the CONSOLE only.** Every file grep was blind to the one
+  line that named the bug. The guard now writes to the log file too. *Rule: any catch-and-continue
+  guard must write somewhere greppable.*
+- **Instrumentation was added stage by stage INSIDE the suspect path** — mask, spans, decode, each
+  measured innocent — when the tick was dying before the path ran at all. *Rule: when every stage
+  of a path measures innocent, check whether the path executes on the failing side before
+  instrumenting a fifth stage.* The magenta-box experiment (a probe drawing raw pixels with zero
+  adapter logic) was the right instinct and mis-set-up twice; what finally broke the case was
+  routing the guard's error to the log.
+
+**The two Lua traps, for the next early-defined function:** a forward reference to a later local
+is a nil GLOBAL, not an error, until you call or iterate it; and this file's 200-local ceiling
+pushes shared state onto tables (`genderFrames.*`), which is also the correct fix — the rebase now
+reaches `ghosts` through a field registered at the local's definition site.
+
+**Related, same feature:** the ROM-scan self-location verified candidates against the LIVE map
+header, so the player crossing a seam mid-pass invalidated the pass — in roaming play the scan
+retried for minutes. A pass now snapshots its target at start. *General form: a multi-frame scan
+must capture what it is looking for when it starts, not compare against a world that moves.*
