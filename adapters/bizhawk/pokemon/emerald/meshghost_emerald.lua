@@ -647,7 +647,17 @@ local function localGraphicsId()
         -- forward reference reads a nil global (caught by the syntax/forward-ref check, and by the
         -- adapter's own error count, within one reload). This runs once per frame from the send
         -- path, so a call is a frame.
-        if gfx ~= genderFrames.pendingGfx then
+        -- THE HOLD IS FOR GRAPHICS WITH AN OFFSET, and only fishing has one. It exists because the
+        -- offset lands four frames after the graphic, and publishing the pair unsettled drew an
+        -- 8px flash -- measured, above. The walker and both bikes sit at offset 0 on every frame,
+        -- so for them the six frames bought nothing and cost exactly the lag the user could see:
+        -- the spawned ghost mounting seven frames after the player (frame-by-frame capture,
+        -- 2026-08-20). Fishing is 137/138 (Brendan/May, verified.md); anything unrecognised keeps
+        -- the hold, which is the conservative side.
+        local KNOWN_OFFSETFREE = { [0]=true, [89]=true, [1]=true, [90]=true, [63]=true, [91]=true }
+        if KNOWN_OFFSETFREE[gfx] then
+            genderFrames.sentGfx = gfx
+        elseif gfx ~= genderFrames.pendingGfx then
             genderFrames.pendingGfx, genderFrames.pendingTicks = gfx, 0
         else
             genderFrames.pendingTicks = (genderFrames.pendingTicks or 0) + 1
@@ -3775,7 +3785,18 @@ end
 -- animation table. Nothing here races the engine; it simply gets there first.
 --
 -- A GLOBAL because this chunk is at Lua's 200-local ceiling.
+-- WHO CALLED, logged on change (COMPARE_TIERS only): five sites call this, and a pixel state that
+-- oscillates every frame means two of them disagree. Naming the writer beats a tenth theory.
 function loadGhostFrameNow(g, info, animNum, animIdx)
+    if COMPARE_TIERS then
+        local who = debug.getinfo(2, "l")
+        local k = string.format("%s:%s/%s", who and who.currentline or "?",
+            tostring(animNum), tostring(animIdx))
+        if k ~= genderFrames.lastLoadLog then
+            genderFrames.lastLoadLog = k
+            logFile("FRAME LOAD from line " .. k)
+        end
+    end
     if not info or info.anims == 0 or info.images == 0 or not g.tileStart then return end
     local animPtr = r32(info.anims + (animNum or 0) * 4)
     if not isRomPtr(animPtr) then return end
@@ -3902,7 +3923,7 @@ function isBikeGfx(gfx)
     return gfx == 1 or gfx == 63 or gfx == 90 or gfx == 91
 end
 
-function swapGhostGraphicInPlace(g, graphicsId, sanim, sox, soy)
+function swapGhostGraphicInPlace(g, graphicsId, sanim, sox, soy, sidx, spaused)
     local info = graphicsInfo(graphicsId)
     if not info or not ghostAlive(g) then return false end
     -- Allocate before freeing: nothing runs between these writes, and a failed allocation must
@@ -3936,7 +3957,18 @@ function swapGhostGraphicInPlace(g, graphicsId, sanim, sox, soy)
     -- through the new shape.
     w8(d + 0x2a, sanim or 0)
     w8(d + 0x2b, 0)
-    w8(d + 0x3f, (r8(d + 0x3f) | 0x04) & ~0x10)
+    -- ARRIVE PAUSED WHEN THE PEER IS PAUSED. animBeginning starts the new graphic's animation, and
+    -- for a peer standing still that is a walk or pedal cycle played out of nowhere between the
+    -- transition and the settle -- the user, after the settle fix landed: *"its doing a animation
+    -- in between, its supposed to stay static"*. A moving peer's swap (a rod cast, a ride) still
+    -- wants the animation started, so this is gated on the peer's own paused bit rather than
+    -- removed. spaused is nil for pre-upgrade peers, and nil keeps the old behaviour.
+    if spaused then
+        w8(d + 0x2c, r8(d + 0x2c) | 0x40)
+        w8(d + 0x3f, r8(d + 0x3f) & ~0x14)
+    else
+        w8(d + 0x3f, (r8(d + 0x3f) | 0x04) & ~0x10)
+    end
     -- AND THE SPRITE OFFSET, IN THE SAME BATCH AS THE SHAPE. These two belong to each other: a
     -- fishing frame is 32 wide and sits on its tile only because the game's task offsets it by 8,
     -- so a frame drawn with the new shape and the old offset is a frame drawn half a tile to the
@@ -3955,7 +3987,18 @@ function swapGhostGraphicInPlace(g, graphicsId, sanim, sox, soy)
         if soy then w16(d + 0x26, soy & 0xffff) end
     end
     g.animSetFor = nil -- a new graphic always re-issues its animation, whatever the number was
-    loadGhostFrameNow(g, info, sanim or 0, 0)
+    -- THE PEER'S FRAME INDEX, not a hardcoded 0 -- and this is the whole of the wrong-pose bug.
+    --
+    -- The held-pose mirror loads the peer's exact frame and then STOPS, because a held pose is set
+    -- once. This ran afterwards and overwrote it with frame 0 of the same animation, and since a
+    -- held sprite is paused, nothing ever repainted it again: the ghost sat on the bike's first
+    -- standing frame while the peer stood on its second, for as long as they stood there.
+    --
+    -- Traced by logging both loads and where each wrote: the held load fired ONCE with sidx=1 to
+    -- tile 76, the sprite drew from tile 76, and the pixels there were frame 0's. Only one caller
+    -- passes a literal 0.
+    loadGhostFrameNow(g, info, sanim or 0, sidx or 0)
+    w8(sprAddr(g.sprId) + 0x2b, sidx or 0)
 
     -- AND THE COMPANION SPRITE THE STATE OWNS. A surfing player is a rider AND the blue Pokemon
     -- underneath (documentation.md's surfing section) -- one state, two sprites -- and only
@@ -4095,7 +4138,17 @@ local function syncGhost(playerId, remote)
     -- Matching on the ghost's own graphic is what makes the two arrive together, and it needs no
     -- guess about timing: the swap applies both in one batch, and this block only maintains them
     -- afterwards.
-    if PEER_GFX_ENABLED and remote.sanim and not engineDrivesAnim and g.gfx == remote.gfx
+    -- ...EXCEPT WHEN NOTHING IS DRIVING IT. "The engine animates the walking graphic" holds only
+    -- while one of our movement actions is running. A ghost standing still on foot has none, and
+    -- the last thing to touch its animation may have been a different graphic entirely -- so it
+    -- keeps whatever frame it was left on. Measured at the last commit, standing: the ghost held
+    -- exactly the ROM frame for index 0 while the player stood on index 1.
+    --
+    -- "Nothing is running" is the held-movement bit, NOT the action id: movementActionId keeps the
+    -- last action's number long after it finished, so a settled ghost reads 0x00 and never NONE.
+    if PEER_GFX_ENABLED and remote.sanim and g.gfx == remote.gfx
+        and (not engineDrivesAnim
+            or (remote.spaused and (r8(objAddr(g.objId)) & 0x40) == 0))
         -- ...unless the peer is on a BIKE, where the engine's own choice is provably wrong.
         --
         -- Letting the engine animate a moving ghost is right for the WALKING graphic: the movement
@@ -4178,6 +4231,10 @@ local function syncGhost(playerId, remote)
         -- pixels loaded -- because a paused sprite is never going to copy them itself. No
         -- animBeginning here, which would reset the index to 0 and show the wrong frame of the
         -- loop.
+        if COMPARE_TIERS and genderFrames.lastSp ~= tostring(remote.spaused) then
+            genderFrames.lastSp = tostring(remote.spaused)
+            logFile("WIRE spaused -> " .. genderFrames.lastSp .. " (act=" .. tostring(remote.act) .. ")")
+        end
         if isBikeGfx(remote.gfx) and not remote.spaused then
             -- Number only, and only when it differs: restarting here would reset the cycle every
             -- time the peer's animation ticked, which is the "stuck on frame 0" failure from the
@@ -4199,6 +4256,7 @@ local function syncGhost(playerId, remote)
                 w8(d + 0x2a, remote.sanim)
                 w8(d + 0x2b, remote.sidx)
                 w8(d + 0x2c, r8(d + 0x2c) | 0x40)
+                if COMPARE_TIERS then logFile(string.format("HELD LOAD: g.gfx=%s live=%d sanim=%s sidx=%s tileStart=%s oamTile=%d", tostring(g.gfx), r8(objAddr(g.objId) + 0x05), tostring(remote.sanim), tostring(remote.sidx), tostring(g.tileStart), r16(sprAddr(g.sprId) + 0x04) & 0x3ff)) end
                 loadGhostFrameNow(g, graphicsInfo(g.gfx), remote.sanim, remote.sidx)
                 -- Remember it as issued, so the running path below re-arms properly when the peer
                 -- starts moving again.
@@ -4314,7 +4372,21 @@ local function syncGhost(playerId, remote)
             tiering.animTraceBuf = {}
         end
     end
-    if not ghostIsIdle(g) then return end -- never interrupt a half-played step
+    -- Never interrupt a half-played step -- EXCEPT for a pending graphic change that is not
+    -- fishing. The deferral was measured in for the rod (the engine owns the sprite offset
+    -- mid-step, and a mid-step rod swap drew 8px off for three frames), but it costs up to a
+    -- whole step of latency, and on a mount that is the spawned ghost visibly changing AFTER the
+    -- painted one -- the user, with the pose war finally won: *"its doing the mount/dismount
+    -- slower than the drawn ghost & player"*. A bike's and a walker's plain frames carry no
+    -- offset, so for them the measured fault cannot occur and the swap may land mid-step; the
+    -- swap branches below return on their own, so nothing past them runs while busy.
+    if not ghostIsIdle(g) then
+        local pending = wantedGfx(remote)
+        if not (pending and g.gfx and pending ~= g.gfx
+            and not isFishingGfx(pending) and not isFishingGfx(g.gfx)) then
+            return
+        end
+    end
 
     -- The graphic swap waits for the step to END, below this guard rather than above it.
     --
@@ -4331,8 +4403,27 @@ local function syncGhost(playerId, remote)
     -- where possible -- position, pos2 and the engine's own settled state all survive, so there is
     -- no frame where the ghost is missing, doubled, or wearing the previous graphic's pixels.
     local wantNow = wantedGfx(remote)
+    -- A GRAPHIC CHANGE ENDS IN A SETTLE, BOTH DIRECTIONS. The frame the swap loads is sampled from
+    -- the wire mid-transition and can be a stride; every field-level correction attempted against
+    -- that (six across one afternoon) either lost a tug-of-war or was judged against the wrong
+    -- bytes. The user's own observation is the mechanism: *"it does get the correct/proper pose if
+    -- you mount/dismount and then move 1 tile afterwards"* -- a step makes the ENGINE set the
+    -- pose. The settle is a zero-motion step, so ask for it and let the game do the part only it
+    -- does correctly. Static, not walk-in-place: nobody pedals or paces getting on or off a bike.
+    if COMPARE_TIERS and remote.gfx ~= g.gfxWireSeen then
+        g.gfxWireSeen = remote.gfx
+        logFile(string.format("f=%d GFX on wire -> %s (ghost wears %s, idle=%s)",
+            frameCounter, tostring(remote.gfx), tostring(g.gfx), tostring(ghostIsIdle(g))))
+    end
+    if wantNow and g.gfx and wantNow ~= g.gfx then
+        if COMPARE_TIERS then logFile(string.format("f=%d SWAP %s -> %s", frameCounter, tostring(g.gfx), tostring(wantNow))) end
+        g.needsSettle = true
+        g.settleStatic = true
+        g.frameFor = nil
+    end
     if wantNow and g.gfx and wantNow ~= g.gfx
-        and swapGhostGraphicInPlace(g, wantNow, remote.sanim, remote.sox or 0, remote.soy or 0)
+        and swapGhostGraphicInPlace(g, wantNow, remote.sanim, remote.sox or 0, remote.soy or 0,
+            remote.sidx, remote.spaused)
     then
         -- No offset write here: swapGhostGraphicInPlace set it in the same batch as the shape,
         -- from the right source for the graphic. Writing the wire value on top of that -- which
@@ -4612,8 +4703,12 @@ local function syncGhost(playerId, remote)
                 g.needsSettle = nil
                 g.frameFor = nil
                 -- The static pose on a bike, for the reason given at the turn above: a rider that
-                -- settles with walk-in-place pedals once more for no reason.
-                requestAction(g, (isBikeGfx(remote.gfx) and FACE_STILL_ACTION or FACE_ACTION)[dir])
+                -- settles with walk-in-place pedals once more for no reason. And after a GRAPHIC
+                -- CHANGE for any graphic -- nobody paces while getting on or off a bike.
+                if COMPARE_TIERS and g.settleStatic then logFile(string.format("f=%d SETTLE fires", frameCounter)) end
+                requestAction(g, ((g.settleStatic or isBikeGfx(remote.gfx))
+                    and FACE_STILL_ACTION or FACE_ACTION)[dir])
+                g.settleStatic = nil
                 -- THE STANDING ANIMATION GOES WITH THE SETTLE. The settle is itself an action, and
                 -- for the eight frames it runs the ghost is not idle -- so the mirror below is
                 -- blocked and the engine goes on advancing whatever was playing, which on a bike is
