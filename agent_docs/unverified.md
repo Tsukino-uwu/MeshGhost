@@ -23,6 +23,23 @@ actually confirm it as such."*
 
 ---
 
+## Pending — Emerald: the Acro Bike's wheelie poses are not reproduced (2026-08-20)
+
+A ghost never COMPLETES the wheelie transition actions. Measured by the watchdog added to
+`ghostIsIdle`, which logs what it frees: 0x69, 0x6B and 0x6D (`ACRO_POP_WHEELIE_UP/RIGHT`,
+`ACRO_END_WHEELIE_FACE_UP`) each held a ghost for the full 60-frame limit, repeatedly. A blocked
+ghost takes no further steps, falls behind, and is then teleported by the catch-up -- which is what
+the user saw as sliding.
+
+They are no longer mirrored, so a ghost follows correctly and simply does not pop a wheelie. Hops
+and jumps (0x46..0x4D, 0x74..0x7B) DO complete and are kept.
+
+- [ ] **Why do they never finish?** The likely answer is that they depend on the acro state the
+      engine keeps on the PLAYER (`gPlayerAvatar.acroBikeState`, +0x08), which a ghost has none of --
+      so the action's step function waits for a state that never arrives. Worth reading
+      `sAcroBikeTransitions` before another attempt; a fix would restore the standing wheelie on a
+      ghost, which is currently invisible to peers.
+
 ## Pending — Emerald: a ghost cannot abandon a step it has started (2026-08-20)
 
 Found while fixing the muddy slope, and it is the general form of the corner-snapping seen on the

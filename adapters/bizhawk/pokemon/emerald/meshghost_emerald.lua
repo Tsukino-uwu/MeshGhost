@@ -2536,6 +2536,78 @@ genderFrames.drawGrassRows = function(playerId, gbX, gbY, left, footY, rowFrom, 
     tiering.grassTiles[playerId] = st
 end
 
+-- LANDING DUST, painted, for both tiers.
+--
+-- The engine spawns it at the character's own tile the moment a jump lands
+-- (GroundEffect_JumpLandingDust -> FLDEFF_DUST, src/event_object_movement.c:7995-8002) from
+-- gFieldEffectObjectTemplate_GroundImpactDust (0850CCA0, pokeemerald.map): a 16x8 sprite whose
+-- animation is frames 0,1,2 at eight game-frames each, so 24 frames and gone.
+--
+-- Painted for BOTH tiers, for different reasons. The drawn tier has no engine to spawn it at all.
+-- The spawned tier does get the engine's own dust -- but our painted SHADOW covers it, because an
+-- overlay is drawn after the hardware has finished, and the real shadow sprite that would sit
+-- underneath is disabled after it crashed the game. Painting the dust on top of our own shadow
+-- puts it back in view: the user's suggestion, and the right one while the sprite is off.
+--
+-- The palette is read off a live dust sprite, which exists whenever the engine has spawned one --
+-- and on the spawned tier it always has, at the same moment, which is exactly when this draws.
+genderFrames.dustTemplate = 0x0850cca0
+
+genderFrames.dustRuns = function(frame)
+    local images = r32(genderFrames.dustTemplate + 0x0c)
+    if not isRomPtr(images) then return nil end
+    local pal = nil
+    for i = 0, 63 do
+        local d = sprAddr(i)
+        if (r8(d + 0x3e) & 0x01) ~= 0 and r32(d + 0x0c) == images then
+            pal = (r16(d + 0x04) >> 12) & 0x0f
+            break
+        end
+    end
+    if not pal then return nil end
+    -- 16x8, from the template's own OAM shape (gObjectEventBaseOam_16x8).
+    return genderFrames.runsFromImages(string.format("dust:%d:%d", pal, frame),
+        images, TILE, TILE // 2, frame, pal)
+end
+
+-- Frame index for a landing that happened `elapsed` frames ago, walked from the template's own
+-- animation commands -- nil once it has finished, which is what stops it being drawn.
+genderFrames.dustFrameAt = function(elapsed)
+    local anims = r32(genderFrames.dustTemplate + 0x08)
+    if not isRomPtr(anims) then return nil end
+    local list = r32(anims)
+    if not isRomPtr(list) then return nil end
+    local t = elapsed
+    for i = 0, 15 do
+        local cmd = r32(list + i * 4)
+        local img = cmd & 0xffff
+        if img == 0xffff then return nil end       -- ANIMCMD_END: the puff is over
+        local dur = (cmd >> 16) & 0x3f
+        if dur == 0 then dur = 1 end
+        if t < dur then return img end
+        t = t - dur
+    end
+    return nil
+end
+
+-- Remember where and when a peer last landed, so both tiers can draw the same puff.
+genderFrames.noteLanding = function(playerId, jumping, gx, gy)
+    tiering.landed = tiering.landed or {}
+    local e = tiering.landed[playerId]
+    if jumping then
+        tiering.landed[playerId] = { air = true, gx = gx, gy = gy, at = (e and e.at) or nil }
+    elseif e and e.air then
+        -- Left the air this frame: that is the landing, on the tile it came down on.
+        tiering.landed[playerId] = { air = false, gx = gx, gy = gy, at = frameCounter }
+    end
+    local cur = tiering.landed[playerId]
+    if cur and cur.at and not cur.air then
+        local f = genderFrames.dustFrameAt(frameCounter - cur.at)
+        if f then return f, cur.gx, cur.gy end
+    end
+    return nil
+end
+
 genderFrames.grassFrameAt = function(behaviour, elapsed)
     local tmpl = genderFrames.grassTemplate[behaviour]
     if not tmpl then return 0 end
@@ -3452,7 +3524,23 @@ function despawnGhostShadow(g)
 end
 
 -- Driven from Lua every frame, exactly as UpdateShadowFieldEffect would have.
+-- DISABLED. Building a real shadow sprite crashed the game on every jump (user, 2026-08-20:
+-- *"everytime i jump with the bike, the game restarts now"*), which is a reset rather than a
+-- glitch -- so it is off at the door until the cause is found, not left on while it is debated.
+--
+-- The likely fault is the tile allocation: the frame's byte count is read from the template's
+-- SpriteFrameImage, and if that read is wrong the copy into OBJ VRAM writes over whatever else is
+-- there -- the ghost's own tiles, or the game's. Corrupting VRAM is exactly the shape that ends in
+-- a reset, and this project has already had one garbled-NPC incident from a tile range freed at the
+-- wrong moment.
+--
+-- The painted shadow is back in the meantime: it draws in FRONT of the character rather than under
+-- it, which is wrong and visible, but wrong-looking beats crashing.
+-- A field, not a local: this chunk is at Lua's 200-local ceiling.
+genderFrames.shadowSpriteEnabled = false
+
 function updateGhostShadow(g, jumping)
+    if not genderFrames.shadowSpriteEnabled then return end
     if not jumping then
         if g.shadowSprId then
             w8(sprAddr(g.shadowSprId) + 0x3e, r8(sprAddr(g.shadowSprId) + 0x3e) | 0x04)
@@ -3549,15 +3637,40 @@ local function clearHeldMovement(g)
 end
 
 -- "Ready for a new order", which is not the same question as "is a movement flagged active".
+--
+-- WITH A WATCHDOG, because an action that never finishes strands the ghost for the rest of the
+-- session: no step is issued while it is busy, so it stops following entirely. Seen twice on the
+-- Acro Bike -- the in-place wheelie poses are HOLDS that run until something ends them, and at
+-- least one action issued after a jump never reports finished at all.
+--
+-- No legitimate movement outlasts this: an ordinary step is 16 frames, the fastest is 4, a ledge
+-- jump about 24. Sixty is generous enough that it can only catch something genuinely stuck, and it
+-- LOGS the action id when it fires -- a watchdog that hides the fault it catches would just move
+-- the bug somewhere quieter.
 local function ghostIsIdle(g)
-    local b0 = r8(objAddr(g.objId) + 0x00)
+    local a = objAddr(g.objId)
+    local b0 = r8(a + 0x00)
     local active = (b0 >> 6) & 0x01
     local finished = (b0 >> 7) & 0x01
     if active == 1 and finished == 1 then
         clearHeldMovement(g)
+        g.busySince = nil
         return true
     end
-    return active == 0
+    if active == 1 then
+        g.busySince = g.busySince or frameCounter
+        if frameCounter - g.busySince > 60 then
+            logFile(string.format(
+                "MeshGhost: a ghost was stuck %d frames in movement action 0x%02X -- freeing it",
+                frameCounter - g.busySince, r8(a + 0x1c)))
+            clearHeldMovement(g)
+            g.busySince = nil
+            return true
+        end
+        return false
+    end
+    g.busySince = nil
+    return true
 end
 
 local function teleportGhost(g, mapX, mapY)
@@ -3984,6 +4097,15 @@ local function syncGhost(playerId, remote)
             -- time the peer's animation ticked, which is the "stuck on frame 0" failure from the
             -- fishing work wearing different clothes.
             if r8(d + 0x2a) ~= remote.sanim then w8(d + 0x2a, remote.sanim) end
+            -- AND UN-PAUSE IT, because setting a number on a paused sprite changes nothing.
+            -- The peer is not paused (checked above), so the ghost should not be either -- but the
+            -- engine pauses an object's sprite whenever it settles, and on the Acro Bike that left
+            -- the ghost moving with its legs stopped: measured `paused=232` of 252 stepping frames
+            -- while it rode. requestAction hands the animation back the same way when it issues a
+            -- step; this covers the frames between steps.
+            if (r8(d + 0x2c) & 0x40) ~= 0 then
+                w8(objAddr(g.objId) + 0x01, r8(objAddr(g.objId) + 0x01) | 0x08)
+            end
         elseif remote.spaused and remote.sidx then
             if r8(d + 0x2a) ~= remote.sanim or r8(d + 0x2b) ~= remote.sidx
                 or (r8(d + 0x2c) & 0x40) == 0
@@ -4220,10 +4342,20 @@ local function syncGhost(playerId, remote)
     -- An in-place action is mirrored and HELD, because nothing else will move the ghost and the
     -- position logic below would turn it instead. A travelling one is mirrored once and then left
     -- to the ordinary step logic, which is what keeps the ghost following.
-    local inPlace = remote.act and (
-        (remote.act >= 0x46 and remote.act <= 0x4d)
-        or (remote.act >= 0x64 and remote.act <= 0x73)
-        or (remote.act >= 0x7c and remote.act <= 0x7f))
+    -- THE WHEELIE POSES ARE NOT MIRRORED, and that is measured rather than chosen. Issued to a
+    -- ghost they never report finished: the watchdog in ghostIsIdle caught 0x69, 0x6B and 0x6D
+    -- (ACRO_POP_WHEELIE_UP/RIGHT, ACRO_END_WHEELIE_FACE_UP) holding a ghost for its full 60-frame
+    -- limit, over and over. Blocked that long the ghost falls behind, and the catch-up then
+    -- teleports it -- *"they slide/teleport to me when im on the bike"* was the recovery, not the
+    -- fault.
+    --
+    -- Presumably they need the acro state the engine keeps on the PLAYER (gPlayerAvatar's
+    -- acroBikeState), which a ghost has none of. Until that is understood, a ghost that follows
+    -- correctly without the wheelie pose beats one that poses and then strands: the hops and jumps
+    -- below DO complete, and they are the part with visible motion in them.
+    --
+    -- Registered as a gap in unverified.md rather than left as a silent omission.
+    local inPlace = remote.act and (remote.act >= 0x46 and remote.act <= 0x4d)
     -- THE TRAVELLING BLOCK RUNS TO 0x8B, not 0x83. Cut short, the wheelie MOVE and END_WHEELIE
     -- MOVE actions fell through to an ordinary walk: the ghost kept up -- its coordinates track the
     -- peer's throughout, measured -- but rode along without the wheelie or the hop, which is what
@@ -4271,7 +4403,17 @@ local function syncGhost(playerId, remote)
     if travels and remote.act >= 0x74 then acroBase = remote.act & 0xfc end
     if acroBase then travels = false end
 
-    if not (inPlace or travels) then g.jumped = nil end
+    -- A POSE IS A HOLD, AND A HOLD HAS TO BE RELEASED.
+    --
+    -- The in-place Acro actions are not one-shots: a standing wheelie holds until something ends
+    -- it. Issued to a ghost and then left, the object never reports finished, so `ghostIsIdle` is
+    -- false for ever, no further step is ever requested, and the ghost simply stops following --
+    -- with its sprite paused the whole time, which is what `paused=300 of 300` in the status line
+    -- was saying. The peer moving on is the signal to let go.
+    if not (inPlace or travels) then
+        if g.jumped then clearHeldMovement(g) end
+        g.jumped = nil
+    end
     -- A REPEATED one-shot has to re-fire. Latching on the value alone means a peer hopping on the
     -- spot over and over reports the same action id throughout, so the ghost hopped ONCE and then
     -- stood there -- which is also why its landing dust appeared only when it was travelling
@@ -4376,7 +4518,21 @@ local function syncGhost(playerId, remote)
     -- and the action says otherwise.
     if not base and remote.act then
         if remote.act >= 0x2d and remote.act <= 0x30 then base = 0x2d
-        elseif remote.act >= 0x15 and remote.act <= 0x18 then base = 0x15 end
+        elseif remote.act >= 0x15 and remote.act <= 0x18 then base = 0x15
+        -- THE ACRO BIKE RIDES ON "RIDE WATER CURRENT", which is not a joke and not a walk:
+        -- AcroBikeTransition_Moving calls PlayerRideWaterCurrent for ordinary movement
+        -- (pokeemerald src/bike.c:546-570), so a peer riding one reports 0x29..0x2C
+        -- (include/constants/event_object_movement.h:128-131).
+        --
+        -- Nothing else in this file recognised that family, so the speed lookup found nothing and
+        -- the ghost WALKED after a peer riding a bike: measured `pspeed0` and `walk/run` on every
+        -- step, with the gap reaching four tiles -- past the three-tile chase limit, so it was
+        -- placed instead of walked, over and over. That is the constant teleporting.
+        --
+        -- gPlayerAvatar.bikeSpeed stays 0 here because it belongs to the MACH bike's acceleration
+        -- counter; the Acro Bike has no such ramp. So this family IS the speed for that bike, and
+        -- the ghost performs the same action rather than a walk of its own.
+        elseif remote.act >= 0x29 and remote.act <= 0x2c then base = 0x29 end
     end
 
     if math.abs(dx) + math.abs(dy) == 1 then
@@ -4402,6 +4558,14 @@ local function syncGhost(playerId, remote)
         -- action for that speed. Bases from include/constants/event_object_movement.h:95,108,132:
         -- WALK_NORMAL 0x08, WALK_FAST 0x15, WALK_FASTER 0x2D, each DOWN/UP/LEFT/RIGHT consecutive
         -- in DIR_ID order -- the same layout every other action table here relies on.
+        tiering.spd = tiering.spd or {}
+        local k = acroBase and string.format("acro%02X", acroBase)
+            or (base and string.format("%02X", base)) or "walk/run"
+        tiering.spd[k] = (tiering.spd[k] or 0) + 1
+        tiering.spd["act" .. string.format("%02X", remote.act or 0)] =
+            (tiering.spd["act" .. string.format("%02X", remote.act or 0)] or 0) + 1
+        tiering.spd["pspeed" .. tostring(remote.pspeed)] =
+            (tiering.spd["pspeed" .. tostring(remote.pspeed)] or 0) + 1
         local running = (remote.anim == "running")
         if acroBase then
             requestAction(g, acroBase + (stepDir - 1))
@@ -4431,6 +4595,8 @@ local function syncGhost(playerId, remote)
         -- is at speed and closes it the moment they slow or stop, which is what a person follows
         -- like -- and never snaps. A long gap is still a warp and still gets placed.
         local far = math.abs(dx) + math.abs(dy)
+        tiering.spd = tiering.spd or {}
+        tiering.spd["gap" .. tostring(far)] = (tiering.spd["gap" .. tostring(far)] or 0) + 1
         if far <= 3 then
             -- Dominant axis: with the gap this small the peer is on a line, and stepping the long
             -- side first is what keeps a diagonal-looking approach from zig-zagging.
@@ -4591,6 +4757,19 @@ local function drawGhostShadows()
         local remote = remotes[playerId]
         if ghostAlive(g) and not (remote and isJumpAction(remote.act)) then
             updateGhostShadow(g, false)
+            -- ON TOP OF THE SHADOW, deliberately. The engine's own dust is under our painted
+            -- shadow and cannot be seen; drawing ours after it puts the puff back in view.
+            local f, lx, ly = genderFrames.noteLanding(playerId, false,
+                rs16(objAddr(g.objId) + 0x10), rs16(objAddr(g.objId) + 0x12))
+            if f then
+                local d = sprAddr(g.sprId)
+                local runs = genderFrames.dustRuns(f)
+                if runs then
+                    drawRunList(runs, TILE, false,
+                        rs16(d + 0x20) + rs16(GSPRITECOORDOFFSETX_ADDR) - 8,
+                        rs16(d + 0x22) + rs16(GSPRITECOORDOFFSETY_ADDR) + 8, nil, 1)
+                end
+            end
         end
         if remote and isJumpAction(remote.act) and ghostAlive(g) then
             local d = sprAddr(g.sprId)
@@ -4600,6 +4779,15 @@ local function drawGhostShadows()
             -- sprite reading pos2 0,0 while the character mid-hop reads 0,-6.
             local sy = rs16(d + 0x22) + rs16(GSPRITECOORDOFFSETY_ADDR)
             updateGhostShadow(g, true)
+            if not genderFrames.shadowSpriteEnabled then
+                local size = 0
+                local gi = g.gfx and graphicsInfo(g.gfx)
+                if gi and gi.raw then size = (r8(gi.raw + 0x0c) >> 4) & 0x03 end
+                local h = (gi and gi.height) or FRAME_HEIGHT_PX
+                drawOneShadow(sx, sy + (h >> 1) - (genderFrames.shadowDrop[size] or 4) - 4, 1)
+            end
+            genderFrames.noteLanding(playerId, true,
+                rs16(objAddr(g.objId) + 0x10), rs16(objAddr(g.objId) + 0x12))
         end
     end
 end
@@ -5041,11 +5229,21 @@ local function drawRemotes(localAreaId, playerMapX, playerMapY, skipSpawned, com
                 -- +8,+16 from it, and the arc comes off because a shadow belongs on the ground the
                 -- character left rather than under its feet in mid-air.
                 if pinned and isJumpAction(remote.act) then
-                    -- The arc comes off so the shadow stays on the ground the character left,
-                    -- and the drop is the graphic's own rather than a constant.
-                    drawOneShadow(screenX + 8,
-                        shadowTopFor(remote.gfx and graphicsInfo(remote.gfx) or nil,
-                            screenY - pinnedArc), dim)
+                    -- CENTRED ON THE GRAPHIC, not on a walker. screenX + 8 is the middle of the
+                    -- 16-wide gender frame, and a bike, a surfboard or a rod is 32 wide -- so on
+                    -- any of those the shadow sat 8px left of the character (user, 2026-08-20:
+                    -- *"its a bit to the left"*). The same half-width that centres the character's
+                    -- own frame centres its shadow.
+                    --
+                    -- The arc comes off so the shadow stays on the ground the character left, and
+                    -- the drop is the graphic's own rather than a constant.
+                    local sgi = remote.gfx and graphicsInfo(remote.gfx) or nil
+                    local halfW = (sgi and sgi.width or FRAME_WIDTH_PX) >> 1
+                    -- screenX, not screenX + cx: cx belongs to the peer-graphic branch further
+                    -- down and is not in scope here -- referencing it read a nil GLOBAL and threw
+                    -- once per frame. In the pinned case it is zero in any event.
+                    drawOneShadow(screenX + halfW,
+                        shadowTopFor(sgi, screenY - pinnedArc), dim)
                 end
 
                 -- A peer wearing its OWN graphic -- bike, surf, fishing -- is drawn from that
@@ -5314,6 +5512,17 @@ local function drawRemotes(localAreaId, playerMapX, playerMapY, skipSpawned, com
                         -- ought to be covered were beaten by one deliberately-wrong build.
                         genderFrames.drawGrassRows(playerId, gbX2, gbY2, screenX, footY,
                             r0, r1, panelRows, dim, footY)
+                        -- LANDING DUST, after the grass so it is not buried by it.
+                        do
+                            local f = genderFrames.noteLanding(playerId,
+                                isJumpAction(remote.act) or false, 0, 0)
+                            local druns = f and genderFrames.dustRuns(f)
+                            if druns then
+                                drawRunList(druns, TILE, false, screenX,
+                                    screenY + FRAME_HEIGHT_PX - 8, panelRows, dim)
+                            end
+                        end
+
                         -- The covered set is rebuilt each frame, so a tile that stops being
                         -- covered and is stepped onto again rustles afresh.
 
@@ -5488,12 +5697,19 @@ local function runFrame()
         genderFrames.clippedRuns = 0
         logFile(string.format(
             "status: frame=%d connected=%s ready=%s port=%s remotes=%d ghosts=%d drawn=%d "
-                .. "clipped=%d overworld=%s inGame=%s slide=%d/%d paused=%d",
+                .. "clipped=%d overworld=%s inGame=%s slide=%d/%d paused=%d spd=%s",
             frameCounter, tostring(connected), tostring(ready), tostring(currentPort),
             nRemotes, nGhosts, nDrawn, nClipped, tostring(inOverworld()), tostring(session.live),
             (tiering.slide or {}).legs or 0, (tiering.slide or {}).step or 0,
-            (tiering.slide or {}).paused or 0))
+            (tiering.slide or {}).paused or 0,
+            (function()
+                local t = {}
+                for k, v in pairs(tiering.spd or {}) do t[#t + 1] = k .. "=" .. v end
+                table.sort(t)
+                return table.concat(t, ",")
+            end)()))
         tiering.slide = { step = 0, legs = 0, paused = 0 }
+        tiering.spd = {}
         -- "Peers are known but none of them is being rendered" is its own failure, and the status
         -- counts above cannot tell which of the two reasons it is: the peer is somewhere else, or
         -- it is here and the spawn declined. area_id is opaque and compared by equality, so

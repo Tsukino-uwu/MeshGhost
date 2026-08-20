@@ -8660,3 +8660,38 @@ Grass turned out to be four separate facts, and getting one right looked exactly
 sprite's position formula matched to the pixel (`anchorWouldBe=24,-56` against the live sprite's
 `pos=24,-56`), the palette matched (14), and the animation frame index lined up. Three assumptions
 proven right that would otherwise have been "fixed".
+
+## Emerald: the Acro Bike — 2026-08-20
+
+**User-confirmed on screen, vanilla.** Hops and jumps mirror instead of turning the ghost, the ghost
+follows without teleporting, and its legs animate while it rides.
+
+**Three speed sources in one game, and none generalises from the others.** This is the finding worth
+keeping:
+
+| what the peer is doing | where the speed lives |
+| --- | --- |
+| Mach Bike | `gPlayerAvatar.bikeSpeed` (+0x0B), a `PLAYER_SPEED_*` |
+| pushed down a muddy slope | `movementActionId` -- `WALK_FAST`, while `bikeSpeed` is forced to 0 |
+| **Acro Bike** | `movementActionId` -- **`RIDE_WATER_CURRENT` 0x29..0x2C** |
+
+`AcroBikeTransition_Moving` moves the player with `PlayerRideWaterCurrent` (src/bike.c:546-570), so
+an Acro rider reports a family nothing recognised: the ghost WALKED after a cycling peer, the gap
+reached four tiles, and four is past the three-tile chase limit -- so it was placed rather than
+walked, over and over. `bikeSpeed` stays 0 on this bike because it is the Mach Bike's acceleration
+counter and the Acro has no ramp.
+
+**The in-place actions had to be split from the travelling ones.** `0x64..0x8B` reads as one block
+and is not: `0x46..0x4D` and `0x7C..0x7F` happen on the spot, `0x74..0x7B` and `0x80..0x8B` travel.
+Holding the ghost for all of them stopped it following; issuing the travelling ones verbatim moved
+it twice (the action moves it AND the step logic did). Travelling actions are now used for their
+ANIMATION only, with the step taking the direction the ghost actually needs -- family base is
+`act & 0xFC`.
+
+**Agent-measured, riding a scripted square:** the ghost's sprite went from paused on **232 of 252**
+stepping frames to **52 of 250**, with its legs advancing on 99 -- the engine pauses an object's
+sprite whenever it settles, and the bike animation mirror was setting a number on a paused sprite,
+which changes nothing.
+
+**Known gap, deliberately:** a ghost does not pop a wheelie. Those transition actions never report
+finished for a ghost, stranding it -- see `unverified.md`.

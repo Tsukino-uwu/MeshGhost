@@ -2552,3 +2552,30 @@ happened to be the correct answer, which two rounds of pixel-row reasoning had n
   the engine's grass sprites were captured while the player walked DOWN, which supported both "the
   lower tile draws in front" and "the tile being entered draws in front". Both were adopted in turn
   and both were wrong. One capture walking the other way would have killed both.
+
+## A watchdog that names what it caught — 2026-08-20, Emerald
+
+**The problem it solved.** A ghost stopped following entirely and stayed stopped. `ghostIsIdle`
+already cleared a movement that FINISHED; nothing handled one that never does, and a blocked ghost
+is never issued another step, so it strands for the rest of the session.
+
+**Why a plain watchdog would have been a mistake.** Freeing the ghost after a timeout fixes the
+symptom and hides the cause -- the fault becomes "occasionally the ghost lurches", which is far
+harder to chase than "the ghost freezes". Logging the action id when it fires turned it into a
+finding within one reload:
+
+```
+a ghost was stuck 61 frames in movement action 0x69 -- freeing it
+a ghost was stuck 61 frames in movement action 0x6D -- freeing it
+```
+
+0x69/0x6B/0x6D are `ACRO_POP_WHEELIE_*` and `ACRO_END_WHEELIE_FACE_*` -- wheelie transitions that a
+ghost cannot complete, presumably because they wait on `gPlayerAvatar.acroBikeState`, which only the
+player has. That is now a written-down question instead of an intermittent glitch.
+
+**The rules.**
+
+- **A recovery mechanism must report what it recovered from.** Otherwise it converts a loud failure
+  into a quiet one, which is worse.
+- **Pick the timeout from what the game does, not from taste.** A step is 16 frames, the fastest 4,
+  a ledge jump about 24 -- so 60 can only catch something genuinely stuck.
