@@ -125,6 +125,24 @@ type Hello struct {
 	// adapter sends — leaving the client wire-compatible with any room, since
 	// a room's feature set is matched exactly.
 	Features []string `json:"features,omitempty"`
+
+	// RenderAllAreas asks the core to deliver every remote's state regardless
+	// of area, and to leave area-based despawns to the adapter. The core's
+	// own cross-area filter (remoteStatesAt, ADR 2026-08-13) exists because a
+	// remote rendered at another zone's raw coordinates is garbage -- which
+	// is true exactly until an adapter can translate a neighboring map's
+	// coordinates itself. Emerald's cross-map ghosts do (2026-08-20): the
+	// adapter knows the game's own map-connection graph, so the CORE's
+	// equality filter despawned every follower for the ~100ms an echoed
+	// area_id lags a real crossing -- a visible pop per seam, on every seam.
+	//
+	// Adapter-local, deliberately NOT a room feature: it changes what this
+	// core sends its own adapter and nothing on the wire, so it must not
+	// fragment room compatibility the way feature-set matching would.
+	// Absent means false, which is exactly the old behaviour; an adapter
+	// that sets it takes over ALL area-based hiding, including for maps it
+	// cannot translate.
+	RenderAllAreas bool `json:"render_all_areas,omitempty"`
 }
 
 // Event is one event-plane message, in either direction. Adapter -> core it

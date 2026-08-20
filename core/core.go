@@ -477,6 +477,12 @@ type Core struct {
 	// for the rest of the process.
 	adapterFeatures []string
 
+	// adapterRenderAllAreas mirrors the attached adapter's Hello
+	// render_all_areas: when true, remoteStatesAt skips the cross-area
+	// filter -- the adapter has declared it translates or hides foreign
+	// areas itself. Reset with the rest of the adapter state on detach.
+	adapterRenderAllAreas bool
+
 	// resumeToken is the single-use secret from the last Welcome, presented
 	// in a later Hello to reclaim this identity after an unexpected drop.
 	// Deliberately NOT cleared on disconnect — that is precisely when it
@@ -1208,7 +1214,7 @@ func (c *Core) remoteStatesAt(renderTime int64) map[string]protocol.State {
 		if !ok {
 			continue
 		}
-		if c.localAreaID != "" && st.AreaID != c.localAreaID {
+		if !c.adapterRenderAllAreas && c.localAreaID != "" && st.AreaID != c.localAreaID {
 			// The client side of the relay's cross-area fan-out question:
 			// this sample was received, validated, buffered and is now being
 			// thrown away. Counted per render tick rather than per arrival on
@@ -1266,6 +1272,9 @@ func (c *Core) handleBridgeConn(netConn net.Conn) {
 		if c.attachedAdapter == nd {
 			c.attachedAdapter = nil
 			c.adapterReady = false
+			// The next adapter may be an ordinary one: its Hello decides
+			// afresh, and until then the core's own filter is the default.
+			c.adapterRenderAllAreas = false
 		}
 		if owns {
 			// Disarm auto-retry (see autoRetryGameID's doc comment) before
@@ -1353,6 +1362,10 @@ func (c *Core) handleBridgeConn(netConn net.Conn) {
 			// the client stays wire-compatible with any room.
 			c.mu.Lock()
 			c.adapterFeatures = protocol.NormalizeFeatures(h.Features)
+			// The adapter taking over area-based visibility (bridge.Hello's
+			// own comment has the why). Under the same lock remoteStatesAt
+			// takes, so the filter change is atomic with the attach.
+			c.adapterRenderAllAreas = h.RenderAllAreas
 			c.mu.Unlock()
 
 			if err := c.ConnectRelayOnAdapterHello(h.GameID, h.GameVersion, nd); err != nil {

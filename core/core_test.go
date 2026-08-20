@@ -181,6 +181,24 @@ func (fa *fakeAdapter) helloWithVersion(gameID, gameVersion string) {
 	}
 }
 
+// helloAllAreas is hello with render_all_areas set -- the adapter declaring
+// it owns area visibility (bridge.Hello's comment; Emerald's cross-map
+// ghosts are the first real caller).
+func (fa *fakeAdapter) helloAllAreas(gameID string) {
+	fa.t.Helper()
+	payload, err := json.Marshal(bridge.Hello{GameID: gameID, RenderAllAreas: true})
+	if err != nil {
+		fa.t.Fatalf("marshal hello: %v", err)
+	}
+	env, err := json.Marshal(bridge.Envelope{Type: bridge.TypeHello, Payload: payload})
+	if err != nil {
+		fa.t.Fatalf("marshal envelope: %v", err)
+	}
+	if err := fa.conn.Send(env); err != nil {
+		fa.t.Fatalf("send hello: %v", err)
+	}
+}
+
 // frame simulates one adapter frame tick: sends the given local state (or
 // none, for state == nil) to the core.
 func (fa *fakeAdapter) frame(state *protocol.State) {
@@ -912,6 +930,62 @@ func TestCrossAreaFiltersRemote(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 	}
 	t.Fatal("core1 did not reappear for adapter2 after returning to the same area")
+}
+
+// TestRenderAllAreasDeliversCrossArea is TestCrossAreaFiltersRemote's
+// mirror: an adapter whose Hello sets render_all_areas keeps receiving a
+// remote that moves to a different area, with no despawn_remote -- the
+// adapter has declared it owns area visibility (Emerald's cross-map ghosts:
+// the core's equality filter despawned every follower for the delivery a
+// crossing's echoed area_id lags by, a visible pop at every seam).
+func TestRenderAllAreasDeliversCrossArea(t *testing.T) {
+	relayAddr := startRelay(t)
+
+	core1, bridge1Addr := startCore(t, relayAddr, "emerald", "room1", "alice")
+	core1.MinSendInterval = time.Millisecond
+	_, bridge2Addr := startCore(t, relayAddr, "emerald", "room1", "bob")
+
+	adapter1 := dialFakeAdapter(t, bridge1Addr)
+	adapter2 := dialFakeAdapter(t, bridge2Addr)
+	adapter2.helloAllAreas("emerald")
+
+	self := protocol.State{AreaID: "zone-a", Position: []float64{0, 0}, Anim: "idle"}
+	adapter2.frame(&self)
+	adapter1.frame(&protocol.State{AreaID: "zone-a", Position: []float64{1, 1}, Anim: "idle"})
+
+	deadline := time.Now().Add(testTimeout)
+	for time.Now().Before(deadline) {
+		adapter2.frame(&self)
+		if _, ok := adapter2.rendersOf(core1.PlayerID()); ok {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if _, ok := adapter2.rendersOf(core1.PlayerID()); !ok {
+		t.Fatal("setup failed: adapter2 never saw core1 rendered while in the same area")
+	}
+
+	// core1 moves to a different area. With render_all_areas the state must
+	// KEEP FLOWING -- new positions from zone-b arrive, and no despawn.
+	adapter1.frame(&protocol.State{AreaID: "zone-b", Position: []float64{7, 7}, Anim: "idle"})
+
+	sawZoneB := false
+	deadline2 := time.Now().Add(testTimeout)
+	for !sawZoneB && time.Now().Before(deadline2) {
+		adapter2.frame(&self)
+		if st, ok := adapter2.rendersOf(core1.PlayerID()); ok && st.AreaID == "zone-b" {
+			sawZoneB = true
+		}
+		select {
+		case id := <-adapter2.despawns:
+			t.Fatalf("despawn_remote for %q -- render_all_areas must leave area hiding to the adapter", id)
+		default:
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if !sawZoneB {
+		t.Fatal("timed out: core1's zone-b state never reached the render_all_areas adapter")
+	}
 }
 
 // inProcessAdapter is Phase 5's proof shape: a type satisfying core.Adapter
