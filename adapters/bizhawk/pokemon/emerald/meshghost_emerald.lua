@@ -561,6 +561,8 @@ do
         or math.floor((os.clock() % 1) * 100000)
     local name = string.format("meshghost_emerald_%s_%s.log", os.date("%Y%m%d_%H%M%S"), tostring(tag))
     logfile = io.open(SCRIPT_DIR .. "logs/" .. name, "w") or io.open(SCRIPT_DIR .. name, "w")
+    -- Beside the logs, and set only here so it inherits whichever directory actually worked.
+    genderFrames.xmapCachePath = SCRIPT_DIR .. "logs/xmap_cache.txt"
 end
 
 local rawConsoleLog = console.log
@@ -1495,6 +1497,57 @@ local remotes = {}
 genderFrames.xmap = { scanStep = 1, scanAt = 0, hits = {}, groupsAt = nil,
     conns = nil, connsFor = nil, ourW = 0, ourH = 0 }
 
+-- THE SCAN RESULT IS CACHED ACROSS LOADS, because the ~7-second self-location window is not
+-- cosmetic: a seam crossed before arming gets the old teardown, and during a dev session the
+-- adapter reloads constantly -- the user kept seeing "spawned vanishes fully, drawn slightly" at
+-- crossings that were all landing inside fresh arming windows, while every armed measurement was
+-- clean. Keyed by the ROM's own 4-byte game code and VERIFIED before trust: the cached address
+-- must resolve the CURRENT map's header to the same bytes as the live copy, so a wrong or stale
+-- cache costs one failed check and falls back to the full scan, never a wrong read.
+-- genderFrames.xmapCachePath is set in the log-open block ABOVE (beside the logs) -- no
+-- declaration here: this line runs later in the load than that block, and an `= nil` "declaration"
+-- wiped the already-set path, which the loud save caught as "path never set".
+genderFrames.xmapTryCache = function()
+    local xm = genderFrames.xmap
+    if not genderFrames.xmapCachePath then return false end
+    local f = io.open(genderFrames.xmapCachePath, "r")
+    if not f then return false end
+    local line = f:read("*l") f:close()
+    local code, addr = string.match(line or "", "^(%x+) (%x+)")
+    if not code or tonumber(code, 16) ~= memory.read_u32_le(0x080000AC) then return false end
+    local base = tonumber(addr, 16)
+    local sb1 = memory.read_u32_le(0x03005d8c)
+    if sb1 == 0 then return false end
+    local grp, num = memory.read_u8(sb1 + 0x04), memory.read_u8(sb1 + 0x05)
+    local ga = memory.read_u32_le(base + grp * 4)
+    if ga < 0x08000000 or ga >= 0x09000000 then return false end
+    local hdr = memory.read_u32_le(ga + num * 4)
+    if hdr < 0x08000000 or hdr >= 0x09000000 then return false end
+    for k = 0, 12, 4 do
+        if memory.read_u32_le(hdr + k) ~= memory.read_u32_le(0x02037318 + k) then return false end
+    end
+    xm.groupsAt = base
+    console.log("MeshGhost: cross-map ghosts armed instantly (cached gMapGroups verified)")
+    return true
+end
+genderFrames.xmapSaveCache = function()
+    -- Loud on every exit: the first version failed SILENTLY (path nil or open failed, no way to
+    -- tell which), and a silent cache miss re-opens the 7-second window it exists to close.
+    if not genderFrames.xmapCachePath then
+        console.log("MeshGhost: xmap cache NOT saved -- path never set")
+        return
+    end
+    local f = io.open(genderFrames.xmapCachePath, "w")
+    if not f then
+        console.log("MeshGhost: xmap cache NOT saved -- cannot write " .. genderFrames.xmapCachePath)
+    end
+    if f then
+        f:write(string.format("%08X %08X", memory.read_u32_le(0x080000AC),
+            genderFrames.xmap.groupsAt) .. string.char(10))
+        f:close()
+    end
+end
+
 genderFrames.xmapLocalKey = function()
     local sb1 = memory.read_u32_le(0x03005d8c)
     if sb1 == 0 then return nil end
@@ -1577,6 +1630,7 @@ genderFrames.xmapScan = function()
         if xm.groupsAt then
             console.log("MeshGhost: cross-map ghosts armed (gMapGroups self-located at "
                 .. string.format("%08X", xm.groupsAt) .. ")")
+            genderFrames.xmapSaveCache()
         end
         xm.scanStep = 4
         return
@@ -1720,7 +1774,15 @@ genderFrames.xmapTick = function()
     local localKey = genderFrames.xmapLocalKey()
     if not localKey then return end
     local xm = genderFrames.xmap
-    if not xm.groupsAt then genderFrames.xmapScan() end
+    if not xm.groupsAt then
+        -- The verified cache first -- instant arming on every reload after the first scan -- and
+        -- the full scan only when the cache is missing, stale, or for another ROM.
+        if not xm.cacheTried then
+            xm.cacheTried = true
+            genderFrames.xmapTryCache()
+        end
+        if not xm.groupsAt then genderFrames.xmapScan() end
+    end
     if xm.lastKey and xm.lastKey ~= localKey then genderFrames.xmapRebase(localKey) end
     xm.lastKey = localKey
     if xm.groupsAt and xm.connsFor ~= localKey then genderFrames.xmapBuild(localKey) end
