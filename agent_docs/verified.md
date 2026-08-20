@@ -9142,3 +9142,27 @@ costs a third of the frame rate and 150 costs five sixths of it.
 **Networking is not in the difference**: the SPAWNED run carried 16 live peers over a real relay and
 core and still measured exactly the bare control, so peer traffic at these counts costs nothing that
 this instrument can see.
+
+## 2026-08-21 — Emerald: both cheap tiers FULL at once is still free
+
+**Agent-measured, `probes/fpshold.lua`, 1800 samples, player stationary, crowd on screen.** The
+combination the earlier rows do not cover and the one that actually matters for shipping, asked for
+by the user: *"what about max spawned ones + max OAM ? still basically 0 impact"*.
+
+| run | avg fps | lowest |
+| --- | --- | --- |
+| control, nothing loaded | 60.0 | 58 |
+| **SPAWNED at the cap (11) + OAM at its ceiling (56), together** | **60.0** | **58** |
+
+**67 characters on screen — 11 drawn by the engine as real object events, 56 drawn by the PPU from
+entries we wrote — and the frame rate is indistinguishable from an emulator with nothing loaded.**
+Confirmed from the adapter's own status line in the same run (`ghosts=11 drawn=0`) and the probe's
+(`COUNT=56`), so neither tier was quietly idle.
+
+Reading it against the rows above: the painted tier alone needs only 56 peers to fall to 39.6. The
+two engine-and-hardware tiers together, at more characters than that, cost nothing measurable. That
+is the ladder's whole case in one comparison.
+
+**Still not measured**, and neither should be assumed from this: peers whose ANIMATION FRAME changes
+(a tile copy into OBJ VRAM per change, scaling with moving peers rather than with entries), and the
+per-scanline case where many sprites share rows.

@@ -915,7 +915,33 @@ know anything is there. Ranked by how much the game does for you:
 |---|---|---|---|
 | **Create** | ask the game to make one, with a class it already ships | animation, collision, layering, occlusion, lifetime | you own the lifetime and must not leak it |
 | **Borrow** | repurpose an object the level already placed | it exists and is valid | it is still the game's: no animation, cannot destroy, cannot hide |
+| **Hardware sprite** (emulators) | write extra entries into the game's own sprite table, in a range its per-frame path does not touch | the emulated GPU draws it: palettes, layering, occlusion, fades | no engine state at all — you drive position and animation, and you must release the entry |
 | **Draw over** | paint on the frame from outside | nothing | you reimplement everything, permanently |
+
+**For a BizHawk game the ladder is `spawn -> OAM -> drawn`, in that order, and that is the default
+to start from** (settled 2026-08-21; ADR in `agent_docs/architecture.md`, numbers in `verified.md`).
+Each peer takes the best tier with room. Measured on Emerald, standing still with the crowd on
+screen, each tier run alone against a 60.0 fps bare control:
+
+| tier | at 16 peers | at its own ceiling | what the ceiling is |
+| --- | --- | --- | --- |
+| spawned | 60.0 | 60.0 at **11** | the engine's object array, shared with the map's own cast |
+| OAM | 60.0 | **60.0 at 56** | the entries above the engine's layout cursor |
+| drawn | 60.0 | **39.6 at 56**, 10.4 at 150 | nothing but the host CPU |
+
+And the combination, which is the case that actually ships: **spawned at its cap AND OAM at its
+ceiling at the same time — 67 characters on screen — also measured 60.0.** The two tiers the engine
+and the hardware draw do not add up to a cost; the one that borrows neither does.
+
+**Read the 16 column before the others.** At small peer counts the three are indistinguishable from
+each other and from a bare emulator, so the tier choice buys nothing and a new adapter should not
+agonise over it. The ladder only matters under crowd load — and there the middle tier is free to its
+ceiling while painting costs a third of the frame rate at the same count.
+
+**Do not reach for per-scanline OAM multiplexing to raise the middle tier's ceiling.** It needs code
+inside the ROM, which is closed to us; the front end has no scanline callback to substitute; and on
+a GBA there is no sprite-count limit to beat in the first place. The full reasoning is the
+2026-08-21 ADR — check it before re-proposing the idea, because it is an attractive one.
 
 **"Draw over" is not automatically the wrong answer** — and this is the part worth getting right,
 because the tiers are not a quality ranking. It is the correct answer when the tiers above are
@@ -925,9 +951,15 @@ This project has one of each. Pseudoregalia's ghost moved **borrow → create** 
 moved sooner; the constraint that kept it borrowing had quietly gone stale and nobody re-checked
 it, which is the bandage described above. Emerald draws its ghost with overlay primitives and
 **stayed there on purpose**: the create tier needs a spawn path that writes game state, which this
-project refused outright, and the middle tier (sprite/VRAM injection) has a cited fragility —
+project refused outright, and the middle tier (sprite/VRAM injection) had a cited fragility —
 a reference implementation's own comments show its fixed address needing manual re-tuning between
 *vanilla* versions of the same game, before any ROM patch. See `agent_docs/ideas.md`.
+
+**Both halves of that have since been overturned, and the middle-tier half is the newer one
+(2026-08-21).** The fragility was real but specific: it belonged to *hardcoding* addresses. Claiming
+the same resources through the **game's own allocator** — its tile-allocation bitmap, its own
+unused sprite-table range — carries none of it, because the numbers are read from the running game
+rather than baked in. The middle tier is now a measured, free option, not a cited risk.
 
 **Updated 2026-08-17 — that blocker's premise has since changed, and this is the worked example of
 the rule two paragraphs down.** The refusal was never absolute: `agent_docs/plans.md` phrased it as

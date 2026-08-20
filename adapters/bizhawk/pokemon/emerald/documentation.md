@@ -81,6 +81,55 @@ treating it as such looked visibly wrong in live testing.
 The adapter decodes those graphics out of the player's own ROM at runtime rather than shipping any
 image (`agent_docs/licensing.md`'s assets rule).
 
+## Sprites: how one frame's hardware sprite table is built
+
+The GBA draws sprites from a 128-entry hardware table (OAM). Emerald never writes that table
+directly during play. It keeps its own **shadow copy of all 128 entries inside `gMain`**, rebuilds
+that copy once per frame from its sprite list (`BuildOamBuffer`, which finalises sprite animation
+first and then lays out the entries), and transfers it to the hardware during the next vertical
+blank (`LoadOam`). So what is on screen for a frame is decided before the frame is drawn, in one
+place, from one buffer.
+
+**`gOamLimit` bounds the WRITE CURSOR, not the transfer, and the difference is the interesting part.**
+On the overworld the engine sets it to **64**: the layout pass stops adding entries there, and its
+tail loop — which fills anything it did not use with a dummy entry parked off-screen at priority 3 —
+also stops there. Entries **at or above the limit are neither written nor cleared by the per-frame
+path**. The transfer, meanwhile, is unconditional and copies **all 128**.
+
+That gap is deliberate on the game's part, not an accident to be discovered: **Emerald parks its own
+sprites above the limit** — the wireless-link status indicator lives at entry 125, and several
+minigame screens allocate from 64 upward — precisely because the sprite system will not overwrite
+them there. The one thing that does touch all 128 entries every frame is the affine-matrix pass,
+and it writes only each entry's **fourth halfword** (the affine parameter), leaving the three
+attribute halfwords alone.
+
+Measured live on a town map, 2026-08-21: `gOamLimit` was 64 for 2250 consecutive overworld frames,
+entries 64–127 held nothing and never changed, and **5 of 128 hardware entries were in use**.
+
+**A ground-level overworld character is exactly ONE entry.** Every character graphic carries a table
+of subsprite layouts selected by the character's elevation, which is what lets a sprite be split
+into pieces at different priorities — that is how a character's head shows above a bridge while its
+feet are hidden, and how tall grass covers the legs. At ordinary ground elevation the selected
+layout is a **single full-size piece whose offset cancels against the sprite's own centre-to-corner
+vector**, so the split path is geometrically a no-op and the character occupies one entry.
+
+Two fields on that entry do the compositing work the engine gets for free and an overlay does not:
+**priority**, which comes from the character's elevation (ordinary ground is priority 2) and is what
+makes an NPC disappear behind a roof and under a text window; and the **palette slot**, which comes
+from the graphic's own descriptor and is read live by the hardware, so a character dims with every
+fade, cave and weather effect the game applies without anything re-deriving it.
+
+**What this means for capacity, in the game's own terms:** the hardware sprite table is never the
+thing that runs out. 128 entries, 64 of them not even addressed by the layout pass, and a handful in
+use on a normal map — against a **16-entry object-event array** shared by the player, every NPC on
+the map, and anything else that wants to be a character. The engine's own array is the binding
+limit, and it is not a drawing limit at all.
+
+*(Why that fact settles a design question — hardware sprites without the per-scanline OAM
+multiplexing that Game Boy games used — is the 2026-08-21 ADR in
+[`agent_docs/architecture.md`](../../../../agent_docs/architecture.md). It is a decision about our
+code, so it lives there rather than here.)*
+
 ## Maps are identified by a pair
 
 Map identity is **bank + number**, not a single id. Neither means anything alone. Warp data (which
