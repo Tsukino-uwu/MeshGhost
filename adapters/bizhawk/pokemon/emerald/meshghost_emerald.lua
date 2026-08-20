@@ -1055,6 +1055,7 @@ local lastMap = { group = nil, num = nil }
 
 local function mapJustChanged(mapGroup, mapNum)
     local changed = lastMap.group ~= nil and (mapGroup ~= lastMap.group or mapNum ~= lastMap.num)
+    if changed then lastMap.changedAt = frameCounter end
     lastMap.group, lastMap.num = mapGroup, mapNum
     return changed
 end
@@ -3525,8 +3526,37 @@ tiering.scanPanel = function()
         -- all) leaves an empty table and costs the draw path one nil lookup per run.
         if first then rows[row] = { first * 8, last * 8 + 7 } end
     end
-    tiering.panelRows = rows
-    return rows
+    -- ONLY ROWS PRESENT IN TWO CONSECUTIVE SCANS CLIP. Riding at speed, this scan flickered
+    -- between "nothing" and "panel rows 0-4" every few samples -- the map-name banner's tilemap
+    -- redraws seen mid-flight -- and those five rows are exactly the band a trailing ghost's hat
+    -- occupies when the player rides DOWN (trailing UP-screen), which is why the drawn ghost's
+    -- hat vanished only in that direction while every pixel-level instrument measured the paint
+    -- complete: the clip ate it after emission, 248 runs counted. A REAL panel -- the text box,
+    -- the START menu, the banner while actually displayed -- is rock-stable across scans, so
+    -- requiring two in a row suppresses only the flicker, at the cost of one scan interval
+    -- (4 frames) of clip latency when a real panel opens.
+    local out = {}
+    for row, span in pairs(rows) do
+        if tiering.panelPrev and tiering.panelPrev[row] then out[row] = span end
+    end
+    -- ROWS 0-4 ON THE LEFT NEED A STREAK, not a time window. The only thing the game puts there
+    -- is the map-name banner. A REAL banner is rock-stable in the tilemap for ~2 seconds; the
+    -- mid-ride redraw flicker that was eating a trailing ghost's hat alternates within a few
+    -- scans and never holds five in a row. A first attempt gated these rows to a window after a
+    -- map change instead -- wrong, because riding away from a fresh crossing is exactly when the
+    -- user tests, so the window re-admitted the flicker for their whole ride. The START menu also
+    -- reaches these rows but on the RIGHT half; spans starting past midscreen are untouched.
+    tiering.bannerStreak = tiering.bannerStreak or {}
+    for row = 0, 4 do
+        local leftSpan = rows[row] and rows[row][1] < 120
+        tiering.bannerStreak[row] = leftSpan and (tiering.bannerStreak[row] or 0) + 1 or 0
+        if out[row] and out[row][1] < 120 and tiering.bannerStreak[row] < 5 then
+            out[row] = nil
+        end
+    end
+    tiering.panelPrev = rows
+    tiering.panelRows = out
+    return out
 end
 
 -- Say which renderer this session is running, once, at load. "Is the drawn tier on?" was
@@ -6006,6 +6036,20 @@ local function drawRemotes(localAreaId, playerMapX, playerMapY, skipSpawned, com
                     drawIdx = math.floor(((remote.gDist or 0) - (remote.gDistBase or 0)) * 2) % 4
                 end
                 if PEER_GFX_ENABLED and remote.gfx and remote.gfx ~= 0 and remote.sanim then
+                    -- PINNED MEANS PINNED, animation included. The pin locks POSITION to the
+                    -- spawned sprite while the frame index still came from the wire at delivery
+                    -- rate -- so at Mach top speed the painted twin strobed across pedal frames
+                    -- the spawned one plays at 60fps, and ride frames sit a pixel or two taller
+                    -- than their neighbours: *"the top of the hat goes away ... especially
+                    -- noticable when riding fast downwards"*. Every other suspect measured
+                    -- innocent first: occlusion kept all 384 top pixels, the screen edge was
+                    -- never nearer than y=28, the ROM art has full hats, and the walker fallback
+                    -- never fired. In compare mode the spawned sprite's LIVE animation fields are
+                    -- the same source its pixels come from, so the twin shows the exact frame.
+                    if pinned then
+                        local ps2 = sprAddr(pinned.sprId)
+                        drawAnim, drawIdx = r8(ps2 + 0x2a), r8(ps2 + 0x2b)
+                    end
                     local runs, info, gfxFlip, imgIdx =
                         genderFrames.runsForPeerGfx(remote.gfx, drawAnim, drawIdx)
                     -- NEVER LET A SUBSTITUTED FRAME COST THE GRAPHIC. Falling through to the
@@ -6184,6 +6228,57 @@ local function drawRemotes(localAreaId, playerMapX, playerMapY, skipSpawned, com
                         -- the question for a priority-2 sprite instead of a priority-3 one.
                         local occl = genderFrames.reflectiveSpans(screenX + cx, screenY + cy,
                             info.width, info.height, "sprite")
+                        -- THE HAT ROWS' VERDICT, on change only (COMPARE_TIERS): how many pixels
+                        -- of the frame's top 8 rows survive occlusion, and which metatile the top
+                        -- row overlaps. The hat vanishing intermittently at speed is either this
+                        -- mask eating those rows (position-correlated: the id says over WHAT) or
+                        -- it is not occlusion at all -- one number decides.
+                        if COMPARE_TIERS then
+                            local topKept = -1
+                            if occl then
+                                topKept = 0
+                                for py = math.floor(screenY + cy), math.floor(screenY + cy) + 7 do
+                                    for _, s in ipairs(occl[py] or {}) do
+                                        topKept = topKept + s[2] - s[1] + 1
+                                    end
+                                end
+                            end
+                            local gbX, gbY = genderFrames.gridBase()
+                            local mid = "?"
+                            if gbX then
+                                mid = tostring(genderFrames.metatileAt(
+                                    math.floor((screenX + cx + 8 - gbX) / TILE),
+                                    math.floor((screenY + cy - gbY) / TILE)))
+                            end
+                            local info2 = graphicsInfo(remote.gfx)
+                            local cmdRaw = 0
+                            if info2 and info2.anims ~= 0 then
+                                local ap = r32(info2.anims + (drawAnim or 0) * 4)
+                                if isRomPtr(ap) then cmdRaw = r32(ap + (drawIdx or 0) * 4) end
+                            end
+                            local minRy, nRuns = 99, 0
+                            if runs then
+                                for _, rr in ipairs(runs) do
+                                    nRuns = nRuns + 1
+                                    if rr.y < minRy then minRy = rr.y end
+                                end
+                            end
+                            local k = string.format("%s:%d:%s:%s:%s:%d", tostring(playerId), topKept,
+                                mid, tostring(drawAnim), tostring(drawIdx), minRy)
+                            if genderFrames.hatLogKey ~= k then
+                                genderFrames.hatLogKey = k
+                                logFile(string.format(
+                                    "f=%d HAT %s topKept=%d y=%d anim=%s/%s minRy=%d panels=%s clipped=%d",
+                                    frameCounter, tostring(playerId), topKept,
+                                    math.floor(screenY + cy), tostring(drawAnim),
+                                    tostring(drawIdx), minRy,
+                                    (function() local c = 0 local rws = {}
+                                        if panelRows then for rw in pairs(panelRows) do c = c + 1 rws[#rws+1] = rw end end
+                                        table.sort(rws)
+                                        return c .. ":" .. table.concat(rws, ",") end)(),
+                                    genderFrames.clippedRuns or 0))
+                            end
+                        end
                         drawRunList(runs, info.width, gfxFlip, screenX + cx, screenY + cy,
                             panelRows, dim, nil, nil, occl)
                         drew = true
