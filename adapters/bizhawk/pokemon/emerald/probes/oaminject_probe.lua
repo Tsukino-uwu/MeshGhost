@@ -83,6 +83,17 @@ local NO_WRITE = MESHGHOST_OAMINJECT_NO_WRITE and true or false   -- scan and lo
 local NO_SCAN = MESHGHOST_OAMINJECT_NO_SCAN and true or false     -- write a fixed entry, never scan
 local QUIET = MESHGHOST_OAMINJECT_QUIET and true or false         -- no per-second log line
 
+-- HOW MANY copies to inject, 1..56. The tier's window is oamBuffer[64..119]; 120..127 is left as
+-- margin because Emerald parks its own wireless status indicator at 125.
+--
+-- This exists to measure a SLOPE, not a number. At one ghost every tier looks free, including the
+-- painted one -- the difference between them only appears with load, and the painted tier's cost is
+-- per visible pixel while this one's is per entry. Set it EXPLICITLY every run for the same
+-- shared-Lua-environment reason as the switches above.
+local COUNT = tonumber(MESHGHOST_OAMINJECT_COUNT) or 1
+if COUNT < 1 then COUNT = 1 end
+if COUNT > 56 then COUNT = 56 end
+
 local function scriptDir()
     local info = debug.getinfo(1, "S")
     if info and info.source and info.source:sub(1, 1) == "@" then
@@ -157,11 +168,17 @@ local lastLine = nil
 
 -- Never write +6. CopyMatricesToOamBuffer owns affineParam on all 128 entries; +0/+2/+4 are the
 -- three halfwords the engine's per-frame path leaves alone above the limit.
+-- Release EVERY slot the run has ever used, not just the ones live this frame. Nothing in the
+-- engine's per-frame path clears 64..127, so a slot left behind is a body frozen on screen until the
+-- next map load -- the same leak class the adapter documents for sockets, ghosts and its log handle.
 local function release()
     if not written then return end
-    w16(SLOT_ADDR + 0, DUMMY_A0)
-    w16(SLOT_ADDR + 2, DUMMY_A1)
-    w16(SLOT_ADDR + 4, DUMMY_A2)
+    for i = 0, COUNT - 1 do
+        local a = SLOT_ADDR + i * ENTRY_SIZE
+        w16(a + 0, DUMMY_A0)
+        w16(a + 2, DUMMY_A1)
+        w16(a + 4, DUMMY_A2)
+    end
     written = false
 end
 
@@ -194,9 +211,26 @@ local function tick()
     -- field we reconstructed badly.
     local y = ((a0 & 0xff) + OFFSET_Y_PX) & 0xff
     if not NO_WRITE then
-        w16(SLOT_ADDR + 0, (a0 & 0xff00) | y)
-        w16(SLOT_ADDR + 2, a1)
-        w16(SLOT_ADDR + 4, a2)
+        if COUNT == 1 then
+            w16(SLOT_ADDR + 0, (a0 & 0xff00) | y)
+            w16(SLOT_ADDR + 2, a1)
+            w16(SLOT_ADDR + 4, a2)
+        else
+            -- SPREAD OVER THE SCREEN, not stacked. Eight per row, two tiles apart, rows three tiles
+            -- apart, centred on the player -- which is what a crowd of peers standing around
+            -- actually looks like. Stacking them all on the same scanline would instead measure the
+            -- GBA's per-scanline OBJ cycle budget, which is a different question and would flatter
+            -- or damn the tier for the wrong reason. Worth measuring separately, later.
+            local px, py = a1 & 0x1ff, a0 & 0xff
+            for i = 0, COUNT - 1 do
+                local a = SLOT_ADDR + i * ENTRY_SIZE
+                local cx = (px + ((i % 8) - 4) * 16) & 0x1ff
+                local cy = (py + ((i // 8) - 2) * 24) & 0xff
+                w16(a + 0, (a0 & 0xff00) | cy)
+                w16(a + 2, (a1 & 0xfe00) | cx)
+                w16(a + 4, a2)
+            end
+        end
         written = true
     end
     framesDrawn = framesDrawn + 1
@@ -212,7 +246,7 @@ end
 
 say("=== oaminject_probe: ONE hardware sprite at oamBuffer[64], two tiles above the player ===")
 say(string.format("slot 64 at 0x%08x; writing +0/+2/+4 only, never +6", SLOT_ADDR))
-say(string.format("switches: NO_WRITE=%s NO_SCAN=%s QUIET=%s", tostring(NO_WRITE), tostring(NO_SCAN), tostring(QUIET)))
+say(string.format("switches: COUNT=%d NO_WRITE=%s NO_SCAN=%s QUIET=%s", COUNT, tostring(NO_WRITE), tostring(NO_SCAN), tostring(QUIET)))
 say("LOOK FOR: a second copy of the player above them -- then walk it behind scenery, and open the")
 say("START menu and a text box. It trails by one frame while walking; that is expected at Stage 1.")
 

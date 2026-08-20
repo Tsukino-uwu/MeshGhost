@@ -9065,3 +9065,80 @@ tier. The 7.4 fps that looked like the feature was one `console.log` a second; s
 **Method note worth keeping:** the empty-second-script row is what made the result trustworthy. It
 separates "this probe costs something" from "loading a second script costs something", and it took
 one run.
+
+## 2026-08-21 — Emerald: the hardware-sprite tier is FLAT in ghosts, 1 to 56
+
+**Agent-measured, `probes/oaminject_probe.lua` at COUNT=N + `probes/fpsride.lua`**, same 8-leg route
+every run, peers spread over the screen in a grid rather than stacked (stacking would measure the
+GBA's per-scanline OBJ cycle budget instead, which is a different question). Logging to the file
+only, so the 2026-08-21 console trap is not in these numbers.
+
+| hardware sprites injected | avg fps | worst leg |
+| --- | --- | --- |
+| 0 (bare control, ride alone) | 58.1 | 38 |
+| 1 | 58.0 | 36 |
+| 8 | 58.0 | 35 |
+| 16 | 58.1 | 35 |
+| 32 | 58.1 | 37 |
+| 56 | **58.1** | 36 |
+
+**The slope is zero within the harness's noise.** 56 extra hardware sprites -- the whole 64..119
+window -- cost nothing against a bare emulator. That is the tier's central claim and it is now a
+measurement rather than an argument.
+
+**For scale, against the painted tier's own measured per-ghost cost** (~0.6ms/ghost/frame, recorded
+2026-08-20): 56 painted peers would be ~33.6ms of host work per frame against a 16.7ms budget for
+60fps. That is a derivation from a measured number, not a measured number itself -- a same-session
+drawn run at these exact counts is the comparison still owed.
+
+**What this does NOT measure**, and neither should be inferred from it: peers whose ANIMATION FRAME
+changes (each change is a tile copy into OBJ VRAM, and that cost scales with moving peers, not with
+entries), and the per-scanline case where many sprites share rows.
+
+## 2026-08-21 — Emerald: the three tiers priced against each other, standing still
+
+**Agent-measured, `probes/fpshold.lua` (new), 1800 samples per run, player STATIONARY, synthetic
+peers centred on the player so every one of them is genuinely on screen.** Each tier run alone --
+no overflow, no mixing -- on the user's instruction: *"just to see how they compare exactly to each
+other, don't overflow/mix them"*.
+
+| run | avg fps | lowest |
+| --- | --- | --- |
+| control, nothing loaded | 60.0 | 58 |
+| **SPAWNED**, 16 peers offered (**11 placed** -- the engine's cap on this map) | 60.0 | 58 |
+| **DRAWN**, 16 painted | 60.0 | 58 |
+| **OAM**, 16 hardware sprites | 60.0 | 58 |
+| **OAM**, 56 -- its whole window | **60.0** | 58 |
+| **DRAWN**, 56 -- matching OAM's ceiling | **39.6** | 34 |
+| **DRAWN**, 150 painted | **10.4** | 6 |
+
+**The like-for-like is the 56 row: OAM 60.0 against DRAWN 39.6, on the same count, same map, same
+stationary player.** At 16 the three tiers are indistinguishable from each other and from the
+control -- which is worth stating plainly, because it means the tier choice is invisible at small
+peer counts and only matters under crowd load. The painted tier then falls off a cliff: 56 peers
+costs a third of the frame rate and 150 costs five sixths of it.
+
+**Ceilings are part of the answer and are not the same kind of limit:**
+
+- **SPAWNED** cannot reach 16 at all. `gObjectEvents` holds 16 entries shared with the map's own
+  cast; with 5 in use here, 11 ghosts was the whole budget. Hard engine limit.
+- **OAM** stops at the 56-entry window `oamBuffer[64..119]`, and is free right up to it.
+- **DRAWN** has no ceiling except the host CPU, which is exactly why it stays as the last resort.
+
+**Method notes, both of them mistakes caught before they became conclusions:**
+
+1. **An earlier ride-based comparison was invalid and the user caught it from the screen** --
+   *"the drawn ghosts are not following when you go to the left. not accurate testing"*. Synthetic
+   peers orbit a FIXED map coordinate while the hardware-sprite probe positions its copies RELATIVE
+   to the player, so walking `fpsride`'s route left the painted peers behind and the painted tier's
+   own off-screen cull made them nearly free. The adapter's status line had been printing `drawn=0`
+   mid-ride the whole time. **A tier comparison must hold the load on screen, which is why
+   `fpshold.lua` exists and why `fpsride.lua` is the wrong instrument for it.**
+2. **An earlier run showing 2-3 fps for 8 painted peers was the relay's default `-max-clients=8`**,
+   not the tier: the adapter logged `relay refused connection: server full` and finished with
+   `remotes=0 ghosts=0 drawn=0`, so it was measuring an adapter thrashing to reconnect. The rig for
+   these numbers was rebuilt with `-max-clients=200`.
+
+**Networking is not in the difference**: the SPAWNED run carried 16 live peers over a real relay and
+core and still measured exactly the bare control, so peer traffic at these counts costs nothing that
+this instrument can see.
