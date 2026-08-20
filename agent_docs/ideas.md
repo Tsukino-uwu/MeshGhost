@@ -1446,6 +1446,21 @@ the day someone wants a full playthrough as a test, this entry is the plan.
 **The user's framing, 2026-08-19, and it is the whole idea in one line: *do as much as the game
 can handle on its own, then bandage/fake it above that cap.***
 
+**And the two motives turn out to be one motive, measured 2026-08-20.** The idea was about
+FIDELITY -- bypass the hardware limit by mimicking what the game does rather than faking it, so a
+peer gets the engine's own animation, occlusion, draw priority and reflections instead of an
+imitation of them. The performance ordering follows from the same fact, and was not the reason
+anyone chose this: a SPAWNED ghost costs ~0.05ms of Lua per frame because the engine is already
+walking its object array and building OAM, so one more entry rides along with work being done
+anyway. A DRAWN one costs ~0.6ms EVERY frame -- roughly twelve times more -- because it re-does
+the whole job after the PPU has finished, one `gui` call per pixel-run, borrowing nothing.
+
+So *faking it means paying for a second renderer*, and the faithful tier is also the cheap one.
+The measurements are in `verified.md` 2026-08-20 (a full fps table, and 137 drawn peers at 17fps
+from 2026-08-19). The practical rule it settles: **spawn to the engine's cap, draw only the
+overflow** -- the drawn tier is a fallback for peers the object array has no room for, never a
+default, and never something to reach for because it looks simpler to control.
+
 Crystal's ceiling is measured (`crowd-limits.md`): **9 ghosts**, because the engine has 13 object
 structs and 16 map objects and the map spends some of both on its own cast. Peer number ten gets
 nothing today — no body, no sprite, no collision — and the adapter logs a refusal. That is honest,
