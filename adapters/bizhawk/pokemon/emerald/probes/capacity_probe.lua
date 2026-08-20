@@ -11,7 +11,10 @@
 --     the player and every ghost share, so it is the first ceiling a ghost can hit;
 --   * sprites in use out of 64 (MAX_SPRITES), the engine's own sprite table;
 --   * hardware OAM entries that are actually enabled, out of 128 -- the ceiling UNDER the engine
---     one. A GBA object is one OAM entry, and a 16x32 overworld character is drawn from two;
+--     one. A ground-level 16x32 overworld character is exactly ONE entry -- corrected 2026-08-21,
+--     this line used to say two: the elevation-3 subsprite table holds a single full-size subsprite
+--     whose offsets cancel against centerToCorner, so that path is a no-op on the ground
+--     (verified.md, same date);
 --   * measured frames per second, counted against the wall clock rather than assumed. A capacity
 --     answer that ignores whether the emulator still runs at full speed is not an answer.
 --

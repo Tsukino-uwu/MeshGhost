@@ -26,6 +26,9 @@ TEVI replaced the brief's original Ori: Will of the Wisps pick.
   anything, and no adapter uses it. The non-goal still stands as written: nothing about physics or
   collision is negotiated between peers.)
 - No game-specific rendering logic inside the core.
+- **No ROM patch, in any adapter, ever** — emulator adapters are Lua-only, because never touching
+  the ROM is exactly what lets MeshGhost run on top of an Archipelago seed or a randomizer. See the
+  2026-08-21 ADR in `architecture.md` for the full reasoning and what it costs us.
 - No adapter transport or socket handling — adapters speak only to the local bridge.
 - ~~No production binary encoding or performance optimization before the contract is stable.~~
   **Amended 2026-08-18, on the user's explicit call.** Efficiency is now a standing goal, not
@@ -442,6 +445,41 @@ VRAM/sprite-injection investigation (`agent_docs/ideas.md`; Stage 1 — read-onl
 2026-08-14, written up in `agent_docs/environment.md`). Note that any stage of that investigation
 which actually *writes* emulator memory is gated by the no-memory-writes non-goal above, and needs
 its own ADR before it starts.
+
+### Phase 8.1 — Emerald: a hardware-sprite tier between spawning and drawing
+
+**Scheduled 2026-08-21, on the user's call**, moved here from `ideas.md` ("A THIRD tier between the
+two"), which keeps the full write-up, the three feasibility questions and their answers. The ladder
+becomes **spawned → hardware sprite → painted**, each peer taking the best tier with room, and the
+painted tier stays as the last resort rather than being retired.
+
+**The mechanism, settled offline before any code** (`verified.md` 2026-08-21): BizHawk 2.11 has no
+scanline callback at all, so no HBlank multiplexing — and Emerald does not need it. `gOamLimit` is 64
+on the overworld while `LoadOam` pushes all 128 entries to hardware every VBlank, so
+`gMain.oamBuffer[64..127]` is dead space the engine's per-frame path never touches, and Emerald parks
+its own wireless indicator at index 125 for that reason. A peer therefore costs **three halfword
+writes per frame** from the `BuildOamBuffer` hook the adapter already owns — no patch, no second
+breakpoint, and the PPU does the drawing, which brings real occlusion, palette fades and cave/weather
+dimming that the painted tier has to fake or simply lacks.
+
+**What it does not get**, and it is registered up front rather than discovered: no collision, no
+engine animation, no walking, no sprite-vs-sprite y-sorting against the engine's own sprites (ours
+sit above index 64 and lose overlap ties). OBJ **tiles**, not OAM entries, become the capacity cap —
+and `allocSpriteTiles()` already returning `nil` on exhaustion is exactly the clean fall-through to
+the painted tier. Decorations (tall grass, dust, surf blob) may be **mixed per piece** — painted on
+top of a hardware body, or given their own hardware entry where they need to be occluded too.
+
+**Staged, probe-first**: a read-only shadow-OAM probe, then the smallest possible on-screen proof
+(one injected entry borrowing the player's own tiles and palette, watched going behind a roof and
+under a text box), then tiles/motion/the hook, then the adapter behind
+`MESHGHOST_EMERALD_HW_OVERFLOW` (off by default), then elevation priority and shadows. The
+comparison instrument gains a third copy: `MESHGHOST_COMPARE_TIERS` renders the loopback ghost
+spawned 2 tiles right, painted 2 tiles left and hardware **3 tiles above**, so the player and all
+three tiers are judged against each other in one frame.
+
+**The claim being tested is "cheaper than drawing"**, and it is a number: `probes/fpsride.lua` on the
+same route, walking peers, at N = 1/4/8, reporting the slope and the per-leg minimum — not the mean
+alone, and not the adapter's own `os.clock` buckets.
 
 ### Phase 9 — Pokémon Crystal (GBC), spawn-based rather than drawn
 

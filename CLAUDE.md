@@ -70,10 +70,11 @@ stays here, its reasoning goes to `agent_docs/`, with a one-line pointer. Full e
   a state the game never displayed is not 1:1. "Close" and "only during the transition" are OPEN.
   **Never offer a rate/tick/architecture change as the answer — that is an excuse for the defect.**
   Fix the cause. `BANDAGES.md` for real debt; read the game's own asset, never a lookalike.
-- **Nothing that SHIPS writes a save or game state — ever, not even as a feature.** Holds whatever
-  gets added later; the event/lease/escrow/world planes make "just write the item in" newly
-  tempting, world custody worst. **Dev-only test tooling MAY cheat** — a probe, never an adapter;
-  saves are expendable in testing (user, 2026-08-18). `plans.md`; `_template/README.md` the line.
+- **Nothing that SHIPS writes a save, game state, or a ROM patch — ever, not even as a feature.**
+  Holds whatever gets added later; the event/lease/escrow/world planes make "just write the item
+  in" newly tempting, world custody worst. **Emulator adapters are Lua-only: never touching the ROM
+  is what lets us run on top of an Archipelago seed** (ADR 08-21). **Dev-only test tooling MAY
+  cheat** — a probe, never an adapter (2026-08-18). `plans.md`; `_template/README.md` the line.
 - **The core never touches the game — and no config or feature may make it game-aware, ever.** No
   game memory, no rendering primitives, no `if game == "emerald"` in `core` or `relay`. ADR 08-20.
 - **Adapters never speak the relay protocol.** An adapter may hold a socket to its own local
@@ -159,10 +160,9 @@ stays here, its reasoning goes to `agent_docs/`, with a one-line pointer. Full e
   keep turns short while investigating, and never let a `/loop`, a monitor, or more deliberation
   stand in for making a decision. If you are thrashing, say so with the table and the remaining
   candidates.
-- **A clean light test does not close a risk that depends on sustained load.** Exercise the
-  real rate/duration before marking it closed — a one-shot round trip and a real sustained
-  stream can behave completely differently. Found live: a single successful round trip closed
-  a risk that reopened the same day once tested under real sustained traffic.
+- **A clean light test does not close a risk that depends on sustained load.** Exercise the real
+  rate/duration before marking it closed — found live: a single successful round trip closed a risk
+  that reopened the same day once real sustained traffic was tried.
 - **Treat "access denied" as a question to research, not a wall** — who gates it, how do people
   get past it — before investing in a workaround.
 - **Anything on `PATH` may resolve to the wrong install — including `cmd` itself.** Confirm the

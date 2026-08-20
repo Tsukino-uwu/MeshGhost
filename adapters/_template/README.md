@@ -240,6 +240,22 @@ deliberately no template, since a stub with no content would go stale immediatel
    only the big file is manual. An adapter loaded from the release folder itself (both BizHawk
    adapters) reaches the root exe and config with no copy of anything.
 
+## An emulator adapter is Lua-only — never patch the ROM
+
+**Start from this, before the first file exists.** A BizHawk adapter reads and writes the running
+machine's RAM from the emulator's own Lua front end, and it never ships, generates or requires a
+patched ROM. The reason is compatibility, not purity: MeshGhost works on Archipelago seeds and
+randomizers **because it never touches the ROM** — whatever patch the player is already running
+stays intact underneath, and MeshGhost layers on top. Our own patch would have to be reconciled
+with theirs, which is not something a player can do, so a patch trades a feature that works on
+every ROM for one that works on one ROM.
+
+What this rules out is real and worth knowing up front: any technique needing code *inside* the
+game — a custom interrupt handler, new code at a ROM address, a hooked routine that must return a
+value. The way around it is nearly always the front end reaching the same place from outside: an
+execute hook on an engine routine is a mid-frame wakeup with no patch at all. Full reasoning and
+what it costs: the 2026-08-21 ADR in `agent_docs/architecture.md`.
+
 ## First, work out what you will be able to READ
 
 Do this before estimating anything. The four shipped adapters differed enormously in difficulty,

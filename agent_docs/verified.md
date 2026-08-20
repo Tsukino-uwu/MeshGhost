@@ -8957,3 +8957,79 @@ ghosts are capped at ~13 by the engine's own object array and cost almost nothin
 
 **The BuildOamBuffer execute hook is exonerated**: 52.0 avg without vs 52.6 with, same route --
 the plausible suspect A/B'd innocent instead of "fixed".
+
+
+## 2026-08-21 — BizHawk 2.11 has no scanline hook, and Emerald does not need one
+
+**Source: the emulator's own binary and the project's `make compare`-verified pokeemerald build.**
+No game was watched and none needed to be — every claim here is a tool read, per `CLAUDE.md`'s rule
+that a fact from a console read or a file may be recorded without waiting for the user.
+
+**The `event` library this build actually exposes**, read out of
+`C:\ProgramData\Archipelago\Bizhawk\dll\BizHawk.Client.Common.dll` rather than asked for (the
+older `client.getluafunctionslist()` route is unavailable on this build --
+`dev-scripts/bizhawk-capabilities.log`): `onframestart`, `onframeend`, `oninputpoll`, `onloadstate`,
+`onsavestate`, `onexit`, `onmemoryexecute`, `onmemoryexecuteany`, `onmemoryread`, `onmemorywrite`,
+`availableScopes`, `unregisterbyid`, `unregisterbyname`. **There is no scanline or LYC callback of
+any kind.** Every mid-frame wakeup available to a Lua script on this build is therefore a memory
+callback on an address the game itself touches.
+
+**Emerald's OAM pipeline, from the decomp and the build map** (`C:\dev\pokeemerald`, the sanctioned
+address source -- `environment.md`):
+
+| fact | value | where from |
+| --- | --- | --- |
+| `gMain` | 0x030022C0, size 0x43c | `pokeemerald.map` |
+| `gMain.oamBuffer` struct offset | **0x038** | `include/main.h` field walk; cross-checked by the `0x438` annotation on the field after it, and 0x038 + 128x8 = 0x438 |
+| `gMain.oamBuffer[0]` / `[64]` | 0x030022F8 / **0x030024F8** | derived |
+| `gOamLimit` | 0x02021B38, set to **64** by `ResetSpriteData` | `pokeemerald.map`, `src/sprite.c` |
+| `LoadOam` | 0x08007188, copies the **full 128 entries** unconditionally each VBlank | `src/sprite.c` |
+| per-frame dummy fill | stops at `gOamLimit`, so **64..127 are never touched per frame** | `src/sprite.c`, `AddSpritesToOamBuffer` |
+| `gDummyOamData` (the engine's own "hidden") | attr0 0x00A0, attr1 0x0130, attr2 0x0C00 | `src/sprite.c` |
+| rewritten on all 128 every frame | only `affineParam` at byte `+6` | `CopyMatricesToOamBuffer` |
+| `BuildOamBuffer` | 0x08006A0C (the hook we already own) | `pokeemerald.map` |
+
+**So the HBlank question is closed for Emerald**: `oamBuffer[64..127]` is dead space that reaches
+hardware OAM on the game's own already-paid DMA, and Emerald itself parks the wireless status
+indicator at index 125 for exactly that reason. An extra hardware sprite costs three halfword writes
+per ghost per frame, with no multiplexing, no scanline hook and no ROM patch. Design and staged
+build order: `plans.md` Phase 8.1.
+
+**Two corrections this turned up, both recorded so they do not cost anyone a session:**
+
+- **The "VRAM bank 1, not bank 0 / bit 3 of the OAM attribute" note earlier in this file is a GAME
+  BOY COLOR fact** (it belongs to the Crystal work it sits beside). **The GBA has no OAM VRAM-bank
+  bit** -- attr2 is 10 bits of tile index, 2 of priority, 4 of palette, and nothing else. Do not
+  port that bit to Emerald.
+- **A ground-level GBA overworld character is ONE OAM entry**, as `README.md` and `crowd-limits.md`
+  say. `probes/capacity_probe.lua`'s "drawn from two" comment was wrong: the elevation-3 subsprite
+  table is a single full-size subsprite whose x/y offsets cancel against `centerToCorner`, so the
+  subsprite path is geometrically a no-op at ground level. Comment corrected in place.
+
+## 2026-08-21 — Emerald: the shadow-OAM window above `gOamLimit` is real, measured live
+
+**Agent-measured with `probes/oamshadow_probe.lua` (read-only) on the running vanilla Emerald
+instance, 2250 overworld frames.** No visual claim is made here and none is needed — every line is a
+memory read, which `CLAIM 1`/`CLAIM 3` below settle outright and `CLAIM 2` deliberately does not.
+
+| claim | result |
+| --- | --- |
+| `gOamLimit` is 64 on the overworld | **HOLDS** — 64 on all 2250 frames, never moved |
+| the engine never writes attrs at/above the limit | **HOLDS** — 0 frames moved `+0/+2/+4` in 64..127 |
+| nothing already lives in 64..127 | **HOLDS** — high-water of non-dummy entries there: **0** |
+| `affineParam` at `+6` is rewritten every frame up there | **NOT SEEN** — 0 frames moved it, so the tier is not fighting `CopyMatricesToOamBuffer` at all in that range. Better than the decomp reading predicted; still write only `+0/+2/+4`. |
+| `LoadOam` pushes all 128 to hardware | **UNDECIDED HERE, by design** — see below |
+
+**Why the transfer claim is not settled by this probe, and the trap it walked into first.** Above
+the limit both shadow and hardware are dummy, so they agree trivially. Below the limit they differed
+on 134 of 2250 frames (~6%), and the probe's first verdict line called that a FAILURE — wrong. This
+probe reads at a **frame boundary**, where the engine has already rebuilt the shadow for the coming
+frame while hardware still holds the copy `LoadOam` made at the last VBlank. That is one frame of
+phase, and it appears exactly when sprites are moving. The verdict text was corrected in the probe
+so the log does not mislead the next reader. **The transfer is settled by Stage 1 instead**: park
+something non-dummy above the limit and see whether it appears on screen.
+
+**Also confirmed in passing**: `gMain.callback2` holds the **Thumb** form of the pointer —
+`0x08085e5d`, not `0x08085e5c`. The adapter has always tested both (`meshghost_emerald.lua:136`); a
+probe that tests only the even address stays silent forever and reads as a dead emulator, which is
+how the first run of this one looked.

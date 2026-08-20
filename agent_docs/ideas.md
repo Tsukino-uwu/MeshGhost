@@ -1616,6 +1616,36 @@ with hardware palettes, background priority and real compositing -- everything t
    Crystal is the case that genuinely needs multiplexing: 40 OAM entries, and the engine spends
    many of them.
 
+### ANSWERED 2026-08-21 — all three, offline, before a line was written
+
+**1. There is no scanline hook, and it does not matter.** BizHawk 2.11's `event` library, read out
+of `BizHawk.Client.Common.dll` itself rather than asked for, is exactly `onframestart`, `onframeend`,
+`oninputpoll`, `onloadstate`, `onsavestate`, `onexit`, `onmemoryexecute`, `onmemoryexecuteany`,
+`onmemoryread`, `onmemorywrite`, `availableScopes`, `unregisterbyid`, `unregisterbyname`. No
+scanline, no LYC. **Every mid-frame wakeup available to us is a memory callback** -- which is not a
+limitation so much as a redirection, because the game's own routines are exactly the addresses worth
+waking on.
+
+**2. Moot -- but priced anyway.** Emerald's own VCount interrupt at line 150 gives ONE free
+mid-frame wakeup per frame (`EnableVCountIntrAtLine150` runs at boot, vanilla, no patch). The
+160-per-frame HBlank path is reachable from Lua by IO writes with no patch at all, and is still the
+wrong answer by roughly two orders of magnitude -- and it would fight the field's own HBlank DMA for
+the bus, and retiming the VCount line risks the sound engine, which is serviced from that interrupt.
+
+**3. No, and the shortcut is even better than the entry guessed.** `gOamLimit` is **64** on the
+overworld while `LoadOam` transfers all **128** entries to hardware every VBlank -- so
+`gMain.oamBuffer[64..127]` is dead space the engine's per-frame path never reads or writes, and
+anything parked there reaches the PPU on the game's own already-paid DMA. Emerald itself uses this:
+the wireless status indicator lives in `oamBuffer[125]` precisely because the sprite system will not
+clobber it. So an extra hardware sprite is **three halfword writes per ghost per frame** from the
+`BuildOamBuffer` hook we already own -- no multiplexing, no scanline hook, no patch, no second
+execute breakpoint to re-price.
+
+**And the user's condition became a project rule.** *"i want us to stick with lua for all bizhawk
+games, so we have cross rom patch compatability"* -- recorded as the 2026-08-21 ADR in
+`architecture.md`, a non-goal in `plans.md`, and the opening section of `_template/README.md`.
+That closes classical HBlank multiplexing permanently for this project, which costs nothing here.
+
 ### The ladder, if it works
 
 | tier | what draws it | what it gets | what caps it |
@@ -1643,8 +1673,24 @@ spawning.
    (`_template/probes.md`) -- the claim being tested is *cheaper than drawing*, and that is a
    number, not an argument.
 
-**Not scheduled.** Nothing here is committed until it moves into `plans.md`. Nothing in it writes
-a save or patches a ROM, which is what makes it worth exploring at all.
+**SCHEDULED 2026-08-21** as the Emerald hardware-sprite tier -- see `plans.md`, which holds the
+staged build order and the measurement protocol. The HBlank half stays here, unscheduled and now
+refuted on its premise rather than merely untried: Emerald has no sprite-count limit to beat (64 of
+128 entries unused every frame), and the binding constraint turns out to be OBJ **tiles**, which
+multiplexing does nothing for. If it is ever revisited on another game or another core, the one
+probe that answers it is an `event.onmemoryexecute` on that game's mid-frame interrupt, counting
+invocations per frame and A/B'd on the ride harness -- that single number is what the whole question
+turns on.
+
+**Mixing tiers on ONE ghost is allowed, and is probably how the decorations get done** (user,
+2026-08-21: *"could always just draw those onto it if needed ? like mix/combine if ever needed ?"*).
+The tier is a property of each PIECE, not of the peer: a hardware-sprite body can carry a painted
+grass overlay, dust or surf blob on top of it, or a SECOND hardware entry for them -- there are 56
+free slots and the engine draws those decorations as separate sprites itself. Painting them is the
+cheap option precisely because they are small, occasional and mostly unoccluded; a hardware entry is
+the right one wherever the decoration has to be hidden by scenery like the body is. Decide per
+decoration, measure, and do not let "which tier is this ghost" become a single answer it does not
+have to be.
 
 ## Crystal: a ghost you can talk to — and eventually battle
 

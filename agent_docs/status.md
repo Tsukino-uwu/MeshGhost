@@ -25,6 +25,10 @@ is the part that is not.
   grass and shadows are confirmed.** Landing dust is drawn but unwatched -- `pitfalls.md`.
 - **A ghost can be walked through**, using the engine's own elevation rule. That is what the
   ghost-collision policy's `"disabled"` has been waiting for. `verified.md` 2026-08-20.
+- **NEW, Phase 8.1: the Emerald hardware-sprite tier is scheduled and the mechanism is settled**
+  (`plans.md`; `verified.md` 2026-08-21). Nothing built yet -- next step is the read-only shadow-OAM probe.
+- **BizHawk adapters are Lua-only, no ROM patch, ever** -- standing rule as of 2026-08-21, for
+  cross-patch compatibility. ADR in `architecture.md`; non-goal in `plans.md`.
 - Phases 6 (TEVI) and 7 (Pseudoregalia) are done; 8 (Emerald) is all but the Acro Bike's
   leftovers. Crystal has none of this work at all.
 
