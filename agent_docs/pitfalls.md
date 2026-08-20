@@ -2720,3 +2720,33 @@ reaches `ghosts` through a field registered at the local's definition site.
 header, so the player crossing a seam mid-pass invalidated the pass — in roaming play the scan
 retried for minutes. A pass now snapshots its target at start. *General form: a multi-frame scan
 must capture what it is looking for when it starts, not compare against a world that moves.*
+
+## Emerald: the seam-crossing pop was the CORE's, and every adapter instrument measured innocent (2026-08-20)
+
+**Symptom.** Every route crossing: the spawned follower vanished for ~9 frames and popped back;
+the drawn twin lurched sideways (its pin to the spawned sprite broke) or flickered. A static
+cross-map peer sailed through untouched.
+
+**The chain that found it, worth more than the fix.** Frame-by-frame screenshot bursts of DRIVEN
+crossings measured zero missing pixels — but the user's own crossings, captured the same way,
+showed the 9-frame gap plainly (83→35→53 hat pixels). The difference was never speed or timing:
+the driven test's ghosts crossed alongside the player inside the coast window, the user's followed
+behind. Then one log line at the despawn site ended it: `remote=false` — the peer's ENTRY was
+gone from the remotes table. Nothing in the adapter deletes entries; the core's `despawn_remote`
+does. The core's cross-area filter (its own 2026-08-13 ADR, correct then) turned the one-delivery
+lag of an echoed `area_id` into a despawn per crossing. **The static peer was immune because it is
+injected adapter-side and never passes through the core — that asymmetry was the whole diagnosis,
+once the user pointed it out.**
+
+**Fix:** `render_all_areas` in the bridge hello (contract revision, ADR 2026-08-20): the adapter
+that translates maps owns area visibility; the core delivers and decides nothing.
+
+**The rules this adds:**
+- **When every instrument inside a component measures innocent, suspect the component's INPUTS.**
+  Four hours of adapter-side probes (pixels, spans, flags, coordinates) were all correct — the
+  data they measured was being deleted upstream between measurements.
+- **A driven reproduction must match the user's SHAPE, not just their action.** "Cross the seam"
+  reproduced nothing until the followers trailed the way real play trails.
+- **An asymmetric survivor is a bisection for free.** One peer immune + one peer affected =
+  the difference between their code paths IS the bug's address. The user handed that over in one
+  sentence: *"the static ghost stays fine all the time."*

@@ -8847,3 +8847,16 @@ same frame, with a 10-tile existence margin (the user's +3 safety over the engin
 and the spawned tier gated at the border where object coordinates stay engine-safe. Crossing a
 connection shifts every peer's glide state and ghost bookkeeping by the seam delta; a warp has no
 connection entry and keeps the teardown, which is exactly right for a door.
+
+---
+
+## 2026-08-20 — Emerald: seam crossings are clean — the pop was the core's cross-area filter
+
+**User-confirmed on screen:** *"Think its actually working now, they are not going away anymore."*
+Both following ghosts ride through route crossings with no despawn, no flicker, no lurch, walking
+and biking; the static cross-map peer unaffected throughout, as it always was.
+
+**Agent-measured, same build:** eight driven crossings, zero `DESPAWN` lines, zero frame errors,
+rebases firing on every armed crossing. Root cause and the contract change (`render_all_areas`,
+bridge hello) are in `architecture.md`'s ADR; the diagnosis chain is `pitfalls.md`'s entry of the
+same day. Full Go suite green twice (`run-gotests.bat`) after the core change.

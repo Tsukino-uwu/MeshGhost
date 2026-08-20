@@ -457,9 +457,8 @@ invisible, not yet watched for deliberately:
 The feature is user-confirmed working (peers visible across a seam, followers crossing with the
 player). These are the specific leftovers:
 
-- [ ] **The transition blink, after the conditional-clear fix.** *What to look at:* cross a seam
-      both directions at walking pace and on a bike. *Correct:* both ghosts stay visible through
-      the crossing. The spawned tier is measured blink-free; the fix is for the drawn tier.
+- [x] **The transition pop: RESOLVED and user-confirmed 2026-08-20** -- it was the CORE's
+      cross-area filter, not any renderer; fixed by `render_all_areas` (ADR). In `verified.md`.
 - [ ] **A seam with a real offset.** Every test so far crossed an offset=0 seam, so the offset
       SIGN in the translation has never been exercised — a peer near an offset seam (Route 0:26's
       west pair, offset 20) could be drawn 20 tiles displaced with everything else correct.
