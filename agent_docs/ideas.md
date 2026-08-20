@@ -2017,3 +2017,26 @@ compared by equality at join. This adds one comparison against a list -- no new 
 contract revision, and nothing an adapter has to know about.
 
 **Not scheduled.** Nothing here is committed until it moves into `plans.md`.
+
+**Amendment, same day, and it is probably the better first move.** The user, on reading the above:
+*"would it be better to just make the allow list to be game/s? instead of 1 game, instead of having
+a blacklist?"* Yes, mostly -- `only_game` being a list rather than a string is a smaller change than
+adding a second setting, it needs no rule about what happens when both are set, and it covers the
+mixed-lobby case the blocklist was asked for.
+
+**Where the two genuinely differ, and it is the only place they do: what happens to a game nobody
+has thought of yet.** An allowlist is default-DENY -- add support for a new game and every existing
+relay refuses it until its host edits a config. A blocklist is default-ALLOW -- the new game is
+hosted everywhere immediately, including by hosts who would rather it were not. Neither is right in
+the abstract; they are two answers to "who has to act when the world changes", and a host who wants
+a curated server wants the first while a host running an open lobby wants the second.
+
+So: **generalise `only_game` to a list first**, because it is strictly better than a list of one and
+resolves the original request. Revisit a blocklist only if someone actually wants default-allow --
+and if both ever exist, the allowlist filters and the blocklist subtracts, which makes a blocklist
+redundant whenever an allowlist is set and removes the contradiction the note above worried about.
+
+**One compatibility point, since this is a config schema change on a shipped setting:** accept both
+forms, a bare string and a list. Every relay config in the world today has the string, and silently
+failing to parse one is exactly the failure mode `stripBOM` exists to prevent (`main.go`'s own note:
+a config that silently loses `room_code` and `only_game` is worse than one that refuses to load).
