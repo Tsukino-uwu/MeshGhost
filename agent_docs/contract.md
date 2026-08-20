@@ -723,6 +723,16 @@ above. The very first message an adapter sends on a fresh bridge connection, bef
 {"type":"hello","payload":{"game_id":"emerald","game_version":"phase5.5"}}
 ```
 
+An adapter may also declare `"render_all_areas": true` here (added 2026-08-20, ADR in
+`architecture.md`): the core then delivers every remote's state regardless of `area_id` and
+leaves ALL area-based hiding — and the despawns that go with it — to the adapter. **Adapter-local,
+deliberately not a room feature**: it changes only what this core sends its own adapter, nothing
+on the wire, so it cannot fragment room compatibility. Absent means false, which is exactly the
+core's own cross-area filter as before — and that filter remains equality-only either way, so the
+core stays as game-ignorant as ever; the flag *removes* an area judgment from the core rather
+than adding one. Emerald sets it for cross-map ghosts, where the adapter knows the game's own
+map-connection graph and the core's equality test cannot.
+
 An adapter may also declare `"features"` here — the capabilities it needs the core to negotiate
 on its behalf (see `features` above). The core advertises the union of that and its own
 configured list. **This is not a breach of "an adapter has no say in how the core reaches the

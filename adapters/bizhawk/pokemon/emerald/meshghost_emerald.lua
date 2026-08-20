@@ -5528,6 +5528,14 @@ local function syncRemoteGhosts(localAreaId, spawnSet)
         -- Gone, somewhere else, or demoted to the drawn tier. area_id is opaque and compared by
         -- equality only.
         if not remote or remote.areaId ~= localAreaId or not spawnSet[playerId] then
+            -- WHICH condition, on the record: the seam-crossing pop despawns followers while a
+            -- static cross-map peer sails through, and the three reasons here need telling apart.
+            if COMPARE_TIERS then
+                logFile(string.format("f=%d DESPAWN %s: remote=%s areaId=%s vs local=%s inSet=%s",
+                    frameCounter, tostring(playerId), tostring(remote ~= nil),
+                    tostring(remote and remote.areaId), tostring(localAreaId),
+                    tostring(spawnSet[playerId] ~= nil)))
+            end
             despawnGhost(playerId)
         end
     end
@@ -6415,7 +6423,14 @@ local function runFrame()
             -- Must be the first message on a fresh connection, before any local_state --
             -- see internal/bridge.Hello. Declares the game so the core can connect to the
             -- relay without the user typing "game" into config.json themselves.
-            sendLine(string.format('{"type":"hello","payload":{"game_id":%s,"game_version":%s}}', jsonString(GAME_ID), jsonString(ADAPTER_VERSION)))
+            -- render_all_areas: this adapter owns area visibility now. The core's own cross-area
+            -- filter turned every seam crossing into a despawn/respawn pop -- the echoed area_id
+            -- lags a real crossing by a delivery, and the core's equality test cannot know that
+            -- two maps are CONNECTED. This adapter can (the cross-map block above), and it already
+            -- hides what it cannot translate, so the core is asked to deliver everything and
+            -- decide nothing -- which also keeps the core exactly as game-dumb as the user wants
+            -- it: the flag removes an area judgment from the core rather than teaching it one.
+            sendLine(string.format('{"type":"hello","payload":{"game_id":%s,"game_version":%s,"render_all_areas":true}}', jsonString(GAME_ID), jsonString(ADAPTER_VERSION)))
             -- A fresh bridge connection means a fresh core process on the other end (the
             -- previous one either restarted or its own connection died) -- any remote it had
             -- previously told us about is stale, since the despawn_remote for it (if any was
