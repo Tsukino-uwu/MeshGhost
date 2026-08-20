@@ -5817,10 +5817,11 @@ tiering.hw = {
     -- gDummyOamData, the engine's own "hidden" encoding: off-screen, 8x8, priority 3. Releasing with
     -- the engine's value rather than zeroes leaves a slot indistinguishable from one never used.
     d0 = 0x00a0, d1 = 0x0130, d2 = 0x0c00,
-    -- Compare-mode nudge, in tiles, off the spawned ghost this tier is overlaid on. 0,0 means
-    -- exactly on top of it, which is the default and the sharper comparison.
+    -- Compare-mode nudge, in tiles, relative to the SPAWNED ghost -- which is the reference the
+    -- other two tiers are judged against. Default 0,-2: same column, two tiles above it, so both
+    -- are fully visible and a horizontal difference reads as a misalignment.
     cmpDX = tonumber(MESHGHOST_EMERALD_HW_COMPARE_DX or "") or 0,
-    cmpDY = tonumber(MESHGHOST_EMERALD_HW_COMPARE_DY or "") or 0,
+    cmpDY = tonumber(MESHGHOST_EMERALD_HW_COMPARE_DY or "") or -2,
     byPeer = {},   -- player_id -> { slot, tileStart, tileCount, gfx, animNum, animIdx }
     slotUsed = {}, -- slot -> player_id
     area = nil,    -- the area those tile allocations belong to
@@ -5996,6 +5997,53 @@ function renderHardwareGhosts(localAreaId, playerMapX, playerMapY, hwSet)
                 -- what a hardware entry's x/y mean, so no conversion is involved.
                 local glideX = remote.gX or remote.x
                 local glideY = remote.gY or remote.y
+                -- PINNED TO THE SPAWNED GHOST IN COMPARE MODE -- the same rule the painted copy has
+                -- always had, adopted 2026-08-21 after not having it produced a false verdict
+                -- against this tier twice in one evening.
+                --
+                -- WHY PINNING IS THE ONLY HONEST COMPARISON. The glide pipeline carries a
+                -- DELIBERATE trailing delay (genderFrames.drawnDelay -- it reproduces the distance
+                -- the engine's own step machine trails by), so a compare copy placed from the glide
+                -- is 8 frames behind the reference BY DESIGN. Standing still the two align to the
+                -- pixel; moving, the gap opens to the delay times the speed -- measured on the ride
+                -- as 0px for 1243 frames and up to ~30px mid-run, which the user, twice, correctly
+                -- reported as *"trailing behind/not following properly"*. That is the POSITION
+                -- pipeline showing through, not the renderer under test -- the painted copy hides
+                -- the identical behaviour by never using its own position at all in compare mode.
+                -- Pinning both copies to the spawned sprite removes position from the comparison
+                -- entirely, which is the point: what remains different on screen is the RENDERER --
+                -- facing, pose, palette, occlusion -- and nothing else.
+                local cmpPin = COMPARE_TIERS and playerId:match("%-ghost$") and ghosts[playerId]
+                if cmpPin then
+                    local gs = sprAddr(cmpPin.sprId)
+                    local px = rs16(gs + 0x20) + rs16(gs + 0x24) + memory.read_s8(gs + 0x28)
+                        + rs16(GSPRITECOORDOFFSETX_ADDR)
+                    local py = rs16(gs + 0x22) + rs16(gs + 0x26) + memory.read_s8(gs + 0x29)
+                        + rs16(GSPRITECOORDOFFSETY_ADDR)
+                    local a = tiering.hw.base + rec.slot * 8
+                    local sx = px + (tiering.hw.cmpDX or 0) * TILE
+                    local sy = py + (tiering.hw.cmpDY or 0) * TILE
+                    local t0, t1 = 0x8000, 0x8000
+                    if info.oam ~= 0 then t0, t1 = r16(info.oam + 0x00), r16(info.oam + 0x02) end
+                    local flip = 0
+                    local aptr = r32(info.anims + (remote.sanim or 0) * 4)
+                    if isRomPtr(aptr)
+                        and ((r32(aptr + (remote.sidx or 0) * 4) >> 22) & 1) == 1 then
+                        flip = 0x1000
+                    end
+                    local an, ai = remote.sanim or 0, remote.sidx or 0
+                    if rec.gfx ~= remote.gfx or rec.animNum ~= an or rec.animIdx ~= ai then
+                        loadGhostFrameNow(rec, info, an, ai)
+                        rec.gfx, rec.animNum, rec.animIdx = remote.gfx, an, ai
+                    end
+                    w16(a + 0, (t0 & 0xff00) | (sy & 0xff))
+                    w16(a + 2, (t1 & 0xfe00) | (sx & 0x1ff) | flip)
+                    w16(a + 4, (rec.tileStart & 0x3ff) | (2 << 10)
+                        | ((info.paletteSlot or 0) << 12))
+                    tiering.hw.placed = tiering.hw.placed + 1
+                    if COMPARE_TIERS then tiering.hwLastX, tiering.hwLastY = sx, sy end
+                    goto hwNextPeer
+                end
                 -- THE LOOPBACK GHOST STANDS BESIDE THE PLAYER, NOT ON THEM. Same offset the other
                 -- two tiers apply, and it exists for the same reason: a dev ghost echoing the
                 -- player's own state renders exactly on top of them, where nothing about it can be
@@ -6013,15 +6061,22 @@ function renderHardwareGhosts(localAreaId, playerMapX, playerMapY, hwSet)
                         -- peer's position pipeline is shared by all three and would look identical
                         -- in each.
                         --
-                        -- DEFAULT: exactly ON the spawned ghost, and that is the sharper test of the
-                        -- two. Side by side, a difference of a pixel or a frame has to be held in
-                        -- memory across the gap between them; overlapped, it is simply visible --
-                        -- and because a hardware entry above the engine's range always loses an
-                        -- overlap tie, a perfectly matched pair shows ONE ghost and any mismatch
-                        -- shows this one peeking out from behind it. User's call, same date: *"can
-                        -- you move the OAM 2 tiles to the right ? so its on top of the spawned one
-                        -- instead ?"*. tiering.hw.cmpDX/cmpDY move it off again from a loader
-                        -- script, without an emulator restart, when separation is wanted instead.
+                        -- DEFAULT: two tiles ABOVE the spawned ghost -- same column, one body up.
+                        -- The spawned copy is the reference every other tier is judged against, so
+                        -- this one is parked directly over it: same x, so a horizontal difference
+                        -- is a misalignment rather than the offset, and clear vertical air so both
+                        -- are fully visible at once.
+                        --
+                        -- OVERLAPPING THEM EXACTLY WAS TRIED AND IS WRONG, 2026-08-21. The idea was
+                        -- that a hardware entry always loses an overlap tie, so a matched pair would
+                        -- show one ghost and a mismatch would peek out. The user, immediately: *"no
+                        -- its sitting right on top of the spawned one... useless for testing if they
+                        -- are directly on top of each other"*. They are right and the reasoning was
+                        -- backwards -- a renderer you cannot SEE cannot be compared, and the failure
+                        -- being looked for (choppiness, a frame of lag, a wrong pose) is a property
+                        -- of motion that a peek-out cannot express.
+                        --
+                        -- tiering.hw.cmpDX/cmpDY move it from a loader script without restarting.
                         glideX = glideX + LOOPBACK_GHOST_OFFSET_TILES_X + (tiering.hw.cmpDX or 0)
                         glideY = glideY + LOOPBACK_GHOST_OFFSET_TILES_Y + (tiering.hw.cmpDY or 0)
                     else
@@ -6099,6 +6154,7 @@ function renderHardwareGhosts(localAreaId, playerMapX, playerMapY, hwSet)
                 end
             end
         end
+        ::hwNextPeer::
     end
 end
 
