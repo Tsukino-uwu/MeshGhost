@@ -1021,6 +1021,10 @@ local function resetBridge()
     -- the same "nothing else would ever notice and clear this" failure the overlay path already
     -- had, except a spawned object persists in the game rather than simply stopping being drawn.
     pcall(despawnAllGhosts)
+    -- ...and the hardware tier's entries, for the same reason and one more: nothing in the engine's
+    -- per-frame path clears them, so a dropped bridge would otherwise leave a row of frozen bodies
+    -- on screen until the next map load.
+    pcall(hwReleaseAll, true)
     sock = nil
     connected = false
     ready = false
@@ -5648,6 +5652,326 @@ local function syncRemoteGhosts(localAreaId, spawnSet)
     freeGhostCollision()
 end
 
+-- THE FRAME'S SCREEN ANCHOR, shared by both non-engine tiers.
+--
+-- Extracted from drawRemotes 2026-08-21, unchanged, when the hardware-sprite tier arrived and
+-- needed the same numbers. It has to be shared rather than copied: the calibration is STATEFUL
+-- (tiering.anchor*/origin* survive between frames and are only refreshed when the player is
+-- standing still on a tile-aligned camera), so a second copy would keep its own anchor and the two
+-- tiers would place the same peer in two different places. It also has to be callable when the
+-- DRAWN tier is off entirely, which is the shipping default -- otherwise the anchor is never
+-- calibrated at all and every hardware sprite lands at the wrong offset.
+--
+-- Idempotent within a frame, so calling it from both tiers costs a few reads and changes nothing.
+--
+-- A GLOBAL because this chunk is at Lua's 200-local ceiling.
+function anchorFrame(localAreaId, playerScreenX, playerScreenY, playerMapX, playerMapY)
+    local sb1 = r32(GSAVEBLOCK1PTR_ADDR)
+    local camPixX = rs16(GTOTALCAMERAPIXELOFFSETX_ADDR)
+    local camPixY = rs16(GTOTALCAMERAPIXELOFFSETY_ADDR)
+    if sb1 ~= 0 then
+        local camX, camY = camPixX, camPixY
+        -- ONLY CALIBRATE WHILE THE PLAYER IS STANDING STILL.
+        --
+        -- Measured with both ghosts logged per frame: the spawned ghost moves a clean -2.0 px
+        -- every frame while ours went -0.67, -0.67, -0.67, +2.0, -0.67 -- oscillating -- even
+        -- though the glide itself was perfectly smooth at -0.167 tiles a frame throughout. So the
+        -- jitter was never in the ghost; it was in this anchor.
+        --
+        -- The cause is the tile counter's other habit: moving in the positive direction it flips
+        -- to the DESTINATION tile the instant a step begins, a whole tile ahead of the picture.
+        -- Calibrating whenever the camera happened to be tile-aligned sometimes sampled exactly
+        -- that moment, and put a one-tile spike into the anchor once per step.
+        --
+        -- A stationary player cannot have a step in flight, so the two cannot disagree. The
+        -- constant only has to be caught once per map -- it does not decay -- and standing still
+        -- for four frames happens constantly in normal play.
+        local tx, ty = rs16(sb1 + 0x00), rs16(sb1 + 0x02)
+        if tiering.lastTileX ~= tx or tiering.lastTileY ~= ty then
+            tiering.lastTileX, tiering.lastTileY, tiering.tileStill = tx, ty, 0
+        else
+            tiering.tileStill = (tiering.tileStill or 0) + 1
+        end
+        local settled = (tiering.tileStill or 0) >= 4
+        local fresh = tiering.anchorX == nil or tiering.anchorArea ~= localAreaId
+        -- playerScreenY READS pos2, which while anyone is surfing is the BOB. Anything that wants
+        -- a fixed tile grid has to have that term removed, or the grid rises and falls with the
+        -- character a few pixels at a time -- which is what cut the drawn reflection two or three
+        -- rows early. Captured here, at the same moment as the anchor it belongs to, because pos2
+        -- is only knowable then; the bobbing copy is left exactly as it was, since placing a ghost
+        -- against the player's actual sprite is what it is for.
+        -- TWO terms have to come off this before it can anchor a TILE GRID, and both are
+        -- properties of the player's current GRAPHIC rather than of the map.
+        --
+        -- pos2 is the first: while anyone is surfing it carries the bob, so the grid rises and
+        -- falls with the character.
+        --
+        -- centerToCornerVec is the second, and it is the one that survived a whole investigation.
+        -- playerScreenPos returns the FRAME's top-left, which is the anchor plus -(width/2). A
+        -- walking player is 16 wide so that term is -8; a SURFING one is 32 wide, so it is -16.
+        -- The grid was therefore 8px too far left for exactly as long as the player was surfing,
+        -- which is exactly when a reflection is being judged -- and it let the mask permit 8px of
+        -- ledge and grass down the left of a shoreline tile. Measured 2026-08-19: the grid put
+        -- metatile 184 at x 72..87 while the screen has it at 80..95.
+        --
+        -- Vertically the same term is -16 for both graphics, which is why the vertical edge was
+        -- correct throughout and only the side ever looked wrong -- and why this hid so well.
+        --
+        -- Normalised to the walker's own centring so the grid means the same thing whatever the
+        -- player happens to be riding.
+        local pspr = sprAddr(r8(GPLAYERAVATAR_ADDR + avatarAddrOffset + 0x04))
+        if fresh or (settled and camX % 16 == 0) then
+            tiering.anchorX, tiering.originX = tx + camX / 16, playerScreenX
+            tiering.originXStill = playerScreenX - rs16(pspr + 0x24)
+                - memory.read_s8(pspr + 0x28) - (FRAME_WIDTH_PX // 2)
+        end
+        if fresh or (settled and camY % 16 == 0) then
+            tiering.anchorY, tiering.originY = ty + camY / 16, playerScreenY
+            tiering.originYStill = playerScreenY - rs16(pspr + 0x26)
+                - memory.read_s8(pspr + 0x29) - (FRAME_HEIGHT_PX // 2)
+        end
+        tiering.anchorArea = localAreaId
+        playerMapX = tiering.anchorX - camX / 16
+        playerMapY = tiering.anchorY - camY / 16
+    end
+    return camPixX, camPixY, playerMapX, playerMapY
+end
+
+-- ================= TIER TWO: HARDWARE SPRITES THE PPU DRAWS FOR US =================
+--
+-- A peer the engine had no object slot for is given a real GBA hardware sprite instead of being
+-- painted over the finished frame. The emulated PPU then draws it, which is where every advantage
+-- comes from: background priority (a house roof and a text box hide it, for free), the live OBJ
+-- palette (it dims with fades, caves and weather, for free), and real compositing.
+--
+-- WHERE THE ENTRIES GO, and why this is not a trick played on the engine.
+-- Emerald keeps a shadow copy of all 128 hardware sprite entries inside gMain, rebuilds it once a
+-- frame, and transfers the WHOLE thing to the hardware every VBlank. Its layout pass stops at
+-- gOamLimit -- 64 on the overworld -- and so does the tail loop that blanks what it did not use, so
+-- entries 64..127 are never written or cleared by the per-frame path while still being transferred.
+-- The game itself relies on that: its wireless-link indicator lives at entry 125 for exactly this
+-- reason. documentation.md describes the pipeline; the 2026-08-21 ADR in architecture.md records why
+-- this and not per-scanline multiplexing (short version: BizHawk has no scanline hook, and with 5
+-- entries used on a normal map there is no sprite-count limit to beat).
+--
+-- MEASURED, standing still with the crowd on screen (verified.md 2026-08-21): 56 hardware sprites
+-- cost nothing against a bare-emulator control -- 60.0 avg either way -- while painting the same 56
+-- costs 39.6. Spawned at its cap AND this tier at its ceiling together, 67 characters, still 60.0.
+--
+-- WHAT IT DOES NOT GET, so nobody expects it: no collision, no engine animation, no walking, and it
+-- loses overlap ties to the engine's own sprites because those sit at lower entry numbers. It
+-- replaces the DRAWN tier, never the spawned one.
+-- ON THE TABLE, NOT IN LOCALS -- and this is not a style choice. Five constants and one helper as
+-- file-scope locals pushed this chunk past Lua's hard ceiling of 200 locals per function, which does
+-- not misbehave at runtime: the script fails to PARSE. Caught by bizhawk-syntax-check.lua the first
+-- time this tier was compiled, 2026-08-21, exactly as the tiering table's own header warns.
+tiering.hw = {
+    on = MESHGHOST_EMERALD_HW_OVERFLOW or os.getenv("MESHGHOST_EMERALD_HW_OVERFLOW"),
+    base = 0x030022f8 + 64 * 8, -- gMain.oamBuffer[64]; gMain 0x030022c0 + 0x038 (verified.md)
+    slots = 56,                 -- entries 64..119. 120..127 is margin: 125 is the game's own.
+    -- gDummyOamData, the engine's own "hidden" encoding: off-screen, 8x8, priority 3. Releasing with
+    -- the engine's value rather than zeroes leaves a slot indistinguishable from one never used.
+    d0 = 0x00a0, d1 = 0x0130, d2 = 0x0c00,
+    byPeer = {},   -- player_id -> { slot, tileStart, tileCount, gfx, animNum, animIdx }
+    slotUsed = {}, -- slot -> player_id
+    area = nil,    -- the area those tile allocations belong to
+    placed = 0,    -- how many were actually written last frame, for the status line
+}
+
+-- RELEASE IS NOT OPTIONAL. Nothing in the engine's per-frame path clears entries 64..127, so one
+-- left behind is a body frozen on screen until the next scene change -- the same leak class this
+-- file already documents for the bridge socket, spawned ghosts and the log handle.
+--
+-- freeTiles is false on a map change: the engine's own ResetSpriteData has already run
+-- FreeSpriteTileRanges by then, and clearing bits we no longer own would free somebody else's
+-- sprite. Same identity-first rule despawnGhost follows, for the same reason.
+function hwRelease(playerId, freeTiles)
+    local rec = tiering.hw.byPeer[playerId]
+    if not rec then return end
+    local a = tiering.hw.base + rec.slot * 8
+    -- +0/+2/+4 only. The engine's affine-matrix pass owns +6 on all 128 entries every frame.
+    w16(a + 0, tiering.hw.d0)
+    w16(a + 2, tiering.hw.d1)
+    w16(a + 4, tiering.hw.d2)
+    if freeTiles ~= false and rec.tileStart then
+        for t = rec.tileStart, rec.tileStart + rec.tileCount - 1 do setTileAllocated(t, false) end
+    end
+    tiering.hw.slotUsed[rec.slot] = nil
+    tiering.hw.byPeer[playerId] = nil
+end
+
+function hwReleaseAll(freeTiles)
+    for playerId in pairs(tiering.hw.byPeer) do hwRelease(playerId, freeTiles) end
+    tiering.hw.area = nil
+    tiering.hw.placed = 0
+end
+
+-- Claim a slot and a VRAM tile range for one peer. Tiles come from the GAME's own allocation bitmap
+-- (allocSpriteTiles above, which imitates the engine's AllocSpriteTiles against the same bytes), so
+-- nothing here depends on a hardcoded VRAM address -- which is precisely the fragility that had this
+-- whole approach filed as too risky until 2026-08-21.
+--
+-- Returns nil when OBJ VRAM has no run long enough, and that is a real outcome on a busy map rather
+-- than a theoretical one: it is the fall-through that hands the peer to the painted tier.
+-- A GLOBAL, for the 200-local reason above.
+function hwAcquire(playerId, info)
+    local slot
+    for i = 0, tiering.hw.slots - 1 do
+        if not tiering.hw.slotUsed[i] then slot = i break end
+    end
+    if not slot then return nil end
+    local tileStart = allocSpriteTiles(info.tileCount)
+    if not tileStart then return nil end
+    local rec = {
+        slot = slot, tileStart = tileStart, tileCount = info.tileCount,
+        gfx = nil, animNum = nil, animIdx = nil,
+    }
+    tiering.hw.slotUsed[slot] = playerId
+    tiering.hw.byPeer[playerId] = rec
+    return rec
+end
+
+-- How many more peers this tier can take right now. Entries are never the binding limit (56 of them
+-- against a handful of peers); OBJ TILES are, which is why exhaustion is discovered at acquire time
+-- rather than predicted here.
+tiering.hwBudget = function()
+    if not tiering.hw.on then return 0 end
+    local free = 0
+    for i = 0, tiering.hw.slots - 1 do if not tiering.hw.slotUsed[i] then free = free + 1 end end
+    return free
+end
+
+-- THE LADDER'S MIDDLE RUNG. Given the peers the engine could not take, pick the nearest ones this
+-- tier has room for; everyone left over is the painted tier's problem.
+--
+-- Same nearest-wins ranking and same hysteresis as chooseSpawned, and for the same reason: without
+-- the band two peers at nearly equal distance swap tiers every few frames -- and here a swap costs a
+-- tile reallocation and a VRAM copy rather than merely a different renderer.
+tiering.chooseHardware = function(localAreaId, playerX, playerY, spawnSet)
+    local set = {}
+    if not tiering.hw.on then return set end
+    local ranked = {}
+    for playerId, remote in pairs(remotes) do
+        if remote.areaId == localAreaId and not (spawnSet and spawnSet[playerId]) then
+            local dx, dy = remote.x - playerX, remote.y - playerY
+            local d = math.sqrt(dx * dx + dy * dy)
+            if tiering.hw.byPeer[playerId] then d = d - tiering.hysteresis end
+            ranked[#ranked + 1] = { id = playerId, d = d }
+        end
+    end
+    table.sort(ranked, function(a, b)
+        if a.d == b.d then return a.id < b.id end
+        return a.d < b.d
+    end)
+    -- Peers that already hold a slot keep it; the free-slot count is what the newcomers share.
+    local room = tiering.hwBudget()
+    for i = 1, #ranked do
+        local id = ranked[i].id
+        if tiering.hw.byPeer[id] then
+            set[id] = true
+        elseif room > 0 then
+            set[id] = true
+            room = room - 1
+        end
+    end
+    return set
+end
+
+-- Write this frame's entries. Runs after the spawned tier and before the painted one, so the painted
+-- tier can be told to skip whoever landed here.
+function renderHardwareGhosts(localAreaId, playerMapX, playerMapY, hwSet)
+    tiering.hw.placed = 0
+    if not tiering.hw.on then return end
+    -- VANILLA ONLY, for now. gMain's address comes from our own build of the decomp, and an
+    -- Archipelago ROM relocates code and data -- the same gate the fishing hook uses. On a patched
+    -- ROM this tier simply does not engage and its peers fall through to the painted one.
+    if avatarAddrOffset ~= 0 then return end
+
+    -- A MAP CHANGE INVALIDATES EVERY TILE ALLOCATION. The engine runs ResetSpriteData on a map load,
+    -- which frees all sprite tile ranges and hands them to the new map's NPCs. Ours went with them,
+    -- so the records are dropped WITHOUT clearing bits we no longer own.
+    if tiering.hw.area ~= localAreaId then
+        hwReleaseAll(false)
+        tiering.hw.area = localAreaId
+    end
+
+    -- Anyone no longer in the set gives their slot and tiles back this frame, not eventually.
+    for playerId in pairs(tiering.hw.byPeer) do
+        if not hwSet[playerId] or not remotes[playerId] then hwRelease(playerId, true) end
+    end
+
+    local playerScreenX, playerScreenY = playerScreenPos()
+    local camPixX, camPixY, pmX, pmY = anchorFrame(localAreaId, playerScreenX, playerScreenY,
+        playerMapX, playerMapY)
+    playerMapX, playerMapY = pmX, pmY
+
+    for playerId in pairs(hwSet) do
+        local remote = remotes[playerId]
+        local info = remote and graphicsInfo(remote.gfx or 0)
+        if info then
+            local rec = tiering.hw.byPeer[playerId]
+            -- A GRAPHIC CHANGE IS A DIFFERENT TILE COUNT. A walker is 8 tiles and a bike or a surf
+            -- blob is 16, so keeping the old range would either waste half of it or overrun the
+            -- neighbour's. Release and re-acquire, which is cheap here precisely because there is no
+            -- engine state to rebuild -- the expensive version of this is what
+            -- swapGhostGraphicInPlace exists to avoid on the SPAWNED tier.
+            if rec and rec.gfx ~= nil and rec.gfx ~= remote.gfx then
+                hwRelease(playerId, true)
+                rec = nil
+            end
+            if not rec then rec = hwAcquire(playerId, info) end
+            if rec then
+                -- WHERE ON SCREEN. The same origin + delta + camera-pixel form the painted tier
+                -- uses, and it is already the sprite's TOP-LEFT in screen pixels -- which is exactly
+                -- what a hardware entry's x/y mean, so no conversion is involved.
+                local glideX = remote.gX or remote.x
+                local glideY = remote.gY or remote.y
+                local sx = (tiering.originX or playerScreenX)
+                    + (glideX - (tiering.anchorX or playerMapX)) * TILE + camPixX
+                local sy = (tiering.originY or playerScreenY)
+                    + (glideY - (tiering.anchorY or playerMapY)) * TILE + camPixY
+                sx, sy = math.floor(sx + 0.5), math.floor(sy + 0.5)
+
+                -- OFF SCREEN GETS THE HIDDEN ENTRY, NOT A WRAPPED ONE. An entry's x is 9 bits and
+                -- its y is 8, so a peer at x = -900 does not vanish, it reappears somewhere absurd.
+                -- The engine's own dummy encoding is what "not drawn" looks like here.
+                local a = tiering.hw.base + rec.slot * 8
+                if sx + (info.width or FRAME_WIDTH_PX) <= 0 or sx >= 240
+                    or sy + (info.height or FRAME_HEIGHT_PX) <= 0 or sy >= 160 then
+                    w16(a + 0, tiering.hw.d0)
+                    w16(a + 2, tiering.hw.d1)
+                    w16(a + 4, tiering.hw.d2)
+                else
+                    -- THE GRAPHIC'S OWN OAM TEMPLATE, copied rather than reconstructed. Its first
+                    -- two halfwords already carry the correct shape and size for this character;
+                    -- building them by hand would be re-deriving something the ROM states. Same move
+                    -- spawnSurfBlob makes with the same pointer.
+                    local t0, t1 = 0x8000, 0x8000 -- 16x32, the walker's shape/size, as the fallback
+                    if info.oam ~= 0 then t0, t1 = r16(info.oam + 0x00), r16(info.oam + 0x02) end
+
+                    -- THE PIXELS, only on a change: a frame copy is info.size/4 read+write pairs,
+                    -- cheap once and ruinous per frame. The peer's own animation number and frame
+                    -- index are used directly, so what is on screen is the frame the peer's game is
+                    -- actually showing rather than one this adapter re-derived.
+                    local an, ai = remote.sanim or 0, remote.sidx or 0
+                    if rec.gfx ~= remote.gfx or rec.animNum ~= an or rec.animIdx ~= ai then
+                        loadGhostFrameNow(rec, info, an, ai)
+                        rec.gfx, rec.animNum, rec.animIdx = remote.gfx, an, ai
+                    end
+
+                    w16(a + 0, (t0 & 0xff00) | (sy & 0xff))
+                    w16(a + 2, (t1 & 0xfe00) | (sx & 0x1ff))
+                    -- Priority and palette buy the occlusion and the fades. Priority 2 is ordinary
+                    -- ground, which is what the engine gives its own overworld characters; the
+                    -- palette slot comes from the graphic's own descriptor, not from anything ours.
+                    w16(a + 4, (rec.tileStart & 0x3ff) | (2 << 10) | ((info.paletteSlot or 0) << 12))
+                    tiering.hw.placed = tiering.hw.placed + 1
+                end
+            end
+        end
+    end
+end
+
 -- skipSpawned, when given, names the peers the ENGINE is already drawing as real object events.
 -- Drawing those again would paint a flat copy on top of the engine's own animated one -- so the
 -- drawn tier renders exactly the peers the spawned tier could not take.
@@ -5746,74 +6070,10 @@ local function drawRemotes(localAreaId, playerMapX, playerMapY, skipSpawned, com
     -- So the tile counter is used for one thing only: calibrating C at a moment when the two
     -- cannot disagree -- when camPix is a whole number of tiles, the player is aligned on its tile
     -- and the counter is unambiguous. That happens once per tile of movement, so C is never stale.
-    local sb1 = r32(GSAVEBLOCK1PTR_ADDR)
-    local camPixX = rs16(GTOTALCAMERAPIXELOFFSETX_ADDR)
-    local camPixY = rs16(GTOTALCAMERAPIXELOFFSETY_ADDR)
-    if sb1 ~= 0 then
-        local camX, camY = camPixX, camPixY
-        -- ONLY CALIBRATE WHILE THE PLAYER IS STANDING STILL.
-        --
-        -- Measured with both ghosts logged per frame: the spawned ghost moves a clean -2.0 px
-        -- every frame while ours went -0.67, -0.67, -0.67, +2.0, -0.67 -- oscillating -- even
-        -- though the glide itself was perfectly smooth at -0.167 tiles a frame throughout. So the
-        -- jitter was never in the ghost; it was in this anchor.
-        --
-        -- The cause is the tile counter's other habit: moving in the positive direction it flips
-        -- to the DESTINATION tile the instant a step begins, a whole tile ahead of the picture.
-        -- Calibrating whenever the camera happened to be tile-aligned sometimes sampled exactly
-        -- that moment, and put a one-tile spike into the anchor once per step.
-        --
-        -- A stationary player cannot have a step in flight, so the two cannot disagree. The
-        -- constant only has to be caught once per map -- it does not decay -- and standing still
-        -- for four frames happens constantly in normal play.
-        local tx, ty = rs16(sb1 + 0x00), rs16(sb1 + 0x02)
-        if tiering.lastTileX ~= tx or tiering.lastTileY ~= ty then
-            tiering.lastTileX, tiering.lastTileY, tiering.tileStill = tx, ty, 0
-        else
-            tiering.tileStill = (tiering.tileStill or 0) + 1
-        end
-        local settled = (tiering.tileStill or 0) >= 4
-        local fresh = tiering.anchorX == nil or tiering.anchorArea ~= localAreaId
-        -- playerScreenY READS pos2, which while anyone is surfing is the BOB. Anything that wants
-        -- a fixed tile grid has to have that term removed, or the grid rises and falls with the
-        -- character a few pixels at a time -- which is what cut the drawn reflection two or three
-        -- rows early. Captured here, at the same moment as the anchor it belongs to, because pos2
-        -- is only knowable then; the bobbing copy is left exactly as it was, since placing a ghost
-        -- against the player's actual sprite is what it is for.
-        -- TWO terms have to come off this before it can anchor a TILE GRID, and both are
-        -- properties of the player's current GRAPHIC rather than of the map.
-        --
-        -- pos2 is the first: while anyone is surfing it carries the bob, so the grid rises and
-        -- falls with the character.
-        --
-        -- centerToCornerVec is the second, and it is the one that survived a whole investigation.
-        -- playerScreenPos returns the FRAME's top-left, which is the anchor plus -(width/2). A
-        -- walking player is 16 wide so that term is -8; a SURFING one is 32 wide, so it is -16.
-        -- The grid was therefore 8px too far left for exactly as long as the player was surfing,
-        -- which is exactly when a reflection is being judged -- and it let the mask permit 8px of
-        -- ledge and grass down the left of a shoreline tile. Measured 2026-08-19: the grid put
-        -- metatile 184 at x 72..87 while the screen has it at 80..95.
-        --
-        -- Vertically the same term is -16 for both graphics, which is why the vertical edge was
-        -- correct throughout and only the side ever looked wrong -- and why this hid so well.
-        --
-        -- Normalised to the walker's own centring so the grid means the same thing whatever the
-        -- player happens to be riding.
-        local pspr = sprAddr(r8(GPLAYERAVATAR_ADDR + avatarAddrOffset + 0x04))
-        if fresh or (settled and camX % 16 == 0) then
-            tiering.anchorX, tiering.originX = tx + camX / 16, playerScreenX
-            tiering.originXStill = playerScreenX - rs16(pspr + 0x24)
-                - memory.read_s8(pspr + 0x28) - (FRAME_WIDTH_PX // 2)
-        end
-        if fresh or (settled and camY % 16 == 0) then
-            tiering.anchorY, tiering.originY = ty + camY / 16, playerScreenY
-            tiering.originYStill = playerScreenY - rs16(pspr + 0x26)
-                - memory.read_s8(pspr + 0x29) - (FRAME_HEIGHT_PX // 2)
-        end
-        tiering.anchorArea = localAreaId
-        playerMapX = tiering.anchorX - camX / 16
-        playerMapY = tiering.anchorY - camY / 16
-    end
+    -- The shared anchor (function above): same numbers the hardware tier places against.
+    local camPixX, camPixY, pmX, pmY = anchorFrame(localAreaId, playerScreenX, playerScreenY,
+        playerMapX, playerMapY)
+    playerMapX, playerMapY = pmX, pmY
 
     -- Counted and published (tiering.painted) rather than inferred: "assigned to the drawn tier"
     -- and "actually painted this frame" differ by everyone the off-screen cull skipped, and only
@@ -6671,10 +6931,11 @@ local function runFrame()
         local nClipped = genderFrames.clippedRuns or 0
         genderFrames.clippedRuns = 0
         logFile(string.format(
-            "status: frame=%d connected=%s ready=%s port=%s remotes=%d ghosts=%d drawn=%d "
+            "status: frame=%d connected=%s ready=%s port=%s remotes=%d ghosts=%d hw=%d drawn=%d "
                 .. "clipped=%d overworld=%s inGame=%s slide=%d/%d paused=%d",
             frameCounter, tostring(connected), tostring(ready), tostring(currentPort),
-            nRemotes, nGhosts, nDrawn, nClipped, tostring(inOverworld()), tostring(session.live),
+            nRemotes, nGhosts, tiering.hw.placed or 0,
+            nDrawn, nClipped, tostring(inOverworld()), tostring(session.live),
             (tiering.slide or {}).legs or 0, (tiering.slide or {}).step or 0,
             (tiering.slide or {}).paused or 0))
         tiering.slide = { step = 0, legs = 0, paused = 0 }
@@ -6876,16 +7137,34 @@ local function runFrame()
                 tiering.prof.shadows = (tiering.prof.shadows or 0) + (os.clock() - tiering.profT)
                 tiering.profT = os.clock()
             end
-            -- TIER TWO: everyone the engine had no room for, painted over the finished frame
-            -- so that no peer is ever simply absent. Flag-gated -- see FLAGS.md and
-            -- BANDAGES.md. A drawn ghost has no engine occlusion of its own, so it clips
+            -- The PAINTED tier, now the third rung rather than the second. Flag-gated -- see
+            -- FLAGS.md and BANDAGES.md. A drawn ghost has no engine occlusion of its own, so it clips
             -- against the panel regions tiering.scanPanel() measures per row, rather than
             -- painting over a text box or menu the way an unclipped overlay would.
+            -- TIER TWO: hardware sprites the PPU draws, for peers the engine had no room for.
+            -- Preferred over painting because it is both cheaper and BETTER -- real background
+            -- priority and a live palette, which is exactly what the painted tier has to fake or
+            -- simply lacks. Flag-gated (FLAGS.md); off leaves the ladder as it was.
+            local hwSet = tiering.chooseHardware(smoothAreaId, smoothX, smoothY, spawnSet)
+            renderHardwareGhosts(smoothAreaId, smoothX, smoothY, hwSet)
+            -- WHO THE PAINTED TIER MUST SKIP: the engine's peers AND the hardware ones. Merged into
+            -- one set rather than passing two, because drawRemotes already takes exactly this
+            -- question ("is somebody else drawing this peer?") and the answer is now yes for two
+            -- different reasons. Built fresh each frame -- mutating spawnSet in place would corrupt
+            -- the tiering decision for the following frame.
+            local drawnSkip = spawnSet
+            if next(hwSet) then
+                drawnSkip = {}
+                for id in pairs(spawnSet) do drawnSkip[id] = true end
+                for id in pairs(hwSet) do drawnSkip[id] = true end
+            end
+            -- TIER THREE: everyone neither of the two above could take, painted over the finished
+            -- frame so that no peer is ever simply absent.
             if tiering.drawn then
-                drawRemotes(smoothAreaId, smoothX, smoothY, spawnSet)
+                drawRemotes(smoothAreaId, smoothX, smoothY, drawnSkip)
             elseif COMPARE_TIERS then
                 -- Compare mode with the overflow tier off: the loopback ghost, and only it.
-                drawRemotes(smoothAreaId, smoothX, smoothY, spawnSet, true)
+                drawRemotes(smoothAreaId, smoothX, smoothY, drawnSkip, true)
             end
             if MESHGHOST_EMERALD_PROFILE and tiering.prof then
                 tiering.prof.draw = (tiering.prof.draw or 0) + (os.clock() - tiering.profT)
@@ -7012,6 +7291,7 @@ MESHGHOST_DEV_UNLOAD = function()
     --  * the LOG FILE, a real OS handle -- leaking it locks the file on disk.
     -- resetBridge() covers the first two (it despawns ghosts as part of dropping the connection).
     pcall(resetBridge)
+    pcall(hwReleaseAll, true)
     if MESHGHOST_FISH_ALIGN_HOOK then
         pcall(event.unregisterbyid, MESHGHOST_FISH_ALIGN_HOOK)
         MESHGHOST_FISH_ALIGN_HOOK = nil

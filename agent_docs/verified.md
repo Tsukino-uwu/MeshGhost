@@ -9166,3 +9166,40 @@ is the ladder's whole case in one comparison.
 **Still not measured**, and neither should be assumed from this: peers whose ANIMATION FRAME changes
 (a tile copy into OBJ VRAM per change, scaling with moving peers rather than with entries), and the
 per-scanline case where many sprites share rows.
+
+## 2026-08-21 — Emerald: the `spawn -> OAM -> drawn` ladder is built and running
+
+**Agent-measured** (`probes/fpshold.lua`, 1800 samples, player stationary, peers centred on the
+player). The hardware-sprite tier is now in the adapter behind `MESHGHOST_EMERALD_HW_OVERFLOW`
+(`FLAGS.md`), not a probe. **On-screen behaviour is still the user's to judge** -- what is recorded
+here is that it runs, that the dispatch is correct, and what it costs.
+
+| peers offered | spawned | hardware | painted | avg fps | lowest |
+| --- | --- | --- | --- | --- | --- |
+| 30 | 11 | 19 | 0 | — | — |
+| **56** | **11** | **45** | **0** | **60.0** | **58** |
+| 150 | 11 | 47 | 83 | 13.5 | 8 |
+
+**The 56 row is the result.** The same 56 peers painted cost 39.6 avg (same instrument, same map,
+earlier this date); on the ladder they cost nothing at all. At 150 the ladder still helps but is
+dominated by the 83 peers it could not lift off the painted tier -- 13.5 against 10.4 for all-drawn.
+**The ladder helps exactly as much as it moves peers off the painted tier, and no more**, which is
+the honest way to describe it.
+
+`hw=47` rather than 56 at 150 peers is correct, not a shortfall: the counter reports entries
+actually WRITTEN, and a hardware peer that is off screen gets the engine's hidden entry instead.
+
+**Dispatch verified from the adapter's own status line in each run** -- `ghosts` + `hw` + `drawn`
+account for every peer in range, no double-rendering, no frame errors in any run.
+
+**Two implementation facts worth keeping:**
+
+1. **The tier's constants had to live on the `tiering` table, not in file-scope locals.** Five
+   constants and one helper pushed the main chunk past Lua's hard 200-local ceiling, and that does
+   not misbehave at runtime -- the script fails to PARSE. Caught immediately by
+   `dev-scripts/bizhawk-syntax-check.lua`, which is exactly the failure it was written for.
+2. **The screen-anchor calculation had to be EXTRACTED and shared, not copied.** It is stateful --
+   the anchor is only refreshed while the player stands still on a tile-aligned camera -- so two
+   copies would drift apart and place the same peer in two places. It also has to run when the
+   painted tier is off, which is the shipping default; otherwise the anchor is never calibrated and
+   every hardware sprite lands at the wrong offset.
