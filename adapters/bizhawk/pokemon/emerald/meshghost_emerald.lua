@@ -1743,7 +1743,29 @@ end
 -- player's own map.
 genderFrames.xmapTestPeer = function(localKey)
     local cfg = MESHGHOST_EMERALD_TEST_PEER or os.getenv("MESHGHOST_EMERALD_TEST_PEER")
-    if not cfg then return end
+    -- "off" TURNS IT OFF, and that needs saying because nothing else can. This flag is normally set
+    -- in the EMULATOR'S PROCESS ENVIRONMENT at launch, which outlives every script reload -- so a
+    -- Lua global cannot clear it: `nil or os.getenv(...)` falls straight through to the environment,
+    -- and even setting the global to false does the same. Until 2026-08-21 the only way to remove
+    -- the synthetic peer was to relaunch BizHawk, which means closing the user's game.
+    --
+    -- So an explicit "off" (or "none", or empty) is honoured before the pattern match, and a
+    -- one-line loader script can now retire it mid-session. Found when the user asked to remove a
+    -- peer left over from cross-route testing days earlier -- exactly the "an unset flag keeps its
+    -- previous value" trap agent_docs/environment.md records, in its most durable form.
+    if not cfg or cfg == "off" or cfg == "none" or cfg == "" then
+        -- And it must be REMOVED, not merely left unrefreshed: a peer this function stops updating
+        -- would otherwise sit in `remotes` forever, still rendered, answering to nobody.
+        --
+        -- Dropping the entry is the whole job -- deliberately, rather than tearing the ghost down
+        -- here. Both tiers already reap a peer that has gone: syncRemoteGhosts despawns any ghost
+        -- whose remote is nil, and renderHardwareGhosts releases any slot whose peer is nil. Using
+        -- those paths means a retired test peer leaves exactly the way a real departing player does,
+        -- and it also avoids a forward reference -- despawnGhost is a file-scope local declared far
+        -- below this line, so calling it from here would resolve to a nil global at runtime.
+        remotes["xmap-test"] = nil
+        return
+    end
     local area, xs, ys = string.match(cfg, "^([%d]+:[%d]+),([%w]+),([%-%d]+)$")
     if not area then return end
     local x

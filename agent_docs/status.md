@@ -68,9 +68,11 @@ MESHGHOST_DEV_TICK = function() end
 ```
 
 **The emulator's own environment still carries `MESHGHOST_EMERALD_TEST_PEER`** from an earlier
-launch, so this instance has TWO peers: the loopback ghost and a synthetic cross-map one. It
-outlives any Lua global and only a BizHawk relaunch clears it -- worth knowing before reading two
-ghosts as a bug, and it is also what reproduced the shared-slot collision.
+launch, so an instance can come up with TWO peers: the loopback ghost and a synthetic cross-map
+one. It outlives every Lua global, because the flag reads `nil or os.getenv(...)` -- worth knowing
+before reading two ghosts as a bug, and it is also what reproduced the shared-slot collision.
+**Retiring it no longer needs a relaunch (2026-08-21):** set the global to `"off"` from a loader
+script and the peer is dropped, both tiers reaping it by their normal departing-player paths.
 
 **Do not edit the control file between a user action and its reading -- a reload respawns the ghost
 and resets the very state under test**, `pitfalls.md` 2026-08-20. **Performance is measured, not
