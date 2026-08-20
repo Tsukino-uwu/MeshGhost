@@ -10,6 +10,8 @@ is the part that is not.
   ledge hops and the muddy slope. `verified.md` 2026-08-19/20.
 - **The ACRO Bike: plain left/right riding is user-confirmed 1:1 and no ghost invents a hop.** Open:
   landing dust, the shadow sprite, and a reversal that leaves the SPAWNED ghost facing the old way.
+- **Frame rate is a SHIPPING requirement now, and the adapter meets it** -- 56.9 avg / 27 worst
+  against a bare-emulator control of 58.1 / 37, same scripted route. `verified.md` 2026-08-20.
 - **Read `pitfalls.md`'s "mount/dismount pose war" before trusting any sprite comparison**: the
   player-tile compare is garbage by construction, and a loader reload respawns (and so resets) a ghost.
 - **The drawn tier moves at a constant speed now, not an ease** -- and collision is readable, so a
@@ -40,16 +42,35 @@ confirmation pass:
 |---|---|---|---|
 | Vanilla Emerald | 28328 | 7778 | `bizhawk-dev-loader-emerald.target` |
 
-(pids as of 2026-08-20 afternoon; they change — match on the `--lua=` argument. The relay on 7777
+(pids as of 2026-08-20 EVENING; they change -- match on the `--lua=` argument. The relay on 7777
 is pid 10196 with `-loopback -ghost-collision=disabled`, the core pid 20552 pinned `-transport=tcp`
 (REBUILT with render_all_areas -- an old binary re-breaks seam crossings). Killing the core makes
 the adapter AUTOSTART a default-flags one within seconds; start yours before it wins the port.
-The loader set is the syntax check, a scratchpad `flags_compare.lua` setting the three dev flags —
-`MESHGHOST_COMPARE_TIERS`, `MESHGHOST_GHOST_PEER_GFX`, `MESHGHOST_EMERALD_NO_COLLISION` — and the
-adapter. That trio plus the relay flag is the standing dev-session default; the flags file lives in
-the session scratchpad, so a NEW session must recreate it before the adapter line or peers stay in
-one graphic and collide. **Do not edit the control file between a user action and its reading — a
-reload respawns the ghost and resets the very state under test**, `pitfalls.md` 2026-08-20.)
+
+The loader set is the syntax check, a scratchpad `flags_compare.lua`, and the adapter. **The flags
+file lives in the SESSION scratchpad, so a new session must write its own before the adapter line**
+-- and it must set EVERY dev flag explicitly, `false` included: the loader shares one Lua
+environment, so an unset global keeps whatever the last session gave it (`pitfalls.md`, and it
+invalidated a measurement on 2026-08-20). The standing dev default is:
+
+```lua
+MESHGHOST_COMPARE_TIERS = true      -- the ghost rendered twice: spawned right, drawn left
+MESHGHOST_GHOST_PEER_GFX = true     -- a ghost wears the PEER's graphic (bikes, surf, rod)
+MESHGHOST_EMERALD_NO_COLLISION = true
+MESHGHOST_EMERALD_ANIM_TRACE = false
+MESHGHOST_EMERALD_PROFILE = false   -- per-frame + per-section Lua timing, FLAGS.md
+MESHGHOST_EMERALD_NO_FISH_HOOK = false
+MESHGHOST_DEV_TICK = function() end
+```
+
+**The emulator's own environment still carries `MESHGHOST_EMERALD_TEST_PEER`** from an earlier
+launch, so this instance has TWO peers: the loopback ghost and a synthetic cross-map one. It
+outlives any Lua global and only a BizHawk relaunch clears it -- worth knowing before reading two
+ghosts as a bug, and it is also what reproduced the shared-slot collision.
+
+**Do not edit the control file between a user action and its reading -- a reload respawns the ghost
+and resets the very state under test**, `pitfalls.md` 2026-08-20. **Performance is measured, not
+guessed**: `probes/fpsride.lua` plus a bare control run, method in `_template/probes.md`.)
 
 **The opening move, in order:**
 

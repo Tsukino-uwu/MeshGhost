@@ -167,7 +167,12 @@ UE4SS entry below for that last one specifically, which is currently unresolved)
     one slot proved a false constraint: a test-state script has to top up a countdown every frame
     to hold permanent repel, so keeping it meant dropping the adapter, and each swap silently
     undid the other's work. A target that errors in its tick is unloaded and skipped; the rest
-    keep running. **Prefer absolute paths**: a relative one resolves against BizHawk's working
+    keep running. **Every target shares ONE Lua environment**, so a global set by one script
+    survives into every later load and every swap: a flags file that merely does not mention a
+    flag inherits whatever the last one set, which invalidated an A/B run on 2026-08-20 (the anim
+    trace ran for hours "off"). Set every flag explicitly, false included, and trust the adapter's
+    own `PROBE FLAG IN USE` startup lines over what the flags file asked for. `pitfalls.md`.
+    **Prefer absolute paths**: a relative one resolves against BizHawk's working
     directory, not the loader's folder, and a script that then loads a DLL relative to itself
     fails with "The specified module could not be found" — an error that reads as a missing file
     when the file is present. Writing one line to that file is now the whole

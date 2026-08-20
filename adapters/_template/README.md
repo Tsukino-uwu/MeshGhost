@@ -1119,8 +1119,61 @@ the two.
   freezes a peer's visual quality on when they connected. Nearest-wins is usually right, with a
   hysteresis band so ghosts do not churn between tiers as someone walks past.
 
+- **The engine's tier is also the CHEAP one, and that is not why it was chosen** -- but it settles
+  any argument for reaching past it. Measured on Emerald, 2026-08-20: a spawned ghost costs
+  ~0.05ms of the script's frame because the engine is already walking its object array and
+  building its sprite list, so one more entry rides along with work being done anyway. A drawn one
+  costs ~0.6ms EVERY frame -- about twelve times more -- because it re-does the whole job after the
+  frame is finished, borrowing nothing. **Faking it means paying for a second renderer.** So the
+  fallback tier stays a fallback: never a default, and never reached for because painting pixels
+  looks easier to control than steering a real object.
+
 Worked reasoning for a specific game, including why hardware-level tricks (sprite multiplexing)
 fix the wrong limit: `agent_docs/ideas.md`, "Spawn to the game's cap, then DRAW above it".
+
+## Hard rule: the adapter may not cost the game its frame rate
+
+**The standard, user 2026-08-20: *"i don't want to ship/release anything that can't even keep the
+intended base fps"*.** For an emulated game that is the console's own rate -- 60fps for a GBA or a
+Game Boy -- and it is a shipping requirement, not a nice-to-have. A ghost nobody can see because
+the game is stuttering is worth less than no ghost at all.
+
+**Measure it against a CONTROL before believing any number.** Same route, same probe, one variable:
+a scripted ride with the adapter, and the identical ride with nothing loaded. The machine running
+the emulator has its own floor -- Emerald's control dipped to 37fps on seam crossings with zero
+scripts loaded -- and without that run, the game's own map loading gets attributed to whatever was
+loaded at the time. The harness and the two instruments are in [probes.md](probes.md), "Price a
+suspicion before fixing it".
+
+**The four costs that actually showed up, in the order they bit** (all Emerald 2026-08-20,
+symptom -> cause -> fix in `agent_docs/pitfalls.md`) -- every one of them applies to any emulator
+adapter, because none is about that game:
+
+1. **Never allocate what the engine will immediately free.** An engine culls objects outside its
+   own view. Respawning one it just culled starts a loop -- allocate, cull, allocate -- that costs
+   tile allocation and sprite setup every cycle and produced 217ms frames. A spawn decision must
+   ask *"will this survive the engine's own housekeeping?"*, not merely *"is there a free slot?"*.
+2. **The front-end's console is a GUI append, not a print.** In BizHawk one `console.log` per
+   event is measurably heavy, and the events that most want logging (culls, respawns, refusals)
+   are exactly the ones that arrive in bursts. Log to the adapter's FILE; keep the console for
+   things a human must see immediately.
+3. **"In use by the engine" and "in use by us" are different questions.** Anything claimed by
+   asking the engine *"is this free?"* -- object slots, sprite slots, VRAM tile ranges -- has a
+   window where our own claim is invisible to that question, and a second peer will land in it.
+   Exclude what you already hold, and audit for duplicates so a collision announces itself.
+4. **Probes come off when they are not answering a question**, and a flag that is merely not set
+   is not off -- see below.
+
+**A per-frame diagnostic is a shipping decision, not a debugging convenience.** Enumeration of an
+array every frame, a string built per object per frame, a file write per frame: each is affordable
+alone and none of them is affordable together. Off by default, flag-gated, and unloaded once the
+question is answered.
+
+**If the host loads scripts into one shared environment, an isolation run is only valid when the
+flags are exhaustive.** MeshGhost's dev loader shares one Lua environment across every script it
+loads, so a global set by an earlier flags file survives a swap -- an A/B "with the trace off" ran
+for hours with it on. Set every flag explicitly, false included, and check the adapter's own
+startup lines for what is ACTUALLY enabled rather than trusting what the flags file requested.
 
 ## Find out how many ghosts this game can hold, and make it refuse cleanly
 
