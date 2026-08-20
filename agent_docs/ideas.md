@@ -1988,3 +1988,32 @@ tracked file by the rule in `CLAUDE.md` — a source that cannot be cited cannot
 
 **Before touching any of them:** licence row first (`licensing.md`), then a ROM-variant detection
 check, then `verified.md` for whatever addresses come out. The order matters more than the speed.
+
+## A per-game blocklist for a relay, alongside `only_game` — filed 2026-08-20
+
+**The gap.** A relay host can already say *"this server hosts exactly one game"* — `only_game` in
+`config.json`, logged at startup, and everything else is refused. What they cannot say is *"host
+anything EXCEPT these"*. Those are different wishes and the second one has no expression today:
+a host who is happy to run a mixed lobby but does not want one particular game in it has to choose
+between allowing it and locking the relay down to a single title.
+
+**Requested by the user, 2026-08-20**, in exactly those terms: *"we have the 'allow just 1 game' but
+we don't have so people can specifically filter out game/s they don't want in the lobby."*
+
+**Shape, if it gets scheduled.** A list rather than a string -- `"block_games": ["tevi", "emerald"]`
+-- checked at the same place `only_game` is checked, which is the join. Two decisions worth making
+deliberately rather than discovering later:
+
+- **What happens when both are set.** `only_game` is an allowlist of one and a blocklist is its
+  complement, so a config carrying both is either a contradiction or a redundancy. Refusing to start
+  with a clear message beats silently picking a winner -- the relay already refuses to start when
+  its transport selection cannot work, and that is the precedent to follow.
+- **What the refused client is told.** The join refusal is the only thing a player sees, so it
+  should say the game is not hosted here rather than something a player would read as a bug. The
+  existing `only_game` refusal path is where that wording already lives.
+
+**Why it is small.** `game_id` is already on the wire, already opaque to the core, and already
+compared by equality at join. This adds one comparison against a list -- no new packet field, no
+contract revision, and nothing an adapter has to know about.
+
+**Not scheduled.** Nothing here is committed until it moves into `plans.md`.
