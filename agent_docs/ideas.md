@@ -2040,3 +2040,10 @@ redundant whenever an allowlist is set and removes the contradiction the note ab
 forms, a bare string and a list. Every relay config in the world today has the string, and silently
 failing to parse one is exactly the failure mode `stripBOM` exists to prevent (`main.go`'s own note:
 a config that silently loses `room_code` and `only_game` is worse than one that refuses to load).
+
+**Decided by the user, 2026-08-20: default-deny is the point, not a side effect.** *"Yee thats
+intended, 'allow just these games' dont allow other games to use my server at all."* So a new game
+being refused by every existing relay until its host opts in is the wanted behaviour, and the
+blocklist half of this entry is dropped rather than parked -- it exists only to serve default-allow,
+which nobody has asked for. **What is left to build is one thing: `only_game` takes a list, and
+still accepts a bare string.**
