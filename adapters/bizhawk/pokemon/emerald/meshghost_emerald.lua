@@ -1249,11 +1249,47 @@ local function glideRemote(r, targetX, targetY)
     end
     r.gAreaId = r.areaId
 
-    -- 0.25 a frame: settles a 2-4px delivery in about five frames, which is under a tenth of a
-    -- second and shorter than the gap between deliveries, so it is smoothing rather than lagging.
+    -- CONSTANT SPEED, NOT AN EASE. The filter here used to be `x += (target - x) * 0.25`, which is
+    -- an exponential ease: it never travels at a steady rate, and its steady-state lag grows with
+    -- how fast the peer is going. That is invisible at walking pace and obvious on a bike -- the
+    -- user asked for the square test on one, 2026-08-20, and the log answered it: while the peer
+    -- was at tile 27.19 the drawn ghost sat at 26.019 and closed at 0.002, 0.015, 0.026, 0.036,
+    -- 0.042, 0.048 tiles a frame -- accelerating, never constant, over a tile behind. A character
+    -- that drifts toward where it should be instead of travelling there IS the definition of
+    -- gliding, whatever its legs are doing.
+    --
+    -- A character in this game crosses a tile at a fixed speed and stops. So: move toward the
+    -- (delayed) target at the speed the TARGET ITSELF is moving, which is the peer's own speed
+    -- whatever they are riding, with a quarter extra so a gap closes instead of persisting, and
+    -- never overshoot. The delay line above still provides the trailing distance the engine's own
+    -- step machine would produce; this only decides how the ground between is covered.
     local prevX, prevY = r.gX, r.gY
-    r.gX = r.gX + (targetX - r.gX) * 0.25
-    r.gY = r.gY + (targetY - r.gY) * 0.25
+    local tspd = 0
+    if r.tgtPrevX then
+        tspd = math.abs(targetX - r.tgtPrevX) + math.abs(targetY - r.tgtPrevY)
+    end
+    r.tgtPrevX, r.tgtPrevY = targetX, targetY
+    -- The floor matters: with the target still, a zero limit would freeze a ghost that is not yet
+    -- where it belongs. 0.02 tiles a frame closes a sub-pixel gap without being visible as motion.
+    --
+    -- CAPPED, because the peer's own position stream is not continuous. Measured on the Mach Bike
+    -- across 1x1 and 2x2 squares: the peer's reported position advances 0.06 a frame and then
+    -- JUMPS about 0.6 of a tile at the boundary -- it reports roughly half a tile of sub-tile
+    -- progress and then arrives. Taking the speed from that jump let the ghost cover 0.81 of a
+    -- tile in a single frame, which is a pop, not motion. The old ease hid this by never following
+    -- anything faithfully.
+    --
+    -- 0.25 tiles a frame is the game's own ceiling -- a tile in four frames, the fastest a Mach
+    -- Bike moves -- so nothing legitimate is ever slowed by this, and a wire discontinuity is
+    -- absorbed over three frames instead of popped in one.
+    local limit = math.min(math.max(tspd, 0.02) * 1.25, 0.25)
+    local ddx, ddy = targetX - r.gX, targetY - r.gY
+    local dist = math.abs(ddx) + math.abs(ddy)
+    if dist > 0 then
+        local move = math.min(dist, limit)
+        r.gX = r.gX + ddx / dist * move
+        r.gY = r.gY + ddy / dist * move
+    end
     local dx, dy = math.abs(r.gX - prevX), math.abs(r.gY - prevY)
 
     -- Movement, for the walk cycle: a filter never quite arrives, so "is it moving" is a question
@@ -2737,8 +2773,42 @@ genderFrames.runsForPeerGfx = function(gfx, animNum, animIdx)
     -- A loop/jump command rather than a frame: its "imageValue" is a marker, not an index. Frames
     -- are bounded by the graphic's own image count, so an out-of-range value is the tell.
     local frameCount = info.size > 0 and (info.width * info.height // 2) or 0
-    if frameCount == 0 or imageIndex * (info.width * info.height // 2) >= 0x10000000 then
-        return nil
+    if frameCount == 0 then return nil end
+    -- NOT EVERY COMMAND INDEX IS A FRAME, and giving up on one costs the whole graphic.
+    --
+    -- An animation is a list of commands, and the last of them is a marker -- an end or a jump --
+    -- whose value is not an image index. A peer can legitimately report an index sitting on one:
+    -- the Acro Bike's wheelie hop arrived as animation 21, command 1, while the engine held the
+    -- last frame. Returning nil there sent the whole draw to the cached WALKER, so a peer hopping
+    -- along on a bike flickered onto its feet -- *"the drawn ghost is getting of their bike all
+    -- the time visually while im hopping and moving around on the bike"*, and the fallback was
+    -- silent until a log line was added at it.
+    --
+    -- Walking back to the last real frame is what the engine displays anyway: a marker command
+    -- does not change the picture, it decides what plays next. So the worst case becomes the frame
+    -- the peer is actually showing, instead of a different character.
+    if imageIndex * frameCount >= 0x10000000 then
+        local found = nil
+        for i = 0, (animIdx or 0) - 1 do
+            local c = r32(animPtr + i * 4) & 0xFFFF
+            if c * frameCount < 0x10000000 then found = c end
+        end
+        if not found then return nil end
+        -- Logged, not counted: which (animation, index) pair needed walking back, and to what.
+        -- A substitution that fires constantly, or lands on a frame from the wrong stride, looks
+        -- like a peer doing something it never did -- and this path is new enough not to be
+        -- trusted silently. COMPARE_TIERS only, and throttled by the pair so a steady state
+        -- prints once rather than sixty times a second.
+        if COMPARE_TIERS then
+            local k = string.format("%s:%s:%s", tostring(gfx), tostring(animNum), tostring(animIdx))
+            if genderFrames.walkedBackKey ~= k then
+                genderFrames.walkedBackKey = k
+                logFile(string.format("DRAWN WALKED BACK: gfx=%s anim=%s/%s -> image %s",
+                    tostring(gfx), tostring(animNum), tostring(animIdx), tostring(found)))
+            end
+        end
+        imageIndex = found
+        hFlip = ((r32(animPtr) >> 22) & 1) == 1
     end
 
     local runs = genderFrames.runsFromImages(
@@ -4054,8 +4124,24 @@ local function syncGhost(playerId, remote)
         -- gPlayerAvatar.bikeSpeed answers it directly: PLAYER_SPEED_STANDING is 0, anything above
         -- is movement the engine is already driving on our side (include/bike.h:16-25). Peers that
         -- do not send it (an older adapter) keep the previous behaviour.
-        and (remote.pspeed == nil or remote.pspeed == 0 or isBikeGfx(remote.gfx))
-        and (ghostIsIdle(g) or isBikeGfx(remote.gfx)) then
+        --
+        -- THE BIKE ESCAPE HOLDS ONLY WHILE THE PEER IS ACTUALLY RIDING, 2026-08-20. It was written
+        -- for a peer at a sustained top speed, and unqualified it also fired for a peer who had
+        -- already STOPPED while the ghost was still finishing its catch-up step: the mirror then
+        -- wrote the peer's standing animation onto a ghost the engine was mid-step animating, and
+        -- the two alternated frame by frame -- the ghost cycling through a whole walk cycle for one
+        -- tile. The user: *"when moving a single tile, its 'over animating', the characther is not
+        -- supposed to wiggle from just 1 step, only when constantly biking in 1 direction"*.
+        -- Measured in the tile log as the ghost's animation number flipping between the moving
+        -- family and the standing one on consecutive frames.
+        --
+        -- `bikeSpeed` cannot answer this: it is the Mach Bike's acceleration counter and stays 0 on
+        -- the Acro all the way (verified.md). The peer's own movementActionId can -- a rider sends
+        -- a movement action while riding and a FACE action the moment they stop.
+        and (remote.pspeed == nil or remote.pspeed == 0
+            or (isBikeGfx(remote.gfx) and remote.act and remote.act > 0x03 and remote.act ~= 0xff))
+        and (ghostIsIdle(g)
+            or (isBikeGfx(remote.gfx) and remote.act and remote.act > 0x03 and remote.act ~= 0xff)) then
         local d = sprAddr(g.sprId)
         -- SET THE ANIMATION, DO NOT RE-SET IT. The engine advances a ghost's animation perfectly
         -- well on its own -- measured: 3/0, 3/1, 3/2 with its pixels tracking the player's a beat
@@ -4345,20 +4431,26 @@ local function syncGhost(playerId, remote)
     -- An in-place action is mirrored and HELD, because nothing else will move the ghost and the
     -- position logic below would turn it instead. A travelling one is mirrored once and then left
     -- to the ordinary step logic, which is what keeps the ghost following.
-    -- THE WHEELIE POSES ARE NOT MIRRORED, and that is measured rather than chosen. Issued to a
-    -- ghost they never report finished: the watchdog in ghostIsIdle caught 0x69, 0x6B and 0x6D
-    -- (ACRO_POP_WHEELIE_UP/RIGHT, ACRO_END_WHEELIE_FACE_UP) holding a ghost for its full 60-frame
-    -- limit, over and over. Blocked that long the ghost falls behind, and the catch-up then
-    -- teleports it -- *"they slide/teleport to me when im on the bike"* was the recovery, not the
-    -- fault.
+    -- THE WHEELIE POSES ARE MIRRORED AGAIN, 2026-08-20, after the reason they were dropped turned
+    -- out not to be true. They had been excluded because the watchdog in ghostIsIdle kept freeing
+    -- 0x69, 0x6B and 0x6D at its 60-frame limit, and the guess written here was that they need the
+    -- acro state the engine keeps on the PLAYER, which a ghost has none of.
     --
-    -- Presumably they need the acro state the engine keeps on the PLAYER (gPlayerAvatar's
-    -- acroBikeState), which a ghost has none of. Until that is understood, a ghost that follows
-    -- correctly without the wheelie pose beats one that poses and then strands: the hops and jumps
-    -- below DO complete, and they are the part with visible motion in them.
+    -- Measured instead of guessed (probes/wheelie_watch.lua and probes/wheelie_ghost.lua, both in
+    -- verified.md). On the player every one of these actions completes -- 0x6B ran nine frames and
+    -- reported finished. On a GHOST they complete too, in eleven frames, under every condition the
+    -- hang was blamed on: sitting idle, issued on top of a step already running, with the sprite's
+    -- paused bit set or cleared, and in all four directions including the exact ids the watchdog
+    -- had been freeing. Nothing reproduced the hang, so what caused it was something else in the
+    -- state of that session, and the same day's paused-sprite and graphic-swap fixes are the
+    -- candidates.
     --
-    -- Registered as a gap in unverified.md rather than left as a silent omission.
-    local inPlace = remote.act and (remote.act >= 0x46 and remote.act <= 0x4d)
+    -- The watchdog stays exactly as it is: it costs nothing, it logs what it frees, and it is the
+    -- reason this was diagnosable at all. If the hang comes back, it will say so by name.
+    local inPlace = remote.act and (
+        (remote.act >= 0x46 and remote.act <= 0x4d)
+        or (remote.act >= 0x64 and remote.act <= 0x73)
+        or (remote.act >= 0x7c and remote.act <= 0x7f))
     -- THE TRAVELLING BLOCK RUNS TO 0x8B, not 0x83. Cut short, the wheelie MOVE and END_WHEELIE
     -- MOVE actions fell through to an ordinary walk: the ghost kept up -- its coordinates track the
     -- peer's throughout, measured -- but rode along without the wheelie or the hop, which is what
@@ -4424,9 +4516,29 @@ local function syncGhost(playerId, remote)
     -- hop, while a HELD pose (a standing wheelie) still issues once because the ghost never goes
     -- idle underneath it.
     if inPlace and g.jumped == remote.act and ghostIsIdle(g) then g.jumped = nil end
+    -- AN IN-PLACE POSE MUST NEVER COST THE GHOST A STEP IT OWES.
+    --
+    -- This branch issues the peer's action and RETURNS, so no step is taken that frame -- which is
+    -- right for a pose and wrong whenever the ghost still has ground to cover. The wheelie poses
+    -- were folded back into `inPlace` earlier today and brought that straight back: a peer who pops
+    -- a wheelie and rides on reports a new pose id repeatedly, the branch fires on each one, and
+    -- the ghost never steps. *"If i wheelie, and move 1 tile, the ghosts are not following me"* --
+    -- the same shape as the older *"the ghosts are not following me when im jumping and moving"*,
+    -- which is why the poses were dropped the first time.
+    --
+    -- The guard further down already says it: being AT the target tile is the honest test for
+    -- "there is nothing to do but pose". Applied here too, so a pose is issued only when the ghost
+    -- is where it belongs, and otherwise the step logic below runs and covers the tile first.
+    -- Travelling actions are unaffected -- they move the ghost themselves.
+    if inPlace and not travels
+        and (targetX ~= rs16(objAddr(g.objId) + 0x10) - MAP_OFFSET
+            or targetY ~= rs16(objAddr(g.objId) + 0x12) - MAP_OFFSET)
+    then
+        inPlace = false
+    end
     if (inPlace or travels) and g.jumped ~= remote.act then
         g.jumped = remote.act
-        g.wasRunning = nil
+        g.needsSettle = nil
         requestAction(g, remote.act)
         return
     end
@@ -4465,8 +4577,19 @@ local function syncGhost(playerId, remote)
     if inPlace and dx == 0 and dy == 0 then return end
 
     if dx == 0 and dy == 0 then
+        -- A RIDER DOES NOT WALK IN PLACE. `FACE_ACTION` is walk-in-place-fast on purpose, because
+        -- that is how a walking player turns -- but a rider turns as part of moving, and standing
+        -- still on a bike is the STATIC pose: the player's own object reports 0x00..0x03 the whole
+        -- time it is stopped on the Acro Bike (probes/wheelie_watch.lua, 2026-08-20).
+        --
+        -- So every turn and every settle was spending a walk-in-place animation the player never
+        -- performed, and a single tile costs two of them -- one to turn, one to settle. Measured
+        -- with probes/onestep.lua: one tile east cost the player ONE action and two frames of the
+        -- pedal cycle, and the ghost three actions and four frames. The user: *"when moving a
+        -- single tile, its 'over animating', the characther is not supposed to wiggle from just 1
+        -- step, only when constantly biking in 1 direction"*.
         if (r8(a + 0x18) & 0x0f) ~= dir then
-            requestAction(g, FACE_ACTION[dir])
+            requestAction(g, (isBikeGfx(remote.gfx) and FACE_STILL_ACTION or FACE_ACTION)[dir])
             g.stillSince = nil
             return
         end
@@ -4485,14 +4608,77 @@ local function syncGhost(playerId, remote)
             --
             -- Asking the engine to face the way it already faces is how the game itself settles a
             -- character, so the standing frame comes from the same place every other pose does.
-            if g.wasRunning then
-                g.wasRunning = nil
-                requestAction(g, FACE_ACTION[dir])
+            if g.needsSettle then
+                g.needsSettle = nil
+                g.frameFor = nil
+                -- The static pose on a bike, for the reason given at the turn above: a rider that
+                -- settles with walk-in-place pedals once more for no reason.
+                requestAction(g, (isBikeGfx(remote.gfx) and FACE_STILL_ACTION or FACE_ACTION)[dir])
+                -- THE STANDING ANIMATION GOES WITH THE SETTLE. The settle is itself an action, and
+                -- for the eight frames it runs the ghost is not idle -- so the mirror below is
+                -- blocked and the engine goes on advancing whatever was playing, which on a bike is
+                -- the pedal cycle. Two more frames of pedalling, every stop, on top of the ones the
+                -- step already cost. Handing it the peer's number here (the number ONLY, no
+                -- animBeginning -- restarting an animation is its own old bug) leaves the engine
+                -- advancing a standing animation instead of a rolling one, and there is still just
+                -- one thing driving it.
+                if remote.sanim then w8(sprAddr(g.sprId) + 0x2a, remote.sanim) end
+            end
+            -- AND THE PIXELS HAVE TO FOLLOW THE POSE. Settling sets the animation the ghost should
+            -- be showing; it does not put that frame's IMAGE anywhere. An object event's frames are
+            -- copied into its own OBJ VRAM range when its animation ADVANCES, and a ghost standing
+            -- still advances nothing -- so it reported the standing frame and went on displaying
+            -- the last rolling one it had been given. The user, 2026-08-20, on the Acro Bike:
+            -- *"it looks as if its tilted while idle, due to the 'while moving' animation making
+            -- the sprite move a bit back/forth left/right while pedaling"*, and *"it looked good
+            -- for a sec there when you swapped/reload... after moving and going idle again its
+            -- still tilted"* -- good exactly while the spawn path's own frame copy was fresh.
+            --
+            -- Invisible to every trace this adapter had, because every FIELD agreed: player and
+            -- ghost both on animation 4/3, unchanged for 180 frames. It took reading the two tile
+            -- ranges (probes/posediff.lua) to see 120 of 512 bytes differing underneath.
+            --
+            -- Copy the frame the PEER is actually displaying, which is the 1:1 answer rather than
+            -- the nearest one, and do it ON A CHANGE ONLY: a frame copy is 128 read+write pairs
+            -- and loadGhostFrameNow's own note is that it is cheap once and ruinous per frame.
+            --
+            -- AND ONLY ONCE THE ENGINE HAS LET GO. A peer stopping does not stop the GHOST: it is
+            -- still a step or two behind and keeps being given catch-up steps, and every one of
+            -- those advances the animation and copies a rolling frame over ours. Measured, which
+            -- is the only reason this was found -- the first version of this copy landed while the
+            -- ghost was still catching up and read `differing: 0`, then the engine's own next step
+            -- put it back to 152 and the key said the work was already done. The user saw exactly
+            -- that: *"it still looks wrong directly after stopping from having moved, it only
+            -- looks correct after stopping and then changing a facing direction"* -- a turn being
+            -- the next thing that happened to give the tiles one last correct copy.
+            --
+            -- movementActionId back to NONE is the engine saying it has nothing left to run, so it
+            -- is the earliest moment a copy cannot be overwritten. Until then the key is cleared,
+            -- so the copy re-arms after every action rather than counting itself already done.
+            if r8(a + 0x1c) ~= MOVEMENT_ACTION_NONE then
+                g.frameFor = nil
+            elseif remote.sanim and g.gfx then
+                local key = remote.sanim * 8 + (remote.sidx or 0)
+                if g.frameFor ~= key then
+                    g.frameFor = key
+                    loadGhostFrameNow(g, graphicsInfo(g.gfx), remote.sanim, remote.sidx)
+                end
             end
             return
         end
         g.stillSince = g.stillSince or frameCounter
-        if frameCounter - g.stillSince >= BUMP_AFTER_FRAMES then
+        -- NOT ON A BIKE. `BUMP_ACTION` is the walk-in-place SLOW shuffle a walker does against a
+        -- wall (`PlayerNotOnBikeCollide` -- the name says it), and a rider does not do it. Given to
+        -- a ghost on a bike it reads as the sprite twitching backwards for a moment: the user,
+        -- 2026-08-20, *"the spawned one actually flips the sprite in reverse for a bit for some
+        -- reason"*, and the log had it as action 0x1B on the ghost while the peer was riding.
+        --
+        -- Third member of the same family of bugs today, after FACE_ACTION and the walk step: a
+        -- constant chosen for a walker, correct there, wrong the moment the peer is on a bike.
+        -- Standing still is closer to 1:1 than performing an animation the player cannot perform;
+        -- what a blocked RIDER actually does is unmeasured, and is registered in unverified.md
+        -- rather than guessed at here.
+        if frameCounter - g.stillSince >= BUMP_AFTER_FRAMES and not isBikeGfx(remote.gfx) then
             requestAction(g, BUMP_ACTION[dir])
         end
         return
@@ -4562,6 +4748,22 @@ local function syncGhost(playerId, remote)
         -- WALK_NORMAL 0x08, WALK_FAST 0x15, WALK_FASTER 0x2D, each DOWN/UP/LEFT/RIGHT consecutive
         -- in DIR_ID order -- the same layout every other action table here relies on.
         local running = (remote.anim == "running")
+        -- A GHOST THAT OWES A TILE ON A BIKE MUST RIDE IT, NOT WALK IT.
+        --
+        -- `acroBase` is taken from the peer's CURRENT action, and a ghost is usually a step behind:
+        -- by the time it covers the tile, the peer has moved on to ending the wheelie or to
+        -- standing, so there is no acro action left to copy and the ghost falls through to a plain
+        -- WALK. Measured on one tile of wheelie ride: the player rode it with action 0x84 and the
+        -- ghost walked it with 0x08 -- a walk step is also twice as long as a ride step, so the
+        -- ride animation ran across the whole of it. The user: the spawned ghost is *"doing the
+        -- while cosntantly riding animation instead of just the small wiggle"*.
+        --
+        -- Remembering the last acro family the peer actually used, and reusing it for as long as
+        -- the peer is on a bike, means the ghost performs the game's own riding action for the
+        -- tiles it owes -- the same shape as the drawn tier remembering the peer's last moving
+        -- animation number, and for exactly the same reason.
+        if acroBase then g.lastAcroBase = acroBase end
+        if not acroBase and isBikeGfx(remote.gfx) then acroBase = g.lastAcroBase end
         if acroBase then
             requestAction(g, acroBase + (stepDir - 1))
         elseif base then
@@ -4572,7 +4774,19 @@ local function syncGhost(playerId, remote)
         -- Remembered so the stop above can settle it: a run leaves the object on a running frame
         -- and only an explicit action brings it back to standing. A walk does not need this --
         -- the user's own test was exact about that, "it does idle->walk fine".
-        g.wasRunning = running or nil
+        --
+        -- A BIKE NEEDS IT TOO, 2026-08-20, and for the same reason a run does: a walk's last frame
+        -- IS the standing frame, which is why walking never needed settling, and a bike's is not.
+        -- It was missed because the flag was set from `running`, and a riding peer reports its
+        -- pose as "walking" -- the wire's pose string has only those two words, so no bike can
+        -- ever set it. The user, on the side-by-side: the spawned ghost idle on the bike was
+        -- *"using the animation/pose that is supposed to happen while actively moving"*, and sat
+        -- visibly offset with it, because the bike's moving frame is a different width from its
+        -- standing one.
+        g.needsSettle = (running or isBikeGfx(remote.gfx)) or nil
+        -- The engine owns the tiles again for the length of the step, so the settled-frame copy
+        -- above must be re-armed: without this a second stop finds its key unchanged and skips.
+        g.frameFor = nil
         lockGhostFacing(g, remote, stepDir)
     else
         -- More than a tile out. This branch was written for a warp or a dropped packet -- cases
@@ -5207,6 +5421,18 @@ local function drawRemotes(localAreaId, playerMapX, playerMapY, skipSpawned, com
                         screenX, screenY, remote.x, remote.y,
                         remote.gX or -1, remote.gY or -1, playerMapX, playerMapY,
                         tostring(remote.gStepping))
+                    -- WHICH FRAME THIS TIER CHOSE, and the distance it chose it from. The drawn
+                    -- tier's cycle is driven by distance travelled rather than by time, so "it is
+                    -- not animating over one tile" is a question about `gDist` -- and without both
+                    -- numbers on the line there is no way to tell a cycle that never advanced from
+                    -- one that advanced and picked the same frame twice. Added 2026-08-20, when the
+                    -- user found the drawn ghost still for a single tile at half speed.
+                    tiering.moveLog[#tiering.moveLog] = tiering.moveLog[#tiering.moveLog]
+                        .. string.format(" | pose=%s frame=%s gDist=%.3f gMoved=%s gfx=%s "
+                            .. "sanim=%s/%s",
+                            tostring(pose), tostring(frameIndex), remote.gDist or -1,
+                            tostring(remote.gMoved), tostring(remote.gfx),
+                            tostring(remote.sanim), tostring(remote.sidx))
                 end
                 -- THE SHADOW GOES DOWN FIRST, because paint order IS depth on this tier.
                 --
@@ -5243,9 +5469,89 @@ local function drawRemotes(localAreaId, playerMapX, playerMapY, skipSpawned, com
                 -- graphic's own frames. Only when it differs from the plain walker (0), so the
                 -- ordinary case keeps the cached gender path and costs nothing extra.
                 local drew = false
+                -- A PEER'S CURRENT FRAME IS THE WRONG FRAME WHILE THIS TIER IS STILL CROSSING.
+                --
+                -- This path paints whatever animation the peer is on right now, which is correct
+                -- for a state they hold -- fishing, surfing, standing. It is wrong for a single
+                -- step: the peer crosses the tile in about six frames and is back to standing long
+                -- before the drawn ghost, whose glide takes ~23, has finished the same tile. So it
+                -- glides across wearing the standing frame and never animates at all. The user,
+                -- 2026-08-20, watching at half speed: *"the drawn ghost is not doing the animation
+                -- when moving 1 tile"*. Measured in probes/tier_compare.log: the peer sent 9/0,
+                -- 9/1 for six frames and then 5/1, while `gMoved` stayed true for 23 more.
+                --
+                -- The cached gender path never had this problem because it drives its cycle from
+                -- DISTANCE rather than from the peer's tag -- the same fix, applied here. The
+                -- moving animation NUMBER cannot be hardcoded, though: it is 8..11 on the Acro
+                -- Bike against 4..7 for a walker, and every graphic may differ. So the peer's own
+                -- last moving number is remembered and re-used, which needs no table at all.
+                if (remote.anim == "walking" or remote.anim == "running") and remote.sanim then
+                    remote.lastMoveAnim = remote.sanim
+                end
+                -- FROM THE START OF THIS STEP, not from an absolute distance. The rate was right
+                -- first time -- half a tile per pose, two poses per tile, which is what the player
+                -- does -- but the PHASE was whatever the running total happened to land on. A ride
+                -- animation is four poses alternating a neutral frame with two different pedal
+                -- frames, so a tile beginning on an odd index shows two pedal frames back to back:
+                -- *"the drawn ghost wiggle twice for a single tile, its only supposed to do it
+                -- once"*. Measured on the player, one tile is index 0 then 1 -- it always starts
+                -- from the beginning of the cycle, so the ghost must too.
+                -- EVERY CHANGE OF THE PEER'S GRAPHIC ON THE WIRE. The fallback log below covers a
+                -- peer whose graphic could not be DECODED; it says nothing about a peer whose
+                -- graphic arrived as the walker in the first place, and those look identical on
+                -- screen -- a rider suddenly on foot. Ruling the second one out needs the value
+                -- itself, per change, which is cheap.
+                if COMPARE_TIERS and remote.gfxWas ~= remote.gfx then
+                    logFile(string.format("WIRE gfx %s -> %s (anim=%s sanim=%s/%s act=%s)",
+                        tostring(remote.gfxWas), tostring(remote.gfx), tostring(remote.anim),
+                        tostring(remote.sanim), tostring(remote.sidx), tostring(remote.act)))
+                    remote.gfxWas = remote.gfx
+                end
+                if remote.gMoved and not remote.gMovedPrev then remote.gDistBase = remote.gDist end
+                remote.gMovedPrev = remote.gMoved
+                --
+                -- ONLY WHEN THE PEER HAS ALREADY STOPPED. This exists for the gap between a peer
+                -- finishing a step and this tier finishing the same step; while the peer is still
+                -- moving, or hopping, its own frame is the truthful one and substituting a
+                -- remembered riding number throws away whatever it is really doing. Worse, an
+                -- animation number and an index that were never paired may not resolve at all, and
+                -- an unresolved frame falls through to the cached WALKER below -- a Brendan on
+                -- foot. The user, hopping along on the Acro Bike: *"the drawn ghost is getting of
+                -- their bike all the time visually"*.
+                --
+                -- ONE CYCLE PER STEP, not the peer's own frames and then a second cycle. Limiting
+                -- the substitution to "the peer has stopped" split a single tile in two: the peer's
+                -- indices played while it was still moving, and the distance-driven cycle then
+                -- started over for the rest of the glide -- *"the drawn ghost = double animatin,
+                -- supposed to be 1"*. Distance drives the whole step, which is what the cached
+                -- walker path has always done and why it never had this.
+                --
+                -- A HOP OR A JUMP IS EXEMPT, and that is the reason the narrower condition was
+                -- tried first: those have their own animation that distance cannot stand in for,
+                -- and substituting over them is what made a hopping peer look like it dismounted.
+                -- The families are the peer's own action ids (constants/event_object_movement.h):
+                -- 0x46..0x4D jump in place, 0x70..0x7B wheelie hop and jump.
+                local drawAnim, drawIdx = remote.sanim, remote.sidx
+                if remote.gMoved and remote.lastMoveAnim
+                    and not (remote.act and ((remote.act >= 0x46 and remote.act <= 0x4d)
+                        or (remote.act >= 0x70 and remote.act <= 0x7b)))
+                then
+                    drawAnim = remote.lastMoveAnim
+                    drawIdx = math.floor(((remote.gDist or 0) - (remote.gDistBase or 0)) * 2) % 4
+                end
                 if PEER_GFX_ENABLED and remote.gfx and remote.gfx ~= 0 and remote.sanim then
                     local runs, info, gfxFlip, imgIdx =
-                        genderFrames.runsForPeerGfx(remote.gfx, remote.sanim, remote.sidx)
+                        genderFrames.runsForPeerGfx(remote.gfx, drawAnim, drawIdx)
+                    -- NEVER LET A SUBSTITUTED FRAME COST THE GRAPHIC. Falling through to the
+                    -- cached walker is the right answer when a peer's graphic cannot be decoded at
+                    -- all; it is the wrong one when only the frame we substituted failed, because
+                    -- the peer's own frame was there the whole time. Retry with it before giving
+                    -- up, so the worst case is a stale pose rather than a peer who appears to
+                    -- dismount.
+                    if not runs and drawAnim ~= remote.sanim then
+                        runs, info, gfxFlip, imgIdx =
+                            genderFrames.runsForPeerGfx(remote.gfx, remote.sanim, remote.sidx)
+                    end
                     if runs and info then
                         -- CENTRE IT LIKE THE ENGINE DOES. A fishing or biking frame is 32 wide
                         -- where a walker is 16, and the engine does not shift its position for
@@ -5418,6 +5724,23 @@ local function drawRemotes(localAreaId, playerMapX, playerMapY, skipSpawned, com
                     end
                 end
                 if not drew then
+                    -- SAY WHEN THIS HAPPENS. Falling back to the cached walker while the peer is
+                    -- on a bike, surfing or fishing IS the peer appearing to dismount, and it is
+                    -- silent -- the tier simply paints a different character and carries on. Two
+                    -- separate guesses were made at which state triggers it before this line
+                    -- existed; the log names the state instead. COMPARE_TIERS only, throttled,
+                    -- because a fallback that fires every frame must not also write every frame.
+                    if COMPARE_TIERS and remote.gfx and remote.gfx ~= 0
+                        and (not remote.fellBackAt or frameCounter - remote.fellBackAt >= 30)
+                    then
+                        remote.fellBackAt = frameCounter
+                        logFile(string.format(
+                            "DRAWN FELL BACK TO THE WALKER: gfx=%s sanim=%s/%s anim=%s act=%s "
+                            .. "gMoved=%s lastMove=%s orient=%s",
+                            tostring(remote.gfx), tostring(remote.sanim), tostring(remote.sidx),
+                            tostring(remote.anim), tostring(remote.act), tostring(remote.gMoved),
+                            tostring(remote.lastMoveAnim), tostring(remote.orientation)))
+                    end
                     drawSpriteFrame(remote.gender, pose, frameIndex, dirInfo.hFlip, screenX,
                         screenY, panelRows, dim,
                         genderFrames.reflectiveSpans(screenX, screenY,
