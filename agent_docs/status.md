@@ -8,8 +8,8 @@ is the part that is not.
 
 - **Emerald peer states: fishing, surfing and the MACH Bike are confirmed on both tiers**, with
   ledge hops and the muddy slope. `verified.md` 2026-08-19/20.
-- **The ACRO Bike: wheelie poses mirrored again, and bike mount/dismount is 1:1 and confirmed.**
-  Landing dust, the shadow sprite and a blocked rider's action are still open. `verified.md` 2026-08-20.
+- **The ACRO Bike is STILL NOT finished: landing dust and the shadow sprite remain open** (plus a
+  blocked rider's action). Confirmed so far: riding, wheelies, mount/dismount 1:1. `verified.md`.
 - **Read `pitfalls.md`'s "mount/dismount pose war" before trusting any sprite comparison**: the
   player-tile compare is garbage by construction, and a loader reload respawns (and so resets) a ghost.
 - **The drawn tier moves at a constant speed now, not an ease** -- and collision is readable, so a
