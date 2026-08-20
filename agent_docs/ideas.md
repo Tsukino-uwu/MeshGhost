@@ -1468,6 +1468,12 @@ and it is also a hard wall that no cleverness at the hardware level moves: even 
 multiplexing (rewriting OAM per scanline, which real Game Boy games did) only helps the *drawing*
 limits underneath, while the engine still has nowhere to record a fourteenth character.
 
+**Refined 2026-08-20, because that dismissal is only half right.** It holds for the SPAWNED tier --
+nothing at the hardware level gives the engine a place to record a fourteenth character. It does
+not hold for the DRAWN one, which needs no engine object either: there, a multiplexed hardware
+sprite is a candidate replacement that the PPU draws instead of our Lua painting it. See "A THIRD
+tier between the two" below.
+
 **The way past it is to stop asking the engine for the overflow.** A drawn ghost — `gui.*`
 primitives painted onto the emulator's output, which is how Emerald's adapter works — is not a
 sprite at all. It happens after the PPU has finished, so it is subject to **none** of the three
@@ -1557,6 +1563,88 @@ hysteresis band or ghosts will churn between tiers while someone walks past.
 **Not scheduled.** Nine simultaneous peers in one town is far past anything planned, so this buys
 nothing today — it is filed because the *shape* is right and generalises (see the same rule in
 `adapters/_template/README.md`), not because Crystal needs it.
+
+## A THIRD tier between the two: a hardware sprite with no engine object — filed 2026-08-20
+
+**The user's shape, and it is the right one: *"maybe spawn -> hblank -> drawn or something.
+high/low prio order. to gain some performance"*.** A peer takes the best tier that still has room,
+and each step down trades engine behaviour for capacity while staying cheaper than the step below
+it. **The user's condition on trying it at all**, same message: *"as long as we don't change saves /
+need to make a patch and can't use lua etc."* -- so the whole idea lives or dies on question 1
+below, and it is worth answering before anything else here is designed.
+
+**Where it came from.** An outside developer working on Crystal raised sprite multiplexing --
+*"one slot and moving it in hblank"* -- as being **cheaper than drawing**. Not measured by us, and
+recorded here as a claim to test rather than a fact. The section above dismissed hardware tricks
+for fixing the wrong limit; that dismissal is right about the SPAWNED tier and incomplete about the
+drawn one, which is what this entry corrects.
+
+### What the technique is
+
+The PPU draws the screen one scanline at a time, and after each line there is a short gap (HBlank)
+in which OAM is writable. Rewrite an OAM entry in that gap -- new Y, new tile, new palette -- and
+the same hardware sprite is drawn AGAIN further down the screen. One slot becomes many characters
+per frame, as long as they are separated vertically. Real Game Boy games did exactly this.
+
+**Why it would be cheaper than our drawn tier, and the reasoning is sound**: a painted ghost is
+HOST work -- Lua, after the frame is finished, one `gui` call per pixel-run, measured at ~0.6ms per
+ghost per frame (`verified.md` 2026-08-20). A multiplexed sprite is drawn by the EMULATED PPU,
+which is being simulated anyway; the host pays only for the writes that set it up. It also arrives
+with hardware palettes, background priority and real compositing -- everything the overlay fakes.
+
+### The three questions that decide whether this is buildable HERE
+
+1. **Can OAM be written mid-frame from the FRONT END, with no ROM patch?** This is the whole
+   feasibility question. The technique classically needs code inside the game on the LCD
+   STAT/HBlank interrupt -- a ROM patch, which the user's condition rules out. It is only viable
+   for us if BizHawk exposes a mid-frame hook (a scanline / LYC-style callback) we can write OAM
+   from. **Unknown today**: `dev-scripts/bizhawk-capabilities.log` is two lines saying
+   `client.getluafunctionslist()` is unavailable on this build, so nothing has actually enumerated
+   what this emulator offers. Run `dev-scripts/bizhawk-api-dump.lua` first and answer it from the
+   dump, not from memory.
+2. **Would per-scanline Lua cost more than it saves?** A callback on every line is 144 Lua calls a
+   frame, which is the expensive shape this project has already been bitten by (`pitfalls.md`,
+   2026-08-16 and 2026-08-20). It is only cheap if we hook the FEW lines where a sprite has to be
+   re-pointed -- two or three per extra ghost -- rather than every line. Design it as "wake me at
+   line N", never "call me every line".
+3. **Is the HBlank part even needed on GBA?** Emerald has 128 OAM entries against 16 engine object
+   events, so the sprite table is nowhere near the binding limit -- the engine's own array is. The
+   engine rebuilds OAM every frame, and **we already hook the exact function that does it**
+   (`BuildOamBuffer`, used today for fishing alignment and priced at effectively free -- 52.0 vs
+   52.6 avg fps, `verified.md` 2026-08-20). Appending our own OAM entries there, after the engine
+   has built its list, would give extra hardware sprites with no multiplexing and no patch at all.
+   Crystal is the case that genuinely needs multiplexing: 40 OAM entries, and the engine spends
+   many of them.
+
+### The ladder, if it works
+
+| tier | what draws it | what it gets | what caps it |
+| --- | --- | --- | --- |
+| **Spawned** | the engine's own object event | everything: animation, collision, occlusion, priority | the engine's object array (~13 Crystal, 16 Emerald, minus the map's cast) |
+| **Hardware sprite** (new) | the PPU, from OAM we write | palettes, background priority, real compositing -- but no engine state, so we drive position and frame ourselves | OAM entries, and the per-scanline sprite cap (10 on GB), which multiplexing does NOT beat |
+| **Drawn** | our own `gui.*` overlay | a body on screen, nothing else | nothing, except the host CPU -- ~0.6ms/frame each |
+
+**What the middle tier does NOT give**, and this has to be said plainly so nobody expects it: no
+collision, no engine animation, no walking -- a fourteenth character still has nowhere to live in
+the game's own state. It is a cheaper, better-composited replacement for the DRAWN tier, not an
+extension of the spawned one. VRAM is its other real cost: a hardware sprite needs its tiles
+resident, and the adapter's existing tile-range allocation is already the fiddliest part of
+spawning.
+
+### Order of work, if it is ever scheduled
+
+1. **Answer question 1 from an API dump.** No hook, no feature -- and that is a cheap, entirely
+   offline answer.
+2. **Try the GBA shortcut first** (question 3): append OAM entries from the `BuildOamBuffer` hook
+   on Emerald and see whether an extra sprite renders at all. It needs no multiplexing, no
+   scanline hook and no patch, so it prices the whole idea before any of the hard parts.
+3. **Only then Crystal's multiplexing**, where the technique is actually required.
+4. **Measure it against the drawn tier** with the same scripted-ride harness the lag hunt used
+   (`_template/probes.md`) -- the claim being tested is *cheaper than drawing*, and that is a
+   number, not an argument.
+
+**Not scheduled.** Nothing here is committed until it moves into `plans.md`. Nothing in it writes
+a save or patches a ROM, which is what makes it worth exploring at all.
 
 ## Crystal: a ghost you can talk to — and eventually battle
 
