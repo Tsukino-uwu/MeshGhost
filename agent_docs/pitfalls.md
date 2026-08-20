@@ -2809,3 +2809,61 @@ already existed — read next to a per-frame panel-rows dump.
 - **Generalizes to**: when two resources must agree on one identifier, let the OS choose on the
   **scarcer, more restricted** side and verify on the freer one. Retrying the unrestricted side
   is just re-rolling the same bad die.
+
+### Emerald: ghosts blinking in and out in a doorway — two peers, one object slot (2026-08-20)
+
+- **Symptom**: with two peers in the room, standing in front of a door made both tiers' ghosts pop
+  in and out continuously. Away from the door it was fine.
+- **Diagnosis**: the adapter's own logs could not show it, and that is the important part —
+  everything it logs is PER PEER, so two peers writing one object is invisible by construction:
+  each peer's lines look perfectly correct on their own. It was found by enumerating the engine's
+  object array directly from a separate probe and watching a single slot, which alternated every 8
+  frames between two peers' complete states (position, facing, action, graphic).
+- **Cause**: `findFreeObjectSlot`/`findFreeSpriteSlot` tested the engine's **active bit** — "is this
+  in use by the GAME" — and never "is it already claimed by one of OUR peers". A doorway is a warp
+  tile, so the engine culls ghost slots constantly there; a culled slot reads inactive for the
+  frames between the cull and the respawn, and a second peer searching in that window is handed a
+  slot the first peer's record still names.
+- **Fix**: both searches skip slots claimed by any tracked ghost, and a once-a-second audit logs
+  `BUG -- <peer> and <peer> both hold object slot N` if it ever happens again by another route.
+- **Generalizes to**: **"in use by the engine" and "in use by us" are different questions**, and
+  wherever a shared resource is allocated by asking the engine, any window in which our own claim
+  is invisible to that question is a collision waiting for a second consumer. Sprite slots, VRAM
+  tile ranges and object slots all have this shape.
+- **Second trap, paid for in the same pass**: this file is against Lua's **200-locals-per-chunk
+  ceiling**. A new top-level `local function` failed the whole script with `too many local
+  variables (limit is 200)` and the adapter simply did not load. Locals inside a function are free,
+  so the claim scan is written as two inline loops on purpose — do not tidy it into a helper.
+
+### Emerald: "laggy while moving" — a cull→respawn loop, console lines, and probes (2026-08-20)
+
+- **Symptom**: the game chugging while running around, worst *"in 2 places consistently"* (the
+  user's own observation, which beat the profiler to the cause). Scripted A/B ride: 45.9 avg fps,
+  dips to 15, against a bare-emulator control of 58.1 / 37.
+- **Cause, three stacked**: (1) **spawn churn** — the engine culls an object event that falls out
+  of its view, and the adapter respawned it next frame, so a peer parked off-view was spawned and
+  culled in a loop: VRAM allocation + sprite setup every cycle, 16 reclaims per ride clustered at
+  the route's two seam crossings, worst frames 217ms. (2) The **reclaim message was a
+  `console.log`** — a GUI append, the measured fps killer — firing exactly where the churn was.
+  (3) **Per-frame probes** left loaded (hopwatch's 16-slot enumeration, the anim trace).
+- **Fix**: never spawn a ghost outside a conservative subset of the visible screen (±8x/±7y of the
+  player) — outside it the engine deletes the object anyway, so the spawn bought nothing; reclaim
+  lines go to the log file only; probes come off when not answering a question. After: 56.9 avg,
+  worst Lua frame 5ms, zero reclaims, user: *"it feels way better now"*.
+- **Exonerated by A/B, not guessed at**: the BuildOamBuffer execute hook (52.0 without vs 52.6
+  with) — the "obvious" suspect was innocent. The remaining transition hitch is VANILLA: the bare
+  control dips to 37 on the same seam legs with no scripts loaded.
+- **Generalizes to**: don't allocate what the engine will immediately free — a spawn decision has
+  to ask "will this survive the engine's own housekeeping?", not just "is there a slot".
+
+### The dev loader shares ONE Lua environment — an unset flag keeps its old value (2026-08-20)
+
+- **Symptom**: an A/B run "with compare mode off" showed compare mode's exact cost profile; the
+  anim trace ran for hours after being "turned off".
+- **Cause**: `bizhawk-dev-loader.lua` loads every target into one shared environment, so a global
+  set by an earlier flags file survives every later swap. A flags file that merely *doesn't set*
+  a flag inherits whatever the last session set it to — "not mentioned" is not "off".
+- **Fix**: the session flags file sets EVERY dev flag explicitly, false included.
+- **Generalizes to**: any isolation run under the dev loader is invalid unless the flags file is
+  exhaustive. Check the adapter's own `PROBE FLAG IN USE` startup lines — they say what is
+  actually on, which is the ground truth the flags file only requests.

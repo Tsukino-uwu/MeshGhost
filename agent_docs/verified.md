@@ -8902,3 +8902,58 @@ visible, the same shape as every other trailing measurement in this file.
 **Open, from the same session:** turning left-to-right while hopping left the ghost facing the old
 way for ~16 frames, and the user reports it hopping backwards there -- spawned tier only, the drawn
 tier fine. Measurement armed, not yet captured; `unverified.md`.
+
+---
+
+## 2026-08-20 — Emerald: two peers could share one object slot, and a doorway made it constant
+
+**User-confirmed on screen**, after the fix: *"the door thing seems to be fixed as well. they are
+not popping in/out anymore, both ghosts look fine when in front of the door"*. The report that
+started it, same session: *"both ghosts in emerald are blinking in/out all the time ... its when i
+stand right infront of a door"*.
+
+**Cause, measured before anything was changed.** `findFreeObjectSlot` asked the engine's ACTIVE
+BIT, which answers "is this slot in use by the GAME" -- not "is it in use by US". A door is a warp
+tile, so the engine culls ghost slots constantly there, and a culled slot reads inactive for the
+frames between the cull and the adapter's respawn. A second peer searching in that window is handed
+a slot the first peer's record still names, and from then on both peers write the same object every
+frame. `findFreeSpriteSlot` had the identical hole.
+
+**What it looks like in numbers:** one object slot alternating every 8 frames between two peers'
+complete states -- `xy=44,13 dir=east` (the loopback ghost, player +2) and `xy=42,4 dir=north` (the
+cross-map test peer, 9 tiles north) -- with the adapter's own `drawn=` counter flipping 1 -> 0
+between samples, because the drawn twin follows the spawned sprite's live fields.
+
+**Fix:** both slot searches skip anything another tracked ghost already claims, plus a once-a-second
+audit that names any two peers found holding the same object or sprite slot. Method and the general
+form are in `pitfalls.md`; the Lua-local ceiling this ran into is there too.
+
+---
+
+## 2026-08-20 — Emerald: the moving-around lag, priced, fixed, and user-confirmed
+
+**User-confirmed:** *"yee it feels way better now"*, after reporting the game *"laggy while
+moving"* and *"chugging and dropping frames real bad"*, worst *"in 2 places consistently"*.
+
+**Agent-measured throughout** (`probes/fpsride.lua`, the same scripted run-left/run-right route
+every time, `client.get_approx_framerate` as the instrument):
+
+| configuration | avg fps | worst dip |
+| --- | --- | --- |
+| bare emulator, no scripts (control) | 58.1 | 37 |
+| adapter, shipped-like config | 56.8 | 27 |
+| adapter, full dev compare mode | 56.9 | 27 |
+| before the fixes (what was being played) | 45.9 | 15 |
+
+**The causes and fixes are `pitfalls.md`'s entry of this date** (cull→respawn churn at seams and
+doors; the reclaim line as a console GUI append; per-frame probes left loaded). The remaining
+transition hitch is VANILLA: the bare control dips to 37 on the same seam legs with nothing loaded.
+
+**Spawned vs drawn ghost, priced per frame from the section profiler:** a SPAWNED ghost costs
+~0.05ms of Lua (the engine animates it; the adapter only steers), a DRAWN one ~0.6ms every frame
+(panel scan + one gui call per pixel-run). At one ghost the difference is invisible (56.8 vs 56.9
+avg); it is a statement about SCALE — 137 drawn peers measured 17fps on 2026-08-19, while spawned
+ghosts are capped at ~13 by the engine's own object array and cost almost nothing each.
+
+**The BuildOamBuffer execute hook is exonerated**: 52.0 avg without vs 52.6 with, same route --
+the plausible suspect A/B'd innocent instead of "fixed".

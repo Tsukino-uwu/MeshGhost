@@ -1054,3 +1054,41 @@ same id. The question the run was built to ask was never asked.
 - **A negative result deserves the same scepticism as a positive one.** "Nothing reproduced the
   hang" closed an investigation and re-enabled behaviour that had been dropped for a reason. If a
   result is about to change what ships, re-read what the probe actually did before it does.
+
+## Per-peer logging cannot see a collision BETWEEN peers (Emerald, 2026-08-20)
+
+Two peers ended up sharing one engine object slot, and every line the adapter logged about either
+of them was correct. It has to be: each peer's log describes what that peer asked for, and both
+asks were reasonable. What was wrong lived in the relationship between them, which nothing logged.
+
+- **When a symptom looks like one thing behaving impossibly, enumerate the engine's own array
+  instead of reading your own bookkeeping.** A single slot alternating between two complete,
+  internally-consistent states every few frames is the signature of two owners, and it is obvious
+  the moment the raw array is watched.
+- **Log the ASSIGNMENT, not just the behaviour.** Which peer holds which slot is the fact that was
+  missing; without it the diagnosis was inference from position data. A one-line audit that names
+  two peers holding the same resource costs nothing and turns a future occurrence into a sentence.
+- **This generalizes past slots.** Anything allocated by asking the engine "is this free?" —
+  sprite slots, VRAM tile ranges, an object array — has a window where your own claim is invisible
+  to that question, and a second consumer will eventually land in it.
+
+## Price a suspicion before fixing it — the fps A/B harness (Emerald, 2026-08-20)
+
+The lag hunt produced a reusable method, and its two instruments earned their keep in one session:
+
+- **A scripted ride + `client.get_approx_framerate`** (`probes/fpsride.lua`): drive the same route
+  every run, record avg/min/max. An impression cannot be A/B'd; the same route twice can. The
+  emulator's own framerate is the instrument, because `os.clock` in Lua measures only the script's
+  CPU and misses everything the host and core pay (it read 0.44ms while the user felt lag).
+- **A whole-frame + per-section Lua profiler behind a flag** (`MESHGHOST_EMERALD_PROFILE`):
+  os.clock around the frame and around each major block, reported once per 300 frames with the
+  window's WORST frame. The worst frame is the number that matches "chugging" — 217ms spikes at an
+  average of 3ms.
+- **What each can and cannot see, and why both are needed**: the profiler prices the script; the
+  ride prices the world. A big profiler number is the script's fault. A SMALL profiler number with
+  a low ride number means the cost is in the emulator core or another script — which is exactly
+  how the execute-breakpoint suspect was exonerated (52.0 fps without vs 52.6 with) instead of
+  "fixed".
+- **Run a bare control on the same route** before believing any number: this machine's emulator
+  dips to 37 with nothing loaded. Without the control, that dip gets attributed to whatever was
+  loaded at the time.

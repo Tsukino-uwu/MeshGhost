@@ -3202,9 +3202,27 @@ local function cameraIsSettled()
         and memory.read_s32_le(GFIELDCAMERA_Y_ADDR) == 0
 end
 
+-- ghosts[playerId] = { objId, sprId, localId, tileStart, tileCount, mapX, mapY }
+local ghosts = {}
+
+-- WHAT ANOTHER PEER ALREADY HOLDS. The engine's active bit answers "is this slot in use by the
+-- GAME", which is not the same question as "is it in use by US", and the gap between the two is a
+-- real bug: standing in a doorway, the engine culls ghost slots constantly (a door is a warp
+-- tile), and a culled slot reads inactive for the frames between the cull and the respawn. A
+-- second peer searching in that window is handed a slot the first peer's record still names, and
+-- from then on BOTH peers write the same object every frame. On screen that is one ghost
+-- teleporting between two places several times a second -- reported 2026-08-20 as *"both ghosts
+-- in emerald are blinking in/out all the time ... when i stand right infront of a door"*, and
+-- visible in the log as one object slot alternating between two peers' positions every 8 frames.
+-- Written as two inline loops rather than one shared helper, and that is not a style choice:
+-- Lua caps a chunk at 200 locals and this file sits against that ceiling, so a new top-level
+-- `local function` here fails the whole script to load ("too many local variables", hit while
+-- making this very fix). Locals inside a function are free.
 local function findFreeObjectSlot()
+    local claimed = {}
+    for _, g in pairs(ghosts) do claimed[g.objId] = true end
     for i = 15, 0, -1 do
-        if (r8(objAddr(i) + 0x00) & 0x01) == 0 then return i end
+        if (r8(objAddr(i) + 0x00) & 0x01) == 0 and not claimed[i] then return i end
     end
     return nil
 end
@@ -3212,8 +3230,10 @@ end
 -- Downward: the engine's own CreateSprite takes the lowest free index, so taking a high one keeps
 -- the ghost out of the way of whatever the game allocates next.
 local function findFreeSpriteSlot()
+    local claimed = {}
+    for _, g in pairs(ghosts) do claimed[g.sprId] = true end
     for i = MAX_SPRITES - 1, 0, -1 do
-        if (r8(sprAddr(i) + 0x3e) & 0x01) == 0 then return i end
+        if (r8(sprAddr(i) + 0x3e) & 0x01) == 0 and not claimed[i] then return i end
     end
     return nil
 end
@@ -3230,7 +3250,9 @@ end
 local GHOST_LOCAL_ID = 255
 
 -- ghosts[playerId] = { objId, sprId, localId, tileStart, tileCount, mapX, mapY }
-local ghosts = {}
+-- DECLARED ABOVE findFreeObjectSlot, not here: the slot searches have to see what is already
+-- claimed, and a local declared after them would be a nil global at their call site -- the exact
+-- late-binding trap this file has been bitten by before (see the xmapGhosts note below).
 -- Registered for the cross-map rebase, which is defined a thousand lines EARLIER than this local
 -- and cannot close over it -- referencing `ghosts` there silently read a nil global and killed
 -- every frame on the far side of a seam until the guard's console-only error finally reached a
@@ -4431,7 +4453,11 @@ local function syncGhost(playerId, remote)
         -- the map id holding still says a cull.
         if not tiering.lastReclaimFrame or frameCounter - tiering.lastReclaimFrame > 60 then
             tiering.lastReclaimFrame = frameCounter
-            console.log(string.format(
+            -- logFile, NOT console.log (2026-08-20): a BizHawk console line is a GUI append,
+            -- measured earlier as heavy enough to drop the emulator to single-digit fps in bulk --
+            -- and reclaims cluster around seams and doors, exactly where the user then reported
+            -- consistent lag and a console "all the time". The record survives in the log file.
+            logFile(string.format(
                 "MeshGhost: the engine reclaimed %s's ghost slot (%s) -- respawning.",
                 tostring(playerId), inOverworld() and "cull or map load" or "not the overworld"))
         end
@@ -4457,6 +4483,21 @@ local function syncGhost(playerId, remote)
         -- costing a full array re-scan per unplaceable peer per frame.
         if tiering.blockedFrame == frameCounter then return end
         -- Placement is only exact on a settled camera; a frame's wait is free.
+        -- DO NOT SPAWN WHAT THE ENGINE WILL IMMEDIATELY CULL (2026-08-20). The engine removes
+        -- object events that fall outside its view of the camera, and a peer trailing far enough
+        -- behind -- or parked on the far side of a seam -- sits permanently outside it. Spawning
+        -- such a peer starts a loop: spawn, engine culls, respawn next frame, cull again -- VRAM
+        -- tile allocation and sprite setup every cycle, plus a log line per reclaim. Measured on
+        -- the fps ride: 16 reclaims clustered at the route's two seam crossings, with worst
+        -- frames of 217ms landing in this section, felt as *"lagging in 2 places consistently"*.
+        --
+        -- The gate is a conservative SUBSET of the visible screen (15x10 tiles): spawn only a
+        -- peer within +/-8 x and +/-7 y of the local player. Inside that, the engine keeps the
+        -- object; outside it, the peer was invisible either way -- the difference is that we no
+        -- longer pay for a ghost nobody could see. It comes into view, it spawns, one time.
+        local pvX = rs16(objAddr(r8(GPLAYERAVATAR_ADDR + avatarAddrOffset + 0x05)) + 0x10) - MAP_OFFSET
+        local pvY = rs16(objAddr(r8(GPLAYERAVATAR_ADDR + avatarAddrOffset + 0x05)) + 0x12) - MAP_OFFSET
+        if math.abs(targetX - pvX) > 8 or math.abs(targetY - pvY) > 7 then return end
         if cameraIsSettled() then
             local wantNow = wantedGfx(remote)
             spawnGhost(playerId, targetX, targetY, remote.orientation, wantNow)
@@ -5577,6 +5618,32 @@ local function syncRemoteGhosts(localAreaId, spawnSet)
     end
     for playerId, remote in pairs(remotes) do
         if remote.areaId == localAreaId and spawnSet[playerId] then syncGhost(playerId, remote) end
+    end
+    -- SAY IT OUT LOUD IF TWO PEERS EVER SHARE ONE OBJECT AGAIN.
+    --
+    -- The claim check in findFreeObjectSlot/findFreeSpriteSlot is what stops this happening; this
+    -- is what proves it stopped, and what names it immediately if some other path re-creates it.
+    -- A shared slot is otherwise invisible in the log and reads on screen as a ghost blinking
+    -- between two places -- diagnosed 2026-08-20 only by watching one object slot alternate.
+    -- Throttled to once a second: a real collision persists, so nothing is missed by not
+    -- repeating it 60 times, and this runs on the adapter's hot path.
+    if not tiering.lastSlotAudit or frameCounter - tiering.lastSlotAudit >= 60 then
+        tiering.lastSlotAudit = frameCounter
+        local seenObj, seenSpr = {}, {}
+        for playerId, g in pairs(ghosts) do
+            if seenObj[g.objId] then
+                console.log(string.format(
+                    "MeshGhost: BUG -- %s and %s both hold object slot %d; one ghost will blink "
+                    .. "between two places until this is fixed.", tostring(seenObj[g.objId]),
+                    tostring(playerId), g.objId))
+            elseif seenSpr[g.sprId] then
+                console.log(string.format(
+                    "MeshGhost: BUG -- %s and %s both hold sprite slot %d.",
+                    tostring(seenSpr[g.sprId]), tostring(playerId), g.sprId))
+            end
+            seenObj[g.objId] = playerId
+            seenSpr[g.sprId] = playerId
+        end
     end
     freeGhostCollision()
 end
@@ -6714,6 +6781,7 @@ local function runFrame()
             -- sending state to a core that is about to reject us is state sent to somebody
             -- else's session (agent_docs/contract.md, PROTOCOL.md's tick loop).
             if ready then
+                if MESHGHOST_EMERALD_PROFILE then tiering.profT = os.clock() end
                 sendLine(encodeLocalState(state.areaId, smoothX, smoothY, state.orientation,
                     state.anim, localGender or "male", localGraphicsId(),
                     r8(sprAddr(r8(GPLAYERAVATAR_ADDR + avatarAddrOffset + 0x04)) + 0x2a),
@@ -6749,13 +6817,24 @@ local function runFrame()
                     -- back to walking pace behind a peer at bike speed (measured 2026-08-19,
                     -- `spd=` counters: walk/run=6 against 2D=3 and 15=1).
                     r8(GPLAYERAVATAR_ADDR + avatarAddrOffset + 0x0b)))
+                if tiering.profT then
+                    local pr = tiering.prof or {}
+                    pr.send = (pr.send or 0) + (os.clock() - tiering.profT)
+                    tiering.prof = pr
+                end
             end
         elseif ready then
             sendLine(ENCODED_NO_SEND)
         end
 
         if connected then
+            if MESHGHOST_EMERALD_PROFILE then tiering.profT = os.clock() end
             drainBridge()
+            if MESHGHOST_EMERALD_PROFILE then
+                local pr = tiering.prof or {}
+                pr.drain = (pr.drain or 0) + (os.clock() - tiering.profT)
+                tiering.prof = pr
+            end
         end
 
         -- Reuses the SAME smoothed self-position just computed above (not a fresh raw
@@ -6782,11 +6861,21 @@ local function runFrame()
             -- logged refusal rather than a corrupted sprite.
             --
             -- TIER ONE: real object events, as many as the map can spare (nearest peers win).
+            if MESHGHOST_EMERALD_PROFILE then tiering.profT = os.clock() end
             local spawnSet = tiering.chooseSpawned(smoothAreaId, smoothX, smoothY)
             syncRemoteGhosts(smoothAreaId, spawnSet)
+            if MESHGHOST_EMERALD_PROFILE then
+                local pr = tiering.prof or {}
+                pr.sync = (pr.sync or 0) + (os.clock() - tiering.profT)
+                tiering.profT = os.clock()
+            end
             -- Independent of the drawn tier: a spawned ghost needs this whether or not the
             -- overflow tier is on, so it cannot live inside drawRemotes.
             drawGhostShadows()
+            if MESHGHOST_EMERALD_PROFILE and tiering.prof then
+                tiering.prof.shadows = (tiering.prof.shadows or 0) + (os.clock() - tiering.profT)
+                tiering.profT = os.clock()
+            end
             -- TIER TWO: everyone the engine had no room for, painted over the finished frame
             -- so that no peer is ever simply absent. Flag-gated -- see FLAGS.md and
             -- BANDAGES.md. A drawn ghost has no engine occlusion of its own, so it clips
@@ -6797,6 +6886,9 @@ local function runFrame()
             elseif COMPARE_TIERS then
                 -- Compare mode with the overflow tier off: the loopback ghost, and only it.
                 drawRemotes(smoothAreaId, smoothX, smoothY, spawnSet, true)
+            end
+            if MESHGHOST_EMERALD_PROFILE and tiering.prof then
+                tiering.prof.draw = (tiering.prof.draw or 0) + (os.clock() - tiering.profT)
             end
         end
     end
@@ -6816,7 +6908,32 @@ local frameErrors = { lastLogged = nil, consecutive = 0 }
 -- the count says whether this is a blip or a subsystem that has been broken for 5000 frames.
 
 local function guardedFrame()
+    -- MESHGHOST_EMERALD_PROFILE (dev): price the LUA side of the frame. os.clock around runFrame,
+    -- reported once every 300 frames as an average -- cheap enough to leave on for a whole ride.
+    -- What it can and cannot see is the point of having it: a big number here means the cost is
+    -- in this script; a SMALL number while the fps is still low means the cost is in the emulator
+    -- core or another script, and no amount of adapter tuning will find it.
+    local t0
+    if MESHGHOST_EMERALD_PROFILE then t0 = os.clock() end
     local ok, err = pcall(runFrame)
+    if t0 then
+        local dt = os.clock() - t0
+        frameErrors.profSum = (frameErrors.profSum or 0) + dt
+        frameErrors.profN = (frameErrors.profN or 0) + 1
+        if dt > (frameErrors.profMax or 0) then frameErrors.profMax = dt end
+        if frameErrors.profN >= 300 then
+            -- Sections, so a number has a name. Accumulated inside runFrame under the same flag.
+            local p = tiering.prof or {}
+            console.log(string.format(
+                "MeshGhost PROFILE: lua avg %.3f ms, worst %.1f ms | send %.3f drain %.3f sync %.3f shadows %.3f draw %.3f (ms avg)",
+                frameErrors.profSum / frameErrors.profN * 1000, (frameErrors.profMax or 0) * 1000,
+                (p.send or 0) / frameErrors.profN * 1000, (p.drain or 0) / frameErrors.profN * 1000,
+                (p.sync or 0) / frameErrors.profN * 1000, (p.shadows or 0) / frameErrors.profN * 1000,
+                (p.draw or 0) / frameErrors.profN * 1000))
+            frameErrors.profSum, frameErrors.profN, frameErrors.profMax = 0, 0, 0
+            tiering.prof = {}
+        end
+    end
     if ok then
         frameErrors.consecutive = 0
         return
@@ -6861,7 +6978,11 @@ if MESHGHOST_FISH_ALIGN_HOOK then
     MESHGHOST_FISH_ALIGN_HOOK = nil
 end
 tiering.fishAlignActive = false
-if avatarAddrOffset == 0 then
+-- MESHGHOST_EMERALD_NO_FISH_HOOK (dev): skip registering the BuildOamBuffer execute hook.
+-- Exists for one measurement (2026-08-20): an execute breakpoint can push the emulator CORE onto a
+-- slow per-instruction path, a cost invisible to any Lua-side timer -- so the only way to price
+-- this hook is to run the same route with and without it.
+if avatarAddrOffset == 0 and not MESHGHOST_EMERALD_NO_FISH_HOOK then
     -- On tiering, not locals: the main chunk is at Lua's 200-local ceiling.
     tiering.hookOk, tiering.hookId = pcall(event.onmemoryexecute, function()
         local aok = pcall(function()
