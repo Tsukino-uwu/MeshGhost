@@ -8695,3 +8695,94 @@ which changes nothing.
 
 **Known gap, deliberately:** a ghost does not pop a wheelie. Those transition actions never report
 finished for a ghost, stranding it -- see `unverified.md`.
+
+---
+
+## 2026-08-20 — Every Acro Bike wheelie action DOES complete, on the engine's own object
+
+**Agent-measured, from a driven ride** (`adapters/bizhawk/pokemon/emerald/probes/wheelie_watch.lua`
+on the vanilla ROM; the user has not been asked to watch anything, and nothing visual is claimed).
+The probe mounts the bike, holds B through a fixed set of phases, and logs the PLAYER's own object
+event once a frame: `movementActionId`, `heldMovementActive`, `heldMovementFinished`, the sprite's
+animation number and `animEnded`, and its step-function indices.
+
+**This disproves the standing theory.** `unverified.md` recorded that the wheelie actions "never
+report finished" and guessed they needed acro state the engine keeps on the player. They finish:
+
+| action | busy frames before `heldMovementFinished` |
+| --- | --- |
+| `0x64` `ACRO_WHEELIE_FACE_*` | 0 -- finished on the frame it is set, and re-issued next frame |
+| `0x68` `ACRO_POP_WHEELIE_*` | 9, finished on the 10th |
+| `0x6C` `ACRO_END_WHEELIE_FACE_*` | 9 |
+| `0x70` `ACRO_WHEELIE_HOP_FACE_*` | 15, 16 hops in one phase |
+| `0x7C` `ACRO_WHEELIE_IN_PLACE_*` | 7, 38 repeats in one phase |
+
+**`0x6B` was measured directly**, not inferred from its family: it is one of the three ids the
+adapter's watchdog kept freeing at the 60-frame limit, and on the player it ran nine frames and
+reported finished. So the fault is a property of the GHOST, not of the action, and the next
+measurement is the ghost's own fields during the same action rather than another theory.
+
+**The direction rule, confirmed by driving the same move twice.** Facing south produced the `+0`
+member of every family and facing east produced `+3`, so **member = base + (direction id - 1)** in
+the engine's own order south, north, west, east. The same rule holds for the plain FACE actions
+(`0x00`..`0x03`).
+
+**Two probe traps, both paid for in live cycles.** `joypad.set` replaces the whole pad state, so a
+probe writing an empty table every frame silently cancels another probe's press -- that is why the
+first two runs captured a walk while `use_acro` was pressing SELECT. And a capture that cannot see
+whether it is even on the bike will happily log 976 frames of walking; `wheelie_watch` now waits on
+the Acro Bike's `graphicsId` (63/91) before starting. Method notes in `_template/probes.md`.
+
+---
+
+## 2026-08-20 — Emerald: the spawned ghost's Acro Bike idle pose, confirmed on screen
+
+**User-confirmed** after a side-by-side session: *"works now"*. Two separate defects, both spawned
+tier only, both found by measurement rather than by reasoning about the code:
+
+- **The idle pose displayed a rolling frame while reporting the standing one.** An object event's
+  frame image is only copied into its VRAM when its animation advances, and a ghost standing still
+  advances nothing. Fixed by copying the peer's own frame at the settle, gated on the ghost's
+  `movementActionId` returning to NONE so the engine's catch-up steps cannot overwrite it.
+- **One tile of bike travel played a whole pedal cycle.** `FACE_ACTION` is walk-in-place-fast, which
+  is right for a walking peer and wrong for a rider; a bike now settles and turns with the static
+  `FACE_STILL_ACTION`.
+
+Both are written up symptom -> cause -> fix in `pitfalls.md`, with the method that found them.
+
+**Also confirmed the same session, agent-measured from the logs:**
+
+- **The relay's `-ghost-collision=disabled` reaches the CORE and stops there.** The core logs
+  `ghost collision disabled (set by the room) -- told the adapter` and the ghost stays solid; the
+  adapter's own `MESHGHOST_EMERALD_NO_COLLISION` is what actually frees it. That is `status.md`'s
+  "Go side DONE, adapters not wired" item, seen live rather than read.
+- **A ghost never gets on or off a bike unless `MESHGHOST_GHOST_PEER_GFX` is set.** Without it
+  `wantedGfx` returns nil and a ghost keeps whatever graphic the LOCAL player happened to be wearing
+  when it spawned -- on both tiers. Confirmed on screen by the user, who saw the spawned ghost stay
+  on its bike after dismounting and the drawn one never mount at all.
+
+**The dev-session default that follows from both:** a local Emerald test wants
+`MESHGHOST_COMPARE_TIERS`, `MESHGHOST_GHOST_PEER_GFX` and `MESHGHOST_EMERALD_NO_COLLISION` set
+together, plus the relay's own `-ghost-collision=disabled`. Three tiers to compare, peers that wear
+their own state, and a ghost you can ride through -- the user, on the last: *"it ruins the tests if
+its disabled as you keep bumping into the spawned ghost"*.
+
+---
+
+## 2026-08-20 — Emerald: collision is readable, so a scripted ride can path
+
+**Agent-measured** (`probes/collisionmap.lua`, vanilla ROM), and cross-checked against a screenshot
+of the same moment -- a patched-ROM-style visual check is not needed here because the claim is about
+numbers, and the picture only had to agree.
+
+**The map grid's word carries collision in bits 10-11 and elevation in bits 12-15**, above the
+metatile id the adapter already reads from bits 0-9. Confirmed by dumping a 13x13 grid around the
+player: every fence, building and map edge read non-zero, every tile of open ground read zero, and
+the walkable area read elevation 3 throughout. Details in `adapters/.../documentation.md`.
+
+**Why it matters beyond the fact.** Every scripted ride in this project counts tiles blind, and they
+have driven the player into scenery repeatedly -- the muddy-slope ride into a trainer, the bike loop
+that drifted across the map, and on 2026-08-20 a square that parked the player in a gap in a fence
+and logged nothing for the rest of the run. All of that is avoidable with a lookup that now exists.
+The method, and the two sources that must BOTH be read (the grid, and the object-event array, since
+an NPC blocks a tile the grid calls free), are in `adapters/_template/probes.md`.

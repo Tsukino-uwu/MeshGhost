@@ -2579,3 +2579,53 @@ player has. That is now a written-down question instead of an intermittent glitc
   into a quiet one, which is worse.
 - **Pick the timeout from what the game does, not from taste.** A step is 16 frames, the fastest 4,
   a ledge jump about 24 -- so 60 can only catch something genuinely stuck.
+
+## Emerald: a ghost that reports the right pose and DISPLAYS the wrong one (2026-08-20)
+
+**Symptom.** Idle on the Acro Bike, the spawned ghost wore the frame it should only have while
+rolling -- *"it looks as if its tilted while idle, due to the 'while moving' animation making the
+sprite move a bit back/forth left/right while pedaling"*. Facing up or down; the side-on frames hide
+it, which is why it survived a left/right-only test. Correct for a moment after every script reload,
+then wrong again after the next move.
+
+**Why every existing trace denied it.** Player and ghost agreed on *every struct field* -- both on
+animation `4/3`, unchanged for 180 frames. The adapter's `MESHGHOST_EMERALD_ANIM_TRACE` compares
+those fields and the OAM entries, and it saw nothing.
+
+**Cause.** An object event's frame image is copied into its own OBJ VRAM range when its animation
+ADVANCES. A ghost standing still advances nothing, so it reported the standing pose and went on
+displaying the last rolling frame it had been handed. The reload "fixed" it because the spawn path
+does its own frame copy.
+
+**Fix.** Copy the frame the peer is actually displaying when the ghost settles -- and **only once
+the engine has let go**. A peer stopping does not stop the ghost: it is still a step or two behind
+and keeps taking catch-up steps, each of which copies a rolling frame over ours. The first version
+copied during that catch-up, measured `differing: 0`, and was then overwritten -- which the user saw
+exactly: *"it only looks correct after stopping and then changing a facing direction"*, the turn
+being the next thing to hand the tiles one last copy. Gate on `movementActionId` back to NONE.
+
+**The method, which is the durable part: COMPARE THE TILES, NOT THE FIELDS.** When the fields all
+agree and the screen does not, read the two sprites' OBJ VRAM ranges and count differing bytes --
+`probes/posediff.lua`. It reported 120 of 512 while every field matched, and 0 after the fix.
+
+## Emerald: one tile of bike travel cost the ghost a whole pedal cycle (2026-08-20)
+
+**Symptom.** *"When moving a single tile, its 'over animating', the characther is not supposed to
+wiggle from just 1 step, only when constantly biking in 1 direction"* -- spawned tier only.
+
+**Cause, and it was in a table rather than in any animation code.** `FACE_ACTION` is
+**walk-in-place-fast**, chosen deliberately in 2026-08-18 because that is how a walking player turns
+(`PlayerTurnInPlace`), and a static `FACE_*` pose made a ghost snap round without animating. A RIDER
+never turns on the spot -- turning is part of moving -- and a player stopped on the Acro Bike reports
+the static poses `0x00..0x03` throughout. So on a bike both the turn and the settle were spending a
+walk-in-place animation the player never performed, and a single tile buys two of them: measured with
+`probes/onestep.lua`, one tile east cost the player ONE action and two frames of the pedal cycle, and
+the ghost THREE actions and four.
+
+**Fix.** On a bike, use the static `FACE_STILL_ACTION` for the turn and the settle. Both then
+complete in one frame with no animation.
+
+**The general lesson.** A constant chosen correctly for one state can be wrong for another, and the
+comment saying why it was chosen is the thing that makes the wrongness invisible -- it reads as
+settled. When a state animates too much, look at WHICH ACTION is being issued before looking at the
+animation code.

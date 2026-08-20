@@ -54,14 +54,16 @@ A ghost never COMPLETES the wheelie transition actions. Measured by the watchdog
 ghost takes no further steps, falls behind, and is then teleported by the catch-up -- which is what
 the user saw as sliding.
 
-They are no longer mirrored, so a ghost follows correctly and simply does not pop a wheelie. Hops
-and jumps (0x46..0x4D, 0x74..0x7B) DO complete and are kept.
+**They are mirrored again as of 2026-08-20**, because the reason for dropping them turned out to be
+untrue -- see the disproof below. Re-enabling them brought back the older *"not following me when
+im jumping and moving"* once, since the branch that issues a pose returns without stepping; a pose
+is now issued only when the ghost is already at the peer's tile.
 
-- [ ] **Why do they never finish?** The likely answer is that they depend on the acro state the
-      engine keeps on the PLAYER (`gPlayerAvatar.acroBikeState`, +0x08), which a ghost has none of --
-      so the action's step function waits for a state that never arrives. Worth reading
-      `sAcroBikeTransitions` before another attempt; a fix would restore the standing wheelie on a
-      ghost, which is currently invisible to peers.
+- [ ] **Why do they never finish?** **The acro-state theory is DISPROVED, 2026-08-20**: driven on
+      the player, every one of these actions completes -- `0x6B` itself ran nine frames and reported
+      finished (`verified.md`, `probes/wheelie_watch.lua`). The fault is a property of the ghost, so
+      the next step is the ghost's own fields during the same action beside the player's, not
+      another theory. A fix would restore the standing wheelie, which peers cannot see today.
 
 ## Pending — Emerald: a ghost cannot abandon a step it has started (2026-08-20)
 
@@ -422,3 +424,15 @@ value. Both in `pitfalls.md`.
       to grass was blocked by our own spawned ghosts boxing the player in, so this rests on the
       Archipelago agent's memory reads rather than on a run of the fixed build.
 
+
+## Pending — Emerald: what a BLOCKED rider actually does (2026-08-20)
+
+A ghost on a bike no longer performs the walker's bump (`BUMP_ACTION`, the walk-in-place slow
+shuffle from `PlayerNotOnBikeCollide`) when it has nowhere to go -- it stands still instead. That
+removes a visibly wrong animation (*"the spawned one actually flips the sprite in reverse for a
+bit"*) but standing still is a placeholder, not a measured answer.
+
+- [ ] **Ride into a wall on each bike and read the player's own `movementActionId`.** Whatever the
+      engine gives a blocked rider is what a ghost should perform. `probes/wheelie_watch.lua` is the
+      shape to copy -- drive it, log the player's object per frame. Until then a blocked ghost on a
+      bike is silent where the player is not.

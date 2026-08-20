@@ -286,3 +286,80 @@ a bite, a hook, or the battle that follows, the water has to be on a map that ac
 The user's framing, which is the general form: *"we added water, we made it so we could fish, but
 we missed an important extra step on top of it that made it not do all functions it's actually
 intended to do."*
+
+## The Acro Bike: three moves, and one action family per move
+
+**Everything the Acro Bike can do, as the player experiences it** — the user, 2026-08-20, naming
+the complete set: *"it can wheelie and go around, it can stand idle then start jumping and after
+that go around, or you can stand idle and do the sideway jump"*. **[player]**, and it is the whole
+list:
+
+**There is a base state under all three: just riding.** On the bike, moving or standing, doing none
+of the moves below — the state each of them is entered from and returned to. Called out explicitly
+because it is easy to leave off a list of *capabilities* precisely for being the default; the user,
+2026-08-20, after naming the three: *"forgot to explain the base/doing nothing on the bike state"*,
+the other three being *"the unique things you can do while actually on the bike"*. A ghost that only
+reproduced the tricks would be wrong for nearly the whole ride.
+
+1. **Ride in a wheelie.** Hold B and move off *before* any hop starts, and the rider travels on the
+   back wheel for as long as B is held.
+2. **Bunny hop.** Stand still and keep B held; after a moment the rider starts hopping on the spot.
+   *"After you start to jump, you can also move around if B is continued to be held"* — so the hop
+   is entered from a standstill and only then becomes a hopping ride.
+3. **Sideways jump.** From a standstill, not already hopping, press a direction together with B
+   (*"up+B while idle on the bike and not jumping"*) for a single jump in that direction. This is
+   the move that clears the rails.
+
+**Each move is a family of four movement actions, one per facing** — **[measured]**, from the
+player's own object event across a driven ride (`probes/wheelie_watch.lua`, 2026-08-20). The
+families sit at multiples of four and the member is picked by facing, in the engine's own direction
+order: south, north, west, east, so **member = base + (direction id − 1)**. Confirmed by driving
+the same move twice, facing south and then facing east, and reading the ids that came out:
+
+| Action family | What it is | Frames it takes |
+|---|---|---|
+| `0x64` `ACRO_WHEELIE_FACE_*` | holding the standing wheelie | completes the frame it is set |
+| `0x68` `ACRO_POP_WHEELIE_*` | rising onto the back wheel | 10 |
+| `0x6C` `ACRO_END_WHEELIE_FACE_*` | dropping back down | 9 |
+| `0x70` `ACRO_WHEELIE_HOP_FACE_*` | one hop on the spot | 15 |
+| `0x7C` `ACRO_WHEELIE_IN_PLACE_*` | repeats while B is held with a direction | 7 |
+| `0x74`/`0x78` `ACRO_WHEELIE_HOP_*`/`_JUMP_*` | a hop or jump that covers a tile | not exercised in this run |
+| `0x80`/`0x84`/`0x88` `ACRO_POP_WHEELIE_MOVE_*`/`WHEELIE_MOVE_*`/`END_WHEELIE_MOVE_*` | riding in a wheelie, one tile at a time | not exercised in this run |
+
+**Every one of them completes.** The engine sets `heldMovementFinished` on the player's object at
+the end of each, including `0x6B`, which is a member of the pop-wheelie family: it ran for nine
+frames and reported finished on the tenth. That matters because the same ids issued to a spawned
+ghost sat busy until a watchdog freed them, so *"the action cannot be completed"* is not the
+explanation — the action completes perfectly well for the engine's own object.
+
+**The standing wheelie is a pose the engine re-asserts, not a single long action.** `0x64`'s
+family reports finished immediately and is issued again on the following frames, so what looks like
+one continuous hold is the same short action repeating for as long as B is down. The hop behaves
+the same way: `0x70` for the hop, `0x7C` between hops, over and over.
+
+## What blocks a character, and where it is written down
+
+**Two entirely separate sources, and a script that reads only one will still walk into things.**
+
+**The map itself.** The loaded map is a grid of one 16-bit word per tile, and that single word carries
+three things at once — **[measured]**, 2026-08-20, by dumping a 13x13 grid around the player and
+comparing it against the screen (`probes/collisionmap.lua`):
+
+| bits | what it holds |
+| --- | --- |
+| 0-9 | the metatile id, which is what the tile is drawn from and what its behaviour is looked up by |
+| 10-11 | **collision** -- zero means a character may stand there, non-zero means it may not |
+| 12-15 | elevation -- the same value that decides which characters collide with each other at all |
+
+So "can I walk onto this tile" is a lookup, not an experiment: read the word, test the two collision
+bits. In the confirmed dump the fences, the buildings and the map edge all read non-zero and every
+tile of open ground read zero, with elevation 3 -- `ELEVATION_DEFAULT` -- across the walkable area.
+
+**Characters are not in that grid at all.** An NPC standing in a doorway blocks it while the tile
+underneath reads free, because object events live in their own array of sixteen entries, each
+carrying its own coordinates. Anything deciding where a character can go has to check both: the
+tile's collision bits, and whether any live object event is already standing on it.
+
+**The elevation nibble is the same rule that lets a bridge and the water under it hold two
+characters on one tile** -- two non-zero, different elevations do not collide, and elevation zero
+collides with everything. That is the game's own mechanism, not a special case.
