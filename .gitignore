@@ -29,6 +29,9 @@
 # to chase the same class of bug on a later ROM. 72 such logs (1.1MB) were untracked on
 # 2026-08-18 when this rule replaced the two narrower ones it supersedes.
 /adapters/bizhawk/pokemon/**/*.log
+# The cross-map scan cache the Emerald adapter writes beside its logs -- a per-machine runtime
+# artifact (a ROM-keyed address), never repo content.
+/adapters/bizhawk/pokemon/**/xmap_cache.txt
 
 # The adapter script + lib/ under packaging/release/games/pokemon/emerald/ are assembled by
 # .github/workflows/release.yml (copied fresh from adapters/bizhawk/pokemon/emerald/ each run) or by a
