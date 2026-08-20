@@ -5926,6 +5926,17 @@ function renderHardwareGhosts(localAreaId, playerMapX, playerMapY, hwSet)
                 -- what a hardware entry's x/y mean, so no conversion is involved.
                 local glideX = remote.gX or remote.x
                 local glideY = remote.gY or remote.y
+                -- THE LOOPBACK GHOST STANDS BESIDE THE PLAYER, NOT ON THEM. Same offset the other
+                -- two tiers apply, and it exists for the same reason: a dev ghost echoing the
+                -- player's own state renders exactly on top of them, where nothing about it can be
+                -- judged. Two tiles to the side and it can be compared frame by frame -- and, the
+                -- reason it was needed on 2026-08-21, it can be WALKED somewhere: a fixed synthetic
+                -- peer cannot be taken behind a building to check occlusion, and the loopback one
+                -- goes wherever the player goes.
+                if playerId:match("%-ghost$") then
+                    glideX = glideX + LOOPBACK_GHOST_OFFSET_TILES_X
+                    glideY = glideY + LOOPBACK_GHOST_OFFSET_TILES_Y
+                end
                 local sx = (tiering.originX or playerScreenX)
                     + (glideX - (tiering.anchorX or playerMapX)) * TILE + camPixX
                 local sy = (tiering.originY or playerScreenY)

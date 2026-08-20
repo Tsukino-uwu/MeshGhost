@@ -9203,3 +9203,27 @@ account for every peer in range, no double-rendering, no frame errors in any run
    copies would drift apart and place the same peer in two places. It also has to run when the
    painted tier is off, which is the shipping default; otherwise the anchor is never calibrated and
    every hardware sprite lands at the wrong offset.
+
+## 2026-08-21 — Emerald: hardware-sprite ghosts move correctly on screen (user-confirmed)
+
+**User-confirmed**, watching six peers circling on the hardware tier with the engine tier starved to
+zero so every visible ghost was one: *"It looks smooth i think ? not laggy when moving around
+either, they are consistently moving around in the circle. they are all also drawing/showing
+properly everywhere"*.
+
+**What that confirms:** the tier renders, the sprites are correct, movement is smooth and consistent
+under interpolation, and there is no perceptible frame cost while the player moves around -- which
+matches the instrument (60.0 avg standing still with 45 of them).
+
+**What it does NOT confirm, and the word that had to be checked rather than assumed:** *"showing
+properly everywhere"* can mean "correct wherever it goes" or "visible even where scenery should
+cover it" -- and the second reading would be the tier's central feature FAILING. Asked rather than
+guessed, per `CLAUDE.md`'s rule about ambiguous symptom words. The answer was neither: **the peers
+could not be taken anywhere.** Synthetic peers from `meshghost-fakeadapter` orbit a fixed map
+coordinate, so there was no way to walk one behind a building. *"they don't follow me, so couldn't
+check"*. **Occlusion remains unjudged.**
+
+**The fix, and it is a reusable one:** a LOOPBACK ghost echoes the player's own state, so it goes
+wherever the player goes -- which is what an occlusion test needs and a fixed synthetic peer can
+never provide. The hardware tier now applies the same two-tile side offset the other two tiers give
+a loopback ghost, so it stands beside the player rather than on them and can be judged at all.
