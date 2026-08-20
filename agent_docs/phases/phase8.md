@@ -324,3 +324,70 @@ These are in `probes.md` and `pitfalls.md` in full; the list matters because sev
 - Archipelago: still on the overlay; one run on a patched seed would settle it, blocked only by
   the absence of a save for one.
 - Everything from this session that a person has to see: `unverified.md`.
+
+---
+
+## 2026-08-19/20 — peer states finished, and what the two days actually taught
+
+Emerald's peer states are done and user-confirmed: **fishing, surfing, the Mach Bike and the Acro
+Bike**, on both tiers, plus ledge hops, the muddy slope, and walk-through ghosts. Per-item evidence
+is in `verified.md`; the open leftovers are in `unverified.md`; the traps are in `pitfalls.md`. This
+section is the retrospective — the shape of the work, for whoever picks up Crystal, which has none
+of it.
+
+### The one rule, stated once
+
+**Every guess was wrong. Every measurement was right first time.** That is not a figure of speech —
+it held for the reflection geometry, the bike speeds, the grass, the occlusion, the collision and
+the shadow. The measurements that worked all had the same shape: **read what the ENGINE does for the
+player, then make the ghost match it.** The guesses that failed all had the same shape too: reason
+about what the code ought to do, change it, and ask the user to look.
+
+### Where the time actually went
+
+Not in writing the features. It went into these, and each has an entry in `pitfalls.md`:
+
+1. **A rule that is right for one graphic and wrong for another.** Letting the engine animate a
+   moving ghost is correct for walking and wrong for a bike. Scoping a rule to "while moving" was
+   scoping it to the wrong thing.
+2. **A range that reads as one block and behaves as two.** `0x64..0x8B` interleaves in-place and
+   travelling actions. Cut short at `0x83`, or held as one, it broke movement twice.
+3. **A value that changes nothing when changed is not a wrong value.** Two rounds of adjusting a
+   clip that was never being read. A deliberately-wrong build settles that in one look.
+4. **A measurement taken in ONE condition can support two rules.** The engine's grass sprites were
+   captured walking downward, which equally supported "the lower tile draws in front" and "the tile
+   being entered draws in front". Both were adopted; both were wrong.
+5. **A counter placed inside a gated block measures nothing.** 71 laps of riding produced an empty
+   column because the counter sat inside a branch gated on the peer standing still.
+6. **A consistency check that shares an input with the thing it checks proves only that.** The
+   screen-to-tile self-check agreed perfectly while the grid was 8px out.
+7. **"Stable" and "correct" are different properties.** `bikeSpeed` is authoritative while riding
+   and deliberately zeroed by the muddy slope's own code.
+
+### Three speed sources, none generalising
+
+Worth knowing before touching movement in any Game Freak title: this one game keeps a rider's speed
+in three unrelated places — `gPlayerAvatar.bikeSpeed` (Mach), `movementActionId` as `WALK_FAST` (the
+slope's forced movement, while bikeSpeed reads 0), and `movementActionId` as **`RIDE_WATER_CURRENT`**
+(the Acro Bike, which `AcroBikeTransition_Moving` genuinely moves with `PlayerRideWaterCurrent`).
+
+### What a painted tier costs, in full
+
+The spawned tier gets all of this free by being a real object event. The painted tier needed each
+one found and reproduced separately, and finishing one looked exactly like finishing the job:
+
+occlusion behind scenery (BG layers, by OAM priority) · water reflection (flip, negated bob, an
+affine ripple read live from `gOamMatrices`, per-pixel metatile coverage) · **tall grass (a SPRITE,
+not scenery)** · the surf blob · landing dust · jump shadows.
+
+**That list is the argument for the spawned tier.** Anything the engine can be persuaded to do for a
+ghost — the surf blob, the elevation collision rule — is worth real effort, because the alternative
+is reproducing it by hand, per effect, for ever.
+
+### Tools that paid for themselves
+
+- `slide=/paused=` in the status line: found three animation faults nothing else could see.
+- The stuck-action watchdog: turned "the ghost sometimes freezes" into three named action ids.
+- `probes/bikeloop_probe.lua`, `bikeline_probe.lua`, `grasswalk.lua`: scripted riding, counted in
+  TILES not frames — a frame-timed route drifts across the map and rides into trainers.
+- `probes/goto_map.lua`: warp anywhere, so reaching a state costs nobody's time.
