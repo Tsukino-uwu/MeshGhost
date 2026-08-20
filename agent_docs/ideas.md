@@ -2051,3 +2051,38 @@ still accepts a bare string.**
 **The whole specification, in the user's words: two states and no third.** Unset -- host everything.
 Set -- host exactly the listed games and nothing else. There is no partial mode, no precedence rule
 and no interaction with anything, which is what makes this a small change rather than a policy.
+
+## A "share items" room toggle, in the shape of the collision one — filed 2026-08-20
+
+**The ask.** A relay-side switch a host flips for the room, the same way `ghost_collision` works
+today: advertised to every client at join, advisory in exactly the same sense (the relay states the
+policy and cannot verify an adapter honoured it). Requested by the user, 2026-08-20.
+
+**The config half is genuinely small.** `ghost_collision` already does all of this -- a room policy
+string, advertised at join, logged at startup, overridable by a client one way. A `share_items`
+sibling is that pattern again, and the plumbing beneath it exists: the **escrow plane** was built
+and Go-tested 2026-08-17 precisely so an item can move between two players without either side
+being able to lose or duplicate it, and it has **no live consumer**
+(`beyond-cosmetic.md`, `architecture.md`'s ADR).
+
+**The adapter half is where the real decision is, and it is not a technical one.** `CLAUDE.md`'s
+standing rule: **nothing that ships writes a save or game state -- ever, not even as a feature.**
+That rule names this exact temptation by name -- the deeper planes make "just write the item in"
+newly tempting -- so a shipped item-sharing feature is not something an adapter can quietly grow.
+Turning it on means either revisiting that rule deliberately, or finding a route that does not
+write.
+
+**And there may be a route that does not write, which is the interesting part.** These games
+already have a first-class mechanism for moving items and Pokémon between two players: the trade.
+Driving the game's own trade path is the same principle every other part of this project runs on --
+trigger the system, do not reimplement it -- and it would put every consistency guarantee, every
+"can this item legally exist here" check, and every animation in the game's hands rather than ours.
+It is also much harder than a memory write, which is precisely why it should be costed before
+anyone reaches for the easy version.
+
+**Order of work, if it is ever scheduled:** the toggle and its advertisement first (small, and it
+lets everything else stay off by default), the escrow plane's first real consumer second, and the
+question of HOW an item actually arrives last -- because that answer decides whether this is a
+feature or a rule change.
+
+**Not scheduled.** Nothing here is committed until it moves into `plans.md`.
