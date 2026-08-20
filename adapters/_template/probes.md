@@ -938,3 +938,54 @@ different moments.
 rather than to the world: an animation offset, a bob, a frame-centring vector. See `pitfalls.md`,
 "A world-space anchor built from a SPRITE carries the sprite's own terms" -- and note that such a
 term can be correct for every test you have ever run and wrong only for one graphic.
+
+## When every field agrees and the screen does not: compare the PIXELS
+
+Found live on Emerald, 2026-08-20. A ghost sat in the wrong pose while every struct field said
+otherwise -- the same animation number, the same command index, unchanged for 180 frames, matching
+the player exactly. The adapter already had a per-frame trace comparing those fields *and* the
+hardware OAM entries, and it reported agreement the whole time.
+
+The layer nobody was reading was the tiles. On this engine a character's current frame is COPIED
+into its own sprite VRAM when the animation advances; a character standing still advances nothing,
+so an object can report a pose it is not displaying. Any engine that copies frames on demand rather
+than pointing at them can do this.
+
+**The probe is trivial and worth writing early:** find both sprites' tile ranges, read them, count
+the bytes that differ (`adapters/bizhawk/pokemon/emerald/probes/posediff.lua`). It said 120 of 512
+while every field matched.
+
+**Two rules came out of it, both general:**
+
+- **Log on CHANGE, not on a timer.** The first version sampled once a second and could not show the
+  ORDER things happened in. "Wrong right after stopping, right again after a turn" is a sequence,
+  and a sample cannot see one. Writing a line only when the picture changes keeps the log short and
+  catches every transition.
+- **A fix that measures correct can still be overwritten a frame later.** The frame copy read
+  `differing: 0` and was then undone by the engine's next step, because a peer stopping does not
+  stop the ghost -- it is still catching up. Check that the thing you wrote is still there once
+  everything has settled, not only at the moment you wrote it.
+
+## A scripted ride must be able to see
+
+Found the expensive way on Emerald, 2026-08-20: several probes that drive the player counted tiles
+and nothing else. Across one session they rode into a trainer, drifted across the map, and finally
+parked the player in a gap in a fence holding a direction against it -- which logged nothing for the
+rest of the run and cost a whole measurement pass. Each was fixed with a timeout, which stops the
+damage without removing the cause.
+
+**Before writing a probe that drives the character, find out whether the game will tell you what is
+walkable.** On a tile-based game it usually will, and cheaply -- Emerald keeps collision bits in the
+same map-grid word the probe already reads for the metatile id, so "can I go there" costs one read.
+
+**Check BOTH sources.** The map says what the terrain allows; it does not know about characters. An
+NPC standing in a doorway blocks it while the tile underneath reads perfectly free, and NPCs move.
+The object array is the second lookup.
+
+**Verify the layout, do not assume it.** Dump a grid around the player, print it as characters, and
+compare it against a screenshot of the same moment. If the walls in the picture are the walls in the
+grid, the layout is confirmed; a bit layout taken from memory is exactly the kind of plausible-
+looking wrong that this project has a hard rule against.
+
+**Then give every driving probe two things:** a walkability test before it commits to a direction,
+and a timeout so a leg that cannot finish still ends. The timeout is the backstop, never the plan.
