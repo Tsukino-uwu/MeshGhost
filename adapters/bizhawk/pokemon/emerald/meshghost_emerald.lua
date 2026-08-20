@@ -1962,6 +1962,9 @@ local function graphicsInfo(graphicsId)
         width = r16(ptr + 0x08),
         height = r16(ptr + 0x0a),
         paletteSlot = r8(ptr + 0x0c) & 0x0f,
+        -- The struct pointer itself, for fields nothing else needed until the shadow did:
+        -- shadowSize is bits 4-5 of +0x0C, sharing that byte with paletteSlot.
+        raw = ptr,
         oam = r32(ptr + 0x10),
         subspriteTables = r32(ptr + 0x14),
         anims = r32(ptr + 0x18),
@@ -2461,7 +2464,100 @@ end
 -- Without one, nothing is drawn -- a wrong-coloured rectangle over a ghost is worse than no grass.
 genderFrames.grassTemplate = { [2] = 0x0850caa0, [3] = 0x0850cf94 }
 
-genderFrames.grassRuns = function(behaviour)
+-- WHICH FRAME OF THE RUSTLE, decoded from the template's own animation rather than assumed.
+--
+-- Grass does not sit still when something walks into it: the tall-grass animation is frames
+-- 1,2,3,4,0 at ten game-frames each and then it settles (sAnim_TallGrass,
+-- src/data/field_effects/field_effect_objects.h:79-87). A painted ghost drawing frame 0 forever
+-- stands in grass that never moves -- *"the grass is supposed to shake/move when you walk trought
+-- it"*.
+--
+-- The commands are read at runtime instead of the numbers being copied here, so long grass gets
+-- its own timing rather than tall grass's: union AnimCmd packs imageValue in the low 16 bits and
+-- duration in the next 6 (include/sprite.h), and the list ends with a command whose low half is
+-- 0xFFFF. Elapsed frames are walked through the durations; past the end it holds the last frame,
+-- which is what "settled" is.
+-- One pass of grass for a peer: the tiles its FEET overlap in the given row range, each with its
+-- own rustle clock. Called twice per peer -- once for the row above, BEFORE the character is drawn,
+-- and once for its own row and below, AFTER -- because that is the order the engine draws them in
+-- (measured: the tile below a character has a lower subpriority than the character, the tile above
+-- a higher one).
+--
+-- THE CLOCK RESTARTS ON ENTRY, not on first sight. Keyed on first-ever-drawn, a tile walked over
+-- twice rustled only the first time -- and a looping test walks the same tiles for ever, so the
+-- grass simply never moved again: *"its still not making the grass shake, like the player does"*.
+-- A tile that was not covered last frame is being stepped onto now, which is exactly when the game
+-- spawns its sprite.
+-- topLimit: never paint above this screen row. Mid-step the character spans two tiles and both
+-- their grass is in front of it, but how far up that reaches depends on the sub-tile phase of the
+-- step -- at some phases the upper tile's top edge sits almost level with the character's head and
+-- swallows it. The game leaves a sliver: *"you are supposed to still see a tiny bit of the hat at
+-- the top, but not the head/body"*. Bounding the coverage keeps that true at every phase instead of
+-- only some, which is what a tile-aligned overlay over a smoothly-interpolated ghost cannot do on
+-- its own.
+genderFrames.drawGrassRows = function(playerId, gbX, gbY, left, footY, rowFrom, rowTo, panelRows,
+    dim, topLimit)
+    local clip = nil
+    if topLimit then
+        clip = {}
+        for y = math.floor(topLimit), math.floor(topLimit) + 3 * TILE do
+            clip[y] = { { -9999, 9999 } }
+        end
+    end
+    tiering.grassTiles = tiering.grassTiles or {}
+    local st = tiering.grassTiles[playerId] or {}
+    local x0 = math.floor((left - gbX) / TILE)
+    local x1 = math.floor((left + FRAME_WIDTH_PX - 1 - gbX) / TILE)
+    for gy = rowFrom, rowTo do
+        for gx = x0, x1 do
+            local key = gx .. "," .. gy
+            local e = st[key]
+            -- Drawn last frame? then this is the same visit and its clock keeps running. Otherwise
+            -- the ghost has just stepped on, which is when the game spawns the sprite -- so the
+            -- rustle starts over. Keyed on first-ever-drawn instead, a tile walked over twice
+            -- rustled only the first time, and a looping walk never saw it move again.
+            if not e or (frameCounter - e[2]) > 1 then e = { frameCounter, frameCounter } end
+            e[2] = frameCounter
+            st[key] = e
+            local attr = genderFrames.attrAt(gx, gy)
+            local beh = attr and (attr & 0xff)
+            local runs = beh and genderFrames.grassRuns(beh,
+                genderFrames.grassFrameAt(beh, frameCounter - e[1]))
+            if runs then
+                drawRunList(runs, TILE, false, gbX + gx * TILE, gbY + gy * TILE, panelRows,
+                    dim, nil, nil, clip)
+            end
+        end
+    end
+    -- Drop what this peer has walked away from, so the table cannot grow all session.
+    for k, v in pairs(st) do
+        if frameCounter - v[2] > 300 then st[k] = nil end
+    end
+    tiering.grassTiles[playerId] = st
+end
+
+genderFrames.grassFrameAt = function(behaviour, elapsed)
+    local tmpl = genderFrames.grassTemplate[behaviour]
+    if not tmpl then return 0 end
+    local anims = r32(tmpl + 0x08)
+    if not isRomPtr(anims) then return 0 end
+    local list = r32(anims)
+    if not isRomPtr(list) then return 0 end
+    local t, last = elapsed, 0
+    for i = 0, 15 do
+        local cmd = r32(list + i * 4)
+        local img = cmd & 0xffff
+        if img == 0xffff then break end            -- ANIMCMD_END
+        local dur = (cmd >> 16) & 0x3f
+        if dur == 0 then dur = 1 end
+        last = img
+        if t < dur then return img end
+        t = t - dur
+    end
+    return last
+end
+
+genderFrames.grassRuns = function(behaviour, frame)
     local tmpl = genderFrames.grassTemplate[behaviour]
     if not tmpl then return nil end
     local images = r32(tmpl + 0x0c)
@@ -2476,8 +2572,9 @@ genderFrames.grassRuns = function(behaviour)
         end
     end
     if not pal then return nil end
-    return genderFrames.runsFromImages(string.format("grass%d:%d", behaviour, pal),
-        images, TILE, TILE, 0, pal)
+    frame = frame or 0
+    return genderFrames.runsFromImages(string.format("grass%d:%d:%d", behaviour, pal, frame),
+        images, TILE, TILE, frame, pal)
 end
 
 genderFrames.reflectiveSpans = function(left, top, width, height, who)
@@ -2715,6 +2812,7 @@ local function despawnGhost(playerId)
     end
     if ghostAlive(g) then
         despawnSurfBlob(g)
+        despawnGhostShadow(g)
         w8(objAddr(g.objId) + 0x00, 0)
         local d = sprAddr(g.sprId)
         w8(d + 0x3e, (r8(d + 0x3e) & ~0x01) | 0x04) -- inUse = 0, invisible = 1
@@ -3274,6 +3372,102 @@ spawnSurfBlob = function(g, mapX, mapY)
     return sprId
 end
 
+-- A REAL SHADOW SPRITE FOR A SPAWNED GHOST, replacing a painted one.
+--
+-- Two things a gui overlay can never do, both reported on screen 2026-08-20: sit UNDER the
+-- character, and sit under the engine's own landing DUST -- *"dust is still hidden behind the
+-- shadow for the spawned ghost"*. An overlay is painted after the frame is finished, so it is in
+-- front of everything the hardware drew, always.
+--
+-- The engine's shadow is an ordinary sprite at subpriority 148, and the only reason the adapter
+-- could not use it is `UpdateShadowFieldEffect`, which re-finds its object by localId -- and a
+-- ghost wears LOCALID_PLAYER, so it would follow the player. That rules out the engine's UPDATE
+-- routine, not its sprite: built here and driven from Lua, it is a real hardware sprite with real
+-- depth. The same reasoning that made the surf blob work.
+--
+-- From FldEff_Shadow (src/field_effect_helpers.c:233-247) and UpdateShadowFieldEffect (:249-274):
+--   * template chosen by the graphic's shadowSize (bits 4-5 of graphicsInfo +0x0C):
+--     ShadowSmall 0850C9FC, Medium 0850CA14, Large 0850CA2C, ExtraLarge 0850CA44 (pokeemerald.map)
+--   * subpriority 148, coordOffsetEnabled
+--   * y offset = (height >> 1) - gShadowVerticalOffsets[shadowSize], offsets {4,4,4,16}
+--   * each frame: priority follows the character's, x = character's x, y = character's y + offset
+--     -- pos1 only, so the shadow stays on the ground while the character arcs on pos2.
+-- Fields and globals rather than locals: this chunk is at Lua's hard 200-local ceiling, where one
+-- more name is a parse failure and the adapter does not load at all.
+genderFrames.shadowTemplates =
+    { [0] = 0x0850c9fc, [1] = 0x0850ca14, [2] = 0x0850ca2c, [3] = 0x0850ca44 }
+
+function spawnGhostShadow(g)
+    if g.shadowSprId then return g.shadowSprId end
+    local gi = g.gfx and graphicsInfo(g.gfx)
+    if not gi or not gi.raw then return nil end
+    local size = (r8(gi.raw + 0x0c) >> 4) & 0x03
+    local tmpl = genderFrames.shadowTemplates[size]
+    local oamPtr, animsPtr = r32(tmpl + 0x04), r32(tmpl + 0x08)
+    local imagesPtr = r32(tmpl + 0x0c)
+    if oamPtr == 0 or imagesPtr == 0 then return nil end
+
+    local sprId = findFreeSpriteSlot()
+    if not sprId or sprId == g.sprId then return nil end
+    -- The frame's own byte count, from struct SpriteFrameImage {const u8 *data; u16 size;}.
+    local bytes = r16(imagesPtr + 4)
+    local nTiles = math.max(1, bytes // 32)
+    local tileStart = allocSpriteTiles(nTiles)
+    if not tileStart then return nil end
+
+    local d = sprAddr(sprId)
+    for off = 0, SPRITE_SIZE - 1 do w8(d + off, 0) end
+    for off = 0, 7 do w8(d + off, r8(oamPtr + off)) end
+    w16(d + 0x04, (r16(d + 0x04) & 0x0c00) | (tileStart & 0x03ff))
+    w32(d + 0x08, animsPtr)
+    w32(d + 0x0c, imagesPtr)
+    w32(d + 0x10, r32(tmpl + 0x10))
+    w32(d + 0x1c, 0)          -- no callback: the engine's would bind by localId and find the player
+    w8(d + 0x43, 148)         -- subpriority: under the character, above the ground
+    w8(d + 0x28, (-(r16(imagesPtr + 4) >= 64 and 16 or 8)) & 0xff)
+    w8(d + 0x29, 0xfc)        -- -4: the shadow sprite's own half-height
+    w8(d + 0x3e, 0x03)        -- inUse | coordOffsetEnabled
+    w8(d + 0x3f, 0x04)
+    g.shadowSprId, g.shadowTileStart, g.shadowTiles = sprId, tileStart, nTiles
+    g.shadowDrop = (gi.height >> 1) - (genderFrames.shadowDrop[size] or 4)
+    -- The pixels, now, rather than waiting for an engine copy that will never come.
+    local src = r32(imagesPtr)
+    if isRomPtr(src) then
+        local dst = 0x06010000 + tileStart * 32
+        for off = 0, bytes - 4, 4 do w32(dst + off, r32(src + off)) end
+    end
+    return sprId
+end
+
+function despawnGhostShadow(g)
+    if not g.shadowSprId then return end
+    local d = sprAddr(g.shadowSprId)
+    w8(d + 0x3e, (r8(d + 0x3e) & ~0x01) | 0x04)
+    if g.shadowTileStart then
+        for t = g.shadowTileStart, g.shadowTileStart + (g.shadowTiles or 1) - 1 do
+            setTileAllocated(t, false)
+        end
+    end
+    g.shadowSprId, g.shadowTileStart, g.shadowTiles = nil, nil, nil
+end
+
+-- Driven from Lua every frame, exactly as UpdateShadowFieldEffect would have.
+function updateGhostShadow(g, jumping)
+    if not jumping then
+        if g.shadowSprId then
+            w8(sprAddr(g.shadowSprId) + 0x3e, r8(sprAddr(g.shadowSprId) + 0x3e) | 0x04)
+        end
+        return
+    end
+    if not g.shadowSprId then spawnGhostShadow(g) end
+    if not g.shadowSprId then return end
+    local sd, cd = sprAddr(g.shadowSprId), sprAddr(g.sprId)
+    w8(sd + 0x3e, r8(sd + 0x3e) & ~0x04)                       -- visible
+    w16(sd + 0x00, (r16(sd + 0x00) & 0xfcff) | (r16(cd + 0x00) & 0x0300)) -- priority follows
+    w16(sd + 0x20, rs16(cd + 0x20))
+    w16(sd + 0x22, rs16(cd + 0x22) + (g.shadowDrop or 12))
+end
+
 despawnSurfBlob = function(g)
     if not g.blobSprId then return end
     local d = sprAddr(g.blobSprId)
@@ -3501,6 +3695,24 @@ end
 
 -- The two graphics the rule belongs to (pokeemerald include/constants/event_objects.h:144-145).
 function isFishingGfx(gfx) return gfx == 137 or gfx == 138 end
+
+-- EVERY action that leaves the ground, which is more than a ledge hop.
+-- The shadow was written for ledge hops and gated on their four action ids, so the Acro Bike --
+-- whose whole point is hopping -- got none of it (user, 2026-08-20: *"no shadow still"*).
+--   0x0C..0x0F JUMP_2_*  ·  0x46..0x4D JUMP_IN_PLACE_*
+--   0x70..0x73 ACRO_WHEELIE_HOP_FACE_*  ·  0x74..0x7B ACRO_WHEELIE_HOP/JUMP_*
+-- (include/constants/event_object_movement.h)
+--
+-- 0x70..0x73 was missed on the first pass, and the omission had a precise symptom: those are the
+-- hops that leave the ground WITHOUT changing tile, so the ghost hopped -- the arc is on its sprite
+-- -- with no shadow under it, while the travelling hops had one. The user, 2026-08-20: *"they are
+-- not showing shadow/dust properly ... when they are idle/not moving a tile vs when they are
+-- moving"*. A range that reads as "the moving ones" is exactly where an in-place variant hides.
+function isJumpAction(act)
+    return act ~= nil and ((act >= 0x0c and act <= 0x0f)
+        or (act >= 0x46 and act <= 0x4d)
+        or (act >= 0x70 and act <= 0x7b))
+end
 
 -- Mach and Acro, both genders: Brendan 1/63, May 90/91 (verified.md's graphicsId table).
 function isBikeGfx(gfx)
@@ -3980,10 +4192,95 @@ local function syncGhost(playerId, remote)
     -- Issued ONCE per hop: the action stays set for the whole jump, and re-issuing it every frame
     -- would send the ghost hopping across the map. The latch clears when the peer stops reporting
     -- a jump, so the next ledge is a fresh one.
-    local jumping = remote.act and remote.act >= 0x0c and remote.act <= 0x0f
-    if not jumping then g.jumped = nil end
-    if jumping and not g.jumped then
-        g.jumped = true
+    -- ACTIONS THE PEER PERFORMS THAT NO AMOUNT OF WATCHING POSITIONS CAN RECOVER.
+    --
+    -- A ledge hop was the first of these: two tiles and an arc, indistinguishable from walking by
+    -- the time distance is being measured. The Acro Bike is a whole family of them, and they share
+    -- the property that made the ledge hop impossible to infer -- they happen ON THE SPOT. A bunny
+    -- hop, a standing wheelie, popping into or out of one: the tile never changes, so every branch
+    -- below sees "the peer did not move" and falls through to turning the ghost on the spot. The
+    -- user, riding one: *"the spawned ghost is turning, while im jumping around on it"*, and
+    -- *"not supposed to turn facing direction that way"*.
+    --
+    -- So the peer's own movementActionId is performed verbatim for all of them
+    -- (include/constants/event_object_movement.h):
+    --   0x0C..0x0F  JUMP_2_*                 ledge hops
+    --   0x46..0x4D  JUMP_IN_PLACE_*          the bunny hop, including the two-way variants
+    --   0x64..0x83  ACRO_*                   wheelie face/pop/end/hop/jump/in-place/move
+    --
+    -- LATCHED ON THE VALUE, not on a boolean: a hop is a one-shot and a standing wheelie is a HOLD,
+    -- and issuing either one twice restarts it. Re-issuing only when the action CHANGES covers both
+    -- without needing to know which is which.
+    -- HALF OF THEM MOVE A TILE, and holding those stops the ghost following at all -- reported
+    -- immediately: *"the ghosts are not following me when im jumping and moving"*. Reading the
+    -- block as one range was the mistake; it interleaves in-place and travelling actions:
+    --   IN PLACE  0x46..0x4D jump in place · 0x64..0x73 wheelie face/pop/end/hop-face
+    --             0x7C..0x7F wheelie in place
+    --   TRAVELS   0x0C..0x0F ledge jump · 0x74..0x7B wheelie hop/jump · 0x80..0x83 pop-wheelie move
+    -- An in-place action is mirrored and HELD, because nothing else will move the ghost and the
+    -- position logic below would turn it instead. A travelling one is mirrored once and then left
+    -- to the ordinary step logic, which is what keeps the ghost following.
+    local inPlace = remote.act and (
+        (remote.act >= 0x46 and remote.act <= 0x4d)
+        or (remote.act >= 0x64 and remote.act <= 0x73)
+        or (remote.act >= 0x7c and remote.act <= 0x7f))
+    -- THE TRAVELLING BLOCK RUNS TO 0x8B, not 0x83. Cut short, the wheelie MOVE and END_WHEELIE
+    -- MOVE actions fell through to an ordinary walk: the ghost kept up -- its coordinates track the
+    -- peer's throughout, measured -- but rode along without the wheelie or the hop, which is what
+    -- "not doing it like the player" looks like from the chair.
+    --   0x74..0x7B WHEELIE_HOP/JUMP · 0x80..0x83 POP_WHEELIE_MOVE
+    --   0x84..0x87 WHEELIE_MOVE     · 0x88..0x8B END_WHEELIE_MOVE
+    local travels = remote.act and (
+        (remote.act >= 0x0c and remote.act <= 0x0f)
+        or (remote.act >= 0x74 and remote.act <= 0x7b)
+        or (remote.act >= 0x80 and remote.act <= 0x8b))
+    -- One line per CHANGE of the peer's action, with what the ghost is doing at that moment. Three
+    -- edits have now been made to the Acro handling without once looking at what the peer actually
+    -- sends, which is the guessing this project has a rule against.
+    if COMPARE_TIERS and g.lastAct ~= remote.act then
+        g.lastAct = remote.act
+        -- The SENT graphic beside the RECEIVED one: `gfx=nil` on the wire while the player is
+        -- visibly on a bike means the two disagree, and only printing both says which end is wrong.
+        logFile(string.format("ACT sending gfx=%s | peer=%s -> ghost act=%d idle=%s inPlace=%s "
+            .. "travels=%s gfx=%s pos2=%d,%d",
+            string.format("%s (confirmed=%s objId=%d raw=%d sent=%s pending=%s ticks=%s)",
+                tostring(localGraphicsId()), tostring(avatarAddrConfirmed),
+                r8(GPLAYERAVATAR_ADDR + avatarAddrOffset + 0x05),
+                r8(GOBJECTEVENTS_ADDR + avatarAddrOffset
+                    + r8(GPLAYERAVATAR_ADDR + avatarAddrOffset + 0x05) * OBJECTEVENT_SIZE + 0x05),
+                tostring(genderFrames.sentGfx), tostring(genderFrames.pendingGfx),
+                tostring(genderFrames.pendingTicks)),
+            tostring(remote.act), r8(objAddr(g.objId) + 0x1c), tostring(ghostIsIdle(g)),
+            tostring(inPlace and true or false), tostring(travels and true or false),
+            tostring(remote.gfx), rs16(sprAddr(g.sprId) + 0x24), rs16(sprAddr(g.sprId) + 0x26)))
+    end
+    -- A TRAVELLING ACTION MOVES THE GHOST ITSELF, so issuing it verbatim AND letting the step
+    -- logic run is two things moving one character -- the ghost lurching about while the painted
+    -- copy, which is driven only by the position stream, looked correct (user, 2026-08-20: *"the
+    -- spawned ghost is moving weird ... the drawn one looks fine"*). That comparison is the whole
+    -- diagnosis: same data in, one tier fine, so the fault is in what the spawned tier DOES with it.
+    --
+    -- A ledge hop is the exception and stays verbatim: it covers two tiles in one arc that no step
+    -- can reproduce, and the position logic agrees with it afterwards.
+    --
+    -- Every other travelling Acro action is used for its ANIMATION only: the step below asks for
+    -- the same family in the direction the ghost actually needs to go. The families are four
+    -- consecutive actions in DIR order starting at a multiple of four (0x74 hop, 0x78 jump, 0x80
+    -- pop-wheelie move, 0x84 wheelie move, 0x88 end-wheelie move), so the family base is act & 0xFC.
+    local acroBase = nil
+    if travels and remote.act >= 0x74 then acroBase = remote.act & 0xfc end
+    if acroBase then travels = false end
+
+    if not (inPlace or travels) then g.jumped = nil end
+    -- A REPEATED one-shot has to re-fire. Latching on the value alone means a peer hopping on the
+    -- spot over and over reports the same action id throughout, so the ghost hopped ONCE and then
+    -- stood there -- which is also why its landing dust appeared only when it was travelling
+    -- (user, 2026-08-20). Clearing the latch once the ghost is idle again lets each hop be its own
+    -- hop, while a HELD pose (a standing wheelie) still issues once because the ghost never goes
+    -- idle underneath it.
+    if inPlace and g.jumped == remote.act and ghostIsIdle(g) then g.jumped = nil end
+    if (inPlace or travels) and g.jumped ~= remote.act then
+        g.jumped = remote.act
         g.wasRunning = nil
         requestAction(g, remote.act)
         return
@@ -3997,6 +4294,30 @@ local function syncGhost(playerId, remote)
     local curX = rs16(a + 0x10) - MAP_OFFSET
     local curY = rs16(a + 0x12) - MAP_OFFSET
     local dx, dy = targetX - curX, targetY - curY
+
+    -- HOLD AN IN-PLACE POSE ONLY WHEN THE GHOST IS WHERE IT BELONGS.
+    --
+    -- The hold exists so a standing wheelie is not turned or stepped out of underneath. But a peer
+    -- riding an Acro Bike reports the in-place hop actions (0x70..0x73) WHILE TRAVELLING between
+    -- tiles too, and holding on those stopped the ghost following at all -- reported twice, and the
+    -- second time it was genuinely this rather than my own input probe fighting the pad.
+    --
+    -- Being at the target tile is the honest test for "there is nothing to do but pose". With a
+    -- tile still to cover, the step logic below must run whatever pose the peer is in.
+    -- WHICH BRANCH DECIDED, once a second. Three edits have been made to this path on reports
+    -- alone; the question "why did the ghost not move" has a finite set of answers and this prints
+    -- which one it was.
+    if COMPARE_TIERS and frameCounter % 15 == 0 then
+        logFile(string.format("HOP act=%s inPlace=%s travels=%s latch=%s d=%d,%d idle=%s "
+            .. "ghostAct=%d held=%02X",
+            tostring(remote.act), tostring(inPlace and true or false),
+            tostring(travels and true or false), tostring(g.jumped), dx, dy,
+            tostring(ghostIsIdle(g)), r8(a + 0x1c), r8(a + 0x00))
+            .. string.format(" | peer=%.2f,%.2f ghost=%d,%d | gfx ghost=%s peer=%s want=%s",
+                remote.x, remote.y, curX, curY, tostring(g.gfx), tostring(remote.gfx),
+                tostring(wantedGfx(remote))))
+    end
+    if inPlace and dx == 0 and dy == 0 then return end
 
     if dx == 0 and dy == 0 then
         if (r8(a + 0x18) & 0x0f) ~= dir then
@@ -4082,7 +4403,9 @@ local function syncGhost(playerId, remote)
         -- WALK_NORMAL 0x08, WALK_FAST 0x15, WALK_FASTER 0x2D, each DOWN/UP/LEFT/RIGHT consecutive
         -- in DIR_ID order -- the same layout every other action table here relies on.
         local running = (remote.anim == "running")
-        if base then
+        if acroBase then
+            requestAction(g, acroBase + (stepDir - 1))
+        elseif base then
             requestAction(g, base + (stepDir - 1))
         else
             requestAction(g, (running and RUN_ACTION or WALK_ACTION)[stepDir])
@@ -4117,7 +4440,8 @@ local function syncGhost(playerId, remote)
             else
                 sd = dy > 0 and DIR_ID.south or DIR_ID.north
             end
-            requestAction(g, base and (base + (sd - 1))
+            requestAction(g, (acroBase and (acroBase + (sd - 1)))
+                or (base and (base + (sd - 1)))
                 or ((remote.anim == "running") and RUN_ACTION or WALK_ACTION)[sd])
             lockGhostFacing(g, remote, sd)
             return
@@ -4228,8 +4552,31 @@ end
 -- Draw one shadow at a character's un-arced position. `sx`,`sy` are that character's sprite
 -- position in SCREEN space; the sprite box's top-left is x-8, y-4 (the shadow sprite's own c2c),
 -- and the shadow sits 12px below the character's y -- all measured, see BANDAGES.md.
+-- gShadowVerticalOffsets (src/field_effect_helpers.c:220) -- indexed by the graphic's shadowSize,
+-- which is bits 4-5 of graphicsInfo +0x0C.
+-- A FIELD, not a local: this chunk is at Lua's hard 200-local ceiling and one more is a parse
+-- failure, which is how the adapter silently fails to load.
+genderFrames.shadowDrop = { [0] = 4, [1] = 4, [2] = 4, [3] = 16 }
+
+-- WHERE THE GAME PUTS A SHADOW, rather than where ours was tuned to sit.
+--
+-- FldEff_Shadow sets sYOffset = (graphicsInfo->height >> 1) - gShadowVerticalOffsets[shadowSize]
+-- and UpdateShadowFieldEffect then draws at the character's sprite y PLUS that -- the sprite's
+-- pos1, deliberately, so the shadow stays on the ground while the character arcs away on pos2.
+--
+-- Our own copy used a flat +12 measured against a ledge hop, which is close for a walker and wrong
+-- for anything else -- reported on the Acro Bike as *"the drawn ghosts shadow is not properly
+-- alligned"*. Computed from the graphic instead: the frame's top-left plus the graphic's height,
+-- less the shadow's own offset, less the shadow sprite's 4px half-height.
+function shadowTopFor(info, frameTopY)
+    local size = 0
+    if info and info.raw then size = (r8(info.raw + 0x0c) >> 4) & 0x03 end
+    local h = (info and info.height) or FRAME_HEIGHT_PX
+    return frameTopY + h - (genderFrames.shadowDrop[size] or 4) - 4
+end
+
 function drawOneShadow(sx, sy, dim)
-    local left, top = sx - 8, sy + 8
+    local left, top = sx - 8, sy
     if genderFrames.shadowArt then
         drawRunList(genderFrames.shadowArt, 16, false, left, top, nil, dim)
     else
@@ -4242,16 +4589,17 @@ local function drawGhostShadows()
     learnShadowArt()
     for playerId, g in pairs(ghosts) do
         local remote = remotes[playerId]
-        if remote and remote.act and remote.act >= 0x0c and remote.act <= 0x0f and ghostAlive(g) then
+        if ghostAlive(g) and not (remote and isJumpAction(remote.act)) then
+            updateGhostShadow(g, false)
+        end
+        if remote and isJumpAction(remote.act) and ghostAlive(g) then
             local d = sprAddr(g.sprId)
             local sx = rs16(d + 0x20) + rs16(GSPRITECOORDOFFSETX_ADDR)
             -- Deliberately WITHOUT pos2 (+0x24/+0x26): that carries the jump arc, and the shadow
             -- belongs on the ground the character left -- which is what the game does, its shadow
             -- sprite reading pos2 0,0 while the character mid-hop reads 0,-6.
             local sy = rs16(d + 0x22) + rs16(GSPRITECOORDOFFSETY_ADDR)
-            if sx > -32 and sx < 272 and sy > -32 and sy < 192 then
-                drawOneShadow(sx, sy, 1)
-            end
+            updateGhostShadow(g, true)
         end
     end
 end
@@ -4679,6 +5027,27 @@ local function drawRemotes(localAreaId, playerMapX, playerMapY, skipSpawned, com
                         remote.gX or -1, remote.gY or -1, playerMapX, playerMapY,
                         tostring(remote.gStepping))
                 end
+                -- THE SHADOW GOES DOWN FIRST, because paint order IS depth on this tier.
+                --
+                -- The engine's own shadow is a sprite at subpriority 148, which puts it UNDER the
+                -- character. Ours is painted onto the finished frame, so drawing it after the
+                -- character put it in front of one -- *"the shadow should be below the drawn &
+                -- spawn, right now it shows infront for both of them unlike the player"* (user,
+                -- 2026-08-20). For a painted ghost the fix is only the order; for the SPAWNED one
+                -- it is not fixable this way at all, since no overlay can go behind a hardware
+                -- sprite -- that needs a real shadow sprite, the way the surf blob is real.
+                --
+                -- screenX/screenY are the FRAME's top-left, so the character's own anchor is
+                -- +8,+16 from it, and the arc comes off because a shadow belongs on the ground the
+                -- character left rather than under its feet in mid-air.
+                if pinned and isJumpAction(remote.act) then
+                    -- The arc comes off so the shadow stays on the ground the character left,
+                    -- and the drop is the graphic's own rather than a constant.
+                    drawOneShadow(screenX + 8,
+                        shadowTopFor(remote.gfx and graphicsInfo(remote.gfx) or nil,
+                            screenY - pinnedArc), dim)
+                end
+
                 -- A peer wearing its OWN graphic -- bike, surf, fishing -- is drawn from that
                 -- graphic's own frames. Only when it differs from the plain walker (0), so the
                 -- ordinary case keeps the cached gender path and costs nothing extra.
@@ -4868,16 +5237,86 @@ local function drawRemotes(localAreaId, playerMapX, playerMapY, skipSpawned, com
                 -- of its frame -- for both draw paths, since a peer in grass may be on foot or on
                 -- a bike.
                 do
+                    -- ON THE TILE GRID, not on the ghost. A grass sprite belongs to a TILE and a
+                    -- character walks through it; drawing it at the ghost's own frame made it
+                    -- travel along with them, so mid-step it sat across the character in the wrong
+                    -- place -- *"not being drawn properly when moving in tall grass"*. Standing
+                    -- still it looked right, which is exactly why it survived the first check.
+                    --
+                    -- The character's feet span two tiles mid-step, so both are considered: each
+                    -- grass tile the ghost's bottom row overlaps is drawn at ITS OWN screen
+                    -- position, and the ghost passes through whichever it is actually on.
                     local gbX2, gbY2 = genderFrames.gridBase()
                     if gbX2 then
-                        local ggx = math.floor((screenX - gbX2) / TILE)
-                        local ggy = math.floor((screenY + TILE - gbY2) / TILE)
-                        local attr = genderFrames.attrAt(ggx, ggy)
-                        local gruns = attr and genderFrames.grassRuns(attr & 0xff)
-                        if gruns then
-                            drawRunList(gruns, TILE, false, screenX,
-                                screenY + FRAME_HEIGHT_PX - TILE, panelRows, dim)
-                        end
+                        local footY = screenY + FRAME_HEIGHT_PX - TILE
+                        -- The rustle belongs to the tile the ghost has just STEPPED ON, so the
+                        -- clock starts when its tile changes. Every other grass tile it overlaps
+                        -- is settled, which is what standing grass looks like.
+                        local onX = math.floor((screenX + (FRAME_WIDTH_PX >> 1) - gbX2) / TILE)
+                        local onY = math.floor((footY + (TILE >> 1) - gbY2) / TILE)
+                        -- THE TILE BEING ENTERED **AND** THE ONE BEING LEFT.
+                        --
+                        -- Neither extreme was right. Painting every tile the frame overlapped hid
+                        -- the ghost from both sides while it walked (*"popping in/out"*); painting
+                        -- only the tile it stands on made the grass jump from one tile to the next
+                        -- at the midpoint of every step (*"it moves between tiles weird"*). The
+                        -- engine does neither: stepping into grass spawns a NEW sprite on the new
+                        -- tile while the old one stays where it is and finishes settling, so for
+                        -- the length of a step there are two.
+                        --
+                        -- Each carries its own entry frame, so the one being entered rustles while
+                        -- the one being left completes its own animation and is dropped once it has
+                        -- settled. Oldest first, so the newer grass paints over it.
+                        -- COVER THE TILES THE FEET ACTUALLY OVERLAP, one row only.
+                        --
+                        -- Three versions and each failed differently, which is what finally named
+                        -- the rule. Locking the grass to the ghost made it travel along (*"not
+                        -- drawn properly when moving"*). Every tile the whole 16x32 FRAME touched
+                        -- covered the character from above as well (*"popping in/out"*). One tile
+                        -- chosen by the ghost's centre jumps at the midpoint of a step, leaving the
+                        -- leading half bare -- *"shown slightly when going between the tall grass
+                        -- tiles"*, because the engine puts grass on the tile being ENTERED at the
+                        -- START of the step while a centre-based test flips halfway through.
+                        --
+                        -- The feet are what stands in grass, so the span of the FOOT BOX is the
+                        -- honest answer: one tile row, however many columns those 16 pixels reach
+                        -- into. Aligned that is one tile; mid-step it is two, side by side, exactly
+                        -- covering the character.
+                        --
+                        -- Each tile keeps its own entry time, so a tile just stepped onto rustles
+                        -- while one being left is further through its own animation.
+                        tiering.grassTiles = tiering.grassTiles or {}
+                        local seen = tiering.grassTiles[playerId] or {}
+                        -- EVERY TILE THE CHARACTER STANDS IN, ALL IN FRONT.
+                        --
+                        -- Standing still that is one tile and the head shows above it, which is
+                        -- right. MID-STEP the character spans two, and the grass covers all of
+                        -- them -- the user, after a version that drew only one of the pair in
+                        -- front: *"now i see the bottom/legs when its going up, top/head when going
+                        -- down. the grass is supposed to hide it"*.
+                        --
+                        -- Two earlier readings of this were wrong in opposite directions: "the
+                        -- lower tile is in front" (true only because the capture happened while
+                        -- walking down) and then "the tile being entered is in front" (which still
+                        -- leaves the other half of the character bare). Walking through tall grass
+                        -- obscures a character, and that is the whole of the rule.
+                        local r0 = math.floor((footY - gbY2) / TILE)
+                        local r1 = math.floor((footY + TILE - 1 - gbY2) / TILE)
+                        -- BOUNDED AT THE FOOT BOX, and this is the confirmed answer rather than a
+                        -- setting: grass never rises above the character's feet, standing or
+                        -- mid-step. Both tiles the feet span are drawn, so nothing shows through
+                        -- between them, and neither can reach the body or the head.
+                        --
+                        -- It was reached as the reference end of a binary test -- deliberately too
+                        -- little coverage, to tell "the clip is not working" from "the clip is set
+                        -- wrong" after adjusting the number twice produced no visible change. It
+                        -- turned out to be correct. Two rounds of reasoning about which pixel rows
+                        -- ought to be covered were beaten by one deliberately-wrong build.
+                        genderFrames.drawGrassRows(playerId, gbX2, gbY2, screenX, footY,
+                            r0, r1, panelRows, dim, footY)
+                        -- The covered set is rebuilt each frame, so a tile that stops being
+                        -- covered and is stepped onto again rustles afresh.
+
                     end
                 end
                 -- The painted copy gets a shadow too, on the same terms as the spawned one: only
@@ -4885,13 +5324,6 @@ local function drawRemotes(localAreaId, playerMapX, playerMapY, skipSpawned, com
                 -- feet -- which is what subtracting the arc does. Compare mode only, because that
                 -- is where the painted ghost HAS an arc (it copies the spawned sprite's); a real
                 -- overflow peer slides across a ledge and has no ground to separate from.
-                if pinned and remote.act and remote.act >= 0x0c and remote.act <= 0x0f then
-                    -- Through the same helper, so both tiers get the learned art (or the same
-                    -- fallback) rather than two copies drifting apart. screenX/screenY are the
-                    -- FRAME's top-left here, so the character's own anchor is +8,+16 from it, and
-                    -- the arc comes off because the shadow belongs on the ground.
-                    drawOneShadow(screenX + 8, screenY - pinnedArc + 16, dim)
-                end
                 painted = painted + 1
             end
         end

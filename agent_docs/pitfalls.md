@@ -2526,3 +2526,29 @@ occluder is a sprite and the map cannot tell you anything about it.
 done, list the things in that game that can be in front of a character — scenery, ground effects,
 weather, UI — and check that each is either handled or knowingly out of scope. A spawned ghost gets
 all of them free, which is exactly what makes the painted tier's gaps easy to miss.
+
+## An adjustment that changes nothing is evidence about the MECHANISM — 2026-08-20, Emerald
+
+**Symptom.** A painted ghost was hidden too much by tall grass. The bound controlling how far the
+grass could rise was adjusted, twice, and the user reported no change either time. Both times the
+response was to reason harder about which pixel rows ought to be covered.
+
+**What that should have said immediately.** A value that makes no difference when changed is not a
+wrong value -- it is a value that is not being read. "The clip is set wrong" and "the clip never
+applies" predict the same screen and are separated by one experiment, not by more thought.
+
+**What ended it.** A deliberately WRONG build: the bound set so far in one direction that the result
+could not be mistaken -- grass unable to rise above the character's feet at all. One look
+distinguishes "the clip works and the number is wrong" from "the clip does nothing". It also
+happened to be the correct answer, which two rounds of pixel-row reasoning had not reached.
+
+**The rules.**
+
+- **When a change produces no visible difference, test whether it applies at all** before changing
+  it again. Set it absurdly, or log it. Two rounds of "no change" is already one too many.
+- **A deliberately wrong build is a cheap instrument.** Pushing a value to an extreme makes the next
+  observation binary, and a binary observation cannot be over-interpreted.
+- **Vary the condition before generalising a measurement.** The same feature produced a second trap:
+  the engine's grass sprites were captured while the player walked DOWN, which supported both "the
+  lower tile draws in front" and "the tile being entered draws in front". Both were adopted in turn
+  and both were wrong. One capture walking the other way would have killed both.

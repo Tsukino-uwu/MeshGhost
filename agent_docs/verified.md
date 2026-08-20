@@ -8633,3 +8633,30 @@ itself, over the character, from the field effect's own art:
 
 **So the painted tier's occlusion is complete only if BOTH are done**, and "it hides behind
 buildings" was not evidence that it hides at all in general.
+
+## Emerald: a drawn ghost in tall grass — 2026-08-20
+
+**User-confirmed on screen, vanilla:** *"good now, confirmed visually"*. A painted peer walking
+through tall grass is hidden by it the way the player and a spawned ghost are, including between
+tiles, with the grass rustling as it is stepped into.
+
+Grass turned out to be four separate facts, and getting one right looked exactly like being done:
+
+1. **Grass is a SPRITE, not scenery.** The grass metatile's top layer is empty (measured:
+   `BOTTOM 2012 2013 2022 2023  TOP 0000 0000 0000 0000`), so the BG occlusion mask confirmed
+   earlier that day could never have touched it. The engine spawns a field effect per object
+   standing in grass (`FldEff_TallGrass`, src/field_effect_helpers.c:291-309).
+2. **It belongs to the TILE, not the character.** Drawn at the ghost's own frame it travelled along
+   with them; grass sits still and a character walks through it.
+3. **It rustles on ENTRY and the clock restarts each time.** The animation is frames 1,2,3,4,0 at
+   ten game-frames each (`sAnim_TallGrass`), read from the template at runtime so long grass gets
+   its own timing. Keyed on "first ever drawn" instead, a tile walked over twice rustled only once
+   -- and a looping test walks the same tiles for ever, so it never moved again.
+4. **Both tiles the FEET span are drawn, and nothing above them.** Standing that is one tile;
+   mid-step two, so nothing shows through between them. The coverage stops at the foot box, so it
+   can never reach the body or the head.
+
+**Agent-measured against the engine's own sprites**, which is what settled the geometry: the grass
+sprite's position formula matched to the pixel (`anchorWouldBe=24,-56` against the live sprite's
+`pos=24,-56`), the palette matched (14), and the animation frame index lined up. Three assumptions
+proven right that would otherwise have been "fixed".
