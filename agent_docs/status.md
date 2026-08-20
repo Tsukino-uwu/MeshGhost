@@ -8,8 +8,10 @@ is the part that is not.
 
 - **Emerald peer states: fishing, surfing and the MACH Bike are confirmed on both tiers**, with
   ledge hops and the muddy slope. `verified.md` 2026-08-19/20.
-- **The ACRO Bike is NOT finished.** Riding, following, hops and jumps are confirmed; the wheelie
-  pose, the landing dust and the shadow sprite are not. See below and `unverified.md`.
+- **The ACRO Bike: wheelie poses mirrored again, six measured fixes, the idle pose confirmed.**
+  Landing dust, the shadow sprite and a blocked rider's action are still open. `verified.md` 2026-08-20.
+- **The drawn tier moves at a constant speed now, not an ease** -- and collision is readable, so a
+  scripted ride can path instead of counting tiles blind. `verified.md` 2026-08-20.
 - **Emerald's drawn tier: occlusion behind scenery, the water reflection with its ripple, tall
   grass and shadows are confirmed.** Landing dust is drawn but unwatched -- `pitfalls.md`.
 - **A ghost can be walked through**, using the engine's own elevation rule. That is what the
