@@ -79,27 +79,39 @@ func buildBinary(t *testing.T, dir, pkg, base string) string {
 // once, on ports 63503/63536/63555. It is luck-of-the-draw, which is worse than
 // a reliable failure: it had passed on the same code minutes earlier, so
 // re-running would have "fixed" it and taught us nothing.
+// ASKED ON THE SCARCE SIDE FIRST, 2026-08-20. The original asked TCP for a number and then
+// probed udp on it, which is the wrong way round: the reserved blocks above are excluded from
+// UDP while TCP hands them out happily, so every attempt was a fresh chance to draw a number udp
+// could never have. On a runner whose exclusions cover much of the ephemeral range, twenty draws
+// can all lose -- which is exactly what CI did today, the same three tests as 2026-08-16.
+// Letting the OS pick the UDP port means the exclusions are applied by the OS instead of
+// gambled against, and TCP, which has no such blocks, is the one being probed.
 func freePort(t *testing.T) int {
 	t.Helper()
-	const attempts = 20
+	const attempts = 200
+	var lastErr error
 	for i := 0; i < attempts; i++ {
-		ln, err := net.Listen("tcp", "127.0.0.1:0")
+		pc, err := net.ListenPacket("udp", "127.0.0.1:0")
 		if err != nil {
 			t.Fatalf("reserve port: %v", err)
 		}
-		port := ln.Addr().(*net.TCPAddr).Port
-		ln.Close()
-
-		// Probe udp on the same number. Closed immediately: this only answers
-		// "is this number usable", the same way the tcp listen above does.
-		pc, err := net.ListenPacket("udp", net.JoinHostPort("127.0.0.1", strconv.Itoa(port)))
-		if err != nil {
-			continue // reserved or taken for udp -- ask for a different one
-		}
+		port := pc.LocalAddr().(*net.UDPAddr).Port
 		pc.Close()
+
+		// Probe tcp on the same number. Closed immediately: this only answers
+		// "is this number usable", the same way the udp bind above does.
+		ln, err := net.Listen("tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(port)))
+		if err != nil {
+			lastErr = err
+			continue // taken for tcp -- ask for a different one
+		}
+		ln.Close()
 		return port
 	}
-	t.Fatalf("could not find a port free for both tcp and udp after %d attempts", attempts)
+	// The reason, not just the count: without it the next failure is as undiagnosable as this
+	// one was, and the error text is what names a reservation as a reservation.
+	t.Fatalf("could not find a port free for both tcp and udp after %d attempts (last tcp error: %v)",
+		attempts, lastErr)
 	return 0
 }
 

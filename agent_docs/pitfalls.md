@@ -2790,3 +2790,22 @@ already existed — read next to a per-frame panel-rows dump.
 - **When a fix depends on when the user tests, the fix is wrong.** The map-change window failed
   precisely because the user's habits sat inside it. A structural discriminator (stability) does
   not care who is testing.
+
+### CI: "could not find a port free for both tcp and udp" — the draw was rigged, 2026-08-20
+
+- **Symptom**: three `internal/e2e` tests fail together on the Windows CI runner with
+  `could not find a port free for both tcp and udp after 20 attempts`, on code that passes locally
+  and passed on the same runner earlier. Second occurrence; the first was 2026-08-16.
+- **Cause**: the helper asked TCP for an ephemeral port and then probed UDP on that same number.
+  That is backwards. Windows' WinNAT/Hyper-V reservations exclude blocks of the ephemeral range
+  **from UDP** while TCP hands those numbers out happily, so every attempt was a fresh chance to
+  draw a number UDP could never have accepted. On a runner whose exclusions cover much of the
+  range, twenty draws can all lose — and because it is luck of the draw, a re-run "fixes" it and
+  teaches nothing.
+- **Fix**: ask the OS for a **UDP** port first and probe TCP on that number. The exclusions are
+  then applied by the OS rather than gambled against, and the side being probed (TCP) is the one
+  with no reservations. Attempts raised 20 → 200 (each is microseconds), and the failure message
+  now carries the last error, because the old one named a count and hid the reason.
+- **Generalizes to**: when two resources must agree on one identifier, let the OS choose on the
+  **scarcer, more restricted** side and verify on the freer one. Retrying the unrestricted side
+  is just re-rolling the same bad die.
