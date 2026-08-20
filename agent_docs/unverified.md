@@ -495,12 +495,9 @@ The tier is built, measured and **confirmed as a renderer** -- *"and yes the OAM
 judged in the three-way compare (`verified.md`). It ships **off** (`MESHGHOST_EMERALD_HW_OVERFLOW`)
 until the list below is closed. Four things are open, and the first is the one the tier exists for.
 
-1. **OCCLUSION, deliberately and specifically.** The user's word so far is *"I think its hidden/under
-   things properly as well ?"* -- tentative, and offered before the peers could be walked anywhere
-   (fixed synthetic peers do not follow the player; the loopback ghost does). What is wanted is a
-   deliberate look at three cases: a ghost passing **behind a building or roof**, one covered by a
-   **text box**, one covered by the **START menu**. This is the whole reason to prefer this tier over
-   painting, and it is the one claim with no measurement behind it.
+1. ~~**OCCLUSION.**~~ **CLOSED 2026-08-21** -- *"Occlusion looked fine on OAM"*, watched with the
+   loopback ghost, which follows the player and so could actually be taken somewhere. Moved to
+   `verified.md`. This was the claim the tier exists for.
 2. **Scene brightness.** A hardware sprite reads the live OBJ palette, so it should dim with a door
    fade, a cave and weather with nothing of ours involved. Never watched.
 3. **UNPINNED position quality.** Every confirmation so far is from compare mode, where the copy is
@@ -524,3 +521,16 @@ change.** The expectation is that it is strictly better, especially at running s
 on a bike. But the tier's movement has been through five separate attempts and several rounds of the
 user's eye, and a change to its filter is exactly the kind that trades one artifact for another.
 Watch a peer walking single tiles, running, and on the Mach Bike, against the spawned ghost.
+
+**Downgraded but NOT closed, 2026-08-21.** The user: *"think its fine for now, haven't seen anything
+weird with it this session i think ?"* -- and nothing weird was seen, which is worth having. It is
+not evidence about this change, though, and the reason is structural rather than pedantic: **every
+run after the glide fix was in compare mode, where the painted copy is PINNED to the spawned
+ghost's sprite and never uses the glide at all.** The only runs that exercised the painted tier's
+own movement -- the 56- and 150-peer crowds -- happened BEFORE the fix. So the filter that changed
+has not been on screen since it changed.
+
+This is the same shape as the bug it fixed: the pinning that makes compare mode useful is exactly
+what hid the defect for days (`pitfalls.md`, trap 4). **To actually test it, turn compare mode OFF**
+-- then the painted copy is placed from the glide like a real peer, and running speed is where any
+difference lives.

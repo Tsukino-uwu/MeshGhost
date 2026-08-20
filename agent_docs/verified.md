@@ -9288,3 +9288,35 @@ The ~944 tiles were leaked earlier in the long-running emulator session by somet
 **What was missing was the ability to tell "switched off" from "rendering nobody"**, which cost a whole
 cycle. Acquisition failure now logs its reason -- free slots, tiles wanted, graphic id -- throttled
 to once per 5 seconds, to the file.
+
+## 2026-08-21 — Emerald: hardware-sprite ghosts ARE occluded by scenery (user-confirmed)
+
+**User-confirmed:** *"Occlusion looked fine on OAM"*.
+
+**This is the claim the whole tier exists for**, and the one thing no measurement of ours could
+settle. A hardware sprite is composited by the PPU with a real background priority, so scenery, a
+text box and the START menu hide it the way they hide an NPC -- for free, from one 2-bit field
+copied out of the graphic's own descriptor. The painted tier cannot do this at all: it is drawn
+after the PPU has finished, and its missing occlusion is the blocking defect `BANDAGES.md` has
+registered against it since 2026-08-19.
+
+So the ladder's middle rung is now confirmed to deliver the thing that motivated it, not just to be
+cheaper. Priority came from the graphic's ROM template with no reconstruction on our side, which is
+why it was right first time.
+
+## 2026-08-21 — HBlank multiplexing is closed by decision, not left open
+
+**User-confirmed, in their own terms:** *"bizhawk don't support it, and we want to keep lua instead
+of patching. so yee thats also confirmed i guess ?"* -- both halves, which are the two independent
+reasons the 2026-08-21 ADR gives:
+
+1. **The emulator cannot drive it.** BizHawk 2.11's `event` library, read out of the DLL rather than
+   recalled, has no scanline or LYC callback of any kind.
+2. **The alternative is ruled out on purpose.** The classic technique needs code inside the ROM, and
+   BizHawk adapters are Lua-only so MeshGhost keeps working on top of an Archipelago seed.
+
+(The third reason stands on its own and is a fact about the GAME rather than a choice: with 128
+hardware entries and about five in use on a normal map, there is no sprite-count limit to beat.)
+
+**Recorded as CLOSED rather than unscheduled**, because the difference matters: an unscheduled idea
+invites someone to schedule it, and this one is attractive enough to come back otherwise.

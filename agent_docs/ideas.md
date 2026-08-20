@@ -1616,6 +1616,15 @@ with hardware palettes, background priority and real compositing -- everything t
    Crystal is the case that genuinely needs multiplexing: 40 OAM entries, and the engine spends
    many of them.
 
+### CLOSED 2026-08-21 — the HBlank half is settled, and the OAM half shipped
+
+**User-confirmed the same day**, once both halves had been answered: *"bizhawk don't support it, and
+we want to keep lua instead of patching. so yee thats also confirmed i guess ?"* -- so the
+multiplexing idea is **closed by decision**, not parked. The tier it was raised in service of was
+built instead and is live (`plans.md` Phase 8.1); the ADR of this date carries the reasoning. What
+follows is how the three questions were answered, kept because the METHOD generalises to the next
+emulator adapter even though the conclusion is specific to this one.
+
 ### ANSWERED 2026-08-21 — all three, offline, before a line was written
 
 **1. There is no scanline hook, and it does not matter.** BizHawk 2.11's `event` library, read out

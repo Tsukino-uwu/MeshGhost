@@ -6,16 +6,16 @@
 live piece of work.** The ladder is now `spawn -> OAM -> drawn`. Full record: `verified.md` and
 `pitfalls.md` for that date, design in `plans.md` Phase 8.1 and the two 2026-08-21 ADRs.
 
-- **The hardware tier is built, off by default (`MESHGHOST_EMERALD_HW_OVERFLOW`), and confirmed as a
-  renderer.** Open: occlusion, fades, and how it looks UNPINNED -- `unverified.md`, four items.
+- **The hardware tier is built and user-confirmed, INCLUDING occlusion** -- the claim it exists for.
+  Still off by default; open: scene fades, and how it looks UNPINNED. `unverified.md`.
 - **BizHawk adapters are Lua-only, no ROM patch, ever** -- standing rule, cross-patch compatibility.
   ADR 2026-08-21 in `architecture.md`; non-goal in `plans.md`; opening section of `_template`.
 - **The shared movement filter was fixed on 2026-08-21** (it could not follow a RUNNING player). The
-  painted tier shipped with that bug, so its movement is due a re-judgement -- `unverified.md`.
+  painted tier's own movement has not been on screen since -- compare mode PINS it. `unverified.md`.
 - **Costs, measured standing still with the crowd on screen:** at 16 peers all three tiers equal a
   bare emulator; at 56, OAM 60.0 vs painted 39.6; both cheap tiers full (67 characters) still 60.0.
-- **Do not re-propose HBlank multiplexing.** Refuted on its premise, not untried -- the 2026-08-21
-  ADR has the three independent reasons. `ideas.md` keeps the entry.
+- **HBlank multiplexing is CLOSED**, user-confirmed 2026-08-21: BizHawk cannot drive it and a ROM
+  patch is ruled out. Do not re-propose it; the ADR has all three reasons.
 - **The ACRO Bike: plain left/right riding is user-confirmed 1:1 and no ghost invents a hop.** Open:
   landing dust, the shadow sprite, and a reversal that leaves the SPAWNED ghost facing the old way.
 - **Frame rate is a SHIPPING requirement and nothing may pass that breaks it** -- user, 2026-08-21:
