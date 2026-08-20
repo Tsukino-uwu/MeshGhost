@@ -8,8 +8,10 @@ is the part that is not.
 
 - **Emerald peer states: fishing, surfing and the MACH Bike are confirmed on both tiers**, with
   ledge hops and the muddy slope. `verified.md` 2026-08-19/20.
-- **The ACRO Bike: wheelie poses mirrored again, six measured fixes, the idle pose confirmed.**
+- **The ACRO Bike: wheelie poses mirrored again, and bike mount/dismount is 1:1 and confirmed.**
   Landing dust, the shadow sprite and a blocked rider's action are still open. `verified.md` 2026-08-20.
+- **Read `pitfalls.md`'s "mount/dismount pose war" before trusting any sprite comparison**: the
+  player-tile compare is garbage by construction, and a loader reload respawns (and so resets) a ghost.
 - **The drawn tier moves at a constant speed now, not an ease** -- and collision is readable, so a
   scripted ride can path instead of counting tiles blind. `verified.md` 2026-08-20.
 - **Emerald's drawn tier: occlusion behind scenery, the water reflection with its ripple, tall
@@ -31,12 +33,16 @@ confirmation pass:
 
 | ROM | BizHawk pid | Bridge | Loader control file |
 |---|---|---|---|
-| Vanilla Emerald | 31012 | 7778 | `bizhawk-dev-loader-emerald.target` |
+| Vanilla Emerald | 28328 | 7778 | `bizhawk-dev-loader-emerald.target` |
 
-(pids change; match on the `--lua=` argument. The relay on 7777 carries `-loopback`, so the one
-client sees a self-ghost; the core is pinned to `-transport=tcp`, deliberately, to keep a quic drop
-from being mistaken for a ghost bug. The loader control file holds the adapter plus
-`probes/textbox_probe.lua`; drop the probe before judging performance.)
+(pids as of 2026-08-20 afternoon; they change — match on the `--lua=` argument. The relay on 7777
+is pid 10196 with `-loopback -ghost-collision=disabled`, the core pid 2412 pinned `-transport=tcp`.
+The loader set is the syntax check, a scratchpad `flags_compare.lua` setting the three dev flags —
+`MESHGHOST_COMPARE_TIERS`, `MESHGHOST_GHOST_PEER_GFX`, `MESHGHOST_EMERALD_NO_COLLISION` — and the
+adapter. That trio plus the relay flag is the standing dev-session default; the flags file lives in
+the session scratchpad, so a NEW session must recreate it before the adapter line or peers stay in
+one graphic and collide. **Do not edit the control file between a user action and its reading — a
+reload respawns the ghost and resets the very state under test**, `pitfalls.md` 2026-08-20.)
 
 **The opening move, in order:**
 

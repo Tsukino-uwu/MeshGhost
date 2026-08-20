@@ -8786,3 +8786,28 @@ that drifted across the map, and on 2026-08-20 a square that parked the player i
 and logged nothing for the rest of the run. All of that is avoidable with a lookup that now exists.
 The method, and the two sources that must BOTH be read (the grid, and the object-event array, since
 an NPC blocks a tile the grid calls free), are in `adapters/_template/probes.md`.
+
+---
+
+## 2026-08-20 — Emerald: bike mount/dismount is 1:1 on the spawned tier, confirmed
+
+**User-confirmed on screen**, the end of a five-hour chain: *"think its actually perfect now."*
+Mount and dismount now show the correct idle pose, with no phantom walk/pedal animation in between,
+at the same visible moment as the painted copy — within ~1 frame of the wire.
+
+What shipped, each measured before and after (`pitfalls.md` 2026-08-20 has the full chain):
+
+- A graphic change ends in a **settle** — `needsSettle` + `settleStatic`, the engine sets the pose
+  via the static face action. The user's own one-tile observation named this mechanism.
+- The in-place swap **arrives paused when the peer is paused** (`spaused` threaded through), and
+  passes the peer's frame index instead of a hardcoded 0.
+- Non-fishing swaps **land mid-step**; the never-interrupt gate stays for fishing, whose measured
+  offset fault is the reason the gate exists.
+- The sender's 6-frame graphic hold is **skipped for the six known offset-free graphics**
+  (walker/Mach/Acro, both genders), keeping it for fishing and anything unrecognised.
+
+**Also established, agent-measured:** the player's sprite draws through its subsprite table with
+its struct tile entry parked at 0 — so comparing any sprite's VRAM "against the player" reads
+garbage. The ROM-frame comparison in `probes/posediff.lua` is the trustworthy instrument, and the
+frame-by-frame screenshot burst (player at frame 22, ghost at 29) is what turned "slower" into a
+number.

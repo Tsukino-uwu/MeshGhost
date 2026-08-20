@@ -2629,3 +2629,59 @@ complete in one frame with no animation.
 comment saying why it was chosen is the thing that makes the wrongness invisible -- it reads as
 settled. When a state animates too much, look at WHICH ACTION is being issued before looking at the
 animation code.
+
+## Emerald: the mount/dismount pose war — five hours, three wrong instruments (2026-08-20)
+
+The spawned ghost wore the wrong pose after getting on or off a bike, and showed it *slower* than
+the painted copy. User-confirmed fixed the same day. What made it expensive was not the bug — it
+was that **three separate measuring instruments were wrong before the code was**, and each wrong
+instrument produced a round of confident fixes aimed at nothing. Symptom → cause → fix for each:
+
+**1. The player-tile comparison measured garbage, including its zeros.** `posediff.lua` compared
+the ghost's OBJ VRAM range against the player's, taking the player's tile number from their
+sprite's OAM attribute 2. That reads **0** — the player draws through a subsprite table with the
+struct's own tile entry parked — so every byte compared "against the player" was whatever lived at
+tile 0. Two fixes were reverted because this number said they changed nothing; one of them was
+later re-applied unchanged and was the actual fix. *The tell:* the user said "walking looks fine"
+while the probe insisted 376 of 512 bytes differed. When the user contradicts the meter, the meter
+is the suspect — that rule is already in this file and it paid again. *Fix:* compare the ghost's
+tiles against the **ROM frame** its animation names (`romDiff` in `posediff.lua`) — the ROM owes
+nothing to either sprite. That column diagnosed in one reading what six field-level fixes missed.
+
+**2. The measurement procedure erased the symptom before measuring it.** Every change to the
+dev-loader's control file reloads the script set; a reload respawns the ghost; **the respawn path
+loads the correct frame**. So every screenshot taken by first adding `shot_once.lua` to the target
+photographed a freshly reset ghost — pixel-identical to the player, twice, in the exact state the
+user was seeing wrong. The user's own screenshots finally showed the stride the agent's never
+could. *Fix:* load every probe you might need in ONE set before the test starts, and never touch
+the control file between the user's action and the reading. The general form is already this
+file's "a diagnostic can break the thing it measures" — this is the variant where the *harness*
+resets the state, and it is nastier because each individual reading is genuinely correct.
+
+**3. Field agreement is not pixel agreement.** Player and ghost reported identical animation
+number and index for 180 straight frames while displaying different frames. An object event's
+frame image is only copied to VRAM when its animation *advances*; a paused sprite reports whatever
+its fields say while displaying whatever was last copied. Every trace this adapter had compared
+fields. *Fix:* the tile/ROM comparison above, now a standing probe.
+
+**With honest instruments, the actual bugs took minutes each:**
+
+- **The swap loaded a mid-transition frame and pinned it.** `swapGhostGraphicInPlace` sampled
+  `sanim`/`sidx` from the wire at swap time — mid-transition, often a stride — and the
+  paused-arrival meant nothing ever repainted it. Fix: the settle. A graphic change now arms
+  `needsSettle` + `settleStatic`, and the **engine** sets the pose via the static face action —
+  the user's own observation named the mechanism: *"it does get the correct/proper pose if you
+  mount/dismount and then move 1 tile afterwards."* A settle is a zero-motion step.
+- **The swap started an animation nobody was playing.** It set `animBeginning` unconditionally, so
+  a standing peer's swap played a walk/pedal cycle out of nowhere until the settle caught it. Fix:
+  gated on the peer's own paused bit — a paused peer's ghost arrives paused; a rod cast still
+  animates.
+- **Two latency sources, measured by frame-by-frame screenshot burst** (player changed at frame
+  22, ghost at 29): the "never interrupt a half-played step" gate deferred swaps behind catch-up
+  steps (fixed: non-fishing swaps land mid-step; the gate was measured in for fishing's offset and
+  stays for fishing), and the sender's 6-frame graphic hold (fixed: skipped for the six known
+  offset-free graphics — walker/Mach/Acro both genders — kept for anything else).
+
+**The meta-lesson, worth more than any fix here: when N fixes in a row "don't work", stop fixing
+and audit the instrument.** Six attempts failed against bad metrics; the seventh with a good
+metric was one of the six, re-applied.

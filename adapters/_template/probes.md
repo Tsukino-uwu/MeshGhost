@@ -989,3 +989,28 @@ looking wrong that this project has a hard rule against.
 
 **Then give every driving probe two things:** a walkability test before it commits to a direction,
 and a timeout so a leg that cannot finish still ends. The timeout is the backstop, never the plan.
+
+## Three probe rules from the mount/dismount pose war (Emerald, 2026-08-20)
+
+The full story is in `agent_docs/pitfalls.md`; these are the parts every future probe should
+inherit. A wrong-pose bug survived six fixes because three instruments were wrong before the code
+was.
+
+**Compare a sprite's pixels against the ROM, never against another live sprite.** A character that
+draws through a subsprite table parks its struct's own tile entry — reading its tileNum gives 0 and
+"its" pixels are whatever lives there. The trustworthy comparison resolves (animation, index)
+through the graphic's own anims table to a ROM image and diffs against that: it owes nothing to
+either sprite, and it splits "the copy did not land" from "we asked for the wrong frame" in one
+reading (`adapters/bizhawk/pokemon/emerald/probes/posediff.lua`, the `ghost vs ROM` column).
+
+**A dev-loader reload is part of the experiment.** Reloading the adapter respawns its ghosts, and a
+respawn re-derives exactly the state a transition bug corrupts — so "add the screenshot probe, then
+look" photographs a reset ghost, correct every time, while the user stares at the wrong one. Load
+everything the test might need in ONE control-file write before the user acts, and change nothing
+until the reading is taken. The user's own screenshots outrank any the agent takes after a reload.
+
+**When the question is "how much later", answer in frames, with a screenshot burst.**
+`dev-scripts/bizhawk-screenshot-loop.lua` at interval 1 across a driven transition, then hash a
+fixed block per figure per frame and print the frame where each changed. One run turned "still
+slower" into "7 frames, 6 of which are the sender's hold" — an argument nothing verbal was
+settling. Point `MESHGHOST_SHOT_DIR` at the scratchpad; 400 PNGs do not belong in the repo.
