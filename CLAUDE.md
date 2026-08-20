@@ -74,8 +74,8 @@ stays here, its reasoning goes to `agent_docs/`, with a one-line pointer. Full e
   gets added later; the event/lease/escrow/world planes make "just write the item in" newly
   tempting, world custody worst. **Dev-only test tooling MAY cheat** — a probe, never an adapter;
   saves are expendable in testing (user, 2026-08-18). `plans.md`; `_template/README.md` the line.
-- **The core never touches the game.** No game memory access, no rendering primitives, no
-  `if game == "emerald"` branching anywhere in `core` or `relay`.
+- **The core never touches the game — and no config or feature may make it game-aware, ever.** No
+  game memory, no rendering primitives, no `if game == "emerald"` in `core` or `relay`. ADR 08-20.
 - **Adapters never speak the relay protocol.** An adapter may hold a socket to its own local
   core process (the bridge) and nothing else — it never learns a relay address and never
   sends bytes off-machine directly. See `agent_docs/contract.md` for the bridge/relay split.

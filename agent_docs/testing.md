@@ -227,6 +227,15 @@ and its `contents: write` permission is the reason CI is deliberately `contents:
   covered where it is used: `core`'s `dialFakeAdapter` speaks real bridge NDJSON, and
   `internal/e2e` drives a real adapter across it. Worth knowing before assuming a bridge change
   is unguarded.
+- **`internal/gameblind`** — the structural rules, made mechanical (2026-08-20). Four tests, no
+  network and no game: **no game name in library code** (comments and tests are exempt — naming
+  the game a rule came from is documentation, and Go-side tests use game ids as sample data);
+  **library imports stay generic**; **the wire's field lists are frozen**, so a field only one
+  game needs cannot be added silently; and **the three stay three** — a forbidden-import list
+  that fails if server, client and adapter start merging (`_test.go` files exempt, since `core`'s
+  own tests start a real relay on purpose). Read the file's header before changing any of it: it
+  carries the user's wording of the rule and the burden of proof for a new wire field. Each of
+  the four was proven to fail against a deliberate violation before being kept.
 - **`cmd/meshghost`, `cmd/meshghost-relay`, `cmd/meshghost-netsim`** — each has its own tests,
   mostly around config/flag precedence and, for netsim, the fault injection itself.
 - **`internal/e2e`** — builds and launches the real `meshghost-server.exe` and `meshghost.exe`,

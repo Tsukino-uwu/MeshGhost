@@ -2149,3 +2149,52 @@ release must reuse the SAME staged artifacts, not rebuild per bundle, or the gat
 fragment across zips.
 
 **Not scheduled.** Nothing here is committed until it moves into `plans.md`.
+
+## "Hide every ghost, but still be one" — a client-only invisibility setting — filed 2026-08-20
+
+**The ask, user 2026-08-20:** a client setting meaning *"don't show others' ghosts / can't see other
+ghosts at all, just yourself"* while **still connecting and still showing up for everybody else** --
+for speedrunners who want zero visual distraction but do not want to drop out of the room. Client
+only, explicitly **not** a client/server pair: nobody else's view changes because you set it.
+
+**Why it is its own thing, not part of the speedrunner profile.** The "speedrunner" mode above is
+about *interaction* -- forcing a session cosmetic-pure so a run is submittable, which is a claim a
+moderator can check. This one changes nothing about what peers may do to your game, because in the
+shipped default they already may do nothing; it changes only what your own screen draws. Two
+different guarantees, and folding them together would make the sterile-run claim mean "and I
+couldn't see anyone", which is not what it is for. They compose -- a speedrunner will often want
+both -- and that is the argument for keeping them separate switches with one profile able to set
+both, exactly as the profile idea already frames it.
+
+**It is genuinely one-sided, which is what makes it cheap.** Send is untouched: the adapter keeps
+reporting local state, the core keeps publishing it, and every other client still sees you move.
+Only the RENDER path is suppressed. That asymmetry also means nothing needs advertising at join and
+no policy has to be advertised or verified -- unlike `ghost_collision`, there is nothing for a
+relay to state, because a peer cannot tell and does not need to.
+
+**Where the switch belongs is SETTLED, 2026-08-20: the core, as a receive-side filter** (ADR in
+`architecture.md`). The user ruled the principle first -- the client/server never learns anything
+about any game or adapter, no matter what config or feature gets added -- and then asked the
+question that resolves it: can the core hold this and still be dumb, so it is reusable for every
+game? It can. Dropping remote peer states needs no game knowledge; it operates on the contract's
+own data, the same as the receive-rate cap. The two layers considered, and why the core won:
+
+- **In the core**, dropping remote state before it reaches the bridge. Saves the adapter all
+  per-peer work, applies to every game at once for free, and is the only version that also saves
+  the per-frame cost of tracking peers -- which on Emerald is real: object slots, VRAM copies, and
+  the drawn tier's per-peer painting. Risk: the adapter's ghosts must be torn down cleanly when it
+  flips, not merely starved of updates, or they freeze in place instead of disappearing.
+- **In each adapter**, drawing nothing. Simple per game, but it is the same work repeated per
+  adapter and it keeps paying the tracking cost it was meant to remove.
+
+The core version looks right for exactly the reason the core/adapter split exists, and the small
+efficiency win is a feature rather than a side effect (a hidden ghost should cost nothing, not cost
+the same and be invisible). Worth confirming the teardown behaves before committing to it.
+
+**Also worth deciding when it is built:** whether it can be toggled mid-session (a speedrunner
+practising, then running) or only at startup -- mid-session is much more useful and is precisely
+the teardown case above -- and whether "just yourself" should still show peer *names* or counts
+anywhere in the HUD, or truly nothing. The ask says zero visual distractions, so the default answer
+is nothing at all.
+
+**Not scheduled.** Nothing here is committed until it moves into `plans.md`.

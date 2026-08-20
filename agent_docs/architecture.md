@@ -2215,6 +2215,59 @@ Format: Date / Decision / Status / Context / Options considered / Resolution / C
   works, it collapses the whole expensive case above.
 
 
+---
+
+- **Date:** 2026-08-20
+- **Decision:** The Go side stays game-blind permanently — and "game-blind" is a statement about
+  GAME KNOWLEDGE, not about which process does work. A client-only "hide every ghost, but still be
+  one" setting therefore belongs in the **core**, as a receive-side filter.
+- **Status:** accepted (user ruling)
+- **Context:** Filing the hide-ghosts idea, I offered core-versus-adapter and called the core the
+  cheaper place because it saves per-peer work for every game at once. The user ruled first on the
+  principle: *"i never want the server/client to know anything about any game/adapter no matter
+  what. it should always stay dumb no matter what new config/features we add for it ... this whole
+  project is built on the server/client being its own thing, and the adapter/game being its own
+  thing"* — then asked the sharper question, *"or could it be in core, and still keep server/client
+  dumb? to make it reusable in other games"*.
+- **Options considered:** (a) each adapter suppresses its own rendering; (b) the core stops
+  delivering remote states to the bridge; (c) a relay-side policy like `ghost_collision`.
+- **Resolution:** (b). (c) is wrong outright — this setting must not change what anyone else sees,
+  so there is nothing for a relay to advertise or for a host to set. Between (a) and (b), the test
+  the rule actually asks is *"does this code have to know anything about a specific game?"*, and
+  dropping remote peer states does not: it operates on the contract's own data, exactly as the
+  receive-rate cap and the cross-area filter already do. **The core can hold this and still be
+  dumb.** Written once, every existing and future adapter inherits it with no per-game work, which
+  is the reuse the user asked about, and the adapter's per-peer cost disappears for free because it
+  never learns a peer exists.
+- **Consequences:** From an adapter's side, flipping this on looks exactly like every peer leaving
+  the room — a case every adapter already handles game-agnostically, so it reuses existing contract
+  behaviour rather than adding any. **That is the thing to verify live before calling it done**: a
+  ghost starved of updates must be torn down, not frozen in place, and the same question decides
+  whether the setting can be toggled mid-session (a speedrunner practising, then running) or only
+  at startup.
+
+  **Send is untouched by construction.** The core still reports local state and still publishes it,
+  so peers see you normally; only delivery of THEIR states into this machine's bridge stops. The
+  relay is not involved at all.
+
+  **The tell for a future violation, so this stays checkable:** a game name, an adapter-specific
+  branch, or a field the core has to interpret rather than pass through. Any of those means the
+  work moved to the wrong side of the line, however cheap it looked — and "it would be more
+  efficient in the core" is precisely the argument that has to lose, because efficiency is the
+  reason a game-aware core gets built by accident. The one-line form of this now sits in
+  `CLAUDE.md`'s core rule.
+
+  **The rule stated in the user's own words, 2026-08-20, and this is the version to apply:**
+  *"its fine to have dumb/generic things in the server/client i guess, if it allows us to reuse
+  things for other games. but i still want it to be dumb/not know how the games work"*. So the
+  question to ask of any proposed Go-side feature is never "is this a feature?" but **"does it
+  need to know how a game works?"** — a generic capability every adapter can reuse is welcome
+  there; anything that has to understand a game is not, however small.
+
+  **Enforced, not merely stated, since 2026-08-20:** `internal/gameblind` fails the build on a
+  game name in library code, a non-generic import, a changed wire field list, or any import that
+  merges server, client and adapter into fewer than three things. `testing.md` describes it.
+
 ## Prior art: how CelesteNet handles this (researched 2026-08-13)
 
 Moved here from `docs/security.md` on 2026-08-19: it is research history behind several
