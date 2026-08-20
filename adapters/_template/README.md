@@ -1169,10 +1169,16 @@ adapter, because none is about that game:
    own view. Respawning one it just culled starts a loop -- allocate, cull, allocate -- that costs
    tile allocation and sprite setup every cycle and produced 217ms frames. A spawn decision must
    ask *"will this survive the engine's own housekeeping?"*, not merely *"is there a free slot?"*.
-2. **The front-end's console is a GUI append, not a print.** In BizHawk one `console.log` per
-   event is measurably heavy, and the events that most want logging (culls, respawns, refusals)
-   are exactly the ones that arrive in bursts. Log to the adapter's FILE; keep the console for
-   things a human must see immediately.
+2. **The front-end's console is a GUI append, not a print — and ONE line a second is already too
+   many.** Measured 2026-08-21 on Emerald: a probe logging a single `console.log` once a second ran
+   **50.7 avg fps against a 58.1 control**, and sending that same line to the file instead recovered
+   all of it — 58.1, exactly the control, with the feature it was measuring still running. The cost
+   is not per line; it scales with **what the console window already holds**, so it grows through a
+   session and gets harder to attribute the longer you work. This entry used to say the danger was
+   events arriving in BURSTS. That was too generous, and the measurement above is why it no longer
+   says it. **Split the two calls**: a `say()` for the handful of orientation lines at load, and a
+   `log()` on every per-frame or per-second path that only ever writes the FILE. Full numbers and
+   the subtraction that found it: `agent_docs/pitfalls.md`, 2026-08-21.
 3. **"In use by the engine" and "in use by us" are different questions.** Anything claimed by
    asking the engine *"is this free?"* -- object slots, sprite slots, VRAM tile ranges -- has a
    window where our own claim is invisible to that question, and a second peer will land in it.

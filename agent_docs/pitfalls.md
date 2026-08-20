@@ -1719,6 +1719,57 @@ both hold 59.7-59.8fps with the same 13 ghosts placed.
 with load while successes are capped. Anything that logs unconditionally where the count is
 attacker- (or room-) controlled belongs behind a throttle from the start.
 
+## ONE console line a second cost 7.4 fps — and the feature it was measuring cost nothing (2026-08-21, Emerald)
+
+**Symptom.** The user, watching the Stage 1 hardware-sprite probe: *"i think its lagging constantly"*.
+The ride harness agreed immediately — **50.7 avg / 25 worst against a 58.1 / 38 control**, reproduced
+at 50.8 on a second run. The probe under suspicion does about **ten memory reads and three memory
+writes a frame**, which is not a cost anyone would predict, so the obvious conclusion was that
+writing OAM from Lua is expensive.
+
+**That conclusion was wrong, and subtraction is what showed it.** Three switches, one run each, one
+thing removed at a time — never a third guess:
+
+| configuration | avg fps | worst |
+| --- | --- | --- |
+| ride alone (bare control) | 58.1 | 38 |
+| ride + an EMPTY second script | 58.1 | 37 |
+| probe, everything on | 50.7 / 50.8 | 25 / 27 |
+| probe, **OAM writes removed** | 50.4 | 25 |
+| probe, **the player scan removed** | 50.5 | 26 |
+| probe, **the log line removed**, writes and scan still on | **58.1** | 37 |
+| probe, log line sent to the FILE instead, everything on | **58.1** | 37 |
+
+Removing the writes changed nothing. Removing the scan changed nothing. Removing **one**
+`console.log` per second — about 33 lines over a 33-second route — recovered the entire 7.4 fps and
+landed exactly on the bare-emulator control, with the hardware sprite still on screen.
+
+**Diagnosis, and the part worth internalising.** `console.log` in BizHawk is **not a print**. It is
+a text append into the Lua Console *window*, and its cost is a function of **what that window
+already holds** — a session that has been open for hours has a large backlog, so the same call gets
+more expensive the longer you work, which is exactly the shape that makes it hard to attribute. The
+2026-08-19 entry above priced this at ~1,400 calls a second and read as a lesson about volume. It is
+not about volume. **One line a second is already too many.** The threshold is far lower than any
+reasonable person would guess, and it is not a fixed threshold at all.
+
+**The rule, stated so it cannot be read as being about bursts.** Nothing on a per-frame or
+per-second path calls `console.log`, in a probe or in an adapter. Split the two: a `say()` for the
+handful of orientation lines at load, and a `log()` that only ever writes the file. That is what
+`probes/oaminject_probe.lua` does now, and its header carries these numbers as the reason.
+
+**And the quality bar this serves, in the user's words (2026-08-21):** *"there can't be any fps
+drops like this in a shipped/release of the game, not allowed to pass quality wise by me. we have to
+keep base fps"*. A release holds the platform's base rate — 60 for a GBA — measured against a bare
+control run on the same route, because the machine has its own floor and without the control the
+game's own map loading gets blamed for whatever was loaded at the time. **A drop of this size is a
+blocker, not a rough edge**, and the fact that it came from a diagnostic rather than a feature makes
+it worse, not more forgivable: it is a cost the user pays for nothing.
+
+**The second lesson, free with the first.** A diagnostic can break the thing it measures, and this
+is the cheapest possible illustration — the probe existed to price a feature and instead priced
+itself, and it very nearly convicted OAM writing of a cost it does not have. When something
+measures slow, subtract the instrument before believing the subject.
+
 ## "The game blocked me" was an NPC finishing a sentence (2026-08-19)
 
 **Symptom.** A measurement was abandoned and its absence written into the record as a property of

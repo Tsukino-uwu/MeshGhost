@@ -9033,3 +9033,35 @@ something non-dummy above the limit and see whether it appears on screen.
 `0x08085e5d`, not `0x08085e5c`. The adapter has always tested both (`meshghost_emerald.lua:136`); a
 probe that tests only the even address stays silent forever and reads as a dead emulator, which is
 how the first run of this one looked.
+
+## 2026-08-21 — Emerald: a hardware sprite is DRAWN from Lua, and costs nothing measurable
+
+**Agent-measured, `probes/oaminject_probe.lua` + `probes/fpsride.lua`, same scripted route every
+run.** One OAM entry written into `gMain.oamBuffer[64]` every frame, borrowing the player's own tile
+number and palette slot, positioned two tiles above the player.
+
+**It renders.** A second copy of the player appears above the player, drawn by the emulated PPU from
+an entry no engine code ever wrote. That settles the claim `oamshadow_probe.lua` deliberately could
+not: `LoadOam` really does push all 128 entries, so the window above `gOamLimit` reaches hardware.
+**The on-screen behaviour — occlusion behind scenery, hiding under the START menu and text boxes,
+dimming with fades — is still the user's to confirm** on this vanilla ROM.
+
+**It is free, and that is the headline for the tier:**
+
+| configuration | avg fps | worst |
+| --- | --- | --- |
+| ride alone (bare control) | 58.1 | 38 |
+| ride + an empty second script | 58.1 | 37 |
+| probe, everything on, logging to the FILE | **58.1** | 37 |
+| probe, everything on, one `console.log` per second | 50.7 / 50.8 | 25 / 27 |
+| probe, OAM writes removed | 50.4 | 25 |
+| probe, player scan removed | 50.5 | 26 |
+
+So the OAM writes, the per-frame player lookup and the extra hardware sprite together cost **nothing
+measurable** against a bare-emulator control — against ~0.6ms per ghost per frame for the painted
+tier. The 7.4 fps that looked like the feature was one `console.log` a second; see `pitfalls.md`
+2026-08-21, which is also where the general rule was tightened and the template back-port recorded.
+
+**Method note worth keeping:** the empty-second-script row is what made the result trustworthy. It
+separates "this probe costs something" from "loading a second script costs something", and it took
+one run.
