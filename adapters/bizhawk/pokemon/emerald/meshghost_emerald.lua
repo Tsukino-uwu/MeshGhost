@@ -2349,6 +2349,14 @@ function drawRunList(runs, frameWidth, hFlip, screenX, screenY, panelRows, dim, 
                 if kx1 < pc[1] then kx1 = pc[1] end
                 if kx2 > pc[2] then kx2 = pc[2] end
             end
+            -- THE CAVE'S LIT CIRCLE, intersected -- not subtracted like the panel below. Outside
+            -- it the hardware displays nothing, so neither may we. Costs one halfword per row and
+            -- only where a flash effect is actually running; see genderFrames.flashSpan.
+            local fl, fr = genderFrames.flashSpan(y)
+            if fl then
+                if kx1 < fl then kx1 = fl end
+                if kx2 > fr then kx2 = fr end
+            end
             if kx1 <= kx2 then
                 -- math.floor, NOT a shift: y comes from the sub-tile smoothing and is a FLOAT, and
                 -- Lua 5.4's >> demands an integer -- "number has no integer representation" thrown
@@ -2398,8 +2406,14 @@ end
 -- default offset mode. A launch-time env var rather than a code constant so switching between
 -- the two doesn't need a script reload/edit, just a different .local.bat -- see
 -- dev-scripts/README.md.
-local LOOPBACK_GHOST_OFFSET_TILES_X = (os.getenv("MESHGHOST_LOOPBACK_TRAIL") and 0) or 2
-local LOOPBACK_GHOST_OFFSET_TILES_Y = 0
+-- The globals let a loader script place the copies for a particular question without a restart --
+-- e.g. "OAM directly above me, spawned one tile to my right" for judging occlusion, where the
+-- default spread puts them on different ground. MESHGHOST_LOOPBACK_TRAIL still wins: it is the
+-- exact-trail mode, and an offset would defeat it.
+local LOOPBACK_GHOST_OFFSET_TILES_X = (os.getenv("MESHGHOST_LOOPBACK_TRAIL") and 0)
+    or tonumber(MESHGHOST_LOOPBACK_OFFSET_X or "") or 2
+local LOOPBACK_GHOST_OFFSET_TILES_Y = (os.getenv("MESHGHOST_LOOPBACK_TRAIL") and 0)
+    or tonumber(MESHGHOST_LOOPBACK_OFFSET_Y or "") or 0
 
 -- SIDE-BY-SIDE TIER COMPARISON (dev only, off by default) -- MESHGHOST_COMPARE_TIERS.
 --
@@ -2892,6 +2906,55 @@ end
 -- ice reflection is set up with stillReflection TRUE, which never turns the affine mode on, so
 -- there is no matrix in play and nothing to breathe. Asked for one, this returns a flat 1.0.
 -- Without it a peer on Shoal Cave's ice shimmered like a peer on a pond.
+-- THE FLASH CIRCLE, WHICH IS THE ONE PIECE OF OCCLUSION THIS TIER CAN ACTUALLY HAVE.
+--
+-- A dark cave is not a drawn overlay. It is WINDOW 0: the engine writes the lit span for every
+-- scanline into the scanline-effect buffer and DMAs it to REG_WIN0H each HBlank
+-- (`sFlashEffectParams` targets `&REG_WIN0H`, src/field_screen_effect.c), so outside the circle
+-- the layers simply are not displayed. The spawned and OAM copies are real sprites and the window
+-- clips them for free; this tier paints after the PPU has finished, where windows no longer exist,
+-- so the user saw the painted ghost shining through the dark -- *"drawn ghost is not hidden in
+-- darkness/caves"*.
+--
+-- Unlike the fog, this one is fixable, and cheaply: the lit region is READABLE DATA rather than a
+-- priority we cannot win. One halfword per painted row gives that row's span, and the paint is
+-- intersected with it.
+--
+-- Measured live in Granite Cave B1F, 2026-08-21: rows 56..104 lit, 114-126 at the top edge
+-- widening to 96-144 at the middle -- centre (120, 80), radius 24, which is
+-- `sFlashLevelToRadius[7]`. Every other row reads 0-0.
+--
+-- WHAT IT MUST NOT DO IS CLIP WHEN THERE IS NO CIRCLE. An all-zero buffer means "nothing lit
+-- anywhere", so trusting it unconditionally would erase this tier on every ordinary map. The
+-- effect is therefore confirmed at its source: gScanlineEffect's dmaDest must be REG_WIN0H and its
+-- state non-zero. Another scanline effect on another register leaves this alone.
+--   gScanlineEffect 02039B28 { dmaDest 0x08, srcBuffer 0x14, state 0x15 } (pokeemerald.map and
+--   include/scanline_effect.h), gScanlineEffectRegBuffers 02038C28, u16[2][0x3C0].
+--
+-- VANILLA ONLY, like the hardware tier and the fishing hook: those are our own build's addresses
+-- and a patched ROM moves them. There the clip declines rather than reading someone else's memory,
+-- so a painted ghost still shows through a dark cave on an Archipelago seed. Known, and much
+-- better than clipping to garbage.
+genderFrames.flashCheckedAt, genderFrames.flashBuf = -100, nil
+genderFrames.flashSpan = function(y)
+    if frameCounter ~= genderFrames.flashCheckedAt then
+        genderFrames.flashCheckedAt = frameCounter
+        genderFrames.flashBuf = nil
+        if avatarAddrOffset == 0
+            and r32(0x02039b28 + 0x08) == 0x04000040
+            and r8(0x02039b28 + 0x15) ~= 0
+        then
+            genderFrames.flashBuf = 0x02038c28 + (r8(0x02039b28 + 0x14) & 1) * 0x3c0 * 2
+        end
+    end
+    if not genderFrames.flashBuf then return nil end
+    local row = math.floor(y)
+    if row < 0 or row > 159 then return nil end
+    local v = r16(genderFrames.flashBuf + row * 2)
+    -- WIN0H is (left << 8) | right, and the right edge is EXCLUSIVE on the hardware.
+    return v >> 8, (v & 0xff) - 1
+end
+
 -- WHICH PICTURE THE PEER IS ACTUALLY SHOWING, resolved the engine's way: the graphic's anim table
 -- indexed by animNum, then by animCmdIndex, and the low half of that AnimCmd_frame is the image
 -- index. Returns nil rather than a guess when anything is unreadable -- a peer mid-graphic-swap

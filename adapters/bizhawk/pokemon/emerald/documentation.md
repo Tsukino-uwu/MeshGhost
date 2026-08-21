@@ -591,6 +591,24 @@ reflection up with `stillReflection = TRUE`, and that flag is the only thing gat
 mode — so an ice reflection is a plain vertical flip with no matrix behind it, and none of the
 shimmer described above. Ice does not ripple, and neither does a reflection in it.
 
+## A dark cave is a WINDOW, not an overlay
+
+**[measured]** The darkness outside a cave's lit circle is not something drawn on top of the scene.
+It is **Window 0**: the engine writes each scanline's lit span into the scanline-effect buffer and
+DMAs it to `REG_WIN0H` every HBlank (`sFlashEffectParams` targets `&REG_WIN0H`,
+`src/field_screen_effect.c`), so outside the circle the layers are simply not displayed. Nothing is
+painted black — nothing is painted at all.
+
+Each entry is `(left << 8) | right`, one per scanline, right edge exclusive; rows outside the
+circle read `0-0`. Read live in Granite Cave B1F: rows 56–104 lit, `114-126` at the top edge
+widening to `96-144` at the middle — centre (120, 80), radius 24, which is
+`sFlashLevelToRadius[7]`, the smallest non-zero flash level.
+
+**Two consequences.** Anything the hardware draws — backgrounds and sprites alike — is clipped to
+the circle for free. And **`WIN0H` and `WIN0V` cannot be read back**: they are write-only, so a
+register dump shows garbage. The live shape has to come from the scanline buffer, and whether the
+effect is running from `gScanlineEffect` (`dmaDest` = `REG_WIN0H`, non-zero `state`).
+
 ## Weather fog is a grid of semi-transparent SPRITES, not a background
 
 **[measured]** In Mt Pyre Exterior the fog is twelve **64×64 sprites in objMode 1**

@@ -2,29 +2,27 @@
 
 ## Active status
 
-**2026-08-21 (fourth session that day): ICE SLIDING IS DONE, user-confirmed** — *"Ice is
-done/confirmed."* Shoal Cave's ice, judged on all three tiers: the reflections (ice reflections are
-STILL, the engine's own second reflection kind, which we never had), the held pose while sliding,
-the extra stride at the stop, and the slow arrival after it. Entries: `verified.md`. Methods:
-`pitfalls.md`.
+**2026-08-21 (fourth session that day): ICE, FOG AND CAVE DARKNESS ARE DONE, user-confirmed** —
+*"Ice is done/confirmed"*, then *"Ice, fog, cave darkness have been confirmed."* Entries:
+`verified.md`. Methods and the lessons that cost the most: `pitfalls.md`.
 
 - **`spaused` had a partner we never sent.** `disableAnim` means the object may not animate and
-  outranks a movement; a slide is a character crossing tiles with its legs still. Sent as
+  outranks a movement; an ice slide is a character crossing tiles with its legs still. Sent as
   `extras.noanim`. Three separate things were each undoing it. `verified.md`.
-- **The OAM tier's stand-down was named after the wrong thing.** It tested for UNDERWATER; Mt Pyre's
-  fog reproduced it on dry land. It now tests the screen — a count of semi-transparent sprites among
-  the engine's entries. **Still a limit, not a fix**: those peers are painted instead.
-  `FLAGS.md`, `documentation.md`.
-- **The dive session's stated reason for that limit was wrong**, and the engine's own character
-  standing in front of the same fog disproves it. It is not "cannot blend against a sprite" — it is
-  that we can only get in front by outranking the sheet's PRIORITY, where the game gets in front on
-  a lower ENTRY NUMBER at equal priority. `pitfalls.md`.
-- **`goto_map` never placed the player at all** — `CB2_LoadMap` does not run `WarpIntoMap`. It
-  changed the map and left the coordinates, which trapped the user outside a smaller map twice.
-  Fixed with `MESHGHOST_WARP_X/_Y`. `verified.md`.
+- **Two fixes were named after WHERE they were found, and both were wrong for it.** The OAM tier's
+  stand-down tested `underwater`, so Mt Pyre's fog reproduced it on dry land; it now tests the
+  screen. The dive session's stated REASON was wrong too — the engine's own character stands in
+  front of the same fog with no artifact. `pitfalls.md`.
+- **The OAM tier under a semi-transparent sheet is an accepted limit, not a repaired tier**: its
+  peers are painted instead. The cave's darkness, by contrast, WAS fixable — the lit region is
+  readable data, where the sheet was a priority we cannot win. That distinction is the one to
+  carry to the next hardware effect. `FLAGS.md`, `documentation.md`.
+- **`goto_map` never placed the player at all** — `CB2_LoadMap` does not run `WarpIntoMap`, so it
+  changed the map and left the coordinates, trapping the user outside a smaller map twice. Fixed
+  with `MESHGHOST_WARP_X/_Y`, taken from the destination's own warp event. `verified.md`.
 - **Rig**: relay + core running hidden (loopback, tcp, collision off); emulator up; dev loader set =
-  flags + test kit (keeps Repel topped up) + noclip + adapter. Savestates: slot 1 the user's,
-  slot 6 the user's Mt Pyre fog spot, slot 8 goto_map's undo.
+  flags + test kit (keeps Repel topped up) + adapter. **noclip is OFF** (dropped, tiles restored).
+  Savestates: slot 1 the user's, slot 6 the user's Mt Pyre fog spot, slot 8 goto_map's undo.
 
 ## Genuinely open items
 

@@ -1236,3 +1236,19 @@ Two things that made it work, both worth copying:
 different places and can quietly stop exercising the thing being measured — one run spent most of
 its frames pressed against a wall. Log a state the phase depends on (here the tile behaviour under
 the player) and check it before reading the result.
+
+## Read the engine's own copy when the register is write-only (Emerald, 2026-08-21)
+
+Several GBA display registers are write-only and return garbage when read — `WIN0H`, `WIN0V`,
+`BLDY` among them — while their neighbours (`DISPCNT`, `BLDCNT`, `BLDALPHA`, `WININ`, `WINOUT`)
+read fine. A register dump therefore mixes real values with convincing noise, and nothing marks
+which is which.
+
+The live value usually exists in RAM anyway, because the engine has to keep its own copy to write
+each frame: a per-scanline effect keeps a buffer plus a small descriptor saying which register it
+targets and whether it is running. Read those instead. It is also strictly better than the
+register would have been — a per-scanline effect has 160 different values and the register only
+ever holds the current line's.
+
+**Check a register's read/write status before building an argument on a dump**, and prefer the
+engine's own state to a hardware read whenever both exist.

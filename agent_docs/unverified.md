@@ -591,3 +591,15 @@ Records in `verified.md`; methods in `pitfalls.md`.
   properly done now."* `verified.md` has the entries. What remains unjudged there: a CROWD
   underwater (only the loopback ghost has been seen), and the painted tier's cost when it carries
   peers the hardware tier would otherwise have taken (the underwater exception in `FLAGS.md`).
+
+## 2026-08-21 (ice/fog/cave session) — what the user has NOT confirmed
+
+Ice, the fog fallback and the cave-darkness clip are all **confirmed** and live in `verified.md`.
+What that session left untested:
+
+- **The flash clip on a PATCHED ROM.** It is gated to vanilla on purpose — the scanline addresses
+  are our own build's — so on an Archipelago seed the clip declines and a painted ghost still shows
+  through a dark cave. Deliberate, never seen.
+- **`MESHGHOST_LOOPBACK_OFFSET_X/_Y`**, added so a loader script can place the copies for a
+  particular question. Used once and put back; the defaults are unchanged, so nothing shipped
+  should differ — but the shipped default path has not been re-watched since the globals went in.

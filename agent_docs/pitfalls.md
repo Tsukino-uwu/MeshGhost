@@ -3653,3 +3653,50 @@ more entries). The user's own two descriptions, taken together, are what forced 
 **The habit.** When you write down a hardware or engine limit, look for the engine doing the thing
 you just called impossible. If it is, your rule is about YOUR configuration, not the hardware —
 and it will generalise wrongly the first time the configuration changes.
+
+## Emerald: the painted tier is outside the PPU, so every hardware effect is its problem (2026-08-21)
+
+**Symptom.** *"drawn ghost is not hidden in darkness/caves"* — in Granite Cave the painted copy
+shines through the black while the spawned and OAM copies are correctly hidden.
+
+**Diagnosis.** A dark cave is **Window 0**, not an overlay: the engine writes the lit span per
+scanline into the scanline-effect buffer and DMAs it to `REG_WIN0H` each HBlank, so outside the
+circle nothing is displayed. Real sprites are clipped by the window for free. The painted tier
+paints with `gui.drawPixel` after the PPU has finished, where windows no longer exist.
+
+**Fix.** Read the same spans and intersect each painted row with its own — one halfword per row.
+
+**The general shape, and it is the third instance.** Everything the hardware does for a sprite,
+this tier has to do for itself, and each one is discovered as a bug rather than anticipated:
+occlusion by a text panel (`scanPanel`), reflection clipping to water (`reflectiveSpans`), and now
+the flash window. **When adding anything to the painted tier, the question to ask is "what would
+the PPU have done to this, and can I read it?"** Sometimes the answer is yes and cheap — the flash
+circle is readable data. Sometimes it is no, and then the tier is the wrong renderer for that
+situation (see the semi-transparent sheet entry above).
+
+## A clip's GATE is more dangerous than the clip (Emerald, 2026-08-21)
+
+**The trap.** The flash clip's data is a per-scanline buffer of lit spans, and an inactive buffer
+reads as all zeroes — *nothing lit anywhere*. Trusting it unconditionally would not have produced a
+subtle error; it would have **erased the painted tier on every ordinary map**, far from the cave
+that motivated it and long after the change looked good.
+
+**The habit.** When a new clip's "no data" state is indistinguishable from "clip everything",
+confirm the effect at its SOURCE rather than inferring it from the data. Here that is
+`gScanlineEffect.dmaDest == REG_WIN0H` with a non-zero `state`, so a scanline effect on another
+register leaves the tier alone.
+
+**And test the negative case, not the motivating one.** The cave is where it obviously works; the
+regression lives on the ordinary map where nothing should have changed. Write the check for that
+one down at the same time — `unverified.md` carries it as the thing to look at.
+
+## Two write-only GBA registers that lie when read (Emerald, 2026-08-21)
+
+`WIN0H`, `WIN0V` and `BLDY` are write-only. Reading them back returns garbage that looks like data:
+a register dump chasing the fog showed `BLDY` swinging between plausible-looking values every
+frame, and `WIN0H` reading `0x2800` in a cave whose real span was `96-144`. `BLDCNT`, `BLDALPHA`,
+`WININ`, `WINOUT` and `DISPCNT` all read fine, which is what makes the bad ones convincing.
+
+**When a display register is write-only, the live value has to come from wherever the engine keeps
+its own copy** — for the flash circle, the scanline-effect buffer. Check the register's read/write
+status before building an argument on a dump.

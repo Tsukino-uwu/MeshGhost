@@ -9867,3 +9867,48 @@ skips whoever the hardware tier took.
 in front of the sheet is the player's — equal priority, lower entry — and entries 0–63 are the
 engine's own sprite list, rebuilt and blanked every frame from sprites a ghost cannot join. Taking
 one would mean deleting a fog patch to make room for it.
+
+## Emerald: fog and cave darkness — user-confirmed (2026-08-21)
+
+- Date: 2026-08-21, same session as the ice work. **Source: the user, on screen**: *"Ice, fog,
+  cave darkness have been confirmed."*
+- **Fog** covers the OAM tier's stand-down under a screen-covering semi-transparent sheet, and the
+  peers falling to the painted tier instead of vanishing. The entry above has the measurements and
+  the reason the tier cannot win that fight. **This is an accepted limit, not a repaired tier.**
+
+### Cave darkness: the painted tier now clips to the flash circle
+
+*"drawn ghost is not hidden in darkness/caves."* In Granite Cave the spawned and OAM copies were
+correctly hidden and the painted one shone through the black.
+
+**A dark cave is Window 0, not an overlay.** The engine writes each scanline's lit span into the
+scanline-effect buffer and DMAs it to `REG_WIN0H` every HBlank (`sFlashEffectParams` targets
+`&REG_WIN0H`, `src/field_screen_effect.c`), so outside the circle nothing is displayed at all. Real
+sprites are clipped by the window for free; the painted tier draws after the PPU has finished,
+where windows no longer exist. It now reads the same spans and intersects each painted row with
+its own — one halfword per row, only while a flash effect is running.
+
+Measured live in Granite Cave B1F: rows 56–104 lit, `114-126` at the top edge widening to `96-144`
+at the middle — centre (120, 80), radius 24, i.e. `sFlashLevelToRadius[7]`. Rows outside read `0-0`.
+
+**Unlike the fog, this one was fixable, and the difference is worth naming: the lit region is
+READABLE DATA, where the sheet was a priority we cannot win.** That is the question to ask of any
+future hardware effect this tier is missing.
+
+**The gate was the dangerous half, not the clip.** An inactive scanline buffer reads as all zeroes
+— *nothing lit anywhere* — so trusting it unconditionally would have erased the painted tier on
+every ordinary map, far from the cave that motivated it. The effect is confirmed at its source
+instead: `gScanlineEffect.dmaDest == REG_WIN0H` with a non-zero `state` (read live in the cave:
+`dmaDest=04000040 state=1`). A scanline effect on any other register leaves the tier alone.
+
+**Vanilla only**, like the hardware tier and the fishing hook: those are our own build's addresses.
+On a patched ROM the clip declines and a painted ghost still shows through a dark cave —
+`unverified.md`.
+
+### Two write-only registers that lie when read
+
+`WIN0H`, `WIN0V` and `BLDY` are write-only and return convincing garbage: `BLDY` swung between
+plausible values every frame during the fog investigation, and `WIN0H` read `0x2800` in a cave
+whose real span was `96-144`. `DISPCNT`, `BLDCNT`, `BLDALPHA`, `WININ` and `WINOUT` all read fine,
+which is exactly what makes the bad ones believable. The live value has to come from the engine's
+own copy — for the flash circle, the scanline buffer. `pitfalls.md`, `_template/probes.md`.
