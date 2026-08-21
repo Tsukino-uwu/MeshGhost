@@ -659,3 +659,29 @@ sprite. The first version of that rule was wrong in a way worth recording — it
 `wUsedSprites`" as "cannot be worn", which is false for the local player's own sprite, so **every**
 peer was demoted and the spawned tier was silently off. Caught by the adapter's own drawn-tier line
 reading `0 spawned as real objects`.
+
+## Pending — Crystal's hardware tier (2026-08-21)
+
+Built on the user's request as the middle rung of **spawned -> hardware -> drawn**, behind
+`MESHGHOST_CRYSTAL_OAM_OVERFLOW` (off by default). What is **measured**, by me, and therefore not
+verified: entries written at the adapter's frame boundary DO reach the hardware — entry 39 read back
+from the `OAM` domain, which is what the DMA delivered rather than the shadow bytes we wrote. Cost
+is nil at this scale: `emu 60.0fps`, 0 hitches over 20ms, worst frame gap 17-18ms, with three
+renderers live at once.
+
+**Nothing about how it LOOKS has been confirmed.** The queue, and the first two are predictions from
+the decomp that the screen may well refute:
+
+1. **A text box should draw BEHIND the hardware ghost** — the opposite of what a hardware tier is
+   usually wanted for, because a Crystal text box is background tiles with the BG-to-OAM priority
+   bit clear (`TextboxPalette`, `home/text.asm:100`) and the window is parked off-screen in normal
+   play. This was claimed the other way round earlier in the session and corrected from the source;
+   the screen is what settles it.
+2. **Opening START should make the hardware ghost vanish**, because `_UpdateSprites` stops running
+   and the tier stands down with it. That is the only occlusion it genuinely inherits.
+3. **Position, palette, flip and the walk cycle** — the arrangement comes from frames learned off
+   the local player, the same table the drawn tier uses, so a facing the player has not used since
+   the map loaded has nothing to draw and the peer falls through to being painted.
+4. **The three-way comparison itself**: hardware 4 tiles left, drawn 2 tiles left, spawned 2 tiles
+   right. Each copy is pinned to one rung — without that the hardware tier claims the drawn copy
+   too and the comparison silently becomes a renderer against itself.

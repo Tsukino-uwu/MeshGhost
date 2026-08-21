@@ -85,11 +85,17 @@ local LOOPBACK_OFFSET_X = tonumber(MESHGHOST_LOOPBACK_OFFSET_X or os.getenv("MES
 -- duplicated -- and it supplies its own +2 for the spawned side when no offset was set, since two
 -- ghosts stacked on the player is the comparison this exists to avoid.
 local COMPARE_TIERS = (MESHGHOST_COMPARE_TIERS or os.getenv("MESHGHOST_COMPARE_TIERS")) and true or false
-local COMPARE_DRAWN_OFFSET_X = -2
-local COMPARE_SPAWNED_OFFSET_X = 2
+-- ONE TABLE, not five names. This file sits at Lua's 200-local limit for a main chunk and has hit
+-- it twice on 2026-08-21, each time as a bare "LOAD FAILED" with the whole adapter not loading --
+-- so related constants get grouped rather than each spending one of the 200.
+--
+-- The hardware copy sits furthest out, so the three renderers read left-to-right as
+-- hardware, drawn, player, spawned. The user's layout, 2026-08-21.
+local COMPARE = { drawn = -2, spawned = 2, hw = -4 }
 -- The drawn copy lives in `overflow` under a key of its own, so it animates frame to frame like
 -- any other drawn peer while never colliding with the spawned copy's entry under the real id.
-local function compareKey(id) return id .. " (drawn copy)" end
+function COMPARE.key(id) return id .. " (drawn copy)" end
+function COMPARE.hwKey(id) return id .. " (hardware copy)" end
 
 local DOMAIN = "WRAM"
 local ROM_DOMAIN = "ROM"
@@ -130,6 +136,10 @@ local ADDRESSES = {
 		-- is the answer to "is sprite N loaded right now, and where" -- the question a peer's own
 		-- appearance depends on. Read-only here; nothing writes into it.
 		W_USEDSPRITES = flat(0xD154),
+		-- 01:d0ed. Bit 0 is SPRITE_UPDATES_DISABLED_F: _UpdateSprites returns immediately unless it
+		-- is SET, and while it is clear the game has cleared the sprite buffer itself (the START
+		-- menu). The hardware tier reads it so it stays out exactly when the game wants nobody drawn.
+		W_STATEFLAGS = flat(0xD0ED),
 		-- OverworldSprites, 05:4736 -> bank 5 * 0x4000 + (0x4736 - 0x4000). Six bytes per entry
 		-- (address, size, bank, type, palette), indexed by SPRITE_* - 1. Used by the drawn tier to
 		-- read a peer's graphics straight from the cartridge.
@@ -212,7 +222,7 @@ local W_MAPGROUP, W_MAPNUMBER, W_YCOORD, W_XCOORD
 local W_MAPSTATUS, W_BATTLEMODE, W_BGMAPOFFSETX, W_BGMAPOFFSETY
 -- nil on any build where it has not been measured (Archipelago's), which switches the peer's own
 -- appearance off rather than reading a plausible address.
-local W_USEDSPRITES
+local W_USEDSPRITES, W_STATEFLAGS
 local USED_SPRITES_CAPACITY = 32 -- SPRITE_GFX_LIST_CAPACITY
 
 local OBJECT_LENGTH, MAPOBJECT_LENGTH = 0x28, 0x10
@@ -1291,6 +1301,132 @@ local function drawCharacter(source, sx, sy, palIndex, facing, walkingFor)
 	drawRows(partRows(3), sx + 8, sy + 8, colors)
 end
 
+-- ---------------------------------------------------------------------------
+-- The HARDWARE tier: peers drawn by the Game Boy itself, not painted over it
+-- ---------------------------------------------------------------------------
+--
+-- The middle rung of spawned -> hardware -> drawn, and the user's request, 2026-08-21. A peer here
+-- is written straight into the game's sprite buffer, so the PPU draws it: the game's own live
+-- palettes including day/night and fades, correct ordering against the game's own cast, and no
+-- per-pixel Lua at all -- four bytes an entry instead of decoding and blitting tiles.
+--
+-- WHAT IT HONESTLY IS NOT, measured from the decomp before a line was written, because the case
+-- for this tier was overstated when it was first proposed and the correction matters:
+--
+--   * IT ADDS ALMOST NO CAPACITY. It draws from the same 40 entries the engine already fills:
+--     34-36 of 40 outdoors, 40 of 40 indoors (crowd-limits.md). That is zero to one extra
+--     character, and in a clump the per-scanline limit bites first. The case for it is quality.
+--   * IT DOES NOT GET OCCLUSION FREE. A Crystal text box is background tiles with the BG-to-OAM
+--     priority bit CLEAR (TextboxPalette, home/text.asm:100), and the hardware window is parked
+--     off-screen during normal play -- so a hardware sprite draws IN FRONT of a text box. This tier
+--     therefore reuses the drawn tier's clipping rather than claiming to inherit any.
+--   * IT INHERITS THE SPAWNED TIER'S RESIDENCY LIMIT. An OAM entry names a VRAM tile, so a peer
+--     wearing a sprite this map never loaded cannot go here. Only the drawn tier reads the
+--     cartridge, which is why it stays the bottom rung rather than this one.
+--
+-- HOW THE BUFFER WORKS (engine/overworld/map_objects.asm:2730, _UpdateSprites):
+--   * `hUsedSpriteIndex` (00:ffbd) is a BYTE offset, reset to 0 every frame, and InitSprites
+--     appends each visible character at 4 entries of 4 bytes;
+--   * `.fill` then writes OAM_YCOORD_HIDDEN (160) into the Y byte of every remaining entry;
+--   * the buffer reaches the hardware at VBlank.
+-- So the free tail starts at `hUsedSpriteIndex` and our entries must be written AFTER the fill and
+-- before the DMA. Whether the adapter's once-a-frame tick lands in that window is the one thing
+-- that could not be settled from the source, so `verify()` below reads the hardware OAM back and
+-- says plainly if nothing arrived, instead of drawing nothing and looking innocent.
+local OAM_TIER = (MESHGHOST_CRYSTAL_OAM_OVERFLOW or os.getenv("MESHGHOST_CRYSTAL_OAM_OVERFLOW")) == "1"
+
+local oam = {
+	SHADOW = 0x400, -- wShadowOAM, 00:c400 -> flat
+	ENTRIES = 40,
+	next = nil, -- next entry index to write, counting DOWN from the top
+	floor = 0, -- entries below this belong to the engine this frame
+	placed = 0,
+	landed = nil, -- has anything we wrote ever reached the hardware?
+	checked = 0,
+}
+
+-- Once a frame, before any peer is placed: where does the engine's own use end, and are sprite
+-- updates even running? `_UpdateSprites` returns immediately unless SPRITE_UPDATES_DISABLED_F is
+-- SET (`ret z` on the bit test), and while it is not running the START menu has cleared the buffer
+-- -- which is exactly when the game intends characters to be invisible, so we stay out.
+function oam.beginFrame()
+	oam.placed = 0
+	oam.next = nil
+	if not OAM_TIER then
+		return
+	end
+	local flags = u8(W_STATEFLAGS)
+	if not flags or (flags & 0x01) == 0 then
+		return -- sprite updates disabled: the game is hiding everyone, and so do we
+	end
+	local used = memory.read_u8(0xFFBD, "System Bus")
+	if type(used) ~= "number" then
+		return
+	end
+	-- Allocate DOWNWARD from the last entry, so that when the hardware runs out of per-scanline
+	-- sprites it drops a GHOST rather than one of the game's own characters. Same reasoning as the
+	-- spawned tier's top-down struct allocation.
+	oam.floor = used // 4
+	oam.next = oam.ENTRIES - 1
+end
+
+-- One peer, four entries. Returns false when there is no room, so the caller falls through to the
+-- drawn tier rather than the peer vanishing.
+function oam.place(sx, sy, tileBase, palIndex, facing, walkingFor)
+	if not oam.next or oam.next - 3 < oam.floor then
+		return false
+	end
+	local entry = facing and facingFrames[facing]
+	local frame = nil
+	if entry then
+		if walkingFor and #entry.walk > 0 then
+			frame = entry.walk[((walkingFor // WALK_FRAME_HOLD) % #entry.walk) + 1]
+		end
+		frame = frame or entry.stand or entry.walk[1]
+	end
+	if not frame then
+		return false -- nothing learned for this facing yet; the drawn tier has a fallback, we do not
+	end
+
+	for i, part in ipairs(frame) do
+		local at = oam.SHADOW + (oam.next - (i - 1)) * 4
+		-- OAM_Y_OFS / OAM_X_OFS are 16 and 8 (constants/hardware.inc:980) -- an OAM coordinate is
+		-- the screen position plus those, which is how the hardware addresses off-screen edges.
+		w8(at, (sy + part.dy + 16) & 0xFF)
+		w8(at + 1, (sx + part.dx + 8) & 0xFF)
+		w8(at + 2, (tileBase + part.offset) & 0xFF)
+		-- Attributes: CGB palette in bits 0-2, VRAM bank in bit 3, X flip in bit 5. The priority
+		-- bit is deliberately LEFT CLEAR: setting it would put the peer behind every non-zero
+		-- background colour, i.e. behind the scenery it is standing on, which is worse than the
+		-- text-box problem it would be trying to solve.
+		w8(at + 3, (palIndex & 0x07) | 0x08 | (part.xflip and 0x20 or 0))
+	end
+	oam.next = oam.next - 4
+	oam.placed = oam.placed + 1
+	return true
+end
+
+-- Did any of it reach the hardware? Read from the OAM domain -- what the DMA actually delivered --
+-- never from the shadow bytes we wrote, which would only prove that the write happened.
+function oam.verify()
+	if not OAM_TIER or oam.placed == 0 or oam.landed ~= nil then
+		return
+	end
+	oam.checked = oam.checked + 1
+	if oam.checked < 120 then
+		return
+	end
+	local y = memory.read_u8((oam.ENTRIES - 1) * 4, "OAM")
+	oam.landed = (type(y) == "number" and y ~= 160 and y ~= 0)
+	if oam.landed then
+		log("MeshGhost: the hardware tier is reaching the screen (entry 39 read back from OAM).")
+	else
+		log("MeshGhost: the hardware tier wrote entries but NOTHING reached the hardware -- the "
+			.. "engine refills the buffer after we write, so these peers are invisible. Falling "
+			.. "back to the drawn tier is the correct fix, not writing harder.")
+	end
+end
+
 local function screenCoords(mx, my)
 	local wx, wy = u8(W_XCOORD) or 0, u8(W_YCOORD) or 0
 	local bx, by = u8(W_BGMAPOFFSETX) or 0, u8(W_BGMAPOFFSETY) or 0
@@ -1550,6 +1686,8 @@ function drawOverflow()
 	end
 
 	local nWanted, nDrawn, nNoTile, nOffScreen, nHidden, nFromRom = 0, 0, 0, 0, 0, 0
+	local nOam = 0
+	oam.beginFrame()
 	-- Animation and facing are the two things a drawn peer has to do for itself, and a
 	-- screenshot cannot settle either: one frame cannot see a walk cycle, and a peer that is
 	-- merely facing the wrong way still looks like a character. So they are counted instead --
@@ -1772,16 +1910,32 @@ function drawOverflow()
 				if hidden then
 					nHidden = nHidden + 1
 				else
-					nDrawn = nDrawn + 1
 					if walkingFor then nWalking = nWalking + 1 end
 					if o.facing == nil then nNoFacing = nNoFacing + 1 end
 					if UI_DEBUG and (boxOpen or uiOpen) and #paintedSamples < 8 then
 						paintedSamples[#paintedSamples + 1] =
 							string.format("%s@%d,%d", id, sx, sy)
 					end
-					-- the palette the local player's own sprite is drawn with, which is the one
-					-- these tiles were coloured for
-					drawCharacter(source, sx, sy, palette, o.facing, walkingFor)
+					-- THE MIDDLE RUNG FIRST. A peer whose tiles are resident in VRAM can be handed
+					-- to the hardware, which draws it with the game's own live palettes and orders
+					-- it against the game's own cast. It declines when the buffer has no room or
+					-- nothing has been learned for this facing, and then the peer is painted
+					-- exactly as before -- a peer never disappears because a tier said no.
+					local onHardware = false
+					if source.vram and o.only ~= "drawn" then
+						onHardware = oam.place(sx, sy, source.vram, palette, o.facing, walkingFor)
+					end
+					if onHardware then
+						nOam = nOam + 1
+					elseif o.only == "hw" then
+						nOam = nOam -- pinned to a rung that had no room: show nothing rather than
+						-- quietly painting it, which would make the comparison a lie
+					else
+						nDrawn = nDrawn + 1
+						-- the palette the local player's own sprite is drawn with, which is the one
+						-- these tiles were coloured for
+						drawCharacter(source, sx, sy, palette, o.facing, walkingFor)
+					end
 				end
 			end
 		end
@@ -1801,11 +1955,14 @@ function drawOverflow()
 
 	-- Once a second, say what the drawn tier actually did. "Half the screen is empty" needs a
 	-- number that separates "the peers never arrived" from "they arrived and were not drawn".
+	oam.verify()
+
 	if drawFrames % 60 == 0 and nWanted > 0 then
-		logFile(string.format("drawn tier: %d peers waiting, %d drawn (%d from the cartridge), "
+		logFile(string.format("tiers: %d on hardware. "
+			.. "drawn tier: %d peers waiting, %d drawn (%d from the cartridge), "
 			.. "%d no sprite tiles, %d off screen, %d hidden by UI, %d spawned as real objects; "
 			.. "%d on a walk frame, %d with no facing yet",
-			nWanted, nDrawn, nFromRom, nNoTile, nOffScreen, nHidden, ghostCount(),
+			nOam, nWanted, nDrawn, nFromRom, nNoTile, nOffScreen, nHidden, ghostCount(),
 			nWalking, nNoFacing))
 		if offSample then
 			logFile("drawn tier: example of one it discarded -- " .. offSample)
@@ -1952,7 +2109,7 @@ local function renderRemote(id, state)
 	local isLoopback = id:match("%-ghost$") ~= nil
 	local baseX = math.floor(pos[1])
 	local offsetX = LOOPBACK_OFFSET_X
-	if COMPARE_TIERS and isLoopback and offsetX == 0 then offsetX = COMPARE_SPAWNED_OFFSET_X end
+	if COMPARE_TIERS and isLoopback and offsetX == 0 then offsetX = COMPARE.spawned end
 	local x, y = baseX + offsetX, math.floor(pos[2])
 	if x < 0 or x > 255 or y < 0 or y > 255 then
 		return
@@ -1963,7 +2120,8 @@ local function renderRemote(id, state)
 	if state.area_id ~= areaId() then
 		despawnGhost(id)
 		overflow[id] = nil
-		overflow[compareKey(id)] = nil
+		overflow[COMPARE.key(id)] = nil
+		overflow[COMPARE.hwKey(id)] = nil
 		return
 	end
 
@@ -1981,7 +2139,8 @@ local function renderRemote(id, state)
 	local px, py = u8(OBJECT_STRUCTS + F_MAP_X) or 0, u8(OBJECT_STRUCTS + F_MAP_Y) or 0
 	if math.max(math.abs(x - px), math.abs(y - py)) > GHOST_RANGE_TILES then
 		despawnGhost(id)
-		overflow[compareKey(id)] = nil
+		overflow[COMPARE.key(id)] = nil
+		overflow[COMPARE.hwKey(id)] = nil
 		return
 	end
 
@@ -1989,9 +2148,21 @@ local function renderRemote(id, state)
 	-- renderers can be judged against each other in one frame. Written every frame like any drawn
 	-- peer, and carrying its own movement history so it animates rather than sliding.
 	if COMPARE_TIERS and isLoopback then
-		local ck = compareKey(id)
+		local ck = COMPARE.key(id)
 		local prev = overflow[ck]
-		overflow[ck] = { compare = true, x = baseX + COMPARE_DRAWN_OFFSET_X, y = y,
+		-- Each copy is PINNED to one renderer, or the comparison quietly collapses: with the
+		-- hardware tier on, every resident peer is claimed by it first and nothing is ever painted,
+		-- so the drawn copy would silently become a second hardware copy. `only` says which rung a
+		-- copy belongs to and the draw loop honours it.
+		local hk = COMPARE.hwKey(id)
+		local hprev = overflow[hk]
+		overflow[hk] = { compare = true, only = "hw", x = baseX + COMPARE.hw, y = y,
+			sprite = FORCE_PEER_SPRITE or (state.extras and tonumber(state.extras.sprite)) or nil,
+			facing = ORIENTATION_TO_DIR[state.orientation],
+			lastX = hprev and hprev.lastX, lastY = hprev and hprev.lastY,
+			movedAt = hprev and hprev.movedAt }
+
+		overflow[ck] = { compare = true, only = "drawn", x = baseX + COMPARE.drawn, y = y,
 			sprite = FORCE_PEER_SPRITE or (state.extras and tonumber(state.extras.sprite)) or nil,
 			facing = ORIENTATION_TO_DIR[state.orientation],
 			lastX = prev and prev.lastX, lastY = prev and prev.lastY, movedAt = prev and prev.movedAt }
@@ -2371,7 +2542,8 @@ local function handle(msg)
 		local gone = tostring(p.player_id)
 		despawnGhost(gone)
 		overflow[gone] = nil
-		overflow[compareKey(gone)] = nil
+		overflow[COMPARE.key(gone)] = nil
+		overflow[COMPARE.hwKey(gone)] = nil
 		activity[gone] = nil
 	end
 end
@@ -2417,6 +2589,7 @@ W_YCOORD, W_XCOORD = A.W_YCOORD, A.W_XCOORD
 W_MAPSTATUS, W_BATTLEMODE = A.W_MAPSTATUS, A.W_BATTLEMODE
 W_BGMAPOFFSETX, W_BGMAPOFFSETY = A.W_BGMAPOFFSETX, A.W_BGMAPOFFSETY
 W_USEDSPRITES = A.W_USEDSPRITES -- optional: nil means "peer appearance off on this build"
+W_STATEFLAGS = A.W_STATEFLAGS -- optional: nil turns the hardware tier off on that build
 OVERWORLD_SPRITES_ROM = A.OVERWORLD_SPRITES_ROM -- optional: nil means "no cartridge graphics here"
 
 -- CHECK THE TABLE IS WHERE WE THINK IT IS, before anything reads a graphics pointer out of it.
@@ -2635,7 +2808,8 @@ local function tick()
 				log("MeshGhost: " .. id .. " stopped sending — removing their ghost")
 				despawnGhost(id)
 				overflow[id] = nil
-				overflow[compareKey(id)] = nil
+				overflow[COMPARE.key(id)] = nil
+		overflow[COMPARE.hwKey(id)] = nil
 				activity[id] = nil
 			end
 		end
