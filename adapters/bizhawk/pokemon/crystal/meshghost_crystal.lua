@@ -1993,16 +1993,24 @@ function drawOverflow()
 			local pTile = { x = u8(OBJECT_STRUCTS + F_MAP_X) or 0, y = u8(OBJECT_STRUCTS + F_MAP_Y) or 0 }
 			local pProg = stepProgress(OBJECT_STRUCTS)
 			local pDir = ((u8(OBJECT_STRUCTS + F_DIRECTION) or 0) // 4) & 3
+			-- DEAD RECKONING: TRIED AND REMOVED, 2026-08-21, note kept so it is not retried blind.
+			--
+			-- extras.prog is stale by the round trip (3-5 frames, so 6-10px at the engine's 2px a
+			-- frame), and that error vanishes in one frame when the step ends -- a visible snap.
+			-- Advancing the last known value locally at 2px a frame looks like the obvious cure and
+			-- made it worse: the ghost ran AHEAD of itself, a full tile at the cap.
+			--
+			-- Why: the stamp can only refresh when the VALUE changes, so a peer reporting the same
+			-- progress twice lets the local advance keep running, and the extrapolation compounds
+			-- instead of tracking. Fixing that needs a real arrival clock per peer, not a
+			-- value-changed heuristic -- and even then it is prediction, which is wrong every time
+			-- the peer does something unpredicted.
+			--
+			-- What is left is the honest residue: the ghost lags by the round trip. That is a
+			-- property of the rig, not a defect in the tier, and hiding it with extrapolation trades
+			-- a small constant lag for an occasional large wrong guess.
 			local peerProg = tonumber(o.prog) or 0
 
-			-- Progress is a distance; it becomes a displacement through the direction each is
-			-- facing. down/up/left/right, the adapter's own dir order everywhere else.
-			local function displace(dir, px)
-				if dir == 0 then return 0, px end
-				if dir == 1 then return 0, -px end
-				if dir == 2 then return -px, 0 end
-				return px, 0
-			end
 			-- MAP_X/MAP_Y ARE THE DESTINATION, written at the START of a step -- this adapter's own
 			-- movement recipe depends on that, and it is what makes the sign here easy to get
 			-- wrong. A character part-way through a step is therefore at
@@ -2345,14 +2353,16 @@ local function renderRemote(id, state)
 		-- copy renders nothing and still counts as a peer waiting -- a phantom in every tier total.
 		local hk = COMPARE.hwKey(id)
 		local hprev = overflow[hk]
-		overflow[hk] = OAM_TIER and { prog = peerProg, walking = peerWalking, compare = true, only = "hw", x = baseX + COMPARE.hw, y = y,
+		overflow[hk] = OAM_TIER and { prog = peerProg, walking = peerWalking,
+			lastProg = prev and prev.lastProg, progAt = prev and prev.progAt, compare = true, only = "hw", x = baseX + COMPARE.hw, y = y,
 			sprite = FORCE_PEER_SPRITE or (state.extras and tonumber(state.extras.sprite)) or nil,
 			facing = ORIENTATION_TO_DIR[state.orientation],
 			lastX = hprev and hprev.lastX, lastY = hprev and hprev.lastY,
 			movedAt = hprev and hprev.movedAt,
 			fromX = hprev and hprev.fromX, fromY = hprev and hprev.fromY } or nil
 
-		overflow[ck] = { prog = peerProg, walking = peerWalking, compare = true, only = "drawn", x = baseX + COMPARE.drawn, y = y,
+		overflow[ck] = { prog = peerProg, walking = peerWalking,
+			lastProg = prev and prev.lastProg, progAt = prev and prev.progAt, compare = true, only = "drawn", x = baseX + COMPARE.drawn, y = y,
 			sprite = FORCE_PEER_SPRITE or (state.extras and tonumber(state.extras.sprite)) or nil,
 			facing = ORIENTATION_TO_DIR[state.orientation],
 			lastX = prev and prev.lastX, lastY = prev and prev.lastY, movedAt = prev and prev.movedAt,
@@ -2420,7 +2430,8 @@ local function renderRemote(id, state)
 			despawnGhost(id)
 		end
 		local prev = overflow[id]
-		overflow[id] = { prog = peerProg, walking = peerWalking, x = x, y = y, sprite = peerSprite,
+		overflow[id] = { prog = peerProg, walking = peerWalking,
+			lastProg = prev and prev.lastProg, progAt = prev and prev.progAt, x = x, y = y, sprite = peerSprite,
 			facing = ORIENTATION_TO_DIR[state.orientation],
 			lastX = prev and prev.lastX, lastY = prev and prev.lastY, movedAt = prev and prev.movedAt,
 			fromX = prev and prev.fromX, fromY = prev and prev.fromY }
@@ -2437,7 +2448,8 @@ local function renderRemote(id, state)
 			overflow[id] = nil
 		else
 			local prev = overflow[id]
-			overflow[id] = { prog = peerProg, walking = peerWalking, x = x, y = y, sprite = peerSprite,
+			overflow[id] = { prog = peerProg, walking = peerWalking,
+			lastProg = prev and prev.lastProg, progAt = prev and prev.progAt, x = x, y = y, sprite = peerSprite,
 				facing = ORIENTATION_TO_DIR[state.orientation],
 				lastX = prev and prev.lastX, lastY = prev and prev.lastY,
 				movedAt = prev and prev.movedAt,
