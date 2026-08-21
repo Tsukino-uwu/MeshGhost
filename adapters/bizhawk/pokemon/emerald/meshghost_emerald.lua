@@ -7425,9 +7425,30 @@ function hwDrawSurf(playerId, rec, remote, info, sx, sy, arcY, hFlip)
         -- wire's pair debounce), and releasing the park in that gap drew the blob at the body's
         -- landing tile for those frames -- the user's *"blob flash slightly at the landing"*.
         -- The park holds until the surf graphic itself ends, exactly when the game's blob dies.
+        -- Bob-with-the-rider outside a jump, park through both kinds of jump: a dismount holds
+        -- the pre-jump park, a MOUNT parks at the destination (body-sans-arc plus one tile along
+        -- the jump's direction). The painted tier carries the same logic; an earlier edit patched
+        -- only that tier -- its two-part patch failed after the first half -- and the user's
+        -- next report named the missed one exactly: *"the blob is still following the OAM"*.
         local jumping = remote.act and remote.act >= 0x3a and remote.act <= 0x3d
-        if jumping and rec.blobPark then rec.blobParkHold = true end
-        local bx, by = sx, sy - arcY + 8
+        if jumping and not rec.blobParkHold then
+            if rec.blobPark then
+                rec.blobParkHold = true
+            else
+                local jdx = ({ [0x3c] = -TILE, [0x3d] = TILE })[remote.act] or 0
+                local jdy = ({ [0x3a] = TILE, [0x3b] = -TILE })[remote.act] or 0
+                rec.blobPark = { sx + jdx - rs16(GSPRITECOORDOFFSETX_ADDR),
+                    sy - arcY + jdy + 8 - rs16(GSPRITECOORDOFFSETY_ADDR) }
+                rec.blobParkHold = true
+                if COMPARE_TIERS then
+                    logFile(string.format(
+                        "HW MOUNT PARK at (%d,%d) act=%02X sx=%d sy=%d arc=%d f=%d",
+                        rec.blobPark[1], rec.blobPark[2], remote.act, sx, sy, arcY,
+                        frameCounter))
+                end
+            end
+        end
+        local bx, by = sx, sy + 8
         if rec.blobParkHold and rec.blobPark then
             bx = rec.blobPark[1] + rs16(GSPRITECOORDOFFSETX_ADDR)
             by = rec.blobPark[2] + rs16(GSPRITECOORDOFFSETY_ADDR)
