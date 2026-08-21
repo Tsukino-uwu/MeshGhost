@@ -663,6 +663,18 @@ end
 
 local DIR_NAMES = { [0] = "down", [4] = "up", [8] = "left", [12] = "right" }
 
+-- Pixels travelled into the current step, 0-16. See extras.prog below.
+local function stepProgress(base)
+	if (u8(base + F_WALKING) or STANDING) == STANDING then
+		return 0
+	end
+	local dur = u8(base + F_STEP_DURATION) or 0
+	local px = (8 - dur) * 2
+	if px < 0 then px = 0 end
+	if px > 16 then px = 16 end
+	return px
+end
+
 local function getLocalState()
 	if not inPlay() then
 		return nil -- a menu, a battle, a warp: nothing meaningful to send
@@ -679,7 +691,18 @@ local function getLocalState()
 		-- the Fly landing. It is one byte for all of them because Crystal indexes a table with
 		-- it (ObjectActionPairPointers), so a ghost that carries the peer's action byte gets the
 		-- animation played by the game rather than imitated by us. phase9.md's enumeration.
-		extras = { sprite = u8(base + F_SPRITE) or 0, act = u8(base + F_ACTION) or 0 },
+		-- `prog` is how far through its current step this character is, in PIXELS (0-16), and it is
+		-- the peer's own truth rather than something the receiver infers from arrival times.
+		--
+		-- The painted tier has no sub-tile position without it: the wire carries tiles, so a peer
+		-- can only be drawn ON a tile, and a step becomes a 16px jump. The spawned tier never had
+		-- this problem because the ENGINE interpolates for it.
+		--
+		-- Derived from the engine's own countdown: a normal step is 8 frames at 2px
+		-- (StepVectors), and OBJECT_STEP_DURATION counts down through it, so pixels travelled is
+		-- (8 - duration) * 2. Zero while standing, which is exactly right.
+		extras = { sprite = u8(base + F_SPRITE) or 0, act = u8(base + F_ACTION) or 0,
+			prog = stepProgress(base) },
 	}
 end
 
@@ -1950,25 +1973,56 @@ function drawOverflow()
 			sx = ((sx % 256) + 272) % 256 - 16
 			sy = ((sy % 256) + 272) % 256 - 16
 
-			-- SUB-TILE GLIDE: ATTEMPTED AND REVERTED, 2026-08-21. Left as a note because the next
-			-- person will have the same idea and the trace below is what it costs to learn.
+			-- SUB-TILE POSITION, computed so the CAMERA CANCELS rather than being corrected for.
 			--
-			-- The painted copy jumps a whole tile per step, because the wire carries tiles and this
-			-- tier places the character straight on the destination. The obvious fix is to walk it
-			-- back from the destination by the distance not yet covered, at the engine's 2px/frame.
-			-- That made it WORSE -- one tile of movement became two of visible travel.
+			-- Two earlier attempts failed the same way (2026-08-21): both added a smooth term on
+			-- top of `sx`, which is the destination TILE's position and already carries the
+			-- camera's scroll -- arriving in a lump about twelve frames into the step. Smooth plus
+			-- quantised is two motions for one step, and the user saw exactly that.
 			--
-			-- Why, from a per-frame trace: the destination position ALREADY carries the camera's
-			-- tile of scroll, and it arrives in one lump about twelve frames into the step
-			-- (dest_sx held 48 while the scroll offset ran 62 down to 50, then dropped to 32 in a
-			-- single frame). So the glide added +16px over the first eight frames and the
-			-- destination then subtracted its own -16px: two motions for one step.
+			-- The model that works has no camera term at all. Every character's screen position is
+			-- the PLAYER's screen position plus their offset from the player, and the player's own
+			-- sprite is smooth and always readable:
 			--
-			-- A correct version has to interpolate the peer's position and the camera in ONE space
-			-- rather than adding a smooth term to a quantised one -- most likely by deriving the
-			-- painted position from a standing anchor's sprite coordinates plus sub-tile progress,
-			-- the way the spawned tier gets it from the engine. Not attempted; the tier draws on
-			-- the destination tile until then, which is a visible but honest single jump.
+			--     painted = playerScreen + (peerTile - playerTile)*16 - playerProgress + peerProgress
+			--
+			-- The camera moved the player and the world together, so it appears on neither side.
+			-- `playerProgress` is how far the player is into their own step, `peerProgress` the
+			-- same for the peer, sent as extras.prog because only the peer knows it. For a peer
+			-- moving in step the two cancel and the offset is constant -- nothing to snap.
+			local pTile = { x = u8(OBJECT_STRUCTS + F_MAP_X) or 0, y = u8(OBJECT_STRUCTS + F_MAP_Y) or 0 }
+			local pProg = stepProgress(OBJECT_STRUCTS)
+			local pDir = ((u8(OBJECT_STRUCTS + F_DIRECTION) or 0) // 4) & 3
+			local peerProg = tonumber(o.prog) or 0
+
+			-- Progress is a distance; it becomes a displacement through the direction each is
+			-- facing. down/up/left/right, the adapter's own dir order everywhere else.
+			local function displace(dir, px)
+				if dir == 0 then return 0, px end
+				if dir == 1 then return 0, -px end
+				if dir == 2 then return -px, 0 end
+				return px, 0
+			end
+			-- MAP_X/MAP_Y ARE THE DESTINATION, written at the START of a step -- this adapter's own
+			-- movement recipe depends on that, and it is what makes the sign here easy to get
+			-- wrong. A character part-way through a step is therefore at
+			--     destination - (16 - progress)
+			-- along the direction it is moving, NOT at destination + progress. Getting that
+			-- backwards drives the ghost past its target and then back, which is direction-shaped:
+			-- the user saw it snap backwards walking up and wiggle walking down (2026-08-21).
+			local function offsetFromDest(dir, prog, walking)
+				if not walking then
+					return 0, 0
+				end
+				return displace(dir, prog - 16)
+			end
+
+			local pWalking = (u8(OBJECT_STRUCTS + F_WALKING) or STANDING) ~= STANDING
+			local ppx, ppy = offsetFromDest(pDir, pProg, pWalking)
+			local gpx, gpy = offsetFromDest(o.facing or 0, peerProg, o.walking)
+
+			sx = playerOamX - 8 + (o.x - pTile.x) * 16 + gpx - ppx
+			sy = playerOamY - 16 + (o.y - pTile.y) * 16 + gpy - ppy
 
 			local onScreen = sx > -16 and sx < 160 and sy > -16 and sy < 144
 			if not onScreen then
@@ -2291,14 +2345,14 @@ local function renderRemote(id, state)
 		-- copy renders nothing and still counts as a peer waiting -- a phantom in every tier total.
 		local hk = COMPARE.hwKey(id)
 		local hprev = overflow[hk]
-		overflow[hk] = OAM_TIER and { compare = true, only = "hw", x = baseX + COMPARE.hw, y = y,
+		overflow[hk] = OAM_TIER and { prog = peerProg, walking = peerWalking, compare = true, only = "hw", x = baseX + COMPARE.hw, y = y,
 			sprite = FORCE_PEER_SPRITE or (state.extras and tonumber(state.extras.sprite)) or nil,
 			facing = ORIENTATION_TO_DIR[state.orientation],
 			lastX = hprev and hprev.lastX, lastY = hprev and hprev.lastY,
 			movedAt = hprev and hprev.movedAt,
 			fromX = hprev and hprev.fromX, fromY = hprev and hprev.fromY } or nil
 
-		overflow[ck] = { compare = true, only = "drawn", x = baseX + COMPARE.drawn, y = y,
+		overflow[ck] = { prog = peerProg, walking = peerWalking, compare = true, only = "drawn", x = baseX + COMPARE.drawn, y = y,
 			sprite = FORCE_PEER_SPRITE or (state.extras and tonumber(state.extras.sprite)) or nil,
 			facing = ORIENTATION_TO_DIR[state.orientation],
 			lastX = prev and prev.lastX, lastY = prev and prev.lastY, movedAt = prev and prev.movedAt,
@@ -2313,6 +2367,8 @@ local function renderRemote(id, state)
 	-- What the peer's own object is DOING, in the engine's own terms. Floored before it can reach
 	-- a write, and checked against ACTIONS.peer there; a peer on an older build sends no `act` at
 	-- all, which reads as nil and leaves the ghost animating exactly as it did before.
+	local peerProg = state.extras and tonumber(state.extras.prog) or nil
+	local peerWalking = (state.anim == "walk")
 	local peerActRaw = state.extras and tonumber(state.extras.act) or nil
 	local peerAct = peerActRaw and math.floor(peerActRaw) or nil
 
@@ -2364,7 +2420,7 @@ local function renderRemote(id, state)
 			despawnGhost(id)
 		end
 		local prev = overflow[id]
-		overflow[id] = { x = x, y = y, sprite = peerSprite,
+		overflow[id] = { prog = peerProg, walking = peerWalking, x = x, y = y, sprite = peerSprite,
 			facing = ORIENTATION_TO_DIR[state.orientation],
 			lastX = prev and prev.lastX, lastY = prev and prev.lastY, movedAt = prev and prev.movedAt,
 			fromX = prev and prev.fromX, fromY = prev and prev.fromY }
@@ -2381,7 +2437,7 @@ local function renderRemote(id, state)
 			overflow[id] = nil
 		else
 			local prev = overflow[id]
-			overflow[id] = { x = x, y = y, sprite = peerSprite,
+			overflow[id] = { prog = peerProg, walking = peerWalking, x = x, y = y, sprite = peerSprite,
 				facing = ORIENTATION_TO_DIR[state.orientation],
 				lastX = prev and prev.lastX, lastY = prev and prev.lastY,
 				movedAt = prev and prev.movedAt,
