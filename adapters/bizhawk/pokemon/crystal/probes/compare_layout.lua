@@ -12,6 +12,10 @@
 -- Both switches are read as GLOBALS before the environment (FLAGS.md), and the dev loader loads its
 -- targets in the order the control file lists them -- so listing this file ABOVE the adapter sets
 -- them without relaunching the emulator.
+-- Set EXPLICITLY, not left to the default. A global set by a previously-loaded dev script stays in
+-- the Lua state after that script is dropped -- an earlier session global of 3 outlived the file
+-- that set it and quietly put the spawned ghost a tile further out than the layout says.
+MESHGHOST_LOOPBACK_OFFSET_X = 0 -- 0 = let the compare rig choose; it uses +2 for the spawned copy
 MESHGHOST_COMPARE_TIERS = true
 MESHGHOST_CRYSTAL_OAM_OVERFLOW = "1"
 console.log("MeshGhost dev: compare tiers on, hardware tier on")
