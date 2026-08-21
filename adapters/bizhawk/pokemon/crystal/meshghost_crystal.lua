@@ -1416,7 +1416,18 @@ function oam.verify()
 	if oam.checked < 120 then
 		return
 	end
+	-- Dump the whole entry, not just its Y. "Something arrived" and "something VISIBLE arrived" are
+	-- different claims, and the gap between them is where a wrong tile id or a wrong attribute byte
+	-- hides: the entry is present, on screen, and draws nothing anyone can see.
 	local y = memory.read_u8((oam.ENTRIES - 1) * 4, "OAM")
+	local parts = {}
+	for i = 0, 3 do
+		local at = (oam.ENTRIES - 1 - i) * 4
+		parts[#parts + 1] = string.format("[%d] y=%s x=%s tile=%s attr=%s", oam.ENTRIES - 1 - i,
+			tostring(memory.read_u8(at, "OAM")), tostring(memory.read_u8(at + 1, "OAM")),
+			tostring(memory.read_u8(at + 2, "OAM")), tostring(memory.read_u8(at + 3, "OAM")))
+	end
+	log("MeshGhost: hardware tier, as the DMA delivered it -- " .. table.concat(parts, "  "))
 	oam.landed = (type(y) == "number" and y ~= 160 and y ~= 0)
 	if oam.landed then
 		log("MeshGhost: the hardware tier is reaching the screen (entry 39 read back from OAM).")
@@ -1892,6 +1903,10 @@ function drawOverflow()
 			local onScreen = sx > -16 and sx < 160 and sy > -16 and sy < 144
 			if not onScreen then
 				nOffScreen = nOffScreen + 1
+				if COMPARE_TIERS and drawFrames % 60 == 0 then
+					logFile(string.format("  copy %-28s OFF SCREEN at screen %d,%d (map %d,%d)",
+						id, sx, sy, o.x, o.y))
+				end
 				if not offSample then
 					offSample = string.format("%s at map %d,%d -> screen %d,%d (window %d,%d)",
 						id, o.x, o.y, sx, sy, u8(W_XCOORD) or 0, u8(W_YCOORD) or 0)
@@ -1921,6 +1936,16 @@ function drawOverflow()
 					-- it against the game's own cast. It declines when the buffer has no room or
 					-- nothing has been learned for this facing, and then the peer is painted
 					-- exactly as before -- a peer never disappears because a tier said no.
+					-- COMPARE_TIERS only: say where every copy went and where it thinks it is. Three
+					-- renderers disagreeing is exactly the case a count cannot describe -- "2 off
+					-- screen" does not say WHICH, at what coordinate, or which rung claimed it.
+					if COMPARE_TIERS and drawFrames % 60 == 0 then
+						logFile(string.format("  copy %-28s only=%-6s map %d,%d screen %d,%d "
+							.. "facing=%s vram=%s",
+							id, tostring(o.only), o.x, o.y, sx, sy, tostring(o.facing),
+							tostring(source.vram)))
+					end
+
 					local onHardware = false
 					if source.vram and o.only ~= "drawn" then
 						onHardware = oam.place(sx, sy, source.vram, palette, o.facing, walkingFor)

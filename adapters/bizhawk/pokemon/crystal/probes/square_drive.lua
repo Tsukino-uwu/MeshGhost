@@ -24,7 +24,7 @@
 --   announces each lap in the Lua Console and to square_drive_<timestamp>.log beside this file.
 --   To stand still without unloading it, set the global MESHGHOST_SQUARE_PAUSE = true.
 
-local SIDE = 3 -- tiles per side; the user's 3x3
+local SIDE = 2 -- tiles per side; the user asked for a 2x2 square, 2026-08-21
 local HOLD_FRAMES = 18 -- a normal step is 8 frames of movement; this leaves room for the turn
 local DIRECTIONS = { "Up", "Left", "Down", "Right" }
 

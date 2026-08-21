@@ -1,22 +1,22 @@
--- MeshGhost — Pokémon Crystal: all three tiers at once, on their own tiles (DEV TOOL)
+-- MeshGhost — Pokémon Crystal: a plain loopback ghost, 2 tiles right (DEV TOOL)
 --
--- The user's layout, 2026-08-21: *"OAM 4 tiles to the left, DRAWN 2 tiles to the left, SPAWNED 2
--- tiles to the right"* -- alongside the hard rule that no two rendered characters may share a tile
--- during local testing, because overlapping sprites make two different faults look like one and
--- only the user can see the screen.
+-- The three-way compare rig and the hardware tier are BOTH OFF here, deliberately, 2026-08-21.
 --
--- MESHGHOST_COMPARE_TIERS renders the ONE loopback ghost more than once from the same peer state in
--- the same frame, so the renderers are comparable in one place rather than across two runs where
--- the location has changed underneath the comparison.
+-- Why: with the hardware tier on it claims a peer BEFORE the drawn tier sees it, and the user's
+-- report was that a peer then *"goes invisible when standing idle for a tiny bit"* -- which is
+-- exactly what claiming-and-not-rendering looks like. A rung whose visual correctness is
+-- unconfirmed must not sit ABOVE a rung that is confirmed, because the cost of it being wrong is
+-- the peer disappearing rather than looking slightly off.
 --
--- Both switches are read as GLOBALS before the environment (FLAGS.md), and the dev loader loads its
--- targets in the order the control file lists them -- so listing this file ABOVE the adapter sets
--- them without relaunching the emulator.
--- Set EXPLICITLY, not left to the default. A global set by a previously-loaded dev script stays in
--- the Lua state after that script is dropped -- an earlier session global of 3 outlived the file
--- that set it and quietly put the spawned ghost a tile further out than the layout says.
-MESHGHOST_LOOPBACK_OFFSET_X = 0 -- 0 = let the compare rig choose; it uses +2 for the spawned copy
-MESHGHOST_COMPARE_TIERS = true
-MESHGHOST_CRYSTAL_OAM_OVERFLOW = "1"
-console.log("MeshGhost dev: compare tiers on, hardware tier on")
+-- Set MESHGHOST_CRYSTAL_OAM_OVERFLOW = "1" and MESHGHOST_COMPARE_TIERS = true here to put the rig
+-- back once the hardware tier renders something the user can actually see.
+-- EVERY switch is set explicitly, including the ones being turned OFF. The loader replaces files,
+-- never globals: a `true` set by a previous version of this file survives its own deletion and keeps
+-- the compare rig on with no file left that mentions it. pitfalls.md has carried this since
+-- 2026-08-19 as "A probe global outlives the probe, and then looks exactly like a real bug", and it
+-- was walked into twice more on 2026-08-21 by someone who had not read that file.
+MESHGHOST_COMPARE_TIERS = false
+MESHGHOST_CRYSTAL_OAM_OVERFLOW = "0"
+MESHGHOST_LOOPBACK_OFFSET_X = 2
+console.log("MeshGhost dev: plain loopback ghost, 2 tiles right; hardware tier and compare rig OFF")
 MESHGHOST_DEV_TICK = function() end
