@@ -624,3 +624,38 @@ a memory of having checked.
   deliberately NOT scheduled. Emerald is parked; Crystal has the attention.
 - **If either turns out to be wrong**, it is a defect against a feature-complete adapter and
   belongs in `verified.md`/`pitfalls.md` as such, not as a missing feature.
+
+## Pending — Crystal: four changes from 2026-08-21, none confirmed on screen
+
+All four were made in one session while the user watched a loopback session. Each is **measured but
+not confirmed**: the measurements are mine, so per `CLAUDE.md` none of this is verified until the
+user says what they saw.
+
+1. **The end-of-step snap.** A ghost's movement type was inherited from whatever NPC its template
+   came from, so on a wandering template the engine ran `MovementFunction_RandomWalkXY` for the one
+   frame between our steps and the ghost chose a direction of its own.
+   `probes/posediff_probe.lua` caught one frame per step with the facing jumping to an unrelated
+   direction (9 -> 2 -> 8 while walking left) and a `STEP_DURATION` the adapter never writes. Now
+   pinned per direction to `SPRITEMOVEDATA_STANDING_DOWN/UP/LEFT/RIGHT` (`0x06..0x09`). After the
+   fix the same probe reads a clean cycle and `residual +0px` per step. **The user has not yet said
+   whether the snap is gone.**
+2. **The runaway.** `BANDAGES.md` entry 5 — repaired, cause unknown.
+3. **A peer that stops sending is now forgotten after three seconds.** Nothing timed a peer out
+   before: a ghost lived until an explicit despawn, an area change, or the bridge dropping. The dev
+   rig exposed it because the core is issued a new player id on every relay reconnection (sixteen in
+   one session), so each old id was left painted forever. **This is a shipped bug, not a rig
+   artifact** — a peer whose game crashes would have been painted at their last position for the
+   rest of the session.
+4. **Peer animation on the wire.** `extras.act` carries `OBJECT_ACTION`, and a spawned ghost is
+   given it while idle so the engine plays fishing, bump, spin, emote and the Fly landing itself.
+   **Completely untested** — and it rests on an assumption nobody has checked, which
+   `probes/action_watch.lua` exists to settle: that the PLAYER's own object struct carries those
+   action values at all. If fishing is driven entirely by a script that never touches the struct,
+   the byte never changes and the ghost animates nothing while every log line looks healthy.
+
+Also unconfirmed, and worth separating from the above: a peer whose sprite is not resident is now
+routed to the drawn tier so a surfing or biking peer is not shown wearing this machine's walking
+sprite. The first version of that rule was wrong in a way worth recording — it treated "not in
+`wUsedSprites`" as "cannot be worn", which is false for the local player's own sprite, so **every**
+peer was demoted and the spawned tier was silently off. Caught by the adapter's own drawn-tier line
+reading `0 spawned as real objects`.

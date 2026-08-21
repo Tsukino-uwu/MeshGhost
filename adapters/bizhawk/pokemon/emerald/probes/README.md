@@ -188,6 +188,20 @@ Run in this order; each narrows what the previous one found. Full story: `phases
 | `avatar_verify_probe.lua` | Final live verification that the relocated addresses respond to real input |
 | `sprite_anchor_verify_probe.lua` | Follow-up: confirms the sprite/screen anchor on the relocated ROM |
 
+## Any Emerald-derived ROM — resolve the anchors instead of recognising the build
+
+The four probes above chase one known relocation. This one asks the opposite question: given a ROM
+nobody has measured — an Archipelago world revision, SPEEDCHOICE, EX SPEEDCHOICE — where are the
+anchors *now*?
+
+| Probe | What it does |
+| --- | --- |
+| `romvariant_probe.lua` | Read-only, presses nothing, draws nothing. Logs the ROM header identity and a bounded FNV-1a checksum (whole plus per-megabyte, computed 32 KB per frame so nothing blocks), then resolves each anchor by **search** — the character palette block by byte signature plus a palette-structure check, `gObjectEventGraphicsInfoPointers` by a purely structural pointer-run search, and `gObjectEvents`/`gPlayerAvatar`/`gSaveBlock1Ptr` by a live two-way cross-link scan of EWRAM and IWRAM. Anchors no search can reach (`gSprites`, the sprite coord offsets, `gMain`) are logged as *this vanilla literal read this value*, for a human to compare. Every anchor is reported RESOLVED / **AMBIGUOUS** / **UNRESOLVED**; it never picks one of several. Fixed phases with a countdown — be in the overworld when it says so, and nothing else. |
+
+Its two deliberate limits, both stated in its own log: `gSprites` is a runtime array with no ROM
+original, so `gsprites_scan_probe.lua` remains the instrument for it; and `gMain.callback2` is only
+*observed* at the vanilla code site, so a build that moved `gMain` makes that section meaningless.
+
 ## Frozen phase snapshots
 
 Kept under their original development-phase names as historical snapshots, not maintained. The

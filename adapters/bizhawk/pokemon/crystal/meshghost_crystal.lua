@@ -220,6 +220,18 @@ local NUM_OBJECT_STRUCTS, NUM_MAP_OBJECTS = 13, 16
 
 local M_STRUCT_ID, M_SPRITE, M_Y, M_X = 0x00, 0x01, 0x02, 0x03
 local F_SPRITE, F_MAP_OBJECT_INDEX, F_SPRITE_TILE = 0x00, 0x01, 0x02
+
+-- SPRITEMOVEDATA_STANDING_DOWN/UP/LEFT/RIGHT are 0x06..0x09, in the same down/up/left/right order
+-- this adapter uses for `dir` everywhere else, so the entry for a direction is simply 6 + dir.
+--
+-- All four have the same movement FUNCTION -- SPRITEMOVEFN_STANDING, "stand and do nothing else"
+-- -- which is what a ghost needs between the steps we drive it through. They differ only in the
+-- facing they restore, and that difference matters: when a movement ends, StepFunction_Restore
+-- calls RestoreDefaultMovement (which re-reads MAPOBJECT_MOVEMENT) and then GetInitialFacing, and
+-- writes the result into OBJECT_DIRECTION. So this byte is re-read after EVERY step, not only when
+-- the engine first builds the object -- pinning all four directions to the DOWN entry would turn
+-- the ghost to face down for a frame at the end of every step.
+local SPRITEMOVEDATA_STANDING_BY_DIR = { [0] = 0x06, [1] = 0x07, [2] = 0x08, [3] = 0x09 }
 local F_FLAGS1, F_PALETTE = 0x04, 0x06
 local F_WALKING, F_DIRECTION, F_STEP_TYPE, F_STEP_DURATION = 0x07, 0x08, 0x09, 0x0A
 local F_ACTION, F_FACING = 0x0B, 0x0D
@@ -636,7 +648,12 @@ local function getLocalState()
 		position = { u8(base + F_MAP_X) or 0, u8(base + F_MAP_Y) or 0 },
 		orientation = DIR_NAMES[facing] or "down",
 		anim = ((u8(base + F_WALKING) or STANDING) ~= STANDING) and "walk" or "idle",
-		extras = { sprite = u8(base + F_SPRITE) or 0 },
+		-- `act` is OBJECT_ACTION, the byte the engine itself uses to decide which animation an
+		-- object is playing -- fishing, bumping a wall, spinning on a spin tile, the "!" emote,
+		-- the Fly landing. It is one byte for all of them because Crystal indexes a table with
+		-- it (ObjectActionPairPointers), so a ghost that carries the peer's action byte gets the
+		-- animation played by the game rather than imitated by us. phase9.md's enumeration.
+		extras = { sprite = u8(base + F_SPRITE) or 0, act = u8(base + F_ACTION) or 0 },
 	}
 end
 
@@ -764,7 +781,15 @@ local function beginPolicyFrame()
 	end
 end
 
-local function shouldBlock(id, x, y)
+-- OBJECT_ACTION values that mean "standing on this tile doing nothing in particular": the two
+-- the engine gives an ordinary walking character, plus 0, which is the uninitialised entry.
+-- Anything else is an animation in progress -- see ACTIONS.peer.
+-- Both sets live on ONE table rather than two, because this file is close to Lua's 200-local
+-- limit in its main chunk and every top-level name spends one of them. Hit for real 2026-08-21.
+local ACTIONS = {}
+ACTIONS.idle = { [0] = true, [1] = true, [2] = true }
+
+local function shouldBlock(id, x, y, act)
 	local a = activity[id]
 	if not a then
 		a = { x = x, y = y, movedAt = policyFrames, passableUntil = 0 }
@@ -772,6 +797,13 @@ local function shouldBlock(id, x, y)
 	end
 	if a.x ~= x or a.y ~= y then
 		a.x, a.y, a.movedAt = x, y, policyFrames
+	end
+	-- A peer who is FISHING has not changed tile for a while and is emphatically not idle. The
+	-- five-second rule exists to give the engine back a slot nobody is using and to stop an
+	-- unseen ghost being an invisible wall; a peer playing an animation is neither of those, and
+	-- dropping them to the drawn tier would be the one place their animation is not rendered.
+	if act ~= nil and not ACTIONS.idle[act] then
+		a.movedAt = policyFrames
 	end
 
 	-- Is the player pressing INTO this peer's tile without getting anywhere? Facing alone is not
@@ -1284,6 +1316,25 @@ local function despawnGhost(id)
 	log("MeshGhost: despawned " .. id)
 end
 
+-- Tell the engine what this object should do when it is not mid-step: stand, facing `dir`.
+--
+-- This is the fix for the snap the user reported on 2026-08-21 (*"a small snap once arriving at
+-- the intended tile"*). spawnGhost copies a live NPC's whole template, movement byte included, and
+-- when our step finishes the engine sets STEP_TYPE_FROM_MOVEMENT and dispatches on that byte. On a
+-- template taken from a WANDERING NPC that means MovementFunction_RandomWalkXY, so for the frame
+-- between our steps the ghost chose a direction of its own. posediff_probe.lua caught it exactly:
+-- one frame per step where the facing jumped to an unrelated direction (9 -> 2 -> 8 while walking
+-- left) and STEP_DURATION held values nothing in this adapter writes.
+--
+-- Both bytes are written because both are read: the object struct's is what
+-- GetSpriteMovementFunction dispatches on, and the MAP OBJECT's is what RestoreDefaultMovement
+-- re-reads at the end of every movement before GetInitialFacing turns the object to face it.
+local function setGhostStanding(stBase, moBase, dir)
+	local entry = SPRITEMOVEDATA_STANDING_BY_DIR[dir] or SPRITEMOVEDATA_STANDING_BY_DIR[0]
+	w8(stBase + 0x03, entry) -- OBJECT_MOVEMENT_TYPE
+	w8(moBase + 0x04, entry) -- MAPOBJECT_MOVEMENT
+end
+
 local function spawnGhost(id, x, y, peerSprite)
 	-- Placing a ghost mid-scroll bakes in an offset that never corrects itself; a frame or two
 	-- later the camera is on a tile boundary and the same arithmetic is exact.
@@ -1351,6 +1402,27 @@ local function spawnGhost(id, x, y, peerSprite)
 	w8(stBase + F_SPRITE_Y, sy)
 
 	w8(stBase + F_FLAGS1, (u8(stBase + F_FLAGS1) or 0) | FLAG1_WONT_DELETE)
+
+	-- NORMALISE THE MOVEMENT TYPE, and this is not tidiness -- it is the fix for the snap the user
+	-- reported on 2026-08-21: *"it still snaps towards the end of the movement, when the ghost is
+	-- close to done arriving onto the next tile"*.
+	--
+	-- The whole template is copied from a live NPC, movement type included. When our step finishes,
+	-- the engine sets STEP_TYPE_FROM_MOVEMENT and dispatches on that byte
+	-- (GetSpriteMovementFunction -> SpriteMovementData). Template an NPC that WANDERS and the byte
+	-- says SPRITEMOVEDATA_WANDER, so for the one frame between our steps the engine runs
+	-- MovementFunction_RandomWalkXY and the ghost picks a direction of its own.
+	--
+	-- Measured, not reasoned: posediff_probe.lua caught exactly one frame per step where the
+	-- ghost's FACING jumped to an unrelated direction (9 -> 2 -> 8 while walking left) and its
+	-- STEP_DURATION held a value nothing in this adapter writes. One frame of the wrong facing at
+	-- the end of every step is precisely "a small snap on arrival".
+	--
+	-- The SPRITEMOVEDATA_STANDING_* entries all use SPRITEMOVEFN_STANDING, which does nothing but
+	-- end the movement and stand. Which of the four is chosen decides the facing the engine
+	-- restores at the end of each step, so stepGhost() re-pins it per direction; the spawn just
+	-- needs a benign starting value.
+	setGhostStanding(stBase, moBase, ((u8(stBase + F_DIRECTION) or 0) // 4) & 3)
 
 	ghosts[id] = { mo = mo, st = st, mo_base = moBase, st_base = stBase, area = areaId(),
 		sprite = u8(stBase + F_SPRITE) }
@@ -1730,11 +1802,55 @@ local ORIENTATION_TO_DIR = { down = 0, up = 1, left = 2, right = 3 }
 
 local DELTA_TO_DIR = { ["0,1"] = 0, ["0,-1"] = 1, ["-1,0"] = 2, ["1,0"] = 3 }
 
+-- The OBJECT_ACTION values a PLAYER's object can legitimately hold. The engine's own table
+-- (ObjectActionPairPointers, engine/overworld/map_object_action.asm) has 17 entries, but most of
+-- them are scenery -- the Copycat dolls, the Sudowoodo tree, boulder dust, shaking grass, a
+-- shadow -- which the player object is never set to. A peer offering one of those is either a
+-- different build or a client we should not trust, so it is ignored rather than written: inbound
+-- state is peer-controlled and this one ends in a memory write.
+-- The OBJECT_ACTION values a PLAYER's object can legitimately hold.
+ACTIONS.peer = {
+	[1] = true, -- OBJECT_ACTION_STAND
+	[2] = true, -- OBJECT_ACTION_STEP
+	[3] = true, -- OBJECT_ACTION_BUMP          (walking into a wall)
+	[4] = true, -- OBJECT_ACTION_SPIN          (spin tiles)
+	[5] = true, -- OBJECT_ACTION_SPIN_FLICKER  (the teleport/dig spin)
+	[6] = true, -- OBJECT_ACTION_FISHING
+	[8] = true, -- OBJECT_ACTION_EMOTE         (the "!" over the head)
+	[16] = true, -- OBJECT_ACTION_SKYFALL      (the Fly landing)
+}
+
+-- Give the ghost the peer's action byte and let Crystal animate it.
+--
+-- This is the whole of the spawned tier's animation work, and the reason it is one line rather
+-- than one branch per animation: HandleObjectAction runs for every object on every frame and
+-- DERIVES OBJECT_FACING from OBJECT_ACTION (map_objects.asm calls it with
+-- ObjectActionPairPointers). So the action byte selects the animation, and writing FACING
+-- ourselves would be inert -- the engine overwrites it before anything is drawn.
+--
+-- Safe to leave written: once a ghost is idle its step function is STEP_TYPE_STANDING, which
+-- touches OBJECT_WALKING and nothing else. ACTION is only reset when the object re-enters its
+-- movement function (MovementFunction_Standing sets OBJECT_ACTION_STAND), which happens at the
+-- END of a step -- so an action written while idle persists, and a step overwrites it with
+-- OBJECT_ACTION_STEP, which is correct.
+local function applyPeerAction(g, act)
+	if act == nil or not ACTIONS.peer[act] then
+		return
+	end
+	if u8(g.st_base + F_ACTION) ~= act then
+		w8(g.st_base + F_ACTION, act)
+	end
+end
+
 local function stepGhost(g, dir)
 	local sdx = (dir == 3) and 2 or (dir == 2) and -2 or 0
 	local sdy = (dir == 0) and 2 or (dir == 1) and -2 or 0
 	local x = (u8(g.st_base + F_MAP_X) or 0) + ((dir == 3) and 1 or (dir == 2) and -1 or 0)
 	local y = (u8(g.st_base + F_MAP_Y) or 0) + ((dir == 0) and 1 or (dir == 1) and -1 or 0)
+
+	-- Re-pinned per step: this decides the facing the engine restores when the step ENDS, so it has
+	-- to follow the direction being walked rather than stay at whatever the spawn chose.
+	setGhostStanding(g.st_base, g.mo_base, dir)
 
 	w8(g.st_base + F_WALKING, 4 + dir)
 	w8(g.st_base + F_DIRECTION, dir * 4)
@@ -1748,13 +1864,41 @@ local function stepGhost(g, dir)
 	-- later, so without this every step lands 2px short and the error accumulates.
 	w8(g.st_base + F_SPRITE_X, ((u8(g.st_base + F_SPRITE_X) or 0) + sdx) & 0xFF)
 	w8(g.st_base + F_SPRITE_Y, ((u8(g.st_base + F_SPRITE_Y) or 0) + sdy) & 0xFF)
+
+	-- READ BACK the one field whose absence makes the engine run away.
+	--
+	-- OBJECT_WALKING's low nibble indexes StepVectors, which has 12 entries. STANDING is 255, so a
+	-- nibble of 15 -- and if the step type still says "walk", the engine reads a step vector from
+	-- whatever follows that table and applies it every frame until the duration runs out. That is
+	-- the "went all the way up/down and off the screen" the user reported on 2026-08-21, and
+	-- orphan_probe.lua caught the struct in exactly that state: WALKING=255 alongside the step type
+	-- and duration this function had just written.
+	--
+	-- So this asks the game what it actually holds rather than trusting the write above, and only
+	-- says anything when the two disagree -- silent in a healthy session.
+	local back = u8(g.st_base + F_WALKING)
+	if back ~= 4 + dir then
+		log(string.format("MeshGhost: WROTE WALKING=%d TO STRUCT %d AND IT READS BACK %s "
+			.. "(step_type=%s duration=%s). The engine walks on the step type, so this is the "
+			.. "state that sends a ghost off the screen.",
+			4 + dir, g.st, tostring(back), tostring(u8(g.st_base + F_STEP_TYPE)),
+			tostring(u8(g.st_base + F_STEP_DURATION))))
+	end
 end
+
+-- How often a ghost had to be snapped rather than walked. Counted because a teleport is the ONLY
+-- thing in this adapter that can move a ghost discontinuously, so "does it feel like it snaps?"
+-- and "is this being called?" are the same question -- and the answer decides whether the fix is
+-- about drift or about something else entirely. Reported once a second and only when it is not
+-- zero, so a healthy session stays silent.
+local snaps = { n = 0, at = 0, runaways = 0 }
 
 local function teleportGhost(g, x, y)
 	-- Same reason as the spawn: this writes screen coordinates too.
 	if not cameraSettled() then
 		return
 	end
+	snaps.n = snaps.n + 1
 	w8(g.st_base + F_WALKING, STANDING)
 	w8(g.st_base + F_STEP_DURATION, 0)
 	for _, off in ipairs({ F_MAP_X, F_LAST_MAP_X, F_INIT_X }) do
@@ -1779,6 +1923,16 @@ local function renderRemote(id, state)
 	if type(pos) ~= "table" or type(pos[1]) ~= "number" or type(pos[2]) ~= "number" then
 		return
 	end
+	-- When did we last hear from this peer? Kept on the activity record, which already exists per
+	-- peer, so this costs no new bookkeeping. tick() uses it to forget peers that stop sending --
+	-- see the sweep there for why a peer can vanish without ever being despawned.
+	local a = activity[id]
+	if not a then
+		a = { x = -1, y = -1, movedAt = policyFrames, passableUntil = 0 }
+		activity[id] = a
+	end
+	a.seenAt = policyFrames
+
 	local isLoopback = id:match("%-ghost$") ~= nil
 	local baseX = math.floor(pos[1])
 	local offsetX = LOOPBACK_OFFSET_X
@@ -1832,9 +1986,48 @@ local function renderRemote(id, state)
 	-- one, which made a test of the cartridge path silently measure nothing (2026-08-19).
 	local peerSprite = FORCE_PEER_SPRITE or (state.extras and tonumber(state.extras.sprite)) or nil
 
+	-- What the peer's own object is DOING, in the engine's own terms. Floored before it can reach
+	-- a write, and checked against ACTIONS.peer there; a peer on an older build sends no `act` at
+	-- all, which reads as nil and leaves the ghost animating exactly as it did before.
+	local peerActRaw = state.extras and tonumber(state.extras.act) or nil
+	local peerAct = peerActRaw and math.floor(peerActRaw) or nil
+
 	-- A peer that should not be blocking is DRAWN rather than spawned: no tile, no collision,
 	-- and its engine slot freed for a peer who is actually moving.
-	if not shouldBlock(id, x, y) then
+	-- The OTHER reason to draw a peer rather than spawn one, added 2026-08-21: a spawned ghost can
+	-- only wear a sprite whose tiles this map has already loaded, and the sprites that say "I am
+	-- on a bike" or "I am surfing" (wPlayerState -> SPRITE_*_BIKE / SPRITE_SURF, documentation.md)
+	-- are loaded only when the LOCAL player is doing the same thing. So a surfing peer used to be
+	-- spawned wearing this machine's walking sprite -- a character standing on the sea.
+	--
+	-- The drawn tier reads the cartridge, so it can wear anything (phase9.md, step 30). Sending a
+	-- peer there costs engine-driven animation and collision; keeping them spawned costs showing
+	-- the wrong character entirely. The look is what the peer is telling us about, so the look wins
+	-- -- the same "collision is a rendering decision" call as the idle rule below.
+	--
+	-- `not W_USEDSPRITES` is "this build has not been measured here" (Archipelago's table), not
+	-- "nothing is resident". Without the list there is no residency question to ask, so the peer
+	-- is spawned exactly as before rather than every peer on that build being quietly demoted.
+	--
+	-- AND the clause that matters most, missing in the first version and caught the same day by
+	-- the adapter's own drawn-tier line reading "0 spawned as real objects, 1 drawn": a peer whose
+	-- sprite is the one THIS MACHINE's player is wearing is always wearable, whether or not it
+	-- appears in wUsedSprites. That list is what the map loaded; the local player's own sprite is
+	-- resident by construction and is also the fallback a ghost gets anyway, so "not in the list"
+	-- says nothing about whether the ghost can look right. Without this every peer of the same
+	-- gender and state -- which is every peer in a loopback session, and most peers in a real one
+	-- -- was demoted to the drawn tier, quietly turning the good tier off.
+	local localSprite = u8(OBJECT_STRUCTS + F_SPRITE)
+	local wearable = peerSprite == nil or not W_USEDSPRITES
+		or peerSprite == localSprite
+		or residentSpriteTile(peerSprite) ~= nil
+
+	-- Called unconditionally, even when `wearable` has already decided the answer: it is what keeps
+	-- each peer's movement bookkeeping current, so a peer who dismounts is not immediately judged
+	-- idle on the strength of a timestamp that stopped being updated while they were on the bike.
+	local blocking = shouldBlock(id, x, y, peerAct)
+
+	if not wearable or not blocking then
 		if ghosts[id] then
 			despawnGhost(id)
 		end
@@ -1871,9 +2064,32 @@ local function renderRemote(id, state)
 	-- every map load. So this is re-checked here rather than only at spawn.
 	applyPeerSprite(g, peerSprite)
 
+	-- AN IMPOSSIBLE STATE, AND THE ONE THAT SENDS A GHOST OFF THE SCREEN.
+	--
+	-- OBJECT_WALKING saying STANDING while OBJECT_STEP_TYPE still says "walk" is not a state the
+	-- engine produces for its own objects: the step functions always set the two together. But
+	-- orphan_probe.lua caught our ghost holding exactly it on 2026-08-21 -- and it is ruinous,
+	-- because StepVectors has 12 entries and GetStepVector indexes it with WALKING's low nibble.
+	-- STANDING is 255, so the nibble is 15, and the engine reads a step vector out of whatever
+	-- follows that table and applies it every frame until the duration runs out. What the user saw:
+	-- *"it gets dragged off screen"*.
+	--
+	-- The cause is not yet pinned -- stepGhost's own write reads back correct every time, so the
+	-- state arrives BETWEEN our steps -- so this repairs rather than explains, and says so. The
+	-- repair is the engine's own "the movement ended" path (STEP_TYPE_FROM_MOVEMENT), which lands
+	-- the object in MovementFunction_Standing and then STEP_TYPE_RESTORE, exactly as a step that
+	-- finished normally would. Registered in BANDAGES.md as a compensation with an unknown cause.
+	local walking = u8(g.st_base + F_WALKING) or STANDING
+	local stepType = u8(g.st_base + F_STEP_TYPE) or 0
+	if walking == STANDING and (stepType == 2 or stepType == 7) then
+		w8(g.st_base + F_STEP_TYPE, 1) -- STEP_TYPE_FROM_MOVEMENT
+		w8(g.st_base + F_STEP_DURATION, 0)
+		snaps.runaways = (snaps.runaways or 0) + 1
+	end
+
 	-- Only act while the ghost is idle; interrupting a step is what makes a character teleport
 	-- while animating.
-	if (u8(g.st_base + F_WALKING) or STANDING) ~= STANDING then
+	if walking ~= STANDING then
 		return
 	end
 
@@ -1890,7 +2106,15 @@ local function renderRemote(id, state)
 		if want and u8(g.st_base + F_DIRECTION) ~= want * 4 then
 			w8(g.st_base + F_DIRECTION, want * 4)
 			w8(g.st_base + F_FACING, want * 4)
+			-- A turn has to survive the engine's own restore, which re-reads the movement byte and
+			-- turns the object to face whatever it names -- so the byte moves with the turn.
+			setGhostStanding(g.st_base, g.mo_base, want)
 		end
+		-- Standing still is not the same as doing nothing: fishing, bumping a wall, spinning on a
+		-- spin tile, the "!" emote and the Fly landing all happen without the peer changing tile,
+		-- and until 2026-08-21 a ghost showed none of them. The direction is set first because
+		-- the action handlers that need one (fishing) read it via GetSpriteDirection.
+		applyPeerAction(g, peerAct)
 		return
 	end
 	local dir = DELTA_TO_DIR[string.format("%d,%d", x - cx, y - cy)]
@@ -2344,9 +2568,54 @@ local function tick()
 
 	beginPolicyFrame()
 
+	-- A ghost that has to be snapped is a ghost that fell behind the peer it is following; walking
+	-- it would have looked like walking. Silent at zero.
+	if snaps.runaways > 0 and bridgeFrames - snaps.at >= 60 then
+		log(string.format("MeshGhost: repaired %d ghost%s found standing while the engine still "
+			.. "thought they were mid-step -- the state that drags a ghost off screen. Cause not "
+			.. "yet found; BANDAGES.md.", snaps.runaways, (snaps.runaways == 1) and "" or "s"))
+		snaps.runaways, snaps.at = 0, bridgeFrames
+	end
+
+	if snaps.n > 0 and bridgeFrames - snaps.at >= 60 then
+		log(string.format("MeshGhost: %d ghost snap%s in the last second (a snap is a jump the "
+			.. "player can see -- it means a ghost could not walk to where its peer already was)",
+			snaps.n, (snaps.n == 1) and "" or "s"))
+		snaps.n, snaps.at = 0, bridgeFrames
+	end
+
 	receive()
 	if not connected then
 		return
+	end
+
+	-- FORGET A PEER THAT HAS STOPPED SENDING.
+	--
+	-- Until 2026-08-21 nothing here ever timed a peer out: a ghost lived until an explicit
+	-- `despawn_remote` arrived, an area change, or the bridge dropping. A peer who simply goes
+	-- quiet -- their game crashed, their machine slept, their client was killed -- was spawned or
+	-- painted at their last position forever.
+	--
+	-- Found the hard way, and the dev rig is what exposed it: every time the core re-registers with
+	-- the relay it is issued a NEW player id, so the loopback ghost becomes "p17-ghost" while
+	-- "p16-ghost" is still on screen with nobody sending for it. Sixteen reconnections in one
+	-- session, and the user's report was exact -- *"a weird 'static' ghost"* that survived
+	-- savestates, because it was never in the game's memory at all: it was OUR painted overlay of a
+	-- peer that no longer exists. Nothing in the arrays to find, which is why the sweep came back
+	-- empty.
+	--
+	-- Three seconds at 60fps. Long enough that ordinary jitter, a slow frame or a paused emulator
+	-- on the other end never trips it; short enough that a dead peer does not stand around.
+	if bridgeFrames % 30 == 0 then
+		for id, a in pairs(activity) do
+			if a.seenAt and policyFrames - a.seenAt > 180 then
+				log("MeshGhost: " .. id .. " stopped sending — removing their ghost")
+				despawnGhost(id)
+				overflow[id] = nil
+				overflow[compareKey(id)] = nil
+				activity[id] = nil
+			end
+		end
 	end
 
 	-- Object state is rebuilt from ROM on every map load, and a battle exit is also a map

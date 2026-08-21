@@ -14,12 +14,15 @@ has been read, its conclusion belongs in `agent_docs/verified.md`.
 live, with no emulator relaunch. See `agent_docs/environment.md`. Older probes here predate the
 loader and run their own frame loop, so they still work opened directly in the Lua Console.
 
-## Nine of these WRITE game RAM. Read this before running one.
+## Ten of these WRITE game RAM. Read this before running one.
 
 Called out here rather than only in their own headers, because a folder index that hides a
 memory-writing tool is the worst kind of gap — nobody reads a header they did not know existed.
-All nine write **object RAM only, never a save**, and a reset or a map load rebuilds what they
+Nine write **object RAM only, never a save**, and a reset or a map load rebuilds what they
 touched: `spawn_test.lua` through `spawn_test7.lua`, `struct_diff_probe.lua`, `walk_test.lua`.
+The tenth, `oam_probe.lua`, writes **four hardware sprite entries** (shadow OAM 36..39, and the
+`OAM` domain), only on frames where the engine's own layout pass has declared them unused, and
+parks them back at `y=160` — the engine's own "not in use" value — when it is done.
 Everything else in this folder is read-only — `object_slot_probe.lua` included, whose own header
 says it deliberately performs no writes.
 
@@ -32,6 +35,7 @@ says it deliberately performs no writes.
 | `object_slot_probe.lua` | How many of the 13 object structs are free during real play, and what a map load does to them. |
 | `step_watch_probe.lua` | What a real NPC's fields look like across one step — the read that overturned the movement plan before any code was written. |
 | `struct_diff_probe.lua` | Our hand-built object against one the engine built, field by field. |
+| `oam_probe.lua` | **Writes four OAM entries.** Whether a third rendering tier is possible between spawned and drawn: how many of the 40 hardware sprite entries the game uses, whether it clears the tail every frame (`_UpdateSprites`'s fill loop says it does), whether an entry written at the Lua frame boundary reaches the hardware at all, and what a text box and the START menu do to one. |
 | `uiframe_probe.lua` | Read-only. Which screen rows a UI frame actually appears on, and whether "frame tiles are in the tilemap" means "a panel is on screen" — the two things that have to be measured before the drawn tier's row-12 text-box test can be generalised to the top-of-screen phone-call box. |
 
 ## Spawning, in the order it was worked out

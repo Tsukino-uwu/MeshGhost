@@ -94,6 +94,28 @@ of them stops being measured, the entry is already here to be corrected.
   and rebuilding it correctly is harder than leaving it. Registered in [FLAGS.md](FLAGS.md) as a
   runtime switch.
 
+### 5. Repairing a step state the engine should never be in — cause unknown
+
+**What it is.** Before stepping a ghost, `renderRemote()` checks for `OBJECT_WALKING == STANDING`
+alongside a walking `OBJECT_STEP_TYPE`, and if it finds that pair puts the object through the
+engine's own end-of-movement path (`STEP_TYPE_FROM_MOVEMENT`, duration 0). Counted, and reported
+once a second when it is not zero.
+
+**Why it is a bandage.** It repairs a state instead of preventing it, which is exactly the tell the
+guide names. The pair is not one the engine produces for its own objects — every step function sets
+`WALKING` and `STEP_TYPE` together — and `stepGhost()`'s own write of `WALKING` reads back correct
+every time it runs, so the state arrives *between* our steps and nobody has found what writes it.
+
+**What it costs if left.** Nothing visible, and it prevents something severe: `StepVectors` has 12
+entries and `GetStepVector` indexes it with `WALKING`'s low nibble, so `STANDING` (255) masks to 15
+and the engine reads a step vector out of whatever follows the table, applying it every frame until
+the duration expires. The user, 2026-08-21: *"it gets dragged off screen"*. Caught by
+`probes/orphan_probe.lua`, which dumps the ten frames leading up to it.
+
+**What removing it needs.** The writer. The ten-frame trace in `orphan_probe.lua` is the instrument;
+what is missing is a capture of the frame the pair first appears with the adapter's own step
+accounting alongside it.
+
 ## Known temptations, recorded before they are taken
 
 Not bandages — none of these has been taken. Listed because each is a place where a compensation is

@@ -12,7 +12,11 @@ to work rather than known to be missing (the ferry and rail movement, recorded a
 [agent_docs/phases/phase8.md](../../../../agent_docs/phases/phase8.md) for the full record.
 
 - Platform: GBA, played via BizHawk.
-- Confirmed working roms: "Vanilla", "Archipelago 0.6.7", "speedchoice-1.2.2", "ex-speedchoice-0.4.0".
+- Confirmed working roms: "Vanilla", "Archipelago 0.6.7".
+- **Targets, not yet supported: "speedchoice-1.2.2", "ex-speedchoice-0.4.0"** — work started
+  2026-08-21. Both relocate the ROM non-uniformly (SPEEDCHOICE has at least seven distinct deltas;
+  EX SPEEDCHOICE is a 32 MB build that also changes graphics outright), so the two-layout scheme
+  this adapter ships cannot reach them. Nothing has been run on either.
 - **It writes game RAM** — object RAM only (`gObjectEvents`, `gSprites`, the sprite-tile
   allocation bitmap, and the shadow-OAM window above `gOamLimit`), never a save, cosmetic only,
   and only on a ROM whose addresses were measured. Cleared by
