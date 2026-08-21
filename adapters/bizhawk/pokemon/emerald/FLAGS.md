@@ -112,3 +112,9 @@ row. It was stacked above the spawned copy until the surf blob and the reflectio
 tier and there was something UNDER each character to look at — two tiles of separation put every
 copy's blob and reflection on top of the one below it. User's call, and the reason is in the
 table's own comment.
+
+## Added 2026-08-21 (dive session)
+
+| Flag | Where | Default | What it does |
+| --- | --- | --- | --- |
+| `MESHGHOST_EMERALD_NO_ANIM_RESTART` | **global or environment** | unset — restarts suppressed only inside the 30-frame post-swap cooldown | **Probe.** Forces the engine-animation-restart suppression EVERYWHERE, not just near a graphic swap. This is the subtraction experiment that proved the grey/flash scramble was the engine's restart copy tearing mid-frame (`pitfalls.md`, 2026-08-21); it survives as the flag because re-running that experiment is how a recurrence would be diagnosed. Set, every ghost pose is driven purely by the wire mirror's boundary-time loads — fishing's engine-driven cast animation stops advancing between wire updates, which is why it must never ship set. |

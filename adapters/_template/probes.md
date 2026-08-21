@@ -1176,3 +1176,27 @@ decode shape, size, position, priority, palette, flip and affine mode, and compa
 This retired a whole class of "it looks slightly off" in one line — ours came back byte-identical to
 the engine's own reflection entry — and it is the fastest way to split "we are drawing it wrong"
 from "we are drawing the wrong thing".
+
+## Write breakpoints: the only instrument that sees BETWEEN frames (Emerald, 2026-08-21)
+
+A defect that exists at RENDER time but never at the Lua tick is invisible to every per-frame
+probe by construction -- struct dumps, OAM scans, VRAM-vs-ROM checks and allocation-bitmap dumps
+all read clean while the screen shows garbage. The instrument for that gap is
+`event.onmemorywrite` on the affected range: each write event carries the address and value, and
+`emu.getregister` the CPU state.
+
+What a day of using it taught:
+
+- **Register one address per tile (stride 32), not every byte** -- a breakpoint can push the
+  emulator core onto a slow path, and sampling catches any multi-byte copy anyway.
+- **PC inside the BIOS (0x2A0) means a CpuSet/LZ77 call; LR is ALSO banked to the BIOS there**,
+  so registers cannot name the game-side caller. Name the writer by its DATA instead: search the
+  ROM for the written values at the observed stride. No ROM match means a RAM source
+  (decompressed graphics, heap frame buffers).
+- **Budget the event count and stamp `emu.framecount()` into every line** -- the interesting
+  window is a handful of frames, and correlating with screenshots requires one shared clock
+  across probe lines, log lines and screenshot filenames.
+- **The engine's sprite-copy queue executes at VBlank, one frame AFTER the request** -- so a
+  sprite despawned this tick can still write its tiles next frame. Tiles freed at despawn and
+  re-claimed in the same tick get the dead sprite's frame stamped over the new owner's load.
+  If a despawn frees tile ranges, defer the free by a few frames.
