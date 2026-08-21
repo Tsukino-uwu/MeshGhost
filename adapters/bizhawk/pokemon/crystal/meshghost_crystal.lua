@@ -1884,6 +1884,12 @@ function drawOverflow()
 		-- nothing in the engine is animating it. A peer that has changed tile within the last
 		-- half second is treated as walking, which is roughly how long a step takes.
 		if o.lastX ~= o.x or o.lastY ~= o.y then
+			-- Keep the tile it came FROM, not just the one it is on. Without it the painted copy
+			-- has no sub-tile position at all and can only ever jump a whole tile at a time -- the
+			-- user, 2026-08-21: *"the drawn ghost teleports a full tile, every time you walk a
+			-- tile"*. The wire carries tiles; the spawned tier gets its glide from the engine
+			-- sliding the sprite 2px a frame, and the painted tier has to do that itself.
+			o.fromX, o.fromY = o.lastX, o.lastY
 			o.lastX, o.lastY, o.movedAt = o.x, o.y, drawFrames
 		end
 		local walkingFor = (o.movedAt and (drawFrames - o.movedAt) < 30) and (drawFrames - o.movedAt) or nil
@@ -1950,6 +1956,25 @@ function drawOverflow()
 			-- lands outside the on-screen test below and is still discarded.
 			sx = ((sx % 256) + 272) % 256 - 16
 			sy = ((sy % 256) + 272) % 256 - 16
+
+			-- GLIDE BETWEEN TILES, at the engine's own pace.
+			--
+			-- sx,sy above are the DESTINATION tile's screen position, so painting there directly is
+			-- a 16px jump the instant the peer's tile changes -- which is what the user saw. The
+			-- engine moves its own characters 2px per frame over 8 frames (StepVectors' "normal"
+			-- entry), so the painted copy walks back from the destination by the distance it has
+			-- not covered yet. At walkingFor=0 it sits on the tile it left; at 8 it has arrived.
+			--
+			-- Only for a ONE-TILE move: a peer that jumped further has warped or been silent, and
+			-- sliding them across that gap would be inventing motion that never happened.
+			if o.fromX and walkingFor and walkingFor < 8 then
+				local dx, dy = o.x - o.fromX, o.y - o.fromY
+				if math.abs(dx) + math.abs(dy) == 1 then
+					local remaining = 16 - walkingFor * 2
+					sx = sx - dx * remaining
+					sy = sy - dy * remaining
+				end
+			end
 			local onScreen = sx > -16 and sx < 160 and sy > -16 and sy < 144
 			if not onScreen then
 				nOffScreen = nOffScreen + 1
