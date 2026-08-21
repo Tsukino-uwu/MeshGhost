@@ -9623,3 +9623,18 @@ the two disagree.
   everything behind the banner — player and spawned ghost included, confirmed from capture — so
   the drawn copy staying hidden THERE is the game's own behaviour; the edges now open and close
   with the hardware.
+
+### Emerald: savestate loads no longer break any tier — user-confirmed (2026-08-21)
+
+- Date: 2026-08-21. **Source: the user, on screen** — *"Yee looks fine now"*, after water-to-grass
+  loads, the case that survived the first two fixes.
+- Three causes, peeled in order, each measured before fixed: (1) our tile-claim and OAM-entry
+  bookkeeping survives a load while the engine's world rewinds — the adapter now detects the
+  emulator's frame-counter jump and FORGETS rather than frees; (2) its own first version then
+  violated that rule by freeing tiles inside the despawn sweep, and the rewound gMain.oamBuffer
+  can hold entries in slots the fresh roster never re-claims — frees suppressed under the purge,
+  and the whole hardware range swept blind; (3) the wire echoes the PRE-load world for 2-4 frames,
+  and acting on it rebuilt the pre-load ghost (surf blob and all) on the load tick — the spawned
+  and hardware tiers now stand down for twelve frames after a load while the painted tier covers
+  the gap. The scripted water-to-grass repro that showed shards and churn shows one clean walker
+  acquire on film after the third fix.
