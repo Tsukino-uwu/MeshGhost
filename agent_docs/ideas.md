@@ -2463,4 +2463,27 @@ Why that is the right minimum rather than an arbitrary one:
 The resume rule from above still applies and gets easier: the first packet after presence-only must
 be a **full state**, not a delta — the relay never had a position to delta against.
 
+**Third rung, same ladder (requested 2026-08-21):** *"clients should not send new values if they
+have not changed since the previous ones... we don't really need to send things we already know
+from before already."* Not culling but **change suppression**, and it applies all the time, not
+only when isolated:
+
+- **A standing player's stream is almost entirely repeats.** Position, facing, graphic, animation
+  — identical packet after identical packet at 20-100 Hz. Suppressing repeats collapses the idle
+  cost of every player, which stacks with the culling above (an isolated player's stream first
+  shrinks to repeats, then the repeats stop going out).
+- **Per-field, not per-packet, is where the real win is**: while moving, the position changes every
+  tick but `gender`/`gfx`/`area_id` almost never do. Sending only changed fields turns the steady
+  packet into position-plus-orientation. This is a WIRE FORMAT change (fields become optional, with
+  "unchanged" as the default meaning), so it belongs behind a protocol rev, not a patch.
+- **The traps are the resend rules, all shapes of one rule: "unchanged" is relative to what the
+  RECEIVER knows.** A late joiner has seen nothing, so every peer owes them a full state; a
+  reconnect after a drop likewise; on udp a suppressed field rides on a lossy channel, so
+  "I sent it once" is not "they have it" — either changed fields repeat for a few packets, or the
+  keepalive carries a periodic full state as a correction, the same way video streams key-frame.
+- **The adapter already half-does this at the edge**: Emerald's sender debounces the graphic and
+  pairs it with its offset before publishing. That is suppression for CORRECTNESS; this idea is the
+  same mechanism for COST, generalised across every field and done once in the core (game-agnostic
+  — "has this value changed?" needs no knowledge of what the value means), not per adapter.
+
 **Not scheduled.** Nothing here is committed until it moves into `plans.md`.

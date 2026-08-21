@@ -4024,6 +4024,51 @@ tiering.scanPanel = function()
         end
     end
     tiering.panelPrev = rows
+    -- THE SHOW-MON BANNER IS REVEALED BY HARDWARE WINDOW 0, so its tilemap lies about coverage.
+    --
+    -- Using an HM plays a full-width banner across mid-screen, and its TILEMAP rows are fully
+    -- written from the first frame -- but the game shows it through WIN0, a rectangle it animates
+    -- open and closed per frame (WININ carries BG0+OBJ, WINOUT drops BG0:
+    -- FieldMoveShowMonOutdoorsEffect_Init, src/field_effect.c:2613-2626). Clipping from the
+    -- tilemap therefore hides the painted ghost for the whole effect, while the engine's own
+    -- sprites disappear only where the rectangle actually covers them -- the user, watching all
+    -- three copies: *"the drawn ghost still goes away for a bit whenever surf is used... probly
+    -- the same way we hide it from house entry/exit or from menus?"* Close: same clip, wrong
+    -- authority for this one panel.
+    --
+    -- The rectangle is read from the effect TASK's own data, not the registers: WIN0H/V are
+    -- write-only on hardware and this build's reads return open-bus junk (measured 2026-08-21,
+    -- WIN0H == WIN0V every sample). The task stores what it writes -- tWinHoriz data[1],
+    -- tWinVert data[2], WIN_RANGE packing hi=start lo=end (field_effect.c:2552-2554) -- so the
+    -- panel spans are intersected with exactly what the hardware is shown.
+    --   gTasks 03005E00, struct Task { func 0x00, isActive 0x04, ..., data 0x08 }, size 0x28
+    --   Task_FieldMoveShowMonOutdoors 080B8554 / ..Indoors 080B88B4 (pokeemerald.sym; +1 Thumb)
+    do
+        local showMon = nil
+        for t = 0, 15 do
+            local ta = 0x03005e00 + t * 0x28
+            if r8(ta + 0x04) == 1 then
+                local fn = r32(ta + 0x00)
+                if fn == 0x080b8555 or fn == 0x080b88b5 then showMon = ta break end
+            end
+        end
+        if showMon then
+            local wh = r16(showMon + 0x08 + 1 * 2)
+            local wv = r16(showMon + 0x08 + 2 * 2)
+            local x1, x2 = (wh >> 8) & 0xff, (wh & 0xff) - 1
+            local y1, y2 = (wv >> 8) & 0xff, (wv & 0xff) - 1
+            for row, span in pairs(out) do
+                local rTop, rBot = row * 8, row * 8 + 7
+                if rBot < y1 or rTop > y2 or x2 < x1 then
+                    out[row] = nil                     -- BG0 is not shown on this row at all
+                else
+                    if span[1] < x1 then span[1] = x1 end
+                    if span[2] > x2 then span[2] = x2 end
+                    if span[2] < span[1] then out[row] = nil end
+                end
+            end
+        end
+    end
     tiering.panelRows = out
     return out
 end
@@ -4075,6 +4120,18 @@ end
 -- edge of the screen where the difference is hardest to see. Returns the set of player_ids that
 -- should hold an object slot this frame; everyone else in the area is the drawn tier's problem.
 tiering.chooseSpawned = function(localAreaId, playerX, playerY)
+    -- QUIET AFTER A STATE LOAD: the wire is stale by definition. The core keeps echoing the last
+    -- local_state it received -- the PRE-load world -- until our first post-load send round-trips
+    -- (2-4 frames), and acting on that echo re-created the pre-load ghost in full on the load
+    -- tick itself: measured 2026-08-21, "surf blob for gfx 2" logged on the very frame of a
+    -- water-to-grass load, then a swap back to a walker two frames later. That churn of
+    -- alloc/free/swap against a just-rewound world is where this adapter's transition bugs live,
+    -- and it is what the user kept catching as *"the OAM glitch if going from surfing and using a
+    -- savestate back to land"*. Twelve frames of empty tiers is a fifth of a second, behind the
+    -- load's own screen blink; the painted tier stays live, so nothing pops.
+    if genderFrames.loadQuietUntil and frameCounter < genderFrames.loadQuietUntil then
+        return {}
+    end
     local budget = tiering.budget(localAreaId)
     local ranked = {}
     for playerId, remote in pairs(remotes) do
@@ -7063,6 +7120,12 @@ function hwAcquire(playerId, info)
     }
     tiering.hw.slotUsed[slot] = playerId
     tiering.hw.byPeer[playerId] = rec
+    -- One line per acquire (rare: spawns and graphic changes only). Exists because the
+    -- water-to-grass savestate glitch outlived the blind OAM sweep, so which tiles this tier
+    -- holds AFTER a load, and when it took them, has to be readable next to the probe logs.
+    logFile(string.format("hw acquire: %s slot=%d tiles=%d..%d f=%d emu=%d",
+        tostring(playerId), slot, tileStart, tileStart + info.tileCount - 1,
+        frameCounter, emu.framecount()))
     return rec
 end
 
@@ -7527,6 +7590,10 @@ end
 tiering.chooseHardware = function(localAreaId, playerX, playerY, spawnSet)
     local set = {}
     if not tiering.hw.on then return set end
+    -- Same post-load quiet as chooseSpawned, same reason, same measurement.
+    if genderFrames.loadQuietUntil and frameCounter < genderFrames.loadQuietUntil then
+        return set
+    end
     local ranked = {}
     for playerId, remote in pairs(remotes) do
         -- The loopback ghost is the one peer allowed into every tier at once, and only in compare
@@ -9090,6 +9157,8 @@ function detectStateLoad()
     genderFrames.deferredTileFrees = {}
     tiering.hw.fxTiles, tiering.hw.puffs, tiering.hw.ripples = {}, {}, {}
     tiering.hw.area = nil
+    -- No spawned or hardware ghost until the wire has echoed a post-load state; see chooseSpawned.
+    genderFrames.loadQuietUntil = frameCounter + 12
 end
 
 local function runFrame()

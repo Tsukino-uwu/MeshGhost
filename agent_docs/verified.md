@@ -9606,3 +9606,20 @@ the two disagree.
   3. **"One tier is perfect" is a diagnosis**: the OAM tier resolves graphic+animation together
      itself and never showed the earlier incoherent-pair half of this; the tiers are a built-in
      control group. Both lessons are in `pitfalls.md` in full.
+
+### Emerald: the drawn copy no longer vanishes through the HM splash — user-confirmed (2026-08-21)
+
+- Date: 2026-08-21. **Source: the user, on screen**: *"think the drawn ghost looks better now, its
+  not disappearing anymore."*
+- **The cause**: the painted tier's UI clip reads panels from BG0's tilemap, and the HM banner's
+  tilemap rows are fully written for the whole effect — but the game REVEALS the banner through
+  hardware window 0, a rectangle it animates open and shut (`field_effect.c:2613-2668`). Clipping
+  from the tilemap hid the painted body for all ~76 frames while the engine's own sprites were
+  hidden only where the rectangle actually covered them.
+- **The fix**: while a show-mon task is live, the panel spans are intersected with that window
+  rectangle — read from the TASK's own data (`tWinHoriz`/`tWinVert`, data[1]/data[2]), because
+  WIN0H/V are write-only registers and this emulator returns open-bus junk for them (measured:
+  WIN0H == WIN0V every sample). Mid-effect the rectangle genuinely covers the character rows and
+  everything behind the banner — player and spawned ghost included, confirmed from capture — so
+  the drawn copy staying hidden THERE is the game's own behaviour; the edges now open and close
+  with the hardware.
