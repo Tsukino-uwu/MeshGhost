@@ -587,5 +587,7 @@ Records in `verified.md`; methods in `pitfalls.md`.
   0/0..0/4 at exactly the player's own 4-frame spacing, then the jump and the surf idle; the film
   shows every step displayed, offset by the uniform ~4-frame wire lag. Needs the user to either
   re-look or name the specific step.
-- **The dive itself: still never reached.** The underwater graphic path and the bobbing driver
-  are built and loaded; nothing has been underwater yet. This was the session's original goal.
+- ~~The dive itself~~ — **REACHED AND USER-CONFIRMED 2026-08-21**: *"I confirm that surf & dive is
+  properly done now."* `verified.md` has the entries. What remains unjudged there: a CROWD
+  underwater (only the loopback ghost has been seen), and the painted tier's cost when it carries
+  peers the hardware tier would otherwise have taken (the underwater exception in `FLAGS.md`).

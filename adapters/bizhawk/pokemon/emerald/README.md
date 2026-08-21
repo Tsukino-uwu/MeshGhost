@@ -290,3 +290,10 @@ before running any of them. The adapter's own switches are in [FLAGS.md](FLAGS.m
     fading toward black — and a cave mouth fades to WHITE, so the gate read a washed-out screen as
     an ordinary one and the ghost stayed at full colour. Fitting the engine's actual blend line
     (`live = a*rom + b`) covers black, white, cave tint, weather and night in one expression.
+
+31. Made surfing and diving 1:1, mount to dismount. Getting on the water is a sequence rather than
+    a graphic change — pose, banner, then the surfing graphic and a jump onto the water together —
+    so a ghost performs the game's own jump and every tier parks its blob in the water instead of
+    dragging it ashore. Diving works once our copy of the engine's underwater bobber was gone: it
+    held another sprite's index, so a reused slot let it corrupt whatever landed there and hang the
+    game. A diver's bob rides the peer's own offset. Evidence: `agent_docs/verified.md`.

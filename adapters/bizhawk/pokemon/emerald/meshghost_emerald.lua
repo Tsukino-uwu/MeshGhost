@@ -5819,6 +5819,23 @@ local function syncGhost(playerId, remote)
         end
     end
 
+    -- UNDERWATER THE BOB IS A POSITION, NOT AN ANIMATION -- so it is applied even while moving.
+    --
+    -- The mirror above deliberately stands aside for a WALKING peer: its animation is the engine's
+    -- to drive, and mirroring on top of that put two writers on one field. But the peer's sprite
+    -- OFFSET is not an animation, and underwater it is the whole of the bob -- the game drives it
+    -- with a dummy sprite we deliberately do not reproduce (spawnUnderwaterBobber's header). With
+    -- the offset trapped inside that gate, a diver bobbed while idle and went rigid the moment it
+    -- moved: the user, *"they stay static and don't bob while moving around"*.
+    --
+    -- Only underwater, and only when nothing else owns the field: a surf blob drives its rider's
+    -- pos2 itself, and a walking ghost on land has no offset to carry.
+    if g.gfx and UNDERWATER_GFX[g.gfx] and not g.blobSprId and remote.soy then
+        local dw = sprAddr(g.sprId)
+        w16(dw + 0x26, remote.soy & 0xffff)
+        if remote.sox then w16(dw + 0x24, remote.sox & 0xffff) end
+    end
+
     -- SLIDE COUNTER, kept rather than temporary: between them these two numbers found the paused
     -- sprite on the Mach Bike, the frozen legs on the Acro Bike, and the stranded ghost -- three
     -- faults no position or speed reading could see. A moving character with `paused` high is

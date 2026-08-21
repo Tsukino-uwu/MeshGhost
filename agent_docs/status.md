@@ -2,27 +2,29 @@
 
 ## Active status
 
-**2026-08-21, third session that day: the SURF TRANSITION was rebuilt end to end, and every
-on-screen defect found in it is user-confirmed fixed.** The grey/flash at surf start (the engine's
-animation-restart copy tearing mid-frame), the drawn copy vanishing through the HM splash (the
-panel clip now follows the game's hardware window), every shape of the savestate glitch (three
-causes, peeled separately), and the mount/dismount blob behaviour on all three tiers (parked in
-the water through jumps, born at the destination, bobbing with the rider). Records: `verified.md`;
-methods, including the five-lying-authorities list and the mid-frame-tearing diagnosis:
-`pitfalls.md`. Open residue: `unverified.md` (an unreproduced "OAM missing an animation step").
+**2026-08-21 (third session that day): SURFING AND DIVING ARE DONE, user-confirmed** — *"I confirm
+that surf & dive is properly done now."* The whole transition was rebuilt defect by defect against
+the user's own eyes: the surf-start hop and pose timing, the grey/flashing spawned ghost, the drawn
+copy vanishing through the HM banner, every savestate glitch, mount and dismount blob behaviour on
+all three tiers, the orange sprite and the wrong Pokémon in the banner, the dive black screen, and
+underwater ghosts (graphic, bob, and the bob while moving). Entries: `verified.md`. Methods and the
+lessons that cost the most: `pitfalls.md`.
 
-- **THE DIVE — the session's original goal — has still never happened.** The underwater graphic
-  path and the game's own bobbing driver are built and loaded; nothing has been underwater.
-  `documentation.md` has the underwater section; the dive probe is in the loader set, watching.
-- **The verification rule was TIGHTENED mid-session (user-directed): nothing adapter/game-side on
-  the VANILLA game may be called verified until the user confirms it on screen — no probe log,
-  console read or agent screenshot substitutes.** Patched ROMs and the Go side stay
-  agent-confirmable. `CLAUDE.md` carries it; the memory index mirrors it.
-- **New idea recorded**: relay-side culling of isolated players + presence packets + per-field
+- **The dive black screen was OURS, and it is the session's biggest lesson**: our copy of the
+  engine's underwater bobber held another sprite's INDEX, so a reused slot let it write into the
+  show-mon's Pokémon picture — corrupting it and hanging the game. **Copy the effect, never the
+  engine's data structure.** `pitfalls.md`.
+- **The tier ladder now has a place-specific exception**: spawn → OAM → drawn everywhere, spawn →
+  drawn underwater, because the game's full-screen fog sprites outrank OAM entries 64+ and any
+  priority that beats them makes the fog draw opaque around us. `FLAGS.md`, `documentation.md`.
+- **The verification rule was TIGHTENED mid-session (user-directed)**: nothing adapter/game-side on
+  the VANILLA game is verified until the user confirms it on screen — no probe log, console read or
+  agent screenshot substitutes. Patched ROMs and the Go side stay agent-confirmable. `CLAUDE.md`.
+- **New idea recorded**: relay-side culling of isolated players, presence packets, and per-field
   change suppression, as one ladder. `ideas.md`, end of file.
-- **Rig right now**: relay + core running hidden (loopback, tcp, collision off), emulator up with
-  slot 2 = standing on the shore one tile from water (the transition test state), dev loader set =
-  flags + dive probe + test kit + adapter. Slot 8 remains the goto_map undo.
+- **Rig**: relay + core running hidden (loopback, tcp, collision off); emulator up; dev loader set =
+  flags + dive probe + test kit + adapter. Savestates: slot 1 the user's, slot 2 the shore
+  (surf-start test), slot 3 out on the ocean ready to dive, slot 8 goto_map's undo.
 
 ## Genuinely open items
 

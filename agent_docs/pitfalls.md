@@ -3466,3 +3466,32 @@ described by something on the wire (the peer's own sprite offset, here), copy no
   screen in its own semi-transparent sprites at lower indices, so nothing we put there can appear,
   and raising our priority to escape only makes the fog draw opaque around us. The answer is to
   stand the tier down where it cannot win and let another tier carry those peers.
+
+## Emerald: a gate written for ANIMATION also swallowed a POSITION (2026-08-21)
+
+**Symptom.** Underwater, ghosts bobbed while idle and went rigid the moment they moved.
+
+**Cause.** The peer's sprite offset is applied inside the animation-mirror gate, which
+deliberately stands aside for a walking peer -- correct for animations, because the engine drives a
+moving ghost's walk cycle and mirroring on top of it puts two writers on one field. But an offset
+is not an animation: underwater it IS the bob, and the engine drives nothing for our ghost there
+(we deliberately do not reproduce its bobber). So the bob was gated off exactly when the peer moved.
+
+**The rule.** When a gate exists to arbitrate one KIND of state, check what else has been parked
+inside it. Animation, position, offset and graphic have different owners at different moments; a
+condition that is right for one is arbitrary for the others.
+
+## Emerald: three renderers are a control group -- use them (2026-08-21)
+
+Twice in one session the user's report named which tiers misbehaved, and the tier they did NOT
+name was the answer:
+
+- The orange sprite appeared on the spawned and painted copies. The hardware tier -- the one that
+  behaved -- was the only one resolving the surf blob's palette from its TAG through the engine's
+  table instead of hardcoding slot 0. The show-mon effect had taken slot 0 for a Pokemon.
+- The incoherent (graphic, animation) pair broke the spawned and painted copies while the hardware
+  one stayed correct, because that tier resolves both together itself every frame rather than
+  consuming the stored pair.
+
+**When one renderer of the same peer behaves and the others do not, diff what it does differently
+before forming any theory.** It is a free A/B that is already running.

@@ -9705,3 +9705,17 @@ the two disagree.
   by copying its DATA STRUCTURE rather than its EFFECT. A structure that stores another object's
   id is safe for the engine, which owns every lifetime involved, and unsafe for us, who own none
   of them. **Reproduce the effect; never adopt a handle to something the engine can recycle.**
+
+### Emerald: SURFING AND DIVING ARE DONE — user-confirmed (2026-08-21)
+
+- Date: 2026-08-21, end of session. **Source: the user, on screen**: *"It works now, I confirm that
+  surf & dive is properly done now."*
+- **What that covers**, each fixed and watched during the session (details in the entries above and
+  in `pitfalls.md`): the surf-start hop and its pose timing; the grey/flashing spawned ghost; the
+  drawn copy vanishing through the HM banner; every savestate glitch; the mount and dismount blob
+  behaviour on all three tiers; the orange sprite and the wrong Pokémon in the banner; the dive
+  black screen; and underwater ghosts — graphic, bob, and the bob continuing while moving.
+- **The last fix, and its shape is the session in miniature**: underwater a diver's bob is the
+  peer's sprite OFFSET, and the code that applies it sat inside a gate that deliberately excludes
+  a walking peer — correct for animation mirroring, wrong for a position. Idle ghosts bobbed;
+  moving ones went rigid. A bob is not an animation.

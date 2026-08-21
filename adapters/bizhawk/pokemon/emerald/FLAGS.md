@@ -119,6 +119,13 @@ table's own comment.
 | --- | --- | --- | --- |
 | `MESHGHOST_EMERALD_NO_ANIM_RESTART` | **global or environment** | unset — restarts suppressed only inside the 30-frame post-swap cooldown | **Probe.** Forces the engine-animation-restart suppression EVERYWHERE, not just near a graphic swap. This is the subtraction experiment that proved the grey/flash scramble was the engine's restart copy tearing mid-frame (`pitfalls.md`, 2026-08-21); it survives as the flag because re-running that experiment is how a recurrence would be diagnosed. Set, every ghost pose is driven purely by the wire mirror's boundary-time loads — fishing's engine-driven cast animation stops advancing between wire updates, which is why it must never ship set. |
 
+## Added 2026-08-21 (dive session, later)
+
+| Flag | Where | Default | What it does |
+| --- | --- | --- | --- |
+| `MESHGHOST_EMERALD_NO_BLOB` | global | unset — blobs spawn | **Probe.** Spawn ghosts but give them no surf blob (and no underwater bobber, which no longer exists as a sprite). Written to bisect a hard failure: diving with the adapter loaded black-screened the GAME, and this separated "a spawned ghost" from "the field effects attached to one". Kept because that bisect — adapter, then tier, then effect — is the shape any future "our code broke the game" hunt should take. Never ship it set: a surfing ghost without its blob is half a state. |
+| `MESHGHOST_EMERALD_NO_BOBBER` | global | unset | **Probe.** Splits the pair above, so the surf blob and the underwater bobber can be told apart. It was the bobber, and it is gone entirely now (`spawnUnderwaterBobber`'s header); the flag survives because the split is the method, not the fix. |
+
 ## The tier ladder, and its one place-specific exception (2026-08-21)
 
 | Where | Ladder |
