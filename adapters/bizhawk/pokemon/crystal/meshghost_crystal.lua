@@ -1663,7 +1663,17 @@ local W_MENUBOX_TOP, W_MENUBOX_LEFT, W_MENUBOX_BOTTOM, W_MENUBOX_RIGHT = 0x0F82,
 local UI_LATCH_FRAMES = 20
 local uiSeenAt, drawFrames = nil, 0
 -- The player's step progress as of the frame OAM was built; see the pairing note in drawOverflow.
-local lastPlayerProg = {}
+-- A few frames of the player's own position, so a peer's state can be compared against the moment
+-- it describes rather than against now. PEER_STATE_AGE is the measured loopback round trip.
+-- One table, not three names: this file lives at Lua's 200-local ceiling and has hit it three
+-- times tonight, each as a bare LOAD FAILED with the whole adapter not loading.
+-- `age` is the measured loopback round trip in frames.
+-- `age` is the ONE knob on this tier, and it trades two artefacts against each other in a known
+-- direction: too high and the ghost races its destination, too low and it snaps backwards at each
+-- tile boundary. 4 was the measured round trip and read as fast; 2 splits it. Tuned by eye on
+-- purpose -- what matters is which way to turn it, which is written here so the next person does
+-- not rediscover the direction.
+local playerHistory = { size = 12, age = 2 }
 
 -- WY IS NOT THE SIGNAL, and using it cost half the screen.
 --
@@ -1880,6 +1890,25 @@ function drawOverflow()
 	--
 	-- So: per-frame, wiggle and all, until the phase error is fixed at its source rather than by
 	-- refusing to look. A 2px oscillation is a blemish; a two-tile teleport is a broken ghost.
+	-- ONE HISTORY ENTRY PER FRAME, recorded here beside the OAM read rather than inside the
+	-- per-peer loop -- in the loop it advanced once per PEER, so "four frames ago" became two with
+	-- two copies on screen, and the aged reference moved faster than the player did.
+	--
+	-- The OAM origin is stored WITH the tile and offset it belongs to. Ageing the offset while
+	-- leaving the origin current makes the two motions add up, which reads as a ghost racing to its
+	-- destination -- exactly what the user saw.
+	do
+		local h = playerHistory
+		h.n = (h.n or 0) + 1
+		h[(h.n % h.size) + 1] = {
+			oamX = playerOamX, oamY = playerOamY,
+			tx = u8(OBJECT_STRUCTS + F_MAP_X) or 0, ty = u8(OBJECT_STRUCTS + F_MAP_Y) or 0,
+			prog = stepProgress(OBJECT_STRUCTS),
+			walking = (u8(OBJECT_STRUCTS + F_WALKING) or STANDING) ~= STANDING,
+			dir = ((u8(OBJECT_STRUCTS + F_DIRECTION) or 0) // 4) & 3,
+		}
+	end
+
 	local calX = (playerOamX - 8) - (u8(OBJECT_STRUCTS + F_SPRITE_X) or 0)
 	local calY = (playerOamY - 16) - (u8(OBJECT_STRUCTS + F_SPRITE_Y) or 0)
 
@@ -1992,9 +2021,26 @@ function drawOverflow()
 			-- `playerProgress` is how far the player is into their own step, `peerProgress` the
 			-- same for the peer, sent as extras.prog because only the peer knows it. For a peer
 			-- moving in step the two cancel and the offset is constant -- nothing to snap.
-			local pTile = { x = u8(OBJECT_STRUCTS + F_MAP_X) or 0, y = u8(OBJECT_STRUCTS + F_MAP_Y) or 0 }
-			local pProg = stepProgress(OBJECT_STRUCTS)
-			local pDir = ((u8(OBJECT_STRUCTS + F_DIRECTION) or 0) // 4) & 3
+			-- COMPARE THE PEER AGAINST WHERE THE PLAYER WAS WHEN ITS STATE WAS CURRENT.
+			--
+			-- The peer's state is 3-5 frames old (posediff measured the round trip). Subtracting a
+			-- FRESH local reference from a STALE remote one is the last artefact left on this tier:
+			-- the instant the player completes a step their tile advances and their offset resets,
+			-- while the peer still describes the previous tile -- a full 16px of disagreement that
+			-- closes as the peer catches up. The user saw it as a backward snap at every tile
+			-- boundary, and it survived turning interpolation on because it is not a network
+			-- problem, it is a comparison between two different moments.
+			--
+			-- So the player's own position is kept for a few frames and the sample matching the
+			-- peer's age is used. Same idea as the core's interpolation, applied to the reference
+			-- rather than to the peer.
+			local hist = playerHistory
+			local aged = hist[((hist.n - hist.age) % hist.size) + 1]
+				or hist[(hist.n % hist.size) + 1]
+
+			local pTile = { x = aged.tx, y = aged.ty }
+			local pProg = aged.prog
+			local pDir = aged.dir
 			local peerProg = tonumber(o.prog) or 0
 
 			-- Progress is a distance; it becomes a displacement through the direction each is
@@ -2029,16 +2075,11 @@ function drawOverflow()
 			-- So the player's progress is used one frame late, to match the OAM it is being paired
 			-- with. pitfalls.md's "a script's writes land between frames" is the same defect on the
 			-- write side; this is its reading twin.
-			local pWalking = (u8(OBJECT_STRUCTS + F_WALKING) or STANDING) ~= STANDING
-			local pProgForOam = lastPlayerProg.prog or pProg
-			local pWalkForOam = lastPlayerProg.walking
-			if pWalkForOam == nil then pWalkForOam = pWalking end
-			lastPlayerProg.prog, lastPlayerProg.walking = pProg, pWalking
-			local ppx, ppy = offsetFromDest(pDir, pProgForOam, pWalkForOam)
+			local ppx, ppy = offsetFromDest(pDir, pProg, aged.walking)
 			local gpx, gpy = offsetFromDest(o.facing or 0, peerProg, o.walking)
 
-			sx = playerOamX - 8 + (o.x - pTile.x) * 16 + gpx - ppx
-			sy = playerOamY - 16 + (o.y - pTile.y) * 16 + gpy - ppy
+			sx = (aged.oamX or playerOamX) - 8 + (o.x - pTile.x) * 16 + gpx - ppx
+			sy = (aged.oamY or playerOamY) - 16 + (o.y - pTile.y) * 16 + gpy - ppy
 
 			local onScreen = sx > -16 and sx < 160 and sy > -16 and sy < 144
 			if not onScreen then
@@ -2309,6 +2350,14 @@ local function renderRemote(id, state)
 	end
 	a.seenAt = policyFrames
 
+	-- Declared HERE, above every use. They were previously declared after the compare block that
+	-- reads them, so those two copies resolved a nonexistent GLOBAL instead: prog and walking came
+	-- out nil, the sub-tile offset was zero, and the painted copy could only land on the
+	-- destination tile -- the user saw it teleport rather than walk (2026-08-21). Lua gives no
+	-- warning for this; a use-before-declaration is a silent nil, not an error.
+	local peerProg = state.extras and tonumber(state.extras.prog) or nil
+	local peerWalking = (state.anim == "walk")
+
 	local isLoopback = id:match("%-ghost$") ~= nil
 	local baseX = math.floor(pos[1])
 	local offsetX = LOOPBACK_OFFSET_X
@@ -2383,8 +2432,6 @@ local function renderRemote(id, state)
 	-- What the peer's own object is DOING, in the engine's own terms. Floored before it can reach
 	-- a write, and checked against ACTIONS.peer there; a peer on an older build sends no `act` at
 	-- all, which reads as nil and leaves the ghost animating exactly as it did before.
-	local peerProg = state.extras and tonumber(state.extras.prog) or nil
-	local peerWalking = (state.anim == "walk")
 	local peerActRaw = state.extras and tonumber(state.extras.act) or nil
 	local peerAct = peerActRaw and math.floor(peerActRaw) or nil
 
