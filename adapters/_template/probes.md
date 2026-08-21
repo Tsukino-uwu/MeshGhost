@@ -789,10 +789,24 @@ files with different timestamps.
 
 **The practical form:**
 
-- **Buffer, and flush in batches.** Per-frame `console.log` visibly lags the emulator — the user
-  reported it within a minute (*"its spamming the console lag, and the game is lagging"*). Even a
-  per-frame `io.open` is a probe heavy enough to change what it measures. Accumulate into a table
-  and write every ~120 lines.
+- **Buffer, and flush in batches. THIS APPLIES TO SHIPPED ADAPTERS, NOT ONLY TO PROBES** — and it
+  was read as probe-only advice for months while both Lua adapters flushed every log line.
+  Per-frame `console.log` visibly lags the emulator — the user reported it within a minute
+  (*"its spamming the console lag, and the game is lagging"*). Even a per-frame `io.open` is a
+  probe heavy enough to change what it measures. Accumulate into a table and write every ~120
+  lines, or open the file with `setvbuf("full", …)` and flush on a timer.
+- **A PER-SECOND LOG LINE IS A PER-SECOND STALL.** Measured 2026-08-21: one `console.log` plus one
+  `flush` cost **63–83ms** — four to five frames — every time, on the emulator's own thread.
+  Crystal's drawn tier wrote one summary line a second whenever peers were present, so a real
+  player lost that every second; Emerald wrapped the global `console.log` so every console line
+  flushed too. Neither showed up in any frame-RATE reading, which stayed at 59.7fps throughout.
+  **The cost is per call, so "only once a second" is not small — it is 5% of every second.**
+- **Measure PACING, not rate, whenever anybody says "choppy".** An average cannot see a hitch: ten
+  frames lost inside one second still reads as 58fps. Attach `dev-scripts/bizhawk-hitch-meter.lua`
+  — it is game-agnostic, standing rig, and reports frames over 20ms, frames over 33ms and the worst
+  gap. It also reads `client.get_approx_framerate()` beside `os.clock`, because `os.clock` measures
+  only the Lua process's own CPU: a big gap there blames a script, while a low emulator framerate
+  with small gaps means the cost is elsewhere and no adapter tuning will find it.
 - **Print raw values, not interpretations.** `G.2c=c7` is what let the paused bit (`0x40`) be
   spotted after the fact. A field printed as `paused=false` by code that had the polarity wrong
   would have hidden it forever.

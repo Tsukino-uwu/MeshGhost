@@ -143,9 +143,9 @@ stays here, its reasoning goes to `agent_docs/`, with a one-line pointer. Full e
   `meshghost-fakeadapter.exe`/`meshghost-netsim.exe` at the repo root — `dev-scripts/*.bat` launches those exact named
   binaries. Rebuild explicitly with `-o` first. Found live 2026-08-14: a bug repro ran against
   binaries a full day stale.
-- **Never log the value you just wrote as proof it worked.** Read back an independent value
-  instead (e.g. a real getter call, not the local variable you wrote into) — an echoed log
-  line proves your code ran, not that the world actually changed.
+- **Never log the value you just wrote as proof it worked — this covers your own EDITS.** Read back
+  independently: a real getter, not the local you wrote; and re-read the FILE after any scripted
+  edit, because an unmatched pattern fails SILENTLY. 2026-08-21: "fixed in both" was false.
 - **Two guessed fixes failing the same way is a signal.** Isolate by subtraction, never a third guess.
 - **After ~3 failed live-test iterations, STOP and write the results as a table (config vs
   outcome) before building anything else — and try the untested COMBINATION.** "A alone does

@@ -493,6 +493,25 @@ directly to the enumeration and spawn-detection work above, which is exactly the
 costly. It lives in [probes.md](probes.md) with the rest of the probe method, and the full incident
 is in [../../agent_docs/pitfalls.md](../../agent_docs/pitfalls.md), "The diagnostics were the bug".
 
+### A per-second log line is a per-second stall — and it ships
+
+**A rule the new adapter starts with, because both existing Lua adapters got it wrong.** Writing to
+the log is not free: one `console.log` plus one `flush` was measured at **63–83ms** on 2026-08-21 —
+four to five frames — on the emulator's own thread. Crystal's drawn tier wrote one summary line a
+second whenever peers were present, so a shipped session lost that every second, and Emerald
+wrapped the global `console.log` so every console line flushed to disk too.
+
+So: **open the log buffered (`setvbuf("full", …)`), never flush per line, flush on a timer, and keep
+`console.log` for the rare line somebody actually needs to see.** [probes.md](probes.md) has said
+"buffer, and flush in batches" since the drawn tier was built — what failed was reading it as advice
+about *probes*. It is not. It is about anything that runs every frame, shipped code first.
+
+**And when anyone says "choppy", measure PACING, not rate.** An average cannot see a hitch: ten
+frames lost inside one second still reads as 58fps, which is why this cost a whole session before it
+was found. `dev-scripts/bizhawk-hitch-meter.lua` is standing rig for exactly that — game-agnostic,
+attach it to any performance question, and it reports frames over 20ms, frames over 33ms and the
+worst gap rather than an average that hides all three.
+
 ### If you are about to start effect work, read the playbook first
 
 The two sections above tell you *what to build* — enumerate before guessing, and mirror the
