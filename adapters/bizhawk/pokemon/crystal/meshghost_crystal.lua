@@ -1662,6 +1662,8 @@ local W_MENUBOX_TOP, W_MENUBOX_LEFT, W_MENUBOX_BOTTOM, W_MENUBOX_RIGHT = 0x0F82,
 -- ghosts -- is occluded by the game itself and needs none of this.
 local UI_LATCH_FRAMES = 20
 local uiSeenAt, drawFrames = nil, 0
+-- The player's step progress as of the frame OAM was built; see the pairing note in drawOverflow.
+local lastPlayerProg = {}
 
 -- WY IS NOT THE SIGNAL, and using it cost half the screen.
 --
@@ -1908,25 +1910,7 @@ function drawOverflow()
 			o.fromX, o.fromY = o.lastX, o.lastY
 			o.lastX, o.lastY, o.movedAt = o.x, o.y, drawFrames
 		end
-		-- THE STRIDE COMES FROM THE PEER'S OWN STEP, not from a local timer.
-		--
-		-- This used to count frames since WE noticed the peer's tile change, which starts late, runs
-		-- on its own clock and is nil whenever that detection misses -- the painted copies were
-		-- drawing a standing frame the whole time a peer walked ("0 on a walk frame" while the user
-		-- watched two ghosts glide along statically).
-		--
-		-- extras.prog is the peer's real position within its step, 0-16 pixels, which is the same
-		-- thing OBJECT_STEP_FRAME means to the engine. Feeding that to the frame selector ties the
-		-- painted stride to the step the peer is actually taking: with WALK_FRAME_HOLD at 8 it gives
-		-- one stride for the first half of the step and the other for the second, which is the
-		-- cadence the engine itself uses.
-		local walkingFor = nil
-		if o.walking then
-			walkingFor = tonumber(o.prog) or 0
-		elseif o.movedAt and (drawFrames - o.movedAt) < 30 then
-			-- Fallback for a peer on a build that sends no `prog`: the old local timer.
-			walkingFor = drawFrames - o.movedAt
-		end
+		local walkingFor = (o.movedAt and (drawFrames - o.movedAt) < 30) and (drawFrames - o.movedAt) or nil
 		-- Resident tiles first -- they are what the engine is drawing everyone else from, so a
 		-- drawn peer beside a spawned one matches exactly. Failing that, read the peer's sprite
 		-- out of the cartridge, which is how a peer wearing a sprite THIS map never loaded (the
@@ -2011,24 +1995,16 @@ function drawOverflow()
 			local pTile = { x = u8(OBJECT_STRUCTS + F_MAP_X) or 0, y = u8(OBJECT_STRUCTS + F_MAP_Y) or 0 }
 			local pProg = stepProgress(OBJECT_STRUCTS)
 			local pDir = ((u8(OBJECT_STRUCTS + F_DIRECTION) or 0) // 4) & 3
-			-- DEAD RECKONING: TRIED AND REMOVED, 2026-08-21, note kept so it is not retried blind.
-			--
-			-- extras.prog is stale by the round trip (3-5 frames, so 6-10px at the engine's 2px a
-			-- frame), and that error vanishes in one frame when the step ends -- a visible snap.
-			-- Advancing the last known value locally at 2px a frame looks like the obvious cure and
-			-- made it worse: the ghost ran AHEAD of itself, a full tile at the cap.
-			--
-			-- Why: the stamp can only refresh when the VALUE changes, so a peer reporting the same
-			-- progress twice lets the local advance keep running, and the extrapolation compounds
-			-- instead of tracking. Fixing that needs a real arrival clock per peer, not a
-			-- value-changed heuristic -- and even then it is prediction, which is wrong every time
-			-- the peer does something unpredicted.
-			--
-			-- What is left is the honest residue: the ghost lags by the round trip. That is a
-			-- property of the rig, not a defect in the tier, and hiding it with extrapolation trades
-			-- a small constant lag for an occasional large wrong guess.
 			local peerProg = tonumber(o.prog) or 0
 
+			-- Progress is a distance; it becomes a displacement through the direction each is
+			-- facing. down/up/left/right, the adapter's own dir order everywhere else.
+			local function displace(dir, px)
+				if dir == 0 then return 0, px end
+				if dir == 1 then return 0, -px end
+				if dir == 2 then return -px, 0 end
+				return px, 0
+			end
 			-- MAP_X/MAP_Y ARE THE DESTINATION, written at the START of a step -- this adapter's own
 			-- movement recipe depends on that, and it is what makes the sign here easy to get
 			-- wrong. A character part-way through a step is therefore at
@@ -2043,8 +2019,22 @@ function drawOverflow()
 				return displace(dir, prog - 16)
 			end
 
+			-- PAIR OAM WITH THE FRAME OAM WAS BUILT FROM.
+			--
+			-- playerOamX/Y is what the engine DREW last frame; pProg is read from the struct THIS
+			-- frame. Subtracting one from the other mixes two frames, and mid-step they differ by
+			-- exactly the per-frame step delta -- a +/-2px oscillation, which is the drawn ghost's
+			-- wiggle. Neither value is wrong; pairing them is.
+			--
+			-- So the player's progress is used one frame late, to match the OAM it is being paired
+			-- with. pitfalls.md's "a script's writes land between frames" is the same defect on the
+			-- write side; this is its reading twin.
 			local pWalking = (u8(OBJECT_STRUCTS + F_WALKING) or STANDING) ~= STANDING
-			local ppx, ppy = offsetFromDest(pDir, pProg, pWalking)
+			local pProgForOam = lastPlayerProg.prog or pProg
+			local pWalkForOam = lastPlayerProg.walking
+			if pWalkForOam == nil then pWalkForOam = pWalking end
+			lastPlayerProg.prog, lastPlayerProg.walking = pProg, pWalking
+			local ppx, ppy = offsetFromDest(pDir, pProgForOam, pWalkForOam)
 			local gpx, gpy = offsetFromDest(o.facing or 0, peerProg, o.walking)
 
 			sx = playerOamX - 8 + (o.x - pTile.x) * 16 + gpx - ppx
@@ -2371,16 +2361,14 @@ local function renderRemote(id, state)
 		-- copy renders nothing and still counts as a peer waiting -- a phantom in every tier total.
 		local hk = COMPARE.hwKey(id)
 		local hprev = overflow[hk]
-		overflow[hk] = OAM_TIER and { prog = peerProg, walking = peerWalking,
-			lastProg = prev and prev.lastProg, progAt = prev and prev.progAt, compare = true, only = "hw", x = baseX + COMPARE.hw, y = y,
+		overflow[hk] = OAM_TIER and { prog = peerProg, walking = peerWalking, compare = true, only = "hw", x = baseX + COMPARE.hw, y = y,
 			sprite = FORCE_PEER_SPRITE or (state.extras and tonumber(state.extras.sprite)) or nil,
 			facing = ORIENTATION_TO_DIR[state.orientation],
 			lastX = hprev and hprev.lastX, lastY = hprev and hprev.lastY,
 			movedAt = hprev and hprev.movedAt,
 			fromX = hprev and hprev.fromX, fromY = hprev and hprev.fromY } or nil
 
-		overflow[ck] = { prog = peerProg, walking = peerWalking,
-			lastProg = prev and prev.lastProg, progAt = prev and prev.progAt, compare = true, only = "drawn", x = baseX + COMPARE.drawn, y = y,
+		overflow[ck] = { prog = peerProg, walking = peerWalking, compare = true, only = "drawn", x = baseX + COMPARE.drawn, y = y,
 			sprite = FORCE_PEER_SPRITE or (state.extras and tonumber(state.extras.sprite)) or nil,
 			facing = ORIENTATION_TO_DIR[state.orientation],
 			lastX = prev and prev.lastX, lastY = prev and prev.lastY, movedAt = prev and prev.movedAt,
@@ -2448,8 +2436,7 @@ local function renderRemote(id, state)
 			despawnGhost(id)
 		end
 		local prev = overflow[id]
-		overflow[id] = { prog = peerProg, walking = peerWalking,
-			lastProg = prev and prev.lastProg, progAt = prev and prev.progAt, x = x, y = y, sprite = peerSprite,
+		overflow[id] = { prog = peerProg, walking = peerWalking, x = x, y = y, sprite = peerSprite,
 			facing = ORIENTATION_TO_DIR[state.orientation],
 			lastX = prev and prev.lastX, lastY = prev and prev.lastY, movedAt = prev and prev.movedAt,
 			fromX = prev and prev.fromX, fromY = prev and prev.fromY }
@@ -2466,8 +2453,7 @@ local function renderRemote(id, state)
 			overflow[id] = nil
 		else
 			local prev = overflow[id]
-			overflow[id] = { prog = peerProg, walking = peerWalking,
-			lastProg = prev and prev.lastProg, progAt = prev and prev.progAt, x = x, y = y, sprite = peerSprite,
+			overflow[id] = { prog = peerProg, walking = peerWalking, x = x, y = y, sprite = peerSprite,
 				facing = ORIENTATION_TO_DIR[state.orientation],
 				lastX = prev and prev.lastX, lastY = prev and prev.lastY,
 				movedAt = prev and prev.movedAt,
@@ -2788,11 +2774,6 @@ local function handle(msg)
 	elseif t == "render_remote" then
 		renderRemote(tostring(p.player_id), p.state)
 	elseif t == "despawn_remote" then
-		-- WHO ASKED. A ghost vanishing mid-walk with no reason in the log is indistinguishable from
-		-- a rendering fault, and the user reported exactly that (2026-08-21). The core sends this
-		-- when the RELAY drops a peer -- in a loopback session that means our own state stopped
-		-- being sent, which is a different bug entirely from anything in the drawing path.
-		log("MeshGhost: the core says " .. tostring(p.player_id) .. " left the room")
 		-- BOTH tiers, and the activity record with them. despawnGhost only knows about spawned
 		-- ghosts, so before this the drawn tier kept painting a peer who had left -- forever, and
 		-- invisibly to every count except the one that says how many peers are waiting. Found by
