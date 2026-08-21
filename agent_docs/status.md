@@ -34,9 +34,14 @@ facts behind them are in the adapter's `documentation.md`.
 
 ## Picking this up in a new session — rewritten 2026-08-21 (second session that day)
 
-**Nothing of mine is running.** The relay and the core were shut down and verified gone at the end
-of the session. **The EMULATOR is still up** — one vanilla Emerald instance with the adapter loaded
-through the dev loader, sitting in Sootopolis City (`g0.n7`).
+**Nothing of mine is running.** The relay and the core were shut down and verified gone, and the
+listening ports were checked empty. **The EMULATOR is still up** — one vanilla Emerald instance in
+Sootopolis City (`g0.n7`), with the dev loader attached but **detached from every target**
+(`bizhawk-dev-loader-emerald.target` reads `none`).
+
+**That detach is deliberate, and worth knowing before wondering where the core went:** killing the
+core alone is not enough, because a live adapter AUTOSTARTS a default-flags one within seconds and
+it takes the bridge port. Drop the adapter first, then the core, then check the ports.
 
 To bring the rig back, from the repo root, hidden (`environment.md`):
 
