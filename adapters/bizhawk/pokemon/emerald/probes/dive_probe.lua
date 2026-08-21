@@ -97,7 +97,11 @@ local bobUntil = nil
 local shootUntil = nil
 
 local function tick()
-    frame = frame + 1
+    -- The EMULATOR's frame number, not a private counter: the screenshot filenames, the adapter's
+    -- swap lines and these lines must all be laid on ONE timeline, or a garbled shot cannot be
+    -- matched to what the sprite held that frame -- which is exactly the correlation that failed
+    -- before this change.
+    frame = emu.framecount()
     local sb1 = r32(SAVEBLOCK1PTR)
     if sb1 < 0x02000000 then return end
     local mapG, mapN = r8(sb1 + 0x04), r8(sb1 + 0x05)
@@ -172,7 +176,7 @@ local function tick()
             -- own shape/size bits rather than assumed, so a swap mid-flight is measured honestly.
             local shape = (r16(gs + 0x00) >> 14) & 3
             local sz = (r16(gs + 0x02) >> 14) & 3
-            local nTiles = (shape == 0 and sz == 3) and 16 or ((shape == 2 and sz == 2) and 8 or 8)
+            local nTiles = (shape == 0 and sz == 2) and 16 or 8  -- square 32x32, else 16x32
             -- A REFLECTION IS NOT A CLASH. UpdateObjectReflectionSprite (08154 0A8) copies the
             -- character's own tileNum every frame -- sharing the tiles IS how a reflection works --
             -- so every ghost reported one and the signal was pure noise until this excluded it.
@@ -231,10 +235,33 @@ local function tick()
                     else
                         local dst = 0x06010000 + (r16(gs + 0x04) & 0x3ff) * 32
                         verdict = "ok"
-                        for k = 0, 7 do
+                        -- The whole frame, not its first tile: a 32x32 graphic owns 16 tiles and
+                        -- the first version checked 8 words -- one tile -- so garbage in the other
+                        -- fifteen read as "ok".  Size from the sprite's own shape/size bits.
+                        local shp = (r16(gs + 0x00) >> 14) & 3
+                        local szb = (r16(gs + 0x02) >> 14) & 3
+                        local words = (shp == 0 and szb == 2) and 128 or 64  -- 32x32 : 16x32
+                        local badAt = nil
+                        for k = 0, words - 1 do
                             if r32(dst + k * 4) ~= r32(src + k * 4) then
-                                verdict = "VRAM MISMATCH" break
+                                verdict = "VRAM MISMATCH"
+                                badAt = k
+                                break
                             end
+                        end
+                        -- THE BYTES NAME THE WRITER. On a mismatch, log where it starts and what
+                        -- is actually there against what should be -- garbage from a Pokemon pic,
+                        -- a stale walker frame and an engine-freed range all look different.
+                        if badAt then
+                            local got, want = {}, {}
+                            for k = badAt, math.min(badAt + 3, words - 1) do
+                                got[#got + 1] = string.format("%08X", r32(dst + k * 4))
+                                want[#want + 1] = string.format("%08X", r32(src + k * 4))
+                            end
+                            say(string.format(
+                                "%6d | BYTES obj=%d word %d/%d: got %s want %s (dstTile=%d)",
+                                frame, i, badAt, words, table.concat(got, " "),
+                                table.concat(want, " "), r16(gs + 0x04) & 0x3ff))
                         end
                     end
                 end
@@ -245,6 +272,69 @@ local function tick()
                     r8(gs + 0x2a), r8(gs + 0x2b), r8(a + 0x05)))
                 if verdict ~= "ok" then shootUntil = frame + SHOT_FRAMES end
             end
+        end
+    end
+
+    -- THE HARDWARE'S OWN STORY. FLAGS.md's anim-trace note, learned on fishing: when every
+    -- struct field agrees and the screen does not, the answer is in the REAL OAM at 0x07000000 --
+    -- the entries the PPU actually drew from. For the ghost's tile range, list every entry that
+    -- points into it: a clean 32-wide character is its subsprite pieces; a scrambled one is
+    -- whatever this prints instead. One line per CHANGE of the whole signature.
+    do
+        local ga = objAddr(15)
+        if (r8(ga) & 0x01) == 1 and r8(ga + 0x08) == GHOST_LOCAL_ID then
+            local gs2 = sprAddr(r8(ga + 0x04))
+            local t0 = r16(gs2 + 0x04) & 0x3ff
+            -- TRUE OVERLAP, both directions. The first version required the entry's STARTING tile
+            -- to fall in the ghost's range, which is blind to a big sprite that starts below it
+            -- and spans across -- exactly the shape of a 64x64 Pokemon picture. Sizes from the
+            -- shape/size bits (GBATEK's OBJ size table), 1D mapping.
+            local SIZES = {
+                [0] = { [0] = 1, [1] = 4, [2] = 16, [3] = 64 },   -- square: 8,16,32,64
+                [1] = { [0] = 2, [1] = 8, [2] = 16, [3] = 32 },   -- wide
+                [2] = { [0] = 2, [1] = 8, [2] = 16, [3] = 32 },   -- tall
+            }
+            local sig = {}
+            for e = 0, 127 do
+                local a0 = r16(0x07000000 + e * 8)
+                local a1 = r16(0x07000002 + e * 8)
+                local a2 = r16(0x07000004 + e * 8)
+                local tl = a2 & 0x3ff
+                local shp = (a0 >> 14) & 3
+                local n = (SIZES[shp] or SIZES[0])[(a1 >> 14) & 3] or 1
+                if (a0 & 0x0300) ~= 0x0200 and tl < t0 + 16 and tl + n > t0 then
+                    sig[#sig + 1] = string.format("e%d:%04X/%04X/%04X(n%d)", e, a0, a1, a2, n)
+                end
+            end
+            -- The allocator bitmap over our neighbourhood, one hex digit per 4 tiles, so "who
+            -- believed these tiles were free" is on the same timeline as who drew from them.
+            do
+                local bm = {}
+                -- sSpriteTileAllocBitmap 02021B3C (the adapter's own cited constant); byte k
+                -- covers tiles 8k..8k+7, so bytes 10..17 span tiles 80..143.
+                for k = 10, 17 do bm[#bm + 1] = string.format("%02X", r8(0x02021b3c + k)) end
+                sig[#sig + 1] = "bm80-144:" .. table.concat(bm)
+            end
+            local key = table.concat(sig, " ")
+            if last.oamSig ~= key then
+                last.oamSig = key
+                say(string.format("%6d | OAM ghost tiles %d..: %s", frame, t0,
+                    #sig > 0 and key or "(no entry)"))
+            end
+        end
+    end
+
+    -- THE BANNER'S WINDOW. The show-mon banner is revealed by hardware window 0 (WIN0H/WIN0V,
+    -- animated per frame -- field_effect.c:2617-2668), so the 1:1 clip for the painted tier is
+    -- that rectangle, not the tilemap. WIN0H/V are WRITE-ONLY on hardware; whether this
+    -- emulator serves reads anyway is exactly what this measures. DISPCNT and WININ are
+    -- readable regardless.
+    do
+        local wk = string.format("%04X %04X %04X %04X", r16(0x04000040), r16(0x04000044),
+            r16(0x04000048), r16(0x04000000))
+        if last.winRegs ~= wk then
+            last.winRegs = wk
+            say(string.format("%6d | WINREG win0h/win0v/winin/dispcnt = %s", frame, wk))
         end
     end
 

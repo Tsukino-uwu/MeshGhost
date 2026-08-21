@@ -3366,7 +3366,18 @@ previous state in place, and unsafe when the caller has already half-applied a c
 pointer swap had already happened, so "do nothing" meant "draw rubbish". **Ask what the caller has
 already done before returning early.**
 
-## Emerald: THE PAIR was wrong, and three consumer-side fixes each treated one symptom (2026-08-21)
+## Emerald: THE PAIR was wrong -- and fixing it did NOT clear the symptoms (2026-08-21)
+
+**CORRECTION, same day, and the reason this header changed.** The entry below was written when the
+probe went clean, and it presents the incoherent pair as THE single cause -- a claim the user never
+confirmed and the screen then contradicted: *"its not fixed. the drawn ghost still goes away for a
+tiny bit... and the spawned ghost still does the grey/flash."* The pair was real, measured, and
+worth fixing -- but it was not the (whole) cause of either symptom. The entry stands as a record of
+a correct measurement wrongly promoted to a diagnosis, which is itself the pitfall: **a probe
+going clean is not the defect going away, and writing "cause" before the user has watched the fix
+is the same violation as writing "confirmed" on a build.** What the pair fix provably did (stored
+state and VRAM checks clean across a scripted run) is in the commit; what it did on screen is: not
+enough.
 
 **Symptoms, reported as three separate things across an hour:** the spawned ghost flashes grey at
 the start of surfing, every few attempts; the drawn ghost *"disappears for a bit"* at the same

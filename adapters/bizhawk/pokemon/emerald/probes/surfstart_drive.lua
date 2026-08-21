@@ -67,8 +67,11 @@ local function tick()
     end
     if phase == "shoot" then
         shots = shots + 1
+        -- The EMULATOR frame number in the filename, so a garbled shot can be laid against the
+        -- adapter log's own frame-stamped lines instead of guessed at.
         pcall(function()
-            client.screenshot(string.format("%s/surf_%03d.png", OUT_DIR, shots))
+            client.screenshot(string.format("%s/surf_%03d_f%d.png", OUT_DIR, shots,
+                emu.framecount()))
         end)
         if shots >= SHOOT_FRAMES then
             console.log("surfstart_drive: " .. shots .. " frames written to " .. OUT_DIR)

@@ -560,11 +560,13 @@ GAME, not of how our copies look. Judge each with compare mode on, all three tie
   peer); never judged by eye. Known remainder to look for: **the ghost wears the field-move pose
   during its hop while the player is already in the surfing one**, because the graphic swap trails
   the action by a frame or two. If that reads wrong, the swap has to be ordered ahead of the action.
-- **The grey/flashing spawned ghost at the start of surfing.** Two causes were found and fixed —
-  an unresolvable animation frame left freshly-claimed tiles unwritten, and the ghost could be
-  dressed in one graphic while posed from another graphic's animation table. **Still reported after
-  the first fix; the second landed afterwards and has not been looked at.** It appears roughly
-  every two or three attempts, so one clean attempt proves nothing.
+- ~~The grey/flashing spawned ghost at the start of surfing~~ — **USER-CONFIRMED FIXED
+  2026-08-21** (*"confirmed fixed"*): the engine's animation-restart frame copy tearing mid-frame
+  right after a tile-range move. `verified.md` has the entry and the method. Still open from the
+  same event: the DRAWN copy vanishing through the splash (diagnosed: the panel clip reads the
+  banner's tilemap rows while the game reveals it with hardware window 0 — fix is to follow the
+  window), and the hardware copy after a WATER-to-grass savestate load (stale save-time entries in
+  slots the fresh roster never re-claims; a blind full-range sweep landed 2026-08-21, unjudged).
 - **Savestate loads no longer break the hardware tier.** The detector is confirmed firing from the
   adapter's own log, but *"the OAM copy looks right after several state loads"* is a visual claim
   and nobody has made it yet.

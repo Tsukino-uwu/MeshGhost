@@ -2209,6 +2209,17 @@ end
 -- draws outside of water as well"*. nil means "no restriction", which is every other caller.
 function drawRunList(runs, frameWidth, hFlip, screenX, screenY, panelRows, dim, vFlipHeight,
     xScale, keepSpans)
+    -- GAP DETECTOR (dev, COMPARE_TIERS sessions): every call is counted so the frame's end can
+    -- ask "was ANYTHING painted?". The user sees the drawn copy vanish for a moment at the start
+    -- of surfing, and a vanish is not a fallback -- a fallback still paints a walker. A vanish is
+    -- a frame where the overlay was CLEARED and this function then never ran, and no probe of
+    -- stored state can see that; only counting the paints can.
+    -- A bare GLOBAL, deliberately: `tiering` is a file-scope local declared 450 lines BELOW this
+    -- function, so naming it here reads a nil global and errors -- which is exactly what happened
+    -- on this counter's first version (2026-08-21): every paint died on this line, the drawn tier
+    -- vanished entirely, and the "gap" lines it produced were the error's shadow. The fourth bite
+    -- of the forward-reference trap this file documents.
+    MG_DRAWN_CALLS = (MG_DRAWN_CALLS or 0) + 1
     for i = 1, #runs do
         local r = runs[i]
         local color = r.color
@@ -2311,10 +2322,17 @@ function drawRunList(runs, frameWidth, hFlip, screenX, screenY, panelRows, dim, 
                     genderFrames.clippedRuns = (genderFrames.clippedRuns or 0) + 1
                     -- Keep whatever falls outside the panel: a run straddling the menu's left edge
                     -- is still drawn up to that edge.
-                    if kx1 < span[1] then drawRun(kx1, math.min(kx2, span[1] - 1), y, color) end
-                    if kx2 > span[2] then drawRun(math.max(kx1, span[2] + 1), kx2, y, color) end
+                    if kx1 < span[1] then
+                        drawRun(kx1, math.min(kx2, span[1] - 1), y, color)
+                        MG_SPANS = (MG_SPANS or 0) + 1
+                    end
+                    if kx2 > span[2] then
+                        drawRun(math.max(kx1, span[2] + 1), kx2, y, color)
+                        MG_SPANS = (MG_SPANS or 0) + 1
+                    end
                 else
                     drawRun(kx1, kx2, y, color)
+                    MG_SPANS = (MG_SPANS or 0) + 1
                 end
             end
         end
@@ -3694,8 +3712,16 @@ local SURFING_GFX
 -- Tile ranges we could not free at the time, because we were in a battle and the bitmap was not
 -- ours to write. Settled on the way back to the overworld. On genderFrames for the ceiling reason.
 genderFrames.pendingTileFrees = {}
+genderFrames.deferredTileFrees = {} -- swap-time frees, held a few frames; see swapGhostGraphicInPlace
 
 local function freeGhostTiles(g)
+    -- NEVER FREE ACROSS A STATE LOAD. The load rewinds the engine's allocation bitmap to the
+    -- save-time session's state, so the ranges our records name no longer correspond to bits we
+    -- own -- clearing them un-allocates whatever THAT session had there, and the next allocation
+    -- lands on live tiles. This is precisely the forget-don't-free rule detectStateLoad preaches,
+    -- and its own despawn sweep violated it through this helper: found 2026-08-21 as *"we also
+    -- regressed the OAM ghost, as it glitch/goes away when using a save state now"*.
+    if genderFrames.stateLoadPurge then return end
     if g.tileStart then
         for t = g.tileStart, g.tileStart + g.tileCount - 1 do setTileAllocated(t, false) end
     end
@@ -4235,9 +4261,23 @@ local function spawnGhost(playerId, mapX, mapY, orientation, wantGfx)
     -- tables gets SUBSPRITES_ON and table 0; one without gets subsprites off, or it would be
     -- drawn through the previous graphic's layout.
     w32(dst + 0x18, info.subspriteTables)
+    -- PRESERVE THE SUBSPRITE TABLE NUMBER -- forcing 0 was one visible frame of scramble.
+    --
+    -- A 32-wide graphic is drawn through a subsprite table, and WHICH table is chosen by the
+    -- ENGINE, per frame, from the object's elevation: sElevationToSubspriteTableNum
+    -- (event_object_movement.c:7733-7745) -- ordinary ground is table 1, and table 0 in
+    -- sOamTables_* is EMPTY. Writing 0 here left the PPU drawing the new 16-tile frame with no
+    -- layout map for exactly one frame, until UpdateObjectEventElevationAndPriority chose the
+    -- real table again -- one frame of scrambled pieces at every graphic change, which is both
+    -- the user's *"grey/flash ish glitched sprite"* at the start of surfing (screenshot
+    -- surf_005_f4183744, near-correct VRAM measured the same frame -- so layout, not pixels)
+    -- and the mechanism behind FLAGS.md's "renders corrupted" note on this path. The elevation
+    -- does not change with a graphic, so the number already on the sprite is the engine's own
+    -- current answer: keep it.
+    local keepSubNum = r8(dst + 0x42) & 0x3f
     w8(dst + 0x42, 0)
     if info.subspriteTables ~= 0 then
-        w8(dst + 0x42, (r8(dst + 0x42) & 0x3f) | (1 << 6)) -- subspriteTableNum 0, mode ON
+        w8(dst + 0x42, keepSubNum | (1 << 6)) -- engine's table, mode ON
     end
     -- centerToCornerVec, as TrySetupObjectEventSprite computes it from the graphic's dimensions.
     w8(dst + 0x28, (-(info.width // 2)) & 0xff)
@@ -4256,6 +4296,7 @@ local function spawnGhost(playerId, mapX, mapY, orientation, wantGfx)
         objId = objId, sprId = sprId, localId = localId,
         tileStart = tileStart, tileCount = tileCount, mapX = mapX, mapY = mapY,
         gfx = graphicsId, -- what this ghost is currently DRAWN as, so a change can be detected
+        swapAt = frameCounter, -- a spawn is a swap for the restart cooldown; see animRestart
     }
     -- A state is its animation AND its extras: a surfing rider without the Pokemon underneath is
     -- half the state, and the missing half is the one a player notices first.
@@ -4492,6 +4533,11 @@ function despawnGhostShadow(g)
     if not g.shadowSprId then return end
     local d = sprAddr(g.shadowSprId)
     w8(d + 0x3e, (r8(d + 0x3e) & ~0x01) | 0x04)
+    -- Same forget-don't-free rule as freeGhostTiles, same reason, same date.
+    if genderFrames.stateLoadPurge then
+        g.shadowSprId, g.shadowTileStart, g.shadowTiles = nil, nil, nil
+        return
+    end
     if g.shadowTileStart then
         for t = g.shadowTileStart, g.shadowTileStart + (g.shadowTiles or 1) - 1 do
             setTileAllocated(t, false)
@@ -4602,6 +4648,7 @@ despawnSurfBlob = function(g)
     local d = sprAddr(g.blobSprId)
     w8(d + 0x3e, (r8(d + 0x3e) & ~0x01) | 0x04) -- inUse = 0, invisible = 1
     w32(d + 0x1c, 0)
+    if genderFrames.stateLoadPurge then g.blobSprId, g.blobTileStart = nil, nil return end
     if g.blobTileStart then
         for t = g.blobTileStart, g.blobTileStart + 15 do setTileAllocated(t, false) end
     end
@@ -4762,6 +4809,40 @@ end
 -- Standing aside for those frames costs nothing: the engine animates the ghost's own action
 -- meanwhile, and the swap arrives a frame or two later with the right frame loaded by its own path.
 -- A nil `remote.gfx` means the peer never told us -- the pair cannot be incoherent, so mirror.
+-- NO ENGINE ANIMATION RESTART NEAR A GRAPHIC SWAP -- the restart's frame copy is the tear.
+--
+-- The chain, closed by subtraction on 2026-08-21 after six narrower fixes each failed on screen:
+-- with the peer-graphic path off (no swaps) the scramble never occurs; with swaps on and ONLY the
+-- engine's animation restarts suppressed, it never occurs either -- while every boundary-time
+-- instrument (sprite struct, hardware OAM, VRAM-vs-ROM, allocation bitmap) read clean throughout,
+-- and a write-watch put BIOS CpuSet bursts inside the ghost's tiles on exactly the scramble
+-- frames. That is a MID-FRAME copy tearing the sprite while the PPU scans it: asking the engine
+-- to restart an animation makes it re-copy the frame on its own clock, during active display,
+-- right after the tile range has moved -- when old and new bytes differ the most. Our own copies
+-- run at the Lua tick, between frames, and cannot tear.
+--
+-- SUPPRESSED ONLY NEAR A SWAP, not always: fishing's cast is engine-animated and user-confirmed
+-- 1:1, and its animation changes arrive with no graphic change -- the cooldown leaves it exactly
+-- as it was. 30 frames covers the measured +2..3-frame tear window ten times over. Within the
+-- window the ghost stays paused and the wire mirror's boundary-time loads carry the pose;
+-- requestAction un-pauses a stepping ghost as always.
+--
+-- MESHGHOST_EMERALD_NO_ANIM_RESTART (probe) forces the suppression EVERYWHERE, which is the
+-- subtraction experiment this was proven with; never ship it set.
+ANIM_RESTART_COOLDOWN = 30
+function animRestartBlocked(g)
+    return MESHGHOST_EMERALD_NO_ANIM_RESTART
+        or (g and g.swapAt and frameCounter - g.swapAt < ANIM_RESTART_COOLDOWN) or false
+end
+function animRestart(d, g)
+    if animRestartBlocked(g) then
+        w8(d + 0x2c, r8(d + 0x2c) | 0x40)          -- stay paused; our loads carry the pose
+        w8(d + 0x3f, r8(d + 0x3f) & ~0x14)
+    else
+        w8(d + 0x3f, (r8(d + 0x3f) | 0x04) & ~0x10)
+    end
+end
+
 function animBelongsToGhost(g, remote)
     return remote.gfx == nil or g.gfx == nil or remote.gfx == g.gfx
 end
@@ -5050,8 +5131,24 @@ function swapGhostGraphicInPlace(g, graphicsId, sanim, sox, soy, sidx, spaused)
     -- leave the sprite pointing at a range it still owns.
     local tileStart = allocSpriteTiles(info.tileCount)
     if not tileStart then return false end
+    -- THE OLD RANGE IS FREED LATER, NOT NOW -- the hardware is still drawing from it.
+    --
+    -- Measured 2026-08-21, hardware OAM dumped per frame across a graphic swap: for TWO frames
+    -- after this function runs, the entries at 0x07000000 still carry the OLD tile number (the
+    -- OAM the PPU shows lags the sprite struct by the buffer-build/VBlank-copy pipeline). Freed
+    -- immediately, those two frames draw whatever the engine loads into the reclaimed range next
+    -- -- harmless most of the time, and exactly wrong during the start of surfing, where the
+    -- show-mon effect is loading a full Pokemon picture into OBJ VRAM that instant: the ghost
+    -- renders scrambled pieces of the incoming picture for a frame. Whether the allocator lands
+    -- there varies run to run, which is why the user saw it "every 2-3 savestate reloads".
+    --
+    -- Queued with the ghost that owns it, and the service point frees only while that ghost is
+    -- still ITSELF alive (identity, not slot state) -- a world rebuild between queue and free
+    -- means the engine reset the bitmap and the bits are not ours to touch, the same rule every
+    -- other free in this file follows.
     if g.tileStart then
-        for t = g.tileStart, g.tileStart + g.tileCount - 1 do setTileAllocated(t, false) end
+        local q = genderFrames.deferredTileFrees
+        q[#q + 1] = { g = g, start = g.tileStart, count = g.tileCount, at = frameCounter }
     end
 
     w8(objAddr(g.objId) + 0x05, graphicsId)
@@ -5068,8 +5165,11 @@ function swapGhostGraphicInPlace(g, graphicsId, sanim, sox, soy, sidx, spaused)
     w32(d + 0x0c, info.images)
     w32(d + 0x10, info.affineAnims)
     w32(d + 0x18, info.subspriteTables)
+    -- Preserve the engine-chosen subsprite table number; forcing 0 (the empty table) scrambled
+    -- one frame at every graphic change. Full reasoning at spawnGhost's identical write.
+    local keepSubNum = r8(d + 0x42) & 0x3f
     w8(d + 0x42, 0)
-    if info.subspriteTables ~= 0 then w8(d + 0x42, (r8(d + 0x42) & 0x3f) | (1 << 6)) end
+    if info.subspriteTables ~= 0 then w8(d + 0x42, keepSubNum | (1 << 6)) end
     w8(d + 0x28, (-(info.width // 2)) & 0xff)
     w8(d + 0x29, (-(info.height // 2)) & 0xff)
     -- Start the new graphic's animation, and put its first frame in the new tiles NOW: the
@@ -5083,12 +5183,23 @@ function swapGhostGraphicInPlace(g, graphicsId, sanim, sox, soy, sidx, spaused)
     -- in between, its supposed to stay static"*. A moving peer's swap (a rod cast, a ride) still
     -- wants the animation started, so this is gated on the peer's own paused bit rather than
     -- removed. spaused is nil for pre-upgrade peers, and nil keeps the old behaviour.
-    if spaused then
-        w8(d + 0x2c, r8(d + 0x2c) | 0x40)
-        w8(d + 0x3f, r8(d + 0x3f) & ~0x14)
-    else
-        w8(d + 0x3f, (r8(d + 0x3f) | 0x04) & ~0x10)
-    end
+    -- NEVER animBeginning AT A SWAP -- the engine's restart copy is the one mid-frame writer we
+    -- control, and it is both redundant and the prime tearing suspect.
+    --
+    -- Setting animBeginning asks the engine to restart the animation, which re-copies the frame
+    -- into the tiles from ITS OWN clock -- mid-frame, during active display, while the PPU may be
+    -- scanning those very tiles. Our own copy (loadGhostFrameNow, below and at every mirror site)
+    -- runs at the Lua tick, between frames, which cannot tear. The write-watch put BIOS CpuSet
+    -- bursts inside the ghost's range on exactly the frames the user sees a one-frame scrambled
+    -- sprite at the start of surfing (2026-08-21); everything at frame BOUNDARIES measured clean
+    -- across five different instruments, which is what mid-frame tearing looks like from outside.
+    --
+    -- So a swap arrives PAUSED with its frame already in VRAM, for moving peers too: the anim
+    -- mirror above drives the pose from the wire (and now agrees on the graphic, so it is
+    -- coherent), and a stepping ghost is un-paused by requestAction's enableAnim on its next
+    -- order, exactly as after a settle.
+    w8(d + 0x2c, r8(d + 0x2c) | 0x40)
+    w8(d + 0x3f, r8(d + 0x3f) & ~0x14)
     -- AND THE SPRITE OFFSET, IN THE SAME BATCH AS THE SHAPE. These two belong to each other: a
     -- fishing frame is 32 wide and sits on its tile only because the game's task offsets it by 8,
     -- so a frame drawn with the new shape and the old offset is a frame drawn half a tile to the
@@ -5100,6 +5211,7 @@ function swapGhostGraphicInPlace(g, graphicsId, sanim, sox, soy, sidx, spaused)
     -- That is both halves of *"it snaps at the start & at the end"* -- an 8px step out and back,
     -- at each end of the swap. Nothing else moved: position and coords were constant throughout.
     g.gfx, g.tileStart, g.tileCount = graphicsId, tileStart, info.tileCount
+    g.swapAt = frameCounter -- opens the animation-restart cooldown; see animRestart
     if isFishingGfx(graphicsId) then
         alignFishingGhost(g)
     else
@@ -5236,7 +5348,7 @@ local function syncGhost(playerId, remote)
                 -- mirror below took over -- which is exactly how it was reported.
                 if not applyHeldPose(ng, remote) and remote.sanim then
                     w8(d + 0x2a, remote.sanim)
-                    w8(d + 0x3f, (r8(d + 0x3f) | 0x04) & ~0x10)
+                    animRestart(d, ng)
                 end
                 -- After the animation write, so the offset is computed from the frame the ghost
                 -- will actually show.
@@ -5465,7 +5577,7 @@ local function syncGhost(playerId, remote)
             applyHeldPose(g, remote)
         elseif g.animSetFor ~= remote.sanim and animBelongsToGhost(g, remote) then
             w8(d + 0x2a, remote.sanim)
-            w8(d + 0x3f, (r8(d + 0x3f) | 0x04) & ~0x10)
+            animRestart(d, g)
             -- AND ASK THE ENGINE TO ACTUALLY PLAY IT. Setting the animation number alone is not
             -- enough, and this is the thing two earlier attempts both missed: the overworld PAUSES
             -- an idle object event's sprite, so the ghost held the animation's first frame for the
@@ -5478,8 +5590,14 @@ local function syncGhost(playerId, remote)
             -- animPaused AND disableAnim, then clears itself. So one write per animation start
             -- hands the whole thing back to the engine, which is what makes the frames advance at
             -- the game's own rate instead of one we would have had to invent.
-            w8(objAddr(g.objId) + 0x01, r8(objAddr(g.objId) + 0x01) | 0x08)
-            g.animSetFor = remote.sanim
+            -- Gated on the same swap cooldown as animRestart: enableAnim clears animPaused, and
+            -- an un-paused ghost inside the tear window puts the engine's mid-frame frame copies
+            -- right back. animSetFor stays nil while blocked, so the whole start re-runs -- with
+            -- the engine allowed in -- on the first anim change past the window.
+            if not animRestartBlocked(g) then
+                w8(objAddr(g.objId) + 0x01, r8(objAddr(g.objId) + 0x01) | 0x08)
+                g.animSetFor = remote.sanim
+            end
         end
 
         -- AND THE SPRITE OFFSET THE TASK APPLIES. Measured: the engine sets the fishing player's
@@ -5617,7 +5735,7 @@ local function syncGhost(playerId, remote)
             frameCounter, tostring(remote.gfx), tostring(g.gfx), tostring(ghostIsIdle(g))))
     end
     if wantNow and g.gfx and wantNow ~= g.gfx then
-        if COMPARE_TIERS then logFile(string.format("f=%d SWAP %s -> %s", frameCounter, tostring(g.gfx), tostring(wantNow))) end
+        if COMPARE_TIERS then logFile(string.format("f=%d emu=%d SWAP %s -> %s", frameCounter, emu.framecount(), tostring(g.gfx), tostring(wantNow))) end
         g.needsSettle = true
         g.settleStatic = true
         g.frameFor = nil
@@ -5662,11 +5780,13 @@ local function syncGhost(playerId, remote)
             local nd = sprAddr(ng.sprId)
             if remote.sanim then
                 w8(nd + 0x2a, remote.sanim)
-                w8(nd + 0x3f, (r8(nd + 0x3f) | 0x04) & ~0x10)
+                animRestart(nd, ng)
                 -- And let the engine play it -- a rebuilt ghost is paused exactly like a swapped
                 -- one, and without this it holds the first frame for the whole state.
-                w8(objAddr(ng.objId) + 0x01, r8(objAddr(ng.objId) + 0x01) | 0x08)
-                ng.animSetFor = remote.sanim
+                if not animRestartBlocked(ng) then
+                    w8(objAddr(ng.objId) + 0x01, r8(objAddr(ng.objId) + 0x01) | 0x08)
+                    ng.animSetFor = remote.sanim
+                end
             end
             if isFishingGfx(ng.gfx) then
                 alignFishingGhost(ng)
@@ -8447,9 +8567,31 @@ local function drawRemotes(localAreaId, playerMapX, playerMapY, skipSpawned, com
                                     genderFrames.clippedRuns or 0))
                             end
                         end
+                        -- INVISIBLE PAINTS ARE THE VANISH. The gap detector proved the body is
+                        -- PAINTED on every frame of the user-reported disappearance -- so the
+                        -- question is not "did we paint" but "did any span survive the clips".
+                        -- Snapshot the span counter around the body's own paint; zero survivors
+                        -- logs the frame with what the panel scanner believed, on the emulator's
+                        -- frame clock so it lays against the screenshots.
+                        local spansBefore = MG_SPANS or 0
                         drawRunList(runs, info.width, gfxFlip, screenX + cx, screenY + cy,
                             panelRows, dim, nil, nil, occl)
+                        if COMPARE_TIERS and playerId:match("%-ghost$")
+                            and (MG_SPANS or 0) == spansBefore and #runs > 0 then
+                            local pr = {}
+                            if panelRows then
+                                for rw, sp in pairs(panelRows) do
+                                    pr[#pr + 1] = string.format("%d:%d-%d", rw, sp[1], sp[2])
+                                end
+                            end
+                            table.sort(pr)
+                            logFile(string.format(
+                                "BODY INVISIBLE f=%d emu=%d runs=%d y=%d panels=[%s]",
+                                frameCounter, emu.framecount(), #runs,
+                                math.floor(screenY + cy), table.concat(pr, " ")))
+                        end
                         drew = true
+                        MG_BODY_PAINTED = true -- gap detector: the BODY, not a reflection/shadow
                     end
                 end
                 if not drew then
@@ -8673,6 +8815,7 @@ local function drawRemotes(localAreaId, playerMapX, playerMapY, skipSpawned, com
                         screenY, panelRows, dim,
                         genderFrames.reflectiveSpans(screenX, screenY,
                             FRAME_WIDTH_PX, FRAME_HEIGHT_PX, "sprite"))
+                    MG_BODY_PAINTED = true -- gap detector: the walker-fallback body counts too
                 end
                 -- OVER the character, which is the whole point: the engine's grass sprite sits
                 -- above the object it belongs to. Drawn on the ghost's OWN tile -- the bottom tile
@@ -8922,8 +9065,29 @@ function detectStateLoad()
     logFile(string.format("state load detected: emu frame %d -> %d; dropping every ghost, "
         .. "hardware entry and tile claim rather than freeing them", last, fc))
     pcall(hwReleaseAll, false)
+    -- AND EVERY ENTRY IN OUR OAM RANGE, not only the ones our bookkeeping names. The load rewinds
+    -- gMain.oamBuffer to the SAVE-TIME session's contents, which can hold entries in slots our
+    -- current records never claimed -- nothing of the engine's clears 64..127, so such an entry
+    -- stays on screen drawing from tiles the fresh session reuses: garbage that survives until
+    -- something overwrites that slot. The user's narrowing found it: *"only when using savestate
+    -- from water to grass"* -- the water-time roster used more slots (blob, ripples) than the
+    -- grass-time one re-claims, and the leftovers are the glitch. Sweep the whole range blind.
+    pcall(function()
+        for slot = 0, tiering.hw.slots - 1 do
+            local a = tiering.hw.base + slot * 8
+            w16(a + 0, tiering.hw.d0)
+            w16(a + 2, tiering.hw.d1)
+            w16(a + 4, tiering.hw.d2)
+        end
+    end)
+    -- The sweep may still WRITE the restored orphan objects and sprites -- identity says they are
+    -- ours-shaped and deactivating them is right -- but every tile FREE under it is suppressed:
+    -- the bitmap it would edit belongs to the restored session. See freeGhostTiles.
+    genderFrames.stateLoadPurge = true
     pcall(despawnAllGhosts)
+    genderFrames.stateLoadPurge = nil
     genderFrames.pendingTileFrees = {}
+    genderFrames.deferredTileFrees = {}
     tiering.hw.fxTiles, tiering.hw.puffs, tiering.hw.ripples = {}, {}, {}
     tiering.hw.area = nil
 end
@@ -8931,6 +9095,25 @@ end
 local function runFrame()
     frameCounter = frameCounter + 1
     detectStateLoad()
+    -- Swap-time tile frees, six frames late -- three times the measured two-frame OAM lag. The
+    -- reasoning and the measurement are at the queue site in swapGhostGraphicInPlace.
+    do
+        local q = genderFrames.deferredTileFrees
+        local keep = nil
+        for i = 1, #q do
+            local e = q[i]
+            if frameCounter - e.at >= 6 then
+                if ghostAlive(e.g) and inOverworld() then
+                    for t = e.start, e.start + e.count - 1 do setTileAllocated(t, false) end
+                end
+                -- Not ours any more (world rebuilt, ghost gone): dropped, never freed.
+            else
+                keep = keep or {}
+                keep[#keep + 1] = e
+            end
+        end
+        genderFrames.deferredTileFrees = keep or {}
+    end
     -- CLEAR ONLY WHAT WILL BE REPAINTED. A map transition deliberately returns nil local state
     -- for a frame or two (mapJustChanged), and the whole render block sits inside `if state` --
     -- so an unconditional clear here wiped the overlay on exactly the frames nothing repaints,
@@ -8943,6 +9126,7 @@ local function runFrame()
     local frameState = getLocalState()
     if not (session.live and frameState == nil) then
         gui.clearGraphics()
+        tiering.overlayCleared = true   -- for the gap detector at the frame's end
     end
     -- Cross-map upkeep: the gMapGroups self-location (one 128KB chunk a frame until found), the
     -- connection table on map change, and the per-frame re-translation of every peer.
@@ -9326,6 +9510,32 @@ local function guardedFrame()
     local t0
     if MESHGHOST_EMERALD_PROFILE then t0 = os.clock() end
     local ok, err = pcall(runFrame)
+    -- THE GAP ITSELF, logged the frame it happens. Cleared + a live compare ghost + zero paints
+    -- means the drawn copy was absent from this frame, which is the exact thing the user reports
+    -- and the exact thing every stored-state probe missed. Context on the line is what decides
+    -- WHERE the paint path bailed; consecutive gap frames all log, because the LENGTH of the gap
+    -- is part of the symptom.
+    if COMPARE_TIERS and tiering.overlayCleared then
+        local ghostRemote = nil
+        for id, rr in pairs(remotes) do
+            if id:match("%-ghost$") then ghostRemote = rr break end
+        end
+        -- BODY specifically. The first version counted every drawRunList call, and a frame where
+        -- only the ghost's REFLECTION painted read as "no gap" -- while the user watched the body
+        -- vanish. The reflection and the body are separate paints, and the symptom is the body's.
+        if ghostRemote and not MG_BODY_PAINTED then
+            local g2 = nil
+            for id in pairs(remotes) do
+                if id:match("%-ghost$") then g2 = ghosts[id] break end
+            end
+            logFile(string.format(
+                "DRAWN GAP f=%d gfx=%s sanim=%s/%s act=%s spawnedAlive=%s hwPlaced=%s",
+                frameCounter, tostring(ghostRemote.gfx), tostring(ghostRemote.sanim),
+                tostring(ghostRemote.sidx), tostring(ghostRemote.act),
+                tostring(g2 and ghostAlive(g2) or false), tostring(tiering.hw.placed)))
+        end
+    end
+    MG_DRAWN_CALLS, MG_BODY_PAINTED, tiering.overlayCleared = 0, nil, nil
     if t0 then
         local dt = os.clock() - t0
         frameErrors.profSum = (frameErrors.profSum or 0) + dt

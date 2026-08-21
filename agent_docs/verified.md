@@ -9565,3 +9565,44 @@ the animation mirror are applied by different code on different frames. An anima
 only meaningful for the graphic it belongs to — the tables differ in length — so the pair is
 incoherent for a handful of frames at every transition. Both mirror sites now stand aside while
 the two disagree.
+
+### RULE CHANGE — the gate on this file tightened (2026-08-21)
+
+- Date: 2026-08-21, user-directed, in these words: *"you are not allowed to claim anything is
+  'verified' adapter/game wise before i confirm that its done visually myself... you should only
+  verify/confirm the server/client things."*
+- **From here on, no adapter/game-side entry about the BASE/VANILLA game may be added to this
+  file on the agent's own evidence — not a probe log, a console read, or an agent screenshot.**
+  Agent measurements live in `unverified.md` until the user confirms on screen. **Patched ROMs
+  (Archipelago etc.) stay agent-confirmable visually — user's correction, same day** — as do
+  Go-side facts (core/relay/transport/bridge/cmd). `CLAUDE.md` carries the rule.
+- **The entry above ("how a character actually gets onto the water, measured on the player") is
+  hereby reclassified as UNVERIFIED under the new rule.** Its measurements also fed a diagnosis
+  the user's screen later contradicted the same day — the correction is in `pitfalls.md` ("THE
+  PAIR was wrong — and fixing it did NOT clear the symptoms"). Appended rather than deleted,
+  because this file is append-only; treat `unverified.md` as its current home.
+
+### Emerald: the grey/flashing spawned ghost at the start of surfing — USER-CONFIRMED FIXED (2026-08-21)
+
+- Date: 2026-08-21. **Source: the user, on screen, in these words: "The grey/flashing for the
+  spawned ghost is not happening anymore. confirmed fixed."** First adapter-side entry under the
+  tightened gate, and it cites the user's confirmation, not a probe.
+- **The cause**: asking the engine to restart a ghost's animation right after a graphic swap. The
+  restart re-copies the frame into the sprite's tiles on the ENGINE's clock — mid-frame, during
+  active display — immediately after the tile range moved, when old and new bytes differ most, so
+  the PPU could scan the tiles mid-copy: a one-frame torn sprite. Every boundary-time instrument
+  (struct, hardware OAM, VRAM-vs-ROM, allocation bitmap) read clean throughout, which is exactly
+  what mid-frame tearing looks like from outside.
+- **The fix**: engine animation restarts (and the enableAnim un-pause) are refused for 30 frames
+  after a ghost's graphic swap; within the window the ghost stays paused and the wire mirror's
+  boundary-time frame loads — which cannot tear — carry the pose. Fishing's engine-driven cast,
+  user-confirmed 1:1 earlier, is untouched outside the window.
+- **How it was found, after six narrower fixes failed on screen — the method outlasts the fix**:
+  1. **Subtraction, which should have been first**: with the peer-graphic path off (no swaps) the
+     scramble never occurs — the swap is the trigger. One control run ended a day of theories.
+  2. **A write breakpoint on the tile range** put BIOS CpuSet bursts inside the ghost's tiles on
+     exactly the scramble frames, after five boundary-sampling instruments in a row measured
+     clean — a mid-frame writer is invisible to every per-tick probe by construction.
+  3. **"One tier is perfect" is a diagnosis**: the OAM tier resolves graphic+animation together
+     itself and never showed the earlier incoherent-pair half of this; the tiers are a built-in
+     control group. Both lessons are in `pitfalls.md` in full.

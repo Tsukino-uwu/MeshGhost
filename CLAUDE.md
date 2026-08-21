@@ -60,11 +60,11 @@ stays here, its reasoning goes to `agent_docs/`, with a one-line pointer. Full e
   class of bug local runs cannot catch. `gh run view <id> --log-failed` gets the detail; a fuzz
   failure's reproducing input downloads as the `fuzz-failure-corpus` artifact and belongs in
   `testdata/fuzz/<Target>/` as a regression test.
-- **`agent_docs/verified.md` is append-only, and human-gated for anything visual ON THE VANILLA
-  ROM** — there a screenshot you took is NOT a substitute, ever. **On a patched/modified ROM
-  (Archipelago etc.) you MAY confirm visually yourself, from your own screenshot** — say so.
-  A fact from a log line, a console read, or the Go tools may be recorded without waiting — say
-  which. Never write "confirmed" on a build or a plausible read. **Why: `testing.md`'s top.**
+- **`agent_docs/verified.md` is append-only, and NOTHING adapter/game-side on the BASE/VANILLA
+  game goes in it — or gets called "verified"/"confirmed" — until the USER confirms it on screen.
+  Tightened 2026-08-21: no probe log, console read, or screenshot of yours substitutes there;
+  your measurements go to `unverified.md`, as measurements. **A patched ROM (Archipelago etc.)
+  stays yours to confirm visually — say so.** Go-side facts too. **Why: `testing.md`'s top.**
 - **THE BAR IS 1:1** — user, 2026-08-19: *"not sloppy/bandage/good enought"*, and *"1:1 = it looks
   exactly the same as the player doing it"*. **Judged ON SCREEN, not by matching numbers**: copying
   a state the game never displayed is not 1:1. "Close" and "only during the transition" are OPEN.

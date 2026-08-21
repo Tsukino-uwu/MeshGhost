@@ -6,7 +6,7 @@ live-tested with real two-player sessions. See
 and the "Further work past 'good enough'" section below for what's still open.
 
 - Platform: GBA, played via BizHawk.
-- Confirmed working roms: "Vanilla", "Archipelago 0.6.7".
+- Confirmed working roms: "Vanilla", "Archipelago 0.6.7", "speedchoice-1.2.2", "ex-speedchoice-0.4.0".
 - **It writes game RAM** — object RAM only (`gObjectEvents`, `gSprites`, the sprite-tile
   allocation bitmap), never a save, cosmetic only, and only on a ROM whose addresses were
   measured. Cleared by `agent_docs/architecture.md`'s 2026-08-18 ADR, which extends Crystal's
