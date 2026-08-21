@@ -359,6 +359,88 @@ writing a step. Send those two bytes as `extras`, and:
 
 Not implemented. Enumerated, cited, and scoped so the next session can close it one row at a time.
 
+## The night the two tiers were made to move properly — 2026-08-21/22
+
+A single long session, all of it on Crystal, driven by the user watching a loopback ghost on
+**Route 39** — chosen deliberately as *"the most demanding one in the whole game… a big route, and
+fills up things due to having a lot of npc's"*. That choice is responsible for at least one bug that
+no quiet map could have exposed.
+
+### What was fixed, each from a measurement
+
+1. **The spawned ghost never animated** — and it depended on the map. `spawnGhost` copies a live
+   NPC's whole struct as a template, `OBJECT_FLAGS1` included, and Route 39's templates are
+   `SPRITEMOVEDATA_STILL` objects whose flags are `FIXED_FACING | SLIDING`. `SetFacingStepAction`
+   tests `SLIDING` first and never advances `OBJECT_STEP_FRAME`. Flags are now normalised at spawn.
+   After: ghost and player step frames match 7/7, 8/8, 9/9.
+2. **A peer that stopped sending was rendered forever.** Nothing timed a peer out; the rig exposed it
+   because the core is issued a new player id on every relay reconnection. Now dropped after three
+   seconds. **A shipped bug, not a rig artefact** — a peer whose game crashed would have been painted
+   at their last position for the rest of the session.
+3. **The painted tier's position was an alias.** Every term is byte arithmetic, so a screen position
+   only exists modulo 256; `screen -224,-196` was `32,60` in disguise and the tier discarded itself as
+   off-screen. Both branches now fold into one `[-16, 240)` window.
+4. **A ghost two tiles behind could only be snapped**, and snapping waits for a settled camera — so
+   during continuous walking it froze and then jumped. Short deficits are now walked.
+5. **The painted tier's whole motion model was rebuilt** (see below).
+6. **The painted tier drew over map transitions** — because BizHawk's drawing layer persists and the
+   tier was falling silent rather than clearing.
+7. **Both adapters stalled the game once a second by logging.** `console.log` plus a per-line flush
+   cost 63–83ms on the emulator's own thread. Fixed in Crystal, Emerald, and all 36 probe files.
+
+### The painted tier's motion, and three wrong turns
+
+The spawned tier is smooth because the ENGINE interpolates it. The painted tier has to reconstruct
+sub-tile motion, stride phase and camera tracking by hand, from data that arrives quantised and late.
+Three attempts were made and reverted in one evening — a glide added to the destination, a frozen
+calibration, and dead reckoning — and **all three added or froze a term on top of a position whose
+own behaviour had never been measured**. `pitfalls.md` carries each with its trace.
+
+**The model that works** paints the peer at
+
+```
+playerScreen + (peerTile − playerTile)×16 + peerOffset − playerOffset
+```
+
+with every player term read from one frame, and offsets measured from the DESTINATION, because
+`MAP_X`/`MAP_Y` are written at the *start* of a step. The camera appears on neither side, because it
+moved the player and the world together. The only missing quantity was the peer's sub-tile progress,
+which only the peer knows — now sent as `extras.prog`, derived from the engine's own countdown as
+`(8 − duration) × 2`.
+
+**One knob remains**, `playerHistory.age`, and its direction is documented in the source: too high
+and the ghost races its destination, too low and it snaps backwards at each tile boundary.
+
+**`extras.prog` paid twice**: added for positioning, it also fixed the painted stride, because both
+were asking the same question — how far through its step is this peer. Sending the fact rather than a
+symptom is why.
+
+### The hardware (OAM) tier — built, proven, unjudged
+
+Added on the user's request as the middle rung of **spawned → hardware → drawn**. A peer whose tiles
+are resident is written into `wShadowOAM` so the PPU draws it. The one question no source could
+answer — whether a write at the adapter's frame boundary survives to the VBlank DMA — was answered by
+reading entry 39 back from the `OAM` domain: **it does**, at no measurable cost.
+
+It is **shipped off** (`MESHGHOST_CRYSTAL_OAM_OVERFLOW`) and nothing about how it LOOKS has been
+confirmed. Its honest case is also smaller than it first appeared, and the register says so: it adds
+**zero to one character** (the engine already uses 34–36 of 40 entries outdoors and all 40 indoors),
+and it does **not** get occlusion free — a Crystal text box is background tiles with the priority bit
+clear, so a hardware sprite draws in front of it.
+
+### Method lessons worth more than the fixes
+
+- **Test on the busiest map.** Route 39 exposed a template-dependent bug that any quiet room would
+  have passed.
+- **Instruments that agree can share a blind spot.** Three detectors read clean while the user saw
+  twitching; all three measured POSITION, and the faults were in TIMING and in the IMAGE.
+- **The rig's settings are part of the experiment.** A restart at the relay's default 20Hz instead of
+  the documented 100Hz widened step-start lag from 3–5 frames to 0–6 and was misattributed to the
+  adapter for an hour.
+- **`pitfalls.md` already held three of the evening's answers** — the logging stall, probe globals
+  outliving their probe, and the `goto_map` warp — and each was rediscovered the expensive way
+  because it had not been read.
+
 ## Method notes worth keeping
 
 - **Probes log to a timestamped file beside themselves.** A verdict that exists only in the Lua

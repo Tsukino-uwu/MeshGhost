@@ -11,11 +11,11 @@ work more on emerald right now."*
   polish or a custom feature; a real fault is a defect against a finished adapter. `phase8.md`.
 - **Ferry and rails: assumed to work, never tested, deliberately NOT open items.** The user dropped
   them from here on purpose; the assumption is recorded so it cannot decay. `unverified.md`.
-- **Crystal is where the gap is**, and its shape is known rather than mysterious: it has none of
-  the peer-state class Emerald finished (animation, field effects, drawn-tier parity), and its
-  drawn tier ships ON while carrying none of the 2026-08-19..21 fixes. See the Crystal items below.
-- **Rig**: nothing is running — relay, core and emulator all shut down and verified gone.
-  Savestates: slot 1 the user's, slot 6 the user's Mt Pyre fog spot, slot 8 goto_map's undo.
+- **Crystal is where the gap is.** Both tiers were made to move properly 2026-08-21/22 (user
+  confirmed); what remains is the ANIMATION class Emerald finished. See the Crystal items below.
+- **Rig**: relay, core and BizHawk were left RUNNING at the end of the 2026-08-21/22 session on
+  Route 39 — shut them down before a fresh test. Savestates: slot 1 the user's, slot 7 the user's
+  Route 39 test spot, slot 8 goto_map's undo.
 
 ## Genuinely open items
 
@@ -68,8 +68,14 @@ that a peer's state genuinely differs from the local player's, which loopback co
   2026-08-19 after the fill-the-screen test. `unverified.md`, `crowd-limits.md`.
 - **Crystal: ghost animation completeness** — Emerald's fishing, both bikes, surf/dive and ice are
   all done and 1:1 (2026-08-19..21); Crystal has none of that class yet. `unverified.md`.
-- **Crystal has none of 2026-08-19's Emerald animation fixes**, and its drawn tier ships ON —
-  the paused-sprite and derived-offset traps apply there too. `pitfalls.md`, three Emerald entries.
+- **Crystal's two tiers now move properly — user-confirmed 2026-08-21/22.** Painted tier walks and
+  clears across transitions; spawned tier animates. `phases/phase9.md`, `unverified.md`.
+- **Crystal's hardware (OAM) tier: built, reaches the screen, shipped OFF, never judged on screen.**
+  Adds 0-1 characters and does NOT get free occlusion. `FLAGS.md`, `unverified.md`.
+- **`extras.act` (fishing, bump, spin, emote, Fly landing) is on the wire and never tested** — and
+  rests on an unchecked assumption `probes/action_watch.lua` settles. `unverified.md`.
+- **Emerald is at 198 of Lua's 200 top-level locals**; past 200 the adapter silently does not load.
+  Consolidate before its next feature. `pitfalls.md`, `_template/README.md`.
 - **Crystal: a peer's own sprite is used when its tiles are resident, not otherwise** — but the
   DRAWN tier could read any sprite from ROM, which would close it. `phases/phase9.md`.
 - **Crystal: a ghost does NOT survive a battle** — answered from the code 2026-08-19 and fixed

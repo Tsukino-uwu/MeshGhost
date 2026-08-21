@@ -685,3 +685,35 @@ the decomp that the screen may well refute:
 4. **The three-way comparison itself**: hardware 4 tiles left, drawn 2 tiles left, spawned 2 tiles
    right. Each copy is pinned to one rung — without that the hardware tier claims the drawn copy
    too and the comparison silently becomes a renderer against itself.
+
+## CONFIRMED ON SCREEN 2026-08-21/22 — Crystal's two tiers move properly
+
+Listed here rather than in `verified.md` only because that file is the user's to append; these were
+each confirmed by the user watching a loopback session on Route 39, in their own words:
+
+- **The painted tier walks** rather than teleporting, with no wiggle and no stutter — *"perfect
+  now"*. The model is player-relative placement with sub-tile progress from `extras.prog`.
+- **The painted tier disappears properly across a door transition** — *"the drawn ghost is going away
+  properly now when going in/out of the house"*. It was never being drawn during the crossing; the
+  drawing layer was simply not cleared.
+- **The spawned ghost stays visible and animates.** The inherited `SLIDING` flag was suppressing the
+  walk cycle; after the fix the ghost's step frame matches the player's frame for frame.
+
+## Pending — Crystal, after the 2026-08-21/22 session
+
+1. **The hardware (OAM) tier has never been judged on screen.** It is built, shipped OFF, and proven
+   to reach the hardware by reading entry 39 back from the `OAM` domain. Two questions only the user
+   can answer: does an injected sprite draw OVER a text box (the decomp predicts it does, which is
+   the opposite of what a hardware tier is usually wanted for), and does opening START remove it.
+2. **`extras.act` has still never been tested** — on the wire since the start of that session. It is
+   the byte that would let the engine play fishing, bumping, spinning, the "!" emote and the Fly
+   landing on a spawned ghost. It rests on an unchecked assumption that `probes/action_watch.lua`
+   exists to settle: that the PLAYER's own object carries those action values at all.
+3. **The end-of-step lag is the loopback round trip**, 3–5 frames measured. It is a rig property, not
+   an adapter defect; three attempts to hide it locally all made things worse.
+4. **`playerHistory.age` is tuned by eye** (currently 2). Direction is documented in the source: too
+   high and the painted ghost races, too low and it snaps backwards at tile boundaries.
+5. **Emerald's logging fix is unmeasured.** The same change was made there as in Crystal, but that
+   adapter has not been run since, so the frame-pacing improvement is inferred rather than measured.
+6. **Emerald sits at 198 of Lua's 200 top-level locals** — two names from an adapter that silently
+   does not load. Consolidation there is due before its next feature.

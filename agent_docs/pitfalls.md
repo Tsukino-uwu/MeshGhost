@@ -3700,3 +3700,191 @@ frame, and `WIN0H` reading `0x2800` in a cave whose real span was `96-144`. `BLD
 **When a display register is write-only, the live value has to come from wherever the engine keeps
 its own copy** — for the flash circle, the scanline-effect buffer. Check the register's read/write
 status before building an argument on a dump.
+
+## Lua's 200-local ceiling: the adapter does not load, and almost nothing says so (2026-08-21)
+
+**Symptom.** A change to the adapter has no effect whatsoever. The game runs, the core connects, no
+ghosts appear. It reads as a networking fault, a dead relay, or an edit that silently missed.
+
+**Cause.** A Lua chunk may declare at most 200 locals in its main body. Past that BizHawk refuses
+the file: `too many local variables (limit is 200) in main function`. The dev loader prints ONE
+`LOAD FAILED` line and moves on; every other script keeps loading normally, so the log looks healthy
+unless that specific line is read.
+
+**Hit four times in one session on Crystal.** The counts, measured the same day:
+
+| adapter | lines | top-level locals |
+|---|---|---|
+| Crystal | 3,219 | 157 |
+| Emerald | 10,496 | **198 of 200** |
+
+**Emerald is two names away in a file three times the size** — this is not solved anywhere, and the
+smaller adapter hits it first because it is denser in top-level names per line.
+
+**Fix.** Group related values onto one table rather than spending a name each — `oam`, `COMPARE`,
+`playerHistory`, `tiering`, `genderFrames`. Doing it up front is cheap; doing it while chasing a bug
+(which is how every table in both adapters was born) is not.
+
+**The general lesson: when a change to a large Lua adapter does nothing at all, read the loader log
+for `LOAD FAILED` before re-examining the change.**
+
+## A file can LOAD cleanly and then throw on every frame (2026-08-21)
+
+**Symptom.** Two commits went out with confident messages describing behaviour that never ran. The
+ghosts looked oddly *stable* — no jitter, no snapping — and the user reasonably read that as an
+improvement worth keeping and asked to return to it.
+
+**Cause.** The dev loader reports load failures and per-tick errors on SEPARATE lines
+(`LOAD FAILED` vs `TICK ERROR`). A scripted revert had removed a helper the placement code called,
+so the file parsed and loaded fine and then threw on the first frame, every frame. Only the
+`loaded` line was checked.
+
+**Why the symptom was so misleading:** a crashed draw tier does not blank — it stops updating. The
+ghosts froze in their last painted positions and were dragged along by other code paths, which looks
+exactly like "smooth, no artefacts". **A defect that removes motion can be mistaken for a fix that
+removes jitter.**
+
+**Fix.** After any reload, check for BOTH failure kinds before believing anything about behaviour —
+and never treat "loaded" as "running". Same family as the read-back rule: confirm the effect, not
+the acceptance.
+
+## Lua: a use above its `local` is a silent nil, not an error (2026-08-21)
+
+**Symptom.** The painted ghost teleported straight onto its destination tile instead of walking, and
+several rounds of tuning a smoothing constant changed nothing at all.
+
+**Cause.** `peerProg`/`peerWalking` were declared *below* the block that built the compare copies, so
+those two entries resolved a nonexistent GLOBAL: both fields arrived `nil`, the sub-tile offset was
+always zero, and every knob being turned multiplied a term by nothing. Lua issues no warning.
+
+**The tell that was missed:** the same values reached the *other* overflow entries correctly, because
+those are constructed further down. **Two copies of the same peer behaving differently is a scope
+question, not a data question.**
+
+**Fix.** Declare peer-derived values once, above every consumer. When a constant has no effect at
+all, check that the thing it multiplies is non-nil before tuning it again.
+
+## BizHawk's drawing layer persists: "draw nothing" leaves the last frame (2026-08-21)
+
+**Symptom.** The painted ghost stayed on screen through both halves of a door transition — exactly
+when every gate in the drawn tier was correctly refusing to draw.
+
+**Cause.** `gui.*` output is not cleared by the script's inaction. A frame in which the tier draws
+nothing leaves the PREVIOUS frame's peers on screen, frozen — indistinguishable from a tier that is
+wrongly drawing. Every early return in `drawOverflow` fell silent rather than clearing.
+
+**Fix.** Stop by CLEARING (`gui.clearGraphics()`), not by returning early, on every exit path
+including the ones that "obviously" draw nothing.
+
+**Generalises:** for any renderer outside the engine, *absence of output is not absence of pixels*.
+
+## Crystal does not fade the OBJ palette shadow, so Emerald's lighting trick has nothing to read (2026-08-21)
+
+**Emerald's painted tier** hides transitions by matching the LIGHTING: it compares the live OBJ
+palette against the ROM palette its pixels were decoded from, so the copy dims with every fade.
+
+**That does not port to Crystal.** `transition_probe.lua` measured a full door crossing: `wMapStatus`
+went `2 -> 1 -> 2` while the OBJ palette shadow's channel sum sat at a flat **99 throughout**. This
+engine does not fade through `wOBPals1`, so there is no signal to match, and copying the mechanism
+would copy something with nothing to read.
+
+**What works here instead** is the event the spawned tier already acts on — the world was rebuilt
+(`lastArea` changed) — plus clearing the layer on every early return. **Before porting a solution
+between adapters, confirm the SIGNAL it depends on exists in the target.**
+
+## A ghost inherits its template's flags, and a STILL object cannot animate (2026-08-21)
+
+**Symptom.** The spawned ghost walked correctly but never animated. Intermittent across sessions and
+maps for no apparent reason.
+
+**Cause.** `spawnGhost` copies a live NPC's whole struct as a template, `OBJECT_FLAGS1` included. On
+Route 39 the available templates are `SPRITEMOVEDATA_STILL` objects (the fruit tree, the Tauros),
+whose flags are exactly `FIXED_FACING | SLIDING`. `SetFacingStepAction` tests `SLIDING` FIRST and
+jumps to `SetFacingCurrent` without advancing `OBJECT_STEP_FRAME`, so the walk cycle never runs;
+`FIXED_FACING` likewise stops `InitStep` writing `OBJECT_DIRECTION`.
+
+**Measured**: `posediff_probe.lua` caught the ghost at `frame=0` through entire steps while the
+player's ran 7, 8, 9, with `flags1=0x2E`. After clearing the two bits, ghost and player match frame
+for frame.
+
+**Why it looked intermittent:** it depends on which NPC the map offers. A room with a walking NPC
+passes; a route full of scenery fails. **This was found only because the user insisted on testing on
+the busiest map in the game.**
+
+**Fix, and the general rule: a spawned entity's flags must describe what IT is, not what its donor
+was.** Normalise every inherited field that carries behavioural meaning; do not merely OR in your own.
+
+## Instruments that agree with each other can share a blind spot (2026-08-21)
+
+Three separate detectors reported clean while the user reported twitching:
+
+- a per-frame twitch detector (jumps > 4px between frames): **0 hits** — because a 16px jump on the
+  exact frame a tile changes is not a discontinuity *between* samples, it IS the sample. **A detector
+  tuned for noise cannot see a perfectly regular defect.**
+- a pose differ (position error vs the player): **0px residual** — it measured POSITION while the
+  fault was in TIMING (step-start lag swinging 0–6 frames) and in the IMAGE (which sprite frame).
+- tier counts (`1 drawn, 0 spawned`): correct numbers, wrong question — a count cannot say WHICH peer
+  ids are in which table, and the user was watching two copies of one peer.
+
+**The rule that would have saved the evening:** when the user reports something the instruments deny,
+add an instrument that measures a DIFFERENT QUANTITY, not another one measuring the same quantity
+more precisely.
+
+## The dev rig's update rate is part of the experiment (2026-08-21)
+
+**Symptom.** Ghost motion became visibly worse after a clean restart of the rig; an hour was spent
+attributing it to the adapter.
+
+**Cause.** The restart used the relay's defaults (`-send-hz=20`) instead of the documented dev rig
+(`-send-hz=100` plus the core's `-min-send=10ms`). `run-relay-loopback.bat` even carries a comment
+saying 20Hz silently overrides the core's faster rate. At 20Hz a peer position arrives every 3 frames
+while a step takes 8; the two do not divide, so step starts beat irregularly.
+
+**Measured**: step-start lag spread `0–6 frames` at 20Hz versus `3–5` at 100Hz. A varying lag looks
+like snapping; a constant one looks like following.
+
+**Fix.** Start the rig from the `dev-scripts/*.bat` files, or copy their flags exactly. **Rig settings
+belong in the bug report** — a rate change is an experiment change.
+
+## `extras` is opaque, so nothing that must be SMOOTH can ride in it (2026-08-21)
+
+**Symptom.** With the core's interpolation enabled, the painted ghost stuttered every frame.
+
+**Cause.** `extras` is opaque to the core by contract (`contract.md`), so interpolation smooths
+`position` while `extras.prog` — the peer's sub-tile step progress — passes through latest-wins. The
+painted tier then combined a smoothed tile with an unsmoothed sub-tile offset: two terms describing
+different instants, once per frame.
+
+**Fix for now:** the dev rig runs `-interp=0ms` anyway (deliberately, so 1:1 can be judged), and with
+interpolation off the two terms agree.
+
+**The design lesson:** sub-tile progress is really part of POSITION, and putting it in `extras` was
+expedient rather than right. Anything a renderer needs to be smooth must live where the core is
+allowed to interpolate it.
+
+## Painted-tier motion: three attempts, all reverted, all the same mistake (2026-08-21)
+
+The Crystal painted tier renders outside the engine, so it must reconstruct by hand what the engine
+gives the spawned tier for free: sub-tile motion, stride phase, camera tracking. Three fixes were
+tried and reverted in one session, and **all three added or froze a term on top of a position whose
+own behaviour had never been measured**:
+
+1. **A sub-tile glide** — walk back from the destination by the distance not yet covered. Result: one
+   tile of movement became two of visible travel, because the destination position ALREADY carries
+   the camera's scroll and delivers it in a lump ~12 frames into the step. Smooth plus quantised is
+   two motions.
+2. **Freezing the calibration** — to kill a ±2px wiggle. Result: the painted copy stopped tracking
+   the camera entirely, drifted a tile ahead and snapped back. The frozen term was the one that
+   follows the scroll.
+3. **Dead reckoning the peer's progress** — advance the last known value at 2px/frame. Result: the
+   ghost ran ahead of itself, a full tile at the cap, because the refresh stamp could only fire when
+   the VALUE changed and a repeated value let the extrapolation compound.
+
+**What finally worked was a model, not a correction**: paint the peer at
+`playerScreen + (peerTile − playerTile)×16 + peerOffset − playerOffset`, with every player term read
+from one frame and offsets measured from the DESTINATION (`MAP_X`/`MAP_Y` are written at the START of
+a step). **The camera appears on neither side because it moved the player and the world together.**
+
+**The transferable rule: when a position is wrong, measure what that position already does per frame
+before adding anything to it.** A per-frame trace of one peer answered in one line what three
+attempts could not.
