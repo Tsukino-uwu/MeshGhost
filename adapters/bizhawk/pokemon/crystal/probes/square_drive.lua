@@ -61,6 +61,14 @@ local function log(msg)
 	raw_log(msg)
 	if logfile then
 		logfile:write(msg, "\n")
+		-- Flush every 20 LINES: bounded cost, live log. The buffering sweep removed the per-line
+		-- flush and a probe then reported NOTHING for a whole run (pitfalls.md: an empty log reads
+		-- exactly like "nothing happened").
+		flushEvery = (flushEvery or 0) + 1
+		if flushEvery >= 20 then
+			flushEvery = 0
+			pcall(function() logfile:flush() end)
+		end
 	end
 end
 
@@ -71,9 +79,20 @@ log("It only presses the d-pad. Set MESHGHOST_SQUARE_PAUSE = true to stand still
 
 local dirIndex, tilesDone, heldFor, laps, frames = 1, 0, 0, 0, 0
 
+-- STOP-AND-GO, the user's ask 2026-08-21: pauses exercise the seams a steady walk never touches --
+-- the idle release to the painted tier (5s), the resume re-spawn, and the last step before a stop,
+-- which is where snaps live. The pattern is fixed rather than random so a fault reproduces on the
+-- same lap count every run: after each full side, every third side pauses 2s, and after each full
+-- lap a long 7s pause crosses the idle-release threshold on purpose.
+local pauseFor = 0
+
 local function tick()
 	frames = frames + 1
 	if MESHGHOST_SQUARE_PAUSE then
+		return
+	end
+	if pauseFor > 0 then
+		pauseFor = pauseFor - 1
 		return
 	end
 
@@ -113,12 +132,17 @@ local function tick()
 	tilesDone = 0
 	dirIndex = dirIndex + 1
 	if dirIndex <= #DIRECTIONS then
+		if dirIndex % 3 == 0 then
+			pauseFor = 120 -- 2s: a stop-and-go inside the lap, below the idle-release threshold
+			log(string.format("  pausing 2s after side %d", dirIndex - 1))
+		end
 		return
 	end
 
 	dirIndex = 1
 	laps = laps + 1
-	log(string.format("  lap %d complete", laps))
+	pauseFor = 420 -- 7s: crosses the 5s idle release, so every lap exercises the tier handoff
+	log(string.format("  lap %d complete -- pausing 7s (crosses the idle release)", laps))
 end
 
 MESHGHOST_DEV_TICK = tick

@@ -15,8 +15,8 @@
 -- the compare rig on with no file left that mentions it. pitfalls.md has carried this since
 -- 2026-08-19 as "A probe global outlives the probe, and then looks exactly like a real bug", and it
 -- was walked into twice more on 2026-08-21 by someone who had not read that file.
-MESHGHOST_COMPARE_TIERS = false
+MESHGHOST_COMPARE_TIERS = true
 MESHGHOST_CRYSTAL_OAM_OVERFLOW = "0"
 MESHGHOST_LOOPBACK_OFFSET_X = 2
-console.log("MeshGhost dev: plain loopback ghost, 2 tiles right; hardware tier and compare rig OFF")
+console.log("MeshGhost dev: drawn ghost 2 tiles LEFT, spawned ghost 2 tiles RIGHT; hardware tier OFF")
 MESHGHOST_DEV_TICK = function() end

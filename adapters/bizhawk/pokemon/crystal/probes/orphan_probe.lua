@@ -96,6 +96,14 @@ local function log(msg)
 	raw_log(msg)
 	if logfile then
 		logfile:write(msg, "\n")
+		-- Flush every 20 LINES: bounded cost, live log. The buffering sweep removed the per-line
+		-- flush and a probe then reported NOTHING for a whole run (pitfalls.md: an empty log reads
+		-- exactly like "nothing happened").
+		flushEvery = (flushEvery or 0) + 1
+		if flushEvery >= 20 then
+			flushEvery = 0
+			pcall(function() logfile:flush() end)
+		end
 	end
 end
 
@@ -125,6 +133,14 @@ local trace = {} -- struct slot -> ring buffer of the last ten frames of step fi
 
 local function tick()
 	frames = frames + 1
+
+	-- The buffering sweep removed per-line flushes, which is right for cost -- but a report that
+	-- sits in a buffer reads exactly like "nothing found" (pitfalls.md: an empty log reads exactly
+	-- like the game did nothing). One flush every five seconds keeps the log honest for one frame's
+	-- cost that often.
+	if logfile and frames % 300 == 0 then
+		pcall(function() logfile:flush() end)
+	end
 
 	local playerSprite = u8(OBJECT_STRUCTS + F_SPRITE)
 	if not playerSprite or playerSprite == 0 then

@@ -68,6 +68,14 @@ local function log(msg)
 	console.log(msg)
 	if logfile then
 		logfile:write(msg, "\n")
+		-- Flush every 20 LINES: bounded cost, live log. The buffering sweep removed the per-line
+		-- flush and a probe then reported NOTHING for a whole run (pitfalls.md: an empty log reads
+		-- exactly like "nothing happened").
+		flushEvery = (flushEvery or 0) + 1
+		if flushEvery >= 20 then
+			flushEvery = 0
+			pcall(function() logfile:flush() end)
+		end
 	end
 end
 

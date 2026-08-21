@@ -88,6 +88,14 @@ local function log(msg)
 	raw_log(msg)
 	if logfile then
 		logfile:write(msg, "\n")
+		-- Flush every 20 LINES: bounded cost, live log. The buffering sweep removed the per-line
+		-- flush and a probe then reported NOTHING for a whole run (pitfalls.md: an empty log reads
+		-- exactly like "nothing happened").
+		flushEvery = (flushEvery or 0) + 1
+		if flushEvery >= 20 then
+			flushEvery = 0
+			pcall(function() logfile:flush() end)
+		end
 	end
 end
 
@@ -170,7 +178,14 @@ local function observeCandidates(player)
 				-- Only judged at the moment the PLAYER changes tile: mid-step the ghost is
 				-- legitimately a tile behind for a few frames, and judging then would rule out
 				-- the very thing being looked for.
-				if w.dx == dx and w.dy == dy then
+				-- WITHIN A TILE of the baseline still counts as following. The first version
+				-- demanded a perfectly constant offset and never locked on at all (f=1200 and
+				-- still looking, 2026-08-21): a real following ghost is legitimately a tile
+				-- behind at the instant the player changes tile -- three frames of loopback lag
+				-- plus step quantisation -- so perfection was a standard correct behaviour
+				-- cannot meet. A wandering NPC still fails this: its offset drifts past one
+				-- tile within a couple of player steps.
+				if math.abs(dx - w.dx) <= 1 and math.abs(dy - w.dy) <= 1 then
 					w.stable = w.stable + 1
 				else
 					w.dx, w.dy, w.stable = dx, dy, 0
@@ -241,6 +256,13 @@ end
 
 local function tick()
 	frames = frames + 1
+
+	-- Time-based flush, because a line-counted one never fires on a SPARSE probe: this file can sit
+	-- under 20 lines for a whole run, and an unflushed header is indistinguishable from a probe
+	-- that found nothing.
+	if logfile and frames % 300 == 0 then
+		pcall(function() logfile:flush() end)
+	end
 
 	local player = readObj(OBJECT_STRUCTS)
 	if not player.mx or not player.sprite or player.sprite == 0 then

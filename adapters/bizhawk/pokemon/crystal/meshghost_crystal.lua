@@ -1619,6 +1619,7 @@ local W_MENUBOX_TOP, W_MENUBOX_LEFT, W_MENUBOX_BOTTOM, W_MENUBOX_RIGHT = 0x0F82,
 -- ghosts -- is occluded by the game itself and needs none of this.
 local UI_LATCH_FRAMES = 20
 local uiSeenAt, drawFrames = nil, 0
+local heldCal = {} -- last settled-frame calibration; see the calX note in drawOverflow
 
 -- WY IS NOT THE SIGNAL, and using it cost half the screen.
 --
@@ -1823,8 +1824,22 @@ function drawOverflow()
 		if y < playerOamY then playerOamY = y end
 		if x < playerOamX then playerOamX = x end
 	end
-	local calX = (playerOamX - 8) - (u8(OBJECT_STRUCTS + F_SPRITE_X) or 0)
-	local calY = (playerOamY - 16) - (u8(OBJECT_STRUCTS + F_SPRITE_Y) or 0)
+	-- CALIBRATE ONLY WHILE THE PLAYER IS STANDING. The two sides of this subtraction live one
+	-- frame apart: OAM holds what the engine BUILT last frame, the struct holds where the object is
+	-- THIS frame -- so mid-walk they disagree by exactly the per-frame step delta and the
+	-- calibration oscillates by +/-2px, which the user saw as ghosts "randomly wiggling"
+	-- (2026-08-21). It is the same phase defect pitfalls.md records as "a script's writes land
+	-- between frames; the game's land inside one", on the read side. While the player stands, both
+	-- sources describe the same frame and agree; that value is held through the walk.
+	local calX, calY
+	if (u8(OBJECT_STRUCTS + F_WALKING) or STANDING) == STANDING then
+		calX = (playerOamX - 8) - (u8(OBJECT_STRUCTS + F_SPRITE_X) or 0)
+		calY = (playerOamY - 16) - (u8(OBJECT_STRUCTS + F_SPRITE_Y) or 0)
+		heldCal.x, heldCal.y = calX, calY
+	else
+		calX = heldCal.x or 0
+		calY = heldCal.y or 0
+	end
 	if anchorTileX then
 		-- Anchor available: screen position of its tile, then tile deltas from there.
 		anchorPx = anchorPx + calX
@@ -1897,9 +1912,19 @@ function drawOverflow()
 				sx, sy = screenCoords(o.x, o.y)
 				sx = sx + calX
 				sy = sy + calY
-				if sx >= 240 then sx = sx - 256 end
-				if sy >= 240 then sy = sy - 256 end
 			end
+			-- EVERY position in this pipeline is arithmetic on BYTES -- sprite coordinates,
+			-- map coordinates, the window origin -- so the true screen position only exists
+			-- modulo 256, and both branches can hand back an alias: the user's drawn copy sat
+			-- at "screen -224,-196", which is 32,60 seen through exactly this (2026-08-21). It
+			-- was then discarded as off screen, which is why the drawn ghost did not move and
+			-- why a peer released from the spawned tier while idle VANISHED instead of being
+			-- painted. One normalisation for both branches: fold into [-16, 240), the window
+			-- where a 16px character can touch the 160x144 screen. This is the mod-window done
+			-- properly, not a compensating offset -- a genuinely off-screen character still
+			-- lands outside the on-screen test below and is still discarded.
+			sx = ((sx % 256) + 272) % 256 - 16
+			sy = ((sy % 256) + 272) % 256 - 16
 			local onScreen = sx > -16 and sx < 160 and sy > -16 and sy < 144
 			if not onScreen then
 				nOffScreen = nOffScreen + 1
@@ -2179,13 +2204,15 @@ local function renderRemote(id, state)
 		-- hardware tier on, every resident peer is claimed by it first and nothing is ever painted,
 		-- so the drawn copy would silently become a second hardware copy. `only` says which rung a
 		-- copy belongs to and the draw loop honours it.
+		-- Only when the hardware tier is actually ON. Pinned to a rung that is switched off, this
+		-- copy renders nothing and still counts as a peer waiting -- a phantom in every tier total.
 		local hk = COMPARE.hwKey(id)
 		local hprev = overflow[hk]
-		overflow[hk] = { compare = true, only = "hw", x = baseX + COMPARE.hw, y = y,
+		overflow[hk] = OAM_TIER and { compare = true, only = "hw", x = baseX + COMPARE.hw, y = y,
 			sprite = FORCE_PEER_SPRITE or (state.extras and tonumber(state.extras.sprite)) or nil,
 			facing = ORIENTATION_TO_DIR[state.orientation],
 			lastX = hprev and hprev.lastX, lastY = hprev and hprev.lastY,
-			movedAt = hprev and hprev.movedAt }
+			movedAt = hprev and hprev.movedAt } or nil
 
 		overflow[ck] = { compare = true, only = "drawn", x = baseX + COMPARE.drawn, y = y,
 			sprite = FORCE_PEER_SPRITE or (state.extras and tonumber(state.extras.sprite)) or nil,
@@ -2241,6 +2268,14 @@ local function renderRemote(id, state)
 
 	if not wearable or not blocking then
 		if ghosts[id] then
+			-- NAME THE TRANSITION. The user saw the same peer rendered twice for a few frames while
+			-- walking (2026-08-21): a peer flapping between the spawned and painted tiers passes
+			-- through frames where the engine object is still on screen and the painted copy is
+			-- already drawn on the same tile. Which side flips it, and why, is the whole question --
+			-- a count cannot answer it, a transition line can. Throttled by nature: it only fires on
+			-- an actual tier change.
+			logFile(string.format("tier: %s spawned -> painted (%s)", id,
+				(not wearable) and "sprite not resident here" or "idle/shoved: not blocking"))
 			despawnGhost(id)
 		end
 		local prev = overflow[id]
@@ -2254,6 +2289,9 @@ local function renderRemote(id, state)
 	if not g then
 		-- Try the good tier first, every frame: a slot may have freed up since last time.
 		if spawnGhost(id, x, y, peerSprite) then
+			if overflow[id] then
+				logFile(string.format("tier: %s painted -> spawned", id))
+			end
 			overflow[id] = nil
 		else
 			local prev = overflow[id]
@@ -2329,11 +2367,28 @@ local function renderRemote(id, state)
 		applyPeerAction(g, peerAct)
 		return
 	end
-	local dir = DELTA_TO_DIR[string.format("%d,%d", x - cx, y - cy)]
+	local dx, dy = x - cx, y - cy
+	local dir = DELTA_TO_DIR[string.format("%d,%d", dx, dy)]
 	if dir then
 		stepGhost(g, dir) -- one tile: walk it, so the game animates the step
+	elseif math.abs(dx) + math.abs(dy) <= 3 then
+		-- A SHORT deficit is walked, not snapped. The old rule teleported for anything past one
+		-- tile, and a ghost falls two tiles behind in perfectly ordinary play -- a missed idle
+		-- window, a 3-frame loopback lag, one skipped step. Worse, teleportGhost waits for a
+		-- settled camera, so during continuous walking the ghost FROZE until the player paused and
+		-- then visibly jumped (the user's "teleporting around a bit", 2026-08-21). One real step
+		-- per idle window toward the target catches up at double the peer's pace (the ghost walks
+		-- every window, the peer only every other), stays animated the whole way, and never snaps.
+		-- The larger axis first, so a diagonal deficit walks an L rather than dithering.
+		local stepDir
+		if math.abs(dx) >= math.abs(dy) then
+			stepDir = (dx > 0) and 3 or 2
+		else
+			stepDir = (dy > 0) and 0 or 1
+		end
+		stepGhost(g, stepDir)
 	else
-		teleportGhost(g, x, y) -- further than a step: snap, rather than fake a long walk
+		teleportGhost(g, x, y) -- genuinely far (a warp, a long silence): snap, don't fake a walk
 	end
 end
 
