@@ -4357,7 +4357,13 @@ local function spawnGhost(playerId, mapX, mapY, orientation, wantGfx)
     }
     -- A state is its animation AND its extras: a surfing rider without the Pokemon underneath is
     -- half the state, and the missing half is the one a player notices first.
-    if SURFING_GFX[graphicsId] then
+    -- NOT MID-MOUNT: this is the third and last blob-spawn site (the rebuild path lands here
+    -- when the in-place swap cannot run), and it spawns at the glide position -- the LAND tile
+    -- during a mount jump, like the other two sites before their gates. The jump block in
+    -- syncGhost owns the mount blob, at the engine-held destination.
+    local rAct = remotes[playerId] and remotes[playerId].act
+    local midJump = rAct and rAct >= 0x3a and rAct <= 0x3d
+    if SURFING_GFX[graphicsId] and not midJump then
         local blob = spawnSurfBlob(ghosts[playerId], mapX, mapY)
         console.log(string.format("MeshGhost: surf blob for gfx %d -> sprite %s",
             graphicsId, tostring(blob)))
@@ -4398,6 +4404,11 @@ local SURFBLOB_SUBPRIORITY = 150
 SURFING_GFX = { [2] = true, [92] = true } -- Brendan, May
 
 spawnSurfBlob = function(g, mapX, mapY)
+    if COMPARE_TIERS then
+        local who = debug.getinfo(2, "l")
+        logFile(string.format("BLOB SPAWN from line %s at tile (%d,%d) f=%d",
+            tostring(who and who.currentline), mapX, mapY, frameCounter))
+    end
     local tmpl = GFIELDEFFECTTEMPLATE_SURFBLOB
     local oamPtr, animsPtr = r32(tmpl + 0x04), r32(tmpl + 0x08)
     local imagesPtr, affinePtr = r32(tmpl + 0x0c), r32(tmpl + 0x10)
@@ -5193,7 +5204,7 @@ function isBikeGfx(gfx)
     return gfx == 1 or gfx == 63 or gfx == 90 or gfx == 91
 end
 
-function swapGhostGraphicInPlace(g, graphicsId, sanim, sox, soy, sidx, spaused)
+function swapGhostGraphicInPlace(g, graphicsId, sanim, sox, soy, sidx, spaused, wireX, wireY)
     local info = graphicsInfo(graphicsId)
     if not info or not ghostAlive(g) then return false end
     -- Allocate before freeing: nothing runs between these writes, and a failed allocation must
@@ -5314,8 +5325,26 @@ function swapGhostGraphicInPlace(g, graphicsId, sanim, sox, soy, sidx, spaused)
     -- a peer who is walking down a road.
     if SURFING_GFX[graphicsId] then
         if not g.blobSprId then
-            local a = objAddr(g.objId)
-            spawnSurfBlob(g, rs16(a + 0x10) - MAP_OFFSET, rs16(a + 0x12) - MAP_OFFSET)
+            -- AT THE WIRE TILE, NOT THE GHOST'S. On a mount the swap lands a beat before the
+            -- ghost performs its jump (the swap-pending gate orders them), so the ghost's own
+            -- coords still name the LAND tile -- and the mount blob is deliberately inert
+            -- (BOB_NONE, see the park logic), so a blob born on land WAITED on land while the
+            -- ghost jumped past it into the water: the user, *"the spawned ghosts blob is not in
+            -- the water, its on the land while the ghost is jumping out into the water"*. The
+            -- wire tile IS the jump's destination -- the game writes the destination into the
+            -- player's coords as the jump begins -- so it is the blob's birthplace, exactly as
+            -- SurfFieldEffect_JumpOnSurfBlob spawns the real one at tDestX/tDestY.
+            -- NOT during a mount jump: the wire position is the sender's SMOOTHED glide, still
+            -- naming the land tile when this swap fires, and the ghost's own coords are also
+            -- still the land tile (its jump has not been issued yet -- the swap-pending gate
+            -- orders swap first). Both authorities lie here. The mount-jump block in syncGhost
+            -- spawns the blob instead, once the ENGINE has accepted the ghost's jump and moved
+            -- its coords to the destination -- the only moment the destination is readable.
+            if not (g.jsActive and not g.jsDismount) then
+                local a = objAddr(g.objId)
+                spawnSurfBlob(g, wireX or (rs16(a + 0x10) - MAP_OFFSET),
+                    wireY or (rs16(a + 0x12) - MAP_OFFSET))
+            end
         end
     elseif UNDERWATER_GFX[graphicsId] then
         -- Diving is a WARP, so a peer normally arrives already underwater and gets its bobber from
@@ -5785,11 +5814,64 @@ local function syncGhost(playerId, remote)
     if inJs and not g.jsActive then
         g.jsActive, g.jsDismount = true, g.blobSprId ~= nil
     elseif not inJs then
+        -- The jump ended. A MOUNT's blob spent the jump inert (below); hand it to the engine
+        -- now, exactly when PlayerAvatarTransition_Surfing does for the player's own.
+        if g.jsActive and not g.jsDismount and g.blobSprId then
+            local bd = sprAddr(g.blobSprId)
+            w8(bd + 0x2e, (r8(bd + 0x2e) & 0xf0) | 1) -- BOB_PLAYER_AND_MON
+        end
         g.jsActive, g.jsDismount = nil, nil
     end
-    if inJs and g.jsDismount and g.blobSprId then
+    -- A MOUNT'S BLOB IS BORN HERE, once the engine holds the ghost's jump. InitJump writes the
+    -- destination into the object's coords as the jump begins, so "the ghost's movementActionId
+    -- is the jump" is exactly when its coords stop lying about where the blob belongs -- the
+    -- swap-time spawn used the wire's smoothed position and put the blob on the LAND tile, where
+    -- BOB_NONE then faithfully kept it (*"its still on the grass... then teleports when the
+    -- spawned ghost actually gets onto the water"*).
+    if inJs and not g.jsDismount and not g.blobSprId and g.gfx and SURFING_GFX[g.gfx] then
+        local ja = objAddr(g.objId)
+        local heldAct = r8(ja + 0x1c)
+        if heldAct >= 0x3a and heldAct <= 0x3d then
+            local bid = spawnSurfBlob(g, rs16(ja + 0x10) - MAP_OFFSET, rs16(ja + 0x12) - MAP_OFFSET)
+            -- RE-PLACE FROM THE RIDER'S SPRITE. spawnSurfBlob's screen math carries the two
+            -- camera terms that only cancel while the camera is AT REST -- documentation.md's own
+            -- warning on this exact sprite -- and a mount jump is precisely when the camera is
+            -- moving, so the blob landed a tile ashore of its correct water tile (logged born at
+            -- the right tile while the user watched it sit on the grass). The engine's own
+            -- placement is rider + (0, +8), measured 2026-08-19, and the rider's sprite position
+            -- is engine-maintained against the live camera every frame -- so it cannot be stale.
+            -- pos2 (the arc) is deliberately NOT copied: the blob waits flat on the water.
+            if bid then
+                -- Plus the jump's own one-tile step: at the accept frame the rider's sprite is
+                -- still AT the land tile (the sprite animates across, it does not snap), and the
+                -- destination is one tile along the jump's direction -- which the action id
+                -- carries (JUMP_SPECIAL_DOWN..RIGHT, 0x3A..0x3D).
+                local dxs = { [0x3a] = 0, [0x3b] = 0, [0x3c] = -TILE, [0x3d] = TILE }
+                local dys = { [0x3a] = TILE, [0x3b] = -TILE, [0x3c] = 0, [0x3d] = 0 }
+                local gs2, bd2 = sprAddr(g.sprId), sprAddr(bid)
+                w16(bd2 + 0x20, (rs16(gs2 + 0x20) + (dxs[heldAct] or 0)) & 0xffff)
+                w16(bd2 + 0x22, (rs16(gs2 + 0x22) + (dys[heldAct] or 0) + 8) & 0xffff)
+            end
+        end
+    end
+    if inJs and g.blobSprId then
         local bd = sprAddr(g.blobSprId)
-        w8(bd + 0x2e, (r8(bd + 0x2e) & 0xf0) | 2) -- BOB_JUST_MON
+        if g.jsDismount then
+            w8(bd + 0x2e, (r8(bd + 0x2e) & 0xf0) | 2) -- BOB_JUST_MON: park in the water
+        else
+            -- A MOUNT'S BLOB IS INERT UNTIL THE RIDER LANDS ON IT. The game's own mount creates
+            -- the blob at the destination and never sets a bob state during the jump --
+            -- FldEff_SurfBlob leaves data[0] at BOB_NONE, and in that state UpdateBobbingEffect
+            -- does nothing at all, so the blob waits in the water while the rider arcs onto it;
+            -- BOB_PLAYER_AND_MON only arrives with the avatar transition at the end
+            -- (field_effect.c:3042-3056, field_effect_helpers.c:1107-1135). Ours went straight
+            -- to PLAYER_AND_MON, whose position sync dragged the blob along the rider's arc --
+            -- the user: *"the drawn ghost jumps with the blob onto the water, instead of jumping
+            -- from the grass onto the blob in the water"* (and the spawned did the same, less
+            -- visibly). Our ghost's jump sets its object coords to the destination at the start,
+            -- so the blob is already spawned at the right tile -- it just has to sit still.
+            w8(bd + 0x2e, r8(bd + 0x2e) & 0xf0)    -- BOB_NONE: wait at the destination
+        end
     end
     if not ghostIsIdle(g) then
         local pending = wantedGfx(remote)
@@ -5834,7 +5916,10 @@ local function syncGhost(playerId, remote)
     end
     if wantNow and g.gfx and wantNow ~= g.gfx
         and swapGhostGraphicInPlace(g, wantNow, remote.sanim, remote.sox or 0, remote.soy or 0,
-            remote.sidx, remote.spaused)
+            remote.sidx, remote.spaused,
+            -- targetX/Y, not raw wire: the loopback ghost stands offset from the player, and its
+            -- blob must be born at ITS destination, not the player's.
+            targetX, targetY)
     then
         -- No offset write here: swapGhostGraphicInPlace set it in the same batch as the shape,
         -- from the right source for the graphic. Writing the wire value on top of that -- which
@@ -8676,10 +8761,25 @@ local function drawRemotes(localAreaId, playerMapX, playerMapY, skipSpawned, com
                                 -- Parked during a JUMP_SPECIAL, mirroring the game's
                                 -- BOB_JUST_MON -- full reasoning at the hardware tier's twin.
                                 -- Sticky like the hardware tier's, one comment up there.
+                                -- Bob-with-the-rider and the mount park: the hardware tier's
+                                -- twin comment carries the reasoning.
                                 local bjumping = remote.act
                                     and remote.act >= 0x3a and remote.act <= 0x3d
-                                if bjumping and remote.blobParkPx then
-                                    remote.blobParkHold = true
+                                if bjumping and not remote.blobParkHold then
+                                    if remote.blobParkPx then
+                                        remote.blobParkHold = true
+                                    else
+                                        local jdx = ({ [0x3c] = -TILE,
+                                            [0x3d] = TILE })[remote.act] or 0
+                                        local jdy = ({ [0x3a] = TILE,
+                                            [0x3b] = -TILE })[remote.act] or 0
+                                        remote.blobParkPx = {
+                                            screenX + cx + jdx
+                                                - rs16(GSPRITECOORDOFFSETX_ADDR),
+                                            screenY + cy + jdy + 8 - (arc or 0)
+                                                - rs16(GSPRITECOORDOFFSETY_ADDR) }
+                                        remote.blobParkHold = true
+                                    end
                                 end
                                 local pbx, pby = screenX + cx, screenY + cy + 8
                                 if remote.blobParkHold and remote.blobParkPx then
