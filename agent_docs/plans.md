@@ -427,7 +427,15 @@ was answered 2026-08-15 — it did, via enemies, and that is what the fix above 
 
 ### Phase 8 — Emerald, dedicated (post-5.5 ongoing work)
 
-**Status: LIVE.** Started 2026-08-14, then quiet while Phases 6/7 had the attention, and picked
+**Status: LIVE, and the peer-state work inside it is CLOSED — Emerald is FEATURE COMPLETE as of
+2026-08-21, the user's call** (*"i consider the game to be fully synced up animation and effect
+wise now"*, `verified.md`). Every way this game moves a character and every field effect it hangs
+off one is mirrored on all three tiers. The phase stays open for what is a different kind of work:
+polish, custom features beyond matching the game, and states nobody has watched yet — the ferry is
+the only one of those on the list (`status.md`). **A new Emerald animation/effect item needs a
+reason it is not polish or a custom feature.**
+
+Started 2026-08-14, then quiet while Phases 6/7 had the attention, and picked
 back up with a full session on **2026-08-18** that replaced the overlay with a real spawned object
 event (its own ADR in `architecture.md`; user-confirmed piece by piece on screen, end-to-end pass
 still queued in `unverified.md`). `status.md` is the index of what is open — see `agent_docs/phases/phase8.md` for the full record. Numbered next in sequence rather than folded back into 1–5.5 (which bundled Emerald
@@ -441,7 +449,10 @@ timing bug, local dev/testing tuned for instant feedback (`-interp=0ms`/new `-mi
 and a real sub-tile movement-smoothing bug found once that tuning stopped a network buffer from
 hiding it. Movement support has since landed and been user-confirmed on screen: ledges
 (2026-08-19), the Mach Bike (2026-08-20), the Acro Bike (2026-08-21) and surfing/diving
-(2026-08-21) — see `verified.md`. Still not started: rail movement and Stages 2–5 of the
+(2026-08-21) — see `verified.md`, plus ice, fog and cave darkness the same day, which is where the
+feature-complete call above came from. **Rail movement was on the original list and was never
+separately closed**: either it is covered by that call or it is a real gap, and nobody has said
+which — ask before treating it as either. Also not started: Stages 2–5 of the
 VRAM/sprite-injection investigation (`agent_docs/ideas.md`; Stage 1 — read-only probing — ran
 2026-08-14, written up in `agent_docs/environment.md`). Note that any stage of that investigation
 which actually *writes* emulator memory is gated by the no-memory-writes non-goal above, and needs

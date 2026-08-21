@@ -9912,3 +9912,25 @@ plausible values every frame during the fog investigation, and `WIN0H` read `0x2
 whose real span was `96-144`. `DISPCNT`, `BLDCNT`, `BLDALPHA`, `WININ` and `WINOUT` all read fine,
 which is exactly what makes the bad ones believable. The live value has to come from the engine's
 own copy — for the flash circle, the scanline buffer. `pitfalls.md`, `_template/probes.md`.
+
+## Emerald is FEATURE COMPLETE — the user's call (2026-08-21)
+
+- Date: 2026-08-21, end of the fourth session that day. **Source: the user**, unprompted, after
+  the ice/fog/cave-darkness confirmations: *"i consider the game to be fully synced up animation
+  and effect wise now."* They also wrote it into the adapter's own build story as step 37.
+- **What the claim covers**: every way this game moves a character, and every field effect it hangs
+  off one, is mirrored on all three rendering tiers. Walking, running, ledges, the muddy slope,
+  fishing, both bikes including the Acro Bike's hop and wheelie, surfing, diving, ice sliding — plus
+  the shadow, landing dust, the surf blob, the water trail, the reflection, tall grass, occlusion,
+  cave darkness and fog. Each has its own dated entry above; this one records only that the SET is
+  now considered closed, by the person who sets the bar.
+- **What it does NOT mean.** It is not "no defects" and not "everything watched". It means no known
+  animation or effect is missing. Two things stay open and neither contradicts it: the **ferry**,
+  which nobody has ridden with the adapter loaded (unchecked, not known-missing — `status.md`), and
+  the standing patched-ROM limits, where the hardware tier, the cave clip and the fishing hook all
+  decline by design (`FLAGS.md`, `unverified.md`).
+- **The bar this was judged against** was the project's own: 1:1 on screen, judged by the user
+  watching, never by matching numbers. Every item in the list above was confirmed that way.
+- **What it changes for a future session**: a new animation or effect item for Emerald now needs a
+  reason it is not polish or a custom feature. The class of work is finished; the next Emerald
+  entry here should be a defect, a state nobody had watched, or something the game does not do.

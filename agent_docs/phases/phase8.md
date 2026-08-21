@@ -8,7 +8,12 @@
 > The ADR is in `architecture.md`. Not rewritten line by line: these are dated records, and they
 > were correct when written.
 
-**Status: in progress**, started 2026-08-14. Numbered next in sequence rather than folded back
+**Status: in progress, but the PEER-STATE work inside it is closed — Emerald is FEATURE COMPLETE
+as of 2026-08-21, the user's call** (`verified.md`): every way this game moves a character and
+every field effect it hangs off one is mirrored on all three tiers. What remains under this phase
+is polish, custom features, and the ferry, which nobody has watched yet.
+
+Started 2026-08-14. Numbered next in sequence rather than folded back
 into 1–5.5 (which bundled Emerald's adapter work together with building the server/client/core
 themselves, since Emerald was the first game) — renumbering 1–5.5 would break the many existing
 citations to them across `verified.md`/`pitfalls.md`/`status.md`/`risks.md` for no real gain, so

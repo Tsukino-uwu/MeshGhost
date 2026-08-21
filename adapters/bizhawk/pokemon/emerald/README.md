@@ -1,9 +1,14 @@
 # Pokémon Emerald
 
-**Status: Phase 8 (ongoing, post-"good enough" work).** First game targeted, shipped, and
-live-tested with real two-player sessions. See
-[agent_docs/phases/phase8.md](../../../../agent_docs/phases/phase8.md) for the current task list
-and the "Further work past 'good enough'" section below for what's still open.
+**Status: FEATURE COMPLETE as of 2026-08-21 — the user's call**, in their words: *"i consider the
+game to be fully synced up animation and effect wise now."* Every way this game moves a character
+and every field effect it hangs off one is mirrored, on all three rendering tiers. First game
+targeted, shipped, and live-tested with real two-player sessions.
+
+Phase 8 stays open for what is left, and what is left is a different kind of thing: polish, custom
+features beyond matching the game, and states nobody has watched yet rather than states known to be
+missing. See [agent_docs/phases/phase8.md](../../../../agent_docs/phases/phase8.md) and
+[agent_docs/status.md](../../../../agent_docs/status.md).
 
 - Platform: GBA, played via BizHawk.
 - Confirmed working roms: "Vanilla", "Archipelago 0.6.7", "speedchoice-1.2.2", "ex-speedchoice-0.4.0".
@@ -271,6 +276,12 @@ order:
     its peers are painted instead. **The cave was fixable and the fog was not, and the reason is
     the question to ask of any future hardware effect — the lit region is readable data, where the
     sheet was a priority we cannot win.**
+37. **FEATURE COMPLETE, 2026-08-21** — the user's call, and the bar was theirs to set: *"i consider
+    the game to be fully synced up animation and effect wise now."* Every way this game moves a
+    character and every field effect it hangs off one is mirrored on all three tiers. What is left
+    after this is minor polish or custom features that go beyond matching the game, not gaps —
+    so a new item here needs a reason it is not one of those. The one state nobody has watched yet
+    is the ferry (`status.md`); it is unchecked rather than known-missing.
 
 **~3 hours for the hardware tier**, most of it spent discovering that the comparison harness, not
 either renderer, was what kept producing wrong answers.

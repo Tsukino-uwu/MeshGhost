@@ -2,9 +2,11 @@
 
 ## Active status
 
-**2026-08-21 (fourth session that day): ICE, FOG AND CAVE DARKNESS ARE DONE, user-confirmed** —
-*"Ice is done/confirmed"*, then *"Ice, fog, cave darkness have been confirmed."* Entries:
-`verified.md`. Methods and the lessons that cost the most: `pitfalls.md`.
+**2026-08-21: EMERALD IS FEATURE COMPLETE, the user's call** — *"i consider the game to be fully
+synced up animation and effect wise now."* Every way this game moves a character and every field
+effect it hangs off one is mirrored on all three tiers. Entry: `verified.md`; step 37 of the
+adapter's own build story. **A new Emerald animation/effect item now needs a reason it is not
+polish or a custom feature.** The last three in were ice, fog and cave darkness, same day.
 
 - **`spaused` had a partner we never sent** — `disableAnim`, now on the wire as `extras.noanim`;
   three separate things were each undoing it. `verified.md`.
@@ -56,12 +58,12 @@ that a peer's state genuinely differs from the local player's, which loopback co
 
 ### Open, not blocked
 
-- **Emerald: the BOAT is unchecked** — the user's own item, logged 2026-08-21. A ferry ride is a
-  state no tier has been watched through; nothing measured yet.
+- **Emerald: the BOAT is unchecked** — the user's own item, 2026-08-21. Nobody has ridden the ferry
+  with the adapter loaded: unchecked, not known-missing, and the one gap feature-complete allows.
 - **Ghost collision policy: Go side DONE, adapters not wired.** Config, wire and bridge all ship
   and are tested; no adapter reads `session_policy` yet, so nothing changes on screen. ADR 2026-08-19.
-- **Drawn-tier visual parity: Emerald is close, not done.** Reflections, wake and a flip error were
-  2026-08-21; ice reflections closed the same day. Crystal's tier still has none of any of it.
+- **Drawn-tier visual parity: Emerald's is CLOSED (feature complete, 2026-08-21)** — Crystal's tier
+  still has none of it: no reflection, no wake, no grass, no cave clip. `verified.md`.
 - **A vanilla battle with a crowd was never reached** — our own spawned ghosts boxed the player in
   on the way to grass, which `crowd-limits.md` predicts. `unverified.md`, `pitfalls.md`.
 - **Emerald's real-panel clip count was REACHED, not played to** — the position was written, so it
