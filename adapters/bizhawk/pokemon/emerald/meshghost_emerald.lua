@@ -4002,7 +4002,54 @@ tiering.applyShowMonWindow = function(rows)
             if fn == 0x080b8555 or fn == 0x080b88b5 then showMon = ta break end
         end
     end
-    if not showMon then return rows end
+    -- THE FRAME THE BANNER ENDS, THE CACHE IS A LIE. The tilemap scan is throttled to every
+    -- fourth frame, and the banner's rows stay written in the tilemap until the game restores the
+    -- background -- so for up to four frames after the effect's task is gone, the cached rows
+    -- still claim full-width coverage while the window that used to trim them no longer exists.
+    -- Everything painted in those rows is clipped to nothing: measured as a single isolated
+    -- invisible frame three frames after the banner, which is the user's *"vanishes just
+    -- slightly, barely noticable"* right before the ghost jumps onto the blob. Dropping the
+    -- cache's timestamp forces a fresh scan on the very next call.
+    if not showMon then
+        if tiering.showMonWasLive then
+            -- DROP the cached rows, do not merely schedule a rescan: invalidating the timestamp
+            -- still returns the stale rows for THIS frame, which is the one-to-two frame blank
+            -- the user sees. The banner's rows are stale by definition the moment its task is
+            -- gone -- it is the only thing that wrote them -- so the honest answer for this frame
+            -- is "no panel", and a real one (a text box) is picked up by the next scan.
+            -- AND KEEP IGNORING THE TILEMAP FOR A FEW FRAMES. The banner's rows stay WRITTEN
+            -- after its task is gone -- the game clears them in its own restore step -- so
+            -- trusting the tilemap again immediately re-clips everything, which is why the blank
+            -- survived as a single frame per cycle after the first attempt at this. Eight frames
+            -- covers the restore twice over. Nothing else can legitimately draw a panel in that
+            -- window: a text box needs a script, and the surf sequence runs none.
+            tiering.showMonWasLive = nil
+            tiering.panelScannedAt = nil
+            tiering.panelRows, tiering.panelPrev = {}, {}
+            tiering.panelBlankUntil = frameCounter + 8
+            return {}
+        end
+        if tiering.panelBlankUntil and frameCounter < tiering.panelBlankUntil then
+            tiering.panelScannedAt = nil
+            return {}
+        end
+        return rows
+    end
+    tiering.showMonWasLive = true
+    -- THE RESTORE STEPS ARE NOT COVERAGE. The effect's last steps put the banner away, and on
+    -- its final frame the task RESETS its stored window to the full screen (measured: state 6,
+    -- v=0..160) -- a reset, not a claim. Clipping to that blanked the painted ghost for exactly
+    -- one frame, three frames before it jumps onto the blob, which is the user's *"vanishes just
+    -- slightly, barely noticable"*. From RestoreBg onward there is no banner to hide behind, so
+    -- there is no panel: sState is data[0] (field_effect.c:2552, sFieldMoveShowMonOutdoors's
+    -- function table -- 5 is RestoreBg, 6 is End).
+    if r16(showMon + 0x08) >= 5 then
+        tiering.showMonWasLive = nil
+        tiering.panelScannedAt = nil
+        tiering.panelRows, tiering.panelPrev = {}, {}
+        tiering.panelBlankUntil = frameCounter + 8
+        return {}
+    end
     local wh = r16(showMon + 0x08 + 1 * 2)
     local wv = r16(showMon + 0x08 + 2 * 2)
     local x1, x2 = (wh >> 8) & 0xff, (wh & 0xff) - 1
