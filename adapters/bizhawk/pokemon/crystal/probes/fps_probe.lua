@@ -29,14 +29,27 @@ local function open_log()
 		dir = info.source:sub(2):match("^(.*)[/\\][^/\\]*$") or "."
 	end
 	logfile = io.open(string.format("%s/fps_%s.log", dir, os.date("%Y%m%d_%H%M%S")), "w")
+	-- Buffered, and never flushed per line: this probe MEASURES hitches, and a flush per line is
+	-- itself a 63-78ms hitch on the game thread (measured 2026-08-21 -- with this script running
+	-- alone, its own once-a-second log line was the only hitch in the session).
+	if logfile then
+		pcall(function() logfile:setvbuf("full", 8192) end)
+	end
 end
 
+-- console.log appends to BizHawk's GUI console window, and that is not cheap -- the same mechanism
+-- took the Emerald adapter to 1fps once (crowd-limits.md). An instrument must not produce the
+-- effect it is looking for, so routine readings go to the FILE only and the console gets one line
+-- in ten.
 local raw_log = console.log
+local lines = 0
 local function log(msg)
-	raw_log(msg)
+	lines = lines + 1
+	if lines <= 3 or lines % 10 == 0 then
+		raw_log(msg)
+	end
 	if logfile then
 		logfile:write(msg, "\n")
-		logfile:flush()
 	end
 end
 
@@ -47,10 +60,33 @@ log("because an average hides a stutter and a stutter is what gets noticed.")
 
 local frames, lastClock, worst, reports = 0, os.clock(), nil, 0
 
+-- CHOPPY IS NOT SLOW, and measuring the wrong one wastes a session.
+--
+-- The user, 2026-08-21: *"the game still feels choppy/laggy... been choppy this whole chat"* -- while
+-- this probe was reporting 59.7fps. Both can be true: ten frames lost inside one second still
+-- averages 58, so a per-second mean cannot see a hitch. What a person sees as chop is a frame that
+-- took much longer than 16.7ms, however rare.
+--
+-- So the frame-to-frame gap is timed and bucketed: how many frames took longer than one frame's
+-- worth, how many took longer than two, and the worst single gap. A steady 60 has none of either.
+local lastFrame, slow1, slow2, worstGap = os.clock(), 0, 0, 0
+
 local function tick()
 	frames = frames + 1
 
-	local now = os.clock()
+	local t = os.clock()
+	local gap = t - lastFrame
+	lastFrame = t
+	if gap > 0.033 then
+		slow2 = slow2 + 1
+	elseif gap > 0.020 then
+		slow1 = slow1 + 1
+	end
+	if gap > worstGap then
+		worstGap = gap
+	end
+
+	local now = t
 	local elapsed = now - lastClock
 	if elapsed < 1.0 then
 		return
@@ -65,8 +101,17 @@ local function tick()
 
 	-- Every second while things are bad, every ten while they are fine: a healthy session should
 	-- not fill the console, but a struggling one is exactly when a per-second reading is wanted.
-	if fps < 55 or reports % 10 == 0 then
-		log(string.format("  %.1f fps this second   (worst second so far: %.1f)", fps, worst))
+	if fps < 55 or slow1 > 0 or slow2 > 0 or reports % 10 == 0 then
+		log(string.format("  %.1f fps  |  hitches this second: %d over 20ms, %d over 33ms  |  "
+			.. "worst gap %.1fms  (worst second: %.1f fps)",
+			fps, slow1, slow2, worstGap * 1000, worst))
+	end
+	slow1, slow2, worstGap = 0, 0, 0
+
+	-- One flush a minute, so a session that is watched live is never far behind, while the cost is
+	-- one hitch a minute rather than one a second.
+	if logfile and reports % 10 == 0 then
+		pcall(function() logfile:flush() end)
 	end
 end
 

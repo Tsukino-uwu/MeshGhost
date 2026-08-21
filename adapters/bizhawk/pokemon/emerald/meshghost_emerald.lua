@@ -562,6 +562,16 @@ do
         or math.floor((os.clock() % 1) * 100000)
     local name = string.format("meshghost_emerald_%s_%s.log", os.date("%Y%m%d_%H%M%S"), tostring(tag))
     logfile = io.open(SCRIPT_DIR .. "logs/" .. name, "w") or io.open(SCRIPT_DIR .. name, "w")
+    -- BUFFER IT. Every log line used to be followed by a flush -- a synchronous disk write on the
+    -- game thread, which is the emulator's thread. Measured on the Crystal adapter 2026-08-21: a
+    -- script whose only per-second work was one log line produced a 63-83ms stall EVERY SECOND,
+    -- four to five frames, while the frame-rate average still read 59.7fps. The user's report for
+    -- a whole session was *"choppy/laggy"* on a game that measured full speed. probes.md has said
+    -- "buffer, and flush in batches" since the drawn tier was built; both adapters shipped without
+    -- doing it. Fixed here in the same pass as Crystal's.
+    if logfile then
+        pcall(function() logfile:setvbuf("full", 16384) end)
+    end
     -- Beside the logs, and set only here so it inherits whichever directory actually worked.
     genderFrames.xmapCachePath = SCRIPT_DIR .. "logs/xmap_cache.txt"
 end
@@ -571,17 +581,31 @@ console.log = function(msg)
     rawConsoleLog(msg)
     if logfile then
         logfile:write(tostring(msg), "\n")
-        logfile:flush()
     end
 end
 
 -- File only. A per-tick line in the Lua Console scrolls the startup lines out of view, and those
 -- name the ROM and every address in use -- which is what a reader actually needs. Same split
 -- Crystal's adapter uses (probes.md: detail to the log file, headlines to the console).
+-- DELIBERATELY UNFLUSHED -- see the buffering note where the file is opened. The callers are
+-- periodic diagnostics; the buffer is pushed to disk on the timer below and on the way out.
+local flushCountdown = 0
 local function logFile(msg)
     if logfile then
         logfile:write(msg, "\n")
-        logfile:flush()
+    end
+end
+
+-- One flush every five seconds costs a single frame's hitch that often, instead of one every time
+-- anything is written. Called once per frame from the main loop.
+local function flushLogPeriodically()
+    if not logfile then
+        return
+    end
+    flushCountdown = flushCountdown + 1
+    if flushCountdown >= 300 then
+        flushCountdown = 0
+        pcall(function() logfile:flush() end)
     end
 end
 
@@ -10309,6 +10333,7 @@ local function guardedFrame()
     -- core or another script, and no amount of adapter tuning will find it.
     local t0
     if MESHGHOST_EMERALD_PROFILE then t0 = os.clock() end
+    flushLogPeriodically()
     local ok, err = pcall(runFrame)
     -- THE GAP ITSELF, logged the frame it happens. Cleared + a live compare ghost + zero paints
     -- means the drawn copy was absent from this frame, which is the exact thing the user reports

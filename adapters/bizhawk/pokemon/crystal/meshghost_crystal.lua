@@ -325,6 +325,16 @@ do
 		or math.floor((os.clock() % 1) * 100000)
 	local name = string.format("meshghost_crystal_%s_%s.log", os.date("%Y%m%d_%H%M%S"), tostring(tag))
 	logfile = io.open(SCRIPT_DIR .. "/logs/" .. name, "w") or io.open(SCRIPT_DIR .. "/" .. name, "w")
+	-- BUFFER IT. Every log line used to be followed by a flush, which is a synchronous disk write
+	-- on the game thread -- and the game thread is the emulator. Measured 2026-08-21: a script
+	-- whose ONLY per-second work was writing one log line produced exactly one 63-78ms stall every
+	-- second, four to five frames, while the frame-rate average still read 59.7. That is precisely
+	-- what the user had been reporting for the whole session -- *"choppy/laggy"* on a game that
+	-- measured full speed. `logFile` is called every second by the drawn tier whenever peers are
+	-- present, so this was shipping to players, not just to the dev rig.
+	if logfile then
+		pcall(function() logfile:setvbuf("full", 16384) end)
+	end
 end
 
 local function log(msg)
@@ -2567,6 +2577,13 @@ local function tick()
 	end
 
 	beginPolicyFrame()
+
+	-- Push the log buffer to disk on a timer rather than per line: once every five seconds costs
+	-- one frame's hitch every five seconds instead of one every second, and the file is never more
+	-- than that far behind if someone is tailing it.
+	if logfile and bridgeFrames % 300 == 0 then
+		pcall(function() logfile:flush() end)
+	end
 
 	-- A ghost that has to be snapped is a ghost that fell behind the peer it is following; walking
 	-- it would have looked like walking. Silent at zero.
