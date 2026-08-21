@@ -7,17 +7,21 @@
 -- IT SAVES TO SLOT 8 FIRST, ALWAYS. Slot 8 is this project's convention for "the undo for a warp"
 -- -- load it to get back exactly where you were. A savestate is not an in-game save.
 --
--- HOW IT WORKS, and every step is the game's own
--- `EnterMapWarp` (engine/overworld/warp_connection.asm) copies wNextWarp / wNextMapGroup /
--- wNextMapNumber into wWarpNumber / wMapGroup / wMapNumber when the map-status machine passes
--- through MAPSTATUS_ENTER. So a warp is: name the destination in those three bytes, then put the
--- machine into ENTER and let the game do everything else -- loading the map, placing the player at
--- that map's warp, rebuilding the object arrays. Nothing here writes a coordinate or a tile.
+-- HOW IT WORKS: exactly what the GAME'S OWN `warp` script command does, in the same order.
+-- `Script_warp` (engine/overworld/scripting.asm:2060) is six writes and nothing else:
 --
--- WHICH WARP. Warp 1 is a map's first warp event, which for a building is its front door and for a
--- route is one end of it. If a destination lands somewhere odd, try another warp number rather
--- than writing coordinates by hand -- the warp table is the game's own list of legitimate places
--- to stand.
+--   wMapGroup, wMapNumber        -- the destination map, written DIRECTLY (not via wNext*)
+--   wXCoord, wYCoord             -- where to stand on it
+--   wDefaultSpawnpoint = -1      -- SPAWN_N_A, "no respawn point implied by this warp"
+--   hMapEntryMethod = $f1        -- MAPSETUP_WARP: WHICH setup script the map machine runs
+--   wMapStatus = MAPSTATUS_ENTER -- LoadMapStatus (home/map.asm:921) is just this store
+--
+-- THE ONE THAT MATTERS, and the one whose absence broke the first version of this file on
+-- 2026-08-21: **hMapEntryMethod**. `EnterMapWarp` is a map SETUP SCRIPT (entry 19 of
+-- MapSetupCommands), not something the status byte runs by itself -- so setting only wMapStatus
+-- made the game re-enter the map it was already on and consume no destination at all. The user saw
+-- it as *"it just glitched my current map"*. The read-back below is why that was caught rather
+-- than believed.
 --
 -- HOW TO RUN
 --   Set the destination before loading it, either as globals or by editing DEFAULT below:
@@ -32,13 +36,23 @@ local DEFAULT = "lighthouse"
 -- build. The group is the newgroup block the map_const sits in; the number is the value the file
 -- prints beside it.
 local DESTINATIONS = {
-	lighthouse = { group = 3, number = 42, warp = 1, label = "Olivine Lighthouse 1F" },
-	olivine = { group = 1, number = 14, warp = 1, label = "Olivine City" },
+	-- Coordinates are in the game's own map-tile space, the same numbers wXCoord/wYCoord hold while
+	-- standing there. Each map's usable area starts a few tiles in from 0, so these are picked
+	-- toward the middle; if one lands somewhere silly, load slot 8 and adjust rather than assuming
+	-- the warp is broken.
+	lighthouse = { group = 3, number = 42, x = 9, y = 9, label = "Olivine Lighthouse 1F" },
+	olivine = { group = 1, number = 14, x = 20, y = 20, label = "Olivine City" },
 	-- The user, 2026-08-21: the route above Olivine is *"the most demanding one in the whole
 	-- game... a big route, and fills up things due to having a lot of npc's"*. Recorded as the
 	-- reason it is in this list -- it is the crowd benchmark, not a scenic stop. Treat the claim as
 	-- a hint to verify with a measurement, not as a fact about the game.
-	route39 = { group = 1, number = 13, warp = 1, label = "Route 39 (crowd benchmark)" },
+	-- 10,20 was a BAD choice and cost the user a trainer battle on arrival, 2026-08-21: the Pokefan
+	-- at 10,22 faces UP with a sight range of 4, so 10,20 is two tiles inside its line. Route 39's
+	-- trainers, from maps/Route39.asm's own object_events -- position, facing, range:
+	--     10,22 up 4  |  11,19 right 4  |  13,29 left 5  |  13,7 spin 1
+	-- 8,26 sits outside every one of those lines: wrong column for the two northern ones, seven
+	-- tiles north of the sailor's row, nowhere near the spinner.
+	route39 = { group = 1, number = 13, x = 8, y = 26, label = "Route 39 (crowd benchmark)" },
 }
 
 local DOMAIN = "WRAM"
@@ -51,13 +65,16 @@ local function flat(cpu_addr)
 end
 
 -- pokecrystal.sym
-local W_NEXTWARP = flat(0xD146) -- wNextWarp
-local W_NEXTMAPGROUP = flat(0xD147) -- wNextMapGroup
-local W_NEXTMAPNUMBER = flat(0xD148) -- wNextMapNumber
 local W_MAPSTATUS = flat(0xD432) -- wMapStatus, the same address the adapter uses
 local W_MAPGROUP = flat(0xDCB5) -- wMapGroup
 local W_MAPNUMBER = flat(0xDCB6) -- wMapNumber
+local W_YCOORD = flat(0xDCB7) -- wYCoord
+local W_XCOORD = flat(0xDCB8) -- wXCoord
+local W_DEFAULTSPAWN = flat(0xD001) -- wDefaultSpawnpoint
+local H_MAPENTRYMETHOD = 0xFF9F -- hMapEntryMethod, HRAM: reached on the System Bus, not WRAM
 local MAPSTATUS_ENTER, MAPSTATUS_HANDLE = 1, 2
+local MAPSETUP_WARP = 0xF1
+local SPAWN_N_A = 0xFF -- SPAWN_N_A is -1 (constants/map_data_constants.asm:101)
 
 local UNDO_SLOT = 8
 
@@ -133,13 +150,15 @@ local function tick()
 		UNDO_SLOT, ok and "" or " (SAVE FAILED -- there is no undo)",
 		tostring(fromGroup), tostring(fromNumber)))
 
-	log(string.format("  going to %s (group %d, map %d, warp %d)",
-		target.label, target.group, target.number, target.warp))
+	log(string.format("  going to %s (group %d, map %d, at %d,%d)",
+		target.label, target.group, target.number, target.x, target.y))
 
-	w8(W_NEXTWARP, target.warp)
-	w8(W_NEXTMAPGROUP, target.group)
-	w8(W_NEXTMAPNUMBER, target.number)
-	-- Hand the map-status machine to ENTER and let the game load the map itself.
+	w8(W_MAPGROUP, target.group)
+	w8(W_MAPNUMBER, target.number)
+	w8(W_XCOORD, target.x)
+	w8(W_YCOORD, target.y)
+	w8(W_DEFAULTSPAWN, SPAWN_N_A)
+	pcall(memory.write_u8, H_MAPENTRYMETHOD, MAPSETUP_WARP, "System Bus")
 	w8(W_MAPSTATUS, MAPSTATUS_ENTER)
 end
 

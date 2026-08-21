@@ -787,6 +787,43 @@ time, because each side is *individually plausible*. The ghost's numbers looked 
 numbers looked fine. Only their relationship was wrong, and a relationship cannot be seen in two
 files with different timestamps.
 
+### When the data is in ROM, look for the POINTER — it is usually in RAM
+
+**Established on Crystal 2026-08-21**, where the user's verdict was *"its working"* and then *"or
+well, partly. good enought noclip at least"* — so: the technique is proven, the coverage is not
+complete. It generalises to any game where a lookup table lives somewhere you may not write.
+
+The problem: Crystal's per-block collision comes from the TILESET's table, and that table is in ROM.
+This project never writes a ROM, so the Emerald technique — zero the collision bits in the live map
+grid — has no equivalent. The first conclusion was "no noclip on this platform", and that was wrong.
+
+**The lookup goes through a pointer, and the pointer is in RAM.** `wTilesetCollisionAddress` +
+`wTilesetCollisionBank`, dereferenced by `GetFarByte`, which ends in a plain `ld a, [hl]`. A bank
+switch only affects the ROM window, so **if `hl` points into WRAM the read comes from WRAM** and the
+bank byte stops mattering. Point the table at a stretch of WRAM that is already zeroes and every
+block reports "floor". Nothing is patched; putting two bytes back restores it exactly.
+
+**The question to ask on any game, then:** not "can I change this data?" but "what does the code go
+THROUGH to reach it?" A pointer, a length, an index, a bank — those live in RAM far more often than
+the data does, and changing one is smaller, reversible, and needs no write where writes are banned.
+
+**Two rules that made it safe, and both are the general lesson:**
+
+- **FIND the scratch region, never assume it.** Picking an address that "looks unused" is how a save
+  gets corrupted. Scan for the longest run of zeroes, report where it was found and how much of the
+  index range it covers, and re-check periodically that it is still zeroes — if the game starts
+  using it, switch the cheat off rather than inventing data.
+- **Know what the redirect does NOT cover, and say so.** The zero run found on Crystal was 928
+  bytes, which is 232 of the 256 possible block ids; a map using a higher id indexes past the run
+  into whatever follows and can still block. Mechanisms that are not this table — ledges, water,
+  warps, a trainer's line of sight — are untouched by construction. "Partly" is the honest word for
+  a cheat bounded by the size of the scratch it found.
+- **Verify by reading what the GAME computed, not what you wrote.** Here that is the four
+  adjacent-tile collision values the engine recalculates every frame. Note the trap: read them in
+  the same frame as the change and half of them are stale (`down=0 up=0 left=7 right=7`), which
+  reads like a partial failure. One second later they were all zero. A verification taken too early
+  is its own false negative.
+
 **The practical form:**
 
 - **Buffer, and flush in batches. THIS APPLIES TO SHIPPED ADAPTERS, NOT ONLY TO PROBES** — written
