@@ -1908,7 +1908,25 @@ function drawOverflow()
 			o.fromX, o.fromY = o.lastX, o.lastY
 			o.lastX, o.lastY, o.movedAt = o.x, o.y, drawFrames
 		end
-		local walkingFor = (o.movedAt and (drawFrames - o.movedAt) < 30) and (drawFrames - o.movedAt) or nil
+		-- THE STRIDE COMES FROM THE PEER'S OWN STEP, not from a local timer.
+		--
+		-- This used to count frames since WE noticed the peer's tile change, which starts late, runs
+		-- on its own clock and is nil whenever that detection misses -- the painted copies were
+		-- drawing a standing frame the whole time a peer walked ("0 on a walk frame" while the user
+		-- watched two ghosts glide along statically).
+		--
+		-- extras.prog is the peer's real position within its step, 0-16 pixels, which is the same
+		-- thing OBJECT_STEP_FRAME means to the engine. Feeding that to the frame selector ties the
+		-- painted stride to the step the peer is actually taking: with WALK_FRAME_HOLD at 8 it gives
+		-- one stride for the first half of the step and the other for the second, which is the
+		-- cadence the engine itself uses.
+		local walkingFor = nil
+		if o.walking then
+			walkingFor = tonumber(o.prog) or 0
+		elseif o.movedAt and (drawFrames - o.movedAt) < 30 then
+			-- Fallback for a peer on a build that sends no `prog`: the old local timer.
+			walkingFor = drawFrames - o.movedAt
+		end
 		-- Resident tiles first -- they are what the engine is drawing everyone else from, so a
 		-- drawn peer beside a spawned one matches exactly. Failing that, read the peer's sprite
 		-- out of the cartridge, which is how a peer wearing a sprite THIS map never loaded (the
@@ -2770,6 +2788,11 @@ local function handle(msg)
 	elseif t == "render_remote" then
 		renderRemote(tostring(p.player_id), p.state)
 	elseif t == "despawn_remote" then
+		-- WHO ASKED. A ghost vanishing mid-walk with no reason in the log is indistinguishable from
+		-- a rendering fault, and the user reported exactly that (2026-08-21). The core sends this
+		-- when the RELAY drops a peer -- in a loopback session that means our own state stopped
+		-- being sent, which is a different bug entirely from anything in the drawing path.
+		log("MeshGhost: the core says " .. tostring(p.player_id) .. " left the room")
 		-- BOTH tiers, and the activity record with them. despawnGhost only knows about spawned
 		-- ghosts, so before this the drawn tier kept painting a peer who had left -- forever, and
 		-- invisibly to every count except the one that says how many peers are waiting. Found by
