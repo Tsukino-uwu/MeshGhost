@@ -532,7 +532,7 @@ report 67% cross-area, and it does.
 
 **A client with no adapter attached reports 0% cross-area, and that is correct, not a bug.**
 `localAreaID` is only set from a real adapter frame, and an unknown local area filters nothing --
-the core's long-standing fail-open rule. It will still show the full inbound byte cost, which is a
+the core's fail-open rule. It will still show the full inbound byte cost, which is a
 useful demonstration on its own.
 
 ## `dev-scripts/preflight.ps1` — run this before handing anyone a game

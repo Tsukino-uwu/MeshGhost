@@ -45,7 +45,7 @@ func TestStatsCountCrossAreaDiscardsAtRenderTime(t *testing.T) {
 	}
 }
 
-// An unknown local area filters nothing — the core's own long-standing rule.
+// An unknown local area filters nothing — the core's own rule, unchanged since it was written.
 // The counter must agree with it, or it would report a saving that no filter
 // could actually take.
 func TestStatsCountNothingCrossAreaWhenLocalAreaUnknown(t *testing.T) {

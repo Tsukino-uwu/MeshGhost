@@ -29,7 +29,7 @@ import (
 // Windows.
 //
 // Detected by resolving wine_get_version in ntdll, which Wine's own ntdll
-// exports and real Windows has no equivalent of. This is the long-standing
+// exports and real Windows has no equivalent of. This is the documented
 // documented way to ask, not a guess -- see the Wine FAQ's "How can I detect
 // Wine?" entry and dlls/ntdll/version.c in Wine's source.
 //

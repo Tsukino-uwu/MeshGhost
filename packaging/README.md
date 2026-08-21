@@ -41,7 +41,7 @@ filename — upload order is ignored and there is no manual ordering — so `ful
 is what puts the download almost everyone wants at the top of the list. It is also why the version
 sits at the END: `-` sorts before `.`, so any `MeshGhost-<version>-something` would have sorted
 above `MeshGhost-<version>.zip` no matter what the extras were called. (The two `Source code`
-archives GitHub attaches on its own cannot be reordered or removed at all; that is a long-standing
+archives GitHub attaches on its own cannot be reordered or removed at all; that is a documented
 open feature request, not something this workflow adds.)
 
 This does not contradict "why one zip". That section is about not making a downloader choose

@@ -56,6 +56,38 @@ if ($LASTEXITCODE -eq 0 -and $leaks) {
 }
 
 # ---------------------------------------------------------------------------
+Section "Invented durations"
+
+# CLAUDE.md says "cite dates, not durations", and this repo's first commit is 2026-08-11 -- so any
+# phrase claiming months or years about our own work is false on arrival and gets worse with age.
+#
+# WHY THIS IS A GREP AND NOT A RULE. The rule existed and was broken four times: three on
+# 2026-08-16, and again on 2026-08-21 with "for months" written about a rule two days old. The last
+# one is the reason this check exists, because of HOW it happened -- the duration was not a claim
+# anyone believed, it was an intensifier that filled a slot in a sentence wanting emphasis, and was
+# never examined. A rule against writing durations only catches someone who notices they are
+# writing one. A grep does not need anyone to notice.
+#
+# The same shape as the leak check above, and excluded the same way: this file and CLAUDE.md both
+# spell the patterns out, so they would match themselves forever.
+#
+# If a hit is genuinely about an EXTERNAL project's history ("rgbds has shipped for years"), rewrite
+# it with a date or a version rather than silencing the check -- a date is better writing there too.
+# Four such hits were reworded when this check was added; none of them lost anything by it.
+#
+# verified.md is excluded because it is APPEND-ONLY: correcting a phrase inside an entry there is a
+# rewrite of the record, which is the one thing that file forbids. It holds one known bad duration
+# ("long-standing 1-2 image density gap", 2026-08-21) and one legitimate external reference. A
+# future entry that invents a duration will therefore NOT be caught here -- so watch it by hand.
+$durations = & git grep -inIE -e 'for (the last |the past )?(a )?(month|year|decade|age)s?' -e 'long-?standing' -e '(month|year|decade)s ago' -e 'over the years' -- . ':!CLAUDE.md' ':!dev-scripts/preflight.ps1' ':!agent_docs/pitfalls.md' ':!agent_docs/verified.md'
+if ($LASTEXITCODE -eq 0 -and $durations) {
+    Report-Fail "invented duration in a tracked file -- this repo began 2026-08-11, so cite a date:"
+    $durations | ForEach-Object { Write-Host "          $_" }
+} else {
+    Report-Pass "no invented durations in tracked files"
+}
+
+# ---------------------------------------------------------------------------
 Section "CLAUDE.md line cap"
 
 # (Get-Content).Count, NOT Measure-Object -Line: the latter counts only NON-EMPTY lines, so it
