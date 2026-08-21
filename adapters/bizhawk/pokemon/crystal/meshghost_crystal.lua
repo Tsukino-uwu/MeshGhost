@@ -1957,24 +1957,26 @@ function drawOverflow()
 			sx = ((sx % 256) + 272) % 256 - 16
 			sy = ((sy % 256) + 272) % 256 - 16
 
-			-- GLIDE BETWEEN TILES, at the engine's own pace.
+			-- SUB-TILE GLIDE: ATTEMPTED AND REVERTED, 2026-08-21. Left as a note because the next
+			-- person will have the same idea and the trace below is what it costs to learn.
 			--
-			-- sx,sy above are the DESTINATION tile's screen position, so painting there directly is
-			-- a 16px jump the instant the peer's tile changes -- which is what the user saw. The
-			-- engine moves its own characters 2px per frame over 8 frames (StepVectors' "normal"
-			-- entry), so the painted copy walks back from the destination by the distance it has
-			-- not covered yet. At walkingFor=0 it sits on the tile it left; at 8 it has arrived.
+			-- The painted copy jumps a whole tile per step, because the wire carries tiles and this
+			-- tier places the character straight on the destination. The obvious fix is to walk it
+			-- back from the destination by the distance not yet covered, at the engine's 2px/frame.
+			-- That made it WORSE -- one tile of movement became two of visible travel.
 			--
-			-- Only for a ONE-TILE move: a peer that jumped further has warped or been silent, and
-			-- sliding them across that gap would be inventing motion that never happened.
-			if o.fromX and walkingFor and walkingFor < 8 then
-				local dx, dy = o.x - o.fromX, o.y - o.fromY
-				if math.abs(dx) + math.abs(dy) == 1 then
-					local remaining = 16 - walkingFor * 2
-					sx = sx - dx * remaining
-					sy = sy - dy * remaining
-				end
-			end
+			-- Why, from a per-frame trace: the destination position ALREADY carries the camera's
+			-- tile of scroll, and it arrives in one lump about twelve frames into the step
+			-- (dest_sx held 48 while the scroll offset ran 62 down to 50, then dropped to 32 in a
+			-- single frame). So the glide added +16px over the first eight frames and the
+			-- destination then subtracted its own -16px: two motions for one step.
+			--
+			-- A correct version has to interpolate the peer's position and the camera in ONE space
+			-- rather than adding a smooth term to a quantised one -- most likely by deriving the
+			-- painted position from a standing anchor's sprite coordinates plus sub-tile progress,
+			-- the way the spawned tier gets it from the engine. Not attempted; the tier draws on
+			-- the destination tile until then, which is a visible but honest single jump.
+
 			local onScreen = sx > -16 and sx < 160 and sy > -16 and sy < 144
 			if not onScreen then
 				nOffScreen = nOffScreen + 1
@@ -2300,12 +2302,14 @@ local function renderRemote(id, state)
 			sprite = FORCE_PEER_SPRITE or (state.extras and tonumber(state.extras.sprite)) or nil,
 			facing = ORIENTATION_TO_DIR[state.orientation],
 			lastX = hprev and hprev.lastX, lastY = hprev and hprev.lastY,
-			movedAt = hprev and hprev.movedAt } or nil
+			movedAt = hprev and hprev.movedAt,
+			fromX = hprev and hprev.fromX, fromY = hprev and hprev.fromY } or nil
 
 		overflow[ck] = { compare = true, only = "drawn", x = baseX + COMPARE.drawn, y = y,
 			sprite = FORCE_PEER_SPRITE or (state.extras and tonumber(state.extras.sprite)) or nil,
 			facing = ORIENTATION_TO_DIR[state.orientation],
-			lastX = prev and prev.lastX, lastY = prev and prev.lastY, movedAt = prev and prev.movedAt }
+			lastX = prev and prev.lastX, lastY = prev and prev.lastY, movedAt = prev and prev.movedAt,
+			fromX = prev and prev.fromX, fromY = prev and prev.fromY }
 	end
 
 	-- FORCE_PEER_SPRITE substitutes here rather than only inside applyPeerSprite, so the probe
@@ -2369,7 +2373,8 @@ local function renderRemote(id, state)
 		local prev = overflow[id]
 		overflow[id] = { x = x, y = y, sprite = peerSprite,
 			facing = ORIENTATION_TO_DIR[state.orientation],
-			lastX = prev and prev.lastX, lastY = prev and prev.lastY, movedAt = prev and prev.movedAt }
+			lastX = prev and prev.lastX, lastY = prev and prev.lastY, movedAt = prev and prev.movedAt,
+			fromX = prev and prev.fromX, fromY = prev and prev.fromY }
 		return
 	end
 
@@ -2386,7 +2391,8 @@ local function renderRemote(id, state)
 			overflow[id] = { x = x, y = y, sprite = peerSprite,
 				facing = ORIENTATION_TO_DIR[state.orientation],
 				lastX = prev and prev.lastX, lastY = prev and prev.lastY,
-				movedAt = prev and prev.movedAt }
+				movedAt = prev and prev.movedAt,
+				fromX = prev and prev.fromX, fromY = prev and prev.fromY }
 		end
 		return
 	end
