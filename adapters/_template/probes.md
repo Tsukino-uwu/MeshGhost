@@ -1200,3 +1200,39 @@ What a day of using it taught:
   sprite despawned this tick can still write its tiles next frame. Tiles freed at despawn and
   re-claimed in the same tick get the dead sprite's frame stamped over the new owner's load.
   If a despawn frees tile ranges, defer the free by a few frames.
+
+## When one renderer of several is already right, that IS the bisection (Emerald, 2026-08-21)
+
+An adapter that draws a peer more than one way has a free control group, and the cheapest thing to
+do with a defect that appears on some copies and not others is to ask **what the correct one is
+reading**. On an ice slide the hardware tier held the pose while the engine-driven and painted
+copies both animated: the correct one consumed the peer's animation state straight off the wire,
+and the two wrong ones each RE-DERIVED it. Re-derivation is where a state gets dropped, so the
+answer was "carry the missing field", found in minutes and without a single guess at a fix.
+
+Ask it before reaching for any instrument. The negative case is just as informative: a defect on
+ALL copies is upstream of every renderer, which means the wire or the sender.
+
+## Drive the state with a script, and log both sides on ONE line (Emerald, 2026-08-21)
+
+A defect that only exists during a specific movement is worth reaching mechanically rather than by
+hand: a ~60-line probe of fixed phases (`settle`, press LEFT, coast, press RIGHT, coast) driving
+`joypad.set`, logging the player's object event and every ghost's **on the same line, every
+frame**. It made the ice-slide diagnosis a single read — same action id, same tile behaviour,
+`disableAnim` 1 against 0 — and it is re-runnable after each fix, which is what turns "looks
+better" into a number.
+
+Two things that made it work, both worth copying:
+
+- **Log the fields you have not formed a theory about yet.** The line carried the metatile
+  behaviour, both animation indices, the pause bit, the direction pair and every bit of the flags
+  byte. The flag that mattered was one nobody had suspected, and it was already in the output.
+- **Re-run it after the fix and diff the same column.** A fix that moves the number by 15% reads
+  by eye as "hmm, still a bit off" — indistinguishable from "no change" — and is a WRONG fix, not
+  a partial one. One such nearly shipped in this session (see `agent_docs/pitfalls.md`, the glide
+  floor): the corrected version moved the same column by 2.5x.
+
+**A caveat the runs taught.** A scripted drive moves the player, so consecutive runs start from
+different places and can quietly stop exercising the thing being measured — one run spent most of
+its frames pressed against a wall. Log a state the phase depends on (here the tile behaviour under
+the player) and check it before reading the result.

@@ -9719,3 +9719,151 @@ the two disagree.
   peer's sprite OFFSET, and the code that applies it sat inside a gate that deliberately excludes
   a walking peer — correct for animation mirroring, wrong for a position. Idle ghosts bobbed;
   moving ones went rigid. A bob is not an animation.
+
+## Emerald: ice sliding is 1:1 on all three tiers — user-confirmed (2026-08-21)
+
+- Date: 2026-08-21, fourth session that day. **Source: the user, on screen**, in Shoal Cave Low
+  Tide Ice Room (`g24.n83`), compare mode on, all three tiers up: *"Ice is done/confirmed."*
+- **The game's mechanic, read from the decomp, not guessed.** Shoal Cave's ice is `MB_ICE` (32),
+  which `GetReflectionTypeByMetatileBehavior` and the forced-movement table both key on. Stepping
+  onto it runs `ForcedMovement_Slide` (`src/field_player_avatar.c:526`), which is `PlayerWalkFast`
+  PLUS two bits on the player's own object event: `disableAnim` and `facingDirectionLocked`. The
+  crack-and-fall ice is a DIFFERENT mechanic and is Sootopolis Gym only
+  (`SetSootopolisGymCrackedIceMetatiles`, `src/field_tasks.c:637`) — nothing in Shoal Cave uses it.
+
+### Three defects, found in the order the user saw them
+
+1. **Reflections shimmered on ice** (*"the OAM & DRAWN ghost reflections are wobbling/moving. they
+   are supposed to stay static while on ice"*). The engine has TWO reflection kinds and we had
+   one. `GroundEffect_IceReflection` calls `SetUpReflection` with `stillReflection = TRUE`, and
+   that flag is the only thing gating `ST_OAM_AFFINE_NORMAL` — a still reflection is a plain
+   vertical flip with no matrix, so nothing breathes. Both self-drawn tiers were doing the water
+   case unconditionally: the OAM tier pointed its entry at matrix 0/1, the painted tier scaled its
+   width by that matrix's `a`. `reflectiveBehaviour` now maps behaviour -> `"ice"`/`"water"`
+   instead of `true`, and the kind reaches both draw paths.
+2. **Spawned and drawn ghosts walked across the ice** while the player glided
+   (*"doing the 'walking' animation instead of freezing/holding the pose"*). Measured with a
+   scripted left/right slide, player and ghost on one line per frame: identical `act`, identical
+   tile behaviour `mb=20`, and `disableAnim` **1 on the player, 0 on the ghost** — the player held
+   anim `11/0` for the whole slide while its copy cycled `11/1, 11/2, 11/3`.
+3. **The drawn copy played one extra stride at the stop**, then — once that was fixed — **took too
+   long to come to rest**. Both are the glide, not the animation. See the numbers below.
+
+### Why `spaused` was not already enough — the pair, and what each means
+
+`spaused` (the sprite's `animPaused`) was already on the wire and says *the animation is not
+running*. `disableAnim` says *this object is FORBIDDEN one*, and that outranks a movement.
+Everywhere else in the game the two agree, which is why one bit had sufficed; an ice slide is
+where they come apart, because it is a character CROSSING TILES with its legs held still. Sent now
+as `extras.noanim`. Three separate things were each independently undoing it:
+
+- `requestAction` set `enableAnim` whenever the sprite was paused — the fix from the muddy-slope
+  gliding bug, and exactly wrong here. It now sets `disableAnim` on the ghost instead, **and
+  clears it again on the first step off the ice**: the bit is sticky (the engine only ever clears
+  it via `enableAnim`), so leaving it set once would cost that ghost its walk cycle for the rest
+  of the session — a far worse bug than the one being fixed.
+- The animation mirror's gate excluded a peer the engine was already driving, which is precisely
+  what stops being true here; `engineDrivesAnim` now yields to `remote.noanim`.
+- The painted tier derives its own frame from distance travelled, so it read the slide as walking.
+
+### The held frame is NOT a fixed one — the measurement that mattered
+
+Across runs the player held `10/2`, `11/0`, `11/2`: **the slide freezes whatever frame the walk
+cycle happened to be on when it started.** A hardcoded "first frame of the fast walk" would have
+looked right about a quarter of the time and been an invisible, intermittent wrongness the rest.
+So the painted tier takes the peer's own resolved image index (`genderFrames.peerImageIndex`,
+the engine's own two reads: anim table by `animNum`, then by `animCmdIndex`, low half is the
+image). Confirmed in the same index space as `DIRECTION_ANIM`: the peer's `11/0` resolved to image
+**7**, which is east's `steps[1]`, while the tier was drawing image **2**, the standing frame.
+
+### The stop: two glide defects behind one symptom
+
+- **The extra stride.** The freeze was released on the wire flag, one moment too early — the peer
+  unfreezes when the player's slide ends, but the painted copy is still gliding across the ground
+  that slide covered, and those catch-up frames went back to the derived cycle. It is conspicuous
+  here and nowhere else because the player animates through an ordinary stop and does not animate
+  through this one. The freeze is now latched to the GLIDE, and holds a frame remembered from when
+  it started — by then the peer is already on its idle frame, which is not the picture a copy
+  still moving should wear. `gDist` is reset on release too: none of the distance covered while
+  frozen was walked, and leaving it moves the same extra stride one step later instead of removing it.
+- **The slow ending, measured** (`probes/tier_compare.log`). `limit` collapses to its
+  `0.02 tiles/frame` floor once the peer stops, so whatever ground the copy still owed was paid off
+  at a crawl however far it was:
+
+  | at the stop (f=224) | before | after |
+  | --- | --- | --- |
+  | copy behind the peer | 0.86 tiles | **0.50 tiles** |
+  | closing rate | 0.025 /frame | **0.0625 /frame** — its travelling speed |
+  | frames to come to rest | 34 (~0.6 s of creep) | **8** |
+
+  0.50 tiles over 8 frames is not lag: it is exactly the 8-frame delay line, the trailing distance
+  this tier reproduces on purpose to match a spawned ghost. So it finishes at the pace it was
+  going and stops dead. The standing lag during the slide improved as a side effect, because a
+  limit that no longer collapses lets the copy keep pace instead of owing the difference.
+
+### `goto_map` was placing nobody, and it trapped the user twice
+
+Not an ice defect, found on the way there and fixed in the same pass. The probe believed
+`CB2_LoadMap` runs `WarpIntoMap` and therefore places the player. It does not: that path is
+`FieldClearVBlankHBlankCallbacks`, `ScriptContext_Init`, `UnlockPlayerFieldControls`, then
+`CB2_DoChangeMap -> CB2_LoadMap2 -> DoMapLoadLoop`, and `WarpIntoMap` — the only caller of
+`SetPlayerCoordsFromWarp` — is nowhere on it. So the map changed and the coordinates did not.
+Invisible for a week because every warp had been to Mauville (40x20) from somewhere small;
+warping out of Route 126 at (45,68) into Mossdeep City (80x40) put the player OUTSIDE the map in
+the border fill — open water, `MAPGRID_UNDEFINED` in every direction. It reads exactly like a
+hang. The probe now writes `gSaveBlock1Ptr->pos` from `MESHGHOST_WARP_X/_Y` and warns when it is
+not given them. **The avatar state needs no help**: the map load re-derives it from the tile landed
+on (`GetAdjustedInitialTransitionFlags`), so a surfing player warped onto a cave floor arrives on
+foot with no blob to clean up — confirmed on screen.
+
+## Emerald: the OAM tier's stand-down was written for the wrong reason, and fog proved it (2026-08-21)
+
+- Date: 2026-08-21. **The user's call to go and look at real weather fog after seeing the
+  underwater fog square** is what turned a place-specific fix into a general one — *"I figured we
+  should try to go where there is real fog in the game."*
+- **Reproduced on dry land.** Mt Pyre Exterior (`g24.n21`), on foot, no water anywhere: *"the OAM
+  ghost is invisible as soon as the fog appears."* The dive session's fix tested for UNDERWATER, so
+  it did nothing here.
+
+### What it is, measured (`dev-scripts/fog.log`, `fog2.log`)
+
+| | entries | size | objMode | priority |
+| --- | --- | --- | --- | --- |
+| the fog | 3–17, twelve of them | 64×64 on a 64px grid, covering the screen | **1, semi-transparent** | 2 |
+| the player | 1 | 16×32 | 0 | 2 |
+| our OAM ghost | 68 | 16×32 | 0 | 2 |
+
+Equal priority, so the tie goes to the lower entry: the fog draws over entry 68 and under entry 1.
+
+**Two other explanations were eliminated first, not assumed away.** Our entry survives into the
+hardware byte-for-byte unchanged across the boundary, in both `gMain.oamBuffer` and OAM itself — so
+nothing overwrites or hides it. And DISPCNT, BLDCNT, WININ and WINOUT are identical before and
+after the fog appears, so it is not a window or a display-enable. (`BLDY` reads as garbage: it is
+write-only on GBA. Worth knowing before trusting a register dump.)
+
+### The earlier reading was wrong, and the player is what disproves it
+
+The dive session recorded *"a semi-transparent sprite cannot blend against another sprite"*. It
+cannot be that: **the engine's own character is in front of the same sheet in the same frame with
+no artifact.** The difference is HOW you get in front. The player wins at equal priority on a lower
+entry number, which does not change the layer the sheet blends against. Outranking it on priority
+does — and then the blend fails and the sheet paints opaque.
+
+Measured at priority 1 (`MESHGHOST_EMERALD_HW_PRIORITY`, added for exactly this): the ghost appears,
+*"but it has a weird square on itself"* — **one opaque block per entry rectangle**, 16×32 in fog
+(*"the tile its at + 1 tile above"*), against roughly 3×3 tiles underwater where the graphic is
+wider and the tier places more entries per peer. One rule, two footprints; not two bugs.
+
+### What shipped
+
+The stand-down now tests **the screen rather than the place**: a count of objMode-1 sprites among
+the engine's entries, four or more meaning covered (12 in fog, 20 underwater, 0 in normal play).
+attr0 only and every 8th frame with the answer latched, because a per-frame OAM scan is the shape
+this project has been bitten by. Peers fall to the painted tier, which is drawn after the frame and
+subject to none of it — **before this they were simply not drawn at all**, since the painted tier
+skips whoever the hardware tier took.
+
+**This is a limit, not a fix, and it is worth being honest about which.** The only artifact-free way
+in front of the sheet is the player's — equal priority, lower entry — and entries 0–63 are the
+engine's own sprite list, rebuilt and blanked every frame from sprites a ghost cannot join. Taking
+one would mean deleting a fog patch to make room for it.

@@ -584,6 +584,55 @@ below the character, not whether it is surfing. Grass, being a NORMAL metatile, 
 priority-3 sprite completely, so a character two tiles from the shore shows nothing while one a
 single tile away shows the topmost sliver of itself.
 
+**And there are TWO KINDS of reflection, not one.** `GetReflectionTypeByMetatileBehavior` asks
+`MetatileBehavior_IsIce` **first** and only then `IsReflective`, so `MB_ICE` is `REFL_TYPE_ICE`
+while every other reflective behaviour is `REFL_TYPE_WATER`. `GroundEffect_IceReflection` sets its
+reflection up with `stillReflection = TRUE`, and that flag is the only thing gating the affine
+mode — so an ice reflection is a plain vertical flip with no matrix behind it, and none of the
+shimmer described above. Ice does not ripple, and neither does a reflection in it.
+
+## Weather fog is a grid of semi-transparent SPRITES, not a background
+
+**[measured]** In Mt Pyre Exterior the fog is twelve **64×64 sprites in objMode 1**
+(semi-transparent), at priority 2, laid out on a 64-pixel grid that covers the screen — OAM entries
+3–17, with the map's characters at 0–2. Underwater the same idea appears with about twenty. It
+fades in over a few seconds after the map loads rather than arriving with the first step, so a
+freshly loaded savestate shows none of it.
+
+**Characters stay visible because of the ENTRY NUMBER, not the priority.** They share priority 2
+with the fog and win the tie by sitting at lower entries, so they draw in front of it while the
+fog blends normally everywhere else.
+
+**`BLDY` cannot be read back** — it is write-only on GBA and returns garbage. `BLDCNT` and
+`BLDALPHA` read fine; `BLDALPHA` is what animates as the fog fades.
+
+## Ice slides you, and a slide is a movement that does not animate
+
+**[from the decomp]** Stepping onto an `MB_ICE` tile hands control to `ForcedMovement_Slide`, which
+keeps the character moving in the same direction until something blocks them. It is built from
+`PlayerWalkFast` — an ordinary fast walk, so the movement action is a plain `WALK_FAST_*` — plus
+**two bits set on the character's own object event**:
+
+| bit | effect |
+| --- | --- |
+| `disableAnim` | the character crosses tiles with its animation held on one frame |
+| `facingDirectionLocked` | the step cannot turn it, so it keeps the facing it slid in with |
+
+**`disableAnim` is not the same statement as `animPaused`,** and ice is the place that proves it.
+`animPaused` says the sprite's animation is not running; `disableAnim` says the object may not have
+one, and a movement cannot override it. Everywhere else the two agree. The engine only ever clears
+`disableAnim` through `enableAnim` (`TryEnableObjectEventAnim`), so it is sticky.
+
+**Which frame gets held is whatever the cycle had reached** — not the animation's first frame.
+Measured across three slides: `10/2`, `11/0`, `11/2`.
+
+**Ends when blocked, not after a fixed distance.** Nothing stops a slide but an obstacle, which is
+why removing collision (a noclip probe) makes the player slide to the map border.
+
+**The crack-and-fall ice is a different mechanic entirely** — `MB_THIN_ICE` and `MB_CRACKED_ICE`,
+driven by `SootopolisGymIcePerStepCallback`. It is used by **Sootopolis Gym only**; Shoal Cave's
+ice room is all `MB_ICE` and does not break.
+
 ## Standing still is a HELD animation, not an idle one
 
 **[measured]** A character that has stopped does not switch to an "idle" animation. It keeps the

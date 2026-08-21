@@ -4,18 +4,38 @@
 -- time for nothing (agent_docs/playing.md, "Drive the game YOURSELF before asking"). Cheating to
 -- reach a state is explicitly allowed; cheating is never in an adapter.
 --
--- HOW, and it is the game's own warp rather than a coordinate poke. Writing the player's position
--- directly would move them WITHOUT loading the destination map -- the tiles, objects and
--- connections would still be the old map's. The engine's route is three writes:
---   1. sWarpDestination  -- where to go (struct WarpData: s8 mapGroup, s8 mapNum, s8 warpId,
---      pad, s16 x, s16 y).
---   2. gMain.callback2 = CB2_LoadMap -- which runs WarpIntoMap: ApplyCurrentWarp copies
---      sWarpDestination into gSaveBlock1Ptr->location, LoadCurrentMapData loads it, and
---      SetPlayerCoordsFromWarp places the player (overworld.c:603-630).
---   3. gFieldCallback = FieldCB_DefaultWarpExit -- the ordinary arrive-from-a-warp fade-in, so it
+-- HOW, and it is the game's own map load rather than a coordinate poke alone. Writing the
+-- player's position by itself would move them WITHOUT loading the destination map -- the tiles,
+-- objects and connections would still be the old map's. The route is four writes:
+--   1. sWarpDestination AND gSaveBlock1Ptr->location -- where to go (struct WarpData: s8 mapGroup,
+--      s8 mapNum, s8 warpId, pad, s16 x, s16 y).
+--   2. gSaveBlock1Ptr->pos -- WHERE ON THAT MAP TO STAND. See below; this is not optional.
+--   3. gMain.callback2 = CB2_LoadMap, which loads the map named by location.
+--   4. gFieldCallback = FieldCB_DefaultWarpExit -- the ordinary arrive-from-a-warp fade-in, so it
 --      looks like every other door in the game rather than a hard cut.
--- warpId 0 rather than invented coordinates: SetPlayerCoordsFromWarp prefers a valid warpId and
--- takes the destination's own warp position, so it cannot land the player inside a wall.
+--
+-- THE PLAYER'S POSITION IS OURS TO SET, and believing otherwise trapped the user twice on
+-- 2026-08-21. CB2_LoadMap does NOT warp: it is FieldClearVBlankHBlankCallbacks, ScriptContext_Init,
+-- UnlockPlayerFieldControls, then CB2_DoChangeMap -> CB2_LoadMap2 -> DoMapLoadLoop
+-- (src/overworld.c). `WarpIntoMap` -- the function that calls ApplyCurrentWarp, LoadCurrentMapData
+-- and SetPlayerCoordsFromWarp -- is never on that path; every caller of it is elsewhere
+-- (field_screen_effect.c, field_effect.c, ...). So SetPlayerCoordsFromWarp never runs, warpId is
+-- never consulted, and the player keeps the coordinates they had on the map they left.
+--
+-- That is invisible when the destination is BIGGER than the old coordinates, which is why this
+-- probe looked correct for a week of warps to Mauville (40x20). Warping out of Route 126 at
+-- (45,68) into Mossdeep City (80x40) put the player outside the map, in the border fill -- open
+-- water with no land in it, and MAPGRID_UNDEFINED all round, so they could not move in any
+-- direction. It reads exactly like a hang.
+--
+-- So give MESHGHOST_WARP_X / _Y for any destination smaller than where you are coming from. Take
+-- them from the map's own data rather than inventing them -- a warp event's x/y in
+-- data/maps/<Map>/map.json is a tile the game itself puts the player on. Without them this warns
+-- and keeps the old coordinates, which is only safe for a big destination.
+--
+-- THE AVATAR STATE LOOKS AFTER ITSELF, and that is the one thing not to hand-fix: the map load
+-- re-derives it from the tile landed on (GetAdjustedInitialTransitionFlags, src/overworld.c), so
+-- a SURFING player warped onto a floor tile arrives on foot, with no blob to clean up.
 --
 -- ADDRESSES. gFieldCallback 03005DAC, CB2_LoadMap 08085FCC and FieldCB_DefaultWarpExit 080AF398
 -- are named in pokeemerald.map; gMain.callback2 030022C4 is copied from the adapter.
@@ -44,6 +64,10 @@ local SWARPDESTINATION_ADDR = 0x020322e4
 local MAUVILLE_GROUP = MESHGHOST_WARP_GROUP or 0
 local MAUVILLE_NUM = MESHGHOST_WARP_NUM or 2
 local WARP_ID = MESHGHOST_WARP_ID or 0
+-- Where to stand once there. nil keeps the coordinates from the map being left, which strands the
+-- player outside anything smaller -- see the header.
+local DEST_X = MESHGHOST_WARP_X
+local DEST_Y = MESHGHOST_WARP_Y
 
 local done, n = false, 0
 
@@ -75,12 +99,23 @@ local function tick()
     end
     writeWarp(SWARPDESTINATION_ADDR)
     -- struct SaveBlock1: struct Coords16 pos at 0x00, struct WarpData location at 0x04.
-    writeWarp(memory.read_u32_le(0x03005d8c) + 0x04)
+    local sb1 = memory.read_u32_le(0x03005d8c)
+    writeWarp(sb1 + 0x04)
+
+    -- AND THE POSITION, because nothing on CB2_LoadMap's path will set it (see the header).
+    if DEST_X and DEST_Y then
+        memory.write_u16_le(sb1 + 0x00, DEST_X)
+        memory.write_u16_le(sb1 + 0x02, DEST_Y)
+    else
+        console.log(("gotomap: no MESHGHOST_WARP_X/_Y -- keeping (%d,%d). If the destination is "
+            .. "smaller than that, the player lands in the border and cannot move.")
+            :format(memory.read_s16_le(sb1 + 0x00), memory.read_s16_le(sb1 + 0x02)))
+    end
 
     memory.write_u32_le(GFIELDCALLBACK_ADDR, FIELDCB_DEFAULTWARPEXIT_ADDR + 1)
     memory.write_u32_le(GMAIN_CALLBACK2_ADDR, CB2_LOADMAP_ADDR + 1)
-    console.log(string.format("gotomap: warping to map %d.%d, warp %d",
-        MAUVILLE_GROUP, MAUVILLE_NUM, WARP_ID))
+    console.log(string.format("gotomap: warping to map %d.%d, warp %d, at (%s,%s)",
+        MAUVILLE_GROUP, MAUVILLE_NUM, WARP_ID, tostring(DEST_X), tostring(DEST_Y)))
 end
 
 if MESHGHOST_DEV_LOADER then MESHGHOST_DEV_TICK = tick

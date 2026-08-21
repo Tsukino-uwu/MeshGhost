@@ -719,15 +719,25 @@ end
 -- own Mach Bike sprite idles at anim 7 frame 3 with animPaused SET, while a spawned ghost pedalled
 -- on the spot. The user: *"idle it looks fine on the drawn ghost already, but on the spawned one
 -- its doing a 'moving' animation when idle"*.
+--
+-- `noanim` is `spaused`'s missing partner, and the pair is not redundant. `spaused` says the
+-- sprite's animation is not running; `disableAnim` says the OBJECT is forbidden one, and that
+-- outranks a movement. Everywhere else in the game those agree, so one bit was enough -- ice is
+-- where they come apart. ForcedMovement_Slide sets disableAnim and then walks the character fast
+-- (src/field_player_avatar.c:526-533), which is a character CROSSING TILES with its legs held
+-- still. Without this bit a ghost is told "moving", the engine gives it the walk cycle its action
+-- carries, and it strides across the ice while the player glides: measured in Shoal Cave,
+-- 2026-08-21 -- the player held anim 10/0 with disableAnim set for the whole slide while the
+-- ghost's own copy cycled 10/2, 10/3 under the same action id on the same tile.
 local function encodeLocalState(areaId, x, y, orientation, anim, gender, gfx, sanim, sidx, act,
-    sox, soy, spaused, pspeed)
+    sox, soy, spaused, pspeed, noanim)
     return string.format(
-        '{"type":"local_state","payload":{"state":{"area_id":%s,"position":[%s,%s],"orientation":%s,"anim":%s,"extras":{"gender":%s,"gfx":%s,"sanim":%s,"sidx":%s,"act":%s,"sox":%s,"soy":%s,"spaused":%s,"pspeed":%s}}}}',
+        '{"type":"local_state","payload":{"state":{"area_id":%s,"position":[%s,%s],"orientation":%s,"anim":%s,"extras":{"gender":%s,"gfx":%s,"sanim":%s,"sidx":%s,"act":%s,"sox":%s,"soy":%s,"spaused":%s,"pspeed":%s,"noanim":%s}}}}',
         jsonString(areaId), tostring(x), tostring(y), jsonString(orientation), jsonString(anim),
         jsonString(gender), tostring(gfx or "null"), tostring(sanim or "null"),
         tostring(sidx or "null"), tostring(act or "null"),
         tostring(sox or "null"), tostring(soy or "null"), tostring(spaused or "null"),
-        tostring(pspeed or "null"))
+        tostring(pspeed or "null"), tostring(noanim or "null"))
 end
 
 local ENCODED_NO_SEND = '{"type":"local_state","payload":{"state":null}}'
@@ -1341,9 +1351,33 @@ local function glideRemote(r, targetX, targetY)
     -- 0.25 tiles a frame is the game's own ceiling -- a tile in four frames, the fastest a Mach
     -- Bike moves -- so nothing legitimate is ever slowed by this, and a wire discontinuity is
     -- absorbed over three frames instead of popped in one.
-    local limit = math.min(math.max(tspd, 0.02) * 1.25, 0.25)
     local ddx, ddy = targetX - r.gX, targetY - r.gY
     local dist = math.abs(ddx) + math.abs(ddy)
+    -- A CHARACTER FINISHES ITS STEP AT SPEED. IT NEVER CRAWLS THE LAST BIT IN.
+    --
+    -- The floor is the right answer for a sub-pixel gap and the wrong one for a real distance, and
+    -- the two are told apart by `dist` rather than by tspd. When the peer stops, tspd decays to
+    -- zero over the window above and the limit drops to the floor -- so whatever ground the ghost
+    -- still owed got paid off at 0.025 tiles a frame however far it was.
+    --
+    -- After an ice slide that is most of a tile, because a slide is fast and the position stream
+    -- is bursty. Measured on the scripted left/right slide (probes/tier_compare.log, 2026-08-21):
+    -- the peer stopped at f=224 with the drawn copy 0.86 tiles behind, which then closed at 0.025
+    -- a frame and took 34 frames -- over half a second of visible creep after the player had
+    -- already come to rest. The user: the drawn ghost *"is doing the ending part a bit slow"*.
+    --
+    -- So the travelling speed is held as the floor until the ghost has actually arrived: it
+    -- finishes at the pace it was going and then stops, which is what the engine's own step
+    -- machine does. `move` is still clamped to `dist`, so this cannot overshoot.
+    -- THE PEAK, NOT THE LATEST. tspd is an 8-frame average, so when the peer stops it does not
+    -- drop to zero -- it DECAYS across the window. Assigning it every frame therefore walked the
+    -- floor down with it and left the last value above the threshold, which measured 0.023 against
+    -- a travelling 0.0625: the crawl came back at three quarters of its old length and the fix
+    -- read as almost no fix at all. Held at the high-water mark instead, and dropped only once the
+    -- ghost has arrived, so the next movement starts from its own speed rather than this one's.
+    if tspd > (r.gSpd or 0) then r.gSpd = tspd end
+    if dist <= 0.05 then r.gSpd = nil end
+    local limit = math.min(math.max(tspd, r.gSpd or 0, 0.02) * 1.25, 0.25)
     if dist > 0 then
         local move = math.min(dist, limit)
         r.gX = r.gX + ddx / dist * move
@@ -1984,6 +2018,11 @@ local function handleBridgeLine(line)
                 -- previous behaviour of handing the animation to the engine.
                 local sp = (type(st.extras) == "table" and tonumber(st.extras.spaused)) or nil
                 r.spaused = sp ~= nil and sp ~= 0 or nil
+                -- And whether the peer is FORBIDDEN an animation, which is a stronger statement
+                -- than "not running" and is the only one that survives a movement. nil for a peer
+                -- that predates the field, which keeps exactly the old behaviour.
+                local na = (type(st.extras) == "table" and tonumber(st.extras.noanim)) or nil
+                r.noanim = na ~= nil and na ~= 0 or nil
                 local ps = (type(st.extras) == "table" and tonumber(st.extras.pspeed)) or nil
                 r.pspeed = (ps and ps >= 0 and ps <= 4 and math.floor(ps) == ps) and ps or nil
             end
@@ -2848,7 +2887,26 @@ end
 -- reconstruction would have its own phase to keep in step -- the failure this adapter has hit more
 -- than any other. The magnitude is taken from entry 0: entry 1 differs only in the sign that this
 -- tier already expresses through hFlip.
-genderFrames.reflectionXScale = function()
+--
+-- ICE IS THE EXCEPTION, and it is the engine's exception rather than a special case of ours: an
+-- ice reflection is set up with stillReflection TRUE, which never turns the affine mode on, so
+-- there is no matrix in play and nothing to breathe. Asked for one, this returns a flat 1.0.
+-- Without it a peer on Shoal Cave's ice shimmered like a peer on a pond.
+-- WHICH PICTURE THE PEER IS ACTUALLY SHOWING, resolved the engine's way: the graphic's anim table
+-- indexed by animNum, then by animCmdIndex, and the low half of that AnimCmd_frame is the image
+-- index. Returns nil rather than a guess when anything is unreadable -- a peer mid-graphic-swap
+-- carries an animNum belonging to the graphic it is leaving, which indexes past the table's end.
+-- The same two reads the compare log already did inline; named because a second caller needed it.
+genderFrames.peerImageIndex = function(remote)
+    local gi = graphicsInfo(remote.gfx or 0)
+    if not gi or gi.anims == 0 then return nil end
+    local ap = r32(gi.anims + (remote.sanim or 0) * 4)
+    if not isRomPtr(ap) then return nil end
+    return r32(ap + (remote.sidx or 0) * 4) & 0xffff
+end
+
+genderFrames.reflectionXScale = function(kind)
+    if kind == "ice" then return 1.0 end
     local a = rs16(genderFrames.oamMatricesAddr)
     if a == 0 then return 1.0 end
     return 256.0 / math.abs(a)
@@ -3031,8 +3089,21 @@ end
 --   MB_UNUSED_SOOTOPOLIS_DEEP_WATER_2 26, MB_ICE 32, MB_REFLECTION_UNDER_BRIDGE 43
 --   (include/constants/metatile_behaviors.h, enum from 0 -- cross-checked against the two values
 --   this repo already had measured, MB_POND_WATER 16 and MB_OCEAN_WATER 21.)
+--
+-- AND THERE ARE TWO KINDS OF REFLECTION, not one. GetReflectionTypeByMetatileBehavior
+-- (src/event_object_movement.c) asks MetatileBehavior_IsIce FIRST and only then IsReflective, so
+-- MB_ICE is REFL_TYPE_ICE and everything else on the list is REFL_TYPE_WATER. The difference is
+-- the whole shimmer: GroundEffect_IceReflection calls SetUpReflection with stillReflection TRUE,
+-- which skips ST_OAM_AFFINE_NORMAL and leaves the reflection a plain vertical flip, while the
+-- water one is drawn through OAM matrix 0/1 and breathes (src/field_effect_helpers.c:47-68,
+-- :151-166). Ice does not ripple, so its reflection does not either.
+--
+-- The values are the kind rather than `true` so both self-drawn tiers can ask which one they are
+-- drawing; every existing caller only tested truthiness and is unaffected.
 genderFrames.reflectiveBehaviour = {
-    [16] = true, [20] = true, [22] = true, [26] = true, [32] = true, [43] = true,
+    [16] = "water", [20] = "water", [22] = "water", [26] = "water",
+    [32] = "ice",
+    [43] = "water",
 }
 
 -- THE ENGINE'S SCAN, and it is wider than one tile in both senses.
@@ -3059,9 +3130,11 @@ genderFrames.hasReflection = function(x, y, px, py, w, h)
                 -- j = 0 is the character's own column; past that the engine checks both sides.
                 for _, dx in ipairs(j == 0 and { 0 } or { j, -j }) do
                     local attr = genderFrames.attrAt(cx + dx, cy + 1 + i)
-                    if attr and genderFrames.reflectiveBehaviour[attr & 0xff] then
-                        return true
-                    end
+                    -- The KIND, not just yes -- and the first tile that yields one wins, which is
+                    -- what the engine's RETURN_REFLECTION_TYPE_AT macro does at each step of this
+                    -- same scan. A string is truthy, so callers that only wanted yes/no still work.
+                    local kind = attr and genderFrames.reflectiveBehaviour[attr & 0xff]
+                    if kind then return kind end
                 end
             end
         end
@@ -3548,7 +3621,9 @@ genderFrames.reflectPalFor = function(store, playerId, areaId, ggx, ggy, wTiles,
             cur and cur[5] or ggx, cur and cur[6] or ggy, areaId, frameCounter, ggx, ggy,
         }
     end
-    return yes and genderFrames.reflectionPalette[(palSlot or 0) & 0x0f] or nil
+    -- The KIND comes back as a second value: "ice" reflections are still and "water" ones ripple,
+    -- and only the caller knows which of its two draw paths that has to reach.
+    return yes and genderFrames.reflectionPalette[(palSlot or 0) & 0x0f] or nil, yes or nil
 end
 
 genderFrames.reflectionPalette = {
@@ -4813,8 +4888,23 @@ local function requestAction(g, action)
     -- that matters only then. `enableAnim` is the game's own switch (TryEnableObjectEventAnim,
     -- src/event_object_movement.c:7335-7343): it clears animPaused and disableAnim, then clears
     -- itself.
-    if (r8(sprAddr(g.sprId) + 0x2c) & 0x40) ~= 0 then
-        w8(a + 0x01, r8(a + 0x01) | 0x08)
+    --
+    -- ...UNLESS THE PEER IS FORBIDDEN ONE. A slide is a movement that does not animate, and this
+    -- rescue is what stopped a ghost reproducing it: the peer holds disableAnim for the whole of
+    -- an ice slide, we requested the matching WALK_FAST, and then handed the animation straight
+    -- back, so the ghost strode across the ice the player glided over (user, 2026-08-21: the drawn
+    -- and spawned copies *"are doing the 'walking' animation instead of freezing/holding the
+    -- pose"*). The bit is set on the ghost instead, which is what the engine does to the player.
+    --
+    -- AND IT HAS TO COME BACK OFF, on the first step after the ice. disableAnim is sticky -- the
+    -- engine only ever clears it through enableAnim -- so leaving it set once would cost the ghost
+    -- its walk cycle for the rest of the session, which is a far worse bug than the one being
+    -- fixed. Cleared here, at the same one place every step goes through, and with enableAnim set
+    -- alongside so the sprite is un-paused the way TryEnableObjectEventAnim does it.
+    if genderFrames.syncNoAnim then
+        w8(a + 0x01, (r8(a + 0x01) | 0x04) & ~0x08)
+    elseif (r8(a + 0x01) & 0x04) ~= 0 or (r8(sprAddr(g.sprId) + 0x2c) & 0x40) ~= 0 then
+        w8(a + 0x01, (r8(a + 0x01) & ~0x04) | 0x08)
         g.animSetFor = nil -- the engine owns it again; the mirror must re-arm when it takes over
     end
 end
@@ -5423,6 +5513,11 @@ end
 -- One remote, one frame. Spawn if missing, step it if it moved one tile, teleport if it jumped,
 -- and turn it on the spot otherwise.
 local function syncGhost(playerId, remote)
+    -- The peer's disableAnim, parked where requestAction can see it. On the table rather than
+    -- threaded through nine call sites, and rather than a new local -- this chunk is at Lua's
+    -- 200-local ceiling. syncGhost runs one peer at a time and synchronously, so the value is
+    -- always the one belonging to the ghost being moved.
+    genderFrames.syncNoAnim = remote.noanim
     local targetX = math.floor(remote.x + 0.5)
     local targetY = math.floor(remote.y + 0.5)
     if playerId:match("%-ghost$") then
@@ -5546,7 +5641,15 @@ local function syncGhost(playerId, remote)
     -- A fishing rod, a bike or a surfboard is the opposite case: the engine has no action of ours
     -- driving it, so without this the ghost holds the animation's first frame forever. So the rule
     -- is exactly that -- mirror the peer's animation only where nothing else is doing it.
+    --
+    -- EXCEPT WHEN THE PEER IS FORBIDDEN AN ANIMATION, where "the engine is already driving it" is
+    -- precisely what has stopped being true. On an ice slide the peer holds one frame while
+    -- crossing tiles; requestAction now sets disableAnim on the ghost so the engine stops
+    -- animating it, and that leaves the ghost frozen on whatever frame it happened to be on --
+    -- measured mid-slide: the player held 10/0 while its copy sat on 10/2. Freezing the WRONG
+    -- frame is not the fix, so the mirror takes over for exactly this case and holds the peer's.
     local engineDrivesAnim = (remote.gfx == nil or remote.gfx == 0 or remote.gfx == 89)
+        and not remote.noanim
     -- AND ONLY ONCE THE GHOST IS ACTUALLY WEARING THAT GRAPHIC. An offset describes a shape: 8px
     -- is what keeps a 32-wide fishing frame on its tile, and it is simply wrong for the 16-wide
     -- walker. The peer's graphic is held six frames on the way out (it has to be -- the sender
@@ -7449,8 +7552,44 @@ end
 -- get beneath (its 4..23 are rebuilt from the engine's sprite list every frame). So underwater
 -- this tier declines and its peers fall to the PAINTED one, which is drawn after the frame and
 -- subject to none of this. Coverage is unchanged; only which renderer draws them changes.
+-- MESHGHOST_EMERALD_HW_PRIORITY (probe) overrides it, and also suppresses the stand-down below, so
+-- the "raise the priority above the sheet" option can be LOOKED AT rather than argued about. The
+-- underwater measurement that closed it off was taken underwater; fog is a second configuration of
+-- the same idea and does not have to behave the same way. Never ship it set.
 function hwSpritePriority()
-    return 2
+    return tonumber(MESHGHOST_EMERALD_HW_PRIORITY or "") or 2
+end
+
+-- IS THE ENGINE CURRENTLY LAYING A SEMI-TRANSPARENT SHEET OVER THE SCREEN?
+--
+-- The condition that defeats this tier, asked directly rather than inferred from where the player
+-- is. A sprite in objMode 1 (attr0 bits 10-11) is semi-transparent, and the engine only ever uses
+-- a lot of them at once to cover the screen -- fog, and the underwater haze. Two separate bugs
+-- came from testing for the PLACE instead: underwater was fixed by name, and Mt Pyre's fog then
+-- reproduced it exactly on dry land.
+--
+-- COST, because a per-frame scan of OAM is the shape this project has been bitten by before
+-- (`_template/probes.md`): attr0 ONLY, so 64 halfword reads rather than 192, and only every 8th
+-- frame with the answer latched between. Weather fades in over seconds; nothing needs it sooner,
+-- and the tier switch itself is a whole frame's work when it happens.
+--
+-- The threshold is 4. The engine's own incidental semi-transparent sprites are one or two at a
+-- time; a screen cover is twelve or more (measured: 12 in Mt Pyre's fog, 20 underwater).
+genderFrames.semiTransparentScanAt, genderFrames.semiTransparentCover = -100, false
+genderFrames.screenCoveredBySemiTransparentSprites = function()
+    if frameCounter - genderFrames.semiTransparentScanAt < 8 then
+        return genderFrames.semiTransparentCover
+    end
+    genderFrames.semiTransparentScanAt = frameCounter
+    local n = 0
+    for e = 0, 63 do
+        if (r16(0x07000000 + e * 8) & 0x0c00) == 0x0400 then
+            n = n + 1
+            if n >= 4 then break end
+        end
+    end
+    genderFrames.semiTransparentCover = n >= 4
+    return genderFrames.semiTransparentCover
 end
 
 function hwPaletteSlotForTag(tag)
@@ -7645,7 +7784,7 @@ function hwDrawSurf(playerId, rec, remote, info, sx, sy, arcY, hFlip)
     -- are deliberately several tiles apart, and asking about the peer authorises a reflection on
     -- dry land. Its own previous-tile store, rather than the painted tier's: the two tiers are
     -- drawing the same peer in different places, so they cannot share an answer about ground.
-    local rpal
+    local rpal, rkind
     local gbX, gbY = genderFrames.gridBase()
     if gbX then
         -- The painted tier's formula, unchanged, because that one is calibrated and confirmed on
@@ -7653,7 +7792,7 @@ function hwDrawSurf(playerId, rec, remote, info, sx, sy, arcY, hFlip)
         tiering.hwLastTile = tiering.hwLastTile or {}
         local hgx = math.floor((sx - gbX) / TILE)
         local hgy = math.floor((sy - arcY + TILE - gbY) / TILE)
-        rpal = genderFrames.reflectPalFor(tiering.hwLastTile, playerId, remote.areaId,
+        rpal, rkind = genderFrames.reflectPalFor(tiering.hwLastTile, playerId, remote.areaId,
             hgx, hgy,
             ((info.width or FRAME_WIDTH_PX) + 8) >> 4,
             ((info.height or FRAME_HEIGHT_PX) + 8) >> 4,
@@ -7743,8 +7882,15 @@ function hwDrawSurf(playerId, rec, remote, info, sx, sy, arcY, hFlip)
     if info.oam ~= 0 then t0, t1 = r16(info.oam + 0x00), r16(info.oam + 0x02) end
     local a = tiering.hw.base + rslot * 8
     -- gOamMatrices entry: a +0, b +2, c +4, d +6. d is the vertical flip the engine keeps there.
+    --
+    -- ON ICE THE ENGINE TAKES THE PLAIN-FLIP PATH ITSELF, so the matrix is not ours to borrow:
+    -- SetUpReflection only sets ST_OAM_AFFINE_NORMAL when stillReflection is FALSE, and
+    -- GroundEffect_IceReflection passes TRUE (src/field_effect_helpers.c:47-68). Pointing an ice
+    -- reflection at matrix 0 gave it the water shimmer, which the user saw straight away in
+    -- Shoal Cave: *"the OAM & DRAWN ghost reflections are wobbling/moving. they are supposed to
+    -- stay static while on ice"*. Same else-branch the stale-matrix guard already falls back to.
     local m = hFlip and 1 or 0
-    if rs16(genderFrames.oamMatricesAddr + m * 8 + 6) < -128 then
+    if rkind ~= "ice" and rs16(genderFrames.oamMatricesAddr + m * 8 + 6) < -128 then
         -- ST_OAM_AFFINE_NORMAL: attr0 bits 8-9 = 01, attr1 bits 9-13 = the matrix index. The
         -- flip bits do not exist in this mode -- the matrix carries both flips.
         w16(a + 0, (t0 & 0xfc00) | 0x0100 | (ry & 0xff))
@@ -7945,9 +8091,21 @@ tiering.chooseHardware = function(localAreaId, playerX, playerY, spawnSet)
     if genderFrames.loadQuietUntil and frameCounter < genderFrames.loadQuietUntil then
         return set
     end
-    -- UNDERWATER THIS TIER CANNOT DRAW CLEANLY -- see hwSpritePriority for the full reasoning and
-    -- the measurements. Its peers become the painted tier's, which is unaffected by any of it.
-    if (r8(GPLAYERAVATAR_ADDR + avatarAddrOffset) & 0x10) ~= 0 then
+    -- WHERE THE ENGINE HAS TILED THE SCREEN WITH SEMI-TRANSPARENT SPRITES, THIS TIER CANNOT DRAW
+    -- CLEANLY -- see hwSpritePriority for the full reasoning and the measurements. Its peers become
+    -- the painted tier's, which is drawn after the frame and unaffected by any of it.
+    --
+    -- ASKED AS A QUESTION ABOUT THE SCREEN, NOT ABOUT THE PLACE. This began as an underwater test,
+    -- because underwater was where it was found. Mt Pyre's fog then did exactly the same thing on
+    -- dry land -- the user: *"the OAM ghost is invisible as soon as the fog appears"*, and no white
+    -- box, because here we are simply behind it rather than fighting it. Measured on the exterior
+    -- (`dev-scripts/fog2.log`, 2026-08-21): entries 3..17 hold twelve 64x64 sprites in objMode 1
+    -- at priority 2, on a 64px grid covering the screen, with the player at entry 1 and ours at 68.
+    -- Same priority, so the tie goes to the lower entry: the fog draws over us and under the
+    -- player. Identical in shape to the underwater grid, which makes "underwater" the wrong
+    -- predicate -- weather is not a place, and the next such effect would have been a third bug.
+    if not MESHGHOST_EMERALD_HW_PRIORITY
+        and genderFrames.screenCoveredBySemiTransparentSprites() then
         if next(tiering.hw.byPeer) then hwReleaseAll(false) end
         return set
     end
@@ -8540,7 +8698,49 @@ local function drawRemotes(localAreaId, playerMapX, playerMapY, skipSpawned, com
                 -- one tile to the next, which is the same question with an answer that cannot be
                 -- mislabelled.
                 local gliding = remote.gMoved
-                if remote.anim == "walking" or remote.anim == "running" or gliding then
+                -- AND IT OUTLASTS THE PEER'S OWN FLAG, because this tier is not where the peer is.
+                --
+                -- The wire says "unfrozen" the instant the player's slide ends, but the painted
+                -- copy is still GLIDING across the ground that slide covered. Releasing on the
+                -- flag handed those catch-up frames back to the derived cycle, which duly played a
+                -- stride the player never played -- the user, watching the stop: the drawn ghost
+                -- *"is doing like 1 extra animation or something when stopping after gliding on
+                -- the ice"*. It is conspicuous here and nowhere else precisely because the player
+                -- animates through an ordinary stop and does not animate through this one.
+                --
+                -- So the freeze is latched to the GLIDE rather than to the flag, and the frame it
+                -- holds is remembered at the same moment: by the time the ghost is finishing the
+                -- slide, the peer has already moved on to its idle frame, and that is not the
+                -- picture this copy should be wearing while it is still moving.
+                if remote.noanim then
+                    remote.noanimImg = genderFrames.peerImageIndex(remote) or remote.noanimImg
+                elseif not gliding then
+                    remote.noanimImg = nil
+                end
+                if remote.noanim or remote.noanimImg then
+                    -- A MOVEMENT THAT DOES NOT ANIMATE, so the derived cycle is the wrong source.
+                    --
+                    -- This tier works out its own frame from distance travelled, which is right
+                    -- whenever moving and animating are the same thing. On an ice slide they are
+                    -- not: the peer crosses tiles holding ONE frame. Derived, that reads as
+                    -- walking -- and the user saw exactly that next to a correct hardware copy.
+                    --
+                    -- Freezing whatever frame this tier was on would swap one wrong picture for
+                    -- another; the peer's own is the only right one. Measured mid-slide,
+                    -- 2026-08-21: the peer held anim 11/0, which resolves to image 7 -- east's
+                    -- steps[1] -- while this tier was drawing image 2, the standing frame. Same
+                    -- index space, so the peer's number drops straight in and the existing
+                    -- east/west hFlip still applies.
+                    pose = "walk"
+                    frameIndex = remote.noanimImg or dirInfo.idle
+                    remote.lastAnim = remote.anim
+                    remote.lastOrientation = remote.orientation
+                    -- The derived cycle is measured in distance travelled, and none of the
+                    -- distance covered while frozen was walked. Left standing, it hands the next
+                    -- ordinary step a cycle already part-way through -- the same extra stride,
+                    -- moved one step later instead of removed.
+                    remote.gDist = 0
+                elseif remote.anim == "walking" or remote.anim == "running" or gliding then
                     pose = (remote.anim == "running") and "run" or "walk"
                     -- BY DISTANCE, NOT BY TIME. advanceAnim counts frames, which is right for a
                     -- peer whose movement we are not also interpolating -- but a drawn ghost's
@@ -8847,14 +9047,14 @@ local function drawRemotes(localAreaId, playerMapX, playerMapY, skipSpawned, com
                             -- -- none. `hasReflection` is false off reflective ground, so the
                             -- sprite is never created.
                             local gbX, gbY = genderFrames.gridBase()
-                            local rpal
+                            local rpal, rkind2
                             if gbX then
                                 local ggx = math.floor((screenX - gbX) / TILE)
                                 local ggy = math.floor((screenY - bob + TILE - gbY) / TILE)
                                 -- The ground test, the expiring previous tile and the palette
                                 -- map all live in reflectPalFor now -- three callers share them.
                                 tiering.lastTile = tiering.lastTile or {}
-                                rpal = genderFrames.reflectPalFor(tiering.lastTile, playerId,
+                                rpal, rkind2 = genderFrames.reflectPalFor(tiering.lastTile, playerId,
                                     remote.areaId, ggx, ggy,
                                     (info.width + 8) >> 4, (info.height + 8) >> 4,
                                     info.paletteSlot)
@@ -8890,7 +9090,7 @@ local function drawRemotes(localAreaId, playerMapX, playerMapY, skipSpawned, com
                             if rruns then
                                 drawRunList(rruns, info.width, gfxFlip, screenX + cx, rtop,
                                     panelRows, dim, info.height,
-                                    genderFrames.reflectionXScale(), wet)
+                                    genderFrames.reflectionXScale(rkind2), wet)
                             end
                             -- THE WATER TRAIL, behind the rider and in front of the reflection,
                             -- which is the engine's own order (subpriority 151 against 152 and
@@ -9112,7 +9312,7 @@ local function drawRemotes(localAreaId, playerMapX, playerMapY, skipSpawned, com
                     local wgbX, wgbY = genderFrames.gridBase()
                     if wgbX and wgi then
                         tiering.lastTile = tiering.lastTile or {}
-                        local wpal = genderFrames.reflectPalFor(tiering.lastTile, playerId,
+                        local wpal, wkind = genderFrames.reflectPalFor(tiering.lastTile, playerId,
                             remote.areaId,
                             math.floor((screenX - wgbX) / TILE),
                             math.floor((screenY - arc + TILE - wgbY) / TILE),
@@ -9147,10 +9347,10 @@ local function drawRemotes(localAreaId, playerMapX, playerMapY, skipSpawned, com
                                 genderFrames.wReflKey = wk
                                 genderFrames.wReflAt = frameCounter
                                 logFile(string.format(
-                                    "WALKER REFL %s pal=%s runs=%s tile=%d,%d gfx=%s pose=%s/%s"
+                                    "WALKER REFL %s pal=%s kind=%s runs=%s tile=%d,%d gfx=%s pose=%s/%s"
                                     .. " | painted body=%d refl=%d | hw body=%s refl=%s arc=%d"
                                     .. " | wetRows=%d wetPx=%d | wh=%d,%d | HW %s",
-                                    tostring(playerId), tostring(wpal),
+                                    tostring(playerId), tostring(wpal), tostring(wkind),
                                     wruns and #wruns or -1,
                                     math.floor((screenX - wgbX) / TILE),
                                     math.floor((screenY - arc + TILE - wgbY) / TILE),
@@ -9291,7 +9491,7 @@ local function drawRemotes(localAreaId, playerMapX, playerMapY, skipSpawned, com
                         if wruns then
                             drawRunList(wruns, FRAME_WIDTH_PX, dirInfo.hFlip, screenX, wtop,
                                 panelRows, dim, FRAME_HEIGHT_PX,
-                                genderFrames.reflectionXScale(), wwet)
+                                genderFrames.reflectionXScale(wkind), wwet)
                         end
                     end
 
@@ -9922,7 +10122,13 @@ local function runFrame()
                     -- WALK_NORMAL or a turn as often as the fast action, so six steps in ten fell
                     -- back to walking pace behind a peer at bike speed (measured 2026-08-19,
                     -- `spd=` counters: walk/run=6 against 2D=3 and 15=1).
-                    r8(GPLAYERAVATAR_ADDR + avatarAddrOffset + 0x0b)))
+                    r8(GPLAYERAVATAR_ADDR + avatarAddrOffset + 0x0b),
+                    -- disableAnim (bit 0x04 of the object event's +0x01, include/global.fieldmap.h
+                    -- :203-211): "this character may not animate", which a movement cannot
+                    -- override. See encodeLocalState for why spaused alone was not enough.
+                    ((r8(GOBJECTEVENTS_ADDR + avatarAddrOffset
+                        + r8(GPLAYERAVATAR_ADDR + avatarAddrOffset + 0x05) * OBJECTEVENT_SIZE
+                        + 0x01) & 0x04) ~= 0) and 1 or 0))
                 if tiering.profT then
                     local pr = tiering.prof or {}
                     pr.send = (pr.send or 0) + (os.clock() - tiering.profT)

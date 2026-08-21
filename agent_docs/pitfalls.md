@@ -3507,3 +3507,149 @@ committed: this repo is public and no tracked file may carry a home directory. `
 it writes, exactly as its log file already does -- there is never a reason for a second, absolute
 path in the same script. Run the repo-cleanliness grep before committing anything written in a
 hurry, not only before a release.
+
+## Emerald: one field, two meanings — "not animating" is not "may not animate" (2026-08-21)
+
+**Symptom.** On Shoal Cave's ice the player glides with its legs held still; the spawned and
+painted ghosts stride across it. The OAM tier was correct all along, which is the clue.
+
+**Diagnosis.** `spaused` (the sprite's `animPaused`) was already on the wire and means *the
+animation is not running*. `disableAnim`, on the object event, means *this object is FORBIDDEN
+one* — and unlike the first, a movement cannot override it. Everywhere else in the game the two
+agree, so one bit had always been enough. `ForcedMovement_Slide` is where they come apart: it sets
+`disableAnim` and then walks the character fast, which is a character crossing tiles with its legs
+still. The OAM tier looked right for free because it copies the peer's `animNum`/`animCmdIndex`
+straight from the wire, and those simply stop advancing.
+
+**Fix.** Send the bit (`extras.noanim`) and let it beat the three separate things that were each
+undoing it: `requestAction`'s `enableAnim` rescue, the mirror's "the engine is already driving
+this graphic" gate, and the painted tier's distance-derived cycle.
+
+**The lesson, which is general.** *When one tier of three is already correct, ask what IT is
+reading.* The correct tier is a free bisection: it was consuming the peer's state directly, and
+the two wrong ones were each re-deriving it. Re-derivation is where a state gets lost.
+
+**And a rule about sticky bits.** `disableAnim` is only ever cleared by the engine through
+`enableAnim`. Setting an engine flag on a ghost obliges you to clear it in the same place, on the
+same path — a flag set once and never cleared costs that ghost the behaviour for the rest of the
+session, which is worse than the defect it fixed.
+
+## Emerald: a "hold the pose" fix must hold the RIGHT pose (2026-08-21)
+
+**Symptom.** Nearly invisible, and the reason to write it down: an ice slide freezes the character
+on **whatever frame the walk cycle happened to be on** when it started. Measured across three runs
+the player held `10/2`, `11/0`, `11/2`.
+
+**Why it matters.** "Freeze the animation" invites two wrong implementations that both look right
+in a single test: freeze on the *first* frame of the animation, or freeze on *whatever frame this
+renderer had reached*. The first is correct about a quarter of the time; the second is a different
+picture from the player's every time. Neither fails loudly — they produce an intermittent,
+low-grade wrongness that reads as "close enough".
+
+**Fix.** Resolve the peer's OWN image the engine's way — anim table by `animNum`, then by
+`animCmdIndex`, low half is the image index (`genderFrames.peerImageIndex`) — and check it lands in
+the same index space as the tier's own table before using it. The peer's `11/0` resolved to image
+7, which is `DIRECTION_ANIM.east.steps[1]`; the tier had been drawing image 2, the standing frame.
+
+## Emerald: the drawn tier's freeze has to outlast the peer's flag (2026-08-21)
+
+**Symptom.** With the freeze correct, the painted ghost played one extra stride *as it stopped*
+(*"1 extra animation or something when stopping after gliding on the ice"*).
+
+**Diagnosis.** The wire flag clears the instant the player's slide ends, but the painted copy is
+still GLIDING across the ground that slide covered. Releasing on the flag handed those catch-up
+frames back to the distance-derived cycle.
+
+**Fix.** Latch the freeze to the glide, not to the flag, and hold a frame remembered from when it
+started — by release time the peer is already on its idle frame, which is not the picture a copy
+still moving should wear. Reset `gDist` too: none of the distance covered while frozen was walked,
+and leaving it merely moves the same stride one step later.
+
+**The lesson.** *A self-drawn tier is not where the peer is, so a peer's state flag is not a
+schedule for that tier.* Anything gated on peer state that this tier renders with a lag has to be
+released on the tier's own progress. Conspicuous here and nowhere else only because the player
+animates through an ordinary stop and does not animate through this one.
+
+## Emerald: a floor that is right for a sub-pixel gap is wrong for a real distance (2026-08-21)
+
+**Symptom.** The drawn ghost *"doing the ending part a bit slow"* after a slide.
+
+**Diagnosis, from `probes/tier_compare.log` rather than by eye.** The glide's speed limit is
+`max(tspd, 0.02) * 1.25`. When the peer stops, `tspd` falls away and the limit drops to the
+`0.02 tiles/frame` floor — so whatever ground the copy still owed was paid off at a crawl however
+far it was. A slide is fast and the position stream is bursty, so after one it owed most of a
+tile: **0.86 tiles closing at 0.025/frame = 34 frames, over half a second of creep after the
+player had come to rest.** Fixed by holding the travelling speed as the floor until the copy has
+arrived: 0.50 tiles at 0.0625/frame = 8 frames, which is exactly the 8-frame delay line this tier
+reproduces on purpose, then a dead stop.
+
+**THE PART THAT NEARLY SHIPPED WRONG, and the real lesson.** The first version assigned
+`gSpd = tspd` on every frame above the threshold. But `tspd` is an **8-frame average**, so when
+the peer stops it does not drop to zero — it DECAYS across the window, walking the floor down with
+it and leaving the last value above the threshold: 0.023 against a travelling 0.0625. The measured
+tail went 0.025 -> 0.029/frame. **A fix that moves the number by 15% is a wrong fix, not a partial
+one** — and re-measuring is the only thing that says so, because by eye "still a bit slow" and
+"unchanged" are the same report. Hold the high-water mark, and clear it on arrival so it cannot
+leak into the next movement.
+
+## Emerald: `goto_map` changed the map and placed nobody (2026-08-21)
+
+**Symptom.** The user warped somewhere and could not move in any direction, on a screen of open
+water with no land in it. Twice.
+
+**Diagnosis.** The probe's header asserted that `CB2_LoadMap` runs `WarpIntoMap`. It does not —
+that path is `CB2_DoChangeMap -> CB2_LoadMap2 -> DoMapLoadLoop`, and `WarpIntoMap`, the only
+caller of `SetPlayerCoordsFromWarp`, is nowhere on it. The map loaded; the coordinates stayed.
+Invisible for a week because every warp had been to Mauville (40x20) from somewhere small.
+Warping out of Route 126 at (45,68) into Mossdeep City (80x40) left the player outside the map in
+the border fill, with `MAPGRID_UNDEFINED` on every side.
+
+**Fix.** Write `gSaveBlock1Ptr->pos` as well, from `MESHGHOST_WARP_X/_Y` taken from the
+destination's own warp event in `data/maps/<Map>/map.json`; warn loudly when they are not given.
+
+**Two lessons.** *A dev tool that has only ever been pointed at one destination has only ever been
+tested for one destination* — this one had a hardcoded Mauville default and a caller who never
+changed it, so its single most important behaviour was never exercised. And **"the user is stuck"
+is a bug report about our tooling**: the instinct was to reach for a savestate, which would have
+hidden it. Reading what the callback chain actually does took minutes and found a week-old defect.
+
+**One thing that needed no fixing, worth knowing:** the map load re-derives the avatar state from
+the tile landed on (`GetAdjustedInitialTransitionFlags`), so a SURFING player warped onto a cave
+floor arrives on foot with no blob to clean up.
+
+## A fix named after WHERE it was found will be re-found somewhere else (Emerald, 2026-08-21)
+
+**Symptom.** The OAM ghost invisible in Mt Pyre's fog — a bug fixed five hours earlier, underwater.
+
+**Diagnosis.** The dive fix was correct and its predicate was `is the player underwater`, because
+underwater is where it was seen. The actual cause is *the engine is tiling the screen with
+semi-transparent sprites at low OAM entries*, which is also true of weather fog on dry land. The
+same code, the same measurement, a second bug report.
+
+**Fix.** Test the cause: count objMode-1 sprites among the engine's entries. `underwater` was never
+a property of the failure — it was a property of the afternoon.
+
+**The rule.** *When a fix's condition names a place, a mode, or a map, ask what is TRUE there that
+breaks it, and whether that thing can be asked about directly.* If it can, ask it. A place-shaped
+predicate silently scopes the fix to the one instance you happened to be standing in.
+
+## An explanation that only fits your own case is not an explanation (Emerald, 2026-08-21)
+
+**What was recorded underwater:** *"a semi-transparent sprite cannot blend against another sprite,
+and gives up and draws opaque."* It explained the observation, it was measured at two priorities,
+and it is wrong.
+
+**What disproves it, and it was on screen the whole time:** the engine's own character is in front
+of the same semi-transparent sheet, in the same frame, with no artifact. Any explanation of the
+form "the hardware cannot do X" has to survive the game itself doing X ten pixels away.
+
+**The real distinction was HOW you get in front.** The player wins at *equal priority on a lower
+entry number*, which leaves the sheet's blend target unchanged. We can only win by *outranking it
+on priority*, which changes the layer the blend resolves against, and then it fails. Same visible
+outcome, completely different cause — and only the second one predicts that the artifact is one
+opaque block **per entry rectangle** (16×32 in fog, ~3×3 tiles underwater with a wider graphic and
+more entries). The user's own two descriptions, taken together, are what forced the better model.
+
+**The habit.** When you write down a hardware or engine limit, look for the engine doing the thing
+you just called impossible. If it is, your rule is about YOUR configuration, not the hardware —
+and it will generalise wrongly the first time the configuration changes.

@@ -2,29 +2,29 @@
 
 ## Active status
 
-**2026-08-21 (third session that day): SURFING AND DIVING ARE DONE, user-confirmed** — *"I confirm
-that surf & dive is properly done now."* The whole transition was rebuilt defect by defect against
-the user's own eyes: the surf-start hop and pose timing, the grey/flashing spawned ghost, the drawn
-copy vanishing through the HM banner, every savestate glitch, mount and dismount blob behaviour on
-all three tiers, the orange sprite and the wrong Pokémon in the banner, the dive black screen, and
-underwater ghosts (graphic, bob, and the bob while moving). Entries: `verified.md`. Methods and the
-lessons that cost the most: `pitfalls.md`.
+**2026-08-21 (fourth session that day): ICE SLIDING IS DONE, user-confirmed** — *"Ice is
+done/confirmed."* Shoal Cave's ice, judged on all three tiers: the reflections (ice reflections are
+STILL, the engine's own second reflection kind, which we never had), the held pose while sliding,
+the extra stride at the stop, and the slow arrival after it. Entries: `verified.md`. Methods:
+`pitfalls.md`.
 
-- **The dive black screen was OURS, and it is the session's biggest lesson**: our copy of the
-  engine's underwater bobber held another sprite's INDEX, so a reused slot let it write into the
-  show-mon's Pokémon picture — corrupting it and hanging the game. **Copy the effect, never the
-  engine's data structure.** `pitfalls.md`.
-- **The tier ladder now has a place-specific exception**: spawn → OAM → drawn everywhere, spawn →
-  drawn underwater, because the game's full-screen fog sprites outrank OAM entries 64+ and any
-  priority that beats them makes the fog draw opaque around us. `FLAGS.md`, `documentation.md`.
-- **The verification rule was TIGHTENED mid-session (user-directed)**: nothing adapter/game-side on
-  the VANILLA game is verified until the user confirms it on screen — no probe log, console read or
-  agent screenshot substitutes. Patched ROMs and the Go side stay agent-confirmable. `CLAUDE.md`.
-- **New idea recorded**: relay-side culling of isolated players, presence packets, and per-field
-  change suppression, as one ladder. `ideas.md`, end of file.
+- **`spaused` had a partner we never sent.** `disableAnim` means the object may not animate and
+  outranks a movement; a slide is a character crossing tiles with its legs still. Sent as
+  `extras.noanim`. Three separate things were each undoing it. `verified.md`.
+- **The OAM tier's stand-down was named after the wrong thing.** It tested for UNDERWATER; Mt Pyre's
+  fog reproduced it on dry land. It now tests the screen — a count of semi-transparent sprites among
+  the engine's entries. **Still a limit, not a fix**: those peers are painted instead.
+  `FLAGS.md`, `documentation.md`.
+- **The dive session's stated reason for that limit was wrong**, and the engine's own character
+  standing in front of the same fog disproves it. It is not "cannot blend against a sprite" — it is
+  that we can only get in front by outranking the sheet's PRIORITY, where the game gets in front on
+  a lower ENTRY NUMBER at equal priority. `pitfalls.md`.
+- **`goto_map` never placed the player at all** — `CB2_LoadMap` does not run `WarpIntoMap`. It
+  changed the map and left the coordinates, which trapped the user outside a smaller map twice.
+  Fixed with `MESHGHOST_WARP_X/_Y`. `verified.md`.
 - **Rig**: relay + core running hidden (loopback, tcp, collision off); emulator up; dev loader set =
-  flags + dive probe + test kit + adapter. Savestates: slot 1 the user's, slot 2 the shore
-  (surf-start test), slot 3 out on the ocean ready to dive, slot 8 goto_map's undo.
+  flags + test kit (keeps Repel topped up) + noclip + adapter. Savestates: slot 1 the user's,
+  slot 6 the user's Mt Pyre fog spot, slot 8 goto_map's undo.
 
 ## Genuinely open items
 
@@ -65,8 +65,8 @@ that a peer's state genuinely differs from the local player's, which loopback co
 
 - **Ghost collision policy: Go side DONE, adapters not wired.** Config, wire and bridge all ship
   and are tested; no adapter reads `session_policy` yet, so nothing changes on screen. ADR 2026-08-19.
-- **Drawn-tier visual parity: Emerald is close, not done.** 2026-08-21 found reflections gated to
-  surfing, no wake, and a one-row flip error. Crystal's tier still has none of any of it.
+- **Drawn-tier visual parity: Emerald is close, not done.** Reflections, wake and a flip error were
+  2026-08-21; ice reflections closed the same day. Crystal's tier still has none of any of it.
 - **A vanilla battle with a crowd was never reached** — our own spawned ghosts boxed the player in
   on the way to grass, which `crowd-limits.md` predicts. `unverified.md`, `pitfalls.md`.
 - **Emerald's real-panel clip count was REACHED, not played to** — the position was written, so it
