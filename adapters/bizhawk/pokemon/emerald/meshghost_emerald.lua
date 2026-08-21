@@ -5768,6 +5768,29 @@ local function syncGhost(playerId, remote)
     -- slower than the drawn ghost & player"*. A bike's and a walker's plain frames carry no
     -- offset, so for them the measured fault cannot occur and the swap may land mid-step; the
     -- swap branches below return on their own, so nothing past them runs while busy.
+    -- PARK THE BLOB THE MOMENT A DISMOUNT IS ON THE WIRE -- before the busy guard, every frame,
+    -- idempotently. The first version wrote BOB_JUST_MON only where the jump is ISSUED, and a
+    -- ghost that happens to be busy that frame skips the issue -- the glide then walks it ashore
+    -- with the blob still in PLAYER_AND_MON, following. The engine re-reads the state every
+    -- frame, so writing it every frame of the jump costs nothing and depends on no timing.
+    --
+    -- MOUNT AND DISMOUNT SHARE THE ACTION IDS, and the discriminator is NOT the blob's age --
+    -- that was the second version, ">30 frames old", and the user's quick load-and-jump beat it
+    -- (*"the blob still follows it onto land"* with a blob ~20 frames old). The honest test is
+    -- ORDER, the same order the game itself has: a mount CREATES its blob after the jump is
+    -- already underway, a dismount's blob exists before the jump begins. So the edge of the
+    -- action records whether a blob was already there, and that verdict holds for the action's
+    -- whole lifetime.
+    local inJs = remote.act and remote.act >= 0x3a and remote.act <= 0x3d
+    if inJs and not g.jsActive then
+        g.jsActive, g.jsDismount = true, g.blobSprId ~= nil
+    elseif not inJs then
+        g.jsActive, g.jsDismount = nil, nil
+    end
+    if inJs and g.jsDismount and g.blobSprId then
+        local bd = sprAddr(g.blobSprId)
+        w8(bd + 0x2e, (r8(bd + 0x2e) & 0xf0) | 2) -- BOB_JUST_MON
+    end
     if not ghostIsIdle(g) then
         local pending = wantedGfx(remote)
         if not (pending and g.gfx and pending ~= g.gfx
@@ -7313,9 +7336,14 @@ function hwDrawSurf(playerId, rec, remote, info, sx, sy, arcY, hFlip)
         -- them onto land"*). While the peer's action is a JUMP_SPECIAL, the blob is drawn at the
         -- position it held on the last non-jumping frame -- camera-anchored the way the ripple
         -- trail already is, since the camera moves during the jump.
+        -- STICKY once the jump begins: the action ends a beat before the graphic flips (the
+        -- wire's pair debounce), and releasing the park in that gap drew the blob at the body's
+        -- landing tile for those frames -- the user's *"blob flash slightly at the landing"*.
+        -- The park holds until the surf graphic itself ends, exactly when the game's blob dies.
         local jumping = remote.act and remote.act >= 0x3a and remote.act <= 0x3d
+        if jumping and rec.blobPark then rec.blobParkHold = true end
         local bx, by = sx, sy - arcY + 8
-        if jumping and rec.blobPark then
+        if rec.blobParkHold and rec.blobPark then
             bx = rec.blobPark[1] + rs16(GSPRITECOORDOFFSETX_ADDR)
             by = rec.blobPark[2] + rs16(GSPRITECOORDOFFSETY_ADDR)
         elseif not jumping then
@@ -7339,7 +7367,7 @@ function hwDrawSurf(playerId, rec, remote, info, sx, sy, arcY, hFlip)
             hwFxHide(rec, "blob")
         end
     else
-        rec.blobPark = nil
+        rec.blobPark, rec.blobParkHold = nil, nil
         hwFxHide(rec, "blob")
     end
 
@@ -8637,6 +8665,9 @@ local function drawRemotes(localAreaId, playerMapX, playerMapY, skipSpawned, com
                             -- top-left terms it is eight pixels lower and not moved sideways at
                             -- all (probes/surfblob_probe.lua, 2026-08-19).
                             local bruns, bflip
+                            if not SURFING_GFX[remote.gfx] then
+                                remote.blobParkPx, remote.blobParkHold = nil, nil
+                            end
                             if SURFING_GFX[remote.gfx] then
                                 bruns, bflip = genderFrames.runsForSurfBlob(
                                     genderFrames.dirOf[remote.orientation] or 1)
@@ -8644,10 +8675,14 @@ local function drawRemotes(localAreaId, playerMapX, playerMapY, skipSpawned, com
                             if bruns then
                                 -- Parked during a JUMP_SPECIAL, mirroring the game's
                                 -- BOB_JUST_MON -- full reasoning at the hardware tier's twin.
+                                -- Sticky like the hardware tier's, one comment up there.
                                 local bjumping = remote.act
                                     and remote.act >= 0x3a and remote.act <= 0x3d
-                                local pbx, pby = screenX + cx, screenY + cy + 8
                                 if bjumping and remote.blobParkPx then
+                                    remote.blobParkHold = true
+                                end
+                                local pbx, pby = screenX + cx, screenY + cy + 8
+                                if remote.blobParkHold and remote.blobParkPx then
                                     pbx = remote.blobParkPx[1] + rs16(GSPRITECOORDOFFSETX_ADDR)
                                     pby = remote.blobParkPx[2] + rs16(GSPRITECOORDOFFSETY_ADDR)
                                 elseif not bjumping then
