@@ -348,10 +348,16 @@ end
 -- File only. A per-tick diagnostic in the Lua Console scrolls the startup lines out of view, and
 -- those name the ROM and every address in use -- which is what a reader actually needs
 -- (probes.md: detail to the log file, headlines to the console).
+--
+-- DELIBERATELY UNFLUSHED, and this is the line that mattered: the drawn tier calls it once a
+-- second whenever peers are present, and a flush is a synchronous disk write on the emulator's own
+-- thread. Measured 2026-08-21: 63-83ms per write, four to five frames, every second, while the
+-- frame-rate average still read 59.7fps. The buffer is pushed to disk on the timer in tick() and
+-- by close() on the way out. `log` above still flushes -- it is rare, and an error worth printing
+-- is worth having on disk before whatever follows it.
 local function logFile(msg)
 	if logfile then
 		logfile:write(msg, "\n")
-		logfile:flush()
 	end
 end
 
