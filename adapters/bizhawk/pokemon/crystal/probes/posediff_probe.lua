@@ -169,7 +169,13 @@ local function observeCandidates(player)
 	for i = 1, NUM_OBJECT_STRUCTS - 1 do
 		local base = OBJECT_STRUCTS + i * OBJECT_LENGTH
 		local o = readObj(base)
-		if o.sprite and o.sprite ~= 0 and o.mx and o.my then
+		-- IDENTITY FIRST, behaviour second. A relaxed offset band let a STATIONARY NPC qualify as
+		-- "the ghost" and produced a whole run of numbers about a fruit tree (2026-08-21) -- flags1
+		-- 0x0C, no WONT_DELETE. The adapter's ghosts always carry WONT_DELETE and the local player's
+		-- sprite; requiring that costs nothing and makes a wrong lock impossible.
+		local flags1 = u8(base + 0x04) or 0
+		local isOurs = (flags1 & 0x02) ~= 0 and o.sprite == player.sprite
+		if isOurs and o.sprite and o.sprite ~= 0 and o.mx and o.my then
 			local dx, dy = o.mx - player.mx, o.my - player.my
 			local w = watching[i]
 			if not w then
@@ -335,11 +341,17 @@ local function tick()
 		-- Per-frame detail, but only while something is actually moving, and only when the error
 		-- or the stride phase changes -- a row per frame of a quiet walk is unreadable.
 		if err ~= (prevP.err or 0) or g.stepframe ~= prevG.stepframe then
-			log(string.format("  f=%-7d err %+4dpx  |  player dur=%s frame=%s facing=%s"
-				.. "  |  ghost dur=%s frame=%s facing=%s",
+			-- ACTION and FLAGS1 included because STEP_FRAME staying at 0 (no walk animation) has
+			-- exactly two causes in the engine: ACTION not being STEP, or SLIDING (FLAGS1 bit 3)
+			-- sending SetFacingStepAction straight to SetFacingCurrent without advancing the frame.
+			-- Printing the two candidates beside the symptom is what separates them.
+			log(string.format("  f=%-7d err %+4dpx  |  P dur=%s frame=%s facing=%s act=%s"
+				.. "  |  G dur=%s frame=%s facing=%s act=%s st=%s flags1=%s walk=%s",
 				frames, err, tostring(player.stepdur), tostring(player.stepframe),
-				tostring(player.facing), tostring(g.stepdur), tostring(g.stepframe),
-				tostring(g.facing)))
+				tostring(player.facing), tostring(player.action),
+				tostring(g.stepdur), tostring(g.stepframe), tostring(g.facing),
+				tostring(g.action), tostring(g.steptype), tostring(u8(ghost.base + 0x04)),
+				tostring(g.walking)))
 		end
 	end
 

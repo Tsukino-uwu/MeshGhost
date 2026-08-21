@@ -1564,7 +1564,27 @@ local function spawnGhost(id, x, y, peerSprite)
 	w8(stBase + F_SPRITE_X, sx)
 	w8(stBase + F_SPRITE_Y, sy)
 
-	w8(stBase + F_FLAGS1, (u8(stBase + F_FLAGS1) or 0) | FLAG1_WONT_DELETE)
+	-- NORMALISE THE INHERITED FLAGS, do not merely add ours.
+	--
+	-- The whole template struct is copied from a live NPC, FLAGS1 included, so a ghost inherits
+	-- whatever that character happened to be. Measured on Route 39, 2026-08-21: flags1 read 0x2E --
+	-- WONT_DELETE plus **FIXED_FACING and SLIDING** -- because the templates available there are
+	-- SPRITEMOVEDATA_STILL objects (the fruit tree, the Tauros), and STILL carries exactly those two
+	-- (data/sprites/map_objects.asm).
+	--
+	-- SLIDING is why a ghost walked without ever animating: SetFacingStepAction tests it FIRST and
+	-- jumps to SetFacingCurrent, so OBJECT_STEP_FRAME is never advanced and the walk cycle never
+	-- runs. posediff_probe.lua caught the ghost at frame=0 through whole steps while the player's
+	-- ran 7, 8, 9. FIXED_FACING is the same class: InitStep skips writing OBJECT_DIRECTION with it
+	-- set, so the ghost cannot turn.
+	--
+	-- This is why the fault looked intermittent -- it depended entirely on which NPC the map
+	-- offered. A ghost's flags must describe a GHOST, not its donor. Found only because the user
+	-- chose the busiest map in the game to test on; a quiet room would have passed.
+	local flags1 = (u8(stBase + F_FLAGS1) or 0) | FLAG1_WONT_DELETE
+	flags1 = flags1 & ~0x08 -- SLIDING: suppresses the walk animation
+	flags1 = flags1 & ~0x04 -- FIXED_FACING: suppresses turning
+	w8(stBase + F_FLAGS1, flags1)
 
 	-- NORMALISE THE MOVEMENT TYPE, and this is not tidiness -- it is the fix for the snap the user
 	-- reported on 2026-08-21: *"it still snaps towards the end of the movement, when the ghost is
