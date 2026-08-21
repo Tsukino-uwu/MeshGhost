@@ -2044,6 +2044,32 @@ function drawOverflow()
 	-- number that separates "the peers never arrived" from "they arrived and were not drawn".
 	oam.verify()
 
+	-- WHO IS THE ADAPTER ACTUALLY HOLDING? The tier COUNTS reported "1 drawn, 0 spawned" while the
+	-- user watched a painted copy sitting on top of a spawned object that was plainly being driven.
+	-- The counts and the screen disagreed, and a count cannot say WHICH ids are in which table. This
+	-- names them, and flags the case that must never happen: one peer in `ghosts` AND in `overflow`
+	-- in the same frame, which is that peer rendered twice.
+	if drawFrames % 60 == 0 then
+		local spawnedIds, paintedIds, both = {}, {}, {}
+		for gid in pairs(ghosts) do
+			spawnedIds[#spawnedIds + 1] = gid
+		end
+		for oid in pairs(overflow) do
+			paintedIds[#paintedIds + 1] = oid
+			if ghosts[oid] then
+				both[#both + 1] = oid
+			end
+		end
+		if #both > 0 then
+			logFile("DOUBLE-RENDERED: " .. table.concat(both, ", ")
+				.. " -- in BOTH tiers this frame, so that peer is on screen twice")
+		end
+		if #spawnedIds > 0 or #paintedIds > 0 then
+			logFile(string.format("  holding: spawned{%s} painted{%s}",
+				table.concat(spawnedIds, ","), table.concat(paintedIds, ",")))
+		end
+	end
+
 	if drawFrames % 60 == 0 and nWanted > 0 then
 		logFile(string.format("tiers: %d on hardware. "
 			.. "drawn tier: %d peers waiting, %d drawn (%d from the cartridge), "
