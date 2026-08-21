@@ -1639,7 +1639,6 @@ local W_MENUBOX_TOP, W_MENUBOX_LEFT, W_MENUBOX_BOTTOM, W_MENUBOX_RIGHT = 0x0F82,
 -- ghosts -- is occluded by the game itself and needs none of this.
 local UI_LATCH_FRAMES = 20
 local uiSeenAt, drawFrames = nil, 0
-local heldCal = {} -- last settled-frame calibration; see the calX note in drawOverflow
 
 -- WY IS NOT THE SIGNAL, and using it cost half the screen.
 --
@@ -1844,27 +1843,21 @@ function drawOverflow()
 		if y < playerOamY then playerOamY = y end
 		if x < playerOamX then playerOamX = x end
 	end
-	-- CALIBRATE ONLY WHILE THE PLAYER IS STANDING. The two sides of this subtraction live one
-	-- frame apart: OAM holds what the engine BUILT last frame, the struct holds where the object is
-	-- THIS frame -- so mid-walk they disagree by exactly the per-frame step delta and the
-	-- calibration oscillates by +/-2px, which the user saw as ghosts "randomly wiggling"
-	-- (2026-08-21). It is the same phase defect pitfalls.md records as "a script's writes land
-	-- between frames; the game's land inside one", on the read side. While the player stands, both
-	-- sources describe the same frame and agree; that value is held through the walk.
-	local calX, calY
-	if (u8(OBJECT_STRUCTS + F_WALKING) or STANDING) == STANDING then
-		calX = (playerOamX - 8) - (u8(OBJECT_STRUCTS + F_SPRITE_X) or 0)
-		calY = (playerOamY - 16) - (u8(OBJECT_STRUCTS + F_SPRITE_Y) or 0)
-		heldCal.x, heldCal.y = calX, calY
-	elseif heldCal.x then
-		calX, calY = heldCal.x, heldCal.y
-	else
-		-- No settled frame seen yet this session (the player has been walking since load): a fresh
-		-- possibly-phase-off value beats zero, which is not a calibration at all -- with 0 the whole
-		-- drawn tier sits visibly displaced until the player first stands, then jumps.
-		calX = (playerOamX - 8) - (u8(OBJECT_STRUCTS + F_SPRITE_X) or 0)
-		calY = (playerOamY - 16) - (u8(OBJECT_STRUCTS + F_SPRITE_Y) or 0)
-	end
+	-- CALIBRATED EVERY FRAME, and it must be: this is the term that tracks the CAMERA, so freezing
+	-- it stops the painted copy following the scroll at all.
+	--
+	-- It was frozen on 2026-08-21 to kill a +/-2px wiggle -- the two sides of this subtraction live
+	-- one frame apart, OAM holding what the engine built last frame against a struct field from
+	-- this one, so mid-walk they disagree by the per-frame step delta. That is a real defect, but
+	-- the cure was far worse than the disease: with calX held, the painted position stayed put while
+	-- the world scrolled under it and then jumped a whole tile when the destination caught up. The
+	-- user saw a ghost teleport two tiles ahead and snap back.
+	--
+	-- So: per-frame, wiggle and all, until the phase error is fixed at its source rather than by
+	-- refusing to look. A 2px oscillation is a blemish; a two-tile teleport is a broken ghost.
+	local calX = (playerOamX - 8) - (u8(OBJECT_STRUCTS + F_SPRITE_X) or 0)
+	local calY = (playerOamY - 16) - (u8(OBJECT_STRUCTS + F_SPRITE_Y) or 0)
+
 	if anchorTileX then
 		-- Anchor available: screen position of its tile, then tile deltas from there.
 		anchorPx = anchorPx + calX
