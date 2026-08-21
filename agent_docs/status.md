@@ -2,22 +2,18 @@
 
 ## Active status
 
-**2026-08-21: EMERALD IS FEATURE COMPLETE, the user's call** — *"i consider the game to be fully
-synced up animation and effect wise now."* Every way this game moves a character and every field
-effect it hangs off one is mirrored on all three tiers. Entry: `verified.md`; step 37 of the
-adapter's own build story. **A new Emerald animation/effect item now needs a reason it is not
-polish or a custom feature.** The last three in were ice, fog and cave darkness, same day.
+**Active phase: 9 — Crystal.** Emerald is PARKED, feature complete as of 2026-08-21 on the user's
+call (*"i consider the game to be fully synced up animation and effect wise now"*, `verified.md`,
+step 37 of its build story). The user's own handoff, same day: *"i will move on to crystal and not
+work more on emerald right now."*
 
-- **`spaused` had a partner we never sent** — `disableAnim`, now on the wire as `extras.noanim`;
-  three separate things were each undoing it. `verified.md`.
-- **Two fixes were named after WHERE they were found, and both were wrong for it** — the OAM tier's
-  stand-down tested `underwater` rather than the screen, and the dive session's stated reason was
-  wrong too. `pitfalls.md`.
-- **The OAM tier under a semi-transparent sheet is an accepted limit, not a repaired tier** (its
-  peers are painted); a cave's darkness WAS fixable, because the lit region is readable data.
-  `FLAGS.md`, `documentation.md`.
-- **`goto_map` never placed the player at all** — fixed with `MESHGHOST_WARP_X/_Y` from the
-  destination's own warp event. `verified.md`.
+- **Emerald work is not scheduled.** A new animation/effect item for it needs a reason it is not
+  polish or a custom feature; a real fault is a defect against a finished adapter. `phase8.md`.
+- **Ferry and rails: assumed to work, never tested, deliberately NOT open items.** The user dropped
+  them from here on purpose; the assumption is recorded so it cannot decay. `unverified.md`.
+- **Crystal is where the gap is**, and its shape is known rather than mysterious: it has none of
+  the peer-state class Emerald finished (animation, field effects, drawn-tier parity), and its
+  drawn tier ships ON while carrying none of the 2026-08-19..21 fixes. See the Crystal items below.
 - **Rig**: nothing is running — relay, core and emulator all shut down and verified gone.
   Savestates: slot 1 the user's, slot 6 the user's Mt Pyre fog spot, slot 8 goto_map's undo.
 
@@ -58,8 +54,6 @@ that a peer's state genuinely differs from the local player's, which loopback co
 
 ### Open, not blocked
 
-- **Emerald: the BOAT is unchecked** — the user's own item, 2026-08-21. Nobody has ridden the ferry
-  with the adapter loaded: unchecked, not known-missing, and the one gap feature-complete allows.
 - **Ghost collision policy: Go side DONE, adapters not wired.** Config, wire and bridge all ship
   and are tested; no adapter reads `session_policy` yet, so nothing changes on screen. ADR 2026-08-19.
 - **Drawn-tier visual parity: Emerald's is CLOSED (feature complete, 2026-08-21)** — Crystal's tier

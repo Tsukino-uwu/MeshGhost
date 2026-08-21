@@ -5,10 +5,11 @@ game to be fully synced up animation and effect wise now."* Every way this game 
 and every field effect it hangs off one is mirrored, on all three rendering tiers. First game
 targeted, shipped, and live-tested with real two-player sessions.
 
-Phase 8 stays open for what is left, and what is left is a different kind of thing: polish, custom
-features beyond matching the game, and states nobody has watched yet rather than states known to be
-missing. See [agent_docs/phases/phase8.md](../../../../agent_docs/phases/phase8.md) and
-[agent_docs/status.md](../../../../agent_docs/status.md).
+**This adapter is parked.** Phase 8 stays open, but nothing here is scheduled — what is left is a
+different kind of thing: polish, custom features beyond matching the game, and two states assumed
+to work rather than known to be missing (the ferry and rail movement, recorded as assumptions in
+[agent_docs/unverified.md](../../../../agent_docs/unverified.md)). See
+[agent_docs/phases/phase8.md](../../../../agent_docs/phases/phase8.md) for the full record.
 
 - Platform: GBA, played via BizHawk.
 - Confirmed working roms: "Vanilla", "Archipelago 0.6.7", "speedchoice-1.2.2", "ex-speedchoice-0.4.0".
@@ -280,8 +281,10 @@ order:
     the game to be fully synced up animation and effect wise now."* Every way this game moves a
     character and every field effect it hangs off one is mirrored on all three tiers. What is left
     after this is minor polish or custom features that go beyond matching the game, not gaps —
-    so a new item here needs a reason it is not one of those. The one state nobody has watched yet
-    is the ferry (`status.md`); it is unchecked rather than known-missing.
+    so a new item here needs a reason it is not one of those. **Two states were never tested and
+    are assumed to work: the ferry, and rail movement.** Assumed rather than open, and recorded as
+    an assumption in `agent_docs/unverified.md` so it cannot quietly become a memory of having
+    checked. Emerald was parked here; the attention moved to Crystal.
 
 **~3 hours for the hardware tier**, most of it spent discovering that the comparison harness, not
 either renderer, was what kept producing wrong answers.

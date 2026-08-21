@@ -603,3 +603,24 @@ What that session left untested:
 - **`MESHGHOST_LOOPBACK_OFFSET_X/_Y`**, added so a loader script can place the copies for a
   particular question. Used once and put back; the defaults are unchanged, so nothing shipped
   should differ — but the shipped default path has not been re-watched since the globals went in.
+
+## Emerald: the ferry and rail movement — ASSUMED to work, never tested (2026-08-21)
+
+**The user's own framing, closing the Emerald phase:** *"ferry, rails untested. assumed to work.
+unverified. dropped from status for now."* Recorded here rather than in `status.md` because they
+are not open work — nobody is going to look at them next — but the assumption must not decay into
+a memory of having checked.
+
+- **The ferry (S.S. Tidal and any other boat ride).** Nobody has ridden one with the adapter
+  loaded, on any tier. The assumption is reasonable and is *why* it was dropped rather than
+  scheduled: the feature-complete call of the same date covers every mechanism a boat would use —
+  a `graphicsId` swap, a forced movement, a map with a different frame — and each of those is
+  confirmed elsewhere. **But "the parts are confirmed" is not "the combination was seen"**, which
+  is the exact shape of assumption this project has been caught by before.
+- **Rail movement.** On the original Phase 8 scope list and never separately closed. Same status:
+  assumed covered by the feature-complete call, never watched.
+- **What would settle either**: one ride each, with compare mode on, watched by the user. Cheap —
+  `probes/goto_map.lua` reaches the dock — and worth doing whenever Emerald is next opened, but
+  deliberately NOT scheduled. Emerald is parked; Crystal has the attention.
+- **If either turns out to be wrong**, it is a defect against a feature-complete adapter and
+  belongs in `verified.md`/`pitfalls.md` as such, not as a missing feature.
