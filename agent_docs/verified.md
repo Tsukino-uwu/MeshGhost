@@ -9320,3 +9320,56 @@ hardware entries and about five in use on a normal map, there is no sprite-count
 
 **Recorded as CLOSED rather than unscheduled**, because the difference matters: an unscheduled idea
 invites someone to schedule it, and this one is attractive enough to come back otherwise.
+
+## Emerald: the Acro Bike is FINISHED — shadow, dust and facing, on all three tiers (2026-08-21)
+
+**User-confirmed on screen, end of a long session:** *"a acro bike is confirmed done now"*, and on
+what it cost: *"this was probly the single hardest thing to finish for emerald"*.
+
+What is confirmed working, with all three renderers side by side (spawned / OAM / painted):
+
+- **A real shadow SPRITE under a spawned ghost.** No longer painted: a hardware sprite at the
+  engine's own subpriority 148, so it sits UNDER the character and under the dust instead of in
+  front of everything. The painted shadow is retired for that tier (`BANDAGES.md`). It had been
+  written and disabled for a day because it reset the game; the cause was a NULL sprite callback,
+  not the tile allocation this file had recorded as the suspect (`pitfalls.md`, same date).
+- **Landing dust on all three tiers.** The spawned ghost gets the engine's own; the OAM and painted
+  tiers get a puff that stays on the tile it was born on and plays out there while the ghost hops
+  away -- confirmed as a trail that follows the ground, not the character.
+- **A shadow and dust on the OAM tier for the first time**, as two extra hardware entries per peer
+  from pooled tile ranges shared by every peer.
+- **The side hop** -- `JUMP_*` 0x42..0x45, which is not an `ACRO_*` action -- gets its shadow, its
+  dust on the tile it lands on, and keeps facing forward while travelling sideways.
+- **Facing while hopping**: the ghost turns with the peer, without an extra turn animation, and
+  without wearing a direction its body is not performing.
+- **Ordinary riding no longer inherits a hop or a wheelie** from an earlier one.
+
+**Measured, not felt** (`probes/fpshold.lua`, 30s of continuous hopping with all three tiers live):
+`lowest 58.0, average 60.0` -- full speed on the stressed path. A ~1fps regression during the
+session was isolated by subtraction to an uncached allocator failure path and fixed; `pitfalls.md`.
+
+**Also measured** (`probes/facing_probe.lua`, frame-stamped): after the final fix the ghost adopts a
+peer's new hop action with a gap of **0 frames**, and spends **0** frames at `movementActionId =
+NONE` mid-sequence -- the eight-frame idle stall that read as "turning slow" is gone rather than
+reduced.
+
+**The engine facts this rests on**, all traceable to our own `make compare`-verified pokeemerald
+build rather than to memory:
+
+| Fact | Source |
+|---|---|
+| `AnimateSprites` calls every in-use sprite's callback with no null check | `src/sprite.c:308-322` |
+| `SpriteCallbackDummy` = `08007428` (`70 47` = `bx lr`) | `pokeemerald.map:6220`, `.sym` |
+| On-screen flip is `animCmd.hFlip ^ sprite->hFlip` | `src/sprite.c:1246-1251` |
+| Shadow templates carry `paletteTag = TAG_NONE`, so paletteNum stays 0 | `field_effect_objects.h:31-70`, `sprite.c:584` |
+| Landing dust is positional, not localId-bound | `event_object_movement.c:7994-8001` |
+| A jump ends at 16 frames (in-place/normal), 32 (far) | `event_object_movement.c:8462-8492` |
+| The side hop is `GetJumpMovementAction`, i.e. `JUMP_*` 0x42..0x45 | `src/bike.c:639-664` |
+| It locks facing before jumping, and releases on the next input tick | `src/bike.c:518-523, 662-664` |
+| `hasShadow` gates `DoShadowFieldEffect` | `event_object_movement.c:8768-8775` |
+
+**Measured live, and worth keeping**: the engine's own shadow and dust sprites read
+`shadow.M sub=148 pal=0` and `dust sub=135 pal=14` -- i.e. dust draws in FRONT of the shadow, and a
+shadow really does use OBJ palette 0 while the dust resolves `FLDEFF_PAL_TAG_GENERAL_0` to slot 14.
+Both confirmed with `probes/shadowdust_probe.lua`, which identifies field effects by their ROM
+`images` pointer rather than by address.

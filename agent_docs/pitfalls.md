@@ -2986,3 +2986,179 @@ already existed — read next to a per-frame panel-rows dump.
 - **Generalizes to**: any isolation run under the dev loader is invalid unless the flags file is
   exhaustive. Check the adapter's own `PROBE FLAG IN USE` startup lines — they say what is
   actually on, which is the ground truth the flags file only requests.
+
+## Emerald: a NULL sprite callback is a SOFT RESET, not a glitch (2026-08-21)
+
+**Symptom.** Building a real shadow sprite for a spawned ghost restarted the game on every jump --
+user, 2026-08-20: *"everytime i jump with the bike, the game restarts now"*. It was switched off at
+the door and stayed off for a day.
+
+**The theory recorded at the time was wrong, and plausibly so.** The adapter blamed the tile
+allocation: a bad `SpriteFrameImage` byte count overrunning OBJ VRAM. That is a real failure mode,
+this project has had a garbled-NPC incident from a tile range freed at the wrong moment, and
+"corrupting VRAM ends in a reset" sounds right. It was innocent -- the frame is 64 bytes and two
+tiles, now logged and range-checked at spawn so the next reader does not have to wonder.
+
+**Cause.** The sprite was built with `callback = 0`, reasoning that the engine's own callback would
+re-find its object by localId and follow the player. `AnimateSprites` (`src/sprite.c:308-322`) calls
+`sprite->callback(sprite)` for EVERY sprite with `inUse` set and **has no null check** -- it never
+needs one, because `sDummySprite` seeds `SpriteCallbackDummy` and `CreateSpriteAt` always copies the
+template's. A zero there is a call to `0x00000000`: the GBA BIOS reset vector.
+
+**Fix.** `SpriteCallbackDummy` (`08007428`, `pokeemerald.map` and `.sym`; the bytes there are
+`70 47` = `bx lr`), checked at spawn rather than trusted -- on a relocated ROM that address is
+something else, and the entire point of this entry is that a wrong callback is a reset.
+
+**The method worth keeping: a RESET is a different CLASS of evidence from a glitch.** Corrupt
+pixels, a wrong palette, a sprite in the wrong place -- data faults, and VRAM is the right place to
+look. A reset means control flow left the program: a bad function pointer, a jump to an unmapped
+address, a smashed stack. On a GBA, "the game restarts" is very nearly a signature for a call to
+zero. Sorting the symptom into the right class first would have saved a day and a wrong write-up.
+
+## Emerald: the frame rate went to ~1fps, and it was the ALLOCATOR, not the drawing (2026-08-21)
+
+**Symptom.** After a session of dust/shadow work: *"feels like its chugging at like 1fps"*.
+
+**Isolation, not theory.** Two guesses had already been spent, so the next move was subtraction:
+`git checkout` the committed adapter in place, reload, ask. Smooth -- so the cost was in that
+session's changes, mechanically and in one reload.
+
+**Cause.** `allocSpriteTiles` imitates the engine's allocator by walking the 1024-tile OBJ bitmap,
+so a **failed** call is the most expensive call it can make. Failures were not cached, so every live
+dust puff and every jumping ghost re-ran that walk **every frame** -- and with three tiers up, OBJ
+tiles are the first resource to run out, making the failing case the normal case on a busy map
+rather than a rare one.
+
+**Fix.** Cache negative results with a slow retry, cleared on the area change with the positive
+ones. Separately, a 64-sprite scan for a live dust sprite (to copy its palette) had become
+per-puff-per-frame once the trail existed; replaced with the engine's own `sSpritePaletteTags`
+lookup (`03000CF0`, 16 entries), which is cheaper AND correct when no neighbour happens to be
+landing.
+
+**The rule: an expensive FAILURE path is the one to audit, not the expensive success path.** A cache
+that only remembers successes does nothing exactly when the system is under pressure. Re-measured on
+the stressed path -- 30s of continuous hopping, all three tiers -- `lowest 58.0, average 60.0`.
+
+## Emerald: dressing a ghost in a direction its body is not performing (2026-08-21)
+
+**Symptom.** A ghost turning while hopping looked wrong in a way three reports circled without
+naming: *"facing the wrong direction"*, then *"stuck facing the direction it starts the jumping
+with"*, then *"doing some extra/weird animation before swapping direction"*.
+
+**Five attempts, four of which made it worse.** The turning point was writing them out as a table
+(config vs outcome), which showed every attempt since the first had been fixing what the first one
+caused. Attempt 1 silenced the animation mirror during jumps; that removed the only writer able to
+turn a ghost at all, because a held-B hop is ONE repeating action so the engine never re-reads a
+direction on its own, and `ghostIsIdle` is false for the whole of a continuous hop, closing every
+other path in the same stroke.
+
+**Cause, once measured** (`probes/facing_probe.lua` -- both characters' animation number, frame
+index and both flip bits on one line):
+
+```
+P face=up act=75 anim=21 | G face=right act=77 anim=23   <- still hopping right, correct
+P face=up act=75 anim=21 | G face=right act=77 anim=21   <- hopping RIGHT, wearing the UP sprite
+P face=up act=75 anim=21 | G face=up    act=75 anim=21   <- action adopted, consistent
+```
+
+The mirror copies the peer's animation number instantly; the ghost's ACTION cannot change until its
+bounce ends. Three frames of travelling one way dressed for another, every turn.
+
+**Fix.** Mirror freely while both are performing the SAME action -- that is what keeps a pedal cycle
+in step -- and stand aside while they disagree, leaving the engine to animate the hop the ghost is
+actually doing.
+
+**Two methods worth keeping.** When a fix makes a symptom CHANGE rather than go away, suspect the
+fix. And an object's `facingDirection` is not what a character looks like -- the sprite's ANIMATION
+NUMBER is, plus the hardware flip; two fixes were reasoned out from the object field while it was
+already correct.
+
+## Emerald: `sprite->hFlip` is a BASE, not the flip (2026-08-21)
+
+**Symptom.** A ghost facing the mirror image of the peer -- but only after the animation next
+advanced, which is why it survived a visual check.
+
+**Cause.** `SetSpriteOamFlipBits` (`src/sprite.c:1246-1251`) computes the on-screen flip as
+`hFlip ^ sprite->hFlip`: the struct field is a BASE that the animation command's own flip is XORed
+against. A held-frame fix set the struct field AND the OAM bit, which reads correct for exactly as
+long as the sprite stays paused and inverts the moment the engine advances that animation again.
+
+**Fix.** Write the OAM bit only, as the engine does. Measured: player `hflipSpr=0 hflipOAM=1`,
+ghost `hflipSpr=1 hflipOAM=1` -- the same picture now and the mirror image later.
+
+## Emerald: a ghost that WALKS a tile the peer JUMPED gets no ground effects (2026-08-21)
+
+**Symptom.** *"none of the ghosts have a shadow or dust, when doing the side hop"* -- and after the
+shadow was fixed, the spawned ghost still had no dust.
+
+**Cause, in two layers.** The Acro Bike's side hop is **not** an `ACRO_*` action:
+`AcroBikeTransition_SideJump` (`src/bike.c:639-664`) calls `GetJumpMovementAction`, i.e. the plain
+`JUMP_*` family at **0x42..0x45**, and the adapter's jump range started at 0x46 -- reading the ACRO
+block alone could never have found it. Deeper: 0x42..0x45 was in neither the in-place nor the
+travelling list, so the ghost never PERFORMED the hop, it stepped to the tile. The engine raises
+landing dust from a jump FINISHING, so a ghost that walks the tile has nothing to raise it. Measured
+over a run of side hops: **19 dust sprites, every one at dx=0** -- the player's own, none for the
+ghost.
+
+**Fix.** Perform the action verbatim, like a ledge hop, and let the engine give the ghost the arc,
+the dust and the landing. Painting a puff ourselves would have hidden the real defect.
+
+**Two consequences, both the engine's own mechanism.** A side hop travels sideways WITHOUT turning,
+and the engine says so with `facingDirectionLocked` set *before* the jump is issued -- `InitJump`
+opens with `SetObjectEventDirection`, which would otherwise turn the character. And that lock must
+be released when the peer stops side hopping, not when the ghost next stands still: held too long it
+pins facing through the steps that follow (`AcroBikeHandleInputSidewaysJump`, `src/bike.c:518-523`,
+releases it on the input tick after the jump).
+
+**The rule: "it has no X" is often "it never did the thing that produces X".** Two rounds went into
+where to draw a puff before anyone asked whether the ghost was jumping at all.
+
+## Emerald: a remembered riding style outlived the peer's actual one (2026-08-21)
+
+**Symptom.** *"the spawned ghost is also 'jumping/doing the dust' when just riding left/right on the
+bike normally"*, and later the same shape again with wheelies.
+
+**Cause.** `lastAcroBase` is a fallback for the frames where a peer has already stopped while the
+ghost still owes a tile. It remembered whichever acro family came last -- including the hop families
+-- and was consulted *before* `base`, which is derived from the peer's CURRENT `movementActionId`.
+One wheelie hop therefore turned every later catch-up step into a hop, dust and all.
+
+**Fix.** Never remember a hop family, and let live data beat remembered data: where `base` exists it
+wins, and the memory is dropped outright.
+
+**The rule: a fallback must never outrank the real thing.** A cache of "how this peer moves"
+consulted before "what this peer is doing right now" is not a fallback, it is a stale override.
+
+## Emerald: the ghost stopped hopping when it had nothing to cross (2026-08-21)
+
+**Symptom.** *"its turning around a bit slow while jumping around and changing facing direction"* --
+the last thing between the Acro Bike and finished, and the one most tempting to write off as
+network delay.
+
+**Why it was nearly recorded as a known gap, wrongly.** The reasoning was that neither the player
+nor a ghost may change hop direction mid-arc -- true -- so a turn waits for a bounce boundary, and
+the ghost's boundaries sit a wire-delay behind the player's. That story is coherent, matches the
+symptom, and is exactly the kind of explanation that closes an investigation. The user refused it on
+the project's own rule: *"the player can, so the ghost must ... no excuses for not making it match"*.
+
+**Cause, measured in one pass** by frame-stamping `probes/facing_probe.lua`:
+
+```
+f=240 P=77 G=73     peer starts hopping right
+f=243 P=77 G=FF     ghost action NONE -- idle, not mid-bounce
+f=251 P=77 G=77     adopted, eleven frames late
+```
+
+The ghost was FREE at 243 and did nothing for eight frames. The wheelie-hop families are handled as
+animation-only, so those hops are performed only as part of covering a tile -- caught up with the
+peer, the ghost stopped bouncing and waited for ground to cross, and since a turn is only adopted
+when an action is issued, the turn waited for that step too. None of the eleven frames was the wire.
+
+**Fix.** A peer who is hopping has a ghost that is hopping: re-issue the peer's hop each time the
+ghost comes free, which keeps its bounces in step with the peer's rather than on a grid of its own.
+Re-measured: adoption gap **0 frames**, and **zero** frames of `act=NONE` across the capture.
+
+**The rule: "it is the network" is a hypothesis, not an explanation, until a frame counter says so.**
+Latency is the most available excuse in a multiplayer project and it costs nothing to state; here it
+was wrong, and one frame-stamped capture separated eight frames of adapter stall from a wire delay
+that measured zero.

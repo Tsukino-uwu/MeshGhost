@@ -16,8 +16,8 @@ live piece of work.** The ladder is now `spawn -> OAM -> drawn`. Full record: `v
   bare emulator; at 56, OAM 60.0 vs painted 39.6; both cheap tiers full (67 characters) still 60.0.
 - **HBlank multiplexing is CLOSED**, user-confirmed 2026-08-21: BizHawk cannot drive it and a ROM
   patch is ruled out. Do not re-propose it; the ADR has all three reasons.
-- **The ACRO Bike: plain left/right riding is user-confirmed 1:1 and no ghost invents a hop.** Open:
-  landing dust, the shadow sprite, and a reversal that leaves the SPAWNED ghost facing the old way.
+- **The ACRO BIKE IS DONE, user-confirmed 2026-08-21** -- shadow, dust, side hop and facing on all
+  three tiers, 60fps on the stressed path. Seven `pitfalls.md` entries that date carry the method.
 - **Frame rate is a SHIPPING requirement and nothing may pass that breaks it** -- user, 2026-08-21:
   *"there can't be any fps drops like this in a shipped/release"*. Measure against a bare control.
 - **Read `pitfalls.md`'s 2026-08-21 entries before comparing any two renderers.** Four invalid
@@ -200,10 +200,6 @@ that a peer's state genuinely differs from the local player's, which loopback co
   `phase6.md` (2026-08-15).
 - **Emerald: the Acro Bike's wheelie POSE is not reproduced** — those actions never report
   finished for a ghost and strand it; the watchdog frees it. `unverified.md`.
-- **Emerald: a real shadow SPRITE for a spawned ghost is written but DISABLED** — it reset the game
-  on every jump, almost certainly a bad VRAM tile range. `unverified.md`.
-- **Emerald: landing dust is painted on both tiers but unconfirmed**, and the spawned ghost's own
-  dust sits behind our painted shadow until the sprite above works. `unverified.md`.
 - **Emerald: VRAM/sprite injection** — Stage 1 ran 2026-08-14 and is written up; Stages 2–5 not
   started. `ideas.md`, `environment.md`.
 - **Receive rate cap** — `max_receive_hz_per_player` never watched live; needs two clients at

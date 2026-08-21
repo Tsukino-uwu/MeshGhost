@@ -198,6 +198,18 @@ order:
     frames and could not follow a running player. ([pitfalls.md](../../../../agent_docs/pitfalls.md)
     has that one and the four ways the comparison itself was measured wrong first.)
 
+26. Finished the Acro Bike, which the user called the single hardest thing in this adapter. A
+    ghost now gets a real shadow SPRITE under it rather than a painted one, landing dust on all
+    three renderers, and the sideways jump -- which is not an `ACRO_*` action at all, but the plain
+    jump family four ids below where anyone would look. The shadow had been written and disabled
+    for a day because it reset the game on every hop: the cause was a NULL sprite callback, since
+    the engine calls every live sprite's callback with no null check and a zero there is a jump to
+    the console's reset vector. Facing while hopping took five attempts, four of which fixed damage
+    done by the first.
+    ([pitfalls.md](../../../../agent_docs/pitfalls.md) has all seven, and the methods matter more
+    than the fixes: sort a RESET apart from a glitch, audit the expensive FAILURE path, and never
+    let "it is the network" stand in for a frame counter.)
+
 **~3 hours for the hardware tier**, most of it spent discovering that the comparison harness, not
 either renderer, was what kept producing wrong answers.
 

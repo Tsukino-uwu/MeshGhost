@@ -257,6 +257,14 @@ what it IS (in use, 16x8, beside the player, mid-jump — never by an address), 
 and palette, and every ghost is drawn with those exact runs from then on, through the same
 `drawRunList` the rest of the drawn tier uses — so it clips and dims like everything else.
 
+**FULLY RETIRED FOR THE SPAWNED TIER, 2026-08-21, user-confirmed.** That tier no longer paints a
+shadow at all: it builds a REAL shadow sprite from the engine's own template, at the engine's own
+subpriority 148, so it sits UNDER the character and under the landing dust -- the two things an
+overlay can never do, since an overlay is drawn after the hardware has finished. The painted path
+survives only as the fallback when the sprite cannot be built (a relocated ROM, or OBJ tiles
+exhausted), and for the two tiers that have no engine object of their own. The reset that kept this
+sprite disabled for a day was a NULL sprite callback, written up in `agent_docs/pitfalls.md`.
+
 **What is still a bandage, and why this entry stays open.** The ELLIPSE remains as the fallback for
 one case: a ghost that hops before the local player ever has, where nothing has been seen to learn
 from yet. Closing that means finding the field-effect template table in ROM, which is a real

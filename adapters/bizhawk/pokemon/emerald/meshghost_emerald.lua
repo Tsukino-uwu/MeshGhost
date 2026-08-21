@@ -2993,14 +2993,13 @@ genderFrames.dustTemplate = 0x0850cca0
 genderFrames.dustRuns = function(frame)
     local images = r32(genderFrames.dustTemplate + 0x0c)
     if not isRomPtr(images) then return nil end
-    local pal = nil
-    for i = 0, 63 do
-        local d = sprAddr(i)
-        if (r8(d + 0x3e) & 0x01) ~= 0 and r32(d + 0x0c) == images then
-            pal = (r16(d + 0x04) >> 12) & 0x0f
-            break
-        end
-    end
+    -- THE PALETTE BY TAG, not by finding a neighbour. This used to scan all 64 sprites for a live
+    -- dust sprite and copy its palette slot, which fails outright when nobody else happens to be
+    -- landing -- and once the trail below started calling this once per live puff per frame, that
+    -- scan became the per-frame cost of the whole feature. `IndexOfSpritePaletteTag` is the
+    -- engine's own answer and it is a 16-entry table: sSpritePaletteTags 03000CF0 (pokeemerald.sym)
+    -- against the dust template's FLDEFF_PAL_TAG_GENERAL_0 (0x1004, constants/field_effects.h:112).
+    local pal = hwPaletteSlotForTag(0x1004)
     if not pal then return nil end
     -- 16x8, from the template's own OAM shape (gObjectEventBaseOam_16x8).
     return genderFrames.runsFromImages(string.format("dust:%d:%d", pal, frame),
@@ -3027,22 +3026,68 @@ genderFrames.dustFrameAt = function(elapsed)
     return nil
 end
 
--- Remember where and when a peer last landed, so both tiers can draw the same puff.
-genderFrames.noteLanding = function(playerId, jumping, gx, gy)
+-- HOW LONG ONE BOUNCE LASTS, for the acro actions that REPEAT while B is held.
+--
+-- The reason this exists: a held-B wheelie hop is ONE movement action that bounces over and over,
+-- so a peer sends the same `act` for as long as the button is down. Both painted tiers latch their
+-- dust on the air->ground EDGE of that action, and during continuous hopping there is no edge --
+-- measured 2026-08-21, one "took off" and no landing for a solid minute while the ghost bounced
+-- the whole time. The spawned tier is unaffected because the ENGINE emits its dust per step
+-- rather than per action, which is exactly why the defect showed on two tiers and not three.
+--
+-- So the bounce is counted instead, on the engine's own number rather than one tuned by eye.
+-- `DoJumpSpriteMovement` (event_object_movement.c:8462-8492) ends a jump at `distanceToTime`:
+-- 16 frames for JUMP_DISTANCE_IN_PLACE and JUMP_DISTANCE_NORMAL, 32 for JUMP_DISTANCE_FAR. The
+-- acro actions pick those distances at :6854-7024 --
+--   0x70..0x73 ACRO_WHEELIE_HOP_FACE_*  IN_PLACE  ) 16
+--   0x74..0x77 ACRO_WHEELIE_HOP_*       NORMAL    )
+--   0x78..0x7B ACRO_WHEELIE_JUMP_*      FAR         32
+-- A ledge hop returns nil and keeps the edge rule: it is a ONE-SHOT action whose id leaves the
+-- jump range when it finishes, so it has an edge and does not need counting -- and counting it
+-- would puff halfway through a two-tile hop.
+-- THE SIDE HOP (0x42..0x45) IS DELIBERATELY ABSENT, and that absence is the whole rule.
+--
+-- Counting bounces is for actions that REPEAT under a held button while reporting one id -- the
+-- wheelie hops. A side hop is discrete: each one is its own action, so its landing shows up as an
+-- ordinary air->ground edge and the edge already puffs exactly once. Counting it as well spawned a
+-- fresh puff every 16 frames on top of that, and since a side hop also travels a tile, those puffs
+-- were left strung out behind the ghost -- a line of dust no engine-driven character produces. The
+-- user, watching all three tiers, 2026-08-21: *"the dust is not supposed to trail for the OAM &
+-- drawn ghosts when side hopping"*. The shadow is unaffected: `isJumpAction` still covers 0x42..
+-- 0x45, which is what says airborne.
+genderFrames.hopFrames = function(act)
+    if act == nil then return nil end
+    if act >= 0x70 and act <= 0x77 then return 16 end
+    if act >= 0x78 and act <= 0x7b then return 32 end
+    return nil
+end
+
+
+-- Remember when a peer last landed, so every tier puffs on the same frame. Returns the dust frame
+-- the newest puff is up to (nil once it has played out), and SECOND a landed-this-frame edge --
+-- which is what the trail below is built from, and is idempotent within a frame on purpose:
+-- three tiers ask about the same peer, and only the first caller advances the latch, so the
+-- edge is answered from `at == frameCounter` rather than from who called first.
+genderFrames.noteLanding = function(playerId, jumping, act)
     tiering.landed = tiering.landed or {}
     local e = tiering.landed[playerId]
+    local period = jumping and genderFrames.hopFrames(act)
     if jumping then
-        tiering.landed[playerId] = { air = true, gx = gx, gy = gy, at = (e and e.at) or nil }
+        if not (e and e.air) then
+            tiering.landed[playerId] = { air = true, airAt = frameCounter, at = (e and e.at) or nil }
+        elseif period and e.airAt and frameCounter - e.airAt >= period then
+            -- A BOUNCE FINISHED WITHOUT THE ACTION CHANGING. Still airborne -- the next bounce
+            -- starts on this same frame, which is what B held down means -- but it touched the
+            -- ground to do it, and that is what the dust marks.
+            tiering.landed[playerId] = { air = true, airAt = frameCounter, at = frameCounter }
+        end
     elseif e and e.air then
         -- Left the air this frame: that is the landing, on the tile it came down on.
-        tiering.landed[playerId] = { air = false, gx = gx, gy = gy, at = frameCounter }
+        tiering.landed[playerId] = { air = false, at = frameCounter }
     end
     local cur = tiering.landed[playerId]
-    if cur and cur.at and not cur.air then
-        local f = genderFrames.dustFrameAt(frameCounter - cur.at)
-        if f then return f, cur.gx, cur.gy end
-    end
-    return nil
+    local f = cur and cur.at and genderFrames.dustFrameAt(frameCounter - cur.at) or nil
+    return f, (cur ~= nil and cur.at == frameCounter) or false
 end
 
 genderFrames.grassFrameAt = function(behaviour, elapsed)
@@ -4008,6 +4053,36 @@ end
 genderFrames.shadowTemplates =
     { [0] = 0x0850c9fc, [1] = 0x0850ca14, [2] = 0x0850ca2c, [3] = 0x0850ca44 }
 
+-- WHY THE FIRST ATTEMPT RESET THE GAME, and it was not the tile allocation this file suspected.
+--
+-- A sprite's callback was left at 0, on the reasoning that the engine's own would re-find the
+-- object by localId and follow the player. `AnimateSprites` (sprite.c:308-322) calls
+-- `sprite->callback(sprite)` for EVERY sprite with inUse set, with no null check -- the engine
+-- never needs one, because `sDummySprite` (sprite.c:165) seeds `SpriteCallbackDummy` and
+-- `CreateSpriteAt` (:556) always copies the template's. So a zero there is a call to 0x00000000,
+-- which on a GBA is the BIOS reset vector: the game restarts, exactly as the user described it
+-- (*"everytime i jump with the bike, the game restarts now"*), on the first frame after a hop.
+--
+-- The fix is the engine's own do-nothing callback rather than a guard of ours.
+--   SpriteCallbackDummy  08007428  (pokeemerald.map:6220 and .sym; the two bytes there are
+--                                   70 47 = `bx lr`, a function that returns and does nothing)
+-- Checked at spawn time rather than trusted: on a relocated ROM (Archipelago) that address is
+-- something else, and the whole point of this entry is that a wrong callback is a reset. If the
+-- `bx lr` is not there the shadow sprite is simply not built and the painted fallback stays.
+genderFrames.spriteCallbackDummy = 0x08007428 + 1 -- +1 selects Thumb
+
+-- centerToCornerVec by OAM shape/size, sCenterToCornerVecTable (sprite.c:137-157) verbatim as
+-- values, indexed shape*4 + size. The hardware draws an OBJ from its top-left and every sprite the
+-- engine makes carries this, so that its POSITION means its centre; a sprite built by hand and
+-- never given it lands half a frame down-right, which is the bug the surf blob already had.
+-- The first version of the shadow guessed -16 or -8 from the frame's byte count, which is wrong
+-- for three of the four shadow sizes -- the 16x8 medium one every bike uses included.
+genderFrames.ctcVec = {
+    [0] = { -4, -4 }, [1] = { -8, -8 }, [2] = { -16, -16 }, [3] = { -32, -32 },   -- square
+    [4] = { -8, -4 }, [5] = { -16, -4 }, [6] = { -16, -8 }, [7] = { -32, -16 },   -- horizontal
+    [8] = { -4, -8 }, [9] = { -4, -16 }, [10] = { -8, -16 }, [11] = { -16, -32 }, -- vertical
+}
+
 function spawnGhostShadow(g)
     if g.shadowSprId then return g.shadowSprId end
     local gi = g.gfx and graphicsInfo(g.gfx)
@@ -4018,13 +4093,40 @@ function spawnGhostShadow(g)
     local imagesPtr = r32(tmpl + 0x0c)
     if oamPtr == 0 or imagesPtr == 0 then return nil end
 
+    -- THE CALLBACK IS CHECKED BEFORE ANYTHING IS BUILT, for the reason above: a wrong one is a
+    -- reset, not a glitch, and a relocated ROM makes the address wrong without changing anything
+    -- here. `bx lr` or no shadow sprite.
+    if r16(genderFrames.spriteCallbackDummy - 1) ~= 0x4770 then
+        if not genderFrames.shadowCbWarned then
+            genderFrames.shadowCbWarned = true
+            logFile("shadow sprite: SpriteCallbackDummy is not where this ROM keeps it -- "
+                .. "staying on the painted shadow")
+        end
+        return nil
+    end
+
     local sprId = findFreeSpriteSlot()
     if not sprId or sprId == g.sprId then return nil end
     -- The frame's own byte count, from struct SpriteFrameImage {const u8 *data; u16 size;}.
     local bytes = r16(imagesPtr + 4)
     local nTiles = math.max(1, bytes // 32)
+    -- PROVE THE RANGE BEFORE WRITING INTO IT, once per session. The tile allocation was this
+    -- file's own prime suspect for the reset, and while it turned out to be innocent, "log the
+    -- byte count and the tile range and show they are sane" was the right instinct and costs one
+    -- line. A shadow is 32 (8x8), 64 (16x8), 128 (32x8) or 1024 (64x32) bytes -- anything else
+    -- means the SpriteFrameImage read is wrong and the copy below would run off its range.
+    if bytes == 0 or bytes > 1024 or bytes % 32 ~= 0 then
+        logFile(string.format("shadow sprite: refusing a %d-byte frame (images=%08x)",
+            bytes, imagesPtr))
+        return nil
+    end
     local tileStart = allocSpriteTiles(nTiles)
     if not tileStart then return nil end
+    if not genderFrames.shadowSizeLogged then
+        genderFrames.shadowSizeLogged = true
+        logFile(string.format("shadow sprite: size=%d, %d bytes, %d tiles at %d..%d (VRAM %08x)",
+            size, bytes, nTiles, tileStart, tileStart + nTiles - 1, 0x06010000 + tileStart * 32))
+    end
 
     local d = sprAddr(sprId)
     for off = 0, SPRITE_SIZE - 1 do w8(d + off, 0) end
@@ -4033,10 +4135,15 @@ function spawnGhostShadow(g)
     w32(d + 0x08, animsPtr)
     w32(d + 0x0c, imagesPtr)
     w32(d + 0x10, r32(tmpl + 0x10))
-    w32(d + 0x1c, 0)          -- no callback: the engine's would bind by localId and find the player
+    -- A DO-NOTHING CALLBACK, not none: the engine's own would bind by localId and find the player,
+    -- and a zero is a jump to the reset vector. See the note above spawnGhostShadow.
+    w32(d + 0x1c, genderFrames.spriteCallbackDummy)
     w8(d + 0x43, 148)         -- subpriority: under the character, above the ground
-    w8(d + 0x28, (-(r16(imagesPtr + 4) >= 64 and 16 or 8)) & 0xff)
-    w8(d + 0x29, 0xfc)        -- -4: the shadow sprite's own half-height
+    -- centerToCornerVec from the OAM's own shape and size, the way CalcCenterToCornerVec does it.
+    local ctc = genderFrames.ctcVec[(((r16(d + 0x00) >> 14) & 0x03) * 4)
+        + ((r16(d + 0x02) >> 14) & 0x03)] or { -8, -4 }
+    w8(d + 0x28, ctc[1] & 0xff)
+    w8(d + 0x29, ctc[2] & 0xff)
     w8(d + 0x3e, 0x03)        -- inUse | coordOffsetEnabled
     w8(d + 0x3f, 0x04)
     g.shadowSprId, g.shadowTileStart, g.shadowTiles = sprId, tileStart, nTiles
@@ -4063,20 +4170,20 @@ function despawnGhostShadow(g)
 end
 
 -- Driven from Lua every frame, exactly as UpdateShadowFieldEffect would have.
--- DISABLED. Building a real shadow sprite crashed the game on every jump (user, 2026-08-20:
--- *"everytime i jump with the bike, the game restarts now"*), which is a reset rather than a
--- glitch -- so it is off at the door until the cause is found, not left on while it is debated.
 --
--- The likely fault is the tile allocation: the frame's byte count is read from the template's
--- SpriteFrameImage, and if that read is wrong the copy into OBJ VRAM writes over whatever else is
--- there -- the ghost's own tiles, or the game's. Corrupting VRAM is exactly the shape that ends in
--- a reset, and this project has already had one garbled-NPC incident from a tile range freed at the
--- wrong moment.
+-- ON as of 2026-08-21, with the reset understood: it was the NULL callback, not the tile range.
+-- The suspected cause was written down as the tile allocation -- a wrong byte count from the
+-- template's SpriteFrameImage overrunning OBJ VRAM -- and that was a good guess about a bad
+-- symptom and simply not what happened. The byte count is correct (64 for the 16x8 medium shadow
+-- every bike asks for) and is now logged and range-checked at spawn anyway, because the check is
+-- one line and the next hand-built sprite deserves it.
 --
--- The painted shadow is back in the meantime: it draws in FRONT of the character rather than under
--- it, which is wrong and visible, but wrong-looking beats crashing.
+-- Two guessed fixes were NOT tried in a row here: the reset was traced to a specific line of the
+-- engine (`AnimateSprites` calling a sprite's callback with no null check) before anything was
+-- changed. `pitfalls.md`, 2026-08-21.
+--
 -- A field, not a local: this chunk is at Lua's 200-local ceiling.
-genderFrames.shadowSpriteEnabled = false
+genderFrames.shadowSpriteEnabled = true
 
 function updateGhostShadow(g, jumping)
     if not genderFrames.shadowSpriteEnabled then return end
@@ -4090,7 +4197,11 @@ function updateGhostShadow(g, jumping)
     if not g.shadowSprId then return end
     local sd, cd = sprAddr(g.shadowSprId), sprAddr(g.sprId)
     w8(sd + 0x3e, r8(sd + 0x3e) & ~0x04)                       -- visible
-    w16(sd + 0x00, (r16(sd + 0x00) & 0xfcff) | (r16(cd + 0x00) & 0x0300)) -- priority follows
+    -- PRIORITY FOLLOWS THE CHARACTER'S, as UpdateShadowFieldEffect does -- and priority lives in
+    -- OAM attribute 2 (bits 10-11 of +0x04), not attribute 0. The first version copied bits 8-9 of
+    -- +0x00, which is affineMode: it wrote a harmless zero and the shadow's background priority
+    -- never moved, so a shadow would have stayed in front of a bridge the ghost walked under.
+    w16(sd + 0x04, (r16(sd + 0x04) & 0xf3ff) | (r16(cd + 0x04) & 0x0c00))
     w16(sd + 0x20, rs16(cd + 0x20))
     w16(sd + 0x22, rs16(cd + 0x22) + (g.shadowDrop or 12))
 end
@@ -4362,9 +4473,16 @@ function isFishingGfx(gfx) return gfx == 137 or gfx == 138 end
 -- EVERY action that leaves the ground, which is more than a ledge hop.
 -- The shadow was written for ledge hops and gated on their four action ids, so the Acro Bike --
 -- whose whole point is hopping -- got none of it (user, 2026-08-20: *"no shadow still"*).
---   0x0C..0x0F JUMP_2_*  ·  0x46..0x4D JUMP_IN_PLACE_*
+--   0x0C..0x0F JUMP_2_*  ·  0x42..0x45 JUMP_*  ·  0x46..0x4D JUMP_IN_PLACE_*
 --   0x70..0x73 ACRO_WHEELIE_HOP_FACE_*  ·  0x74..0x7B ACRO_WHEELIE_HOP/JUMP_*
 -- (include/constants/event_object_movement.h)
+--
+-- 0x42..0x45 JUMP_* IS THE ACRO BIKE'S SIDE HOP, and the range used to start at 0x46 -- four ids
+-- too high, so the one Acro move that is neither a wheelie nor a ledge got no shadow and no dust
+-- on ANY tier (user, 2026-08-21: *"none of the ghosts have a shadow or dust, when doing the side
+-- hop"*). It does not look like a wheelie action and it is not one: `AcroBikeTransition_SideJump`
+-- (src/bike.c:639-664) calls `GetJumpMovementAction`, i.e. the plain JUMP_* family, which is why
+-- reading the ACRO_* block alone could never have found it.
 --
 -- 0x70..0x73 was missed on the first pass, and the omission had a precise symptom: those are the
 -- hops that leave the ground WITHOUT changing tile, so the ghost hopped -- the arc is on its sprite
@@ -4373,7 +4491,7 @@ function isFishingGfx(gfx) return gfx == 137 or gfx == 138 end
 -- moving"*. A range that reads as "the moving ones" is exactly where an in-place variant hides.
 function isJumpAction(act)
     return act ~= nil and ((act >= 0x0c and act <= 0x0f)
-        or (act >= 0x46 and act <= 0x4d)
+        or (act >= 0x42 and act <= 0x4d)
         or (act >= 0x70 and act <= 0x7b))
 end
 
@@ -4671,8 +4789,26 @@ local function syncGhost(playerId, remote)
         -- a movement action while riding and a FACE action the moment they stop.
         and (remote.pspeed == nil or remote.pspeed == 0
             or (isBikeGfx(remote.gfx) and remote.act and remote.act > 0x03 and remote.act ~= 0xff))
+        -- THE BIKE ESCAPE COVERS JUMPS TOO, and excluding them was a mistake that took three
+        -- passes to see. It was excluded on the reasoning that a ghost trails the peer by a
+        -- bounce, so mirroring the peer's CURRENT hop animation would dress it in a facing its
+        -- body had not reached yet -- which is a statement about POSITION, and this writes an
+        -- ANIMATION NUMBER.
+        --
+        -- What it actually did was remove the only writer that can turn a ghost mid-hop. A held B
+        -- is one repeating action, so the engine never re-reads a direction on its own; and
+        -- `ghostIsIdle` is false for the whole of a continuous hop, so every other path that could
+        -- have issued a turn is closed at the same time. The result is a ghost locked to whichever
+        -- way it set off -- the user, after each of the three attempts that followed: *"the ghost
+        -- get stuck facing with the direction it starts the jumping with"*.
+        --
+        -- The peer's own animation number IS the 1:1 answer: it is the number the peer's game is
+        -- displaying this frame, direction included, and copying it is what every other state on
+        -- this tier already does. Number only, as ever -- no animBeginning, no enableAnim -- so
+        -- the engine keeps advancing the frames and there is still one thing driving them.
         and (ghostIsIdle(g)
-            or (isBikeGfx(remote.gfx) and remote.act and remote.act > 0x03 and remote.act ~= 0xff)) then
+            or (isBikeGfx(remote.gfx) and remote.act and remote.act > 0x03
+                and remote.act ~= 0xff)) then
         local d = sprAddr(g.sprId)
         -- SET THE ANIMATION, DO NOT RE-SET IT. The engine advances a ghost's animation perfectly
         -- well on its own -- measured: 3/0, 3/1, 3/2 with its pixels tracking the player's a beat
@@ -4717,7 +4853,42 @@ local function syncGhost(playerId, remote)
             -- Number only, and only when it differs: restarting here would reset the cycle every
             -- time the peer's animation ticked, which is the "stuck on frame 0" failure from the
             -- fishing work wearing different clothes.
-            if r8(d + 0x2a) ~= remote.sanim then w8(d + 0x2a, remote.sanim) end
+            --
+            -- AND THE PIXELS WITH IT, on that same change. A new animation number says which frames
+            -- the ghost SHOULD be showing; it puts none of them in VRAM. An object event's tiles
+            -- are copied when its animation ADVANCES, and a hop's frames are held for many frames
+            -- at a time -- so a peer turning mid-hop got the right number immediately and the old
+            -- direction's artwork until the engine happened to step the animation. That is the
+            -- whole of *"its turning a bit slow"* (user, 2026-08-21), and it is the same
+            -- one-frame-late copy the settle path and the held path each already fix in their own
+            -- branch; this is the third and last place that needed it.
+            --
+            -- ON THE CHANGE ONLY. A frame copy is info.size/4 read+write pairs -- 128 of them for
+            -- a 32x32 graphic -- and loadGhostFrameNow's own header is blunt that it is cheap once
+            -- and ruinous per frame. Gated on the number actually differing, this runs once per
+            -- turn, not once per frame.
+            -- NEVER DRESS A GHOST IN A DIRECTION ITS BODY IS NOT PERFORMING.
+            --
+            -- A peer turning mid-hop changes its animation number instantly, but the ghost's own
+            -- ACTION cannot change until its current bounce ends -- so copying the number straight
+            -- across leaves it hopping one way while wearing the artwork for another. Measured
+            -- with probes/facing_probe.lua, 2026-08-21, three frames of it every single turn:
+            --   P face=up act=75 anim=21 | G face=right act=77 anim=21
+            -- the ghost travelling RIGHT under 0x77 while showing the UP hop. That is the *"extra
+            -- animation before swapping facing direction"*.
+            --
+            -- The first attempt at this silenced the mirror for every jump, which removed the only
+            -- writer that could turn a ghost at all and cost four passes to see. The honest rule is
+            -- narrower: mirror freely while the two are performing the SAME action -- that is what
+            -- keeps a pedal cycle in step -- and stand aside while they disagree, leaving the engine
+            -- to animate the hop the ghost is actually doing. They re-converge a frame later when
+            -- the ghost adopts the peer's action, and the engine sets that animation itself.
+            local agrees = not isJumpAction(remote.act)
+                or r8(objAddr(g.objId) + 0x1c) == remote.act
+            if agrees and r8(d + 0x2a) ~= remote.sanim then
+                w8(d + 0x2a, remote.sanim)
+                loadGhostFrameNow(g, graphicsInfo(g.gfx), remote.sanim, remote.sidx or 0)
+            end
             -- AND UN-PAUSE IT, because setting a number on a paused sprite changes nothing.
             -- The peer is not paused (checked above), so the ghost should not be either -- but the
             -- engine pauses an object's sprite whenever it settles, and on the Acro Bike that left
@@ -4734,6 +4905,36 @@ local function syncGhost(playerId, remote)
                 w8(d + 0x2a, remote.sanim)
                 w8(d + 0x2b, remote.sidx)
                 w8(d + 0x2c, r8(d + 0x2c) | 0x40)
+                -- AND THE FLIP, which is the half of "facing east" a number cannot carry: east is
+                -- the WEST artwork with the OAM's horizontal flip, applied by AnimCmd_frame ->
+                -- SetSpriteOamFlipBits when an animation ADVANCES -- and this sprite is being held
+                -- paused, so nothing will ever advance it. Without this a peer stopping while
+                -- facing east left the ghost facing west (user, 2026-08-21: *"it was facing left
+                -- after i stopped jumping (the player was facing right)"*).
+                --
+                -- THE OAM BIT ONLY, NEVER `sprite->hFlip`. They are not the same thing and writing
+                -- both is worse than writing neither: SetSpriteOamFlipBits (sprite.c:1246-1251) is
+                -- `hFlip ^ sprite->hFlip`, so the struct field is a BASE that the animation
+                -- command's own flip is XORed against. Setting it to 1 alongside a flipped frame
+                -- reads correct for exactly as long as the sprite stays paused, and inverts the
+                -- moment the engine advances that animation again -- the ghost then faces the
+                -- opposite way to the peer for every frame afterwards. Measured with
+                -- probes/facing_probe.lua, 2026-08-21: player hflipSpr=0 hflipOAM=1, ghost
+                -- hflipSpr=1 hflipOAM=1, which is the same picture now and the mirror image later.
+                -- Both characters keep hFlip=0 and carry the direction in the OAM bit, exactly as
+                -- the engine leaves the player.
+                local hgi = graphicsInfo(g.gfx)
+                if hgi and hgi.anims ~= 0 then
+                    local hap = r32(hgi.anims + (remote.sanim or 0) * 4)
+                    if isRomPtr(hap) then
+                        local hfl = ((r32(hap + (remote.sidx or 0) * 4) >> 22) & 1) == 1
+                        -- Bit 3 of matrixNum IS the OAM h-flip for a non-affine entry, which is
+                        -- what the engine writes -- attr1 bits 9-13 are matrixNum, bit 12 the
+                        -- flip. Written through the same bit the engine uses so the two agree.
+                        w16(d + 0x02, hfl and (r16(d + 0x02) | 0x1000)
+                            or (r16(d + 0x02) & 0xefff))
+                    end
+                end
                 if COMPARE_TIERS then logFile(string.format("HELD LOAD: g.gfx=%s live=%d sanim=%s sidx=%s tileStart=%s oamTile=%d", tostring(g.gfx), r8(objAddr(g.objId) + 0x05), tostring(remote.sanim), tostring(remote.sidx), tostring(g.tileStart), r16(sprAddr(g.sprId) + 0x04) & 0x3ff)) end
                 loadGhostFrameNow(g, graphicsInfo(g.gfx), remote.sanim, remote.sidx)
                 -- Remember it as issued, so the running path below re-arms properly when the peer
@@ -5022,6 +5223,26 @@ local function syncGhost(playerId, remote)
     --
     -- The watchdog stays exactly as it is: it costs nothing, it logs what it frees, and it is the
     -- reason this was diagnosable at all. If the hang comes back, it will say so by name.
+    -- RELEASE THE SIDE-HOP FACING LOCK THE MOMENT THE PEER STOPS SIDE HOPPING.
+    --
+    -- It was released only once the ghost stood still on its target tile, which is too late: a peer
+    -- who hops sideways and then rides on leaves the ghost MOVING with facing still pinned, and
+    -- `SetObjectEventDirection` refuses to write facingDirection while the bit is set -- so the
+    -- ghost carried the hop's facing through the steps that followed and only caught up when it
+    -- finally stopped. The user, 2026-08-21: *"while jumping and then moving, the spawned ghost is
+    -- changing the direction a bit slow"*.
+    --
+    -- The engine releases it on the input tick AFTER the jump, not when the player next stands
+    -- still (`AcroBikeHandleInputSidewaysJump`, src/bike.c:518-523) -- so the peer's action leaving
+    -- the side-hop range is the matching moment here. Only OUR lock is cleared: `lockGhostFacing`
+    -- uses the same bit for the move-one-way-face-another case and manages its own lifecycle per
+    -- step, and this runs before that so it can re-assert it in the same frame if it still applies.
+    if g.sideHopLock and not (remote.act and remote.act >= 0x42 and remote.act <= 0x45) then
+        local sa = objAddr(g.objId)
+        w8(sa + 0x01, r8(sa + 0x01) & ~0x02)
+        g.sideHopLock = nil
+    end
+
     local inPlace = remote.act and (
         (remote.act >= 0x46 and remote.act <= 0x4d)
         or (remote.act >= 0x64 and remote.act <= 0x73)
@@ -5032,8 +5253,28 @@ local function syncGhost(playerId, remote)
     -- "not doing it like the player" looks like from the chair.
     --   0x74..0x7B WHEELIE_HOP/JUMP · 0x80..0x83 POP_WHEELIE_MOVE
     --   0x84..0x87 WHEELIE_MOVE     · 0x88..0x8B END_WHEELIE_MOVE
+    -- 0x42..0x45 JUMP_* -- THE SIDE HOP -- IS PERFORMED VERBATIM, like a ledge hop.
+    --
+    -- It was in neither list, so the ghost never performed it: it simply STEPPED to the tile the
+    -- peer had hopped to. That is why it had no dust. The engine raises landing dust from a jump
+    -- FINISHING (`UpdateJumpAnim` sets landingJump, and GroundEffect_JumpLandingDust reads the
+    -- object's coords), and a ghost that walks the tile never finishes a jump, so there was nothing
+    -- to raise it -- measured 2026-08-21 with probes/shadowdust_probe.lua over a run of side hops:
+    -- 19 dust sprites, every one of them at dx=0, i.e. the player's own and none for the ghost.
+    --
+    -- Performing the action is also the right fix rather than painting a puff ourselves, and for
+    -- the standing reason on this project: let the game do the work. The ghost hops, so the engine
+    -- gives it the arc, the dust and the landing -- and the painted tiers, which are pinned to that
+    -- sprite, then record their puff where the ghost actually lands instead of where it was still
+    -- catching up to. That is the same *"not supposed to trail/be after you"* the user reported,
+    -- fixed at its cause instead of by an offset.
+    --
+    -- Verbatim rather than animation-only (the acroBase treatment below): like a ledge hop this
+    -- covers real ground in one arc that no ordinary step reproduces, and the position logic agrees
+    -- with it afterwards.
     local travels = remote.act and (
         (remote.act >= 0x0c and remote.act <= 0x0f)
+        or (remote.act >= 0x42 and remote.act <= 0x45)
         or (remote.act >= 0x74 and remote.act <= 0x7b)
         or (remote.act >= 0x80 and remote.act <= 0x8b))
     -- One line per CHANGE of the peer's action, with what the ghost is doing at that moment. Three
@@ -5111,10 +5352,53 @@ local function syncGhost(playerId, remote)
     then
         inPlace = false
     end
+    -- LATCH ONLY WHAT ACTUALLY LANDED.
+    --
+    -- `g.jumped` records "this peer action has been performed", and it used to be set at the
+    -- moment of asking. A ghost mid-bounce is not listening: the engine is playing out the
+    -- current jump and the movementActionId written underneath it is picked up only when that
+    -- finishes -- so an order given mid-arc is dropped, while the latch remembers it as done and
+    -- nothing ever re-sends it. On a held B, where the peer's action changes ONLY in its
+    -- direction, that is a ghost frozen in whichever way it first set off: the user, twice, and
+    -- precisely the second time -- *"the ghost get stuck facing with the direction it starts the
+    -- jumping with, even if the player swaps direction while jumping afterwards"*. The facing
+    -- probe measured the same thing from the other end: the ghost held act=72 for seven state
+    -- changes after the peer went to 73, then adopted it the moment its bounce ended.
+    --
+    -- So the latch is set only when the ghost was actually free to take the order. Busy, it is
+    -- left alone and the same order is re-sent next frame, which costs nothing and lands on the
+    -- first frame the engine is listening. The branch still returns either way -- a pose must not
+    -- also spend a step -- so nothing else about this path changes.
     if (inPlace or travels) and g.jumped ~= remote.act then
-        g.jumped = remote.act
-        g.needsSettle = nil
-        requestAction(g, remote.act)
+        if ghostIsIdle(g) then
+            g.jumped = remote.act
+            g.needsSettle = nil
+            -- A SIDE HOP TRAVELS WITHOUT TURNING, and the lock is how the engine says so.
+            --
+            -- `InitJump` opens with SetObjectEventDirection(objectEvent, direction)
+            -- (event_object_movement.c:5436), so performing JUMP_LEFT turns the character to face
+            -- left -- which is right for a ledge hop and wrong for this, the one move whose whole
+            -- character is hopping sideways while still looking where you were. The engine's own
+            -- answer is to set facingDirectionLocked FIRST: `AcroBikeTransition_SideJump`
+            -- (src/bike.c:662-664) locks, then issues the jump, and SetObjectEventDirection
+            -- (:2361-2371) then writes movementDirection while leaving facingDirection alone.
+            -- Issuing the action without the lock gave the ghost the turn the player never makes
+            -- -- the user, 2026-08-21: *"its supposed to keep looking forward during the side hop,
+            -- not turn to face towards where the side hop goes"*.
+            --
+            -- Released by the standing-on-target branch below, which is the same moment
+            -- `AcroBikeHandleInputSidewaysJump` (:518-523) clears it for the player and re-asserts
+            -- the facing it preserved.
+            -- objAddr directly: the function's own `a` is declared further down, and reaching
+            -- for it here would read a nil GLOBAL -- the forward-reference trap this file has
+            -- already been bitten by three times.
+            if remote.act >= 0x42 and remote.act <= 0x45 then
+                local ja = objAddr(g.objId)
+                w8(ja + 0x01, r8(ja + 0x01) | 0x02)
+                g.sideHopLock = true
+            end
+            requestAction(g, remote.act)
+        end
         return
     end
 
@@ -5141,17 +5425,78 @@ local function syncGhost(playerId, remote)
     -- which one it was.
     if COMPARE_TIERS and frameCounter % 15 == 0 then
         logFile(string.format("HOP act=%s inPlace=%s travels=%s latch=%s d=%d,%d idle=%s "
-            .. "ghostAct=%d held=%02X",
+            .. "ghostAct=%d held=%02X orient=%s gFace=%d",
             tostring(remote.act), tostring(inPlace and true or false),
             tostring(travels and true or false), tostring(g.jumped), dx, dy,
-            tostring(ghostIsIdle(g)), r8(a + 0x1c), r8(a + 0x00))
+            tostring(ghostIsIdle(g)), r8(a + 0x1c), r8(a + 0x00),
+            tostring(remote.orientation), r8(a + 0x18) & 0x0f)
             .. string.format(" | peer=%.2f,%.2f ghost=%d,%d | gfx ghost=%s peer=%s want=%s",
                 remote.x, remote.y, curX, curY, tostring(g.gfx), tostring(remote.gfx),
                 tostring(wantedGfx(remote))))
     end
+    -- A HOPPING GHOST MUST STILL BE ABLE TO TURN.
+    --
+    -- The pose hold below returns without issuing anything, which is right for a peer holding a
+    -- standing wheelie and wrong the moment they turn while still holding it. On the Acro Bike a
+    -- held B is ONE repeating action, so a peer who spins on the spot mid-hop changes only the
+    -- DIRECTION of that action -- and with the ghost already at the target tile, every branch
+    -- below is skipped and it keeps hopping the way it first set off. The user, who pinned this
+    -- down exactly, 2026-08-21: *"the ghost get stuck facing with the direction it starts the
+    -- jumping with, even if the player swaps direction while jumping afterwards"*, and it is what
+    -- the facing probe measured as the ghost holding act=72 for seven state changes after the
+    -- peer had gone to 73.
+    --
+    -- Re-issuing the peer's own action is the whole fix: its id already encodes the direction, so
+    -- the ghost performs the same hop the peer is performing, facing the same way. Guarded on the
+    -- ghost being IDLE so a bounce already in flight is never interrupted mid-arc, and on the
+    -- facing actually disagreeing so a held pose is still issued exactly once.
+    -- ANY jump, not just the in-place ones: a travelling hop reaches here too the moment the ghost
+    -- has caught up, and the branch below would then spend a separate TURN action to change its
+    -- facing. A hop already carries its own direction -- the id IS the direction -- so turning
+    -- first and hopping second is one animation the peer never performs, seen as *"doing an extra
+    -- animation as well before swapping facing direction when jumping and moving around"* (user,
+    -- 2026-08-21). Re-issuing the peer's own action is both the turn and the hop, in one.
+    -- A PEER WHO IS STILL HOPPING HAS A GHOST THAT IS STILL HOPPING.
+    --
+    -- The wheelie-hop families are handled as animation-only (`acroBase` below), which means the
+    -- ghost performs them only as part of covering a tile. Caught up with the peer, it therefore
+    -- stopped bouncing altogether and waited for ground to cross -- and since a turn can only be
+    -- adopted when an action is issued, the turn waited for that step too. Measured with
+    -- probes/facing_probe.lua, 2026-08-21:
+    --   f=240 P=77 G=73   f=243 P=77 G=FF   f=251 P=77 G=77
+    -- the ghost IDLE at 243 with nothing to do, adopting only at 251. Eleven frames, none of them
+    -- the wire, and it reads as *"turning around a bit slow while jumping around"*.
+    --
+    -- The rule this restores is the plain one: anything the player can do, a ghost does too. A peer
+    -- hopping on the spot is hopping, so the ghost hops -- issued afresh each time it comes free,
+    -- which keeps its bounces in step with the peer's instead of on a grid of its own, and makes a
+    -- direction change land on the very next bounce exactly as it does for the player.
+    if isJumpAction(remote.act) and dx == 0 and dy == 0 then
+        if ghostIsIdle(g) then
+            g.jumped = remote.act
+            requestAction(g, remote.act)
+        end
+        return
+    end
     if inPlace and dx == 0 and dy == 0 then return end
 
     if dx == 0 and dy == 0 then
+        -- RELEASE THE FACING LOCK ONCE THERE IS NOWHERE TO GO.
+        --
+        -- `lockGhostFacing` sets the engine's own facingDirectionLocked whenever a peer moves one
+        -- way while facing another, and clears it on the next step where the two agree. The Acro
+        -- Bike's SIDE HOP is that case by definition -- it travels sideways without turning -- so
+        -- it reliably leaves the lock set, and a peer who then just turns on the spot issues no
+        -- step at all: nothing reaches the release, `SetObjectEventDirection` (:2361-2371) refuses
+        -- to write facingDirection while the bit is set, and the ghost is frozen facing the way it
+        -- hopped. The user, 2026-08-21: *"after doing a side hop, the spawned ghost facing
+        -- direction gets stuck until you move a tile"* -- moving a tile being the one thing that
+        -- reached the release.
+        --
+        -- Standing on the target tile means there is no movement left for the lock to protect, so
+        -- this is the honest place to drop it. The engine does the same for the player: the lock
+        -- bike.c sets for the hop is released when the hop resolves, not held until they walk.
+        if (r8(a + 0x01) & 0x02) ~= 0 then w8(a + 0x01, r8(a + 0x01) & ~0x02) end
         -- A RIDER DOES NOT WALK IN PLACE. `FACE_ACTION` is walk-in-place-fast on purpose, because
         -- that is how a walking player turns -- but a rider turns as part of moving, and standing
         -- still on a bike is the STATIC pose: the player's own object reports 0x00..0x03 the whole
@@ -5341,8 +5686,35 @@ local function syncGhost(playerId, remote)
         -- the peer is on a bike, means the ghost performs the game's own riding action for the
         -- tiles it owes -- the same shape as the drawn tier remembering the peer's last moving
         -- animation number, and for exactly the same reason.
-        if acroBase then g.lastAcroBase = acroBase end
-        if not acroBase and isBikeGfx(remote.gfx) then acroBase = g.lastAcroBase end
+        -- A HOP IS NEVER REMEMBERED AS "how this peer rides".
+        --
+        -- `lastAcroBase` exists so a ghost that owes a tile keeps RIDING rather than falling back
+        -- to a walk. But it used to remember whichever acro family came last, including the two
+        -- hop families -- so a single wheelie hop made every catch-up step afterwards a hop, and
+        -- the ghost bounced (and puffed landing dust) across ground the peer was riding flat.
+        -- The user, 2026-08-21: *"the spawned ghost is also 'jumping/doing the dust' when just
+        -- riding left/right on the bike normally"*.
+        --   0x74..0x7B  WHEELIE_HOP / WHEELIE_JUMP  -- one-off, never a riding style
+        --   0x80..0x8B  POP_WHEELIE_MOVE / WHEELIE_MOVE / END_WHEELIE_MOVE  -- how a peer rides
+        -- Only the second group is worth remembering; the first is an event that happened once.
+        if acroBase and acroBase >= 0x80 then g.lastAcroBase = acroBase end
+        -- WHAT THE PEER IS DOING NOW BEATS WHAT IT WAS DOING BEFORE.
+        --
+        -- The remembered family is a fallback for the frames where the peer's own action says
+        -- nothing useful -- it has finished its step and gone back to standing while the ghost is
+        -- still covering the tile it owes. It is NOT a description of how this peer rides, and
+        -- using it in preference to the peer's live action meant one wheelie ride dressed every
+        -- ordinary step afterwards in a wheelie: the user, 2026-08-21, *"its also doing some
+        -- wheelie animations when just riding the bike normally left/right now"*.
+        --
+        -- `base` is derived from the peer's CURRENT movementActionId, so wherever it exists it is
+        -- the better answer and the memory must stand aside. The memory is also dropped outright
+        -- once the peer is plainly riding some other way, so it cannot come back later.
+        if base then
+            g.lastAcroBase = nil
+        elseif not acroBase and isBikeGfx(remote.gfx) then
+            acroBase = g.lastAcroBase
+        end
         if acroBase then
             requestAction(g, acroBase + (stepDir - 1))
         elseif base then
@@ -5551,11 +5923,25 @@ local function drawGhostShadows()
         local remote = remotes[playerId]
         if ghostAlive(g) and not (remote and isJumpAction(remote.act)) then
             updateGhostShadow(g, false)
-            -- ON TOP OF THE SHADOW, deliberately. The engine's own dust is under our painted
-            -- shadow and cannot be seen; drawing ours after it puts the puff back in view.
-            local f, lx, ly = genderFrames.noteLanding(playerId, false,
-                rs16(objAddr(g.objId) + 0x10), rs16(objAddr(g.objId) + 0x12))
-            if f then
+            -- THE ENGINE'S OWN DUST, once the shadow under the ghost is a real sprite.
+            --
+            -- This used to paint dust ON TOP OF the painted shadow, deliberately: an overlay is
+            -- drawn after the hardware has finished, so our shadow covered the engine's puff and
+            -- the only way to see one was to paint that too. With a real shadow sprite at
+            -- subpriority 148 there is nothing in front of the dust any more, and the painted copy
+            -- is a second puff over the top of a working one.
+            --
+            -- THAT THE ENGINE MAKES ONE FOR A GHOST AT ALL was an assumption this file recorded
+            -- and nobody had checked. It is now measured (`probes/shadowdust_probe.lua`,
+            -- 2026-08-21): a dust sprite on the engine's own UpdateJumpImpactEffect callback,
+            -- 32px to the side, i.e. under the GHOST rather than the player. Unlike the shadow,
+            -- FldEff_JumpLandingDust takes coordinates (event_object_movement.c:7994-8001) instead
+            -- of binding by localId, so wearing LOCALID_PLAYER never mattered to it.
+            --
+            -- noteLanding is still CALLED either way: it is what latches the landing frame, and
+            -- the painted tier below reads the same record.
+            local f = genderFrames.noteLanding(playerId, false, remote and remote.act)
+            if f and not genderFrames.shadowSpriteEnabled then
                 local d = sprAddr(g.sprId)
                 local runs = genderFrames.dustRuns(f)
                 if runs then
@@ -5580,8 +5966,7 @@ local function drawGhostShadows()
                 local h = (gi and gi.height) or FRAME_HEIGHT_PX
                 drawOneShadow(sx, sy + (h >> 1) - (genderFrames.shadowDrop[size] or 4) - 4, 1)
             end
-            genderFrames.noteLanding(playerId, true,
-                rs16(objAddr(g.objId) + 0x10), rs16(objAddr(g.objId) + 0x12))
+            genderFrames.noteLanding(playerId, true, remote.act)
         end
     end
 end
@@ -5634,7 +6019,7 @@ local function freeGhostCollision()
                 .. "are walk-through (elevation made incompatible with the player's). Dev only.")
         end
     end
-    if not tiering.noCollision or not avatarAddrConfirmed then return end
+    if not avatarAddrConfirmed then return end
 
     local pObj = r8(GPLAYERAVATAR_ADDR + avatarAddrOffset + 0x05)
     if pObj > 15 then return end
@@ -5646,7 +6031,27 @@ local function freeGhostCollision()
         if ghostAlive(g) then
             local a = objAddr(g.objId)
             local cur = r8(a + 0x0b)
-            if (cur & 0x0f) ~= want then w8(a + 0x0b, (cur & 0xf0) | want) end
+            if tiering.noCollision and (cur & 0x0f) ~= want then
+                w8(a + 0x0b, (cur & 0xf0) | want)
+            end
+            -- SHIPPED BEHAVIOUR from here down, not the dev flag above -- this loop runs for
+            -- every ghost regardless of MESHGHOST_EMERALD_NO_COLLISION.
+            --
+            -- hasShadow STAYS SET on a ghost (byte +0x02 bit 6), and this is the fix for the green
+            -- flicker near a hopping ghost (user, 2026-08-21: *"a 'green' spot ... same shape as
+            -- the shadows"*). A ghost's jump runs DoShadowFieldEffect
+            -- (event_object_movement.c:8768-8775), which spawns FLDEFF_SHADOW bound by localId --
+            -- and a ghost wears LOCALID_PLAYER, so the effect re-finds the PLAYER, sees its
+            -- hasShadow clear, and FieldEffectStops itself within a frame or two. In that frame it
+            -- is a real 16x8 sprite at an uninitialised position whose VRAM copy has not landed
+            -- yet, i.e. a shadow-shaped patch of whatever pixels were left in that tile range --
+            -- green, on a grass map. The probe caught it as one-frame shadow.M entries at
+            -- dy=-768 (shadowdust_probe, 2026-08-21). DoShadowFieldEffect's own gate is the
+            -- object's hasShadow flag, so holding it set means the engine never spawns the doomed
+            -- effect at all -- the engine's own switch, not a hook. Re-applied per frame because
+            -- the jump-landing ground effects clear it (:5535 and friends); our real shadow sprite
+            -- is what actually appears under the ghost.
+            w8(a + 0x02, r8(a + 0x02) | 0x40)
         end
     end
 end
@@ -5836,6 +6241,23 @@ tiering.hw = {
     on = MESHGHOST_EMERALD_HW_OVERFLOW or os.getenv("MESHGHOST_EMERALD_HW_OVERFLOW"),
     base = 0x030022f8 + 64 * 8, -- gMain.oamBuffer[64]; gMain 0x030022c0 + 0x038 (verified.md)
     slots = 56,                 -- entries 64..119. 120..127 is margin: 125 is the game's own.
+    -- THREE POOLS, BECAUSE DEPTH HERE IS THE ENTRY NUMBER AND NOTHING ELSE.
+    --
+    -- A raw OAM entry has no subpriority: the hardware draws a lower-numbered entry IN FRONT. The
+    -- engine expresses the same order with subpriorities on its own sprites -- landing dust 135,
+    -- the character, then its shadow at 148, measured 2026-08-21 -- and back-to-front is exactly
+    -- shadow, character, dust. So the slot a thing gets IS its depth, and the pools have to be laid
+    -- out in that order rather than handed out first-come.
+    --
+    -- The cost is honest and small: bodies lose 12 of 56 slots, so this tier tops out at 44 peers
+    -- instead of 56, and no more than 6 of them can be mid-hop at once (a seventh simply goes
+    -- without, rather than stealing a body's slot). Both are far above anything measured -- the
+    -- fill-the-screen run put 56 characters up and OBJ TILES ran out long before entries did.
+    dustFirst = 0, dustLast = 5,        -- in front of everything of ours
+    bodyFirst = 6, bodyLast = 49,
+    shadowFirst = 50, shadowLast = 55,  -- behind everything of ours
+    fxTiles = {},               -- "shadow:<size>" / "dust:<frame>" -> { start, tiles }
+    puffs = {},                 -- live dust-trail puffs: { at, bx, by, slot }
     -- gDummyOamData, the engine's own "hidden" encoding: off-screen, 8x8, priority 3. Releasing with
     -- the engine's value rather than zeroes leaves a slot indistinguishable from one never used.
     d0 = 0x00a0, d1 = 0x0130, d2 = 0x0c00,
@@ -5868,12 +6290,44 @@ function hwRelease(playerId, freeTiles)
     if freeTiles ~= false and rec.tileStart then
         for t = rec.tileStart, rec.tileStart + rec.tileCount - 1 do setTileAllocated(t, false) end
     end
+    -- The shadow and dust entries go back with the body. Their TILES do not: those ranges are
+    -- shared by every peer on this tier and only the area change below owns them.
+    for which, slot in pairs(rec.fx or {}) do
+        hwFxHide(rec, which)
+        tiering.hw.slotUsed[slot] = nil
+    end
     tiering.hw.slotUsed[rec.slot] = nil
     tiering.hw.byPeer[playerId] = nil
 end
 
 function hwReleaseAll(freeTiles)
     for playerId in pairs(tiering.hw.byPeer) do hwRelease(playerId, freeTiles) end
+    -- Same rule the per-peer ranges follow: on a map change the engine's ResetSpriteData has
+    -- already freed every range, so the records are dropped without clearing bits we no longer own.
+    if freeTiles ~= false then
+        for _, t in pairs(tiering.hw.fxTiles) do
+            if t.start then
+                for i = t.start, t.start + t.tiles - 1 do setTileAllocated(i, false) end
+            end
+        end
+    end
+    tiering.hw.fxTiles = {}
+    -- BLANK THE ENTRY, not just the bookkeeping. Nothing in the engine's per-frame path touches
+    -- entries 64..127, so a puff slot released without writing the dummy encoding leaves a puff
+    -- painted on screen until the next scene change -- which is exactly the leak this tier's own
+    -- header warns about, and it showed the first time every ghost was dropped at once (user,
+    -- 2026-08-21: *"the 'dust' from the OAM got stuck on the screen when you unloaded all
+    -- ghosts"*). Freeing a slot and clearing its entry are one action, never two.
+    for _, puff in ipairs(tiering.hw.puffs) do
+        if puff.slot then
+            local a = tiering.hw.base + puff.slot * 8
+            w16(a + 0, tiering.hw.d0)
+            w16(a + 2, tiering.hw.d1)
+            w16(a + 4, tiering.hw.d2)
+            tiering.hw.slotUsed[puff.slot] = nil
+        end
+    end
+    tiering.hw.puffs = {}
     tiering.hw.area = nil
     tiering.hw.placed = 0
 end
@@ -5888,7 +6342,7 @@ end
 -- A GLOBAL, for the 200-local reason above.
 function hwAcquire(playerId, info)
     local slot
-    for i = 0, tiering.hw.slots - 1 do
+    for i = tiering.hw.bodyFirst, tiering.hw.bodyLast do
         if not tiering.hw.slotUsed[i] then slot = i break end
     end
     if not slot then return nil end
@@ -5901,6 +6355,189 @@ function hwAcquire(playerId, info)
     tiering.hw.slotUsed[slot] = playerId
     tiering.hw.byPeer[playerId] = rec
     return rec
+end
+
+-- A SHADOW AND LANDING DUST FOR THE HARDWARE TIER.
+--
+-- It had neither, and the user said so with all three renderers side by side (2026-08-21: *"OAM
+-- don't have a shadow at all, or dust"*). The spawned tier gets both from the engine; the painted
+-- tier draws both itself. This tier writes OAM entries, so it does what an OAM entry can do: two
+-- more entries, pointed at the field effect's own artwork in ROM.
+--
+-- ONE TILE RANGE PER EFFECT FRAME, SHARED BY EVERY PEER. A shadow has one frame and the dust has
+-- three, so four ranges of two tiles each cover the whole tier no matter how many peers are
+-- hopping -- a peer's entry just points at whichever frame its own puff is up to. Per-peer ranges
+-- would be the obvious build and would cost tiles proportional to the crowd for pixels that are
+-- byte-for-byte identical.
+--
+-- THE PALETTE IS RESOLVED, NOT COPIED FROM A NEIGHBOUR. The painted tier reads its dust palette off
+-- a live dust sprite, which works only because the engine happens to have one up at the same
+-- moment; an overflow peer landing with nobody else on screen has no such neighbour. The engine's
+-- own answer is `IndexOfSpritePaletteTag`, a scan of `sSpritePaletteTags` for the template's tag,
+-- and that array is readable:
+--   sSpritePaletteTags 03000CF0, 16 x u16   (pokeemerald.sym; a static, so no .map entry)
+--   FLDEFF_PAL_TAG_GENERAL_0 0x1004         (include/constants/field_effects.h:112) -- the dust's
+-- The shadow templates ask for TAG_NONE, so `CreateSpriteAt` (sprite.c:584) leaves paletteNum at
+-- whatever the OAM template carries, which is 0 -- and copying the template's first two halfwords
+-- reproduces that without knowing it.
+function hwPaletteSlotForTag(tag)
+    for i = 0, 15 do
+        if r16(0x03000cf0 + i * 2) == tag then return i end
+    end
+    return nil
+end
+
+-- Load one frame of a field effect into OBJ VRAM once, and hand back the tiles it lives in.
+-- A FAILURE IS CACHED TOO, and that is not a detail -- it is what stopped this costing the frame
+-- rate. `allocSpriteTiles` imitates the engine's own allocator: it walks the 1024-tile OBJ bitmap
+-- looking for a free run, so a FAILED call is the most expensive call it can make. Uncached, a
+-- tier that cannot get two tiles retried that full walk for every live puff and every jumping
+-- ghost, every frame -- and OBJ tiles are exactly what runs out first with three tiers up, so the
+-- failing case is the normal case on a busy map, not a rare one. The user, with tonight's build:
+-- *"feels like its chugging at like 1fps"*; the committed build with none of it was smooth, which
+-- is the A/B that placed it here rather than in any of the drawing.
+--
+-- Negative entries are retried on a slow clock so a map that frees tiles later still gets its
+-- effects, and cleared wholesale on the area change like the positive ones.
+function hwFxTiles(key, imagesPtr, frameIdx)
+    local rec = tiering.hw.fxTiles[key]
+    if rec then
+        if rec.start then return rec.start end
+        if frameCounter - rec.failedAt < 300 then return nil end
+    end
+    local e = imagesPtr + frameIdx * 8
+    local src, bytes = r32(e), r16(e + 4)
+    -- The same range check the shadow sprite got, for the same reason: a wrong SpriteFrameImage
+    -- read turns the copy below into a write over somebody else's tiles.
+    if not isRomPtr(src) or bytes == 0 or bytes > 1024 or bytes % 32 ~= 0 then return nil end
+    local nTiles = bytes // 32
+    local start = allocSpriteTiles(nTiles)
+    if not start then
+        tiering.hw.fxTiles[key] = { start = false, failedAt = frameCounter }
+        return nil
+    end
+    local dst = 0x06010000 + start * 32
+    for off = 0, bytes - 4, 4 do w32(dst + off, r32(src + off)) end
+    tiering.hw.fxTiles[key] = { start = start, tiles = nTiles }
+    return start
+end
+
+-- An entry from the pool that puts this effect at the right depth. Held for as long as the peer is
+-- on this tier: the alternative is claiming and releasing one every hop, and a slot that changes
+-- number changes depth, which is the one thing these pools exist to keep still.
+function hwFxSlot(playerId, rec, which)
+    rec.fx = rec.fx or {}
+    if rec.fx[which] then return rec.fx[which] end
+    -- Only the shadow is per-peer now; dust slots belong to the puff pool in hwPuffTick.
+    local first, last = tiering.hw.shadowFirst, tiering.hw.shadowLast
+    for i = first, last do
+        if not tiering.hw.slotUsed[i] then
+            tiering.hw.slotUsed[i] = playerId
+            rec.fx[which] = i
+            return i
+        end
+    end
+    return nil
+end
+
+function hwFxHide(rec, which)
+    local slot = rec.fx and rec.fx[which]
+    if not slot then return end
+    local a = tiering.hw.base + slot * 8
+    w16(a + 0, tiering.hw.d0)
+    w16(a + 2, tiering.hw.d1)
+    w16(a + 4, tiering.hw.d2)
+end
+
+-- `sx`,`sy` are the body entry's top-left as written this frame, and `arcY` is the hop the body is
+-- carrying: both effects belong on the GROUND the peer left, so the arc comes back off. That is
+-- the same term the engine drops by driving its shadow from pos1 while the character rides pos2,
+-- and the same one the painted tier subtracts.
+function hwDrawFx(playerId, rec, remote, info, sx, sy, arcY)
+    local w, h = info.width or FRAME_WIDTH_PX, info.height or FRAME_HEIGHT_PX
+    local groundY = sy - arcY
+    local jumping = isJumpAction(remote.act) or false
+
+    local size = 1
+    if info.raw and info.raw ~= 0 then size = (r8(info.raw + 0x0c) >> 4) & 0x03 end
+    local tmpl = genderFrames.shadowTemplates[size]
+    local start = jumping and tmpl and hwFxTiles("shadow:" .. size, r32(tmpl + 0x0c), 0)
+    local slot = start and hwFxSlot(playerId, rec, "shadow")
+    if slot then
+        local o = r32(tmpl + 0x04)
+        -- shadowTopFor's arithmetic, in top-left terms: the character's own half-height, less the
+        -- graphic's shadow offset, less the shadow sprite's 4px half-height.
+        local hy = groundY + h - (genderFrames.shadowDrop[size] or 4) - 4
+        local hx = sx + (w >> 1) - 8
+        local a = tiering.hw.base + slot * 8
+        w16(a + 0, (r16(o + 0x00) & 0xff00) | (hy & 0xff))
+        w16(a + 2, (r16(o + 0x02) & 0xfe00) | (hx & 0x1ff))
+        w16(a + 4, (start & 0x3ff) | (2 << 10))
+    else
+        hwFxHide(rec, "shadow")
+    end
+
+    -- The same landing latch both other tiers read, so all three puff on the same frame -- and
+    -- like the painted tier's, the puff is a TRAIL entry: it is born on the landing edge, records
+    -- where the ground was, and hwPuffTick below plays it out on that spot while the body hops on.
+    local _, landedNow = genderFrames.noteLanding(playerId, jumping, remote.act)
+    if landedNow then
+        tiering.hw.puffs[#tiering.hw.puffs + 1] = {
+            at = frameCounter,
+            bx = sx + (w >> 1) - 8 - rs16(GSPRITECOORDOFFSETX_ADDR),
+            by = groundY + h - 8 - rs16(GSPRITECOORDOFFSETY_ADDR),
+        }
+    end
+end
+
+-- Play out every live puff at its own recorded spot, camera-anchored the same way the painted
+-- trail is. Slots come from the dust pool ON DEMAND, one per live puff rather than one per peer:
+-- a 24-frame animation against a 16-frame bounce means two puffs overlap briefly, and per-peer
+-- ownership could only ever show one. More live puffs than pool slots drops the OLDEST -- it has
+-- the least animation left to show.
+function hwPuffTick()
+    local puffs = tiering.hw.puffs
+    if #puffs == 0 then return end
+    local offX, offY = rs16(GSPRITECOORDOFFSETX_ADDR), rs16(GSPRITECOORDOFFSETY_ADDR)
+    local imgs = r32(genderFrames.dustTemplate + 0x0c)
+    local pal = hwPaletteSlotForTag(0x1004)
+    local o = r32(genderFrames.dustTemplate + 0x04)
+    for pi = #puffs, 1, -1 do
+        local puff = puffs[pi]
+        local f = genderFrames.dustFrameAt(frameCounter - puff.at)
+        local start = f and pal and isRomPtr(imgs) and hwFxTiles("dust:" .. f, imgs, f)
+        if not start then
+            if puff.slot then
+                local a = tiering.hw.base + puff.slot * 8
+                w16(a + 0, tiering.hw.d0) w16(a + 2, tiering.hw.d1) w16(a + 4, tiering.hw.d2)
+                tiering.hw.slotUsed[puff.slot] = nil
+            end
+            table.remove(puffs, pi)
+        else
+            if not puff.slot then
+                for i = tiering.hw.dustFirst, tiering.hw.dustLast do
+                    if not tiering.hw.slotUsed[i] then
+                        tiering.hw.slotUsed[i] = "puff"
+                        puff.slot = i
+                        break
+                    end
+                end
+            end
+            if not puff.slot then
+                table.remove(puffs, pi) -- pool exhausted: iteration is newest-first, this is oldest
+            else
+                local a = tiering.hw.base + puff.slot * 8
+                local dx, dy = puff.bx + offX, puff.by + offY
+                if dx + 16 <= 0 or dx >= 240 or dy + 8 <= 0 or dy >= 160 then
+                    w16(a + 0, tiering.hw.d0) w16(a + 2, tiering.hw.d1) w16(a + 4, tiering.hw.d2)
+                else
+                    w16(a + 0, (r16(o + 0x00) & 0xff00) | (dy & 0xff))
+                    w16(a + 2, (r16(o + 0x02) & 0xfe00) | (dx & 0x1ff))
+                    w16(a + 4, (start & 0x3ff) | (2 << 10) | (pal << 12))
+                end
+            end
+        end
+    end
 end
 
 -- How many more peers this tier can take right now. Entries are never the binding limit (56 of them
@@ -5959,16 +6596,21 @@ end
 -- tier can be told to skip whoever landed here.
 function renderHardwareGhosts(localAreaId, playerMapX, playerMapY, hwSet)
     tiering.hw.placed = 0
-    if not tiering.hw.on then return end
+    -- THE EARLY RETURNS BELOW MUST NOT STRAND A LIVE PUFF. A trail outlives the bounce that made
+    -- it, so switching the tier off -- or crossing onto a ROM it does not engage on -- can happen
+    -- with puffs still on screen, and every path out of this function has to leave OAM clean.
+    if not tiering.hw.on or avatarAddrOffset ~= 0 then
+        if #tiering.hw.puffs > 0 then hwReleaseAll(true) end
+        return
+    end
     if not next(hwSet) and (not tiering.hw.lastEmpty
         or frameCounter - tiering.hw.lastEmpty > 300) then
         tiering.hw.lastEmpty = frameCounter
         logFile("hw tier: on, but no peer was assigned to it this frame")
     end
-    -- VANILLA ONLY, for now. gMain's address comes from our own build of the decomp, and an
-    -- Archipelago ROM relocates code and data -- the same gate the fishing hook uses. On a patched
-    -- ROM this tier simply does not engage and its peers fall through to the painted one.
-    if avatarAddrOffset ~= 0 then return end
+    -- (VANILLA ONLY: gMain's address comes from our own build of the decomp and an Archipelago ROM
+    -- relocates code and data -- the same gate the fishing hook uses. Checked at the top, with the
+    -- puff cleanup, so a patched ROM cannot strand one.)
 
     -- A MAP CHANGE INVALIDATES EVERY TILE ALLOCATION. The engine runs ResetSpriteData on a map load,
     -- which frees all sprite tile ranges and hands them to the new map's NPCs. Ours went with them,
@@ -5982,6 +6624,10 @@ function renderHardwareGhosts(localAreaId, playerMapX, playerMapY, hwSet)
     for playerId in pairs(tiering.hw.byPeer) do
         if not hwSet[playerId] or not remotes[playerId] then hwRelease(playerId, true) end
     end
+
+    -- The dust trail outlives the bounce that made it, so it is ticked here rather than inside
+    -- any one peer's placement -- a peer who leaves the tier mid-puff still gets the tail of it.
+    hwPuffTick()
 
     local playerScreenX, playerScreenY = playerScreenPos()
     local camPixX, camPixY, pmX, pmY = anchorFrame(localAreaId, playerScreenX, playerScreenY,
@@ -6062,6 +6708,9 @@ function renderHardwareGhosts(localAreaId, playerMapX, playerMapY, hwSet)
                     w16(a + 2, (t1 & 0xfe00) | (sx & 0x1ff) | flip)
                     w16(a + 4, (rec.tileStart & 0x3ff) | (2 << 10)
                         | ((info.paletteSlot or 0) << 12))
+                    -- The pin copies the spawned sprite's pos2, so the hop arc is in `sy` here and
+                    -- has to come back off for the two ground effects.
+                    hwDrawFx(playerId, rec, remote, info, sx, sy, rs16(gs + 0x26))
                     tiering.hw.placed = tiering.hw.placed + 1
                     if COMPARE_TIERS then tiering.hwLastX, tiering.hwLastY = sx, sy end
                     goto hwNextPeer
@@ -6121,6 +6770,8 @@ function renderHardwareGhosts(localAreaId, playerMapX, playerMapY, hwSet)
                     w16(a + 0, tiering.hw.d0)
                     w16(a + 2, tiering.hw.d1)
                     w16(a + 4, tiering.hw.d2)
+                    hwFxHide(rec, "shadow")
+                    hwFxHide(rec, "dust")
                 else
                     -- THE GRAPHIC'S OWN OAM TEMPLATE, copied rather than reconstructed. Its first
                     -- two halfwords already carry the correct shape and size for this character;
@@ -6161,6 +6812,11 @@ function renderHardwareGhosts(localAreaId, playerMapX, playerMapY, hwSet)
                     -- ground, which is what the engine gives its own overworld characters; the
                     -- palette slot comes from the graphic's own descriptor, not from anything ours.
                     w16(a + 4, (rec.tileStart & 0x3ff) | (2 << 10) | ((info.paletteSlot or 0) << 12))
+                    -- No arc to subtract on this path: an overflow peer's position comes from the
+                    -- glide pipeline, which carries no hop. The shadow then sits under the feet
+                    -- rather than under a raised character -- correct, and it reads as nothing,
+                    -- which is the same thing the painted tier's own note says about it.
+                    hwDrawFx(playerId, rec, remote, info, sx, sy, 0)
                     tiering.hw.placed = tiering.hw.placed + 1
                     -- Published for the three-way compare log in drawRemotes, which runs after this
                     -- in the same frame. Where the OTHER two tiers put the same peer is already on
@@ -6937,12 +7593,59 @@ local function drawRemotes(localAreaId, playerMapX, playerMapY, skipSpawned, com
                             r0, r1, panelRows, dim, footY)
                         -- LANDING DUST, after the grass so it is not buried by it.
                         do
-                            local f = genderFrames.noteLanding(playerId,
-                                isJumpAction(remote.act) or false, 0, 0)
-                            local druns = f and genderFrames.dustRuns(f)
-                            if druns then
-                                drawRunList(druns, TILE, false, screenX,
-                                    screenY + FRAME_HEIGHT_PX - 8, panelRows, dim)
+                            -- A TRAIL, NOT A FOLLOWER. The engine's dust belongs to the TILE the
+                            -- landing happened on: the character hops away and the puff stays and
+                            -- finishes where it was born. Drawing the puff at the ghost's current
+                            -- position -- what this block did first -- made it travel along under
+                            -- the character, so a peer hopping across the map left no trail at all
+                            -- (user, 2026-08-21). So each landing records where it happened, and
+                            -- every live puff is drawn at ITS OWN spot until its animation ends.
+                            --
+                            -- Anchored on gSpriteCoordOffset, the term the engine itself adds to a
+                            -- coordOffsetEnabled sprite to ride the camera: position minus the
+                            -- offset now, plus the offset at draw time, keeps a puff glued to its
+                            -- tile through any scroll -- the same arithmetic drawGhostShadows uses
+                            -- to place the spawned tier's effects.
+                            --
+                            -- CENTRED ON THE GRAPHIC'S OWN WIDTH, the same fix the shadow needed:
+                            -- at screenX alone the 16-wide puff sat 8px left of a 32-wide bike
+                            -- (user, 2026-08-21: *"off center and to far to the left"*).
+                            local _, landedNow = genderFrames.noteLanding(playerId,
+                                isJumpAction(remote.act) or false, remote.act)
+                            local offX = rs16(GSPRITECOORDOFFSETX_ADDR)
+                            local offY = rs16(GSPRITECOORDOFFSETY_ADDR)
+                            tiering.puffs = tiering.puffs or {}
+                            local plist = tiering.puffs[playerId]
+                            if not plist then plist = {} tiering.puffs[playerId] = plist end
+                            if landedNow then
+                                local pgi = remote.gfx and remote.gfx ~= 0
+                                    and graphicsInfo(remote.gfx) or nil
+                                local halfW = ((pgi and pgi.width) or FRAME_WIDTH_PX) >> 1
+                                -- THE ARC COMES OFF, the same term the shadow beside it drops.
+                                -- Dust belongs to the GROUND the character landed on, and a
+                                -- pinned copy carries the spawned sprite's hop in pos2 -- so
+                                -- recording the puff at the raw screenY pinned it to wherever the
+                                -- body happened to be in its arc, which is highest at the moment
+                                -- a bounce ends and the next begins. Hopping in place made that
+                                -- obvious because nothing else moved: the user, 2026-08-21,
+                                -- *"the dust is a bit to high up on the drawn ghost when jumping
+                                -- in place without moving"*. Height from the graphic's own
+                                -- descriptor for the same reason the width is.
+                                local fullH = (pgi and pgi.height) or FRAME_HEIGHT_PX
+                                plist[#plist + 1] = { at = frameCounter,
+                                    bx = screenX + halfW - 8 - offX,
+                                    by = screenY - pinnedArc + fullH - 8 - offY }
+                            end
+                            for pi = #plist, 1, -1 do
+                                local puff = plist[pi]
+                                local pf = genderFrames.dustFrameAt(frameCounter - puff.at)
+                                local druns = pf and genderFrames.dustRuns(pf)
+                                if druns then
+                                    drawRunList(druns, TILE, false, puff.bx + offX,
+                                        puff.by + offY, panelRows, dim)
+                                elseif not pf then
+                                    table.remove(plist, pi)
+                                end
                             end
                         end
 

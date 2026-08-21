@@ -23,6 +23,10 @@ local FILES = {
 	"../adapters/bizhawk/pokemon/emerald/probes/oamshadow_probe.lua",
 	"../adapters/bizhawk/pokemon/emerald/probes/oaminject_probe.lua",
 	"../adapters/bizhawk/pokemon/emerald/probes/fpshold.lua",
+	"../adapters/bizhawk/pokemon/emerald/probes/shadowdust_probe.lua",
+	"../adapters/bizhawk/pokemon/emerald/probes/noclip.lua",
+	"../adapters/bizhawk/pokemon/emerald/probes/facing_probe.lua",
+	"../adapters/bizhawk/pokemon/emerald/probes/acro_hop.lua",
 	"../dev-scripts/bizhawk-cheat-clear.lua",
 	"../dev-scripts/bizhawk-dev-loader.lua",
 }

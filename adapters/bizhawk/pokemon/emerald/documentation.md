@@ -386,6 +386,50 @@ family reports finished immediately and is issued again on the following frames,
 one continuous hold is the same short action repeating for as long as B is down. The hop behaves
 the same way: `0x70` for the hop, `0x7C` between hops, over and over.
 
+**The sideways jump is NOT an `ACRO_*` action** — **[measured, 2026-08-21]**. It is the plain
+`JUMP_*` family at **`0x42`..`0x45`**, chosen by facing in the same south/north/west/east order.
+Worth stating plainly because the rest of this section is one `ACRO_*` family per move, and reading
+that block alone will never find this one: the whole family lives four ids below
+`JUMP_IN_PLACE_*` (`0x46`), which is where an eye scanning for "the jump ones" tends to stop.
+
+**It travels one tile sideways WITHOUT turning, and the engine has a specific mechanism for that.**
+An ordinary jump turns the character, because starting one calls `SetObjectEventDirection` with the
+jump's direction. The side jump is set up with the object's **facing lock** raised first, so that
+call writes the movement direction and leaves the facing alone — which is why the rider keeps
+looking the way they were while sailing sideways. The lock is dropped again on the input tick after
+the jump resolves, not when the player next stands still; held any longer it would pin the facing
+through everything that followed.
+
+**A jump lasts 16 frames** for both the in-place and the one-tile distances, and 32 for the
+two-tile one. That number is what makes a *held* hop legible: a held button is ONE repeating action
+reporting one id the whole time, so individual bounces are only visible as multiples of that
+period — there is no per-bounce change in anything the object reports.
+
+## Shadows and landing dust: what raises them, and what does not
+
+**[measured, 2026-08-21, `probes/shadowdust_probe.lua`]** — a probe that finds field effects by the
+ROM `images` pointer they draw from, so it identifies them by what they ARE rather than by address.
+
+- **A shadow appears when a jump STARTS.** It is an ordinary sprite at **subpriority 148**, using
+  **OBJ palette 0**, positioned at the character's own sprite position plus a per-graphic drop —
+  and deliberately WITHOUT the jump arc, so it stays on the ground while the character rises over
+  it. It follows the character's background priority, so it passes behind a bridge with them.
+- **Landing dust appears when a jump FINISHES**, on the tile landed on, at **subpriority 135** and
+  a palette resolved from the field-effect palette tag (slot 14 in the runs measured). Lower
+  subpriority means the dust draws IN FRONT of the shadow — back to front, the order is shadow,
+  character, dust.
+- **The dust belongs to the TILE, not the character.** It stays where it was born and finishes its
+  animation there while the character hops on, which is what makes a run of hops leave a trail of
+  puffs rather than one puff dragged along underneath.
+- **Both are driven by the jump itself.** A character that merely *walks* onto the tile another
+  character *jumped* to gets neither — there is no jump to start a shadow or to finish and raise
+  dust. Obvious in hindsight and easy to miss for a long time: "it has no dust" turned out to mean
+  "it never jumped", not "the dust is drawn in the wrong place".
+- **The two effects bind differently, and it matters.** The shadow is bound to its object by
+  **local id** and re-finds it every frame; the dust is positional, spawned at coordinates and left
+  to play out. Anything wearing a borrowed local id therefore inherits somebody else's shadow and
+  its own dust.
+
 ## What blocks a character, and where it is written down
 
 **Two entirely separate sources, and a script that reads only one will still walk into things.**

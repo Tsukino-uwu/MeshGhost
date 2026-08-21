@@ -1092,3 +1092,48 @@ The lag hunt produced a reusable method, and its two instruments earned their ke
 - **Run a bare control on the same route** before believing any number: this machine's emulator
   dips to 37 with nothing loaded. Without the control, that dip gets attributed to whatever was
   loaded at the time.
+
+## Read BOTH characters on ONE line — the parity probe (Emerald, 2026-08-21)
+
+A ghost is always a copy of something, so nearly every question about one is really a question about
+a DIFFERENCE. A probe that follows the ghost alone cannot answer it: every field looks plausible on
+its own, and the reader supplies the missing half from memory.
+
+`probes/facing_probe.lua` is the shape worth copying. Each frame it reads the player and the ghost
+from the same fields at the same instant and prints them side by side, logging only on change:
+
+```
+f=240  P face=up act=75 anim=21/0 paused=0 hflipOAM=0 hflipSpr=0 | G face=right act=77 anim=21/1 ...
+```
+
+Three properties, each of which earned itself in one session:
+
+1. **Both halves, same line, same instant.** The bug was three frames of the ghost travelling one
+   way while wearing the artwork for another. No single-character trace can show that; two traces
+   read side by side hide it in the interleaving.
+2. **The DRAWN state, not the logical one.** An object's facing field is not what a character looks
+   like — the sprite's animation number is, plus the hardware flip. Two fixes were reasoned out from
+   the object field while it was already correct. Print what the screen is built from.
+3. **A frame number.** It turns "seems slow" into a count, and — more importantly — lets a CONSTANT
+   offset be told apart from a GROWING one. The first is a pipeline; the second is a bug. Here it
+   showed eight frames of the ghost sitting idle doing nothing, which no amount of watching could
+   have separated from network delay.
+
+**Find the subject by what it IS, never by an address.** The probe locates the ghost by scanning the
+object slots for the borrowed local id, so it keeps working across adapter reloads and does not read
+a single adapter global. A probe that depends on the code under test fails at the same time as it.
+
+## "It is the network" is a hypothesis, not an explanation (2026-08-21)
+
+Latency is the most available excuse in a multiplayer project: it is always plausible, always
+partly true, and costs nothing to say. It closed an investigation wrongly here — a turn that
+"waited for the wire" turned out to be the adapter idling for eight frames, with a measured wire
+delay of zero.
+
+**The test is cheap.** Stamp frames on both sides and count. A real network delay is roughly
+constant and applies to everything the peer does; if one action lags while position does not, or if
+the gap grows over a sequence, it was never the network.
+
+**The user's rule is the better default anyway**: anything the player can do, a ghost must too, and
+"impossible" means the mechanism has not been found yet. An explanation that ends in a shrug should
+be treated as an unfinished investigation, not a result.
