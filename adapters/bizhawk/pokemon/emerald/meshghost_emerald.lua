@@ -9244,6 +9244,34 @@ function detectStateLoad()
     genderFrames.deferredTileFrees = {}
     tiering.hw.fxTiles, tiering.hw.puffs, tiering.hw.ripples = {}, {}, {}
     tiering.hw.area = nil
+    -- AND THE ORPHAN FIELD-EFFECT SPRITES, which no other sweep can see. pitfalls.md wrote this
+    -- one down this morning as a dev artefact -- "a savestate load orphans field-effect sprites,
+    -- and the orphan sweep cannot see them: a blob has no object event" -- and it stopped being
+    -- an artefact the moment a state was saved MID-SURF with a ghost up: every load of it
+    -- restores that session's ghost blob, alive, following object 15. It rides invisibly under
+    -- the fresh ghost's own blob all surf, and when THAT blob despawns at a dismount the orphan
+    -- keeps following the walker ashore, forever -- the user's *"still keeps its blob on when it
+    -- lands"*, drawn as a 32-wide blob behind a perfectly correct walker while every struct we
+    -- log read clean. Kill every blob/bobber whose followed object is not the PLAYER's -- the
+    -- player's own is the engine's business, and our ghosts' get respawned fresh anyway.
+    pcall(function()
+        local playerObj = r8(GPLAYERAVATAR_ADDR + avatarAddrOffset + 0x05)
+        local playerSpr = r8(GPLAYERAVATAR_ADDR + avatarAddrOffset + 0x04)
+        for sid = 0, 63 do
+            local d = sprAddr(sid)
+            local cb = r32(d + 0x1c)
+            -- A blob follows an OBJECT id in data[2]; the underwater bobber follows a SPRITE id
+            -- in data[0] (field_effect_helpers.c's two #define blocks).
+            local foreign = (cb == UPDATESURFBLOBFIELDEFFECT_CB and r16(d + 0x32) ~= playerObj)
+                or (cb == SPRITECB_UNDERWATERSURFBLOB_CB and r16(d + 0x2e) ~= playerSpr)
+            if (r8(d + 0x3e) & 0x01) == 1 and foreign then
+                w8(d + 0x3e, (r8(d + 0x3e) & ~0x01) | 0x04)
+                w32(d + 0x1c, 0)
+                logFile(string.format("state load: killed orphan blob/bobber sprite %d "
+                    .. "(followed obj %d)", sid, r16(d + 0x32)))
+            end
+        end
+    end)
     -- No spawned or hardware ghost until the wire has echoed a post-load state; see chooseSpawned.
     genderFrames.loadQuietUntil = frameCounter + 12
 end
