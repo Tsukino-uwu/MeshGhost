@@ -338,6 +338,26 @@ local function tick()
         end
     end
 
+    -- EVERY LIVE ENTRY IN THE ADAPTER'S OAM RANGE (64..127), per change. The dismount leaves
+    -- static garbage entries and a missing body; which SLOTS hold what is the whole question.
+    do
+        local hsig = {}
+        for e = 64, 127 do
+            local a0 = r16(0x07000000 + e * 8)
+            local a1 = r16(0x07000002 + e * 8)
+            local a2 = r16(0x07000004 + e * 8)
+            -- skip the engine's dummy encoding (off-screen 8x8 at y=0xA0)
+            if not (a0 == 0x00a0 and a1 == 0x0130) then
+                hsig[#hsig + 1] = string.format("e%d:%04X/%04X/%04X", e, a0, a1, a2)
+            end
+        end
+        local hk = table.concat(hsig, " ")
+        if last.hwSig ~= hk then
+            last.hwSig = hk
+            say(string.format("%6d | HWOAM %s", frame, #hsig > 0 and hk or "(none)"))
+        end
+    end
+
     if shootUntil and frame <= shootUntil then
         pcall(function() client.screenshot(string.format("%s/g_%06d.png", SHOT_DIR, frame)) end)
     end

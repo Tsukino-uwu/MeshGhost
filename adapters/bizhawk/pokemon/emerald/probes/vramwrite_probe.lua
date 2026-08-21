@@ -18,7 +18,7 @@
 -- HOW TO RUN: in the loader set before the adapter, during a scripted surf start. Writes
 -- probes/vramwrite_<stamp>.log.
 
-local BASE = 0x06010000 + 84 * 32          -- tile 84
+local BASE = 0x06010000 + 192 * 32          -- tile 84
 local SPAN = 16 * 32                       -- the whole 16-tile frame
 
 local BS = string.char(92)

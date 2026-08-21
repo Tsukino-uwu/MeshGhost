@@ -4454,6 +4454,7 @@ spawnSurfBlob = function(g, mapX, mapY)
     -- Tell the object it owns this effect, the way the engine does.
     w8(objAddr(g.objId) + 0x1a, sprId)
     g.blobSprId, g.blobTileStart = sprId, tileStart
+    g.blobSince = frameCounter -- age separates a mount's fresh blob from a dismount's old one
     return sprId
 end
 
@@ -4595,10 +4596,12 @@ function despawnGhostShadow(g)
         g.shadowSprId, g.shadowTileStart, g.shadowTiles = nil, nil, nil
         return
     end
+    -- Deferred like the blob's, one comment up: an engine sprite's queued VBlank copy outlives
+    -- its despawn by a frame.
     if g.shadowTileStart then
-        for t = g.shadowTileStart, g.shadowTileStart + (g.shadowTiles or 1) - 1 do
-            setTileAllocated(t, false)
-        end
+        local q = genderFrames.deferredTileFrees
+        q[#q + 1] = { g = g, start = g.shadowTileStart, count = g.shadowTiles or 1,
+            at = frameCounter }
     end
     g.shadowSprId, g.shadowTileStart, g.shadowTiles = nil, nil, nil
 end
@@ -4706,8 +4709,17 @@ despawnSurfBlob = function(g)
     w8(d + 0x3e, (r8(d + 0x3e) & ~0x01) | 0x04) -- inUse = 0, invisible = 1
     w32(d + 0x1c, 0)
     if genderFrames.stateLoadPurge then g.blobSprId, g.blobTileStart = nil, nil return end
+    -- DEFERRED, and this one has the sharpest reason of all the deferrals: the blob is an ENGINE
+    -- sprite whose animation re-copies its frame EVERY frame, through the sprite-copy queue that
+    -- executes at VBlank. A copy queued during the previous frame's emulation still lands after
+    -- this despawn -- so tiles freed here and re-claimed in the same tick get the blob's frame
+    -- stamped over whatever the new owner just loaded. Found live 2026-08-21: at a dismount the
+    -- hardware tier claimed the just-freed blob tiles for its walker body, and the body rendered
+    -- as a corner of the blob until the next reload -- the user's *"oam & its reflection is
+    -- glitching when going back to land"*.
     if g.blobTileStart then
-        for t = g.blobTileStart, g.blobTileStart + 15 do setTileAllocated(t, false) end
+        local q = genderFrames.deferredTileFrees
+        q[#q + 1] = { g = g, start = g.blobTileStart, count = 16, at = frameCounter }
     end
     g.blobSprId, g.blobTileStart = nil, nil
 end
@@ -6130,6 +6142,27 @@ local function syncGhost(playerId, remote)
                 w8(ja + 0x01, r8(ja + 0x01) | 0x02)
                 g.sideHopLock = true
             end
+            -- A DISMOUNT PARKS THE BLOB BEFORE THE JUMP, exactly as the game does it.
+            --
+            -- Task_StopSurfingInit (field_player_avatar.c:1662-1674) sets the blob to
+            -- BOB_JUST_MON and only then issues the jump; in that state UpdateBobbingEffect
+            -- (field_effect_helpers.c:1107-1135) keeps the blob bobbing IN PLACE and stops
+            -- copying the rider's position -- which is the whole of "the blob stays in the
+            -- water while you jump ashore". We never sent that state, so a ghost's blob rode
+            -- ashore under it: the user, with slot 2 re-aimed at this exact transition, *"the
+            -- blob follows them onto land... the blob is supposed to stay in the water"*.
+            -- Filmed on the player's own blob during the repro: data[0] low nibble 1 -> 2 on
+            -- the dismount frame, position parked.
+            --
+            -- Distinguishing a dismount from a MOUNT (same action ids): a mount's blob is
+            -- created moments before its jump, a dismount's has been alive the whole surf.
+            -- No restore is needed -- every dismount ends in the walker graphic, whose swap
+            -- despawns the blob, exactly as Task_WaitStopSurfing destroys the game's own.
+            if remote.act >= 0x3a and remote.act <= 0x3d and g.blobSprId
+                and g.blobSince and frameCounter - g.blobSince > 30 then
+                local bd = sprAddr(g.blobSprId)
+                w8(bd + 0x2e, (r8(bd + 0x2e) & 0xf0) | 2) -- BOB_JUST_MON (field_effect_helpers.h)
+            end
             requestAction(g, remote.act)
         end
         return
@@ -7053,7 +7086,16 @@ function hwRelease(playerId, freeTiles)
     w16(a + 2, tiering.hw.d1)
     w16(a + 4, tiering.hw.d2)
     if freeTiles ~= false and rec.tileStart then
-        for t = rec.tileStart, rec.tileStart + rec.tileCount - 1 do setTileAllocated(t, false) end
+        -- DEFERRED, like the spawned tier's swap frees, for the same measured reason: the
+        -- hardware OAM shows the old tile number for ~2 more frames after a release, so an
+        -- immediate free lets the next allocation write into tiles still on screen -- the
+        -- user's *"oam & its reflection is glitching when going back to land"*, where the
+        -- dismount's graphic change is exactly a release-and-reacquire. Entries are stamped
+        -- with the tier's area; the service point frees them only while that area still
+        -- stands, the same forget-don't-free rule as everywhere else.
+        local q = genderFrames.deferredTileFrees
+        q[#q + 1] = { hwArea = tiering.hw.area, start = rec.tileStart,
+            count = rec.tileCount, at = frameCounter }
     end
     -- The shadow and dust entries go back with the body. Their TILES do not: those ranges are
     -- shared by every peer on this tier and only the area change below owns them.
@@ -7264,6 +7306,22 @@ end
 function hwDrawSurf(playerId, rec, remote, info, sx, sy, arcY, hFlip)
     -- THE BLOB -- surfing only, because a blob IS surfing.
     if remote.gfx and SURFING_GFX[remote.gfx] then
+        -- PARKED DURING A JUMP, like the game's own. On a dismount the engine sets the blob to
+        -- BOB_JUST_MON and it stops following the rider (field_effect_helpers.c:1124-1133) --
+        -- the rider arcs ashore, the blob stays in the water. This tier rebuilt the blob at the
+        -- body's position every frame, so it rode the arc onto the grass (*"the blob follows
+        -- them onto land"*). While the peer's action is a JUMP_SPECIAL, the blob is drawn at the
+        -- position it held on the last non-jumping frame -- camera-anchored the way the ripple
+        -- trail already is, since the camera moves during the jump.
+        local jumping = remote.act and remote.act >= 0x3a and remote.act <= 0x3d
+        local bx, by = sx, sy - arcY + 8
+        if jumping and rec.blobPark then
+            bx = rec.blobPark[1] + rs16(GSPRITECOORDOFFSETX_ADDR)
+            by = rec.blobPark[2] + rs16(GSPRITECOORDOFFSETY_ADDR)
+        elseif not jumping then
+            rec.blobPark = { bx - rs16(GSPRITECOORDOFFSETX_ADDR),
+                by - rs16(GSPRITECOORDOFFSETY_ADDR) }
+        end
         local facing = genderFrames.dirOf[remote.orientation] or 1
         local imageIndex = genderFrames.blobDirImage[facing] or 0
         local imgs = r32(GFIELDEFFECTTEMPLATE_SURFBLOB + 0x0c)
@@ -7273,15 +7331,15 @@ function hwDrawSurf(playerId, rec, remote, info, sx, sy, arcY, hFlip)
         local bslot = bstart and hwFxSlot(playerId, rec, "blob")
         if bslot then
             local o = r32(GFIELDEFFECTTEMPLATE_SURFBLOB + 0x04)
-            local by = sy + 8
             local a = tiering.hw.base + bslot * 8
             w16(a + 0, (r16(o + 0x00) & 0xff00) | (by & 0xff))
-            w16(a + 2, (r16(o + 0x02) & 0xfe00) | (sx & 0x1ff) | (facing == 4 and 0x1000 or 0))
+            w16(a + 2, (r16(o + 0x02) & 0xfe00) | (bx & 0x1ff) | (facing == 4 and 0x1000 or 0))
             w16(a + 4, (bstart & 0x3ff) | (2 << 10) | ((bpal & 0x0f) << 12))
         else
             hwFxHide(rec, "blob")
         end
     else
+        rec.blobPark = nil
         hwFxHide(rec, "blob")
     end
 
@@ -7738,6 +7796,14 @@ function renderHardwareGhosts(localAreaId, playerMapX, playerMapY, hwSet)
                     local an, ai = remote.sanim or 0, remote.sidx or 0
                     if rec.gfx ~= remote.gfx or rec.animNum ~= an or rec.animIdx ~= ai then
                         loadGhostFrameNow(rec, info, an, ai)
+                        if COMPARE_TIERS then
+                            logFile(string.format(
+                                "HW LOAD gfx=%s an=%s/%s tiles=%s..%s f=%d emu=%d",
+                                tostring(remote.gfx), tostring(an), tostring(ai),
+                                tostring(rec.tileStart),
+                                tostring(rec.tileStart and rec.tileStart + rec.tileCount - 1),
+                                frameCounter, emu.framecount()))
+                        end
                         rec.gfx, rec.animNum, rec.animIdx = remote.gfx, an, ai
                     end
                     w16(a + 0, (t0 & 0xff00) | (sy & 0xff))
@@ -7834,6 +7900,14 @@ function renderHardwareGhosts(localAreaId, playerMapX, playerMapY, hwSet)
                     local an, ai = remote.sanim or 0, remote.sidx or 0
                     if rec.gfx ~= remote.gfx or rec.animNum ~= an or rec.animIdx ~= ai then
                         loadGhostFrameNow(rec, info, an, ai)
+                        if COMPARE_TIERS then
+                            logFile(string.format(
+                                "HW LOAD gfx=%s an=%s/%s tiles=%s..%s f=%d emu=%d",
+                                tostring(remote.gfx), tostring(an), tostring(ai),
+                                tostring(rec.tileStart),
+                                tostring(rec.tileStart and rec.tileStart + rec.tileCount - 1),
+                                frameCounter, emu.framecount()))
+                        end
                         rec.gfx, rec.animNum, rec.animIdx = remote.gfx, an, ai
                     end
 
@@ -8568,9 +8642,22 @@ local function drawRemotes(localAreaId, playerMapX, playerMapY, skipSpawned, com
                                     genderFrames.dirOf[remote.orientation] or 1)
                             end
                             if bruns then
-                                drawRunList(bruns, SURFBLOB_FRAME_PX, bflip, screenX + cx,
-                                    screenY + cy + 8, panelRows, dim, nil, nil,
-                                    genderFrames.reflectiveSpans(screenX + cx, screenY + cy + 8,
+                                -- Parked during a JUMP_SPECIAL, mirroring the game's
+                                -- BOB_JUST_MON -- full reasoning at the hardware tier's twin.
+                                local bjumping = remote.act
+                                    and remote.act >= 0x3a and remote.act <= 0x3d
+                                local pbx, pby = screenX + cx, screenY + cy + 8
+                                if bjumping and remote.blobParkPx then
+                                    pbx = remote.blobParkPx[1] + rs16(GSPRITECOORDOFFSETX_ADDR)
+                                    pby = remote.blobParkPx[2] + rs16(GSPRITECOORDOFFSETY_ADDR)
+                                elseif not bjumping then
+                                    remote.blobParkPx = {
+                                        pbx - rs16(GSPRITECOORDOFFSETX_ADDR),
+                                        pby - rs16(GSPRITECOORDOFFSETY_ADDR) }
+                                end
+                                drawRunList(bruns, SURFBLOB_FRAME_PX, bflip, pbx,
+                                    pby, panelRows, dim, nil, nil,
+                                    genderFrames.reflectiveSpans(pbx, pby,
                                         SURFBLOB_FRAME_PX, SURFBLOB_FRAME_PX, "sprite"))
                             end
                         end
@@ -9172,7 +9259,13 @@ local function runFrame()
         for i = 1, #q do
             local e = q[i]
             if frameCounter - e.at >= 6 then
-                if ghostAlive(e.g) and inOverworld() then
+                local stillOurs
+                if e.hwArea ~= nil then
+                    stillOurs = tiering.hw.area == e.hwArea       -- hardware-tier range
+                else
+                    stillOurs = ghostAlive(e.g)                   -- spawned-tier range
+                end
+                if stillOurs and inOverworld() then
                     for t = e.start, e.start + e.count - 1 do setTileAllocated(t, false) end
                 end
                 -- Not ours any more (world rebuilt, ghost gone): dropped, never freed.
@@ -9702,6 +9795,21 @@ MESHGHOST_DEV_UNLOAD = function()
     -- resetBridge() covers the first two (it despawns ghosts as part of dropping the connection).
     pcall(resetBridge)
     pcall(hwReleaseAll, true)
+    -- FLUSH THE DEFERRED FREES -- the queue's service point dies with this script, so anything
+    -- still waiting would leak its bits into the live session's bitmap forever (the dev loader
+    -- swaps scripts constantly, so this is the common path, not a corner). The age gate is
+    -- dropped; the ownership tests are not.
+    pcall(function()
+        for _, e in ipairs(genderFrames.deferredTileFrees or {}) do
+            local stillOurs
+            if e.hwArea ~= nil then stillOurs = tiering.hw.area == e.hwArea
+            else stillOurs = ghostAlive(e.g) end
+            if stillOurs and inOverworld() then
+                for t = e.start, e.start + e.count - 1 do setTileAllocated(t, false) end
+            end
+        end
+        genderFrames.deferredTileFrees = {}
+    end)
     if MESHGHOST_FISH_ALIGN_HOOK then
         pcall(event.unregisterbyid, MESHGHOST_FISH_ALIGN_HOOK)
         MESHGHOST_FISH_ALIGN_HOOK = nil
