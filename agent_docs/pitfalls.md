@@ -3495,3 +3495,15 @@ name was the answer:
 
 **When one renderer of the same peer behaves and the others do not, diff what it does differently
 before forming any theory.** It is a free A/B that is already running.
+
+## A probe written for one session leaked a home path into the repo (2026-08-21)
+
+Two probes written during the dive session hardcoded an absolute scratchpad path for their
+screenshots -- convenient while driving the session, and a violation the moment they were
+committed: this repo is public and no tracked file may carry a home directory. `CLAUDE.md`'s own
+`git grep` check caught it after the commit, not before.
+
+**The habit that prevents it:** a probe resolves its own directory (`debug.getinfo`) for anything
+it writes, exactly as its log file already does -- there is never a reason for a second, absolute
+path in the same script. Run the repo-cleanliness grep before committing anything written in a
+hurry, not only before a release.

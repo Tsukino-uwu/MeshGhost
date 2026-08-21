@@ -48,7 +48,9 @@ local FLAG_UNDERWATER = 0x10
 local GHOST_LOCAL_ID = 255
 local BOB_WINDOW_FRAMES = 240
 local REFLECTION_CB = 0x081540a8 + 1   -- UpdateObjectReflectionSprite (pokeemerald.sym)
-local SHOT_DIR = "C:/Users/nyden/AppData/Local/Temp/claude/c--dev-MeshGhost/8695574c-5fb1-4f61-aa97-ac8f67793533/scratchpad/glitch"
+-- Beside this probe, never an absolute path: this repo is public and a home directory must not
+-- appear in a tracked file (CLAUDE.md). scriptDir is resolved above.
+local SHOT_DIR = nil   -- set after scriptDir exists, below
 local SHOT_FRAMES = 24                  -- how many frames to photograph after a tile range changes   -- four seconds of the curve, then it stops writing per-frame
 
 local function r8(a) return memory.read_u8(a) end
@@ -64,6 +66,7 @@ local BS = string.char(92) -- a literal backslash, BUILT rather than escaped: th
 -- failure the same way (2026-08-21, dev-loader log).
 local scriptDir = (debug.getinfo(1, "S").source:sub(2)
     :match("^(.*)[/" .. BS .. "][^/" .. BS .. "]*$") or ".")
+SHOT_DIR = scriptDir .. "/shots"
 local stamp = os.date("%Y%m%d_%H%M%S")
 local logPath = scriptDir .. "/dive_probe_" .. stamp .. ".log"
 local fh = io.open(logPath, "w")

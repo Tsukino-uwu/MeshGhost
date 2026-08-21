@@ -19,7 +19,10 @@
 
 local SLOT = 2
 local SHOOT_FRAMES = 150             -- 2.5s: the field move, the hop, and settled surfing
-local OUT_DIR = "C:/Users/nyden/AppData/Local/Temp/claude/c--dev-MeshGhost/8695574c-5fb1-4f61-aa97-ac8f67793533/scratchpad/surfshots"
+-- Beside this script, never an absolute path: this repo is public (CLAUDE.md).
+local BS = string.char(92)
+local OUT_DIR = (debug.getinfo(1, "S").source:sub(2)
+    :match("^(.*)[/" .. BS .. "][^/" .. BS .. "]*$") or ".") .. "/shots"
 local GPLAYERAVATAR_ADDR = 0x02037590
 local GOBJECTEVENTS_ADDR = 0x02037350
 local OBJECTEVENT_SIZE = 0x24
