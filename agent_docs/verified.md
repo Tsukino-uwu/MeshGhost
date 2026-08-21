@@ -9523,3 +9523,45 @@ then brought back. Both wrong answers were tried on screen first, and each has i
 **The target was measured, not reasoned**: six screenshots of the engine's own reflection, its
 single pixel alternating between columns 53 and 54 (and 117/118, 149/150 for the other two
 characters on screen). **User-confirmed**: *"looks perfect now"*.
+
+### Emerald: how a character actually gets onto the water, measured on the player (2026-08-21)
+
+- Date: 2026-08-21 (third session that day)
+- Source: **my own reading of `probes/dive_probe.lua`'s log**, written for this session; the player
+  was driven from the user's own savestate at the Sootopolis shore. Not a visual claim — every
+  number below is a field of the player's own object event, so it needs no watching. The
+  ON-SCREEN outcomes of the fixes it prompted are NOT recorded here; they are in `unverified.md`
+  until the user says so.
+
+**The sequence, and the gap it exposed.** Starting to surf is four steps
+(`Task_SurfFieldEffect`, `src/field_effect.c:2994-3074`), not a graphic change. Measured on the
+player's object event:
+
+```
+ 184 | gfx=3 act=0x39  tile=(38,43)              <- field-move pose (START_ANIM_IN_DIRECTION)
+ 292 | gfx=2 act=0x3A  tile=(38,44) pos2=(0,-4)  <- surfing graphic + JUMP_SPECIAL, mid-arc
+```
+
+`0x3A..0x3D` are `MOVEMENT_ACTION_JUMP_SPECIAL_DOWN..RIGHT`. The graphic and the jump are set in
+the same step, and the surf blob is created at the **destination** tile — the jump is what covers
+the ground. Written up as game behaviour in the adapter's `documentation.md`.
+
+**What the ghost was doing instead:** `act=0x00/0xFF` throughout. `0x3A..0x3D` was in none of the
+adapter's action lists, so the ghost performed no jump at all — it glided onto the sea while the
+peer hopped. Fixed by adding the range to the travelling set, where the ledge hop and the Acro
+side hop already live; measured again afterwards, the ghost reads `act=3A` two frames after the
+peer and takes the same one-tile arc (`pos2 y=-4`). **Two frames is the wire, not a defect.**
+
+**A savestate load invalidates our claim on OBJ VRAM.** Confirmed by the adapter's own log the
+moment a state was loaded under a live adapter: `state load detected: emu frame 4194351 ->
+4183317`. The engine's tile-allocation bitmap rewinds and our record of what we own does not, so
+we go on writing frames into tiles it has since given away. Symptom, cause and the
+forget-don't-free fix: `pitfalls.md`. **It is a shipped bug** — loading a state is ordinary
+BizHawk use.
+
+**A ghost can be dressed in one graphic and posed from another.** Measured in the same log: the
+ghost held `gfx=3` (field-move) while being fed `anim=20` (surfing), because the graphic swap and
+the animation mirror are applied by different code on different frames. An animation number is
+only meaningful for the graphic it belongs to — the tables differ in length — so the pair is
+incoherent for a handful of frames at every transition. Both mirror sites now stand aside while
+the two disagree.

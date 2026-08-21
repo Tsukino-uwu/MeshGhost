@@ -3236,7 +3236,8 @@ orphan sweep cannot catch it because **a blob has no object event**; the engine'
 away if i went into a house and out again"*.
 
 Dev artefact, not a shipping bug -- but the count is what said so (`objEvent=0` is the player's,
-`objEvent=15` the ghost's, one each), not the reasoning.
+`objEvent=15` the ghost's, one each), not the reasoning. **That verdict was too narrow: the same
+event breaks OBJ TILE OWNERSHIP too, and that half IS a shipping bug** -- see the next entry.
 
 ### A driven run needs the test kit loaded, or it measures an encounter
 
@@ -3313,3 +3314,54 @@ fix.
 **The move:** either have the diagnostic report values the code actually used (compute once, pass
 it to both), or change them in the same edit — and treat "the numbers did not move at all after a
 change that should have moved them" as a suspicion about the instrument first.
+
+## Emerald: a savestate load makes us draw from tiles we no longer own (2026-08-21)
+
+**Symptom.** The hardware (OAM) tier renders as black-and-white striped garbage after a savestate
+load -- body and reflection alike -- and gets worse with each load. The user, twice: *"the OAM gets
+weird after save states"*, then *"the OAM sprite broke completely now after a save state"*.
+
+**Cause.** Everything this adapter holds about the engine describes the machine *as it was*: which
+object slots the ghosts occupy, which OBJ tile ranges we claimed out of the engine's own allocation
+bitmap, which hardware OAM entries we own. A state load rewinds the engine's side of all three at
+once and leaves our record untouched. From the next frame we copy sprite frames into tiles the
+engine has since handed to one of its own sprites, and draw our characters out of the same range.
+
+**Fix.** Detect the load and **forget**, rather than clean up. The tell is not in the game at all --
+it is the emulator's frame counter, which advances by exactly one per tick and *jumps* when a state
+is loaded (either direction). On a jump: release the hardware tier without freeing, drop every
+ghost record, and discard the queued tile frees. Freeing "our" tiles there would clear bits in a
+bitmap that is somebody else's now -- the same identity-first rule `despawnGhost` already follows
+for a map load, with the same silent consequence if ignored.
+
+**Two lessons past the fix:**
+
+- **It is a SHIPPED bug, not a rig one.** Loading a state is ordinary BizHawk use. The instinct to
+  file anything savestate-shaped as a dev artefact is what left the earlier entry above half-right.
+- **A savestate replay cannot judge the hardware tier.** A whole diagnosis nearly went the wrong
+  way on this: the striped garbage was filmed frame by frame off a state-load replay and read as a
+  32x32-graphic bug in the tier. Re-running with the state loaded FIRST and the adapter loaded
+  AFTER it -- so its bookkeeping starts from the world that actually exists -- produced clean
+  frames. **Load the state, then attach the thing under test.**
+
+## Emerald: a graphic swap left fresh tiles unwritten, and the ghost went grey (2026-08-21)
+
+**Symptom.** The spawned ghost occasionally turns into a grey/garbled block at the start of
+surfing -- *"the spawned ghost glitch out sometimes when starting surf"* -- and only sometimes.
+
+**Cause.** A graphic change claims a NEW tile range and points the sprite at it before copying the
+frame's pixels in. The frame is resolved through the peer's reported animation number -- which
+belongs to the graphic the peer *just left*. Every special state carries its own animation table,
+and they are not the same length (`sAnimTable_FieldMove` against `sAnimTable_Standard`), so a peer
+mid-way through a high-numbered animation indexes past the end of the new graphic's table, reads
+whatever ROM follows, and the copy is abandoned as unresolvable. The sprite is then drawing from
+VRAM nobody has written. Whether it happened depended on which animation the peer was in when the
+graphic changed -- hence "sometimes".
+
+**Fix.** Fall back to the graphic's own first frame when the peer's animation cannot be resolved.
+A ghost briefly facing the wrong way is a small, legible wrongness; a grey block is not.
+
+**The general shape, which is the part worth keeping:** an early return is safe when it leaves the
+previous state in place, and unsafe when the caller has already half-applied a change. Here the
+pointer swap had already happened, so "do nothing" meant "draw rubbish". **Ask what the caller has
+already done before returning early.**

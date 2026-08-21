@@ -185,9 +185,54 @@ sprite is**, and picking by resemblance rather than by looking it up is how the 
 tile below its rider.
 
 **Underwater is a different mechanism, not a variant of this one.** It bobs the player's own sprite
-(`StartUnderwaterSurfBlobBobbing`) rather than spawning a companion.
+(`StartUnderwaterSurfBlobBobbing`) rather than spawning a companion — see its own section below.
 
 **Frame size.** The blob's frames are 32×32 — sixteen tiles, the same tile cost as the rider's.
+
+### Getting onto the water is a sequence, not a state change
+
+**[measured]** Surfing does not begin the moment the graphic changes. `Task_SurfFieldEffect`
+(`src/field_effect.c:2994-3074`) runs four steps in order, and each one is visible:
+
+1. **The field-move pose.** The player's graphic becomes the field-move one and it is held as a
+   movement — `MOVEMENT_ACTION_START_ANIM_IN_DIRECTION`.
+2. **The Pokémon is shown.** A full-screen effect that covers the map while it plays; it is
+   ordinary and it happens for every HM used in the field, not just Surf.
+3. **The jump onto the water.** *Only now* does the graphic become the surfing one, and in the same
+   step the engine issues `GetJumpSpecialMovementAction(direction)` — a real one-tile jump with an
+   arc — and creates the surf blob at the **destination** tile, not where the character is standing.
+4. **The end**, which releases the hold.
+
+Measured live on the player's own object event, 2026-08-21, Sootopolis shore:
+
+```
+ 184 | gfx=3 act=0x39  tile=(38,43)            <- field-move pose
+ 292 | gfx=2 act=0x3A  tile=(38,44) pos2=(0,-4) <- surfing graphic + JUMP_SPECIAL, mid-arc
+```
+
+The two things worth carrying away: **the graphic and the jump arrive together**, and **the jump is
+what covers the tile** — anything reproducing this by moving a character onto the water some other
+way is not doing what the game does. The action ids are `MOVEMENT_ACTION_JUMP_SPECIAL_DOWN..RIGHT`,
+`0x3A..0x3D` (`include/constants/event_object_movement.h:145-148`).
+
+## Underwater: the character's own sprite is made to bob
+
+**[measured]** Diving warps to a separate map, so an underwater character and a surface one are
+never on screen together. On arrival `PlayerAvatarTransition_Underwater`
+(`src/field_player_avatar.c:888-894`) does three things: sets the underwater graphic, sets the
+underwater avatar flag, and starts the bobbing.
+
+**The bobbing is a third sprite that draws nothing.** `StartUnderwaterSurfBlobBobbing`
+(`src/field_effect_helpers.c:1150-1176`) creates an invisible dummy sprite and gives it a callback
+that moves *another* sprite: it holds the target's sprite id, adds its step to that sprite's `y2`
+every fourth frame, and reverses the step every sixteenth. The result is a slow drift of a few
+pixels, and — because a character standing still underwater does nothing else — it is essentially
+the whole of what "underwater" looks like.
+
+**Nothing else comes with it.** There is no companion sprite (that is surfing), the underwater
+graphics declare no reflection, and the graphic is 32×32 like every other special state. The one
+asymmetry worth knowing: Brendan's underwater graphic resolves to the player palette slot and
+May's to the NPC-special one, though both share the same underwater palette tag.
 
 ## Fishing
 

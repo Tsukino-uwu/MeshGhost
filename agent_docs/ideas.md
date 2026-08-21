@@ -2398,3 +2398,69 @@ anywhere in the HUD, or truly nothing. The ask says zero visual distractions, so
 is nothing at all.
 
 **Not scheduled.** Nothing here is committed until it moves into `plans.md`.
+
+## Stop sending when nobody can see you — cull an isolated player's uploads
+
+**Requested 2026-08-21.** *"don't send your ghost data to the server whenever there is no one
+around you — basically culling when someone is isolated, no need to send their data to the server
+if no one else can see them anyway."*
+
+Most of a singleplayer session is spent alone: a room of one, or a player two maps from anybody.
+Every one of those position updates is uploaded, relayed nowhere, and dropped. On the host that is
+the expensive direction — the README's own numbers grow with the square of room size — and for a
+player on a metered or mobile connection it is upload spent for nothing.
+
+**Where the knowledge is, and it decides the design.** Only the relay knows who else is in the room
+and (per `area_id`) who shares a place; the core knows only what it has been told. So the honest
+shape is the **relay telling the core to go quiet**, not the core guessing. That keeps the core
+game-agnostic — it compares `area_id` by equality, which it already does, and never learns what an
+area is.
+
+Three levels, each strictly cheaper than the last:
+
+- **Room of one.** Nobody else is connected. Unambiguous, needs no `area_id` reasoning, and covers
+  the case of starting the game before a friend joins. The obvious first version.
+- **Nobody in your area.** Everyone else is elsewhere by `area_id`. Bigger win in practice — a
+  12-player room is usually 12 people in 12 places — and still equality-only.
+- **Nobody within N tiles.** Needs distance, which is a game-shaped question; **out of scope for
+  the core** under the game-agnostic rule unless the relay does it from coordinates it already
+  relays. Note it and leave it.
+
+**The hard part is not the culling, it is coming back.** A player who has been silent for a minute
+and then walks into someone must appear *immediately and correctly*, not on the next heartbeat and
+not at a stale position:
+
+- The relay must un-cull **before** the peer can see anything — the moment a peer enters the room
+  or the area, not once movement is noticed, or the first ghost pops in late.
+- The first packet after silence has to be a **full state**, not a delta from a state nobody kept.
+- A culled player must still be **known to be present** (a slow keepalive) or a room list, a
+  nameplate or a join sound has nothing to show, and the relay cannot tell "quiet" from "gone" —
+  which the udp path already gets wrong for 60s (`status.md`).
+- **Never cull the receive direction**, only the send: a lone player must still see someone arrive.
+
+**Worth measuring rather than assuming:** how much a heartbeat-only idle stream actually costs.
+A useful shape is a floor rather than silence — the send rate collapsing to a keepalive — which
+sidesteps most of the resume problem while keeping nearly all of the saving.
+
+**The shape the user asked for, 2026-08-21, and it is the better default:** *"maybe just send the
+bare minimum. no positions or anything just 'current area' or something so it stays alive but use
+way less data."* Not silence — a **presence packet**: who you are and which `area_id` you are in,
+and nothing else. No position, no facing, no animation, no graphic.
+
+Why that is the right minimum rather than an arbitrary one:
+
+- **The area is exactly what the relay needs to decide.** Culling is an area question, so the one
+  field that must keep flowing is the one the decision is made on. A player who dives, enters a
+  cave, or crosses a seam un-culls themselves by saying so — the relay does not have to guess from
+  silence, and there is no window where somebody walks up to a ghost that stopped existing.
+- **It removes the "quiet or gone?" ambiguity for free**, which plain silence introduces and which
+  the udp path already gets wrong for up to 60s.
+- **It is most of the saving.** The expensive part of the stream is the 20-100 Hz position update,
+  not identity — and a presence packet only needs to go out on a CHANGE of area plus a slow
+  keepalive, so an idle player costs a few packets a minute instead of thousands.
+- **It keeps room lists, counts and nameplates working**, which full silence quietly breaks.
+
+The resume rule from above still applies and gets easier: the first packet after presence-only must
+be a **full state**, not a delta — the relay never had a position to delta against.
+
+**Not scheduled.** Nothing here is committed until it moves into `plans.md`.

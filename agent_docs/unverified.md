@@ -548,3 +548,31 @@ Everything else from that session is user-confirmed and in `verified.md`. These 
   a blend fit, a reflection for every peer on reflective ground, and a ripple trail — and **no
   `probes/fpshold.lua` run was made afterwards.** Frame rate is a shipping requirement; this is the
   first thing the next session should measure, against a bare control.
+
+## 2026-08-21 (dive session) — what the user has NOT confirmed
+
+Four changes went into the Emerald adapter this session. **None of the on-screen outcomes is
+confirmed** — the measurements behind them are in `verified.md`, and they are measurements of the
+GAME, not of how our copies look. Judge each with compare mode on, all three tiers in a row.
+
+- **The surf-start hop.** The ghost now performs the game's own `JUMP_SPECIAL` onto the water
+  instead of gliding. Measured on the object event (`act=3A`, `pos2 y=-4`, two frames behind the
+  peer); never judged by eye. Known remainder to look for: **the ghost wears the field-move pose
+  during its hop while the player is already in the surfing one**, because the graphic swap trails
+  the action by a frame or two. If that reads wrong, the swap has to be ordered ahead of the action.
+- **The grey/flashing spawned ghost at the start of surfing.** Two causes were found and fixed —
+  an unresolvable animation frame left freshly-claimed tiles unwritten, and the ghost could be
+  dressed in one graphic while posed from another graphic's animation table. **Still reported after
+  the first fix; the second landed afterwards and has not been looked at.** It appears roughly
+  every two or three attempts, so one clean attempt proves nothing.
+- **Savestate loads no longer break the hardware tier.** The detector is confirmed firing from the
+  adapter's own log, but *"the OAM copy looks right after several state loads"* is a visual claim
+  and nobody has made it yet.
+- **Everything underwater.** The underwater graphic and a bobbing driver for a spawned diver are
+  built and load cleanly; **nothing has been underwater yet**, so no part of it has been seen. The
+  self-drawn tiers' handling of a diver — palette, no reflection, no ripple — is likewise unlooked
+  at. See `documentation.md`'s underwater section for what the game does.
+
+**Also open from this session, not diagnosed:** the user reports the DRAWN ghost *"popping in/out"*
+at the start of surfing. The painted tier falls back to a walker rather than vanishing, so a real
+pop-out needs a different explanation than the one that covered the other two tiers.

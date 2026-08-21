@@ -656,7 +656,23 @@ local function localGraphicsId()
         -- the spawned ghost mounting seven frames after the player (frame-by-frame capture,
         -- 2026-08-20). Fishing is 137/138 (Brendan/May, verified.md); anything unrecognised keeps
         -- the hold, which is the conservative side.
-        local KNOWN_OFFSETFREE = { [0]=true, [89]=true, [1]=true, [90]=true, [63]=true, [91]=true }
+        -- SURFING, THE FIELD-MOVE POSE AND UNDERWATER JOINED THE LIST, 2026-08-21, and the reason
+        -- is the same one that put the bikes in it: they have no lagging offset to wait for, so
+        -- the hold bought nothing and cost lag that showed on screen.
+        --
+        -- Here the lag was not merely visible, it was CORRUPTING. The game sets the surfing
+        -- graphic and the jump onto the water in a single step (`documentation.md`), so holding
+        -- the graphic for six frames while the ACTION goes out immediately delivers them to the
+        -- ghost five frames apart -- and the engine, told to jump, sets the jump's animation
+        -- number on a sprite still wearing the field-move graphic, whose animation table is
+        -- shorter and has no such entry. The ghost then draws a frame that does not exist:
+        -- measured as `anim=20/4 gfx=3` and `frame-out-of-range` in probes/dive_probe.lua, and
+        -- reported from the chair as *"a weird grey/flashing glitched sprite"* every few attempts.
+        --
+        -- The pair these publish together is honest: their offset is set in the same engine step
+        -- as the graphic (the surf blob's bob, the jump arc), not four frames later like the rod's.
+        local KNOWN_OFFSETFREE = { [0]=true, [89]=true, [1]=true, [90]=true, [63]=true, [91]=true,
+            [2]=true, [92]=true, [3]=true, [93]=true, [111]=true, [112]=true }
         if KNOWN_OFFSETFREE[gfx] then
             genderFrames.sentGfx = gfx
         elseif gfx ~= genderFrames.pendingGfx then
@@ -4179,6 +4195,13 @@ local function spawnGhost(playerId, mapX, mapY, orientation, wantGfx)
         local blob = spawnSurfBlob(ghosts[playerId], mapX, mapY)
         console.log(string.format("MeshGhost: surf blob for gfx %d -> sprite %s",
             graphicsId, tostring(blob)))
+    elseif UNDERWATER_GFX[graphicsId] then
+        -- Underwater has no companion sprite at all -- the bobbing IS the state (see
+        -- spawnUnderwaterBobber). A diver spawned without it hangs perfectly still in the water,
+        -- which is the half a player notices first, exactly as a rider on nothing was for surfing.
+        local bob = spawnUnderwaterBobber(ghosts[playerId])
+        console.log(string.format("MeshGhost: underwater bobber for gfx %d -> sprite %s",
+            graphicsId, tostring(bob)))
     end
     return ghosts[playerId]
 end
@@ -4446,6 +4469,66 @@ function updateGhostShadow(g, jumping)
     w16(sd + 0x22, rs16(cd + 0x22) + (g.shadowDrop or 12))
 end
 
+-- UNDERWATER: THE SAME IDEA AS THE BLOB, AND A COMPLETELY DIFFERENT MECHANISM.
+--
+-- Surfing puts a second sprite UNDER the rider. Diving does not: the character's own sprite is
+-- made to bob, by a THIRD sprite that draws nothing at all. `PlayerAvatarTransition_Underwater`
+-- (src/field_player_avatar.c:888-894) sets the underwater graphic and then calls
+-- `StartUnderwaterSurfBlobBobbing(objEvent->spriteId)`, which creates an invisible dummy sprite
+-- whose callback nudges the NAMED sprite's y2 up and down (src/field_effect_helpers.c:1150-1176):
+-- +1 every fourth frame, the direction reversing every sixteenth. The result is a slow four-pixel
+-- drift, and it is the whole of what "underwater" looks like when a character is standing still.
+--
+-- So a ghost gets one of those dummies pointed at ITSELF, and the engine bobs it for us -- the same
+-- let-the-game-do-the-work move as handing the surf blob to UpdateSurfBlobFieldEffect, and for the
+-- same reason: the phase, the amplitude and the timing are then the game's rather than a number
+-- copied out of a comment.
+--
+-- It is recorded on `g.blobSprId` deliberately, even though it is not a blob. Every teardown path
+-- this file has -- despawn, map change, a graphic change away from the water -- already goes
+-- through despawnSurfBlob, and the one place that must NOT write a ghost's own pos2 (the peer's
+-- offset mirror, further down) already declines when that field is set. A separate field would
+-- need each of them taught about it, and the one that got missed would be a ghost left bobbing on
+-- dry land.
+--
+--   SpriteCB_UnderwaterSurfBlob  08155850  (+1 for Thumb; a static, so pokeemerald.sym not .map)
+--   gDummySpriteTemplate         082EC6AC  (pokeemerald.map)
+--   struct SpriteTemplate: tileTag 0x00, paletteTag 0x02, oam 0x04, anims 0x08, images 0x0C,
+--     affineAnims 0x10, callback 0x14 -- the same layout spawnSurfBlob reads.
+--   Its data slots: data[0] the sprite id it bobs, data[1] the step (+1/-1), data[2] the timer.
+UNDERWATER_GFX = { [111] = true, [112] = true } -- Brendan, May (verified.md's graphicsId table)
+SPRITECB_UNDERWATERSURFBLOB_CB = 0x08155850 + 1
+GDUMMYSPRITETEMPLATE = 0x082ec6ac
+
+function spawnUnderwaterBobber(g)
+    if not g or g.blobSprId then return nil end
+    local sprId = findFreeSpriteSlot()
+    if not sprId or sprId == g.sprId then return nil end
+    -- No tiles: this sprite is invisible and draws nothing, which is why it costs a slot and
+    -- nothing else. Copying the dummy template's own pointers rather than zeroing them keeps the
+    -- engine's per-frame animation pass on ground it recognises.
+    local tmpl = GDUMMYSPRITETEMPLATE
+    local oamPtr = r32(tmpl + 0x04)
+    local d = sprAddr(sprId)
+    for off = 0, SPRITE_SIZE - 1 do w8(d + off, 0) end
+    if oamPtr ~= 0 then
+        for off = 0, 7 do w8(d + off, r8(oamPtr + off)) end
+    end
+    w32(d + 0x08, r32(tmpl + 0x08))            -- anims
+    w32(d + 0x0c, r32(tmpl + 0x0c))            -- images
+    w32(d + 0x10, r32(tmpl + 0x10))            -- affineAnims
+    w32(d + 0x14, tmpl)                        -- template
+    w32(d + 0x1c, SPRITECB_UNDERWATERSURFBLOB_CB)
+    w16(d + 0x2e, g.sprId)                     -- data[0]: the sprite this one bobs -- the GHOST
+    w16(d + 0x30, 1)                           -- data[1]: step, +1 first, as the game seeds it
+    w16(d + 0x32, 0)                           -- data[2]: timer
+    w8(d + 0x3e, 0x05)                         -- inUse | invisible
+    -- Tell the object it owns this effect, the way PlayerAvatarTransition_Underwater does.
+    w8(objAddr(g.objId) + 0x1a, sprId)
+    g.blobSprId, g.blobTileStart = sprId, nil
+    return sprId
+end
+
 despawnSurfBlob = function(g)
     if not g.blobSprId then return end
     local d = sprAddr(g.blobSprId)
@@ -4597,6 +4680,24 @@ end
 -- A GLOBAL because this chunk is at Lua's 200-local ceiling.
 -- WHO CALLED, logged on change (COMPARE_TIERS only): five sites call this, and a pixel state that
 -- oscillates every frame means two of them disagree. Naming the writer beats a tenth theory.
+-- AN ANIMATION NUMBER BELONGS TO A GRAPHIC. Mirroring the peer's `sanim` onto a ghost is only
+-- meaningful while the two are wearing the SAME graphic: every special state has its own animation
+-- table, of its own length, so a number that means "surfing, facing south" on the peer indexes past
+-- the end of a walker's table -- or, worse, lands on a real but unrelated animation.
+--
+-- This is the pair that goes incoherent during a transition, and it is not hypothetical: measured
+-- 2026-08-21 at the start of surfing, the ghost held gfx 3 (the field-move pose) while being fed
+-- anim 20 (surfing) -- the graphic swap and the animation mirror are applied by different code on
+-- different frames, so for a handful of frames the ghost is dressed in one graphic and posed from
+-- another. Both self-drawn tiers show it in their own way and the spawned one drew rubbish.
+--
+-- Standing aside for those frames costs nothing: the engine animates the ghost's own action
+-- meanwhile, and the swap arrives a frame or two later with the right frame loaded by its own path.
+-- A nil `remote.gfx` means the peer never told us -- the pair cannot be incoherent, so mirror.
+function animBelongsToGhost(g, remote)
+    return remote.gfx == nil or g.gfx == nil or remote.gfx == g.gfx
+end
+
 function loadGhostFrameNow(g, info, animNum, animIdx)
     if COMPARE_TIERS then
         local who = debug.getinfo(2, "l")
@@ -4608,11 +4709,34 @@ function loadGhostFrameNow(g, info, animNum, animIdx)
         end
     end
     if not info or info.anims == 0 or info.images == 0 or not g.tileStart then return end
-    local animPtr = r32(info.anims + (animNum or 0) * 4)
-    if not isRomPtr(animPtr) then return end
-    local frame = r32(animPtr + (animIdx or 0) * 4) & 0xFFFF
-    local src = r32(info.images + frame * 8)
-    if not isRomPtr(src) then return end
+    -- A FRAME THAT CANNOT BE RESOLVED MUST STILL LEAVE PIXELS BEHIND.
+    --
+    -- This is called from the graphic swap, immediately after a FRESH tile range has been claimed
+    -- and the sprite pointed at it -- so returning early here does not leave the ghost looking as
+    -- it did a moment ago, it leaves it drawing from VRAM nobody has written: grey rubbish. The
+    -- user, watching the surf start: *"the spawned ghost glitch out sometimes when starting surf,
+    -- like a grey/glitched sprite"*, and SOMETIMES is the tell -- it depends on which animation
+    -- the peer happened to be in when its graphic changed.
+    --
+    -- Why it fails at all: the peer's animation number belongs to the graphic the peer had. Every
+    -- special state has its OWN anim table, and they are not the same length -- the field-move
+    -- graphic uses sAnimTable_FieldMove where a walker uses sAnimTable_Standard -- so a peer
+    -- carrying anim 20 into a graphic with a handful of animations indexes past the end of the
+    -- table and reads whatever ROM sits after it. Measured 2026-08-21: the ghost held anim 20/4
+    -- while wearing gfx 3.
+    --
+    -- The fallback is the graphic's own first frame, which every graphic has. A ghost briefly
+    -- facing the wrong way is a small, legible wrongness; a grey block is not.
+    local function resolve(an, ai)
+        local animPtr = r32(info.anims + (an or 0) * 4)
+        if not isRomPtr(animPtr) then return nil end
+        local frame = r32(animPtr + (ai or 0) * 4) & 0xFFFF
+        local p = r32(info.images + frame * 8)
+        if not isRomPtr(p) then return nil end
+        return p
+    end
+    local src = resolve(animNum, animIdx) or resolve(0, 0)
+    if not src then return end
     -- OBJ VRAM, 32 bytes per 4bpp tile. info.size is the graphic's own byte count, so this copies
     -- exactly one frame and never spills into a neighbour's range.
     local dst = 0x06010000 + g.tileStart * 32
@@ -4706,6 +4830,10 @@ function applyHeldPose(g, remote)
             tostring(g.tileStart), tostring(fr), tostring(lr),
             r16(dd2 + 0x04) & 0x3ff))
     end
+    -- The peer's pose is only meaningful while the ghost wears the peer's graphic; see
+    -- animBelongsToGhost. Holding a pose from the wrong animation table is how a ghost ends up
+    -- displaying a frame that does not exist.
+    if not animBelongsToGhost(g, remote) then return false end
     local d = sprAddr(g.sprId)
     local settled = r8(d + 0x2a) == remote.sanim and r8(d + 0x2b) == remote.sidx
         and (r8(d + 0x2c) & 0x40) ~= 0
@@ -4940,6 +5068,11 @@ function swapGhostGraphicInPlace(g, graphicsId, sanim, sox, soy, sidx, spaused)
             local a = objAddr(g.objId)
             spawnSurfBlob(g, rs16(a + 0x10) - MAP_OFFSET, rs16(a + 0x12) - MAP_OFFSET)
         end
+    elseif UNDERWATER_GFX[graphicsId] then
+        -- Diving is a WARP, so a peer normally arrives already underwater and gets its bobber from
+        -- the spawn path -- but the swap path has to cover it too, for the same reason the blob
+        -- does: a peer already spawned as a walker has its graphic patched rather than rebuilt.
+        if not g.blobSprId then spawnUnderwaterBobber(g) end
     else
         despawnSurfBlob(g)
     end
@@ -5235,7 +5368,7 @@ local function syncGhost(playerId, remote)
             -- the ghost adopts the peer's action, and the engine sets that animation itself.
             local agrees = not isJumpAction(remote.act)
                 or r8(objAddr(g.objId) + 0x1c) == remote.act
-            if agrees and r8(d + 0x2a) ~= remote.sanim then
+            if agrees and animBelongsToGhost(g, remote) and r8(d + 0x2a) ~= remote.sanim then
                 w8(d + 0x2a, remote.sanim)
                 loadGhostFrameNow(g, graphicsInfo(g.gfx), remote.sanim, remote.sidx or 0)
             end
@@ -5262,7 +5395,7 @@ local function syncGhost(playerId, remote)
                     r16(sprAddr(g.sprId) + 0x04) & 0x3ff))
             end
             applyHeldPose(g, remote)
-        elseif g.animSetFor ~= remote.sanim then
+        elseif g.animSetFor ~= remote.sanim and animBelongsToGhost(g, remote) then
             w8(d + 0x2a, remote.sanim)
             w8(d + 0x3f, (r8(d + 0x3f) | 0x04) & ~0x10)
             -- AND ASK THE ENGINE TO ACTUALLY PLAY IT. Setting the animation number alone is not
@@ -5593,8 +5726,22 @@ local function syncGhost(playerId, remote)
     -- Verbatim rather than animation-only (the acroBase treatment below): like a ledge hop this
     -- covers real ground in one arc that no ordinary step reproduces, and the position logic agrees
     -- with it afterwards.
+    -- 0x3A..0x3D JUMP_SPECIAL -- THE HOP ONTO THE WATER -- is here for the same reason the side
+    -- hop is: it covers a tile in one arc that no ordinary step reproduces, and it is the whole
+    -- difference between a peer who STARTS SURFING and one who slides onto the sea.
+    --
+    -- The game's own sequence (src/field_effect.c:3018-3056): field-move pose, show the Pokemon,
+    -- and only then set the surfing graphic AND issue
+    -- ObjectEventSetHeldMovement(GetJumpSpecialMovementAction(dir)) while creating the surf blob
+    -- at the DESTINATION tile. Measured live 2026-08-21 on the player's own object event: gfx 0 ->
+    -- 3 with act=0x39 (START_ANIM_IN_DIRECTION, the pose), then gfx=2 with act=0x3A and pos2 y=-4,
+    -- the arc itself. The ghost read act=0x00/0xFF throughout, because 0x3A fell through every
+    -- list here -- so it popped from standing on land to surfing and then glided down a tile. The
+    -- user, watching all three tiers: *"its just the starting surf -> going to surf part that is
+    -- weird"*.
     local travels = remote.act and (
         (remote.act >= 0x0c and remote.act <= 0x0f)
+        or (remote.act >= 0x3a and remote.act <= 0x3d)
         or (remote.act >= 0x42 and remote.act <= 0x45)
         or (remote.act >= 0x74 and remote.act <= 0x7b)
         or (remote.act >= 0x80 and remote.act <= 0x8b))
@@ -5867,7 +6014,9 @@ local function syncGhost(playerId, remote)
                 -- animBeginning -- restarting an animation is its own old bug) leaves the engine
                 -- advancing a standing animation instead of a rolling one, and there is still just
                 -- one thing driving it.
-                if remote.sanim then w8(sprAddr(g.sprId) + 0x2a, remote.sanim) end
+                if remote.sanim and animBelongsToGhost(g, remote) then
+                    w8(sprAddr(g.sprId) + 0x2a, remote.sanim)
+                end
             end
             -- AND THE PIXELS HAVE TO FOLLOW THE POSE. Settling sets the animation the ghost should
             -- be showing; it does not put that frame's IMAGE anywhere. An object event's frames are
@@ -5902,7 +6051,7 @@ local function syncGhost(playerId, remote)
             -- so the copy re-arms after every action rather than counting itself already done.
             if r8(a + 0x1c) ~= MOVEMENT_ACTION_NONE then
                 g.frameFor = nil
-            elseif remote.sanim and g.gfx then
+            elseif remote.sanim and g.gfx and animBelongsToGhost(g, remote) then
                 local key = remote.sanim * 8 + (remote.sidx or 0)
                 if g.frameFor ~= key then
                     g.frameFor = key
@@ -8644,8 +8793,56 @@ local localGender = nil -- resolved lazily, first frame a save is loaded (see re
 -- One frame's worth of work, pcall-wrapped below so a malformed remote (a bad jsonDecode
 -- result reaching handleBridgeLine, an unexpected shape in memory reads, etc.) logs and skips
 -- a frame instead of a single Lua error killing the whole adapter for the rest of the session.
+-- A SAVESTATE LOAD REPLACES THE WORLD UNDERNEATH US, and nothing in the game says so.
+--
+-- Everything this adapter holds about the engine -- which object slots our ghosts live in, which
+-- OBJ tile ranges we allocated, which hardware OAM entries we own -- describes the machine as it
+-- was. A state load rewinds all three at once: the engine's tile-allocation bitmap goes back to
+-- what it held when the state was saved, while our record of what we own does not. From that frame
+-- on we are writing sprite frames into tiles the engine has since given to something else, and
+-- drawing our own from the same range -- which is exactly what the user saw, twice, with the
+-- hardware tier: *"the OAM gets weird after save states"*, then *"the OAM sprite broke completely
+-- now after a save state"*.
+--
+-- IT IS A SHIPPED BUG, NOT A DEV ONE. Loading a state is ordinary BizHawk use, not something only
+-- an agent driving a test does -- the same reasoning that made despawnGhost's out-of-overworld
+-- guard a shipped fix rather than a loader one.
+--
+-- THE TELL IS THE EMULATOR'S OWN FRAME COUNTER, not anything in the game: this runs once per
+-- emulated frame, so the count advances by exactly one. A load makes it jump -- backwards to an
+-- earlier state, or forwards to a later one. Anything that is not "one more than last time" means
+-- the world was replaced.
+--
+-- THE RESPONSE IS TO FORGET, NOT TO CLEAN UP. Freeing "our" tiles here would clear bits in a
+-- bitmap that is now somebody else's -- the identity-first rule despawnGhost already follows for a
+-- map load, for the same reason and with the same silent consequence. So: release the hardware
+-- tier without freeing (hwReleaseAll(false)), drop every ghost record (despawnGhost's own identity
+-- test then declines to touch a slot that is no longer ours), and throw away the queued tile frees,
+-- which name ranges from a world that no longer exists. Everything is re-acquired from scratch on
+-- the next frame, against the bitmap the engine actually has now.
+-- GLOBAL, like hwRelease and swapGhostGraphicInPlace: this chunk sits at Lua's hard ceiling of 200
+-- locals per function, and one more file-scope local here is a PARSE failure, not a slow script.
+-- Adding it as a local is exactly how this landed the first time (2026-08-21).
+function detectStateLoad()
+    local fc = emu.framecount()
+    local last = genderFrames.lastEmuFrame
+    genderFrames.lastEmuFrame = fc
+    if last == nil or fc == last + 1 then return end
+    -- A small forward jump is ordinary (a dropped tick, the emulator catching up); a big one, or
+    -- any backwards step, is a different world.
+    if fc > last and fc <= last + 10 then return end
+    logFile(string.format("state load detected: emu frame %d -> %d; dropping every ghost, "
+        .. "hardware entry and tile claim rather than freeing them", last, fc))
+    pcall(hwReleaseAll, false)
+    pcall(despawnAllGhosts)
+    genderFrames.pendingTileFrees = {}
+    tiering.hw.fxTiles, tiering.hw.puffs, tiering.hw.ripples = {}, {}, {}
+    tiering.hw.area = nil
+end
+
 local function runFrame()
     frameCounter = frameCounter + 1
+    detectStateLoad()
     -- CLEAR ONLY WHAT WILL BE REPAINTED. A map transition deliberately returns nil local state
     -- for a frame or two (mapJustChanged), and the whole render block sits inside `if state` --
     -- so an unconditional clear here wiped the overlay on exactly the frames nothing repaints,
