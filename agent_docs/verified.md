@@ -9658,3 +9658,19 @@ the two disagree.
 - **The tell worth keeping**: a wrong-but-COHERENT game asset (a clean egg, not garbage) says
   "shared allocation", not "corrupted memory" -- something else is legitimately drawing from a
   range we also think we own. Garbage says corruption; a wrong real sprite says collision.
+
+
+### Emerald: the orange sprite was a PALETTE SLOT, not tiles (2026-08-21)
+
+- Date: 2026-08-21. **Source: the user, on screen**, after the palette fix: *"orange seems to be
+  gone at least"*. (An earlier double-free fix reduced it but did not remove it -- that entry
+  above stands as a real bug fixed, not as this one's cause.)
+- **The cause**: our surf blob hardcoded OBJ palette slot 0 -- as the engine's own
+  `FldEff_SurfBlob` does, which it may, because it runs when its slot is loaded. Ours does not:
+  at a surf start the show-mon effect loads a POKEMON's palette, and when it took slot 0 our blob
+  drew in that Pokemon's colours.
+- **What identified it, and it is the session's most reusable trick**: the user named the SPAWNED
+  and DRAWN copies and not the hardware one -- and the hardware tier was the only tier that
+  resolved the blob's palette from its template TAG through the engine's table instead of
+  hardcoding 0. Three renderers of the same peer are a built-in control group: when one behaves
+  and two do not, diff what that one does differently. Both other tiers now resolve by tag.

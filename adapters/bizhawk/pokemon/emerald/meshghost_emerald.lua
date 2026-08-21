@@ -2788,7 +2788,18 @@ genderFrames.oamMatricesAddr = 0x02021bc0
 -- Fields on genderFrames rather than new locals: this chunk sits one or two names below Lua's
 -- hard ceiling of 200 locals per function, past which the script does not misbehave, it fails to
 -- parse. Same reason the tiering table exists.
+-- SLOT 0 IS THE FALLBACK, NOT THE ANSWER. The blob's palette must be resolved from its template's
+-- TAG through the engine's own table, because the slot a tag lives in is not fixed: at a surf
+-- start the show-mon effect loads a POKEMON's palette, and if it takes the slot we assumed, our
+-- blob renders in that Pokemon's colours -- *"a weird glitched orange sprite"* on exactly the two
+-- tiers that hardcoded 0. The hardware tier already resolved by tag and was the one tier the user
+-- never reported it on, which is what identified this: three renderers, one differing in exactly
+-- the suspected way.
 genderFrames.blobPaletteSlot = 0
+genderFrames.blobPalette = function()
+    return hwPaletteSlotForTag(r16(GFIELDEFFECTTEMPLATE_SURFBLOB + 0x02))
+        or genderFrames.blobPaletteSlot
+end
 -- The reverse of FACING, so a peer's orientation string picks the blob's animation.
 genderFrames.dirOf = { south = 1, north = 2, west = 3, east = 4 }
 genderFrames.blobDirImage = { [1] = 0, [2] = 1, [3] = 2, [4] = 2 }
@@ -2799,7 +2810,7 @@ genderFrames.runsForSurfBlob = function(facing)
     if not isRomPtr(images) then return nil end
     local runs = genderFrames.runsFromImages(
         string.format("blob:%d", imageIndex), images,
-        SURFBLOB_FRAME_PX, SURFBLOB_FRAME_PX, imageIndex, genderFrames.blobPaletteSlot)
+        SURFBLOB_FRAME_PX, SURFBLOB_FRAME_PX, imageIndex, genderFrames.blobPalette())
     -- East is the west frame mirrored, which is the flag the anim command carries.
     return runs, (facing == 4)
 end
@@ -3973,10 +3984,46 @@ local VRAM_ADDR = 0x06000000
 -- different columns than the text box and a single rectangle would clip the wrong screen area.
 tiering.panelRows = {}
 tiering.panelScannedAt = nil
+-- THE BANNER'S WINDOW IS RE-READ EVERY FRAME, the tilemap scan is not.
+--
+-- The scan is throttled to every fourth frame and needs two agreeing samples before it changes,
+-- which is right for a flickery tilemap heuristic and wrong for a hardware rectangle the game
+-- animates per frame. Applying the window inside the scan meant the banner's SHRINK reached our
+-- clip up to eight frames late: measured, the banner cleared the ghost's row at f=265 while the
+-- painted body stayed hidden through f=268, with the jump onto the blob at f=273 -- which is the
+-- user's *"gets cut off slightly before it jumps onto the blob"*. So the scan caches raw rows and
+-- the window intersection is applied to a copy on EVERY call.
+tiering.applyShowMonWindow = function(rows)
+    local showMon = nil
+    for t = 0, 15 do
+        local ta = 0x03005e00 + t * 0x28
+        if r8(ta + 0x04) == 1 then
+            local fn = r32(ta + 0x00)
+            if fn == 0x080b8555 or fn == 0x080b88b5 then showMon = ta break end
+        end
+    end
+    if not showMon then return rows end
+    local wh = r16(showMon + 0x08 + 1 * 2)
+    local wv = r16(showMon + 0x08 + 2 * 2)
+    local x1, x2 = (wh >> 8) & 0xff, (wh & 0xff) - 1
+    local y1, y2 = (wv >> 8) & 0xff, (wv & 0xff) - 1
+    local out = {}
+    for row, span in pairs(rows) do
+        local rTop, rBot = row * 8, row * 8 + 7
+        if not (rBot < y1 or rTop > y2 or x2 < x1) then
+            local a, b = span[1], span[2]
+            if a < x1 then a = x1 end
+            if b > x2 then b = x2 end
+            if b >= a then out[row] = { a, b } end
+        end
+    end
+    return out
+end
+
 tiering.scanPanel = function()
     local SCAN_EVERY_FRAMES = 4
     if tiering.panelScannedAt and frameCounter - tiering.panelScannedAt < SCAN_EVERY_FRAMES then
-        return tiering.panelRows
+        return tiering.applyShowMonWindow(tiering.panelRows)
     end
     tiering.panelScannedAt = frameCounter
 
@@ -4033,53 +4080,8 @@ tiering.scanPanel = function()
         end
     end
     tiering.panelPrev = rows
-    -- THE SHOW-MON BANNER IS REVEALED BY HARDWARE WINDOW 0, so its tilemap lies about coverage.
-    --
-    -- Using an HM plays a full-width banner across mid-screen, and its TILEMAP rows are fully
-    -- written from the first frame -- but the game shows it through WIN0, a rectangle it animates
-    -- open and closed per frame (WININ carries BG0+OBJ, WINOUT drops BG0:
-    -- FieldMoveShowMonOutdoorsEffect_Init, src/field_effect.c:2613-2626). Clipping from the
-    -- tilemap therefore hides the painted ghost for the whole effect, while the engine's own
-    -- sprites disappear only where the rectangle actually covers them -- the user, watching all
-    -- three copies: *"the drawn ghost still goes away for a bit whenever surf is used... probly
-    -- the same way we hide it from house entry/exit or from menus?"* Close: same clip, wrong
-    -- authority for this one panel.
-    --
-    -- The rectangle is read from the effect TASK's own data, not the registers: WIN0H/V are
-    -- write-only on hardware and this build's reads return open-bus junk (measured 2026-08-21,
-    -- WIN0H == WIN0V every sample). The task stores what it writes -- tWinHoriz data[1],
-    -- tWinVert data[2], WIN_RANGE packing hi=start lo=end (field_effect.c:2552-2554) -- so the
-    -- panel spans are intersected with exactly what the hardware is shown.
-    --   gTasks 03005E00, struct Task { func 0x00, isActive 0x04, ..., data 0x08 }, size 0x28
-    --   Task_FieldMoveShowMonOutdoors 080B8554 / ..Indoors 080B88B4 (pokeemerald.sym; +1 Thumb)
-    do
-        local showMon = nil
-        for t = 0, 15 do
-            local ta = 0x03005e00 + t * 0x28
-            if r8(ta + 0x04) == 1 then
-                local fn = r32(ta + 0x00)
-                if fn == 0x080b8555 or fn == 0x080b88b5 then showMon = ta break end
-            end
-        end
-        if showMon then
-            local wh = r16(showMon + 0x08 + 1 * 2)
-            local wv = r16(showMon + 0x08 + 2 * 2)
-            local x1, x2 = (wh >> 8) & 0xff, (wh & 0xff) - 1
-            local y1, y2 = (wv >> 8) & 0xff, (wv & 0xff) - 1
-            for row, span in pairs(out) do
-                local rTop, rBot = row * 8, row * 8 + 7
-                if rBot < y1 or rTop > y2 or x2 < x1 then
-                    out[row] = nil                     -- BG0 is not shown on this row at all
-                else
-                    if span[1] < x1 then span[1] = x1 end
-                    if span[2] > x2 then span[2] = x2 end
-                    if span[2] < span[1] then out[row] = nil end
-                end
-            end
-        end
-    end
     tiering.panelRows = out
-    return out
+    return tiering.applyShowMonWindow(out)
 end
 
 -- Say which renderer this session is running, once, at load. "Is the drawn tier on?" was
@@ -4432,7 +4434,11 @@ spawnSurfBlob = function(g, mapX, mapY)
     local d = sprAddr(sprId)
     for off = 0, SPRITE_SIZE - 1 do w8(d + off, 0) end
     for off = 0, 7 do w8(d + off, r8(oamPtr + off)) end
-    w16(d + 0x04, (r16(d + 0x04) & 0x0c00) | (tileStart & 0x03ff)) -- tileNum, paletteNum 0
+    -- tileNum, and the palette resolved from the template's tag rather than the engine's
+    -- hardcoded 0 (FldEff_SurfBlob can hardcode it; it runs when its own slot is loaded, we do
+    -- not). See genderFrames.blobPalette.
+    w16(d + 0x04, (r16(d + 0x04) & 0x0c00) | (tileStart & 0x03ff)
+        | ((genderFrames.blobPalette() & 0x0f) << 12))
     w32(d + 0x08, animsPtr)
     w32(d + 0x0c, imagesPtr)
     w32(d + 0x10, affinePtr)
