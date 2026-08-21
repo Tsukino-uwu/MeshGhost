@@ -9674,3 +9674,34 @@ the two disagree.
   resolved the blob's palette from its template TAG through the engine's table instead of
   hardcoding 0. Three renderers of the same peer are a built-in control group: when one behaves
   and two do not, diff what that one does differently. Both other tiers now resolve by tag.
+
+### Emerald: the DIVE black screen was ours, and the OAM tier cannot draw underwater (2026-08-21)
+
+- Date: 2026-08-21, late. **Source: the user's own dives, bisected live with them**, which is the
+  only reason this was found at all.
+- **The black screen.** Diving with the adapter loaded left the game stuck on a black screen with
+  every palette zeroed, after the dive banner showed *"an egg instead of sharpedo"*. Bisected
+  against their dive, one variable at a time: adapter dropped -> fine; spawned tier off -> fine;
+  spawned ghosts with blob and bobber off -> fine; blob ON, bobber OFF -> fine; bobber ON ->
+  black. **The cause was our UNDERWATER BOBBER**: a faithful copy of the engine's own dummy
+  sprite, which holds ANOTHER SPRITE'S INDEX and nudges that sprite every fourth frame. The index
+  is only meaningful while the ghost it names is alive; once the slot was reused, our bobber wrote
+  into whatever landed there -- during a dive, the show-mon's Pokemon picture. That corrupted the
+  pic (the egg) and left its effect waiting forever for a sprite that could no longer report
+  itself finished, so the fade-in never ran.
+- **The fix**: no bobber at all. A diver's bob is the PEER's own sprite offset, already on the
+  wire (`soy`) and already applied to a ghost with no blob -- the same "the peer is the authority"
+  answer the surf blob taught. An intermediate version drove the bob from Lua and was also wrong:
+  two writers on one field, which the user saw as *"moving really fast/weird"*.
+- **The OAM tier is structurally invisible underwater, and stands down there.** Its entries live
+  at 64+, sprite ties are broken by entry number, and the game lays a full-screen grid of 64x64
+  semi-transparent fog sprites over the scene (measured: entries 4..23, priority 2) with its own
+  characters at 0..3 above it. Raising our priority does make the ghost appear -- and drags a
+  32x32 white box with it, because a semi-transparent sprite cannot blend against another sprite
+  and draws opaque wherever ours is in the way (*"a fog/smoke square that follows the OAM ghost"*,
+  at priority 1 and 0 alike). So underwater those peers go to the painted tier, which is drawn
+  after the frame and subject to none of it.
+- **What this cost, and the rule it earns**: hours, because I twice reproduced an engine mechanism
+  by copying its DATA STRUCTURE rather than its EFFECT. A structure that stores another object's
+  id is safe for the engine, which owns every lifetime involved, and unsafe for us, who own none
+  of them. **Reproduce the effect; never adopt a handle to something the engine can recycle.**

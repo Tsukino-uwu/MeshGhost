@@ -4461,7 +4461,14 @@ local SURFBLOB_SUBPRIORITY = 150
 -- (StartUnderwaterSurfBlobBobbing on the player's own sprite), and is not handled here.
 SURFING_GFX = { [2] = true, [92] = true } -- Brendan, May
 
+-- MESHGHOST_EMERALD_NO_BLOB (probe): spawn ghosts, but give them no blob and no underwater
+-- bobber. Exists to bisect a hard failure found 2026-08-21 -- diving with the adapter loaded
+-- black-screened the GAME (its show-mon effect waited forever on a Pokemon sprite that had been
+-- clobbered), and turning the spawned tier off entirely cleared it. These two are the only engine
+-- SPRITES that tier creates, so this switch separates "a spawned ghost" from "the field effects
+-- attached to it". Never ship it set: a surfing ghost without its blob is half a state.
 spawnSurfBlob = function(g, mapX, mapY)
+    if MESHGHOST_EMERALD_NO_BLOB then return nil end   -- surf blob only; see NO_BOBBER
     if COMPARE_TIERS then
         local who = debug.getinfo(2, "l")
         logFile(string.format("BLOB SPAWN from line %s at tile (%d,%d) f=%d",
@@ -4746,33 +4753,23 @@ UNDERWATER_GFX = { [111] = true, [112] = true } -- Brendan, May (verified.md's g
 SPRITECB_UNDERWATERSURFBLOB_CB = 0x08155850 + 1
 GDUMMYSPRITETEMPLATE = 0x082ec6ac
 
+-- THE UNDERWATER BOB NEEDS NO MECHANISM OF OURS AT ALL, and two attempts at one were wrong in
+-- different ways before this was seen.
+--
+-- Attempt one reproduced the engine's dummy sprite faithfully: a sprite holding ANOTHER sprite's
+-- index, nudging its y2 every fourth frame. Faithful and unsafe -- when the named slot was reused
+-- our bobber wrote into whatever landed there, and during a dive that is the show-mon's Pokemon
+-- picture: a wrong sprite (*"an egg instead of sharpedo"*) and an effect stuck waiting for it, so
+-- the screen stayed faded to black and the GAME was stuck. Bisected against the user's own dive.
+--
+-- Attempt two drove the same bob from Lua. Safe, but redundant and visibly wrong: the peer's own
+-- sprite offset is ALREADY on the wire (`soy`) and already applied to a ghost that has no blob --
+-- so the ghost got two writers on one field and jittered (*"moving really fast/weird"*).
+--
+-- The right answer is the one the surf blob taught: the PEER's own offset is the authority. A
+-- diver's bob rides the wire for free, at the peer's phase, with nothing to leak or fight.
 function spawnUnderwaterBobber(g)
-    if not g or g.blobSprId then return nil end
-    local sprId = findFreeSpriteSlot()
-    if not sprId or sprId == g.sprId then return nil end
-    -- No tiles: this sprite is invisible and draws nothing, which is why it costs a slot and
-    -- nothing else. Copying the dummy template's own pointers rather than zeroing them keeps the
-    -- engine's per-frame animation pass on ground it recognises.
-    local tmpl = GDUMMYSPRITETEMPLATE
-    local oamPtr = r32(tmpl + 0x04)
-    local d = sprAddr(sprId)
-    for off = 0, SPRITE_SIZE - 1 do w8(d + off, 0) end
-    if oamPtr ~= 0 then
-        for off = 0, 7 do w8(d + off, r8(oamPtr + off)) end
-    end
-    w32(d + 0x08, r32(tmpl + 0x08))            -- anims
-    w32(d + 0x0c, r32(tmpl + 0x0c))            -- images
-    w32(d + 0x10, r32(tmpl + 0x10))            -- affineAnims
-    w32(d + 0x14, tmpl)                        -- template
-    w32(d + 0x1c, SPRITECB_UNDERWATERSURFBLOB_CB)
-    w16(d + 0x2e, g.sprId)                     -- data[0]: the sprite this one bobs -- the GHOST
-    w16(d + 0x30, 1)                           -- data[1]: step, +1 first, as the game seeds it
-    w16(d + 0x32, 0)                           -- data[2]: timer
-    w8(d + 0x3e, 0x05)                         -- inUse | invisible
-    -- Tell the object it owns this effect, the way PlayerAvatarTransition_Underwater does.
-    w8(objAddr(g.objId) + 0x1a, sprId)
-    g.blobSprId, g.blobTileStart = sprId, nil
-    return sprId
+    return nil
 end
 
 despawnSurfBlob = function(g)
@@ -7059,7 +7056,9 @@ local function syncRemoteGhosts(localAreaId, spawnSet)
         end
     end
     for playerId, remote in pairs(remotes) do
-        if remote.areaId == localAreaId and spawnSet[playerId] then syncGhost(playerId, remote) end
+        if remote.areaId == localAreaId and spawnSet[playerId] then
+            syncGhost(playerId, remote)
+        end
     end
     -- SAY IT OUT LOUD IF TWO PEERS EVER SHARE ONE OBJECT AGAIN.
     --
@@ -7410,6 +7409,33 @@ end
 -- The shadow templates ask for TAG_NONE, so `CreateSpriteAt` (sprite.c:584) leaves paletteNum at
 -- whatever the OAM template carries, which is 0 -- and copying the template's first two halfwords
 -- reproduces that without knowing it.
+-- WHAT PRIORITY OUR ENTRIES NEED TO BE SEEN AT ALL.
+--
+-- This tier holds OAM entries 64+, and among sprites of the SAME priority the lower entry number
+-- wins -- so it loses every overlap to the engine's own sprites. Underwater that becomes fatal:
+-- the game lays a full-screen grid of 64x64 semi-transparent sprites over the scene (measured
+-- live: entries 4..23, five columns by four rows, priority 2, covering every pixel), and the
+-- engine's characters sit at entries 0..3, ABOVE it by the same index rule. Our entries sit
+-- below it, so nothing this tier drew could appear -- the user, after a long hunt: *"OAM shows
+-- while surfing, its only invisible underwater"*.
+--
+-- RAISING OUR PRIORITY MAKES US VISIBLE AND UGLY, so this tier stands down underwater instead.
+--
+-- Priority is compared before the index, so priority 1 (or 0) does put our entries above the fog
+-- and the ghost appears. It also drags a 32x32 WHITE BOX with it, at either priority: a
+-- semi-transparent sprite blends with the layer beneath it, cannot blend against another SPRITE,
+-- and gives up and draws OPAQUE wherever ours is in the way -- so the fog turns solid over our
+-- sprite's whole rectangle. The user, on sight: *"has a weird square/outline around it... looks
+-- like a fog/smoke background, a square that follows the OAM ghost"*.
+--
+-- Nothing available from entries 64+ wins this: the fog is the engine's own, at indices we cannot
+-- get beneath (its 4..23 are rebuilt from the engine's sprite list every frame). So underwater
+-- this tier declines and its peers fall to the PAINTED one, which is drawn after the frame and
+-- subject to none of this. Coverage is unchanged; only which renderer draws them changes.
+function hwSpritePriority()
+    return 2
+end
+
 function hwPaletteSlotForTag(tag)
     for i = 0, 15 do
         if r16(0x03000cf0 + i * 2) == tag then return i end
@@ -7584,7 +7610,7 @@ function hwDrawSurf(playerId, rec, remote, info, sx, sy, arcY, hFlip)
             local a = tiering.hw.base + bslot * 8
             w16(a + 0, (r16(o + 0x00) & 0xff00) | (by & 0xff))
             w16(a + 2, (r16(o + 0x02) & 0xfe00) | (bx & 0x1ff) | (facing == 4 and 0x1000 or 0))
-            w16(a + 4, (bstart & 0x3ff) | (2 << 10) | ((bpal & 0x0f) << 12))
+            w16(a + 4, (bstart & 0x3ff) | (hwSpritePriority() << 10) | ((bpal & 0x0f) << 12))
         else
             hwFxHide(rec, "blob")
         end
@@ -7742,7 +7768,7 @@ function hwDrawFx(playerId, rec, remote, info, sx, sy, arcY, hFlip)
         local a = tiering.hw.base + slot * 8
         w16(a + 0, (r16(o + 0x00) & 0xff00) | (hy & 0xff))
         w16(a + 2, (r16(o + 0x02) & 0xfe00) | (hx & 0x1ff))
-        w16(a + 4, (start & 0x3ff) | (2 << 10))
+        w16(a + 4, (start & 0x3ff) | (hwSpritePriority() << 10))
     else
         hwFxHide(rec, "shadow")
     end
@@ -7803,7 +7829,7 @@ function hwPuffTick()
                 else
                     w16(a + 0, (r16(o + 0x00) & 0xff00) | (dy & 0xff))
                     w16(a + 2, (r16(o + 0x02) & 0xfe00) | (dx & 0x1ff))
-                    w16(a + 4, (start & 0x3ff) | (2 << 10) | (pal << 12))
+                    w16(a + 4, (start & 0x3ff) | (hwSpritePriority() << 10) | (pal << 12))
                 end
             end
         end
@@ -7872,7 +7898,7 @@ function hwRippleTick()
                 else
                     w16(a + 0, (r16(o + 0x00) & 0xff00) | (dy & 0xff))
                     w16(a + 2, (r16(o + 0x02) & 0xfe00) | (dx & 0x1ff))
-                    w16(a + 4, (start & 0x3ff) | (2 << 10) | (pal << 12))
+                    w16(a + 4, (start & 0x3ff) | (hwSpritePriority() << 10) | (pal << 12))
                 end
             end
         end
@@ -7900,6 +7926,12 @@ tiering.chooseHardware = function(localAreaId, playerX, playerY, spawnSet)
     if not tiering.hw.on then return set end
     -- Same post-load quiet as chooseSpawned, same reason, same measurement.
     if genderFrames.loadQuietUntil and frameCounter < genderFrames.loadQuietUntil then
+        return set
+    end
+    -- UNDERWATER THIS TIER CANNOT DRAW CLEANLY -- see hwSpritePriority for the full reasoning and
+    -- the measurements. Its peers become the painted tier's, which is unaffected by any of it.
+    if (r8(GPLAYERAVATAR_ADDR + avatarAddrOffset) & 0x10) ~= 0 then
+        if next(tiering.hw.byPeer) then hwReleaseAll(false) end
         return set
     end
     local ranked = {}
@@ -8058,7 +8090,7 @@ function renderHardwareGhosts(localAreaId, playerMapX, playerMapY, hwSet)
                     end
                     w16(a + 0, (t0 & 0xff00) | (sy & 0xff))
                     w16(a + 2, (t1 & 0xfe00) | (sx & 0x1ff) | flip)
-                    w16(a + 4, (rec.tileStart & 0x3ff) | (2 << 10)
+                    w16(a + 4, (rec.tileStart & 0x3ff) | (hwSpritePriority() << 10)
                         | ((info.paletteSlot or 0) << 12))
                     -- The pin copies the spawned sprite's pos2, so the hop arc is in `sy` here and
                     -- has to come back off for the two ground effects.
@@ -8182,7 +8214,8 @@ function renderHardwareGhosts(localAreaId, playerMapX, playerMapY, hwSet)
                     -- Priority and palette buy the occlusion and the fades. Priority 2 is ordinary
                     -- ground, which is what the engine gives its own overworld characters; the
                     -- palette slot comes from the graphic's own descriptor, not from anything ours.
-                    w16(a + 4, (rec.tileStart & 0x3ff) | (2 << 10) | ((info.paletteSlot or 0) << 12))
+                    w16(a + 4, (rec.tileStart & 0x3ff) | (hwSpritePriority() << 10)
+                        | ((info.paletteSlot or 0) << 12))
                     -- The arc is in `sy` now, so it comes back off for the two ground effects --
                     -- the same contract the pinned path above uses.
                     hwDrawFx(playerId, rec, remote, info, sx, sy, arc, flip ~= 0)
@@ -9542,8 +9575,9 @@ function detectStateLoad()
             local cb = r32(d + 0x1c)
             -- A blob follows an OBJECT id in data[2]; the underwater bobber follows a SPRITE id
             -- in data[0] (field_effect_helpers.c's two #define blocks).
+            -- Blobs only: we no longer create underwater bobbers as sprites, but the PLAYER's
+            -- own is still the engine's and must never be touched.
             local foreign = (cb == UPDATESURFBLOBFIELDEFFECT_CB and r16(d + 0x32) ~= playerObj)
-                or (cb == SPRITECB_UNDERWATERSURFBLOB_CB and r16(d + 0x2e) ~= playerSpr)
             if (r8(d + 0x3e) & 0x01) == 1 and foreign then
                 w8(d + 0x3e, (r8(d + 0x3e) & ~0x01) | 0x04)
                 w32(d + 0x1c, 0)

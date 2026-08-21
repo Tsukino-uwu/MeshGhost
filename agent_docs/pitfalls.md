@@ -3439,3 +3439,30 @@ And the bob/arc conflation: on these tiers the body's `pos2` is the surf BOB in 
 the JUMP ARC mid-jump. Subtracting it from the blob to fix the jump also froze the blob's bobbing
 -- *"the blob is not going up/down"*. One field, two meanings, keyed by whether a jump action is
 live; handle them by state, not by arithmetic.
+
+## Emerald: never hold an engine handle the engine can recycle (2026-08-21)
+
+**Symptom.** Diving black-screened the GAME -- palettes zeroed, effect stuck -- after its banner
+showed the wrong Pokemon. Nothing in the adapter errored; the adapter was, by its own logs,
+running perfectly underwater.
+
+**Cause.** Our underwater bobber: a faithful copy of the engine's dummy sprite, whose callback
+holds ANOTHER SPRITE'S INDEX and nudges it every fourth frame. When the named slot was reused, the
+bobber went on nudging whatever now lived there -- during a dive, the show-mon's Pokemon picture --
+which corrupted the pic and stalled the effect waiting on it.
+
+**The rule.** The engine may store an object id or sprite index because it owns every lifetime
+involved: it creates, destroys and reuses those slots, and its effects end when it says so. We own
+none of that. **Copy the EFFECT, not the data structure** -- and when the effect is already
+described by something on the wire (the peer's own sprite offset, here), copy nothing at all.
+
+**Two corollaries, both paid for the same evening:**
+
+- The intermediate fix -- driving the same bob from Lua -- was safe but still wrong: the peer's
+  offset was already being applied, so the ghost had two writers on one field and jittered.
+  Before adding a driver, check whether the wire already carries the thing.
+- A tier can be structurally unable to draw somewhere, and that is not a bug to fix. Our hardware
+  tier lives in OAM entries 64+, where ties are broken by index; underwater the game covers the
+  screen in its own semi-transparent sprites at lower indices, so nothing we put there can appear,
+  and raising our priority to escape only makes the fog draw opaque around us. The answer is to
+  stand the tier down where it cannot win and let another tier carry those peers.
