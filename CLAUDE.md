@@ -197,9 +197,9 @@ stays here, its reasoning goes to `agent_docs/`, with a one-line pointer. Full e
   flag disables the cost, or revert the commit. **When a regression appears, bisect real commits
   early**: build the last-known-good commit, confirm it is good, then halve. It is mechanical,
   needs no theory, and can't be fooled by a partial revert.
-- **Cite dates, not durations.** "since 2026-08-15", never "for a year" — this repo is days old
-  (first commit 2026-08-11), so invented durations are false on arrival and worse with age.
-  Found live 2026-08-16, three times, all describing five-day-old code.
+- **Cite dates, not durations — INCLUDING a duration used only for emphasis** ("for months",
+  "long-standing"). Repo born 2026-08-11, so these are false on arrival and worse with age. Live
+  2026-08-16 ×3; again 2026-08-21, "for months" about a rule two days old.
 - **Test instructions use plain directions (up/down/left/right), never compass points.** User
   preference, about talking to them — compass points stay fine in code and comments.
 - **You run the scaffolding for a live test; the user only opens and closes the game.** Start the

@@ -789,8 +789,9 @@ files with different timestamps.
 
 **The practical form:**
 
-- **Buffer, and flush in batches. THIS APPLIES TO SHIPPED ADAPTERS, NOT ONLY TO PROBES** — and it
-  was read as probe-only advice for months while both Lua adapters flushed every log line.
+- **Buffer, and flush in batches. THIS APPLIES TO SHIPPED ADAPTERS, NOT ONLY TO PROBES** — written
+  2026-08-19, read as probe-only advice until 2026-08-21, and in between both Lua adapters shipped
+  flushing every log line.
   Per-frame `console.log` visibly lags the emulator — the user reported it within a minute
   (*"its spamming the console lag, and the game is lagging"*). Even a per-frame `io.open` is a
   probe heavy enough to change what it measures. Accumulate into a table and write every ~120
