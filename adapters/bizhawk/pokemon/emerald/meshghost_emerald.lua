@@ -3713,6 +3713,15 @@ local SURFING_GFX
 -- ours to write. Settled on the way back to the overworld. On genderFrames for the ceiling reason.
 genderFrames.pendingTileFrees = {}
 genderFrames.deferredTileFrees = {} -- swap-time frees, held a few frames; see swapGhostGraphicInPlace
+-- Queue a deferred free ONCE per range: the same tiles can be reached by several despawn paths
+-- (a ghost's body, its blob, its shadow, a hardware release), and queuing twice means freeing
+-- twice, which is the double-free described at the service point.
+function queueTileFree(entry)
+    for _, e in ipairs(genderFrames.deferredTileFrees) do
+        if e.start == entry.start then return end
+    end
+    genderFrames.deferredTileFrees[#genderFrames.deferredTileFrees + 1] = entry
+end
 
 local function freeGhostTiles(g)
     -- NEVER FREE ACROSS A STATE LOAD. The load rewinds the engine's allocation bitmap to the
@@ -4610,9 +4619,8 @@ function despawnGhostShadow(g)
     -- Deferred like the blob's, one comment up: an engine sprite's queued VBlank copy outlives
     -- its despawn by a frame.
     if g.shadowTileStart then
-        local q = genderFrames.deferredTileFrees
-        q[#q + 1] = { g = g, start = g.shadowTileStart, count = g.shadowTiles or 1,
-            at = frameCounter }
+        queueTileFree({ g = g, start = g.shadowTileStart, count = g.shadowTiles or 1,
+            at = frameCounter })
     end
     g.shadowSprId, g.shadowTileStart, g.shadowTiles = nil, nil, nil
 end
@@ -4729,8 +4737,7 @@ despawnSurfBlob = function(g)
     -- as a corner of the blob until the next reload -- the user's *"oam & its reflection is
     -- glitching when going back to land"*.
     if g.blobTileStart then
-        local q = genderFrames.deferredTileFrees
-        q[#q + 1] = { g = g, start = g.blobTileStart, count = 16, at = frameCounter }
+        queueTileFree({ g = g, start = g.blobTileStart, count = 16, at = frameCounter })
     end
     g.blobSprId, g.blobTileStart = nil, nil
 end
@@ -4909,7 +4916,14 @@ end
 --
 -- MESHGHOST_EMERALD_NO_ANIM_RESTART (probe) forces the suppression EVERYWHERE, which is the
 -- subtraction experiment this was proven with; never ship it set.
-ANIM_RESTART_COOLDOWN = 30
+-- SIX FRAMES, NOT THIRTY. The measured tear window is the OAM pipeline's ~2 frames plus the
+-- swap's own; thirty was a lazy 10x margin, and the margin itself was visible: a 16-frame pose
+-- (the field-move stance at surf start) spent its whole life inside the cooldown with the sprite
+-- paused, so the ghost held frame 0 and then the engine sprinted through the rest when it woke.
+-- The user: *"the drawn ghost does the starting surf animation a tiny bit slow"* -- the painted
+-- copy reads its frame from that same paused sprite in compare mode, so it showed the stall too.
+-- Measured: player 0/0..0/4 in 16 frames, copies 25 frames and skipping three.
+ANIM_RESTART_COOLDOWN = 6
 function animRestartBlocked(g)
     return MESHGHOST_EMERALD_NO_ANIM_RESTART
         or (g and g.swapAt and frameCounter - g.swapAt < ANIM_RESTART_COOLDOWN) or false
@@ -5227,8 +5241,7 @@ function swapGhostGraphicInPlace(g, graphicsId, sanim, sox, soy, sidx, spaused, 
     -- means the engine reset the bitmap and the bits are not ours to touch, the same rule every
     -- other free in this file follows.
     if g.tileStart then
-        local q = genderFrames.deferredTileFrees
-        q[#q + 1] = { g = g, start = g.tileStart, count = g.tileCount, at = frameCounter }
+        queueTileFree({ g = g, start = g.tileStart, count = g.tileCount, at = frameCounter })
     end
 
     w8(objAddr(g.objId) + 0x05, graphicsId)
@@ -5610,7 +5623,20 @@ local function syncGhost(playerId, remote)
             genderFrames.lastSp = tostring(remote.spaused)
             logFile("WIRE spaused -> " .. genderFrames.lastSp .. " (act=" .. tostring(remote.act) .. ")")
         end
-        if isBikeGfx(remote.gfx) and not remote.spaused then
+        -- THE FIELD-MOVE POSE JOINS THE BIKES HERE, and the reason is the same one written above
+        -- for bikes: the engine's own choice is wrong for this graphic. The pose (gfx 3/93, the
+        -- stance at the start of surfing) keeps ONE animation and advances only its command
+        -- index, 0/0 through 0/4 in 16 frames, driven by the game's field-move task. A ghost has
+        -- no such task, so nothing here moved it -- every other path keys on the animation NUMBER
+        -- changing -- and the pose fell to the engine's free-running playback at its own command
+        -- durations: 25 frames, skipping steps, which the painted copy shows too because in
+        -- compare mode it reads its frame from this sprite. The user: *"the drawn ghost does the
+        -- starting surf animation a tiny bit slow"*.
+        --
+        -- Narrow on purpose: bikes and this pose only. Surfing and fishing are confirmed 1:1 on
+        -- their current paths and are not disturbed.
+        if (isBikeGfx(remote.gfx) or remote.gfx == 3 or remote.gfx == 93)
+            and not remote.spaused then
             -- Number only, and only when it differs: restarting here would reset the cycle every
             -- time the peer's animation ticked, which is the "stuck on frame 0" failure from the
             -- fishing work wearing different clothes.
@@ -5646,8 +5672,25 @@ local function syncGhost(playerId, remote)
             -- the ghost adopts the peer's action, and the engine sets that animation itself.
             local agrees = not isJumpAction(remote.act)
                 or r8(objAddr(g.objId) + 0x1c) == remote.act
-            if agrees and animBelongsToGhost(g, remote) and r8(d + 0x2a) ~= remote.sanim then
+            -- MIRROR THE PAIR, NOT JUST THE NUMBER. A pose that keeps one animation and advances
+            -- only its command index -- the field-move pose is exactly that, 0/0 through 0/4 --
+            -- changed nothing here, because the test was on `animNum` alone. That was invisible
+            -- while the engine animated the ghost itself; it stopped being invisible when the
+            -- post-swap cooldown started holding the sprite PAUSED to stop it tearing, since
+            -- then NOBODY advanced the pose: the ghost sat on frame 0 and jumped to 4, and the
+            -- painted twin -- which reads its frame from this sprite in compare mode -- showed
+            -- the same stall as *"the drawn ghost does the starting surf animation a tiny bit
+            -- slow"*. Measured: the player stepped 0/0..0/4 in 16 frames, the copies took 25 and
+            -- skipped three.
+            --
+            -- The index is written only while restarts are blocked. Outside the cooldown the
+            -- engine owns that field and advances it itself; writing it there would be two
+            -- writers on one field, which this file has paid for before.
+            local pairKey = (remote.sanim or 0) * 256 + (remote.sidx or 0)
+            if agrees and animBelongsToGhost(g, remote) and g.animPairFor ~= pairKey then
+                g.animPairFor = pairKey
                 w8(d + 0x2a, remote.sanim)
+                if animRestartBlocked(g) then w8(d + 0x2b, remote.sidx or 0) end
                 loadGhostFrameNow(g, graphicsInfo(g.gfx), remote.sanim, remote.sidx or 0)
             end
             -- AND UN-PAUSE IT, because setting a number on a paused sprite changes nothing.
@@ -5910,8 +5953,21 @@ local function syncGhost(playerId, remote)
     end
     if wantNow and g.gfx and wantNow ~= g.gfx then
         if COMPARE_TIERS then logFile(string.format("f=%d emu=%d SWAP %s -> %s", frameCounter, emu.framecount(), tostring(g.gfx), tostring(wantNow))) end
-        g.needsSettle = true
-        g.settleStatic = true
+        -- NO SETTLE FOR THE FIELD-MOVE POSE. The settle is a zero-motion step that makes the
+        -- engine set a pose properly, and it is right for a state a peer STAYS in -- a bike, a
+        -- rod, a surfboard. The field-move stance is not one of those: it is a 16-frame transient
+        -- the game plays and leaves, and the settle's own step keeps the ghost BUSY for its whole
+        -- duration -- which returns out of this function every frame, before the animation mirror
+        -- that would have driven the peer's frames. So the pose fell to the engine's free-running
+        -- playback at its own command durations: 25 frames instead of 16, skipping steps, which
+        -- the painted copy shows too because in compare mode it reads its frame from this very
+        -- sprite. The user: *"the drawn ghost does the starting surf animation a tiny bit slow"*.
+        -- Measured with a gate trace: every mirror condition passed and the wire delivered all
+        -- four steps on time -- the mirror was simply never reached.
+        if not (wantNow == 3 or wantNow == 93) then
+            g.needsSettle = true
+            g.settleStatic = true
+        end
         g.frameFor = nil
     end
     if wantNow and g.gfx and wantNow ~= g.gfx
@@ -7201,9 +7257,8 @@ function hwRelease(playerId, freeTiles)
         -- dismount's graphic change is exactly a release-and-reacquire. Entries are stamped
         -- with the tier's area; the service point frees them only while that area still
         -- stands, the same forget-don't-free rule as everywhere else.
-        local q = genderFrames.deferredTileFrees
-        q[#q + 1] = { hwArea = tiering.hw.area, start = rec.tileStart,
-            count = rec.tileCount, at = frameCounter }
+        queueTileFree({ hwArea = tiering.hw.area, start = rec.tileStart,
+            count = rec.tileCount, at = frameCounter })
     end
     -- The shadow and dust entries go back with the body. Their TILES do not: those ranges are
     -- shared by every peer on this tier and only the area change below owns them.
@@ -7433,13 +7488,13 @@ function hwDrawSurf(playerId, rec, remote, info, sx, sy, arcY, hFlip)
         local jumping = remote.act and remote.act >= 0x3a and remote.act <= 0x3d
         if jumping and not rec.blobParkHold then
             if rec.blobPark then
-                rec.blobParkHold = true
+                rec.blobParkHold, rec.blobParkKind = true, "dismount"
             else
                 local jdx = ({ [0x3c] = -TILE, [0x3d] = TILE })[remote.act] or 0
                 local jdy = ({ [0x3a] = TILE, [0x3b] = -TILE })[remote.act] or 0
                 rec.blobPark = { sx + jdx - rs16(GSPRITECOORDOFFSETX_ADDR),
                     sy - arcY + jdy + 8 - rs16(GSPRITECOORDOFFSETY_ADDR) }
-                rec.blobParkHold = true
+                rec.blobParkHold, rec.blobParkKind = true, "mount"
                 if COMPARE_TIERS then
                     logFile(string.format(
                         "HW MOUNT PARK at (%d,%d) act=%02X sx=%d sy=%d arc=%d f=%d",
@@ -7447,6 +7502,14 @@ function hwDrawSurf(playerId, rec, remote, info, sx, sy, arcY, hFlip)
                         frameCounter))
                 end
             end
+        end
+        -- A MOUNT'S PARK ENDS WITH ITS JUMP -- body and blob are at the same tile then, so the
+        -- handover is seamless -- while a DISMOUNT'S holds until the graphic flips (that beat is
+        -- the flash the hold exists for). Releasing both on the graphic was the first version,
+        -- and after a mount it simply never released: *"the blob is not following OAM and DRAWN
+        -- while surfing now"*, the blob left parked at the mount tile.
+        if not jumping and rec.blobParkHold and rec.blobParkKind == "mount" then
+            rec.blobParkHold, rec.blobParkKind = nil, nil
         end
         local bx, by = sx, sy + 8
         if rec.blobParkHold and rec.blobPark then
@@ -7473,7 +7536,7 @@ function hwDrawSurf(playerId, rec, remote, info, sx, sy, arcY, hFlip)
             hwFxHide(rec, "blob")
         end
     else
-        rec.blobPark, rec.blobParkHold = nil, nil
+        rec.blobPark, rec.blobParkHold, rec.blobParkKind = nil, nil, nil
         hwFxHide(rec, "blob")
     end
 
@@ -8772,7 +8835,8 @@ local function drawRemotes(localAreaId, playerMapX, playerMapY, skipSpawned, com
                             -- all (probes/surfblob_probe.lua, 2026-08-19).
                             local bruns, bflip
                             if not SURFING_GFX[remote.gfx] then
-                                remote.blobParkPx, remote.blobParkHold = nil, nil
+                                remote.blobParkPx, remote.blobParkHold, remote.blobParkKind =
+                                    nil, nil, nil
                             end
                             if SURFING_GFX[remote.gfx] then
                                 bruns, bflip = genderFrames.runsForSurfBlob(
@@ -8788,7 +8852,8 @@ local function drawRemotes(localAreaId, playerMapX, playerMapY, skipSpawned, com
                                     and remote.act >= 0x3a and remote.act <= 0x3d
                                 if bjumping and not remote.blobParkHold then
                                     if remote.blobParkPx then
-                                        remote.blobParkHold = true
+                                        remote.blobParkHold, remote.blobParkKind =
+                                            true, "dismount"
                                     else
                                         local jdx = ({ [0x3c] = -TILE,
                                             [0x3d] = TILE })[remote.act] or 0
@@ -8799,8 +8864,14 @@ local function drawRemotes(localAreaId, playerMapX, playerMapY, skipSpawned, com
                                                 - rs16(GSPRITECOORDOFFSETX_ADDR),
                                             screenY + cy + jdy + 8 - (arc or 0)
                                                 - rs16(GSPRITECOORDOFFSETY_ADDR) }
-                                        remote.blobParkHold = true
+                                        remote.blobParkHold, remote.blobParkKind =
+                                            true, "mount"
                                     end
+                                end
+                                -- Mount parks end with the jump; the hardware twin says why.
+                                if not bjumping and remote.blobParkHold
+                                    and remote.blobParkKind == "mount" then
+                                    remote.blobParkHold, remote.blobParkKind = nil, nil
                                 end
                                 local pbx, pby = screenX + cx, screenY + cy + 8
                                 if remote.blobParkHold and remote.blobParkPx then
@@ -8866,8 +8937,8 @@ local function drawRemotes(localAreaId, playerMapX, playerMapY, skipSpawned, com
                             if genderFrames.hatLogKey ~= k then
                                 genderFrames.hatLogKey = k
                                 logFile(string.format(
-                                    "f=%d HAT %s topKept=%d y=%d anim=%s/%s minRy=%d panels=%s clipped=%d",
-                                    frameCounter, tostring(playerId), topKept,
+                                    "f=%d emu=%d HAT %s topKept=%d y=%d anim=%s/%s minRy=%d panels=%s clipped=%d",
+                                    frameCounter, emu.framecount(), tostring(playerId), topKept,
                                     math.floor(screenY + cy), tostring(drawAnim),
                                     tostring(drawIdx), minRy,
                                     (function() local c = 0 local rws = {}
@@ -9449,7 +9520,16 @@ local function runFrame()
                 else
                     stillOurs = ghostAlive(e.g)                   -- spawned-tier range
                 end
-                if stillOurs and inOverworld() then
+                -- NEVER FREE A RANGE THAT IS NOT CURRENTLY ALLOCATED. A double free is not a
+                -- no-op here: the first clears our bits, the ENGINE then allocates that run for
+                -- something of its own, and the second clears the bits out from under it -- so
+                -- the next allocation (ours or the game's) lands on tiles already in use. At a
+                -- surf start the thing being allocated is the show-mon POKEMON PICTURE, which is
+                -- why the user saw both halves of one collision: *"a weird glitched orange
+                -- sprite"* on the ghosts, and the banner showing *"an egg instead of sharpedo"*.
+                -- Several despawn paths can queue the same range (blob, shadow, body, hardware
+                -- release), so idempotence has to be enforced here rather than assumed.
+                if stillOurs and inOverworld() and tileIsAllocated(e.start) then
                     for t = e.start, e.start + e.count - 1 do setTileAllocated(t, false) end
                 end
                 -- Not ours any more (world rebuilt, ghost gone): dropped, never freed.
@@ -9988,7 +10068,7 @@ MESHGHOST_DEV_UNLOAD = function()
             local stillOurs
             if e.hwArea ~= nil then stillOurs = tiering.hw.area == e.hwArea
             else stillOurs = ghostAlive(e.g) end
-            if stillOurs and inOverworld() then
+            if stillOurs and inOverworld() and tileIsAllocated(e.start) then
                 for t = e.start, e.start + e.count - 1 do setTileAllocated(t, false) end
             end
         end

@@ -9638,3 +9638,23 @@ the two disagree.
   and hardware tiers now stand down for twelve frames after a load while the painted tier covers
   the gap. The scripted water-to-grass repro that showed shards and churn shows one clean walker
   acquire on film after the third fix.
+
+### Emerald: the orange glitched sprite (and the wrong Pokémon in the HM banner) — user-confirmed fixed (2026-08-21)
+
+- Date: 2026-08-21. **Source: the user, on screen**, running their own recipe (A to surf, up one
+  tile, down, A again, repeated): *"i didn't see any of the orange/glitchy things anymore."*
+  Corroborated by a scan of 3172 captured frames of that loop: no orange-pixel spike at all.
+- **The cause was a DOUBLE FREE of an OBJ tile range.** Several despawn paths could queue the same
+  range for freeing (a ghost's body, its blob, its shadow, a hardware release). Freeing twice is
+  not a no-op: the first free releases our bits, the ENGINE then allocates that run for something
+  of its own, and the second free clears the bits out from under it -- so the next allocation
+  lands on tiles already in use. At a surf start the thing the engine is allocating is the
+  show-mon POKEMON PICTURE, which is why the user saw both halves of one collision: a *"weird
+  glitched orange sprite"* on the ghosts (our sprite drawing the picture's tiles) and the banner
+  showing *"an egg instead of sharpedo"* (the picture drawing ours).
+- **The fix**: queueing is idempotent (one pending free per range), and the service point refuses
+  to free a range that is not currently marked allocated. Both guards, because either path alone
+  leaves the other reachable.
+- **The tell worth keeping**: a wrong-but-COHERENT game asset (a clean egg, not garbage) says
+  "shared allocation", not "corrupted memory" -- something else is legitimately drawing from a
+  range we also think we own. Garbage says corruption; a wrong real sprite says collision.
