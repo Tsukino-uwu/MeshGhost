@@ -3365,3 +3365,38 @@ A ghost briefly facing the wrong way is a small, legible wrongness; a grey block
 previous state in place, and unsafe when the caller has already half-applied a change. Here the
 pointer swap had already happened, so "do nothing" meant "draw rubbish". **Ask what the caller has
 already done before returning early.**
+
+## Emerald: THE PAIR was wrong, and three consumer-side fixes each treated one symptom (2026-08-21)
+
+**Symptoms, reported as three separate things across an hour:** the spawned ghost flashes grey at
+the start of surfing, every few attempts; the drawn ghost *"disappears for a bit"* at the same
+moment; the hardware (OAM) copy is perfect throughout. That last one is not a footnote — it is the
+clue that solves the other two.
+
+**Cause, single.** The receive path adopted a peer's GRAPHIC one update late (a debounce that
+exists for fishing, whose sprite offset lands four frames after its graphic) while adopting the
+peer's ANIMATION NUMBER immediately. For one update per transition the ghost therefore held a
+(graphic, animation) pair the player is never in. An animation number only means something for its
+own graphic -- the tables differ in length -- so:
+
+- the SPAWNED tier resolved that pair to a frame that does not exist and drew unwritten VRAM (grey);
+- the PAINTED tier could not resolve it either, gave up, and fell back to painting a walker;
+- the HARDWARE tier was fine **because it resolves the graphic and the animation together itself,
+  every frame, instead of consuming the stored pair**.
+
+**"One tier is perfect" is a diagnosis, not a curiosity.** Three tiers rendering the same peer is a
+built-in control: whatever the healthy one does differently IS the fix. It was in front of me for
+several cycles while I wrote per-tier defences.
+
+**What it cost, and the rule that would have saved it.** Four fixes were written before the pair
+itself was measured -- a fallback frame, a mirror gate, a send-side hold, an action deferral --
+each plausible, each treating a consumer. The measurement that ended it took one probe line: log
+the PLAYER's own (graphic, animation) every time either changes. It goes `gfx=3 anim=0/0..0/4` then
+straight to `gfx=2 anim=20/0`; the intermediate pair never happens. **When several consumers of one
+piece of state each break differently, measure the STATE, not the consumers.**
+
+**A second-order trap, worth its own line:** a savestate replay driven by a script is
+DETERMINISTIC. Eight "attempts" produced byte-identical screenshots, which reads exactly like "the
+bug is fixed" and means "the bug was never given a chance to appear". An intermittent defect that a
+person hits every two or three tries is being sampled by their TIMING -- so a driver has to vary
+its input phase per round or it is running one attempt N times.

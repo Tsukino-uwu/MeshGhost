@@ -137,6 +137,22 @@ local function tick()
         if fh then fh:flush() end
     end
 
+    -- THE PLAYER'S OWN (graphic, animation) PAIR, EVERY FRAME IT CHANGES.
+    --
+    -- Three fixes in a row assumed the incoherent pair on the wire was manufactured by the sender.
+    -- That is an inference; this is the measurement. If the PLAYER is genuinely in `gfx=3
+    -- anim=20/4` for a frame, then the pair is real, the wire is honest, and the fix belongs on the
+    -- consumers instead. Logged per change, not per frame.
+    do
+        local ps = sprAddr(sprId)
+        local pk = string.format("%d|%d|%d", gfx, r8(ps + 0x2a), r8(ps + 0x2b))
+        if last.playerPair ~= pk then
+            last.playerPair = pk
+            say(string.format("%6d | PAIR player gfx=%d anim=%d/%d act=%02X", frame, gfx,
+                r8(ps + 0x2a), r8(ps + 0x2b), act))
+        end
+    end
+
     -- WHO ELSE IS DRAWING FROM OUR TILES.
     --
     -- A ghost that goes grey is drawing from OBJ VRAM somebody else owns, and there are only two

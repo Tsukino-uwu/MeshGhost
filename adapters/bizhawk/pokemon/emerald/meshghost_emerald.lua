@@ -1931,15 +1931,47 @@ local function handleBridgeLine(line)
                 --
                 -- Pairing them means a state is taken only once it has stopped changing, which is
                 -- what the player looks like by the time anyone can see it.
+                -- A JUMP_SPECIAL SKIPS THE WAIT, because it can only arrive already settled.
+                --
+                -- The pairing above exists for a state whose OFFSET catches up after its graphic
+                -- (fishing, measured). The surf start is the opposite case: the game sets the
+                -- graphic and the jump onto the water in the SAME engine step
+                -- (`documentation.md`), so a state carrying 0x3A..0x3D cannot be half-formed --
+                -- and waiting one more update means the ghost performs the jump still wearing the
+                -- field-move graphic, hopping onto the sea in the wrong pose.
+                local newAct = (type(st.extras) == "table" and tonumber(st.extras.act)) or nil
                 local pair = tostring(newGfx) .. ":" .. tostring(newSox)
-                if pair == r.statePair then r.gfx = newGfx end
+                if pair == r.statePair
+                    or (newAct and newAct >= 0x3a and newAct <= 0x3d) then r.gfx = newGfx end
                 r.statePair = pair
                 if r.gfx == nil then r.gfx = newGfx end
-                -- Peer-controlled, so bounded like every other inbound number: animNum is a u8.
+                -- THE ANIMATION IS HELD WITH THE GRAPHIC, because it only means anything against
+                -- one. Every special state has its own animation table, of its own length, so an
+                -- animation number from the new state applied to the still-current graphic can name
+                -- a frame that graphic does not have.
+                --
+                -- The graphic above is deliberately deferred by one update; the animation used to
+                -- be adopted immediately. That gap MANUFACTURED a pair the peer was never in.
+                -- Measured 2026-08-21 with probes/dive_probe.lua, which logged the player's own
+                -- (graphic, animation) every time either changed across many surf starts: it goes
+                -- gfx=3 anim=0/0..0/4, then straight to gfx=2 anim=20/0 -- `gfx=3 anim=20` never
+                -- happens. The ghost was in it for one frame at every transition, and both
+                -- self-drawn tiers plus the spawned one each showed it differently: the spawned
+                -- ghost drew a frame that does not exist (*"a weird grey/flashing glitched
+                -- sprite"*), and the painted tier could not resolve it and fell back to a walker
+                -- (*"the drawn ghost still disappear for a bit when surf is started"*). Three
+                -- separate consumer-side defences were written before the pair itself was measured;
+                -- the lesson is in pitfalls.md.
+                --
+                -- `act` is deliberately NOT held with them: it is a movement action, not indexed by
+                -- graphic, and the receive side already declines to start one while a swap of this
+                -- ghost's graphic is pending.
                 local sa = (type(st.extras) == "table" and tonumber(st.extras.sanim)) or nil
-                r.sanim = (sa and sa >= 0 and sa <= 255 and math.floor(sa) == sa) and sa or nil
                 local si = (type(st.extras) == "table" and tonumber(st.extras.sidx)) or nil
-                r.sidx = (si and si >= 0 and si <= 255 and math.floor(si) == si) and si or nil
+                if r.gfx == newGfx then
+                    r.sanim = (sa and sa >= 0 and sa <= 255 and math.floor(sa) == sa) and sa or nil
+                    r.sidx = (si and si >= 0 and si <= 255 and math.floor(si) == si) and si or nil
+                end
                 local ac = (type(st.extras) == "table" and tonumber(st.extras.act)) or nil
                 r.act = (ac and ac >= 0 and ac <= 255 and math.floor(ac) == ac) and ac or nil
                 -- Peer-controlled, so bounded: a sprite offset beyond a tile or two is not a pose,
@@ -2524,6 +2556,42 @@ local function graphicsInfo(graphicsId)
         affineAnims = r32(ptr + 0x20),
     }
 end
+
+-- PUBLISH A PAIR THAT IS TRUE TOGETHER: an animation number that the published GRAPHIC actually
+-- has.
+--
+-- The sender reads the graphic through localGraphicsId() -- which may be holding a previous value
+-- -- and the animation number straight off the live sprite. Those are two different moments, and
+-- for a frame or two at every transition they disagree: measured 2026-08-21 at the start of
+-- surfing, `gfx=3 sanim=20` went out on the wire, a surfing animation on the field-move graphic,
+-- whose table is shorter and has no entry 20.
+--
+-- Every consumer then breaks in its own way and has to be defended separately -- the spawned ghost
+-- drew a frame that does not exist (*"a weird grey/flashing glitched sprite"*), the painted tier
+-- gave up and fell back to a walker (*"the drawn ghost still disappear for a bit"*), and each fix
+-- covered one tier. **The pair is what is wrong, so the pair is what to fix**, once, before it
+-- leaves this machine.
+--
+-- Falls back to the last pair that WAS coherent for this graphic rather than to zero: during a
+-- transition the previous good frame is the one a character was just showing, so holding it for a
+-- frame is invisible, where snapping to the first frame of animation 0 is a flick of its own.
+genderFrames.lastCoherentAnim = {}
+genderFrames.coherentAnim = function(gfx, animNum, animIdx)
+    local info = gfx and graphicsInfo(gfx)
+    if not info or info.anims == 0 or info.images == 0 then return animNum, animIdx end
+    local ap = r32(info.anims + (animNum or 0) * 4)
+    if isRomPtr(ap) then
+        local frame = r32(ap + (animIdx or 0) * 4) & 0xffff
+        if isRomPtr(r32(info.images + frame * 8)) then
+            genderFrames.lastCoherentAnim[gfx] = { animNum, animIdx }
+            return animNum, animIdx
+        end
+    end
+    local prev = genderFrames.lastCoherentAnim[gfx]
+    if prev then return prev[1], prev[2] end
+    return 0, 0
+end
+
 
 -- DRAW A PEER AS WHATEVER IT ACTUALLY IS -- a bike, a surfer, someone fishing.
 --
@@ -5837,7 +5905,27 @@ local function syncGhost(playerId, remote)
     -- left alone and the same order is re-sent next frame, which costs nothing and lands on the
     -- first frame the engine is listening. The branch still returns either way -- a pose must not
     -- also spend a step -- so nothing else about this path changes.
-    if (inPlace or travels) and g.jumped ~= remote.act then
+    -- NEVER START AN ACTION ON A GRAPHIC THAT IS ABOUT TO BE REPLACED.
+    --
+    -- The engine chooses an animation for the action it is given, and it chooses it for whatever
+    -- graphic the sprite is wearing at that instant. Issue the surf jump one frame before the
+    -- surfing graphic lands and it sets the jump's animation number on the field-move sprite,
+    -- whose table is shorter and has no such entry -- one frame of a frame that does not exist,
+    -- which is visible: *"a weird grey/flashing glitched sprite"*. Measured as `anim=20/4 gfx=3`
+    -- by probes/dive_probe.lua's VRAM-against-ROM check, one frame before every swap.
+    --
+    -- The send side was fixed first (the graphic and the action now leave together), and a single
+    -- frame of skew survived it, so this is the belt to that braces.
+    --
+    -- GATED ON A PENDING SWAP, not on the two graphics simply matching. With the peer-graphic path
+    -- off -- the shipped default -- a ghost wears the LOCAL player's graphic, so "they differ" is
+    -- the normal state and gating on it would silently stop a peer on a bike ever hopping. What
+    -- matters is narrower: are we about to change this ghost's graphic? Then wait one frame.
+    local swapPending = (function()
+        local w = wantedGfx(remote)
+        return w ~= nil and g.gfx ~= nil and w ~= g.gfx
+    end)()
+    if (inPlace or travels) and g.jumped ~= remote.act and not swapPending then
         if ghostIsIdle(g) then
             g.jumped = remote.act
             g.needsSettle = nil
@@ -9081,10 +9169,15 @@ local function runFrame()
             -- else's session (agent_docs/contract.md, PROTOCOL.md's tick loop).
             if ready then
                 if MESHGHOST_EMERALD_PROFILE then tiering.profT = os.clock() end
-                sendLine(encodeLocalState(state.areaId, smoothX, smoothY, state.orientation,
-                    state.anim, localGender or "male", localGraphicsId(),
+                -- On the table rather than in locals: this chunk is at Lua's 200-local ceiling.
+                genderFrames.sendGfx = localGraphicsId()
+                genderFrames.sendAnim, genderFrames.sendIdx = genderFrames.coherentAnim(
+                    genderFrames.sendGfx,
                     r8(sprAddr(r8(GPLAYERAVATAR_ADDR + avatarAddrOffset + 0x04)) + 0x2a),
-                    r8(sprAddr(r8(GPLAYERAVATAR_ADDR + avatarAddrOffset + 0x04)) + 0x2b),
+                    r8(sprAddr(r8(GPLAYERAVATAR_ADDR + avatarAddrOffset + 0x04)) + 0x2b))
+                sendLine(encodeLocalState(state.areaId, smoothX, smoothY, state.orientation,
+                    state.anim, localGender or "male", genderFrames.sendGfx,
+                    genderFrames.sendAnim, genderFrames.sendIdx,
                     -- movementActionId (pokeemerald include/global.fieldmap.h:246, +0x1C): what
                     -- the engine is currently making this character DO. A ledge hop is a jump
                     -- action, and no amount of watching positions can recover that -- see the
