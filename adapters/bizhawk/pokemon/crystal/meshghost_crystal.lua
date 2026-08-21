@@ -1836,9 +1836,14 @@ function drawOverflow()
 		calX = (playerOamX - 8) - (u8(OBJECT_STRUCTS + F_SPRITE_X) or 0)
 		calY = (playerOamY - 16) - (u8(OBJECT_STRUCTS + F_SPRITE_Y) or 0)
 		heldCal.x, heldCal.y = calX, calY
+	elseif heldCal.x then
+		calX, calY = heldCal.x, heldCal.y
 	else
-		calX = heldCal.x or 0
-		calY = heldCal.y or 0
+		-- No settled frame seen yet this session (the player has been walking since load): a fresh
+		-- possibly-phase-off value beats zero, which is not a calibration at all -- with 0 the whole
+		-- drawn tier sits visibly displaced until the player first stands, then jumps.
+		calX = (playerOamX - 8) - (u8(OBJECT_STRUCTS + F_SPRITE_X) or 0)
+		calY = (playerOamY - 16) - (u8(OBJECT_STRUCTS + F_SPRITE_Y) or 0)
 	end
 	if anchorTileX then
 		-- Anchor available: screen position of its tile, then tile deltas from there.
@@ -1970,6 +1975,18 @@ function drawOverflow()
 							id, tostring(o.only), o.x, o.y, sx, sy, tostring(o.facing),
 							tostring(source.vram)))
 					end
+
+					-- THE TWITCH DETECTOR. Painted positions were only ever sampled once a second,
+					-- which is blind to per-frame jitter by construction -- and the user could see
+					-- jitter the samples denied (2026-08-21). This compares every frame's painted
+					-- position against the last one and logs only the discontinuities: a smooth
+					-- walk moves 2px a frame, so any jump past 4px between consecutive frames is a
+					-- twitch, named with the position it jumped from and to.
+					if o.paintedX and (math.abs(sx - o.paintedX) > 4 or math.abs(sy - o.paintedY) > 4) then
+						logFile(string.format("  TWITCH %-24s painted %d,%d -> %d,%d (%+d,%+d)",
+							id, o.paintedX, o.paintedY, sx, sy, sx - o.paintedX, sy - o.paintedY))
+					end
+					o.paintedX, o.paintedY = sx, sy
 
 					local onHardware = false
 					if source.vram and o.only ~= "drawn" then
