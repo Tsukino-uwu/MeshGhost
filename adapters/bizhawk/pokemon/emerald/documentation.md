@@ -229,6 +229,18 @@ every fourth frame, and reverses the step every sixteenth. The result is a slow 
 pixels, and — because a character standing still underwater does nothing else — it is essentially
 the whole of what "underwater" looks like.
 
+**Underwater is covered by a full-screen sprite overlay.** The scene is laid over with a grid of
+64×64 semi-transparent sprites — measured live: OAM entries 4..23, five columns by four rows,
+priority 2, palette 12, covering every pixel — which is what gives the water its drifting light.
+Two consequences follow from how the hardware composites it, and both are facts about the game
+rather than about any adapter:
+
+- **The engine's own characters sit at entries 0..3, above that overlay**, and sprite-vs-sprite
+  ties are broken by entry number — so they are drawn over the fog rather than under it.
+- **A semi-transparent sprite cannot blend against another sprite.** Put any sprite beneath the
+  overlay and the overlay stops blending there and draws OPAQUE — a solid grey block the size of
+  the sprite underneath (measured: pure greys, 181..247, against purple water).
+
 **Nothing else comes with it.** There is no companion sprite (that is surfing), the underwater
 graphics declare no reflection, and the graphic is 32×32 like every other special state. The one
 asymmetry worth knowing: Brendan's underwater graphic resolves to the player palette slot and

@@ -118,3 +118,18 @@ table's own comment.
 | Flag | Where | Default | What it does |
 | --- | --- | --- | --- |
 | `MESHGHOST_EMERALD_NO_ANIM_RESTART` | **global or environment** | unset — restarts suppressed only inside the 30-frame post-swap cooldown | **Probe.** Forces the engine-animation-restart suppression EVERYWHERE, not just near a graphic swap. This is the subtraction experiment that proved the grey/flash scramble was the engine's restart copy tearing mid-frame (`pitfalls.md`, 2026-08-21); it survives as the flag because re-running that experiment is how a recurrence would be diagnosed. Set, every ghost pose is driven purely by the wire mirror's boundary-time loads — fishing's engine-driven cast animation stops advancing between wire updates, which is why it must never ship set. |
+
+## The tier ladder, and its one place-specific exception (2026-08-21)
+
+| Where | Ladder |
+| --- | --- |
+| Everywhere | **spawn → OAM → drawn** |
+| Underwater | **spawn → drawn** (the OAM rung declines) |
+
+The hardware tier stands down while the local player is underwater, and this is a limit rather
+than a switch: its entries live at OAM 64+, where ties are broken by entry number, and the game
+covers the underwater scene in its own semi-transparent fog sprites at lower entries
+(`documentation.md`). At normal priority nothing that tier draws can appear; at a raised priority
+it appears and drags a 32×32 opaque block of fog with it, because a semi-transparent sprite cannot
+blend against another sprite — measured at priority 1 and 0 alike. Its peers become the painted
+tier's, which is drawn after the frame and subject to none of this, so coverage is unchanged.
