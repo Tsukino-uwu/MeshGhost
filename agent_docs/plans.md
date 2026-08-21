@@ -225,9 +225,9 @@ number here on purpose.
 Phases 0–2 are complete — see `agent_docs/verified.md` for every confirmed address, the
 `area_id`/`anim`/`orientation` decisions closed in `agent_docs/contract.md`, and the Phase 2
 ghost-overlay/screen-position findings (including the battle-drawing-skip design decision and
-several transient rendering glitches traced back to already-known causes). Only bike/surf
-flags remain deferred (far into the game, not blocking) and the `coordOffsetEnabled`
-assumption remains unverified but low-risk. Phase 3 (loopback) is also complete (2026-08-11) —
+several transient rendering glitches traced back to already-known causes). The bike/surf flags
+deferred there were picked up in Phase 8 and are done (2026-08-20/21, `verified.md`); the
+`coordOffsetEnabled` assumption remains unverified but low-risk. Phase 3 (loopback) is also complete (2026-08-11) —
 a real relay/core round trip confirmed trailing a ghost on screen, after finding and fixing
 three real bugs along the way (see `agent_docs/phases/phase3.md`). Phase 4 (two players) is
 also complete (2026-08-11) — two real BizHawk/Emerald instances confirmed rendering each
@@ -439,8 +439,9 @@ Archipelago-ROM-compatibility investigation (relocated `CB2_Overworld`, relocate
 relocated `gObjectEvents`/`gPlayerAvatar`, and a timing bug in that last fix), a gender-read
 timing bug, local dev/testing tuned for instant feedback (`-interp=0ms`/new `-min-send` flag),
 and a real sub-tile movement-smoothing bug found once that tuning stopped a network buffer from
-hiding it. Not yet started: surf/Mach-Bike/Acro-Bike/ledge/rail movement support (detection
-source found, cited, not yet live-verified — `surf_bike_probe.lua` ready) and Stages 2–5 of the
+hiding it. Movement support has since landed and been user-confirmed on screen: ledges
+(2026-08-19), the Mach Bike (2026-08-20), the Acro Bike (2026-08-21) and surfing/diving
+(2026-08-21) — see `verified.md`. Still not started: rail movement and Stages 2–5 of the
 VRAM/sprite-injection investigation (`agent_docs/ideas.md`; Stage 1 — read-only probing — ran
 2026-08-14, written up in `agent_docs/environment.md`). Note that any stage of that investigation
 which actually *writes* emulator memory is gated by the no-memory-writes non-goal above, and needs
@@ -452,6 +453,10 @@ its own ADR before it starts.
 two"), which keeps the full write-up, the three feasibility questions and their answers. The ladder
 becomes **spawned → hardware sprite → painted**, each peer taking the best tier with room, and the
 painted tier stays as the last resort rather than being retired.
+
+**Status: built and running the same day.** The `spawn → OAM → drawn` ladder is live, and the
+hardware tier's movement, rendering and scenery occlusion were all user-confirmed on screen
+2026-08-21 (`verified.md`). It still ships behind `MESHGHOST_EMERALD_HW_OVERFLOW`, off by default.
 
 **The mechanism, settled offline before any code** (`verified.md` 2026-08-21): BizHawk 2.11 has no
 scanline callback at all, so no HBlank multiplexing — and Emerald does not need it. `gOamLimit` is 64

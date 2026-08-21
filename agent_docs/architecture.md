@@ -13,9 +13,9 @@ etc.) live in `CLAUDE.md`, not here — this file is reference, not rules.
              |  the opt-in planes event/lease/lease_state/escrow/escrow_state/
              |  world/world_state (protocol/protocol.go is the list)
         Core (core, cmd/meshghost)
-             |  adapter bridge: NDJSON/TCP, localhost-only. 13 types:
-             |  hello/bridge_ready/reject/local_state/render_remote/despawn_remote,
-             |  plus the same opt-in planes (bridge/bridge.go)
+             |  adapter bridge: NDJSON/TCP, localhost-only. 14 types:
+             |  hello/bridge_ready/reject/session_policy/local_state/render_remote/
+             |  despawn_remote, plus the same opt-in planes (bridge/bridge.go)
      [ Adapter contract ]
         /    |    \
    Emerald  Crystal  TEVI  Pseudoregalia   (per-game, rewritten each time)
@@ -92,9 +92,10 @@ cmd/meshghost-netsim — fault-injecting proxy for real sessions. Imports NONE o
 **Hard rule:** `core` and `relay` may never import anything under
 `adapters/`. There's no Go code under `adapters/` today (BizHawk is Lua), but the rule holds
 regardless — it's the Go-level enforcement of "the core never touches the game," parallel to
-the existing "no `if game == \"emerald\"`" rule. Checked manually at time of writing; a
-`go vet` or import-graph lint enforcing it automatically is worth adding once there's a
-second package under `adapters/` to violate it.
+the existing "no `if game == \"emerald\"`" rule. Checked manually until 2026-08-20, when
+`internal/gameblind` made it mechanical: five tests over the source tree covering game names in
+library code, generic imports, frozen wire fields, the server/client/adapter split, and adapters
+never speaking the relay protocol (`testing.md`).
 
 The one Go interface in the skeleton, `core.Adapter`, is deliberately scoped in its doc
 comment to the Phase 5 in-process fake/test adapter only — real adapters (BizHawk Lua, any
@@ -1425,8 +1426,9 @@ Format: Date / Decision / Status / Context / Options considered / Resolution / C
   **Updated 2026-08-18: both Pokémon adapters now walk too** — `meshghost_emerald.lua` and
   `meshghost_crystal.lua` each probe `BRIDGE_BASE_PORT` (7778) upward across `BRIDGE_PORT_COUNT`
   (8) and require `bridge_ready`. **TEVI is the last one still on a single fixed port**
-  (`Plugin.cs`'s `DefaultBridgePort`, overridable by config but not walked); the adapter walks are
-  **not yet watched live**. **One resolution below is reversed** —
+  (`Plugin.cs`'s `DefaultBridgePort`, overridable by config but not walked). Both Pokémon walks
+  were **watched live 2026-08-18** (two emulators taking 7778 and 7779) and again in the two-game
+  session of 2026-08-19; Pseudoregalia's is still only covered by `internal/e2e`. **One resolution below is reversed** —
   silence is no longer treated as an older core, see the note on that bullet.
 - **Context:** The Linux tester asked for a way to run a second game — "start it anyway with an
   increased port until a free one is found" — so each game could use a different relay. Checking

@@ -143,7 +143,7 @@ type fileConfig struct {
 	Features *[]string `json:"features"`
 	// Transport is what this client moves to AFTER connecting, not how it
 	// connects: the handshake is always tcp and no setting changes that.
-	// "tcp" stays put; "udp" (the shipped default) and "quic" upgrade if the
+	// "tcp" stays put; "udp" and "quic" upgrade if the
 	// relay serves them; "auto" takes the best on offer.
 	//
 	// Because the relay is asked what it serves during that tcp handshake,
@@ -153,8 +153,8 @@ type fileConfig struct {
 	// packaging/release/README.txt and the transport discovery ADR in
 	// agent_docs/architecture.md.
 	Transport *string `json:"transport"`
-	// TLS encrypts this client's tcp legs: "off" (the built-in default),
-	// "auto" or "required". It applies to the discovery handshake as well
+	// TLS encrypts this client's tcp legs: "off", "auto" (the built-in
+	// default) or "required". It applies to the discovery handshake as well
 	// as the session, which is why it matters even when "transport" is
 	// quic -- that handshake is always tcp and it carries the room code.
 	//

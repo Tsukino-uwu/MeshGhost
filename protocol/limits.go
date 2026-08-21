@@ -76,12 +76,12 @@ const (
 	// room rate) and client.max_receive_hz_per_player (a client's own
 	// per-peer receive cap) — see the ADR in agent_docs/architecture.md for
 	// the send/receive rate-control feature. The floor is the brief's
-	// original 10Hz hypothesis: below it, core's default 100ms
-	// interpolation delay is no longer longer than the gap between samples,
-	// and core/interp.go's remoteBuffer.at() starts falling back to
-	// an edge snapshot every tick instead of smoothing — a lower rate would
-	// degrade smoothness in a way that looks like a bug, not a setting
-	// someone chose. The ceiling is a bandwidth bound, not a technical one: a
+	// original 10Hz hypothesis, kept as a smoothness floor: the lower the
+	// rate, the closer the gap between samples gets to core's interpolation
+	// delay (core.DefaultInterpolationDelay, 250ms — the two are equal at
+	// 4Hz), and once the gap reaches it core/interp.go's remoteBuffer.at()
+	// falls back to an edge snapshot instead of smoothing — which degrades
+	// in a way that looks like a bug, not a setting someone chose. The ceiling is a bandwidth bound, not a technical one: a
 	// room's traffic grows with send_hz times the square of its size (see
 	// relay.DefaultMaxClients), so 100Hz in a full 8-seat room is
 	// already thousands of messages/second through the relay. MaxSendHz also

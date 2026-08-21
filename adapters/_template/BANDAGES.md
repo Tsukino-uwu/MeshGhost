@@ -295,7 +295,7 @@ Other registers: `../<other-game>/BANDAGES.md`, `../../agent_docs/bandages-core.
 
 ## Is this a bandage? — the short form
 
-Full version, including all seven after-the-fact tells: `../_template/BANDAGES.md`.
+Full version, including all eight after-the-fact tells: `../_template/BANDAGES.md`.
 
 **The one mechanical test:** does the fix **prevent** the wrong thing, or **correct** it
 afterwards? Correcting afterwards means the cause is still running. Then: *"what would make this
@@ -310,7 +310,7 @@ happen: its cause got fixed somewhere else and the fix is still there; a second 
 as *"structurally the same bug as X"*; it outlived its purpose and became the bug itself; a
 constant needs re-tuning when something unrelated changes; removing it breaks something it was
 never about; you can't explain it without describing a sequence; it needs a companion fix elsewhere
-to stay correct.
+to stay correct; it works on an object the game made that you took rather than created.
 
 **When in doubt, log it.** A false positive costs one line under "Deliberate".
 

@@ -27,7 +27,8 @@ equivalent and is deliberate — Emerald's is off because its UI regions are not
 Crystal's are (`verified.md`, 2026-08-19).
 
 **What it compensates for.** A hard ceiling that is genuinely the game's: 13 object structs, 16 map
-objects, 40 hardware sprites, 10 characters per scanline. Past that a peer would not exist at all.
+objects, 40 hardware sprites at 4 per character, so 10 characters on screen. Past that a peer
+would not exist at all.
 
 **Why it was taken, when this file previously named it as a temptation to resist.** The user asked
 for it directly after seeing the cap measured: *"cap it, and just draw extras instead if that is

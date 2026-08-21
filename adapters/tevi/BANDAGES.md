@@ -18,7 +18,7 @@ Switch values and their provenance are in [FLAGS.md](FLAGS.md).
 
 ## Is this a bandage? — the short form
 
-Full version, including all seven after-the-fact tells: `../_template/BANDAGES.md`.
+Full version, including all eight after-the-fact tells: `../_template/BANDAGES.md`.
 
 **The one mechanical test:** does the fix **prevent** the wrong thing, or **correct** it
 afterwards? Correcting afterwards means the cause is still running. Then: *"what would make this

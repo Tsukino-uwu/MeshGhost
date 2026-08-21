@@ -14,13 +14,14 @@ has been read, its conclusion belongs in `agent_docs/verified.md`.
 live, with no emulator relaunch. See `agent_docs/environment.md`. Older probes here predate the
 loader and run their own frame loop, so they still work opened directly in the Lua Console.
 
-## Ten of these WRITE game RAM. Read this before running one.
+## Nine of these WRITE game RAM. Read this before running one.
 
 Called out here rather than only in their own headers, because a folder index that hides a
 memory-writing tool is the worst kind of gap — nobody reads a header they did not know existed.
-All ten write **object RAM only, never a save**, and a reset or a map load rebuilds what they
-touched: `object_slot_probe.lua`, `spawn_test.lua` through `spawn_test7.lua`,
-`struct_diff_probe.lua`, `walk_test.lua`. Everything else in this folder is read-only.
+All nine write **object RAM only, never a save**, and a reset or a map load rebuilds what they
+touched: `spawn_test.lua` through `spawn_test7.lua`, `struct_diff_probe.lua`, `walk_test.lua`.
+Everything else in this folder is read-only — `object_slot_probe.lua` included, whose own header
+says it deliberately performs no writes.
 
 ## Understanding the game
 

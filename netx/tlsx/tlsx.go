@@ -73,11 +73,11 @@ const tlsRecordHandshake = 0x16
 type Mode int
 
 const (
-	// Off is plaintext, and the built-in default. Deliberate: plaintext is
+	// Off is plaintext, and the zero value. Deliberate: plaintext is
 	// how a session gets debugged — netcat, a packet capture,
 	// cmd/meshghost-netsim — and turning that off by default would cost
-	// the project its cheapest diagnostic. A release turns it on in
-	// config.json.
+	// the project its cheapest diagnostic. Both binaries default their
+	// -tls flag to Auto, and a release config sets "required".
 	Off Mode = iota
 
 	// Auto encrypts when the other end can. On a listener it serves TLS

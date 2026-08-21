@@ -48,6 +48,7 @@ Two ways to run the client -- pick either:
      it or quarantine meshghost.exe. That is not a fault to work around and
      nothing is wrong with your install -- just open the client yourself
      instead. Option 1 does exactly the same job; the only thing you lose is
+     not having to open and close it yourself.
      There is also a switch that tells the mods to stop trying, so you do
      not have to uninstall anything -- see "The MESHGHOST_NO_AUTOSTART
      switch" below.
@@ -534,8 +535,9 @@ needs its own local bridge port, and how you get one depends on the game.
   (BepInEx\config\dev.meshghost.tevi.cfg, [Network] BridgePort), so two
   TEVI installs can be given different ones.
 
-  Pseudoregalia: its mod always uses 7778, so two copies on one machine
-  does not currently work for this game.
+  Pseudoregalia: nothing to do either. Its mod walks 127.0.0.1:7778-7785
+  the same way, taking the first port a core will have it on and starting
+  its own client there.
 
 Something not working? Both meshghost.exe and meshghost-server.exe also
 write everything they print to a log file (meshghost.log /
@@ -672,7 +674,7 @@ The Pokemon adapters are NOT an exception, despite looking like one. Emerald
 and Crystal are BizHawk Lua scripts (games\pokemon\emerald\ and
 games\pokemon\crystal\ in this zip) and BizHawk itself runs natively on Linux
 and macOS -- but the scripts reach the network through a LuaSocket library
-shipped here as a WINDOWS dll (libd\socket-windows-5-4.dll), and there is
+shipped here as a WINDOWS dll (lib\x64\socket-windows-5-4.dll), and there is
 no Linux or macOS build of it in this package. Everything else about those
 scripts is portable; it is only the socket that is not. Running BizHawk itself
 through Proton/Wine is the only route with any chance of working today, and

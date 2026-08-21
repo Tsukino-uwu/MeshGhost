@@ -103,11 +103,11 @@ type fileConfig struct {
 	// transport is served too, since quic is itself carried over udp and the
 	// two would collide; the relay refuses to start rather than guess.
 	QuicAddr *string `json:"listen_quic"`
-	// TLS turns on encryption for the tcp transport: "off" (the built-in
-	// default), "auto" (serve TLS and plaintext on the same port) or
+	// TLS turns on encryption for the tcp transport: "off", "auto" (the
+	// built-in default; serves TLS and plaintext on the same port) or
 	// "required" (refuse plaintext). quic is always encrypted regardless
 	// and plain udp can never be; this key concerns tcp only. A release
-	// config ships "required"; the built-in default is off so that
+	// config ships "required"; "off" stays available so that
 	// netcat, a packet capture and cmd/meshghost-netsim keep working
 	// while a session is being debugged. See the TLS-over-tcp ADR in
 	// agent_docs/architecture.md.

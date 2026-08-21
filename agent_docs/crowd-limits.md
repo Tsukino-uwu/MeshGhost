@@ -205,8 +205,13 @@ once a minute. Nothing enforced that; it was luck, until it was measured.
 offered on a 10x9 window rendered 89 characters at 60fps, user-confirmed — the engine holding as
 many as it can and the adapter painting the rest. Emerald's equivalent is built and still shipped
 OFF (`MESHGHOST_EMERALD_DRAWN_OVERFLOW`, `FLAGS.md`); its UI regions were measured on two maps
-2026-08-19 and it does clip a real panel, but no end-to-end pass has been watched yet
-(`status.md`, `verified.md`). Details, costs and the measurements:
+2026-08-19 and it does clip a real panel. The painted tier itself has since been watched by the
+user in ordinary play — the Acro Bike, surfing/diving, ice, fog and cave darkness were all judged
+on all three tiers 2026-08-20/21 (`verified.md`) — but the flag's default stays off until the
+clipping has been repeated under controlled play. Emerald also gained a middle rung between the
+two on 2026-08-21, the hardware-sprite tier (`MESHGHOST_EMERALD_HW_OVERFLOW`, also off by default),
+which the PPU draws and which therefore gets occlusion and palette fades the painted tier lacks.
+Details, costs and the measurements:
 `ideas.md`, `phases/phase9.md`, and Crystal's `BANDAGES.md` entry 1.
 
 **Three leaks only a crowd could have found**, all in the new tier and all invisible individually,

@@ -5,7 +5,8 @@ shipped adapters learned the hard way (last swept 2026-08-17, against `agent_doc
 `bridge`, and the four shipped adapters' own docs; last recount 2026-08-18, when Crystal
 shipped and every "three" in this folder became wrong at once; re-swept later the same day against
 all four adapters' sources and the repo-wide tooling — `dev-scripts/preflight.ps1`, `meshghost
--stats`, the relay's `-introspect`). The core was proven to run against a fake
+-stats`, the relay's `-introspect`; staleness-swept again 2026-08-21 against the Go source, the
+four adapters' sources and `.gitignore`). The core was proven to run against a fake
 adapter (`cmd/meshghost-fakeadapter`, a ghost that walks in a circle, driven by
 `core.RunAdapter` — see [agent_docs/verified.md](../../agent_docs/verified.md)'s Phase 5 entry)
 with no game attached and no import of anything under `adapters/`. This folder is what that
@@ -113,9 +114,10 @@ within a day of being started, at which point its four `.md` files were genuinel
 the listing. **The probes themselves are committed and kept** — they are the record of how each
 fact was established, and several written for a vanilla ROM were re-run days later against a
 patched one to chase the same class of bug (Emerald's four `avatar_*` probes, 2026-08-14). **Their logs are not**: `.gitignore` covers
-`adapters/**/*.log`, because once a run has been read its conclusions belong in `verified.md`,
-not in a megabyte of raw text. Convention adopted 2026-08-18, on the user's ask, and applied to
-Emerald and Crystal together.
+`/adapters/bizhawk/pokemon/**/*.log`, because once a run has been read its conclusions belong in
+`verified.md`, not in a megabyte of raw text. Convention adopted 2026-08-18, on the user's ask, and
+applied to Emerald and Crystal together — **the ignore rule is still scoped to those two**, so a new
+adapter outside `bizhawk/pokemon/` must widen it or its logs will be committed.
 
 **This replaces an earlier carve-out, overturned by the user 2026-08-18**, which said
 `documentation.md` was needed only for games with no readable source — on the reasoning that
@@ -529,7 +531,7 @@ inventing your own. Four things about it are worth knowing up front, because eac
 the expensive way:
 
 - **Give each game a `run-core-<game>.bat`, and test with `-interp=0ms -min-send=10ms`.** The
-  core's default interpolation buffer (`core.DefaultInterpolationDelay`, 100ms) smooths over real
+  core's default interpolation buffer (`core.DefaultInterpolationDelay`, 250ms) smooths over real
   local timing bugs — treat "looks fine with the buffer on" as untested, not confirmed. (If you
   also start a relay locally, it needs `-send-hz=100` or it silently overrides every core's fast
   `-min-send`.)
@@ -920,8 +922,11 @@ know anything is there. Ranked by how much the game does for you:
 
 **For a BizHawk game the ladder is `spawn -> OAM -> drawn`, in that order, and that is the default
 to start from** (settled 2026-08-21; ADR in `agent_docs/architecture.md`, numbers in `verified.md`).
-Each peer takes the best tier with room. Measured on Emerald, standing still with the crowd on
-screen, each tier run alone against a 60.0 fps bare control:
+Each peer takes the best tier with room. **A rung may decline for a place, not only for lack of
+room**: Emerald's OAM tier stands down under a screen-covering semi-transparent sheet — weather fog,
+underwater — where the ladder becomes `spawn -> drawn` (its `FLAGS.md`, 2026-08-21). Expect one such
+exception per hardware effect that owns the whole screen. Measured on Emerald, standing still with
+the crowd on screen, each tier run alone against a 60.0 fps bare control:
 
 | tier | at 16 peers | at its own ceiling | what the ceiling is |
 | --- | --- | --- | --- |
@@ -949,9 +954,9 @@ blocked by something real, and the way to tell is whether you can name the block
 
 This project has one of each. Pseudoregalia's ghost moved **borrow → create** and should have
 moved sooner; the constraint that kept it borrowing had quietly gone stale and nobody re-checked
-it, which is the bandage described above. Emerald draws its ghost with overlay primitives and
-**stayed there on purpose**: the create tier needs a spawn path that writes game state, which this
-project refused outright, and the middle tier (sprite/VRAM injection) had a cited fragility —
+it, which is the bandage described above. Emerald drew its ghost with overlay primitives and
+**stayed there on purpose** for a time: the create tier needs a spawn path that writes game state,
+which this project refused outright, and the middle tier (sprite/VRAM injection) had a cited fragility —
 a reference implementation's own comments show its fixed address needing manual re-tuning between
 *vanilla* versions of the same game, before any ROM patch. See `agent_docs/ideas.md`.
 
@@ -969,10 +974,11 @@ to **create** — spawning a real object event via the engine's own path (`archi
 already permits *spawning* — the line is persistence and authority, not pixels — so what the ADR
 actually bought was the cruder **mechanism** an emulator forces, writing RAM from outside the
 process rather than calling an engine API from within it.
-**So Emerald now has the stale assumption, not the stated blocker.** Nothing about its overlay is
-wrong today, and it is shipping and proven; but "we cannot create, because writes are refused" has
-stopped being true, and per point 4 below the constraint is due a re-test rather than continued
-inheritance. Whoever picks Emerald up next should decide that deliberately instead of assuming.
+**Emerald then re-tested the constraint and moved, exactly as point 4 below asks.** "We cannot
+create, because writes are refused" had stopped being true, and the 2026-08-18 ADR extended
+Crystal's to Emerald: a peer there is now a real object event first, with the OAM and drawn tiers
+below it (`adapters/bizhawk/pokemon/emerald/README.md`, step 18). The overlay was never *wrong* —
+it shipped and was proven — it was resting on a premise nobody had re-checked.
 
 The difference between those two is not the tier. It is that one had a blocker anyone could state
 and the other had a stale assumption nobody had tested. **Know which of those you have.**
@@ -1141,6 +1147,48 @@ connection), and the adapter passed one live test while failing the other.
 - **A leak plus solidity is a different severity from either alone.** Leaked cosmetic ghosts are
   untidy; leaked *solid* ones accumulate into a wall that can block a route. Decide collision and
   lifecycle together, not separately.
+
+## Hard rule: reproduce the EFFECT, never adopt a handle the engine can recycle
+
+**A structure that stores another object's id is safe for the engine, which owns every lifetime
+involved, and unsafe for you, who own none of them.** Learned twice in Emerald on 2026-08-21, the
+second time costing hours and a black-screened game.
+
+The engine's underwater bob is a dummy sprite whose callback nudges *another* sprite, named by
+index. Copying that structure faithfully worked exactly as long as the ghost it named stayed
+alive. Once the engine recycled that slot, our copy wrote into whatever landed there -- during a
+dive, the picture the game was busy showing -- which corrupted it and left an effect waiting
+forever for a sprite that could no longer report itself finished.
+
+**What to do:**
+
+- **Copy what the effect DOES, not the data structure that does it.** The bob turned out to be one
+  number the peer was already sending. The engine's shape was never needed.
+- **If you must hold an engine handle, re-validate it every use**, against the identity marker from
+  the section above -- never against "it was valid when I stored it".
+- **Two writers on one field is its own bug.** An intermediate version drove the same bob from both
+  the wire and our own code; the user saw it as the ghost *"moving really fast/weird"*. Decide which
+  side is the authority and let the other one stop.
+- **Never re-use a despawned entity's resources in the same tick that despawned it.** Freeing tiles
+  and immediately allocating them for the replacement gave Emerald a scrambled ghost: the engine had
+  not finished with them yet. Free on one tick, allocate on the next.
+
+**The bisect that found it is the method, and it is cheap.** Adapter dropped -> fine. Tier off ->
+fine. Tier on, effects off -> fine. One effect on -> broken. Four runs, no theory. Any "our code
+broke the game" hunt should take that shape before anyone reads code.
+
+## A movement that does not animate is still a movement
+
+**Do not assume a character crossing tiles is playing a walk cycle.** Emerald's ice slides a
+character across tiles with its legs still: the game's forced slide is a fast walk PLUS two bits on
+the object -- animation disabled, and facing locked.
+
+The general trap: an adapter naturally sends "where the peer is" and "what animation it is
+playing", and treats the second as a consequence of the first. A game with ice, a conveyor, a
+knockback, a slide or a mounted state breaks that link, and the ghost then walks where the player
+glides. **Send the suppression as its own field** (Emerald uses `extras.noanim`), and check whether
+your game's equivalent bit OUTRANKS a movement -- Emerald's does, which is why three separate
+places were each quietly undoing it.
 
 ## Do as much as the game can handle on its own, then fake it above that cap
 

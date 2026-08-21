@@ -104,11 +104,12 @@ fingerprint, and a pin covers the tcp leg only. `quic`, the default session path
 is always TLS 1.3; `tcp` gained optional TLS on 2026-08-19; `udp` has no encryption at all and
 cannot have any, since Go's standard library has no DTLS. Certificates are self-signed and
 unverified by default, so encryption stops a passive eavesdropper and not an active
-man-in-the-middle. **On `tcp`, two different defaults are both true and worth separating: the
-compiled-in default is `"tls"` off** (`cmd/meshghost/main.go`), which is what a dev session or a
-`go run` pair uses, **while the shipped `packaging/release/config.json` sets `"tls": "auto"` on both
-client and server**, so a release pair does encrypt the tcp leg. Either way, all of this raises the
-bar from "anyone with the address" to "anyone with the address and the code," not to "safe against a
+man-in-the-middle. **On `tcp`, `"tls"` defaults to `auto` everywhere since 2026-08-19: the
+compiled-in flag default is `auto`** (`cmd/meshghost/main.go`, `cmd/meshghost-relay/main.go`), which
+is what a dev session or a `go run` pair uses, **and the shipped `packaging/release/config.json`
+sets `"tls": "auto"` on both client and server** too, so a release pair encrypts the tcp leg. Either
+way, all of this raises the bar from "anyone with the address" to "anyone with the address and the
+code," not to "safe against a
 network-level attacker" — and room-code auth is enforced entirely by the relay, so it provides zero
 protection if the relay itself is an outdated build, regardless of what any client sends or believes
 it configured (see "A new risk this creates" below). Full record of the 2026-08-14 pass: the ADR in
@@ -232,7 +233,7 @@ a single shared UDP socket is demultiplexed at all and is never surfaced upward 
 **The one exception, added 2026-08-19 with TLS over tcp:** `netx/tlsx`'s listener names the peer
 address in two log lines — a plaintext connection refused under `"tls": "required"`, and a failed
 TLS handshake. Both are refusals, both go only to the host's own `meshghost-server.log`, and
-neither can happen at all while `tls` is `off`, which is the built-in default. It is a deliberate
+neither can happen at all while `tls` is `off` — but `auto` is the default, so they can. It is a deliberate
 narrowing of the property above rather than an oversight: "your friend cannot connect and the log
 does not say who was turned away" is the support case this exists for. Nothing logs the address of
 a connection that *succeeds*, so a normal session still leaves no IP anywhere. The relay is still the one party
@@ -278,8 +279,8 @@ ADR in [agent_docs/architecture.md](../agent_docs/architecture.md).
   `MaxWorldBlobBytes`, ~58KB per room, freed with the room) and opt-in per room, so it is not a
   resource gap; what it is, is a new place a client could smuggle something into, and it is not
   inspected because by hard rule it cannot be. Same posture as `extras`, with a longer lifetime.
-- **`tcp` is plaintext by default; `udp` always.** On `tcp` that is a default rather than a limit,
-  since 2026-08-19: `"tls": "auto"` or `"required"` encrypts it, and `auto` is now the default
+- **`tcp` is plaintext only if you turn `tls` off; `udp` always.** On `tcp` that is a setting rather
+  than a limit, since 2026-08-19: `"tls": "auto"` or `"required"` encrypts it, and `auto` is now the default
   to keep the "greppable with netcat" debuggability property (see "Why TCP is the mandatory
   handshake leg" below); the shipped release config sets `auto`. On `udp` it
   is *unavoidable*, since Go's standard library has no DTLS. So with `tls` off a room code crosses
@@ -397,8 +398,8 @@ latest state, now. That tradeoff doesn't bite the way it would in a competitive 
   **Update 2026-08-16: we did switch (as an option), and we did have to solve it.**
   `netx/udpconn` now implements both halves — an address-validation cookie gating
   admission, and exactly the kind of unpredictable per-connection token described here, required
-  on every datagram afterwards. The point above stands as the reason tcp remains the default and
-  the mandatory handshake leg: on tcp this protection is free, and on udp it is code we own and
+  on every datagram afterwards. The point above stands as the reason tcp remains the mandatory
+  handshake leg and the universal fallback: on tcp this protection is free, and on udp it is code we own and
   must keep correct.
 - **NAT/reachability is identical either way**: MeshGhost is relay/star-topology, not P2P — no
   client ever connects directly to another client, only to the relay. UDP's actual advantage

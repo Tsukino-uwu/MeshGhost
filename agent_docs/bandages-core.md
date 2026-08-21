@@ -58,7 +58,7 @@ rederived from `protocol.DefaultSendHz` specifically "so the two numbers cannot 
 
 ### 2. `DefaultHeartbeatInterval` is a hand-picked margin against another package's constant
 
-`core/core.go:129-141`. The heartbeat itself is the correct fix for a real, live-diagnosed
+`core/core.go:152-163`. The heartbeat itself is the correct fix for a real, live-diagnosed
 bug (idle timeout → fresh `player_id` every minute → every peer sees a despawn/respawn). The
 **constant** is the bandage: 20s was chosen as "comfortable margin" under `transport`'s 60s, but
 `relay.Server.IdleTimeout` is a per-server override, so a relay configured below ~20s silently

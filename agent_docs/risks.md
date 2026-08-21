@@ -141,7 +141,9 @@
   the address and the code," not to "safe against a network-level attacker"; tracked as its own
   entry below. (2) **the new "stale relay" risk**, also below — auth is enforced entirely by
   the relay, so it only works if the relay binary is current.
-- **No TLS on the relay/bridge connection.** `transport` is plaintext NDJSON over TCP,
+- **No TLS on the relay/bridge connection — since closed for `quic` (2026-08-16) and `tcp`
+  (2026-08-19); `udp` and the loopback bridge stay plaintext.** As originally written:
+  `transport` is plaintext NDJSON over TCP,
   deliberately, for the "greppable with netcat" debuggability property (see
   `docs/security.md`'s "Why TCP, not UDP" section). This means room-code auth (above) doesn't
   defend against a network-level attacker who can observe the connection — they can read the
@@ -288,8 +290,11 @@
     duplicate colors (a real hand-authored sprite palette wouldn't do that), matching the
     rendered pink/brown block exactly. Same mechanism already confirmed for `CB2_Overworld`
     (a fixed vanilla ROM address landing on different real bytes after the recompile, which
-    moved that address by ~2.4KB, `0x995`). No correct replacement address found yet. See `verified.md`
-    for the full palette/bitmap dump.
+    moved that address by ~2.4KB, `0x995`). See `verified.md`
+    for the full palette/bitmap dump. **Since closed**: the adapter's `detectSpriteAddrOffset()`
+    finds the relocated sprite/palette block at runtime, and 2026-08-19 found that
+    `gObjectEventGraphicsInfoPointers` moves by that same shift — after which a spawned ghost
+    appeared on a patched seed (`verified.md`, 2026-08-19).
     **Concrete next step, if this is ever pursued for real**: `extracted_data.json` is a small,
     curated set (7 RAM symbols, 48 ROM symbols) — not a full symbol table — so it can't be
     diffed wholesale against `pokeemerald.sym` the way this project's own address-verification
@@ -708,7 +713,10 @@
 **The risk this closes, and the one it leaves open.** The relay fans every state message to every
 room member and never reads `area_id`; the core discards non-matching areas at render time
 (`core/core.go`'s `remoteStatesAt`). So cross-area traffic is paid for on both uplinks, parsed and
-buffered, then thrown away. Nobody had ever measured how much of the total that is.
+buffered, then thrown away. Nobody had ever measured how much of the total that is. (Since
+2026-08-20 an adapter may declare `render_all_areas` in its bridge hello and take that filter over
+— Emerald does, for seam crossings — which changes what the core throws away, not what the relay
+sends.)
 
 **Shadow counters shipped 2026-08-18** (`relay/introspect.go`'s `StateFanoutSnapshot`, counted in
 `relay.stateRecipients`). Measurement only — nothing branches on them and delivery is byte-for-byte

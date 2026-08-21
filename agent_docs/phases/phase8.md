@@ -225,9 +225,9 @@ file of its own, which is what was happening before this file existed.
 
 ## For the README write-up: the workflow arc is part of this phase's story
 
-**Not yet written into `adapters/bizhawk/pokemon/emerald/README.md` — do it when the spawn work is
-confirmed and the build story gets its next steps.** Noted here so it is not lost, at the user's
-request 2026-08-18, in their words: *"emerald loading manually, crystal having better probes, and
+**Written into `adapters/bizhawk/pokemon/emerald/README.md` as steps 15-17 of its build story
+(2026-08-21).** Kept here in full because the README carries the short version. Noted originally at
+the user's request 2026-08-18, in their words: *"emerald loading manually, crystal having better probes, and
 now emerald solving it all together with automation. we have improved the workflow a lot by going
 back/forth and learning new things"*.
 

@@ -672,3 +672,47 @@ of the transition, then the destination map fades in from black. The engine's fa
 `BlendPalette`: every colour moves a fraction of the way toward one target colour, so "how bright
 is the scene" is the wrong question — the right one is which colour it is blending toward and by
 how much.
+
+## A rider's speed lives in three unrelated places
+
+**[measured, and cross-checked against `src/bike.c` and `src/field_player_avatar.c`]** There is no
+one field that says how fast a character is moving. This game keeps it in three, and which one is
+authoritative depends on what the character is doing:
+
+- **`gPlayerAvatar.bikeSpeed` (+0x0B)** — the Mach Bike. A *stable* field holding the game's own
+  `PLAYER_SPEED_*` value, which maps to a movement action (`FAST` to `WALK_FAST`, `FASTEST` to
+  `WALK_FASTER`). Stable is the property that matters: `movementActionId` is transient, so sampling
+  it at 20Hz catches an ordinary walk or a turn as often as a fast action.
+- **`movementActionId` as `WALK_FAST`** — the muddy slope's forced movement, during which
+  `bikeSpeed` reads **0** even though the rider is visibly moving fast. Here the action is the
+  reliable source, because the forced movement holds it.
+- **`movementActionId` as `RIDE_WATER_CURRENT`** — the Acro Bike, which genuinely moves with the
+  ride-water-current transition rather than with any bike-specific one.
+
+**"Stable" and "correct" are different properties**, and this is where they come apart:
+`bikeSpeed` is authoritative while riding and deliberately zeroed by the slope's own code.
+
+## The muddy slope: the one place facing and movement disagree
+
+**[measured, 527 frames of slide-back]** The Mach Bike exists to climb a muddy slope, and below top
+speed the slope pushes the rider back. `ForcedMovement_MuddySlope` does three things at once when
+the rider is not heading north at `PLAYER_SPEED_FASTEST`: it resets the bike's speed counter to
+zero, sets `facingDirectionLocked` on the player's object event so the character keeps **facing
+north**, and issues a forced movement **south** at walk-fast speed.
+
+So this is the only ordinary situation in the game where a character's facing and its direction of
+travel point opposite ways, and where the field that describes a rider's speed reads zero while
+they are visibly moving. Any code that derives one from the other is wrong here and only here.
+
+## Tall grass is a SPRITE, and that makes two different kinds of occlusion
+
+**[measured]** A character standing in tall grass is hidden from the waist down — and not by the
+map. The grass metatile's **top layer is completely empty** (layer type NORMAL), so no background
+layer covers anything at all. Instead the engine spawns a **field-effect sprite** per object
+standing in grass and draws it above them, from the tall-grass and long-grass field effect
+templates (`MB_TALL_GRASS` and `MB_LONG_GRASS` respectively).
+
+**Two kinds of occlusion follow, and doing one says nothing about the other.** Scenery — buildings,
+roof edges, tree tops — is a metatile's top layer on a background the sprite does not outrank.
+Grass is a sprite drawn over the character. A real object event gets both for free; anything else
+has to reproduce each separately, and "it hides behind buildings" is not evidence that it hides.

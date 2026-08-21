@@ -88,11 +88,11 @@ UE4SS entry below for that last one specifically, which is currently unresolved)
   `dev-scripts/README.md`'s `.local.bat` launchers and `pitfalls.md`'s "Running two instances
   of the same emulator/game silently collide on a shared default port" entry (found live
   2026-08-14, cost a long diagnostic session before the actual cause was this simple).
-  **Superseded in code on 2026-08-18, but NOT yet live-verified**: both Pokémon adapters now walk
-  ports 7778-7785 and take the first core that answers `bridge_ready`, so a second instance
-  should find its own core with no environment variable at all. Until that has actually been
-  watched with two emulators and two cores, keep setting the variable — it is still honoured, and
-  an explicit port disables the walk by design.
+  **Superseded in code on 2026-08-18, and confirmed the same day**: both Pokémon adapters walk
+  ports 7778-7785 and take the first core that answers `bridge_ready`, so a second instance finds
+  its own core with no environment variable at all — watched live with two emulators taking 7778
+  and 7779, and again in the two-game session of 2026-08-19 (`verified.md`). The variable is still
+  honoured, and an explicit port disables the walk by design.
 - Archipelago coexistence: confirmed 2 Lua scripts (`ButtonCount`, `Connector`) can run
   concurrently in BizHawk's Lua Console without conflict (2026-08-11) — satisfies
   `phase1.md`'s first coexistence checklist item, though it should be re-checked later with

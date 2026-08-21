@@ -20,9 +20,10 @@ The bridge listens on `127.0.0.1:7778` by default (`packaging/release/config.jso
 anything — do not hardcode it.** Two copies of the same game on one machine is how every adapter
 in this repo got tested, and two instances sharing one default port fail silently, with both
 logging a normal "connected" line: it cost a full debugging session once
-(`dev-scripts/README.md`). Emerald uses `MESHGHOST_BRIDGE_PORT`, TEVI a BepInEx `BridgePort`
-entry; Pseudoregalia walks a small range instead of taking one port, which is the better shape and
-is described below. Log the port you actually resolved when you connect.
+(`dev-scripts/README.md`). TEVI takes one port from a BepInEx `BridgePort` entry; Pseudoregalia,
+Emerald and Crystal all **walk a small range** instead, which is the better shape and is described
+below — the two Lua adapters still honour `MESHGHOST_BRIDGE_PORT`, and an explicitly named port is
+then used rather than walked. Log the port you actually resolved when you connect.
 
 The very first message on a fresh bridge connection, before any `local_state`:
 
@@ -49,7 +50,16 @@ running different revisions of *this adapter*, the most likely real source of a 
 mismatch. Leave it empty (or omit the field) if you have no version concept at all — an empty
 `game_version` is never treated as a mismatch against a room that already has one declared.
 
-`features` is the third optional field, and the only way an adapter opts into anything past cosmetic
+`render_all_areas` is a third optional field, added 2026-08-20 (`bridge`'s `Hello.RenderAllAreas`,
+ADR in `agent_docs/architecture.md`). Set it and the core delivers **every** remote's state
+regardless of `area_id`, handing all area-based hiding — and the despawns that go with it — to your
+adapter. **Only set it if your adapter can translate a neighbouring area's coordinates itself**:
+Emerald does, because it knows the game's own map-connection graph, and the core's equality test
+cannot. It is adapter-local and deliberately **not** a room feature — it changes what your own core
+sends you and nothing on the wire, so it cannot fragment room compatibility. Absent means false,
+which is the core's own cross-area filter as before.
+
+`features` is the fourth optional field, and the only way an adapter opts into anything past cosmetic
 ghosts (`bridge`'s `Hello.Features`, merged into whatever the core itself was configured
 with and forwarded to the relay). **Omit it unless you have actually implemented a plane.** A room's
 feature set is matched *exactly* and is sticky for that room's life, so advertising a capability you
@@ -342,8 +352,9 @@ engine-level:
 ## `area_id` gates rendering — it is not just metadata
 
 The core drops any remote whose `area_id` differs from your last non-nil local `area_id`
-(`core/core.go`'s `remoteStatesAt`), and interpolation refuses to blend across an
-`area_id` change. So an unstable `area_id`, or returning nil during transitions, makes remotes
+(`core/core.go`'s `remoteStatesAt`) — unless your `hello` declared `render_all_areas`, which turns
+that filter off and makes area visibility entirely your adapter's job — and interpolation refuses
+to blend across an `area_id` change. So an unstable `area_id`, or returning nil during transitions, makes remotes
 despawn and reappear for no visible reason. Note there are **three** ghost states, not two: alive,
 hidden-because-the-peer-is-elsewhere (still in your map, just not drawn), and actually despawned.
 
@@ -517,12 +528,12 @@ never does — see this folder's `README.md`.
   adapter also does networking off the main thread.
 - `adapters/pseudoregalia/MeshGhostPseudo/Mod/src/BridgeClient.cpp` / `.hpp` and `Plugin.cpp` —
   the same shape again in plain C++/Winsock over a UE4SS mod, no Lua or managed runtime
-  involved. **The only shipped adapter that implements the port walk and the `bridge_ready`
-  handshake**, so read it for those; `CoreLauncher.cpp` beside it is the reference for autostart.
-  Also worth reading for the raw-socket version of the partial-send/partial-receive framing
-  concerns this file's tick loop glosses over, and for `Plugin.cpp`'s "move offscreen, never
-  destroy" ghost-lifecycle workaround (`agent_docs/pitfalls.md`) if your engine also has no
-  reliable runtime actor-destroy call.
+  involved. **The first adapter to implement the port walk and the `bridge_ready` handshake**, and
+  the shape both Lua adapters then copied, so read it for those; `CoreLauncher.cpp` beside it is
+  the reference for autostart. Also worth reading for the raw-socket version of the
+  partial-send/partial-receive framing concerns this file's tick loop glosses over, and for
+  `Plugin.cpp`'s despawn path (`agent_docs/pitfalls.md`), which destroys the ghost and keeps
+  "move offscreen" only as the fallback for an engine with no reliable runtime destroy call.
 - `cmd/meshghost-fakeadapter/main.go` — not a template for a real adapter (it uses the
   in-process `core.Adapter` Go interface, not this wire protocol, since it has no separate
   process to bridge to). Useful only as a minimal example of the same three-function contract

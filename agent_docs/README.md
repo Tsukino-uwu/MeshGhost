@@ -104,8 +104,9 @@ Four files, all one level up:
 - [../docs/security.md](../docs/security.md) — security and privacy posture: what's already
   checked-safe (no client ever learns a peer's IP; room-code auth, protocol- and game-version
   checks, and bounded reads all shipped 2026-08-14) versus the gaps that remain. Since
-  2026-08-16 `quic` is the default, so a room code is encrypted by default — but the certificate
-  is unverified, so encrypted is not authenticated, and `tcp`/`udp` are still plaintext.
+  2026-08-16 `quic` is the default, so a room code is encrypted by default, and TLS over `tcp`
+  landed 2026-08-19 — but the certificate is unverified, so encrypted is not authenticated, and
+  `udp` is still plaintext with no fix available.
 - [../docs/networking.md](../docs/networking.md) — how the relay and client actually work,
   traced through the real code: the life of a connection, the life of a state message, the
   concurrency model, the transports, the limits. Read it before changing any of them.

@@ -3,8 +3,8 @@
 **A Lua adapter has no compile step**, so nothing here is a `constexpr` and nothing is compiled
 out. Its switches are three kinds instead: local `false` constants that gate a diagnostic, values
 read from the environment (or from a global set by the dev loader) at load time, and a runtime
-*condition* — whether the ROM is patched — that silently selects between two entirely different
-rendering paths. That last one is the most important row in this file and the least switch-shaped.
+*condition* — whether the ROM is patched — that silently withdraws three capabilities. That last
+one is the most important row in this file and the least switch-shaped.
 
 It is not a description of how the game works — that is `documentation.md` — and not a list of
 compensations, which is `BANDAGES.md`. A switch can appear in both; this one says what it is, that
@@ -31,7 +31,7 @@ There are no Dormant entries: retired approaches in this adapter were removed ra
 
 | Switch | Value | What it decides |
 |---|---|---|
-| **the ROM-patch branch** | `avatarAddrOffset == 0` | **Spawn where we can, draw where we cannot.** On a vanilla ROM a peer is a real spawned object event and the engine draws it; on an Archipelago-patched ROM the adapter falls back to the `gui.drawPixel` overlay. It is not a named flag — it is a comparison in the per-frame path — which is exactly why it is registered here. The reason is asymmetric risk: `gObjectEvents`' relocation under the patch is measured and applied, `gSprites`' is **not**, and a wrong *read* returns a wrong number while a wrong *write* corrupts whatever now occupies that address. `BANDAGES.md` carries it as a deliberate, temporary split; measuring the `gSprites` shift is what would close it. |
+| **the ROM-patch branch** | `avatarAddrOffset == 0` | **Vanilla-only capabilities.** Not a named flag — a comparison in the per-frame path — which is exactly why it is registered here. It no longer decides the RENDERER: the spawn path used to fall back to the `gui.drawPixel` overlay on a patched ROM because `gSprites`' relocation was unmeasured, and `probes/gsprites_scan_probe.lua` closed that 2026-08-19 by measuring it (`gSprites` does not move; `gObjectEvents` does). Both builds now spawn. What it still gates is the three things that read **our own build's** addresses and have no measured patched equivalent: the **hardware-sprite tier** (declines, its peers falling to the painted one), the **cave flash-window clip** (declines, so a painted ghost still shows through a dark cave on a patched seed), and the **fishing alignment hook** (`BANDAGES.md` entry 3). |
 | `LOOPBACK_GHOST_OFFSET_TILES_X` | `2` (or `0`, see Runtime) | Dev-only, render-only sideways offset for a loopback ghost, so the echo of your own state can be told apart from your character. Never touches what goes on the wire. |
 | `LOOPBACK_GHOST_OFFSET_TILES_Y` | `0` | Kept at zero deliberately: a same-row offset is what makes step timing comparable. |
 | `GHOST_LOCAL_ID` | `255` (`LOCALID_PLAYER`) | **Load-bearing twice over, and neither reason is cosmetic.** It makes a ghost non-interactable *using the engine's own check* — `GetInteractedObjectEventScript` returns NULL outright for this id — which fixed a real bug found live 2026-08-18: talking to a ghost resolved a script through the map's template table, found nothing (a ghost has no template), and ran whatever was at that address, dumping the user into the slot-machine minigame. It is also the identity marker: "active, not the player, and this `localId`" is a state only our ghosts can be in, which is what stops an orphan sweep deactivating a real NPC after a map rebuild. See `_template/README.md`, "'The map changed' and 'the world was rebuilt' are different events". |

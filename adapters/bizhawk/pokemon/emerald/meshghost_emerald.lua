@@ -1,7 +1,8 @@
 -- MeshGhost — Pokémon Emerald adapter
 --
 -- *** WRITES GAME RAM. *** Object RAM only (gObjectEvents, gSprites, the sprite-tile
--- allocation bitmap), never a save, cosmetic only. See agent_docs/architecture.md's
+-- allocation bitmap, and the shadow-OAM window above gOamLimit that the hardware tier uses),
+-- never a save, cosmetic only. See agent_docs/architecture.md's
 -- 2026-08-18 ADR, which extends Crystal's spawn ADR to this adapter, and the ROM guard
 -- below. The header used to end "Never writes memory" -- true until the spawn path landed
 -- 2026-08-18, and left standing afterwards; it was the most misleading line in the file.

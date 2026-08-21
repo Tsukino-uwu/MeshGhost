@@ -109,11 +109,11 @@ Either way, double-click meshghost.exe yourself before launching the game -- and
 it reads the config.json sitting next to it, so keep the two together.
 
 Two important notes specific to Pseudoregalia:
-- The mod always uses local bridge port 7778, and the config.json beside it deliberately
-  has no "local_game_bridge" setting -- the mod passes that port to MeshGhost itself, so
-  there's only one place it can be set rather than two that could disagree. If you're
-  trying to run two copies of MeshGhost on the same machine (see the main README.txt),
-  that trick does not currently work for Pseudoregalia.
+- The mod finds its own local bridge port, walking 127.0.0.1:7778-7785 and taking the
+  first one a core will have it on, and the config.json beside it deliberately has no
+  "local_game_bridge" setting -- the mod passes that port to MeshGhost itself, so there's
+  only one place it can be set rather than two that could disagree. That is also what lets
+  two copies on one machine work with nothing to configure (see the main README.txt).
 - You should stop seeing a friend's ghost while you're in different areas of the castle --
   if you still see one across areas, that's useful to know -- there's nowhere to report it
   yet, but don't assume it's your setup.

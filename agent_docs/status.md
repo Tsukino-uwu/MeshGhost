@@ -6,22 +6,17 @@
 *"Ice is done/confirmed"*, then *"Ice, fog, cave darkness have been confirmed."* Entries:
 `verified.md`. Methods and the lessons that cost the most: `pitfalls.md`.
 
-- **`spaused` had a partner we never sent.** `disableAnim` means the object may not animate and
-  outranks a movement; an ice slide is a character crossing tiles with its legs still. Sent as
-  `extras.noanim`. Three separate things were each undoing it. `verified.md`.
-- **Two fixes were named after WHERE they were found, and both were wrong for it.** The OAM tier's
-  stand-down tested `underwater`, so Mt Pyre's fog reproduced it on dry land; it now tests the
-  screen. The dive session's stated REASON was wrong too — the engine's own character stands in
-  front of the same fog with no artifact. `pitfalls.md`.
-- **The OAM tier under a semi-transparent sheet is an accepted limit, not a repaired tier**: its
-  peers are painted instead. The cave's darkness, by contrast, WAS fixable — the lit region is
-  readable data, where the sheet was a priority we cannot win. That distinction is the one to
-  carry to the next hardware effect. `FLAGS.md`, `documentation.md`.
-- **`goto_map` never placed the player at all** — `CB2_LoadMap` does not run `WarpIntoMap`, so it
-  changed the map and left the coordinates, trapping the user outside a smaller map twice. Fixed
-  with `MESHGHOST_WARP_X/_Y`, taken from the destination's own warp event. `verified.md`.
-- **Rig**: relay + core running hidden (loopback, tcp, collision off); emulator up; dev loader set =
-  flags + test kit (keeps Repel topped up) + adapter. **noclip is OFF** (dropped, tiles restored).
+- **`spaused` had a partner we never sent** — `disableAnim`, now on the wire as `extras.noanim`;
+  three separate things were each undoing it. `verified.md`.
+- **Two fixes were named after WHERE they were found, and both were wrong for it** — the OAM tier's
+  stand-down tested `underwater` rather than the screen, and the dive session's stated reason was
+  wrong too. `pitfalls.md`.
+- **The OAM tier under a semi-transparent sheet is an accepted limit, not a repaired tier** (its
+  peers are painted); a cave's darkness WAS fixable, because the lit region is readable data.
+  `FLAGS.md`, `documentation.md`.
+- **`goto_map` never placed the player at all** — fixed with `MESHGHOST_WARP_X/_Y` from the
+  destination's own warp event. `verified.md`.
+- **Rig**: nothing is running — relay, core and emulator all shut down and verified gone.
   Savestates: slot 1 the user's, slot 6 the user's Mt Pyre fog spot, slot 8 goto_map's undo.
 
 ## Genuinely open items
@@ -61,6 +56,8 @@ that a peer's state genuinely differs from the local player's, which loopback co
 
 ### Open, not blocked
 
+- **Emerald: the BOAT is unchecked** — the user's own item, logged 2026-08-21. A ferry ride is a
+  state no tier has been watched through; nothing measured yet.
 - **Ghost collision policy: Go side DONE, adapters not wired.** Config, wire and bridge all ship
   and are tested; no adapter reads `session_policy` yet, so nothing changes on screen. ADR 2026-08-19.
 - **Drawn-tier visual parity: Emerald is close, not done.** Reflections, wake and a flip error were
@@ -73,8 +70,8 @@ that a peer's state genuinely differs from the local player's, which loopback co
   box; the row-12 test sees only the bottom one. Detection unwritten. `unverified.md`.
 - **Crystal's drawn tier is unconfirmed**: animation, facing and text-box clipping all landed
   2026-08-19 after the fill-the-screen test. `unverified.md`, `crowd-limits.md`.
-- **Crystal/Emerald: ghost animation completeness** — Emerald fishing is DONE and 1:1 on both tiers
-  (`verified.md` 2026-08-19); bikes and surfing are next, same class. `unverified.md`.
+- **Crystal: ghost animation completeness** — Emerald's fishing, both bikes, surf/dive and ice are
+  all done and 1:1 (2026-08-19..21); Crystal has none of that class yet. `unverified.md`.
 - **Crystal has none of 2026-08-19's Emerald animation fixes**, and its drawn tier ships ON —
   the paused-sprite and derived-offset traps apply there too. `pitfalls.md`, three Emerald entries.
 - **Crystal: a peer's own sprite is used when its tiles are resident, not otherwise** — but the
@@ -91,8 +88,6 @@ that a peer's state genuinely differs from the local player's, which loopback co
   stops sending leaves a marker frozen where it was. Shipped bug, not hypothetical. `ideas.md`.
 - **TEVI lags the template's bridge shape** — `bridge_ready`/`reject` and autostart landed
   2026-08-18; the PORT WALK is the remaining gap. `_template/PROTOCOL.md`.
-- **Emerald peer state: SPAWNED tier confirmed (fishing), DRAWN tier cannot** — the painted path
-  only knows the walk/run pic tables, so a bike/surf/rod peer paints as walking. `verified.md`.
 - **Loopback offset puts the ghost inside/above sloped geometry** — a rig artefact, since a real
   peer's position is always valid. Weigh loopback-only anomalies accordingly. `verified.md`.
 - **Pseudoregalia: a hard crash mid-session after the pause menu opened twice** — not root-caused,
@@ -101,8 +96,6 @@ that a peer's state genuinely differs from the local player's, which loopback co
   2026-08-16 transition crash, which is fixed.
 - **TEVI: charged-attack VFX missing on the ghost** — animations play, effects don't.
   `phase6.md` (2026-08-15).
-- **Emerald: the Acro Bike's wheelie POSE is not reproduced** — those actions never report
-  finished for a ghost and strand it; the watchdog frees it. `unverified.md`.
 - **Emerald: VRAM/sprite injection** — Stage 1 ran 2026-08-14 and is written up; Stages 2–5 not
   started. `ideas.md`, `environment.md`.
 - **Receive rate cap** — `max_receive_hz_per_player` never watched live; needs two clients at

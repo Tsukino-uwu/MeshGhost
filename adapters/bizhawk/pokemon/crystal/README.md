@@ -4,8 +4,9 @@
 real in-game object event for each peer, walks it with the game's own step mechanism, **paints any
 peer the engine has no room for over the emulator instead of dropping it**, and ships in
 the release (`.github/workflows/release.yml` stages it into `games/pokemon/crystal/`). It **writes
-game RAM** — object RAM only, never a save. Last live confirmation 2026-08-18: a loopback ghost
-walked on both vanilla and an Archipelago-patched ROM.
+game RAM** — object RAM only, never a save. Last live confirmation 2026-08-19: a character on every
+visible tile at 60fps, user-confirmed (a loopback ghost had walked on both vanilla and an
+Archipelago-patched ROM the day before).
 
 - Platform: Game Boy Color, played via BizHawk.
 - Confirmed working roms: **"Vanilla V1.0"**, **"Archipelago 6.0.0-beta.11"** (the latter with one
@@ -112,7 +113,7 @@ Only steps that actually happened and were confirmed are listed here.
 
 ### Further work past "good enough"
 
-Open as of 2026-08-18 — [agent_docs/status.md](../../../../agent_docs/status.md) is the
+Open as of 2026-08-19 — [agent_docs/status.md](../../../../agent_docs/status.md) is the
 authoritative list, and [phase9.md](../../../../agent_docs/phases/phase9.md) has the detail:
 
 - A ghost wears the peer's own sprite when this map has those tiles loaded (2026-08-19), and falls
