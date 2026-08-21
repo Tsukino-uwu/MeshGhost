@@ -1662,6 +1662,7 @@ local W_MENUBOX_TOP, W_MENUBOX_LEFT, W_MENUBOX_BOTTOM, W_MENUBOX_RIGHT = 0x0F82,
 -- ghosts -- is occluded by the game itself and needs none of this.
 local UI_LATCH_FRAMES = 20
 local uiSeenAt, drawFrames = nil, 0
+
 -- The player's step progress as of the frame OAM was built; see the pairing note in drawOverflow.
 -- A few frames of the player's own position, so a peer's state can be compared against the moment
 -- it describes rather than against now. PEER_STATE_AGE is the measured loopback round trip.
@@ -1673,7 +1674,10 @@ local uiSeenAt, drawFrames = nil, 0
 -- tile boundary. 4 was the measured round trip and read as fast; 2 splits it. Tuned by eye on
 -- purpose -- what matters is which way to turn it, which is written here so the next person does
 -- not rediscover the direction.
-local playerHistory = { size = 12, age = 2 }
+-- Also carries `settle`: frames left to wait after the world was rebuilt, so the painted tier does
+-- not draw over a fade-in. One table rather than another name -- this file is at Lua's 200-local
+-- ceiling and hit it four times tonight, every one a bare LOAD FAILED with nothing loaded.
+local playerHistory = { size = 12, age = 2, settle = 0 }
 
 -- WY IS NOT THE SIGNAL, and using it cost half the screen.
 --
@@ -1737,7 +1741,41 @@ function drawOverflow()
 	drawFrames = drawFrames + 1
 	-- COMPARE_TIERS keeps this running even with the tier switched off: the comparison ghost is
 	-- the only thing `overflow` holds in that configuration, and looking at it is the point.
+	-- CLEAR BEFORE EVERY EARLY RETURN.
+	--
+	-- BizHawk's drawing layer PERSISTS until something replaces or clears it, so a frame in which
+	-- this tier draws nothing leaves the previous frame's painted peers on screen -- frozen, and
+	-- looking exactly like a ghost that is being drawn when it should not be. The user, 2026-08-21:
+	-- the painted ghost stays visible through both halves of a door transition, which is precisely
+	-- the window where every gate here returns early and nothing repaints.
+	--
+	-- So the tier stops by CLEARING rather than by falling silent. Cheap, and it makes "draw
+	-- nothing" mean nothing on screen instead of whatever was there last.
+	local function stopDrawing()
+		pcall(function() gui.clearGraphics() end)
+	end
+
 	if (not DRAW_OVERFLOW and not COMPARE_TIERS) or not inPlay() then
+		stopDrawing()
+		return
+	end
+
+	-- LET A REBUILT WORLD SETTLE BEFORE PAINTING ON IT.
+	--
+	-- The user, 2026-08-21: the painted ghost shows while walking in and out of a house. The
+	-- positive gate pitfalls.md asks for does not catch it, and transition_probe.lua says why:
+	-- across a door crossing wMapStatus drops to ENTER and comes back to HANDLE the moment the new
+	-- map is entered, while the screen is still fading in -- and Crystal never touches the OBJ
+	-- palette shadow during that fade (objBrightness read a flat 99 through every crossing), so
+	-- there is no lighting signal to match the way Emerald's painted tier matches one.
+	--
+	-- What IS reliable is that the world was just rebuilt. `lastArea` already changes on exactly
+	-- that event, so the tier holds off for a moment afterwards. This is not a deny-list of screens
+	-- -- it is the same "the world is being rebuilt" fact the spawned tier already acts on, applied
+	-- to the tier that paints outside the engine and therefore cannot be hidden by it.
+	if playerHistory.settle > 0 then
+		playerHistory.settle = playerHistory.settle - 1
+		stopDrawing()
 		return
 	end
 	learnFacingFromPlayer()
@@ -1811,6 +1849,7 @@ function drawOverflow()
 	-- Archipelago agent measured wMapStatus never leaving 2 through an entire battle on that
 	-- build, so wBattleMode is the only battle term there and this is its gap).
 	if liveSprites == 0 or playerSpriteEntries == 0 then
+		stopDrawing()
 		return
 	end
 
@@ -3119,6 +3158,7 @@ local function tick()
 	local area = areaId()
 	if area ~= lastArea then
 		if lastArea then
+			playerHistory.settle = 30 -- the world is being rebuilt: do not paint over the fade-in
 			for id in pairs(ghosts) do
 				ghosts[id] = nil
 			end
