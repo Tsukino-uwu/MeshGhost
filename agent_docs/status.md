@@ -2,124 +2,74 @@
 
 ## Active status
 
-**Phase 8.1 -- Emerald's hardware-sprite tier -- was built and measured on 2026-08-21, and it is the
-live piece of work.** The ladder is now `spawn -> OAM -> drawn`. Full record: `verified.md` and
-`pitfalls.md` for that date, design in `plans.md` Phase 8.1 and the two 2026-08-21 ADRs.
+**Phase 8.1's three-tier ladder (`spawn -> OAM -> drawn`) is built; 2026-08-21's later session took
+it onto the WATER and through a CAVE, and found that most of what a character does in either place
+had never reached the two tiers that draw for themselves.** Eight fixes, seven user-confirmed on
+screen. Full record and every measurement: `verified.md` and `pitfalls.md` for that date; the game
+facts behind them are in the adapter's `documentation.md`.
 
-- **The hardware tier is built and user-confirmed, INCLUDING occlusion** -- the claim it exists for.
-  Still off by default; open: scene fades, and how it looks UNPINNED. `unverified.md`.
-- **BizHawk adapters are Lua-only, no ROM patch, ever** -- standing rule, cross-patch compatibility.
-  ADR 2026-08-21 in `architecture.md`; non-goal in `plans.md`; opening section of `_template`.
-- **The shared movement filter was fixed on 2026-08-21** (it could not follow a RUNNING player). The
-  painted tier's own movement has not been on screen since -- compare mode PINS it. `unverified.md`.
-- **Costs, measured standing still with the crowd on screen:** at 16 peers all three tiers equal a
-  bare emulator; at 56, OAM 60.0 vs painted 39.6; both cheap tiers full (67 characters) still 60.0.
-- **HBlank multiplexing is CLOSED**, user-confirmed 2026-08-21: BizHawk cannot drive it and a ROM
-  patch is ruled out. Do not re-propose it; the ADR has all three reasons.
-- **The ACRO BIKE IS DONE, user-confirmed 2026-08-21** -- shadow, dust, side hop and facing on all
-  three tiers, 60fps on the stressed path. Seven `pitfalls.md` entries that date carry the method.
-- **Frame rate is a SHIPPING requirement and nothing may pass that breaks it** -- user, 2026-08-21:
+- **Confirmed this session:** the cave fade (a cave mouth fades to WHITE, invisible to a
+  downward-only brightness ratio); the OAM tier's surf blob and reflection; reflections for any
+  ghost on reflective ground rather than only while surfing; the water ripple trail; the OAM
+  comparison position; a ghost spawning in its idle pose; and the reflection's row and width.
+- **NOT confirmed, and first on the list:** **frame rate.** The session added per-frame work to both
+  self-drawn tiers and never re-measured. `probes/fpshold.lua` against a bare control, before
+  anything else. `unverified.md` has the full not-confirmed list.
+- **The unpinned jump arc is built and unwatched** — both self-drawn tiers used to draw a peer
+  SLIDING over a ledge, and compare mode structurally cannot show it, because it pins. Judging it
+  needs compare mode OFF. `unverified.md`.
+- **Diving was never reached.** The user was taken to Route 126 and asked to be put back; nothing
+  underwater has been seen. Underwater is a different mechanism from surfing. `unverified.md`.
+- **ASK BEFORE WARPING THE PLAYER.** Standing rule from this session, and it is about their session,
+  not about cheating (which is permitted): *"always ask before you teleport"*. `probes/goto_map.lua`
+  checkpoints to savestate slot 8 first, so slot 8 is the undo.
+- **The two method lessons that cost the most, both in `pitfalls.md`:** never judge a tier against
+  another tier you have not verified — a long hunt compared the painted ghost against a spawned one
+  that was itself in the wrong pose — and measure a target's BEHAVIOUR across several frames before
+  changing how you draw it, not just its position in one.
+- **The ACRO BIKE IS DONE**, and Phases 6 (TEVI) and 7 (Pseudoregalia) are done. Crystal has none of
+  the hardware-tier work and none of this session's.
+- **Frame rate is a SHIPPING requirement and nothing may pass that breaks it** — user, 2026-08-21:
   *"there can't be any fps drops like this in a shipped/release"*. Measure against a bare control.
-- **Read `pitfalls.md`'s 2026-08-21 entries before comparing any two renderers.** Four invalid
-  measurements preceded the valid one, and each was convincing. Two were caught by the user, not me.
-- Phases 6 (TEVI) and 7 (Pseudoregalia) are done. Crystal has none of the hardware-tier work.
 
-**The rule this session kept proving, again:** the instrument is the suspect before the subject. A
-probe's own logging cost 7.4 fps; a load generator silently refused every peer; a ride harness walked
-away from half the comparison; and the reference renderer was pinned in a way that hid a bug it
-shared. `_template/probes.md` has the methods; `probes/fpshold.lua` is the new one.
+## Picking this up in a new session — rewritten 2026-08-21 (second session that day)
 
-## Picking this up in a new session — rewritten 2026-08-21, and the first thing to read
+**Nothing of mine is running.** The relay and the core were shut down and verified gone at the end
+of the session. **The EMULATOR is still up** — one vanilla Emerald instance with the adapter loaded
+through the dev loader, sitting in Sootopolis City (`g0.n7`).
 
-**The four-emulator session described here before is GONE** — none of those processes survived.
-What is running now is a single vanilla Emerald instance, left up after its end-to-end
-confirmation pass:
-
-| ROM | BizHawk pid | Bridge | Loader control file |
-|---|---|---|---|
-| Vanilla Emerald | 28328 | 7778 | `bizhawk-dev-loader-emerald.target` |
-
-(pids as of 2026-08-20 EVENING; they change -- match on the `--lua=` argument. The relay on 7777
-is pid 10196 with `-loopback -ghost-collision=disabled`, the core pid 20552 pinned `-transport=tcp`
-(REBUILT with render_all_areas -- an old binary re-breaks seam crossings). Killing the core makes
-the adapter AUTOSTART a default-flags one within seconds; start yours before it wins the port.
-
-The loader set is the syntax check, a scratchpad `flags_compare.lua`, and the adapter. **The flags
-file lives in the SESSION scratchpad, so a new session must write its own before the adapter line**
--- and it must set EVERY dev flag explicitly, `false` included: the loader shares one Lua
-environment, so an unset global keeps whatever the last session gave it (`pitfalls.md`, and it
-invalidated a measurement on 2026-08-20). The standing dev default is:
-
-```lua
-MESHGHOST_COMPARE_TIERS = true       -- one ghost, THREE renderers: spawned right, its OAM copy
-                                     -- 2 tiles above that, painted left. Both non-engine copies
-                                     -- are PINNED to the spawned sprite, so position is out of
-                                     -- the comparison and only the renderer differs.
-MESHGHOST_EMERALD_HW_OVERFLOW = true -- the hardware-sprite tier (ships OFF; on for dev)
-MESHGHOST_EMERALD_DRAWN_OVERFLOW = true
-MESHGHOST_EMERALD_MAX_SPAWNED = nil  -- set 0 to force every peer past the engine tier
-MESHGHOST_EMERALD_TEST_PEER = "off"  -- retires the leftover cross-map peer; see below
-MESHGHOST_GHOST_PEER_GFX = true      -- a ghost wears the PEER's graphic (bikes, surf, rod)
-MESHGHOST_EMERALD_NO_COLLISION = true
-MESHGHOST_EMERALD_ANIM_TRACE = false
-MESHGHOST_EMERALD_PROFILE = false    -- per-frame + per-section Lua timing, FLAGS.md
-MESHGHOST_EMERALD_NO_FISH_HOOK = false
-MESHGHOST_DEV_TICK = function() end
-```
-
-**Nothing of mine is running as of the end of 2026-08-21** -- relay, core and load generator were
-all shut down and verified gone. The EMULATOR is still up with the adapter loaded. To bring the rig
-back (all from the repo root, hidden):
+To bring the rig back, from the repo root, hidden (`environment.md`):
 
 ```
 meshghost-relay.exe -loopback -max-clients=200 -send-hz=100 -ghost-collision=disabled
-meshghost.exe -game=emerald -bridge=127.0.0.1:7778 -name=player1 -interp=0ms -min-send=10ms
-meshghost-fakeadapter.exe -clients=N -game-id=emerald -room=default -relay=127.0.0.1:7777 \
-    -area-id=<the player's map, from probes/capacity_probe.lua> -center=<their tile> -dims=2 \
-    -radius=4 -period=6 -facing-follows-path
+meshghost.exe -game=emerald -bridge=127.0.0.1:7778 -name=player1 -interp=0ms -min-send=10ms -transport=tcp
 ```
 
-**`-max-clients` DEFAULTS TO 8** and silently refuses everyone past it -- that produced a fake
-"2 fps" result that read as a damning verdict on a whole tier (`pitfalls.md` 2026-08-21). Always
-confirm the load ARRIVED from the adapter's own status line (`remotes=N ghosts=N hw=N drawn=N`)
-before believing any number.
+`-max-clients` DEFAULTS TO 8 and silently refuses everyone past it. Rebuild the binaries with
+`-o` first: `go build` does not refresh the named `.exe` files the `.bat` launchers run.
 
-**Synthetic peers orbit a FIXED map point and do not follow the player**, so they cannot be walked
-behind a building. Use the relay's `-loopback` ghost for anything positional or occlusion-related;
-use synthetic peers for load.
+**The loader's control file is `dev-scripts/bizhawk-dev-loader-emerald.target`** (gitignored, one
+absolute path per line, loaded in order). **The flags file it names lives in the SESSION scratchpad,
+so a new session must write its own before the adapter line** — the loader shares one Lua
+environment, so an unset global keeps whatever the last session left there. Set EVERY dev flag
+explicitly, `false` included. The standing dev default is in `FLAGS.md`; the compare layout is now
+OAM, drawn, player, spawned, left to right, all in one row.
 
-**The emulator's own environment still carries `MESHGHOST_EMERALD_TEST_PEER`** from an earlier
-launch, so an instance can come up with TWO peers: the loopback ghost and a synthetic cross-map
-one. It outlives every Lua global, because the flag reads `nil or os.getenv(...)` -- worth knowing
-before reading two ghosts as a bug, and it is also what reproduced the shared-slot collision.
-**Retiring it no longer needs a relaunch (2026-08-21):** set the global to `"off"` from a loader
-script and the peer is dropped, both tiers reaping it by their normal departing-player paths.
+**Useful things this session left behind:**
 
-**Do not edit the control file between a user action and its reading -- a reload respawns the ghost
-and resets the very state under test**, `pitfalls.md` 2026-08-20. **Performance is measured, not
-guessed**: `probes/fpsride.lua` plus a bare control run, method in `_template/probes.md`.)
-
-**The opening move, in order:**
-
-1. **Claim instances.** One agent per BizHawk INSTANCE, and hand each its pid, control file, bridge
-   port and the off-limits list of everyone else's — `environment.md`. Kill only by PID, never by
-   name or wildcard.
-2. **Read `playing.md` before driving anything.** Cheats are permitted to make progress as of
-   2026-08-19, including collision and tile edits; that file is the whole permission set.
-3. **Resume the four missions**, which are settled and should not be re-derived:
-   - **Archipelago Crystal and Archipelago Emerald: full playthroughs**, start to finish. Every
-     state they pass through is adapter coverage nobody scripted.
-   - **Vanilla Crystal and Vanilla Emerald: ghost animation completeness** — surf, Fly, bikes,
-     fishing and the rest. The enumeration is already in `phases/phase9.md`.
-4. **Screenshot into `dev-scripts/shots/<game>/` and look before acting.** `client.screenshot()`
-   only — never a window capture — and remember it cannot see a drawn-tier ghost.
-5. **Launching BizHawk from PowerShell: quote the ROM path inside a single argument string.**
-   `Start-Process -ArgumentList` on PS 5.1 does not quote array elements, so a path with spaces
-   arrives split and EmuHawk opens an `Exception` window instead of the game (2026-08-19).
-
-**Both Archipelago blockers are CLOSED** (`wBattleMode` = `0x1234`; the graphics-info pointer table
-shifts by `0x7530`), so neither adapter refuses on a patched ROM any more. What replaced them at
-the top of the list is below.
+- `probes/cavewarp_probe.lua` and `probes/ripple_probe.lua` — new, and both write timestamped logs
+  beside themselves. `probes/README.md` says what each is for.
+- **`grant_test_kit.lua` belongs in the loader set whenever the player is being driven** — it tops
+  Repel up every half second, and without it a scripted ten-second surf walked into a wild battle
+  and the measurement captured the battle transition instead.
+- **A screenshot cannot see the drawn tier** (it is a Lua overlay painted after the frame) but CAN
+  see the OAM tier, because that one is real hardware sprites. **Diffing two screenshots — one with
+  the adapter loaded, one with it dropped — isolates exactly what our ghosts contribute**, and
+  reading the PNG host-side with a few lines of Python gives per-pixel answers the emulator's Lua
+  API does not expose (`emu.getscreenpixel` does not exist on this build).
+- **The OAM buffer is directly comparable to the engine's own**: entries 0..63 are the game's,
+  64..127 are ours, and "is our sprite the same as the engine's?" is a field-by-field read rather
+  than a question for the user.
 
 ## Genuinely open items
 
@@ -160,8 +110,8 @@ that a peer's state genuinely differs from the local player's, which loopback co
 
 - **Ghost collision policy: Go side DONE, adapters not wired.** Config, wire and bridge all ship
   and are tested; no adapter reads `session_policy` yet, so nothing changes on screen. ADR 2026-08-19.
-- **Drawn-tier visual parity: EMERALD IS DONE** (occlusion, shadow, reflection all confirmed
-  2026-08-20, `verified.md`). Crystal's tier still has none of it.
+- **Drawn-tier visual parity: Emerald is close, not done.** 2026-08-21 found reflections gated to
+  surfing, no wake, and a one-row flip error. Crystal's tier still has none of any of it.
 - **A vanilla battle with a crowd was never reached** — our own spawned ghosts boxed the player in
   on the way to grass, which `crowd-limits.md` predicts. `unverified.md`, `pitfalls.md`.
 - **Emerald's real-panel clip count was REACHED, not played to** — the position was written, so it

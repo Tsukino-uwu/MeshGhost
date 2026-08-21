@@ -113,3 +113,5 @@ shipped adapter is `../meshghost_emerald.lua`.
 | `phase3_loopback.lua` | Phase 3 — real state through the real Go stack, drawn as it comes back |
 | `phase4_multiplayer.lua` | Phase 4 — two real players |
 | `phase5_5_sprite.lua` | Phase 5.5 — the real sprite; byte-identical to the adapter as it stood on 2026-08-14 |
+| `cavewarp_probe.lua` | Logs the drawn tier's two hiding mechanisms across a warp — the player sprite's invisible bit and the live-vs-ROM palette fit. Written for "the drawn ghost lingers entering a cave"; it is what showed a cave fades to WHITE |
+| `ripple_probe.lua` | Logs every sprite that comes into existence, with the ROM pointers it was built from, where it appeared relative to the player and how long it lived. Written to specify the water trail; it reports ALL new sprites on purpose, because deciding in advance which ones are ripples is the assumption worth not making |

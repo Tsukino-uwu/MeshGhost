@@ -1137,3 +1137,42 @@ the gap grows over a sequence, it was never the network.
 **The user's rule is the better default anyway**: anything the player can do, a ghost must too, and
 "impossible" means the mechanism has not been found yet. An explanation that ends in a shrug should
 be treated as an unfinished investigation, not a result.
+
+## Two ways to get ground truth out of a game that will not tell you directly
+
+Both were found on Emerald, 2026-08-21, and neither is Emerald-specific.
+
+### Diff two screenshots to isolate exactly what YOUR code draws
+
+A Lua overlay does not appear in `client.screenshot()`, which is a real blind spot — but anything
+you put in the game's own sprite/OAM data DOES. So:
+
+1. screenshot with the adapter loaded;
+2. drop the adapter through the dev loader;
+3. screenshot again;
+4. diff the two PNGs **host-side** (a PNG decoder is ~30 lines of Python — zlib plus the five
+   filter types) and every differing pixel is something your adapter contributed.
+
+That gives per-pixel answers the emulator's Lua API may not expose at all — on this BizHawk build
+`emu.getscreenpixel` does not exist. It gave the exact row AND column of a single-pixel reflection,
+which no amount of reading the code would have.
+
+**Its limit, and it is a real one:** anything your code causes the ENGINE to create may outlive the
+drop by a frame or persist through it, so it will not show in the diff. Check that what you are
+isolating actually disappears when the adapter does.
+
+**Diff several frames against EACH OTHER, too.** One diff answers "where is it". Diffing six
+consecutive screenshots answers "what does it DO" — that is how a reflection's shimmer was measured
+as *one pixel alternating between two columns*, which settled both its width and its motion in a
+single step. A scaling or animation rule is a claim about behaviour, and behaviour needs more than
+one frame.
+
+### Compare your OAM entries against the engine's, field by field
+
+If your adapter writes hardware sprite entries, the engine's own are sitting in the same buffer.
+"Is our sprite the same as the game's?" is then a read, not a question for the user: dump both,
+decode shape, size, position, priority, palette, flip and affine mode, and compare.
+
+This retired a whole class of "it looks slightly off" in one line — ours came back byte-identical to
+the engine's own reflection entry — and it is the fastest way to split "we are drawing it wrong"
+from "we are drawing the wrong thing".

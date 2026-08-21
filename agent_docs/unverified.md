@@ -525,3 +525,26 @@ This is the same shape as the bug it fixed: the pinning that makes compare mode 
 what hid the defect for days (`pitfalls.md`, trap 4). **To actually test it, turn compare mode OFF**
 -- then the painted copy is placed from the glide like a real peer, and running speed is where any
 difference lives.
+
+## 2026-08-21 (water/warp session) — what was NOT confirmed
+
+Everything else from that session is user-confirmed and in `verified.md`. These are not:
+
+- **The unpinned jump arc, on either self-drawn tier.** Both tiers took a peer's hop from the
+  spawned sprite they are PINNED to in compare mode; an overflow peer has none, so it slid across
+  ledges with no arc and (painted) no shadow. Fixed from the peer's own `soy`, **never watched on
+  screen** — and it cannot be, in compare mode, because compare mode pins. Judging it needs
+  `MESHGHOST_COMPARE_TIERS = false` with `MESHGHOST_EMERALD_MAX_SPAWNED = 0`, twice: once with the
+  hardware tier on, once with only the painted one.
+- **Diving.** Never reached. The player was taken to Route 126 (`g0.n41`, where the Dive spots are)
+  and then brought straight back at the user's request, so no dive was performed and nothing about
+  an underwater peer has been seen. Underwater is a different mechanism from surfing —
+  `StartUnderwaterSurfBlobBobbing` bobs the player's own sprite rather than spawning a companion —
+  so none of the surf-blob work covers it.
+- **The ripple trail under load.** Confirmed on screen with ONE surfer. The hardware pool holds 12
+  and a steady trail is 10, so a second surfing peer overflows it and drops its oldest ripples; that
+  path logs but has never been watched.
+- **Everything above at frame rate.** The session added per-frame work to both self-drawn tiers —
+  a blend fit, a reflection for every peer on reflective ground, and a ripple trail — and **no
+  `probes/fpshold.lua` run was made afterwards.** Frame rate is a shipping requirement; this is the
+  first thing the next session should measure, against a bare control.

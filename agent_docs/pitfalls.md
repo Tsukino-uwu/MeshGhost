@@ -3162,3 +3162,154 @@ Re-measured: adoption gap **0 frames**, and **zero** frames of `act=NONE` across
 Latency is the most available excuse in a multiplayer project and it costs nothing to state; here it
 was wrong, and one frame-stamped capture separated eight frames of adapter stall from a wire delay
 that measured zero.
+
+---
+
+## 2026-08-21 (later) -- method notes from the water/warp session
+
+Five defects in one sitting, four found by the user with three renderers on screen. The fixes are
+in `verified.md`; what follows is how they were FOUND, which outlasts them.
+
+### A compensation is only measured where it was measured
+
+The painted tier's two ways of hiding a ghost through a transition -- the invisible bit on the
+player's sprite, and scene brightness -- were both built and confirmed on a HOUSE DOOR. A cave
+mouth is a warp with **no door animation**, so the invisible bit never sets, and it fades to
+**white**, which a downward-only brightness ratio reads as a perfectly normal scene. Neither
+mechanism fired and nobody had ever asked whether they would.
+
+**The move:** when a compensation has a gate, enumerate the situations that reach it before
+believing it covers them. "Confirmed on screen" names one situation, not a class.
+
+### A ratio is the wrong SHAPE for a blend, and the wrong shape cannot be tuned
+
+`live/ROM` clamped to 1 can only express fading toward black. The engine's fades are
+`BlendPalette` -- a move toward one target colour -- so fitting `live = a*rom + b` recovers the
+whole family (black, white, cave tint, weather, night) in one expression. **A gate that is blind
+in one direction is a modelling error; no threshold fixes it.**
+
+### COMPARE MODE PINS, so it is blind to everything about the unpinned path
+
+Both self-drawn tiers took a peer's jump arc from the spawned sprite they are pinned to. An
+overflow peer has no spawned sprite, so it slid across ledges with no arc and (painted) no shadow
+-- and **the mode built for comparing renderers is the one mode that cannot show this**, because
+pinning is what it does.
+
+**The move:** every quantity a tier reads from the pinned source needs an explicit answer for
+"where does this come from when there is nothing to pin to?", and that answer can only be tested
+with compare mode OFF. The same applies to any future pinned comparison.
+
+### A local declared BELOW a function is a nil global inside it -- twice in one session
+
+This file already carries the warning, and it was still walked into twice on the same afternoon.
+The second one referenced `SURFING_GFX` from a helper defined ~200 lines above its `local`
+declaration; it threw once per frame from inside the draw path, aborted the whole tick, and took
+the painted ghost off the screen along with the hardware tier's reflection. The user saw it as
+*"the drawn ghost is not visible, and the OAM lost its reflection ? did you break/regress
+something ?"* -- i.e. **a scope slip presents as a feature regression, not as an error**, because
+the error goes to a log nobody is watching.
+
+**The move:** when adding a helper high in this file, check every non-local name it uses against
+where that name is declared -- and read the log for `frame error` before believing any report about
+what is or is not on screen. It is the first thing to grep, not the last.
+
+### Ask the ENGINE'S OWN SPRITE for ground truth, not the decompilation
+
+Two questions were settled in one read each, with no derivation to get wrong:
+
+- *"where does a reflection actually go?"* -- read the live reflection sprite's `pos1 + ctc + pos2`
+  against the player's: drawn top 208 against 238, i.e. `height - 2`, exactly.
+- *"is our OAM entry the same as the engine's?"* -- dump both entries and decode them. Ours came
+  back **byte-identical in geometry** to the engine's own (`y=86, 16x32, affine=1, matrix 0,
+  palette 1`), which retires a whole class of "it looks slightly off" without another guess.
+
+**The hardware tier is measurable in a way the painted one is not**: its output IS OAM, so it can
+be compared to the engine's output field by field. Use that before asking anyone to look.
+
+### A savestate load orphans field-effect sprites, and the orphan sweep cannot see them
+
+Loading a state rewinds the GAME's sprites but not the adapter's Lua bookkeeping, so a blob from
+the restored state survives alongside the one the adapter then makes -- and it keeps following the
+object event id it names, which is now the new ghost. Two blobs on one ghost. The object-slot
+orphan sweep cannot catch it because **a blob has no object event**; the engine's own
+`ResetSpriteData` clears it at the next map load, which is what the user saw: *"the extra blob went
+away if i went into a house and out again"*.
+
+Dev artefact, not a shipping bug -- but the count is what said so (`objEvent=0` is the player's,
+`objEvent=15` the ghost's, one each), not the reasoning.
+
+### A driven run needs the test kit loaded, or it measures an encounter
+
+`grant_test_kit.lua` tops Repel up every half second while it is loaded, and it was not in the
+loader set. A ten-second scripted surf walked into a wild battle, and the probe run captured the
+battle-transition sprites instead of ripples. **Anything that drives the player for a measurement
+should have the kit in the same target set.**
+
+### Never judge a subject against an instrument you have not checked -- the costliest lesson here
+
+A long stretch of 2026-08-21 went into "the drawn ghost has no reflection a tile from the water",
+comparing the painted tier against the SPAWNED one -- while the spawned one was itself stuck in the
+wrong pose and therefore showing a different picture. Every comparison was between two unequal
+things, and every conclusion drawn from it was wrong. The user ended it in one sentence: *"you are
+trying to test/compare to something, that is not displaying it due to another issue."*
+
+Fixing the pose first made the same question answerable in a single measurement.
+
+**The move:** before comparing tier A against tier B, establish that B is correct -- against the
+ENGINE, or against a fact that does not depend on B. `CLAUDE.md` already says the instrument is the
+suspect before the subject; this is that rule applied to a renderer being used as a reference.
+
+### Measure the target's BEHAVIOUR, not just its position, before changing how you draw it
+
+The reflection's horizontal ripple took two wrong fixes on the user's screen -- one that inflated a
+one-pixel run to three, one that froze it in place -- because each was reasoned from the formula
+rather than measured. **Six screenshots of the engine's own reflection, diffed against each other,
+gave the width AND the movement in one step** (one pixel, alternating between two columns), and the
+correct rule followed immediately.
+
+A single frame answers "where is it". Only several frames answer "what does it DO", and a scaling
+rule is a claim about what it does.
+
+### Fields are not pixels
+
+A ghost whose `animNum`, `animCmdIndex` and `animPaused` all read correct was still showing the
+wrong picture, because the engine had copied a different frame into its tiles and then held there.
+Reading back the actual VRAM art rows is what settled it -- `artRows=11..31` where the requested
+image's own art is `10..30`.
+
+**Asking "what did I set?" is not asking "what is on screen?"** For anything tile-based, read the
+tiles.
+
+### Reproducing a hardware transform: invert ITS mapping, don't transform your bounds
+
+The ripple's horizontal scale was wrong twice because both attempts scaled the SOURCE run's
+endpoints onto the screen. Hardware does not work that way. A GBA affine sprite walks the
+DESTINATION and, for each screen pixel, samples `texture = (x - cx) * a / 256 + cx` and truncates.
+Inverting that gives the destination range covering a source run `[x1, x2]`:
+
+```
+x_dest in [ cx + (x1 - cx)*s , cx + (x2 + 1 - cx)*s )        s = 256/a
+```
+
+— ceil at both ends, far edge as `x2+1` then brought back. **The same rule at both ends is what
+preserves width**, and the two failures are each diagnostic of a specific mistake:
+
+| What was done | What it looks like on screen |
+| --- | --- |
+| different rounding per edge (`floor` / `ceil`) | narrow runs INFLATE, and breathe as the scale swings |
+| same rounding, but forward-mapped (nearest-neighbour) | width correct, but a small feature never moves — sub-pixel shifts round away |
+
+**Generalises past this one case:** whenever reproducing something the PPU does, write down what
+the hardware does per destination pixel and invert it. Transforming source extents is a different
+operation that happens to agree in the easy cases.
+
+### A diagnostic that re-implements what it measures will lie the moment one of them changes
+
+The reflection's ink range was logged by a line that recomputed the flip itself rather than
+reporting what the draw had done. The draw was fixed; the log was not; the next reading showed the
+OLD numbers and briefly read as "the fix did nothing". Two minutes were spent doubting a correct
+fix.
+
+**The move:** either have the diagnostic report values the code actually used (compute once, pass
+it to both), or change them in the same edit — and treat "the numbers did not move at all after a
+change that should have moved them" as a suspicion about the instrument first.

@@ -481,3 +481,70 @@ seam never visually jump when you cross it.
 **Consequence an adapter can rely on:** "is this other map adjacent and visible" is a lookup in
 the current map's own connection list, and "hide peers who went indoors" needs no house detection
 at all — an indoor map's empty connection list already says it.
+
+## The water ripple a moving character leaves behind
+
+**[measured]** A character moving on water drops a **ripple** behind it — a field effect, not part
+of the character's own sprite. What it is, from watching the game's own
+(`probes/ripple_probe.lua`, 2026-08-21):
+
+| | |
+| --- | --- |
+| Sprite | 16x16, `centerToCornerVec` -8,-8, palette tag `0x1005`, subpriority **151** |
+| When | **one per tile stepped**, not on a timer — surfing crosses a tile in 8 frames and the ripples land 8 frames and 16 pixels apart |
+| Where | the character's sprite position plus `(0, height/2 - 2)` |
+| Life | 80 frames, eight animation frames |
+| Behaviour | fixed at birth — it does NOT follow the character, it stays on the water it was dropped in |
+
+Its subpriority places it between a reflection (152) and a surf blob (150), i.e. behind the rider
+and its Pokemon but in front of the reflection. Ten are alive at once at a steady surfing pace,
+which is what a trail looks like: about five tiles of water behind the character.
+
+## Reflections are AFFINE sprites, and that has two consequences
+
+**[measured]** A reflection is not the character's sprite with a flip bit set. `SetUpReflection`
+copies the sprite, gives it priority 3 and a different palette, and makes it an **affine** sprite
+pointed at OAM matrix 0 — or matrix 1 when the character itself is mirrored. Those two matrices
+hold `d = -256` (the vertical flip) and an `a` breathing between 252 and 260, and the engine keeps
+them updated every frame; `a` is the sideways shimmer a reflection has.
+
+**Consequence one: the flip is `h - y`, not `h - 1 - y`.** A GBA affine transform is centred on
+`h/2` — 16 for a 32-row sprite, not 15.5 — so the hardware samples `texture = 32 - screen`, one row
+lower than a flip bit would give. Confirmed against the game's own reflection: its lowest pixel sits
+at screen row 108 for a reflection box starting at 86.
+
+**Consequence two: the shimmer moves the SAMPLING, so a feature does not change size.** The
+hardware walks the destination and, per screen pixel, samples
+`texture = (x - cx) * a / 256 + cx`, truncated. A one-pixel feature therefore shifts by a pixel and
+stays one pixel — measured across six frames, the engine's single reflected pixel alternating
+between two adjacent columns.
+
+**The vertical offset is the graphic's own height minus two**, read directly off the sprite table:
+the player's sprite drawn at top 208, its reflection at 238.
+
+**A character standing on ordinary ground beside water still reflects** — the test is the ground
+below the character, not whether it is surfing. Grass, being a NORMAL metatile, covers a
+priority-3 sprite completely, so a character two tiles from the shore shows nothing while one a
+single tile away shows the topmost sliver of itself.
+
+## Standing still is a HELD animation, not an idle one
+
+**[measured]** A character that has stopped does not switch to an "idle" animation. It keeps the
+animation it was last playing, stops on whatever command index it reached, and sets `animPaused` —
+e.g. facing north after a step reads `animNum 5, animCmdIndex 3` with the pause bit set, and
+command 3 of that animation is the standing picture.
+
+**Two things follow.** The pose is the pair plus the pause, so all three have to be reproduced
+together. And `animPaused` alone does not hold anything while `animBeginning` is still set: the
+engine runs the animation once more before honouring the pause, **and a running animation copies
+its frame into the object's tiles** — so the numbers say "standing" while the pixels show a stride.
+
+## A cave mouth fades through WHITE
+
+**[measured]** Not every screen transition fades to black. Entering the Victory Road cave at Ever
+Grande fades the palette to **white** — the OBJ palette's channel sum climbs from 747 to 1488
+(sixteen colours with every channel at 31) over fourteen frames and holds there for the ~65 frames
+of the transition, then the destination map fades in from black. The engine's fades are
+`BlendPalette`: every colour moves a fraction of the way toward one target colour, so "how bright
+is the scene" is the wrong question — the right one is which colour it is blending toward and by
+how much.

@@ -9373,3 +9373,153 @@ build rather than to memory:
 shadow really does use OBJ palette 0 while the dust resolves `FLDEFF_PAL_TAG_GENERAL_0` to slot 14.
 Both confirmed with `probes/shadowdust_probe.lua`, which identifies field effects by their ROM
 `images` pointer rather than by address.
+
+---
+
+## 2026-08-21 (later) -- Emerald: warp fades, the unpinned jump arc, and the water tiers
+
+Five defects, four of them found by the user with all three renderers on screen at once, and every
+one of them a case the previous confirmation pass could not have reached. Recorded together because
+they share a shape: **a compensation that was measured in one situation and silently assumed to
+cover the others.**
+
+### A cave mouth fades to WHITE, and a brightness RATIO cannot see that -- USER-CONFIRMED
+
+**Symptom**, user: *"when going inside a cave, the drawn ghost stays on the screen for a bit too
+long."* Only the painted tier; the spawned and hardware ones are drawn by the PPU from the live
+palette and fade for free.
+
+**Measured**, `probes/cavewarp_probe.lua`, one real cave entry and exit at Ever Grande:
+
+| Phase | old scalar ratio | the blend fit that replaced it |
+| --- | --- | --- |
+| fade out to black | 1.000 -> 0.000 | a 1.000 -> 0.000 |
+| black hold | 0.000 | a 0.000 |
+| **fade in from white** | **1.000 for all 20 frames -- blind** | a 0.000 / b 255 -> a 1.000 / b 0 |
+
+The OBJ palette's channel sum climbs `747 -> 1488` over fourteen frames -- 1488 being sixteen
+colours with every channel at 31, i.e. pure white -- and holds for the ~65 frames of the
+transition. `live/ROM` reads 1.99 there, clamps to 1, and reports an ordinary scene, so the painted
+copy kept drawing at full colour over a washed-out screen.
+
+**The fix is a shape change, not a tuning.** The engine's fades are `BlendPalette`: every colour
+moves a fraction of the way toward ONE target colour, `c -> c + (target - c) * coeff/16`
+(`src/palette.c`). A scalar ratio can only express the case where that target is black. Fitting
+`live = a*rom + b` over all 48 channel values recovers the whole line -- `a = 1 - coeff/16`,
+`b = target * coeff/16` -- and covers black, white, a cave's tint, weather and night in one
+expression. **User-confirmed on screen**: *"okay the cave thing is fixed"*.
+
+### The jump arc never reached an UNPINNED peer on either self-drawn tier
+
+Both non-engine tiers took a peer's hop from the spawned sprite they are PINNED to in compare mode.
+An overflow peer -- one with no spawned counterpart, which is every peer in a real crowd -- has no
+such sprite, and its position comes from the glide pipeline, which carries no hop. So a peer was
+drawn SLIDING across a ledge, and the painted tier skipped its shadow entirely (its shadow was
+gated on `pinned`). **Compare mode pins, which is exactly why no measurement could ever have shown
+this.** The peer's own `pos2.y` has been on the wire as `soy` since the surf bob needed it, so the
+arc was arriving all along and only these two tiers threw it away. Not yet watched on screen.
+
+### The hardware tier had no surf blob and no reflection -- USER-CONFIRMED
+
+User, on the water at Sootopolis: *"OAM is missing water reflections & the water blob."* Both are
+one OAM entry each. The reflection costs no tiles at all -- it is the body's own frame drawn again
+through `gReflectionEffectPaletteMap`'s palette at priority 3, and priority is the thing this tier
+has that the painted one does not, so the water clips it for free.
+
+**The ripple is the hardware's own.** `SetUpReflection` does not use the flip bits: it makes the
+reflection an AFFINE sprite through OAM matrix 0, or matrix 1 when the character is mirrored
+(`src/field_effect_helpers.c:66-68`). Those matrices hold `d = -256` and an `a` breathing between
+252 and 260, and the engine updates them every frame -- so pointing our entry at the same matrix is
+not an imitation of the shimmer, it IS the shimmer. Measured live this session as `a=255 d=-256`.
+**User-confirmed**: *"OAM looks fine"*.
+
+**And it is byte-identical to the engine's**, measured afterwards from the OAM buffer itself:
+
+| | y | size | affine | matrix | palette |
+| --- | --- | --- | --- | --- | --- |
+| engine's own reflections (entries 2, 3) | 86 | 16x32 | 1 | 0 | 1 |
+| ours, hardware tier (entry 112) | 86 | 16x32 | 1 | 0 | 1 |
+
+The engine's own vertical offset was read off the sprite table at the same time and is `height - 2`
+exactly: player drawn top 208, its reflection 238.
+
+### A reflection is about the GROUND, not about surfing -- USER-CONFIRMED
+
+User: *"the drawn ghost, and probably the OAM, don't have a reflection in the water while standing
+on grass/next to water."* Two separate causes with the same symptom:
+
+- **the gate was too tight.** The reflection sat inside the surfing branch on both tiers, with a
+  note conceding that a peer beside water reflects too but that the tile lookup did not exist yet.
+  It did exist -- `hasReflection` is the engine's own test and was written for that block.
+- **the cached-walker path had no reflection code at all.** A peer on foot with no special graphic
+  never enters the peer-graphic path, so nothing there had ever run for it. Its frames are decoded
+  once at load with the ROM palette baked into each pixel, and a colour cannot be mapped back to
+  the index it came from -- so the same picture is decoded a SECOND time from the same ROM address
+  with the live reflection palette. No approximation, and the load path's own machinery.
+
+**User-confirmed**: *"yee all ghost have reflections when standing on the grass now"*.
+
+### The water trail, fully specified from the game -- NOT YET CONFIRMED
+
+User: *"drawn & oam are not leaving trails in the water when they move around."* Measured with
+`probes/ripple_probe.lua`, watching the game's own ripples while the player surfed:
+
+| What | Value |
+| --- | --- |
+| template | `0850CB08` -- **derived**, by scanning for the structure whose `anims`/`images` match a live ripple sprite's (`0850CB04` / `0850CAB8`); its callback matches too |
+| frame | 16x16, palette tag `0x1005`, subpriority **151** |
+| cadence | **one per tile stepped** -- 8 frames apart and 16px apart, and surfing crosses a tile in 8 frames |
+| life | 80 frames, 8 animation frames |
+| position | character sprite pos1 + `(0, height/2 - 2)`, the engine's own expression |
+| behaviour | fixed at birth, camera-anchored -- it does not follow the character |
+
+Subpriority 151 sits between the reflection (152) and the blob (150), which is the depth order the
+hardware tier's entry pools were re-cut for. Implemented on both self-drawn tiers; **not yet
+watched on screen.**
+
+### The idle pose, and the two reflection defects it was hiding -- ALL USER-CONFIRMED
+
+**A held pose is three writes AND one un-write.** A peer standing still does not report "idle": it
+reports the animation it last played, the command index it stopped on, and `animPaused` -- for a
+peer facing north, `sanim=5 sidx=3` paused, which resolves to the standing picture. Setting
+`animPaused` is not enough while `animBeginning` is still set, and it always is, because a ghost's
+sprite is copied from the player's. The engine runs the animation once more before honouring the
+pause, and **a running animation copies its frame into the object's tiles** -- so the ghost ended up
+with the right numbers and command 0's picture.
+
+Measured with a `GHOSTPOSE` trace: `want=5/3 img=1` against `artRows=11..31`, where image 1's own
+art is rows `10..30`. After clearing `animBeginning`/`animEnded` (the exact pair `StartSpriteAnim`
+sets, `src/sprite.c:1346-1351`) the same trace reads `artRows=10..30`. **User-confirmed**: *"its
+spawning in the idle pose now"*. The held logic now lives in one `applyHeldPose` used by both the
+spawn path and the steady-state mirror -- the split between them WAS the bug.
+
+**And that pose was hiding two more, because it was the reference everything else was judged
+against.** The user, cutting through a long unproductive investigation: *"you are trying to
+test/compare to something, that is not displaying it due to another issue"*, and then *"now you can
+at least compare to the spawned ghost properly"*. Both of the following fell out of one framebuffer
+diff once the poses agreed.
+
+**A reflection's flip is `h - y`, not `h - 1 - y`.** The engine does not use the OAM flip bit for a
+reflection; it makes it an AFFINE sprite through matrix 0 (`src/field_effect_helpers.c:66-68`), and
+a GBA affine transform is centred on `h/2` -- 16 for a 32-row sprite, not 15.5. The hardware
+therefore samples `texture = 32 - screen`, one row lower than a flip bit's `31 - screen`. The
+painted tier used a plain flip and sat one row high everywhere; it was only visible at a shoreline,
+where a single row is all there is. Measured: the engine's own reflection pixel at row **108** for a
+box starting at 86, against our `inkRange 87..107`. After the fix, `inkRange 88..108`,
+`paintedPx=1`.
+
+**The ripple's horizontal scale must use the hardware's own INVERSE mapping.** An affine sprite does
+not scale a source run onto the screen -- it walks the DESTINATION and, per screen pixel, samples
+`texture = (x - cx) * a / 256 + cx`, truncated. So a source run `[x1, x2]` covers
+`[cx + (x1-cx)*s, cx + (x2+1-cx)*s)` with `s = 256/a`: **ceil at both ends**, far edge as `x2+1`
+then brought back. Both wrong answers were tried on screen first, and each has its own signature:
+
+| Rounding | What it looks like |
+| --- | --- |
+| `floor` near / `ceil` far (shipped until now) | a one-pixel run inflates to 2-3 and breathes with the ripple |
+| nearest-neighbour at both ends | width correct, but pinned to one column -- no wobble at all |
+| **`ceil` both ends** | one pixel wide, moving by one -- the hardware |
+
+**The target was measured, not reasoned**: six screenshots of the engine's own reflection, its
+single pixel alternating between columns 53 and 54 (and 117/118, 149/150 for the other two
+characters on screen). **User-confirmed**: *"looks perfect now"*.

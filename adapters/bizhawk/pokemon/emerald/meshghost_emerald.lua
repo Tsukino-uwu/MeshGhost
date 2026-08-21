@@ -2021,13 +2021,10 @@ end
 -- 2026-08-19). genderFrames is only ever indexed by gender, so extra string keys are safe.
 genderFrames.runCache = {}
 
-genderFrames.runsFor = function(gender, pose, frameIndex)
-    local key = gender .. ":" .. pose .. ":" .. frameIndex
-    local cached = genderFrames.runCache[key]
-    if cached then return cached end
-
-    local genderSet = genderFrames[gender] or genderFrames.male
-    local pixels = (genderSet[pose] or genderSet.walk)[frameIndex]
+-- A decoded pixel list -> a run list. Split out from runsFor when the walker needed a SECOND
+-- decode of the same frames in the reflection palette (2026-08-21): the run building is identical,
+-- only the colours differ, and a second copy of it is how two paths drift apart.
+genderFrames.runsFromPixels = function(pixels)
     -- Bucket by row first: the decoded pixel list is not guaranteed to be row-major, and a run
     -- built from an unsorted list would be silently wrong rather than merely slow.
     local rows = {}
@@ -2053,7 +2050,56 @@ genderFrames.runsFor = function(gender, pose, frameIndex)
             end
         end
     end
+    return runs
+end
+
+genderFrames.runsFor = function(gender, pose, frameIndex)
+    local key = gender .. ":" .. pose .. ":" .. frameIndex
+    local cached = genderFrames.runCache[key]
+    if cached then return cached end
+    local genderSet = genderFrames[gender] or genderFrames.male
+    local runs = genderFrames.runsFromPixels((genderSet[pose] or genderSet.walk)[frameIndex])
     genderFrames.runCache[key] = runs
+    return runs
+end
+
+-- THE WALKER'S OWN FRAME, DECODED AGAIN IN THE REFLECTION PALETTE.
+--
+-- The peer-graphic path gets this from runsFromImages, which takes a palette slot. The cached
+-- walker path cannot: its frames were decoded once, at load, with the character's ROM palette
+-- baked into each pixel's colour, and a colour cannot be mapped back to the palette index it came
+-- from. So the same picture is decoded a second time from the same ROM address with the live
+-- reflection palette -- no approximation, and the same machinery the load path uses.
+--
+-- Cached like every other decode, and stamped with the palette's own contents so a fade or a map
+-- change invalidates it rather than leaving a ghost reflected in yesterday's colours.
+genderFrames.walkerReflectRuns = function(gender, pose, frameIndex, palSlot)
+    local key = string.format("wr:%s:%s:%d:%d", gender, pose, frameIndex, palSlot & 0x0f)
+    local stamp = genderFrames.paletteStamp(palSlot)
+    local cached = genderFrames.peerRunCache[key]
+    if cached and cached.palStamp == stamp then return cached end
+    local off = genderFrames.romOffset or 0
+    local pic
+    if gender == "female" then
+        pic = (pose == "run") and GOBJECTEVENTPIC_MAYRUNNING_ADDR or GOBJECTEVENTPIC_MAYNORMAL_ADDR
+    else
+        pic = (pose == "run") and GOBJECTEVENTPIC_BRENDANRUNNING_ADDR
+            or GOBJECTEVENTPIC_BRENDANNORMAL_ADDR
+    end
+    -- decodePalette's shape, from live palette RAM instead of ROM: OBJ palettes are 16 colours of
+    -- 32 bytes each at 0x05000200 (GBA hardware).
+    local pal = {}
+    for i = 0, 15 do
+        -- memory.read_u16_le, not the file's `r16` shorthand: that is a LOCAL declared several
+        -- hundred lines below this function, so naming it here compiles to a nil global lookup --
+        -- the trap this file carries a note about at its first occurrence.
+        local c = memory.read_u16_le(0x05000200 + (palSlot & 0x0f) * 32 + i * 2)
+        pal[i] = { r = expand5to8(c & 0x1F), g = expand5to8((c >> 5) & 0x1F),
+            b = expand5to8((c >> 10) & 0x1F) }
+    end
+    local runs = genderFrames.runsFromPixels(decodeFramePixels(pic + off, frameIndex, pal))
+    runs.palStamp = stamp
+    genderFrames.peerRunCache[key] = runs
     return runs
 end
 
@@ -2118,24 +2164,77 @@ function drawRunList(runs, frameWidth, hFlip, screenX, screenY, panelRows, dim, 
     for i = 1, #runs do
         local r = runs[i]
         local color = r.color
-        if dim and dim < 0.99 then
-            -- Per RUN, not per pixel, and only while something is actually dimming the screen:
-            -- at full brightness this whole branch is one comparison.
-            color = (0xFF << 24)
-                | (math.floor(((color >> 16) & 0xFF) * dim) << 16)
-                | (math.floor(((color >> 8) & 0xFF) * dim) << 8)
-                | math.floor((color & 0xFF) * dim)
+        -- The scene's own blend, applied to this run's colour: c*dim + add. Both terms come from
+        -- fitting the live OBJ palette against the cartridge's, once per frame, in drawRemotes --
+        -- the additive term is what lets a fade toward WHITE (a cave mouth) wash the painted copy
+        -- out the way the hardware washes out everything else.
+        local add = genderFrames.tintAdd or 0
+        if (dim and dim < 0.99) or add > 0.5 then
+            -- Per RUN, not per pixel, and only while something is actually fading the screen:
+            -- in a steady scene this whole branch is two comparisons.
+            local m = dim or 1
+            local rr = math.floor(((color >> 16) & 0xFF) * m + add)
+            local gg = math.floor(((color >> 8) & 0xFF) * m + add)
+            local bb = math.floor((color & 0xFF) * m + add)
+            if rr > 255 then rr = 255 end
+            if gg > 255 then gg = 255 end
+            if bb > 255 then bb = 255 end
+            color = (0xFF << 24) | (rr << 16) | (gg << 8) | bb
         end
-        local y = screenY + (vFlipHeight and (vFlipHeight - 1 - r.y) or r.y)
+        -- vFlipHeight mirrors the row index for a REFLECTION, and the mirror is `h - y`, not
+        -- `h - 1 - y`. That is not an off-by-one, it is the hardware's own arithmetic: the engine
+        -- does not use the OAM flip bit for a reflection, it makes it an AFFINE sprite through
+        -- matrix 0 (SetUpReflection, src/field_effect_helpers.c:66-68), and a GBA affine transform
+        -- is centred on h/2 -- 16 for a 32-row sprite, not 15.5. So the hardware samples
+        -- texture = 32 - screen, one row lower than a flip bit's 31 - screen.
+        --
+        -- MEASURED, not reasoned: with the poses finally matching, a framebuffer diff put the
+        -- engine's own reflection pixel at row 108 for a body whose reflection box starts at 86
+        -- (2026-08-21) -- box row 22, which only `h - y` produces. This tier was drawing at 107
+        -- and the water does not begin until 107, so the single row of hat that the player, the
+        -- spawned ghost and the OAM copy all show was the one row this tier threw away. The user,
+        -- four times: *"the drawn ghost still don't have the tiny tiny reflection when standing a
+        -- tile further away from the water"*.
+        local y = screenY + (vFlipHeight and (vFlipHeight - r.y) or r.y)
         local x1, x2 = r.x1, r.x2
         if hFlip then x1, x2 = frameWidth - 1 - r.x2, frameWidth - 1 - r.x1 end
         if xScale then
-            -- About the CENTRE, which is what an affine sprite scales about. The run's far edge is
-            -- transformed as x2+1 and brought back, so neighbouring runs stay contiguous instead of
-            -- opening a one-pixel seam wherever the rounding of two independent edges disagrees.
+            -- About the CENTRE, which is what an affine sprite scales about -- and BOTH EDGES ARE
+            -- ROUNDED THE SAME WAY, which is the whole of it.
+            --
+            -- This used to floor the near edge and ceil the far one (transformed as x2+1 and
+            -- brought back), to keep neighbouring runs contiguous. Two different roundings on the
+            -- two ends of a run do not scale it, they INFLATE it: a one-pixel run came out two or
+            -- three pixels wide, and it breathed in and out as the ripple's scale swung. Nothing
+            -- on the hardware does that -- an affine sprite scales where each screen pixel SAMPLES
+            -- from, so a one-pixel feature shifts by a pixel and stays one pixel. The user, on the
+            -- single-pixel sliver of hat at a shoreline, which is the only place a whole-pixel
+            -- inflation is visible: *"it looks a bit bigger than the other ghosts reflection here,
+            -- about 2-3 times as big"*, and *"its wobbling back forth properly, but looks like the
+            -- shrink/expand is not supposed to be here"*.
+            --
+            -- THE HARDWARE'S OWN MAPPING, INVERTED. A GBA affine sprite does not scale a source
+            -- run onto the screen; it walks the DESTINATION and, for each screen pixel, samples
+            -- `texture = (x - cx) * a / 256 + cx`, TRUNCATED. So the destination range covering a
+            -- source run [x1, x2] is where that truncation lands inside it:
+            --     x_dest in [ cx + (x1 - cx)*s , cx + (x2 + 1 - cx)*s )      with s = 256/a
+            -- which is ceil on the near edge and ceil-minus-one on the far one -- the SAME rule at
+            -- both ends, so width is preserved and the run still slides as `a` swings.
+            --
+            -- Both of the wrong answers were tried on screen first. `floor` on the near edge and
+            -- `ceil` on the far one is what shipped: it inflates a one-pixel run to two or three,
+            -- breathing with the ripple (*"about 2-3 times as big"*). Nearest-neighbour on both
+            -- ends fixes the width but pins the run to one column, because rounding a sub-pixel
+            -- shift never crosses a boundary -- *"now its not moving left/right anymore"*. Only
+            -- the inverse mapping does both, and it is what the hardware does.
+            --
+            -- MEASURED against the engine's own reflection, six frames apart: its single pixel
+            -- alternates between columns 53 and 54 (and 117/118, 149/150 for the other two
+            -- characters) -- one pixel wide, moving by one. That is the target this reproduces.
             local mid = frameWidth / 2
-            x1 = math.floor(mid + (x1 - mid) * xScale)
-            x2 = math.ceil(mid + (x2 + 1 - mid) * xScale) - 1
+            local nx1 = math.ceil(mid + (x1 - mid) * xScale)
+            local nx2 = math.ceil(mid + (x2 + 1 - mid) * xScale) - 1
+            x1, x2 = nx1, nx2
             if x2 < x1 then x2 = x1 end
         end
         local ax1, ax2 = screenX + x1, screenX + x2
@@ -2551,6 +2650,15 @@ end
 -- and, halved and negated, its centerToCornerVec.
 local GFIELDEFFECTTEMPLATE_SURFBLOB = 0x0850cbc4
 local SURFBLOB_FRAME_PX = 32
+-- The water ripple's frame, measured off the game's own sprite: 16x16, centerToCornerVec -8,-8
+-- (probes/ripple_probe.lua, 2026-08-21).
+--
+-- A FIELD, NOT A LOCAL, and that is not style: adding one more file-scope local here put this
+-- chunk over Lua's hard ceiling of 200, which does not misbehave at runtime -- the script fails to
+-- PARSE, "too many local variables (limit is 200) in main function". Caught the moment the ripple
+-- work first loaded, exactly as the surf blob's own note two lines up warns.
+genderFrames.rippleFramePx = 16
+
 -- gOamMatrices 02021BC0 (pokeemerald.map), 32 entries of four s16 -- a, b, c, d. Entries 0 and 1
 -- are the ones a MOVING reflection is drawn through; see reflectionXScale below. A FIELD, not a
 -- local: adding one more local here is what pushed this chunk past Lua's hard ceiling of 200 and
@@ -2709,6 +2817,24 @@ genderFrames.coverLayout = nil
 -- The character row is what makes a drawn ghost disappear behind a building: the roof edge and the
 -- tree tops that overlap a walkable tile are that tile's TOP layer, which is exactly the layer the
 -- engine puts above sprites.
+-- The metatile's layer type on its own -- what coverMask branches on. Split out so a diagnostic
+-- can report it without re-deriving it, and so the two can never disagree about what they read.
+genderFrames.layerTypeOf = function(metatileId)
+    if not metatileId then return nil end
+    local layout = r32(0x02037318)
+    if layout == 0 then return nil end
+    local tileset, index
+    if metatileId < 512 then
+        tileset, index = r32(layout + 0x10), metatileId
+    else
+        tileset, index = r32(layout + 0x14), metatileId - 512
+    end
+    if tileset == 0 then return nil end
+    local attrs = r32(tileset + 0x10)
+    if attrs == 0 then return nil end
+    return (r16(attrs + index * 2) >> 12) & 0x0f
+end
+
 genderFrames.coverMask = function(metatileId, who)
     local key = (who or "reflection") .. metatileId
     local cached = genderFrames.coverCache[key]
@@ -3026,6 +3152,83 @@ genderFrames.dustFrameAt = function(elapsed)
     return nil
 end
 
+-- THE WATER TRAIL, painted, for both self-drawn tiers.
+--
+-- A character moving on water leaves a ripple behind it, and it is a FIELD EFFECT -- so the
+-- spawned tier has always had it from the engine and neither tier that draws for itself had it at
+-- all. The user, watching all three surf at Sootopolis 2026-08-21: *"drawn & oam are not leaving
+-- trails in the water when they move around."*
+--
+-- EVERY NUMBER HERE WAS MEASURED, with probes/ripple_probe.lua watching the game's own ripples
+-- while the player surfed (2026-08-21), because what this needs is not "where is the template"
+-- but "when does the engine decide to make one, and where does it put it":
+--
+--   * ONE PER TILE STEPPED, not on a timer. They appeared every 8 frames and 16 pixels apart --
+--     and surfing crosses a tile in exactly 8 frames (the player's tile went 32,46 -> 32,47 over
+--     those same frames), so the cadence is per step. A timer would have drifted against speed.
+--   * 16x16, palette tag 0x1005, subpriority 151 -- between the reflection (152) and the blob
+--     (150), which is where the hardware tier's pools put it.
+--   * EIGHT animation frames over an 80-frame life, walked from the template's own animation
+--     commands here rather than written down, so a different build stays correct.
+--   * At the character's sprite position plus (0, height/2 - 2) -- the engine's own expression --
+--     which in the top-left terms these tiers draw in is (width/2 - 8, height - 10), the ripple's
+--     own frame being 16x16 with centerToCornerVec -8,-8.
+--   * It does NOT follow the character. Position is fixed at birth and camera-anchored, exactly
+--     like the landing-dust trail beside it.
+--
+-- THE TEMPLATE ADDRESS WAS DERIVED, NOT REMEMBERED. A live ripple sprite reported the anims and
+-- images pointers it was built from (0850CB04 and 0850CAB8); the template is whatever structure
+-- carries that pair at +0x08 and +0x0c, and one scan of the surrounding ROM found exactly one --
+-- 0850CB08, whose callback matches the live sprite's and whose paletteTag is 0x1005.
+genderFrames.rippleTemplate = 0x0850cb08
+
+-- Frame index for a ripple born `elapsed` frames ago; nil once it has finished, which is what
+-- stops it being drawn. Same walk of the animation commands as the landing dust's.
+genderFrames.rippleFrameAt = function(elapsed)
+    local anims = r32(genderFrames.rippleTemplate + 0x08)
+    if not isRomPtr(anims) then return nil end
+    local list = r32(anims)
+    if not isRomPtr(list) then return nil end
+    local t = elapsed
+    for i = 0, 15 do
+        local cmd = r32(list + i * 4)
+        local img = cmd & 0xffff
+        if img == 0xffff then return nil end       -- ANIMCMD_END: the ripple is over
+        local dur = (cmd >> 16) & 0x3f
+        if dur == 0 then dur = 1 end
+        if t < dur then return img end
+        t = t - dur
+    end
+    return nil
+end
+
+genderFrames.rippleRuns = function(frame)
+    local images = r32(genderFrames.rippleTemplate + 0x0c)
+    if not isRomPtr(images) then return nil end
+    -- The palette by TAG, the engine's own IndexOfSpritePaletteTag, for the same reason the dust
+    -- uses it: finding a live neighbour fails exactly when nobody else happens to be rippling.
+    local pal = hwPaletteSlotForTag(r16(genderFrames.rippleTemplate + 0x02))
+    if not pal then return nil end
+    return genderFrames.runsFromImages(string.format("ripple:%d:%d", pal, frame),
+        images, genderFrames.rippleFramePx, genderFrames.rippleFramePx, frame, pal)
+end
+
+-- Where a ripple belongs, given the character's frame top-left and the graphic's own size, and
+-- WHETHER one is due this frame. Due means: this peer is surfing, and the tile it is drawn on has
+-- just changed -- which the reflection's previous-tile store already knows, since it stamps the
+-- frame the tile changed on. One store per tier, so each tier answers for where IT draws.
+-- `surfing` is passed IN rather than tested here, and that is not a style choice: SURFING_GFX is a
+-- local declared some two hundred lines BELOW this function, so naming it here compiles to a nil
+-- global lookup -- "attempt to index a nil value (global 'SURFING_GFX')", once per frame, from
+-- inside the draw path, which aborts the whole tick. That took the painted ghost off the screen
+-- entirely and the hardware tier's reflection with it (2026-08-21). Both callers sit below the
+-- declaration and can answer the question themselves.
+genderFrames.rippleDue = function(store, playerId, surfing)
+    if not surfing then return false end
+    local e = store[playerId]
+    return e ~= nil and e[4] == frameCounter
+end
+
 -- HOW LONG ONE BOUNCE LASTS, for the acro actions that REPEAT while B is held.
 --
 -- The reason this exists: a held-B wheelie hop is ONE movement action that bounces over and over,
@@ -3196,6 +3399,43 @@ genderFrames.reflectiveSpans = function(left, top, width, height, who)
         spans[py] = list
     end
     return spans
+end
+
+-- DOES THIS GHOST REFLECT, AND IN WHICH PALETTE -- the engine's own ground test, in one place.
+--
+-- Extracted 2026-08-21 when it turned out to be needed in three: the painted tier's peer-graphic
+-- path (where it was written), the painted tier's CACHED WALKER path (where it never existed at
+-- all, which is the whole of *"the drawn ghost don't have its reflection when standing on grass,
+-- close to water"* -- a peer on foot with no special graphic takes the walker path, and that path
+-- simply had no reflection code), and the hardware tier.
+--
+-- ASKED WHERE THE TIER DRAWS, not where the peer is. In compare mode the copies are deliberately
+-- several tiles apart, so a peer out on a pond has twins standing on the grass beside it, and a
+-- gate asked about the PEER happily authorises a reflection on dry land.
+--
+-- `store` is the caller's OWN previous-tile table, and that is not tidiness: two tiers drawing the
+-- same peer in two places cannot share an answer about the ground under it.
+--
+-- THE PREVIOUS TILE EXPIRES. The engine's lag lasts one movement -- previousCoords is what the
+-- ground-effect update compares against while a step plays out, which is what slides a reflection
+-- out from under a character leaving the water instead of blinking it off. Held indefinitely, a
+-- ghost parked at the shore keeps claiming the water tile it arrived from and paints a reflection
+-- across the bank: *"it draws on top of the edge as well, that sits between the grass/water"*.
+-- One step is 16 frames of engine-driven movement, and standing still collapses previous back
+-- onto current, exactly as it is for a character who has stopped.
+genderFrames.reflectPalFor = function(store, playerId, areaId, ggx, ggy, wTiles, hTiles, palSlot)
+    local lt = store[playerId]
+    if lt and (lt[3] ~= areaId or frameCounter - lt[4] > 16) then lt = nil end
+    local yes = genderFrames.hasReflection(ggx, ggy, lt and lt[1], lt and lt[2], wTiles, hTiles)
+    local cur = store[playerId]
+    if not cur or cur[5] ~= ggx or cur[6] ~= ggy then
+        -- Slots 1,2 are the tile stepped FROM; 5,6 the current one, so "did it change" is
+        -- answered without losing the previous.
+        store[playerId] = {
+            cur and cur[5] or ggx, cur and cur[6] or ggy, areaId, frameCounter, ggx, ggy,
+        }
+    end
+    return yes and genderFrames.reflectionPalette[(palSlot or 0) & 0x0f] or nil
 end
 
 genderFrames.reflectionPalette = {
@@ -4404,6 +4644,113 @@ end
 -- their raw screen x/y plus shape/size bits.
 --
 -- This is the ground truth that every sprite struct field only FEEDS, and reading it is what ended
+-- HOLD A PEER'S POSE, rather than restart its animation.
+--
+-- A peer standing still does not report "idle": it reports the animation it last played, the
+-- command index it stopped on, and animPaused -- e.g. facing north after a step, `sanim=5 sidx=3`
+-- with the pause bit set, which resolves to the standing picture. Reproducing that is three
+-- writes, and NONE of them is animBeginning: setting that restarts the animation from command 0,
+-- which is a ghost walking on the spot.
+--
+-- Extracted 2026-08-21 because two paths need it and only one had it. The steady-state mirror held
+-- the pose correctly; the SPAWN path wrote animNum alone and set animBeginning, so a ghost came
+-- into the world mid-stride and only corrected itself once the peer moved and the mirror took
+-- over. The user: *"the spawned ghost spawns in with the wrong pose, gets fixed after moving
+-- around."*
+--
+-- THE MIRROR STILL CARRIES ITS OWN COPY of this, deliberately not folded in yet: that path is
+-- confirmed on screen and was left untouched while the spawn fix was being judged. Folding it in
+-- is the next edit here, and until it happens the two must be changed together -- which is the
+-- exact divergence this extraction exists to end.
+--
+-- THE FLIP COMES WITH IT, and that is not optional here: east is the WEST artwork with the OAM's
+-- horizontal flip, and that flip is normally applied by AnimCmd_frame as an animation ADVANCES.
+-- A held sprite never advances, so nothing would ever set it.
+function applyHeldPose(g, remote)
+    if not (remote.spaused and remote.sanim and remote.sidx) then return false end
+    if COMPARE_TIERS and (frameCounter - (genderFrames.poseLogAt or 0)) >= 60 then
+        genderFrames.poseLogAt = frameCounter
+        -- What the ghost's own tiles actually HOLD, read back out of VRAM: which rows carry ink.
+        -- The standing frame and a mid-stride frame do not have their art on the same rows, so
+        -- this says which picture is really on screen rather than which one was asked for.
+        local fr, lr = nil, nil
+        if g.tileStart then
+            for row = 0, 31 do
+                local tr, ly = row // 8, row % 8
+                local ink = false
+                for tc = 0, 1 do
+                    local t = g.tileStart + tr * 2 + tc
+                    for byte = 0, 3 do
+                        if r8(0x06010000 + t * 32 + ly * 4 + byte) ~= 0 then ink = true break end
+                    end
+                    if ink then break end
+                end
+                if ink then
+                    if not fr then fr = row end
+                    lr = row
+                end
+            end
+        end
+        local gi3 = graphicsInfo(g.gfx)
+        local img = "?"
+        if gi3 and gi3.anims ~= 0 then
+            local ap3 = r32(gi3.anims + remote.sanim * 4)
+            if isRomPtr(ap3) then img = tostring(r32(ap3 + remote.sidx * 4) & 0xffff) end
+        end
+        local dd2 = sprAddr(g.sprId)
+        logFile(string.format(
+            "GHOSTPOSE f=%d want=%s/%s img=%s | ghost anim=%d/%d paused=%s tileStart=%s "
+            .. "artRows=%s..%s oamTile=%d",
+            frameCounter, tostring(remote.sanim), tostring(remote.sidx), img,
+            r8(dd2 + 0x2a), r8(dd2 + 0x2b), tostring((r8(dd2 + 0x2c) & 0x40) ~= 0),
+            tostring(g.tileStart), tostring(fr), tostring(lr),
+            r16(dd2 + 0x04) & 0x3ff))
+    end
+    local d = sprAddr(g.sprId)
+    local settled = r8(d + 0x2a) == remote.sanim and r8(d + 0x2b) == remote.sidx
+        and (r8(d + 0x2c) & 0x40) ~= 0
+    if settled and (g.heldCopiedAt or 0) + 3 < frameCounter then
+        return true                      -- already held exactly here; writing again restarts it
+    end
+    w8(d + 0x2a, remote.sanim)
+    w8(d + 0x2b, remote.sidx)
+    w8(d + 0x2c, r8(d + 0x2c) | 0x40)
+    -- CLEAR animBeginning AND animEnded, which is the half of "hold this pose" that was missing.
+    --
+    -- The fields alone are not the pose. With animBeginning still set -- and it IS set, because a
+    -- ghost's sprite is copied from the player's and the restart path elsewhere sets it -- the
+    -- engine runs the animation once more before it honours animPaused, and an animation that
+    -- runs COPIES ITS FRAME into the object's tiles. So the ghost ended up with the right numbers
+    -- and command 0's picture: fields saying "standing north", pixels showing a stride. Measured
+    -- 2026-08-21 with the GHOSTPOSE trace -- `want=5/3 img=1` against `artRows=11..31`, where
+    -- image 1's own art is rows 10..30 -- after the user reported *"the spawned ghost spawns in
+    -- with the wrong pose, gets fixed after moving around"*: moving hands the animation back, the
+    -- engine advances it properly, and the tiles come good on their own.
+    --
+    -- Bits 0x04 (animBeginning) and 0x10 (animEnded) at +0x3F, the exact pair StartSpriteAnim
+    -- sets (pokeemerald src/sprite.c:1346-1351) -- cleared here rather than set.
+    w8(d + 0x3f, r8(d + 0x3f) & ~0x14)
+    -- THE OAM BIT ONLY, NEVER `sprite->hFlip`: SetSpriteOamFlipBits is `hFlip ^ sprite->hFlip`, so
+    -- the struct field is a BASE the animation command's own flip is XORed against. Setting both
+    -- reads correct only while the sprite stays paused and inverts the moment it advances.
+    local hgi = graphicsInfo(g.gfx)
+    if hgi and hgi.anims ~= 0 then
+        local hap = r32(hgi.anims + remote.sanim * 4)
+        if isRomPtr(hap) then
+            local hfl = ((r32(hap + remote.sidx * 4) >> 22) & 1) == 1
+            w16(d + 0x02, hfl and (r16(d + 0x02) | 0x1000) or (r16(d + 0x02) & 0xefff))
+        end
+    end
+    -- AND THE PIXELS LAST, so the copy lands after everything that could have moved them. Held
+    -- for a few frames past the write (heldCopiedAt above) because the engine's own sprite update
+    -- runs between our ticks: one copy can still be overwritten by the update that follows it,
+    -- and re-asserting for three frames costs three frame copies once per stop, not per frame.
+    loadGhostFrameNow(g, hgi, remote.sanim, remote.sidx)
+    if not settled then g.heldCopiedAt = frameCounter end
+    g.animSetFor = remote.sanim
+    return true
+end
+
 -- the fishing investigation: pos2, animNum and animCmdIndex all agreed with each other for frames
 -- in which the OAM x moved 8px and back. If a snap exists, it is visible here, on an exact frame,
 -- by an exact number of pixels.
@@ -4683,7 +5030,10 @@ local function syncGhost(playerId, remote)
             local ng = ghosts[playerId]
             if ng then
                 local d = sprAddr(ng.sprId)
-                if remote.sanim then
+                -- A PEER THAT IS STANDING STILL IS HELD, NOT RESTARTED. Without this a ghost
+                -- arrived mid-stride and stayed there until the peer moved and the steady-state
+                -- mirror below took over -- which is exactly how it was reported.
+                if not applyHeldPose(ng, remote) and remote.sanim then
                     w8(d + 0x2a, remote.sanim)
                     w8(d + 0x3f, (r8(d + 0x3f) | 0x04) & ~0x10)
                 end
@@ -4899,48 +5249,19 @@ local function syncGhost(playerId, remote)
                 w8(objAddr(g.objId) + 0x01, r8(objAddr(g.objId) + 0x01) | 0x08)
             end
         elseif remote.spaused and remote.sidx then
-            if r8(d + 0x2a) ~= remote.sanim or r8(d + 0x2b) ~= remote.sidx
-                or (r8(d + 0x2c) & 0x40) == 0
-            then
-                w8(d + 0x2a, remote.sanim)
-                w8(d + 0x2b, remote.sidx)
-                w8(d + 0x2c, r8(d + 0x2c) | 0x40)
-                -- AND THE FLIP, which is the half of "facing east" a number cannot carry: east is
-                -- the WEST artwork with the OAM's horizontal flip, applied by AnimCmd_frame ->
-                -- SetSpriteOamFlipBits when an animation ADVANCES -- and this sprite is being held
-                -- paused, so nothing will ever advance it. Without this a peer stopping while
-                -- facing east left the ghost facing west (user, 2026-08-21: *"it was facing left
-                -- after i stopped jumping (the player was facing right)"*).
-                --
-                -- THE OAM BIT ONLY, NEVER `sprite->hFlip`. They are not the same thing and writing
-                -- both is worse than writing neither: SetSpriteOamFlipBits (sprite.c:1246-1251) is
-                -- `hFlip ^ sprite->hFlip`, so the struct field is a BASE that the animation
-                -- command's own flip is XORed against. Setting it to 1 alongside a flipped frame
-                -- reads correct for exactly as long as the sprite stays paused, and inverts the
-                -- moment the engine advances that animation again -- the ghost then faces the
-                -- opposite way to the peer for every frame afterwards. Measured with
-                -- probes/facing_probe.lua, 2026-08-21: player hflipSpr=0 hflipOAM=1, ghost
-                -- hflipSpr=1 hflipOAM=1, which is the same picture now and the mirror image later.
-                -- Both characters keep hFlip=0 and carry the direction in the OAM bit, exactly as
-                -- the engine leaves the player.
-                local hgi = graphicsInfo(g.gfx)
-                if hgi and hgi.anims ~= 0 then
-                    local hap = r32(hgi.anims + (remote.sanim or 0) * 4)
-                    if isRomPtr(hap) then
-                        local hfl = ((r32(hap + (remote.sidx or 0) * 4) >> 22) & 1) == 1
-                        -- Bit 3 of matrixNum IS the OAM h-flip for a non-affine entry, which is
-                        -- what the engine writes -- attr1 bits 9-13 are matrixNum, bit 12 the
-                        -- flip. Written through the same bit the engine uses so the two agree.
-                        w16(d + 0x02, hfl and (r16(d + 0x02) | 0x1000)
-                            or (r16(d + 0x02) & 0xefff))
-                    end
-                end
-                if COMPARE_TIERS then logFile(string.format("HELD LOAD: g.gfx=%s live=%d sanim=%s sidx=%s tileStart=%s oamTile=%d", tostring(g.gfx), r8(objAddr(g.objId) + 0x05), tostring(remote.sanim), tostring(remote.sidx), tostring(g.tileStart), r16(sprAddr(g.sprId) + 0x04) & 0x3ff)) end
-                loadGhostFrameNow(g, graphicsInfo(g.gfx), remote.sanim, remote.sidx)
-                -- Remember it as issued, so the running path below re-arms properly when the peer
-                -- starts moving again.
-                g.animSetFor = remote.sanim
+            -- THE HELD POSE, through the one helper both this path and the spawn path use. It was
+            -- written out here and only here, which is how the spawn path came to restart the
+            -- animation instead of holding it (2026-08-21). Everything that used to be inline --
+            -- the change test, the three writes, the OAM flip a held sprite never gets from an
+            -- advancing animation, the frame copy and the animSetFor bookkeeping -- is in
+            -- applyHeldPose now, unchanged.
+            if COMPARE_TIERS then
+                logFile(string.format("HELD LOAD: g.gfx=%s live=%d sanim=%s sidx=%s tileStart=%s"
+                    .. " oamTile=%d", tostring(g.gfx), r8(objAddr(g.objId) + 0x05),
+                    tostring(remote.sanim), tostring(remote.sidx), tostring(g.tileStart),
+                    r16(sprAddr(g.sprId) + 0x04) & 0x3ff))
             end
+            applyHeldPose(g, remote)
         elseif g.animSetFor ~= remote.sanim then
             w8(d + 0x2a, remote.sanim)
             w8(d + 0x3f, (r8(d + 0x3f) | 0x04) & ~0x10)
@@ -6249,23 +6570,53 @@ tiering.hw = {
     -- shadow, character, dust. So the slot a thing gets IS its depth, and the pools have to be laid
     -- out in that order rather than handed out first-come.
     --
-    -- The cost is honest and small: bodies lose 12 of 56 slots, so this tier tops out at 44 peers
-    -- instead of 56, and no more than 6 of them can be mid-hop at once (a seventh simply goes
-    -- without, rather than stealing a body's slot). Both are far above anything measured -- the
-    -- fill-the-screen run put 56 characters up and OBJ TILES ran out long before entries did.
-    dustFirst = 0, dustLast = 5,        -- in front of everything of ours
-    bodyFirst = 6, bodyLast = 49,
-    shadowFirst = 50, shadowLast = 55,  -- behind everything of ours
+    -- The engine's own back-to-front order, measured 2026-08-21 from the subpriorities it gives
+    -- these sprites: reflection 152, surf blob 150, shadow 148, the character, landing dust 135.
+    -- Five pools, laid out in that order, because the slot number IS the depth here.
+    --
+    -- The cost is honest, and it is a real cost: bodies hold 26 of the 56 entries, so this tier
+    -- tops out at 26 peers rather than 56. Every one of these ceilings is LOGGED when it bites
+    -- rather than silently truncated, which is how the ripple pool was sized correctly.
+    --
+    -- TWELVE RIPPLES, NOT EIGHT, and that number came from the game rather than from taste. The
+    -- measurement is one ripple per tile stepped with an 80-frame life, and surfing crosses a tile
+    -- in 8 frames -- so a steady trail is TEN live at once. Eight was tried first and the pool
+    -- reported itself full at nine within a minute of real surfing; the user saw exactly what the
+    -- arithmetic predicts: *"the OAM is leaving a gap in its ripples, when going in 1 distance for
+    -- a while."* Twelve leaves two of headroom over the steady state. A second surfer still
+    -- overflows it, and still says so in the log.
+    --
+    -- Still above what has been measured for bodies: the fill-the-screen run put 56 characters up
+    -- and OBJ TILES ran out long before entries did.
+    dustFirst = 0, dustLast = 3,        -- in front of everything of ours
+    bodyFirst = 4, bodyLast = 29,
+    shadowFirst = 30, shadowLast = 33,
+    blobFirst = 34, blobLast = 37,
+    rippleFirst = 38, rippleLast = 49,
+    reflFirst = 50, reflLast = 55,      -- behind everything of ours
     fxTiles = {},               -- "shadow:<size>" / "dust:<frame>" -> { start, tiles }
     puffs = {},                 -- live dust-trail puffs: { at, bx, by, slot }
+    ripples = {},               -- live water-trail ripples: { at, bx, by, slot }
     -- gDummyOamData, the engine's own "hidden" encoding: off-screen, 8x8, priority 3. Releasing with
     -- the engine's value rather than zeroes leaves a slot indistinguishable from one never used.
     d0 = 0x00a0, d1 = 0x0130, d2 = 0x0c00,
     -- Compare-mode nudge, in tiles, relative to the SPAWNED ghost -- which is the reference the
-    -- other two tiers are judged against. Default 0,-2: same column, two tiles above it, so both
-    -- are fully visible and a horizontal difference reads as a misalignment.
-    cmpDX = tonumber(MESHGHOST_EMERALD_HW_COMPARE_DX or "") or 0,
-    cmpDY = tonumber(MESHGHOST_EMERALD_HW_COMPARE_DY or "") or -2,
+    -- other two tiers are judged against.
+    --
+    -- Default -6,0: these are relative to the SPAWNED ghost, which stands at (+2, 0) from the
+    -- player, and the PAINTED copy is at (-2, 0) -- so this puts the hardware copy two tiles to
+    -- the LEFT of the painted one, all three in the player's own row.
+    --
+    -- It was 0,-2 -- stacked directly over the spawned ghost -- until the surf blob and the
+    -- reflection landed on this tier (2026-08-21) and there was suddenly something UNDER each
+    -- character to look at: two tiles of separation put every copy's blob and reflection on top
+    -- of the one below it. Three tiles up was tried next and read fine on its own; a ROW is what
+    -- makes the two self-drawn tiers comparable to each other, which is the comparison that
+    -- actually matters now that they carry the same effects. The user, on the water at
+    -- Sootopolis: *"can you move the OAM to be 2 tiles to the left, of the drawn ghost. easier to
+    -- spot the reflection change there"*.
+    cmpDX = tonumber(MESHGHOST_EMERALD_HW_COMPARE_DX or "") or -6,
+    cmpDY = tonumber(MESHGHOST_EMERALD_HW_COMPARE_DY or "") or 0,
     byPeer = {},   -- player_id -> { slot, tileStart, tileCount, gfx, animNum, animIdx }
     slotUsed = {}, -- slot -> player_id
     area = nil,    -- the area those tile allocations belong to
@@ -6328,6 +6679,7 @@ function hwReleaseAll(freeTiles)
         end
     end
     tiering.hw.puffs = {}
+    tiering.hw.ripples = {}
     tiering.hw.area = nil
     tiering.hw.placed = 0
 end
@@ -6428,8 +6780,14 @@ end
 function hwFxSlot(playerId, rec, which)
     rec.fx = rec.fx or {}
     if rec.fx[which] then return rec.fx[which] end
-    -- Only the shadow is per-peer now; dust slots belong to the puff pool in hwPuffTick.
+    -- Each effect draws from the pool that puts it at the right depth; dust is the exception and
+    -- belongs to the puff pool in hwPuffTick, which is per-puff rather than per-peer.
     local first, last = tiering.hw.shadowFirst, tiering.hw.shadowLast
+    if which == "blob" then
+        first, last = tiering.hw.blobFirst, tiering.hw.blobLast
+    elseif which == "refl" then
+        first, last = tiering.hw.reflFirst, tiering.hw.reflLast
+    end
     for i = first, last do
         if not tiering.hw.slotUsed[i] then
             tiering.hw.slotUsed[i] = playerId
@@ -6449,14 +6807,198 @@ function hwFxHide(rec, which)
     w16(a + 4, tiering.hw.d2)
 end
 
+-- WHAT A SURFING PEER IS BESIDES A RIDER: the Pokemon underneath, and the reflection in the water.
+--
+-- The user, comparing all three tiers on the water at Sootopolis, 2026-08-21: *"OAM is missing
+-- water reflections & the water blob."* Both were built for the painted tier and neither reached
+-- this one -- a rider on this tier sat on open water casting nothing. The spawned tier has always
+-- had both, because the engine makes them: `FldEff_SurfBlob` spawns a real companion sprite and
+-- `SetUpReflection` a real reflection sprite, and a spawned ghost is just another object event.
+--
+-- Both are ONE OAM ENTRY EACH here, which is what makes them cheap enough to want:
+--
+--   THE BLOB is the field effect's own sprite template read out of ROM -- four animations, one
+--   frame each, one per facing, east being west mirrored (the provenance is with
+--   `runsForSurfBlob`, which resolves the same frame for the painted tier). Its tiles are copied
+--   once per image and SHARED by every peer riding one, because hwFxTiles caches on the key. It
+--   sits at the rider's position plus (0, +8), measured against the game's own pair rather than
+--   guessed (probes/surfblob_probe.lua, 2026-08-19).
+--
+--   THE REFLECTION costs no tiles at all: it is the body's own frame, already in VRAM, drawn a
+--   second time through a different palette. That is exactly what the engine does -- same tiles,
+--   vertically flipped, priority 3, and `gReflectionEffectPaletteMap` for the colours -- and it
+--   is why this tier gets for free the one thing the painted tier had to work for: PRIORITY. A
+--   priority-3 entry is clipped by the water for us, so there is no reflectiveSpans lookup here
+--   and no reflection creeping onto the bank.
+--
+--   THE RIPPLE IS THE HARDWARE'S, not ours. SetUpReflection does not use the flip bits: it makes
+--   the reflection an AFFINE sprite through OAM matrix 0, or matrix 1 when the character is
+--   mirrored (src/field_effect_helpers.c:66-68). Those matrices hold d = -256 (the vertical flip)
+--   and an `a` breathing between 252 and 260, which is the sideways shimmer. The engine keeps
+--   them updated every frame, so pointing our entry at the same matrix is not an imitation of the
+--   ripple -- it IS the ripple, with no phase of our own to drift.
+--
+--   Guarded, because those matrices are only maintained while the engine has a reflection of its
+--   own up. If matrix 0 is not holding a vertical flip, the entry falls back to the plain flip
+--   bit: a reflection that does not shimmer, rather than a sprite drawn through a stale matrix.
+function hwDrawSurf(playerId, rec, remote, info, sx, sy, arcY, hFlip)
+    -- THE BLOB -- surfing only, because a blob IS surfing.
+    if remote.gfx and SURFING_GFX[remote.gfx] then
+        local facing = genderFrames.dirOf[remote.orientation] or 1
+        local imageIndex = genderFrames.blobDirImage[facing] or 0
+        local imgs = r32(GFIELDEFFECTTEMPLATE_SURFBLOB + 0x0c)
+        local bpal = hwPaletteSlotForTag(r16(GFIELDEFFECTTEMPLATE_SURFBLOB + 0x02))
+            or genderFrames.blobPaletteSlot
+        local bstart = isRomPtr(imgs) and hwFxTiles("blob:" .. imageIndex, imgs, imageIndex)
+        local bslot = bstart and hwFxSlot(playerId, rec, "blob")
+        if bslot then
+            local o = r32(GFIELDEFFECTTEMPLATE_SURFBLOB + 0x04)
+            local by = sy + 8
+            local a = tiering.hw.base + bslot * 8
+            w16(a + 0, (r16(o + 0x00) & 0xff00) | (by & 0xff))
+            w16(a + 2, (r16(o + 0x02) & 0xfe00) | (sx & 0x1ff) | (facing == 4 and 0x1000 or 0))
+            w16(a + 4, (bstart & 0x3ff) | (2 << 10) | ((bpal & 0x0f) << 12))
+        else
+            hwFxHide(rec, "blob")
+        end
+    else
+        hwFxHide(rec, "blob")
+    end
+
+    -- THE REFLECTION -- for ANY peer standing on reflective ground, which is the engine's own
+    -- rule and not a surfing one. Gating it on surfing was the painted tier's mistake too, and
+    -- the user found the case both of them excluded on the same day: a ghost on the grass at the
+    -- water's edge casts no reflection while the player beside it does.
+    --
+    -- The tile is asked WHERE THIS TIER DRAWS, not where the peer is -- in compare mode the two
+    -- are deliberately several tiles apart, and asking about the peer authorises a reflection on
+    -- dry land. Its own previous-tile store, rather than the painted tier's: the two tiers are
+    -- drawing the same peer in different places, so they cannot share an answer about ground.
+    local rpal
+    local gbX, gbY = genderFrames.gridBase()
+    if gbX then
+        -- The painted tier's formula, unchanged, because that one is calibrated and confirmed on
+        -- screen: the frame's own left edge, and the tile below its middle.
+        tiering.hwLastTile = tiering.hwLastTile or {}
+        local hgx = math.floor((sx - gbX) / TILE)
+        local hgy = math.floor((sy - arcY + TILE - gbY) / TILE)
+        rpal = genderFrames.reflectPalFor(tiering.hwLastTile, playerId, remote.areaId,
+            hgx, hgy,
+            ((info.width or FRAME_WIDTH_PX) + 8) >> 4,
+            ((info.height or FRAME_HEIGHT_PX) + 8) >> 4,
+            info.paletteSlot)
+        -- Published for the painted tier's log, which runs later in the same frame: the two tiers
+        -- ask the SAME function, so when their answers differ the difference is in the inputs, and
+        -- these are the inputs.
+        if COMPARE_TIERS then
+            -- WHAT THE PAINTED TIER'S CLIP WOULD SAY AT THIS TIER'S OWN POSITION. The two copies
+            -- stand in different columns, so comparing their reflections directly compares two
+            -- pieces of shoreline as much as two renderers. This asks the painted tier's mask
+            -- about the HARDWARE copy's tile -- where the framebuffer can be read for what the
+            -- hardware actually drew -- so mask and hardware are finally answering about the same
+            -- ground. Compare mode only, and it costs one span build for one peer.
+            local hry = sy + (info.height or FRAME_HEIGHT_PX) - 2 - 2 * arcY
+            local hwet = genderFrames.reflectiveSpans(sx, hry,
+                info.width or FRAME_WIDTH_PX, info.height or FRAME_HEIGHT_PX, "reflection")
+            local lo, hi = nil, nil
+            if hwet then
+                for y2, l in pairs(hwet) do
+                    if #l > 0 then
+                        if not lo or y2 < lo then lo = y2 end
+                        if not hi or y2 > hi then hi = y2 end
+                    end
+                end
+            end
+            -- THE HARDWARE'S OWN ART ROWS, read back out of the tiles this tier copied into
+            -- VRAM. The painted tier decodes the same picture from ROM; if the two disagree about
+            -- which rows of the frame carry ink, then one of the two decodes is wrong, and that
+            -- is a different bug from anything about reflections. 16 wide = 2 tiles across,
+            -- 32 tall = 4 down, 4bpp, 32 bytes a tile, tiles in reading order.
+            local firstRow, lastRow = nil, nil
+            if rec.tileStart then
+                for row = 0, 31 do
+                    local tr, ly = row // 8, row % 8
+                    local ink = false
+                    for tc = 0, 1 do
+                        local t = rec.tileStart + tr * 2 + tc
+                        for byte = 0, 3 do
+                            if r8(0x06010000 + t * 32 + ly * 4 + byte) ~= 0 then
+                                ink = true
+                                break
+                            end
+                        end
+                        if ink then break end
+                    end
+                    if ink then
+                        if not firstRow then firstRow = row end
+                        lastRow = row
+                    end
+                end
+            end
+            tiering.hwReflDbg = string.format("hwArtRows=%s..%s ",
+                tostring(firstRow), tostring(lastRow)) .. string.format(
+                "tile=%d,%d wh=%d,%d pal=%s reflBox=%d..%d maskOpens=%s..%s", hgx, hgy,
+                ((info.width or FRAME_WIDTH_PX) + 8) >> 4,
+                ((info.height or FRAME_HEIGHT_PX) + 8) >> 4, tostring(rpal),
+                math.floor(hry), math.floor(hry) + (info.height or FRAME_HEIGHT_PX) - 1,
+                tostring(lo), tostring(hi))
+        end
+    end
+    -- A RIPPLE PER TILE STEPPED. The store above stamps the frame the tile changed on, so the
+    -- reflection's own bookkeeping answers "did this peer just step" for free -- and it answers it
+    -- about the tile THIS tier drew on, which is the one the trail belongs to.
+    if genderFrames.rippleDue(tiering.hwLastTile or {}, playerId,
+        remote.gfx and SURFING_GFX[remote.gfx]) then
+        local w = info.width or FRAME_WIDTH_PX
+        local h = info.height or FRAME_HEIGHT_PX
+        tiering.hw.ripples[#tiering.hw.ripples + 1] = {
+            at = frameCounter,
+            bx = sx + (w >> 1) - 8 - rs16(GSPRITECOORDOFFSETX_ADDR),
+            by = sy - arcY + h - 10 - rs16(GSPRITECOORDOFFSETY_ADDR),
+        }
+    end
+
+    local rslot = rpal and rec.tileStart and hwFxSlot(playerId, rec, "refl")
+    if not rslot then
+        hwFxHide(rec, "refl")
+        return
+    end
+    -- GetReflectionVerticalOffset is the graphic's own height minus two, and the engine negates
+    -- the main sprite's y2 for the reflection -- so the gap between a character and its image is
+    -- that offset MINUS TWICE the bob, and the two separate as the rider rises. `sy` already
+    -- carries the bob, which is why it comes off twice here and not once.
+    local ry = sy + (info.height or FRAME_HEIGHT_PX) - 2 - 2 * arcY
+    local t0, t1 = 0x8000, 0x8000
+    if info.oam ~= 0 then t0, t1 = r16(info.oam + 0x00), r16(info.oam + 0x02) end
+    local a = tiering.hw.base + rslot * 8
+    -- gOamMatrices entry: a +0, b +2, c +4, d +6. d is the vertical flip the engine keeps there.
+    local m = hFlip and 1 or 0
+    if rs16(genderFrames.oamMatricesAddr + m * 8 + 6) < -128 then
+        -- ST_OAM_AFFINE_NORMAL: attr0 bits 8-9 = 01, attr1 bits 9-13 = the matrix index. The
+        -- flip bits do not exist in this mode -- the matrix carries both flips.
+        w16(a + 0, (t0 & 0xfc00) | 0x0100 | (ry & 0xff))
+        w16(a + 2, (t1 & 0xc000) | (m << 9) | (sx & 0x1ff))
+    else
+        w16(a + 0, (t0 & 0xff00) | (ry & 0xff))
+        w16(a + 2, (t1 & 0xc000) | (hFlip and 0x1000 or 0) | 0x2000 | (sx & 0x1ff))
+    end
+    w16(a + 4, (rec.tileStart & 0x3ff) | (3 << 10) | ((rpal & 0x0f) << 12))
+    -- Published for the painted tier's comparison log, which runs later in the same frame. The
+    -- two tiers use the same formula; if their reflections do not land on the same row, one of
+    -- them is not being given the same inputs, and that is a different bug from a wrong formula.
+    if COMPARE_TIERS then tiering.hwBodyY, tiering.hwReflY = sy, ry end
+end
+
 -- `sx`,`sy` are the body entry's top-left as written this frame, and `arcY` is the hop the body is
 -- carrying: both effects belong on the GROUND the peer left, so the arc comes back off. That is
 -- the same term the engine drops by driving its shadow from pos1 while the character rides pos2,
 -- and the same one the painted tier subtracts.
-function hwDrawFx(playerId, rec, remote, info, sx, sy, arcY)
+function hwDrawFx(playerId, rec, remote, info, sx, sy, arcY, hFlip)
     local w, h = info.width or FRAME_WIDTH_PX, info.height or FRAME_HEIGHT_PX
     local groundY = sy - arcY
     local jumping = isJumpAction(remote.act) or false
+
+    hwDrawSurf(playerId, rec, remote, info, sx, sy, arcY, hFlip)
 
     local size = 1
     if info.raw and info.raw ~= 0 then size = (r8(info.raw + 0x0c) >> 4) & 0x03 end
@@ -6530,6 +7072,75 @@ function hwPuffTick()
                 local dx, dy = puff.bx + offX, puff.by + offY
                 if dx + 16 <= 0 or dx >= 240 or dy + 8 <= 0 or dy >= 160 then
                     w16(a + 0, tiering.hw.d0) w16(a + 2, tiering.hw.d1) w16(a + 4, tiering.hw.d2)
+                else
+                    w16(a + 0, (r16(o + 0x00) & 0xff00) | (dy & 0xff))
+                    w16(a + 2, (r16(o + 0x02) & 0xfe00) | (dx & 0x1ff))
+                    w16(a + 4, (start & 0x3ff) | (2 << 10) | (pal << 12))
+                end
+            end
+        end
+    end
+end
+
+-- Play out every live ripple where it was dropped, camera-anchored exactly as the dust trail is.
+-- Slots come from the ripple pool ON DEMAND, one per live ripple rather than one per peer: an
+-- 80-frame life against a tile stepped every 8 frames means ten are alive at a steady pace, and
+-- per-peer ownership could only ever show one of them.
+--
+-- MORE LIVE RIPPLES THAN POOL SLOTS DROPS THE OLDEST -- it has the least animation left to show --
+-- AND SAYS SO. A tier that quietly shows eight of ten reads as "covered everything" when it did
+-- not, which is the one thing a ceiling must never do.
+function hwRippleTick()
+    local list = tiering.hw.ripples
+    if #list == 0 then return end
+    local offX, offY = rs16(GSPRITECOORDOFFSETX_ADDR), rs16(GSPRITECOORDOFFSETY_ADDR)
+    local imgs = r32(genderFrames.rippleTemplate + 0x0c)
+    local pal = hwPaletteSlotForTag(r16(genderFrames.rippleTemplate + 0x02))
+    local o = r32(genderFrames.rippleTemplate + 0x04)
+    for ri = #list, 1, -1 do
+        local rip = list[ri]
+        local f = genderFrames.rippleFrameAt(frameCounter - rip.at)
+        local start = f and pal and isRomPtr(imgs) and hwFxTiles("ripple:" .. f, imgs, f)
+        if not start then
+            if rip.slot then
+                local a = tiering.hw.base + rip.slot * 8
+                w16(a + 0, tiering.hw.d0) w16(a + 2, tiering.hw.d1) w16(a + 4, tiering.hw.d2)
+                tiering.hw.slotUsed[rip.slot] = nil
+            end
+            table.remove(list, ri)
+        else
+            if not rip.slot then
+                for i = tiering.hw.rippleFirst, tiering.hw.rippleLast do
+                    if not tiering.hw.slotUsed[i] then
+                        tiering.hw.slotUsed[i] = "ripple"
+                        rip.slot = i
+                        break
+                    end
+                end
+            end
+            if not rip.slot then
+                -- Iteration is newest-first, so this is the oldest live ripple.
+                if not tiering.hw.rippleDropAt
+                    or frameCounter - tiering.hw.rippleDropAt >= 300 then
+                    tiering.hw.rippleDropAt = frameCounter
+                    console.log(string.format(
+                        "MeshGhost: hardware ripple pool full (%d slots); dropping the oldest of "
+                        .. "%d live ripples.",
+                        tiering.hw.rippleLast - tiering.hw.rippleFirst + 1, #list))
+                end
+                table.remove(list, ri)
+            else
+                local a = tiering.hw.base + rip.slot * 8
+                local dx, dy = rip.bx + offX, rip.by + offY
+                if dx + genderFrames.rippleFramePx <= 0 or dx >= 240
+                    or dy + genderFrames.rippleFramePx <= 0 or dy >= 160 then
+                    -- GIVE THE SLOT BACK, not just the pixels. A ripple that has scrolled off
+                    -- screen is invisible either way, but holding its entry starves the ones still
+                    -- in view -- and a trail is exactly the thing whose oldest members leave the
+                    -- screen first while newer ones are still being made.
+                    w16(a + 0, tiering.hw.d0) w16(a + 2, tiering.hw.d1) w16(a + 4, tiering.hw.d2)
+                    tiering.hw.slotUsed[rip.slot] = nil
+                    rip.slot = nil
                 else
                     w16(a + 0, (r16(o + 0x00) & 0xff00) | (dy & 0xff))
                     w16(a + 2, (r16(o + 0x02) & 0xfe00) | (dx & 0x1ff))
@@ -6628,6 +7239,7 @@ function renderHardwareGhosts(localAreaId, playerMapX, playerMapY, hwSet)
     -- The dust trail outlives the bounce that made it, so it is ticked here rather than inside
     -- any one peer's placement -- a peer who leaves the tier mid-puff still gets the tail of it.
     hwPuffTick()
+    hwRippleTick()
 
     local playerScreenX, playerScreenY = playerScreenPos()
     local camPixX, camPixY, pmX, pmY = anchorFrame(localAreaId, playerScreenX, playerScreenY,
@@ -6710,7 +7322,7 @@ function renderHardwareGhosts(localAreaId, playerMapX, playerMapY, hwSet)
                         | ((info.paletteSlot or 0) << 12))
                     -- The pin copies the spawned sprite's pos2, so the hop arc is in `sy` here and
                     -- has to come back off for the two ground effects.
-                    hwDrawFx(playerId, rec, remote, info, sx, sy, rs16(gs + 0x26))
+                    hwDrawFx(playerId, rec, remote, info, sx, sy, rs16(gs + 0x26), flip ~= 0)
                     tiering.hw.placed = tiering.hw.placed + 1
                     if COMPARE_TIERS then tiering.hwLastX, tiering.hwLastY = sx, sy end
                     goto hwNextPeer
@@ -6760,6 +7372,17 @@ function renderHardwareGhosts(localAreaId, playerMapX, playerMapY, hwSet)
                 local sy = (tiering.originY or playerScreenY)
                     + (glideY - (tiering.anchorY or playerMapY)) * TILE + camPixY
                 sx, sy = math.floor(sx + 0.5), math.floor(sy + 0.5)
+                -- THE PEER'S OWN HOP, off the wire (2026-08-21). The glide pipeline above carries
+                -- position and nothing else, so an overflow peer used to SLIDE over a ledge with
+                -- its shadow pinned under its feet, while the pinned compare copy a few lines up
+                -- arced correctly from the spawned sprite -- which is exactly why compare mode
+                -- could never show it. `soy` is the peer's sprite pos2.y, already on the wire for
+                -- the surf bob; the same number is the jump arc, and the painted tier now takes it
+                -- from the same place. Taken verbatim here, fishing included: this tier draws the
+                -- peer's own frame from its own OAM template and re-derives no alignment of its
+                -- own, so the engine's whole vertical offset is exactly what it wants.
+                local arc = remote.soy or 0
+                sy = sy + arc
 
                 -- OFF SCREEN GETS THE HIDDEN ENTRY, NOT A WRAPPED ONE. An entry's x is 9 bits and
                 -- its y is 8, so a peer at x = -900 does not vanish, it reappears somewhere absurd.
@@ -6812,11 +7435,9 @@ function renderHardwareGhosts(localAreaId, playerMapX, playerMapY, hwSet)
                     -- ground, which is what the engine gives its own overworld characters; the
                     -- palette slot comes from the graphic's own descriptor, not from anything ours.
                     w16(a + 4, (rec.tileStart & 0x3ff) | (2 << 10) | ((info.paletteSlot or 0) << 12))
-                    -- No arc to subtract on this path: an overflow peer's position comes from the
-                    -- glide pipeline, which carries no hop. The shadow then sits under the feet
-                    -- rather than under a raised character -- correct, and it reads as nothing,
-                    -- which is the same thing the painted tier's own note says about it.
-                    hwDrawFx(playerId, rec, remote, info, sx, sy, 0)
+                    -- The arc is in `sy` now, so it comes back off for the two ground effects --
+                    -- the same contract the pinned path above uses.
+                    hwDrawFx(playerId, rec, remote, info, sx, sy, arc, flip ~= 0)
                     tiering.hw.placed = tiering.hw.placed + 1
                     -- Published for the three-way compare log in drawRemotes, which runs after this
                     -- in the same frame. Where the OTHER two tiers put the same peer is already on
@@ -6847,7 +7468,12 @@ local function drawRemotes(localAreaId, playerMapX, playerMapY, skipSpawned, com
     -- ceiling of 200 locals, and a local inside a function is counted against the function.
     local SCREEN_WIDTH_PX, SCREEN_HEIGHT_PX = 240, 160
     -- Where the painted comparison copy goes: the other side of the player from the spawned one.
-    local COMPARE_DRAWN_OFFSET_TILES_X = -2
+    -- Where the painted comparison copy stands, in tiles from the player. Settable, because the
+    -- three copies stand in three columns and a shoreline is not a straight line: to tell "this
+    -- renderer is wrong" from "this copy is standing further from the water", the two copies have
+    -- to be put on the SAME TILE and compared there. -4 lines it up with the hardware copy.
+    local COMPARE_DRAWN_OFFSET_TILES_X =
+        tonumber(MESHGHOST_EMERALD_DRAWN_COMPARE_DX or "") or -2
     -- THE ENGINE HIDES ITS OWN PLAYER DURING A DOOR/WARP TRANSITION -- so we hide ours, but only
     -- once the fade has actually finished.
     --
@@ -6874,9 +7500,29 @@ local function drawRemotes(localAreaId, playerMapX, playerMapY, skipSpawned, com
     --
     -- The comparison is like for like: the LIVE OBJ palette the player's own sprite is using
     -- (palette RAM at 0x05000200, GBA hardware, the same footing as the BGnCNT read that finds the
-    -- tilemaps) against the ROM palette that same character was decoded from. Their ratio is what
-    -- the hardware is doing to every character on screen, so applying it to ours is what "the same
-    -- lighting" means. It costs 32 reads a frame and nothing at all per peer.
+    -- tilemaps) against the ROM palette that same character was decoded from. What the hardware
+    -- did to those sixteen colours is what it did to every character on screen, so doing the same
+    -- to ours is what "the same lighting" means. It costs 32 reads a frame and nothing per peer.
+    --
+    -- A RATIO IS THE WRONG SHAPE, and that is a fix rather than a refinement (2026-08-21).
+    -- The engine's fades are `BlendPalette`: every colour moves a fraction of the way toward one
+    -- target colour, c -> c + (target - c) * coeff/16 (pokeemerald src/palette.c). A scalar
+    -- brightness ratio can only ever express the case where that target is BLACK -- and a cave
+    -- mouth fades to WHITE. Measured across a real cave entry with probes/cavewarp_probe.lua: the
+    -- OBJ palette's channel sum climbs 747 -> 1488 (sixteen colours, all channels at 31: pure
+    -- white) over fourteen frames and stays there for the ~65 frames of the transition, while the
+    -- ratio reads 1.99, clamps to 1, and reports a perfectly normal scene. So the painted copy
+    -- kept drawing at full colour over a screen that had washed out to white, which is what the
+    -- user saw: *"when going inside a cave, the drawn ghost stays on the screen for a bit too
+    -- long."* The spawned and hardware tiers were unaffected because both are drawn by the PPU
+    -- from that same live palette.
+    --
+    -- So fit the BLEND instead of a ratio: live = a*rom + b over all 48 channel values, which is
+    -- exactly the line BlendPalette produces (a = 1 - coeff/16, b = target * coeff/16) and which
+    -- covers fading to black, to white, a cave's tint, weather and night with one expression.
+    -- `dim` keeps its meaning as the multiplier; `genderFrames.tintAdd` carries the additive term
+    -- (that table, not `tiering`, because drawRunList is defined above `local tiering` and would
+    -- otherwise resolve it to a nil global -- the trap this file already carries a note about).
     local dim = 1
     do
         local ps = sprAddr(r8(GPLAYERAVATAR_ADDR + avatarAddrOffset + 0x04))
@@ -6886,17 +7532,45 @@ local function drawRemotes(localAreaId, playerMapX, playerMapY, skipSpawned, com
         if sb2 ~= 0 and r8(sb2 + 0x08) == 1 then
             romPal = GOBJECTEVENTPAL_MAY_ADDR + (genderFrames.romOffset or 0)
         end
-        local live, ref = 0, 0
+        local sx, sy, sxx, sxy, syy = 0, 0, 0, 0, 0
+        local xs, ys = {}, {}
         for i = 0, 15 do
             local c = r16(0x05000200 + slot * 32 + i * 2)
-            live = live + (c & 0x1F) + ((c >> 5) & 0x1F) + ((c >> 10) & 0x1F)
             local o = r16(romPal + i * 2)
-            ref = ref + (o & 0x1F) + ((o >> 5) & 0x1F) + ((o >> 10) & 0x1F)
+            for s = 0, 10, 5 do
+                local x, y = (o >> s) & 0x1F, (c >> s) & 0x1F
+                local k = #xs + 1
+                xs[k], ys[k] = x, y
+                sx, sy = sx + x, sy + y
+            end
         end
-        -- A ratio above 1 means the slot is not holding the palette we think it is; trust the
-        -- cartridge in that case rather than brightening a ghost past what the game can show.
-        if ref > 0 then dim = live / ref end
-        if dim > 1 then dim = 1 elseif dim < 0 then dim = 0 end
+        local nPts = #xs
+        local mx, my = sx / nPts, sy / nPts
+        for i = 1, nPts do
+            local dx, dy = xs[i] - mx, ys[i] - my
+            sxx, sxy, syy = sxx + dx * dx, sxy + dx * dy, syy + dy * dy
+        end
+        local a, b
+        if syy < 1e-6 then
+            -- Every live colour is the same one: the fade has run all the way to its target, so
+            -- the ghost is that flat colour too -- white on white, black on black, invisible
+            -- either way, which is precisely what the player sees of everything else.
+            a, b = 0, my
+        elseif sxx > 1e-6 and sxy * sxy > 0.9 * sxx * syy then
+            a = sxy / sxx
+            b = my - a * mx
+        end
+        -- No affine relation at all means the slot is not holding the palette we think it is --
+        -- mid-map-load, or reallocated to something else. Trust the cartridge rather than paint a
+        -- ghost in colours nothing on screen is using.
+        if not a then
+            a, b = 1, 0
+        end
+        if a > 1 then a = 1 elseif a < 0 then a = 0 end
+        -- 0..31 palette units up to the 0..255 the run colours are cached in.
+        b = b * (255 / 31)
+        if b > 255 then b = 255 elseif b < 0 then b = 0 end
+        dim, genderFrames.tintAdd = a, b
     end
     -- The backstop: hidden player AND a screen that has already gone dark. Either alone is a
     -- state the ghost should still be drawn in -- a dark cave is dim with the player visible, and
@@ -6988,12 +7662,23 @@ local function drawRemotes(localAreaId, playerMapX, playerMapY, skipSpawned, com
             -- spawned copy by definition, keep the filter above.
             local screenX, screenY
             local pinned = COMPARE_TIERS and ghosts[playerId]
-            local pinnedArc = 0
+            -- HOW FAR OFF THE GROUND THIS PEER IS, in pixels, negative upward -- a ledge hop, a
+            -- side hop, a bunny hop, or the surf blob's bob. Kept separately from the position so
+            -- the shadow and the dust below can be put on the GROUND the character left rather
+            -- than under its feet in mid-air.
+            --
+            -- IT HAS TWO SOURCES AND USED TO HAVE ONE, which is why nobody saw this (2026-08-21).
+            -- A pinned copy reads it from the spawned sprite the engine is arcing for us. An
+            -- OVERFLOW peer -- one with no spawned counterpart, which is every peer in a real
+            -- crowd -- has no such sprite, and its position comes from the glide pipeline, which
+            -- carries no hop. So this tier drew a peer SLIDING across a ledge, and skipped its
+            -- shadow entirely, in exactly the case compare mode cannot show: compare mode pins.
+            -- The peer's own `pos2.y` has been on the wire as `soy` since the surf bob needed it,
+            -- so the arc was already arriving and only this tier was throwing it away.
+            local arc = 0
             if pinned then
                 local gs = sprAddr(pinned.sprId)
-                -- pos2.y is the jump arc; kept separately so the shadow below can be put on the
-                -- ground the ghost left rather than under its feet in mid-air.
-                pinnedArc = rs16(gs + 0x26)
+                arc = rs16(gs + 0x26)
                 -- While the spawned sprite wears a fishing graphic, its pos2 is the alignment
                 -- for ITS current frame -- and this tier paints the WIRE's frame, which can be a
                 -- different one. Inheriting that offset re-created today's whole defect class in
@@ -7001,11 +7686,11 @@ local function drawRemotes(localAreaId, playerMapX, playerMapY, skipSpawned, com
                 -- takes only the sprite's true anchor, and the paint code below adds the shift
                 -- for the exact frame it draws, from the same shared rule.
                 local pinnedAlignX = rs16(gs + 0x24)
-                if isFishingGfx(pinned.gfx) then pinnedAlignX, pinnedArc = 0, 0 end
+                if isFishingGfx(pinned.gfx) then pinnedAlignX, arc = 0, 0 end
                 screenX = rs16(gs + 0x20) + pinnedAlignX + memory.read_s8(gs + 0x28)
                     + rs16(GSPRITECOORDOFFSETX_ADDR)
                     + (COMPARE_DRAWN_OFFSET_TILES_X - LOOPBACK_GHOST_OFFSET_TILES_X) * TILE
-                screenY = rs16(gs + 0x22) + pinnedArc + memory.read_s8(gs + 0x29)
+                screenY = rs16(gs + 0x22) + arc + memory.read_s8(gs + 0x29)
                     + rs16(GSPRITECOORDOFFSETY_ADDR)
             end
 
@@ -7013,7 +7698,19 @@ local function drawRemotes(localAreaId, playerMapX, playerMapY, skipSpawned, com
                 + (glideX - (tiering.anchorX or playerMapX)) * TILE + camPixX
             local unpinnedY = (tiering.originY or playerScreenY)
                 + (glideY - (tiering.anchorY or playerMapY)) * TILE + camPixY
-            if not pinned then screenX, screenY = unpinnedX, unpinnedY end
+            if not pinned then
+                -- The peer's own pos2.y, straight off the wire: the same quantity the pinned
+                -- branch reads out of the spawned sprite, for a peer that has no spawned sprite.
+                --
+                -- EXCEPT WHILE FISHING, and for the same reason the pinned branch drops it there:
+                -- a rod's pos2 is not a hop, it is the engine's ALIGNMENT for the frame being
+                -- shown, and this tier re-derives that itself a few lines down
+                -- (`fishingFrameShift`) for the exact frame it paints. Taking both would apply the
+                -- alignment twice -- and once with the wrong frame's value, which is the defect
+                -- class the fishing work spent a whole session on.
+                arc = (not isFishingGfx(remote.gfx)) and (remote.soy or 0) or 0
+                screenX, screenY = unpinnedX, unpinnedY + arc
+            end
             -- The pinned branch already carries the mirror to the other side of the player, so the
             -- loopback nudge below would apply it twice.
             if isLoopback and not pinned then
@@ -7142,7 +7839,7 @@ local function drawRemotes(localAreaId, playerMapX, playerMapY, skipSpawned, com
                 -- screenX/screenY are the FRAME's top-left, so the character's own anchor is
                 -- +8,+16 from it, and the arc comes off because a shadow belongs on the ground the
                 -- character left rather than under its feet in mid-air.
-                if pinned and isJumpAction(remote.act) then
+                if isJumpAction(remote.act) then
                     -- CENTRED ON THE GRAPHIC, not on a walker. screenX + 8 is the middle of the
                     -- 16-wide gender frame, and a bike, a surfboard or a rod is 32 wide -- so on
                     -- any of those the shadow sat 8px left of the character (user, 2026-08-20:
@@ -7157,7 +7854,7 @@ local function drawRemotes(localAreaId, playerMapX, playerMapY, skipSpawned, com
                     -- down and is not in scope here -- referencing it read a nil GLOBAL and threw
                     -- once per frame. In the pinned case it is zero in any event.
                     drawOneShadow(screenX + halfW,
-                        shadowTopFor(sgi, screenY - pinnedArc), dim)
+                        shadowTopFor(sgi, screenY - arc), dim)
                 end
 
                 -- A peer wearing its OWN graphic -- bike, surf, fishing -- is drawn from that
@@ -7297,12 +7994,18 @@ local function drawRemotes(localAreaId, playerMapX, playerMapY, skipSpawned, com
                         -- THE REFLECTION IN THE WATER. The same frame, decoded once more in the
                         -- mapped palette, drawn upside down height-2 pixels lower --
                         -- SetUpReflection and GetReflectionVerticalOffset, cited where
-                        -- reflectionPalette is defined. Only while the peer is SURFING: a peer
-                        -- standing beside water is reflected too, but whether a given tile
-                        -- reflects is a property of the tile the peer is on, and this tier does
-                        -- not look that up yet. Surfing is the case that is certain -- you cannot
-                        -- surf anywhere else -- and it is the one that was reported.
-                        if SURFING_GFX[remote.gfx] then
+                        -- reflectionPalette is defined.
+                        --
+                        -- FOR ANY PEER ON REFLECTIVE GROUND, not only a surfing one (2026-08-21).
+                        -- This used to be inside the surfing gate, with a note saying a peer
+                        -- standing beside water is reflected too but that the tile lookup did not
+                        -- exist yet. It does exist -- `hasReflection` below is the engine's own
+                        -- test and was written for this block -- so the gate was simply left too
+                        -- tight, and the user found the case it excluded: *"the drawn ghost, and
+                        -- probably the OAM, don't have a reflection in the water while standing on
+                        -- grass/next to water."* The ground test is the whole gate now; surfing
+                        -- keeps only what is genuinely surfing-specific, which is the blob.
+                        do
                             -- THE BOB, WHICH IS ONE TERM AND EXPLAINS TWO SYMPTOMS.
                             --
                             -- A surf blob set to BOB_PLAYER_AND_MON moves its RIDER's pos2 as
@@ -7323,8 +8026,10 @@ local function drawRemotes(localAreaId, playerMapX, playerMapY, skipSpawned, com
                             -- the engine has already applied it; an overflow peer has no spawned
                             -- counterpart, so its own sample carries it and the rider (and its
                             -- blob, which bobs by the same amount) is shifted here to match.
-                            local bob = pinned and pinnedArc or (remote.soy or 0)
-                            if not pinned then cy = cy + bob end
+                            -- The position above already carries this on BOTH paths, so it is
+                            -- not added again here; it stays named because the reflection's
+                            -- separation is the offset MINUS TWICE the bob, below.
+                            local bob = arc
 
                             -- DOES THIS GHOST HAVE A REFLECTION AT ALL -- the engine's own test,
                             -- on the tiles below the character rather than the one it is on.
@@ -7348,46 +8053,32 @@ local function drawRemotes(localAreaId, playerMapX, playerMapY, skipSpawned, com
                             if gbX then
                                 local ggx = math.floor((screenX - gbX) / TILE)
                                 local ggy = math.floor((screenY - bob + TILE - gbY) / TILE)
-                                -- The previous tile this ghost stood on -- this tier's stand-in
-                                -- for the engine's previousCoords, and it EXPIRES.
-                                --
-                                -- The engine's lag lasts a movement: previousCoords is what the
-                                -- ground-effect update compares against while a step plays out,
-                                -- which is what makes a reflection slide out from under a
-                                -- character leaving the water instead of blinking off. Holding the
-                                -- previous tile indefinitely turns that into something else
-                                -- entirely -- a ghost parked at the shore keeps claiming the water
-                                -- tile it arrived from, and paints a reflection across the bank
-                                -- for as long as it stands there. Reported immediately after this
-                                -- was added: *"it draws on top of the edge as well, that sits
-                                -- between the grass/water"*.
-                                --
-                                -- So it is kept only for the length of one step. A step is 16
-                                -- frames of engine-driven movement (the walk cadence measured for
-                                -- this game), and standing still collapses previous back onto
-                                -- current, exactly as it is for a character who has stopped.
+                                -- The ground test, the expiring previous tile and the palette
+                                -- map all live in reflectPalFor now -- three callers share them.
                                 tiering.lastTile = tiering.lastTile or {}
-                                local lt = tiering.lastTile[playerId]
-                                if lt and (lt[3] ~= remote.areaId
-                                    or frameCounter - lt[4] > 16) then lt = nil end
-                                rpal = genderFrames.hasReflection(ggx, ggy,
-                                    lt and lt[1], lt and lt[2],
-                                    (info.width + 8) >> 4, (info.height + 8) >> 4)
-                                    and genderFrames.reflectionPalette[info.paletteSlot & 0x0f]
-                                local cur = tiering.lastTile[playerId]
-                                if not cur or cur[5] ~= ggx or cur[6] ~= ggy then
-                                    -- Slots 1,2 are the tile stepped FROM; 5,6 the current one, so
-                                    -- "did it change" is answered without losing the previous.
-                                    tiering.lastTile[playerId] = {
-                                        cur and cur[5] or ggx, cur and cur[6] or ggy,
-                                        remote.areaId, frameCounter, ggx, ggy,
-                                    }
-                                end
+                                rpal = genderFrames.reflectPalFor(tiering.lastTile, playerId,
+                                    remote.areaId, ggx, ggy,
+                                    (info.width + 8) >> 4, (info.height + 8) >> 4,
+                                    info.paletteSlot)
                             end
                             local rruns = rpal and genderFrames.runsFromImages(
                                 string.format("r%d:%d:%d", remote.gfx, imgIdx, rpal),
                                 info.images, info.width, info.height, imgIdx, rpal)
                             local rtop = screenY + cy + info.height - 2 - 2 * bob
+                            if COMPARE_TIERS then
+                                local ck = string.format("%d:%d:%s:%s", math.floor(screenY + cy),
+                                    math.floor(rtop), tostring(tiering.hwBodyY),
+                                    tostring(tiering.hwReflY))
+                                if genderFrames.reflCmpKey ~= ck then
+                                    genderFrames.reflCmpKey = ck
+                                    logFile(string.format(
+                                        "REFL CMP painted body=%d refl=%d | hw body=%s refl=%s "
+                                        .. "| h=%d bob=%d arc=%d cy=%d",
+                                        math.floor(screenY + cy), math.floor(rtop),
+                                        tostring(tiering.hwBodyY), tostring(tiering.hwReflY),
+                                        info.height, bob, arc, cy))
+                                end
+                            end
                             -- ONLY OVER WATER. The engine gets this from OAM priority; we have to
                             -- ask the map. Computed here rather than inside the draw so it is one
                             -- lookup grid for the whole reflection instead of one per run.
@@ -7403,14 +8094,55 @@ local function drawRemotes(localAreaId, playerMapX, playerMapY, skipSpawned, com
                                     panelRows, dim, info.height,
                                     genderFrames.reflectionXScale(), wet)
                             end
-                            -- AND THE POKEMON BEING RIDDEN. Measured against the game's own pair
-                            -- rather than guessed: the blob's sprite sits at the rider's position
-                            -- plus (0, +8), with the same centerToCorner, so in top-left terms it
-                            -- is eight pixels lower and not moved sideways at all
-                            -- (probes/surfblob_probe.lua, 2026-08-19).
-                            local bruns, bflip =
-                                genderFrames.runsForSurfBlob(
+                            -- THE WATER TRAIL, behind the rider and in front of the reflection,
+                            -- which is the engine's own order (subpriority 151 against 152 and
+                            -- 150). A ripple per tile stepped; the reflection's previous-tile
+                            -- store above has already stamped the frame the tile changed on, so
+                            -- that is what "did this peer just step" is read from -- and it is
+                            -- about the tile THIS tier drew on, which is the one the trail
+                            -- belongs to.
+                            --
+                            -- A TRAIL ENTRY, not a follower: a ripple is born where the character
+                            -- was, stays there while the character rides on, and is anchored on
+                            -- gSpriteCoordOffset -- position minus the offset at birth, plus the
+                            -- offset at draw -- so it stays glued to its water through any scroll.
+                            -- Exactly the landing dust's arithmetic, for exactly its reason.
+                            tiering.ripples = tiering.ripples or {}
+                            local rlist = tiering.ripples[playerId]
+                            if not rlist then rlist = {} tiering.ripples[playerId] = rlist end
+                            if genderFrames.rippleDue(tiering.lastTile, playerId,
+                                remote.gfx and SURFING_GFX[remote.gfx]) then
+                                rlist[#rlist + 1] = { at = frameCounter,
+                                    bx = screenX + cx + (info.width >> 1) - 8
+                                        - rs16(GSPRITECOORDOFFSETX_ADDR),
+                                    by = screenY + cy - arc + info.height - 10
+                                        - rs16(GSPRITECOORDOFFSETY_ADDR) }
+                            end
+                            for pi = #rlist, 1, -1 do
+                                local rip = rlist[pi]
+                                local rf = genderFrames.rippleFrameAt(frameCounter - rip.at)
+                                local rruns2 = rf and genderFrames.rippleRuns(rf)
+                                if not rruns2 then
+                                    table.remove(rlist, pi)
+                                else
+                                    drawRunList(rruns2, genderFrames.rippleFramePx, false,
+                                        rip.bx + rs16(GSPRITECOORDOFFSETX_ADDR),
+                                        rip.by + rs16(GSPRITECOORDOFFSETY_ADDR),
+                                        panelRows, dim)
+                                end
+                            end
+
+                            -- AND THE POKEMON BEING RIDDEN -- this part IS surfing-only, which is
+                            -- why the gate moved down here rather than away. Measured against the
+                            -- game's own pair rather than guessed: the blob's sprite sits at the
+                            -- rider's position plus (0, +8), with the same centerToCorner, so in
+                            -- top-left terms it is eight pixels lower and not moved sideways at
+                            -- all (probes/surfblob_probe.lua, 2026-08-19).
+                            local bruns, bflip
+                            if SURFING_GFX[remote.gfx] then
+                                bruns, bflip = genderFrames.runsForSurfBlob(
                                     genderFrames.dirOf[remote.orientation] or 1)
+                            end
                             if bruns then
                                 drawRunList(bruns, SURFBLOB_FRAME_PX, bflip, screenX + cx,
                                     screenY + cy + 8, panelRows, dim, nil, nil,
@@ -7504,6 +8236,202 @@ local function drawRemotes(localAreaId, playerMapX, playerMapY, skipSpawned, com
                     -- (The MASK/RUNS instrumentation that lived here found the seam-crossing
                     -- frame-killer and came out once the lesson was in pitfalls.md -- every stage
                     -- of this paint path measured innocent; the tick was dying before it ran.)
+
+                    -- THE REFLECTION, FIRST, because paint order is depth on this tier.
+                    --
+                    -- A peer on foot with no special graphic comes down this path, and until
+                    -- 2026-08-21 it had no reflection code at all -- the whole of *"the drawn
+                    -- ghost don't have its reflection when standing on grass, close to water"*.
+                    -- Everything here is the peer-graphic path's, with the walker's own frame:
+                    -- the ground test, the flip, the vertical offset of height-2, the ripple from
+                    -- the engine's own matrix, and the clip to water.
+                    local wgi = graphicsInfo(remote.gfx or 0)
+                    local wgbX, wgbY = genderFrames.gridBase()
+                    if wgbX and wgi then
+                        tiering.lastTile = tiering.lastTile or {}
+                        local wpal = genderFrames.reflectPalFor(tiering.lastTile, playerId,
+                            remote.areaId,
+                            math.floor((screenX - wgbX) / TILE),
+                            math.floor((screenY - arc + TILE - wgbY) / TILE),
+                            (FRAME_WIDTH_PX + 8) >> 4, (FRAME_HEIGHT_PX + 8) >> 4,
+                            wgi.paletteSlot)
+                        local wruns = wpal and genderFrames.walkerReflectRuns(
+                            remote.gender, pose, frameIndex, wpal)
+                        local wtop = screenY + FRAME_HEIGHT_PX - 2 - 2 * arc
+                        -- The water clip, computed once so the log below can report what it kept.
+                        -- This tier has no OAM priority, so where the hardware tier is clipped by
+                        -- the water for free, this one has to ask the map -- and "the reflection
+                        -- vanishes entirely one tile from the shore, where the other tiers still
+                        -- show the hat" is exactly the shape of a clip that kept nothing.
+                        local wwet = genderFrames.reflectiveSpans(screenX, wtop,
+                            FRAME_WIDTH_PX, FRAME_HEIGHT_PX, "reflection")
+                        -- COMPARE_TIERS only, on CHANGE only: what the ground test decided and
+                        -- where it was asked. A reflection that does not appear is either a gate
+                        -- that said no or a decode that returned nothing, and those two have
+                        -- different fixes -- this line says which, without another guess.
+                        if COMPARE_TIERS then
+                            local wk = string.format("%s:%s:%s:%s:%d,%d", tostring(playerId),
+                                tostring(wpal), tostring(wruns ~= nil),
+                                tostring(wwet and next(wwet) ~= nil),
+                                math.floor((screenX - wgbX) / TILE),
+                                math.floor((screenY - arc + TILE - wgbY) / TILE))
+                            -- On CHANGE, and also once every two seconds regardless: a
+                            -- change-keyed line can only ever catch the moment something moved,
+                            -- and the question here is what the STEADY state looks like while a
+                            -- ghost stands still.
+                            if genderFrames.wReflKey ~= wk
+                                or (frameCounter - (genderFrames.wReflAt or 0)) >= 120 then
+                                genderFrames.wReflKey = wk
+                                genderFrames.wReflAt = frameCounter
+                                logFile(string.format(
+                                    "WALKER REFL %s pal=%s runs=%s tile=%d,%d gfx=%s pose=%s/%s"
+                                    .. " | painted body=%d refl=%d | hw body=%s refl=%s arc=%d"
+                                    .. " | wetRows=%d wetPx=%d | wh=%d,%d | HW %s",
+                                    tostring(playerId), tostring(wpal),
+                                    wruns and #wruns or -1,
+                                    math.floor((screenX - wgbX) / TILE),
+                                    math.floor((screenY - arc + TILE - wgbY) / TILE),
+                                    tostring(remote.gfx),
+                                    -- The painted tier's OWN frame choice against the peer's
+                                    -- actual one, which is what the hardware tier draws. If these
+                                    -- differ the two tiers are showing different pictures, and a
+                                    -- picture whose art sits a row higher loses the bottom row of
+                                    -- its reflection to the shore.
+                                    -- The painted tier's own frame INDEX against the image the
+                                    -- peer's animation command actually resolves to. The other two
+                                    -- tiers draw the peer's picture; this one derives its own, and
+                                    -- two pictures of the same walk cycle do not have their art on
+                                    -- the same rows -- which is one row of reflection at a shore.
+                                    tostring(pose) .. "/" .. tostring(frameIndex)
+                                        .. " peerAnim=" .. tostring(remote.sanim)
+                                        .. "/" .. tostring(remote.sidx)
+                                        .. " peerImg=" .. (function()
+                                            local gi2 = graphicsInfo(remote.gfx or 0)
+                                            if not gi2 or gi2.anims == 0 then return "?" end
+                                            local ap = r32(gi2.anims + (remote.sanim or 0) * 4)
+                                            if not isRomPtr(ap) then return "?" end
+                                            return tostring(r32(ap + (remote.sidx or 0) * 4)
+                                                & 0xffff)
+                                        end)(), "",
+                                    math.floor(screenY), math.floor(wtop),
+                                    tostring(tiering.hwBodyY), tostring(tiering.hwReflY), arc,
+                                    (function()
+                                        if not wwet then return -1 end
+                                        local n2 = 0
+                                        for _ in pairs(wwet) do n2 = n2 + 1 end
+                                        return n2
+                                    end)(),
+                                    (function()
+                                        if not wwet then return -1 end
+                                        local px = 0
+                                        for _, l in pairs(wwet) do
+                                            for _, sp in ipairs(l) do
+                                                px = px + sp[2] - sp[1] + 1
+                                            end
+                                        end
+                                        return px
+                                    end)(),
+                                    (FRAME_WIDTH_PX + 8) >> 4, (FRAME_HEIGHT_PX + 8) >> 4,
+                                    tostring(tiering.hwReflDbg))
+                                    .. (function()
+                                        -- WHICH rows survive, not how many. A reflection is
+                                        -- flipped, so the box's BOTTOM rows carry the hat -- the
+                                        -- sliver that should still show one tile from the shore.
+                                        -- A count cannot tell "kept the wrong half" from "kept
+                                        -- too little", and those have different fixes.
+                                        if not wwet then return " | wetRange=nil" end
+                                        local lo, hi = nil, nil
+                                        for y2, l in pairs(wwet) do
+                                            if #l > 0 then
+                                                if not lo or y2 < lo then lo = y2 end
+                                                if not hi or y2 > hi then hi = y2 end
+                                            end
+                                        end
+                                        -- And where the frame's own ink is, in the same box.
+                                        local ilo, ihi = nil, nil
+                                        if wruns then
+                                            for _, rr in ipairs(wruns) do
+                                                local yy = wtop + (FRAME_HEIGHT_PX - rr.y)
+                                                if not ilo or yy < ilo then ilo = yy end
+                                                if not ihi or yy > ihi then ihi = yy end
+                                            end
+                                        end
+                                        -- AND THE TILES THEMSELVES. Everything above says the
+                                        -- mask is the thing that is wrong; this says WHICH tile
+                                        -- and by how much, which is the only question left.
+                                        -- Per grid row of the reflection box: the metatile id,
+                                        -- its layerType, and how many of its sixteen rows the
+                                        -- mask calls open.
+                                        local tiles = {}
+                                        local gbx2, gby2 = genderFrames.gridBase()
+                                        if gbx2 then
+                                            local gx2 = math.floor((screenX - gbx2) / TILE)
+                                            local gy0 = math.floor((wtop - gby2) / TILE)
+                                            local gy1 = math.floor(
+                                                (wtop + FRAME_HEIGHT_PX - 1 - gby2) / TILE)
+                                            for gy2 = gy0, gy1 do
+                                                local id2 = genderFrames.metatileAt(gx2, gy2)
+                                                local m2 = id2
+                                                    and genderFrames.coverMask(id2, "reflection")
+                                                local openRows = 0
+                                                if type(m2) == "table" then
+                                                    for rr = 0, 15 do
+                                                        if (m2[rr] or 0xffff) ~= 0xffff then
+                                                            openRows = openRows + 1
+                                                        end
+                                                    end
+                                                end
+                                                tiles[#tiles + 1] = string.format(
+                                                    "gy%d id=%s lt=%s open=%d/16", gy2,
+                                                    tostring(id2),
+                                                    tostring(genderFrames.layerTypeOf
+                                                        and genderFrames.layerTypeOf(id2)),
+                                                    openRows)
+                                            end
+                                        end
+                                        -- HOW MANY PIXELS ACTUALLY SURVIVE, run by run against
+                                        -- the kept spans. Ranges overlapping is not the same as
+                                        -- pixels landing: the ink's last row and the water's first
+                                        -- row can be the same row and still share no COLUMN.
+                                        local painted = 0
+                                        if wruns and wwet then
+                                            for _, rr in ipairs(wruns) do
+                                                local yy = wtop + (FRAME_HEIGHT_PX - rr.y)
+                                                local l = wwet[yy]
+                                                if l then
+                                                    local ax1 = screenX + rr.x1
+                                                    local ax2 = screenX + rr.x2
+                                                    if dirInfo.hFlip then
+                                                        ax1 = screenX + FRAME_WIDTH_PX - 1 - rr.x2
+                                                        ax2 = screenX + FRAME_WIDTH_PX - 1 - rr.x1
+                                                    end
+                                                    for _, sp in ipairs(l) do
+                                                        local lo2 = math.max(ax1, sp[1])
+                                                        local hi2 = math.min(ax2, sp[2])
+                                                        if hi2 >= lo2 then
+                                                            painted = painted + hi2 - lo2 + 1
+                                                        end
+                                                    end
+                                                end
+                                            end
+                                        end
+                                        return string.format(
+                                            " | paintedPx=" .. painted ..
+                                            " | wetRange=%s..%s inkRange=%s..%s box=%d..%d | %s",
+                                            tostring(lo), tostring(hi), tostring(ilo),
+                                            tostring(ihi), math.floor(wtop),
+                                            math.floor(wtop) + FRAME_HEIGHT_PX - 1,
+                                            table.concat(tiles, " ; "))
+                                    end)())
+                            end
+                        end
+                        if wruns then
+                            drawRunList(wruns, FRAME_WIDTH_PX, dirInfo.hFlip, screenX, wtop,
+                                panelRows, dim, FRAME_HEIGHT_PX,
+                                genderFrames.reflectionXScale(), wwet)
+                        end
+                    end
+
                     drawSpriteFrame(remote.gender, pose, frameIndex, dirInfo.hFlip, screenX,
                         screenY, panelRows, dim,
                         genderFrames.reflectiveSpans(screenX, screenY,
@@ -7634,7 +8562,7 @@ local function drawRemotes(localAreaId, playerMapX, playerMapY, skipSpawned, com
                                 local fullH = (pgi and pgi.height) or FRAME_HEIGHT_PX
                                 plist[#plist + 1] = { at = frameCounter,
                                     bx = screenX + halfW - 8 - offX,
-                                    by = screenY - pinnedArc + fullH - 8 - offY }
+                                    by = screenY - arc + fullH - 8 - offY }
                             end
                             for pi = #plist, 1, -1 do
                                 local puff = plist[pi]

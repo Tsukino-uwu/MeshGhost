@@ -267,3 +267,26 @@ before running any of them. The adapter's own switches are in [FLAGS.md](FLAGS.m
   and the ghost has been repeatedly confirmed correctly
   anchored on this Archipelago-patched ROM since (see `agent_docs/verified.md`) — so these
   three, unlike the avatar/object-event addresses, are not shifted.
+27. Took the ghosts onto the water, and found that most of what a character does there had never
+    reached the two tiers that draw for themselves. The hardware tier had no surf blob and no
+    reflection; neither tier left a wake; and both reflected only while SURFING, so a ghost on the
+    grass at a water's edge cast nothing. Each one is a field effect the engine makes and a spawned
+    ghost therefore gets for free — so each was measured off the game's own sprite and rebuilt from
+    the ROM data it points at, never approximated (`documentation.md`, and `probes/ripple_probe.lua`
+    for the trail's whole specification).
+28. Fixed a ghost arriving mid-stride. Holding a pose turned out to be three writes AND one
+    un-write: `animPaused` does nothing while `animBeginning` is still set, because the engine runs
+    the animation once more first — and a running animation copies its frame into the object's
+    tiles. The numbers said "standing" while the pixels showed a stride. The held logic now lives in
+    one place used by both the spawn path and the steady mirror; the split between them was the bug.
+29. Chased a single missing PIXEL of reflection at a shoreline, and it was worth it, because two
+    real defects were hiding behind it. A reflection is an AFFINE sprite, not a flipped one: the
+    flip is `h - y` rather than `h - 1 - y` (a GBA affine transform is centred on `h/2`), and the
+    shimmer moves the SAMPLING, so a one-pixel feature shifts by a pixel instead of growing.
+    Both were settled by photographing the engine's own reflection across several frames.
+    **The lesson was the expensive part, and it is in `pitfalls.md`:** most of that hunt compared
+    the painted ghost against the spawned one while the spawned one was itself in the wrong pose.
+30. Made the drawn tier survive a cave. Its brightness gate was a ratio, which can only express
+    fading toward black — and a cave mouth fades to WHITE, so the gate read a washed-out screen as
+    an ordinary one and the ghost stayed at full colour. Fitting the engine's actual blend line
+    (`live = a*rom + b`) covers black, white, cave tint, weather and night in one expression.

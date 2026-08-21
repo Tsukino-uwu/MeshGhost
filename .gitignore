@@ -29,6 +29,8 @@
 # to chase the same class of bug on a later ROM. 72 such logs (1.1MB) were untracked on
 # 2026-08-18 when this rule replaced the two narrower ones it supersedes.
 /adapters/bizhawk/pokemon/**/*.log
+# Probe control files: a session writes a verb into one to drive a probe. Transient, like the logs.
+/adapters/bizhawk/pokemon/**/*.cmd
 # The cross-map scan cache the Emerald adapter writes beside its logs -- a per-machine runtime
 # artifact (a ROM-keyed address), never repo content.
 /adapters/bizhawk/pokemon/**/xmap_cache.txt

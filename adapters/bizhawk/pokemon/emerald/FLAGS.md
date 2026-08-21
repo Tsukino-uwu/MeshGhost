@@ -98,3 +98,17 @@ global-then-environment shape when a switch needs to be flipped without restarti
 Believe the value, then find out why the comment drifted before changing either. `CLAUDE.md`
 states the harder version: **a flag flip is not a revert** — a switch only reverts behaviour if it
 gates the *work*, not merely the decision the work feeds.
+
+## Added 2026-08-21 (water/warp session)
+
+| Flag | Where | Default | What it does |
+| --- | --- | --- | --- |
+| `MESHGHOST_EMERALD_DRAWN_COMPARE_DX` | global | unset — **-2** | Where the PAINTED comparison copy stands, in tiles from the player. Exists because the three copies stand in three columns and a shoreline is not a straight line: to tell *"this renderer is wrong"* from *"this copy is standing further from the water"*, two copies have to be put on the same tile and compared there. **A probe, not behaviour** — it only moves a dev-only comparison ghost. |
+
+**Changed defaults, same session:** `MESHGHOST_EMERALD_HW_COMPARE_DX` / `_DY` moved from `0,-2` to
+**`-6,0`**. They are relative to the SPAWNED ghost, which stands at `(+2, 0)` from the player, so
+the hardware copy now sits two tiles LEFT of the painted one with all three tiers in the player's
+row. It was stacked above the spawned copy until the surf blob and the reflection landed on this
+tier and there was something UNDER each character to look at — two tiles of separation put every
+copy's blob and reflection on top of the one below it. User's call, and the reason is in the
+table's own comment.

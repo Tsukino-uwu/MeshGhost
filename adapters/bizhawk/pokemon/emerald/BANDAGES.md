@@ -279,3 +279,28 @@ Recorded so a future audit does not churn them.
   self-correcting alternatives were built, traced, proven worse and reverted with the evidence
   left inline. **The reference case for how this repo justifies a constant** — read it before
   arguing any other number here is arbitrary.
+
+## The hardware tier's entry pools are a real ceiling (2026-08-21)
+
+The tier has 56 OAM entries and now spends them across five pools, in the engine's own back-to-front
+order (reflection 152, ripple 151, blob 150, shadow 148, the character, dust 135):
+
+| Pool | Entries | What it costs |
+| --- | --- | --- |
+| dust | 4 | four live landing puffs |
+| **bodies** | **26** | **the tier tops out at 26 peers, down from 44** |
+| shadow | 4 | four peers mid-hop at once |
+| blob | 4 | four peers riding at once |
+| ripple | 12 | one surfer's full trail plus headroom; a second surfer overflows |
+| reflection | 6 | six peers reflecting at once |
+
+**Why this is registered rather than just noted:** bodies losing 18 entries is a genuine reduction
+in what the tier can carry, taken to buy effects it had none of. It has not bitten, because OBJ
+TILES run out well before entries do — the fill-the-screen run put 56 characters up and exhausted
+tiles first — but the honest statement is that this tier's peer ceiling is now 26, not 44.
+
+**Every pool logs when it is exhausted rather than truncating silently**, and that is what sized the
+ripple pool correctly: it was set to 8 by eye, reported itself full at nine live ripples within a
+minute of real surfing, and the arithmetic (one per tile, 80-frame life, 8 frames per tile = ten
+live) said 12. A ceiling that does not announce itself reads as "covered everything" when it did
+not.
