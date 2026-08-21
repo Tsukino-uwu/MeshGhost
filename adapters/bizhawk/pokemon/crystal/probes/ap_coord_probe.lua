@@ -68,7 +68,6 @@ local function log(msg)
 	console.log(msg)
 	if logfile then
 		logfile:write(msg, "\n")
-		logfile:flush()
 	end
 end
 

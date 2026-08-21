@@ -48,7 +48,6 @@ local function log(msg)
 	console.log(msg)
 	if logfile then
 		logfile:write(msg, "\n")
-		logfile:flush()
 	end
 end
 
@@ -98,7 +97,8 @@ log("button combination to fire. Clear them in that dialog when you are done loo
 pcall(client.opencheats)
 
 if logfile then
-	logfile:close()
+	pcall(function() logfile:flush() end)
+		logfile:close()
 	logfile = nil
 end
 

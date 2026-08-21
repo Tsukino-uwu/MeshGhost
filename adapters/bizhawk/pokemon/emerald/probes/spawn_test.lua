@@ -133,7 +133,6 @@ local function log(msg)
 	console.log(msg)
 	if logfile then
 		logfile:write(msg, "\n")
-		logfile:flush()
 	end
 end
 
@@ -613,7 +612,8 @@ MESHGHOST_DEV_UNLOAD = function()
 	-- Leaving a ghost behind on a script swap would stack a second one on the next load, and
 	-- nothing in the game would ever clean it up.
 	pcall(despawnGhost)
-	if logfile then logfile:close() logfile = nil end
+	if logfile then pcall(function() logfile:flush() end)
+		logfile:close() logfile = nil end
 end
 
 if not MESHGHOST_DEV_LOADER then

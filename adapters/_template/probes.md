@@ -824,6 +824,33 @@ the data does, and changing one is smaller, reversible, and needs no write where
   reads like a partial failure. One second later they were all zero. A verification taken too early
   is its own false negative.
 
+### Performance is a CORRECTNESS property of a probe, not a nicety
+
+**The user's rule, 2026-08-21:** *"non laggy/good performance should be the default for things like
+this"* — said after a session where the instrumentation, not the adapter, was what made the game
+stutter for an hour.
+
+A probe that costs frame time is not "a slightly slow probe". It is a probe **reporting on a game
+that is no longer the game the user plays**, and every number it produces is about the disturbed
+system. That makes cost a correctness question, and it gets designed in from the first line rather
+than tuned afterwards:
+
+- **The file is the record; the console is a glance.** Open the log buffered (`setvbuf("full", …)`),
+  write every line to it, and send only the opening lines and the occasional one to `console.log`.
+- **Never flush per line.** Flush on a timer and on close.
+- **Both halves cost, and they were measured separately on 2026-08-21**: removing the per-line disk
+  flush alone still left **87–175 ms** hitches, because `console.log` appends to BizHawk's GUI
+  window and is the expensive half on its own. Fixing one and declaring victory is a wasted cycle —
+  and it was, twice in the same evening.
+- **Per-frame work is the other half.** Enumerate once per frame, not once per peer; compare by
+  pointer or index rather than by name; and never re-scan an array you already scanned this frame.
+- **Measure it, do not assume it.** `dev-scripts/bizhawk-hitch-meter.lua` is standing rig: attach it
+  first, and read frames-over-20ms and worst-gap rather than an average frame rate, which cannot see
+  a stutter at all.
+
+**A probe is not finished when it prints the right answer. It is finished when it prints the right
+answer and the hitch meter still reads zero.**
+
 **The practical form:**
 
 - **Buffer, and flush in batches. THIS APPLIES TO SHIPPED ADAPTERS, NOT ONLY TO PROBES** — written

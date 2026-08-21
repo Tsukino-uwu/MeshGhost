@@ -65,12 +65,22 @@ local function open_log()
 	return nil
 end
 
-local raw_log = console.log
+-- THE CONSOLE IS THE EXPENSIVE HALF. `console.log` appends to BizHawk's GUI console window, on the
+-- emulator's own thread; pitfalls.md measured ONE such line a second costing 7.4fps, and removing
+-- the per-line disk flush alone left 87-175ms hitches still there (2026-08-21). So the console gets
+-- the opening lines and then one in twenty, while the FILE gets every line -- the log is the record,
+-- the console is only a glance.
+local rawConsole, consoleLines = console.log, 0
+local function raw_log(msg)
+	consoleLines = consoleLines + 1
+	if consoleLines <= 4 or consoleLines % 20 == 0 then
+		rawConsole(msg)
+	end
+end
 local function log(msg)
 	raw_log(msg)
 	if logfile then
 		logfile:write(msg, "\n")
-		logfile:flush()
 	end
 end
 

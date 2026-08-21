@@ -126,11 +126,17 @@ end
 
 local logfile = io.open(string.format("%s/oam_probe_%s.log", scriptDir(),
 	os.date("%Y%m%d_%H%M%S")), "w")
+-- Buffered, never flushed per line: a flush is a synchronous disk write on the emulator's own
+-- thread, measured at 63-83ms -- four to five frames, every time (pitfalls.md, "ONE console line a
+-- second cost 7.4 fps"). A probe that stalls the game changes what it measures, and this one
+-- measures the sprite pipeline.
+if logfile then
+	pcall(function() logfile:setvbuf("full", 8192) end)
+end
 local function log(m)
 	console.log(m)
 	if logfile then
 		logfile:write(m, "\n")
-		logfile:flush()
 	end
 end
 
@@ -576,6 +582,7 @@ MESHGHOST_DEV_UNLOAD = function()
 	restore()
 	log("unloaded; test entries restored.")
 	if logfile then
+		pcall(function() logfile:flush() end)
 		logfile:close()
 		logfile = nil
 	end

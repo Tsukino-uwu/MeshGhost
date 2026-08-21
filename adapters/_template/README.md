@@ -512,6 +512,17 @@ was found. `dev-scripts/bizhawk-hitch-meter.lua` is standing rig for exactly tha
 attach it to any performance question, and it reports frames over 20ms, frames over 33ms and the
 worst gap rather than an average that hides all three.
 
+### A probe that costs frame time is reporting on a different game
+
+**Default position for every probe and every diagnostic this adapter grows**, on the user's call,
+2026-08-21: *"non laggy/good performance should be the default for things like this"*.
+
+Buffered log file, console throttled to a glance, flush on a timer, per-frame work done once rather
+than once per peer — designed in, not tuned in after somebody complains. Both halves of the logging
+cost were measured separately that day and **each one alone was enough to stutter the game**, so
+fixing one and stopping is a wasted cycle. [probes.md](probes.md) has the full form and the numbers;
+`dev-scripts/bizhawk-hitch-meter.lua` is how you check rather than assume.
+
 ### If you are about to start effect work, read the playbook first
 
 The two sections above tell you *what to build* — enumerate before guessing, and mirror the

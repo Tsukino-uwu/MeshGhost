@@ -85,14 +85,31 @@ local function open_log()
 		dir = info.source:sub(2):match("^(.*)[/\\][^/\\]*$") or "."
 	end
 	logfile = io.open(string.format("%s/spawn_test3_%s.log", dir, os.date("%Y%m%d_%H%M%S")), "w")
+	-- Buffered, and never flushed per line: a console.log plus a flush is a synchronous disk
+	-- write on the emulator's own thread, measured at 63-83ms -- four to five frames, every time
+	-- (pitfalls.md, "ONE console line a second cost 7.4 fps"). A probe that stalls the game is a
+	-- probe that changes what it measures.
+	if logfile then
+		pcall(function() logfile:setvbuf("full", 8192) end)
+	end
 end
 
-local raw_log = console.log
+-- THE CONSOLE IS THE EXPENSIVE HALF. `console.log` appends to BizHawk's GUI console window, on the
+-- emulator's own thread; pitfalls.md measured ONE such line a second costing 7.4fps, and removing
+-- the per-line disk flush alone left 87-175ms hitches still there (2026-08-21). So the console gets
+-- the opening lines and then one in twenty, while the FILE gets every line -- the log is the record,
+-- the console is only a glance.
+local rawConsole, consoleLines = console.log, 0
+local function raw_log(msg)
+	consoleLines = consoleLines + 1
+	if consoleLines <= 4 or consoleLines % 20 == 0 then
+		rawConsole(msg)
+	end
+end
 local function log(msg)
 	raw_log(msg)
 	if logfile then
 		logfile:write(msg, "\n")
-		logfile:flush()
 	end
 end
 

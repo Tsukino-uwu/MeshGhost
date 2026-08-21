@@ -48,7 +48,6 @@ local function log(msg)
 	console.log(msg)
 	if logfile then
 		logfile:write(msg, "\n")
-		logfile:flush()
 	end
 end
 
@@ -74,7 +73,8 @@ else
 end
 
 if logfile then
-	logfile:close()
+	pcall(function() logfile:flush() end)
+		logfile:close()
 	logfile = nil
 end
 

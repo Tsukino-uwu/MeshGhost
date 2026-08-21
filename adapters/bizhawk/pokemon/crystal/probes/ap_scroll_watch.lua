@@ -58,7 +58,6 @@ local logfile = io.open(string.format("%s/ap_scrollwatch_%s.log", scriptDir(),
 local function log(msg)
 	if logfile then
 		logfile:write(msg, "\n")
-		logfile:flush()
 	end
 end
 
