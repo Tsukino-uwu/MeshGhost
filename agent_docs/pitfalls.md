@@ -3411,3 +3411,31 @@ DETERMINISTIC. Eight "attempts" produced byte-identical screenshots, which reads
 bug is fixed" and means "the bug was never given a chance to appear". An intermittent defect that a
 person hits every two or three tries is being sampled by their TIMING -- so a driver has to vary
 its input phase per round or it is running one attempt N times.
+
+## Emerald: the mount-blob saga — every authority for "where" lies during a transition (2026-08-21)
+
+Placing one sprite (the surf blob a mounting ghost jumps onto) took five attempts, each defeated
+by a different lying authority. The list is the lesson:
+
+1. **The ghost's own coordinates** — the swap runs before the jump is issued (the swap-pending
+   gate orders them), so they still name the land tile.
+2. **The wire position** — the sender publishes the SMOOTHED glide, not raw coordinates, so
+   during a jump it lags at the origin. Never treat a wire position as a discrete destination.
+3. **`spawnSurfBlob`'s screen math** — carries the two camera terms that only cancel while the
+   camera is at rest (`documentation.md` warned about exactly this sprite), and a mount jump is
+   precisely when the camera moves. Logged born at the correct water TILE while the user watched
+   it sit on the grass: tile bookkeeping and pixel placement are separate claims.
+4. **The rider's sprite position** — engine-maintained and camera-correct, but the sprite
+   ANIMATES across the jump rather than snapping, so at the accept frame it still stands ashore.
+5. **What finally worked**: rider's sprite position + one tile along the jump's direction (the
+   action id carries it) + the blob's measured (0,+8) seat — every term engine-maintained or
+   constant.
+
+Also met again, fourth time today: **a gate on one spawn site does nothing about the others** —
+the blob had three birth sites (swap, rebuild-spawn, catch-up) and each needed the mid-mount gate;
+the fix that ended the guessing was making every birth LOG its site and tile.
+
+And the bob/arc conflation: on these tiers the body's `pos2` is the surf BOB in steady state and
+the JUMP ARC mid-jump. Subtracting it from the blob to fix the jump also froze the blob's bobbing
+-- *"the blob is not going up/down"*. One field, two meanings, keyed by whether a jump action is
+live; handle them by state, not by arithmetic.

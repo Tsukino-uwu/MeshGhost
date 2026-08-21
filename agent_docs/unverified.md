@@ -573,3 +573,19 @@ GAME, not of how our copies look. Judge each with compare mode on, all three tie
 **Also open from this session, not diagnosed:** the user reports the DRAWN ghost *"popping in/out"*
 at the start of surfing. The painted tier falls back to a walker rather than vanishing, so a real
 pop-out needs a different explanation than the one that covered the other two tiers.
+
+
+## 2026-08-21 (dive session, evening) — the surf transition work, and what remains unjudged
+
+The mount and dismount of surfing were rebuilt across the whole evening, defect by user-reported
+defect. **User-confirmed on screen**: the dismount (blobs park in the water, riders jump ashore
+clean, nothing follows or flashes), and the mount up to *"everything else looks correct now"*.
+Records in `verified.md`; methods in `pitfalls.md`.
+
+- **"OAM missing an animation step at surf start" — reported tentatively, does not reproduce in
+  the measurement.** The scripted mount's log shows the hardware tier loading pose frames
+  0/0..0/4 at exactly the player's own 4-frame spacing, then the jump and the surf idle; the film
+  shows every step displayed, offset by the uniform ~4-frame wire lag. Needs the user to either
+  re-look or name the specific step.
+- **The dive itself: still never reached.** The underwater graphic path and the bobbing driver
+  are built and loaded; nothing has been underwater yet. This was the session's original goal.

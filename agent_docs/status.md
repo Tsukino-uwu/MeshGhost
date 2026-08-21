@@ -2,79 +2,27 @@
 
 ## Active status
 
-**Phase 8.1's three-tier ladder (`spawn -> OAM -> drawn`) is built; 2026-08-21's later session took
-it onto the WATER and through a CAVE, and found that most of what a character does in either place
-had never reached the two tiers that draw for themselves.** Eight fixes, seven user-confirmed on
-screen. Full record and every measurement: `verified.md` and `pitfalls.md` for that date; the game
-facts behind them are in the adapter's `documentation.md`.
+**2026-08-21, third session that day: the SURF TRANSITION was rebuilt end to end, and every
+on-screen defect found in it is user-confirmed fixed.** The grey/flash at surf start (the engine's
+animation-restart copy tearing mid-frame), the drawn copy vanishing through the HM splash (the
+panel clip now follows the game's hardware window), every shape of the savestate glitch (three
+causes, peeled separately), and the mount/dismount blob behaviour on all three tiers (parked in
+the water through jumps, born at the destination, bobbing with the rider). Records: `verified.md`;
+methods, including the five-lying-authorities list and the mid-frame-tearing diagnosis:
+`pitfalls.md`. Open residue: `unverified.md` (an unreproduced "OAM missing an animation step").
 
-- **Confirmed this session:** the cave fade (a cave mouth fades to WHITE, invisible to a
-  downward-only brightness ratio); the OAM tier's surf blob and reflection; reflections for any
-  ghost on reflective ground rather than only while surfing; the water ripple trail; the OAM
-  comparison position; a ghost spawning in its idle pose; and the reflection's row and width.
-- **NOT confirmed, and first on the list:** **frame rate.** The session added per-frame work to both
-  self-drawn tiers and never re-measured. `probes/fpshold.lua` against a bare control, before
-  anything else. `unverified.md` has the full not-confirmed list.
-- **The unpinned jump arc is built and unwatched** — both self-drawn tiers used to draw a peer
-  SLIDING over a ledge, and compare mode structurally cannot show it, because it pins. Judging it
-  needs compare mode OFF. `unverified.md`.
-- **Diving was never reached.** The user was taken to Route 126 and asked to be put back; nothing
-  underwater has been seen. Underwater is a different mechanism from surfing. `unverified.md`.
-- **ASK BEFORE WARPING THE PLAYER.** Standing rule from this session, and it is about their session,
-  not about cheating (which is permitted): *"always ask before you teleport"*. `probes/goto_map.lua`
-  checkpoints to savestate slot 8 first, so slot 8 is the undo.
-- **The two method lessons that cost the most, both in `pitfalls.md`:** never judge a tier against
-  another tier you have not verified — a long hunt compared the painted ghost against a spawned one
-  that was itself in the wrong pose — and measure a target's BEHAVIOUR across several frames before
-  changing how you draw it, not just its position in one.
-- **The ACRO BIKE IS DONE**, and Phases 6 (TEVI) and 7 (Pseudoregalia) are done. Crystal has none of
-  the hardware-tier work and none of this session's.
-- **Frame rate is a SHIPPING requirement and nothing may pass that breaks it** — user, 2026-08-21:
-  *"there can't be any fps drops like this in a shipped/release"*. Measure against a bare control.
-
-## Picking this up in a new session — rewritten 2026-08-21 (second session that day)
-
-**Nothing of mine is running.** The relay and the core were shut down and verified gone, and the
-listening ports were checked empty. **The EMULATOR is still up** — one vanilla Emerald instance in
-Sootopolis City (`g0.n7`), with the dev loader attached but **detached from every target**
-(`bizhawk-dev-loader-emerald.target` reads `none`).
-
-**That detach is deliberate, and worth knowing before wondering where the core went:** killing the
-core alone is not enough, because a live adapter AUTOSTARTS a default-flags one within seconds and
-it takes the bridge port. Drop the adapter first, then the core, then check the ports.
-
-To bring the rig back, from the repo root, hidden (`environment.md`):
-
-```
-meshghost-relay.exe -loopback -max-clients=200 -send-hz=100 -ghost-collision=disabled
-meshghost.exe -game=emerald -bridge=127.0.0.1:7778 -name=player1 -interp=0ms -min-send=10ms -transport=tcp
-```
-
-`-max-clients` DEFAULTS TO 8 and silently refuses everyone past it. Rebuild the binaries with
-`-o` first: `go build` does not refresh the named `.exe` files the `.bat` launchers run.
-
-**The loader's control file is `dev-scripts/bizhawk-dev-loader-emerald.target`** (gitignored, one
-absolute path per line, loaded in order). **The flags file it names lives in the SESSION scratchpad,
-so a new session must write its own before the adapter line** — the loader shares one Lua
-environment, so an unset global keeps whatever the last session left there. Set EVERY dev flag
-explicitly, `false` included. The standing dev default is in `FLAGS.md`; the compare layout is now
-OAM, drawn, player, spawned, left to right, all in one row.
-
-**Useful things this session left behind:**
-
-- `probes/cavewarp_probe.lua` and `probes/ripple_probe.lua` — new, and both write timestamped logs
-  beside themselves. `probes/README.md` says what each is for.
-- **`grant_test_kit.lua` belongs in the loader set whenever the player is being driven** — it tops
-  Repel up every half second, and without it a scripted ten-second surf walked into a wild battle
-  and the measurement captured the battle transition instead.
-- **A screenshot cannot see the drawn tier** (it is a Lua overlay painted after the frame) but CAN
-  see the OAM tier, because that one is real hardware sprites. **Diffing two screenshots — one with
-  the adapter loaded, one with it dropped — isolates exactly what our ghosts contribute**, and
-  reading the PNG host-side with a few lines of Python gives per-pixel answers the emulator's Lua
-  API does not expose (`emu.getscreenpixel` does not exist on this build).
-- **The OAM buffer is directly comparable to the engine's own**: entries 0..63 are the game's,
-  64..127 are ours, and "is our sprite the same as the engine's?" is a field-by-field read rather
-  than a question for the user.
+- **THE DIVE — the session's original goal — has still never happened.** The underwater graphic
+  path and the game's own bobbing driver are built and loaded; nothing has been underwater.
+  `documentation.md` has the underwater section; the dive probe is in the loader set, watching.
+- **The verification rule was TIGHTENED mid-session (user-directed): nothing adapter/game-side on
+  the VANILLA game may be called verified until the user confirms it on screen — no probe log,
+  console read or agent screenshot substitutes.** Patched ROMs and the Go side stay
+  agent-confirmable. `CLAUDE.md` carries it; the memory index mirrors it.
+- **New idea recorded**: relay-side culling of isolated players + presence packets + per-field
+  change suppression, as one ladder. `ideas.md`, end of file.
+- **Rig right now**: relay + core running hidden (loopback, tcp, collision off), emulator up with
+  slot 2 = standing on the shore one tile from water (the transition test state), dev loader set =
+  flags + dive probe + test kit + adapter. Slot 8 remains the goto_map undo.
 
 ## Genuinely open items
 
