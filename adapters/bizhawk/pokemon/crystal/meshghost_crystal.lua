@@ -663,6 +663,27 @@ end
 
 local DIR_NAMES = { [0] = "down", [4] = "up", [8] = "left", [12] = "right" }
 
+-- ONE LETTER PER DIRECTION, DERIVED -- never written out by hand again.
+--
+-- Three instruments each hand-rolled this as the literal "durl", which is down/up/RIGHT/LEFT where
+-- this adapter's dir index is down/up/LEFT/right. Every left and right label in all three was
+-- therefore swapped at once, which inverted a MEASURED conclusion about the scroll registers'
+-- sign convention and shipped a rendering that sent ghosts off the screen (2026-08-23). Nothing
+-- was wrong with the measurement; the labels lied about which direction had been measured.
+--
+-- Derived from DIR_NAMES so it cannot diverge from it: a dir index is the engine's facing byte
+-- divided by four, and the letter is that name's initial. If DIR_NAMES ever changes, this follows.
+-- ON `DIR_NAMES` itself, not a new top-level local: this file sits at 197 of Lua's 200 and adding
+-- one crossed the ceiling on the first try, which does not error -- it silently fails to load.
+-- A string key cannot collide with the numeric facing bytes this table is keyed by.
+DIR_NAMES.letter = {}
+for i = 0, 3 do
+	DIR_NAMES.letter[i] = (DIR_NAMES[i * 4] or "?"):sub(1, 1)
+end
+-- A label is data: assert it rather than trusting the eye that wrote it. Cheap, once, at load.
+assert(table.concat(DIR_NAMES.letter, "", 0, 3) == "dulr",
+	"DIR_NAMES.letter disagrees with DIR_NAMES -- a direction table changed without its labels")
+
 -- Pixels travelled into the current step, 0-16. See extras.prog below.
 local function stepProgress(base)
 	if (u8(base + F_WALKING) or STANDING) == STANDING then
@@ -2904,7 +2925,7 @@ function drawOverflow()
 								local pdir = (np and np.dir) or 9
 								facingFrames.camSign = facingFrames.camSign or {}
 								local key = string.format("%s:%+d,%+d",
-									("dulr"):sub(pdir + 1, pdir + 1), dxw, dyw)
+									DIR_NAMES.letter[pdir] or "?", dxw, dyw)
 								facingFrames.camSign[key] = (facingFrames.camSign[key] or 0) + 1
 							end
 							local cd = math.abs(dxw) + math.abs(dyw)
@@ -3524,9 +3545,7 @@ function drawOverflow()
 						-- view and lower case for a standing one, so a single direction can be read
 						-- out of a mixed walk. "Right feels fast and the others do not" is a claim
 						-- about one direction, and a trace that cannot separate them cannot test it.
-						local d = "dulr"
-						local di = (o.facing or 0) + 1
-						local mine = d:sub(di, di)
+						local mine = DIR_NAMES.letter[o.facing or 0] or "?"
 						if o.stepLatch ~= nil then mine = mine:upper() end
 						-- NAME THE DROPOUT. The progress trace below proved the band is entered and
 						-- left on time -- values held two frames each, cycling cleanly -- and yet
@@ -3570,7 +3589,7 @@ function drawOverflow()
 						local theirs = "?"
 						if pf then
 							local pd = ((u8(OBJECT_STRUCTS + F_DIRECTION) or 0) // 4) & 3
-							theirs = d:sub(pd + 1, pd + 1)
+							theirs = DIR_NAMES.letter[pd] or "?"
 							if (pf[1].offset & 0x80) ~= 0 then theirs = theirs:upper() end
 						end
 						facingFrames.tPeer = (facingFrames.tPeer or "") .. mine
@@ -3739,7 +3758,7 @@ function drawOverflow()
 					end
 					if o.paintedX and o.walking then
 						facingFrames.stepDelta = facingFrames.stepDelta or {}
-						local k = ("dulr"):sub((o.facing or 0) + 1, (o.facing or 0) + 1)
+						local k = DIR_NAMES.letter[o.facing or 0] or "?"
 						facingFrames.stepDelta[k] = facingFrames.stepDelta[k] or {}
 						local d = math.abs(sx - o.paintedX) + math.abs(sy - o.paintedY)
 						facingFrames.stepDelta[k][d] = (facingFrames.stepDelta[k][d] or 0) + 1

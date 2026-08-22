@@ -2569,3 +2569,38 @@ the game's:
 scheduled. If it ever were, the host question (emulator vs. console vs. Ryujinx-style runtime)
 would have to clear `_template/README.md`'s bar first, and "the repo must WORK for a user who has
 only it plus what they legitimately own" is a much harder test for a Switch title than for a ROM.
+
+## Super Metroid (SNES) — two reference projects, filed UNREAD — 2026-08-23
+
+The user's find, handed over explicitly *"before we even look at them"*:
+
+- `https://github.com/strager/supermetroid`
+- `https://github.com/snesrev/sm`
+
+**Nothing here has been opened, and nothing may be until `licensing.md` carries a row for each.**
+That is the standing order of operations — read a project's licence before reading its source — and
+it applies harder to this pair than usual, because a disassembly or a C reconstruction of a
+commercial game is *expression* even where the facts inside it are free to use. The rule that
+decides what could ever come out of them is already written: **facts may be used and recorded with
+a citation; expression may never be committed** (`access-models.md`). The user's own framing was
+that one is a disassembly and the other might be a decompilation — that is a question to answer at
+the licence check, not an assumption to carry in.
+
+**Why it is interesting**, on what is already known without opening anything: SNES would be a
+**fifth platform and a second emulator-hosted game**, and Crystal has just paid for most of what
+that costs — the BizHawk Lua adapter shape, the spawn-versus-draw tier decision, the "read the
+camera, do not infer it" lesson, and a probe kit that is mostly platform-agnostic. Super Metroid is
+also a very different movement model from the four games so far (momentum, aim, morph ball,
+non-tile-quantised motion), which is exactly the kind of case that finds out whether the contract's
+`position`/`anim`/`area_id` shape is actually game-agnostic or merely Pokémon-and-platformer shaped.
+
+**What it is NOT**: not scheduled, not a commitment, and not ahead of the Crystal work still open in
+`status.md`. Filed so the links are not lost.
+
+**First three steps, in order, whenever it is picked up:**
+
+1. Licence check both repos, add both rows to `licensing.md`, and decide the access model
+   (`access-models.md`) BEFORE any source is read.
+2. Establish what a SNES adapter can even reach from BizHawk Lua — memory domains, and whether
+   the game exposes a stable object table the way Crystal's does.
+3. Only then ask spawn-versus-draw, which is the decision that shaped the whole Crystal adapter.
