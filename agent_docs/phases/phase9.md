@@ -552,3 +552,81 @@ also the tier that most peers actually get, so its yank is what a real session l
 4. **The drawn ghost appears ~8-13 frames after the player** on a crossing: the hold's leftover
    (2-5), the readiness gate (3), the wire (3-5). Only the first two are ours.
 5. **`extras.act`** remains on the wire and untested.
+
+## The session that made the drawn tier animate — 2026-08-22 (later)
+
+Started from `status.md`'s first open Crystal item: *"the drawn tier's stride animation has never
+been seen running"*. Ended with that closed and user-confirmed, the spawned tier's drift and step
+length fixed, Emerald's adapter rescued from not compiling, and a whole class of stutter traced to
+the wire rather than to any renderer. It also produced more instrument failures than any session so
+far, which is the part worth reading.
+
+### What was fixed, and what settled each
+
+| Fault | Cause | Settled by |
+|---|---|---|
+| the drawn tier never animated | a sprite has SIX views, not three, and the `offset >= 12` guard rejected every stepping frame as another character's tiles | measured on two sprites at two different tile bases |
+| the stride ran at the wrong speed | `OBJECT_FACING` counts 0..3 THROUGH a step, so reading it per frame mirrored the character mid-foot-plant | latched once per burst; cadence printed against the player's, one character a frame |
+| the spawned ghost slid off its tile | `OBJECT_STEP_DURATION` was 7, walking 14px across a 16px tile | a standing ghost re-anchored to its own tile, which measured the error at 2px every step |
+| Emerald did not compile at all | 202 declared names against Lua's limit of 200 — a silent non-load | folded seven constants onto two tables |
+| the drawn tier staircased at shipped settings | whole tiles on the wire, so the core interpolated between two identical values | 1838 of 1911 messages carrying no movement; 521 of 521 moving 1px after |
+
+### The sprite layout, which was the root of the animation work
+
+A walking sprite is **six views of four tiles**, relative to the character's own tile base: three
+standing at `base + 0..11`, three **stepping** at `base + 0x80 + 0..11`. Confirmed on the player
+(base 0x00) *and* an Olivine NPC (base 0x30), so the 0x80 is relative and not an absolute block. In
+ROM the six are contiguous — tiles 0-11 and **12-23** — so a sprite's graphics are 24 tiles even
+though the sprite table's own size field reports 12. `documentation.md` has the tables.
+
+The guard that discarded all of it had been added the same morning, for a real reason (the learner
+was adopting another character's OAM entries) and with the wrong boundary. **It was right about the
+danger and wrong about the number**, which is the most dangerous shape a guard can have.
+
+### Two things that were tried and are now CLOSED, not open
+
+- **Giving a painted peer a collision body** by parking a real object struct out of sight. The write
+  holds (1 rewrite in 480 frames) but 160 is the engine's own off-screen value and Crystal treats
+  such an object as having left the map: not drawn AND not collided with. `verified.md`.
+- **Giving a ghost the player's step type.** It makes the pace a true copy (17.2 against 17.1
+  frames per tile) and **scrolls the camera**, because that is what that step type is for. The pace
+  difference is therefore a requirement, not a defect — and reverting the code did not undo it, the
+  user had to load a savestate. `pitfalls.md`.
+
+### The instruments, which cost more than the bugs
+
+Five separate false readings, each of which changed a decision; two caused a revert or a change
+shipped on a wrong justification. Written up in full in `adapters/_template/probes.md`. The one that
+generalises:
+
+> **An instrument reports its own coverage, not just its findings** — how many samples it took, how
+> many it discarded and why, and over what window. A probe that prints only what it found cannot be
+> told apart from one that found nothing because it was looking in the wrong place.
+
+Two more worth carrying separately:
+
+- **The rig is part of the experiment, for the third recorded time.** Crystal had no
+  `run-core-crystal.bat`, so every session silently got an autostarted core on shipped defaults.
+  Two rounds of renderer work went into a stutter that was the 250ms interpolation.
+- **A writing probe must prove it found its target before it writes.** One matched about 1.5 of the
+  4 sprite-buffer entries it meant to blank and corrupted whoever else held them — reported by the
+  user as a regression in the commit that had just landed.
+
+### Where it stands at the end
+
+**Confirmed on screen, at the dev rig's settings** (`verified.md`): the drawn tier animating and
+tracking 1:1; the spawned tier with no drift, no snap and no teleport in ordinary walking. The
+user: *"this currently looks good/perfect i think ? its just the spawned ghost trailing behind a
+tiny bit when moving now"*.
+
+**Open, all measured rather than described** (`unverified.md`, `status.md`):
+
+1. **The drawn tier at SHIPPED settings.** The wire is now smooth (521 movements, 517 at 1px) and
+   the stride derives from it, but the last on-screen judgement was ambiguous — *"legs look wrong"*
+   or *"no change"* — and the cadence trace disagrees with the cumulative counter. **Fix that
+   contradiction before judging the stride again.**
+2. **The spawned tier trails ~4.3 frames** starting each step. 1.5 frames is the wire, the rest the
+   adapter's pipeline. Structural for an engine-driven ghost, which cannot be told "you are part-way
+   through a step".
+3. **A respawn teleports on the first tile** — the ghost is placed at a tile the peer has already
+   left, so the next update snaps instead of walking.

@@ -123,6 +123,19 @@ Only steps that actually happened and were confirmed are listed here.
    indistinguishable from them in the hardware's own sprite table, so the tier was learning the
    player's artwork from its own ghost. `pitfalls.md` has each; the method that found them all was
    one small trace, written after four fixes reasoned from the code had failed on screen.
+8. Made the painted ghost actually WALK, which needed a fact about the game nobody had established:
+   a sprite has six views, not three. Three standing, and three STEPPING that sit 0x80 higher in the
+   character's own graphics — confirmed on the player and on an NPC at a different tile base, so it
+   is relative rather than an absolute region. A guard added the previous day to stop the tier
+   learning from the wrong character had capped the offset at 12, which discarded every stepping
+   frame as foreign; it was right about the danger and wrong about the number. The stride is chosen
+   from how far into its step the peer is rather than from a timer here, so it cannot drift against
+   the peer's feet.
+9. Fixed the spawned ghost sliding off its tile, which turned out to be a step that covered 14px of
+   a 16px tile. Found by re-anchoring a standing ghost to the tile it claims to be on and logging
+   how far it had to move — the correction was 2px on essentially every step, which named the step
+   length rather than the sprite writes that had been suspected. Two things were removed one at a
+   time to get there, with a measurement after each and no third guess.
 
 ### Further work past "good enough"
 

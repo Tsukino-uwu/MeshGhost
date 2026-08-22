@@ -4156,3 +4156,46 @@ The player's struct is not a template with better numbers in it -- some of its v
 things only the player may drive. `phase9.md` already learned the same shape from the other side:
 the ghost is built from an NPC's movement behaviour wearing the player's face, precisely because the
 player's own movement type means "driven by input".
+
+## Crystal: the drawn tier's stutter was never in the drawing (2026-08-22)
+
+**Symptom.** At the shipped 250ms interpolation the painted ghost was *"really really bad"* — a
+coarse staircase — while the engine-driven one looked correct. At `-interp=0ms` the same code
+measured 0px of relative motion in all four directions and the user called it 1:1.
+
+**Cause: the adapter sent whole TILES.** The core therefore spent each step interpolating between two
+identical values and output a constant, then lurched when the tile changed. Measured at the shipped
+settings before the fix: **1911 messages, 1838 carrying no movement at all, and the 72 that moved
+jumped 4–6px.** The smooth motion was simply not on the wire, so no renderer could have drawn it.
+
+**Why it hid.** The sub-tile position rode in `extras.prog`, and `extras` is opaque to the core and
+not interpolated. `pitfalls.md` recorded that in August as a design lesson whose stopgap was "the dev
+rig runs `-interp=0ms` anyway, and with interpolation off the two terms agree" — which is exactly
+the configuration everything was judged in.
+
+**Fix.** `position` is `[]float64` and variable length by contract, and the core interpolates every
+component, so components 3 and 4 now carry the character's position in map pixels — absolute, not an
+offset from the destination, because a tile index and such an offset cancel at a boundary when
+interpolated independently. After: **521 movements, 517 of them 1px.** The stride is derived from the
+same position, since a body moving smoothly while its legs run off an un-interpolated value is the
+same defect in the other half.
+
+**The general form is in `_template/README.md`**: anything a renderer must draw smoothly belongs in
+`position`; `extras` is for facts that are already discrete.
+
+## Three more instruments that lied, in the same session (2026-08-22)
+
+Collected in full, with the general rule, in `adapters/_template/probes.md` ("Five ways an instrument
+lied in one session"). The short forms, because each changed a decision:
+
+- **A trace gated on `frames % 2 == 0`** showed a value advancing 2px per sample and it was reported
+  as 1px per frame. It moves 2px every two frames — identical to the value it was replacing — so the
+  change justified by that reading did nothing, and was described to the user as a fix. **Print the
+  sampling interval in the output line.**
+- **A histogram bucketed by a float** (an interpolated distance) while its report looped over integer
+  keys: it printed 2 movements out of 224 recorded. **Round at insert time and print the total beside
+  the distribution.**
+- **A wire trace reported "1 distinct position this second"** and it was read as a field not being
+  sent. The driving probe pauses at corners, so a stationary second had been sampled — **and a
+  correct change was reverted on that reading.** Report unchanged samples beside changed ones:
+  "nothing moved" and "nothing was sampled" must not print the same.

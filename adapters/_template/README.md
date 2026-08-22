@@ -1582,3 +1582,60 @@ file move.
   only, never build a cross-game vocabulary.
 - Coordinate systems (Y-up vs Z-up, tile vs world units, pixel origins) are normalized inside
   the adapter, never in the core.
+
+## Anything a renderer must draw SMOOTHLY has to ride in `position` — not in `extras`
+
+**The single most expensive lesson of Crystal's phase 9, and it is not Crystal-specific.**
+
+`position` is `[]float64`, **variable length by design** — two components for Emerald, three for
+Pseudoregalia, up to eight — and the core interpolates **every component** (`core/interp.go`,
+`for i := range pos`). `extras` is **opaque by contract** and is not interpolated at all: it passes
+through latest-wins.
+
+So a renderer that combines an interpolated value with an `extras` value is mixing two terms that
+describe **different instants**, once per frame. That is a stutter by construction, and no amount of
+filtering downstream can remove it — the two inputs disagree.
+
+**Crystal shipped exactly that for months of calendar time and nobody saw it**, because the dev rig
+runs `-interp=0ms` (deliberately, so 1:1 can be judged) and **with interpolation off the two terms
+agree**. The fault only exists at the shipped interpolation delay, which is the one configuration
+nobody was testing. Measured when it was finally looked at: of 1911 messages at shipped settings,
+**1838 carried no movement at all** and the 72 that did jumped 4–6px.
+
+**So, for a new adapter:**
+
+- **Sub-tile position, sub-pixel position, orientation angles — anything continuous — goes in
+  `position`.** Add components; that is what variable length is for. Send absolute quantities, not
+  offsets: a tile index plus an offset-from-destination cancel at a boundary when interpolated
+  independently, because the tile rises by one exactly as the offset falls by a tile's width.
+- **`extras` is for facts that are already discrete** — a sprite id, an action byte, a stride index.
+  Something that changes once per step is fine there; something that must change every frame is not.
+- **Do not ask the core to interpolate `extras` instead.** That would make the core inspect
+  game-specific payload, which is the exact thing the adapter/core split exists to prevent, and it
+  would change every game to fix one.
+
+## Judge a renderer at the SHIPPED settings, not only at the dev rig's
+
+The corollary, and it cost a whole session. `-interp=0ms` and a fast send rate exist so a
+side-offset ghost can be judged 1:1 against the player — that is a real and necessary mode. But it
+**removes the mechanism the shipped configuration relies on**, so a class of fault is invisible in
+it. A tier confirmed perfect at `-interp=0ms` was independently described as *"really really bad"* at
+the shipped 250ms, with no code change in between.
+
+**Give every game a dev core script per mode** (`dev-scripts/run-core-<game>.bat`), and say in the
+handover which one is running. Crystal had none, so every session silently got shipped defaults from
+an autostarted core while everyone assumed otherwise — and two rounds of renderer work were spent
+chasing what turned out to be the interpolation delay. **Before judging a renderer, print what the
+rig is actually running and read it.**
+
+## When a renderer looks wrong, measure THE WIRE before touching the renderer
+
+Both faults above presented as "the drawn ghost looks bad", and both were fixed without the drawing
+code changing at all. The order that works:
+
+1. **What arrives?** Count how the peer's position changes between consecutive messages, at the point
+   they arrive, unconditionally. Smooth motion that is not on the wire cannot be drawn.
+2. **What is derived from it?** Each term the renderer builds, per frame.
+3. **What reaches the screen?** Only then the painted result.
+
+Measuring (3) first is the natural instinct and it cannot distinguish any of the three.

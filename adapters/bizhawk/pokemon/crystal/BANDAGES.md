@@ -54,6 +54,31 @@ held, it has become the thing the temptation warned about.
 **What retires it.** Nothing available: the ceiling is the hardware's. It would be retired by a
 different rendering strategy entirely, not by fixing anything.
 
+### 2. A standing ghost is re-anchored to the tile it claims to be on
+
+**What it is.** Every frame a spawned ghost is idle, `renderRemote` recomputes `screenCoords` of its
+map tile and writes that to its sprite coordinates if they differ.
+
+**Why it is here, in the register's own words.** The "known temptations" list at the bottom of this
+file already named it before it was taken: *"re-writing a value every tick to keep a ghost where it
+should be — a fix that RESTORES a value rather than preventing whatever changed it."* That is
+precisely what this does, so it is registered rather than quietly kept.
+
+**The honest state, 2026-08-22.** The thing it was compensating for was found and fixed:
+`OBJECT_STEP_DURATION` was 7, which walks 14px across a 16px tile, so every step ended 2px short and
+the error accumulated until the ghost was visibly off the grid. With the step covering a whole tile,
+this correction now fires **zero times across 1108 walking frames** — it corrects nothing.
+
+**So why keep it.** As a bound and as an instrument. It reports the size AND direction of any
+correction it makes, and a silent zero is a live assertion that nothing is drifting. Retiring it
+would remove the only thing that would notice the fault coming back.
+
+**What makes it a real bandage again.** If it ever starts reporting corrections during ordinary
+walking, it is hiding a new cause rather than guarding against an old one — and the number it prints
+is the first clue to what. It must not be allowed to become the reason a drift is tolerable.
+
+**What retires it.** Nothing planned. It is cheap, silent when healthy, and self-reporting when not.
+
 ## Deliberate — measured decisions, not bandages
 
 A number **measured from the game** and written down is a design decision with evidence behind it,

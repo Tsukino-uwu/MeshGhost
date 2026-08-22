@@ -11,8 +11,9 @@ work more on emerald right now."*
   polish or a custom feature; a real fault is a defect against a finished adapter. `phase8.md`.
 - **Ferry and rails: assumed to work, never tested, deliberately NOT open items.** The user dropped
   them from here on purpose; the assumption is recorded so it cannot decay. `unverified.md`.
-- **Crystal is where the gap is.** Both tiers were made to move properly 2026-08-21/22 (user
-  confirmed); what remains is the ANIMATION class Emerald finished. See the Crystal items below.
+- **Crystal is where the gap is.** Both tiers move properly and the drawn tier now ANIMATES, all
+  user-confirmed at the dev rig's settings 2026-08-22. What remains is the shipped-settings
+  smoothing and the per-mechanic animation class Emerald finished. See the Crystal items below.
 - **Rig**: relay, core and BizHawk were left RUNNING at the end of the 2026-08-21/22 session on
   Route 39 — shut them down before a fresh test. Savestates: slot 1 the user's, slot 7 the user's
   Route 39 test spot, slot 8 goto_map's undo.
@@ -64,18 +65,20 @@ that a peer's state genuinely differs from the local player's, which loopback co
   says nothing about whether ordinary play produces that overlap. `verified.md` 2026-08-19.
 - **Crystal's phone-call panel is two panels** — full-width at the top plus the ordinary bottom
   box; the row-12 test sees only the bottom one. Detection unwritten. `unverified.md`.
-- **Crystal's drawn tier is unconfirmed**: animation, facing and text-box clipping all landed
-  2026-08-19 after the fill-the-screen test. `unverified.md`, `crowd-limits.md`.
+- **Crystal's drawn tier WALK CYCLE is confirmed; its text-box clipping is not.** The animation
+  closed 2026-08-22 (`verified.md`); clipping still rests on the 2026-08-19 fill-the-screen test.
 - **Crystal: ghost animation completeness** — Emerald's fishing, both bikes, surf/dive and ice are
   all done and 1:1 (2026-08-19..21); Crystal has none of that class yet. `unverified.md`.
-- **Crystal's two tiers now move properly — user-confirmed 2026-08-21/22.** Painted tier walks and
-  clears across transitions; spawned tier animates. `phases/phase9.md`, `unverified.md`.
-- **Crystal's drawn tier is "perfect but not animated" (user, 2026-08-22)** — position, facing and
-  placement confirmed 1:1; its walk cycle has never been seen running. `phases/phase9.md`.
-- **Crystal's spawned tier is "somewhat decent but still some yank"** — now the WORSE of the two
-  tiers, and the one most peers get. `phases/phase9.md`.
-- **Crystal: a spawned ghost drifts when the peer looks up then sideways** — reported 2026-08-22,
-  not the same path as the drawn tier's 8px offset. `phases/phase9.md`.
+- **Crystal's two tiers are CONFIRMED GOOD at the dev rig's settings — 2026-08-22.** Drawn tier
+  animates and tracks 1:1; spawned tier free of drift, snap and teleport. `verified.md`.
+- **Crystal's drawn tier at the SHIPPED 250ms is the open one.** The wire is smooth now (521
+  movements, 517 of them 1px) but the last on-screen read was ambiguous. `phases/phase9.md`.
+- **Crystal: the cadence trace contradicts the cumulative counter** — it shows the ghost never on
+  a stepping frame while the counter reports the engine's proportion. Fix before judging stride.
+- **Crystal: the spawned ghost trails ~4.3 frames** starting each step; 1.5 is the wire, the rest
+  the adapter's own pipeline. Structural for an engine-driven ghost. `unverified.md`.
+- **Crystal: a respawn teleports on the first tile** — the ghost is placed at a tile the peer has
+  already left, so the next update snaps instead of walking. `phases/phase9.md`.
 - **Crystal's transition hold spends its 30 frames after the world is ready, not during the
   crossing** — measured, fix built and reverted as worse. `unverified.md`, `phases/phase9.md`.
 - **Crystal's hardware (OAM) tier: built, reaches the screen, shipped OFF, never judged on screen.**

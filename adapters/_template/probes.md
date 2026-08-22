@@ -1404,3 +1404,50 @@ investigation.** It only has to be a plausible explanation you cannot rule out c
 **The general form, and it is the input-side twin of the cost warning above:** a probe that only
 *reads* can bias a measurement, and a probe that *writes input* can author the behaviour being
 measured. Ask of any instrument: could this have produced the thing I am about to explain?
+
+## Five ways an instrument lied in one session — and how each was caught (Crystal, 2026-08-22)
+
+One session produced five separate false readings, each of which changed a decision, and two of
+which caused work to be reverted or shipped on a wrong justification. They are collected here rather
+than spread across the fix entries, because the shape repeats and the cost was far higher than any
+of the bugs being hunted.
+
+**1. The probe inherited the rule it was built to test.** The adapter identified a character's sprite
+by "tile offset from its own base must be under 12", and the first probe written to audit that used
+the same rule. It therefore agreed with the adapter perfectly — and both were wrong, because a
+sprite's STEPPING frames sit at offset 0x80 and up. **A probe that shares a premise with its subject
+confirms the premise.** The fix was to widen the probe's rule and print how many samples each rule
+would have discarded; the difference was 320 frames out of 640.
+
+**2. Sampling every other frame halved a measured rate.** A trace gated on `frames % 2 == 0` showed a
+value advancing 2px per sample and it was reported as "1px per frame". It moves 2px every two
+frames — the same as the value it was supposed to be replacing — so a change justified by that
+reading did nothing at all, and was described to the user as a fix. **Write the sampling interval
+into the output line**, or a rate read off it is a guess.
+
+**3. Float keys silently dropped 99% of the samples.** A histogram bucketed by a distance that turned
+out to be a float (an interpolated position), while the report looped over integer keys. It printed
+`4px:2` from 224 recorded movements. **Round to the bucket key at insert time**, and print the total
+count beside the distribution so the two can be checked against each other — the discrepancy is
+invisible if only the buckets are shown.
+
+**4. A quiet window was read as a frozen value.** A wire trace reported "1 distinct peer position this
+second" and it was taken as proof that a field was not being sent. The driving probe simply pauses at
+corners, so a stationary second had been sampled. **A whole change was reverted on that reading.**
+Report the count of UNCHANGED samples beside the changed ones: "nothing moved" and "nothing was
+sampled" must not look the same.
+
+**5. Two instruments disagreed and neither was checked.** A cumulative counter reported the ghost on a
+stepping frame for 214 of 507 walking frames — the engine's own proportion — while a per-frame
+cadence trace of the same thing showed it never stepping at all. That contradiction was noticed and
+work continued anyway. **When two instruments measuring one quantity disagree, stop: at least one is
+measuring a different moment than it claims, and until that is settled neither can support a
+conclusion.**
+
+**The common thread**, and the rule worth carrying: **every one of these was cheap to catch and
+expensive to miss.** Each would have been exposed by printing one extra number — the discarded
+count, the sample interval, the total, the unchanged count, the other instrument's value. So:
+
+> **An instrument reports its own coverage, not just its findings.** How many samples it took, how
+> many it discarded and why, and over what window. A probe that prints only what it found cannot be
+> distinguished from a probe that found nothing because it was looking in the wrong place.
