@@ -4037,3 +4037,39 @@ is an 8px correction, and they pushed back — *"so maybe its another issue we h
 instead of just an offset?"* A compensation would have worked for right-facing and broken the
 moment anything else flipped. `_template/BANDAGES.md` calls this shape out; here it was avoided
 because the reporter refused it.
+
+## The rig ran the SHIPPED interpolation while the test needed none (Crystal, 2026-08-22)
+
+**Symptom.** The drawn ghost, offset two tiles to the side for comparison, looked *"really
+stuttery whenever you walk in any direction"* and *"still stuttering/small snap kinda when moving to
+the next tile"*. Two rounds of work went into the renderer looking for it.
+
+**Cause: the core under the test was the one the ADAPTER autostarts, on shipped defaults** —
+`-interp=250ms`. With a loopback ghost offset to the side, the whole point is judging the drawn
+tier against the player 1:1, and a quarter second of interpolation means what is on screen is the
+wire, not the renderer. The measurement is unambiguous once taken: the painted ghost moved 2px
+relative to the player on **100 of 132** walking frames at the shipped default, and **0px on all
+194** with `-interp=0ms -min-send=10ms`. Nothing about the renderer changed between those two runs.
+
+**Why it happened here and not in Emerald: Emerald has `dev-scripts/run-core-emerald.bat` and
+Crystal had no equivalent**, so every Crystal session silently got an autostarted core on play
+defaults. `run-core-crystal.bat` now exists and mirrors it. The two modes are deliberately
+opposite and both are legitimate — `run-core-emerald.bat` (`-interp=0ms`) for judging a
+side-offset ghost against the player, `run-core-emerald-trail.bat` (`-interp=200ms`) for a ghost
+sitting ON the player where the delay is the thing being judged.
+
+**This is the THIRD time the rig's own settings have been misattributed to the adapter**, after
+the relay's 20Hz-instead-of-100Hz default on 2026-08-21 (`phases/phase9.md`, which already records
+"the rig's settings are part of the experiment" as a method lesson). The lesson keeps being
+relearned because nothing checks it. So: **before judging a renderer, print what the rig is
+actually running and read it** — the core's interp, the relay's send rate, and which core the
+adapter attached to. A number in a log costs nothing; two rounds of renderer work cost a session.
+
+**What it does NOT mean.** The 250ms is correct for play and was measured with the user
+(`core/core.go`'s own comment, 2026-08-19). The user, on being told the smoothing might be a
+bandage: *"i don't think we did that as a bandage thing for emerald, pretty sure we did it for the
+network reasons? it can never 1:1 match the player due to network i think?"* — exactly right, and
+it is the reason Emerald's drawn tier carries an exponential filter that Crystal's still does not.
+A tier with no filter draws the staircase between deliveries; at `-interp=0ms` there is nothing to
+absorb and it looks perfect, which is precisely why a zero-interp rig cannot tell you whether the
+filter is needed.
