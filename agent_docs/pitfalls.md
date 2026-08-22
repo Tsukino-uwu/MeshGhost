@@ -4306,7 +4306,7 @@ layer beneath it was wrong, and the instruments agreed with each wrong layer in 
 the game then stops responding to input. The overworld is still emulating — frames advance, the
 adapter keeps logging — so it is the game's own script engine that is wedged, not the emulator and
 not Lua. User's words: *"the spawned ghost got the trainer battle thing, and now we are stuck"*.
-Rare, and it had been seen *"from time to time"* for a while with no idea how to reproduce it.
+Rare, and it had been seen *"from time to time"* with no idea how to reproduce it.
 
 **Cause.** `spawnGhost` clones a donor: all 16 bytes of a live NPC's map object plus its object
 struct. The adapter understands four of those bytes (struct id, sprite, y, x) and copies the other
@@ -4355,8 +4355,8 @@ unknown bytes are *always special* is not a narrowing, it is a bigger blind copy
 
 - **An unreproducible fault deserves an instrument, not a repro hunt.** A one-line log of the donor
   and its 16 bytes was added while the bug was still just a suspicion. It caught the offending
-  object on the very first spawn after it went in, and named the culprit outright. The fault had
-  gone unexplained for days; the instrument cost five minutes.
+  object on the very first spawn after it went in, and named the culprit outright. The fault was
+  unexplained from the first time it was seen; the instrument is one log line.
 - **A cleared decompilation is faster than measurement — read it FIRST.** Every fact above came from
   reading `pret/pokecrystal`, which `licensing.md` cleared for facts-with-citation and which
   `environment.md` records as already built locally since 2026-08-17. The field names, the type

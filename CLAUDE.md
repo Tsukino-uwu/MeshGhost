@@ -159,7 +159,7 @@ stays here, its reasoning goes to `agent_docs/`, with a one-line pointer. Full e
   decomps for facts-with-a-citation and `environment.md` records them built locally — field names,
   flag bits and dispatch order are all sitting there. **Measurement is for CONFIRMING what the
   source says, not for discovering it**, and a probe cannot tell you what a byte MEANS. Live
-  2026-08-23: a ghost cloned a trainer and hung the game, unexplained for days. `pitfalls.md`.
+  2026-08-23: a ghost cloned a trainer and hung the game; the source named it. `pitfalls.md`.
 - **A clean light test does not close a risk that depends on sustained load.** Exercise the real
   rate/duration before marking it closed — found live: a single successful round trip closed a risk
   that reopened the same day once real sustained traffic was tried.
@@ -199,7 +199,7 @@ stays here, its reasoning goes to `agent_docs/`, with a one-line pointer. Full e
   needs no theory, and can't be fooled by a partial revert.
 - **Cite dates, not durations — INCLUDING a duration used only for emphasis** ("for months",
   "long-standing"). Repo born 2026-08-11, so these are false on arrival and worse with age. Live
-  2026-08-16 ×3; again 2026-08-21, "for months" about a rule two days old.
+  2026-08-16 ×3; 2026-08-21, "for months" about a two-day-old rule; 2026-08-23, "for days".
 - **Test instructions use plain directions (up/down/left/right), never compass points.** User
   preference, about talking to them — compass points stay fine in code and comments.
 - **You run the scaffolding for a live test; the user only opens and closes the game.** Start the

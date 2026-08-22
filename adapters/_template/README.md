@@ -914,7 +914,7 @@ twelve — a ghost that would not animate, a ghost whose facing snapped at the e
 finally a ghost that **was a trainer**, raised the `!` and hung the game. The first two were chased
 by probe across multiple sessions and patched one field at a time. Every one of those fields is a
 named constant in `pret/pokecrystal`, which this repo had cleared for facts-with-a-citation and had
-already **built locally** months of work earlier. Ten minutes of reading named all three, plus the
+already **built locally** since 2026-08-17. Reading named all three, plus the
 shared cause nobody had spotted: a ghost inherits its donor's identity.
 
 Two things reading gives you that watching structurally cannot:
