@@ -2952,8 +2952,6 @@ local function applyPeerAction(g, act)
 end
 
 local function stepGhost(g, dir)
-	local sdx = (dir == 3) and 2 or (dir == 2) and -2 or 0
-	local sdy = (dir == 0) and 2 or (dir == 1) and -2 or 0
 	local x = (u8(g.st_base + F_MAP_X) or 0) + ((dir == 3) and 1 or (dir == 2) and -1 or 0)
 	local y = (u8(g.st_base + F_MAP_Y) or 0) + ((dir == 0) and 1 or (dir == 1) and -1 or 0)
 
@@ -2965,14 +2963,42 @@ local function stepGhost(g, dir)
 	w8(g.st_base + F_DIRECTION, dir * 4)
 	w8(g.st_base + F_FACING, dir * 4)
 	w8(g.st_base + F_STEP_TYPE, 2)
-	w8(g.st_base + F_STEP_DURATION, 7)
+	-- EIGHT TICKS, NOT SEVEN, BECAUSE A TILE IS 16px AND A STEP VECTOR IS 2px.
+	--
+	-- This was 7, which walks the sprite 14px across a 16px tile -- so every single step ended 2px
+	-- short of the tile it had already been told it was standing on. That is the drift the user
+	-- saw as the ghost *"slowly slid[ing] of its intended tile"*, and the snap they saw afterwards
+	-- was the re-anchor taking those 2px back at the end of every step.
+	--
+	-- The 2px compensation that used to sit at the bottom of this function existed to paper over
+	-- exactly this, and it was removed first: with it gone the re-anchor still reported 2px on
+	-- essentially every step, which is what isolated the cause to the step length itself rather
+	-- than to the sprite write. Two subtractions, one measurement each, no third guess.
+	--
+	-- 8 x 2 = 16 is not a tuned value, it is the tile. `stepProgress` elsewhere in this file
+	-- already derives progress as `(8 - duration) * 2`, i.e. it has assumed a duration of 8 all
+	-- along -- so the sender and the mover disagreed by one tick.
+	w8(g.st_base + F_STEP_DURATION, 8)
 	w8(g.st_base + F_ACTION, 2)
 	w8(g.st_base + F_MAP_X, x)
 	w8(g.st_base + F_MAP_Y, y)
-	-- The engine applies its own first 2px in the frame it initiates a step; ours starts a frame
-	-- later, so without this every step lands 2px short and the error accumulates.
-	w8(g.st_base + F_SPRITE_X, ((u8(g.st_base + F_SPRITE_X) or 0) + sdx) & 0xFF)
-	w8(g.st_base + F_SPRITE_Y, ((u8(g.st_base + F_SPRITE_Y) or 0) + sdy) & 0xFF)
+	-- THE 2px COMPENSATION IS GONE, and the re-anchor is what proved it wrong.
+	--
+	-- This used to add one step vector to the sprite's SCREEN position here, on the reasoning that
+	-- the engine applies its own first 2px in the frame it initiates a step while ours starts a
+	-- frame later, so a step would otherwise land 2px short. The error it was correcting was never
+	-- measured -- only the theory was.
+	--
+	-- Measured 2026-08-22, once a standing ghost started being re-anchored to its own tile: the
+	-- correction needed was **2px, on essentially every step**, which is precisely the size of the
+	-- compensation above and in the direction that undoes it. A compensation whose exact value has
+	-- to be taken back every step is not compensating for anything; it IS the error. Left in, it
+	-- accumulated -- the user, with a screenshot of the ghost sitting off the grid: *"the spawned
+	-- ghost gets offset/slowly slides of its intended tile when walking around"*.
+	--
+	-- Isolating by subtraction rather than guessing a third correction on top: `CLAUDE.md`. The
+	-- re-anchor stays as a bound and as the instrument that says whether this was right -- if it
+	-- goes quiet, nothing is drifting.
 
 	-- READ BACK the one field whose absence makes the engine run away.
 	--
@@ -3277,6 +3303,44 @@ local function renderRemote(id, state)
 	end
 
 	local cx, cy = u8(g.st_base + F_MAP_X) or 0, u8(g.st_base + F_MAP_Y) or 0
+
+	-- RE-ANCHOR THE SPRITE TO ITS TILE WHENEVER THE GHOST IS STANDING.
+	--
+	-- `stepGhost` advances the sprite's SCREEN position by adding a delta each step, to make up the
+	-- 2px the engine applies in the frame it starts a step and we cannot. An accumulating
+	-- correction has no way back: every frame that is missed, doubled, or lands while the camera is
+	-- moving leaves an error that is never removed, so the ghost slides further off its tile the
+	-- longer it walks. The user, 2026-08-22, with a screenshot showing it sitting visibly off the
+	-- grid down and to the right while the painted copy and the player stayed aligned: *"the
+	-- spawned ghost gets offset/slowly slides of its intended tile when walking around"*.
+	--
+	-- A standing ghost's screen position is not a matter of opinion: it is `screenCoords` of the
+	-- tile it is on, which is exactly what `teleportGhost` writes. So the drift is discarded at
+	-- every idle frame and can never exceed one step. This is a correction, not a model change --
+	-- the per-step delta still does the mid-step work, it just no longer gets to keep its mistakes.
+	--
+	-- Guarded on the camera for the same reason the teleport is: mid-scroll the window registers
+	-- describe a frame that is still being built, so the "correct" position would be wrong.
+	--
+	-- The size of each correction is logged rather than applied silently, because it says WHERE the
+	-- drift comes from: a steady 2px per step is the compensation being wrong, while occasional
+	-- large jumps are frames lost somewhere else. Silent in a healthy session.
+	if cameraSettled() then
+		local wantX, wantY = screenCoords(cx, cy)
+		local haveX, haveY = u8(g.st_base + F_SPRITE_X) or 0, u8(g.st_base + F_SPRITE_Y) or 0
+		if haveX ~= wantX or haveY ~= wantY then
+			local ddx = ((wantX - haveX + 128) & 0xFF) - 128
+			local ddy = ((wantY - haveY + 128) & 0xFF) - 128
+			w8(g.st_base + F_SPRITE_X, wantX)
+			w8(g.st_base + F_SPRITE_Y, wantY)
+			snaps.drift = (snaps.drift or 0) + 1
+			snaps.driftPx = math.max(snaps.driftPx or 0, math.abs(ddx) + math.abs(ddy))
+			if math.abs(ddx) + math.abs(ddy) > 2 then
+				logFile(string.format("MeshGhost: re-anchored %s to its tile by %+d,%+d px "
+					.. "(a drift bigger than one step's compensation)", id, ddx, ddy))
+			end
+		end
+	end
 	if cx == x and cy == y then
 		-- Not moving, but the peer may have TURNED IN PLACE — a real and common action in this
 		-- game, and one the ghost missed entirely until 2026-08-18 because renderRemote only ever
@@ -3786,6 +3850,15 @@ local function tick()
 		snaps.runaways, snaps.at = 0, bridgeFrames
 	end
 
+	-- How much the spawned tier's sprite had drifted off its tile, and how far the worst one was.
+	-- Steady 2px corrections mean the per-step compensation is simply wrong; occasional big ones
+	-- mean frames are being lost elsewhere. Silent when nothing drifts.
+	if (snaps.drift or 0) > 0 and bridgeFrames - snaps.at >= 60 then
+		logFile(string.format("MeshGhost: re-anchored a spawned ghost to its tile %d time%s this "
+			.. "second, worst %d px off", snaps.drift, (snaps.drift == 1) and "" or "s",
+			snaps.driftPx or 0))
+		snaps.drift, snaps.driftPx = 0, 0
+	end
 	if snaps.n > 0 and bridgeFrames - snaps.at >= 60 then
 		log(string.format("MeshGhost: %d ghost snap%s in the last second (a snap is a jump the "
 			.. "player can see -- it means a ghost could not walk to where its peer already was)",
