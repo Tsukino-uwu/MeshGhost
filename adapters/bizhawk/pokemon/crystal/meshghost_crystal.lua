@@ -2876,7 +2876,7 @@ function drawOverflow()
 								local pdir = (np and np.dir) or 9
 								facingFrames.camSign = facingFrames.camSign or {}
 								local key = string.format("%s:%+d,%+d",
-									("durl"):sub(pdir + 1, pdir + 1), dxw, dyw)
+									("dulr"):sub(pdir + 1, pdir + 1), dxw, dyw)
 								facingFrames.camSign[key] = (facingFrames.camSign[key] or 0) + 1
 							end
 							local cd = math.abs(dxw) + math.abs(dyw)
@@ -3162,12 +3162,28 @@ function drawOverflow()
 			-- whenever the camera has been parked half a second -- the one state where that
 			-- formula has no seam -- which also re-calibrates it after every map change.
 			if o.modelX then
+				-- BOTH registers run inverted to map pixels, X exactly as Y. The sign map first
+				-- said X matched -- because the instrument's direction string was "durl" where the
+				-- adapter's order is down/up/LEFT/RIGHT, so every left/right label was swapped and
+				-- the X conclusion inverted with it. The numeric dump settled it beyond labels:
+				-- walking left, modelX + camAX held constant (196,196,196,196) while
+				-- modelX - camAX raced. One character of a debug string cost one full wrong paint.
 				if (facingFrames.camStillFor or 0) >= 8 then
-					facingFrames.camKX = sx - o.modelX + (facingFrames.camAX or 0)
+					facingFrames.camKX = sx - o.modelX - (facingFrames.camAX or 0)
 					facingFrames.camKY = sy - o.modelY - (facingFrames.camAY or 0)
 				elseif facingFrames.camKX then
-					sx = math.floor(o.modelX - (facingFrames.camAX or 0) + facingFrames.camKX + 0.5)
+					sx = math.floor(o.modelX + (facingFrames.camAX or 0) + facingFrames.camKX + 0.5)
 					sy = math.floor(o.modelY + (facingFrames.camAY or 0) + facingFrames.camKY + 0.5)
+					-- RAW NUMBERS, because the symbol-pushing has been wrong twice: every value in
+					-- the sum, every 15 frames, while this peer walks. Whatever term drifts, drifts
+					-- in plain sight.
+					if COMPARE_TIERS and o.only == "drawn" and o.walking
+						and drawFrames % 15 == 0 then
+						logFile(string.format("  KPAINT f%d sx=%d model=%.0f,%.0f camA=%d,%d K=%d,%d",
+							drawFrames, sx, o.modelX, o.modelY,
+							facingFrames.camAX or 0, facingFrames.camAY or 0,
+							facingFrames.camKX or 0, facingFrames.camKY or 0))
+					end
 				end
 			end
 
@@ -3423,7 +3439,7 @@ function drawOverflow()
 						-- view and lower case for a standing one, so a single direction can be read
 						-- out of a mixed walk. "Right feels fast and the others do not" is a claim
 						-- about one direction, and a trace that cannot separate them cannot test it.
-						local d = "durl"
+						local d = "dulr"
 						local di = (o.facing or 0) + 1
 						local mine = d:sub(di, di)
 						if o.stepLatch ~= nil then mine = mine:upper() end
@@ -3638,7 +3654,7 @@ function drawOverflow()
 					end
 					if o.paintedX and o.walking then
 						facingFrames.stepDelta = facingFrames.stepDelta or {}
-						local k = ("durl"):sub((o.facing or 0) + 1, (o.facing or 0) + 1)
+						local k = ("dulr"):sub((o.facing or 0) + 1, (o.facing or 0) + 1)
 						facingFrames.stepDelta[k] = facingFrames.stepDelta[k] or {}
 						local d = math.abs(sx - o.paintedX) + math.abs(sy - o.paintedY)
 						facingFrames.stepDelta[k][d] = (facingFrames.stepDelta[k][d] or 0) + 1
