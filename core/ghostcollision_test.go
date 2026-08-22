@@ -1,6 +1,7 @@
 package core
 
 import (
+	"encoding/json"
 	"net"
 	"testing"
 	"time"
@@ -200,5 +201,62 @@ func TestGhostCollisionPolicyArrivesAfterBridgeReady(t *testing.T) {
 			}
 		}
 		fa.conn.Close()
+	}
+}
+
+// sessionPolicies extracts every session_policy the core pushed to this
+// transport, in order.
+func sessionPolicies(t *testing.T, rt *recordingTransport) []string {
+	t.Helper()
+	var out []string
+	for _, raw := range rt.all() {
+		var env bridge.Envelope
+		if err := json.Unmarshal(raw, &env); err != nil {
+			t.Fatalf("unmarshal bridge envelope: %v", err)
+		}
+		if env.Type != bridge.TypeSessionPolicy {
+			continue
+		}
+		var p bridge.SessionPolicy
+		if err := json.Unmarshal(env.Payload, &p); err != nil {
+			t.Fatalf("unmarshal session_policy: %v", err)
+		}
+		out = append(out, p.GhostCollision)
+	}
+	return out
+}
+
+// TestGhostCollisionNotPushedBeforeTheRoomHasSpoken is the regression for the
+// race CI's -race job caught on 2026-08-22, made deterministic by driving
+// pushSessionPolicy at the interleaving instead of waiting for it.
+//
+// "No Welcome yet" and "a room that advertised nothing" are the same value
+// (""), and ResolveGhostCollision("", "") is ENABLED -- so a push in that
+// state tells the adapter to make ghosts solid in a room that disabled them.
+// It is reachable whenever a relaunching game re-attaches while the previous
+// relay connection's teardown is still in flight: the attach path sees
+// c.relay still set, returns "already connected", and the teardown clears the
+// policy before the push reads it.
+func TestGhostCollisionNotPushedBeforeTheRoomHasSpoken(t *testing.T) {
+	c := New()
+	rt := &recordingTransport{}
+	c.attachedAdapter = rt
+	c.adapterReady = true
+
+	// Exactly the state the teardown leaves behind.
+	c.relayGhostCollision = ""
+	c.relayPolicyKnown = false
+	c.pushSessionPolicy()
+	if got := sessionPolicies(t, rt); len(got) != 0 {
+		t.Fatalf("pushed %v before any Welcome -- an unknown room policy must not be "+
+			"resolved into a physical effect", got)
+	}
+
+	// The Welcome that answers the question is what pushes.
+	c.relayGhostCollision = protocol.GhostCollisionDisabled
+	c.relayPolicyKnown = true
+	c.pushSessionPolicy()
+	if got := sessionPolicies(t, rt); len(got) != 1 || got[0] != protocol.GhostCollisionDisabled {
+		t.Fatalf("after Welcome the adapter got %v, want one %q", got, protocol.GhostCollisionDisabled)
 	}
 }

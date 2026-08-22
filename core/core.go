@@ -346,6 +346,23 @@ type Core struct {
 	// differently-configured relay never inherits a stale policy.
 	relayGhostCollision string
 
+	// relayPolicyKnown reports whether relayGhostCollision came from an actual
+	// Welcome, rather than being the zero value of a Core no relay has told
+	// anything yet. The two are indistinguishable in the value itself -- a relay
+	// predating the field also advertises "" -- but they must not resolve the
+	// same way: ResolveGhostCollision("", "") is ENABLED, so pushing a policy
+	// before the room has said anything tells the adapter to make ghosts solid
+	// in a room that disabled them. Guarded by mu; set with relayGhostCollision
+	// in the Welcome case and cleared with it on disconnect.
+	//
+	// The window is narrow and real: a relaunching game re-attaches, the attach
+	// path finds the previous connection's c.relay still set and returns "already
+	// connected", and that connection's teardown clears the policy in between
+	// that check and the push. CI's race job caught it as
+	// TestGhostCollisionRepeatedForANewAdapter reading "enabled" from a relay
+	// that had only ever said "disabled" (2026-08-22).
+	relayPolicyKnown bool
+
 	// adapterReady is true once bridge_ready has been sent on the current
 	// adapter connection. Guarded by mu.
 	//
@@ -679,6 +696,7 @@ func (c *Core) ConnectRelay(gameID string) error {
 			// differently-configured relay never inherits a stale policy. The
 			// adapter is told the new value once the next Welcome lands.
 			c.relayGhostCollision = ""
+			c.relayPolicyKnown = false
 			// Per-connection too: the room's agreed capabilities, the clock
 			// offset (a different relay has a different clock, and even the
 			// same one restarted may have jumped), the outstanding ping
@@ -1073,6 +1091,7 @@ func (c *Core) handleRelayMessage(payload []byte, welcome chan<- protocol.Welcom
 			// "disabled", so a relay cannot talk this client into a physical
 			// effect by sending garbage.
 			c.relayGhostCollision = protocol.NormalizeGhostCollision(w.GhostCollision)
+			c.relayPolicyKnown = true
 			// The room's agreed set, normalized again on receive rather than
 			// trusted as sent — same defence-in-depth against a hostile relay
 			// as clamping SendHz above.
@@ -1956,7 +1975,11 @@ func (c *Core) pushSessionPolicy() {
 	c.mu.Lock()
 	effective := protocol.ResolveGhostCollision(c.relayGhostCollision, c.GhostCollision)
 	nd := c.attachedAdapter
-	if nd == nil || !c.adapterReady || effective == c.sentGhostCollision {
+	// relayPolicyKnown, not just a non-empty value: an unknown room policy
+	// resolves to ENABLED, and telling an adapter to make ghosts solid because
+	// nobody has said otherwise yet is the wrong direction to guess in. The
+	// Welcome that answers the question pushes for us.
+	if nd == nil || !c.adapterReady || !c.relayPolicyKnown || effective == c.sentGhostCollision {
 		c.mu.Unlock()
 		return
 	}

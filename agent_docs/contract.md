@@ -107,6 +107,13 @@ The value is resolved by the core from the relay's `Welcome.ghost_collision` and
 it onto a player who does not want it. Absent on both sides resolves to `"enabled"`, which is why a
 client talking to a relay built before this field behaves exactly as it did before.
 
+**"Not yet known" is not "absent".** Both look like an empty string in the core, and they must not
+resolve the same way: a room that said nothing means `"enabled"`, but a room that has not sent its
+Welcome yet means *wait*. The core withholds `session_policy` until a Welcome has actually landed,
+so an adapter is never told its ghosts may be solid on the strength of a value nobody supplied. It
+is reachable — a relaunching game re-attaches while the previous relay connection's teardown is
+still in flight — and CI's `-race` job caught it that way on 2026-08-22.
+
 **It is advisory.** The relay has no game knowledge and cannot verify an adapter honoured it, the
 same way nothing enforces `send_hz`. An adapter that ignores the message is unaffected by its
 existence; an adapter that *cannot* honour `"disabled"` should say so in its own log once rather
@@ -534,6 +541,14 @@ blob ≤ 768, ≤ 64 entities per room, and a batching budget of 1100 bytes per 
 derived, not chosen: it is `udpconn`'s reorder window, and a reliable burst wider than that window
 goes unacked and is retried until the connection closes. A snapshot too large for one message is
 **batched, never fragmented** — every message is independently complete and no entry is ever split.
+
+Every one of those blob/payload bounds is measured on the bytes that go on the WIRE, not on the
+bytes in hand: `encoding/json` escapes `<`, `>` and `&` as six-byte `\u00xx` sequences wherever they
+appear inside a raw value, so a 130-byte blob of `&` characters is 774 bytes once sent.
+`protocol.JSONWireLen` is what every bound is checked against, and the difference is not academic —
+before it existed, a blob sized to this budget could arrive six times over it, and a write the
+sender validated was rejected by the receiver with nothing anywhere able to explain why. Found by
+`FuzzValidateWorldIsStableAcrossTheWire` in CI, 2026-08-22.
 
 ### What none of this buys
 
