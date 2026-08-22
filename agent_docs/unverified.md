@@ -826,11 +826,11 @@ the engine acts on the following frame.
 
 **Two separate findings, and only the first is a defect:**
 
-- **The ghost walks on step type 2 while the player's own object uses 6.** Hardcoded in
-  `stepGhost` and never checked against the game. That is why the ghost crosses a tile in 14.2
-  frames where the player takes 15.8 — it is a different movement machine, not a copy of one. Being
-  faster is currently the only thing stopping the start lag accumulating, which means the two
-  errors have been hiding each other.
+- **The step type is NOT a defect — closed 2026-08-22.** Copying the player's type 6 was tried
+  and it SCROLLS THE CAMERA, because moving the player is what that step type exists to do; the
+  ghost dragged the whole view within seconds of it loading (`pitfalls.md`). The ghost stays on 2,
+  and crossing a tile in 14.2 frames where the player takes 15.8 is the price of a ghost not being
+  the player rather than an oversight.
 - **The start lag is structural for an engine-driven ghost** and `architecture.md` already says so.
   Cutting it means starting a step from `extras.prog` -- which the peer already sends and the DRAWN
   tier already uses to sit exactly on the peer — instead of waiting to notice a tile change.
