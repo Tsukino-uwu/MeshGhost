@@ -2850,6 +2850,34 @@ function drawOverflow()
 						local scy = u8(W_BGMAPOFFSETY) or 0
 						if facingFrames.camX ~= nil
 							and (scx ~= facingFrames.camX or scy ~= facingFrames.camY) then
+							-- ONLY A PLAUSIBLE SCROLL IS MOTION. A real camera frame moves 2 or 4px
+							-- on ONE axis; the event probe caught 8px DIAGONAL register jumps on the
+							-- first frame of each walk (`cam=8`, dsx and dsy together), and painting
+							-- those as motion was the 1-tile snap-back the user saw at every walk
+							-- start once everything else was clean. An implausible delta is the
+							-- register being REBASED (or read mid-update): it is absorbed into the
+							-- accumulator AND the calibration constant in the same frame, so the
+							-- painted position provably cannot move because of it.
+							local pdx = ((scx - facingFrames.camX + 128) % 256) - 128
+							local pdy = ((scy - facingFrames.camY + 128) % 256) - 128
+							local pcd = math.abs(pdx) + math.abs(pdy)
+							local plausible = (pcd == 2 or pcd == 4)
+								and (pdx == 0 or pdy == 0)
+							if not plausible then
+								facingFrames.camAX = (facingFrames.camAX or 0) + pdx
+								facingFrames.camAY = (facingFrames.camAY or 0) + pdy
+								if facingFrames.camKX then
+									facingFrames.camKX = facingFrames.camKX + pdx
+									facingFrames.camKY = facingFrames.camKY - pdy
+								end
+								facingFrames.camMoved = false
+								facingFrames.camDelta = 0
+								facingFrames.camStillFor = (facingFrames.camStillFor or 99) + 1
+								facingFrames.camX, facingFrames.camY = scx, scy
+								if COMPARE_TIERS then
+									facingFrames.camRebase = (facingFrames.camRebase or 0) + 1
+								end
+							else
 							facingFrames.camMoved, facingFrames.camStillFor = true, 0
 							-- HOW FAR the camera moved this frame, not just whether. The scroll
 							-- registers are u8 and wrap at 256, so the delta is taken the short
@@ -2885,6 +2913,7 @@ function drawOverflow()
 							if COMPARE_TIERS then
 								facingFrames.camD = facingFrames.camD or {}
 								facingFrames.camD[cd] = (facingFrames.camD[cd] or 0) + 1
+							end
 							end
 						else
 							facingFrames.camMoved = false
