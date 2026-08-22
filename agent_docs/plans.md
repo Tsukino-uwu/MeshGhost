@@ -523,6 +523,13 @@ step animation. **Networking is in and works**: `meshghost_crystal.lua` carries 
 `render_remote` and `despawn_remote` over the bridge, and a loopback ghost was watched moving and
 facing correctly (`verified.md`, `phases/phase9.md`).
 
+**Which ROM builds are targets, stated 2026-08-22 by the user.** Confirmed on screen: vanilla
+V1.0 and Archipelago 6.0.0-beta.11. Wanted next, untested: **vanilla V1.1** and **speedchoice
+v8.1**. Each needs its own address table before it is more than a fallback, and the two are
+different work — `pokecrystal` lists V1.1 as one of its own build targets with its own hash, so
+that table can be built and hash-verified like V1.0's, while speedchoice is a patch and needs each
+entry measured, as Archipelago's were. Unscheduled; each is its own live session.
+
 ### Phase 9.1 — Crystal: cap at what the hardware can draw, then DRAW the overflow
 
 **Scheduled 2026-08-19, on the user's explicit call**, moved here from `ideas.md` (which keeps the

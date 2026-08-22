@@ -9,8 +9,13 @@ visible tile at 60fps, user-confirmed (a loopback ghost had walked on both vanil
 Archipelago-patched ROM the day before).
 
 - Platform: Game Boy Color, played via BizHawk.
-- Confirmed working roms: **"Vanilla V1.0"**, **"Archipelago 6.0.0-beta.11"** (the latter with one
-  address still unmeasured — see the next bullet).
+- Confirmed working ROMs, on screen: **Vanilla V1.0**, **Archipelago 6.0.0-beta.11**.
+- Intended, not yet tested: **Vanilla V1.1**, **speedchoice v8.1**. Each needs its own address
+  table before it is more than a fallback — today an unrecognised build runs on vanilla's table
+  with a one-line "untested" log. The two are not equal work: `pokecrystal` lists V1.1 as one of
+  its own build targets with its own hash, so that table can be *built and hash-verified* the way
+  V1.0's was, while speedchoice is a patch and needs each entry *measured*, as Archipelago's were.
+
 - **One address table per ROM build, chosen at startup from the header title.** Vanilla's entries
   come from our own hash-verified `pokecrystal` build; Archipelago's were each *measured*, because
   its patch rearranges WRAM non-uniformly and no constant offset recovers vanilla's addresses
