@@ -2999,6 +2999,21 @@ local function stepGhost(g, dir)
 	-- Isolating by subtraction rather than guessing a third correction on top: `CLAUDE.md`. The
 	-- re-anchor stays as a bound and as the instrument that says whether this was right -- if it
 	-- goes quiet, nothing is drifting.
+	--
+	-- 2026-08-22, MEASURED with both step machines side by side (probes, stepcmp): the player takes
+	-- 14 frames and 7 duration ticks to cross a tile; the ghost at 7 ticks came up 2px short, and
+	-- at 8 ticks landed exactly but took 15 frames -- a frame slower per tile, which accumulates
+	-- and is what the user saw as the spawned ghost being *"a bit delayed/slow"*.
+	--
+	-- So the missing 2px is real and is the frame the engine spends INITIATING a step, which our
+	-- ghost never gets because the step is set up a frame later. It is recovered here rather than
+	-- by lengthening the step, so the ghost keeps the player's pace exactly.
+	-- AND THE COMPENSATION IS GONE AGAIN, because 8 ticks already cover the tile.
+	--
+	-- Adding the missing 2px here made the ghost land correctly and MOVE WRONG: it is one lump in
+	-- the frame the step starts, on a frame the engine also moves, so that frame travels 4px in an
+	-- otherwise 2px walk. Measured as 7 moves of 2px against the player's 6, and seen as the user's
+	-- *"keeping up but snapping"*. A correction applied all at once is a snap however small it is.
 
 	-- READ BACK the one field whose absence makes the engine run away.
 	--
@@ -3334,7 +3349,13 @@ local function renderRemote(id, state)
 			w8(g.st_base + F_SPRITE_X, wantX)
 			w8(g.st_base + F_SPRITE_Y, wantY)
 			snaps.drift = (snaps.drift or 0) + 1
+			-- SIGNED, and the lack of a sign cost this investigation two passes. Logging only the
+			-- magnitude made "the step lands 2px SHORT" and "the compensation overshoots by 2px"
+			-- print the identical line, so two opposite faults were indistinguishable and the same
+			-- number was read as confirming whichever theory was current. A correction's direction
+			-- is the whole of its diagnosis.
 			snaps.driftPx = math.max(snaps.driftPx or 0, math.abs(ddx) + math.abs(ddy))
+			snaps.driftDir = string.format("%+d,%+d", ddx, ddy)
 			if math.abs(ddx) + math.abs(ddy) > 2 then
 				logFile(string.format("MeshGhost: re-anchored %s to its tile by %+d,%+d px "
 					.. "(a drift bigger than one step's compensation)", id, ddx, ddy))
@@ -3855,8 +3876,9 @@ local function tick()
 	-- mean frames are being lost elsewhere. Silent when nothing drifts.
 	if (snaps.drift or 0) > 0 and bridgeFrames - snaps.at >= 60 then
 		logFile(string.format("MeshGhost: re-anchored a spawned ghost to its tile %d time%s this "
-			.. "second, worst %d px off", snaps.drift, (snaps.drift == 1) and "" or "s",
-			snaps.driftPx or 0))
+			.. "second, worst %d px off, last correction %s", snaps.drift,
+			(snaps.drift == 1) and "" or "s", snaps.driftPx or 0,
+			snaps.driftDir or "?"))
 		snaps.drift, snaps.driftPx = 0, 0
 	end
 	if snaps.n > 0 and bridgeFrames - snaps.at >= 60 then
