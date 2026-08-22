@@ -3989,3 +3989,51 @@ between runs, and never present when the game is handed back.
 over explicitly — *"if you want to go 1 tile up to enter, then 1 tile down to exit"* — driving is
 exactly right, and got 32 measured crossings in three minutes that a person would have had to walk
 by hand. The rule is about who is holding the pad, not about whether driving is allowed.
+
+## Crystal: the learned frame measured its parts from OAM entry 0, so right-facing drew 8px left (2026-08-22)
+
+**Symptom.** The drawn ghost sat ~8px left of where it belonged **only when facing right** — the
+user: *"when facing right, the drawn ghost gets offset a bit to the left. it does not do that for
+any of the other directions"*.
+
+**Cause.** `readPlayerOamFrame` recorded each of the four sprite parts as an offset from **OAM entry
+0**. The engine emits a character's entries MIRRORED when the sprite is flipped, so entry 0 is the
+top-LEFT part one way round and the top-RIGHT part the other. Right-facing is the only direction
+drawn from the mirrored side view, so it was the only one affected. Measured directly:
+
+```
+up     [4@0,0  5@8,0   6@0,8   7@8,8 ]
+left   [8@0,0  9@8,0  10@0,8  11@8,8 ]
+down   [0@0,0  1@8,0   2@0,8   3@8,8 ]
+right  [8F@0,0 9F@-8,0 10F@0,8 11F@-8,8]   <- every dx negated
+```
+
+**Fix.** Measure the parts from the minimum x and y across the four entries. The minimum is
+invariant under the flip, because the SET of four positions is identical either way — only which
+entry reports which member changes. Confirmed on screen (*"absolutely perfect/static in all
+directions now"*) and in the log: all four facings inside a 0..8 box, no negatives.
+
+**THE FIX ALREADY EXISTED IN THIS FILE, ONE FUNCTION AWAY.** The tier's own anchor calibration takes
+the minimum x across the same four entries, for exactly this reason — recorded 2026-08-19, in this
+file, under "Calibrating on OAM entry 0: the entry ORDER swaps when the sprite flips". It was never
+carried across to the learner.
+
+**That is the pattern worth extracting, and it happened THREE times in one session:**
+
+| rule | where it lived | where it was missing |
+|---|---|---|
+| place only on a settled camera | Emerald's spawn path | Crystal's, until it was re-reported (2026-08-19) |
+| take the MINIMUM x across the four OAM entries | the tier's anchor | the tier's frame learner (this entry) |
+| pair a value with the frame OAM was built from | the position model | the facing learner |
+
+Each was found, written down, and fixed correctly — in one place. The sibling path kept the bug and
+surfaced it later as a fresh-looking user report, which is expensive precisely because it does not
+look like a known issue. **When a fix is recorded, the same pass should ask: what ELSE reads this,
+and does it need the same rule?** `CLAUDE.md` says this about back-porting to `_template/`; it is
+just as true between two functions in one file. Candidate sweep: `agent_docs/ideas.md`.
+
+**And the user's instinct is the transferable half:** told about an 8px offset the obvious response
+is an 8px correction, and they pushed back — *"so maybe its another issue we haven't found yet
+instead of just an offset?"* A compensation would have worked for right-facing and broken the
+moment anything else flipped. `_template/BANDAGES.md` calls this shape out; here it was avoided
+because the reporter refused it.

@@ -1220,7 +1220,6 @@ local facingFrames = {}
 local function readPlayerOamFrame()
 	local frame = {}
 	local playerTileBase = u8(OBJECT_STRUCTS + F_SPRITE_TILE) or 0
-	local baseX, baseY = memory.read_u8(1, "OAM") or 0, memory.read_u8(0, "OAM") or 0
 	for i = 0, 3 do
 		local y = memory.read_u8(i * 4, "OAM") or 0
 		if y == 0 or y >= 160 then
@@ -1257,9 +1256,39 @@ local function readPlayerOamFrame()
 			offset = offset,
 			tile = memory.read_u8(i * 4 + 2, "OAM") or 0,
 			xflip = ((memory.read_u8(i * 4 + 3, "OAM") or 0) & 0x20) ~= 0,
-			dx = (memory.read_u8(i * 4 + 1, "OAM") or 0) - baseX,
-			dy = y - baseY,
+			-- Raw screen position for now; normalised against the frame's own top-left below.
+			dx = memory.read_u8(i * 4 + 1, "OAM") or 0,
+			dy = y,
 		}
+	end
+
+	-- MEASURE THE PARTS FROM THE FRAME'S TOP-LEFT, NOT FROM ENTRY 0.
+	--
+	-- The engine emits a character's four entries MIRRORED when the sprite is flipped, so entry 0
+	-- is the top-LEFT part facing one way and the top-RIGHT part facing the other. Taking it as the
+	-- origin therefore negates every dx on a flipped frame: measured 2026-08-22, right-facing came
+	-- back `[8F@0,0 9F@-8,0 10F@0,8 11F@-8,8]` where every other facing gave `@0,0 @8,0 @0,8 @8,8`.
+	-- The character then draws 8px to the LEFT of where it belongs, and only when facing right --
+	-- the one direction whose art is the mirrored side view. The user: *"when facing right, the
+	-- drawn ghost gets offset a bit to the left. it does not do that for any of the other
+	-- directions"*.
+	--
+	-- THIS FILE ALREADY KNEW. The tier's own anchor calibration takes the MINIMUM x across the four
+	-- entries for exactly this reason -- see the 2026-08-19 entry in pitfalls.md, where calibrating
+	-- on entry 0 made the origin alternate by 8px as the player turned. That fix was never carried
+	-- across to the learner, which is the third time in one session a correct rule was found living
+	-- in one code path and missing from its sibling.
+	--
+	-- The minimum is invariant under the flip, because the SET of four positions is the same either
+	-- way -- only which entry reports which member changes.
+	local minX, minY = 255, 255
+	for i = 1, 4 do
+		if frame[i].dx < minX then minX = frame[i].dx end
+		if frame[i].dy < minY then minY = frame[i].dy end
+	end
+	for i = 1, 4 do
+		frame[i].dx = frame[i].dx - minX
+		frame[i].dy = frame[i].dy - minY
 	end
 	return frame
 end
@@ -1425,7 +1454,8 @@ local function learnFacingFromPlayer()
 		if MESHGHOST_CRYSTAL_FACING_TRACE then
 			local parts = {}
 			for i = 1, 4 do
-				parts[i] = string.format("%d%s", frame[i].offset, frame[i].xflip and "F" or "")
+				parts[i] = string.format("%d%s@%d,%d", frame[i].offset,
+					frame[i].xflip and "F" or "", frame[i].dx, frame[i].dy)
 			end
 			-- THE INVARIANT, so the log settles this instead of the user's eyes. A 12-tile walking
 			-- sprite is three groups of four -- one per view -- so every frame a facing accepts

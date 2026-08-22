@@ -2487,3 +2487,27 @@ only when isolated:
   — "has this value changed?" needs no knowledge of what the value means), not per adapter.
 
 **Not scheduled.** Nothing here is committed until it moves into `plans.md`.
+
+## Sweep: rules that live in one code path and are missing from their sibling
+
+**Unscheduled.** Three instances surfaced in a single session (2026-08-22) and each reached the user
+as a fresh bug report rather than as a known issue — see the table in `pitfalls.md`, "the learned
+frame measured its parts from OAM entry 0". The shape is always the same: a rule is discovered,
+fixed correctly, and written down, in ONE of the two or three places that need it.
+
+**Why it is worth a deliberate pass rather than waiting.** These do not look like known issues when
+they resurface, so each costs a full diagnosis from scratch — and the existing write-up actively
+misleads, because it says the thing is fixed.
+
+**Known multi-consumer rules in the BizHawk adapters, as a starting list:**
+
+- **The four OAM entries mirror when the sprite flips** — consumed by the anchor calibration and the
+  frame learner. Both correct as of 2026-08-22; check any third reader.
+- **A value read from OAM belongs to the PREVIOUS frame** — consumed by the position model and the
+  facing learner.
+- **Place only on a settled camera** — the spawn path and the teleport path, in both adapters.
+- **"Is this the player's sprite?"** — the learner validates it; the anchor calibration still assumes
+  entries 0-3 without checking, which is the same assumption that produced the facing bug.
+
+**Method:** for each rule, grep for every reader of the underlying data rather than for the rule's
+own wording — the sibling path never mentions the rule, which is exactly why it was missed.

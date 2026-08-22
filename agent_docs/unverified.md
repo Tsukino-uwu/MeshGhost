@@ -731,6 +731,9 @@ confirmed by the user watching a loopback session in New Bark Town, in their own
   regression**: an empty ring makes the aged lookup miss and fall through to this frame's own
   sample — a wrong reference rather than a missing one — which the user saw as the ghost wiggling
   while simply walking up. `pitfalls.md`.
+- **The drawn ghost sits on its tile in all four directions** — *"absolutely perfect/static in all
+  directions now"*. Right-facing drew 8px left because the learned frame measured its parts from OAM
+  entry 0, which is the top-RIGHT part on a mirrored sprite. `pitfalls.md`.
 - **The drawn ghost faces the right way in all four directions** — *"seems to work properly now"*,
   after six attempts. Cause and method: `pitfalls.md`, "our own ghost's OAM entries are
   indistinguishable from the player's". Verified in the log as well as on screen: four facings,
