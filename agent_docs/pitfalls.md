@@ -4244,3 +4244,58 @@ that REPEATS.** *"1 tile looks good/perfect... 4-5+ tiles and it starts to look 
 the phase being re-rolled every time the model momentarily caught up — many times in a long walk,
 once in a short one. Constant offsets and rounding errors do not behave that way; count the repeats
 rather than looking harder at the magnitudes.
+
+## Crystal: the drawn ghost's motion, from "stuttery" to clean — the whole chain, 2026-08-23
+
+One symptom word, *"jittery"*, covered **nine distinct defects** in three different layers. They are
+listed together because the order they were found in is the lesson: every layer read clean while a
+layer beneath it was wrong, and the instruments agreed with each wrong layer in turn.
+
+### Layer 1 — the position model (what the ghost's world coordinate does)
+
+| # | Symptom | Cause | Fix |
+|---|---|---|---|
+| 1 | stutter at 250ms, invisible at 0ms | interpolation gives FRACTIONAL pixels; mean 0.970 px/frame was right, but only 65 of 198 frames advanced a whole pixel | quantise onto the engine's 2px grid |
+| 2 | still stuttering | a 1px/frame ghost is **smoother than the game** — the scroll never moves 1px | move in the engine's 2px quantum |
+| 3 | "same/bad" while histograms read perfect | ghost moving on a fixed parity, ANTI-PHASE with the player: 2px of relative shift EVERY frame | take the phase from the engine's observed tick |
+| 4 | "1 tile fine, 4-5+ tiles jittery" | the phase cleared whenever the model momentarily caught up — many re-latches in a long walk, half landing anti-phase | release the phase only after a real stop (30 frames) |
+| 5 | "stuttering constantly" / "snapping back" alternately | three catch-up policies in a row: too eager stuttered, too patient let lag reach the emergency snap | commit whole tiles; decide only at boundaries |
+| 6 | "gliding backward during the walk" | mid-gait boundaries held to the 6px cold-start cushion, bleeding 1-2px per tile (measured: sx 14 -> 2 across one side) | chain at 2px when already walking |
+| 7 | "snapping back every single step" | the "never move on consecutive frames" rule — **the engine's scroll DOES tick on consecutive frames**, and the rule zeroed the budget exactly then (`cam=2 gap=1 bud=0`) | on a camera frame, copy the camera's delta unconditionally |
+
+### Layer 2 — the paint (how a world coordinate becomes a screen position)
+
+| # | Symptom | Cause | Fix |
+|---|---|---|---|
+| 8 | one -2/+2 pair per tile, surviving every model fix | the screen origin came from the player's **tile + step progress**, two values that hand over on DIFFERENT frames at each boundary. The old ghost term shared that machinery so the seams cancelled; a seamless model term exposed it | paint as `model - camera + K`, one coordinate frame |
+| 9 | "1 tile further back the whole walk, snaps home on stopping" | an 8px **diagonal** register jump on the first frame of each walk — a REBASE, not motion, and the accumulator painted it | absorb an implausible delta into the accumulator AND K in the same frame |
+
+### Layer 3 — the animation (which pose is drawn)
+
+- **The stride's clock**: progress came from distance REMAINING to a destination tile that advances
+  when the peer starts its next step, so the cycle restarted a few pixels early every step and its
+  last images were mostly never drawn (`0:134 2:166 ... 14:114 16:64` — the end of the cycle three
+  times rarer than the middle). Now distance TRAVELLED: model position modulo the tile grid.
+- **The stride's axis** came from the peer's reported facing, so one flickering frame moved the
+  measurement to the other coordinate. Now from where the ghost is actually going.
+- **A one-frame facing flicker counted as a turn**, and the turn suppression punched a single-frame
+  hole in an otherwise correct burst (`RRRRrRRR`). A facing must now survive a frame.
+- **The legs were gated on the wire's `walking` flag**, which describes the peer NOW while the model
+  walks a position a quarter-second older — so the legs froze mid-stride at every stop while the
+  body glided on. Now gated on the model's own movement.
+- **`stepProg` was computed and never read** — a dead local under a comment explaining why the
+  stride had to share the body's clock, while everything downstream read the raw value the comment
+  said was the problem.
+- **A sign bug** in the old progress (`16 + (pix - tile*16)`) pinned left and up at 16 for the whole
+  step, so those two directions held one image instead of running a cycle.
+
+### The two rules worth carrying out of all of it
+
+> **A fault whose severity grows with the length of the action is something that REPEATS.** "One
+> tile is perfect, five tiles is bad" is not a constant offset and not a rounding error — count the
+> repeats and find what re-rolls.
+
+> **When the model and the screen disagree, the coordinate frame is the suspect.** Layers 1 and 3
+> were each measured clean while layer 2 was wrong, because every instrument was built in the
+> model's own frame. The only instrument that could see it was one that watched the painted screen
+> position — the number the eye actually watches.

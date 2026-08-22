@@ -1518,3 +1518,69 @@ Three rules came out of the same hunt, each of which cost an iteration:
   instrument read clean at that point; the ghost was landing on the right pixels at the wrong times.
   The player's own figure has to be on the line beside it, because the engine is irregular too and
   the target is to match *its* irregularity, not to be metronomic.
+
+## The instruments that finally worked, and the ones that lied for hours (Crystal, 2026-08-23)
+
+A single reported symptom — *"jittery"* — took a full session and nine distinct defects to clear.
+Almost all the cost was instrumentation: at every stage the numbers said "fixed" and the user said
+"still bad", and **the numbers were honest measurements of the wrong quantity**.
+
+### The four probe shapes that broke the deadlock, in the order they should be reached for
+
+**1. Measure the SCREEN POSITION, one character per frame, signed.** Every earlier instrument
+measured the model — its magnitudes, its intervals, its lead over the target — and all of them read
+clean while a bug in the PAINT displaced the ghost. `.` steady, `+` forward, `-` backward, `x`
+sideways (a walking character never moves on its perpendicular axis), `<`/`>` bigger. **The eye
+watches the painted position, so the probe must too.**
+
+**2. Split a computed quantity into its terms and print one line per term, same columns.** A painted
+position is `model - reference`, and a mark on the result cannot say which side moved. One line per
+term, plus the clock underneath, and the wobbling line names itself:
+
+```
+cadence screen .-.+.............-.+.............-.+......
+cadence model  .+.+.+.+.+.+.+...#.+.+.+.+.+.+...#.+.+.+.
+cadence ref    -.-.-.-.-.-.-.#.-.-.-.-.-.-.-.#.-.-.-.-.-
+cadence cam    402020202020200040202020202020004020202020
+```
+
+**3. EVENT-TRIGGERED dumps beat sampling for one-frame faults.** A probe firing every 15 frames
+averages away the thing it is hunting. Trigger on the fault itself — *"whenever the painted position
+jumps 2px or more, dump the model's entire state for that frame"* — and the mechanism appears in one
+line. This found a fault in a single reading after hours of failed theories: `cam=2 gap=1 bud=0`,
+i.e. an ordinary camera tick one frame after the previous one, with the model's own rule zeroing its
+budget exactly then.
+
+**4. When the reasoning has been wrong twice, print RAW NUMBERS.** Symbols encode the assumption
+being tested. A dump of every term in a sum, unprocessed, settled a sign question that two rounds of
+careful reasoning had got backwards: walking left, `model + camera` held at `196,196,196,196` while
+`model - camera` raced.
+
+### Five ways the instruments lied
+
+- **A uniform histogram can BE the fault.** `2px:59`, every moving frame identical, no outliers —
+  that is what "fixed" looks like, and it was a ghost shaking in anti-phase with the player at 30Hz.
+  **Ask what the RIGHT distribution is:** two bodies moving together should read mostly ZERO relative
+  movement. A quantity that should sometimes be zero and never is has been made to oscillate.
+- **The two sides of a comparison measured different KINDS of thing.** The player's cadence came
+  from the OAM the engine blitted; the ghost's from a variable that FEEDS the drawn tile. Anything
+  going wrong after that variable was invisible to the one instrument built to catch it. Both sides
+  of a diff must be sampled at the same layer.
+- **A clamped bucket poisoned a mean.** One 98px outlier filed under a "5px or more" bucket, with
+  its full magnitude still in the running total: reported mean 2.708 px/frame over a histogram whose
+  own contents average 1.01. Report outliers separately, with their real size.
+- **A per-frame local printed once a second** is a sample of the log's timing, not of the system:
+  `0 on a stepping frame` in 439 of 441 samples, while the cumulative counter said 45%. Both were
+  right.
+- **The test harness's own behaviour was read as the subject's.** The driver paused 2s at every
+  corner, so the ghost faithfully echoed a stop and a start there — indistinguishable from a
+  renderer fault. A `FLOW` option that takes corners in stride separated them in one run. **Any
+  pause, retry or reset in a driver becomes a feature of what you are measuring.**
+
+### And one that was not an instrument at all
+
+**A one-character bug in a debug string inverted a conclusion.** A direction table written `"durl"`
+where the adapter's order is down/up/**l**eft/**r**ight silently swapped every left and right label
+in three instruments at once, which inverted a measured axis convention and cost a fully wrong
+rendering deploy. **A label is data too**: when a measured conclusion is surprising, check the
+labelling before believing it.

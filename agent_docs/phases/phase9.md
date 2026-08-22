@@ -662,3 +662,49 @@ lines are unread until the next one. Entries 5 and 6 in `adapters/_template/prob
    through a step".
 3. **A respawn teleports on the first tile** — the ghost is placed at a tile the peer has already
    left, so the next update snaps instead of walking.
+
+## 2026-08-23 — the drawn tier's motion, and a full session spent inside instruments
+
+**Outcome: user-confirmed clean at the dev rig** (`verified.md`), after nine distinct defects across
+three layers. The full symptom → cause → fix table is in `pitfalls.md`; the instrument methods, which
+are the more reusable half, are in `adapters/_template/probes.md`.
+
+### The shape of the session, which is the lesson
+
+The reported symptom was one word, *"jittery"*, and it covered **both position and animation**. It
+was read as position, and five instruments plus four rebuilds of the motion model followed, each
+measuring clean while the user kept saying it looked wrong. The user disambiguated it themselves —
+*"weird choppy animation speeds"*, then *"position wise its following perfectly"* — and the animation
+cause was found in one step, in a histogram that had been printing all along.
+
+**The question that would have split it in one sentence, and is now the default for anything
+visual:** *is it in the wrong PLACE, or in the right place doing the wrong THING?*
+
+### The three layers, and why each hid the next
+
+1. **The model** (the ghost's world coordinate). Seven defects, ending in a design that commits
+   whole tiles, decides only at tile boundaries, and copies the camera's own per-frame delta.
+2. **The paint** (world coordinate to screen position). The screen origin came from the player's
+   tile plus step progress — two values that hand over on different frames — and the old renderer's
+   ghost term shared that machinery, so the seams cancelled. A seamless model exposed it. Now
+   painted in the camera's own frame: `model - camera + K`.
+3. **The animation**. Six defects, including a dead local, a sign bug that pinned two directions,
+   and legs gated on the wire's flag instead of the model's own clock.
+
+Each layer read clean while the one beneath it was wrong, because every instrument was built in the
+layer's own coordinate frame. **The instrument that broke the deadlock watched the painted screen
+position** — the number the eye actually watches.
+
+### Facts about Crystal established, all measured on the running ROM
+
+Recorded in `verified.md`: a tile is 8 ticks of 2px and the scroll never moves 1px; both scroll
+registers run inverted to map pixels; the movement tick is not on a fixed frame parity and does tick
+on consecutive frames; the registers are rebased (an 8px diagonal jump at each walk start) and a
+rebase must not be painted as motion.
+
+### Rig work that came out of it
+
+`run-core-crystal-shipped.bat` / `run-relay-loopback-shipped.bat` (the shipped case now has a named
+rig); the core logs its own smoothing settings; `square_drive` takes `MESHGHOST_SQUARE_SIDE`,
+`_DIRS`, `_LOAD_STATE` and `_FLOW`; `MESHGHOST_CRYSTAL_GHOSTS_PASSABLE` removes the collision
+confound; and `square_drive` is in the syntax checker's list, which it should always have been.

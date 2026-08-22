@@ -137,6 +137,17 @@ Only steps that actually happened and were confirmed are listed here.
    length rather than the sprite writes that had been suspected. Two things were removed one at a
    time to get there, with a measurement after each and no third guess.
 
+10. Made the painted ghost move like the engine rather than like a position feed, which took a whole
+    session and nine distinct defects across three layers — the world coordinate, the paint, and the
+    walk cycle — each of which read clean on instruments built in its own frame while the layer under
+    it was wrong. What settled it was measuring the PAINTED SCREEN POSITION, one character per frame:
+    the number the eye actually watches. The ghost now commits whole tiles like a Crystal character,
+    decides only at tile boundaries, and advances on the frames the camera itself scrolls, copying
+    its delta; it is painted in the camera's own coordinate frame, so the seam that a tile-plus-
+    progress origin opens at every step boundary is gone. Full chain in
+    [pitfalls.md](../../../../agent_docs/pitfalls.md); the instruments, which outlast the fix, in
+    [probes.md](../../_template/probes.md).
+
 ### Further work past "good enough"
 
 Open as of 2026-08-22 — [agent_docs/status.md](../../../../agent_docs/status.md) is the

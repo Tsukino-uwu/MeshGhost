@@ -898,3 +898,27 @@ values. The model never fell more than 20px behind a 16px step and **never once 
   band: those two directions held ONE image for the whole step instead of running a cycle. Taken as
   a distance now, which has no sign to get wrong. This is a candidate explanation for the
   directional complaints (*"still doing right a bit fast sometimes"*) and is not confirmed as such.
+
+## Crystal's drawn tier: what the 2026-08-23 confirmation does NOT cover
+
+The user confirmed the drawn tier clean — *"i think this one looks perfect now"* — at the **dev rig's
+settings** (`verified.md`). Everything below is measured, not confirmed, and the first item is the
+one the session originally set out to answer.
+
+1. **THE SHIPPED 250ms CONFIGURATION WAS NEVER RE-JUDGED.** The session began there (the reported
+   fault), moved to `-interp=0ms` to isolate the renderer from the delay, and every fix since was
+   judged at 0ms. The model was designed for the noisy interpolated stream and should behave at
+   least as well there, but that is a prediction. **Run `run-relay-loopback-shipped.bat` +
+   `run-core-crystal-shipped.bat` and look, before calling the shipped case anything.**
+2. **A real peer, rather than loopback.** Every reading came from a peer whose motion is the local
+   player's own, on one machine. A second machine's peer has genuinely independent timing.
+3. **The camera-frame paint assumes one camera.** `camAX/camAY/camKX/camKY` live on `facingFrames`,
+   i.e. one accumulator shared by all peers, which is correct (there is one camera) but has only
+   been exercised with a single peer on screen.
+4. **Map changes and warps.** `K` re-calibrates whenever the camera is parked for 8 frames, which
+   should cover a transition, and the rebase absorber handles the register jump — neither has been
+   watched across a real door, ledge or Fly.
+5. **Non-walking movement.** Bike, surf, ledge hops and the Fly landing all move the camera at rates
+   the model clamps to 2-4px. Untested, and `catchup`'s 4px bike gait is the only faster path.
+6. **The `x` (perpendicular) and `>` (large) marks that remain in the screen trace** cluster at lap
+   transitions and 8px camera frames. Small, unexplained, and now visible to the instrument.

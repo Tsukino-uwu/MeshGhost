@@ -10028,3 +10028,49 @@ ghost -- the engine only accepts "start a step now", never "you are part-way thr
 interpolation the same drawn tier staircases badly (*"the drawn one really really bad"*), because
 its sub-tile position rides in `extras`, which the core does not interpolate. That gap is the open
 item and is NOT covered by this confirmation. `unverified.md`.
+
+## Crystal's drawn tier: motion and animation confirmed clean, at the DEV rig — 2026-08-23
+
+User, after the last of a long chain of fixes: *"now its perfectly following without any weird
+stutter/jitter issues"*, and on the final build: *"i think this one looks perfect now"*.
+
+**SCOPE, and it is narrow.** Confirmed at the DEV rig only: `-interp=0ms -min-send=10ms` against a
+loopback relay, `MESHGHOST_CRYSTAL_GHOSTS_PASSABLE = true`, driven by `square_drive` at 9 tiles a
+side in flow mode. Vanilla Crystal. **The SHIPPED 250ms configuration was NOT re-judged after any of
+this work** — the session began there, moved to 0ms to isolate the renderer from the delay, and
+never went back. That is the first item for the next session (`unverified.md`, `status.md`).
+
+What the confirmation covers, all four directions, over long (9-tile) sides:
+
+- **Position**: the drawn ghost follows with no stutter, no jitter, no backward glide and no snap.
+  Earlier in the same session the user separately confirmed the position half alone: *"position wise
+  its following perfectly"*.
+- **Animation**: the walk cycle runs 8 stepping frames alternating with 8 standing ones, in step
+  with the player's own, with no dropped frames mid-burst.
+- **Walk starts and stops**: no snap on setting off, no one-tile displacement during the walk, no
+  snap home on stopping.
+
+### What the renderer now does, in one paragraph
+
+The drawn ghost is a **model** that commits whole 16px tiles and decides only at tile boundaries,
+never mid-step — the same constraint a Crystal character has. It advances on the frames the
+**background scroll register changes**, copying the camera's own per-frame delta (clamped to the
+engine's 2px walk / 4px bike gaits); with the camera parked it falls back to its own 2-frame beat.
+It is painted as `model - camera_accumulator + K`, one integer coordinate frame, with `K` calibrated
+from the old tile+progress formula whenever the camera has been still for half a second. The legs
+read the same clock as the body: progress is the model's own position modulo the tile grid along its
+axis of travel.
+
+### Facts about the game established on the way, each measured on the running ROM
+
+- **A tile is 8 ticks of 2px.** The background scroll moves 0, 2 or 4 pixels per frame and **never
+  1**; the player's sprite does not move at all, the world scrolls past it. `stepProgress`'s
+  `(8 - STEP_DURATION) * 2` is not a lossy reading of a finer value — it is the value.
+- **Both scroll registers run INVERTED to map pixels**, X exactly as Y (walking right moves the X
+  register the opposite way to the player's map x). Measured per direction, by logging every camera
+  move against the direction the player was walking.
+- **The engine's movement tick is NOT on a fixed frame parity**, and it does scroll on consecutive
+  frames. Within one bout of walking the parity is stable (measured odd 95 / even 1); across bouts
+  it differs (64 / 32 pooled).
+- **The scroll registers are rebased**, not only scrolled: an 8px diagonal jump appears on the first
+  frame of each walk, which is not motion and must not be painted as such.
