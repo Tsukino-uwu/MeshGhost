@@ -2810,6 +2810,9 @@ function drawOverflow()
 								end
 							else
 								o.modelX, o.modelY = o.modelX + sx2, o.modelY + sy2
+								-- The legs read this. Position and pose have to come off ONE
+								-- clock, and this is the tick of that clock.
+								o.modelMovedAt = drawFrames
 							end
 						end
 					end
@@ -3124,7 +3127,21 @@ function drawOverflow()
 					if o.rearm and o.walking then
 						o.rearm = nil
 					end
-					local moving = (o.walking or o.idleFor <= 3) and not o.rearm
+					-- THE LEGS RUN OFF THE MODEL, exactly as the body does. `o.walking` is the wire's
+					-- flag and it describes the peer NOW; the model walks a position a quarter
+					-- second older. Every time the peer stops, the flag goes false while the model
+					-- still has ~15 frames of walking left to finish, the three-frame grace runs
+					-- out, and the legs freeze mid-stride while the body glides on -- once per
+					-- pause, which under a driver pausing at every corner is constant. The wire
+					-- flag also flickers standing at the top of each of the PEER's steps, at a
+					-- phase that has nothing to do with where the MODEL is in its own step.
+					--
+					-- The model knows whether it is moving; that is the flag with the right clock.
+					-- The window is 2 because the model moves every other frame: a gap of two
+					-- frames is the walk itself, a gap of three is a stop.
+					local modelActive = o.modelMovedAt ~= nil
+						and (drawFrames - o.modelMovedAt) <= 2
+					local moving = (modelActive or o.walking or o.idleFor <= 3) and not o.rearm
 					if moving and (peerProg <= 4 or peerProg >= 14) then
 						if not o.stepLatch then
 							o.stepLatch = ((o.face or 0) & 3) + 1 -- +1 so 0 is not falsy
@@ -3209,6 +3226,22 @@ function drawOverflow()
 						if chosen and (o.facing == 2 or o.facing == 3)
 							and chosen[1].xflip ~= (o.facing == 3) then
 							mine = "!"
+						end
+						-- MEASURE THE TILE THAT IS DRAWN, not the latch that suggests one.
+						--
+						-- This trace was asymmetric and had been all along: the player's character
+						-- came from `readPlayerOamFrame()` -- the actual OAM the engine blitted --
+						-- while the ghost's came from `o.stepLatch`, a variable that FEEDS the
+						-- choice. So the two lines never compared the same kind of thing, and
+						-- anything going wrong after the latch, inside `pick`, was invisible to
+						-- the one instrument built to catch it, while every reading looked clean.
+						-- `_template/probes.md` states this rule outright -- measure what is DRAWN,
+						-- not the fields that feed it -- and it was broken here in the exact shape
+						-- the rule describes. `x`/`z`/`!` above stay: they explain a disagreement,
+						-- but the letter's case now reports the drawn tile.
+						if chosen and mine ~= "!" then
+							local stepping = (chosen[1].offset & 0x80) ~= 0
+							mine = stepping and mine:upper() or mine:lower()
 						end
 						local pf = readPlayerOamFrame()
 						local theirs = "?"
@@ -3964,6 +3997,7 @@ local function renderRemote(id, state)
 			modelX = prev and prev.modelX, modelY = prev and prev.modelY,
 			modelPhase = prev and prev.modelPhase,
 			modelStill = prev and prev.modelStill,
+			modelMovedAt = prev and prev.modelMovedAt,
 			progAxis = prev and prev.progAxis,
 			facingSeen = prev and prev.facingSeen,
 			stepLatch = prev and prev.stepLatch,
@@ -4047,6 +4081,7 @@ local function renderRemote(id, state)
 			modelX = prev and prev.modelX, modelY = prev and prev.modelY,
 			modelPhase = prev and prev.modelPhase,
 			modelStill = prev and prev.modelStill,
+			modelMovedAt = prev and prev.modelMovedAt,
 			progAxis = prev and prev.progAxis,
 			facingSeen = prev and prev.facingSeen,
 			stepLatch = prev and prev.stepLatch,
@@ -4083,6 +4118,7 @@ local function renderRemote(id, state)
 			modelX = prev and prev.modelX, modelY = prev and prev.modelY,
 			modelPhase = prev and prev.modelPhase,
 			modelStill = prev and prev.modelStill,
+			modelMovedAt = prev and prev.modelMovedAt,
 			progAxis = prev and prev.progAxis,
 			facingSeen = prev and prev.facingSeen,
 			stepLatch = prev and prev.stepLatch,
