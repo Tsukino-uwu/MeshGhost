@@ -1372,3 +1372,35 @@ GHOST happens to be facing.
 player's" animation state, bone transforms, material parameters or draw calls has the same
 exposure. The question to ask of any observed data is not *"is this valid?"* but *"could my own
 ghost have produced this, and would I be able to tell?"*
+
+## An input-driving probe is not a passive instrument — never leave one loaded
+
+**A probe that presses buttons is a second player.** While it is loaded it is holding the
+controller alongside whoever else is at the keyboard, and the two fight: the character stutters,
+walks off on its own, or refuses to go where it is told. In a LOOPBACK session that is worse than
+it sounds, because the ghost is the local player echoed — so a probe jittering the player jitters
+the ghost, and it presents as a **rendering** fault in the thing being tested.
+
+**Found live 2026-08-22 (Crystal).** A door-walking probe was left loaded while the user tested by
+hand. When they reported the ghost wiggling, the probe was a real suspect and cost a round of
+diagnosis. It was innocent that time — the wiggle was a genuine bug — which is the part worth
+keeping: **an uncontrolled instrument does not have to cause the fault to cost you the
+investigation.** It only has to be a plausible explanation you cannot rule out cheaply.
+
+**The rules:**
+
+- **Unload it the moment the driven run ends**, the same way a per-frame trace comes off when it
+  has answered its question. "Off by default" is not enough for something that moves the character;
+  it has to be off *between* runs.
+- **Never hand the game back with one loaded.** If the user is going to look at anything, the
+  controller is theirs alone.
+- **Say so in the script itself**, loudly, at load — not only in a doc. A driving probe should
+  announce that it has the controller, because the symptom (a character that will not obey) looks
+  nothing like "a script is loaded".
+- **When the user hands the controls over explicitly, driving is the right move** — it is far
+  cheaper than asking a person to repeat a crossing forty times. The rule is about who is holding
+  the pad, not about whether driving is allowed.
+
+**The general form, and it is the input-side twin of the cost warning above:** a probe that only
+*reads* can bias a measurement, and a probe that *writes input* can author the behaviour being
+measured. Ask of any instrument: could this have produced the thing I am about to explain?

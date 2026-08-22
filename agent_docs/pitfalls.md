@@ -3957,3 +3957,35 @@ views of four tiles — down 0-3, up 4-7, left/right sharing 8-11 and told apart
 is, by construction, indistinguishable from them in every buffer that records appearance rather
 than identity. Anything learned by observing "the player's" sprite data has to establish WHICH
 character it is reading, or be validated against something only the real player can satisfy.
+
+## An input-driving probe left loaded becomes a suspect in every later report (2026-08-22)
+
+**Symptom.** The user reported the drawn ghost wiggling. `door_loop.lua` — a probe that presses Up
+and Down on a cycle to walk in and out of a house — was still loaded from an earlier driven
+measurement while they tested by hand.
+
+**Why it cost a round.** In a loopback session the ghost is the local player echoed, so anything
+jittering the player jitters the ghost, and it presents as a RENDERING fault in the tier under
+test. That made the probe a genuinely plausible cause, and ruling it out took a reload and a
+round trip to the user.
+
+**It was innocent, and that is the part worth keeping.** The wiggle was a real bug. **An
+uncontrolled instrument does not have to cause the fault to cost you the investigation** — it only
+has to be an explanation you cannot dismiss cheaply. The same reload that cleared the suspicion
+would have been unnecessary had the probe come off when its own measurement finished.
+
+**A second, separate error in the same exchange, worth naming because it is the more expensive
+habit:** the probe was then offered to the user as the likely explanation. That was a guess wearing
+the clothes of isolation. The correct move with two candidate causes and a user at the controls is
+to BISECT — put the tree back to the last committed state, confirm the symptom's presence or
+absence, and only then reason. That is what eventually settled it, several messages later.
+
+**Fixes, both applied:** the probe announces at load that it is holding the controller
+(`door_loop.lua`), and the general rule is in `adapters/_template/probes.md` — "an input-driving
+probe is not a passive instrument". A driving probe is unloaded when its run ends, never left on
+between runs, and never present when the game is handed back.
+
+**Note the legitimate case, so the rule is not read as a ban:** when the user hands the controls
+over explicitly — *"if you want to go 1 tile up to enter, then 1 tile down to exit"* — driving is
+exactly right, and got 32 measured crossings in three minutes that a person would have had to walk
+by hand. The rule is about who is holding the pad, not about whether driving is allowed.
