@@ -2627,8 +2627,21 @@ function drawOverflow()
 						-- following boundary, in phase, with no duration invented here.
 						o.lastFacing, o.idleFor, o.stepLatch, o.rearm = o.facing, 99, nil, true
 					end
-					if o.rearm and peerProg >= 6 and peerProg <= 12 then
-						o.rearm = nil -- the standing half has been seen; stepping may resume
+					-- CLEAR ON THE PEER'S NEXT REAL STEP, not after a whole standing half.
+					--
+					-- Waiting for the standing band meant a turn cost the ghost most of a step
+					-- before it animated again: measured at ~12 frames held against the player's
+					-- ~5, and the user felt it as the drawn ghost starting its *"movement
+					-- animations a bit slow/late"*.
+					--
+					-- What the engine actually does is pivot with the standing view while the
+					-- character is NOT stepping, then step. `anim` already carries exactly that --
+					-- Crystal turns in place, so a pivot reads as not-walking. So the rearm lasts
+					-- precisely as long as the pivot does and no longer, and a direction change
+					-- taken without pausing (walking true throughout) clears it the same frame,
+					-- which is right: nothing paused, so nothing should wait.
+					if o.rearm and o.walking then
+						o.rearm = nil
 					end
 					local moving = (o.walking or o.idleFor <= 3) and not o.rearm
 					if moving and (peerProg <= 4 or peerProg >= 14) then
@@ -2730,10 +2743,41 @@ function drawOverflow()
 					-- moving to the next tile"*, with the detector reporting nothing at all.
 					-- A smooth step is the SAME delta every frame; anything else is the fault,
 					-- however small, so every delta is counted rather than only the large ones.
+					-- PER DIRECTION, because the report is about ONE of them. The user, 2026-08-22,
+					-- after the walk cycle was matched frame for frame: right *"sometimes looks
+					-- fine but other times it looks fast/weird"*, with left, up and down reading
+					-- correct -- and they identified it as the ghost SHIFTING POSITION rather than
+					-- the legs being wrong. A histogram pooled across all four directions cannot
+					-- test that claim: three clean directions bury one dirty one.
+					-- HOW MANY FRAMES BEHIND THE PLAYER IS THIS PEER, REALLY?
+					--
+					-- Only answerable on loopback, and there it is exact: the peer's state IS the
+					-- player's own state from some frames ago, so the ring entry that MATCHES it
+					-- names the round trip -- adapter to core to relay and back. That number bounds
+					-- everything: "the ghost starts its animation late" cannot be fixed below it by
+					-- any amount of renderer work, and knowing it stops the pipeline being
+					-- mistaken for a defect in the drawing.
+					--
+					-- Matched on tile AND progress together, because a tile alone repeats across a
+					-- step and would match the wrong frame.
+					if COMPARE_TIERS and o.only == "drawn" and o.walking then
+						local h = playerHistory
+						for age = 0, h.size - 1 do
+							local e = h[((h.n - age) % h.size) + 1]
+							if e and e.tx == o.x - COMPARE.drawn and e.ty == o.y
+								and e.prog == peerProg then
+								facingFrames.lagSeen = facingFrames.lagSeen or {}
+								facingFrames.lagSeen[age] = (facingFrames.lagSeen[age] or 0) + 1
+								break
+							end
+						end
+					end
 					if o.paintedX and o.walking then
 						facingFrames.stepDelta = facingFrames.stepDelta or {}
+						local k = ("durl"):sub((o.facing or 0) + 1, (o.facing or 0) + 1)
+						facingFrames.stepDelta[k] = facingFrames.stepDelta[k] or {}
 						local d = math.abs(sx - o.paintedX) + math.abs(sy - o.paintedY)
-						facingFrames.stepDelta[d] = (facingFrames.stepDelta[d] or 0) + 1
+						facingFrames.stepDelta[k][d] = (facingFrames.stepDelta[k][d] or 0) + 1
 					end
 					o.paintedX, o.paintedY = sx, sy
 
@@ -2811,15 +2855,39 @@ function drawOverflow()
 		-- EVERY prog value a drawn peer was rendered at, cumulatively. Which values arrive is the
 		-- whole question behind "the stride never runs": the frame is a function of prog, so a prog
 		-- that never leaves the middle of a step can only ever draw the standing view.
-		if facingFrames.stepDelta then
-			local d = {}
-			for v = 0, 32 do
-				if facingFrames.stepDelta[v] then
-					d[#d + 1] = string.format("%dpx:%d", v, facingFrames.stepDelta[v])
+		if facingFrames.lagSeen then
+			local l, tot, sum = {}, 0, 0
+			for age = 0, 15 do
+				local c = facingFrames.lagSeen[age]
+				if c then
+					l[#l + 1] = string.format("%df:%d", age, c)
+					tot = tot + c
+					sum = sum + age * c
 				end
 			end
-			logFile("  painted movement per frame while walking: " .. table.concat(d, " ")
-				.. "   (a smooth step is one value; more than one is the hitch)")
+			logFile(string.format("  loopback round trip, matched against the player's own history:"
+				.. " %s   (mean %.1f frames -- the floor for how late a ghost can start)",
+				table.concat(l, " "), (tot > 0) and (sum / tot) or 0))
+		end
+		if facingFrames.stepDelta then
+			for _, k in ipairs({ "d", "u", "l", "r" }) do
+				local per = facingFrames.stepDelta[k]
+				if per then
+					local d, tot, bad = {}, 0, 0
+					for v = 0, 32 do
+						if per[v] then
+							d[#d + 1] = string.format("%dpx:%d", v, per[v])
+							tot = tot + per[v]
+							if v > 0 then bad = bad + per[v] end
+						end
+					end
+					-- The ghost is offset to the side and the core is at -interp=0ms, so a peer
+					-- that tracks the player perfectly moves 0px RELATIVE to them on every frame.
+					-- Any non-zero bucket is the defect, and its size is how far it jumps.
+					logFile(string.format("  painted movement, facing %s: %s   (%d of %d frames "
+						.. "moved relative to the player)", k, table.concat(d, " "), bad, tot))
+				end
+			end
 		end
 		if facingFrames.progSeen then
 			local seen = {}
