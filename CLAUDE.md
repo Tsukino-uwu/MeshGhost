@@ -155,11 +155,11 @@ stays here, its reasoning goes to `agent_docs/`, with a one-line pointer. Full e
   pose, the user asked "have we tried a run with everything put together, if they need each other
   to work?" — and the one run with both the capsule mirror and the crouch input on was the only
   one that ever worked. It had been sitting in my own results for several cycles.
-- **Never go quiet for a long stretch.** The user cannot tell a loop from long thinking — both
-  read as stuck, and they had to interrupt to break it (2026-08-17). Say what you are about to do,
-  keep turns short while investigating, and never let a `/loop`, a monitor, or more deliberation
-  stand in for making a decision. If you are thrashing, say so with the table and the remaining
-  candidates.
+- **If a game has a cleared decompilation, READ IT FIRST.** `licensing.md` clears all four `pret`
+  decomps for facts-with-a-citation and `environment.md` records them built locally — field names,
+  flag bits and dispatch order are all sitting there. **Measurement is for CONFIRMING what the
+  source says, not for discovering it**, and a probe cannot tell you what a byte MEANS. Live
+  2026-08-23: a ghost cloned a trainer and hung the game, unexplained for days. `pitfalls.md`.
 - **A clean light test does not close a risk that depends on sustained load.** Exercise the real
   rate/duration before marking it closed — found live: a single successful round trip closed a risk
   that reopened the same day once real sustained traffic was tried.

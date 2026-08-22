@@ -901,6 +901,37 @@ override — but you cannot target what you have not measured.
   produced a ghost stuck in an airborne pose. They are one-shot pulses; the continuous fields are
   something else entirely. Nothing about the names said so — only watching the values did.
 
+### If the game has a cleared decompilation, READ IT — watching is the slower half
+
+Observing the running game tells you what a value **does** on the one path you watched. The source
+tells you what it is **called**, every path that reads it, and in what order — and no probe can tell
+you what a byte MEANS. Where a decompilation exists and `agent_docs/licensing.md` has cleared it,
+**reading comes first and measurement confirms it**, not the other way round.
+
+Paid for on 2026-08-23, in Crystal. A spawned ghost is cloned from a live NPC, and the adapter
+understood four of the sixteen bytes it was copying. Three separate faults came out of the other
+twelve — a ghost that would not animate, a ghost whose facing snapped at the end of each step, and
+finally a ghost that **was a trainer**, raised the `!` and hung the game. The first two were chased
+by probe across multiple sessions and patched one field at a time. Every one of those fields is a
+named constant in `pret/pokecrystal`, which this repo had cleared for facts-with-a-citation and had
+already **built locally** months of work earlier. Ten minutes of reading named all three, plus the
+shared cause nobody had spotted: a ghost inherits its donor's identity.
+
+Two things reading gives you that watching structurally cannot:
+
+- **The full set, not the instance.** A probe shows the flag the donor on *this* map happened to
+  carry. The source lists all eight bits in the byte — including the ones that would have explained
+  the next three bugs.
+- **The cost attached to a mechanism.** Crystal has a real "the player walks through me" bit, which
+  a probe could plausibly have found. The same bit also causes the engine to **erase that object's
+  struct wholesale** whenever an emote despawns. A measurement finds the capability and gets
+  ambushed by the cost; the source shows both in the two places the bit is read.
+
+**It does not lower the confirmation bar.** A fact read from a decompilation is a fact about the
+game, not evidence that our adapter does the right thing with it — `CLAUDE.md`'s rule stands, and
+the user still confirms on screen before anything is called verified. Reading changes what you
+build, not who signs it off.
+
 ### Watch it before you PLAN against it, not just before you work around it
 
 The rule above is usually stated as "observe before you override". It applies just as much to
