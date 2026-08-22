@@ -2533,3 +2533,39 @@ avatar, what its state looks like, what a map transition does to it) are answera
 would also be the project's first Dolphin/GameCube target, so the adapter host is an open question
 of its own: BizHawk has a Dolphin core, and Dolphin itself has a Lua/scripting story — neither has
 been looked at, and which one can meet `_template/README.md`'s bar is the first thing to establish.
+
+## Super Mario Odyssey Online — a prior art read, not a target
+
+**Unscheduled, unresearched, and explicitly NOT something to build.** Raised by the user
+2026-08-22: `https://github.com/CraftyBoss/SuperMarioOdysseyOnline`, a mod that adds online
+multiplayer to a singleplayer game. Their framing, recorded because it sets the scope: *"not
+anything i plan to build/make. but might be nice to add in ideas for now and make take a peak at
+how they do things later"*.
+
+**It goes through `licensing.md` before a line of it is read**, like every other reference — it is
+not on that list today, so by CLAUDE.md's rule it may not be used until its license has been
+checked and recorded. The facts/expression line applies in its strongest form here, because unlike
+a decomp this is somebody's own original work: what they *do* may be learned and cited, what they
+*wrote* may never be committed, adapted or paraphrased. `access-models.md`.
+
+**Why it is worth a read anyway, and this is the unusual part:** every reference this project has
+looked at so far answers *how a game works*. This one answers *how somebody else solved the same
+problem we are solving* — a cosmetic-first online layer over a singleplayer game, on a console
+title, presumably against a hostile modding surface. The questions worth taking to it are ours, not
+the game's:
+
+- **What do they put on the wire, and how often?** Compare against `contract.md`'s packet schema
+  and the 20Hz/100Hz question the relay keeps raising.
+- **How do they handle a peer whose state has not arrived** — interpolation, extrapolation, or
+  neither? MeshGhost's answer is a 250ms interpolation delay plus per-adapter smoothing
+  (`core/core.go`, Emerald's drawn tier); a second opinion on that trade would be genuinely useful.
+- **Where does their equivalent of the adapter/core split fall**, if it exists at all? The rule
+  that adapters never speak the relay protocol is one of this project's load-bearing decisions
+  (`architecture.md`), and it is worth knowing what a project that did not make that split pays.
+- **What do they refuse to sync**, and why? MeshGhost's cosmetic-default and the depth ladder in
+  `beyond-cosmetic.md` are the same question answered once.
+
+**What it is not.** Not a proposed adapter — Odyssey is not a target, and nothing about it is
+scheduled. If it ever were, the host question (emulator vs. console vs. Ryujinx-style runtime)
+would have to clear `_template/README.md`'s bar first, and "the repo must WORK for a user who has
+only it plus what they legitimately own" is a much harder test for a Switch title than for a ROM.
