@@ -2917,12 +2917,27 @@ function drawOverflow()
 						local function decideBoundary()
 							local dx, dy = qx - o.modelX, qy - o.modelY
 							local adx, ady = math.abs(dx), math.abs(dy)
-							if adx + ady >= 24 then
+							-- ARM AT 8px OVER TWO BOUNDARIES, not 24 over three. With the paint now
+							-- showing the model's true pace against the camera, the KPAINT dump
+							-- measured the cost of the lazy threshold in absolute pixels: walking
+							-- one horizontal side, sx slid 14 -> 2 -- boundary stalls losing 1-2px
+							-- per tile that nothing repaid until a full 24px stood, which a 9-tile
+							-- side never reached. The user watched exactly that: *"pushed
+							-- backwards a bit / gliding backward during moving"*. Two lagged
+							-- boundaries is already real lag, and the repayment is on-beat bike
+							-- hops, so arming early costs nothing visible.
+							-- Band 12/6, not 8/4: with chaining in place the model hovers a few
+							-- pixels behind the live target by construction (level would mean no
+							-- headroom to commit into), and an 8px trigger sat INSIDE that hover --
+							-- the catch-up cycled hot, visible as `<-.+.+` clusters. Twelve is
+							-- outside the hover; six keeps the repayment from overshooting into
+							-- another stall.
+							if adx + ady >= 12 then
 								o.lagBeats = (o.lagBeats or 0) + 1
-							else
+							elseif adx + ady < 6 then
 								o.lagBeats, o.catchup = 0, nil
 							end
-							if (o.lagBeats or 0) >= 3 then
+							if (o.lagBeats or 0) >= 2 then
 								o.catchup = true
 							end
 							if adx + ady > 48 then
@@ -2963,6 +2978,21 @@ function drawOverflow()
 									o.stepDX, o.stepDY = 0, (dy > 0 and 1 or -1)
 								end
 								o.stepLeft = 16
+							elseif o.walking and adx + ady >= 2
+								and drawFrames - (o.modelMovedAt or -99) <= 2 then
+								-- CHAINING: a model that finished a tile within the last two
+								-- frames and whose peer is still walking is mid-gait, not at
+								-- rest, and holding it to the cold-start cushion is what bled
+								-- 1-2px per tile into the backward glide. Two pixels of headroom
+								-- is enough here: the arrival gap the cushion protects against
+								-- can only DELAY this commit a beat, and the early catch-up above
+								-- now repays that promptly instead of letting it stack.
+								if adx >= ady then
+									o.stepDX, o.stepDY = (dx > 0 and 1 or -1), 0
+								else
+									o.stepDX, o.stepDY = 0, (dy > 0 and 1 or -1)
+								end
+								o.stepLeft = 16
 							end
 						end
 						-- NEVER ON CONSECUTIVE FRAMES unless the camera itself did -- its law, our
@@ -2976,14 +3006,33 @@ function drawOverflow()
 						-- the engine's gaits (2px walk, 4px bike; measured per-frame camera
 						-- deltas: 2px:24 4px:3 8px:1). On fallback frames the camera is parked
 						-- and 2px is the walker's pace.
+						-- A 4px camera frame may arrive ONE frame after the camera's previous move
+						-- (it is two engine ticks merged), and the two-frame rule then blocked the
+						-- model from matching it: a 4px backward drop (`<`), repaid later. The rule
+						-- exists to stop the MODEL inventing consecutive moves; when the CAMERA
+						-- itself moved consecutively, matching it is the law, not a violation.
+						-- COPY THE CAMERA, UNCONDITIONALLY. The "never on consecutive frames" rule
+						-- assumed the engine never scrolls on consecutive frames; the event probe
+						-- caught the assumption being false in one line, repeated at every snap the
+						-- user reported: `cam=2 gap=1 bud=0` -- an ordinary 2px camera tick one
+						-- frame after the previous one, and the gap rule zeroing the model's budget
+						-- exactly then. The rule exists so the model cannot INVENT moves; copying
+						-- the camera is not inventing. On a camera frame the model's budget IS the
+						-- camera's delta (clamped to the bike's 4px); the gap discipline survives
+						-- only in the camera-parked fallback, where the model is on its own clock.
+						local mgap = drawFrames - (o.modelMovedAt or -99)
 						local budget = 0
-						if drawFrames - (o.modelMovedAt or -99) >= 2 then
+						if facingFrames.camMoved then
+							budget = facingFrames.camDelta or 2
+							if budget > 4 then budget = 4 end
+							if budget < 2 then budget = 2 end
+						elseif mgap >= 2 then
 							budget = 2
-							if facingFrames.camMoved and (facingFrames.camDelta or 0) > 2 then
-								budget = 4
-							end
 							if o.catchup then budget = 4 end
 						end
+						o.dbgState = string.format("cam=%d gap=%d bud=%d step=%d dist=%d,%d cu=%s",
+							facingFrames.camDelta or 0, mgap, budget, o.stepLeft or 0,
+							qx - o.modelX, qy - o.modelY, tostring(o.catchup or false))
 						for _ = 1, 2 do
 							if budget <= 0 then break end
 							if (o.stepLeft or 0) == 0 then
@@ -3177,12 +3226,19 @@ function drawOverflow()
 					-- RAW NUMBERS, because the symbol-pushing has been wrong twice: every value in
 					-- the sum, every 15 frames, while this peer walks. Whatever term drifts, drifts
 					-- in plain sight.
-					if COMPARE_TIERS and o.only == "drawn" and o.walking
-						and drawFrames % 15 == 0 then
-						logFile(string.format("  KPAINT f%d sx=%d model=%.0f,%.0f camA=%d,%d K=%d,%d",
-							drawFrames, sx, o.modelX, o.modelY,
-							facingFrames.camAX or 0, facingFrames.camAY or 0,
-							facingFrames.camKX or 0, facingFrames.camKY or 0))
+					-- EVENT-TRIGGERED: whenever the painted position jumps 2px or more against
+					-- the previous frame, dump the model state OF THAT FRAME -- the sampling probe
+					-- averaged over 15 frames and could not see the mechanism of a 1-frame event.
+					if COMPARE_TIERS and o.only == "drawn" then
+						local jump = facingFrames.kLastSX
+							and (math.abs(sx - facingFrames.kLastSX) >= 2
+								or math.abs(sy - facingFrames.kLastSY) >= 2)
+						if jump then
+							logFile(string.format("  KJUMP f%d dsx=%d dsy=%d %s",
+								drawFrames, sx - facingFrames.kLastSX, sy - facingFrames.kLastSY,
+								o.dbgState or "?"))
+						end
+						facingFrames.kLastSX, facingFrames.kLastSY = sx, sy
 					end
 				end
 			end
@@ -4322,7 +4378,7 @@ local function renderRemote(id, state)
 			modelStill = prev and prev.modelStill,
 			modelMovedAt = prev and prev.modelMovedAt,
 			lagBeats = prev and prev.lagBeats, catchup = prev and prev.catchup,
-			stepDX = prev and prev.stepDX, stepDY = prev and prev.stepDY, stepLeft = prev and prev.stepLeft,
+			stepDX = prev and prev.stepDX, stepDY = prev and prev.stepDY, stepLeft = prev and prev.stepLeft, dbgState = prev and prev.dbgState,
 			progAxis = prev and prev.progAxis,
 			facingSeen = prev and prev.facingSeen,
 			stepLatch = prev and prev.stepLatch,
@@ -4408,7 +4464,7 @@ local function renderRemote(id, state)
 			modelStill = prev and prev.modelStill,
 			modelMovedAt = prev and prev.modelMovedAt,
 			lagBeats = prev and prev.lagBeats, catchup = prev and prev.catchup,
-			stepDX = prev and prev.stepDX, stepDY = prev and prev.stepDY, stepLeft = prev and prev.stepLeft,
+			stepDX = prev and prev.stepDX, stepDY = prev and prev.stepDY, stepLeft = prev and prev.stepLeft, dbgState = prev and prev.dbgState,
 			progAxis = prev and prev.progAxis,
 			facingSeen = prev and prev.facingSeen,
 			stepLatch = prev and prev.stepLatch,
@@ -4447,7 +4503,7 @@ local function renderRemote(id, state)
 			modelStill = prev and prev.modelStill,
 			modelMovedAt = prev and prev.modelMovedAt,
 			lagBeats = prev and prev.lagBeats, catchup = prev and prev.catchup,
-			stepDX = prev and prev.stepDX, stepDY = prev and prev.stepDY, stepLeft = prev and prev.stepLeft,
+			stepDX = prev and prev.stepDX, stepDY = prev and prev.stepDY, stepLeft = prev and prev.stepLeft, dbgState = prev and prev.dbgState,
 			progAxis = prev and prev.progAxis,
 			facingSeen = prev and prev.facingSeen,
 			stepLatch = prev and prev.stepLatch,
