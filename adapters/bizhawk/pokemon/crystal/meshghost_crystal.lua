@@ -2816,7 +2816,38 @@ function drawOverflow()
 					-- for three consecutive boundaries arms the bike gait (4px per beat, the
 					-- engine's own) until caught up. The forward-only guard is gone because
 					-- direction is locked per committed step and cannot oscillate by construction.
-					if (emu.framecount() % 2) == o.modelPhase then
+					-- THE CAMERA IS THE CLOCK -- read, not inferred. The parity detector derived
+					-- the engine's tick from when this script happened to observe the player's
+					-- step progress change, and that observation is noisy: 106 "beat corrections"
+					-- in one run, each one a correction of the DETECTOR, injected straight into
+					-- the model's timing as a lost or gained move. The jitter being chased was, by
+					-- then, mostly the instrument's.
+					--
+					-- The definition of on-screen jitter is "the ghost moves on frames the camera
+					-- does not". So the ghost moves exactly on the frames the background scroll
+					-- register CHANGES -- the same clock it is judged against, no inference in the
+					-- loop. The two-frame minimum still applies: a camera scrolling every frame is
+					-- the bike gait, and a walking ghost following every other camera frame is a
+					-- walker's pace on tick frames. Only when the camera has been still (the local
+					-- player parked while a ghost still owes distance) does the model fall back to
+					-- its own two-frame beat, where there is nothing on screen to be relative to.
+					if facingFrames.camFrame ~= drawFrames then
+						facingFrames.camFrame = drawFrames
+						local scx = u8(W_BGMAPOFFSETX) or 0
+						local scy = u8(W_BGMAPOFFSETY) or 0
+						if facingFrames.camX ~= nil
+							and (scx ~= facingFrames.camX or scy ~= facingFrames.camY) then
+							facingFrames.camMoved, facingFrames.camStillFor = true, 0
+						else
+							facingFrames.camMoved = false
+							facingFrames.camStillFor = (facingFrames.camStillFor or 99) + 1
+						end
+						facingFrames.camX, facingFrames.camY = scx, scy
+					end
+					local due = facingFrames.camMoved
+						or ((facingFrames.camStillFor or 99) >= 2
+							and (emu.framecount() % 2) == o.modelPhase)
+					if due then
 						if (o.stepLeft or 0) == 0 then
 							local dx, dy = qx - o.modelX, qy - o.modelY
 							local adx, ady = math.abs(dx), math.abs(dy)
@@ -2858,7 +2889,18 @@ function drawOverflow()
 								o.stepLeft = 16
 							end
 						end
-						if (o.stepLeft or 0) > 0 then
+						-- NEVER ON CONSECUTIVE FRAMES -- the engine's own law, and following a beat
+						-- correction used to break it. A lag frame flips the engine's parity, and
+						-- chasing the new parity meant moving one frame after the previous move: a
+						-- double-step. But a lag frame is the camera LOSING a move, so the ghost
+						-- gaining one is exactly backwards -- it lurched 4px ahead relative to the
+						-- world and repaid it as two backward slips at the next boundary. The
+						-- screen trace showed it as `++--` mid-walk, with prog `67` singles naming
+						-- the double-step, and the user as the left/right walk still stuttering.
+						-- With a two-frame minimum, a parity flip is honoured by WAITING a frame --
+						-- losing one move, exactly as the camera did.
+						if (o.stepLeft or 0) > 0
+							and drawFrames - (o.modelMovedAt or -99) >= 2 then
 							local hop = o.catchup and 4 or 2
 							if hop > o.stepLeft then hop = o.stepLeft end
 							o.modelX = o.modelX + (o.stepDX or 0) * hop
