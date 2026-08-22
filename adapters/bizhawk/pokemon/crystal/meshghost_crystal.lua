@@ -2078,7 +2078,13 @@ local uiSeenAt, drawFrames = nil, 0
 -- Also carries `settle`: frames left to wait after the world was rebuilt, so the painted tier does
 -- not draw over a fade-in. One table rather than another name -- this file is at Lua's 200-local
 -- ceiling and hit it four times tonight, every one a bare LOAD FAILED with nothing loaded.
-local playerHistory = { size = 12, age = 2, settle = 0 }
+-- age was 2 until 2026-08-23, chosen to match the wire delay when the ghost's position WAS the
+-- wire's -- both sides of the paint subtraction late together, coherently. The model changed
+-- underneath it: it now walks in real time on the camera's own frames, and subtracting a
+-- two-frame-old reference from a real-time position turns every camera irregularity (the 4px
+-- frames, the boundary breaths) into a two-frame-late wobble -- the per-step stutter that
+-- survived every fix aimed at the model's motion, because it was never in the model.
+local playerHistory = { size = 12, age = 0, settle = 0 }
 
 -- WY IS NOT THE SIGNAL, and using it cost half the screen.
 --
@@ -2845,17 +2851,57 @@ function drawOverflow()
 						if facingFrames.camX ~= nil
 							and (scx ~= facingFrames.camX or scy ~= facingFrames.camY) then
 							facingFrames.camMoved, facingFrames.camStillFor = true, 0
+							-- HOW FAR the camera moved this frame, not just whether. The scroll
+							-- registers are u8 and wrap at 256, so the delta is taken the short
+							-- way round. After the +-/boundary fixes the residue was ONE 2px slip
+							-- per tile, metronomic -- the signature of the camera doing something
+							-- once per tile that a fixed 2px hop cannot match. Measured below and
+							-- histogrammed on the MODEL line; the hop mirrors it, clamped to the
+							-- engine's own gaits (2px walk, 4px bike).
+							local dxw = ((scx - facingFrames.camX + 128) % 256) - 128
+							local dyw = ((scy - facingFrames.camY + 128) % 256) - 128
+							-- The camera's ACCUMULATED world position, wrap-unrolled. This is the
+							-- screen's true origin, integrated from the register the screen is
+							-- actually scrolled by -- it cannot disagree with what the player
+							-- sees, which no quantity derived from tile+progress can promise.
+							facingFrames.camAX = (facingFrames.camAX or 0) + dxw
+							facingFrames.camAY = (facingFrames.camAY or 0) + dyw
+							local cd = math.abs(dxw) + math.abs(dyw)
+							if cd > 8 then cd = 8 end
+							facingFrames.camDelta = cd
+							if COMPARE_TIERS then
+								facingFrames.camD = facingFrames.camD or {}
+								facingFrames.camD[cd] = (facingFrames.camD[cd] or 0) + 1
+							end
 						else
 							facingFrames.camMoved = false
+							facingFrames.camDelta = 0
 							facingFrames.camStillFor = (facingFrames.camStillFor or 99) + 1
 						end
 						facingFrames.camX, facingFrames.camY = scx, scy
 					end
+					-- EIGHT still frames, not two, before the model free-runs. The camera pauses
+					-- 1-2 frames at EVERY player step boundary (the same two standing frames the
+					-- `anim` documentation records), and a 2-frame fallback treated each of those
+					-- micro-pauses as "camera parked": the model took a free step during the
+					-- breath, then owed it back when the scroll resumed -- a `+`/`-` pair at
+					-- tile-boundary rhythm, in every direction equally (mined from the screen
+					-- trace, 30-39 marks per direction), which is what the user was still seeing
+					-- on flowing corners. A real stop is far longer than a boundary breath; eight
+					-- frames tells them apart, and the peer-still-walking case merely starts its
+					-- free-run a few frames later, where there is nothing on screen to slip
+					-- against anyway.
 					local due = facingFrames.camMoved
-						or ((facingFrames.camStillFor or 99) >= 2
+						or ((facingFrames.camStillFor or 99) >= 8
 							and (emu.framecount() % 2) == o.modelPhase)
 					if due then
-						if (o.stepLeft or 0) == 0 then
+						-- The boundary decision, as a function the frame can take TWICE: the
+						-- camera's occasional 4px frame lands wherever it likes, including with
+						-- 2px left in the committed step, and splitting the 4 across two frames
+						-- was itself a per-tile stutter -- the `-.+` pairs, the user's "still
+						-- looks stuttery for every step". Rolling across the boundary in one
+						-- frame keeps the model's displacement equal to the camera's, always.
+						local function decideBoundary()
 							local dx, dy = qx - o.modelX, qy - o.modelY
 							local adx, ady = math.abs(dx), math.abs(dy)
 							if adx + ady >= 24 then
@@ -2906,23 +2952,37 @@ function drawOverflow()
 								o.stepLeft = 16
 							end
 						end
-						-- NEVER ON CONSECUTIVE FRAMES -- the engine's own law, and following a beat
-						-- correction used to break it. A lag frame flips the engine's parity, and
-						-- chasing the new parity meant moving one frame after the previous move: a
-						-- double-step. But a lag frame is the camera LOSING a move, so the ghost
-						-- gaining one is exactly backwards -- it lurched 4px ahead relative to the
-						-- world and repaid it as two backward slips at the next boundary. The
-						-- screen trace showed it as `++--` mid-walk, with prog `67` singles naming
-						-- the double-step, and the user as the left/right walk still stuttering.
-						-- With a two-frame minimum, a parity flip is honoured by WAITING a frame --
-						-- losing one move, exactly as the camera did.
-						if (o.stepLeft or 0) > 0
-							and drawFrames - (o.modelMovedAt or -99) >= 2 then
-							local hop = o.catchup and 4 or 2
-							if hop > o.stepLeft then hop = o.stepLeft end
-							o.modelX = o.modelX + (o.stepDX or 0) * hop
-							o.modelY = o.modelY + (o.stepDY or 0) * hop
-							o.stepLeft = o.stepLeft - hop
+						-- NEVER ON CONSECUTIVE FRAMES unless the camera itself did -- its law, our
+						-- law. A parity flip is honoured by waiting a frame, exactly as the camera
+						-- lost one (the `++--` lesson); a 4px camera frame is honoured by moving
+						-- 4px in that frame, exactly as the camera gained one.
+						--
+						-- THE BUDGET MIRRORS THE CAMERA'S OWN DELTA. The ghost is level exactly
+						-- when its world displacement equals the camera's, frame by frame -- so
+						-- on a camera frame the model moves as far as the camera did, clamped to
+						-- the engine's gaits (2px walk, 4px bike; measured per-frame camera
+						-- deltas: 2px:24 4px:3 8px:1). On fallback frames the camera is parked
+						-- and 2px is the walker's pace.
+						local budget = 0
+						if drawFrames - (o.modelMovedAt or -99) >= 2 then
+							budget = 2
+							if facingFrames.camMoved and (facingFrames.camDelta or 0) > 2 then
+								budget = 4
+							end
+							if o.catchup then budget = 4 end
+						end
+						for _ = 1, 2 do
+							if budget <= 0 then break end
+							if (o.stepLeft or 0) == 0 then
+								decideBoundary()
+								if (o.stepLeft or 0) == 0 then break end
+							end
+							local mv = budget
+							if mv > o.stepLeft then mv = o.stepLeft end
+							o.modelX = o.modelX + (o.stepDX or 0) * mv
+							o.modelY = o.modelY + (o.stepDY or 0) * mv
+							o.stepLeft = o.stepLeft - mv
+							budget = budget - mv
 							if o.catchup and COMPARE_TIERS then
 								facingFrames.catchupFrames = (facingFrames.catchupFrames or 0) + 1
 							end
@@ -3063,6 +3123,39 @@ function drawOverflow()
 			end
 			sx = math.floor((aged.oamX or playerOamX) - 8 + gx - ppx + 0.5)
 			sy = math.floor((aged.oamY or playerOamY) - 16 + gy - ppy + 0.5)
+
+			-- PAINT AGAINST THE CAMERA ITSELF, not against tile+progress. (2026-08-23, and it is
+			-- the last seam.) The formula above derives the screen origin from the player's tile
+			-- and step progress -- two values that hand over on DIFFERENT frames at every step
+			-- boundary. The old renderer's ghost term came from the same machinery, so the seams
+			-- cancelled inside each character; the model's term has no seam, so the reference's
+			-- showed alone: a -2/+2 pair at every tile, named column-exact by the six-line
+			-- cadence trace (model mirroring the camera perfectly, screen still marking).
+			--
+			-- The camera's true position is readable, accumulated above from the scroll register
+			-- the screen is actually moved by. Ghost screen position = model - camera + K, one
+			-- coordinate frame, all integers. K is unknowable a priori (the accumulator has no
+			-- absolute origin) but constant, so it is CALIBRATED from the tile formula whenever
+			-- the camera has been parked half a second -- the one state where that formula has no
+			-- seam to mis-align -- and recalibrates itself after every map change the same way.
+			-- REFUTED LIVE, 2026-08-23, within minutes: ghosts sailed off the screen the moment
+			-- the peer walked. The scroll registers' signed semantics are NOT what the subtraction
+			-- assumed (magnitudes were all the camDelta instrument ever used, so the clock logic
+			-- above is untouched by whatever the sign convention is -- but a paint is wrong the
+			-- moment ANY axis or sign disagrees). The idea may still be right; the register
+			-- semantics have to be measured against on-screen motion first, per the no-addresses-
+			-- from-memory rule, and until then the tile+progress formula stands with its known
+			-- one-frame seam per step boundary.
+			--
+			-- if o.modelX then
+			-- 	if (facingFrames.camStillFor or 0) >= 8 then
+			-- 		facingFrames.camKX = sx - o.modelX + (facingFrames.camAX or 0)
+			-- 		facingFrames.camKY = sy - o.modelY + (facingFrames.camAY or 0)
+			-- 	elseif facingFrames.camKX then
+			-- 		sx = math.floor(o.modelX - (facingFrames.camAX or 0) + facingFrames.camKX + 0.5)
+			-- 		sy = math.floor(o.modelY - (facingFrames.camAY or 0) + facingFrames.camKY + 0.5)
+			-- 	end
+			-- end
 
 			-- WHICH HALF OF THE SUM IS JUMPING. The painted position is the ghost's own motion
 			-- (`gy`) plus a PLAYER REFERENCE (`oamY - ppy`), and after the cadence rework the
@@ -3410,13 +3503,44 @@ function drawOverflow()
 						end
 						facingFrames.lastPX, facingFrames.lastPY = sx, sy
 						facingFrames.tScreen = (facingFrames.tScreen or "") .. sdc
+						-- EVERY TERM, SIGNED, IN THE SAME COLUMNS -- the anti-theory instrument.
+						-- The screen delta is model minus reference, painted under a camera that
+						-- scrolls independently; three quantities, and a mark on the screen line
+						-- cannot say which one produced it. These two lines plus the camera line
+						-- make the subtraction readable per frame: model delta along travel, then
+						-- reference delta along travel ('+' forward, '-' back, '#' big), then the
+						-- camera's own delta as a digit. Whichever line wobbles owns the fault.
+						local function sdChar(d)
+							if d == 0 then return "."
+							elseif d == 2 then return "+"
+							elseif d == -2 then return "-"
+							else return "#" end
+						end
+						local vert2 = (o.facing == 0 or o.facing == 1)
+						local md = vert2 and ((o.modelY or 0) - (facingFrames.lastMY or o.modelY or 0))
+							or ((o.modelX or 0) - (facingFrames.lastMX or o.modelX or 0))
+						local rrX = (aged.oamX or playerOamX) - ppx
+						local rrY = (aged.oamY or playerOamY) - ppy
+						local rd = vert2 and (rrY - (facingFrames.lastRY or rrY))
+							or (rrX - (facingFrames.lastRX or rrX))
+						if o.facing == 1 or o.facing == 2 then md, rd = -md, -rd end
+						facingFrames.lastMX, facingFrames.lastMY = o.modelX, o.modelY
+						facingFrames.lastRX, facingFrames.lastRY = rrX, rrY
+						facingFrames.tModel = (facingFrames.tModel or "") .. sdChar(md)
+						facingFrames.tRef = (facingFrames.tRef or "") .. sdChar(rd)
+						facingFrames.tCam = (facingFrames.tCam or "")
+							.. tostring(math.min(9, facingFrames.camDelta or 0))
 						if #facingFrames.tPeer >= 60 then
 							logFile("  cadence ghost  " .. facingFrames.tPeer)
 							logFile("  cadence player " .. facingFrames.tPlayer)
 							logFile("  cadence prog   " .. (facingFrames.tProg or ""))
 							logFile("  cadence screen " .. (facingFrames.tScreen or ""))
+							logFile("  cadence model  " .. (facingFrames.tModel or ""))
+							logFile("  cadence ref    " .. (facingFrames.tRef or ""))
+							logFile("  cadence cam    " .. (facingFrames.tCam or ""))
 							facingFrames.tPeer, facingFrames.tPlayer = "", ""
 							facingFrames.tProg, facingFrames.tScreen = "", ""
+							facingFrames.tModel, facingFrames.tRef, facingFrames.tCam = "", "", ""
 						end
 					end
 					if o.walking then
@@ -3640,6 +3764,16 @@ function drawOverflow()
 				facingFrames.modelMax or 0, facingFrames.modelSnaps or 0,
 				facingFrames.backwards or 0, facingFrames.phaseFollow or 0,
 				facingFrames.catchupFrames or 0))
+			-- The camera's own per-frame movement, histogrammed: the clock the model mirrors.
+			if facingFrames.camD then
+				local cds = {}
+				for v = 1, 8 do
+					if facingFrames.camD[v] then
+						cds[#cds + 1] = string.format("%dpx:%d", v, facingFrames.camD[v])
+					end
+				end
+				logFile("  CAMERA per-frame deltas: " .. table.concat(cds, " "))
+			end
 			-- ONE PARITY SHOULD DOMINATE. If the engine's movement tick were not tied to frame
 			-- parity at all this would read roughly 50/50, and locking the ghost to it would be
 			-- meaningless -- so the number that justifies the fix is printed beside it.

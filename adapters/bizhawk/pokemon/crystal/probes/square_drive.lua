@@ -144,7 +144,12 @@ local function tick()
 	tilesDone = 0
 	dirIndex = dirIndex + 1
 	if dirIndex <= #DIRECTIONS then
-		if dirIndex % 3 == 0 then
+		-- MESHGHOST_SQUARE_FLOW: no stop inside the lap -- every corner is taken in stride.
+		-- Added 2026-08-23: with the pause on, each corner is a real stop AND a real start, so a
+		-- ghost faithfully echoing the peer shows a catch-up and a slip at every corner -- and
+		-- those echoes are indistinguishable from renderer faults to the eye. The flowing lap is
+		-- the only way to judge continuous motion on its own.
+		if not MESHGHOST_SQUARE_FLOW and dirIndex % 3 == 0 then
 			pauseFor = 120 -- 2s: a stop-and-go inside the lap, below the idle-release threshold
 			log(string.format("  pausing 2s after side %d", dirIndex - 1))
 		end
