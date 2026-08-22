@@ -186,11 +186,11 @@ stays here, its reasoning goes to `agent_docs/`, with a one-line pointer. Full e
 - **A diagnostic can break the thing it measures — and then every reading agrees with itself.**
   Keep probes off by default, audit their cost before trusting their output, and re-run with them
   off before believing a result. Never leave a probe that *spawns* an effect enabled while judging
-  that effect. Per-tick enumeration on the game thread is the expensive shape — especially with a
-  name lookup or string conversion per object; compare by pointer instead. Numbers gathered while a
-  heavy probe was live are retroactively suspect. **"It measured correct" is not evidence**, the
-  same way "it ran without errors" isn't; and if the user reports a difference the metrics deny,
-  the metrics are the suspect. Found live 2026-08-16 — the worst regression this project has had.
+  that effect. Numbers gathered while a heavy probe was live are retroactively suspect; the shapes
+  that cost most are in `_template/probes.md`. **"It measured correct" is not evidence**, the same
+  way "it ran without errors" isn't. **A clean instrument plus a symptom the user still sees means
+  WIDEN THE SUBSYSTEM, never deepen the measurement** — for anything visual, ask whether it is in
+  the wrong PLACE or the right place doing the wrong THING. Live 2026-08-16, and all of 08-23.
 - **A flag flip is not a revert.** A `constexpr bool` only reverts behaviour if it gates the *work*,
   not merely the decision the work feeds — otherwise an A/B "proves" a change innocent while its
   cost is still running, which is exactly what misdirected the 2026-08-16 investigation. Verify the
