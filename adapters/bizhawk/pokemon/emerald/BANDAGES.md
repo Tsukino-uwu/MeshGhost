@@ -263,7 +263,7 @@ subpriority 148, so it sits UNDER the character and under the landing dust -- th
 overlay can never do, since an overlay is drawn after the hardware has finished. The painted path
 survives only as the fallback when the sprite cannot be built (a relocated ROM, or OBJ tiles
 exhausted), and for the two tiers that have no engine object of their own. The reset that kept this
-sprite disabled for a day was a NULL sprite callback, written up in `agent_docs/pitfalls.md`.
+sprite disabled was a NULL sprite callback, written up in `agent_docs/pitfalls.md`.
 
 **What is still a bandage, and why this entry stays open.** The ELLIPSE remains as the fallback for
 one case: a ghost that hops before the local player ever has, where nothing has been seen to learn

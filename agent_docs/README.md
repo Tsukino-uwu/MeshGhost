@@ -78,7 +78,7 @@ in agent memory is invisible to all three and goes stale with nothing to catch i
   It sits with the template rather than here because it is adapter work; read it before writing one.
 - [crowd-limits.md](crowd-limits.md) — **how many ghosts a game can actually hold**, per game and
   per map, and what happens past that. An emulated game has a fixed array of character slots and a
-  fixed hardware sprite budget, both decided decades before multiplayer existed, so this has a hard
+  fixed hardware sprite budget, both settled by the Game Boy's own hardware, so this has a hard
   answer no amount of relay capacity changes. Includes the reusable measuring rig (synthetic peers
   over the real relay, engine-side probe, frame-rate check). Ask it early for a new game.
 - [effect-investigation.md](effect-investigation.md) — **how to search**: the procedure for finding,

@@ -6,7 +6,7 @@
 -- These two are the last addresses the Archipelago table is missing, and they are not a gate or an
 -- identity — they are pixel scroll offsets, used to turn a map coordinate into a screen position
 -- (screenCoords() in the adapter). Wrong ones do not refuse to work; they put a ghost a few pixels
--- off, every frame, which is the kind of wrong that gets blamed on interpolation for hours.
+-- off, every frame, which is the kind of wrong that gets blamed on interpolation.
 --
 -- HOW — a shape no other address in this build has
 -- Neither reversal nor state snapshots find these, because they are not ±1 per step and they do not

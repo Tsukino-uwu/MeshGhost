@@ -170,7 +170,7 @@ UE4SS entry below for that last one specifically, which is currently unresolved)
     keep running. **Every target shares ONE Lua environment**, so a global set by one script
     survives into every later load and every swap: a flags file that merely does not mention a
     flag inherits whatever the last one set, which invalidated an A/B run on 2026-08-20 (the anim
-    trace ran for hours "off"). Set every flag explicitly, false included, and trust the adapter's
+    trace ran on "off"). Set every flag explicitly, false included, and trust the adapter's
     own `PROBE FLAG IN USE` startup lines over what the flags file asked for. `pitfalls.md`.
     **Prefer absolute paths**: a relative one resolves against BizHawk's working
     directory, not the loader's folder, and a script that then loads a DLL relative to itself
@@ -677,8 +677,8 @@ there on the user's explicit instruction, 2026-08-17.
   **Copying only the DLL is the mistake to avoid**, and it fails in a way that does not look like
   a stale binary: the mod logs `bridge: connected=false connect_attempts=N` forever and no ghost
   ever appears, because the client it autostarts is a different build (or missing) rather than
-  wrong. Found live 2026-08-17 — the installed `meshghost.exe` was a day old while `main.dll` was
-  minutes old. The tell is `connect_attempts` climbing with `send_ok=0` in `UE4SS.log`, plus **no
+  wrong. Found live 2026-08-17 — the installed `meshghost.exe` was stale while `main.dll` was
+  freshly built. The tell is `connect_attempts` climbing with `send_ok=0` in `UE4SS.log`, plus **no
   `meshghost` process and no client log in the mod folder** (the client writes its log beside
   itself on startup, so its absence means it never started).
 - **SteamCMD**: `C:\dev\steamcmd\steamcmd.exe`, outside `C:\dev\MeshGhost` on purpose (a

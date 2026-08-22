@@ -139,7 +139,7 @@ bools — which is precisely the drift `README.md`'s gold-standard rule is about
 **A runtime switch is more dangerous than a compile-time one, in two specific ways:**
 
 1. **It can be on without anyone choosing it.** A stray file in a folder, or a variable exported
-   in a shell weeks ago, silently changes behaviour in a build that looks identical. Make anything
+   in a shell and forgotten, silently changes behaviour in a build that looks identical. Make anything
    that relaxes a safety rule **announce itself in the log on every startup**, so a session run
    that way can be told apart afterwards; and make ending the experiment obvious (deleting the
    file is a good shape).

@@ -38,7 +38,7 @@ to stay correct.
 
 ### 0. Parking a despawned ghost at Z = -500000 instead of destroying it
 
-**Never registered here until 2026-08-17, despite being live for days** — found when the user
+**Never registered here until 2026-08-17, despite already being live** — found when the user
 called it "a pretty big bandage right now i think", checked the register, and it was not in it.
 Recorded now, including that omission, because an unregistered compensation is the case this file
 exists to prevent.

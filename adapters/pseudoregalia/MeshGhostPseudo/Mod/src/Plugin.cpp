@@ -4125,7 +4125,7 @@ namespace MeshGhostPseudo
     // 2026-08-16. Every weapon test so far has thrown with a ghost already standing there, so the
     // spawn-mid-throw ordering has genuinely never been exercised.
     //
-    // Leading suspect, and it is not a guess -- it is the same mechanism proven hours earlier by
+    // Leading suspect, and it is not a guess -- it is the same mechanism proven earlier by
     // the self-constructed recall glow: a ghost is a clone of the player's class reading the
     // player's save, so it builds itself with whatever save-dependent state that implies. If the
     // save says the sword is thrown, the ghost's construction may spawn its OWN loose-weapon actor,

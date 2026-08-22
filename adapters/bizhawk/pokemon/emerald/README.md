@@ -233,7 +233,7 @@ order:
     ghost now gets a real shadow SPRITE under it rather than a painted one, landing dust on all
     three renderers, and the sideways jump — which is not an `ACRO_*` action at all, but the plain
     jump family four ids below where anyone would look. The shadow had been written and disabled
-    for a day because it reset the game on every hop: the cause was a NULL sprite callback, since
+    because it reset the game on every hop: the cause was a NULL sprite callback, since
     the engine calls every live sprite's callback with no null check and a zero there is a jump to
     the console's reset vector. Facing while hopping took five attempts, four of which fixed damage
     done by the first.

@@ -24,3 +24,15 @@ adapters/pseudoregalia/MeshGhostPseudo/Mod/CMakeLists.txt text eol=lf
 # produces a whole-file phantom diff that looks like a dependency change and is not.
 go.mod text eol=lf
 go.sum text eol=lf
+
+# *.go pinned LF for the same reason, found 2026-08-23. `core.autocrlf=true` means git WRITES CRLF
+# whenever it materializes a file, so any revert of a .go file (`git checkout --`, a reverted patch,
+# a stash pop) silently re-creates it with CRLF -- with the CONTENT identical to HEAD, so `git
+# status` and `git diff` both show nothing and there is no edit to blame. `gofmt -l` then reports
+# the file as unformatted and prints a whole-file diff, which reads like a formatting disaster
+# rather than a line-ending one, and `dev-scripts/preflight.ps1`'s first check fails.
+#
+# Four files were sitting in exactly that state when this was added: `core.go`, `bridge.go` and
+# both `cmd/*/main.go`, three of them byte-identical to HEAD. The pin is what `go.mod`/`go.sum`
+# above already had; `.go` was simply missed.
+*.go text eol=lf

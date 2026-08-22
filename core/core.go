@@ -1005,7 +1005,7 @@ func (c *Core) ConnectRelayOnAdapterHello(gameID, adapterGameVersion string, bri
 // reconnectLogInterval is how often a still-failing reconnect repeats its
 // (identical) complaint. A var rather than a const only so a test can shrink
 // it — nothing else writes it. One minute is chosen to be cheap enough to
-// leave running for hours and frequent enough that a human reading the log
+// leave running indefinitely and frequent enough that a human reading the log
 // during a session sees the problem within a minute of looking.
 var reconnectLogInterval = 60 * time.Second
 

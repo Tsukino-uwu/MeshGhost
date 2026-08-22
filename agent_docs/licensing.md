@@ -259,7 +259,7 @@ formats, which is worth knowing before pasting the next list.
 - **No game code, ROM data or assets are involved**, so the rule that actually bites elsewhere in
   this project does not apply here at all.
 - **Nothing about it is a distribution problem either.** These are single-player games, the codes
-  are decades old and published in hundreds of places, and our use is development tooling for
+  are published in hundreds of places, and our use is development tooling for
   reaching test states — documented as dev-only in `adapters/_template/README.md`, never shipped.
 
 **The rule to carry forward:** record cheat codes **decoded, by address, in our own table, with

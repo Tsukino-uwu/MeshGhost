@@ -40,8 +40,8 @@ point of picking a second, structurally different game.
       `agent_docs/plans.md`'s history and the plan file. Closed the now-resolved IL2CPP risk in
       `agent_docs/risks.md`; added two new risks surfaced by TEVI (no game-version check between
       peers; BepInEx/Harmony coexistence with the already-installed Randomizer).
-- [x] 6.0.5 — Environment re-baseline: user updated TEVI and the Randomizer (was stale, ~1 year
-      behind — `TEVI.exe` now 2026-07-16, Randomizer now 1.6.1). Re-confirmed Mono status against
+- [x] 6.0.5 — Environment re-baseline: user updated TEVI and the Randomizer (was stale —
+      `TEVI.exe` now 2026-07-16, Randomizer now 1.6.1). Re-confirmed Mono status against
       the current build (unchanged). Unity version confirmed `2021.3.25f1` directly from
       `UnityPlayer.dll`'s own metadata. Clean baseline launch confirmed BepInEx 5.4.23.3
       chainloads cleanly with no errors. All recorded in `agent_docs/environment.md`.

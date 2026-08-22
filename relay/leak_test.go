@@ -13,7 +13,7 @@ import (
 // loop inside each transport.NDJSONConn. Nothing in relay_test.go asserts
 // those ever go away: the disconnect tests check that peers observe a Leave,
 // which they would even if the handler goroutine stayed parked forever. A
-// relay is a long-lived process holding sessions for hours, so a goroutine
+// relay is a long-lived process holding sessions indefinitely, so a goroutine
 // that outlives its connection is a slow leak that only shows up in
 // production.
 

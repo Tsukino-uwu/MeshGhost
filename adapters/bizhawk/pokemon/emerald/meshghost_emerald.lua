@@ -1826,7 +1826,7 @@ genderFrames.xmapTestPeer = function(localKey)
     --
     -- So an explicit "off" (or "none", or empty) is honoured before the pattern match, and a
     -- one-line loader script can now retire it mid-session. Found when the user asked to remove a
-    -- peer left over from cross-route testing days earlier -- exactly the "an unset flag keeps its
+    -- peer left over from earlier cross-route testing -- exactly the "an unset flag keeps its
     -- previous value" trap agent_docs/environment.md records, in its most durable form.
     if not cfg or cfg == "off" or cfg == "none" or cfg == "" then
         -- And it must be REMOVED, not merely left unrefreshed: a peer this function stops updating
@@ -10397,7 +10397,7 @@ local function guardedFrame()
         console.log(string.format("MeshGhost: frame error (continuing, %d in a row): %s",
             frameErrors.consecutive, tostring(err)))
         -- To the FILE as well: the console is invisible to log greps, and a per-frame error on
-        -- one side of a route seam hid behind exactly that for an hour on 2026-08-20.
+        -- one side of a route seam hid behind exactly that on 2026-08-20.
         logFile(string.format("FRAME ERROR (%d in a row): %s",
             frameErrors.consecutive, tostring(err)))
         frameErrors.lastLogged = frameCounter

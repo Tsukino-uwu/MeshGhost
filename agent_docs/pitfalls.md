@@ -1266,7 +1266,7 @@ characterised, will keep turning into that system's other problems.
   non-obvious — a hook rather than the destructor. Grep for where the existing pointer is nulled and
   match it, rather than assuming the new field is like the old ones because it sits next to them.
   The single-object version of this code had been correct since the ghost was first spawned
-  (2026-08-13); adding a companion object two days later silently broke it.
+  (2026-08-13); adding a companion object later silently broke it.
 
 ### Cross-adapter issues that were fixed in the core, not the adapter
 
@@ -1591,7 +1591,7 @@ thing still running?" — and that has an answer you can check.
 
 ## A verification rule that reports clean while the thing it checks is broken (2026-08-18)
 
-**Symptom.** `CLAUDE.md`'s mandated public-repo leak check printed nothing, as it had for days,
+**Symptom.** `CLAUDE.md`'s mandated public-repo leak check printed nothing, as it had been doing,
 while a personal username sat in `master` in a tracked file.
 
 **Diagnosis.** The check was
@@ -1680,7 +1680,7 @@ dangerous: sprite 4 really is resident outdoors in New Bark and really is not lo
 so the "bug" behaved consistently with a genuine appearance fault every time it was looked at.
 
 **Cause.** A scratch script had set `MESHGHOST_CRYSTAL_FORCE_PEER_SPRITE = 4` as a Lua **global**
-for one experiment an hour earlier. **`dev-scripts/bizhawk-dev-loader.lua` swaps SCRIPTS, not the
+for one experiment earlier. **`dev-scripts/bizhawk-dev-loader.lua` swaps SCRIPTS, not the
 Lua state** — globals set by a dropped script persist in the emulator for the rest of its life. So
 every later run in that emulator was still forcing every peer to `SPRITE_RIVAL`, and the fallback
 (wear the local player's sprite when the peer's tiles are not resident) did the rest.
@@ -1746,7 +1746,7 @@ landed exactly on the bare-emulator control, with the hardware sprite still on s
 
 **Diagnosis, and the part worth internalising.** `console.log` in BizHawk is **not a print**. It is
 a text append into the Lua Console *window*, and its cost is a function of **what that window
-already holds** — a session that has been open for hours has a large backlog, so the same call gets
+already holds** — a long-running session has a large backlog, so the same call gets
 more expensive the longer you work, which is exactly the shape that makes it hard to attribute. The
 2026-08-19 entry above priced this at ~1,400 calls a second and read as a lesson about volume. It is
 not about volume. **One line a second is already too many.** The threshold is far lower than any
@@ -1822,7 +1822,7 @@ stream, which collapsed its speed limit and left the ghost unable to follow a ru
 **Why nobody had seen it:** in compare mode the painted copy is **pinned to the spawned ghost's own
 sprite** and never uses its own position, so the one instrument aimed at that tier was structurally
 incapable of showing the fault. It took a THIRD renderer, placed from the pipeline, to expose a bug
-in code the second one had been running for days.
+in code the second one had been running unnoticed.
 
 **Two rules out of this.** A comparison harness that pins one side has removed a whole class of
 defect from view -- know which class. And when a new implementation looks worse than an old one,
@@ -2174,8 +2174,8 @@ is ours`). See `environment.md`, "One agent per BizHawk INSTANCE".
 **Symptom** (Crystal, 2026-08-19): none, yet. It was caught by reading, not by a failure.
 
 **Cause:** the cartridge sprite table had just been given a **per-ROM-build table with a nil for
-any build nobody had measured**, precisely so an unmeasured build refuses instead of guessing. An
-hour later a second code path used `OverworldSprites` as a **hardcoded constant**, on any build,
+any build nobody had measured**, precisely so an unmeasured build refuses instead of guessing. Then
+a second code path used `OverworldSprites` as a **hardcoded constant**, on any build,
 bypassing that table entirely. On the Archipelago ROM -- where the table lives at `0x14564`, not
 vanilla's `0x14736` -- it would have painted peers from arbitrary ROM bytes.
 
@@ -2211,7 +2211,7 @@ confirm it -- which is the only reason it is a pitfall entry and not an incident
 ## A stray dev-scripts/config.json silently redirects a core to a relay nobody is running
 
 **Symptom** (2026-08-19, twice): once, four synthetic peers went to a dead port and rendered
-nothing; once, a core sat retrying a relay that had exited hours earlier while everyone assumed it
+nothing; once, a core sat retrying a relay that had already exited while everyone assumed it
 had lost the shared one -- and the reconnect log said nothing, because it only logged when the
 error message *changed* (fixed the same day, `verified.md`).
 
@@ -2619,7 +2619,7 @@ the user to look again.
 
 - **Count the paths before fixing one.** Ask what else renders, spawns or moves the same thing.
   This adapter has two draw paths, two tiers, and a spawn path plus an in-place swap — four places a
-  change can need to land, and each has caught something this month.
+  change can need to land, and each has caught something.
 - **Put a diagnostic INSIDE the change, not near it.** Then "did it work" and "did it run" are
   different lines in the log rather than the same silence.
 
@@ -2978,7 +2978,7 @@ already existed — read next to a per-frame panel-rows dump.
 ### The dev loader shares ONE Lua environment — an unset flag keeps its old value (2026-08-20)
 
 - **Symptom**: an A/B run "with compare mode off" showed compare mode's exact cost profile; the
-  anim trace ran for hours after being "turned off".
+  anim trace ran on after being "turned off".
 - **Cause**: `bizhawk-dev-loader.lua` loads every target into one shared environment, so a global
   set by an earlier flags file survives every later swap. A flags file that merely *doesn't set*
   a flag inherits whatever the last session set it to — "not mentioned" is not "off".
@@ -2991,7 +2991,7 @@ already existed — read next to a per-frame panel-rows dump.
 
 **Symptom.** Building a real shadow sprite for a spawned ghost restarted the game on every jump --
 user, 2026-08-20: *"everytime i jump with the bike, the game restarts now"*. It was switched off at
-the door and stayed off for a day.
+the door and stayed off.
 
 **The theory recorded at the time was wrong, and plausibly so.** The adapter blamed the tile
 allocation: a bad `SpriteFrameImage` byte count overrunning OBJ VRAM. That is a real failure mode,
@@ -3600,7 +3600,7 @@ water with no land in it. Twice.
 **Diagnosis.** The probe's header asserted that `CB2_LoadMap` runs `WarpIntoMap`. It does not —
 that path is `CB2_DoChangeMap -> CB2_LoadMap2 -> DoMapLoadLoop`, and `WarpIntoMap`, the only
 caller of `SetPlayerCoordsFromWarp`, is nowhere on it. The map loaded; the coordinates stayed.
-Invisible for a week because every warp had been to Mauville (40x20) from somewhere small.
+Invisible because every warp had been to Mauville (40x20) from somewhere small.
 Warping out of Route 126 at (45,68) into Mossdeep City (80x40) left the player outside the map in
 the border fill, with `MAPGRID_UNDEFINED` on every side.
 
@@ -3619,7 +3619,7 @@ floor arrives on foot with no blob to clean up.
 
 ## A fix named after WHERE it was found will be re-found somewhere else (Emerald, 2026-08-21)
 
-**Symptom.** The OAM ghost invisible in Mt Pyre's fog — a bug fixed five hours earlier, underwater.
+**Symptom.** The OAM ghost invisible in Mt Pyre's fog — a bug fixed earlier the same session, underwater.
 
 **Diagnosis.** The dive fix was correct and its predicate was `is the player underwater`, because
 underwater is where it was seen. The actual cause is *the engine is tiling the screen with
@@ -4366,3 +4366,27 @@ unknown bytes are *always special* is not a narrowing, it is a bigger blind copy
   discovering it.
 - **Verify a write by reading it back out of the game.** The spawn log now reports the type nibble
   re-read from emulator memory rather than the value just written.
+
+## A reverted `.go` file comes back as CRLF, and nothing shows you why (2026-08-23)
+
+**Symptom.** `dev-scripts/preflight.ps1`'s first check fails: `not gofmt-clean` on several `.go`
+files. `gofmt -d` prints the ENTIRE file as changed, which reads like a catastrophic formatting
+problem. Meanwhile `git status` and `git diff` show nothing wrong with those files — some of them
+are byte-identical to `HEAD` in content — so there is no edit to point at and no obvious culprit.
+
+**Cause.** `core.autocrlf=true`, and `*.go` was not pinned in `.gitattributes`. Git therefore writes
+CRLF whenever it *materializes* a `.go` file, so any revert re-creates it with CRLF — `git checkout
+--`, a reversed patch, a stash pop. Git then normalizes on read, which is why the diff is empty; but
+`gofmt` sees a file whose every line ends `\r\n` and rewrites every one of them.
+
+Note what makes this hard to attribute: **no one edited the file.** Reaching for "whose editor did
+this" is wrong twice over — it blames a person, and it stops the search before the real mechanism.
+The tell that settles it is that the *content* matches `HEAD` while the *bytes on disk* do not.
+
+**Fix.** Pin it, exactly as `go.mod`/`go.sum` already were for the same reason:
+`*.go text eol=lf`. Repair the existing files with `perl -pi -e 's/\r\n/\n/g'` before rebuilding —
+`CLAUDE.md`'s order for the LF-pinned adapter sources (normalize, then build, then commit) applies
+here too.
+
+**Worth knowing:** `.gitattributes` already pinned `*.cs`, `*.cpp`/`*.hpp`, `*.sh`, `go.mod` and
+`go.sum`. `.go` was simply missed, and it is the extension this repo has most of.

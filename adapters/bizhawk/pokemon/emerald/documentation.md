@@ -26,7 +26,7 @@ describes an adapter workaround** — those belong in [BANDAGES.md](BANDAGES.md)
 Dated evidence for every claim, with addresses cited to the decomp build:
 [`agent_docs/verified.md`](../../../../agent_docs/verified.md).
 
-**Written 2026-08-18**, after this adapter had been shipping for a week. It was previously argued
+**Written 2026-08-18**, after this adapter had already shipped. It was previously argued
 that a `documentation.md` was unnecessary for a game with a decompilation. That was overturned by
 the user: a curated description of *the mechanics this adapter actually depends on* is a different
 artifact from a decompilation, and "we can look it up" does not survive a session where nobody does.
@@ -480,7 +480,7 @@ ROM `images` pointer they draw from, so it identifies them by what they ARE rath
   puffs rather than one puff dragged along underneath.
 - **Both are driven by the jump itself.** A character that merely *walks* onto the tile another
   character *jumped* to gets neither — there is no jump to start a shadow or to finish and raise
-  dust. Obvious in hindsight and easy to miss for a long time: "it has no dust" turned out to mean
+  dust. Obvious in hindsight and easy to miss: "it has no dust" turned out to mean
   "it never jumped", not "the dust is drawn in the wrong place".
 - **The two effects bind differently, and it matters.** The shadow is bound to its object by
   **local id** and re-finds it every frame; the dust is positional, spawned at coordinates and left

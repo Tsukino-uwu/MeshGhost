@@ -132,7 +132,7 @@ func maximalEventLine(t *testing.T) int {
 // TestMaximalEventDoesNotFitAUDPDatagram pins the CURRENT, known-wrong state
 // rather than asserting the guarantee we would like.
 //
-// MaxEventBytes' doc comment claimed for a long time that 1024 was chosen so a
+// MaxEventBytes' doc comment claimed that 1024 was chosen so a
 // whole event envelope fits under MaxDatagramBytes, "so an event means the same
 // thing on every transport". It does not: a maximal event overshoots, and is
 // then refused by checkWritable for every udp peer with nothing but a relay log

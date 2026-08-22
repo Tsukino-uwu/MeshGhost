@@ -23,7 +23,7 @@
 -- never consulted, and the player keeps the coordinates they had on the map they left.
 --
 -- That is invisible when the destination is BIGGER than the old coordinates, which is why this
--- probe looked correct for a week of warps to Mauville (40x20). Warping out of Route 126 at
+-- probe looked correct across many warps to Mauville (40x20). Warping out of Route 126 at
 -- (45,68) into Mossdeep City (80x40) put the player outside the map, in the border fill -- open
 -- water with no land in it, and MAPGRID_UNDEFINED all round, so they could not move in any
 -- direction. It reads exactly like a hang.

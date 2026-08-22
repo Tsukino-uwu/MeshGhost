@@ -1266,7 +1266,7 @@ Format: Date / Decision / Status / Context / Options considered / Resolution / C
 - **Status:** Implemented, same day. **The `udp` shipped default is superseded by the quic-default
   ADR at the end of this file** (the client ships `auto`); everything else here — the mandatory tcp
   handshake, `transport` as the upgrade target, tcp mandatory on the relay — is current.
-- **Context:** The user's framing, and it is better than what shipped hours earlier: discovery
+- **Context:** The user's framing, and it is better than what shipped earlier: discovery
   should be an unconditional property of connecting rather than a special `auto` mode. The first
   design left `tcp`/`udp`/`quic` as three parallel ways to connect, which meant a client had to be
   told which port a transport lived on and got a bare timeout when it guessed wrong.

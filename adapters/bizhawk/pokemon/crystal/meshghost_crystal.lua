@@ -1686,7 +1686,7 @@ function facingFrames.pick(facing, walking, prog, stride)
 	if walking and (prog <= 4 or prog >= 14) then
 		local f = entry.step[(stride or 0) & 3]
 		-- ANY STEPPING VIEW BEATS THE STANDING ONE. A slot is only filled once the local player has
-		-- walked that way on that stride, so a direction can be short one for a long time -- and
+		-- walked that way on that stride, so a direction can stay short one indefinitely -- and
 		-- falling back to `stand` there DROPS THE WHOLE STEP, which on screen is a walk cycle that
 		-- skips beats and reads as too fast. The user, 2026-08-22: up, down and left looked normal
 		-- while *"walking right still feels fast"* -- right being the direction whose slots had not

@@ -75,16 +75,23 @@ Section "Invented durations"
 # it with a date or a version rather than silencing the check -- a date is better writing there too.
 # Four such hits were reworded when this check was added; none of them lost anything by it.
 #
+# TWO GATES, because the units divide cleanly and only one of them can be judged by grep alone.
+# The first is repo-wide and covers what is IMPOSSIBLE here; the second covers everything else but
+# only on lines being added. `pitfalls.md` is no longer excluded from the first: it was, and that is
+# where 2026-08-23's "for days" landed unchallenged.
+#
 # verified.md is excluded because it is APPEND-ONLY: correcting a phrase inside an entry there is a
 # rewrite of the record, which is the one thing that file forbids. It holds one known bad duration
 # ("long-standing 1-2 image density gap", 2026-08-21) and one legitimate external reference. A
 # future entry that invents a duration will therefore NOT be caught here -- so watch it by hand.
-$durations = & git grep -inIE -e 'for (the last |the past )?(a )?(month|year|decade|age)s?' -e 'long-?standing' -e '(month|year|decade)s ago' -e 'over the years' -- . ':!CLAUDE.md' ':!dev-scripts/preflight.ps1' ':!agent_docs/pitfalls.md' ':!agent_docs/verified.md'
+# `licensing.md` and `access-models.md` are excluded for the opposite reason: both are ABOUT the
+# outside world (licences, emulator projects, hardware), so external dates are their subject matter.
+$durations = & git grep -inIE -e 'for (a |an |the last |the past )?(hour|day|week|month|year|decade)s?' -e '(hour|day|week|month|year|decade)s? (ago|later|earlier|old|behind)' -e 'long-?standing' -e 'long time' -e 'decades' -e 'over the years' -- . ':!CLAUDE.md' ':!dev-scripts/preflight.ps1' ':!agent_docs/verified.md'
 if ($LASTEXITCODE -eq 0 -and $durations) {
-    Report-Fail "invented duration in a tracked file -- this repo began 2026-08-11, so cite a date:"
+    Report-Fail "vague duration in a tracked file -- cite a date, or a measured figure with a number:"
     $durations | ForEach-Object { Write-Host "          $_" }
 } else {
-    Report-Pass "no invented durations in tracked files"
+    Report-Pass "no vague durations in tracked files"
 }
 
 # ---------------------------------------------------------------------------

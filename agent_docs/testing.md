@@ -314,7 +314,7 @@ and its `contents: write` permission is the reason CI is deliberately `contents:
   relay, the client, and the adapter in turn. Each carries its own negative control, because a
   restart test that never actually caused an outage passes for free.
 - **`relay/leak_test.go`** — goroutine and connection-slot teardown. Both pass; these
-  exist because a relay holds sessions for hours and nothing else asserted that a closed
+  exist because a relay holds sessions indefinitely and nothing else asserted that a closed
   connection actually releases anything.
 
 ## Known gaps, not yet written

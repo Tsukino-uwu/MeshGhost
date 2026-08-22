@@ -91,7 +91,7 @@ default that is the shipping behaviour.
 | `MESHGHOST_GHOST_PEER_GFX` | global or environment | unset — **off, deliberately** | Opts in to drawing a peer with the peer's own graphic. **Off is not an oversight.** Every special state renders corrupted, confirmed on screen 2026-08-18, for a structural reason: normal Brendan/May is 16 px wide with one OAM and subsprite table, while both bikes, surfing, underwater and fishing are **32 wide** with different ones — and this code copies both pointers while also forcing `subspriteTableNum = 0`, a field the engine manages itself. Until that is solved, a peer's graphic is used only when it matches the local player's, which changes nothing visually but keeps the wire format and the plumbing exercised. |
 
 **The pattern worth copying**, and the reason this section exists at all: a runtime switch can be
-on without anyone choosing it — a variable exported in a shell weeks ago changes behaviour in a
+on without anyone choosing it — a variable exported in a shell and forgotten changes behaviour in a
 build that looks identical. Prefer a default that *is* the shipping behaviour, and prefer the
 global-then-environment shape when a switch needs to be flipped without restarting the emulator.
 

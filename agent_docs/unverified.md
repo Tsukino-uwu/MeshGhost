@@ -522,7 +522,7 @@ own movement -- the 56- and 150-peer crowds -- happened BEFORE the fix. So the f
 has not been on screen since it changed.
 
 This is the same shape as the bug it fixed: the pinning that makes compare mode useful is exactly
-what hid the defect for days (`pitfalls.md`, trap 4). **To actually test it, turn compare mode OFF**
+what hid the defect (`pitfalls.md`, trap 4). **To actually test it, turn compare mode OFF**
 -- then the painted copy is placed from the glide like a real peer, and running speed is where any
 difference lives.
 

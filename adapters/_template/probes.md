@@ -207,7 +207,7 @@ So, when instrumenting an effect:
 `apcrystal/`, and so on); create it if missing. `bizhawk-screenshot.lua` is the tool, and a probe
 that overwrites one PNG on a timer is enough to watch a session evolve.
 
-**Why it is a rule and not a preference**: a session ran four emulators for hours and produced
+**Why it is a rule and not a preference**: a session ran four emulators at once and produced
 screenshots for exactly one of them, because the other three wrote into a per-session scratch
 directory that then disappeared. Nobody — including the user — could see what three games were
 doing.
@@ -828,7 +828,7 @@ the data does, and changing one is smaller, reversible, and needs no write where
 
 **The user's rule, 2026-08-21:** *"non laggy/good performance should be the default for things like
 this"* — said after a session where the instrumentation, not the adapter, was what made the game
-stutter for an hour.
+stutter.
 
 A probe that costs frame time is not "a slightly slow probe". It is a probe **reporting on a game
 that is no longer the game the user plays**, and every number it produces is about the disturbed
@@ -955,7 +955,7 @@ and those fields exist nowhere in the description you copied from. So the object
 every field you thought about and wrong in the ones you did not know existed. Emerald's surf blob
 lost `centerToCornerVec`, which `CreateSprite` derives from the OAM shape and size; the blob then
 drew from its corner instead of its centre and sat a tile down-right of its rider, with a cause
-recorded as "unknown" for a day.
+recorded as "unknown" until someone noticed.
 
 **The method, and it is mechanical.** Get a LIVE instance the game made itself — the player almost
 always has one — and dump the same struct for both, side by side, every field. Then read down the
@@ -1519,7 +1519,7 @@ Three rules came out of the same hunt, each of which cost an iteration:
   The player's own figure has to be on the line beside it, because the engine is irregular too and
   the target is to match *its* irregularity, not to be metronomic.
 
-## The instruments that finally worked, and the ones that lied for hours (Crystal, 2026-08-23)
+## The instruments that finally worked, and the ones that lied (Crystal, 2026-08-23)
 
 A single reported symptom — *"jittery"* — took a full session and nine distinct defects to clear.
 Almost all the cost was instrumentation: at every stage the numbers said "fixed" and the user said

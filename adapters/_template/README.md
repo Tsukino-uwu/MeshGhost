@@ -112,7 +112,7 @@ adapter accumulates dozens of probe scripts and hundreds of log files, and at th
 bury the documentation that a reader actually came for: Crystal reached 25 scripts and 72 logs
 within a day of being started, at which point its four `.md` files were genuinely hard to find in
 the listing. **The probes themselves are committed and kept** — they are the record of how each
-fact was established, and several written for a vanilla ROM were re-run days later against a
+fact was established, and several written for a vanilla ROM were re-run later against a
 patched one to chase the same class of bug (Emerald's four `avatar_*` probes, 2026-08-14). **Their logs are not**: `.gitignore` covers
 `/adapters/bizhawk/pokemon/**/*.log`, because once a run has been read its conclusions belong in
 `verified.md`, not in a megabyte of raw text. Convention adopted 2026-08-18, on the user's ask, and
@@ -574,8 +574,7 @@ separate points at which the whole thing was confirmed working and then reopened
 The three findings most likely to save you time on a different game:
 
 1. **When a plausible property provably never changes, that is evidence about which OBJECT holds the
-   state — not evidence that the problem is unsolvable.** This one wrong inference parked the feature
-   for days.
+   state — not evidence that the problem is unsolvable.** This one wrong inference parked the feature.
 2. **When a count looks wrong, log identity, not more counts.** "The game produced two" and "one was
    counted twice" produce identical numbers and need opposite fixes. A pointer separated them in one
    line.
@@ -1364,7 +1363,7 @@ question is answered.
 **If the host loads scripts into one shared environment, an isolation run is only valid when the
 flags are exhaustive.** MeshGhost's dev loader shares one Lua environment across every script it
 loads, so a global set by an earlier flags file survives a swap -- an A/B "with the trace off" ran
-for hours with it on. Set every flag explicitly, false included, and check the adapter's own
+with it on throughout. Set every flag explicitly, false included, and check the adapter's own
 startup lines for what is ACTUALLY enabled rather than trusting what the flags file requested.
 
 ## Find out how many ghosts this game can hold, and make it refuse cleanly
@@ -1627,7 +1626,7 @@ So a renderer that combines an interpolated value with an `extras` value is mixi
 describe **different instants**, once per frame. That is a stutter by construction, and no amount of
 filtering downstream can remove it — the two inputs disagree.
 
-**Crystal shipped exactly that for months of calendar time and nobody saw it**, because the dev rig
+**Crystal shipped exactly that and nobody saw it**, because the dev rig
 runs `-interp=0ms` (deliberately, so 1:1 can be judged) and **with interpolation off the two terms
 agree**. The fault only exists at the shipped interpolation delay, which is the one configuration
 nobody was testing. Measured when it was finally looked at: of 1911 messages at shipped settings,

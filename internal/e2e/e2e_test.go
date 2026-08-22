@@ -48,8 +48,8 @@ func exeName(base string) string {
 // buildBinary compiles one command into dir and returns its path. Built from
 // source every run rather than reusing whatever sits at the repo root: those
 // root binaries are stale far more often than anyone expects (CLAUDE.md has
-// a standing rule about it after a bug repro once ran against binaries a
-// full day old), and a test that silently exercises yesterday's build is
+// a standing rule about it after a bug repro once ran against stale
+// binaries), and a test that silently exercises an older build is
 // worse than no test.
 func buildBinary(t *testing.T, dir, pkg, base string) string {
 	t.Helper()

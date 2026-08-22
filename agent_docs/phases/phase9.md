@@ -436,7 +436,7 @@ clear, so a hardware sprite draws in front of it.
   twitching; all three measured POSITION, and the faults were in TIMING and in the IMAGE.
 - **The rig's settings are part of the experiment.** A restart at the relay's default 20Hz instead of
   the documented 100Hz widened step-start lag from 3–5 frames to 0–6 and was misattributed to the
-  adapter for an hour.
+  adapter.
 - **`pitfalls.md` already held three of the evening's answers** — the logging stall, probe globals
   outliving their probe, and the `goto_map` warp — and each was rediscovered the expensive way
   because it had not been read.
