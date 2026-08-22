@@ -512,3 +512,43 @@ user calls "a bit slow".
   which drives the d-pad, while the user was testing by hand. That guess was wrong, but the rig
   genuinely should not have been left loaded — and the bisect that followed (revert to HEAD, ask)
   is what should have happened first.
+
+### Where the two tiers stand at the end of 2026-08-22
+
+**The user's own summary, and the most honest statement of this adapter's state:** the session went
+from *"2 broken ghosts"* to the **drawn** ghost being *"perfect but not animated"* and the
+**spawned** ghost *"somewhat decent but still some yank"*.
+
+That is worth reading twice, because it inverts the tier ladder. `architecture.md`'s spawn -> OAM ->
+drawn order exists on the reasoning that the engine does the work better than we can: a spawned
+character gets animation, collision, occlusion and lifetime for free, while a painted one
+reimplements each. On Crystal today the painted tier is the better-behaved of the two — its
+position, facing and placement are each confirmed 1:1 — and the engine-driven one still yanks.
+
+**What that suggests about where the remaining work is.** The painted tier's faults were all in code
+we own and were closed once measured. The spawned tier's remaining yank is in how we drive the
+engine's own step machinery, which is a smaller surface and has resisted several sessions. It is
+also the tier that most peers actually get, so its yank is what a real session looks like.
+
+### Fixed on 2026-08-22, all user-confirmed on screen
+
+| Fault | Cause | Confirmed |
+|---|---|---|
+| ghost in the wrong place leaving a door | the aged reference still described the previous map | *"yes this is fixed"* |
+| facing swapping between two views | the learner read its own ghost's sprite entries as the player's | *"seems to work properly now"* |
+| right-facing drawn 8px left | parts measured from OAM entry 0, which mirrors with the sprite | *"absolutely perfect/static in all directions"* |
+| ~65 frames blank after a crossing | the hold was counted down after the crossing, never during it | *"think it looks pretty good"* |
+
+### Still open on this adapter, in the order worth taking them
+
+1. **The drawn tier's stride animation has never been seen running.** Its summary line read
+   `0 on a walk frame` all evening, and only one frame per facing was ever captured. A ghost that
+   is perfectly placed and perfectly facing but sliding is the next visible gap.
+2. **The spawned tier's yank**, which is now the worse of the two tiers and the one most peers get.
+3. **The spawned ghost drifting** when the peer looks up and then to the side — reported the same
+   evening, deliberately NOT folded in with the drawn tier's 8px offset, because the spawned ghost
+   is placed by the engine from its struct rather than through `readPlayerOamFrame`. Same symptom,
+   different path; it needs its own measurement.
+4. **The drawn ghost appears ~8-13 frames after the player** on a crossing: the hold's leftover
+   (2-5), the readiness gate (3), the wire (3-5). Only the first two are ours.
+5. **`extras.act`** remains on the wire and untested.

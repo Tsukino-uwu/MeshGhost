@@ -70,8 +70,12 @@ that a peer's state genuinely differs from the local player's, which loopback co
   all done and 1:1 (2026-08-19..21); Crystal has none of that class yet. `unverified.md`.
 - **Crystal's two tiers now move properly — user-confirmed 2026-08-21/22.** Painted tier walks and
   clears across transitions; spawned tier animates. `phases/phase9.md`, `unverified.md`.
-- **Crystal's drawn tier: exit position and facing FIXED and confirmed 2026-08-22.** What remains
-  open there is its STRIDE animation, never confirmed working. `unverified.md`, `pitfalls.md`.
+- **Crystal's drawn tier is "perfect but not animated" (user, 2026-08-22)** — position, facing and
+  placement confirmed 1:1; its walk cycle has never been seen running. `phases/phase9.md`.
+- **Crystal's spawned tier is "somewhat decent but still some yank"** — now the WORSE of the two
+  tiers, and the one most peers get. `phases/phase9.md`.
+- **Crystal: a spawned ghost drifts when the peer looks up then sideways** — reported 2026-08-22,
+  not the same path as the drawn tier's 8px offset. `phases/phase9.md`.
 - **Crystal's transition hold spends its 30 frames after the world is ready, not during the
   crossing** — measured, fix built and reverted as worse. `unverified.md`, `phases/phase9.md`.
 - **Crystal's hardware (OAM) tier: built, reaches the screen, shipped OFF, never judged on screen.**

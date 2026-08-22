@@ -110,11 +110,26 @@ Only steps that actually happened and were confirmed are listed here.
    per ROM build, picked by the header title, and an unmeasured entry stays `nil` so it refuses to
    run instead of writing somewhere plausible. A loopback ghost walked on that ROM the same day.
    The measurement techniques are in `adapters/_template/probes.md`; the trap is in `pitfalls.md`.
+7. Made the painted tier hold its position and its facing, which took a whole session and six
+   attempts at the facing alone. Three of the faults were the same shape: a rule this file had
+   already worked out — take the MINIMUM x across a character's four hardware sprite entries,
+   because their order mirrors when the sprite flips — living in one function and missing from the
+   one next to it. The fourth was subtler: a ghost built to look like the local player is
+   indistinguishable from them in the hardware's own sprite table, so the tier was learning the
+   player's artwork from its own ghost. `pitfalls.md` has each; the method that found them all was
+   one small trace, written after four fixes reasoned from the code had failed on screen.
 
 ### Further work past "good enough"
 
-Open as of 2026-08-19 — [agent_docs/status.md](../../../../agent_docs/status.md) is the
-authoritative list, and [phase9.md](../../../../agent_docs/phases/phase9.md) has the detail:
+Open as of 2026-08-22 — [agent_docs/status.md](../../../../agent_docs/status.md) is the
+authoritative list, and [phase9.md](../../../../agent_docs/phases/phase9.md) has the detail.
+
+**Where the two tiers actually stand**, in the user's own words at the end of 2026-08-22, because
+it is the most honest summary of this adapter available: the **drawn** ghost is *"perfect but not
+animated"* — its position, facing and placement are all confirmed 1:1 and its walk cycle has never
+been seen running — and the **spawned** ghost is *"somewhat decent but still some yank"*. Neither
+is finished, and the drawn one is now the better-behaved of the two, which is the reverse of what
+the tier ladder intends.
 
 - A ghost wears the peer's own sprite when this map has those tiles loaded (2026-08-19), and falls
   back to this machine's player otherwise — the other gender is never loaded, so that case still
