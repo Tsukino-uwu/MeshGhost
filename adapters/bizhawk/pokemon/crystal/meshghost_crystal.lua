@@ -2052,6 +2052,43 @@ local function spawnGhost(id, x, y, peerSprite)
 	-- needs a benign starting value.
 	setGhostStanding(stBase, moBase, ((u8(stBase + F_DIRECTION) or 0) // 4) & 3)
 
+	-- NORMALISE WHAT THE GHOST *IS*, the same way its flags and its movement are normalised above,
+	-- and for the same reason: the template is a live NPC and everything that character was comes
+	-- across in the copy. This is the third fault of that shape and the worst of them.
+	--
+	-- User, 2026-08-23: a spawned ghost raised the trainer `!` and the game hung; it recurred on a
+	-- second route. The donor on the first one read
+	--   05 2E 17 0F 09 00 FF FF 82 04 82 5B FF FF 00 00
+	-- and bytes 8 and 9 are the whole story: byte 8's low nibble is MAPOBJECT_TYPE (its high nibble
+	-- is the palette, one byte shared) and it held 2 = OBJECTTYPE_TRAINER, while byte 9 is
+	-- MAPOBJECT_SIGHT_RANGE and held 4. The ghost was a trainer with a four-tile sightline, and it
+	-- WALKS -- so it eventually spotted the player from somewhere no trainer stands, raised the `!`
+	-- and ran a battle script for a trainer that is not on that tile. Field layout:
+	-- pokecrystal `constants/map_object_constants.asm:82-99`; type values `constants/
+	-- script_constants.asm:137-145` (`const_def`, so SCRIPT=0, ITEMBALL=1, TRAINER=2).
+	--
+	-- OBJECTTYPE_3 is the right thing for a ghost to BE. `engine/overworld/events.asm`'s
+	-- ObjectEventTypeArray dispatches a faced object on this nibble, and types 3-6 are dummy
+	-- entries whose handlers are `xor a / ret` -- face one and nothing happens. Type 0 (SCRIPT) and
+	-- type 1 (ITEMBALL) both DEREFERENCE MAPOBJECT_SCRIPT_POINTER, so leaving a ghost as either
+	-- while blanking the pointer would trade a trainer hang for a jump through a null pointer. A
+	-- ghost is not a script, not an item and not a trainer; it is a character you can walk up to
+	-- and face, and nothing more.
+	--
+	-- Only the ghost's own map object is touched. The donor is read and never written, so no NPC
+	-- on the map changes -- which is what separates this from cloning the PLAYER instead, tried
+	-- first on 2026-08-23 and reverted within the hour: the player's map object and 0x28-byte
+	-- object struct carry the engine's own driving state, and copying them broke camera follow and
+	-- displaced the map's objects. The donor was never the thing to change; the four bytes that say
+	-- what the copy IS are.
+	local palette = (u8(moBase + 0x08) or 0) & 0xF0 -- MAPOBJECT_PALETTE, high nibble of byte 8
+	w8(moBase + 0x08, palette | 3)                  -- MAPOBJECT_TYPE = OBJECTTYPE_3 (a no-op event)
+	w8(moBase + 0x09, 0)                            -- MAPOBJECT_SIGHT_RANGE: a ghost sees nobody
+	w8(moBase + 0x0A, 0)                            -- MAPOBJECT_SCRIPT_POINTER, low
+	w8(moBase + 0x0B, 0)                            -- ...and high; never read at type 3
+	w8(moBase + 0x0C, 0xFF)                         -- MAPOBJECT_EVENT_FLAG: the "no flag" sentinel
+	w8(moBase + 0x0D, 0xFF)                         -- both donors seen carried FF FF here
+
 	ghosts[id] = { mo = mo, st = st, mo_base = moBase, st_base = stBase, area = areaId(),
 		sprite = u8(stBase + F_SPRITE) }
 
@@ -2059,8 +2096,14 @@ local function spawnGhost(id, x, y, peerSprite)
 	-- look like themselves rather than like whoever is sitting at this machine.
 	local own = applyPeerSprite(ghosts[id], peerSprite)
 
-	log(string.format("MeshGhost: spawned %s at %d,%d (map object %d <-> struct %d)%s", id, x, y,
-		mo, st, own and " wearing its own sprite" or ""))
+	-- READ THE TYPE BACK OUT OF THE GAME, do not report the value just written. `_CheckTrainerBattle`
+	-- (pokecrystal `home/trainers.asm:13`) scans MAP OBJECTS and rejects on this nibble first, so
+	-- this byte is the entire difference between a ghost and a trainer -- and the donor it was
+	-- cloned from is worth having on the same line, because a `2` here would name the NPC to blame.
+	local gotType = (u8(moBase + 0x08) or 0) & 0x0F
+	log(string.format("MeshGhost: spawned %s at %d,%d (map object %d <-> struct %d, type %d, "
+		.. "cloned from map object %d)%s", id, x, y, mo, st, gotType, srcMo,
+		own and " wearing its own sprite" or ""))
 	return ghosts[id]
 end
 

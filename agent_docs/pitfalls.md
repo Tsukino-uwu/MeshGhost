@@ -4299,3 +4299,70 @@ layer beneath it was wrong, and the instruments agreed with each wrong layer in 
 > were each measured clean while layer 2 was wrong, because every instrument was built in the
 > model's own frame. The only instrument that could see it was one that watched the painted screen
 > position — the number the eye actually watches.
+
+## Crystal: a spawned ghost was a TRAINER, and it hung the game (2026-08-23)
+
+**Symptom.** A `!` appears over a spawned ghost's head, as if a trainer had spotted the player, and
+the game then stops responding to input. The overworld is still emulating — frames advance, the
+adapter keeps logging — so it is the game's own script engine that is wedged, not the emulator and
+not Lua. User's words: *"the spawned ghost got the trainer battle thing, and now we are stuck"*.
+Rare, and it had been seen *"from time to time"* for a while with no idea how to reproduce it.
+
+**Cause.** `spawnGhost` clones a donor: all 16 bytes of a live NPC's map object plus its object
+struct. The adapter understands four of those bytes (struct id, sprite, y, x) and copies the other
+twelve blind. Byte 8's low nibble is the object's TYPE and byte 9 is its SIGHT RANGE
+(`constants/map_object_constants.asm:79-99`). The donor that did it read
+
+    05 2E 17 0F 09 00 FF FF 82 04 82 5B FF FF 00 00
+
+— type nibble `2` = trainer, sight range `4`, and a real script pointer. The ghost *was* that
+trainer, with a four-tile sightline, and unlike a real trainer it walks around; sooner or later it
+faced the player from somewhere no trainer stands, raised the `!`, and ran a battle script for a
+trainer that is not on that tile.
+
+**Why it was rare, and why it never reproduced.** The donor is whichever object the map declares
+first (`findTemplateNpc` returns the first eligible map object). Whether a ghost is a trainer is
+therefore a property of *the map you happen to be standing on*, not of anything the player did — so
+it travelled with the route and no repro ever held still.
+
+**Fix.** Normalise what the ghost IS, on the ghost's own map object only: type nibble to
+`OBJECTTYPE_3`, sight range 0, script pointer 0, event flag `FFFF`. Type 3-6 are the game's own
+dummy events whose handlers return immediately, so a ghost can be faced and nothing happens — and
+critically they are the only types that never dereference the script pointer, so blanking the
+pointer while leaving type 0 would have traded a trainer hang for a null-pointer jump.
+`_CheckTrainerBattle` (`home/trainers.asm:13`) tests the type nibble *second*, before sight range
+and before the pointer is read, so the ghost now leaves that scan immediately.
+
+### The third instance of one root cause, patched three times
+
+The two earlier ones are commented in `spawnGhost` itself: a ghost inherited `SLIDING`/`FIXED_FACING`
+from a still object and never animated, and inherited a WANDER movement type that snapped its facing
+at the end of every step. Each was fixed where it showed, as its own field. **All three are the same
+bug: a ghost inherits its donor's identity.** Three symptoms, three patches, one cause that was
+never named. When the same shape appears a third time, the thing to change is not the fourth field.
+
+### What was tried first, and why it was wrong
+
+Templating the **player** instead of an NPC — the player carries no trainer type, no sight range and
+no script, so the whole class disappears. It was a bad fix and was reverted within the hour: the
+player's map object and its 0x28-byte object struct carry the engine's own driving state, and
+copying them broke camera-follow and displaced the map's objects. User: *"this is not a fix, this is
+a really big regression"*. **The donor was never the thing to change; the four bytes that say what
+the copy IS were.** Replacing a donor whose unknown bytes are *sometimes* wrong with one whose
+unknown bytes are *always special* is not a narrowing, it is a bigger blind copy.
+
+### The method worth keeping
+
+- **An unreproducible fault deserves an instrument, not a repro hunt.** A one-line log of the donor
+  and its 16 bytes was added while the bug was still just a suspicion. It caught the offending
+  object on the very first spawn after it went in, and named the culprit outright. The fault had
+  gone unexplained for days; the instrument cost five minutes.
+- **A cleared decompilation is faster than measurement — read it FIRST.** Every fact above came from
+  reading `pret/pokecrystal`, which `licensing.md` cleared for facts-with-citation and which
+  `environment.md` records as already built locally since 2026-08-17. The field names, the type
+  values, the dispatch table and the scan order were all sitting there. The earlier `FLAGS1` fix in
+  this same function was derived by probe over multiple sessions, and those bit names were in a file
+  we were always allowed to read. Measurement is for confirming what the source says, not for
+  discovering it.
+- **Verify a write by reading it back out of the game.** The spawn log now reports the type nibble
+  re-read from emulator memory rather than the value just written.

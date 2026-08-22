@@ -171,6 +171,101 @@ step**, since the game suspends map events while a step is in progress.
 are independent, and battle state cannot be inferred from map state. Object structs are not cleared
 on battle entry.
 
+## What a character IS: type, sight range, and script
+
+A map object's 16 bytes are laid out as object-struct id, sprite, y, x, movement, radius, two
+time-of-day bytes, a shared palette/type byte, sight range, a script pointer, and an event flag
+(`constants/map_object_constants.asm:79-99`). **Byte 8 carries two things in one:** its high nibble
+is the palette, its low nibble is the object's TYPE.
+
+The type values are a plain sequence from zero (`constants/script_constants.asm:137-145`): script 0,
+itemball 1, **trainer 2**, and four more that the game itself labels dummy events.
+
+That nibble decides what happens when the player faces the character
+(`engine/overworld/events.asm`, its object-event type table):
+
+| Type | Facing it does |
+| --- | --- |
+| script (0), itemball (1) | **dereferences the script pointer** and runs it |
+| trainer (2) | talks to the trainer |
+| 3-6 | nothing at all — each handler immediately returns |
+
+Worth stating plainly, because it is not obvious: **types 3-6 are the only ones that never touch the
+script pointer.** A character with type 0 and a blank pointer is not inert — it is a jump through a
+null pointer waiting to happen.
+
+## How a trainer spots you
+
+`_CheckTrainerBattle` (`home/trainers.asm:13`) walks the **map objects** — not the object structs —
+skipping the player, and starts a battle when all of these hold:
+
+1. the object has a sprite,
+2. its type nibble is trainer,
+3. it currently has an object struct (the id is not -1, i.e. it is live on screen),
+4. it is facing the player, and the distance is within its **sight range** byte,
+5. and the event flag it points at is not already set.
+
+The order matters for anyone changing a character's identity: **the type is tested second, before
+the sight range and before the script pointer is ever read.** A character whose type is not trainer
+leaves this scan at step 2.
+
+## Which characters block the player, and which do not
+
+When the player takes a step, the destination tile is checked against every object struct by
+`IsNPCAtCoord` (`engine/overworld/npc_movement.asm:314`, called from
+`engine/overworld/player_movement.asm:634`). A character is **skipped** — the player walks through
+it — when either:
+
+- it has no sprite, or
+- **`EMOTE_OBJECT` is set in its `OBJECT_FLAGS1`.**
+
+So the game does have a real "not solid" bit, and it is checked on the player's side.
+
+Two details that matter more than they look:
+
+- **A moving character occupies two tiles.** The check compares the destination against each
+  object's current coordinates *and* its `LAST_MAP_X`/`LAST_MAP_Y`. A character mid-step blocks both
+  the tile it left and the tile it is entering, so a walking character is a wider obstacle than a
+  standing one.
+- **`EMOTE_OBJECT` has a second meaning, and it is destructive.** When an emote despawns,
+  `DespawnEmote` (`engine/overworld/map_objects.asm:2098`) zeroes *every* object struct carrying
+  that bit, wholesale. It does not consult `WONT_DELETE`. The bit means "this struct is an emote
+  bubble", and pass-through is a consequence of that, not a general-purpose flag.
+
+`NOCLIP_OBJS` (`OBJECT_FLAGS1`) is a different thing and is easy to confuse with the above: it is
+read in `engine/overworld/npc_movement.asm:33` and governs whether **that character's own movement**
+bumps into others, not whether the player is blocked by it.
+
+## The three flag bytes on an object struct
+
+Named bits, from `constants/map_object_constants.asm:46-72`. Listed in full because most of them
+describe behaviour the game already handles for a character that has them set.
+
+- **`OBJECT_FLAGS1`** (0x04): invisible, won't delete, fixed facing, sliding, noclip tiles, move
+  anywhere, noclip objects, emote object.
+- **`OBJECT_FLAGS2`** (0x05): low priority, high priority, boulder moving, **in grass**, use OBP1,
+  frozen, off screen, **under tiles**.
+- **`OBJECT_PALETTE`** (0x06) also carries bits: **swimming**, strength boulder, **big object**.
+
+`IN_GRASS` is set and cleared by the engine as a character moves
+(`engine/overworld/map_objects.asm:229-261`), and the priority and `UNDER_TILES` bits are what place
+a character behind scenery.
+
+## The rest of the object struct
+
+The full 0x28 (`constants/map_object_constants.asm:3-37`). Fields not covered elsewhere in this
+file, and what each is for:
+
+| Offset | Field | Notes |
+| --- | --- | --- |
+| 0x0c | step frame | which frame of the walk cycle is showing |
+| 0x0e, 0x0f | tile collision, last tile | the terrain under the character |
+| 0x16 | radius | how far a wandering character may stray |
+| 0x19, 0x1a | sprite x/y offset | pixel offsets applied on top of the position |
+| 0x1b, 0x1c | movement index, step index | where the character is in its movement script |
+| 0x1f | jump height | non-zero through a ledge hop |
+| 0x20 | range | the sight range, copied up from the map object |
+
 ## Where this is read from in the adapter
 
 One line each; the code stays the source of truth.

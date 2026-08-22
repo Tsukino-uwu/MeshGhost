@@ -922,3 +922,40 @@ one the session originally set out to answer.
    the model clamps to 2-4px. Untested, and `catchup`'s 4px bike gait is the only faster path.
 6. **The `x` (perpendicular) and `>` (large) marks that remain in the screen trace** cluster at lap
    transitions and 8px camera frames. Small, unexplained, and now visible to the instrument.
+
+## Crystal: the trainer-clone hang — fixed, NOT yet confirmed on screen (2026-08-23)
+
+A spawned ghost raised the trainer `!` and wedged the game's script engine. Cause, fix and method:
+`pitfalls.md`, "a spawned ghost was a TRAINER". The ghost was cloned from a map object whose type
+nibble was trainer and whose sight range was 4, and it inherited both.
+
+**What is confirmed.** The user saw the `!` over a ghost and the resulting hang, twice, the second
+time on adapter code identical to `HEAD` — so it is a pre-existing shipped fault, not something a
+session introduced. The donor's 16 bytes were captured live by the adapter's own log.
+
+**What is NOT confirmed.** That the fix holds. The failure is rare by nature — it needs a map whose
+first eligible object is a trainer, plus a ghost that walks into a sightline — so an evening without
+a `!` proves very little. What a session CAN check is that nothing else changed: ghosts still spawn,
+walk, animate and despawn as before. One run after the fix showed a ghost live for 18,921
+peer-frames, type read back as 3 on every spawn and never 2, despawning through the ordinary
+passable rule — but no user has watched it.
+
+**The cheap standing check.** The spawn line reports the type nibble re-read from memory. Any `type
+2,` in an adapter log is this bug, live, and the same line names the donor to blame.
+
+## Crystal: what the source says about ghost collision, unused as of 2026-08-23
+
+Read from `pret/pokecrystal`, not measured, and nothing has been built on it yet:
+
+- The player's step tests its destination against every object struct via `IsNPCAtCoord`
+  (`engine/overworld/npc_movement.asm:314`), which **skips any object with `EMOTE_OBJECT` set in
+  `OBJECT_FLAGS1`**. That is a real engine-level "walk through me" bit, checked on the player's side
+  — the thing the adapter currently substitutes for by demoting a peer to the drawn tier.
+- **It is not free.** `DespawnEmote` (`engine/overworld/map_objects.asm:2098`) zeroes *every* object
+  struct carrying that bit whenever an emote finishes, and does not consult `WONT_DELETE`. A ghost
+  wearing it would be wiped at arbitrary moments.
+- **A moving character blocks two tiles**, not one: the check compares both current and
+  `LAST_MAP_X`/`LAST_MAP_Y`. This is a plain explanation for why a walking ghost is a worse obstacle
+  than a standing one, which the open collision item describes from the player's chair.
+
+Whether the trade is worth taking is undecided; it is written down so the option is not rediscovered.
