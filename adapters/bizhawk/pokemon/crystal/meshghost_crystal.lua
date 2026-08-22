@@ -701,44 +701,7 @@ local function getLocalState()
 	local facing = u8(base + F_DIRECTION) or 0
 	return {
 		area_id = areaId(),
-		-- FOUR COMPONENTS, and the last two are the fix for a defect `pitfalls.md` has carried
-		-- since 2026-08-21 as a design lesson nobody had acted on.
-		--
-		-- `position` is `[]float64` and VARIABLE LENGTH by contract -- two components for Emerald,
-		-- three for Pseudoregalia, up to eight -- and `core/interp.go` interpolates every component
-		-- (`for i := range pos`). `extras` is opaque and is NOT interpolated; it passes through
-		-- latest-wins.
-        --
-		-- So a renderer that combined an interpolated TILE with `extras.prog` was mixing two terms
-		-- describing different instants, once per frame -- which is a stutter by construction. The
-		-- old note ends "anything a renderer needs to be smooth must live where the core is allowed
-		-- to interpolate it", and its stopgap was to run the dev rig at `-interp=0ms`, where the
-		-- two agree. That is exactly why a whole session of judging at 0ms saw nothing, and the
-		-- user's first look at shipped settings was *"the drawn one really really bad"*.
-		--
-		-- Components 3 and 4 are the character's position in MAP PIXELS -- absolute, not an offset
-		-- from anything. Absolute on purpose: a tile index and an offset-from-destination are
-		-- redundant, and interpolating them independently cancels at a tile boundary (the tile
-		-- rises by one exactly as the offset falls by sixteen, so their sum never moves). One
-		-- continuous quantity has no boundary to disagree across.
-		--
-		-- Components 1 and 2 keep their meaning untouched, so the spawned tier -- confirmed good on
-		-- screen today -- is not disturbed by this.
-		position = (function()
-			local mx, my = u8(base + F_MAP_X) or 0, u8(base + F_MAP_Y) or 0
-			local px, py = mx * 16, my * 16
-			if ((u8(base + F_WALKING) or STANDING) ~= STANDING) then
-				-- MAP_X/Y are written at the START of a step, so they already name the
-				-- DESTINATION; the character is `16 - prog` pixels short of it.
-				local back = stepProgress(base) - 16
-				local d = (facing // 4) & 3
-				if d == 0 then py = py + back
-				elseif d == 1 then py = py - back
-				elseif d == 2 then px = px - back
-				else px = px + back end
-			end
-			return { mx, my, px, py }
-		end)(),
+		position = { u8(base + F_MAP_X) or 0, u8(base + F_MAP_Y) or 0 },
 		orientation = DIR_NAMES[facing] or "down",
 		anim = ((u8(base + F_WALKING) or STANDING) ~= STANDING) and "walk" or "idle",
 		-- `act` is OBJECT_ACTION, the byte the engine itself uses to decide which animation an
@@ -1602,16 +1565,6 @@ local function learnFacingFromPlayer()
 	end
 end
 
--- How many frames the painted copy trails the peer by, to match the distance the engine-driven
--- tier trails by. Overridable for testing; 0 turns it off and puts the painted copy back where the
--- peer actually is. See the delay line in drawOverflow for why this exists.
--- A FIELD, NOT A LOCAL. Adding this as a top-level local pushed the chunk past Lua's 200-local
--- ceiling and the whole adapter stopped loading -- the same silent non-load that had just been
--- fixed in Emerald's adapter an hour earlier, walked straight into here. The file has said "this
--- file is at 197 of Lua's 200 locals" in four separate comments the entire time.
-facingFrames.drawnDelay = tonumber(MESHGHOST_CRYSTAL_DRAWN_DELAY
-	or os.getenv("MESHGHOST_CRYSTAL_DRAWN_DELAY") or "") or 4
-
 -- WHICH FRAME A PEER IS ON, DERIVED FROM THE PEER'S OWN STEP RATHER THAN FROM A TIMER HERE.
 --
 -- The engine drives a spawned ghost's animation for us; a drawn one has nobody to drive it, so
@@ -2385,18 +2338,6 @@ function drawOverflow()
 			oamX = playerOamX, oamY = playerOamY,
 			tx = u8(OBJECT_STRUCTS + F_MAP_X) or 0, ty = u8(OBJECT_STRUCTS + F_MAP_Y) or 0,
 			prog = stepProgress(OBJECT_STRUCTS),
-			-- THE ENGINE'S OWN SMOOTH SUB-TILE OFFSET, alongside the derived one.
-			--
-			-- `prog` above comes from `(8 - duration) * 2`, so it moves 2px every TWO frames. Once
-			-- the peer's own sub-tile position became genuinely smooth (1px a frame, measured), the
-			-- player term stopped cancelling it and the difference jittered 1px every frame -- the
-			-- user, on shipped settings: *"better, still not smooth"*.
-			--
-			-- The fine BG scroll is what the engine itself uses to place everything on screen
-			-- (`screenCoords` subtracts it), and it is smooth by construction because the camera is.
-			-- Reading the engine's answer rather than recomputing it is the same rule that produced
-			-- the facing learner and the anchor calibration.
-			bx = u8(W_BGMAPOFFSETX) or 0, by = u8(W_BGMAPOFFSETY) or 0,
 			walking = (u8(OBJECT_STRUCTS + F_WALKING) or STANDING) ~= STANDING,
 			dir = ((u8(OBJECT_STRUCTS + F_DIRECTION) or 0) // 4) & 3,
 		}
@@ -2592,122 +2533,11 @@ function drawOverflow()
 			-- So the player's progress is used one frame late, to match the OAM it is being paired
 			-- with. pitfalls.md's "a script's writes land between frames" is the same defect on the
 			-- write side; this is its reading twin.
-			-- MEASUREMENT, COMPARE_TIERS only: the derived player progress against the engine's own
-			-- fine scroll, so the mapping between them is read rather than guessed. Three earlier
-			-- attempts to change this formula were reverted (`pitfalls.md`), every one of them a
-			-- term added on a theory about what another term meant.
-			if COMPARE_TIERS and o.only == "drawn" and aged.walking and drawFrames % 2 == 0 then
-				facingFrames.scrollSeen = facingFrames.scrollSeen or {}
-				local k = string.format("dir%d prog%2d", pDir, pProg)
-				facingFrames.scrollSeen[k] = string.format("bx=%3d by=%3d", aged.bx or -1,
-					aged.by or -1)
-			end
-			-- THE PLAYER'S PROGRESS, AT THE ENGINE'S RESOLUTION RATHER THAN OURS.
-			--
-			-- `pProg` is derived as `(8 - duration) * 2`, so it advances 2px every TWO frames. Once
-			-- the peer's own position became genuinely smooth (1px a frame, measured), this term
-			-- stopped cancelling it and the difference jittered 1px every frame -- the user, on
-			-- shipped settings: *"better, still not smooth"*.
-			--
-			-- The engine's fine BG scroll describes the same motion at 1px per frame, and it is
-			-- what the engine itself places the world with. Measured 2026-08-22 against `pProg`
-			-- across all four directions, every sample agreeing:
-			--
-			--     up, left    fine = scroll mod 16          (e.g. by=70 at prog 6, 78 at prog 14)
-			--     down, right fine = 16 - (scroll mod 16)   (e.g. bx=70 at prog 10, 66 at prog 14)
-			--
-			-- Vertical directions read `by`, horizontal `bx` -- the camera only scrolls on the axis
-			-- being walked. Falls back to `pProg` if the sample predates this field.
-			local pFine = pProg
-			if aged.bx and aged.walking then
-				local v = ((pDir == 0 or pDir == 1) and aged.by or aged.bx) % 16
-				if pDir == 0 or pDir == 3 then v = (16 - v) % 16 end
-				pFine = v
-			end
-			local ppx, ppy = offsetFromDest(pDir, pFine, aged.walking)
+			local ppx, ppy = offsetFromDest(pDir, pProg, aged.walking)
 			local gpx, gpy = offsetFromDest(o.facing or 0, peerProg, o.walking)
 
-			-- FILL IN BETWEEN DELIVERIES, AT THE GAME'S OWN WALKING SPEED.
-			--
-			-- The peer's terms above are exact but they only ARRIVE at the room's send rate -- 20Hz
-			-- shipped, against 60 frames a second of drawing. Between deliveries `o.x` and
-			-- `peerProg` are frozen, so a faithfully drawn peer stands still for three frames and
-			-- then jumps 6px. The user, on shipped settings after a whole session judged at
-			-- -interp=0ms where this is invisible: the spawned ghost *"looked fine, and the drawn
-			-- one really really bad"*. Emerald's drawn tier has carried a filter for this since
-			-- 2026-08-20; Crystal's never had one.
-			--
-			-- CONSTANT SPEED, NOT AN EXPONENTIAL EASE, and that is Emerald's correction rather than
-			-- a fresh guess: it tried `x += (target - x) * 0.25` and measured the result -- a filter
-			-- that never travels at a steady rate and whose steady-state lag GROWS with the peer's
-			-- speed. A character in this game crosses a tile at a fixed rate and stops, so the
-			-- filter moves at that same fixed rate and simply arrives.
-			--
-			-- Crystal is the easy case: a walk is exactly 2px a frame, so there is no speed to
-			-- measure and no window to average -- the constant is the game's, not a tuning knob.
-			-- The quarter extra is Emerald's too, so a gap that opens gets closed rather than
-			-- carried forever.
-			--
-			-- SMOOTHED IN MAP-PIXEL SPACE, NOT ON `sx`. Two earlier attempts here added a smooth
-			-- term on top of the finished screen position and both failed the same way, because
-			-- that value already carries the camera's scroll -- smooth plus quantised is two
-			-- motions for one step. Only the PEER's own contribution is filtered; the player and
-			-- camera terms stay exact, which is what keeps the camera cancelling.
-			-- PREFER THE INTERPOLATED PIXEL POSITION. `o.pixX/pixY` rode in `position`, so the
-			-- core smoothed it together with the tile and the two cannot describe different
-			-- instants. The `extras.prog` route below stays as the fallback for a peer that does
-			-- not send it, and is still correct when interpolation is off -- which is the only
-			-- configuration it was ever judged in.
-			local tgtX = o.pixX or (o.x * 16 + gpx)
-			local tgtY = o.pixY or (o.y * 16 + gpy)
-
-			-- A DELAY LINE, so the painted copy trails by the same distance the engine-driven one
-			-- does. The user's call, 2026-08-22, after seeing the two disagree: *"drawn is still a
-			-- bit ahead of the spawned ghost"*.
-			--
-			-- This is Emerald's answer to the same situation and its note explains why it is not a
-			-- fudge: *"A drawn ghost is naturally AHEAD of a spawned one -- not by error, but
-			-- because the engine cannot begin a step until its object is standing on a tile, so an
-			-- engine-driven ghost always trails the truth by up to one step. Ours has no such rule
-			-- and sits where the peer actually is."* The trailing DISTANCE is reproduced rather
-			-- than the step machine that causes it, so the painted tier keeps its smooth motion.
-			--
-			-- 4 frames by default because that is what the spawned tier's start lag MEASURED at on
-			-- this game (mean 4.3, `unverified.md`) -- Emerald's own 8 was measured on Emerald.
-			o.pixHist = o.pixHist or {}
-			o.pixHist[drawFrames % 32] = { tgtX, tgtY }
-			local old = o.pixHist[(drawFrames - facingFrames.drawnDelay) % 32]
-			if old then tgtX, tgtY = old[1], old[2] end
-			-- HOW THE TARGET ARRIVES, which is a different question from how it is drawn. The core
-			-- interpolates, but it can only produce a new value when the adapter ASKS -- so if the
-			-- bridge delivers at the room's rate rather than per frame, the result is a finer
-			-- staircase, not a smooth line. Counting the per-frame change in the delivered value
-			-- separates "the core is not smoothing" from "the core is smoothing and something here
-			-- re-quantises it". Every earlier measurement watched the DRAWN position, which is
-			-- downstream of both.
-			if COMPARE_TIERS and o.only == "drawn" and o.walking then
-				if o.lastTgtX then
-					local d = math.floor(math.abs(tgtX - o.lastTgtX)
-						+ math.abs(tgtY - o.lastTgtY) + 0.5)
-					facingFrames.tgtStep = facingFrames.tgtStep or {}
-					facingFrames.tgtStep[d] = (facingFrames.tgtStep[d] or 0) + 1
-				end
-				o.lastTgtX, o.lastTgtY = tgtX, tgtY
-			end
-			-- A gap bigger than two tiles is a warp, a respawn or a peer just seen -- not movement.
-			-- Snap, rather than dragging the filter across a discontinuity and gliding through
-			-- walls to get there.
-			if o.smX == nil or math.abs(tgtX - o.smX) > 32 or math.abs(tgtY - o.smY) > 32 then
-				o.smX, o.smY = tgtX, tgtY
-			else
-				local lim = 2.5 -- 2px a frame, the game's walking speed, plus Emerald's quarter
-				local ddx, ddy = tgtX - o.smX, tgtY - o.smY
-				o.smX = (math.abs(ddx) <= lim) and tgtX or (o.smX + ((ddx > 0) and lim or -lim))
-				o.smY = (math.abs(ddy) <= lim) and tgtY or (o.smY + ((ddy > 0) and lim or -lim))
-			end
-
-			sx = math.floor((aged.oamX or playerOamX) - 8 + (o.smX - pTile.x * 16) - ppx + 0.5)
-			sy = math.floor((aged.oamY or playerOamY) - 16 + (o.smY - pTile.y * 16) - ppy + 0.5)
+			sx = (aged.oamX or playerOamX) - 8 + (o.x - pTile.x) * 16 + gpx - ppx
+			sy = (aged.oamY or playerOamY) - 16 + (o.y - pTile.y) * 16 + gpy - ppy
 
 			local onScreen = sx > -16 and sx < 160 and sy > -16 and sy < 144
 			if not onScreen then
@@ -2942,16 +2772,6 @@ function drawOverflow()
 							end
 						end
 					end
-					-- THE PAINTED POSITION'S OWN per-frame travel. Every other term has now been
-					-- measured smooth -- the delivered peer position (1px a frame) and the player's
-					-- progress (1px a frame from the engine's scroll) -- so if what actually
-					-- reaches the screen still moves in jumps, the quantisation is downstream of
-					-- both and this is where it shows.
-					if o.paintedX and o.walking then
-						facingFrames.paintStep = facingFrames.paintStep or {}
-						local pd = math.abs(sx - o.paintedX) + math.abs(sy - o.paintedY)
-						facingFrames.paintStep[pd] = (facingFrames.paintStep[pd] or 0) + 1
-					end
 					if o.paintedX and o.walking then
 						facingFrames.stepDelta = facingFrames.stepDelta or {}
 						local k = ("durl"):sub((o.facing or 0) + 1, (o.facing or 0) + 1)
@@ -3048,35 +2868,6 @@ function drawOverflow()
 			logFile(string.format("  loopback round trip, matched against the player's own history:"
 				.. " %s   (mean %.1f frames -- the floor for how late a ghost can start)",
 				table.concat(l, " "), (tot > 0) and (sum / tot) or 0))
-		end
-		if facingFrames.scrollSeen then
-			local ks = {}
-			for k in pairs(facingFrames.scrollSeen) do ks[#ks + 1] = k end
-			table.sort(ks)
-			for _, k in ipairs(ks) do
-				logFile("  scroll map: " .. k .. " -> " .. facingFrames.scrollSeen[k])
-			end
-			facingFrames.scrollSeen = nil
-		end
-		if facingFrames.paintStep then
-			local d = {}
-			for v = 0, 24 do
-				if facingFrames.paintStep[v] then
-					d[#d + 1] = string.format("%dpx:%d", v, facingFrames.paintStep[v])
-				end
-			end
-			logFile("  PAINTED position, change per frame: " .. table.concat(d, " ")
-				.. "   (this is what reaches the screen)")
-		end
-		if facingFrames.tgtStep then
-			local d = {}
-			for v = 0, 24 do
-				if facingFrames.tgtStep[v] then
-					d[#d + 1] = string.format("%dpx:%d", v, facingFrames.tgtStep[v])
-				end
-			end
-			logFile("  peer position AS DELIVERED, change per frame: " .. table.concat(d, " ")
-				.. "   (a walk is 2px a frame; zeros mean it arrived in bursts)")
 		end
 		if facingFrames.stepDelta then
 			for _, k in ipairs({ "d", "u", "l", "r" }) do
@@ -3302,12 +3093,6 @@ local function renderRemote(id, state)
 	-- Only the low two bits are used, but the whole byte is carried so a log shows the direction
 	-- the sender was in as well as the stride -- the pair is what makes a facing trace readable.
 	local peerFace = state.extras and tonumber(state.extras.face) or nil
-	-- Components 3 and 4, when the sender offers them: the peer's position in MAP PIXELS, which
-	-- unlike `extras.prog` has been interpolated by the core in lockstep with the tile. A peer that
-	-- does not send them (an older build) simply leaves these nil and the drawn tier falls back to
-	-- the `extras.prog` path, which is still correct whenever interpolation is off.
-	local peerPixX = (type(pos[3]) == "number") and pos[3] or nil
-	local peerPixY = (type(pos[4]) == "number") and pos[4] or nil
 
 	local isLoopback = id:match("%-ghost$") ~= nil
 	local baseX = math.floor(pos[1])
@@ -3361,11 +3146,7 @@ local function renderRemote(id, state)
 		-- copy renders nothing and still counts as a peer waiting -- a phantom in every tier total.
 		local hk = COMPARE.hwKey(id)
 		local hprev = overflow[hk]
-		overflow[hk] = OAM_TIER and { prog = peerProg, walking = peerWalking, face = peerFace,
-			-- Shifted by the same whole tiles this copy is: the pixel position is absolute, so a
-			-- copy placed elsewhere needs it moved too or it paints at the peer's real location.
-			pixX = peerPixX and (peerPixX + COMPARE.hw * 16),
-			pixY = peerPixY, compare = true, only = "hw", x = baseX + COMPARE.hw, y = y,
+		overflow[hk] = OAM_TIER and { prog = peerProg, walking = peerWalking, face = peerFace, compare = true, only = "hw", x = baseX + COMPARE.hw, y = y,
 			sprite = FORCE_PEER_SPRITE or (state.extras and tonumber(state.extras.sprite)) or nil,
 			facing = ORIENTATION_TO_DIR[state.orientation],
 			lastX = hprev and hprev.lastX, lastY = hprev and hprev.lastY,
@@ -3375,14 +3156,9 @@ local function renderRemote(id, state)
 			stepLatch = hprev and hprev.stepLatch,
 			idleFor = hprev and hprev.idleFor,
 			lastFacing = hprev and hprev.lastFacing,
-			rearm = hprev and hprev.rearm,
-			smX = hprev and hprev.smX, smY = hprev and hprev.smY,
-			lastTgtX = hprev and hprev.lastTgtX, lastTgtY = hprev and hprev.lastTgtY,
-			pixHist = hprev and hprev.pixHist } or nil
+			rearm = hprev and hprev.rearm } or nil
 
-		overflow[ck] = { prog = peerProg, walking = peerWalking, face = peerFace,
-			pixX = peerPixX and (peerPixX + COMPARE.drawn * 16),
-			pixY = peerPixY, compare = true, only = "drawn", x = baseX + COMPARE.drawn, y = y,
+		overflow[ck] = { prog = peerProg, walking = peerWalking, face = peerFace, compare = true, only = "drawn", x = baseX + COMPARE.drawn, y = y,
 			sprite = FORCE_PEER_SPRITE or (state.extras and tonumber(state.extras.sprite)) or nil,
 			facing = ORIENTATION_TO_DIR[state.orientation],
 			lastX = prev and prev.lastX, lastY = prev and prev.lastY, movedAt = prev and prev.movedAt,
@@ -3395,10 +3171,7 @@ local function renderRemote(id, state)
 			stepLatch = prev and prev.stepLatch,
 			idleFor = prev and prev.idleFor,
 			lastFacing = prev and prev.lastFacing,
-			rearm = prev and prev.rearm,
-			smX = prev and prev.smX, smY = prev and prev.smY,
-			lastTgtX = prev and prev.lastTgtX, lastTgtY = prev and prev.lastTgtY,
-			pixHist = prev and prev.pixHist }
+			rearm = prev and prev.rearm }
 	end
 
 	-- FORCE_PEER_SPRITE substitutes here rather than only inside applyPeerSprite, so the probe
@@ -3460,9 +3233,7 @@ local function renderRemote(id, state)
 			despawnGhost(id)
 		end
 		local prev = overflow[id]
-		overflow[id] = { prog = peerProg, walking = peerWalking, face = peerFace,
-			pixX = peerPixX and (peerPixX + offsetX * 16), pixY = peerPixY,
-			x = x, y = y, sprite = peerSprite,
+		overflow[id] = { prog = peerProg, walking = peerWalking, face = peerFace, x = x, y = y, sprite = peerSprite,
 			facing = ORIENTATION_TO_DIR[state.orientation],
 			lastX = prev and prev.lastX, lastY = prev and prev.lastY, movedAt = prev and prev.movedAt,
 			fromX = prev and prev.fromX, fromY = prev and prev.fromY,
@@ -3474,10 +3245,7 @@ local function renderRemote(id, state)
 			stepLatch = prev and prev.stepLatch,
 			idleFor = prev and prev.idleFor,
 			lastFacing = prev and prev.lastFacing,
-			rearm = prev and prev.rearm,
-			smX = prev and prev.smX, smY = prev and prev.smY,
-			lastTgtX = prev and prev.lastTgtX, lastTgtY = prev and prev.lastTgtY,
-			pixHist = prev and prev.pixHist }
+			rearm = prev and prev.rearm }
 		return
 	end
 
@@ -3491,9 +3259,7 @@ local function renderRemote(id, state)
 			overflow[id] = nil
 		else
 			local prev = overflow[id]
-			overflow[id] = { prog = peerProg, walking = peerWalking, face = peerFace,
-			pixX = peerPixX and (peerPixX + offsetX * 16), pixY = peerPixY,
-			x = x, y = y, sprite = peerSprite,
+			overflow[id] = { prog = peerProg, walking = peerWalking, face = peerFace, x = x, y = y, sprite = peerSprite,
 				facing = ORIENTATION_TO_DIR[state.orientation],
 				lastX = prev and prev.lastX, lastY = prev and prev.lastY,
 				movedAt = prev and prev.movedAt,
@@ -3506,10 +3272,7 @@ local function renderRemote(id, state)
 			stepLatch = prev and prev.stepLatch,
 			idleFor = prev and prev.idleFor,
 			lastFacing = prev and prev.lastFacing,
-			rearm = prev and prev.rearm,
-			smX = prev and prev.smX, smY = prev and prev.smY,
-			lastTgtX = prev and prev.lastTgtX, lastTgtY = prev and prev.lastTgtY,
-			pixHist = prev and prev.pixHist }
+			rearm = prev and prev.rearm }
 		end
 		return
 	end
