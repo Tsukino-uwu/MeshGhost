@@ -916,6 +916,24 @@ local function shouldBlock(id, x, y, act)
 	--
 	-- Testing those two rules THEMSELVES means turning this off: they are real shipped behaviour,
 	-- not something in the way.
+	-- DEV ONLY: nothing blocks, ever. Asked for 2026-08-23, while judging the drawn tier's motion:
+	-- *"im still unsure if we are just running into the spawned ghosts collission"* -- and the
+	-- suspicion is well founded, because both shipped escape hatches are unreachable for a ghost
+	-- that is WALKING. The idle rule needs five seconds on one tile and the shove rule needs the
+	-- player standing still and pressing into it; a moving ghost satisfies neither, so it blocks
+	-- for as long as it keeps moving. The user's own observation, which is the tell: *"it was
+	-- perfect while the spawned ghost was standing still"* -- a standing ghost goes passable after
+	-- five seconds and stops being in the way.
+	--
+	-- A bumped player stutters no matter how good the ghost is, so this confound has to be
+	-- removable before any judgement of motion can be trusted.
+	--
+	-- Note what it does, because it is not a collision flag: this adapter has none. "Not blocking"
+	-- IS "rendered by the drawn tier" by design, so with this on the peer appears as a DRAWN ghost
+	-- rather than a spawned one. Nothing to walk into, and nothing spawned to compare against.
+	if MESHGHOST_CRYSTAL_GHOSTS_PASSABLE then
+		return false
+	end
 	if MESHGHOST_CRYSTAL_FREEZE_STATE then
 		return true
 	end
@@ -2764,7 +2782,35 @@ function drawOverflow()
 						else
 							local sx2 = (dx > 2 and 2) or (dx < -2 and -2) or dx
 							local sy2 = (dy > 2 and 2) or (dy < -2 and -2) or dy
-							o.modelX, o.modelY = o.modelX + sx2, o.modelY + sy2
+							-- FORWARD ONLY. A walking character never moves backwards mid-step, and
+							-- until now this model could, twice a second, invisibly.
+							--
+							-- Rounding onto the 2px grid was justified here with "a monotone input
+							-- stays monotone, so this cannot oscillate". The input is NOT monotone:
+							-- the interpolated position is noisy, measured advancing 0.5px on some
+							-- frames and 1.5px on others. Sitting near a grid boundary, that noise
+							-- flips the rounded target back and forth by a whole 2px, and the
+							-- rhythm gate below turns it into a steady 2px shimmer at 30Hz.
+							--
+							-- Every instrument built for this called that healthy, because each
+							-- individual move IS a legal 2px arriving on a legal 2-frame beat. A
+							-- histogram of magnitudes and a histogram of intervals both read
+							-- perfect while the ghost buzzed on the spot -- which is why the user
+							-- kept saying jittery at numbers that said fixed.
+							--
+							-- So a step that increases the distance to the destination tile is
+							-- refused. The destination only moves forward, so this cannot deadlock;
+							-- a real reversal arrives as a new destination and is followed normally.
+							local before = math.abs(tX - o.modelX) + math.abs(tY - o.modelY)
+							local after = math.abs(tX - (o.modelX + sx2))
+								+ math.abs(tY - (o.modelY + sy2))
+							if after > before then
+								if COMPARE_TIERS then
+									facingFrames.backwards = (facingFrames.backwards or 0) + 1
+								end
+							else
+								o.modelX, o.modelY = o.modelX + sx2, o.modelY + sy2
+							end
 						end
 					end
 				end
@@ -2853,10 +2899,50 @@ function drawOverflow()
 			-- picker, the counters) went on reading the raw `extras.prog`, which is the value the
 			-- comment says was the problem. Lua reports neither the dead local nor the unread
 			-- intention; only reading the uses does.
-			local remaining = math.abs(tX - o.modelX) + math.abs(tY - o.modelY)
-			peerProg = 16 - remaining
-			if peerProg < 0 then peerProg = 0 end
-			if peerProg > 16 then peerProg = 16 end
+			-- FROM DISTANCE TRAVELLED, not from distance remaining to a destination that moves.
+			--
+			-- User, 2026-08-23: *"still look jittery/weird choppy animation speeds while moving
+			-- around"* -- said at a point where every positional instrument was clean (0 and 2px
+			-- only, no 4px in any direction, no resyncs). The complaint was the LEGS, and position
+			-- probes are blind to those.
+			--
+			-- The evidence was in a histogram already being printed. Progress counts across a run:
+			-- `0:134 2:166 4:220 6:224 8:228 10:224 12:212 14:114 16:64`. A step that runs cleanly
+			-- from 0 to 16 visits every value about equally; the end of the step was showing up
+			-- three times less often than the middle. The destination tile advances when the PEER
+			-- starts its next step, and the model -- which tracks the interpolated position, a
+			-- little behind that -- had its remaining distance reset to 16 before it ever counted
+			-- down to 0. So the walk cycle was restarted a few pixels early, every step, and the
+			-- last images of the cycle were mostly never drawn.
+			--
+			-- Distance travelled has no such dependency: a character's legs are a function of how
+			-- far it has moved, and the model's own position modulo the tile grid gives exactly
+			-- that -- it cycles 0..14 continuously no matter when the destination changes hands.
+			-- Measured on the axis of travel only, so that a residual pixel on the perpendicular
+			-- axis (after a turn, or a correction) cannot leak into the walk cycle and hold it.
+			-- THE AXIS COMES FROM WHERE THE GHOST IS GOING, not from the facing it reports.
+			--
+			-- Reading it off `o.facing` means one flickering frame of orientation on the wire
+			-- switches which coordinate measures progress, and the walk cycle jumps to an unrelated
+			-- value for that frame. The cadence trace showed exactly that shape once the position
+			-- was clean: the player alternating a tidy eight frames on, eight off, and the ghost
+			-- doing `UUUuUUUU` and `LLllllllllLl` -- single-frame dropouts inside an otherwise
+			-- correct burst, which is what "choppy" looks like when it is one frame wide.
+			--
+			-- The destination says the axis without consulting anything that can flicker, and it is
+			-- held when the ghost is between steps so that a stationary frame does not reset it.
+			if tX ~= o.modelX then
+				o.progAxis = "x"
+			elseif tY ~= o.modelY then
+				o.progAxis = "y"
+			end
+			local along = (o.progAxis == "x") and o.modelX or o.modelY
+			peerProg = math.floor(along) % 16
+			-- Up and left travel towards SMALLER coordinates, so their progress through a tile runs
+			-- the other way. Without this the cycle plays backwards in two of the four directions.
+			if o.facing == 1 or o.facing == 2 then
+				peerProg = (16 - peerProg) % 16
+			end
 			sx = math.floor((aged.oamX or playerOamX) - 8 + gx - ppx + 0.5)
 			sy = math.floor((aged.oamY or playerOamY) - 16 + gy - ppy + 0.5)
 
@@ -2997,7 +3083,16 @@ function drawOverflow()
 					-- `...LLLLRRRR`, straight from one burst into the next with nothing between.
 					-- One extra beat, only on turns, which is exactly the user's *"still doing
 					-- right a bit fast sometimes"* with the other three directions reading fine.
-					if o.facing ~= o.lastFacing then
+					-- A TURN LASTS LONGER THAN ONE FRAME. The orientation on the wire can flicker for
+					-- a single frame, and treating that as a pivot suppresses the stepping view for
+					-- exactly one frame -- a hole punched in the middle of an otherwise correct
+					-- burst. The cadence trace shows it as `RRRRrRRR` and `DDdD` against a player
+					-- running a tidy eight-on eight-off, and one frame is all it takes to read as
+					-- choppy legs (user, 2026-08-23: *"the legs are still acting up"*).
+					--
+					-- So a new facing has to survive a frame before it counts as a turn. A real
+					-- pivot easily clears that; a one-frame flicker never does.
+					if o.facing ~= o.lastFacing and o.facing == o.facingSeen then
 						-- REARM, don't just clear. Clearing the latch is not enough: the peer is
 						-- usually already `walking` when its facing changes, so the band re-fires on
 						-- the very next frame and the ghost steps straight out of the turn anyway --
@@ -3009,6 +3104,10 @@ function drawOverflow()
 						-- following boundary, in phase, with no duration invented here.
 						o.lastFacing, o.idleFor, o.stepLatch, o.rearm = o.facing, 99, nil, true
 					end
+					-- What the facing was last frame, for the confirmation above. Kept here rather
+					-- than folded into `lastFacing`, which means something different: that one is
+					-- the facing of the current BURST and must not move on a flicker.
+					o.facingSeen = o.facing
 					-- CLEAR ON THE PEER'S NEXT REAL STEP, not after a whole standing half.
 					--
 					-- Waiting for the standing band meant a turn cost the ghost most of a step
@@ -3089,6 +3188,17 @@ function drawOverflow()
 						local di = (o.facing or 0) + 1
 						local mine = d:sub(di, di)
 						if o.stepLatch ~= nil then mine = mine:upper() end
+						-- NAME THE DROPOUT. The progress trace below proved the band is entered and
+						-- left on time -- values held two frames each, cycling cleanly -- and yet
+						-- single frames still fall out of a burst, at a progress value that is
+						-- squarely INSIDE the band. So the cause is the `moving` gate, and the two
+						-- ways it can say no are worth telling apart on the line itself rather than
+						-- reasoning about: `z` is a turn suppression, `x` is the peer being judged
+						-- not-walking. A lowercase letter here now means only "out of band", which
+						-- is the one explanation already ruled out.
+						if o.walking and o.stepLatch == nil and (peerProg <= 4 or peerProg >= 14) then
+							mine = o.rearm and "z" or "x"
+						end
 						-- THE INVARIANT FOR THE SIDE VIEW: left and right share one image and are
 						-- told apart ONLY by the hardware flip, so a frame whose flip disagrees
 						-- with the facing is the character momentarily looking the other way. One
@@ -3109,10 +3219,22 @@ function drawOverflow()
 						end
 						facingFrames.tPeer = (facingFrames.tPeer or "") .. mine
 						facingFrames.tPlayer = (facingFrames.tPlayer or "") .. theirs
+						-- THE PROGRESS VALUE ITSELF, one character a frame under the other two.
+						-- The bursts are the right length now and still drop a single frame here
+						-- and there, and neither of the lines above can say why: they show the
+						-- OUTCOME. This shows the input the band is tested against, so a dropout is
+						-- either a progress value that jumped out of the band and back -- visible
+						-- as a break in an otherwise ascending run -- or it is not, and the cause
+						-- is `moving`/`rearm` instead. One character wide, so it lines up column
+						-- for column with the frame that went wrong.
+						facingFrames.tProg = (facingFrames.tProg or "")
+							.. string.sub("01234567", (peerProg // 2) % 8 + 1, (peerProg // 2) % 8 + 1)
 						if #facingFrames.tPeer >= 60 then
 							logFile("  cadence ghost  " .. facingFrames.tPeer)
 							logFile("  cadence player " .. facingFrames.tPlayer)
+							logFile("  cadence prog   " .. (facingFrames.tProg or ""))
 							facingFrames.tPeer, facingFrames.tPlayer = "", ""
+							facingFrames.tProg = ""
 						end
 					end
 					if o.walking then
@@ -3331,7 +3453,9 @@ function drawOverflow()
 			-- refusing to step, and the reasons say which of the three refusals did it -- the
 			-- distinction that "the ghost stands there" cannot make on screen.
 			logFile(string.format("  MODEL walk: furthest behind its destination %.0fpx (a step is "
-				.. "16px), %d resyncs", facingFrames.modelMax or 0, facingFrames.modelSnaps or 0))
+				.. "16px), %d resyncs, %d backward steps refused",
+				facingFrames.modelMax or 0, facingFrames.modelSnaps or 0,
+				facingFrames.backwards or 0))
 			-- ONE PARITY SHOULD DOMINATE. If the engine's movement tick were not tied to frame
 			-- parity at all this would read roughly 50/50, and locking the ghost to it would be
 			-- meaningless -- so the number that justifies the fix is printed beside it.
@@ -3840,6 +3964,8 @@ local function renderRemote(id, state)
 			modelX = prev and prev.modelX, modelY = prev and prev.modelY,
 			modelPhase = prev and prev.modelPhase,
 			modelStill = prev and prev.modelStill,
+			progAxis = prev and prev.progAxis,
+			facingSeen = prev and prev.facingSeen,
 			stepLatch = prev and prev.stepLatch,
 			idleFor = prev and prev.idleFor,
 			lastFacing = prev and prev.lastFacing,
@@ -3921,6 +4047,8 @@ local function renderRemote(id, state)
 			modelX = prev and prev.modelX, modelY = prev and prev.modelY,
 			modelPhase = prev and prev.modelPhase,
 			modelStill = prev and prev.modelStill,
+			progAxis = prev and prev.progAxis,
+			facingSeen = prev and prev.facingSeen,
 			stepLatch = prev and prev.stepLatch,
 			idleFor = prev and prev.idleFor,
 			lastFacing = prev and prev.lastFacing,
@@ -3955,6 +4083,8 @@ local function renderRemote(id, state)
 			modelX = prev and prev.modelX, modelY = prev and prev.modelY,
 			modelPhase = prev and prev.modelPhase,
 			modelStill = prev and prev.modelStill,
+			progAxis = prev and prev.progAxis,
+			facingSeen = prev and prev.facingSeen,
 			stepLatch = prev and prev.stepLatch,
 			idleFor = prev and prev.idleFor,
 			lastFacing = prev and prev.lastFacing,
