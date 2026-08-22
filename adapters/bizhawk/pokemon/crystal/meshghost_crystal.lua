@@ -2797,15 +2797,29 @@ function drawOverflow()
 					-- tick. So a model more than one beat behind takes a 4px hop ON its beat frame
 					-- -- rhythm intact, lag repaid at 2px per beat, and nothing ever moves on a
 					-- frame the engine would not have moved on.
+					-- ...AND ONLY FOR SUSTAINED LAG, never for instantaneous. Hopping the moment the
+					-- deficit crossed one beat made it fire on every ripple of wire noise -- the
+					-- target advances twice in quick succession, the model bike-hops after it, the
+					-- target stalls, the model waits: rush-stop-rush, and the user felt exactly
+					-- that (*"feels like its stuttering constantly now"*, 2026-08-23 -- the fix
+					-- WAS the stutter). Noise oscillates; real lag PERSISTS. So the deficit has to
+					-- stand for three consecutive beats before one 4px hop repays it, which noise
+					-- essentially never does and a genuinely lost beat always does.
 					local deficit = math.abs(qx - o.modelX) + math.abs(qy - o.modelY)
 					local hop = 2
-					if deficit > 2 then
-						hop = 4
-						if COMPARE_TIERS then
-							facingFrames.catchupFrames = (facingFrames.catchupFrames or 0) + 1
-						end
-					end
 					if (emu.framecount() % 2) == o.modelPhase then
+						if deficit >= 4 then
+							o.lagBeats = (o.lagBeats or 0) + 1
+						else
+							o.lagBeats = 0
+						end
+						if (o.lagBeats or 0) >= 3 then
+							hop = 4
+							o.lagBeats = 0
+							if COMPARE_TIERS then
+								facingFrames.catchupFrames = (facingFrames.catchupFrames or 0) + 1
+							end
+						end
 						local dx, dy = qx - o.modelX, qy - o.modelY
 						-- A WHOLE TILE BEHIND IS NOT A LATE STEP. Anything that far out is a
 						-- teleport, a respawn or a map change, and walking it off in 2px hops would
@@ -4036,6 +4050,7 @@ local function renderRemote(id, state)
 			modelPhase = prev and prev.modelPhase,
 			modelStill = prev and prev.modelStill,
 			modelMovedAt = prev and prev.modelMovedAt,
+			lagBeats = prev and prev.lagBeats,
 			progAxis = prev and prev.progAxis,
 			facingSeen = prev and prev.facingSeen,
 			stepLatch = prev and prev.stepLatch,
@@ -4120,6 +4135,7 @@ local function renderRemote(id, state)
 			modelPhase = prev and prev.modelPhase,
 			modelStill = prev and prev.modelStill,
 			modelMovedAt = prev and prev.modelMovedAt,
+			lagBeats = prev and prev.lagBeats,
 			progAxis = prev and prev.progAxis,
 			facingSeen = prev and prev.facingSeen,
 			stepLatch = prev and prev.stepLatch,
@@ -4157,6 +4173,7 @@ local function renderRemote(id, state)
 			modelPhase = prev and prev.modelPhase,
 			modelStill = prev and prev.modelStill,
 			modelMovedAt = prev and prev.modelMovedAt,
+			lagBeats = prev and prev.lagBeats,
 			progAxis = prev and prev.progAxis,
 			facingSeen = prev and prev.facingSeen,
 			stepLatch = prev and prev.stepLatch,
