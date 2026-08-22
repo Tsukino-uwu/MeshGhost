@@ -2567,13 +2567,84 @@ function drawOverflow()
 			-- with. pitfalls.md's "a script's writes land between frames" is the same defect on the
 			-- write side; this is its reading twin.
 			local ppx, ppy = offsetFromDest(pDir, pProg, aged.walking)
-			local gpx, gpy = offsetFromDest(o.facing or 0, peerProg, o.walking)
+			-- The peer's own `offsetFromDest` used to be taken here and is gone with the position
+			-- rework below: the model walks from the destination tile itself, so converting a
+			-- progress back into an offset is a step that no longer happens.
 
-			-- The peer's own contribution, from the interpolated pixel position when the sender
-			-- offers it. `(o.x - pTile.x) * 16 + gpx` is the same quantity built from a tile plus an
-			-- un-interpolated `extras.prog`, and is kept as the fallback.
-			local gx = o.pixX and (o.pixX - pTile.x * 16) or ((o.x - pTile.x) * 16 + gpx)
-			local gy = o.pixY and (o.pixY - pTile.y * 16) or ((o.y - pTile.y) * 16 + gpy)
+			-- THE GHOST WALKS; IT IS NOT PLACED. (user's call, 2026-08-23)
+			--
+			-- Painting wherever the interpolated position said produced a position that was right
+			-- on average and wrong every frame. Measured over 198 moving frames at the shipped
+			-- 250ms: mean 0.970 px/frame -- the player's own walking speed -- but only 65 of those
+			-- frames advanced a whole pixel, against 58 at 0.75px and 52 at 1.25px. The core
+			-- interpolates on wall-clock time and this adapter samples it once per emulated frame,
+			-- and emulated frames are not exactly 16.667ms apart, so every sample lands a different
+			-- fraction of a pixel along. Rounded to the screen grid that paints 1,1,2,1,2,1 -- and
+			-- a walking character in this game never moves 2px in a frame. `phase9.md`.
+			--
+			-- Two other suspects were measured and cleared first: the two clocks do not beat (660
+			-- of 660 frames received exactly one message), and the aged player reference is a fixed
+			-- 2-frame lookup, so it cannot wobble.
+			--
+			-- So the wire says WHERE THE PEER IS GOING and this walks there at the engine's own
+			-- pace: one whole pixel a frame, 16 frames a tile, which is what `o.x`/`o.y` already
+			-- describe -- they are the DESTINATION tile, written at the start of a step. A step
+			-- therefore appears as 16px of distance and is walked off in 16 frames, with no rate
+			-- invented here and nothing to round. It is the same reason the SPAWNED tier looks
+			-- right: there the engine moves the ghost. Here we move it the way the engine would.
+			local tX, tY = o.x * 16, o.y * 16
+			if not o.modelX then
+				o.modelX, o.modelY = tX, tY
+			end
+			-- RESYNC RATHER THAN WALK, past a tile and a half. A map change, a respawn, a peer
+			-- that stopped sending -- anything that moves a peer further than a step can carry it
+			-- is a teleport, and walking it off at 1px/frame would send the ghost gliding across
+			-- the map. A character does not do that either.
+			-- HOW FAR BEHIND THE MODEL EVER GETS, and how often it gives up and snaps. A model that
+			-- tracks and a model that resyncs every other step both paint a ghost in about the
+			-- right place; only these two numbers tell them apart, and "it looked fine" would not.
+			if COMPARE_TIERS then
+				local behind = math.abs(o.modelX - tX) + math.abs(o.modelY - tY)
+				facingFrames.modelMax = math.max(facingFrames.modelMax or 0, behind)
+			end
+			if math.abs(o.modelX - tX) > 24 or math.abs(o.modelY - tY) > 24 then
+				if COMPARE_TIERS then
+					facingFrames.modelSnaps = (facingFrames.modelSnaps or 0) + 1
+				end
+				o.modelX, o.modelY = tX, tY
+			else
+				-- TWO PIXELS ON EVERY OTHER FRAME, because that is the engine's own quantum and
+				-- not a rate chosen to make something look better.
+				--
+				-- Measured 2026-08-23, after a 1px-per-frame model had already fixed the left and
+				-- right axes: the background scroll moves 0, 2 or 4 pixels and NEVER 1, and the
+				-- player's sprite does not move at all (the world scrolls past a fixed sprite).
+				-- There is no odd pixel anywhere to find. A tile is 8 ticks of 2px, which is what
+				-- `stepProgress`'s `(8 - STEP_DURATION) * 2` has been saying all along -- it is not
+				-- a lossy reading of a finer value, it is the value.
+				--
+				-- So a 1px-per-frame ghost is SMOOTHER THAN THE GAME, which fails the bar from the
+				-- other side: the player steps and the ghost glides. Matching the quantum makes
+				-- both sides of the subtraction move in the same units, which is the only way the
+				-- difference between them can be still.
+				--
+				-- Parity comes from the frame counter rather than per-peer state so that a peer
+				-- entry rebuilt every frame cannot lose it. The cost is that a step beginning on
+				-- the wrong parity is one frame late, once, at the start of a step.
+				local moveThisFrame = (emu.framecount() % 2) == 0
+				if moveThisFrame then
+					local dx, dy = tX - o.modelX, tY - o.modelY
+					local sx2 = (dx > 0 and 2) or (dx < 0 and -2) or 0
+					local sy2 = (dy > 0 and 2) or (dy < 0 and -2) or 0
+					-- Never overshoot: the last hop of a step can be a single pixel if a resync or
+					-- an odd starting offset left the model off the 2px grid.
+					if math.abs(dx) < 2 then sx2 = dx end
+					if math.abs(dy) < 2 then sy2 = dy end
+					o.modelX, o.modelY = o.modelX + sx2, o.modelY + sy2
+				end
+			end
+			local gx = o.modelX - pTile.x * 16
+			local gy = o.modelY - pTile.y * 16
 
 			-- THE STRIDE COMES FROM THE SAME SMOOTH QUANTITY THE POSITION DOES.
 			--
@@ -2589,16 +2660,89 @@ function drawOverflow()
 			-- DESTINATION, so how far short of it the peer is IS the progress. Derived rather than
 			-- sent, so there is nothing new on the wire and nothing that can disagree with the
 			-- position it is drawn at.
-			local stepProg = peerProg
-			if o.pixX and o.facing then
-				local off = (o.facing == 2 or o.facing == 3)
-					and (o.pixX - o.x * 16) or (o.pixY - o.y * 16)
-				stepProg = 16 + off
-				if stepProg < 0 then stepProg = 0 end
-				if stepProg > 16 then stepProg = 16 end
-			end
+			-- ...and it comes from the MODEL now, so the legs and the body run off one clock.
+			--
+			-- AS A DISTANCE, not as a signed offset. The previous form was `16 + (pixX - x*16)`,
+			-- which is only correct when the peer is moving in the direction that makes that
+			-- difference negative -- right and down. Walking LEFT the destination tile is the
+			-- smaller number, so the term is positive all the way through the step, the progress
+			-- pins at 16 for its whole duration, and 16 is inside the stepping band: the ghost
+			-- holds one stepping image for the entire step instead of running a cycle. Left and up
+			-- had been getting a different animation from right and down, from one sign.
+			--
+			-- How far is left to go is the same quantity in all four directions, so there is no
+			-- sign to get wrong.
+			-- ASSIGNED, not declared. This was `local stepProg = ...` and nothing ever read it --
+			-- a dead local sitting under a comment explaining why the stride had to come from the
+			-- same quantity as the body. Everything downstream (the stepping band, the frame
+			-- picker, the counters) went on reading the raw `extras.prog`, which is the value the
+			-- comment says was the problem. Lua reports neither the dead local nor the unread
+			-- intention; only reading the uses does.
+			local remaining = math.abs(tX - o.modelX) + math.abs(tY - o.modelY)
+			peerProg = 16 - remaining
+			if peerProg < 0 then peerProg = 0 end
+			if peerProg > 16 then peerProg = 16 end
 			sx = math.floor((aged.oamX or playerOamX) - 8 + gx - ppx + 0.5)
 			sy = math.floor((aged.oamY or playerOamY) - 16 + gy - ppy + 0.5)
+
+			-- WHICH HALF OF THE SUM IS JUMPING. The painted position is the ghost's own motion
+			-- (`gy`) plus a PLAYER REFERENCE (`oamY - ppy`), and after the cadence rework the
+			-- horizontal axis came out clean while the vertical still showed 3px steps -- 13 of
+			-- them walking down, against one 2px step walking left. The two axes run identical
+			-- code, so the difference has to be in the values, and a histogram of the finished
+			-- position cannot say which term carried it. These two can: `gy` is 0 or 1 by
+			-- construction now, so anything above that in the reference is the player side.
+			if COMPARE_TIERS and o.only == "drawn" then
+				local refY = (aged.oamY or playerOamY) - ppy
+				local refX = (aged.oamX or playerOamX) - ppx
+				if facingFrames.lastRefY then
+					facingFrames.refD = facingFrames.refD or {}
+					facingFrames.ghostD = facingFrames.ghostD or {}
+					local vertical = (o.facing == 0 or o.facing == 1)
+					local rd = math.floor(math.abs((vertical and refY or refX)
+						- (vertical and facingFrames.lastRefY or facingFrames.lastRefX)) + 0.5)
+					local gd = math.floor(math.abs((vertical and gy or gx)
+						- (vertical and facingFrames.lastGY or facingFrames.lastGX)) + 0.5)
+					local key = (vertical and "v" or "h")
+					facingFrames.refD[key] = facingFrames.refD[key] or {}
+					facingFrames.ghostD[key] = facingFrames.ghostD[key] or {}
+					if rd > 6 then rd = 6 end
+					if gd > 6 then gd = 6 end
+					facingFrames.refD[key][rd] = (facingFrames.refD[key][rd] or 0) + 1
+					facingFrames.ghostD[key][gd] = (facingFrames.ghostD[key][gd] or 0) + 1
+				end
+				-- ON `facingFrames`, NOT ON `o`. The peer entry is rebuilt from scratch every time a
+				-- state message arrives, which is every frame, so a previous value parked on it is
+				-- nil by the time the next frame reads it -- the trap this file already warns about
+				-- two hundred lines down, walked into anyway. It cost one live run: the instrument
+				-- printed nothing at all, which at least fails loudly rather than reading zero.
+				facingFrames.lastRefY, facingFrames.lastRefX = refY, refX
+				facingFrames.lastGY, facingFrames.lastGX = gy, gx
+				-- WHERE THE ODD PIXEL LIVES. `stepProgress` is `(8 - STEP_DURATION) * 2`, so it can
+				-- only ever be even -- 8 ticks for a tile the character crosses in 16 frames. The
+				-- pixels in between are on screen and are not in that value, which is why the
+				-- player reference moves 0,2,0,2 and never 1.
+				--
+				-- Two candidates carry 1px resolution and both are already read by this adapter:
+				-- the background scroll registers, and the player's own OAM Y. Which one actually
+				-- advances every frame is a question about a running game, so it is measured here
+				-- rather than assumed -- no address or behaviour from memory (`CLAUDE.md`).
+				local scr = u8(W_BGMAPOFFSETY)
+				local oy = playerOamY
+				if scr and facingFrames.lastScroll then
+					local sd = math.abs(scr - facingFrames.lastScroll)
+					if sd > 6 then sd = 6 end
+					facingFrames.scrollD = facingFrames.scrollD or {}
+					facingFrames.scrollD[sd] = (facingFrames.scrollD[sd] or 0) + 1
+				end
+				if oy and facingFrames.lastOamY then
+					local od = math.abs(oy - facingFrames.lastOamY)
+					if od > 6 then od = 6 end
+					facingFrames.oamD = facingFrames.oamD or {}
+					facingFrames.oamD[od] = (facingFrames.oamD[od] or 0) + 1
+				end
+				facingFrames.lastScroll, facingFrames.lastOamY = scr, oy
+			end
 
 			local onScreen = sx > -16 and sx < 160 and sy > -16 and sy < 144
 			if not onScreen then
@@ -2736,11 +2880,20 @@ function drawOverflow()
 					-- AND WHY A STEPPING FRAME WAS REFUSED, which is the only thing that separates
 					-- "the peer sent nothing to step on" from "the renderer suppressed it". Both
 					-- draw a standing ghost and neither can be told from the other on screen.
+					-- IDLE IS TESTED FIRST, and not off `moving`. `rearm` is set the first time a
+					-- peer's facing is seen at all (its `lastFacing` starts nil) and is cleared
+					-- only by a real step, so a peer that spawns and stands there carries it for
+					-- the whole run -- which is harmless in the renderer, since the first walking
+					-- frame clears it before `moving` is computed, and a lie in a counter. Read
+					-- literally on the first run of this instrument: a ghost that had never moved
+					-- reported "111 held by a turn", i.e. the one reason that was certainly not
+					-- why. An instrument's categories have to be exclusive in the way a reader
+					-- assumes they are, or the count is worse than no count.
 					if not o.stepLatch then
-						if o.rearm then
-							facingFrames.nNoStepRearm = (facingFrames.nNoStepRearm or 0) + 1
-						elseif not moving then
+						if not o.walking and (o.idleFor or 99) > 3 then
 							facingFrames.nNoStepIdle = (facingFrames.nNoStepIdle or 0) + 1
+						elseif o.rearm then
+							facingFrames.nNoStepRearm = (facingFrames.nNoStepRearm or 0) + 1
 						else
 							facingFrames.nNoStepMidStep = (facingFrames.nNoStepMidStep or 0) + 1
 						end
@@ -3002,6 +3155,36 @@ function drawOverflow()
 			-- the line below is what was drawn from it. A gap between them is the renderer
 			-- refusing to step, and the reasons say which of the three refusals did it -- the
 			-- distinction that "the ghost stands there" cannot make on screen.
+			logFile(string.format("  MODEL walk: furthest behind its destination %.0fpx (a step is "
+				.. "16px), %d resyncs", facingFrames.modelMax or 0, facingFrames.modelSnaps or 0))
+			-- The two 1px candidates, side by side with the quantised value they would replace.
+			if facingFrames.scrollD or facingFrames.oamD then
+				local function hist(t)
+					local o2 = {}
+					for v = 0, 6 do
+						if t and t[v] then o2[#o2 + 1] = string.format("%d:%d", v, t[v]) end
+					end
+					return table.concat(o2, " ")
+				end
+				logFile(string.format("  1PX SOURCE | bg scroll Y moved %s | player OAM Y moved %s",
+					hist(facingFrames.scrollD), hist(facingFrames.oamD)))
+			end
+			if facingFrames.refD then
+				for _, key in ipairs({ "v", "h" }) do
+					local rr, gg = {}, {}
+					for v = 0, 6 do
+						local r = facingFrames.refD[key] and facingFrames.refD[key][v]
+						local g = facingFrames.ghostD[key] and facingFrames.ghostD[key][v]
+						if r then rr[#rr + 1] = string.format("%d:%d", v, r) end
+						if g then gg[#gg + 1] = string.format("%d:%d", v, g) end
+					end
+					if #rr > 0 or #gg > 0 then
+						logFile(string.format("  TERMS %s | player reference moved %s | ghost moved %s",
+							(key == "v") and "walking up/down " or "walking left/right",
+							table.concat(rr, " "), table.concat(gg, " ")))
+					end
+				end
+			end
 			logFile(string.format("  stepping view drawn on %d of %d peer-frames; not stepped: "
 				.. "%d mid-step, %d idle, %d held by a turn",
 				facingFrames.nStepDrawn or 0, facingFrames.nDrawnFrames or 0,
@@ -3019,6 +3202,36 @@ function drawOverflow()
 			end
 			logFile(string.format("  WIRE: %d messages, %d carried no movement, %d moved | %s",
 				w.msgs, w.same, w.moved, table.concat(d, " ")))
+			-- THE TWO CLOCKS, side by side. A run where every rendered frame got exactly one
+			-- message is a run where the wire's smoothness reaches the screen intact; anything in
+			-- the 0 and 2 buckets is a frame that painted nothing new followed by one that skipped
+			-- a pixel, which is the stutter, and it is arithmetic rather than opinion.
+			if w.perFrame then
+				local pf, tot = {}, 0
+				for v = 0, 6 do
+					if w.perFrame[v] then
+						pf[#pf + 1] = string.format("%d:%d", v, w.perFrame[v])
+						tot = tot + w.perFrame[v]
+					end
+				end
+				logFile(string.format("  ARRIVALS per rendered frame over %d frames: %s",
+					tot, table.concat(pf, " ")))
+			end
+			-- QUARTER-PIXEL buckets and a mean. The player walks a whole number of pixels a frame;
+			-- a peer that does not is being rounded to the screen grid, and the leftover is the
+			-- stutter.
+			if w.fine and w.nmoved and w.nmoved > 0 then
+				local fq = {}
+				for v = 0, 20 do
+					if w.fine[v] then
+						fq[#fq + 1] = string.format("%.2f:%d", v / 4, w.fine[v])
+					end
+				end
+				logFile(string.format("  WIRE sub-pixel: %d moves under 5px, mean %.3f px/frame | %s"
+					.. " | %d jumps over 5px, largest %.1fpx",
+					w.nmoved, w.sum / w.nmoved, table.concat(fq, " "),
+					w.big or 0, w.max or 0))
+			end
 		end
 		if offSample then
 			logFile("drawn tier: example of one it discarded -- " .. offSample)
@@ -3236,10 +3449,80 @@ local function renderRemote(id, state)
 			facingFrames.wire = w
 		end
 		w.msgs = w.msgs + 1
+		-- HOW MANY MESSAGES LANDED ON EACH RENDERED FRAME, zero-message frames included.
+		--
+		-- The wire histogram below says the peer's position arrives one pixel at a time, and the
+		-- painted histogram says the ghost's SCREEN position moves 2-3px on about a quarter of the
+		-- frames it moves at all. Both can be true at once: the core interpolates on wall-clock and
+		-- the emulator renders on its own, so at a nominal 60 of each the two drift against one
+		-- another, and a frame that receives nothing is followed by one that receives two. The
+		-- adapter paints the newest position, so those become a 0px frame and a 2px frame -- a
+		-- stutter built entirely out of smooth data.
+		--
+		-- Nothing else in the log can see this. A per-message instrument cannot: every one of those
+		-- messages is a clean 1px. A per-second rate cannot either -- it reads exactly 60/s, which
+		-- is the average being complained about. It takes counting the two clocks against each
+		-- other, one frame at a time.
+		local wf = emu.framecount()
+		if w.frame ~= wf then
+			if w.frame then
+				w.perFrame = w.perFrame or {}
+				local n = w.inFrame or 0
+				w.perFrame[n] = (w.perFrame[n] or 0) + 1
+				-- THE FRAMES THAT RECEIVED NOTHING, which are the whole point and which a handler
+				-- that only runs on arrival can never be called for. They are counted by the gap
+				-- between the frame numbers instead.
+				local gap = wf - w.frame - 1
+				if gap > 0 and gap < 600 then
+					w.perFrame[0] = (w.perFrame[0] or 0) + gap
+				end
+			end
+			w.frame, w.inFrame = wf, 0
+		end
+		w.inFrame = (w.inFrame or 0) + 1
 		local px = (type(pos[3]) == "number") and pos[3] or (pos[1] * 16)
 		local py = (type(pos[4]) == "number") and pos[4] or (pos[2] * 16)
 		if w.lx then
 			local d = math.abs(px - w.lx) + math.abs(py - w.ly)
+			-- THE SUB-PIXEL TRUTH, because the whole-pixel histogram below cannot tell 0.5px from
+			-- 1.49px -- it rounds to an integer key and clamps the lowest bucket to 1, so it reports
+			-- a confident "1px" for anything in that range. That was fine while it was answering
+			-- "are whole tiles arriving?", and it is the wrong instrument for the question it is
+			-- being asked now.
+			--
+			-- The question now: with -interp=0ms the peer's positions are the player's OWN past
+			-- integers, so the ghost paints exactly as the player did; at the shipped 250ms the core
+			-- INTERPOLATES, and a peer advancing a fractional number of pixels a frame has to be
+			-- rounded to an integer screen pixel, which paints 2,2,1,2,2,1... That is a correct
+			-- rendering of fractional motion and it reads as a stutter beside a player moving in
+			-- even steps -- and it would appear at shipped settings ONLY, which is exactly when it
+			-- is reported.
+			--
+			-- So: quarter-pixel buckets, plus the running total and count, which give the mean
+			-- speed. A mean that is not the player's own pixels-per-frame is the defect, stated as
+			-- a number instead of as "a bit jittery".
+			if d >= 0.01 then
+				w.fine = w.fine or {}
+				local fk = math.floor(d * 4 + 0.5)
+				-- A CLAMPED BUCKET MUST NOT FEED THE MEAN. First run of this instrument reported
+				-- "mean 2.708 px/frame" over a histogram whose own contents average 1.01 -- because
+				-- ONE move of about 98px (a map change, or the ghost being replaced) was filed
+				-- under the top bucket, where it looks like a single 5px sample, while `sum`
+				-- carried all 98 of it. The number that would have been quoted was nearly three
+				-- times the truth, from a probe written this same session to be trustworthy.
+				--
+				-- So the mean is taken over IN-RANGE moves only, and the outliers are reported
+				-- separately with the largest one's actual size -- a jump is a different event from
+				-- a stutter and averaging the two describes neither.
+				if fk > 20 then
+					w.big = (w.big or 0) + 1
+					w.max = math.max(w.max or 0, d)
+				else
+					w.fine[fk] = (w.fine[fk] or 0) + 1
+					w.sum = (w.sum or 0) + d
+					w.nmoved = (w.nmoved or 0) + 1
+				end
+			end
 			if d < 0.5 then
 				w.same = w.same + 1
 			else
@@ -3348,6 +3631,9 @@ local function renderRemote(id, state)
 			-- fire: this entry is rebuilt each time a peer state arrives, which is every frame.
 			-- Found 2026-08-22, after "0 twitches" was read as evidence that nothing jumped.
 			paintedX = prev and prev.paintedX, paintedY = prev and prev.paintedY,
+			-- THE MODELLED WALK, carried like everything else here: it IS the ghost's position
+			-- between wire updates, so losing it every message would defeat the whole point.
+			modelX = prev and prev.modelX, modelY = prev and prev.modelY,
 			stepLatch = prev and prev.stepLatch,
 			idleFor = prev and prev.idleFor,
 			lastFacing = prev and prev.lastFacing,
@@ -3424,6 +3710,9 @@ local function renderRemote(id, state)
 			-- fire: this entry is rebuilt each time a peer state arrives, which is every frame.
 			-- Found 2026-08-22, after "0 twitches" was read as evidence that nothing jumped.
 			paintedX = prev and prev.paintedX, paintedY = prev and prev.paintedY,
+			-- THE MODELLED WALK, carried like everything else here: it IS the ghost's position
+			-- between wire updates, so losing it every message would defeat the whole point.
+			modelX = prev and prev.modelX, modelY = prev and prev.modelY,
 			stepLatch = prev and prev.stepLatch,
 			idleFor = prev and prev.idleFor,
 			lastFacing = prev and prev.lastFacing,
@@ -3453,6 +3742,9 @@ local function renderRemote(id, state)
 			-- fire: this entry is rebuilt each time a peer state arrives, which is every frame.
 			-- Found 2026-08-22, after "0 twitches" was read as evidence that nothing jumped.
 			paintedX = prev and prev.paintedX, paintedY = prev and prev.paintedY,
+			-- THE MODELLED WALK, carried like everything else here: it IS the ghost's position
+			-- between wire updates, so losing it every message would defeat the whole point.
+			modelX = prev and prev.modelX, modelY = prev and prev.modelY,
 			stepLatch = prev and prev.stepLatch,
 			idleFor = prev and prev.idleFor,
 			lastFacing = prev and prev.lastFacing,
