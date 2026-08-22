@@ -270,23 +270,31 @@ func sendBridge(conn *transport.NDJSONConn, typ bridge.MessageType, payload any)
 
 // startRelay and startClient launch the real binaries with the flags the
 // dev-scripts use, minus the personal paths.
-func startRelay(t *testing.T, dir, bin, addr string) {
+// startRelay returns the process so a test can kill it and start another on
+// the same address -- see restart_e2e_test.go. Existing callers ignore the
+// return value, which is why adding it changed nothing for them.
+func startRelay(t *testing.T, dir, bin, addr string) *exec.Cmd {
 	t.Helper()
-	start(t, dir, bin, "-addr", addr, "-loopback")
+	cmd := start(t, dir, bin, "-addr", addr, "-loopback")
 	waitForListener(t, addr)
+	return cmd
 }
 
-func startClient(t *testing.T, dir, bin, relayAddr, bridgeAddr string) {
+// startClient returns the process for the same reason startRelay does, and
+// takes extra flags so a restart test can pin the transport.
+func startClient(t *testing.T, dir, bin, relayAddr, bridgeAddr string, extra ...string) *exec.Cmd {
 	t.Helper()
-	start(t, dir, bin,
+	args := append([]string{
 		"-relay", relayAddr,
 		"-bridge", bridgeAddr,
 		"-game", "e2egame",
 		"-room", "e2eroom",
 		"-interp", "0ms",
 		"-min-send", "10ms",
-	)
+	}, extra...)
+	cmd := start(t, dir, bin, args...)
 	waitForListener(t, bridgeAddr)
+	return cmd
 }
 
 // rig builds both binaries and picks their ports.
