@@ -4144,6 +4144,13 @@ correct. It is now commented in `stepGhost` as a rejected alternative rather tha
 an oversight, because "just use the player's step type" is an obvious-looking idea that will be had
 again and whose failure mode is invisible until it is on screen.
 
+**THE DAMAGE OUTLIVED THE CODE.** Reverting the adapter did not put the camera back -- the user had
+to load a savestate: *"i reloaded savestate9, and its back to normal now"*. A ghost driving the
+camera moves the engine's own scroll state, and nothing in the adapter owns or restores that. So a
+write that hands a ghost a player privilege can leave the WORLD altered after the write stops, and
+"I reverted it" is not the same as "it is undone" -- check the symptom, not the diff. Any experiment
+of this shape wants a savestate taken first.
+
 **The transferable rule: a field copied from the PLAYER'S object may carry the player's privileges.**
 The player's struct is not a template with better numbers in it -- some of its values exist to drive
 things only the player may drive. `phase9.md` already learned the same shape from the other side:
