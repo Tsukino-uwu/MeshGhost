@@ -673,55 +673,7 @@ func (c *Core) ConnectRelay(gameID string) error {
 		// clearRelayIfCurrent, which exists because ConnectRelay's failure
 		// paths cannot wait for it. The wasCurrent guard is load-bearing,
 		// not tidiness.
-		//
-		// Clear relay identity so a later bridge Hello (the adapter
-		// reconnecting, e.g. relaunching the game) can redial via
-		// ConnectRelayOnAdapterHello instead of finding c.relay non-nil and
-		// treating this Core as still connected forever. Guarded against a
-		// stale callback firing after a newer connection has already
-		// replaced this one.
-		c.mu.Lock()
-		wasCurrent := c.relay == conn
-		if wasCurrent {
-			c.relay = nil
-			c.playerID = ""
-			c.relayGame = ""
-			c.relayOwner = nil
-			// Cleared so a reconnect (to this relay again, or a different,
-			// differently-configured one) starts from effectiveSendInterval's
-			// "nothing advertised yet" fallback instead of inheriting this
-			// connection's now-stale rate.
-			c.serverSendInterval = 0
-			// Cleared with the rate above so a reconnect to a
-			// differently-configured relay never inherits a stale policy. The
-			// adapter is told the new value once the next Welcome lands.
-			c.relayGhostCollision = ""
-			c.relayPolicyKnown = false
-			// Per-connection too: the room's agreed capabilities, the clock
-			// offset (a different relay has a different clock, and even the
-			// same one restarted may have jumped), the outstanding ping
-			// timings, and whether this session was a resumption. The resume
-			// TOKEN deliberately survives — this is exactly the drop it
-			// exists for.
-			c.activeFeatures = nil
-			c.resumed = false
-			c.clock = clockSync{}
-			// Reset with the clock it derives from: a new connection may have a
-			// completely different offset, and carrying the old ceiling across
-			// would freeze the new one until real time caught up.
-			c.lastNowMs = 0
-			c.pendingPings = nil
-			// Roster is per-connection: player_ids are only meaningful within
-			// the connection that assigned them. Welcome used to be the de
-			// facto reset (it replaced the map wholesale), but it no longer
-			// does -- see the Welcome case, which now merges so a Join that
-			// arrives first isn't erased -- so the reset has to be explicit
-			// here, or a stale id could outlive the connection that named it
-			// and pass the trust check on the next one.
-			c.roster = make(map[string]struct{})
-		}
-		retryGameID, retryAdapterVersion, retryBridgeConn := c.autoRetryGameID, c.autoRetryAdapterGameVersion, c.autoRetryBridgeConn
-		c.mu.Unlock()
+		wasCurrent, retry := c.clearRelaySession(conn)
 
 		if wasCurrent {
 			c.dropAllRemotes()
@@ -731,8 +683,8 @@ func (c *Core) ConnectRelay(gameID string) error {
 		// ConnectRelayOnAdapterHello success, so this is a no-op for
 		// cmd/meshghost-fakeadapter and core_test.go's direct ConnectRelay
 		// callers.
-		if wasCurrent && retryGameID != "" {
-			go c.reconnectWithBackoff(retryGameID, retryAdapterVersion, retryBridgeConn)
+		if wasCurrent && retry.gameID != "" {
+			go c.reconnectWithBackoff(retry.gameID, retry.adapterGameVersion, retry.bridgeConn)
 		}
 	})
 	conn.OnReceive(func(payload []byte) { c.handleRelayMessage(payload, welcome, reject) })
@@ -838,6 +790,81 @@ func (c *Core) ConnectRelay(gameID string) error {
 // playerID or relayGame, and the retry fields are armed only after a
 // successful ConnectRelayOnAdapterHello, so there is nothing else here to
 // unwind. OnDisconnect still runs afterwards and correctly no-ops.
+// relayRetry is what a disconnect needs in order to redial: read under the
+// same lock that clears the session, so a reconnect cannot be armed or
+// disarmed in between.
+type relayRetry struct {
+	gameID             string
+	adapterGameVersion string
+	bridgeConn         transport.Transport
+}
+
+// clearRelaySession forgets everything that belonged to ONE relay connection
+// and reports whether conn was the live one, along with what a redial would
+// need. Every field it touches is per-connection: carrying any of them into
+// the next session means answering a new relay's questions with an old
+// relay's answers. Clearing c.relay is what lets a later bridge Hello (the
+// adapter reconnecting, e.g. relaunching the game) redial via
+// ConnectRelayOnAdapterHello, instead of finding it non-nil and treating this
+// Core as connected forever.
+//
+// It is a method rather than the body of ConnectRelay's OnDisconnect closure
+// because a closure needs a real socket and a real drop to reach, which is
+// why eleven of these twelve clears went untested until 2026-08-22. The
+// stale-callback guard in particular is unreachable from a black-box test:
+// it only fires when an OLD connection's callback lands after a NEWER one has
+// replaced it, and nothing outside this package can arrange that. See
+// core/reconnect_test.go.
+func (c *Core) clearRelaySession(conn transport.Transport) (bool, relayRetry) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	retry := relayRetry{c.autoRetryGameID, c.autoRetryAdapterGameVersion, c.autoRetryBridgeConn}
+	if c.relay != conn {
+		// A stale connection's callback, landing after a newer one already
+		// replaced it. Touching anything here would wipe the LIVE session.
+		return false, retry
+	}
+
+	c.relay = nil
+	c.playerID = ""
+	c.relayGame = ""
+	c.relayOwner = nil
+	// Cleared so a reconnect (to this relay again, or a different,
+	// differently-configured one) starts from effectiveSendInterval's
+	// "nothing advertised yet" fallback instead of inheriting this
+	// connection's now-stale rate.
+	c.serverSendInterval = 0
+	// Cleared with the rate above so a reconnect to a differently-configured
+	// relay never inherits a stale policy. The adapter is told the new value
+	// once the next Welcome lands.
+	c.relayGhostCollision = ""
+	c.relayPolicyKnown = false
+	// Per-connection too: the room's agreed capabilities, the clock offset (a
+	// different relay has a different clock, and even the same one restarted
+	// may have jumped), the outstanding ping timings, and whether this session
+	// was a resumption. The resume TOKEN deliberately survives — this is
+	// exactly the drop it exists for, and a test pins that it is still here
+	// afterwards precisely because it is one line among twelve clears.
+	c.activeFeatures = nil
+	c.resumed = false
+	c.clock = clockSync{}
+	// Reset with the clock it derives from: a new connection may have a
+	// completely different offset, and carrying the old ceiling across would
+	// freeze the new one until real time caught up.
+	c.lastNowMs = 0
+	c.pendingPings = nil
+	// Roster is per-connection: player_ids are only meaningful within the
+	// connection that assigned them. Welcome used to be the de facto reset (it
+	// replaced the map wholesale), but it no longer does -- see the Welcome
+	// case, which now merges so a Join that arrives first isn't erased -- so
+	// the reset has to be explicit here, or a stale id could outlive the
+	// connection that named it and pass the trust check on the next one.
+	c.roster = make(map[string]struct{})
+
+	return true, retry
+}
+
 func (c *Core) clearRelayIfCurrent(conn transport.Transport) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
