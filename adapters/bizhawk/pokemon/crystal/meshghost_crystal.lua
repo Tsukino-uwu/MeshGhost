@@ -2374,6 +2374,36 @@ function drawOverflow()
 			walking = (u8(OBJECT_STRUCTS + F_WALKING) or STANDING) ~= STANDING,
 			dir = ((u8(OBJECT_STRUCTS + F_DIRECTION) or 0) // 4) & 3,
 		}
+		-- THE ENGINE'S MOVEMENT TICK, observed rather than assumed. The world moves 2px every
+		-- other frame and the player's step progress advances on exactly those frames, so the
+		-- frame parity on which `prog` changes IS the engine's clock. A drawn ghost has to move on
+		-- the same one: moving on the other parity shifts the ghost 2px relative to the player on
+		-- every frame, which is a shake, not a walk.
+		--
+		-- Latched, so a standing player (no ticks to see) leaves the last known phase in place
+		-- rather than resetting it to a guess. Written here, next to the sample it is derived
+		-- from, so the two can never be read from different frames.
+		local nowProg = stepProgress(OBJECT_STRUCTS)
+		if facingFrames.lastPlayerProg and nowProg ~= facingFrames.lastPlayerProg then
+			local parity = emu.framecount() % 2
+			if COMPARE_TIERS then
+				facingFrames.paritySeen = facingFrames.paritySeen or {}
+				facingFrames.paritySeen[parity] = (facingFrames.paritySeen[parity] or 0) + 1
+				-- THE PLAYER'S OWN RHYTHM, as the thing the ghost's has to be compared against.
+				-- "The ghost moves every 1 to 3 frames" means nothing until the player's own figure
+				-- is on the line beside it -- the engine is irregular too, and the target is to
+				-- match its irregularity rather than to be metronomic.
+				if facingFrames.playerGapAt then
+					local g = emu.framecount() - facingFrames.playerGapAt
+					if g > 8 then g = 8 end
+					facingFrames.playerGap = facingFrames.playerGap or {}
+					facingFrames.playerGap[g] = (facingFrames.playerGap[g] or 0) + 1
+				end
+				facingFrames.playerGapAt = emu.framecount()
+			end
+			facingFrames.tickParity = parity
+		end
+		facingFrames.lastPlayerProg = nowProg
 	end
 
 	-- DO NOT PAINT UNTIL THE AGED REFERENCE IS A REAL SAMPLE OF THIS MAP.
@@ -2600,6 +2630,52 @@ function drawOverflow()
 			-- that stopped sending -- anything that moves a peer further than a step can carry it
 			-- is a teleport, and walking it off at 1px/frame would send the ghost gliding across
 			-- the map. A character does not do that either.
+			-- THE RHYTHM, NOT JUST THE POSITIONS. User, 2026-08-23, after the 2px grid landed:
+			-- *"it looks a bit better now... the jittering got reduced by like half"*. Halved is
+			-- not fixed, and every positional instrument now reads clean -- the ghost only occupies
+			-- engine-legal pixels and never moves more than 2px in a frame. What none of them
+			-- measures is WHEN it moves. A character that steps 2px after one frame, then after
+			-- three, then after one covers exactly the right ground on exactly the right pixels and
+			-- still does not walk like the engine, whose own gaps have a pattern of their own
+			-- (measured 64 even against 32 odd -- irregular, but its own irregularity, not ours).
+			--
+			-- So: the gap in frames between successive 2px moves, for the ghost and for the player,
+			-- from the same log line. If the player's gaps cluster and the ghost's do not, the
+			-- remaining half of the jitter is the pacing and not the placement.
+			if COMPARE_TIERS and o.only == "drawn" then
+				local now = emu.framecount()
+				if o.modelX ~= facingFrames.gapLastX or o.modelY ~= facingFrames.gapLastY then
+					if facingFrames.gapLastAt then
+						local g = now - facingFrames.gapLastAt
+						if g > 8 then g = 8 end
+						facingFrames.ghostGap = facingFrames.ghostGap or {}
+						facingFrames.ghostGap[g] = (facingFrames.ghostGap[g] or 0) + 1
+					end
+					facingFrames.gapLastAt = now
+					facingFrames.gapLastX, facingFrames.gapLastY = o.modelX, o.modelY
+				end
+			end
+			-- IS THE MODEL AHEAD OF THE PEER, AND BY HOW MUCH? User, 2026-08-23: walking up and
+			-- down constantly, *"it still feels like the drawn ghost is a bit ahead of the spawned
+			-- ghost, and it also looks jittery"*.
+			--
+			-- The spawned tier is known to start each step a mean 4.3 frames late (`unverified.md`),
+			-- so "ahead of the spawned ghost" is partly that tier's own lag and says nothing on its
+			-- own. The question that can be answered is whether this tier leads the PEER -- and the
+			-- interpolated pixel position is still arriving even though it is no longer painted
+			-- from, which makes it exactly the reference to check against. SIGNED, because "ahead"
+			-- and "behind" are different faults with different fixes and an absolute value erases
+			-- the distinction.
+			if COMPARE_TIERS and o.only == "drawn" and o.pixX and o.pixY then
+				local lead = (o.facing == 0 or o.facing == 1)
+					and (o.modelY - o.pixY) or (o.modelX - o.pixX)
+				if o.facing == 1 or o.facing == 2 then lead = -lead end -- toward travel
+				local lk = math.floor(lead + 0.5)
+				if lk > 8 then lk = 8 end
+				if lk < -8 then lk = -8 end
+				facingFrames.lead = facingFrames.lead or {}
+				facingFrames.lead[lk] = (facingFrames.lead[lk] or 0) + 1
+			end
 			-- HOW FAR BEHIND THE MODEL EVER GETS, and how often it gives up and snaps. A model that
 			-- tracks and a model that resyncs every other step both paint a ghost in about the
 			-- right place; only these two numbers tell them apart, and "it looked fine" would not.
@@ -2607,7 +2683,92 @@ function drawOverflow()
 				local behind = math.abs(o.modelX - tX) + math.abs(o.modelY - tY)
 				facingFrames.modelMax = math.max(facingFrames.modelMax or 0, behind)
 			end
-			if math.abs(o.modelX - tX) > 24 or math.abs(o.modelY - tY) > 24 then
+			if o.pixX and o.pixY then
+				-- QUANTISE THE POSITION, NOT THE TIME. (2026-08-23, third attempt and the one the
+				-- measurements point at rather than away from.)
+				--
+				-- Attempt one walked the ghost 1px a frame: smoother than the game, because the
+				-- game moves 2px at a time and never 1. Attempt two moved 2px on every other frame
+				-- and produced a ghost that shakes -- the engine's tick is NOT on a fixed frame
+				-- parity, measured at even 64 against odd 32, so a ghost locked to a parity moves
+				-- on the frames the player does not, and relative to a camera locked on the player
+				-- that is 2px of shake every frame. (It also reads in a painted-movement histogram
+				-- as a flawless uniform 2px, which is why the user saw it before the numbers did.)
+				--
+				-- There is nothing to guess. The interpolated position already carries the peer's
+				-- timing, correct to a mean 0.970 px/frame; its only defect was landing on
+				-- fractional pixels the engine would never draw. So round it onto the engine's own
+				-- 2px grid: the ghost can then only ever occupy a position the engine could have
+				-- produced, and it gets there on the peer's schedule rather than on a schedule
+				-- invented here. A monotone input stays monotone, so this cannot oscillate.
+				-- ...AND THE RHYTHM ON TOP OF IT, which is the other half of walking like the
+				-- engine. Measured 2026-08-23 with both bodies' gaps on one line: the player moves
+				-- 2px every 2 frames, 91 times out of 93 -- a metronome. Quantising position alone
+				-- got the ghost to 73 of 92, the rest arriving after 1 frame or after 3, and the
+				-- user saw exactly that residue: *"the jittering got reduced by like half"*.
+				--
+				-- The phase is LATCHED AT THE START OF EACH BURST rather than fixed. That is what
+				-- the earlier parity attempt got wrong: within one bout of walking the engine's
+				-- tick is firmly on one parity (measured odd 95 against even 1), but a later bout
+				-- can begin on the other, so a parity latched once and kept is right for a while
+				-- and then exactly wrong -- which is the shake that reading showed.
+				--
+				-- The quantised interpolated position stays the authority for WHERE; this only
+				-- decides WHEN the model is allowed to take its 2px. The peer's true speed is
+				-- 2px per 2 frames, so honouring the rhythm cannot make the ghost fall behind.
+				local qx = math.floor(o.pixX / 2 + 0.5) * 2
+				local qy = math.floor(o.pixY / 2 + 0.5) * 2
+				if not o.modelX then
+					o.modelX, o.modelY = qx, qy
+				end
+				-- THE PHASE MUST SURVIVE A CATCH-UP, and it must be the ENGINE's phase.
+				--
+				-- User, 2026-08-23, on the version that latched on the first frame it wanted to
+				-- move and cleared the moment it arrived: *"moving 1 tile looks good/perfect...
+				-- moving like 4-5+ tiles and it starts to look really jittery"*. A fault that grows
+				-- with the length of the walk is not a constant offset and not a rounding error --
+				-- it is something that REPEATS. The model reaches its target and waits many times
+				-- inside a long walk, and each of those cleared the phase, so a five-tile walk
+				-- re-latched many times where a one-tile walk latched once. Every re-latch is a
+				-- fresh coin toss on parity, and half of them land in anti-phase with the player.
+				--
+				-- So: the phase is only released after the ghost has genuinely STOPPED (half a
+				-- second of stillness), not when it happens to be momentarily up to date. And it is
+				-- taken from the engine's own observed tick when one has been seen, rather than
+				-- from whichever frame we first wanted to move on -- there is a right answer
+				-- available, so guessing is not required.
+				local wants = (o.modelX ~= qx) or (o.modelY ~= qy)
+				if not wants then
+					o.modelStill = (o.modelStill or 0) + 1
+					if o.modelStill >= 30 then
+						o.modelPhase = nil
+					end
+				else
+					o.modelStill = 0
+					if o.modelPhase == nil then
+						o.modelPhase = facingFrames.tickParity or (emu.framecount() % 2)
+						if COMPARE_TIERS then
+							facingFrames.relatch = (facingFrames.relatch or 0) + 1
+						end
+					end
+					if (emu.framecount() % 2) == o.modelPhase then
+						local dx, dy = qx - o.modelX, qy - o.modelY
+						-- A WHOLE TILE BEHIND IS NOT A LATE STEP. Anything that far out is a
+						-- teleport, a respawn or a map change, and walking it off in 2px hops would
+						-- send the ghost gliding across the map.
+						if math.abs(dx) > 16 or math.abs(dy) > 16 then
+							o.modelX, o.modelY = qx, qy
+							if COMPARE_TIERS then
+								facingFrames.modelSnaps = (facingFrames.modelSnaps or 0) + 1
+							end
+						else
+							local sx2 = (dx > 2 and 2) or (dx < -2 and -2) or dx
+							local sy2 = (dy > 2 and 2) or (dy < -2 and -2) or dy
+							o.modelX, o.modelY = o.modelX + sx2, o.modelY + sy2
+						end
+					end
+				end
+			elseif math.abs(o.modelX - tX) > 24 or math.abs(o.modelY - tY) > 24 then
 				if COMPARE_TIERS then
 					facingFrames.modelSnaps = (facingFrames.modelSnaps or 0) + 1
 				end
@@ -2628,10 +2789,24 @@ function drawOverflow()
 				-- both sides of the subtraction move in the same units, which is the only way the
 				-- difference between them can be still.
 				--
-				-- Parity comes from the frame counter rather than per-peer state so that a peer
-				-- entry rebuilt every frame cannot lose it. The cost is that a step beginning on
-				-- the wrong parity is one frame late, once, at the start of a step.
-				local moveThisFrame = (emu.framecount() % 2) == 0
+				-- ON THE ENGINE'S TICK, NOT AN ARBITRARY ONE. This was `emu.framecount() % 2 == 0`,
+				-- and that is the whole difference between a ghost that walks beside the player and
+				-- one that shakes.
+				--
+				-- The engine moves the world 2px every OTHER frame. Which frame is not ours to
+				-- pick: if the ghost moves on the frames the player does not, then RELATIVE to the
+				-- player it shifts 2px on every single frame, and a ghost is always seen relative to
+				-- the player because the camera is locked to them. That reads on screen as a
+                -- constant shake, and -- the trap -- it reads in a histogram of painted movement as
+				-- a beautifully uniform "2px every frame". The user saw it immediately
+				-- (*"left/right also looks the same/bad"*) while the numbers said the stutter was
+				-- gone. The metrics were the suspect and the metrics were wrong.
+				--
+				-- The engine's tick is observable: the player's own step progress advances on it.
+				-- The parity is LATCHED, because a standing player has no ticks to observe and the
+				-- ghost still has to walk; the last observed phase is the right guess and it is
+				-- corrected the moment the player moves again.
+				local moveThisFrame = (emu.framecount() % 2) == (facingFrames.tickParity or 0)
 				if moveThisFrame then
 					local dx, dy = tX - o.modelX, tY - o.modelY
 					local sx2 = (dx > 0 and 2) or (dx < 0 and -2) or 0
@@ -3157,6 +3332,35 @@ function drawOverflow()
 			-- distinction that "the ghost stands there" cannot make on screen.
 			logFile(string.format("  MODEL walk: furthest behind its destination %.0fpx (a step is "
 				.. "16px), %d resyncs", facingFrames.modelMax or 0, facingFrames.modelSnaps or 0))
+			-- ONE PARITY SHOULD DOMINATE. If the engine's movement tick were not tied to frame
+			-- parity at all this would read roughly 50/50, and locking the ghost to it would be
+			-- meaningless -- so the number that justifies the fix is printed beside it.
+			if facingFrames.ghostGap or facingFrames.playerGap then
+				local function gaps(t)
+					local o2 = {}
+					for v = 1, 8 do
+						if t and t[v] then o2[#o2 + 1] = string.format("%d:%d", v, t[v]) end
+					end
+					return table.concat(o2, " ")
+				end
+				logFile(string.format("  RHYTHM, frames between moves | player %s | ghost %s",
+					gaps(facingFrames.playerGap), gaps(facingFrames.ghostGap)))
+			end
+			if facingFrames.paritySeen then
+				logFile(string.format("  ENGINE tick parity: even %d, odd %d (locked to %d) | "
+					.. "ghost lead over the peer %s",
+					facingFrames.paritySeen[0] or 0, facingFrames.paritySeen[1] or 0,
+					facingFrames.tickParity or -1,
+					(function()
+						local t = {}
+						for v = -8, 8 do
+							if facingFrames.lead and facingFrames.lead[v] then
+								t[#t + 1] = string.format("%+d:%d", v, facingFrames.lead[v])
+							end
+						end
+						return table.concat(t, " ")
+					end)()))
+			end
 			-- The two 1px candidates, side by side with the quantised value they would replace.
 			if facingFrames.scrollD or facingFrames.oamD then
 				local function hist(t)
@@ -3634,6 +3838,8 @@ local function renderRemote(id, state)
 			-- THE MODELLED WALK, carried like everything else here: it IS the ghost's position
 			-- between wire updates, so losing it every message would defeat the whole point.
 			modelX = prev and prev.modelX, modelY = prev and prev.modelY,
+			modelPhase = prev and prev.modelPhase,
+			modelStill = prev and prev.modelStill,
 			stepLatch = prev and prev.stepLatch,
 			idleFor = prev and prev.idleFor,
 			lastFacing = prev and prev.lastFacing,
@@ -3713,6 +3919,8 @@ local function renderRemote(id, state)
 			-- THE MODELLED WALK, carried like everything else here: it IS the ghost's position
 			-- between wire updates, so losing it every message would defeat the whole point.
 			modelX = prev and prev.modelX, modelY = prev and prev.modelY,
+			modelPhase = prev and prev.modelPhase,
+			modelStill = prev and prev.modelStill,
 			stepLatch = prev and prev.stepLatch,
 			idleFor = prev and prev.idleFor,
 			lastFacing = prev and prev.lastFacing,
@@ -3745,6 +3953,8 @@ local function renderRemote(id, state)
 			-- THE MODELLED WALK, carried like everything else here: it IS the ghost's position
 			-- between wire updates, so losing it every message would defeat the whole point.
 			modelX = prev and prev.modelX, modelY = prev and prev.modelY,
+			modelPhase = prev and prev.modelPhase,
+			modelStill = prev and prev.modelStill,
 			stepLatch = prev and prev.stepLatch,
 			idleFor = prev and prev.idleFor,
 			lastFacing = prev and prev.lastFacing,

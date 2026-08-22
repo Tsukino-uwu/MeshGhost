@@ -836,3 +836,65 @@ the engine acts on the following frame.
   tier already uses to sit exactly on the peer — instead of waiting to notice a tile change.
 
 Neither is scheduled. Both are measured, and the numbers above are what any fix has to beat.
+
+## Crystal's drawn tier at the SHIPPED 250ms: the stutter, and what it turned out to be — 2026-08-23
+
+**Status: measured and fixed in code, NOT confirmed on screen.** The user reported it live —
+*"the drawn ghost still looks a bit stuttery/jittery while moving around"* — while playing the
+shipped-settings rig (`run-relay-loopback-shipped.bat` + `run-core-crystal-shipped.bat`, 250ms
+interpolation at the relay's default 20Hz).
+
+### What it was
+
+The drawn tier painted wherever the interpolated position said, every frame. Over 198 moving
+frames the peer's position advanced a mean of **0.970 px/frame** — the player's own walking speed,
+which is why every earlier per-message instrument called the wire clean — but only 65 of those
+frames advanced a whole pixel, against **58 at 0.75px and 52 at 1.25px**. The core interpolates on
+wall-clock time and the adapter samples it once per emulated frame; emulated frames are not exactly
+16.667ms apart, so each sample lands a different fraction of a pixel along. Rounded to the screen
+grid that paints 1,1,2,1,2,1.
+
+It appears at shipped settings **only**, which is why every earlier session missed it: at
+`-interp=0ms` the ghost replays the player's own past *integer* positions and there is nothing to
+round.
+
+### Two suspects measured and cleared before anything was changed
+
+- **The two clocks beating against each other.** Refuted: 660 of 660 rendered frames received
+  exactly one message. `receive()` drains its whole buffer each frame, so a 0 or a 2 would have
+  shown — the instrument could see the case, and the case was not happening.
+- **The aged player reference wobbling.** Refuted from the code: `playerHistory.age` is the
+  constant 2, so the reference cannot pick a different sample frame to frame.
+
+### The correction that mattered: the game's own quantum
+
+The first fix walked the ghost at 1px per frame and fixed left and right (10 and 5 two-pixel jumps
+down to 1 each) while leaving up and down untouched. Splitting the paint into its two halves showed
+why: the ghost moved 0 or 1px and the **player reference moved 0 or 2px and never 1**.
+
+The obvious next move was to find the odd pixel the reference was losing. **There isn't one.**
+Measured on the running game: the background scroll moves 0, 2 or 4 pixels and **never 1**, and the
+player's sprite does not move at all — the world scrolls past a fixed sprite.
+
+> **A tile is 8 ticks of 2px.** `stepProgress`'s `(8 - STEP_DURATION) * 2` is not a lossy reading of
+> a finer value; it *is* the value. A 1px-per-frame ghost is **smoother than the game**, which fails
+> the 1:1 bar from the other side — the player steps and the ghost glides.
+
+### The numbers any further work has to beat
+
+Painted screen movement per frame, walking down: **44×1px + 15×3px** before, **59×2px** after — the
+mixed odd/even pattern that *was* the stutter, gone. Up, left and right likewise carry no odd
+values. The model never fell more than 20px behind a 16px step and **never once resynced**.
+
+### Two defects found on the way, both live before this session
+
+- **`stepProg` was computed and never read** — a dead local sitting under a comment explaining why
+  the stride had to come from the same quantity as the body, while the stepping band, the frame
+  picker and the counters all went on reading the raw un-interpolated `extras.prog`. So "the stride
+  comes from the smooth quantity" was never true. Assigned now.
+- **The stride's progress had a sign bug.** `16 + (pix - tile*16)` is correct only where that term
+  is negative — right and down. Walking **left or up** the destination tile is the smaller number,
+  the term is positive for the whole step, the progress pins at 16, and 16 is inside the stepping
+  band: those two directions held ONE image for the whole step instead of running a cycle. Taken as
+  a distance now, which has no sign to get wrong. This is a candidate explanation for the
+  directional complaints (*"still doing right a bit fast sometimes"*) and is not confirmed as such.

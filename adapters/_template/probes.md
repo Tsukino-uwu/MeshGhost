@@ -1469,3 +1469,52 @@ count, the sample interval, the total, the unchanged count, the other instrument
 > **An instrument reports its own coverage, not just its findings.** How many samples it took, how
 > many it discarded and why, and over what window. A probe that prints only what it found cannot be
 > distinguished from a probe that found nothing because it was looking in the wrong place.
+
+## A uniform histogram can BE the fault (Crystal, 2026-08-23)
+
+The most expensive wrong reading of the drawn-ghost stutter hunt was not a probe that found nothing.
+It was a probe that found a **perfect** result.
+
+A histogram of the ghost's painted movement, one entry per frame, read `2px:59` — every moving frame
+exactly 2px, no odd values, no outliers. That is what "fixed" looks like. The user, watching the same
+build: *"left/right also looks the same/bad i think"*.
+
+Both were right. The engine moves the world 2px every **other** frame. The ghost had been locked to
+2px on a frame parity of its own, so it moved on the frames the player did not — and because the
+camera is locked to the player, a ghost that moves when the player doesn't shifts 2px **relative to
+the player on every single frame**. That is a shake, and its signature in a per-frame histogram of
+relative movement is a flawless, uniform, single-bucket 2px.
+
+> **A quantity that should sometimes be zero and never is has not been smoothed — it has been made
+> to oscillate.** Before celebrating a single-bucket histogram, ask what the RIGHT distribution is.
+> Two bodies moving together should read mostly ZERO relative movement, with the occasional step;
+> uniform motion means they are never in agreement, which is the opposite of the goal.
+
+Three rules came out of the same hunt, each of which cost an iteration:
+
+- **Measure the engine's own quantum before matching it.** A ghost moving 1px a frame was built to fix
+  a stutter and was *smoother than the game*: the background scroll moves 0, 2 or 4 pixels and never
+  1, and the player's sprite does not move at all — the world scrolls past it. 1:1 fails from the
+  smooth side as well as the jerky side. What looks like a lossy reading of a finer value (`(8 -
+  STEP_DURATION) * 2`, always even) may simply *be* the value.
+- **Quantise the position, not the time.** Timing quantisation needs a phase, a phase has to be
+  guessed, and a wrong guess is anti-phase. Rounding the position onto the engine's grid needs no
+  phase at all and cannot oscillate, because a monotone input stays monotone.
+- **A phase must be released on a real stop, not on a momentary catch-up.** Latched at the start of
+  each burst and cleared the instant the model was up to date, the phase re-rolled many times inside
+  a long walk and once inside a short one — which presents as *"1 tile looks perfect... 4-5+ tiles
+  starts to look really jittery"*. **A fault whose severity grows with the length of the action is
+  something that REPEATS**, not a constant offset and not a rounding error; count the repeats.
+
+### Two instruments this needed, both cheap
+
+- **Split a computed position into its terms and histogram each.** The painted position is the
+  ghost's own motion plus a player reference. Both axes ran identical code and only the vertical was
+  wrong, so the difference had to be in the values — and the split said in one line that the ghost
+  moved 0 or 1px while the reference moved 0 or 2px and never 1. A histogram of the finished
+  position can never say which half carried the error.
+- **Print the RHYTHM, not just the magnitudes — both bodies on one line.** Frames between successive
+  moves, for the ghost and for the player: `player 2:91 | ghost 1:8 2:73 3:11`. Every positional
+  instrument read clean at that point; the ghost was landing on the right pixels at the wrong times.
+  The player's own figure has to be on the line beside it, because the engine is irregular too and
+  the target is to match *its* irregularity, not to be metronomic.

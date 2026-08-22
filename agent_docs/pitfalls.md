@@ -4199,3 +4199,48 @@ lied in one session"). The short forms, because each changed a decision:
   sent. The driving probe pauses at corners, so a stationary second had been sampled — **and a
   correct change was reverted on that reading.** Report unchanged samples beside changed ones:
   "nothing moved" and "nothing was sampled" must not print the same.
+
+## Crystal: the drawn ghost stutters at shipped settings but not at `-interp=0ms` — 2026-08-23
+
+**Symptom.** *"the drawn ghost still looks a bit stuttery/jittery while moving around"*, at the
+shipped 250ms interpolation. Invisible on the dev rig, which runs `-interp=0ms`.
+
+**Why the dev rig could never show it.** At `-interp=0ms` the ghost replays the player's own past
+positions, which are integers the engine itself produced. At 250ms the core INTERPOLATES, and an
+interpolated position is fractional. Any defect that only appears once positions stop being
+engine-legal is invisible on a rig that never interpolates. **A dev rig that removes a variable
+cannot test that variable** — Crystal now has `run-core-crystal-shipped.bat` for exactly this.
+
+**Diagnosis, in the order the suspects fell.**
+
+1. *The two clocks beat against each other.* Refuted: 660 of 660 rendered frames received exactly
+   one message, and `receive()` drains its whole buffer per frame so a 0 or a 2 would have shown.
+2. *The aged player reference wobbles.* Refuted from the code: `playerHistory.age` is a constant.
+3. *The interpolated position is fractional.* Confirmed: mean 0.970 px/frame — the right speed —
+   but only 65 of 198 moving frames advanced a whole pixel, against 58 at 0.75 and 52 at 1.25.
+
+**Fix, which took three attempts, each corrected by a measurement rather than a guess.**
+
+| attempt | what it did | why it was wrong |
+|---|---|---|
+| 1px per frame | walked the ghost a pixel a frame | **smoother than the game** — the scroll moves 0/2/4px and never 1 |
+| 2px on a fixed parity | matched the quantum | moved on the frames the player did not: 2px of shake every frame |
+| **2px grid + phase latched per burst** | rounds the interpolated position onto the engine's grid, and takes its 2px on the engine's observed tick | — |
+
+**Three separate defects were found underneath it, all live before this session:**
+
+- **`stepProg` was computed and never read.** A dead local under a comment explaining why the stride
+  had to share the body's clock, while the stepping band, the frame picker and the counters all went
+  on reading the raw un-interpolated `extras.prog`. The comment described an intention, not the code.
+- **The stride's progress had a sign bug.** `16 + (pix - tile*16)` is correct only where that term is
+  negative — right and down. Walking **left or up** it pins at 16 for the whole step, and 16 is
+  inside the stepping band, so those directions held one image instead of running a cycle.
+- **The engine's tick parity is stable within a bout of walking and differs BETWEEN bouts** (measured
+  odd 95 / even 1 inside one bout; 64 / 32 across several). A phase latched once and kept is right
+  for a while and then exactly wrong.
+
+**The tell worth carrying: a fault whose severity grows with the length of the action is something
+that REPEATS.** *"1 tile looks good/perfect... 4-5+ tiles and it starts to look really jittery"* was
+the phase being re-rolled every time the model momentarily caught up — many times in a long walk,
+once in a short one. Constant offsets and rounding errors do not behave that way; count the repeats
+rather than looking harder at the magnitudes.

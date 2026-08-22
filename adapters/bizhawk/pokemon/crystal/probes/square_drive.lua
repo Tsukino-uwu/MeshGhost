@@ -24,9 +24,21 @@
 --   announces each lap in the Lua Console and to square_drive_<timestamp>.log beside this file.
 --   To stand still without unloading it, set the global MESHGHOST_SQUARE_PAUSE = true.
 
-local SIDE = 2 -- tiles per side; the user asked for a 2x2 square, 2026-08-21
+-- Tiles per side, and the order the sides are walked. Both are OPTIONS, because the length of the
+-- walk turned out to be the variable that matters: a fault can be invisible over one tile and
+-- obvious over five. User, 2026-08-23, on the drawn ghost -- *"moving 1 tile looks good/perfect...
+-- moving like 4-5+ tiles and it starts to look really jittery"* -- and reproducing that needed a
+-- 9-tile side, which this script could not do. Defaults are the original 2x2 up/left/down/right.
+local SIDE = tonumber(MESHGHOST_SQUARE_SIDE) or 2
 local HOLD_FRAMES = 18 -- a normal step is 8 frames of movement; this leaves room for the turn
-local DIRECTIONS = { "Up", "Left", "Down", "Right" }
+local DIRECTIONS = MESHGHOST_SQUARE_DIRS or { "Up", "Left", "Down", "Right" }
+
+-- Optionally start from a known savestate, so a long walk begins from the same tile every run
+-- rather than from wherever the last one finished -- a drift fault measured from a different
+-- starting point is measured on different ground.
+if MESHGHOST_SQUARE_LOAD_STATE then
+	pcall(function() savestate.loadslot(tonumber(MESHGHOST_SQUARE_LOAD_STATE)) end)
+end
 
 local logfile
 local function open_log()
