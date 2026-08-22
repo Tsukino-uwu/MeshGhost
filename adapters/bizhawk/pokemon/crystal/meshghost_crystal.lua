@@ -2866,6 +2866,19 @@ function drawOverflow()
 							-- sees, which no quantity derived from tile+progress can promise.
 							facingFrames.camAX = (facingFrames.camAX or 0) + dxw
 							facingFrames.camAY = (facingFrames.camAY or 0) + dyw
+							-- THE SIGN CONVENTION, measured instead of assumed -- the assumption
+							-- just sent every ghost off the screen. Each camera move is recorded
+							-- against the direction the player was actually walking; one lap of
+							-- the square yields the full map (which register, which sign, per
+							-- direction), and the camera-frame paint can then be rebuilt on data.
+							if COMPARE_TIERS then
+								local np = playerHistory[(playerHistory.n % playerHistory.size) + 1]
+								local pdir = (np and np.dir) or 9
+								facingFrames.camSign = facingFrames.camSign or {}
+								local key = string.format("%s:%+d,%+d",
+									("durl"):sub(pdir + 1, pdir + 1), dxw, dyw)
+								facingFrames.camSign[key] = (facingFrames.camSign[key] or 0) + 1
+							end
 							local cd = math.abs(dxw) + math.abs(dyw)
 							if cd > 8 then cd = 8 end
 							facingFrames.camDelta = cd
@@ -3138,24 +3151,25 @@ function drawOverflow()
 			-- absolute origin) but constant, so it is CALIBRATED from the tile formula whenever
 			-- the camera has been parked half a second -- the one state where that formula has no
 			-- seam to mis-align -- and recalibrates itself after every map change the same way.
-			-- REFUTED LIVE, 2026-08-23, within minutes: ghosts sailed off the screen the moment
-			-- the peer walked. The scroll registers' signed semantics are NOT what the subtraction
-			-- assumed (magnitudes were all the camDelta instrument ever used, so the clock logic
-			-- above is untouched by whatever the sign convention is -- but a paint is wrong the
-			-- moment ANY axis or sign disagrees). The idea may still be right; the register
-			-- semantics have to be measured against on-screen motion first, per the no-addresses-
-			-- from-memory rule, and until then the tile+progress formula stands with its known
-			-- one-frame seam per step boundary.
-			--
-			-- if o.modelX then
-			-- 	if (facingFrames.camStillFor or 0) >= 8 then
-			-- 		facingFrames.camKX = sx - o.modelX + (facingFrames.camAX or 0)
-			-- 		facingFrames.camKY = sy - o.modelY + (facingFrames.camAY or 0)
-			-- 	elseif facingFrames.camKX then
-			-- 		sx = math.floor(o.modelX - (facingFrames.camAX or 0) + facingFrames.camKX + 0.5)
-			-- 		sy = math.floor(o.modelY - (facingFrames.camAY or 0) + facingFrames.camKY + 0.5)
-			-- 	end
-			-- end
+			-- ...WITH THE REGISTER'S SIGNS MEASURED, NOT ASSUMED. The first version of this
+			-- subtracted both axes and sent every ghost off the screen within minutes -- the
+			-- assumption had only ever been checked as magnitudes. One instrumented lap gave the
+			-- convention per direction (2026-08-23, `CAMERA signs by walk dir` in the log):
+			-- walking right/left moves the X register +2/-2 -- X matches map pixels -- while
+			-- walking down/up moves the Y register -2/+2 -- Y runs INVERTED to map pixels. So the
+			-- camera's map-space position is (+camAX, -camAY), and Y is ADDED below where X is
+			-- subtracted. K has no absolute origin, so it is calibrated from the tile formula
+			-- whenever the camera has been parked half a second -- the one state where that
+			-- formula has no seam -- which also re-calibrates it after every map change.
+			if o.modelX then
+				if (facingFrames.camStillFor or 0) >= 8 then
+					facingFrames.camKX = sx - o.modelX + (facingFrames.camAX or 0)
+					facingFrames.camKY = sy - o.modelY - (facingFrames.camAY or 0)
+				elseif facingFrames.camKX then
+					sx = math.floor(o.modelX - (facingFrames.camAX or 0) + facingFrames.camKX + 0.5)
+					sy = math.floor(o.modelY + (facingFrames.camAY or 0) + facingFrames.camKY + 0.5)
+				end
+			end
 
 			-- WHICH HALF OF THE SUM IS JUMPING. The painted position is the ghost's own motion
 			-- (`gy`) plus a PLAYER REFERENCE (`oamY - ppy`), and after the cadence rework the
@@ -3773,6 +3787,14 @@ function drawOverflow()
 					end
 				end
 				logFile("  CAMERA per-frame deltas: " .. table.concat(cds, " "))
+				if facingFrames.camSign then
+					local ss = {}
+					for k, v in pairs(facingFrames.camSign) do
+						ss[#ss + 1] = string.format("%s:%d", k, v)
+					end
+					table.sort(ss)
+					logFile("  CAMERA signs by walk dir: " .. table.concat(ss, " "))
+				end
 			end
 			-- ONE PARITY SHOULD DOMINATE. If the engine's movement tick were not tied to frame
 			-- parity at all this would read roughly 50/50, and locking the ghost to it would be
