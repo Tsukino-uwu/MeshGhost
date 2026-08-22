@@ -743,14 +743,27 @@ confirmed by the user watching a loopback session in New Bark Town, in their own
    `0 on a walk frame` throughout. A painted ghost may therefore be facing correctly and not
    animating. Not a regression — it was never confirmed working — but it is the next thing to look
    at, and `MESHGHOST_CRYSTAL_FACING_TRACE` reports what gets captured.
-2. **The transition hold's 30 frames are still spent AFTER the world is ready, not during the
-   crossing.** Measured with `probes/paintgate_probe.lua`, 14 crossings, zero variance: the tier
-   comes back **5 frames late going in and 2 coming out** if the hold is ticked during the
-   crossing, against ~30 either way as it currently ships. That change was built and REVERTED the
-   same evening: it paints ~25 frames of the arrival that were previously blank, and the user
-   judged the result worse. The window it exposes has never been examined.
-3. **A crossing itself blanks the tier for 33 frames going in and 37 coming out**, which no change
-   that evening touched and which dominates the delay the user calls "a bit slow".
+2. **The transition hold now spends its 30 frames DURING the crossing — user-confirmed
+   2026-08-22**, *"think it looks pretty good"*. Measured across 32 driven crossings, zero
+   variance: the tier returns **5 frames late going in, 2 coming out**, against ~30 either way
+   before. **A CORRECTION IS RECORDED HERE DELIBERATELY**: this change was reverted earlier the
+   same evening as "judged worse", and that was a misattribution. It had shipped alongside a first
+   attempt at the stale-reference fix which CLEARED the player-history ring, and the wiggle
+   belonged to the clearing. Tested with the readiness gate in its place, the user's report was
+   *"no wiggle"*; the regression named in that same message was the drawn tier's FACING, a
+   separate pre-existing fault. Cost: one revert and a wrong entry in this file.
+3. **The drawn ghost still appears slightly after the PLAYER does on a crossing** — the user,
+   2026-08-22: *"the drawn ghost does appear a bit slower than what the player itself does"*, and
+   *"hard to tell how it compares to the other ghost"*. Three measured components, ~8-13 frames
+   total: the hold's leftover (2-5, above), the readiness gate waiting for `age + 1` current-map
+   samples (3 by construction), and the peer's own state arriving over the wire (3-5, measured).
+   **Only the first two are ours** — a ghost represents somebody else, whose state is genuinely
+   late. Untested next step: whether the hold is needed at all now, which `paintgate_probe.lua`
+   already scores as `ready+0 = 0 late`.
+4. **Nothing has ever compared the DRAWN tier's first frame against the SPAWNED tier's** after a
+   crossing, which is the user's own question above and the thing that would say whether the
+   painted tier is actually slower or merely differently timed. Neither tier logs the frame it
+   first renders on.
 4. **`extras.act` remains untested**, unchanged from the previous session — the byte that would let
    the engine play fishing, bumping, spinning, the "!" emote and the Fly landing on a spawned
    ghost. `probes/action_watch.lua` has now shown STAND, STEP and BUMP reaching the player's own

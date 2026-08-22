@@ -1931,6 +1931,32 @@ function drawOverflow()
 	-- is the only delay anyone sees: measured at 5 frames going in and 2 coming out, against 30
 	-- and 30 before. The 30 is deliberately unchanged -- this was an ordering fault, and tuning
 	-- the constant would have hidden it rather than fixed it.
+	-- TICK THE HOLD BEFORE ANY EARLY RETURN, so it overlaps the crossing instead of following it.
+	--
+	-- MEASURED, not reasoned (probes/paintgate_probe.lua, 14 crossings, zero variance): the hold is
+	-- armed when the map id changes, which happens PART-WAY through a crossing while the world is
+	-- still being rebuilt -- and the counter used to be decremented BELOW the inPlay() check, which
+	-- is false for that whole stretch (33 frames going in, 37 coming out). So none of the 30 frames
+	-- were spent during the crossing: the two windows ran end to end and the tier stayed blank for
+	-- ~65 frames to serve a 30-frame hold. The user, 2026-08-22: *"the drawn ghost takes a while to
+	-- become visible again"*.
+	--
+	-- Ticking it here spends the hold DURING the rebuild, so what is left when the game is ready is
+	-- the only delay anyone sees: 5 frames going in and 2 coming out. The 30 is deliberately
+	-- unchanged -- this was an ordering fault, and tuning the constant would have hidden it.
+	--
+	-- HISTORY NOTE, because this was reverted once and the revert was wrong. It shipped alongside a
+	-- FIRST attempt at the stale-reference fix that CLEARED the player history ring, and that
+	-- combination wiggled; the wiggle belonged to the clearing (an empty ring makes the aged lookup
+	-- fall through to this frame's own sample -- a wrong reference, not a missing one). With the
+	-- readiness gate below in its place, the user tested this and reported *"no wiggle"*. The
+	-- regression named in that same message was the drawn tier's FACING, which is a separate,
+	-- pre-existing fault that re-rolls on every reload. Attributing it here cost a revert.
+	local settling = playerHistory.settle > 0
+	if settling then
+		playerHistory.settle = playerHistory.settle - 1
+	end
+
 	if (not DRAW_OVERFLOW and not COMPARE_TIERS) or not inPlay() then
 		stopDrawing()
 		return
@@ -1949,8 +1975,7 @@ function drawOverflow()
 	-- that event, so the tier holds off for a moment afterwards. This is not a deny-list of screens
 	-- -- it is the same "the world is being rebuilt" fact the spawned tier already acts on, applied
 	-- to the tier that paints outside the engine and therefore cannot be hidden by it.
-	if playerHistory.settle > 0 then
-		playerHistory.settle = playerHistory.settle - 1
+	if settling then
 		stopDrawing()
 		return
 	end
