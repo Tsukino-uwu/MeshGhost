@@ -2784,22 +2784,28 @@ function drawOverflow()
 							facingFrames.phaseFollow = (facingFrames.phaseFollow or 0) + 1
 						end
 					end
-					-- CATCH UP AT THE GAME'S OWN RUN PACE. The walk moves 2px every other frame --
-					-- exactly the peer's speed -- so ground lost to a stall was lost forever: no
-					-- beat existed to win it back on, and every stall added 2px to a lag that only
-					-- a pause could clear. Over a long walk that accumulates, which is the growing
-					-- half of "after moving far". More than 4px behind (one whole beat), the model
-					-- moves every frame instead: 2px per frame is the engine's RUNNING speed, so
-					-- the catch-up is still a gait the game has, not a glide.
+					-- CATCH UP ON THE BEAT, WITH A BIGGER HOP -- not off the beat with extra ones.
+					--
+					-- The first version of this repaid lag by moving on the OFF frames once more
+					-- than 4px behind. Two faults, and the user felt both as *"still stuttering /
+					-- falling behind slightly at some parts"*: the threshold let 4px of lag stand
+					-- permanently, and every repayment move was off-rhythm -- one visible frame of
+					-- relative motion against the camera per repaid beat, 48 of them in one run.
+					-- The cure was dribbling out as its own stutter.
+					--
+					-- The engine already has a faster gait on the same beat: the bike moves 4px per
+					-- tick. So a model more than one beat behind takes a 4px hop ON its beat frame
+					-- -- rhythm intact, lag repaid at 2px per beat, and nothing ever moves on a
+					-- frame the engine would not have moved on.
 					local deficit = math.abs(qx - o.modelX) + math.abs(qy - o.modelY)
-					local due = (emu.framecount() % 2) == o.modelPhase
-					if deficit > 4 then
-						due = true
+					local hop = 2
+					if deficit > 2 then
+						hop = 4
 						if COMPARE_TIERS then
 							facingFrames.catchupFrames = (facingFrames.catchupFrames or 0) + 1
 						end
 					end
-					if due then
+					if (emu.framecount() % 2) == o.modelPhase then
 						local dx, dy = qx - o.modelX, qy - o.modelY
 						-- A WHOLE TILE BEHIND IS NOT A LATE STEP. Anything that far out is a
 						-- teleport, a respawn or a map change, and walking it off in 2px hops would
@@ -2810,8 +2816,8 @@ function drawOverflow()
 								facingFrames.modelSnaps = (facingFrames.modelSnaps or 0) + 1
 							end
 						else
-							local sx2 = (dx > 2 and 2) or (dx < -2 and -2) or dx
-							local sy2 = (dy > 2 and 2) or (dy < -2 and -2) or dy
+							local sx2 = (dx > hop and hop) or (dx < -hop and -hop) or dx
+							local sy2 = (dy > hop and hop) or (dy < -hop and -hop) or dy
 							-- FORWARD ONLY. A walking character never moves backwards mid-step, and
 							-- until now this model could, twice a second, invisibly.
 							--
