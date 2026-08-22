@@ -2511,3 +2511,25 @@ misleads, because it says the thing is fixed.
 
 **Method:** for each rule, grep for every reader of the underlying data rather than for the rule's
 own wording — the sibling path never mentions the rule, which is exactly why it was missed.
+
+## Pikmin 1 and 2 (GameCube) — a possible next adapter
+
+**Unscheduled, unresearched.** Raised by the user 2026-08-22 as something to look at later:
+`https://github.com/projectPiki/pikmin`, a matching decompilation of GameCube Pikmin, and
+`https://github.com/projectPiki/pikmin2`, the same group's work-in-progress decomp of Pikmin 2. Both are the same access model and the same licensing
+question; how complete each one is has not been checked, and "WIP" means the second may not answer
+the questions below yet.
+
+**Before anything is read from either, they go through `licensing.md`** — neither is on that list, so
+by CLAUDE.md's rule neither may be used until its license has been checked and recorded. A decomp is
+the highest-risk shape of reference we have: it is source, so the facts/expression line matters more
+than usual. Facts learned from one (a structure's field order, what a function does) may be used with
+a citation; their code may never be committed, adapted, or paraphrased into ours, whatever the license
+says — see `access-models.md`.
+
+**What makes it interesting anyway:** a matching decomp is the strongest access model in
+`access-models.md` — the questions Emerald is still chipping at with probes (what spawns an
+avatar, what its state looks like, what a map transition does to it) are answerable by reading. It
+would also be the project's first Dolphin/GameCube target, so the adapter host is an open question
+of its own: BizHawk has a Dolphin core, and Dolphin itself has a Lua/scripting story — neither has
+been looked at, and which one can meet `_template/README.md`'s bar is the first thing to establish.
