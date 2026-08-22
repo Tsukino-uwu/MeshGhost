@@ -183,11 +183,48 @@ func ValidateState(st State) bool {
 	// otherwise be a ghost whose area_id silently stops matching its peer's
 	// and which therefore never renders, with nothing reporting why.
 	if !ValidOpaqueString(st.AreaID, MaxAreaIDLen) || !ValidOpaqueString(st.Anim, MaxAnimLen) ||
-		len(st.Orientation) > MaxOrientationBytes {
+		JSONWireLen(st.Orientation) > MaxOrientationBytes {
 		return false
 	}
 	// A syntactically valid JSON number like 1e308 survives []float64
 	// unmarshaling and becomes +Inf the moment an adapter narrows it to
 	// float32 — see IsValidPosition's doc comment.
 	return IsValidPosition(st.Position)
+}
+
+// JSONWireLen reports how many bytes a raw JSON value occupies once it is
+// actually written to the wire, which is NOT len(raw): encoding/json escapes
+// '<', '>' and '&' as \u003c/\u003e/\u0026 (six bytes each), and U+2028/U+2029
+// as \u2028/\u2029, wherever they appear. A blob of 128 '&' characters is 130
+// bytes in hand and 774 on the wire.
+//
+// Every blob/payload bound in this package exists to keep a message inside a
+// transport's budget — MaxWorldBlobBytes is derived from udpconn's 1200-byte
+// datagram — so measuring the value before that expansion under-counts by up
+// to six times, in the one direction that matters. It also breaks validation
+// itself: the sender's check passes on the raw bytes and the receiver's fails
+// on the escaped ones, so a write is rejected on the far side of the relay
+// with nothing able to explain why. Found by
+// FuzzValidateWorldIsStableAcrossTheWire in CI, 2026-08-22.
+//
+// This is an upper bound, not the exact encoded length: marshaling also
+// compacts insignificant whitespace out, which this deliberately does not
+// credit. Erring high is the safe direction, and it keeps the measure stable
+// across the wire — an already-escaped, already-compacted value measures no
+// larger than it did before it was sent, so a value that passed here cannot
+// fail the same check after a round trip.
+func JSONWireLen(raw []byte) int {
+	n := len(raw)
+	for i := 0; i < len(raw); i++ {
+		switch raw[i] {
+		case '<', '>', '&':
+			n += 5
+		case 0xe2:
+			// U+2028 (e2 80 a8) and U+2029 (e2 80 a9): three bytes out, six in.
+			if i+2 < len(raw) && raw[i+1] == 0x80 && (raw[i+2] == 0xa8 || raw[i+2] == 0xa9) {
+				n += 3
+			}
+		}
+	}
+	return n
 }

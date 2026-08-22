@@ -527,7 +527,7 @@ func ValidateEscrow(e Escrow) bool {
 	if !ValidOpaqueString(e.With, MaxHelloFieldLenForID) {
 		return false
 	}
-	return len(e.Blob) <= MaxEscrowBlobBytes
+	return JSONWireLen(e.Blob) <= MaxEscrowBlobBytes
 }
 
 // MaxHelloFieldLenForID bounds a player_id appearing in a client-supplied
@@ -548,7 +548,7 @@ func ValidateEvent(e Event) bool {
 	if !ValidOpaqueString(e.CorrID, MaxCorrIDLen) {
 		return false
 	}
-	return len(e.Payload) <= MaxEventBytes
+	return JSONWireLen(e.Payload) <= MaxEventBytes
 }
 
 // ---------------------------------------------------------------------------
@@ -745,7 +745,7 @@ func ValidateWorld(w World) bool {
 	if w.Key == "" || !ValidOpaqueString(w.Key, MaxWorldKeyLen) {
 		return false
 	}
-	return len(w.Blob) <= MaxWorldBlobBytes
+	return JSONWireLen(w.Blob) <= MaxWorldBlobBytes
 }
 
 // ValidateWorldState reports whether a relay's world report is within bounds.
@@ -766,7 +766,7 @@ func ValidateWorldState(st WorldState) bool {
 		if e.Key == "" || !ValidOpaqueString(e.Key, MaxWorldKeyLen) {
 			return false
 		}
-		if len(e.Blob) > MaxWorldBlobBytes {
+		if JSONWireLen(e.Blob) > MaxWorldBlobBytes {
 			return false
 		}
 	}

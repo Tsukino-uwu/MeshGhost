@@ -206,3 +206,57 @@ func TestValidateWorldStateBounds(t *testing.T) {
 		t.Fatal("more entries than a room may hold were accepted")
 	}
 }
+
+// TestJSONWireLenMatchesWhatMarshalWrites pins the helper to the encoder it
+// models: whatever encoding/json actually emits for a raw value must never be
+// longer than JSONWireLen said it would be. A bound that under-counts is the
+// bug this whole helper exists to fix, so under-counting is what this checks —
+// over-counting (the whitespace it declines to credit) is allowed.
+func TestJSONWireLenMatchesWhatMarshalWrites(t *testing.T) {
+	for _, raw := range []string{
+		`1`, `null`, `{"gen":1}`, `"plain"`, `{ "a" : [1, 2] }`,
+		`"&"`, `"<a>&<b>"`, `{"url":"a?x=1&y=2"}`,
+		`"` + strings.Repeat("&", 128) + `"`,
+		"\"  \"",
+	} {
+		enc, err := json.Marshal(json.RawMessage(raw))
+		if err != nil {
+			t.Fatalf("marshal %q: %v", raw, err)
+		}
+		if got := JSONWireLen([]byte(raw)); got < len(enc) {
+			t.Errorf("JSONWireLen(%q) = %d, but the encoder wrote %d bytes -- "+
+				"a bound measured with this would pass here and fail on the wire", raw, got, len(enc))
+		}
+	}
+}
+
+// TestBlobBoundsCountEscapedBytes is the regression for the input CI's
+// FuzzValidateWorldIsStableAcrossTheWire found on 2026-08-22: a blob that fits
+// in hand and does not fit once encoding/json has escaped every '&' in it.
+// Accepting it means the sender validates, the relay forwards, and the far
+// side rejects a write nobody can explain -- and, on UDP, a datagram built to
+// a 1200-byte budget that is six times over it.
+func TestBlobBoundsCountEscapedBytes(t *testing.T) {
+	// Raw length comfortably inside the limit; escaped length past it.
+	blob := json.RawMessage(`"` + strings.Repeat("&", MaxWorldBlobBytes/3) + `"`)
+	if len(blob) > MaxWorldBlobBytes {
+		t.Fatalf("test blob is %d raw bytes, already over the limit -- it proves nothing", len(blob))
+	}
+	if ValidateWorld(World{Op: WorldSet, Authority: "sim", Key: "e0", Blob: blob}) {
+		t.Error("a world blob that only fits before escaping was accepted")
+	}
+	if ValidateWorldState(WorldState{Authority: "sim", Holder: "p1",
+		Entries: []WorldEntry{{Key: "e0", Blob: blob}}}) {
+		t.Error("a world-state blob that only fits before escaping was accepted")
+	}
+
+	ev := json.RawMessage(`"` + strings.Repeat("&", MaxEventBytes/3) + `"`)
+	if ValidateEvent(Event{Payload: ev}) {
+		t.Error("an event payload that only fits before escaping was accepted")
+	}
+
+	esc := json.RawMessage(`"` + strings.Repeat("&", MaxEscrowBlobBytes/3) + `"`)
+	if ValidateEscrow(Escrow{Op: EscrowDeposit, ID: "trade-1", Blob: esc}) {
+		t.Error("an escrow blob that only fits before escaping was accepted")
+	}
+}
