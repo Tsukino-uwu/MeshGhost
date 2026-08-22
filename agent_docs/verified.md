@@ -9964,3 +9964,32 @@ was confirmed above, so they stay open in `unverified.md`.
 
 Also unrelated to the room policy: no adapter reads `session_policy` yet, so the relay's
 ghost-collision setting had no bearing on this run either way (`status.md`).
+
+## Crystal: appearance and collision are NOT separable at the object struct (2026-08-22)
+
+**The question**: can a painted peer be given a real object struct for collision only, parked out of
+sight, so the drawn tier supplies the picture and the engine supplies the wall?
+
+**Measured, then confirmed on screen, and the answer is no by that route.**
+
+- **Mechanically the write holds.** Writing `OBJECT_SPRITE_Y` = 160 (`OAM_YCOORD_HIDDEN`) every
+  frame stuck: something rewrote it on **1 of 480 frames**, and that one was the first frame before
+  the probe took over. So the engine does not continuously recompute screen coordinates from map
+  coordinates, which `documentation.md`'s "the two are maintained independently" had suggested.
+- **But the object stops being live.** The user, walking into its untouched map tile: *"it becomes
+  invisible when i walk close to it, and no collission"*. 160 is the engine's own off-screen value,
+  and Crystal's visible-range handling treats an object there as having left the map — so it is not
+  drawn AND not collided with. The independence of the two coordinate spaces is real for reading
+  and does not survive being used to lie to the engine.
+
+**What this rules out and what it leaves.** It rules out hiding a collision body at the STRUCT
+level. It does not rule out hiding it one layer down, in the sprite buffer, where the struct stays
+live and only what reaches the screen changes — the layer the hardware tier already writes to. A
+first attempt at that found only ~1.5 of the 4 entries a character occupies, because identifying
+which buffer entries belong to one character is the same identity problem the facing learner had
+(our own ghost wears the player's sprite and tile base). Recorded as a lead in `ideas.md`, not as a
+plan.
+
+**The standing constraint either way**: a peer on the drawn tier because NO object struct is free
+cannot be given a collision body at all — there is nothing to give. That case is the reason the
+drawn tier exists, and no amount of hiding changes it.
