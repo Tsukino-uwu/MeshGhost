@@ -595,7 +595,7 @@ danger and wrong about the number**, which is the most dangerous shape a guard c
 
 ### The instruments, which cost more than the bugs
 
-Five separate false readings, each of which changed a decision; two caused a revert or a change
+Six separate false readings, each of which changed a decision; two caused a revert or a change
 shipped on a wrong justification. Written up in full in `adapters/_template/probes.md`. The one that
 generalises:
 
@@ -623,8 +623,40 @@ tiny bit when moving now"*.
 
 1. **The drawn tier at SHIPPED settings.** The wire is now smooth (521 movements, 517 at 1px) and
    the stride derives from it, but the last on-screen judgement was ambiguous — *"legs look wrong"*
-   or *"no change"* — and the cadence trace disagrees with the cumulative counter. **Fix that
-   contradiction before judging the stride again.**
+   or *"no change"*. The contradiction that was blocking this is **settled, 2026-08-23: there was
+   none.** See below; the stride can be judged on the next live run.
+
+### The cadence contradiction was an instrument, not a finding — 2026-08-23
+
+The blocker was *"the trace says the ghost never steps, the counter says 214 of 507 walking
+frames"*. Re-read against the log the numbers came from
+(`logs/meshghost_crystal_20260822_221839_11136.log`), **the two agree and always did**:
+
+- The **cadence trace** does show the ghost stepping — `...llllLLLLLLLLLllllllllllLLLl...` against the
+  player's `...lllLLLLLLLLllllllllLLLL...`, uppercase bursts in step with the player's, for every one
+  of the four directions. It was never the instrument reading zero.
+- The zero came from a **third** readout nobody counted as one: `nWalking` in the `tiers:` summary
+  line — a per-frame local, printed once a second. It read `0 on a stepping frame` in **439 of 441**
+  samples. That is the expected result, not a fault: the ghost is walking for ~1% of a run's frames
+  and steps on ~45% of those, so a single frame sampled once a second should find it about twice in
+  441 tries. It found two.
+
+Fixed in the adapter rather than left as a caveat, because a zero that means "I looked once" cannot
+be told from a zero that means "it never happened":
+
+- The stepping count is now **cumulative** and taken **at the latch that selects the stepping view** —
+  the value the renderer actually acts on. The old counters tested a step-progress *band*, which is
+  the renderer's input: the latch, the turn rearm and `moving` all sit between that band and the
+  screen, so the band can read a healthy 45% while nothing steps.
+- Both are logged, on adjacent lines, each with the total it was counted out of. **The gap between
+  them is the diagnosis** — it separates "the peer sent nothing to step on" from "the renderer
+  refused", which look identical on screen. The refusals are broken out as mid-step / idle / held by
+  a turn.
+- The per-frame `nWalking` is deleted, so no once-a-second sample of a two-frame cadence remains in
+  the log to be misread a second time.
+
+Compiles (`dev-scripts/bizhawk-syntax-check.lua`, 17/17); **not yet run in a live session** — the new
+lines are unread until the next one. Entries 5 and 6 in `adapters/_template/probes.md`.
 2. **The spawned tier trails ~4.3 frames** starting each step. 1.5 frames is the wire, the rest the
    adapter's pipeline. Structural for an engine-driven ghost, which cannot be told "you are part-way
    through a step".

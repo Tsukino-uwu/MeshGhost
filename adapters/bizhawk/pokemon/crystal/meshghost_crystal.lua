@@ -2221,7 +2221,9 @@ function drawOverflow()
 	-- at all. `nNoFacing` is the one that matters: it counts peers rendered from the sprite's
 	-- raw first frame because nothing has been learned for that facing yet, which is the state
 	-- that looks exactly like broken animation.
-	local nWalking, nNoFacing = 0, 0
+	-- `nWalking` was here, per-frame, and is gone: a per-frame count printed once a second is a
+	-- sample of the log's own timing. The stepping count is cumulative, on `facingFrames`.
+	local nNoFacing = 0
 	local UI_DEBUG = UI_DEBUG_ENV or _G.MESHGHOST_CRYSTAL_UI_DEBUG == true
 	local paintedSamples = {}
 	local offSample = nil
@@ -2624,13 +2626,15 @@ function drawOverflow()
 					nHidden = nHidden + 1
 				else
 					-- COUNT WHAT THE QUESTION ACTUALLY IS: peers rendered on a STEPPING frame.
-					-- This used to count peers that had merely CHANGED TILE recently, which is true
-					-- of a peer whose animation is completely broken -- and it read a healthy-looking
-					-- non-zero all through the session where no stepping frame was ever drawn at all
-					-- (`phase9.md`). Sharing the renderer's own rule means the two cannot disagree.
-					if o.walking and (peerProg < 6 or peerProg > 12) then
-						nWalking = nWalking + 1
-					end
+					-- The count itself is taken below, where `stepLatch` is decided, because that
+					-- latch IS the stepping view being chosen. Counting anything earlier counts an
+					-- INPUT: `moving`, the turn rearm and the latch all sit between the prog band
+					-- and the image on screen, so the band can read 45% while the ghost never once
+					-- steps -- and a band that agrees with the renderer today diverges the next
+					-- time either side is touched, which is how this counter was already wrong once
+					-- (it used to count peers that had merely CHANGED TILE recently, healthy-looking
+					-- all through a session where no stepping frame was drawn at all; `phase9.md`).
+					--
 					-- CUMULATIVE, because the line below is printed once a second and a frame
 					-- count sampled once a second cannot see a cadence that changes every two
 					-- frames. The instantaneous version read a flat zero for 117 consecutive
@@ -2709,6 +2713,37 @@ function drawOverflow()
 						end
 					else
 						o.stepLatch = nil
+					end
+					-- HERE, and cumulatively, with the total it was counted out of beside it.
+					--
+					-- The instantaneous version of this count -- a per-frame local printed once a
+					-- second -- reported "0 on a stepping frame" in 439 of 441 samples on
+					-- 2026-08-22, while the cumulative band counter reported 107 of 238 walking
+					-- frames in the same run, and the two were read as a contradiction that had to
+					-- be fixed before the stride could be judged. They never disagreed. A ghost is
+					-- walking for about 1% of the frames in a run, so a single frame sampled once a
+					-- second catches a stepping ghost about twice in 441 tries: that instrument was
+					-- reporting when the log fires, not what the ghost does. The same mistake is
+					-- written up two comments above, about the counter it was replaced with, and it
+					-- was made again anyway in the line right beside it.
+					--
+					-- A DENOMINATOR IS PART OF THE READING. `nStepDrawn` alone cannot be told apart
+					-- from a probe that looked twice; `nDrawnFrames` says how much was looked at.
+					facingFrames.nDrawnFrames = (facingFrames.nDrawnFrames or 0) + 1
+					if o.stepLatch then
+						facingFrames.nStepDrawn = (facingFrames.nStepDrawn or 0) + 1
+					end
+					-- AND WHY A STEPPING FRAME WAS REFUSED, which is the only thing that separates
+					-- "the peer sent nothing to step on" from "the renderer suppressed it". Both
+					-- draw a standing ghost and neither can be told from the other on screen.
+					if not o.stepLatch then
+						if o.rearm then
+							facingFrames.nNoStepRearm = (facingFrames.nNoStepRearm or 0) + 1
+						elseif not moving then
+							facingFrames.nNoStepIdle = (facingFrames.nNoStepIdle or 0) + 1
+						else
+							facingFrames.nNoStepMidStep = (facingFrames.nNoStepMidStep or 0) + 1
+						end
 					end
 					-- THE INVARIANT, SIDE BY SIDE. "A bit fast" is a claim about CADENCE, and a
 					-- cadence cannot be read off counts or off a once-a-second sample. So each
@@ -2908,9 +2943,9 @@ function drawOverflow()
 		logFile(string.format("tiers: %d on hardware. "
 			.. "drawn tier: %d peers waiting, %d drawn (%d from the cartridge), "
 			.. "%d no sprite tiles, %d off screen, %d hidden by UI, %d spawned as real objects; "
-			.. "%d on a stepping frame, %d with no facing yet",
+			.. "stepping view drawn on %d of %d peer-frames so far, %d with no facing yet",
 			nOam, nWanted, nDrawn, nFromRom, nNoTile, nOffScreen, nHidden, ghostCount(),
-			nWalking, nNoFacing))
+			facingFrames.nStepDrawn or 0, facingFrames.nDrawnFrames or 0, nNoFacing))
 		-- EVERY prog value a drawn peer was rendered at, cumulatively. Which values arrive is the
 		-- whole question behind "the stride never runs": the frame is a function of prog, so a prog
 		-- that never leaves the middle of a step can only ever draw the standing view.
@@ -2955,9 +2990,23 @@ function drawOverflow()
 					seen[#seen + 1] = string.format("%d:%d", v, facingFrames.progSeen[v])
 				end
 			end
-			logFile(string.format("  peer step progress, all frames: %d walking, %d of them on a "
-				.. "stepping frame | prog counts %s", facingFrames.nWalkFrames or 0,
+			logFile(string.format("  peer step progress, all frames: %d walking, %d of them in the "
+				.. "stepping band | prog counts %s", facingFrames.nWalkFrames or 0,
 				facingFrames.nStepFrames or 0, table.concat(seen, " ")))
+		end
+		-- OUTSIDE the guard above, which only fires once a peer has walked. A run where the ghost
+		-- never stepped is exactly the run this line has to describe, and inside that guard it
+		-- would print nothing -- indistinguishable from not having looked.
+		if (facingFrames.nDrawnFrames or 0) > 0 then
+			-- THE INPUT AND THE OUTPUT ON ADJACENT LINES. The band above is what the peer sent;
+			-- the line below is what was drawn from it. A gap between them is the renderer
+			-- refusing to step, and the reasons say which of the three refusals did it -- the
+			-- distinction that "the ghost stands there" cannot make on screen.
+			logFile(string.format("  stepping view drawn on %d of %d peer-frames; not stepped: "
+				.. "%d mid-step, %d idle, %d held by a turn",
+				facingFrames.nStepDrawn or 0, facingFrames.nDrawnFrames or 0,
+				facingFrames.nNoStepMidStep or 0, facingFrames.nNoStepIdle or 0,
+				facingFrames.nNoStepRearm or 0))
 		end
 		-- Reported cumulatively, so it describes the RUN and not whichever second it fired in.
 		if facingFrames.wire and facingFrames.wire.msgs > 0 then

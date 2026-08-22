@@ -73,8 +73,8 @@ that a peer's state genuinely differs from the local player's, which loopback co
   animates and tracks 1:1; spawned tier free of drift, snap and teleport. `verified.md`.
 - **Crystal's drawn tier at the SHIPPED 250ms is the open one.** The wire is smooth now (521
   movements, 517 of them 1px) but the last on-screen read was ambiguous. `phases/phase9.md`.
-- **Crystal: the cadence trace contradicts the cumulative counter** — it shows the ghost never on
-  a stepping frame while the counter reports the engine's proportion. Fix before judging stride.
+- **Crystal: the stepping counters now count what is DRAWN, cumulatively, with a denominator** —
+  the "contradiction" was a once-a-second sample; compiles, unread live. `phases/phase9.md`.
 - **Crystal: the spawned ghost trails ~4.3 frames** starting each step; 1.5 is the wire, the rest
   the adapter's own pipeline. Structural for an engine-driven ghost. `unverified.md`.
 - **Crystal: a respawn teleports on the first tile** — the ghost is placed at a tile the peer has

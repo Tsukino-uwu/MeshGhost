@@ -1405,9 +1405,9 @@ investigation.** It only has to be a plausible explanation you cannot rule out c
 *reads* can bias a measurement, and a probe that *writes input* can author the behaviour being
 measured. Ask of any instrument: could this have produced the thing I am about to explain?
 
-## Five ways an instrument lied in one session — and how each was caught (Crystal, 2026-08-22)
+## Six ways an instrument lied in one session — and how each was caught (Crystal, 2026-08-22)
 
-One session produced five separate false readings, each of which changed a decision, and two of
+One session produced six separate false readings, each of which changed a decision, and two of
 which caused work to be reverted or shipped on a wrong justification. They are collected here rather
 than spread across the fix entries, because the shape repeats and the cost was far higher than any
 of the bugs being hunted.
@@ -1438,11 +1438,29 @@ Report the count of UNCHANGED samples beside the changed ones: "nothing moved" a
 sampled" must not look the same.
 
 **5. Two instruments disagreed and neither was checked.** A cumulative counter reported the ghost on a
-stepping frame for 214 of 507 walking frames — the engine's own proportion — while a per-frame
-cadence trace of the same thing showed it never stepping at all. That contradiction was noticed and
-work continued anyway. **When two instruments measuring one quantity disagree, stop: at least one is
-measuring a different moment than it claims, and until that is settled neither can support a
-conclusion.**
+stepping frame for 214 of 507 walking frames — the engine's own proportion — while another readout of
+the same thing showed it never stepping at all. That contradiction was noticed and work continued
+anyway. **When two instruments measuring one quantity disagree, stop: at least one is measuring a
+different moment than it claims, and until that is settled neither can support a conclusion.**
+
+> **Settled 2026-08-23, and the data never disagreed.** There were *three* readouts, not two, and the
+> one that read zero was a third: a per-frame local, printed once a second, in the tiers summary
+> line. The character-per-frame cadence trace was fine all along — its uppercase bursts line up with
+> the player's in the same log. A ghost walks about 1% of the frames in a run, so one frame sampled
+> per second finds a stepping ghost roughly **twice in 441 samples**, which is what it found: 439
+> zeros read as "never". **Being suspicious of the pair while a third instrument was the liar cost a
+> whole session's judgement of the stride** — and the comment two lines above that counter already
+> described this exact mistake, about the counter it had replaced.
+
+**6. The counter measured the renderer's INPUT and called it the output.** The same stepping counters
+tested a step-progress band — the value that *feeds* the frame choice — while three separate gates
+(a per-step latch, a turn suppression, and "is this peer moving") sit between that band and the image
+on screen. So the band can read a healthy 45% while the ghost never once steps, and the two readings
+are not comparable even when both are right. **Count the variable the renderer actually acts on**, at
+the point it acts on it — here the latch that selects the stepping view — and keep the input count
+beside it on the next line, because the *gap* between the two is the only thing that separates "the
+peer sent nothing to step on" from "the renderer refused to draw it". Both look like a ghost standing
+still. Fixed the same day by counting at the latch and logging the three refusal reasons separately.
 
 **The common thread**, and the rule worth carrying: **every one of these was cheap to catch and
 expensive to miss.** Each would have been exposed by printing one extra number — the discarded
