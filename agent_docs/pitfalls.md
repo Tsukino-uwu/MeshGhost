@@ -3888,3 +3888,72 @@ a step). **The camera appears on neither side because it moved the player and th
 **The transferable rule: when a position is wrong, measure what that position already does per frame
 before adding anything to it.** A per-frame trace of one peer answered in one line what three
 attempts could not.
+
+## Crystal: our own ghost's OAM entries are indistinguishable from the player's (2026-08-22)
+
+**Symptom.** The drawn tier's ghost swapped between two facings while the peer walked in one
+direction — *"going right has the 'facing down/right constantly' issue"*. It appeared to MOVE
+between directions across reloads (left one session, right the next, up after that), which read as
+a regression each time, and it degraded within a session: *"it was working at first, but then it
+started flipping/swapping in all 4 directions"*.
+
+**Six attempts, four of them wrong, and every wrong one was reasoned from the code.** The fault
+looked like a transition bug, then a one-frame skew, then a cache-locking rule. It was none of
+those on its own. What ended it was a ten-line trace logging what actually landed in the cache.
+
+**Cause, in two independent layers — which is why every single-variable attempt failed.**
+
+1. **`learnFacingFromPlayer` read OAM entries 0-3 on faith.** Those are assumed to be the local
+   player's four sprites, here and in the tier's own anchor calibration, and the assumption had
+   never been checked. The engine lays OAM out in its own order, so another character can occupy
+   them. Offsets are computed against the PLAYER's tile base, so a frame captured from a foreign
+   sprite decoded to ~128 instead of 0-11.
+2. **The range check that fixed layer 1 could not see the case that mattered.** It only rejects a
+   sprite with a DIFFERENT tile base — and **our own spawned ghost wears the local player's sprite
+   id and tile base**, because that is the fallback when a peer's own sprite is not resident. Its
+   entries decode to perfectly in-range offsets: the player's tiles, arranged for whichever way the
+   GHOST is facing. Nothing about such a frame is detectably foreign. This is why the contamination
+   arrived ~2,000 frames in — it needs the ghost up and facing elsewhere — and why the tier looked
+   correct at first and then degraded.
+
+**Fix: a rule about the DESTINATION, not the source.** Whatever the entries belong to, art that
+disagrees with what a facing must wear is not that facing's art. A 12-tile walking sprite is three
+views of four tiles — down 0-3, up 4-7, left/right sharing 8-11 and told apart by the hardware flip
+— so the view is DERIVED from the facing and any frame from another view is refused.
+
+**Two wrong versions of that rule, both instructive:**
+
+- **Learning the view per facing from its first sample.** One contaminated first sample locks a
+  facing to the wrong view, and the check then ENFORCES it, rejecting every correct frame after.
+  `up` locked to the down view and the ghost faced down whichever way the peer walked. **A rule
+  that protects whatever arrived first is only as good as that arrival.**
+- **Checking the view but not the flip.** Left and right share one view, so the group test passes a
+  right-facing frame into left's cache and the two alternate. Up/down were unaffected, which is why
+  they went clean an attempt earlier — their views are separate groups. The flip constraint applies
+  to the side view ONLY: up and down animate BY mirroring, so both flips are legitimate there and
+  requiring one would reject half the walk cycle.
+
+**The methodology lessons, which cost more than the fix.**
+
+- **A cache that keeps the first N samples and never clears turns any single bad sample into a
+  permanent fault** — and re-rolls it on every reload, so it looks like a different bug each
+  session and like a regression after every unrelated change. The tell is a fault that MOVES
+  between cases without the responsible code changing.
+- **Build the instrument before the first attempt, not after the fourth.** Four fixes were shipped
+  on inference; the trace took ten minutes and answered in eight lines. Every real step —the
+  sprite's view layout, the out-of-range entries, the late-arriving contamination — was invisible
+  to reading the code, and two of them contradicted a theory that had already been shipped.
+- **Log the INVARIANT, not just the values.** Printing each accepted frame's view beside the one
+  its facing requires turned the log into a pass/fail the agent could read, instead of a symptom
+  the user had to characterise for the fifth time.
+- **A revert can be wrong.** The frame-pairing fix was reverted for "making it worse" when it was
+  half of a two-part fix whose other half did not exist yet. After several single-variable
+  negatives, `CLAUDE.md`'s rule is to try the UNION — that rule applied here and was not followed
+  until the trace forced it.
+- **"It worked at first and then degraded" is a lifetime statement**, and it points at accumulated
+  state rather than at logic. It was the single most useful sentence the user said.
+
+**Generalises to any adapter with a second renderer.** A ghost built to look like the local player
+is, by construction, indistinguishable from them in every buffer that records appearance rather
+than identity. Anything learned by observing "the player's" sprite data has to establish WHICH
+character it is reading, or be validated against something only the real player can satisfy.

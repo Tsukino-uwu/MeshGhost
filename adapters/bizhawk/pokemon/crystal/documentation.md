@@ -210,3 +210,26 @@ alike. A character standing *outside* the panel's region keeps drawing normally.
 Confirmed on screen 2026-08-19 with nine spawned ghosts and the pause menu open. Recorded here
 because it is a property of the game: hardware priority does this for anything the engine itself
 is drawing, with nothing asked of whoever put the character in the array.
+
+## How a walking sprite's 12 tiles become four facings
+
+A walking overworld sprite is **12 tiles**, and those are **three views of four tiles**, not four:
+
+| View | Tiles | Used for |
+|---|---|---|
+| down | 0-3 | facing down |
+| up | 4-7 | facing up |
+| side | 8-11 | facing **both** left and right |
+
+**There is no left art and no right art.** One side view is drawn as-is for one direction and
+mirrored by the hardware for the other — measured on the player's own sprite, every clean sample
+agreeing: left takes it unflipped, right takes it mirrored.
+
+**The walk cycle is also produced by mirroring**, which is why the flip carries two unrelated
+meanings depending on the view. Facing down or up, both flips are legitimate and alternating
+between them IS the animation. Facing sideways, the flip is what says which way the character is
+looking, so alternating there is not animation — it is the character turning round.
+
+Measured 2026-08-22 by logging what the engine actually drew (`MESHGHOST_CRYSTAL_FACING_TRACE`),
+against the player walking each direction. Why it matters to an adapter, and the fault it produced
+when only the tiles were checked and not the flip: `agent_docs/pitfalls.md`.

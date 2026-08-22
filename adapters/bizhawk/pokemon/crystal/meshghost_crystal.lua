@@ -1226,11 +1226,35 @@ local function readPlayerOamFrame()
 		if y == 0 or y >= 160 then
 			return nil -- the player is not on screen this frame; learn nothing
 		end
+		-- THE ENTRY MUST ACTUALLY BE THE PLAYER'S, and until 2026-08-22 nothing checked.
+		--
+		-- These four entries are assumed to be the local player's four sprites -- that assumption
+		-- is load-bearing here and in the tier's own anchor calibration. It is not guaranteed: the
+		-- engine lays OAM out in its own order, and with a spawned ghost on screen (compare mode
+		-- puts one two tiles away) another character can occupy 0-3. The offset is computed
+		-- against the PLAYER's tile base, so a frame captured from a different sprite comes out
+		-- 128-ish instead of 0-11 -- garbage arrangements that then get filed as the player's
+		-- artwork for that facing and, because the cache keeps the first two and never clears,
+		-- stay for the session. Measured with MESHGHOST_CRYSTAL_FACING_TRACE: four of the eight
+		-- learned frames were out of range, and the two facings with NO valid frame were exactly
+		-- the two the user reported swapping (2026-08-22).
+		--
+		-- A walking sprite is 12 tiles (GetSpriteLength -- see the facingFrames header), so a real
+		-- offset is 0..11. Anything else is not this sprite, and the honest response is to learn
+		-- nothing this frame rather than to record a plausible-looking wrong answer.
+		local tile = memory.read_u8(i * 4 + 2, "OAM") or 0
+		local offset = (tile - playerTileBase) & 0xFF
+		-- 12, written as a literal on purpose: this file is at 197 of Lua's 200 top-level locals
+		-- and has failed to load silently four times from crossing it. The name it would have had
+		-- is in the comment above instead.
+		if offset >= 12 then
+			return nil
+		end
 		frame[i + 1] = {
 			-- an OFFSET within the sprite's own graphics, not an absolute VRAM tile: that is what
 			-- lets the same learned arrangement be applied to a sprite read from the cartridge,
 			-- which has its own tiles and no VRAM home at all.
-			offset = ((memory.read_u8(i * 4 + 2, "OAM") or 0) - playerTileBase) & 0xFF,
+			offset = offset,
 			tile = memory.read_u8(i * 4 + 2, "OAM") or 0,
 			xflip = ((memory.read_u8(i * 4 + 3, "OAM") or 0) & 0x20) ~= 0,
 			dx = (memory.read_u8(i * 4 + 1, "OAM") or 0) - baseX,
@@ -1252,16 +1276,107 @@ local function sameFrame(a, b)
 	return true
 end
 
+-- PAIR THE ARTWORK WITH THE STATE IT WAS DRAWN FROM.
+--
+-- `readPlayerOamFrame` reads OAM, which is what the engine DREW LAST FRAME; `F_DIRECTION` is what
+-- the struct says THIS frame. This file already established that skew for the player's screen
+-- position -- see "PAIR OAM WITH THE FRAME OAM WAS BUILT FROM" in drawOverflow, where mixing the
+-- two produced a ghost racing its destination. The same rule was never applied to the LEARNER.
+--
+-- At the instant the player turns, the two disagree by exactly one frame, so the OLD direction's
+-- artwork is filed under the NEW direction. `facingFrames` is never cleared, so that poisoned
+-- entry lasts the rest of the session -- and because `entry.walk` deliberately keeps two distinct
+-- stride frames, a poisoned one sits alongside a good one and `drawCharacter` alternates between
+-- them. On screen that is a ghost swapping between two facings while walking in one direction.
+--
+-- The user, 2026-08-22: *"going right has the 'facing down/right constantly' issue"* -- having
+-- watched the same fault sit on LEFT before a reload and move to RIGHT after one. That movement is
+-- the tell, and it is what identified this: the learner runs downstream of drawOverflow's early
+-- returns, so anything changing when the tier returns early re-samples the race and re-rolls which
+-- direction gets poisoned. Nothing about the turn itself changed.
+--
+-- So the pair is only learned when the previous call was the IMMEDIATELY preceding frame, and the
+-- direction used is the one that was current then -- the state the pixels in OAM actually came
+-- from. A gap means the two halves describe different moments and the frame is simply not learned;
+-- one skipped sample costs nothing, a poisoned entry costs the session.
+-- PAIR THE ARTWORK WITH THE DIRECTION IT WAS DRAWN FOR.
+--
+-- OAM holds what the engine DREW LAST FRAME; F_DIRECTION is what the struct says THIS frame. At a
+-- turn they disagree by one frame, so the old view's art is filed under the new direction. This
+-- file already established that same skew for the player's screen position ("PAIR OAM WITH THE
+-- FRAME OAM WAS BUILT FROM", in drawOverflow); it was never applied to the learner.
+--
+-- MEASURED, not inferred (MESHGHOST_CRYSTAL_FACING_TRACE, 2026-08-22): with the out-of-range
+-- guard in readPlayerOamFrame in place, DOWN still accepted side-view art [8F 9F 10F 11F] and UP
+-- still accepted down art [0 1 2 3] -- while `dir` read the target facing on both lines. Art from
+-- the previous direction, filed under the current one.
+--
+-- THIS FIX ALONE IS NOT ENOUGH AND WAS BRIEFLY REVERTED FOR LOOKING LIKE A REGRESSION. The two
+-- defects are independent: without the range guard the learner also picks up ANOTHER sprite's
+-- entries, and those dominate, so pairing alone made three facings worse instead of one better.
+-- Neither half works without the other -- the union is the fix, which is the shape CLAUDE.md warns
+-- about after a run of single-variable negatives.
 local function learnFacingFromPlayer()
-	local facing = ((u8(OBJECT_STRUCTS + F_DIRECTION) or 0) // 4) & 3
+	local dirNow = ((u8(OBJECT_STRUCTS + F_DIRECTION) or 0) // 4) & 3
+	local prev = facingFrames.prev
+	-- On facingFrames rather than a new top-level name: this file is at 197 of Lua's 200 locals.
+	-- A string key cannot collide with the numeric facings 0..3, and nothing iterates this table.
+	-- emu.framecount() rather than this file's own `drawFrames`, which is declared ~400 lines
+	-- BELOW here and would silently resolve to a nil global.
+	local nowFrame = emu.framecount()
+	facingFrames.prev = { dir = dirNow, at = nowFrame }
+
 	local frame = readPlayerOamFrame()
 	if not frame then
 		return
 	end
+	if not prev or prev.at ~= nowFrame - 1 then
+		return -- not a contiguous pair: the art and the direction would describe different moments
+	end
+	local facing = prev.dir
 	local entry = facingFrames[facing]
 	if not entry then
 		entry = { walk = {} }
 		facingFrames[facing] = entry
+	end
+	-- The group check guards the STANDING frame too, and has to run before it: `entry.stand` is
+	-- rewritten every idle frame and `drawCharacter` falls back to it, so one contaminated sample
+	-- there shows up the moment a peer stops. It was the second half of the same hole.
+	-- WHICH GROUP A FACING WEARS IS A PROPERTY OF THE SPRITE FORMAT, NOT SOMETHING TO LEARN.
+	--
+	-- A 12-tile walking sprite is three views of four tiles: DOWN is tiles 0-3, UP is 4-7, and
+	-- LEFT/RIGHT share 8-11, told apart by the hardware flip rather than by separate art. Measured
+	-- with MESHGHOST_CRYSTAL_FACING_TRACE across several sessions on 2026-08-22, every clean
+	-- sample agreeing: facing 0 -> [0 1 2 3], 1 -> [4 5 6 7], 2 -> [8 9 10 11], 3 -> the same four
+	-- flipped.
+	--
+	-- THE FIRST VERSION LEARNED THIS PER FACING AND THAT WAS THE BUG. Taking the group from the
+	-- first sample means one contaminated sample locks a facing to the wrong view -- and then the
+	-- check ENFORCES it, rejecting every correct frame that follows. Seen immediately: UP locked
+	-- to group 0 on its first sample and the ghost faced down whether the peer walked up or down,
+	-- with the log showing `facing=1 group=0` and nothing further ever accepted. A rule that
+	-- protects whatever arrived first is only as good as the first arrival.
+	--
+	-- Deriving it instead makes contamination unable to win regardless of arrival order, which is
+	-- the point: our own spawned ghost wears the player's sprite AND tile base, so a frame taken
+	-- from its OAM entries is indistinguishable from ours except by which view it holds.
+	local group = frame[1].offset // 4
+	if group ~= ((facing == 0) and 0 or (facing == 1) and 1 or 2) then
+		return
+	end
+	-- LEFT AND RIGHT SHARE ONE VIEW, so the group alone cannot separate them -- the FLIP does.
+	--
+	-- There is no left-facing art and no right-facing art: there is one side view, drawn as-is for
+	-- one direction and mirrored by the hardware for the other. Measured on 2026-08-22, every clean
+	-- sample agreeing: facing 2 takes it unflipped, facing 3 takes it mirrored.
+	--
+	-- So the group check passes a right-facing frame for LEFT and vice versa, and the pair then
+	-- alternates -- the user: *"left/right is constantly flipping the sprite around"*. Up and down
+	-- were unaffected because their views are group 0 and group 1, which the group rule already
+	-- separates. Deliberately NOT applied to those two: their walk cycle is produced BY mirroring,
+	-- so both flips are legitimate there and requiring one would reject half the animation.
+	if group == 2 and frame[1].xflip ~= (facing == 3) then
+		return
 	end
 	if (u8(OBJECT_STRUCTS + F_WALKING) or STANDING) == STANDING then
 		entry.stand = frame
@@ -1275,8 +1390,55 @@ local function learnFacingFromPlayer()
 			return
 		end
 	end
+	-- A FACING MAY ONLY WEAR ART FROM ITS OWN TILE GROUP.
+	--
+	-- A 12-tile walking sprite is three groups of four, one per view: measured 2026-08-22, down is
+	-- group 0, up group 1, and left/right share group 2, told apart by the hardware flip. So every
+	-- frame a facing accepts must come from one group -- two groups under one facing means the tier
+	-- alternates between two different views, which is the character visibly changing where it
+	-- looks while walking in a straight line.
+	--
+	-- WHY THE EARLIER GUARDS WERE NOT ENOUGH. The range check in readPlayerOamFrame only rejects a
+	-- sprite with a DIFFERENT tile base. Our own spawned ghost wears the local player's sprite id
+	-- and tile base (that is the fallback when a peer's own sprite is not resident), so its OAM
+	-- entries decode to perfectly in-range offsets -- the player's tiles, arranged for whichever way
+	-- the GHOST is facing. Nothing about the frame itself says it is not ours.
+	--
+	-- Hence a rule about the DESTINATION rather than the source: whatever the entries turn out to
+	-- belong to, art that disagrees with everything already learned for this facing is not this
+	-- facing's art. Measured before and after -- four mixed-group acceptances in one session
+	-- beforehand, and they arrived ~2000 frames in, once the ghost was up and facing elsewhere,
+	-- which is why the tier looked correct at first and then degraded in all four directions.
 	if #entry.walk < 2 then
 		entry.walk[#entry.walk + 1] = frame
+		-- TRACE, off unless MESHGHOST_CRYSTAL_FACING_TRACE is set. Edge-triggered by construction:
+		-- a facing only ever accepts two frames, so this fires at most eight times a session and
+		-- costs nothing per frame. File only -- one console line a second was measured at 63-83ms.
+		--
+		-- WHAT IT IS FOR. This list keeps the FIRST two distinct frames a facing ever sees and then
+		-- locks, and `facingFrames` is never cleared -- so one bad sample poisons that direction for
+		-- the whole session and the tier alternates between the good frame and the bad one. That is
+		-- the swap the user reported on 2026-08-22, and it MOVES between directions on any change
+		-- that alters which samples arrive first, which is why it read as a regression three times.
+		-- Logging what actually lands here, with the state it was captured in, is what tells a bad
+		-- sample from a legitimate second stride -- the two are indistinguishable afterwards.
+		if MESHGHOST_CRYSTAL_FACING_TRACE then
+			local parts = {}
+			for i = 1, 4 do
+				parts[i] = string.format("%d%s", frame[i].offset, frame[i].xflip and "F" or "")
+			end
+			-- THE INVARIANT, so the log settles this instead of the user's eyes. A 12-tile walking
+			-- sprite is three groups of four -- one per view -- so every frame a facing accepts
+			-- must come from the SAME group. Two groups under one facing IS the bug being chased:
+			-- the tier alternates the two and the character visibly changes which way it looks.
+			-- Today's bad state reads `down` holding group 2 and group 0; a clean one never does.
+			logFile(string.format(
+				"facing-trace: f=%d LEARNED facing=%d slot=%d group=%d dir=%d [%s]%s",
+				emu.framecount(), facing, #entry.walk, group, dirNow, table.concat(parts, " "),
+				(group ~= ((facing == 0) and 0 or (facing == 1) and 1 or 2)
+					or (group == 2 and frame[1].xflip ~= (facing == 3)))
+					and "  *** WRONG VIEW FOR THIS FACING -- STILL BROKEN ***" or ""))
+		end
 	end
 end
 
@@ -1755,6 +1917,20 @@ function drawOverflow()
 		pcall(function() gui.clearGraphics() end)
 	end
 
+	-- TICK THE HOLD BEFORE ANY EARLY RETURN, so it overlaps the crossing instead of following it.
+	--
+	-- MEASURED, not reasoned (probes/paintgate_probe.lua, 14 crossings, zero variance): the hold
+	-- is armed when the map id changes, which happens PART-WAY through a crossing while the world
+	-- is still being rebuilt -- and the counter used to be decremented BELOW the inPlay() check,
+	-- which is false for that whole stretch (33 frames going in, 37 coming out). So none of the 30
+	-- frames were spent during the crossing. The two windows ran end to end, and the tier stayed
+	-- blank for ~65 frames to serve a 30-frame hold. The user, 2026-08-22: *"the drawn ghost takes
+	-- a while to become visible again"*.
+	--
+	-- Ticking it here spends the hold DURING the rebuild, so what is left when the game is ready
+	-- is the only delay anyone sees: measured at 5 frames going in and 2 coming out, against 30
+	-- and 30 before. The 30 is deliberately unchanged -- this was an ordering fault, and tuning
+	-- the constant would have hidden it rather than fixed it.
 	if (not DRAW_OVERFLOW and not COMPARE_TIERS) or not inPlay() then
 		stopDrawing()
 		return
@@ -1939,6 +2115,10 @@ function drawOverflow()
 	do
 		local h = playerHistory
 		h.n = (h.n or 0) + 1
+		-- How many samples have been recorded since the world was last rebuilt. See the readiness
+		-- gate below: the entries themselves are never cleared, so this is the only thing that can
+		-- tell a current-map sample from one describing the map we just left.
+		h.since = (h.since or 0) + 1
 		h[(h.n % h.size) + 1] = {
 			oamX = playerOamX, oamY = playerOamY,
 			tx = u8(OBJECT_STRUCTS + F_MAP_X) or 0, ty = u8(OBJECT_STRUCTS + F_MAP_Y) or 0,
@@ -1946,6 +2126,31 @@ function drawOverflow()
 			walking = (u8(OBJECT_STRUCTS + F_WALKING) or STANDING) ~= STANDING,
 			dir = ((u8(OBJECT_STRUCTS + F_DIRECTION) or 0) // 4) & 3,
 		}
+	end
+
+	-- DO NOT PAINT UNTIL THE AGED REFERENCE IS A REAL SAMPLE OF THIS MAP.
+	--
+	-- The painted position is measured against the player as they were `age` frames ago, because
+	-- the peer's own state is that old. Straight after a map load the ring still holds the
+	-- PREVIOUS map's samples -- a different tile, a different camera -- so the first painted frames
+	-- place the ghost against a world that is gone. The user, 2026-08-22: *"when going outside, the
+	-- drawn ghost first appears in a weird location, and then appears where its supposed to be
+	-- afterwards"*.
+	--
+	-- WAITING is the fix; CLEARING is not, and that distinction cost a regression. Wiping the ring
+	-- was tried first (2026-08-22) and made the aged lookup miss, which falls through to
+	-- `hist[(hist.n % hist.size) + 1]` -- the sample written THIS frame. That is not a safe
+	-- fallback, it is a different and wrong reference: two frames placed against a player two
+	-- frames too new, then a snap back as the ring refilled. Once per crossing, and with the door
+	-- test walking upward into the doorway it fired constantly -- the user saw it as the ghost
+	-- wiggling while simply walking up, which is nothing like where the change had been aimed.
+	--
+	-- So the entries are left alone and the tier simply declines to paint until enough of them
+	-- describe the map we are actually on. `age + 1` because the lookup reaches back exactly
+	-- `age` pushes; at that point every term in the position belongs to one world again.
+	if (playerHistory.since or 0) <= playerHistory.age then
+		stopDrawing()
+		return
 	end
 
 	local calX = (playerOamX - 8) - (u8(OBJECT_STRUCTS + F_SPRITE_X) or 0)
@@ -3167,6 +3372,13 @@ local function tick()
 			-- re-registers on its next state, which is at most a frame away.
 			overflow = {}
 			anchorIndex = nil -- the object array is rebuilt; last map's anchor means nothing
+
+			-- The player's own history is stale for the same reason, and the tier must not measure
+			-- against it. NOT cleared -- counted. See the readiness gate in drawOverflow for why
+			-- clearing is the wrong instrument here: an empty ring makes the aged lookup fall
+			-- through to this frame's own sample, which is a wrong reference rather than a missing
+			-- one, and that shipped as a wiggle for one afternoon.
+			playerHistory.since = 0
 		end
 		lastArea = area
 	end

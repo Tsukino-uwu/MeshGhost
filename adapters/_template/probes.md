@@ -1331,3 +1331,44 @@ ever holds the current line's.
 
 **Check a register's read/write status before building an argument on a dump**, and prefer the
 engine's own state to a hardware read whenever both exist.
+
+## Your own ghost is indistinguishable from the player in any buffer that records APPEARANCE
+
+**Found on Crystal, 2026-08-22, after four fixes reasoned from the code had each failed on screen.**
+
+An adapter that learns by observing the player — "read what the engine drew for the character and
+copy that arrangement" — has to establish **which** character it is reading. A ghost built to look
+like the local player is, by construction, identical to them in every buffer that records what
+things look like rather than who they are: same sprite id, same tile base, same palette. So a frame
+captured from the ghost decodes as perfectly valid *player* data, arranged for whichever way the
+GHOST happens to be facing.
+
+**Why it is nastier than an ordinary wrong-object bug:**
+
+- **A range or sanity check does not catch it.** Crystal's first fix rejected entries whose tiles
+  fell outside the player's sprite — which correctly caught a *different* character, and could not
+  see the ghost at all, because the ghost wears the player's own tiles.
+- **It needs the ghost to exist and to differ.** The contamination arrived ~2,000 frames into a
+  session, once a ghost was up and facing elsewhere. Before that the tier was visibly correct, so
+  the report was *"it was working at first, then it started swapping"* — which reads as a lifetime
+  bug in the adapter, not as a wrong read.
+- **A cache makes it permanent.** If what is learned is kept (first N samples win, never cleared),
+  one bad sample poisons that case for the session and **re-rolls on every reload** — so the fault
+  appears to move between cases and to be a regression after every unrelated change.
+
+**What to do:**
+
+- **Validate against what the destination MUST be, not against what the source looks like.**
+  Crystal derives which view a facing may wear from the sprite format and refuses anything else, so
+  contamination cannot win regardless of arrival order. A rule that instead *learns* the correct
+  answer from the first sample is only as good as that first sample — Crystal shipped that version
+  too, and one bad first sample locked a facing to the wrong view and then enforced it.
+- **Ask whether the identifying property is shared.** Sprite id, tile base and palette are all
+  shared by design here. Position is not, and neither is the object slot — prefer those.
+- **Learn while no ghost exists if you can.** The cheapest version of this is to do the observing
+  before the first peer is rendered.
+
+**Generalises past emulators.** Any adapter that clones the player and then reads back "the
+player's" animation state, bone transforms, material parameters or draw calls has the same
+exposure. The question to ask of any observed data is not *"is this valid?"* but *"could my own
+ghost have produced this, and would I be able to tell?"*

@@ -53,6 +53,13 @@ Each one exists because the previous one failed in a specific way; `phase9.md` h
 | `spawn_test7.lua` | NPC behaviour wearing the player's face: the combination that shipped. |
 | `walk_test.lua` | Making a spawned ghost walk using the game's own step mechanism. |
 
+## The drawn tier
+
+| Probe | What it answered |
+| --- | --- |
+| `flags_facing_trace.lua` | Not a probe — sets `MESHGHOST_CRYSTAL_FACING_TRACE`, which makes the adapter log every frame its facing cache accepts. **The instrument that ended the 2026-08-22 facing bug** after four fixes reasoned from the code had each failed on screen. It measured the sprite's view layout, caught frames captured from another character's OAM entries, and then proved the fix by printing an invariant instead of a value. |
+| `paintgate_probe.lua` | How many frames late the painted tier comes back after a map crossing, per direction, and what each candidate anchor for the hold WOULD have cost on the same crossing. Measured 5 frames going in and 2 coming out against a 30-frame hold, across 14 crossings with zero variance — because the hold is armed on the map id changing, which happens part-way through the crossing, so most of it is spent before the world is ready. |
+
 ## Archipelago address measurement
 
 One probe per address, because a probe that measures several at once cannot say which one is

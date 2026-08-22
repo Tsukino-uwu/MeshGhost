@@ -717,3 +717,41 @@ each confirmed by the user watching a loopback session on Route 39, in their own
    adapter has not been run since, so the frame-pacing improvement is inferred rather than measured.
 6. **Emerald sits at 198 of Lua's 200 top-level locals** — two names from an adapter that silently
    does not load. Consolidation there is due before its next feature.
+
+## CONFIRMED ON SCREEN 2026-08-22 — Crystal: the drawn tier's exit position and its facing
+
+Listed here rather than in `verified.md` only because that file is the user's to append; both were
+confirmed by the user watching a loopback session in New Bark Town, in their own words.
+
+- **A drawn ghost no longer appears in the wrong place on the way out of a door** — *"yes this is
+  fixed"*. The painted position measures the peer against the player as they were `age` frames ago;
+  after a map load the ring still held the PREVIOUS map's samples, so the first painted frames
+  placed the ghost against a world that was gone. The tier now WAITS until enough samples describe
+  the current map. **Clearing the ring instead is what a first attempt did, and it was a
+  regression**: an empty ring makes the aged lookup miss and fall through to this frame's own
+  sample — a wrong reference rather than a missing one — which the user saw as the ghost wiggling
+  while simply walking up. `pitfalls.md`.
+- **The drawn ghost faces the right way in all four directions** — *"seems to work properly now"*,
+  after six attempts. Cause and method: `pitfalls.md`, "our own ghost's OAM entries are
+  indistinguishable from the player's". Verified in the log as well as on screen: four facings,
+  each holding only its own view, zero invariant violations.
+
+## Pending — Crystal, after the 2026-08-22 session
+
+1. **The drawn tier's STRIDE animation is unconfirmed.** With the facing fixed, only one frame per
+   facing was ever captured in the runs watched, and the tier's own summary line has read
+   `0 on a walk frame` throughout. A painted ghost may therefore be facing correctly and not
+   animating. Not a regression — it was never confirmed working — but it is the next thing to look
+   at, and `MESHGHOST_CRYSTAL_FACING_TRACE` reports what gets captured.
+2. **The transition hold's 30 frames are still spent AFTER the world is ready, not during the
+   crossing.** Measured with `probes/paintgate_probe.lua`, 14 crossings, zero variance: the tier
+   comes back **5 frames late going in and 2 coming out** if the hold is ticked during the
+   crossing, against ~30 either way as it currently ships. That change was built and REVERTED the
+   same evening: it paints ~25 frames of the arrival that were previously blank, and the user
+   judged the result worse. The window it exposes has never been examined.
+3. **A crossing itself blanks the tier for 33 frames going in and 37 coming out**, which no change
+   that evening touched and which dominates the delay the user calls "a bit slow".
+4. **`extras.act` remains untested**, unchanged from the previous session — the byte that would let
+   the engine play fishing, bumping, spinning, the "!" emote and the Fly landing on a spawned
+   ghost. `probes/action_watch.lua` has now shown STAND, STEP and BUMP reaching the player's own
+   object during ordinary play; FISHING, SPIN, EMOTE and SKYFALL were never produced in that run.

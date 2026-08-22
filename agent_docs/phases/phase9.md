@@ -457,3 +457,58 @@ clear, so a hardware sprite draws in front of it.
 `adapters/bizhawk/pokemon/crystal/README.md` (reader-facing) · `architecture.md` (the spawn ADR) ·
 `verified.md` (all evidence, dated) · `pitfalls.md` (the BizHawk Lua lifecycle trap) ·
 `environment.md` (decomp toolchain) · `licensing.md` (the `pret` family row)
+
+## The night the drawn tier's facing was fixed — 2026-08-22
+
+A single session, all of it on Crystal's painted tier, driven by the user watching a loopback ghost
+in New Bark Town and walking in and out of a house. **Three defects were fixed; one change was
+built, measured and deliberately reverted.** The facing bug took six attempts and is the reason
+this entry exists — not for the fix, which is small, but for how badly the first four went.
+
+### What was fixed
+
+1. **A drawn ghost appeared in the wrong place on the way out of a door.** The painted position
+   measures the peer against the player as they were `age` frames ago; the ring still held the
+   PREVIOUS map's samples, so the first painted frames placed the ghost against a world that was
+   gone. It now WAITS until enough samples describe the current map. Confirmed by the user.
+2. **The drawn ghost faced the wrong way, differently every session.** Two independent layers, both
+   invisible to reading the code — see `pitfalls.md`. Confirmed by the user and, separately, by an
+   invariant printed in the adapter's own log.
+3. **A `local` used above its declaration was caught before shipping**, for the third time in this
+   file: `drawFrames` is declared ~400 lines below the facing learner, so naming it there would
+   have been a silent nil global throwing every frame.
+
+### What was measured and NOT shipped
+
+**The transition hold spends 30 frames after the world is ready rather than during the crossing.**
+`probes/paintgate_probe.lua`, 14 crossings, zero variance: ticking it during the crossing brings
+the tier back **5 frames late going in, 2 coming out**, against ~30 today. It was built, watched,
+and reverted — it paints ~25 frames of the arrival that were previously blank, and the user judged
+the result worse. **The lateness and the exposed window are the same 25 frames seen from two
+sides**, and shortening the hold without first making that window stable trades one defect for a
+worse one. The crossing's own 33-37 blank frames are untouched by any of this and dominate what the
+user calls "a bit slow".
+
+### Method lessons, which cost far more than the fixes
+
+- **Build the instrument before the first attempt, not after the fourth.** Four facing fixes were
+  shipped on inference and all four failed on screen; the trace took ten minutes and answered in
+  eight lines. Two of its findings contradicted a theory that had already shipped.
+- **A fault that MOVES between cases without the responsible code changing is a lifetime
+  problem, not a logic one.** The facing bug appeared on left, then right, then up, and looked like
+  a regression after every unrelated change — because a cache that keeps the first samples and
+  never clears re-rolls which case is poisoned on every reload.
+- **"It worked at first and then degraded" was the single most useful sentence of the session.** It
+  is a statement about accumulated state, and it is what identified a contaminant that needs ~2,000
+  frames and a ghost facing elsewhere before it can appear.
+- **Log the INVARIANT, not the values.** Printing each accepted frame's view beside the one its
+  facing requires turned the log into a pass/fail the agent could read, instead of a symptom the
+  user had to characterise a fifth time.
+- **A revert can be wrong.** The frame-pairing fix was reverted for "making it worse" when it was
+  half of a two-part fix whose other half did not exist yet. `CLAUDE.md` already says to try the
+  UNION after several single-variable negatives; that rule applied and was not followed until the
+  trace forced it.
+- **Remove the instrument before believing the subject.** A wiggle was blamed on `door_loop.lua`,
+  which drives the d-pad, while the user was testing by hand. That guess was wrong, but the rig
+  genuinely should not have been left loaded — and the bisect that followed (revert to HEAD, ask)
+  is what should have happened first.

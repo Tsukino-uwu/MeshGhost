@@ -65,3 +65,15 @@ arrived and were not drawn" (2026-08-19).
 Believe the value, then find out why the comment drifted before changing either. `CLAUDE.md`
 states the harder version: **a flag flip is not a revert** — a switch only reverts behaviour if it
 gates the *work*, not merely the decision the work feeds.
+
+## Probe flags — off by default, and each announces itself when on
+
+| Flag | Where set | What it does |
+|---|---|---|
+| `MESHGHOST_CRYSTAL_FACING_TRACE` | Lua global (`probes/flags_facing_trace.lua`) | Logs every frame the drawn tier's facing cache ACCEPTS — the facing, the tile view, the flip and the direction it was captured at — plus a `*** WRONG VIEW FOR THIS FACING ***` marker when one violates the invariant. Edge-triggered by construction: a facing accepts at most two frames, so it fires a handful of times a session and costs nothing per frame. File only, never `console.log`. **This is the instrument that found the 2026-08-22 facing bug after four fixes reasoned from the code had failed** — keep it, and reach for it first next time the drawn tier looks wrong. |
+
+**A flag is set as a Lua global rather than an environment variable on purpose**: an environment
+variable is fixed when the emulator starts, so it can only configure an instance you are about to
+launch. A global can be set into an emulator that is already running and already in the state worth
+measuring. `probes/flags_facing_trace.lua` sets every flag it owns explicitly, false included,
+because the dev loader shares one Lua environment and "not mentioned" is not "off".

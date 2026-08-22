@@ -70,6 +70,10 @@ that a peer's state genuinely differs from the local player's, which loopback co
   all done and 1:1 (2026-08-19..21); Crystal has none of that class yet. `unverified.md`.
 - **Crystal's two tiers now move properly — user-confirmed 2026-08-21/22.** Painted tier walks and
   clears across transitions; spawned tier animates. `phases/phase9.md`, `unverified.md`.
+- **Crystal's drawn tier: exit position and facing FIXED and confirmed 2026-08-22.** What remains
+  open there is its STRIDE animation, never confirmed working. `unverified.md`, `pitfalls.md`.
+- **Crystal's transition hold spends its 30 frames after the world is ready, not during the
+  crossing** — measured, fix built and reverted as worse. `unverified.md`, `phases/phase9.md`.
 - **Crystal's hardware (OAM) tier: built, reaches the screen, shipped OFF, never judged on screen.**
   Adds 0-1 characters and does NOT get free occlusion. `FLAGS.md`, `unverified.md`.
 - **`extras.act` (fishing, bump, spin, emote, Fly landing) is on the wire and never tested** — and
