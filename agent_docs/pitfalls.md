@@ -4073,3 +4073,33 @@ it is the reason Emerald's drawn tier carries an exponential filter that Crystal
 A tier with no filter draws the staircase between deliveries; at `-interp=0ms` there is nothing to
 absorb and it looks perfect, which is precisely why a zero-interp rig cannot tell you whether the
 filter is needed.
+
+## A WRITING probe that half-identifies its target corrupts everything else (Crystal, 2026-08-22)
+
+**Symptom.** *"the ghost is flickering in/out from the middle~ and below"*, then, moments later,
+*"actually its flickering from anywhere right now, even the left side. you broke something"* — a
+regression report against code that had just been committed and was not the cause.
+
+**Cause.** A probe was blanking the four sprite-buffer entries belonging to one character, to test
+whether a ghost could be hidden without losing its collision. It identified those entries by
+screen position and matched **about 1.5 of the 4** — so every frame it blanked roughly one and a
+half entries of the intended character and, whenever the match drifted, entries belonging to
+somebody else: NPCs, and the player. The buffer is shared and rebuilt every frame, so the damage
+was invisible in any log and total on screen.
+
+**The rule this extends.** `pitfalls.md` already carries "a diagnostic can break the thing it
+measures". This is the sharper case: **a probe that WRITES to shared state must prove it has
+identified its target before it writes, not after.** Its own counter said 1.5 of 4 and that number
+was printed and read — as a note about the probe's accuracy, not as what it plainly was, a warning
+that half its writes were landing on strangers. A partial match is not a weak measurement, it is
+an active corruption.
+
+**Two habits that would have caught it:**
+
+- **Refuse to write unless the match is exact.** Four entries or nothing. A probe that finds three
+  should log and skip, never write three.
+- **Say out loud that a writing probe is loaded, every time.** The user was mid-test on an
+  unrelated question and had no reason to suspect the rig; the flicker read as a regression in the
+  commit that had just landed. `probes/README.md` already lists which probes write RAM for exactly
+  this reason — being on that list is not the same as the person watching the screen knowing it is
+  running right now.
