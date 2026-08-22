@@ -9993,3 +9993,38 @@ plan.
 **The standing constraint either way**: a peer on the drawn tier because NO object struct is free
 cannot be given a collision body at all — there is nothing to give. That case is the reason the
 drawn tier exists, and no amount of hiding changes it.
+
+## Crystal: both tiers confirmed good at the dev rig's settings (2026-08-22)
+
+**Source: the user, on screen**, on the reverted adapter (e4508f1) with the dev rig at
+`-interp=0ms -min-send=10ms` and the relay at 100Hz, spawned ghost 3 tiles right, drawn 2 tiles
+left:
+
+> *"this currently looks good/perfect i think ? its just the spawned ghost trailing behind a tiny
+> bit when moving now"*
+
+**What that confirms**, each measured earlier the same day and now judged on screen:
+
+- **The drawn tier ANIMATES**, which it had never done. A sprite has six views, not three: three
+  standing at its own tile base + 0..11 and three STEPPING at base + 0x80 + 0..11. The
+  `offset >= 12` guard added the same morning to stop the learner adopting another character's OAM
+  entries was rejecting every stepping frame as foreign. The stride is chosen from the peer's own
+  `extras.prog`, latched once per burst, and its cadence was measured frame-identical to the
+  player's before being looked at.
+- **The drawn tier tracks the player 1:1** -- 0px of relative movement on every walking frame in all
+  four directions, at this rig's settings.
+- **The spawned tier no longer drifts off its tile.** Its step covers a whole 16px tile in even 2px
+  moves; `OBJECT_STEP_DURATION` was 7, which walks 14px across a 16px tile, so every step ended 2px
+  short and the error accumulated. Zero re-anchor events across 1108 walking frames afterwards.
+- **The spawned tier no longer snaps or teleports in ordinary walking.**
+
+**The one remaining visible fault is the spawned ghost trailing slightly**, and it is measured:
+that tier starts each step a mean of **4.3 frames** after the peer, of which 1.5 frames is the wire
+and the rest the adapter's own pipeline (`unverified.md`). It is structural for an engine-driven
+ghost -- the engine only accepts "start a step now", never "you are part-way through one" -- and
+`architecture.md` already says an engine-driven ghost trails by up to a step.
+
+**IMPORTANT SCOPE: this is the DEV rig's configuration, not the shipped one.** At the shipped 250ms
+interpolation the same drawn tier staircases badly (*"the drawn one really really bad"*), because
+its sub-tile position rides in `extras`, which the core does not interpolate. That gap is the open
+item and is NOT covered by this confirmation. `unverified.md`.
