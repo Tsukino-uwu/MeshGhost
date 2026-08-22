@@ -786,3 +786,21 @@ confirmation in `verified.md` because a frozen ghost trips them within seconds:
 Both are shipped behaviour on the tier most peers actually get. To test them, clear
 `MESHGHOST_CRYSTAL_FREEZE_STATE` — it forces `shouldBlock` true precisely to keep them out of the
 way of a hitbox test.
+
+## Emerald compiles again, but has not been RUN since the fix (2026-08-22)
+
+The adapter had crossed Lua's 200-local ceiling and failed to compile as committed — `too many
+local variables (limit is 200)`, which in a real session is a silent non-load. Fixed by folding
+seven top-level constants onto two tables (`surfBlob`, `gbaReg`), taking it from 202 declared names
+to 197.
+
+**What is verified**: it compiles, along with all 16 other files, via
+`dev-scripts/bizhawk-syntax-check.lua`. Every one of the 28 rewritten references was read back, no
+old name survives, and every use sits below its table's declaration — the "a local declared BELOW a
+function is a nil global inside it" trap.
+
+**What is NOT verified**: that it still WORKS. Compiling is not running, and this touched the surf
+blob's constants — spawn, the update callback, the bob mode, the frame size and the subpriority —
+which is live code on a feature the user signed off as 1:1. Emerald is parked, so nothing has been
+watched since. **Before Emerald is next used for anything, load it and surf**; a wrong field name
+here reads as nil and would show up as a missing or misplaced blob rather than an error.

@@ -82,8 +82,8 @@ that a peer's state genuinely differs from the local player's, which loopback co
   Adds 0-1 characters and does NOT get free occlusion. `FLAGS.md`, `unverified.md`.
 - **`extras.act` (fishing, bump, spin, emote, Fly landing) is on the wire and never tested** — and
   rests on an unchecked assumption `probes/action_watch.lua` settles. `unverified.md`.
-- **Emerald is at 198 of Lua's 200 top-level locals**; past 200 the adapter silently does not load.
-  Consolidate before its next feature. `pitfalls.md`, `_template/README.md`.
+- **Emerald CROSSED Lua's 200-local ceiling and did not compile at all** — fixed 2026-08-22 by
+  consolidating seven constants onto two tables; now 197. Not yet loaded in a real session.
 - **Crystal: a peer's own sprite is used when its tiles are resident, not otherwise** — but the
   DRAWN tier could read any sprite from ROM, which would close it. `phases/phase9.md`.
 - **Crystal: a ghost does NOT survive a battle** — answered from the code 2026-08-19 and fixed

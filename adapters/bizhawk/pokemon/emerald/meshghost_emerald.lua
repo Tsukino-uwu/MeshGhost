@@ -2828,8 +2828,13 @@ end
 --   gFieldEffectObjectTemplate_SurfBlob  0850CBC4  (images at +0x0C, anims at +0x08)
 -- The blob's frames are 32x32 (documentation.md's surfing section), which is both its tile cost
 -- and, halved and negated, its centerToCornerVec.
-local GFIELDEFFECTTEMPLATE_SURFBLOB = 0x0850cbc4
-local SURFBLOB_FRAME_PX = 32
+-- ONE TABLE, FIVE CONSTANTS. The main chunk is at Lua's 200-local ceiling and had CROSSED it --
+-- the whole adapter stopped compiling, with `too many local variables` and nothing else. That
+-- failure is silent in a real session (`pitfalls.md`), so the file simply would not have loaded.
+-- These five all describe the surf blob and were five separate locals; as fields they cost one.
+local surfBlob = {}
+surfBlob.template = 0x0850cbc4
+surfBlob.framePx = 32
 -- The water ripple's frame, measured off the game's own sprite: 16x16, centerToCornerVec -8,-8
 -- (probes/ripple_probe.lua, 2026-08-21).
 --
@@ -2875,7 +2880,7 @@ genderFrames.oamMatricesAddr = 0x02021bc0
 -- the suspected way.
 genderFrames.blobPaletteSlot = 0
 genderFrames.blobPalette = function()
-    return hwPaletteSlotForTag(r16(GFIELDEFFECTTEMPLATE_SURFBLOB + 0x02))
+    return hwPaletteSlotForTag(r16(surfBlob.template + 0x02))
         or genderFrames.blobPaletteSlot
 end
 -- The reverse of FACING, so a peer's orientation string picks the blob's animation.
@@ -2884,11 +2889,11 @@ genderFrames.blobDirImage = { [1] = 0, [2] = 1, [3] = 2, [4] = 2 }
 
 genderFrames.runsForSurfBlob = function(facing)
     local imageIndex = genderFrames.blobDirImage[facing or 1] or 0
-    local images = r32(GFIELDEFFECTTEMPLATE_SURFBLOB + 0x0c)
+    local images = r32(surfBlob.template + 0x0c)
     if not isRomPtr(images) then return nil end
     local runs = genderFrames.runsFromImages(
         string.format("blob:%d", imageIndex), images,
-        SURFBLOB_FRAME_PX, SURFBLOB_FRAME_PX, imageIndex, genderFrames.blobPalette())
+        surfBlob.framePx, surfBlob.framePx, imageIndex, genderFrames.blobPalette())
     -- East is the west frame mirrored, which is the flag the anim command carries.
     return runs, (facing == 4)
 end
@@ -4138,8 +4143,10 @@ tiering = {
 -- The tilemap's address comes from the background's own control register (BG0CNT, screen base
 -- block in bits 8-12, 2KB units from VRAM), so no game symbol or decomp address is involved and
 -- nothing here can go stale against a ROM revision.
-local BG0CNT_ADDR = 0x04000008
-local VRAM_ADDR = 0x06000000
+-- Same reason as surfBlob above: two hardware addresses, one local.
+local gbaReg = {}
+gbaReg.bg0cnt = 0x04000008
+gbaReg.vram = 0x06000000
 
 -- Rebuilt every SCAN_EVERY_FRAMES frames and reused in between: a panel opening one frame late is
 -- invisible, and scanning 20x30 cells every frame would be the expensive shape this project keeps
@@ -4248,7 +4255,7 @@ tiering.scanPanel = function()
         return rows
     end
 
-    local base = VRAM_ADDR + ((memory.read_u16_le(BG0CNT_ADDR) >> 8) & 0x1F) * 0x800
+    local base = gbaReg.vram + ((memory.read_u16_le(gbaReg.bg0cnt) >> 8) & 0x1F) * 0x800
     for row = 0, 19 do
         local first, last
         for col = 0, 29 do
@@ -4616,9 +4623,9 @@ end
 -- Its data slots (field_effect_helpers.c:990): data[0] bob state, data[2] object event id,
 -- data[3] velocity, data[6]/data[7] previous x/y. FldEff_SurfBlob seeds velocity and prev to -1,
 -- sets coordOffsetEnabled, palette 0 and subpriority 150 -- all reproduced below.
-local UPDATESURFBLOBFIELDEFFECT_CB = 0x08155658 + 1
-local BOB_PLAYER_AND_MON = 1
-local SURFBLOB_SUBPRIORITY = 150
+surfBlob.updateCb = 0x08155658 + 1
+surfBlob.bobMode = 1
+surfBlob.subPriority = 150
 
 -- Which graphics ids ride a blob. Surfing only: underwater uses a different mechanism
 -- (StartUnderwaterSurfBlobBobbing on the player's own sprite), and is not handled here.
@@ -4637,7 +4644,7 @@ spawnSurfBlob = function(g, mapX, mapY)
         logFile(string.format("BLOB SPAWN from line %s at tile (%d,%d) f=%d",
             tostring(who and who.currentline), mapX, mapY, frameCounter))
     end
-    local tmpl = GFIELDEFFECTTEMPLATE_SURFBLOB
+    local tmpl = surfBlob.template
     local oamPtr, animsPtr = r32(tmpl + 0x04), r32(tmpl + 0x08)
     local imagesPtr, affinePtr = r32(tmpl + 0x0c), r32(tmpl + 0x10)
     if oamPtr == 0 or imagesPtr == 0 then return nil end
@@ -4659,7 +4666,7 @@ spawnSurfBlob = function(g, mapX, mapY)
     w32(d + 0x08, animsPtr)
     w32(d + 0x0c, imagesPtr)
     w32(d + 0x10, affinePtr)
-    w32(d + 0x1c, UPDATESURFBLOBFIELDEFFECT_CB)
+    w32(d + 0x1c, surfBlob.updateCb)
 
     -- Position. NOT the rider's formula: FldEff_SurfBlob uses SetSpritePosToOffsetMapCoords,
     -- which is SetSpritePosToMapCoords (event_object_movement.c:4801) plus (8,8). That helper
@@ -4682,11 +4689,11 @@ spawnSurfBlob = function(g, mapX, mapY)
     -- unexplained since 2026-08-18. Measured 2026-08-19 with probes/surfblob_probe.lua against
     -- the PLAYER's own blob, which reads 240,240 -- i.e. -16,-16 for a 32x32 frame, the same
     -- -(w/2) the rider's own spawn path computes.
-    w8(d + 0x28, (-(SURFBLOB_FRAME_PX // 2)) & 0xff)
-    w8(d + 0x29, (-(SURFBLOB_FRAME_PX // 2)) & 0xff)
-    w8(d + 0x43, SURFBLOB_SUBPRIORITY)
+    w8(d + 0x28, (-(surfBlob.framePx // 2)) & 0xff)
+    w8(d + 0x29, (-(surfBlob.framePx // 2)) & 0xff)
+    w8(d + 0x43, surfBlob.subPriority)
     w16(d + 0x2e, 0)                       -- data[0]: bob state, set below
-    w8(d + 0x2e, BOB_PLAYER_AND_MON)
+    w8(d + 0x2e, surfBlob.bobMode)
     w16(d + 0x32, g.objId)                 -- data[2]: the object this blob follows -- the GHOST
     w16(d + 0x34, 0xffff)                  -- data[3]: velocity, seeded -1
     w16(d + 0x3a, 0xffff)                  -- data[6]: previous x, seeded -1
@@ -5997,7 +6004,7 @@ local function syncGhost(playerId, remote)
             if not tiering.fishAlignActive then alignFishingGhost(g) end
         elseif g.blobSprId then
             -- THE BOB IS THE ENGINE'S, so do not write over it. A surf blob set to
-            -- BOB_PLAYER_AND_MON drives the RIDER's pos2 as well as its own -- that is the whole
+            -- surfBlob.bobMode drives the RIDER's pos2 as well as its own -- that is the whole
             -- of the up-and-down on the water -- and it is already pointed at this ghost. Writing
             -- the peer's own offset here would put two things on one field, the same shape as the
             -- animNum fight that left a ghost stuck in a pose: our write lands between frames and
@@ -6119,7 +6126,7 @@ local function syncGhost(playerId, remote)
         -- now, exactly when PlayerAvatarTransition_Surfing does for the player's own.
         if g.jsActive and not g.jsDismount and g.blobSprId then
             local bd = sprAddr(g.blobSprId)
-            w8(bd + 0x2e, (r8(bd + 0x2e) & 0xf0) | 1) -- BOB_PLAYER_AND_MON
+            w8(bd + 0x2e, (r8(bd + 0x2e) & 0xf0) | 1) -- surfBlob.bobMode
         end
         g.jsActive, g.jsDismount = nil, nil
     end
@@ -6164,7 +6171,7 @@ local function syncGhost(playerId, remote)
             -- the blob at the destination and never sets a bob state during the jump --
             -- FldEff_SurfBlob leaves data[0] at BOB_NONE, and in that state UpdateBobbingEffect
             -- does nothing at all, so the blob waits in the water while the rider arcs onto it;
-            -- BOB_PLAYER_AND_MON only arrives with the avatar transition at the end
+            -- surfBlob.bobMode only arrives with the avatar transition at the end
             -- (field_effect.c:3042-3056, field_effect_helpers.c:1107-1135). Ours went straight
             -- to PLAYER_AND_MON, whose position sync dragged the blob along the rider's arc --
             -- the user: *"the drawn ghost jumps with the blob onto the water, instead of jumping
@@ -7844,13 +7851,13 @@ function hwDrawSurf(playerId, rec, remote, info, sx, sy, arcY, hFlip)
         end
         local facing = genderFrames.dirOf[remote.orientation] or 1
         local imageIndex = genderFrames.blobDirImage[facing] or 0
-        local imgs = r32(GFIELDEFFECTTEMPLATE_SURFBLOB + 0x0c)
-        local bpal = hwPaletteSlotForTag(r16(GFIELDEFFECTTEMPLATE_SURFBLOB + 0x02))
+        local imgs = r32(surfBlob.template + 0x0c)
+        local bpal = hwPaletteSlotForTag(r16(surfBlob.template + 0x02))
             or genderFrames.blobPaletteSlot
         local bstart = isRomPtr(imgs) and hwFxTiles("blob:" .. imageIndex, imgs, imageIndex)
         local bslot = bstart and hwFxSlot(playerId, rec, "blob")
         if bslot then
-            local o = r32(GFIELDEFFECTTEMPLATE_SURFBLOB + 0x04)
+            local o = r32(surfBlob.template + 0x04)
             local a = tiering.hw.base + bslot * 8
             w16(a + 0, (r16(o + 0x00) & 0xff00) | (by & 0xff))
             w16(a + 2, (r16(o + 0x02) & 0xfe00) | (bx & 0x1ff) | (facing == 4 and 0x1000 or 0))
@@ -9094,7 +9101,7 @@ local function drawRemotes(localAreaId, playerMapX, playerMapY, skipSpawned, com
                         do
                             -- THE BOB, WHICH IS ONE TERM AND EXPLAINS TWO SYMPTOMS.
                             --
-                            -- A surf blob set to BOB_PLAYER_AND_MON moves its RIDER's pos2 as
+                            -- A surf blob set to surfBlob.bobMode moves its RIDER's pos2 as
                             -- well as its own -- measured equal on the same frame, `blob.pos2=0,-3
                             -- | rider.pos2=0,-3` (probes/surfblob_probe.lua) -- and the engine
                             -- gives the reflection the NEGATED value (`y2 = -mainSprite->y2`,
@@ -9273,10 +9280,10 @@ local function drawRemotes(localAreaId, playerMapX, playerMapY, skipSpawned, com
                                         pbx - rs16(GSPRITECOORDOFFSETX_ADDR),
                                         pby - rs16(GSPRITECOORDOFFSETY_ADDR) }
                                 end
-                                drawRunList(bruns, SURFBLOB_FRAME_PX, bflip, pbx,
+                                drawRunList(bruns, surfBlob.framePx, bflip, pbx,
                                     pby, panelRows, dim, nil, nil,
                                     genderFrames.reflectiveSpans(pbx, pby,
-                                        SURFBLOB_FRAME_PX, SURFBLOB_FRAME_PX, "sprite"))
+                                        surfBlob.framePx, surfBlob.framePx, "sprite"))
                             end
                         end
 
@@ -9882,7 +9889,7 @@ function detectStateLoad()
             -- in data[0] (field_effect_helpers.c's two #define blocks).
             -- Blobs only: we no longer create underwater bobbers as sprites, but the PLAYER's
             -- own is still the engine's and must never be touched.
-            local foreign = (cb == UPDATESURFBLOBFIELDEFFECT_CB and r16(d + 0x32) ~= playerObj)
+            local foreign = (cb == surfBlob.updateCb and r16(d + 0x32) ~= playerObj)
             if (r8(d + 0x3e) & 0x01) == 1 and foreign then
                 w8(d + 0x3e, (r8(d + 0x3e) & ~0x01) | 0x04)
                 w32(d + 0x1c, 0)
