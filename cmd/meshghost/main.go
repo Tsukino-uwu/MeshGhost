@@ -697,6 +697,23 @@ func main() {
 	c.TLSFingerprint = *tlsPin
 	c.InterpolationDelay = *interp
 	c.MinSendInterval = *minSend
+	// SAY WHICH SMOOTHING THIS RUN IS USING. These two decide how a ghost moves
+	// on screen more than anything else the client does, and until 2026-08-23
+	// neither appeared in the log -- so a session could not tell afterwards
+	// which rig had produced a recording of a stutter. Crystal lost two rounds
+	// of renderer work to exactly that: with no launcher of its own the adapter
+	// autostarted a core on the defaults, the settings were right by accident
+	// and unrecorded, and a quarter second of interpolation was investigated as
+	// a renderer fault (`agent_docs/phases/phase9.md`). A log line is cheaper
+	// than the ambiguity.
+	// "the shipped values" is the part a reader needs: a dev rig is only worth
+	// noticing when it has departed from what a player would actually run.
+	smoothingNote := " (NOT the shipped defaults -- this is a dev rig)"
+	if *interp == core.DefaultInterpolationDelay && *minSend == 0 {
+		smoothingNote = " (the shipped defaults)"
+	}
+	log.Printf("meshghost: smoothing: interpolation delay %s, minimum send interval %s%s",
+		*interp, *minSend, smoothingNote)
 	c.MaxReceiveHz = *maxReceiveHz
 	// Only ever restrictive: "enabled" here does not override a host who
 	// turned collision off. protocol.ResolveGhostCollision is where that is
