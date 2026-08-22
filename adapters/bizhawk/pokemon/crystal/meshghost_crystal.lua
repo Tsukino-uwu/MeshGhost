@@ -2900,6 +2900,18 @@ function drawOverflow()
 				.. "stepping frame | prog counts %s", facingFrames.nWalkFrames or 0,
 				facingFrames.nStepFrames or 0, table.concat(seen, " ")))
 		end
+		-- Reported cumulatively, so it describes the RUN and not whichever second it fired in.
+		if facingFrames.wire and facingFrames.wire.msgs > 0 then
+			local w = facingFrames.wire
+			local d = {}
+			for v = 1, 9 do
+				if w.dist[v] then
+					d[#d + 1] = string.format("%s:%d", (v == 9) and ">8px" or (v .. "px"), w.dist[v])
+				end
+			end
+			logFile(string.format("  WIRE: %d messages, %d carried no movement, %d moved | %s",
+				w.msgs, w.same, w.moved, table.concat(d, " ")))
+		end
 		if offSample then
 			logFile("drawn tier: example of one it discarded -- " .. offSample)
 		end
@@ -2962,6 +2974,18 @@ local function stepGhost(g, dir)
 	w8(g.st_base + F_WALKING, 4 + dir)
 	w8(g.st_base + F_DIRECTION, dir * 4)
 	w8(g.st_base + F_FACING, dir * 4)
+	-- STEP TYPE 2, AND NOT THE PLAYER'S 6 -- TRIED, AND IT MOVES THE CAMERA.
+	--
+	-- The player's own object walks on step type 6 and crosses a tile in 15.8 frames, where a ghost
+	-- on type 2 crosses in 14.2, so copying the player's looked like the obvious way to make a
+	-- ghost's motion a true copy rather than merely a similar one. It is not: **type 6 is the
+	-- step type that SCROLLS THE CAMERA**, because moving the player is what it is for. Given to a
+	-- ghost it drags the whole view around -- the user, within seconds of it loading, 2026-08-22:
+	-- *"this moved/drifted the whole game camera"*.
+	--
+	-- So the difference in pace is the price of a ghost not being the player, and 2 is correct.
+	-- Recorded here because "match the player's step type" is an obvious-looking idea that will be
+	-- had again, and the reason it fails is invisible until it is on screen.
 	w8(g.st_base + F_STEP_TYPE, 2)
 	-- EIGHT TICKS, NOT SEVEN, BECAUSE A TILE IS 16px AND A STEP VECTOR IS 2px.
 	--
@@ -3088,6 +3112,36 @@ local function renderRemote(id, state)
 	-- out nil, the sub-tile offset was zero, and the painted copy could only land on the
 	-- destination tile -- the user saw it teleport rather than walk (2026-08-21). Lua gives no
 	-- warning for this; a use-before-declaration is a silent nil, not an error.
+	-- WIRE INSTRUMENT, COMPARE_TIERS only. Measures ONE thing at ONE point: how the peer's position
+	-- changes between consecutive messages as they ARRIVE, before any tier touches it.
+	--
+	-- Built this way because the previous version could not be trusted. It reported "1 distinct
+	-- peer position this second" and that was read as the sub-tile component being frozen -- when
+	-- `square_drive` simply pauses at corners, so a stationary second had been sampled and taken as
+	-- evidence. A whole change was reverted on it. So: no per-second snapshots, no gating on a
+	-- `walking` flag that can be stale, and the count of UNCHANGED messages is reported beside the
+	-- changed ones, because "nothing moved" and "nothing was sampled" have to be distinguishable.
+	if COMPARE_TIERS then
+		local w = facingFrames.wire
+		if not w then
+			w = { msgs = 0, same = 0, moved = 0, dist = {} }
+			facingFrames.wire = w
+		end
+		w.msgs = w.msgs + 1
+		local px = (type(pos[3]) == "number") and pos[3] or (pos[1] * 16)
+		local py = (type(pos[4]) == "number") and pos[4] or (pos[2] * 16)
+		if w.lx then
+			local d = math.abs(px - w.lx) + math.abs(py - w.ly)
+			if d == 0 then
+				w.same = w.same + 1
+			else
+				w.moved = w.moved + 1
+				local k = (d <= 8) and d or 9 -- 9 means "more than 8px", i.e. a jump
+				w.dist[k] = (w.dist[k] or 0) + 1
+			end
+		end
+		w.lx, w.ly = px, py
+	end
 	local peerProg = state.extras and tonumber(state.extras.prog) or nil
 	local peerWalking = (state.anim == "walk")
 	-- Only the low two bits are used, but the whole byte is carried so a log shows the direction

@@ -4126,3 +4126,26 @@ file being edited were all insufficient.
   running -- so those two reports describe the previous build, and were nearly used as evidence
   about the change that had just been made. **After any edit, confirm the adapter actually LOADED
   before asking anyone to look at anything.** The loader log says so in one line.
+
+## Crystal: a ghost must NOT use the player's step type -- it scrolls the camera (2026-08-22)
+
+**The idea, which looked obviously right.** Watching both objects at once showed the player's own
+object walking on `OBJECT_STEP_TYPE` **6** and crossing a tile in 15.8 frames, while a spawned ghost
+was hardcoded to **2** and crossed in 14.2. A ghost on a different step type is a different movement
+machine rather than a copy of one, and it was recorded as a real defect: the ghost was FASTER than
+the player, and that was the only thing keeping its 4-frame start lag from accumulating.
+
+**Why it is wrong.** Step type 6 is the step type that **scrolls the camera**, because moving the
+player is what it exists to do. Given to a ghost, the ghost drags the view: the user, within seconds
+of it loading, *"this moved/drifted the whole game camera"*.
+
+**So the pace difference is not a defect, it is the price of a ghost not being the player**, and 2 is
+correct. It is now commented in `stepGhost` as a rejected alternative rather than left looking like
+an oversight, because "just use the player's step type" is an obvious-looking idea that will be had
+again and whose failure mode is invisible until it is on screen.
+
+**The transferable rule: a field copied from the PLAYER'S object may carry the player's privileges.**
+The player's struct is not a template with better numbers in it -- some of its values exist to drive
+things only the player may drive. `phase9.md` already learned the same shape from the other side:
+the ghost is built from an NPC's movement behaviour wearing the player's face, precisely because the
+player's own movement type means "driven by input".
