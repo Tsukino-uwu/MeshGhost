@@ -2736,8 +2736,12 @@ function drawOverflow()
 				-- 2px per 2 frames, so honouring the rhythm cannot make the ghost fall behind.
 				local qx = math.floor(o.pixX / 2 + 0.5) * 2
 				local qy = math.floor(o.pixY / 2 + 0.5) * 2
+				-- The model is born TILE-ALIGNED, from the destination tile rather than from the
+				-- interpolated position: every later move is a committed 16px step, so whatever
+				-- alignment it starts with it keeps forever -- born mid-step, it would stand
+				-- between tiles for the rest of the session.
 				if not o.modelX then
-					o.modelX, o.modelY = qx, qy
+					o.modelX, o.modelY = tX, tY
 				end
 				-- THE PHASE MUST SURVIVE A CATCH-UP, and it must be the ENGINE's phase.
 				--
@@ -2755,7 +2759,10 @@ function drawOverflow()
 				-- taken from the engine's own observed tick when one has been seen, rather than
 				-- from whichever frame we first wanted to move on -- there is a right answer
 				-- available, so guessing is not required.
-				local wants = (o.modelX ~= qx) or (o.modelY ~= qy)
+				-- "Wants to move" is now: mid-step (committed distance unfinished), or a target at
+				-- least half a tile away -- NOT any 2px of disagreement, which is mostly noise.
+				local wants = (o.stepLeft or 0) > 0
+					or (math.abs(qx - o.modelX) + math.abs(qy - o.modelY)) >= 8
 				if not wants then
 					o.modelStill = (o.modelStill or 0) + 1
 					if o.modelStill >= 30 then
@@ -2784,96 +2791,85 @@ function drawOverflow()
 							facingFrames.phaseFollow = (facingFrames.phaseFollow or 0) + 1
 						end
 					end
-					-- CATCH UP ON THE BEAT, WITH A BIGGER HOP -- not off the beat with extra ones.
+					-- COMMIT WHOLE TILES, THE WAY THE ENGINE DOES. (2026-08-23, and it replaces
+					-- three failed catch-up policies in a row.)
 					--
-					-- The first version of this repaid lag by moving on the OFF frames once more
-					-- than 4px behind. Two faults, and the user felt both as *"still stuttering /
-					-- falling behind slightly at some parts"*: the threshold let 4px of lag stand
-					-- permanently, and every repayment move was off-rhythm -- one visible frame of
-					-- relative motion against the camera per repaid beat, 48 of them in one run.
-					-- The cure was dribbling out as its own stutter.
+					-- The previous model consulted the noisy target every beat, mid-step. Whenever
+					-- the target stalled for a beat -- pure wire noise -- the model waited with it,
+					-- the camera kept scrolling, and the ghost visibly slipped 2px backward on
+					-- screen. The screen trace caught it as isolated `-` marks aligned with prog
+					-- stalls. Every catch-up policy tried (instant, three-beat, hysteresis) only
+					-- redistributed those slips: too eager stuttered, too patient let lag grow to
+					-- the emergency snap, and the user duly reported "stuttering constantly", then
+					-- "snapping back~ constantly", then both again. The policies were not the
+					-- problem; consulting the target mid-step was.
 					--
-					-- The engine already has a faster gait on the same beat: the bike moves 4px per
-					-- tick. So a model more than one beat behind takes a 4px hop ON its beat frame
-					-- -- rhythm intact, lag repaid at 2px per beat, and nothing ever moves on a
-					-- frame the engine would not have moved on.
-					-- ...AND ONLY FOR SUSTAINED LAG, never for instantaneous. Hopping the moment the
-					-- deficit crossed one beat made it fire on every ripple of wire noise -- the
-					-- target advances twice in quick succession, the model bike-hops after it, the
-					-- target stalls, the model waits: rush-stop-rush, and the user felt exactly
-					-- that (*"feels like its stuttering constantly now"*, 2026-08-23 -- the fix
-					-- WAS the stutter). Noise oscillates; real lag PERSISTS. So the deficit has to
-					-- stand for three consecutive beats before one 4px hop repays it, which noise
-					-- essentially never does and a genuinely lost beat always does.
-					local deficit = math.abs(qx - o.modelX) + math.abs(qy - o.modelY)
-					local hop = 2
+					-- A Crystal character CANNOT stop mid-tile. Once a step starts the engine
+					-- finishes the 16px, and decisions happen only at tile boundaries. So the
+					-- model now does the same: at a boundary it looks at the target ONCE -- at
+					-- least half a tile away on some axis means commit a full 16px step toward it
+					-- -- and mid-step it looks at nothing. Wire noise can now only ever DELAY a
+					-- step at a boundary, where a pause is tile-aligned and looks like a player
+					-- hesitating, never interrupt one mid-stride.
+					--
+					-- Catch-up survives in one place, with one meaning: more than 1.5 tiles behind
+					-- for three consecutive boundaries arms the bike gait (4px per beat, the
+					-- engine's own) until caught up. The forward-only guard is gone because
+					-- direction is locked per committed step and cannot oscillate by construction.
 					if (emu.framecount() % 2) == o.modelPhase then
-						-- HYSTERESIS: slow to start repaying, fast to finish. One 4px hop per three
-						-- beats repaid slower than stalls accumulated, so the deficit GREW until it
-						-- crossed the 16px emergency resync -- a one-tile snap, constantly, on long
-						-- walks (user, 2026-08-23: *"now its snapping back~ constantly"*). The
-						-- instant version had the opposite fault and stuttered on every ripple.
-						-- So: three lagged beats ARM the catch-up (noise never sustains that long),
-						-- and once armed it hops 4px on EVERY beat until the lag is actually gone
-						-- (a genuinely lost beat is repaid in one or two).
-						if deficit >= 4 then
-							o.lagBeats = (o.lagBeats or 0) + 1
-						else
-							o.lagBeats, o.catchup = 0, nil
+						if (o.stepLeft or 0) == 0 then
+							local dx, dy = qx - o.modelX, qy - o.modelY
+							local adx, ady = math.abs(dx), math.abs(dy)
+							if adx + ady >= 24 then
+								o.lagBeats = (o.lagBeats or 0) + 1
+							else
+								o.lagBeats, o.catchup = 0, nil
+							end
+							if (o.lagBeats or 0) >= 3 then
+								o.catchup = true
+							end
+							if adx + ady > 48 then
+								-- Three tiles out is a teleport, not a walk. Snap to the TILE, so
+								-- the model stays grid-aligned.
+								o.modelX, o.modelY, o.stepLeft = tX, tY, 0
+								if COMPARE_TIERS then
+									facingFrames.modelSnaps = (facingFrames.modelSnaps or 0) + 1
+								end
+							elseif adx >= ady and adx >= 8 then
+								o.stepDX, o.stepDY = (dx > 0 and 1 or -1), 0
+								o.stepLeft = 16
+							elseif ady > adx and ady >= 8 then
+								o.stepDX, o.stepDY = 0, (dy > 0 and 1 or -1)
+								o.stepLeft = 16
+							elseif o.walking and adx + ady >= 4 then
+								-- COMMIT EARLY WHEN THE PEER SAYS IT IS WALKING. The half-tile
+								-- threshold above made the ghost wait ~4 beats at every walk start
+								-- while the camera scrolled -- the screen trace's `-.-.-.-.-` run,
+								-- the one blemish left once steady walking went flat. The walking
+								-- flag is a real signal, not an inference: a Crystal character can
+								-- only stop tile-aligned, so a peer reporting mid-step WILL finish
+								-- that tile, and committing to it now is not a guess. 4px rather
+								-- than 2 so that a lone noise ripple cannot pick the axis.
+								if adx >= ady then
+									o.stepDX, o.stepDY = (dx > 0 and 1 or -1), 0
+								else
+									o.stepDX, o.stepDY = 0, (dy > 0 and 1 or -1)
+								end
+								o.stepLeft = 16
+							end
 						end
-						if (o.lagBeats or 0) >= 3 then
-							o.catchup = true
-						end
-						if o.catchup then
-							hop = 4
-							if COMPARE_TIERS then
+						if (o.stepLeft or 0) > 0 then
+							local hop = o.catchup and 4 or 2
+							if hop > o.stepLeft then hop = o.stepLeft end
+							o.modelX = o.modelX + (o.stepDX or 0) * hop
+							o.modelY = o.modelY + (o.stepDY or 0) * hop
+							o.stepLeft = o.stepLeft - hop
+							if o.catchup and COMPARE_TIERS then
 								facingFrames.catchupFrames = (facingFrames.catchupFrames or 0) + 1
 							end
-						end
-						local dx, dy = qx - o.modelX, qy - o.modelY
-						-- A WHOLE TILE BEHIND IS NOT A LATE STEP. Anything that far out is a
-						-- teleport, a respawn or a map change, and walking it off in 2px hops would
-						-- send the ghost gliding across the map.
-						if math.abs(dx) > 16 or math.abs(dy) > 16 then
-							o.modelX, o.modelY = qx, qy
-							if COMPARE_TIERS then
-								facingFrames.modelSnaps = (facingFrames.modelSnaps or 0) + 1
-							end
-						else
-							local sx2 = (dx > hop and hop) or (dx < -hop and -hop) or dx
-							local sy2 = (dy > hop and hop) or (dy < -hop and -hop) or dy
-							-- FORWARD ONLY. A walking character never moves backwards mid-step, and
-							-- until now this model could, twice a second, invisibly.
-							--
-							-- Rounding onto the 2px grid was justified here with "a monotone input
-							-- stays monotone, so this cannot oscillate". The input is NOT monotone:
-							-- the interpolated position is noisy, measured advancing 0.5px on some
-							-- frames and 1.5px on others. Sitting near a grid boundary, that noise
-							-- flips the rounded target back and forth by a whole 2px, and the
-							-- rhythm gate below turns it into a steady 2px shimmer at 30Hz.
-							--
-							-- Every instrument built for this called that healthy, because each
-							-- individual move IS a legal 2px arriving on a legal 2-frame beat. A
-							-- histogram of magnitudes and a histogram of intervals both read
-							-- perfect while the ghost buzzed on the spot -- which is why the user
-							-- kept saying jittery at numbers that said fixed.
-							--
-							-- So a step that increases the distance to the destination tile is
-							-- refused. The destination only moves forward, so this cannot deadlock;
-							-- a real reversal arrives as a new destination and is followed normally.
-							local before = math.abs(tX - o.modelX) + math.abs(tY - o.modelY)
-							local after = math.abs(tX - (o.modelX + sx2))
-								+ math.abs(tY - (o.modelY + sy2))
-							if after > before then
-								if COMPARE_TIERS then
-									facingFrames.backwards = (facingFrames.backwards or 0) + 1
-								end
-							else
-								o.modelX, o.modelY = o.modelX + sx2, o.modelY + sy2
-								-- The legs read this. Position and pose have to come off ONE
-								-- clock, and this is the tick of that clock.
-								o.modelMovedAt = drawFrames
-							end
+							-- The legs read this. Position and pose come off ONE clock, and this
+							-- is the tick of that clock.
+							o.modelMovedAt = drawFrames
 						end
 					end
 				end
@@ -3322,12 +3318,38 @@ function drawOverflow()
 						-- for column with the frame that went wrong.
 						facingFrames.tProg = (facingFrames.tProg or "")
 							.. string.sub("01234567", (peerProg // 2) % 8 + 1, (peerProg // 2) % 8 + 1)
+						-- THE PIXELS THEMSELVES, signed, in the same columns. Added 2026-08-23 when
+						-- the user reported constant backward snapping while every model counter
+						-- read clean -- the model's own resync counter said 0, so whatever snaps is
+						-- BELOW the model, in the paint. Every instrument to this point measured
+						-- the model; none watched the screen position the eye actually watches.
+						-- `.` steady, `+` 2px with travel, `-` 2px AGAINST travel (the snap), `<`/
+						-- `>` anything larger, `o` an odd pixel (which the engine never draws).
+						-- A `-` column names the frame; the prog/cadence columns above it name what
+						-- the renderer thought it was doing at that moment.
+						local sdc = "."
+						if facingFrames.lastPX then
+							local vert = (o.facing == 0 or o.facing == 1)
+							local sd = vert and (sy - facingFrames.lastPY)
+								or (sx - facingFrames.lastPX)
+							if o.facing == 1 or o.facing == 2 then sd = -sd end
+							if sd ~= 0 then
+								if (sd % 2) ~= 0 then sdc = "o"
+								elseif sd == 2 then sdc = "+"
+								elseif sd == -2 then sdc = "-"
+								elseif sd > 2 then sdc = ">"
+								else sdc = "<" end
+							end
+						end
+						facingFrames.lastPX, facingFrames.lastPY = sx, sy
+						facingFrames.tScreen = (facingFrames.tScreen or "") .. sdc
 						if #facingFrames.tPeer >= 60 then
 							logFile("  cadence ghost  " .. facingFrames.tPeer)
 							logFile("  cadence player " .. facingFrames.tPlayer)
 							logFile("  cadence prog   " .. (facingFrames.tProg or ""))
+							logFile("  cadence screen " .. (facingFrames.tScreen or ""))
 							facingFrames.tPeer, facingFrames.tPlayer = "", ""
-							facingFrames.tProg = ""
+							facingFrames.tProg, facingFrames.tScreen = "", ""
 						end
 					end
 					if o.walking then
@@ -4061,6 +4083,7 @@ local function renderRemote(id, state)
 			modelStill = prev and prev.modelStill,
 			modelMovedAt = prev and prev.modelMovedAt,
 			lagBeats = prev and prev.lagBeats, catchup = prev and prev.catchup,
+			stepDX = prev and prev.stepDX, stepDY = prev and prev.stepDY, stepLeft = prev and prev.stepLeft,
 			progAxis = prev and prev.progAxis,
 			facingSeen = prev and prev.facingSeen,
 			stepLatch = prev and prev.stepLatch,
@@ -4146,6 +4169,7 @@ local function renderRemote(id, state)
 			modelStill = prev and prev.modelStill,
 			modelMovedAt = prev and prev.modelMovedAt,
 			lagBeats = prev and prev.lagBeats, catchup = prev and prev.catchup,
+			stepDX = prev and prev.stepDX, stepDY = prev and prev.stepDY, stepLeft = prev and prev.stepLeft,
 			progAxis = prev and prev.progAxis,
 			facingSeen = prev and prev.facingSeen,
 			stepLatch = prev and prev.stepLatch,
@@ -4184,6 +4208,7 @@ local function renderRemote(id, state)
 			modelStill = prev and prev.modelStill,
 			modelMovedAt = prev and prev.modelMovedAt,
 			lagBeats = prev and prev.lagBeats, catchup = prev and prev.catchup,
+			stepDX = prev and prev.stepDX, stepDY = prev and prev.stepDY, stepLeft = prev and prev.stepLeft,
 			progAxis = prev and prev.progAxis,
 			facingSeen = prev and prev.facingSeen,
 			stepLatch = prev and prev.stepLatch,
