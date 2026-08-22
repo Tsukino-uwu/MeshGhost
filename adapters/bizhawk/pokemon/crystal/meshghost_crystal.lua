@@ -2734,6 +2734,13 @@ function drawOverflow()
 				-- The quantised interpolated position stays the authority for WHERE; this only
 				-- decides WHEN the model is allowed to take its 2px. The peer's true speed is
 				-- 2px per 2 frames, so honouring the rhythm cannot make the ghost fall behind.
+				-- THE MODEL RUNS ON BOTH STREAMS -- tried without it, at 0ms, and refuted the same
+				-- hour. The raw stream is engine-quantised in SPACE but not in arrival TIME: ~7%
+				-- of walking frames receive 0 or 2 messages (measured, ARRIVALS histogram), so a
+				-- verbatim copy lurches 4px on every double arrival -- the user, on the bypass:
+				-- *"now its jittering constantly instead, this made it worse"*. The model's real
+				-- job was never "fix interpolation"; it is "fix arrival timing", and both streams
+				-- have arrival timing.
 				local qx = math.floor(o.pixX / 2 + 0.5) * 2
 				local qy = math.floor(o.pixY / 2 + 0.5) * 2
 				-- The model is born TILE-ALIGNED, from the destination tile rather than from the
@@ -2872,15 +2879,25 @@ function drawOverflow()
 							elseif ady > adx and ady >= 8 then
 								o.stepDX, o.stepDY = 0, (dy > 0 and 1 or -1)
 								o.stepLeft = 16
-							elseif o.walking and adx + ady >= 4 then
-								-- COMMIT EARLY WHEN THE PEER SAYS IT IS WALKING. The half-tile
-								-- threshold above made the ghost wait ~4 beats at every walk start
-								-- while the camera scrolled -- the screen trace's `-.-.-.-.-` run,
-								-- the one blemish left once steady walking went flat. The walking
-								-- flag is a real signal, not an inference: a Crystal character can
-								-- only stop tile-aligned, so a peer reporting mid-step WILL finish
-								-- that tile, and committing to it now is not a guess. 4px rather
-								-- than 2 so that a lone noise ripple cannot pick the axis.
+							elseif o.walking and adx + ady >= 6 then
+								-- COMMIT EARLY WHEN THE PEER SAYS IT IS WALKING -- but not
+								-- INSTANTLY, because the commit threshold is also the CUSHION.
+								--
+								-- Once walking, the model moves at exactly the camera's speed, so
+								-- whatever gap it starts with is the gap it keeps -- and every
+								-- tile boundary re-checks that gap against the wire's arrival
+								-- jitter (measured at plus/minus 2-4px). Committing at 2px started
+								-- the ghost almost immediately and left a cushion thinner than the
+								-- jitter: at 2-4 boundaries per side the target was momentarily
+								-- under 2px ahead and the model stalled a beat, each stall one
+								-- visible 2px slip -- the user's "2-4 jitters per walking
+								-- direction", localized mid-side at prog-0000 boundary holds in
+								-- the trace. Six pixels buys three beats of cushion, which the
+								-- jitter cannot pierce, at the price of one extra slip frame at
+								-- the walk start -- the transition the user reports NOT seeing.
+								-- The walking flag still gates it: a standing peer's noise never
+								-- commits, and a peer reporting mid-step can only stop
+								-- tile-aligned, so the committed tile is never a guess.
 								if adx >= ady then
 									o.stepDX, o.stepDY = (dx > 0 and 1 or -1), 0
 								else
@@ -3374,8 +3391,16 @@ function drawOverflow()
 							local vert = (o.facing == 0 or o.facing == 1)
 							local sd = vert and (sy - facingFrames.lastPY)
 								or (sx - facingFrames.lastPX)
+							-- THE PERPENDICULAR AXIS TOO. This line read pure dots while the user
+							-- still saw a tiny jitter (2026-08-23) -- and it only measured along
+							-- the FACING axis, so any sideways wobble was invisible to it. `x`
+							-- marks a frame where the ghost moved on the axis it is NOT walking
+							-- along, which a walking character never does.
+							local sp = vert and (sx - facingFrames.lastPX)
+								or (sy - facingFrames.lastPY)
 							if o.facing == 1 or o.facing == 2 then sd = -sd end
-							if sd ~= 0 then
+							if sp ~= 0 then sdc = "x"
+							elseif sd ~= 0 then
 								if (sd % 2) ~= 0 then sdc = "o"
 								elseif sd == 2 then sdc = "+"
 								elseif sd == -2 then sdc = "-"
