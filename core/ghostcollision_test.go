@@ -141,9 +141,11 @@ func TestGhostCollisionRepeatedForANewAdapter(t *testing.T) {
 	}
 	fa.conn.Close()
 
-	fa2 := dialFakeAdapter(t, bridgeAddr)
-	fa2.hello("emerald")
-	fa2.awaitReady()
+	// Retry rather than assuming the slot is free the instant the socket
+	// closes — the Core frees it from the departing connection's own read loop.
+	// See reattachFakeAdapter: asserting the instant version is what made this
+	// test go red in a release build while the same commit passed CI.
+	fa2 := reattachFakeAdapter(t, bridgeAddr, "emerald")
 	if got := waitPolicy(t, fa2); got != protocol.GhostCollisionDisabled {
 		t.Errorf("re-attached adapter got %q, want %q -- a relaunched game must be told the policy again",
 			got, protocol.GhostCollisionDisabled)

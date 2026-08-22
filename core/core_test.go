@@ -392,20 +392,42 @@ func TestCoreAcceptsANewAdapterAfterTheFirstLeaves(t *testing.T) {
 	first.awaitReady()
 	first.conn.Close()
 
-	// The Core frees the slot in its bridge OnDisconnect, which runs
-	// asynchronously, so retry rather than assuming instant.
+	reattachFakeAdapter(t, bridgeAddr, "emerald")
+}
+
+// reattachFakeAdapter models a relaunched game: dial, say hello, and retry
+// while the Core is still finishing with the connection that just went away.
+//
+// The Core frees its admission slot from the DEPARTING connection's own read
+// loop (see attachedAdapter in core.go), so "this core is available again" is
+// an EVENTUAL guarantee, not an instant one — closing a socket and dialling in
+// the same breath can beat the EOF, and the new hello is then answered with
+// "busy: this core already has a game attached". In the real case the window is
+// microseconds and relaunching a game takes seconds, so nothing about the
+// product is wrong; a test that closes and redials with zero delay is simply
+// asserting something stronger than the design offers.
+//
+// THIS EXISTED INLINE IN TestCoreAcceptsANewAdapterAfterTheFirstLeaves AND
+// NOWHERE ELSE, which is why TestGhostCollisionRepeatedForANewAdapter flaked:
+// same close-then-redial shape, no retry. It went red in a release build on
+// 2026-08-22 while the identical commit passed CI, and 200 local runs of the
+// test alone never reproduced it. Shared rather than copied a second time —
+// the copy is how the first one failed to reach the second.
+func reattachFakeAdapter(t *testing.T, bridgeAddr, gameID string) *fakeAdapter {
+	t.Helper()
 	deadline := time.Now().Add(testTimeout)
-	for {
-		second := dialFakeAdapter(t, bridgeAddr)
-		second.hello("emerald")
+	for attempt := 1; ; attempt++ {
+		fa := dialFakeAdapter(t, bridgeAddr)
+		fa.hello(gameID)
 		select {
-		case <-second.ready:
-			return
-		case <-second.rejects:
+		case <-fa.ready:
+			return fa
+		case reason := <-fa.rejects:
+			fa.conn.Close()
 			if time.Now().After(deadline) {
-				t.Fatal("core still refusing adapters after the first one left")
+				t.Fatalf("core still refusing adapters %v after the first one left "+
+					"(%d attempts, last reason %q)", testTimeout, attempt, reason)
 			}
-			second.conn.Close()
 			time.Sleep(20 * time.Millisecond)
 		case <-time.After(testTimeout):
 			t.Fatal("timed out waiting for the core to accept a new adapter")
