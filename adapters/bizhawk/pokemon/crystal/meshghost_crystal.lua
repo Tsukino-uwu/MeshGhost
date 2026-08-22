@@ -2808,14 +2808,24 @@ function drawOverflow()
 					local deficit = math.abs(qx - o.modelX) + math.abs(qy - o.modelY)
 					local hop = 2
 					if (emu.framecount() % 2) == o.modelPhase then
+						-- HYSTERESIS: slow to start repaying, fast to finish. One 4px hop per three
+						-- beats repaid slower than stalls accumulated, so the deficit GREW until it
+						-- crossed the 16px emergency resync -- a one-tile snap, constantly, on long
+						-- walks (user, 2026-08-23: *"now its snapping back~ constantly"*). The
+						-- instant version had the opposite fault and stuttered on every ripple.
+						-- So: three lagged beats ARM the catch-up (noise never sustains that long),
+						-- and once armed it hops 4px on EVERY beat until the lag is actually gone
+						-- (a genuinely lost beat is repaid in one or two).
 						if deficit >= 4 then
 							o.lagBeats = (o.lagBeats or 0) + 1
 						else
-							o.lagBeats = 0
+							o.lagBeats, o.catchup = 0, nil
 						end
 						if (o.lagBeats or 0) >= 3 then
+							o.catchup = true
+						end
+						if o.catchup then
 							hop = 4
-							o.lagBeats = 0
 							if COMPARE_TIERS then
 								facingFrames.catchupFrames = (facingFrames.catchupFrames or 0) + 1
 							end
@@ -4050,7 +4060,7 @@ local function renderRemote(id, state)
 			modelPhase = prev and prev.modelPhase,
 			modelStill = prev and prev.modelStill,
 			modelMovedAt = prev and prev.modelMovedAt,
-			lagBeats = prev and prev.lagBeats,
+			lagBeats = prev and prev.lagBeats, catchup = prev and prev.catchup,
 			progAxis = prev and prev.progAxis,
 			facingSeen = prev and prev.facingSeen,
 			stepLatch = prev and prev.stepLatch,
@@ -4135,7 +4145,7 @@ local function renderRemote(id, state)
 			modelPhase = prev and prev.modelPhase,
 			modelStill = prev and prev.modelStill,
 			modelMovedAt = prev and prev.modelMovedAt,
-			lagBeats = prev and prev.lagBeats,
+			lagBeats = prev and prev.lagBeats, catchup = prev and prev.catchup,
 			progAxis = prev and prev.progAxis,
 			facingSeen = prev and prev.facingSeen,
 			stepLatch = prev and prev.stepLatch,
@@ -4173,7 +4183,7 @@ local function renderRemote(id, state)
 			modelPhase = prev and prev.modelPhase,
 			modelStill = prev and prev.modelStill,
 			modelMovedAt = prev and prev.modelMovedAt,
-			lagBeats = prev and prev.lagBeats,
+			lagBeats = prev and prev.lagBeats, catchup = prev and prev.catchup,
 			progAxis = prev and prev.progAxis,
 			facingSeen = prev and prev.facingSeen,
 			stepLatch = prev and prev.stepLatch,
