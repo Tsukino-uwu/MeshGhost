@@ -413,6 +413,12 @@ artifact. Download it, drop it into the matching `testdata/fuzz/<Target>/` direc
 - **Never set `NDJSONConn.MaxLineBytes`/`IdleTimeout`/`WriteTimeout` after `FromConn`.** `FromConn`
   starts the read loop before returning, so the assignment races it. Use `FromConnWithLimits`.
   This exact mistake, in two tests, was the intermittent failure found on 2026-08-16.
+- **A test adapter that sends a state exactly once is a flaky test.** `forwardLocalState` DROPS a
+  frame arriving inside `MinSendInterval` rather than deferring it, and nothing resends it — so a
+  one-shot frame is lost for good whenever the core's read loop happens to process it back to back
+  with the previous one. A real adapter sends its current state continuously; a test must too, from
+  inside the wait loop. Two cross-area tests in `core_test.go` had this; local `-count=10` sweeps
+  never caught it and CI's `-race` job failed one on 2026-08-22.
 - **`go build`/`vet`/`test` do not refresh the root `.exe` files** that `dev-scripts/*.bat`
   launch. Rebuild explicitly with `-o` first. (`internal/e2e` sidesteps this by building its own
   binaries into a temp dir every run, deliberately — a test silently exercising yesterday's build

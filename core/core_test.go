@@ -917,12 +917,21 @@ func TestCrossAreaFiltersRemote(t *testing.T) {
 	}
 
 	// core1 moves to a different area -- adapter2 must despawn it.
-	adapter1.frame(&protocol.State{AreaID: "zone-b", Position: []float64{1, 1}, Anim: "idle"})
+	// Re-sent every iteration, not once: forwardLocalState DROPS a frame that
+	// arrives inside MinSendInterval rather than deferring it, so a state the
+	// adapter sends exactly once can legitimately never reach the wire -- and
+	// nothing would ever resend it. The core sees both frames back to back
+	// whenever its read loop is descheduled between them, which is how this
+	// timed out in CI's race job (2026-08-22) and never locally. A real adapter
+	// sends its current state continuously; so does this one now.
+	zoneB := protocol.State{AreaID: "zone-b", Position: []float64{1, 1}, Anim: "idle"}
+	adapter1.frame(&zoneB)
 
 	deadline2 := time.Now().Add(testTimeout)
 	despawned := false
 	for !despawned && time.Now().Before(deadline2) {
 		adapter2.frame(&self)
+		adapter1.frame(&zoneB)
 		select {
 		case id := <-adapter2.despawns:
 			if id != core1.PlayerID() {
@@ -940,12 +949,17 @@ func TestCrossAreaFiltersRemote(t *testing.T) {
 		t.Fatal("core1 still rendered for adapter2 after moving to a different area")
 	}
 
-	// core1 returns to adapter2's area -- must reappear.
-	adapter1.frame(&protocol.State{AreaID: "zone-a", Position: []float64{2, 2}, Anim: "idle"})
+	// core1 returns to adapter2's area -- must reappear. Re-sent every
+	// iteration for the same reason as zoneB above, and here it is not even
+	// timing-dependent: the loop above left lastSendAt milliseconds old, so a
+	// single frame now is dropped by MinSendInterval every time.
+	back := protocol.State{AreaID: "zone-a", Position: []float64{2, 2}, Anim: "idle"}
+	adapter1.frame(&back)
 
 	deadline3 := time.Now().Add(testTimeout)
 	for time.Now().Before(deadline3) {
 		adapter2.frame(&self)
+		adapter1.frame(&back)
 		if _, ok := adapter2.rendersOf(core1.PlayerID()); ok {
 			return
 		}
@@ -989,12 +1003,21 @@ func TestRenderAllAreasDeliversCrossArea(t *testing.T) {
 
 	// core1 moves to a different area. With render_all_areas the state must
 	// KEEP FLOWING -- new positions from zone-b arrive, and no despawn.
-	adapter1.frame(&protocol.State{AreaID: "zone-b", Position: []float64{7, 7}, Anim: "idle"})
+	// Re-sent every iteration, not once: forwardLocalState DROPS a frame that
+	// arrives inside MinSendInterval rather than deferring it, so a state the
+	// adapter sends exactly once can legitimately never reach the wire -- and
+	// nothing would ever resend it. The core sees both frames back to back
+	// whenever its read loop is descheduled between them, which is how this
+	// timed out in CI's race job (2026-08-22) and never locally. A real adapter
+	// sends its current state continuously; so does this one now.
+	zoneB := protocol.State{AreaID: "zone-b", Position: []float64{7, 7}, Anim: "idle"}
+	adapter1.frame(&zoneB)
 
 	sawZoneB := false
 	deadline2 := time.Now().Add(testTimeout)
 	for !sawZoneB && time.Now().Before(deadline2) {
 		adapter2.frame(&self)
+		adapter1.frame(&zoneB)
 		if st, ok := adapter2.rendersOf(core1.PlayerID()); ok && st.AreaID == "zone-b" {
 			sawZoneB = true
 		}
