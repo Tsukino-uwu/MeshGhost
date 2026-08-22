@@ -1602,6 +1602,16 @@ local function learnFacingFromPlayer()
 	end
 end
 
+-- How many frames the painted copy trails the peer by, to match the distance the engine-driven
+-- tier trails by. Overridable for testing; 0 turns it off and puts the painted copy back where the
+-- peer actually is. See the delay line in drawOverflow for why this exists.
+-- A FIELD, NOT A LOCAL. Adding this as a top-level local pushed the chunk past Lua's 200-local
+-- ceiling and the whole adapter stopped loading -- the same silent non-load that had just been
+-- fixed in Emerald's adapter an hour earlier, walked straight into here. The file has said "this
+-- file is at 197 of Lua's 200 locals" in four separate comments the entire time.
+facingFrames.drawnDelay = tonumber(MESHGHOST_CRYSTAL_DRAWN_DELAY
+	or os.getenv("MESHGHOST_CRYSTAL_DRAWN_DELAY") or "") or 4
+
 -- WHICH FRAME A PEER IS ON, DERIVED FROM THE PEER'S OWN STEP RATHER THAN FROM A TIMER HERE.
 --
 -- The engine drives a spawned ghost's animation for us; a drawn one has nobody to drive it, so
@@ -2375,6 +2385,18 @@ function drawOverflow()
 			oamX = playerOamX, oamY = playerOamY,
 			tx = u8(OBJECT_STRUCTS + F_MAP_X) or 0, ty = u8(OBJECT_STRUCTS + F_MAP_Y) or 0,
 			prog = stepProgress(OBJECT_STRUCTS),
+			-- THE ENGINE'S OWN SMOOTH SUB-TILE OFFSET, alongside the derived one.
+			--
+			-- `prog` above comes from `(8 - duration) * 2`, so it moves 2px every TWO frames. Once
+			-- the peer's own sub-tile position became genuinely smooth (1px a frame, measured), the
+			-- player term stopped cancelling it and the difference jittered 1px every frame -- the
+			-- user, on shipped settings: *"better, still not smooth"*.
+			--
+			-- The fine BG scroll is what the engine itself uses to place everything on screen
+			-- (`screenCoords` subtracts it), and it is smooth by construction because the camera is.
+			-- Reading the engine's answer rather than recomputing it is the same rule that produced
+			-- the facing learner and the anchor calibration.
+			bx = u8(W_BGMAPOFFSETX) or 0, by = u8(W_BGMAPOFFSETY) or 0,
 			walking = (u8(OBJECT_STRUCTS + F_WALKING) or STANDING) ~= STANDING,
 			dir = ((u8(OBJECT_STRUCTS + F_DIRECTION) or 0) // 4) & 3,
 		}
@@ -2570,7 +2592,39 @@ function drawOverflow()
 			-- So the player's progress is used one frame late, to match the OAM it is being paired
 			-- with. pitfalls.md's "a script's writes land between frames" is the same defect on the
 			-- write side; this is its reading twin.
-			local ppx, ppy = offsetFromDest(pDir, pProg, aged.walking)
+			-- MEASUREMENT, COMPARE_TIERS only: the derived player progress against the engine's own
+			-- fine scroll, so the mapping between them is read rather than guessed. Three earlier
+			-- attempts to change this formula were reverted (`pitfalls.md`), every one of them a
+			-- term added on a theory about what another term meant.
+			if COMPARE_TIERS and o.only == "drawn" and aged.walking and drawFrames % 2 == 0 then
+				facingFrames.scrollSeen = facingFrames.scrollSeen or {}
+				local k = string.format("dir%d prog%2d", pDir, pProg)
+				facingFrames.scrollSeen[k] = string.format("bx=%3d by=%3d", aged.bx or -1,
+					aged.by or -1)
+			end
+			-- THE PLAYER'S PROGRESS, AT THE ENGINE'S RESOLUTION RATHER THAN OURS.
+			--
+			-- `pProg` is derived as `(8 - duration) * 2`, so it advances 2px every TWO frames. Once
+			-- the peer's own position became genuinely smooth (1px a frame, measured), this term
+			-- stopped cancelling it and the difference jittered 1px every frame -- the user, on
+			-- shipped settings: *"better, still not smooth"*.
+			--
+			-- The engine's fine BG scroll describes the same motion at 1px per frame, and it is
+			-- what the engine itself places the world with. Measured 2026-08-22 against `pProg`
+			-- across all four directions, every sample agreeing:
+			--
+			--     up, left    fine = scroll mod 16          (e.g. by=70 at prog 6, 78 at prog 14)
+			--     down, right fine = 16 - (scroll mod 16)   (e.g. bx=70 at prog 10, 66 at prog 14)
+			--
+			-- Vertical directions read `by`, horizontal `bx` -- the camera only scrolls on the axis
+			-- being walked. Falls back to `pProg` if the sample predates this field.
+			local pFine = pProg
+			if aged.bx and aged.walking then
+				local v = ((pDir == 0 or pDir == 1) and aged.by or aged.bx) % 16
+				if pDir == 0 or pDir == 3 then v = (16 - v) % 16 end
+				pFine = v
+			end
+			local ppx, ppy = offsetFromDest(pDir, pFine, aged.walking)
 			local gpx, gpy = offsetFromDest(o.facing or 0, peerProg, o.walking)
 
 			-- FILL IN BETWEEN DELIVERIES, AT THE GAME'S OWN WALKING SPEED.
@@ -2606,6 +2660,24 @@ function drawOverflow()
 			-- configuration it was ever judged in.
 			local tgtX = o.pixX or (o.x * 16 + gpx)
 			local tgtY = o.pixY or (o.y * 16 + gpy)
+
+			-- A DELAY LINE, so the painted copy trails by the same distance the engine-driven one
+			-- does. The user's call, 2026-08-22, after seeing the two disagree: *"drawn is still a
+			-- bit ahead of the spawned ghost"*.
+			--
+			-- This is Emerald's answer to the same situation and its note explains why it is not a
+			-- fudge: *"A drawn ghost is naturally AHEAD of a spawned one -- not by error, but
+			-- because the engine cannot begin a step until its object is standing on a tile, so an
+			-- engine-driven ghost always trails the truth by up to one step. Ours has no such rule
+			-- and sits where the peer actually is."* The trailing DISTANCE is reproduced rather
+			-- than the step machine that causes it, so the painted tier keeps its smooth motion.
+			--
+			-- 4 frames by default because that is what the spawned tier's start lag MEASURED at on
+			-- this game (mean 4.3, `unverified.md`) -- Emerald's own 8 was measured on Emerald.
+			o.pixHist = o.pixHist or {}
+			o.pixHist[drawFrames % 32] = { tgtX, tgtY }
+			local old = o.pixHist[(drawFrames - facingFrames.drawnDelay) % 32]
+			if old then tgtX, tgtY = old[1], old[2] end
 			-- HOW THE TARGET ARRIVES, which is a different question from how it is drawn. The core
 			-- interpolates, but it can only produce a new value when the adapter ASKS -- so if the
 			-- bridge delivers at the room's rate rather than per frame, the result is a finer
@@ -2870,6 +2942,16 @@ function drawOverflow()
 							end
 						end
 					end
+					-- THE PAINTED POSITION'S OWN per-frame travel. Every other term has now been
+					-- measured smooth -- the delivered peer position (1px a frame) and the player's
+					-- progress (1px a frame from the engine's scroll) -- so if what actually
+					-- reaches the screen still moves in jumps, the quantisation is downstream of
+					-- both and this is where it shows.
+					if o.paintedX and o.walking then
+						facingFrames.paintStep = facingFrames.paintStep or {}
+						local pd = math.abs(sx - o.paintedX) + math.abs(sy - o.paintedY)
+						facingFrames.paintStep[pd] = (facingFrames.paintStep[pd] or 0) + 1
+					end
 					if o.paintedX and o.walking then
 						facingFrames.stepDelta = facingFrames.stepDelta or {}
 						local k = ("durl"):sub((o.facing or 0) + 1, (o.facing or 0) + 1)
@@ -2966,6 +3048,25 @@ function drawOverflow()
 			logFile(string.format("  loopback round trip, matched against the player's own history:"
 				.. " %s   (mean %.1f frames -- the floor for how late a ghost can start)",
 				table.concat(l, " "), (tot > 0) and (sum / tot) or 0))
+		end
+		if facingFrames.scrollSeen then
+			local ks = {}
+			for k in pairs(facingFrames.scrollSeen) do ks[#ks + 1] = k end
+			table.sort(ks)
+			for _, k in ipairs(ks) do
+				logFile("  scroll map: " .. k .. " -> " .. facingFrames.scrollSeen[k])
+			end
+			facingFrames.scrollSeen = nil
+		end
+		if facingFrames.paintStep then
+			local d = {}
+			for v = 0, 24 do
+				if facingFrames.paintStep[v] then
+					d[#d + 1] = string.format("%dpx:%d", v, facingFrames.paintStep[v])
+				end
+			end
+			logFile("  PAINTED position, change per frame: " .. table.concat(d, " ")
+				.. "   (this is what reaches the screen)")
 		end
 		if facingFrames.tgtStep then
 			local d = {}
@@ -3276,7 +3377,8 @@ local function renderRemote(id, state)
 			lastFacing = hprev and hprev.lastFacing,
 			rearm = hprev and hprev.rearm,
 			smX = hprev and hprev.smX, smY = hprev and hprev.smY,
-			lastTgtX = hprev and hprev.lastTgtX, lastTgtY = hprev and hprev.lastTgtY } or nil
+			lastTgtX = hprev and hprev.lastTgtX, lastTgtY = hprev and hprev.lastTgtY,
+			pixHist = hprev and hprev.pixHist } or nil
 
 		overflow[ck] = { prog = peerProg, walking = peerWalking, face = peerFace,
 			pixX = peerPixX and (peerPixX + COMPARE.drawn * 16),
@@ -3295,7 +3397,8 @@ local function renderRemote(id, state)
 			lastFacing = prev and prev.lastFacing,
 			rearm = prev and prev.rearm,
 			smX = prev and prev.smX, smY = prev and prev.smY,
-			lastTgtX = prev and prev.lastTgtX, lastTgtY = prev and prev.lastTgtY }
+			lastTgtX = prev and prev.lastTgtX, lastTgtY = prev and prev.lastTgtY,
+			pixHist = prev and prev.pixHist }
 	end
 
 	-- FORCE_PEER_SPRITE substitutes here rather than only inside applyPeerSprite, so the probe
@@ -3373,7 +3476,8 @@ local function renderRemote(id, state)
 			lastFacing = prev and prev.lastFacing,
 			rearm = prev and prev.rearm,
 			smX = prev and prev.smX, smY = prev and prev.smY,
-			lastTgtX = prev and prev.lastTgtX, lastTgtY = prev and prev.lastTgtY }
+			lastTgtX = prev and prev.lastTgtX, lastTgtY = prev and prev.lastTgtY,
+			pixHist = prev and prev.pixHist }
 		return
 	end
 
@@ -3404,7 +3508,8 @@ local function renderRemote(id, state)
 			lastFacing = prev and prev.lastFacing,
 			rearm = prev and prev.rearm,
 			smX = prev and prev.smX, smY = prev and prev.smY,
-			lastTgtX = prev and prev.lastTgtX, lastTgtY = prev and prev.lastTgtY }
+			lastTgtX = prev and prev.lastTgtX, lastTgtY = prev and prev.lastTgtY,
+			pixHist = prev and prev.pixHist }
 		end
 		return
 	end

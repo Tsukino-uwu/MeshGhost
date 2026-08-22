@@ -4103,3 +4103,26 @@ an active corruption.
   commit that had just landed. `probes/README.md` already lists which probes write RAM for exactly
   this reason — being on that list is not the same as the person watching the screen knowing it is
   running right now.
+
+## Adding one local silently unloaded the adapter -- an hour after fixing the same fault elsewhere
+
+**2026-08-22.** Crystal's adapter stopped loading entirely with `too many local variables (limit is
+200) in main function`. The cause was a single new top-level local, `DRAWN_DELAY_FRAMES`, added for
+a feature the user had just asked for.
+
+**What makes this worth an entry is the timing.** Emerald's adapter had been found broken by exactly
+this, for exactly this reason, and fixed **the same session** -- and Crystal's own source says "this
+file is at 197 of Lua's 200 locals" in FOUR separate comments, each one written by someone who had
+just been bitten. Knowing the rule, having just applied it elsewhere, and having it written in the
+file being edited were all insufficient.
+
+**Two things follow, and the second is the useful one:**
+
+- The fix is the same one the file already uses everywhere: hang the value on an existing table
+  (`facingFrames.drawnDelay`). A field costs no local.
+- **The failure is silent to the person watching the screen.** The adapter simply does not load;
+  the game plays normally and the ghosts are absent or frozen at whatever they last were. During
+  this session the user reported on the drawn ghost's behaviour TWICE while no adapter was
+  running -- so those two reports describe the previous build, and were nearly used as evidence
+  about the change that had just been made. **After any edit, confirm the adapter actually LOADED
+  before asking anyone to look at anything.** The loader log says so in one line.
