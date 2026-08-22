@@ -804,3 +804,35 @@ blob's constants — spawn, the update callback, the bob mode, the frame size an
 which is live code on a feature the user signed off as 1:1. Emerald is parked, so nothing has been
 watched since. **Before Emerald is next used for anything, load it and surf**; a wrong field name
 here reads as nil and would show up as a missing or misplaced blob rather than an error.
+
+## Crystal: the spawned ghost starts each step ~4 frames after the peer (2026-08-22)
+
+Measured with both step machines watched at once, counting between actual tile changes with no
+`OBJECT_WALKING` gate (every earlier instrument had one, and it hid the frames where the
+disagreement lives):
+
+| | frames per tile | step type | starts its step |
+|---|---|---|---|
+| player | 15.8 | **6** | — |
+| spawned ghost | 14.2 | **2** | mean **4.3 frames** later, worst 15 |
+
+The user, watching: *"Its falling behind and not keeping up again while walking around, looks
+slightly behind/slow/late, everything else looks alright on it now no snapping/teleport etc"* — so
+motion QUALITY is settled and only the phase lag remains.
+
+**The wire is 1.5 frames of the 4.3** (measured separately against the player's own history ring on
+loopback). The rest is the adapter's own pipeline: the peer state is read, a step is decided, and
+the engine acts on the following frame.
+
+**Two separate findings, and only the first is a defect:**
+
+- **The ghost walks on step type 2 while the player's own object uses 6.** Hardcoded in
+  `stepGhost` and never checked against the game. That is why the ghost crosses a tile in 14.2
+  frames where the player takes 15.8 — it is a different movement machine, not a copy of one. Being
+  faster is currently the only thing stopping the start lag accumulating, which means the two
+  errors have been hiding each other.
+- **The start lag is structural for an engine-driven ghost** and `architecture.md` already says so.
+  Cutting it means starting a step from `extras.prog` -- which the peer already sends and the DRAWN
+  tier already uses to sit exactly on the peer — instead of waiting to notice a tile change.
+
+Neither is scheduled. Both are measured, and the numbers above are what any fix has to beat.
