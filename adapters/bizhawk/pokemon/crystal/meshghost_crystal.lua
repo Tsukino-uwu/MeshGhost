@@ -2769,7 +2769,37 @@ function drawOverflow()
 							facingFrames.relatch = (facingFrames.relatch or 0) + 1
 						end
 					end
-					if (emu.framecount() % 2) == o.modelPhase then
+					-- FOLLOW THE ENGINE'S BEAT, don't just remember it. The latch was taken once per
+					-- walk, and a lag frame flips the engine's parity mid-walk -- the tick pauses
+					-- for a frame while `emu.framecount()` does not. After one of those the ghost
+					-- is anti-phase for the REST of the walk: a constant 2px shake that starts
+					-- somewhere in a long walk and never clears, which is the user's *"constant
+					-- weird thing after moving far sometimes"* -- long walks have more lag frames
+					-- to catch. `tickParity` is re-observed on every advance of the player's own
+					-- step progress, so it survives what the latch cannot.
+					if facingFrames.tickParity ~= nil
+						and o.modelPhase ~= facingFrames.tickParity then
+						o.modelPhase = facingFrames.tickParity
+						if COMPARE_TIERS then
+							facingFrames.phaseFollow = (facingFrames.phaseFollow or 0) + 1
+						end
+					end
+					-- CATCH UP AT THE GAME'S OWN RUN PACE. The walk moves 2px every other frame --
+					-- exactly the peer's speed -- so ground lost to a stall was lost forever: no
+					-- beat existed to win it back on, and every stall added 2px to a lag that only
+					-- a pause could clear. Over a long walk that accumulates, which is the growing
+					-- half of "after moving far". More than 4px behind (one whole beat), the model
+					-- moves every frame instead: 2px per frame is the engine's RUNNING speed, so
+					-- the catch-up is still a gait the game has, not a glide.
+					local deficit = math.abs(qx - o.modelX) + math.abs(qy - o.modelY)
+					local due = (emu.framecount() % 2) == o.modelPhase
+					if deficit > 4 then
+						due = true
+						if COMPARE_TIERS then
+							facingFrames.catchupFrames = (facingFrames.catchupFrames or 0) + 1
+						end
+					end
+					if due then
 						local dx, dy = qx - o.modelX, qy - o.modelY
 						-- A WHOLE TILE BEHIND IS NOT A LATE STEP. Anything that far out is a
 						-- teleport, a respawn or a map change, and walking it off in 2px hops would
@@ -3486,9 +3516,11 @@ function drawOverflow()
 			-- refusing to step, and the reasons say which of the three refusals did it -- the
 			-- distinction that "the ghost stands there" cannot make on screen.
 			logFile(string.format("  MODEL walk: furthest behind its destination %.0fpx (a step is "
-				.. "16px), %d resyncs, %d backward steps refused",
+				.. "16px), %d resyncs, %d backward steps refused, "
+				.. "%d beat corrections, %d catch-up frames",
 				facingFrames.modelMax or 0, facingFrames.modelSnaps or 0,
-				facingFrames.backwards or 0))
+				facingFrames.backwards or 0, facingFrames.phaseFollow or 0,
+				facingFrames.catchupFrames or 0))
 			-- ONE PARITY SHOULD DOMINATE. If the engine's movement tick were not tied to frame
 			-- parity at all this would read roughly 50/50, and locking the ghost to it would be
 			-- meaningless -- so the number that justifies the fix is printed beside it.
