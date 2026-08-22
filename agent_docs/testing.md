@@ -304,9 +304,44 @@ and its `contents: write` permission is the reason CI is deliberately `contents:
   run it found a second divergence nobody was looking for: udp signals nothing at all on close, so
   a peer waits out the full 60s idle timeout. That one is a documented skip with the consequence
   named, not a deleted assertion.
+- **`core/reconnect_test.go`, `core/resume_test.go`, `internal/e2e/restart_e2e_test.go`** — what
+  happens when something restarts, added 2026-08-22. The teardown that runs on a relay drop clears
+  thirteen per-connection values and only one of them had a test; the roster is among them, and it
+  is a trust boundary, so an id outliving the connection that named it is a security property
+  rather than a tidiness one. The resume files are the first tests anywhere to run the CLIENT half
+  of resumption — the relay's half was well covered, but nothing had ever exercised storing the
+  token, presenting it, or discarding it when the game closes. The e2e trio kills and restarts the
+  relay, the client, and the adapter in turn. Each carries its own negative control, because a
+  restart test that never actually caused an outage passes for free.
 - **`relay/leak_test.go`** — goroutine and connection-slot teardown. Both pass; these
   exist because a relay holds sessions for hours and nothing else asserted that a closed
   connection actually releases anything.
+
+## Known gaps, not yet written
+
+Found by a coverage survey on 2026-08-22 and **recorded rather than fixed**, because the same pass
+was spent closing the restart/re-attach cluster instead (`core/reconnect_test.go`,
+`core/resume_test.go`, `internal/e2e/restart_e2e_test.go`). Ranked by what a bug there would cost.
+
+1. **The bridge and protocol message-type STRINGS are pinned nowhere.** No Go test contains the
+   literal `"render_remote"`, `"bridge_ready"` or `"session_policy"` — the Go side uses the
+   constants, while every shipped adapter hard-codes the strings in Lua/C#/C++. Renaming a
+   constant's *value* compiles, keeps this entire suite green, and breaks every game.
+   `internal/gameblind`'s `TestWireFieldsAreFrozen` freezes both packages' *field names* and is the
+   obvious place to freeze the type values too.
+2. **Relay resource bounds and refusal reasons.** `MaxLeasesPerRoom` and `MaxEscrowsPerRoom` have
+   zero coverage while their world-plane twin `WorldTooMany` is tested — the asymmetry is the tell.
+   The escrow timeout, which is the deadlock backstop for both-or-neither, has no test and no test
+   seam; `Server.ResumeGrace` is the precedent for adding one. Four reject reasons — server-full,
+   protocol-version, invalid-room-code, game-version — are asserted only as "some reject happened",
+   so a relay that closed the connection *without* its reason would still pass.
+3. **Transport conformance and fault injection.** `netx/conformance_test.go` carries four
+   assertions and never sends anything unreliable, so the reliable/unreliable split is unasserted
+   across transports — the one place a divergence is cheapest to catch. `WriteTimeout` has no test
+   anywhere in the repo. Line limits are tested only at the no-delimiter extreme, never at the
+   boundary and never for resync. And `cmd/meshghost-netsim`'s own `-duplicate`, `-reorder` and
+   partial-loss paths have no tests, which is exactly the "a checker with no test of its own passes
+   forever" failure this file already warns about for the fakeadapter checkers.
 
 ## Running the things the script doesn't
 
