@@ -771,3 +771,18 @@ confirmed by the user watching a loopback session in New Bark Town, in their own
    the engine play fishing, bumping, spinning, the "!" emote and the Fly landing on a spawned
    ghost. `probes/action_watch.lua` has now shown STAND, STEP and BUMP reaching the player's own
    object during ordinary play; FISHING, SPIN, EMOTE and SKYFALL were never produced in that run.
+
+## Crystal's two anti-stuck passability rules have never been watched (2026-08-22)
+
+`shouldBlock` makes a peer passable two ways, and both were held OFF during the collision
+confirmation in `verified.md` because a frozen ghost trips them within seconds:
+
+- **idle**: a peer that has not changed tile for `IDLE_FRAMES_BEFORE_PASSABLE` becomes passable and
+  is demoted to the painted tier, which has no collision at all. So a peer standing still stops
+  being solid *and* changes renderer, and nobody has seen either transition happen.
+- **pushed**: holding the d-pad into a peer for `PUSH_FRAMES_BEFORE_PASSABLE` frames makes it
+  passable for `PASSABLE_HOLD_FRAMES`, so a player cannot be trapped. Never watched.
+
+Both are shipped behaviour on the tier most peers actually get. To test them, clear
+`MESHGHOST_CRYSTAL_FREEZE_STATE` — it forces `shouldBlock` true precisely to keep them out of the
+way of a hitbox test.

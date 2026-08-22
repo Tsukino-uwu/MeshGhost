@@ -211,25 +211,50 @@ Confirmed on screen 2026-08-19 with nine spawned ghosts and the pause menu open.
 because it is a property of the game: hardware priority does this for anything the engine itself
 is drawing, with nothing asked of whoever put the character in the array.
 
-## How a walking sprite's 12 tiles become four facings
+## How a walking sprite's tiles become four facings and a walk cycle
 
-A walking overworld sprite is **12 tiles**, and those are **three views of four tiles**, not four:
+A walking overworld sprite is **six views of four tiles** — three standing and three stepping —
+and a character's tiles are found **relative to its own tile base** (`OBJECT_SPRITE_TILE`):
 
-| View | Tiles | Used for |
+| View | Offset from the character's own base | Used for |
 |---|---|---|
-| down | 0-3 | facing down |
+| down | 0-3 | facing down, standing or mid-step |
 | up | 4-7 | facing up |
 | side | 8-11 | facing **both** left and right |
+| down, stepping | 0x80-0x83 | facing down, on a step |
+| up, stepping | 0x84-0x87 | facing up |
+| side, stepping | 0x88-0x8B | left and right |
 
 **There is no left art and no right art.** One side view is drawn as-is for one direction and
-mirrored by the hardware for the other — measured on the player's own sprite, every clean sample
-agreeing: left takes it unflipped, right takes it mirrored.
+mirrored by the hardware for the other — every clean sample agreeing: left takes it unflipped,
+right takes it mirrored.
 
-**The walk cycle is also produced by mirroring**, which is why the flip carries two unrelated
-meanings depending on the view. Facing down or up, both flips are legitimate and alternating
-between them IS the animation. Facing sideways, the flip is what says which way the character is
-looking, so alternating there is not animation — it is the character turning round.
+**The stepping views are 0x80 above the standing ones, relative to the character's own base.**
+Measured on two characters at two different bases in one session: the player at base 0x00 (stepping
+at 0x80-0x8B) and an Olivine NPC at base 0x30 (standing at 0x38-0x3B, stepping at 0xB8-0xBB). So
+0x80 is a stride within a sprite's own graphics, not an absolute region of tile memory.
 
-Measured 2026-08-22 by logging what the engine actually drew (`MESHGHOST_CRYSTAL_FACING_TRACE`),
-against the player walking each direction. Why it matters to an adapter, and the fault it produced
-when only the tiles were checked and not the flip: `agent_docs/pitfalls.md`.
+**In the CARTRIDGE the six views are contiguous**, because ROM has no tile base to be relative to:
+VRAM `base + 0..11` are ROM tiles 0-11 and VRAM `base + 0x80..0x8B` are ROM tiles **12-23**,
+matched byte for byte on both sprites above. A sprite's graphics are therefore **24 tiles**, even
+though the sprite table's own size field reports 192 bytes — that field describes the standing
+half only.
+
+**Which view is drawn is a function of how far through its step a character is**, and the partition
+is exact, with no overlap, measured across all four directions:
+
+| Pixels into the step | View drawn |
+|---|---|
+| 0, 2, 4, 14 | stepping |
+| 6, 8, 10, 12 | standing |
+
+**The two feet come from mirroring the stepping view**, so the flip carries two unrelated meanings
+depending on the direction. Facing down or up, both flips are legitimate and alternating between
+them is what makes the walk cycle. Facing sideways, the flip is what says which way the character
+is looking, so it cannot also carry the stride — a sideways walk uses one stepping view throughout.
+Which foot is selected by the low two bits of `OBJECT_FACING`, the engine's own stride index.
+
+Measured 2026-08-22 by logging what the engine actually drew (`probes/stride_probe.lua`, and
+`MESHGHOST_CRYSTAL_FACING_TRACE`), against the player and an NPC walking each direction. Why it
+matters to an adapter, and the two faults it produced — the flip read as a direction, and the
+stepping views discarded as another character's tiles: `agent_docs/pitfalls.md`.

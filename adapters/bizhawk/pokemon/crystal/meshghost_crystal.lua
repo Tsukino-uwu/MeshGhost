@@ -679,6 +679,24 @@ local function getLocalState()
 	if not inPlay() then
 		return nil -- a menu, a battle, a warp: nothing meaningful to send
 	end
+	-- DEV ONLY: MESHGHOST_CRYSTAL_FREEZE_STATE pins what this client SENDS to the first state it
+	-- ever sent, so a loopback ghost stops mirroring the player and stands still while the player
+	-- walks around it. Asked for 2026-08-22 to test collision and hitboxes by walking INTO a ghost,
+	-- which a ghost that copies your every move can never let you do.
+	--
+	-- It freezes the SEND side rather than the receive side on purpose: one place, and both tiers
+	-- see exactly the same frozen peer, so the spawned and painted copies stay comparable. Note the
+	-- area is frozen too, so changing map while this is on leaves the ghost describing a map it is
+	-- no longer on -- fine for a local test, useless for anything else. Never set in a release.
+	-- A BARE GLOBAL, not a local and not a field on one of this file's tables. Every table here
+	-- (`playerHistory`, `facingFrames`) is declared HUNDREDS of lines below this function, so
+	-- naming one resolves to nil and throws on the first tick -- which is exactly what happened
+	-- 2026-08-22, and is the third time this file has hit the trap `pitfalls.md` records as "a
+	-- local declared BELOW a function is a nil global inside it". A global also costs nothing
+	-- against Lua's 200-local ceiling, which this file sits at.
+	if MESHGHOST_CRYSTAL_FREEZE_STATE and MESHGHOST_CRYSTAL_FROZEN then
+		return MESHGHOST_CRYSTAL_FROZEN
+	end
 	local base = OBJECT_STRUCTS
 	local facing = u8(base + F_DIRECTION) or 0
 	return {
@@ -701,9 +719,29 @@ local function getLocalState()
 		-- Derived from the engine's own countdown: a normal step is 8 frames at 2px
 		-- (StepVectors), and OBJECT_STEP_DURATION counts down through it, so pixels travelled is
 		-- (8 - duration) * 2. Zero while standing, which is exactly right.
+		-- `face` is OBJECT_FACING, and only its low two bits matter to a receiver: the stride index
+		-- the ENGINE chose for this character, which is what says which foot a stepping frame is
+		-- on. Down and up mirror their stepping view between strides; left and right cannot, since
+		-- there the flip is what says which way the character looks. A receiver never has to know
+		-- which case it is in -- it looks up the frame the engine drew for that stride.
+		--
+		-- One byte, and per STEP rather than per frame, so it is nothing like the smoothness-
+		-- critical values `pitfalls.md` warns must not ride in `extras`.
 		extras = { sprite = u8(base + F_SPRITE) or 0, act = u8(base + F_ACTION) or 0,
-			prog = stepProgress(base) },
+			prog = stepProgress(base), face = u8(base + F_FACING) or 0 },
 	}
+end
+
+-- Wrap the above so the freeze flag captures exactly one real sample and then repeats it.
+local getLocalStateLive = getLocalState
+function getLocalState()
+	local st = getLocalStateLive()
+	if MESHGHOST_CRYSTAL_FREEZE_STATE and st and not MESHGHOST_CRYSTAL_FROZEN then
+		MESHGHOST_CRYSTAL_FROZEN = st
+		logFile("FREEZE: peers pinned to " .. tostring(st.position[1]) .. ","
+			.. tostring(st.position[2]) .. " -- both ghosts will stand still while you walk")
+	end
+	return st
 end
 
 ----------------------------------------------------------------------------
@@ -839,6 +877,17 @@ local ACTIONS = {}
 ACTIONS.idle = { [0] = true, [1] = true, [2] = true }
 
 local function shouldBlock(id, x, y, act)
+	-- DEV ONLY, and it pairs with MESHGHOST_CRYSTAL_FREEZE_STATE: a frozen peer is by definition
+	-- idle, so both shipped anti-stuck rules below would fire within seconds -- the five-second
+	-- idle rule makes it passable AND demotes it to the painted tier (which has no collision at
+	-- all), and pushing into it makes it passable on purpose. Either one ends a hitbox test before
+	-- it starts. Holding it solid is the only way to walk into the same ghost twice.
+	--
+	-- Testing those two rules THEMSELVES means turning this off: they are real shipped behaviour,
+	-- not something in the way.
+	if MESHGHOST_CRYSTAL_FREEZE_STATE then
+		return true
+	end
 	local a = activity[id]
 	if not a then
 		a = { x = x, y = y, movedAt = policyFrames, passableUntil = 0 }
@@ -1202,8 +1251,9 @@ end
 
 -- WHICH FOUR TILES, AND FLIPPED HOW -- learned from the engine, not guessed.
 --
--- A walking sprite is 12 tiles (GetSpriteLength), and how those become a facing plus a walk
--- frame is the engine's business: it picks tile ids and per-sprite x-flips as it builds OAM. So
+-- A walking sprite is six views of four tiles -- three standing and three stepping (see
+-- `documentation.md`) -- and how those become a facing plus a stride is the engine's business: it
+-- picks tile ids and per-sprite x-flips as it builds OAM. So
 -- rather than reverse-engineer the layout, the drawn tier WATCHES the local player -- who is
 -- always object struct 0 and always has the first four OAM entries -- and records what the engine
 -- used for each facing. A drawn peer facing the same way then renders with exactly those tiles.
@@ -1211,10 +1261,15 @@ end
 -- This is the same principle as calibrating the screen position against OAM: the engine is
 -- already doing the work correctly every frame, so read its answer instead of recomputing it.
 -- It also means the mapping is automatically right for whichever sprite the player is wearing.
--- facing (0..3) -> { stand = frame, walk = { frame, frame } }, where a frame is the four OAM
--- parts the engine used. Walk frames are collected while the player is mid-step, and the two
--- alternates are told apart by which tiles they use rather than by any assumption about the
--- sprite's layout.
+-- facing (0..3) -> { stand = <frame>, step = { [0..3] = <frame> } }, where a frame is the four OAM
+-- parts the engine used. `stand` is the standing view, which the engine also draws for the middle
+-- of every step; `step` is the stepping view, keyed by the stride index the engine itself chose
+-- (the low two bits of OBJECT_FACING) so the two feet cannot be confused with each other.
+--
+-- WHICH LIST A FRAME BELONGS IN IS READ OFF THE ART, not off what the player was doing when it was
+-- sampled: bit 0x80 of the tile offset separates a sprite's standing views from its stepping ones.
+-- Deriving it means arrival order cannot decide anything, which is the mistake the first version
+-- of this cache made twice.
 local facingFrames = {}
 
 local function readPlayerOamFrame()
@@ -1238,15 +1293,31 @@ local function readPlayerOamFrame()
 		-- learned frames were out of range, and the two facings with NO valid frame were exactly
 		-- the two the user reported swapping (2026-08-22).
 		--
-		-- A walking sprite is 12 tiles (GetSpriteLength -- see the facingFrames header), so a real
-		-- offset is 0..11. Anything else is not this sprite, and the honest response is to learn
-		-- nothing this frame rather than to record a plausible-looking wrong answer.
+		-- A character's own art is `(offset & 0x7F) < 12`, NOT `offset < 12`, and that mask is the
+		-- whole reason this tier animates at all.
+		--
+		-- A sprite has SIX views, not three: three standing views at its tile base + 0..11, and
+		-- three STEPPING views at its tile base + 0x80 + 0..11. Measured 2026-08-22 on two
+		-- characters at two different bases in one session -- the player (base 0x00, stepping at
+		-- 0x80-0x8B) and an Olivine NPC (base 0x30, standing at 0x38-0x3B, stepping at 0xB8-0xBB)
+		-- -- so the 0x80 is relative to the character's own base rather than an absolute block.
+		-- `documentation.md` has the layout.
+		--
+		-- THE NARROWER RULE WAS THIS TIER'S MISSING ANIMATION. Written the same day to stop the
+		-- learner adopting another character's OAM entries, `offset >= 12` also rejected every
+		-- stepping frame as foreign -- so the only mid-step art it could ever accept was the pass
+		-- frame, which is the standing art, and `entry.step` stayed empty in all four directions
+		-- for a whole session. The user, 2026-08-22, on the result: the drawn ghost is *"perfect
+		-- but not animated"*. The guard was right about the danger and wrong about the boundary.
+		--
+		-- The mask keeps the guard's actual job: the Olivine NPC's tiles decode to offset 0x38 and
+		-- 0xB8 from the PLAYER's base, and `& 0x7F` leaves both at 0x38 -- still rejected.
 		local tile = memory.read_u8(i * 4 + 2, "OAM") or 0
 		local offset = (tile - playerTileBase) & 0xFF
-		-- 12, written as a literal on purpose: this file is at 197 of Lua's 200 top-level locals
-		-- and has failed to load silently four times from crossing it. The name it would have had
-		-- is in the comment above instead.
-		if offset >= 12 then
+		-- 12 and 0x7F as literals on purpose: this file is at 197 of Lua's 200 top-level locals
+		-- and has failed to load silently four times from crossing it. The names they would have
+		-- had are in the comment above instead.
+		if (offset & 0x7F) >= 12 then
 			return nil
 		end
 		frame[i + 1] = {
@@ -1314,9 +1385,9 @@ end
 --
 -- At the instant the player turns, the two disagree by exactly one frame, so the OLD direction's
 -- artwork is filed under the NEW direction. `facingFrames` is never cleared, so that poisoned
--- entry lasts the rest of the session -- and because `entry.walk` deliberately keeps two distinct
--- stride frames, a poisoned one sits alongside a good one and `drawCharacter` alternates between
--- them. On screen that is a ghost swapping between two facings while walking in one direction.
+-- entry lasts the rest of the session -- and because a direction holds several stride frames, a
+-- poisoned one sits alongside a good one and the tier alternates between them. On screen that is a
+-- ghost swapping between two facings while walking in one direction.
 --
 -- The user, 2026-08-22: *"going right has the 'facing down/right constantly' issue"* -- having
 -- watched the same fault sit on LEFT before a reload and move to RIGHT after one. That movement is
@@ -1353,7 +1424,11 @@ local function learnFacingFromPlayer()
 	-- emu.framecount() rather than this file's own `drawFrames`, which is declared ~400 lines
 	-- BELOW here and would silently resolve to a nil global.
 	local nowFrame = emu.framecount()
-	facingFrames.prev = { dir = dirNow, at = nowFrame }
+	-- `face` is OBJECT_FACING, which is a direction AND a stride index in one byte
+	-- (`documentation.md`): STEP_DOWN_0..3 are four entries of one list. Its low two bits are the
+	-- engine's own answer to "which foot", and they are paired with the art the same way the
+	-- direction is -- from the frame the pixels were built from, never from this one.
+	facingFrames.prev = { dir = dirNow, at = nowFrame, face = u8(OBJECT_STRUCTS + F_FACING) or 0 }
 
 	local frame = readPlayerOamFrame()
 	if not frame then
@@ -1365,7 +1440,7 @@ local function learnFacingFromPlayer()
 	local facing = prev.dir
 	local entry = facingFrames[facing]
 	if not entry then
-		entry = { walk = {} }
+		entry = { step = {} }
 		facingFrames[facing] = entry
 	end
 	-- The group check guards the STANDING frame too, and has to run before it: `entry.stand` is
@@ -1373,8 +1448,9 @@ local function learnFacingFromPlayer()
 	-- there shows up the moment a peer stops. It was the second half of the same hole.
 	-- WHICH GROUP A FACING WEARS IS A PROPERTY OF THE SPRITE FORMAT, NOT SOMETHING TO LEARN.
 	--
-	-- A 12-tile walking sprite is three views of four tiles: DOWN is tiles 0-3, UP is 4-7, and
-	-- LEFT/RIGHT share 8-11, told apart by the hardware flip rather than by separate art. Measured
+	-- A walking sprite is views of four tiles: DOWN is tiles 0-3, UP is 4-7, and LEFT/RIGHT share
+	-- 8-11, told apart by the hardware flip rather than by separate art -- and each has a stepping
+	-- twin 0x80 higher, which the mask above folds onto the same group. Measured
 	-- with MESHGHOST_CRYSTAL_FACING_TRACE across several sessions on 2026-08-22, every clean
 	-- sample agreeing: facing 0 -> [0 1 2 3], 1 -> [4 5 6 7], 2 -> [8 9 10 11], 3 -> the same four
 	-- flipped.
@@ -1389,7 +1465,11 @@ local function learnFacingFromPlayer()
 	-- Deriving it instead makes contamination unable to win regardless of arrival order, which is
 	-- the point: our own spawned ghost wears the player's sprite AND tile base, so a frame taken
 	-- from its OAM entries is indistinguishable from ours except by which view it holds.
-	local group = frame[1].offset // 4
+	-- MASKED, because a stepping frame carries the same view in the same place, 0x80 higher. Its
+	-- group is therefore `(offset & 0x7F) // 4` -- without the mask a stepping frame's group comes
+	-- out at 32-34 and every one of them is rejected by the check below, which is the second half
+	-- of the same defect as the range guard above.
+	local group = (frame[1].offset & 0x7F) // 4
 	if group ~= ((facing == 0) and 0 or (facing == 1) and 1 or 2) then
 		return
 	end
@@ -1407,22 +1487,38 @@ local function learnFacingFromPlayer()
 	if group == 2 and frame[1].xflip ~= (facing == 3) then
 		return
 	end
-	if (u8(OBJECT_STRUCTS + F_WALKING) or STANDING) == STANDING then
+	-- FILE THE FRAME BY WHAT THE ART IS, NOT BY WHAT THE PLAYER WAS DOING.
+	--
+	-- The old rule read F_WALKING and called anything mid-step a "walk frame". That is a question
+	-- about the player, and it gets the wrong answer twice: the PASS frame is drawn mid-step and is
+	-- byte-identical to the standing art, so it landed in the walk list; and with two slots filled
+	-- on arrival order, which frame a direction ended up alternating depended on when sampling
+	-- started. `phase9.md` already has the general form of this -- a rule that protects whatever
+	-- arrived first is only as good as the first arrival.
+	--
+	-- Bit 0x80 of the offset says it outright, because that is exactly what distinguishes the two
+	-- halves of a sprite's graphics: clear means a standing view, set means a stepping view. So the
+	-- art files itself and arrival order stops mattering.
+	if (frame[1].offset & 0x80) == 0 then
 		entry.stand = frame
 		return
 	end
-	-- Mid-step: this is a walk frame. Keep up to two distinct ones -- the engine alternates a
-	-- left and a right stride -- identified by their tiles, so nothing here assumes how the
-	-- sprite's 12 tiles are laid out.
-	for _, known in ipairs(entry.walk) do
-		if sameFrame(known, frame) then
-			return
-		end
+	-- A STEPPING view, filed under the stride index the ENGINE chose for it -- the low two bits of
+	-- OBJECT_FACING, paired with the art the same way the direction is.
+	--
+	-- Keyed rather than appended, so a direction cannot end up alternating two copies of the same
+	-- foot, and so a later sample corrects an earlier one instead of being locked out. Measured
+	-- 2026-08-22: walking down, the stepping view is drawn unflipped at stride 1 and 2 and mirrored
+	-- at stride 0 and 3 -- the two feet. Left and right have only one stepping view each, because
+	-- there the flip is what says which way the character looks, so their four strides all agree.
+	local stride = (prev.face or 0) & 3
+	if entry.step[stride] and sameFrame(entry.step[stride], frame) then
+		return
 	end
 	-- A FACING MAY ONLY WEAR ART FROM ITS OWN TILE GROUP.
 	--
-	-- A 12-tile walking sprite is three groups of four, one per view: measured 2026-08-22, down is
-	-- group 0, up group 1, and left/right share group 2, told apart by the hardware flip. So every
+	-- A view is four tiles: measured 2026-08-22, down is group 0, up group 1, and left/right share
+	-- group 2, told apart by the hardware flip, with each view's stepping twin 0x80 higher. So every
 	-- frame a facing accepts must come from one group -- two groups under one facing means the tier
 	-- alternates between two different views, which is the character visibly changing where it
 	-- looks while walking in a straight line.
@@ -1438,63 +1534,130 @@ local function learnFacingFromPlayer()
 	-- facing's art. Measured before and after -- four mixed-group acceptances in one session
 	-- beforehand, and they arrived ~2000 frames in, once the ghost was up and facing elsewhere,
 	-- which is why the tier looked correct at first and then degraded in all four directions.
-	if #entry.walk < 2 then
-		entry.walk[#entry.walk + 1] = frame
-		-- TRACE, off unless MESHGHOST_CRYSTAL_FACING_TRACE is set. Edge-triggered by construction:
-		-- a facing only ever accepts two frames, so this fires at most eight times a session and
-		-- costs nothing per frame. File only -- one console line a second was measured at 63-83ms.
-		--
-		-- WHAT IT IS FOR. This list keeps the FIRST two distinct frames a facing ever sees and then
-		-- locks, and `facingFrames` is never cleared -- so one bad sample poisons that direction for
-		-- the whole session and the tier alternates between the good frame and the bad one. That is
-		-- the swap the user reported on 2026-08-22, and it MOVES between directions on any change
-		-- that alters which samples arrive first, which is why it read as a regression three times.
-		-- Logging what actually lands here, with the state it was captured in, is what tells a bad
-		-- sample from a legitimate second stride -- the two are indistinguishable afterwards.
-		if MESHGHOST_CRYSTAL_FACING_TRACE then
-			local parts = {}
-			for i = 1, 4 do
-				parts[i] = string.format("%d%s@%d,%d", frame[i].offset,
-					frame[i].xflip and "F" or "", frame[i].dx, frame[i].dy)
-			end
-			-- THE INVARIANT, so the log settles this instead of the user's eyes. A 12-tile walking
-			-- sprite is three groups of four -- one per view -- so every frame a facing accepts
-			-- must come from the SAME group. Two groups under one facing IS the bug being chased:
-			-- the tier alternates the two and the character visibly changes which way it looks.
-			-- Today's bad state reads `down` holding group 2 and group 0; a clean one never does.
-			logFile(string.format(
-				"facing-trace: f=%d LEARNED facing=%d slot=%d group=%d dir=%d [%s]%s",
-				emu.framecount(), facing, #entry.walk, group, dirNow, table.concat(parts, " "),
-				(group ~= ((facing == 0) and 0 or (facing == 1) and 1 or 2)
-					or (group == 2 and frame[1].xflip ~= (facing == 3)))
-					and "  *** WRONG VIEW FOR THIS FACING -- STILL BROKEN ***" or ""))
+	entry.step[stride] = frame
+	-- TRACE, off unless MESHGHOST_CRYSTAL_FACING_TRACE is set. Edge-triggered by construction: a
+	-- direction has one standing view and four stride slots, and a slot only logs when its art
+	-- CHANGES, so this fires a handful of times a session and costs nothing per frame. File only --
+	-- one console line a second was measured at 63-83ms.
+	--
+	-- WHAT IT IS FOR. `facingFrames` is never cleared, so a sample that gets past the guards above
+	-- stays for the session. Logging what actually lands here, with the state it was captured in,
+	-- is what tells a contaminated sample from a legitimate stride -- the two are
+	-- indistinguishable afterwards, and that ambiguity cost four wrong fixes on 2026-08-22.
+	if MESHGHOST_CRYSTAL_FACING_TRACE then
+		local parts = {}
+		for i = 1, 4 do
+			parts[i] = string.format("%d%s@%d,%d", frame[i].offset,
+				frame[i].xflip and "F" or "", frame[i].dx, frame[i].dy)
 		end
+		-- THE INVARIANT, so the log settles this instead of the user's eyes. A view is four tiles
+		-- and a facing may only wear its own: down is group 0, up group 1, left/right group 2,
+		-- masked so a stepping view lands in the same group as the standing one it mirrors. Two
+		-- groups under one facing IS the bug this was built for -- the tier alternates them and the
+		-- character visibly changes where it looks while walking in a straight line.
+		logFile(string.format(
+			"facing-trace: f=%d LEARNED facing=%d stride=%d group=%d dir=%d face=%02X [%s]%s",
+			emu.framecount(), facing, stride, group, dirNow, prev.face or 0,
+			table.concat(parts, " "),
+			(group ~= ((facing == 0) and 0 or (facing == 1) and 1 or 2)
+				or (group == 2 and frame[1].xflip ~= (facing == 3)))
+				and "  *** WRONG VIEW FOR THIS FACING -- STILL BROKEN ***" or ""))
 	end
 end
 
--- One drawn character: the 2x2 tile block starting at its sprite's tile base.
--- A drawn peer walks by alternating the two learned strides while it is moving, and stands
--- still otherwise. The engine drives a spawned ghost's animation for us; a drawn one has nobody
--- to drive it, so this is the one piece of animation the adapter genuinely has to do itself --
--- and it is registered as part of the drawn tier's cost in BANDAGES.md.
-local WALK_FRAME_HOLD = 8 -- frames per stride, matching the engine's own cadence closely enough
+-- WHICH FRAME A PEER IS ON, DERIVED FROM THE PEER'S OWN STEP RATHER THAN FROM A TIMER HERE.
+--
+-- The engine drives a spawned ghost's animation for us; a drawn one has nobody to drive it, so
+-- this is the one piece of animation the adapter genuinely has to do itself. It is registered as
+-- part of the drawn tier's cost in BANDAGES.md.
+--
+-- IT IS NOT A TIMER, and that is the whole design. This used to alternate two frames every 8
+-- frames on a free-running counter (`WALK_FRAME_HOLD`), which cannot be 1:1 by construction: a
+-- counter here has no relationship to where the peer actually is in its step, so the feet drift
+-- against the body no matter what the constant is. Tuning it would have been the "rate change as
+-- the answer" that CLAUDE.md rules out.
+--
+-- Instead the frame is a function of the peer's OWN sub-tile progress, which is already on the
+-- wire as `extras.prog` and needed no new field. Measured 2026-08-22 across four directions, the
+-- partition is exact and has no overlap:
+--
+--   prog 14, 0, 2, 4      -> the STEPPING view (tiles base + 0x80 + view)
+--   prog 6, 8, 10, 12     -> the PASS view     (tiles base + view)
+--
+-- Eight frames of sixteen, which is the DUTY CYCLE the player's own sprite runs: the period was
+-- already right at a wider band and only the width was wrong, measured as 10 frames of 16 against
+-- the player's 8.
+--
+-- so the test is simply "outside the middle of the step". The band SPANS THE TILE BOUNDARY on
+-- purpose -- 14 is the start of the next step, not the end of this one -- and that is what makes
+-- it one contiguous burst of 8 frames per tile rather than two short ones. Corrected 2026-08-22
+-- after printing the ghost's cadence against the player's, one character a frame:
+--
+--   player ....SSSSSSSS....      one burst of 8
+--   ghost  .SSSS........SS.      the same burst, split at the boundary -- the user: the walking
+--                                animation is *"a bit fast"*, which is what two bursts look like `extras.prog` has now paid three times:
+-- it was added for positioning, then fixed the painted stride's spacing, and now selects the
+-- frame. Sending the fact instead of a symptom is why.
+--
+-- WHICH FOOT comes from `extras.face`, the peer's OBJECT_FACING -- direction and stride index in
+-- one byte, which is how the engine itself stores it. Down and up mirror their stepping view
+-- between strides (the two feet); left and right cannot, because there the flip is what says
+-- which way the character looks. Nothing here needs to know which case it is in: the stride index
+-- selects a learned frame, and whichever the engine drew for the local player is what a peer gets.
+--
+-- On `facingFrames` rather than a new top-level name: this file is at 197 of Lua's 200 top-level
+-- locals and has failed to load silently four times from crossing it. A string key cannot collide
+-- with the numeric facings 0..3, and nothing iterates this table.
+function facingFrames.pick(facing, walking, prog, stride)
+	local entry = facing and facingFrames[facing]
+	if not entry then
+		return nil -- nothing learned for this facing yet; each caller has its own fallback
+	end
+	if walking and (prog <= 4 or prog >= 14) then
+		local f = entry.step[(stride or 0) & 3]
+		-- ANY STEPPING VIEW BEATS THE STANDING ONE. A slot is only filled once the local player has
+		-- walked that way on that stride, so a direction can be short one for a long time -- and
+		-- falling back to `stand` there DROPS THE WHOLE STEP, which on screen is a walk cycle that
+		-- skips beats and reads as too fast. The user, 2026-08-22: up, down and left looked normal
+		-- while *"walking right still feels fast"* -- right being the direction whose slots had not
+		-- all been seen.
+		--
+		-- For left and right the substitution is EXACT: the side view has no mirrored twin to
+		-- alternate with, because there the flip is what says which way the character looks, so all
+		-- four strides hold the same image. For up and down it is the wrong foot for one step,
+		-- which is a far smaller error than missing the step entirely.
+		for i = 0, 3 do
+			if f then break end
+			f = entry.step[i]
+		end
+		if f then
+			return f
+		end
+	end
+	return entry.stand or entry.step[0] or entry.step[1] or entry.step[2] or entry.step[3]
+end
 
 -- source is { vram = <tile base> } for a sprite the map has loaded, or { rom = <gfx offset> } for
 -- one read straight from the cartridge. Everything else is identical, which is the point: the
 -- arrangement is learned once from the engine and applies to both.
-local function drawCharacter(source, sx, sy, palIndex, facing, walkingFor)
+local function drawCharacter(source, sx, sy, palIndex, facing, walking, prog, stride)
 	local colors = paletteColors(palIndex or 0)
-	local entry = facing and facingFrames[facing]
-	local frame = nil
-	if entry then
-		if walkingFor and #entry.walk > 0 then
-			frame = entry.walk[((walkingFor // WALK_FRAME_HOLD) % #entry.walk) + 1]
-		end
-		frame = frame or entry.stand or entry.walk[1]
-	end
+	local frame = facingFrames.pick(facing, walking, prog or 0, stride)
 	local function partRows(offset)
 		if source.rom then
-			return decodeRomTile(source.rom, offset)
+			-- THE CARTRIDGE LAYOUT IS NOT THE VRAM LAYOUT, and an offset carries the VRAM one.
+			--
+			-- In VRAM a character's stepping views sit 0x80 above its standing ones; in ROM the
+			-- graphics are one contiguous block, so they sit directly after them. Measured
+			-- 2026-08-22 by matching every VRAM tile back to the ROM tile it equals, on two sprites
+			-- at two different bases, every pair agreeing: base+0..11 are ROM tiles 0..11, and
+			-- base+0x80..0x8B are ROM tiles 12..23.
+			--
+			-- So a sprite's graphics are 24 tiles even though the header's own size field reports
+			-- 12 -- that field describes the standing half only. Handing a 0x80-ish offset straight
+			-- to the cartridge would read 2 KB past the sprite and draw whatever is there.
+			return decodeRomTile(source.rom,
+				((offset & 0x80) ~= 0) and (12 + (offset & 0x7F)) or offset)
 		end
 		return decodeTile((source.vram + offset) & 0xFF)
 	end
@@ -1587,18 +1750,15 @@ end
 
 -- One peer, four entries. Returns false when there is no room, so the caller falls through to the
 -- drawn tier rather than the peer vanishing.
-function oam.place(sx, sy, tileBase, palIndex, facing, walkingFor)
+function oam.place(sx, sy, tileBase, palIndex, facing, walking, prog, stride)
 	if not oam.next or oam.next - 3 < oam.floor then
 		return false
 	end
-	local entry = facing and facingFrames[facing]
-	local frame = nil
-	if entry then
-		if walkingFor and #entry.walk > 0 then
-			frame = entry.walk[((walkingFor // WALK_FRAME_HOLD) % #entry.walk) + 1]
-		end
-		frame = frame or entry.stand or entry.walk[1]
-	end
+	-- The same picker the painted tier uses, deliberately: two rungs drawing the same peer from
+	-- different frames is a comparison that says nothing, and COMPARE_TIERS exists to put them side
+	-- by side. An offset of 0x80-ish needs no translation here -- an OAM entry names a VRAM tile,
+	-- and the VRAM layout is what the offset was learned in.
+	local frame = facingFrames.pick(facing, walking, prog or 0, stride)
 	if not frame then
 		return false -- nothing learned for this facing yet; the drawn tier has a fallback, we do not
 	end
@@ -2238,7 +2398,6 @@ function drawOverflow()
 			o.fromX, o.fromY = o.lastX, o.lastY
 			o.lastX, o.lastY, o.movedAt = o.x, o.y, drawFrames
 		end
-		local walkingFor = (o.movedAt and (drawFrames - o.movedAt) < 30) and (drawFrames - o.movedAt) or nil
 		-- Resident tiles first -- they are what the engine is drawing everyone else from, so a
 		-- drawn peer beside a spawned one matches exactly. Failing that, read the peer's sprite
 		-- out of the cartridge, which is how a peer wearing a sprite THIS map never loaded (the
@@ -2405,7 +2564,130 @@ function drawOverflow()
 				if hidden then
 					nHidden = nHidden + 1
 				else
-					if walkingFor then nWalking = nWalking + 1 end
+					-- COUNT WHAT THE QUESTION ACTUALLY IS: peers rendered on a STEPPING frame.
+					-- This used to count peers that had merely CHANGED TILE recently, which is true
+					-- of a peer whose animation is completely broken -- and it read a healthy-looking
+					-- non-zero all through the session where no stepping frame was ever drawn at all
+					-- (`phase9.md`). Sharing the renderer's own rule means the two cannot disagree.
+					if o.walking and (peerProg < 6 or peerProg > 12) then
+						nWalking = nWalking + 1
+					end
+					-- CUMULATIVE, because the line below is printed once a second and a frame
+					-- count sampled once a second cannot see a cadence that changes every two
+					-- frames. The instantaneous version read a flat zero for 117 consecutive
+					-- samples, which is not a measurement of the animation -- it is a measurement
+					-- of when the log happens to fire. `pitfalls.md` has the same mistake under
+					-- "painted positions were only ever sampled once a second".
+					-- On facingFrames rather than new top-level names: 197 of Lua's 200 locals.
+					-- ONE IMAGE PER STEP, LATCHED -- the stride index must not advance INSIDE a
+					-- stepping burst.
+					--
+					-- OBJECT_FACING counts 0..3 THROUGH a step, not once per step: measured
+					-- 2026-08-22, one step walking up runs face 05 -> 06 -> 07. The stepping view
+					-- is mirrored at strides 0 and 3 and upright at 1 and 2, so reading the stride
+					-- fresh every frame mirrors the character part-way through a single foot-plant.
+					-- The user, watching exactly that: *"kinda looks as if the drawn ghost is
+					-- walking/doing the animation really fast"*.
+					--
+					-- The engine shows ONE image for the whole burst. So the stride is taken once,
+					-- when the peer ENTERS the stepping band, and held until it leaves. That
+					-- reproduces the engine's own alternation for free rather than imposing one:
+					-- measured across three consecutive steps, the bursts begin at face 05, 07 and
+					-- 05 -- upright, mirrored, upright, which is what alternating feet is.
+					-- A PEER BETWEEN STEPS IS NOT A PEER STANDING STILL.
+					--
+					-- `anim` is "walk" only while OBJECT_STEP_DURATION is counting, and it reads
+					-- STANDING for the two frames at the top of each step (prog 0). Gating the
+					-- stepping view on it therefore drops the ghost back to the standing view in
+					-- the MIDDLE of a burst -- which is the split the cadence trace shows, and the
+					-- whole of the "a bit fast" report. So a peer counts as walking through a short
+					-- gap: long enough to cross the boundary, far too short to hold a genuinely
+					-- idle peer on a stepping frame.
+					o.idleFor = o.walking and 0 or ((o.idleFor or 99) + 1)
+					-- A TURN ENDS A BURST. The grace above exists to carry the stepping view across
+					-- the two not-walking frames at a TILE BOUNDARY; a direction change also looks
+					-- like a short not-walking gap and would be carried the same way, which gives
+					-- the ghost a step the peer never took.
+					--
+					-- Measured 2026-08-22 with the direction printed into the cadence trace. On a
+					-- turn the engine holds the STANDING view while the character pivots and only
+					-- then steps -- `...LLLLLLLLl rrrrrrr RRRRRRRR` -- while the ghost went
+					-- `...LLLLRRRR`, straight from one burst into the next with nothing between.
+					-- One extra beat, only on turns, which is exactly the user's *"still doing
+					-- right a bit fast sometimes"* with the other three directions reading fine.
+					if o.facing ~= o.lastFacing then
+						-- REARM, don't just clear. Clearing the latch is not enough: the peer is
+						-- usually already `walking` when its facing changes, so the band re-fires on
+						-- the very next frame and the ghost steps straight out of the turn anyway --
+						-- measured as ghost `LLLLRRRR` against player `Lll rrrrr RRRRRRRR`.
+						--
+						-- The engine stands through the pivot and steps afterwards. So a turn
+						-- suppresses the stepping view until the peer has passed through the
+						-- STANDING half of a step once; the next burst then begins on its own at the
+						-- following boundary, in phase, with no duration invented here.
+						o.lastFacing, o.idleFor, o.stepLatch, o.rearm = o.facing, 99, nil, true
+					end
+					if o.rearm and peerProg >= 6 and peerProg <= 12 then
+						o.rearm = nil -- the standing half has been seen; stepping may resume
+					end
+					local moving = (o.walking or o.idleFor <= 3) and not o.rearm
+					if moving and (peerProg <= 4 or peerProg >= 14) then
+						if not o.stepLatch then
+							o.stepLatch = ((o.face or 0) & 3) + 1 -- +1 so 0 is not falsy
+						end
+					else
+						o.stepLatch = nil
+					end
+					-- THE INVARIANT, SIDE BY SIDE. "A bit fast" is a claim about CADENCE, and a
+					-- cadence cannot be read off counts or off a once-a-second sample. So each
+					-- frame appends one character per renderer -- `S` for the stepping view, `.`
+					-- for the standing one -- and the two strings are printed together. If the
+					-- ghost's pattern matches the player's, the walk cycle is the engine's own; if
+					-- it has more bursts, or shorter ones, the difference is visible in the log
+					-- instead of being characterised by eye a fourth time.
+					if COMPARE_TIERS and o.only == "drawn" then
+						-- The DIRECTION is encoded into the character, upper case for a stepping
+						-- view and lower case for a standing one, so a single direction can be read
+						-- out of a mixed walk. "Right feels fast and the others do not" is a claim
+						-- about one direction, and a trace that cannot separate them cannot test it.
+						local d = "durl"
+						local di = (o.facing or 0) + 1
+						local mine = d:sub(di, di)
+						if o.stepLatch ~= nil then mine = mine:upper() end
+						-- THE INVARIANT FOR THE SIDE VIEW: left and right share one image and are
+						-- told apart ONLY by the hardware flip, so a frame whose flip disagrees
+						-- with the facing is the character momentarily looking the other way. One
+						-- such frame in a walk is a visible jolt and would read as "fast". `!`
+						-- marks it, so the log says whether that is happening instead of the eye.
+						local chosen = facingFrames.pick(o.facing, moving, peerProg,
+							o.stepLatch and (o.stepLatch - 1) or 0)
+						if chosen and (o.facing == 2 or o.facing == 3)
+							and chosen[1].xflip ~= (o.facing == 3) then
+							mine = "!"
+						end
+						local pf = readPlayerOamFrame()
+						local theirs = "?"
+						if pf then
+							local pd = ((u8(OBJECT_STRUCTS + F_DIRECTION) or 0) // 4) & 3
+							theirs = d:sub(pd + 1, pd + 1)
+							if (pf[1].offset & 0x80) ~= 0 then theirs = theirs:upper() end
+						end
+						facingFrames.tPeer = (facingFrames.tPeer or "") .. mine
+						facingFrames.tPlayer = (facingFrames.tPlayer or "") .. theirs
+						if #facingFrames.tPeer >= 60 then
+							logFile("  cadence ghost  " .. facingFrames.tPeer)
+							logFile("  cadence player " .. facingFrames.tPlayer)
+							facingFrames.tPeer, facingFrames.tPlayer = "", ""
+						end
+					end
+					if o.walking then
+						facingFrames.nWalkFrames = (facingFrames.nWalkFrames or 0) + 1
+						if peerProg < 6 or peerProg > 12 then
+							facingFrames.nStepFrames = (facingFrames.nStepFrames or 0) + 1
+						end
+						facingFrames.progSeen = facingFrames.progSeen or {}
+						facingFrames.progSeen[peerProg] = (facingFrames.progSeen[peerProg] or 0) + 1
+					end
 					if o.facing == nil then nNoFacing = nNoFacing + 1 end
 					if UI_DEBUG and (boxOpen or uiOpen) and #paintedSamples < 8 then
 						paintedSamples[#paintedSamples + 1] =
@@ -2420,10 +2702,15 @@ function drawOverflow()
 					-- renderers disagreeing is exactly the case a count cannot describe -- "2 off
 					-- screen" does not say WHICH, at what coordinate, or which rung claimed it.
 					if COMPARE_TIERS and drawFrames % 60 == 0 then
+						-- walking/prog/face are the three inputs the frame picker uses. They are
+						-- printed beside the position because "the ghost is in the right place and
+						-- on the wrong frame" and "the ghost is on the wrong frame because it does
+						-- not think it is walking" look identical on screen.
 						logFile(string.format("  copy %-28s only=%-6s map %d,%d screen %d,%d "
-							.. "facing=%s vram=%s",
+							.. "facing=%s vram=%s walking=%s prog=%s face=%s",
 							id, tostring(o.only), o.x, o.y, sx, sy, tostring(o.facing),
-							tostring(source.vram)))
+							tostring(source.vram), tostring(o.walking), tostring(o.prog),
+							tostring(o.face)))
 					end
 
 					-- THE TWITCH DETECTOR. Painted positions were only ever sampled once a second,
@@ -2436,11 +2723,24 @@ function drawOverflow()
 						logFile(string.format("  TWITCH %-24s painted %d,%d -> %d,%d (%+d,%+d)",
 							id, o.paintedX, o.paintedY, sx, sy, sx - o.paintedX, sy - o.paintedY))
 					end
+					-- THE DISTRIBUTION, NOT JUST THE OUTLIERS. The detector above only fires past
+					-- 4px, so a walk that moves 2px every frame and 4px at every tile boundary --
+					-- a visible hitch once per tile -- reads as ZERO twitches and looks perfect in
+					-- the log. The user, 2026-08-22: *"still stuttering/small snap kinda when
+					-- moving to the next tile"*, with the detector reporting nothing at all.
+					-- A smooth step is the SAME delta every frame; anything else is the fault,
+					-- however small, so every delta is counted rather than only the large ones.
+					if o.paintedX and o.walking then
+						facingFrames.stepDelta = facingFrames.stepDelta or {}
+						local d = math.abs(sx - o.paintedX) + math.abs(sy - o.paintedY)
+						facingFrames.stepDelta[d] = (facingFrames.stepDelta[d] or 0) + 1
+					end
 					o.paintedX, o.paintedY = sx, sy
 
 					local onHardware = false
 					if source.vram and o.only ~= "drawn" then
-						onHardware = oam.place(sx, sy, source.vram, palette, o.facing, walkingFor)
+						onHardware = oam.place(sx, sy, source.vram, palette, o.facing,
+							moving, peerProg, o.stepLatch and (o.stepLatch - 1) or 0)
 					end
 					if onHardware then
 						nOam = nOam + 1
@@ -2451,7 +2751,8 @@ function drawOverflow()
 						nDrawn = nDrawn + 1
 						-- the palette the local player's own sprite is drawn with, which is the one
 						-- these tiles were coloured for
-						drawCharacter(source, sx, sy, palette, o.facing, walkingFor)
+						drawCharacter(source, sx, sy, palette, o.facing,
+							moving, peerProg, o.stepLatch and (o.stepLatch - 1) or 0)
 					end
 				end
 			end
@@ -2504,9 +2805,33 @@ function drawOverflow()
 		logFile(string.format("tiers: %d on hardware. "
 			.. "drawn tier: %d peers waiting, %d drawn (%d from the cartridge), "
 			.. "%d no sprite tiles, %d off screen, %d hidden by UI, %d spawned as real objects; "
-			.. "%d on a walk frame, %d with no facing yet",
+			.. "%d on a stepping frame, %d with no facing yet",
 			nOam, nWanted, nDrawn, nFromRom, nNoTile, nOffScreen, nHidden, ghostCount(),
 			nWalking, nNoFacing))
+		-- EVERY prog value a drawn peer was rendered at, cumulatively. Which values arrive is the
+		-- whole question behind "the stride never runs": the frame is a function of prog, so a prog
+		-- that never leaves the middle of a step can only ever draw the standing view.
+		if facingFrames.stepDelta then
+			local d = {}
+			for v = 0, 32 do
+				if facingFrames.stepDelta[v] then
+					d[#d + 1] = string.format("%dpx:%d", v, facingFrames.stepDelta[v])
+				end
+			end
+			logFile("  painted movement per frame while walking: " .. table.concat(d, " ")
+				.. "   (a smooth step is one value; more than one is the hitch)")
+		end
+		if facingFrames.progSeen then
+			local seen = {}
+			for v = 0, 16 do
+				if facingFrames.progSeen[v] then
+					seen[#seen + 1] = string.format("%d:%d", v, facingFrames.progSeen[v])
+				end
+			end
+			logFile(string.format("  peer step progress, all frames: %d walking, %d of them on a "
+				.. "stepping frame | prog counts %s", facingFrames.nWalkFrames or 0,
+				facingFrames.nStepFrames or 0, table.concat(seen, " ")))
+		end
 		if offSample then
 			logFile("drawn tier: example of one it discarded -- " .. offSample)
 		end
@@ -2656,6 +2981,9 @@ local function renderRemote(id, state)
 	-- warning for this; a use-before-declaration is a silent nil, not an error.
 	local peerProg = state.extras and tonumber(state.extras.prog) or nil
 	local peerWalking = (state.anim == "walk")
+	-- Only the low two bits are used, but the whole byte is carried so a log shows the direction
+	-- the sender was in as well as the stride -- the pair is what makes a facing trace readable.
+	local peerFace = state.extras and tonumber(state.extras.face) or nil
 
 	local isLoopback = id:match("%-ghost$") ~= nil
 	local baseX = math.floor(pos[1])
@@ -2709,18 +3037,32 @@ local function renderRemote(id, state)
 		-- copy renders nothing and still counts as a peer waiting -- a phantom in every tier total.
 		local hk = COMPARE.hwKey(id)
 		local hprev = overflow[hk]
-		overflow[hk] = OAM_TIER and { prog = peerProg, walking = peerWalking, compare = true, only = "hw", x = baseX + COMPARE.hw, y = y,
+		overflow[hk] = OAM_TIER and { prog = peerProg, walking = peerWalking, face = peerFace, compare = true, only = "hw", x = baseX + COMPARE.hw, y = y,
 			sprite = FORCE_PEER_SPRITE or (state.extras and tonumber(state.extras.sprite)) or nil,
 			facing = ORIENTATION_TO_DIR[state.orientation],
 			lastX = hprev and hprev.lastX, lastY = hprev and hprev.lastY,
 			movedAt = hprev and hprev.movedAt,
-			fromX = hprev and hprev.fromX, fromY = hprev and hprev.fromY } or nil
+			fromX = hprev and hprev.fromX, fromY = hprev and hprev.fromY,
+			paintedX = hprev and hprev.paintedX, paintedY = hprev and hprev.paintedY,
+			stepLatch = hprev and hprev.stepLatch,
+			idleFor = hprev and hprev.idleFor,
+			lastFacing = hprev and hprev.lastFacing,
+			rearm = hprev and hprev.rearm } or nil
 
-		overflow[ck] = { prog = peerProg, walking = peerWalking, compare = true, only = "drawn", x = baseX + COMPARE.drawn, y = y,
+		overflow[ck] = { prog = peerProg, walking = peerWalking, face = peerFace, compare = true, only = "drawn", x = baseX + COMPARE.drawn, y = y,
 			sprite = FORCE_PEER_SPRITE or (state.extras and tonumber(state.extras.sprite)) or nil,
 			facing = ORIENTATION_TO_DIR[state.orientation],
 			lastX = prev and prev.lastX, lastY = prev and prev.lastY, movedAt = prev and prev.movedAt,
-			fromX = prev and prev.fromX, fromY = prev and prev.fromY }
+			fromX = prev and prev.fromX, fromY = prev and prev.fromY,
+			-- CARRIED, like every other cross-frame value here. Without this the twitch detector
+			-- and the movement histogram compare against nil on nearly every frame and can never
+			-- fire: this entry is rebuilt each time a peer state arrives, which is every frame.
+			-- Found 2026-08-22, after "0 twitches" was read as evidence that nothing jumped.
+			paintedX = prev and prev.paintedX, paintedY = prev and prev.paintedY,
+			stepLatch = prev and prev.stepLatch,
+			idleFor = prev and prev.idleFor,
+			lastFacing = prev and prev.lastFacing,
+			rearm = prev and prev.rearm }
 	end
 
 	-- FORCE_PEER_SPRITE substitutes here rather than only inside applyPeerSprite, so the probe
@@ -2782,10 +3124,19 @@ local function renderRemote(id, state)
 			despawnGhost(id)
 		end
 		local prev = overflow[id]
-		overflow[id] = { prog = peerProg, walking = peerWalking, x = x, y = y, sprite = peerSprite,
+		overflow[id] = { prog = peerProg, walking = peerWalking, face = peerFace, x = x, y = y, sprite = peerSprite,
 			facing = ORIENTATION_TO_DIR[state.orientation],
 			lastX = prev and prev.lastX, lastY = prev and prev.lastY, movedAt = prev and prev.movedAt,
-			fromX = prev and prev.fromX, fromY = prev and prev.fromY }
+			fromX = prev and prev.fromX, fromY = prev and prev.fromY,
+			-- CARRIED, like every other cross-frame value here. Without this the twitch detector
+			-- and the movement histogram compare against nil on nearly every frame and can never
+			-- fire: this entry is rebuilt each time a peer state arrives, which is every frame.
+			-- Found 2026-08-22, after "0 twitches" was read as evidence that nothing jumped.
+			paintedX = prev and prev.paintedX, paintedY = prev and prev.paintedY,
+			stepLatch = prev and prev.stepLatch,
+			idleFor = prev and prev.idleFor,
+			lastFacing = prev and prev.lastFacing,
+			rearm = prev and prev.rearm }
 		return
 	end
 
@@ -2799,11 +3150,20 @@ local function renderRemote(id, state)
 			overflow[id] = nil
 		else
 			local prev = overflow[id]
-			overflow[id] = { prog = peerProg, walking = peerWalking, x = x, y = y, sprite = peerSprite,
+			overflow[id] = { prog = peerProg, walking = peerWalking, face = peerFace, x = x, y = y, sprite = peerSprite,
 				facing = ORIENTATION_TO_DIR[state.orientation],
 				lastX = prev and prev.lastX, lastY = prev and prev.lastY,
 				movedAt = prev and prev.movedAt,
-				fromX = prev and prev.fromX, fromY = prev and prev.fromY }
+				fromX = prev and prev.fromX, fromY = prev and prev.fromY,
+			-- CARRIED, like every other cross-frame value here. Without this the twitch detector
+			-- and the movement histogram compare against nil on nearly every frame and can never
+			-- fire: this entry is rebuilt each time a peer state arrives, which is every frame.
+			-- Found 2026-08-22, after "0 twitches" was read as evidence that nothing jumped.
+			paintedX = prev and prev.paintedX, paintedY = prev and prev.paintedY,
+			stepLatch = prev and prev.stepLatch,
+			idleFor = prev and prev.idleFor,
+			lastFacing = prev and prev.lastFacing,
+			rearm = prev and prev.rearm }
 		end
 		return
 	end

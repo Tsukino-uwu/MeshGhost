@@ -9934,3 +9934,33 @@ own copy — for the flash circle, the scanline buffer. `pitfalls.md`, `_templat
 - **What it changes for a future session**: a new animation or effect item for Emerald now needs a
   reason it is not polish or a custom feature. The class of work is finished; the next Emerald
   entry here should be a defect, a state nobody had watched, or something the game does not do.
+
+## Crystal: the two tiers' collision, confirmed by walking into them (2026-08-22)
+
+**Source: the user, on screen**, with both loopback ghosts frozen in place (dev-only
+`MESHGHOST_CRYSTAL_FREEZE_STATE`) so they could be walked around and walked into:
+
+> *"the drawn ghost don't have any collission at all, the spawned ghost has perfect collission
+> exactly where its sprite is shown and on the right tile its at"*
+
+**Both halves are the designed behaviour, and both are worth having stated rather than assumed.**
+
+- **The spawned tier's collision is exact.** A spawned ghost is a real map object cross-linked to a
+  real object struct, so the engine gives it collision the same way it gives one to an NPC — and
+  the confirmation is specifically that the solid tile is *the tile the sprite is drawn on*. That
+  is the map-object/struct pair agreeing, which is the thing the Phase 9 spawn recipe exists to get
+  right and which nothing had checked by walking into it before today. `phases/phase9.md`.
+- **The painted tier has no collision at all**, and cannot: it draws over the finished frame and the
+  engine knows nothing about it. This is not a defect to fix at that tier — it is the cost the tier
+  ladder exists to describe (`architecture.md`), and it is why the spawned tier stays the preferred
+  rung even now that the painted one is better behaved visually (`phases/phase9.md`).
+
+**What this does NOT settle.** Two shipped anti-stuck rules were deliberately held OFF for the test,
+because a frozen peer trips both within seconds and neither would have let the same ghost be walked
+into twice: a peer idle for `IDLE_FRAMES_BEFORE_PASSABLE` becomes passable *and* is demoted to the
+painted tier, and pushing into a peer for `PUSH_FRAMES_BEFORE_PASSABLE` frames makes it passable so
+a player can never be trapped. **Neither has been watched on screen**, and both change exactly what
+was confirmed above, so they stay open in `unverified.md`.
+
+Also unrelated to the room policy: no adapter reads `session_policy` yet, so the relay's
+ghost-collision setting had no bearing on this run either way (`status.md`).
