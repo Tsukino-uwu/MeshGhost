@@ -85,6 +85,75 @@ local LOOPBACK_OFFSET_X = tonumber(MESHGHOST_LOOPBACK_OFFSET_X or os.getenv("MES
 -- duplicated -- and it supplies its own +2 for the spawned side when no offset was set, since two
 -- ghosts stacked on the player is the comparison this exists to avoid.
 local COMPARE_TIERS = (MESHGHOST_COMPARE_TIERS or os.getenv("MESHGHOST_COMPARE_TIERS")) and true or false
+-- MESHGHOST_CRYSTAL_STEP_LAG — WHERE THE SPAWNED GHOST'S 4.3 FRAMES GO. Off by default.
+--
+-- 2026-08-22 measured that a spawned ghost begins each step a mean 4.3 frames after the peer did
+-- (worst 15), and attributed 1.5 of it to the wire and "the rest" to this adapter's own pipeline.
+-- "The rest" is not something that can be fixed: it is three delays added together, and they have
+-- three different answers. This separates them, on loopback, where the peer IS the player and
+-- every frame involved is therefore knowable:
+--
+--   COMMIT   the frame the PLAYER's own object took the tile. MAP_X/Y are written at the START of
+--            a step (stepGhost's own note depends on it), so this is the instant of commitment.
+--   ARRIVE   the frame that same tile came back to us through the core.       wire  = ARRIVE-COMMIT
+--   ISSUE    the frame stepGhost actually wrote the step.                     apply = ISSUE-ARRIVE
+--                                                                             total = ISSUE-COMMIT
+--
+-- The engine acts on our write during the FOLLOWING frame, so what the eye sees is total + 1.
+--
+-- `blocked` is the one nameable reason `apply` is ever above zero: renderRemote refuses to touch a
+-- ghost that is mid-step, so a tile arriving during the ghost's own walk waits for it to finish.
+-- Counted per waiting frame. If `apply` is large while `blocked` stays near zero, the wait is
+-- somewhere this is not looking -- which is the most useful thing it can say, because every fix
+-- currently on the table assumes otherwise.
+--
+-- READ-ONLY: it writes no game memory and changes no decision. It costs two table lookups per
+-- frame and one per arrival, which is why it is still gated -- `_template/probes.md`, a diagnostic
+-- can break the thing it measures.
+--
+-- One table, not eight names: this file sits at Lua's 200-local limit (see COMPARE_TIERS above).
+local stepLag = {
+	on = (MESHGHOST_CRYSTAL_STEP_LAG or os.getenv("MESHGHOST_CRYSTAL_STEP_LAG")) == "1",
+	commit = {},  -- "x,y" of a tile the player took -> the frame they took it
+	seen = {},    -- per peer, the last tile we were told about, so a change is detectable
+	open = {},    -- per peer, an arrival that has not been walked yet
+	wire = {}, apply = {}, total = {}, -- histograms: frames -> how many steps took that long
+	n = 0, blocked = 0, unknown = 0, at = 0,
+}
+-- ISSUE, and the end of the delay. Split rather than totalled: a frame lost on the wire and a frame
+-- lost waiting for the ghost's own legs have nothing to do with each other and are fixed in
+-- different files. Deliberately does no logging -- `logFile` is declared far below this point, and
+-- a local declared below a function is a nil global inside it (the trap `_template/README.md`
+-- names), so the report is built in tick() where the name is real.
+stepLag.close = function(id)
+	local o = stepLag.open[id]
+	if not o then
+		return
+	end
+	stepLag.open[id] = nil
+	local now = emu.framecount()
+	-- CLAMPED AT 40, NOT 20, and the exact min/max kept beside the histogram. At the shipped 250ms
+	-- the interpolation delay alone is 15 frames, so a tighter clamp files an entire run in the top
+	-- bucket and then reports a SPREAD OF ZERO -- the flattering answer, from a saturated
+	-- instrument. The spread is the number this measurement exists for, so it is never allowed to
+	-- come from a bucket edge: `lo`/`hi` are the raw values, outside the histogram entirely.
+	local function bump(h, v)
+		h.n, h.sum = (h.n or 0) + 1, (h.sum or 0) + v
+		h.lo = math.min(h.lo or v, v)
+		h.hi = math.max(h.hi or v, v)
+		local k = v
+		if k < 0 then
+			k = 0
+		elseif k > 40 then
+			k = 40
+		end
+		h[k] = (h[k] or 0) + 1
+	end
+	bump(stepLag.wire, o.wire)
+	bump(stepLag.apply, now - o.at)
+	bump(stepLag.total, now - o.commit)
+	stepLag.n = stepLag.n + 1
+end
 -- ONE TABLE, not five names. This file sits at Lua's 200-local limit for a main chunk and has hit
 -- it twice on 2026-08-21, each time as a bare "LOAD FAILED" with the whole adapter not loading --
 -- so related constants get grouped rather than each spending one of the 200.
@@ -891,8 +960,9 @@ local IDLE_FRAMES_BEFORE_PASSABLE = 300 -- 5 seconds
 local PUSH_FRAMES_BEFORE_PASSABLE = 30 -- half a second of shoving
 local PASSABLE_HOLD_FRAMES = 180 -- and it stays passable for a few seconds afterwards
 
-local H_JOYPAD_DOWN = 0xFFA4 -- hJoypadDown, read from System Bus
-local JOY_RIGHT, JOY_LEFT, JOY_UP, JOY_DOWN = 0x01, 0x02, 0x04, 0x08
+-- hJoypadDown and its four direction bits. ONE TABLE, not five names: see the local-limit note
+-- beside COMPARE_TIERS -- this file compiles at 200 and these five were four of the last ones.
+local JOY = { addr = 0xFFA4, right = 0x01, left = 0x02, up = 0x04, down = 0x08 }
 
 -- Should this peer be solid right now? See the collision policy constants above.
 --
@@ -912,11 +982,11 @@ local function beginPolicyFrame()
 	frameState.standing = (u8(OBJECT_STRUCTS + F_WALKING) or STANDING) == STANDING
 	frameState.wantX, frameState.wantY = px, py
 	if frameState.standing then
-		local joy = memory.read_u8(H_JOYPAD_DOWN, "System Bus") or 0
-		if (joy & JOY_RIGHT) ~= 0 then frameState.wantX = px + 1
-		elseif (joy & JOY_LEFT) ~= 0 then frameState.wantX = px - 1
-		elseif (joy & JOY_DOWN) ~= 0 then frameState.wantY = py + 1
-		elseif (joy & JOY_UP) ~= 0 then frameState.wantY = py - 1 end
+		local joy = memory.read_u8(JOY.addr, "System Bus") or 0
+		if (joy & JOY.right) ~= 0 then frameState.wantX = px + 1
+		elseif (joy & JOY.left) ~= 0 then frameState.wantX = px - 1
+		elseif (joy & JOY.down) ~= 0 then frameState.wantY = py + 1
+		elseif (joy & JOY.up) ~= 0 then frameState.wantY = py - 1 end
 	end
 end
 
@@ -2118,7 +2188,8 @@ end
 -- wMenuBorderTop/Left/Bottom/Right, 00:cf82-cf85, tile coordinates. Menus fill these in; text
 -- boxes do not (measured 2026-08-19 -- a text box left them at zero), which is why the two panels
 -- are handled separately below.
-local W_MENUBOX_TOP, W_MENUBOX_LEFT, W_MENUBOX_BOTTOM, W_MENUBOX_RIGHT = 0x0F82, 0x0F83, 0x0F84, 0x0F85
+-- The menu rectangle the game publishes (wMenuBorder*), one table rather than four names.
+local MENUBOX = { top = 0x0F82, left = 0x0F83, bottom = 0x0F84, right = 0x0F85 }
 
 -- Is a UI panel on screen at all? Both a menu and a text box drive the Game Boy's window layer
 -- (WY leaves its parked 144), and both strobe it, so this latches for a moment rather than
@@ -2175,22 +2246,23 @@ end
 -- box open the tilemap read 121,122 at row 12, and 30,31 (map terrain) with it closed.
 --
 -- Row 12 because the box is a constant: TEXTBOX_Y = SCREEN_HEIGHT - TEXTBOX_HEIGHT = 18 - 6.
-local BGMAP_LO, BGMAP_HI = 0x1800, 0x1C00 -- 0x9800 / 0x9C00, selected by LCDC bit 3
-local TEXTBOX_ROW = 12
-local TILE_FRAME_CORNER, TILE_FRAME_EDGE = 121, 122
+-- One table for the same reason as JOY above. `lo`/`hi` are 0x9800/0x9C00 as VRAM offsets,
+-- selected by LCDC bit 3; `corner`/`edge` are the frame tiles LoadFrame copies; `row` is
+-- TEXTBOX_Y = SCREEN_HEIGHT - TEXTBOX_HEIGHT = 18 - 6.
+local TEXTBOX = { lo = 0x1800, hi = 0x1C00, row = 12, corner = 121, edge = 122 }
 
 local function textBoxOpen()
 	local lcdc = memory.read_u8(0xFF40, "System Bus") or 0
-	local map = ((lcdc & 0x08) ~= 0) and BGMAP_HI or BGMAP_LO
-	local row = map + TEXTBOX_ROW * 32
+	local map = ((lcdc & 0x08) ~= 0) and TEXTBOX.hi or TEXTBOX.lo
+	local row = map + TEXTBOX.row * 32
 	-- Three cells, not one. Terrain shares this index space, so a single tile matching 121 could
 	-- be a hillside; a corner AND its edge AND the far end of the same row being frame tiles is
 	-- the box. Cheap, and it cannot be imitated by one unlucky tile.
 	local left = memory.read_u8(row, "VRAM") or 0
 	local next1 = memory.read_u8(row + 1, "VRAM") or 0
 	local right = memory.read_u8(row + 19, "VRAM") or 0
-	return left == TILE_FRAME_CORNER and next1 == TILE_FRAME_EDGE
-		and right >= TILE_FRAME_CORNER and right <= TILE_FRAME_CORNER + 5
+	return left == TEXTBOX.corner and next1 == TEXTBOX.edge
+		and right >= TEXTBOX.corner and right <= TEXTBOX.corner + 5
 end
 
 -- DIAGNOSTIC, off unless MESHGHOST_CRYSTAL_UI_DEBUG is set. Answers the only question that
@@ -2494,7 +2566,7 @@ function drawOverflow()
 	learnFacingFromPlayer()
 	local uiOpen = uiPanelOpen()
 	local boxOpen = textBoxOpen()
-	local t, l, b, r = u8(W_MENUBOX_TOP), u8(W_MENUBOX_LEFT), u8(W_MENUBOX_BOTTOM), u8(W_MENUBOX_RIGHT)
+	local t, l, b, r = u8(MENUBOX.top), u8(MENUBOX.left), u8(MENUBOX.bottom), u8(MENUBOX.right)
 	if (b or 0) > 0 and (r or 0) > 0 then
 		lastMenuBox = { top = t * 8, left = l * 8, bottom = (b + 1) * 8, right = (r + 1) * 8 }
 		uiSeenAt = drawFrames -- the rectangle strobes to zero as the menu redraws; latch it
@@ -3802,7 +3874,7 @@ function drawOverflow()
 			if onScreen then
 				local hidden = false
 				-- The text box occupies the bottom six rows at full width, always.
-				if boxOpen and sy + 16 > TEXTBOX_ROW * 8 then
+				if boxOpen and sy + 16 > TEXTBOX.row * 8 then
 					hidden = true
 				end
 				if uiOpen and lastMenuBox and sx + 16 > lastMenuBox.left and sx < lastMenuBox.right
@@ -4872,6 +4944,32 @@ local function renderRemote(id, state)
 		return
 	end
 
+	-- STEP_LAG: ARRIVE. The peer's destination tile as it reaches us, against the frame the PLAYER
+	-- committed to that same tile. Loopback only -- off it the peer is somebody else and there is no
+	-- COMMIT frame to subtract, which is a limit of the measurement and not of the fault.
+	--
+	-- Taken BEFORE every gate below rather than after: a tile this function then declines to act on
+	-- is not a tile that did not arrive, it is precisely the delay being measured. Recording it at
+	-- the point of action instead would make the instrument agree with itself and say nothing.
+	if stepLag.on and isLoopback then
+		local key = baseX .. "," .. y
+		if stepLag.seen[id] ~= key then
+			stepLag.seen[id] = key
+			local at = stepLag.commit[key]
+			if at then
+				local now = emu.framecount()
+				stepLag.open[id] = { at = now, wire = now - at, commit = at }
+			else
+				-- The player never took this tile. On loopback that means the ring has forgotten it
+				-- (a stall longer than the map's worth of tiles) or `offsetX` is not what this
+				-- assumes -- either way the sample is unusable. Counted, so a run whose numbers came
+				-- mostly from nowhere is visible as such instead of averaging into the answer.
+				stepLag.open[id] = nil
+				stepLag.unknown = stepLag.unknown + 1
+			end
+		end
+	end
+
 	-- A peer in a different area has no meaningful position here -- in EITHER tier. Clearing only
 	-- the spawned one left the drawn tier painting peers from the map you just walked out of.
 	if state.area_id ~= areaId() then
@@ -5003,6 +5101,20 @@ local function renderRemote(id, state)
 	-- each peer's movement bookkeeping current, so a peer who dismounts is not immediately judged
 	-- idle on the strength of a timestamp that stopped being updated while they were on the bike.
 	local blocking = shouldBlock(id, x, y, peerAct)
+
+	-- STEP_LAG: WHY THIS PEER IS NOT SPAWNED. The instrument above can only measure a tier the peer
+	-- is actually on, and a run that produces no spawned steps looks identical to a run where the
+	-- lag is zero. So the refusal names itself, once a second, rather than being inferred from a
+	-- count of zero.
+	if stepLag.on and (not wearable or not blocking) and policyFrames - (stepLag.whyAt or -999) >= 60 then
+		stepLag.whyAt = policyFrames
+		local a = activity[id]
+		logFile(string.format("MeshGhost: %s stays on the drawn tier -- wearable=%s blocking=%s "
+			.. "(peer sprite %s, local %s; idle for %s frames, passable for another %s)", id,
+			tostring(wearable), tostring(blocking), tostring(peerSprite), tostring(localSprite),
+			a and tostring(policyFrames - a.movedAt) or "?",
+			a and tostring((a.passableUntil or 0) - policyFrames) or "?"))
+	end
 
 	if not wearable or not blocking then
 		if ghosts[id] then
@@ -5175,6 +5287,12 @@ local function renderRemote(id, state)
 	-- Only act while the ghost is idle; interrupting a step is what makes a character teleport
 	-- while animating.
 	if walking ~= STANDING then
+		-- STEP_LAG: the one nameable reason a step waits after arriving. A tile that lands while the
+		-- ghost is still walking the previous one cannot be acted on, and every frame of that wait
+		-- is a frame the ghost is behind its peer.
+		if stepLag.on and stepLag.open[id] then
+			stepLag.blocked = stepLag.blocked + 1
+		end
 		return
 	end
 
@@ -5249,6 +5367,9 @@ local function renderRemote(id, state)
 	local dx, dy = x - cx, y - cy
 	local dir = DELTA_TO_DIR[string.format("%d,%d", dx, dy)]
 	if dir then
+		if stepLag.on then
+			stepLag.close(id)
+		end
 		stepGhost(g, dir) -- one tile: walk it, so the game animates the step
 	elseif math.abs(dx) + math.abs(dy) <= 3 then
 		-- A SHORT deficit is walked, not snapped. The old rule teleported for anything past one
@@ -5264,6 +5385,9 @@ local function renderRemote(id, state)
 			stepDir = (dx > 0) and 3 or 2
 		else
 			stepDir = (dy > 0) and 0 or 1
+		end
+		if stepLag.on then
+			stepLag.close(id)
 		end
 		stepGhost(g, stepDir)
 	else
@@ -5749,6 +5873,49 @@ local function tick()
 		snaps.n, snaps.at = 0, bridgeFrames
 	end
 
+	-- STEP_LAG: COMMIT. The frame the player's own object took a tile, recorded before receive() so
+	-- the frame is always on the books before anything that could echo it back is read. MAP_X/Y are
+	-- written at the START of a step, so a change here is the instant of commitment, not of arrival
+	-- -- the same fact stepGhost's step recipe rests on.
+	if stepLag.on then
+		local ck = (u8(OBJECT_STRUCTS + F_MAP_X) or 0) .. "," .. (u8(OBJECT_STRUCTS + F_MAP_Y) or 0)
+		if stepLag.lastCommit ~= ck then
+			stepLag.lastCommit = ck
+			stepLag.commit[ck] = emu.framecount()
+		end
+		if stepLag.n > 0 and bridgeFrames - stepLag.at >= 300 then
+			local function hist(h)
+				local out, keys = {}, {}
+				for k in pairs(h) do
+					if type(k) == "number" then
+						keys[#keys + 1] = k
+					end
+				end
+				table.sort(keys)
+				for _, k in ipairs(keys) do
+					out[#out + 1] = string.format("%d:%d", k, h[k])
+				end
+				-- SPREAD FIRST. The mean is the number that gets quoted and the least useful one
+				-- here: a lag that is always 6 frames is invisible on screen, and one that wanders
+				-- between 2 and 9 is the stutter, at the same mean.
+				return string.format("spread %d-%d (%d wide), mean %.2f over %d [%s]",
+					h.lo or 0, h.hi or 0, (h.hi or 0) - (h.lo or 0),
+					(h.n or 0) > 0 and h.sum / h.n or 0, h.n or 0, table.concat(out, " "))
+			end
+			-- THE THREE NUMBERS SEPARATELY, and the sample count with each, because a mean over four
+			-- steps is not a measurement. `unknown` says how many arrivals had no player frame to
+			-- subtract -- if it rivals `n`, the run says nothing and the histograms are noise.
+			logFile(string.format("MeshGhost: step lag over %d steps -- wire %s | apply %s | "
+				.. "total %s | %d frames blocked mid-step, %d arrivals with no player frame. "
+				.. "The engine acts the frame AFTER our write, so what is seen is total + 1.",
+				stepLag.n, hist(stepLag.wire), hist(stepLag.apply), hist(stepLag.total),
+				stepLag.blocked, stepLag.unknown))
+			stepLag.wire, stepLag.apply, stepLag.total = {}, {}, {}
+			stepLag.n, stepLag.blocked, stepLag.unknown = 0, 0, 0
+			stepLag.at = bridgeFrames
+		end
+	end
+
 	receive()
 	if not connected then
 		return
@@ -5811,6 +5978,9 @@ local function tick()
 			-- re-registers on its next state, which is at most a frame away.
 			overflow = {}
 			anchorIndex = nil -- the object array is rebuilt; last map's anchor means nothing
+			-- STEP_LAG's tile ring is per-map: tile numbers repeat across maps, so a stale entry
+			-- would silently answer for a tile the player never took on THIS map.
+			stepLag.commit, stepLag.seen, stepLag.open, stepLag.lastCommit = {}, {}, {}, nil
 
 			-- The player's own history is stale for the same reason, and the tier must not measure
 			-- against it. NOT cleared -- counted. See the readiness gate in drawOverflow for why

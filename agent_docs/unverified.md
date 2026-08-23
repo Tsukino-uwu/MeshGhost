@@ -1185,3 +1185,83 @@ graceful fallback would never fire.
 there (correlation across real tile steps — sweeps 0,2,4..254 within a step, moves on one axis only),
 then move both pairs into the `ADDRESSES` tables. Until then, the drawn tier's camera clock on the
 Archipelago build rests on an assumption, and the AP build has not been run since the change.
+
+## Crystal: the spawned ghost's step lag was measured wrong, and the jitter has a mechanism (2026-08-23)
+
+**Supersedes the 2026-08-22 entry above** ("Crystal: the spawned ghost starts each step ~4 frames
+after the peer"), whose split — *"the wire is 1.5 frames of the 4.3 ... the rest is the adapter's own
+pipeline"* — is wrong in both halves. Re-measured with an instrument that separates them by
+construction rather than by subtraction: `MESHGHOST_CRYSTAL_STEP_LAG=1`, which on loopback times each
+step from the frame the PLAYER's own object committed to the tile (MAP_X/Y are written at the start of
+a step), through the frame that tile came back through the core, to the frame `stepGhost` wrote it.
+
+| relay | core interp | wire | adapter | total | spread |
+|---|---|---|---|---|---|
+| 20Hz (shipped) | 0ms | mean 3.1 | mean 0.7 | mean 3.9 | **2-5 frames** |
+| 100Hz | 0ms | **flat 2, every step** | mean 0.6 | mean 2.6 | **0** |
+| 20Hz (shipped) | 250ms (shipped) | mean ~16 | mean 0.6 | mean ~16.5 | **2-3 frames** |
+
+Roughly 100 steps, `square_drive` lapping a 3-tile square with the ghost 4 tiles clear of it.
+
+**The adapter is not where the time goes.** Its whole contribution is 0-1 frames (mean ~0.6), of which
+the nameable part is a tile arriving while the ghost is still mid-step — `renderRemote` will not
+interrupt a step, by design. There is no fix worth having in `stepGhost`.
+
+**The mean does not matter; the SPREAD does.** A lag that is the same on every step is a constant
+offset, and a constant offset has no reference to be judged against unless the peer is your own echo
+— which is only true on this loopback rig. What a real player can see is the lag CHANGING from step
+to step: the ghost walks, hesitates, walks. That is the *"slightly behind/slow/late"* report.
+
+**The mechanism, and it predicts all three rows.** The relay ships a room at 20Hz — one sample every
+50ms, three frames. The core lerps every component of `Position` between the two bracketing samples
+(`core/interp.go`), and Crystal's `Position[0..1]` are TILE INDICES: a quantity that only ever moves
+in whole steps. Lerping a step function turns an exact instant into a three-frame ramp, and
+`math.floor` crosses that ramp at a moment that depends on where the jump fell between samples. So
+the spread is the relay's sample interval, in frames — 3 at 20Hz, 0 at 100Hz (10ms, sub-frame), and
+still 3 at the shipped 250ms because interpolation delay changes WHEN a sample is rendered, never how
+far apart the samples are. Every row above follows from that one sentence.
+
+**Not a core bug, and the core must not fix it.** Nothing in `core/` may know that `Position[0]` is a
+tile and `Position[2]` is a pixel — that is the game-agnostic rule (ADR 2026-08-20). The core lerping
+uniformly is correct; reading a lerped tile index as if it were an instant is the adapter's mistake.
+
+**Where the fix goes.** The peer's sub-tile progress is on the wire (`extras.prog`) and its pixel
+position is in `Position[2..3]`, and both say how far into its step the peer already is when a sample
+arrives — which is the same as saying how long ago it committed. A step scheduled at a CONSTANT offset
+from that recovered instant has no spread at all, at any relay rate, and costs only a fixed delay
+nobody can see. Designed, not built, and not yet watched on screen.
+
+**What is NOT established.** That any of this is what the user is looking at. The numbers are mine,
+from loopback, and CLAUDE.md's bar is what happens on screen — a spread of three frames is 3px of a
+16px step, and whether that is the stutter or merely a true thing about the pipeline is a question
+only a real session answers.
+
+## Crystal: a dev-loader flag file cannot turn a flag OFF by deleting the line (2026-08-23)
+
+Cost a full run today and reads as a completely different fault, so it is written down rather than
+re-learned. `dev-scripts/bizhawk-dev-loader.lua` drops and re-loads script FILES; it does not reset
+BizHawk's Lua globals. A flag set by an earlier flags file therefore stays set after its line is
+deleted, and the adapter goes on reading it.
+
+Live case: `MESHGHOST_CRYSTAL_GHOSTS_PASSABLE` was set for one run and removed for the next. It
+remained `"1"`, and that flag makes `shouldBlock` return false **before** it updates `movedAt` — so
+every peer read as idle forever, every peer stayed on the drawn tier, and the spawned tier under
+measurement did not exist. The symptom was `0 spawned as real objects` with a peer plainly walking,
+which looks like a spawn failure, a budget problem or a sprite-residency problem, and is none of them.
+
+**The rule: a dev flags file sets every flag it cares about explicitly, including to `nil`.** The
+adapter's own tier-refusal line (`stays on the drawn tier -- wearable=... blocking=...`, under
+`MESHGHOST_CRYSTAL_STEP_LAG`) is what named it, after three wrong guesses off a zero counter.
+
+## Crystal: the adapter was compiling at exactly Lua's 200-local ceiling (2026-08-23)
+
+Found by adding ONE local and watching the whole file stop compiling — `too many local variables
+(limit is 200) in main function`, which in a real session is a silent non-load, not an error. Emerald
+had been brought to 197 on 2026-08-22 after hitting this twice; Crystal was never counted and was
+sitting at the limit with zero headroom, so the next local anyone added would have killed it.
+
+Three cohesive groups were folded onto tables in the same pass — `JOY` (5 names), `MENUBOX` (4) and
+`TEXTBOX` (5) — leaving roughly eleven spare. `dev-scripts/bizhawk-syntax-check.lua` is the only thing
+on this machine that can answer "does this file even parse?"; it can be run without a ROM by launching
+`EmuHawk.exe --lua=<it>` and reading `bizhawk-syntax-check.log`. **Run it after any edit to an adapter,
+not just before shipping** — one added `local` is enough.

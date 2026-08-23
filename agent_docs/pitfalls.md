@@ -4563,3 +4563,48 @@ was the user's reported signature disappeared.
   above every gate, in its own function, not wherever it was first needed.
 - **Cancel the algebra before measuring.** Knowing which terms drop out of an expression is free and
   eliminates whole categories of suspect that would each have cost a live cycle.
+
+## A peer walks, and the adapter reports `0 spawned as real objects` (Crystal, 2026-08-23)
+
+**Symptom.** Every peer stays on the drawn tier. The spawn budget is healthy, structs are free, the
+sprite is the local player's own, and the player is plainly walking on screen.
+
+**Cause.** `MESHGHOST_CRYSTAL_GHOSTS_PASSABLE` was still set from an earlier run. The dev loader drops
+and re-loads script FILES; **it does not reset BizHawk's Lua globals**, so deleting the line from a
+flags file does not unset the flag. And that flag makes `shouldBlock` return false *before* it updates
+`movedAt`, so every peer's idle counter climbs forever and no peer is ever "moving".
+
+**Fix.** A dev flags file sets every flag it cares about explicitly, **including to `nil`**. The tell
+is in the numbers, if anything is printing them: an idle counter that rises at exactly 60 per second
+and never resets is not an idle peer, it is a code path that never reaches the reset.
+
+**Method note.** Three guesses were spent on budget, residency and struct exhaustion, all off a
+counter reading zero — and a zero counter is compatible with every one of them. What settled it in one
+run was making the refusal name itself (`stays on the drawn tier -- wearable=... blocking=...`).
+**When a count of zero has more than one explanation, print the reason, not the count.**
+
+## Interpolating a quantity that only moves in whole steps (Crystal, 2026-08-23)
+
+**Symptom.** A spawned ghost's steps begin an inconsistent number of frames after the peer's — 2 to 5
+at the shipped relay rate — which reads on screen as walking, hesitating, walking. Raising the relay
+rate to 100Hz makes it exactly constant; the shipped 250ms interpolation does not help at all.
+
+**Cause.** The relay ships a room at 20Hz, and the core lerps every component of `Position` between the
+two bracketing samples. Crystal's `Position[0..1]` are TILE INDICES — a step function, since MAP_X/Y
+jump to the destination the instant a step starts. Lerping a step function turns an exact instant into
+a ramp as long as the sample interval, and `math.floor` crosses that ramp at a moment that depends on
+where the jump fell between samples. **The jitter is the sample interval, in frames.**
+
+**Not a core bug.** Nothing in `core/` may know which component is a tile and which is a pixel (ADR
+2026-08-20). Lerping uniformly is right; reading a lerped tile index as an instant is the adapter's
+mistake.
+
+**Fix (designed, unbuilt).** Recover the instant instead of watching for the crossing: the peer's
+sub-tile progress is on the wire, so a sample says how far into its step the peer already is, which is
+how long ago it committed. Schedule the ghost's step at a constant offset from that. Constant lag has
+no reference to be seen against; varying lag is the whole of what is visible.
+
+**The general lesson, which is not about Crystal.** Before smoothing a value, ask whether it is
+continuous. Anything that jumps — a tile index, a facing, a state id, an animation number — must be
+carried across, never blended, and if a renderer needs the TIME of the jump it has to recover it from
+a continuous quantity beside it, not from the jump's own arrival.

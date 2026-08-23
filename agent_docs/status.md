@@ -81,8 +81,8 @@ that a peer's state genuinely differs from the local player's, which loopback co
   Archipelago build's pair is assumed, never measured. `unverified.md`.
 - **Crystal's drawn tier motion/animation: CONFIRMED at the dev rig, 2026-08-23.** Nine defects
   across model, paint and walk cycle. `verified.md`, `pitfalls.md`, `_template/probes.md`.
-- **Crystal: the spawned ghost trails ~4.3 frames** starting each step; 1.5 is the wire, the rest
-  the adapter's own pipeline. Structural for an engine-driven ghost. `unverified.md`.
+- **Crystal: the spawned ghost's step lag is the relay's 20Hz sample interval, not the adapter** —
+  the SPREAD is the defect, not the mean; fix designed, unbuilt. `unverified.md` (2026-08-23).
 - **Crystal's drawn tier is untested on bike/surf/ledges/warps and with a real peer** — the camera
   model clamps to 2-4px gaits and has only met walking on loopback. `unverified.md`.
 - **Crystal: a walking peer can reach NEITHER shipped passable rule**, so a moving spawned ghost

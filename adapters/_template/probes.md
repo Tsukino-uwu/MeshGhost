@@ -1735,3 +1735,37 @@ This is the mirror image of the standing "a flag flip is not a revert" rule, whi
 gating a *decision* but not the *work* makes an A/B meaningless. Same defect, opposite direction: here
 the flag gated work that the decision needed. Both come from the same question, which is worth asking
 of any flag: **exactly what does this switch turn off, and what still reads its results?**
+
+## Measure a delay by CONSTRUCTION, never by subtraction (2026-08-23)
+
+A delay made of several stages gets attributed by measuring the total, measuring one stage, and
+calling the difference "the rest". That is not a measurement of the rest — it is a name for it, and it
+inherits every error in both terms. Crystal's spawned-ghost lag carried such a split for a day
+(*"1.5 frames is the wire, the rest is the adapter's own pipeline"*); measured properly the wire was
+3.1 and the adapter 0.6, so both halves were wrong and the work would have gone to the wrong file.
+
+**The shape that works.** Stamp the SAME event at each boundary it crosses and difference adjacent
+stamps. On loopback this is free, because the peer is the local player: the commit frame is knowable,
+the arrival frame is knowable, the action frame is knowable, and each pair is one subtraction with no
+unmeasured term in it. Keyed on something the event carries — a destination tile, a sequence number —
+so the stamps cannot pair up wrongly.
+
+**Report the SPREAD, and put it first.** A mean is the number that gets quoted and usually the least
+useful one: a lag that is the same every time is a constant offset with nothing to see it against,
+while one that wanders is the stutter — at the same mean. Print `spread lo-hi` before the mean, keep
+`lo`/`hi` as raw values outside the histogram, and never let a clamped bucket edge supply either
+(clamped at 20 frames, a run at the shipped 250ms files entirely in the top bucket and then reports a
+spread of ZERO — the flattering answer, from a saturated instrument).
+
+**Count the samples that had no reference.** An arrival with nothing to subtract from is not a zero,
+it is a missing measurement; if that count rivals the sample count, the run says nothing.
+
+**Then change ONE rig parameter and re-run.** The mechanism above was settled by three configurations
+and a table — 20Hz/0ms, 100Hz/0ms, 20Hz/250ms. The spread was 3, 0, 3, which is the relay's sample
+interval in frames every time and could not be explained any other way. One run gives a number; three
+runs across a knob give a cause, and a table of config-vs-outcome is what makes that visible at a
+glance (`CLAUDE.md`).
+
+**Instrument the REFUSAL, not just the result.** A tier, a branch or a filter that declines to act
+reports zero, and zero is compatible with every theory about why. Print which condition was false and
+what its inputs were. One line named a cause that three guesses off a zero counter had missed.
