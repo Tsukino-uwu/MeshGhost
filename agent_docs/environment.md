@@ -147,10 +147,29 @@ UE4SS entry below for that last one specifically, which is currently unresolved)
       window over whatever the user is doing — a broken emulator, not a silent no-op. The
       argument has to carry its own quotes: `'\"C:\...\Pokemon - Emerald ... .gba\"'`. Found
       live 2026-08-19, on both emulators of a two-game session.
+      **It recurred on Crystal 2026-08-23, with the fix already written down here**, because the
+      launch was a PowerShell command invoked *from bash*: the ROM's own quotes then have to
+      survive bash quoting, PowerShell parsing and `Start-Process`'s argument joining, and one
+      layer eating them looks identical to never having added them. **Put the launch in a `.ps1`
+      file in the scratchpad and run it with `-File`** — one quoting layer instead of three, and
+      the `$rom = '"C:\...gbc"'` line is then literally the documented form. The modal is also the
+      only symptom: the process exits, so a `Get-Process EmuHawk` check a moment later reports
+      nothing and reads as "still starting up" rather than as a failure.
     - **`--lua=` also opens BizHawk's Lua Console window**, one per instance, and it takes
       focus as it appears. Expected, not a fault — but it is a real window over the user's
       screen, so a two-emulator session puts two of them there. Unrelated to the core's own
       windowless autostart below, which is what a flash during startup is usually blamed on.
+  - **BizHawk names a savestate after the GAME DATABASE entry, not the ROM filename — 2026-08-23.**
+    Crystal's states sit in `Bizhawk\Gameboy\State\` as
+    `Pokemon - Crystal Version (USA, Europe).Gambatte.QuickSave9.State`, while the ROM this project
+    runs is `...\Roms\gbc\Pokemon - Crystal Version (USA) 1.0.gbc`. **No Crystal ROM on this
+    machine has that filename**, so working backwards from a state file to "which ROM was the last
+    session on?" gives a name that matches nothing and reads as a missing file. It also means the
+    three Crystal builds (1.0, v1.1, speedchoice) may not each get their own state namespace —
+    check before assuming a slot survives a ROM swap. The window title shows the database name too,
+    which is why it says `(USA, Europe)` for a ROM filed as `(USA) 1.0`. **Ask which ROM rather
+    than deducing it**; the user answered in one line on 2026-08-23 after this cost several minutes.
+
   - **Two emulators at once need one control file EACH — 2026-08-19.** The loader had a single
     hardcoded `bizhawk-dev-loader.target` and one log, so a Crystal instance and an Emerald
     instance polled the same file, loaded the same script set and interleaved one log: neither

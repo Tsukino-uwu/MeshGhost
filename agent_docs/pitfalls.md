@@ -4502,3 +4502,64 @@ hunk headers: four intended sites showed as four hunks, and the stray sixth hunk
 in the heredoc did not match the file's tabs. Those failed LOUDLY and were harmless. The dangerous
 one is the edit that half-applies — **an assertion that fires is a good outcome; the one to fear is
 the edit that succeeds in the wrong place.**
+
+## Crystal: the ghost jittered before stopping, and the "camera" was three different mistakes (2026-08-23)
+
+**Symptom.** The drawn ghost tracked cleanly, then jittered on its final approach as it stopped —
+*"works/looks fine most of the time, and then sometimes have the 'jitter' right before stopping on a
+tile"*, most reproducible on one leg of a scripted square walk. It had survived every previous fix
+aimed at the model's motion, the wire and the interpolation delay.
+
+**Three wrong theories, each of which looked right.**
+
+1. *A continuous bleed between two formulas.* The evidence was a log line reading "K drift repaid
+   206px" against only 5 camera rebases. The counter added the whole REMAINING error every frame
+   while the corrector repaid 1px of it, so it inflated quadratically — 206 was about two ordinary
+   episodes. **The theory was built entirely on a counter whose units nobody had checked.**
+2. *An aged player reference.* Written down as the next suspect; already dead, because the aging
+   knob had been set to 0 earlier the same day for an unrelated reason. Cost nothing to rule out —
+   by reading, not running.
+3. *A sub-pixel rounding residue making the corrector oscillate.* Plausible, and refuted in one run
+   by a reversal counter (158 correction frames, 3 reversals — steady chasing, not oscillation).
+
+**What actually settled it, in the order that worked.**
+
+- **Algebra first.** Substituting the definitions into the disagreement made the ghost's own position
+  cancel exactly: `wantKX = oamX - 8 - pTile.x*16 - ppx - camAX`. That one line proved the residue
+  was not the ghost's, could not be affected by the wire or the model, and was entirely
+  player-and-camera-side. It deleted most of the search space before any measurement.
+- **Then the decompilation, which named the bug.** The register the adapter integrated as "the
+  camera" was `wPlayerBGMapOffsetX/Y`. `pokecrystal` says it is "used in FollowNotExact", and
+  `ApplyBGMapAnchorToObjects` (`engine/overworld/map_objects.asm:2768`) reads it, applies it to every
+  object's sprite, and **zeroes it every frame**. A per-frame delta, not a scroll position. The real
+  scroll is `hSCX`/`hSCY`, written by `ScrollScreen` from the same step vector with the opposite
+  sign. **The adapter's own comment claimed this register "cannot disagree with what the player
+  sees."** A confident comment is not evidence; the source is.
+- **Then an audit that could fail.** Reading both registers on the same frame: 30 of 340 frames
+  disagreed, in three shapes that each matched a reported symptom.
+- **Finally the real cause, from asking how often the instrument ran.** The plausibility filter
+  rejected 16/20/22/24px scroll deltas as "register rebases". Those sizes are 8-12 frames of ordinary
+  2px scrolling. A gap histogram showed five sampling gaps and five rejections — **the same five
+  events.** The camera never jumped: `drawOverflow` increments its frame counter at the top and then
+  has many early returns, and the camera sampling sat below all of them, so a gated frame left the
+  reference stale. **The adapter was reading its own blindness as the game doing something, and
+  throwing away that much real scroll.** That manufactured the entire drift the corrector then repaid
+  one visible pixel at a time.
+
+**Fix.** Clock off `hSCX`/`hSCY`; correct the calibration constant only against a reference identical
+to the previous frame's; and sample the camera in a global called before every early return. Gaps
+went to zero, rebases to zero, per-park drift from 15px to 1px, and the directional asymmetry that
+was the user's reported signature disappeared.
+
+**The rules worth keeping.**
+
+- **A filter that discards "implausible" readings will hide your own bugs by making them look like
+  the game's.** Every rejected value here was the adapter's blind spot dressed as a register rebase.
+  Count what a filter rejects, and check the rejected sizes against how long you were not looking.
+- **Ask how often your sampler actually runs before trusting any delta it produces.** A per-frame
+  difference is only a per-frame difference if the code ran on every frame. Histogram the gap; 1
+  should be the only value.
+- **A quantity sampled below an early return is not sampled.** Anything integrated over time belongs
+  above every gate, in its own function, not wherever it was first needed.
+- **Cancel the algebra before measuring.** Knowing which terms drop out of an expression is free and
+  eliminates whole categories of suspect that would each have cost a live cycle.

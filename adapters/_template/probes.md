@@ -1642,3 +1642,70 @@ this way in one reading each:
 **The tell that you are looking at a handover** rather than a continuous fault: the symptom is
 attached to a TRANSITION the user can name — "when it starts", "when I stop", "after being idle" —
 and the behaviour either side of it is fine.
+
+## Check a counter's UNITS before reasoning from its value (Crystal, 2026-08-23)
+
+A counter named "drift repaid, px" was read as 206px of accumulated error, and that number was the
+whole case for a theory — that two formulas disagreed by a *continuous bleed* rather than at
+discrete events. Its actual definition: it added the whole **remaining** disagreement on every frame
+the corrector ran, while the corrector repaid **1px per axis per frame**. So one 14px episode scored
+14+13+...+1 = 105. The inflation is quadratic in the real quantity, and 206 was a couple of ordinary
+episodes rather than 206 of anything.
+
+**The shape to watch for: a counter summed inside the loop that is trying to drive the thing to
+zero.** Any `total = total + math.abs(error)` in a controller's body measures how long the controller
+was busy, not how much error there was. Whenever the correction is a fraction of the error, the sum
+over-reports by roughly `error^2 / (2 * step)`.
+
+Three rules, and the last one is the general one:
+
+1. **Sum what the code MOVED, not what it still had left to do.** If the correction is
+   `k = k + 1`, the counter increments by 1. Anything else is describing a different quantity.
+2. **Sample the accumulated quantity ONCE per episode, at a known instant.** The honest measure here
+   was the disagreement on the single frame the camera parked — the corrector has not run since the
+   previous park, so that value *is* what the whole walk built. One sample per episode cannot
+   double-count by construction; a per-frame sum can only avoid it by accident.
+3. **A max is often trustworthy where a sum is not.** In the same log line, "worst 2px" was correct
+   the entire time — a per-frame maximum has no accumulation to get wrong. When a sum and a max in
+   one line tell different stories, believe the max and go read the sum's definition.
+
+Related: "A COUNTER THAT VANISHES WITH ITS FIX PROVES NOTHING" above, and the standing rule that a
+diagnostic can break the thing it measures. This is the quieter version — the instrument does not
+perturb anything, it just answers a question nobody asked, in units nobody checked.
+
+## Histogram your sampler's FRAME GAPS before trusting any delta it produces (Crystal, 2026-08-23)
+
+An adapter integrated a scroll register into "the camera's accumulated position" by taking a
+per-frame difference. It also had a plausibility filter: a real camera frame moves 2 or 4px on one
+axis, so anything larger was treated as the register being REBASED and absorbed rather than painted.
+That filter fired about once per stop, which was written off as the game doing something once per
+stop.
+
+It was not. The rejected sizes were 16/20/22/24px — which is 8-12 frames of ordinary 2px scrolling.
+A three-line histogram of "how many frames since this block last ran" showed **five gaps and five
+rejections, the same five events**. The sampling sat inside a draw loop, below several early returns,
+so on a gated frame it simply did not run; the next difference then spanned everything that had
+happened meanwhile. **The instrument was reading its own blindness as the game moving, and the
+filter was making that look reasonable.**
+
+    if COMPARE_TIERS and lastRunFrame then
+        local g = frameCounter - lastRunFrame       -- must ALWAYS be 1
+        gaps[g] = (gaps[g] or 0) + 1
+    end
+
+Three rules:
+
+1. **Any quantity you integrate over time needs a gap histogram, and `1` must be the only bucket.**
+   A per-frame difference is only a per-frame difference if the code ran on every frame. This costs
+   three lines and it is the difference between an accumulator and a random number generator.
+2. **Count what a filter REJECTS, and check the rejected magnitudes against how long you were not
+   looking.** If the rejected sizes are a multiple of (frames missed x normal step), the filter is
+   catching you, not the game. A filter that silently discards data is a place bugs go to look
+   legitimate — it converts "I wasn't watching" into "the game did something odd", which reads as an
+   explanation instead of a defect.
+3. **Anything integrated over time belongs above every early return, in its own function.** Not
+   wherever it was first convenient. The rule is positional and mechanical, so it can be checked by
+   looking rather than by reasoning about which gates can fire.
+
+Companion to "Check a counter's UNITS before reasoning from its value" above — the same
+investigation produced both, and in both the instrument was the thing that was wrong.

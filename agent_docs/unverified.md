@@ -1010,3 +1010,155 @@ repaid against only 5 camera rebases** in one run, so rebases are not it. Find t
 paired with OAM timing) while `camA` is current. If the aging is ever absent or inconsistent, the
 two references differ by however far the player moved in that window — which would present exactly
 as a walk-proportional bleed. Checkable from the existing log; no new probe needed.
+
+## Crystal: the "206px continuous bleed" was a counter artefact, and the bleed has an identity (2026-08-23)
+
+Two results, both from reading the adapter rather than running it, both correcting the entry above
+("Crystal's drawn tier at the SHIPPED 250ms: one snap fixed, a small one left").
+
+**1. The suspect that entry named is already dead.** It proposed that the tile formula reads an
+*aged* player position while `camA` is current, which would present as a walk-proportional bleed.
+`playerHistory.age` is **0** — set that way on 2026-08-23, in the same session, for an unrelated
+reason (a real-time model subtracting a two-frame-old reference turned every camera irregularity
+into a late wobble). With `age = 0` the aged lookup is the current frame and there is no window to
+bleed through. The suspect cannot be it.
+
+**2. The 206px figure does not mean what it was read as.** The counter behind "K drift repaid 206px"
+added the whole *remaining* disagreement on every nudge frame while the nudge repays 1px per axis.
+A single 14px park therefore scored 14+13+...+1 = 105. The inflation is quadratic in the drift, so
+206 is roughly what two ordinary parks produce, not 206px of anything. **"206px repaid against only
+5 rebases" was the entire evidence that the bleed is continuous rather than event-driven, and that
+evidence is gone.** `kFixMax` ("worst park 2px") was always sound — it is a per-frame maximum, not
+a sum — so the only trustworthy number in that line is the small one.
+
+Fixed in `meshghost_crystal.lua`: `kFix` now counts pixels actually repaid, `kNudges` the frames it
+was busy, and `kParkSum`/`kParks`/`kParkMax` sample the disagreement **once per park**, on the frame
+`camStillFor` passes through 8 — which is the drift a whole walk built, measured instead of inferred.
+All under `COMPARE_TIERS`. **Nothing here has been run; the numbers above are arithmetic on the old
+counter's definition, and the new counters have never produced a reading.**
+
+### What the algebra says the bleed IS
+
+Substituting `gx = modelX - pTile.x*16` into the tile formula and then into `wantKX`:
+
+    wantKX = sx - modelX - camAX = oamX - 8 - pTile.x*16 - ppx - camAX
+
+**`modelX` cancels exactly.** The disagreement K is correcting contains no peer term, no model term
+and no wire term — it is entirely player-side: the player's sprite screen position, the player's
+tile, the player's sub-tile offset, and the integrated scroll register. Consequences:
+
+- **The residual jitter is not the ghost's.** No change to the model, the wire, interpolation or the
+  peer's timing can affect it. Chasing it there is chasing nothing.
+- **Between two parks the drift is `16 x (tiles the player walked) - (scroll camA captured)`** — the
+  player is at rest at both ends, so `oamX` and `ppx` return to fixed values and only the tile count
+  and the accumulator move. The drift is therefore *exactly the camera motion `camA` failed to
+  capture*, which is a much smaller thing to search than "a bleed".
+- **Camera rebases are neutral to it, provably.** The implausible branch adds `pdx` to `camA` and
+  subtracts it from `K`; `wantK` falls by `pdx` and `K` falls by `pdx`, so `ddx` is unchanged. The
+  original "206 against 5 rebases" contrast was comparing against a quantity that cannot contribute.
+- **Caveat on exactness:** `sx` is floored while `modelX` is subtracted unrounded, so the
+  cancellation leaves a rounding residue in [-0.5, 0.5) if `modelX` is ever fractional. That is
+  jitter of half a pixel, not accumulation.
+
+### The next measurement, stated so it cannot drift into a theory
+
+Run the shipped rig, walk, and read `K drift Npx over M parks (worst Wpx)`. **`kParkSum/kParks`
+is the drift an average walk produces.** If W is ~2px the residue is at the rounding floor and the
+open item is about something else; if W grows with the length of the walk, the missing pixels are in
+a path where the camera block did not run or rejected real motion, and the places that can happen
+are enumerable (no drawn peer that frame, the UI latch, the settle window, a >128px sample gap).
+
+## Crystal's drawn tier: three real bugs behind the residual jitter — measured, NOT confirmed (2026-08-23)
+
+Continues the entry above ("the '206px continuous bleed' was a counter artefact"). All three were
+found by measurement against a source citation, all three are deployed on the shipped-settings rig
+(`hSCX`-clocked, 250ms/20Hz), and **no user has judged any of them on screen yet.**
+
+### 1. The adapter's "camera" register was not the camera
+
+`meshghost_crystal.lua` integrated `wPlayerBGMapOffsetX/Y` ($d14c/$d14d) and claimed in comment that
+it "cannot disagree with what the player sees". From `pret/pokecrystal`:
+
+- `ram/wram.asm:2477` comments it "used in FollowNotExact; unit is pixels".
+- `ApplyBGMapAnchorToObjects` (`engine/overworld/map_objects.asm:2768`), called from `_UpdateSprites`
+  every frame, reads it, adds it to every object's sprite X/Y, and **zeroes it** (`:2800`). It is a
+  per-frame delta the engine consumes and clears, not an absolute scroll position.
+- The screen is scrolled by `hSCX`/`hSCY` ($ffcf/$ffd0), written by `ScrollScreen`
+  (`engine/overworld/player_step.asm:37`) from the same `wPlayerStepVector` but ADDING where the
+  offset SUBTRACTS (`:29-34`) — hence `dOff == -dHSC`, and hence the earlier "both registers run
+  inverted" reading.
+
+Measured before changing anything, by reading both registers on the same frame: **30 of 340 frames
+disagreed**, in three shapes that are each a reported symptom — screen moved 2px while the offset
+register said nothing (x15, the ghost blind to real motion); offset moved while the screen did not
+(x9, the ghost stepping on a still frame, which is this code's own definition of jitter); and offset
+24 where the screen moved 22 (x4). Now clocked off `hSCX`/`hSCY`, negated so every downstream sign
+convention, the plausibility test and `K` are untouched.
+
+### 2. `K` was corrected against a reference that had not settled
+
+The corrector ran on "camera parked for 8 frames", used as a proxy for "the player has stopped".
+A per-term counter showed the target moving on **54 parked frames**, of which **27 were the player's
+step progress still advancing** and 6 the player's tile handing over (player OAM: 0, so nothing to do
+with the adapter's own drawn ghost sharing OAM). The camera register goes quiet for a beat at the
+start of a step, so the branch ran over the opening frames of a new walk with `camStillFor` still
+high from the previous stop, nudging `K` — a constant — toward a mid-handover reference.
+
+Now gated on the invariant itself rather than another proxy: correct only on a frame where the target
+is identical to the previous frame's. **Note the trap avoided:** the comparison state is updated
+OUTSIDE the `COMPARE_TIERS` guard, because it is now shipped behaviour — inside it, a build with
+probes off would find the state frozen and never correct `K` at all.
+
+### 3. Every "camera rebase" was the adapter's own blind spot — this is the big one
+
+The plausibility filter rejected implausible scroll deltas as register rebases and absorbed them.
+The rejected sizes were 16/20/22/24px, which is 8–12 frames of ordinary 2px scrolling. A gap
+histogram confirmed it: one run had **five sampling gaps (one of 14 frames, four over 25) and exactly
+five rejected "implausible" moves — the same five events.** The camera never jumped. `drawOverflow`
+increments `drawFrames` at the top and then has many early returns (UI open, settle window,
+transition hold, no peers), and the sampling sat below all of them inside the per-peer loop, so a
+gated frame left `camX` stale and the next sample read several frames of scroll as one delta.
+
+The adapter was reading its own blindness as the game doing something, and discarding that much real
+scroll. **That manufactured the entire drift `K` then repaid one visible pixel at a time.** Sampling
+is now a global `meshghostSampleCamera()` called before every gate (a global, not a local — the file
+is at 197 of Lua's 200 and has hit that ceiling as a bare LOAD FAILED four times).
+
+### What the numbers did
+
+One run each, same rig, same 9x9 square walk/stop drive:
+
+| Metric | Before | After |
+| --- | --- | --- |
+| Camera sampling gaps | 5 large (14–25+ frames) | 719 frames, every gap = 1 |
+| K drift at park entry | 47px over 5 parks, worst 15px | 4px over 4 parks, worst 1px |
+| Visible 1px corrections | 94–158 nudge frames | 9 |
+| "Camera rebases" | 5 | 0 |
+| Worst direction (`u`) | 12.5px avg | 1.0px avg |
+
+**This is a measurement, not a confirmation.** Worst park 1px is the rounding floor, so there is
+little left to repay — but "little left to repay" is a log line, and the bar is what the user sees.
+The user's reproducible case is the down leg's stop on lap 2 of the square drive; that is what has to
+be watched. Also untouched by any of this: a real peer rather than loopback, bike/surf/ledges/warps,
+and the map-change path, all still as listed in the entry above.
+
+### The user's reaction, 2026-08-23 — a data point, not yet a confirmation
+
+After the three fixes above went live on the shipped rig, watching the square drive lap:
+*"I think it looks fine everywhere now, nothing is standing out during the laps anymore"* — the
+first run since 2026-08-23's session began in which the down-leg stop did not reproduce.
+
+Deliberately NOT promoted to `verified.md`: it is a first positive reaction, it carries a hedge
+("I think"), and it is scoped to the square drive's laps. What would settle it is the same rig
+reproducing nothing on a later session, and ordinary play rather than a scripted square.
+
+**Still not covered by it, unchanged from the list above:** a real peer instead of loopback,
+bike/surf/ledge/warp movement, and a map change. The camera sampler now runs on every frame
+including those, which is new exposure the square drive cannot exercise.
+
+**One residue, measured and deliberately left alone.** 32 of the surviving 51 corrections reverse
+direction — a +-1px dither at the rounding floor, not drift (0.9% of frames). If a faint shimmer is
+ever reported, the answer is a 1px deadband, and that is NOT the 4px deadband recorded above as
+worse: that one was tried while drift was large and continuous, so suppressing repayment let it walk
+to 16px. With drift at ~1px there is nothing left to accumulate. Untried, and not to be added
+speculatively.

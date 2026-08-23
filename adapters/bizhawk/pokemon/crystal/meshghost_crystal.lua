@@ -2208,8 +2208,211 @@ local lastMenuBox = nil
 -- drawOverflow), and cleared when the world is rebuilt.
 local anchorIndex = nil
 
+-- THE CAMERA IS SAMPLED EVERY FRAME, ABOVE EVERY EARLY RETURN. (2026-08-23.)
+--
+-- This used to live inside the per-peer draw loop, below all of `drawOverflow`'s gates (UI open,
+-- settle window, transition hold, no peers). `drawFrames` advances at the top of that function,
+-- so every gated frame left `camX` stale and the next sample saw SEVERAL frames of scrolling as
+-- one delta -- which the plausibility test then rejected as a register rebase and absorbed.
+--
+-- Measured before moving it: one run had five gaps (one of 14 frames, four over 25) and exactly
+-- five rejected 'implausible' camera moves. They are the same five events. The camera never
+-- jumped; the adapter was not looking, then read its own blindness as the game doing something
+-- and threw away that much real scroll. The drift `K` spent the rest of the run repaying, one
+-- visible pixel per frame, was manufactured here -- which is the *jitter right before stopping*.
+--
+-- A GLOBAL, like `drawOverflow` beside it, because this file sits at 197 of Lua's 200 locals and
+-- has hit that ceiling as a bare LOAD FAILED four times. It must also be called BEFORE any early
+-- return, which is the entire point of it being its own function.
+function meshghostSampleCamera()
+	if facingFrames.camFrame ~= drawFrames then
+		-- HOW MANY FRAMES SINCE THIS LAST RAN? It should always be 1, and since this
+		-- was hoisted out of the per-peer loop it should STAY 1 -- this is the
+		-- regression check on that move, not just a diagnosis of the old shape.
+		-- It used to sit below every early return `drawOverflow` has (UI open,
+		-- settle window, transition hold, no peers), and each skipped frame left
+		-- `camX` stale, so the next sample saw several frames of scrolling as ONE delta
+		-- -- and a multi-frame delta is exactly what the plausibility test below
+		-- rejects as a "rebase" and absorbs. The rejected sizes (16/20/22/24px) are
+		-- 8-12 frames of ordinary 2px scrolling, which is the prediction this
+		-- histogram tests. If gaps > 1 are common, the camera accumulator is
+		-- missing real motion and the drift K repays is manufactured right here.
+		if COMPARE_TIERS and facingFrames.camFrame then
+			local g = drawFrames - facingFrames.camFrame
+			if g > 24 then g = 25 end
+			facingFrames.camGap = facingFrames.camGap or {}
+			facingFrames.camGap[g] = (facingFrames.camGap[g] or 0) + 1
+		end
+		facingFrames.camFrame = drawFrames
+		-- THE CAMERA IS hSCX/hSCY. Measured 2026-08-23, after the source said so.
+		--
+		-- This read `wPlayerBGMapOffsetX/Y` and called it "the register the screen
+		-- is actually scrolled by". It is not, and the audit below priced the
+		-- mistake: 30 of 340 frames disagreed with the real scroll, in three shapes
+		-- that are each a reported symptom --
+		--   * screen moved 2px, offset register said NOTHING (x15): the ghost is
+		--     blind to real camera motion and silently falls behind, which is the
+		--     drift `K` was being asked to repay;
+		--   * offset register moved, screen did NOT (x9): the ghost steps on a
+		--     frame the world is still, which is this block's own definition of
+		--     on-screen jitter, arriving from the clock itself;
+		--   * offset said 24 where the screen moved 22 (x4): large, and rejected as
+		--     "implausible" below, so 22px of REAL scroll was absorbed and never
+		--     painted -- a visible jump at the moment it happens.
+		-- Negated, not re-signed downstream: `ScrollScreen` ADDS the step vector to
+		-- hSC where `_HandlePlayerStep` SUBTRACTS it from the offset
+		-- (`player_step.asm:29-47`), so `dOff == -dHSC` and negating the source
+		-- leaves every sign convention, the plausibility test and `K` untouched.
+		local hcx, hcy = u8(0xFFCF, "System Bus"), u8(0xFFD0, "System Bus")
+		local scx = hcx and ((256 - hcx) % 256) or (u8(W_BGMAPOFFSETX) or 0)
+		local scy = hcy and ((256 - hcy) % 256) or (u8(W_BGMAPOFFSETY) or 0)
+		-- WAS THIS REGISTER EVER THE CAMERA? Read from `pret/pokecrystal`, not
+		-- guessed (2026-08-23):
+		--   * `wPlayerBGMapOffsetX/Y` ($d14c/$d14d) is commented in `ram/wram.asm`
+		--     as "used in FollowNotExact; unit is pixels". `ApplyBGMapAnchorToObjects`
+		--     (`engine/overworld/map_objects.asm:2768`), called from `_UpdateSprites`
+		--     EVERY FRAME, reads it, adds it to every object's sprite X/Y, and then
+		--     ZEROES IT (`:2800`). It is a per-frame delta the engine consumes and
+		--     resets -- NOT an absolute scroll position.
+		--   * The screen is actually scrolled by `hSCX`/`hSCY` ($ffcf/$ffd0, from
+		--     `pokecrystal.sym`), updated by `ScrollScreen`
+		--     (`engine/overworld/player_step.asm:37`) from the same
+		--     `wPlayerStepVector`, but ADDING where the offset above SUBTRACTS
+		--     (`:29-34`) -- which is where the "both registers run inverted" reading
+		--     came from.
+		-- So this block's claim that it integrates "the register the screen is
+		-- actually scrolled by -- it cannot disagree with what the player sees" is
+		-- FALSE as written. This measures the size of that lie before anything is
+		-- changed: if the two mirror each other, every frame has dOff == -dH.
+		if COMPARE_TIERS then
+			local hx, hy = hcx, hcy
+			-- The OLD source, read explicitly. Using `scx`/`scy` here would compare
+			-- hSC against itself now that they come from it, and report a perfect
+			-- score forever -- a check that cannot fail is not a check.
+			local ox = u8(W_BGMAPOFFSETX) or 0
+			local oy = u8(W_BGMAPOFFSETY) or 0
+			if hx and hy then
+				if facingFrames.hX then
+					local dhx = ((hx - facingFrames.hX + 128) % 256) - 128
+					local dhy = ((hy - facingFrames.hY + 128) % 256) - 128
+					local dox = ((ox - (facingFrames.hOX or ox) + 128) % 256) - 128
+					local doy = ((oy - (facingFrames.hOY or oy) + 128) % 256) - 128
+					facingFrames.hN = (facingFrames.hN or 0) + 1
+					if dox == -dhx and doy == -dhy then
+						facingFrames.hAgree = (facingFrames.hAgree or 0) + 1
+					else
+						facingFrames.hDis = (facingFrames.hDis or 0) + 1
+						local k = string.format("off %+d,%+d vs hSC %+d,%+d",
+							dox, doy, dhx, dhy)
+						facingFrames.hD = facingFrames.hD or {}
+						facingFrames.hD[k] = (facingFrames.hD[k] or 0) + 1
+					end
+				end
+				facingFrames.hX, facingFrames.hY = hx, hy
+				facingFrames.hOX, facingFrames.hOY = ox, oy
+			else
+				facingFrames.hNoRead = (facingFrames.hNoRead or 0) + 1
+			end
+		end
+		if facingFrames.camX ~= nil
+			and (scx ~= facingFrames.camX or scy ~= facingFrames.camY) then
+			-- ONLY A PLAUSIBLE SCROLL IS MOTION. A real camera frame moves 2 or 4px
+			-- on ONE axis; the event probe caught 8px DIAGONAL register jumps on the
+			-- first frame of each walk (`cam=8`, dsx and dsy together), and painting
+			-- those as motion was the 1-tile snap-back the user saw at every walk
+			-- start once everything else was clean. An implausible delta is the
+			-- register being REBASED (or read mid-update): it is absorbed into the
+			-- accumulator AND the calibration constant in the same frame, so the
+			-- painted position provably cannot move because of it.
+			local pdx = ((scx - facingFrames.camX + 128) % 256) - 128
+			local pdy = ((scy - facingFrames.camY + 128) % 256) - 128
+			local pcd = math.abs(pdx) + math.abs(pdy)
+			local plausible = (pcd == 2 or pcd == 4)
+				and (pdx == 0 or pdy == 0)
+			if not plausible then
+				facingFrames.camAX = (facingFrames.camAX or 0) + pdx
+				facingFrames.camAY = (facingFrames.camAY or 0) + pdy
+				if facingFrames.camKX then
+					-- MINUS, not plus. The paint is `model + camA + K` on BOTH axes, so a
+					-- rebase absorbed into camA is cancelled only by the OPPOSITE change in
+					-- K. Y already did that; X ADDED, so every X rebase moved the painted
+					-- ghost by twice the rebase instead of leaving it still -- the one thing
+					-- "absorbed invisibly" is supposed to mean. Found 2026-08-23 by algebra,
+					-- not by a probe: the two axes disagreed in a way no convention justifies.
+					facingFrames.camKX = facingFrames.camKX - pdx
+					facingFrames.camKY = facingFrames.camKY - pdy
+				end
+				facingFrames.camMoved = false
+				facingFrames.camDelta = 0
+				facingFrames.camStillFor = (facingFrames.camStillFor or 99) + 1
+				facingFrames.camX, facingFrames.camY = scx, scy
+				if COMPARE_TIERS then
+					facingFrames.camRebase = (facingFrames.camRebase or 0) + 1
+					-- WHAT the rejected moves actually are, not just how many.
+					-- Runs keep showing roughly ONE rebase per park -- 8 against 7
+					-- parks, 19 against 19 -- which is too regular to be the
+					-- occasional register rebase this branch was written for. If
+					-- these are REAL camera motion at every stop, absorbing them
+					-- means the screen moved and the painted ghost did not, which
+					-- is a jitter at exactly the moment the user reports one.
+					-- The deltas name them; a repeated pair is a mechanism.
+					local key = string.format("%+d,%+d", pdx, pdy)
+					facingFrames.camRebaseD = facingFrames.camRebaseD or {}
+					facingFrames.camRebaseD[key] =
+						(facingFrames.camRebaseD[key] or 0) + 1
+				end
+			else
+			facingFrames.camMoved, facingFrames.camStillFor = true, 0
+			-- HOW FAR the camera moved this frame, not just whether. The scroll
+			-- registers are u8 and wrap at 256, so the delta is taken the short
+			-- way round. After the +-/boundary fixes the residue was ONE 2px slip
+			-- per tile, metronomic -- the signature of the camera doing something
+			-- once per tile that a fixed 2px hop cannot match. Measured below and
+			-- histogrammed on the MODEL line; the hop mirrors it, clamped to the
+			-- engine's own gaits (2px walk, 4px bike).
+			local dxw = ((scx - facingFrames.camX + 128) % 256) - 128
+			local dyw = ((scy - facingFrames.camY + 128) % 256) - 128
+			-- The camera's ACCUMULATED world position, wrap-unrolled. This is the
+			-- screen's true origin, integrated from the register the screen is
+			-- actually scrolled by -- it cannot disagree with what the player
+			-- sees, which no quantity derived from tile+progress can promise.
+			facingFrames.camAX = (facingFrames.camAX or 0) + dxw
+			facingFrames.camAY = (facingFrames.camAY or 0) + dyw
+			-- THE SIGN CONVENTION, measured instead of assumed -- the assumption
+			-- just sent every ghost off the screen. Each camera move is recorded
+			-- against the direction the player was actually walking; one lap of
+			-- the square yields the full map (which register, which sign, per
+			-- direction), and the camera-frame paint can then be rebuilt on data.
+			if COMPARE_TIERS then
+				local np = playerHistory[(playerHistory.n % playerHistory.size) + 1]
+				local pdir = (np and np.dir) or 9
+				facingFrames.camSign = facingFrames.camSign or {}
+				local key = string.format("%s:%+d,%+d",
+					DIR_NAMES.letter[pdir] or "?", dxw, dyw)
+				facingFrames.camSign[key] = (facingFrames.camSign[key] or 0) + 1
+			end
+			local cd = math.abs(dxw) + math.abs(dyw)
+			if cd > 8 then cd = 8 end
+			facingFrames.camDelta = cd
+			if COMPARE_TIERS then
+				facingFrames.camD = facingFrames.camD or {}
+				facingFrames.camD[cd] = (facingFrames.camD[cd] or 0) + 1
+			end
+			end
+		else
+			facingFrames.camMoved = false
+			facingFrames.camDelta = 0
+			facingFrames.camStillFor = (facingFrames.camStillFor or 99) + 1
+		end
+		facingFrames.camX, facingFrames.camY = scx, scy
+	end
+end
+
 function drawOverflow()
 	drawFrames = drawFrames + 1
+	-- BEFORE EVERY GATE BELOW. The camera accumulator must not miss a frame; see the note on
+	-- meshghostSampleCamera above for what missing them cost.
+	meshghostSampleCamera()
 	-- COMPARE_TIERS keeps this running even with the tier switched off: the comparison ghost is
 	-- the only thing `overflow` holds in that configuration, and looking at it is the point.
 	-- CLEAR BEFORE EVERY EARLY RETURN.
@@ -2908,90 +3111,6 @@ function drawOverflow()
 					-- walker's pace on tick frames. Only when the camera has been still (the local
 					-- player parked while a ghost still owes distance) does the model fall back to
 					-- its own two-frame beat, where there is nothing on screen to be relative to.
-					if facingFrames.camFrame ~= drawFrames then
-						facingFrames.camFrame = drawFrames
-						local scx = u8(W_BGMAPOFFSETX) or 0
-						local scy = u8(W_BGMAPOFFSETY) or 0
-						if facingFrames.camX ~= nil
-							and (scx ~= facingFrames.camX or scy ~= facingFrames.camY) then
-							-- ONLY A PLAUSIBLE SCROLL IS MOTION. A real camera frame moves 2 or 4px
-							-- on ONE axis; the event probe caught 8px DIAGONAL register jumps on the
-							-- first frame of each walk (`cam=8`, dsx and dsy together), and painting
-							-- those as motion was the 1-tile snap-back the user saw at every walk
-							-- start once everything else was clean. An implausible delta is the
-							-- register being REBASED (or read mid-update): it is absorbed into the
-							-- accumulator AND the calibration constant in the same frame, so the
-							-- painted position provably cannot move because of it.
-							local pdx = ((scx - facingFrames.camX + 128) % 256) - 128
-							local pdy = ((scy - facingFrames.camY + 128) % 256) - 128
-							local pcd = math.abs(pdx) + math.abs(pdy)
-							local plausible = (pcd == 2 or pcd == 4)
-								and (pdx == 0 or pdy == 0)
-							if not plausible then
-								facingFrames.camAX = (facingFrames.camAX or 0) + pdx
-								facingFrames.camAY = (facingFrames.camAY or 0) + pdy
-								if facingFrames.camKX then
-									-- MINUS, not plus. The paint is `model + camA + K` on BOTH axes, so a
-									-- rebase absorbed into camA is cancelled only by the OPPOSITE change in
-									-- K. Y already did that; X ADDED, so every X rebase moved the painted
-									-- ghost by twice the rebase instead of leaving it still -- the one thing
-									-- "absorbed invisibly" is supposed to mean. Found 2026-08-23 by algebra,
-									-- not by a probe: the two axes disagreed in a way no convention justifies.
-									facingFrames.camKX = facingFrames.camKX - pdx
-									facingFrames.camKY = facingFrames.camKY - pdy
-								end
-								facingFrames.camMoved = false
-								facingFrames.camDelta = 0
-								facingFrames.camStillFor = (facingFrames.camStillFor or 99) + 1
-								facingFrames.camX, facingFrames.camY = scx, scy
-								if COMPARE_TIERS then
-									facingFrames.camRebase = (facingFrames.camRebase or 0) + 1
-								end
-							else
-							facingFrames.camMoved, facingFrames.camStillFor = true, 0
-							-- HOW FAR the camera moved this frame, not just whether. The scroll
-							-- registers are u8 and wrap at 256, so the delta is taken the short
-							-- way round. After the +-/boundary fixes the residue was ONE 2px slip
-							-- per tile, metronomic -- the signature of the camera doing something
-							-- once per tile that a fixed 2px hop cannot match. Measured below and
-							-- histogrammed on the MODEL line; the hop mirrors it, clamped to the
-							-- engine's own gaits (2px walk, 4px bike).
-							local dxw = ((scx - facingFrames.camX + 128) % 256) - 128
-							local dyw = ((scy - facingFrames.camY + 128) % 256) - 128
-							-- The camera's ACCUMULATED world position, wrap-unrolled. This is the
-							-- screen's true origin, integrated from the register the screen is
-							-- actually scrolled by -- it cannot disagree with what the player
-							-- sees, which no quantity derived from tile+progress can promise.
-							facingFrames.camAX = (facingFrames.camAX or 0) + dxw
-							facingFrames.camAY = (facingFrames.camAY or 0) + dyw
-							-- THE SIGN CONVENTION, measured instead of assumed -- the assumption
-							-- just sent every ghost off the screen. Each camera move is recorded
-							-- against the direction the player was actually walking; one lap of
-							-- the square yields the full map (which register, which sign, per
-							-- direction), and the camera-frame paint can then be rebuilt on data.
-							if COMPARE_TIERS then
-								local np = playerHistory[(playerHistory.n % playerHistory.size) + 1]
-								local pdir = (np and np.dir) or 9
-								facingFrames.camSign = facingFrames.camSign or {}
-								local key = string.format("%s:%+d,%+d",
-									DIR_NAMES.letter[pdir] or "?", dxw, dyw)
-								facingFrames.camSign[key] = (facingFrames.camSign[key] or 0) + 1
-							end
-							local cd = math.abs(dxw) + math.abs(dyw)
-							if cd > 8 then cd = 8 end
-							facingFrames.camDelta = cd
-							if COMPARE_TIERS then
-								facingFrames.camD = facingFrames.camD or {}
-								facingFrames.camD[cd] = (facingFrames.camD[cd] or 0) + 1
-							end
-							end
-						else
-							facingFrames.camMoved = false
-							facingFrames.camDelta = 0
-							facingFrames.camStillFor = (facingFrames.camStillFor or 99) + 1
-						end
-						facingFrames.camX, facingFrames.camY = scx, scy
-					end
 					-- EIGHT still frames, not two, before the model free-runs. The camera pauses
 					-- 1-2 frames at EVERY player step boundary (the same two standing frames the
 					-- `anim` documentation records), and a 2-frame fallback treated each of those
@@ -3328,10 +3447,14 @@ function drawOverflow()
 			-- subtracted both axes and sent every ghost off the screen within minutes -- the
 			-- assumption had only ever been checked as magnitudes. One instrumented lap gave the
 			-- convention per direction (2026-08-23, `CAMERA signs by walk dir` in the log):
-			-- walking right/left moves the X register +2/-2 -- X matches map pixels -- while
-			-- walking down/up moves the Y register -2/+2 -- Y runs INVERTED to map pixels. So the
-			-- camera's map-space position is (+camAX, -camAY), and Y is ADDED below where X is
-			-- subtracted. K has no absolute origin, so it is calibrated from the tile formula
+			-- walking right/left moves the X register +2/-2 while walking down/up moves the Y
+			-- register -2/+2. **That lap's CONCLUSION -- "X matches map pixels, Y is inverted, so
+			-- the axes are treated differently" -- WAS WRONG, and the block below says why**: the
+			-- instrument's direction string was mislabelled, so every left/right reading was
+			-- swapped. Both registers run inverted, the paint adds `camA` on both axes, and there
+			-- is no axis asymmetry to look for. Left here because the refuted version is the
+			-- intuitive one and will be re-derived by anyone who measures magnitudes only.
+			-- K has no absolute origin, so it is calibrated from the tile formula
 			-- whenever the camera has been parked half a second -- the one state where that
 			-- formula has no seam -- which also re-calibrates it after every map change.
 			if o.modelX then
@@ -3376,6 +3499,108 @@ function drawOverflow()
 					else
 						local ddx = wantKX - facingFrames.camKX
 						local ddy = wantKY - facingFrames.camKY
+						-- IS THE TARGET STANDING STILL? By algebra `wantK` is entirely player-side
+						-- (`oamX - 8 - pTile.x*16 - ppx - camAX`, with `modelX` cancelling), so
+						-- while the camera is parked it MUST be constant and K must converge within
+						-- as many frames as it has pixels to travel. The run says otherwise: 158
+						-- nudge frames against 21px of park-entry drift, with only 3 reversals --
+						-- steady chasing, not oscillation. So either the cancellation is not exact
+						-- (`sx` is floored while `o.modelX` is subtracted unrounded, so a FRACTIONAL
+						-- model position leaves a residue that moves as the ghost free-runs), or a
+						-- term assumed constant is not. This counts both, and `kFrac` separates them.
+						-- CORRECT K ONLY AGAINST A REFERENCE THAT HAS SETTLED. (2026-08-23.)
+						--
+						-- "The camera has been parked 8 frames" was standing in for "the player has
+						-- stopped", and it is not the same thing: the per-term counter below caught
+						-- the target moving on 54 parked frames, of which 27 were the player's STEP
+						-- PROGRESS still advancing and 6 the player's TILE handing over. The camera
+						-- register goes quiet for a beat at the start of a step before it begins
+						-- scrolling, so this branch runs over the opening frames of a new walk with
+						-- `camStillFor` still high from the previous stop -- and nudges K toward a
+						-- reference that is mid-handover. K is supposed to be a CONSTANT, so every
+						-- such nudge is a corruption injected at a walk's start and paid back as
+						-- visible motion at its end. That is the "jitter right before stopping".
+						--
+						-- The guard is the invariant itself rather than another proxy: only correct
+						-- on a frame where the target is IDENTICAL to the previous frame's. A proxy
+						-- ("player not walking") is one more flag that can be stale at exactly the
+						-- handover being guarded against; equality of the thing being chased cannot
+						-- be. One settled frame is all it costs, and parks last far longer.
+						local stable = (facingFrames.kWantX == wantKX
+							and facingFrames.kWantY == wantKY)
+						facingFrames.kStable = stable
+						-- OUTSIDE the probe guard, deliberately. `stable` is now SHIPPED behaviour,
+						-- so the state it compares against has to advance whether or not the probe
+						-- is on -- inside the guard, a build with COMPARE_TIERS off would find
+						-- `kWantX` frozen at nil, `stable` false forever, and K never corrected at
+						-- all. That is the "a flag that gates the decision but not the work" trap
+						-- this project has already been bitten by, arriving from the other side.
+						facingFrames.kWantX, facingFrames.kWantY = wantKX, wantKY
+						if COMPARE_TIERS then
+							if facingFrames.kWantPrev and not stable then
+								facingFrames.kWantMoves = (facingFrames.kWantMoves or 0) + 1
+							end
+							facingFrames.kWantPrev = true
+							-- WHICH TERM IS MOVING? `wantKX = oamX - 8 - pTile.x*16 - ppx - camAX`,
+							-- and while the camera is parked `camAX` cannot change (a camera move
+							-- resets `camStillFor` and this whole branch stops running). `modelX`
+							-- cancels and is never fractional (measured). So a moving target has to
+							-- be the player's own OAM position, tile, or step progress -- all three
+							-- of which are supposed to be settled once the player has stopped.
+							-- Counted separately because they fail for different reasons: `oamX` is
+							-- read out of OAM, where the adapter's OWN drawn ghost also lives.
+							local cOam = (aged.oamX or playerOamX)
+							if facingFrames.kTOam and cOam ~= facingFrames.kTOam then
+								facingFrames.kTOamN = (facingFrames.kTOamN or 0) + 1
+							end
+							if facingFrames.kTTile and pTile.x ~= facingFrames.kTTile then
+								facingFrames.kTTileN = (facingFrames.kTTileN or 0) + 1
+							end
+							if facingFrames.kTPpx and ppx ~= facingFrames.kTPpx then
+								facingFrames.kTPpxN = (facingFrames.kTPpxN or 0) + 1
+							end
+							if facingFrames.kTCam and (facingFrames.camAX or 0) ~= facingFrames.kTCam then
+								facingFrames.kTCamN = (facingFrames.kTCamN or 0) + 1
+							end
+							facingFrames.kTOam, facingFrames.kTTile = cOam, pTile.x
+							facingFrames.kTPpx, facingFrames.kTCam = ppx, (facingFrames.camAX or 0)
+							if o.modelX % 1 ~= 0 or o.modelY % 1 ~= 0 then
+								facingFrames.kFrac = (facingFrames.kFrac or 0) + 1
+							end
+						end
+						-- THE DRIFT A WALK ACTUALLY PRODUCED, sampled ONCE per park.
+						--
+						-- `camStillFor` counts still camera frames and is reset to 0 by any camera
+						-- move, so it passes through exactly 8 once per park -- the first frame this
+						-- branch runs after a walk. K has not been touched since the previous park,
+						-- so `ddx`/`ddy` on that frame ARE the disagreement the whole walk built up.
+						-- That is the bleed, measured directly, instead of inferred from how much
+						-- repayment work the nudge below did (see the counter note there).
+						--
+						-- Stamped by frame because this block is inside the per-peer draw loop and
+						-- `facingFrames` is shared: two drawn peers would otherwise count one park
+						-- twice.
+						if COMPARE_TIERS and (facingFrames.camStillFor or 0) == 8
+							and facingFrames.kParkAt ~= drawFrames then
+							facingFrames.kParkAt = drawFrames
+							local d = math.abs(ddx) + math.abs(ddy)
+							facingFrames.kParks = (facingFrames.kParks or 0) + 1
+							facingFrames.kParkSum = (facingFrames.kParkSum or 0) + d
+							if d > (facingFrames.kParkMax or 0) then facingFrames.kParkMax = d end
+							-- PER DIRECTION, because the user's report is directional: the jitter is
+							-- on the DOWN leg's stop and nowhere else (2026-08-23). A total cannot
+							-- test that claim -- if down's parks carry the drift and the other three
+							-- do not, the cause is something the down direction does differently
+							-- (sign convention, the progress reversal, which axis the camera moves),
+							-- and if all four are equal the direction is a coincidence of where the
+							-- walk/stop phase happens to place a mid-leg stop.
+							local dl = DIR_NAMES.letter[pDir] or "?"
+							facingFrames.kParkDir = facingFrames.kParkDir or {}
+							local b = facingFrames.kParkDir[dl] or { n = 0, sum = 0, max = 0 }
+							b.n, b.sum = b.n + 1, b.sum + d
+							if d > b.max then b.max = d end
+							facingFrames.kParkDir[dl] = b
+						end
 						-- A DEADBAND, AND 2px STEPS, BECAUSE 1px DOES NOT EXIST IN THIS GAME.
 						--
 						-- The first version of this repaid drift a pixel at a time and the user saw
@@ -3398,7 +3623,7 @@ function drawOverflow()
 						-- real drift, and is repaid in 2px units that look like an ordinary step.
 						if math.abs(ddx) > 16 or math.abs(ddy) > 16 then
 							facingFrames.camKX, facingFrames.camKY = wantKX, wantKY
-						elseif o.modelMovedAt ~= drawFrames then
+						elseif o.modelMovedAt ~= drawFrames and facingFrames.kStable then
 							-- ON THE MODEL'S OFF-FRAMES, ONE PIXEL AT A TIME. Two better-sounding rules
 							-- were tried against the user's eyes and both were worse; the trail is kept
 							-- because each is the obvious next idea.
@@ -3422,10 +3647,12 @@ function drawOverflow()
 							-- and K is nudged 1px only on a frame the model itself did not move, so the
 							-- painted position can never advance faster than the engine's walk. The
 							-- residue is the user's *"jitter right before stopping"* -- real, small, and
-							-- NOT to be chased with a bigger correction. Its cause is upstream: the
-							-- camera accumulator and the player tile+progress formula disagree by a
-							-- continuous bleed (206px repaid against only 5 rebases), and that bleed is
-							-- the thing to find. `unverified.md`.
+							-- NOT to be chased with a bigger correction. Its cause is upstream, in the
+							-- disagreement between the camera accumulator and the player tile+progress
+							-- formula -- and HOW BIG that disagreement is, is now measured honestly by
+							-- `kParkSum`/`kParks` above rather than inferred from this counter, which
+							-- used to inflate it quadratically. Read the new numbers before theorising
+							-- about the size or the shape of the bleed. `unverified.md`.
 							if ddx ~= 0 then
 								facingFrames.camKX = facingFrames.camKX + (ddx > 0 and 1 or -1)
 							end
@@ -3433,13 +3660,47 @@ function drawOverflow()
 								facingFrames.camKY = facingFrames.camKY + (ddy > 0 and 1 or -1)
 							end
 							if COMPARE_TIERS and (ddx ~= 0 or ddy ~= 0) then
-								-- The drift this is repaying, in pixels, per park. If this climbs
-								-- with the length of a walk the bleed is on the WALKING side and
-								-- belongs there -- this only stops it being paid in one frame.
+								-- PIXELS ACTUALLY REPAID: one per axis per nudge frame, which is
+								-- exactly what the two lines above move.
+								--
+								-- This counter used to add the whole REMAINING disagreement every
+								-- nudge frame while repaying 1px of it, so one 14px park scored
+								-- 14+13+...+1 = 105. The inflation is quadratic in the drift, and
+								-- the "206px repaid against only 5 camera rebases" reading that
+								-- concluded a continuous bleed exists was built on it -- 206 is
+								-- what a couple of ordinary parks produce under the old sum, not
+								-- 206px of anything. Found 2026-08-23 by reading the counter, not
+								-- by running it: a measurement whose units were never checked.
+								-- `kParkSum` above is the honest total.
 								facingFrames.kFix = (facingFrames.kFix or 0)
-									+ math.abs(ddx) + math.abs(ddy)
-								local w = math.abs(ddx) + math.abs(ddy)
-								if w > (facingFrames.kFixMax or 0) then facingFrames.kFixMax = w end
+									+ (ddx ~= 0 and 1 or 0) + (ddy ~= 0 and 1 or 0)
+								-- How many frames the repayment was busy for. Paired with the pixel
+								-- count it says whether the nudge is keeping up: a park's drift
+								-- should clear in about as many frames as it has pixels, and a
+								-- nudge count far larger than the drift means it is chasing
+								-- something that keeps coming back rather than paying a debt down.
+								facingFrames.kNudges = (facingFrames.kNudges or 0) + 1
+								-- IS IT PAYING A DEBT, OR OSCILLATING? The two are indistinguishable
+								-- in a total: 53px of drift repaid over 411 nudge frames is either a
+								-- slow corrector or a fast one that keeps undoing itself, and those
+								-- want opposite fixes. A reversal counter tells them apart with no
+								-- ambiguity -- paying down a real debt is one sign until it lands,
+								-- so reversals should be at most one per park.
+								--
+								-- Suspected mechanism if this comes back high: `sx` is floored while
+								-- `o.modelX` is subtracted unrounded, so `ddx` carries a sub-pixel
+								-- residue, and the nudge has no deadband whatsoever (`ddx ~= 0`).
+								-- Half a pixel of permanent residue is enough to toggle forever.
+								local sgx = (ddx > 0) and 1 or ((ddx < 0) and -1 or 0)
+								local sgy = (ddy > 0) and 1 or ((ddy < 0) and -1 or 0)
+								if sgx ~= 0 and facingFrames.kSgX and sgx ~= facingFrames.kSgX then
+									facingFrames.kFlips = (facingFrames.kFlips or 0) + 1
+								end
+								if sgy ~= 0 and facingFrames.kSgY and sgy ~= facingFrames.kSgY then
+									facingFrames.kFlips = (facingFrames.kFlips or 0) + 1
+								end
+								if sgx ~= 0 then facingFrames.kSgX = sgx end
+								if sgy ~= 0 then facingFrames.kSgY = sgy end
 							end
 						end
 					end
@@ -4069,12 +4330,97 @@ function drawOverflow()
 			logFile(string.format("  MODEL walk: furthest behind its destination %.0fpx (a step is "
 				.. "16px), %d resyncs, %d backward steps refused, "
 				.. "%d beat corrections, %d catch-up frames, %d of them free-running at rest"
-				.. " | K drift repaid %dpx total, worst park %dpx | %d camera rebases",
+				.. " | K drift %dpx over %d parks (worst %dpx), %dpx repaid on %d nudge frames,"
+				.. " %d direction reversals"
+				.. " | %d camera rebases",
 				facingFrames.modelMax or 0, facingFrames.modelSnaps or 0,
 				facingFrames.backwards or 0, facingFrames.phaseFollow or 0,
 				facingFrames.catchupFrames or 0, facingFrames.freeCatchup or 0,
-				facingFrames.kFix or 0, facingFrames.kFixMax or 0,
+				facingFrames.kParkSum or 0, facingFrames.kParks or 0,
+				facingFrames.kParkMax or 0, facingFrames.kFix or 0,
+				facingFrames.kNudges or 0, facingFrames.kFlips or 0,
 				facingFrames.camRebase or 0))
+			-- THE DIRECTIONAL BREAKDOWN, on its own line so the totals line stays readable. This
+			-- is the line that tests the user's "only on the down leg's stop" report.
+			if facingFrames.kParkDir then
+				local ds = {}
+				-- LOWERCASE, and taken from `DIR_NAMES.letter` itself rather than written out --
+				-- the letters are the initials of "down"/"up"/"left"/"right", so `d u l r`. Typing
+				-- them uppercase here made this whole line print nothing at all on its first run,
+				-- which is indistinguishable from "no parks happened". Same class of fault as the
+				-- hand-rolled "durl" that table's own comment was written about.
+				for i = 0, 3 do
+					local dl = DIR_NAMES.letter[i]
+					local b = facingFrames.kParkDir[dl]
+					if b then
+						ds[#ds + 1] = string.format("%s %d parks avg %.1fpx worst %dpx",
+							dl, b.n, b.sum / b.n, b.max)
+					end
+				end
+				if #ds > 0 then
+					logFile("  K drift by direction of travel: " .. table.concat(ds, " | "))
+				end
+			end
+			-- THE TWO QUESTIONS THE TOTALS CANNOT ANSWER. `wantK` moving while the camera is parked
+			-- contradicts the algebra (every term is player-side), and `kFrac` says whether a
+			-- fractional model position is the reason the `modelX` cancellation is inexact.
+			logFile(string.format("  K target moved on %d parked frames, model was fractional on %d"
+				.. " (target should be CONSTANT while parked -- if it is not, the paint's"
+				.. " modelX cancellation is not exact or a 'constant' term is moving)",
+				facingFrames.kWantMoves or 0, facingFrames.kFrac or 0))
+			-- FRAME GAPS IN THE CAMERA SAMPLING. Anything other than 1 is a frame whose scrolling
+			-- was never seen, and its pixels are then either absorbed as a fake rebase or folded
+			-- into one oversized delta.
+			if facingFrames.camGap then
+				local gs = {}
+				for g = 1, 25 do
+					if facingFrames.camGap[g] then
+						gs[#gs + 1] = string.format("%s%d frame%s:%d", g == 25 and ">" or "",
+							g, g == 1 and "" or "s", facingFrames.camGap[g])
+					end
+				end
+				logFile("  camera sampling gaps (1 = every frame, anything more is motion never "
+					.. "seen): " .. table.concat(gs, " "))
+			end
+			-- WHICH of the four terms moved, on those parked frames. `camA` should be structurally
+			-- incapable of moving here; if it is nonzero this branch is running when it should not.
+			logFile(string.format("    of those, the term that moved was: player OAM %d,"
+				.. " player tile %d, step progress %d, camera accumulator %d",
+				facingFrames.kTOamN or 0, facingFrames.kTTileN or 0,
+				facingFrames.kTPpxN or 0, facingFrames.kTCamN or 0))
+			-- What the implausible-branch rejected, by delta. One repeated pair at ~one per park is
+			-- a mechanism being misclassified, not a register rebase.
+			if facingFrames.camRebaseD then
+				local rs = {}
+				for k, v in pairs(facingFrames.camRebaseD) do
+					rs[#rs + 1] = string.format("%s:%d", k, v)
+				end
+				table.sort(rs)
+				logFile("  camera moves REJECTED as implausible (absorbed, never painted): "
+					.. table.concat(rs, " "))
+			end
+			-- THE REGISTER AUDIT. `wPlayerBGMapOffset` is a per-frame delta the engine zeroes every
+			-- frame; `hSCX`/`hSCY` is what the screen is scrolled by. If these disagree at all, the
+			-- model is clocked off the wrong quantity and every downstream reading inherits it.
+			if (facingFrames.hN or 0) > 0 then
+				logFile(string.format("  CAMERA REGISTER AUDIT: %d frames compared, %d agree"
+					.. " (dOff == -dHSC), %d DISAGREE, %d unreadable",
+					facingFrames.hN or 0, facingFrames.hAgree or 0,
+					facingFrames.hDis or 0, facingFrames.hNoRead or 0))
+				if facingFrames.hD then
+					local hs, i = {}, 0
+					for k, v in pairs(facingFrames.hD) do
+						i = i + 1
+						if i <= 12 then hs[#hs + 1] = string.format("[%s] x%d", k, v) end
+					end
+					table.sort(hs)
+					logFile("    disagreements (up to 12 shapes): " .. table.concat(hs, " "))
+				end
+			elseif (facingFrames.hNoRead or 0) > 0 then
+				logFile(string.format("  CAMERA REGISTER AUDIT: hSCX/hSCY UNREADABLE on %d frames"
+					.. " -- the System Bus domain name or the addresses are wrong, so this audit"
+					.. " says nothing", facingFrames.hNoRead))
+			end
 			-- The camera's own per-frame movement, histogrammed: the clock the model mirrors.
 			if facingFrames.camD then
 				local cds = {}

@@ -74,10 +74,8 @@ that a peer's state genuinely differs from the local player's, which loopback co
   all done and 1:1 (2026-08-19..21); Crystal has none of that class yet. `unverified.md`.
 - **Crystal's two tiers are CONFIRMED GOOD at the dev rig's settings — 2026-08-22.** Drawn tier
   animates and tracks 1:1; spawned tier free of drift, snap and teleport. `verified.md`.
-- **Crystal: the camera accumulator and the player tile+progress formula bleed apart** — 206px of
-  drift repaid against only 5 rebases. The cause of the surviving jitter. `unverified.md`.
-- **Crystal's drawn tier at SHIPPED 250ms: two snap causes fixed, a small jitter remains** on the
-  ghost's final approach. Cause is an upstream bleed, not the repayment. `unverified.md`.
+- **Crystal's drawn tier jitter: three bugs fixed 2026-08-23, user says it looks fine — NOT settled.**
+  Wrong camera register, unsettled K reference, sampler below early returns. `unverified.md`, `pitfalls.md`.
 - **Crystal's drawn tier motion/animation: CONFIRMED at the dev rig, 2026-08-23.** Nine defects
   across model, paint and walk cycle. `verified.md`, `pitfalls.md`, `_template/probes.md`.
 - **Crystal: the spawned ghost trails ~4.3 frames** starting each step; 1.5 is the wire, the rest
