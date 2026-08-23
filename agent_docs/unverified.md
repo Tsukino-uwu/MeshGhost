@@ -1511,3 +1511,40 @@ three `stepGhost` writes — immediately after a successful spawn. **NOT confirm
 was one frame wide, and no test would have caught it. Widening a window is a way of REVEALING bugs,
 not only of causing them — when a timing change produces a new visual report, check what is now on
 screen for longer before assuming the change itself is wrong.
+
+## Crystal: the periodic whole-TILE drift, and the state it happens in (2026-08-23)
+
+Found by the 9x9 square run: the spawned tier's standing re-anchor corrects the ghost by a **whole
+tile** — `+16,+0` px, always on one axis — four times in 375 steps, evenly spaced about 13 seconds
+apart. Everything else in that run was clean: zero runaways, zero `WROTE WALKING`, zero respawns,
+zero snaps, zero teleports, no peer timeouts, and step-start lag steady at 17-20 frames with 239 of
+375 at exactly 19.
+
+**It is periodic, and it is not the promotion** — correlated from outside the adapter, the nearest
+promotion is 4-5 seconds away every time.
+
+**The state it is in, once the drift line was made to name it rather than just report its size:**
+
+```
+tile 17,20 last 16,20 walking=255 step_type=5 duration=8 action=1 facing=12
+tile 16,20 last 16,20 walking=255 step_type=1 duration=0 action=2 facing=12   (a -16,+0 case)
+```
+
+- **`step_type=5`, and this adapter only ever writes 2.** So the ENGINE has put the object into a
+  step type of its own choosing.
+- **`duration=8` alongside `walking=255`** — a live step duration on an object that reports STANDING.
+- `OBJECT_MAP_X` is 17 while `LAST_MAP_X` is 16: the object has been told it is on the next tile
+  while its sprite is still on the previous one, which is exactly the 16px the re-anchor takes back.
+
+**The leading suspicion, NOT established:** a ghost is cloned from a live map object, and
+`RestoreDefaultMovement` re-reads `MAPOBJECT_MOVEMENT` when a movement ends — so the engine may be
+resuming the DONOR's own movement behaviour and walking the ghost itself. That would make this the
+fourth member of the inherited-donor-identity family, after the trainer clone, the `!` sight range,
+and the donor's facing at spawn. It would also explain the periodicity: a wander routine on its own
+timer rather than anything keyed to our steps.
+
+**What to do next, in order:** name what step type 5 is in `pret/pokecrystal`'s step-type table;
+log `OBJECT_MOVEMENT_TYPE` and `MAPOBJECT_MOVEMENT` on the same line as the drift; and check whether
+`setGhostStanding`'s movement byte is one the engine will resume from. The re-anchor bounds the
+damage to one tile, so this is visible as an occasional snap rather than a runaway — which is why it
+survived a session that was otherwise clean.

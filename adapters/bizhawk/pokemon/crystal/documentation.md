@@ -387,3 +387,64 @@ Sources: `wPlayerBGMapOffsetX/Y` and `ApplyBGMapAnchorToObjects` from `pret/poke
 (`ram/wram.asm`, `engine/overworld/map_objects.asm`); `ScrollScreen` and the step-vector arithmetic
 from `engine/overworld/player_step.asm`; addresses from a hash-verified local build of V1.0.
 Confirmed against a running V1.0 by reading both registers on the same frame, 2026-08-23.
+
+## Walking into a wall
+
+Holding a direction against something impassable does not leave the character standing. Crystal plays
+a walk-in-place shuffle, and **it is built out of the two poses the character already has, not out of
+the walk cycle**:
+
+- `OBJECT_WALKING` stays **STANDING** for the whole thing. Nothing about a bump is a step, so anything
+  that keys off "is this character walking" cannot see one.
+- `OBJECT_ACTION` reads **`BUMP`** (3) throughout, and that is the only field that says a bump is
+  happening at all.
+- `OBJECT_STEP_DURATION` is **0**, so any progress-through-a-step derived from it reads as a
+  completed step rather than as no step.
+- `OBJECT_FACING` advances **0, 1, 2, 3** and wraps, one value every 16 frames.
+- The tile actually drawn alternates between the character's **standing** art and its **stepping**
+  art (the `+ 0x80` block described under the walk cycle below) in **16-frame runs** — stepping on
+  odd strides, standing on even ones. The block changes three frames before the facing does, so each
+  facing shows 3 frames of one pose and 13 of the other.
+
+Measured on the player, holding into a fence, run-length encoded so the cadence is visible
+(`probes/bump_probe.lua`, 2026-08-23):
+
+```
+facing 2: stepping x3, standing x13     facing 3: standing x3, stepping x13
+facing 0: stepping x3, standing x13     facing 1: standing x3, stepping x13
+```
+
+**So a bump is a two-pose shuffle at about four poses a second, not a stride cycle.** It looks
+slower and heavier than walking because it is: a walk changes pose roughly twice as often.
+
+The same shape covers every animation the game plays *without moving the character* — spin tiles,
+fishing, the `!` emote, the Fly landing. All are selected by `OBJECT_ACTION` while the position
+fields sit still, so `OBJECT_ACTION` is the only field that can distinguish them.
+
+## A newly created object is not drawn for one to two frames
+
+Writing a complete, valid object struct does not put a character on screen that frame. The engine
+builds its sprite list from the object array once per frame, and a struct written between frames is
+not in the list the next frame draws.
+
+**Measured** by dumping hardware OAM every frame across several newly created objects (2026-08-23):
+the object has **no OAM entries at all** on the frame it is created, and its four entries first
+appear **two or three frames later** — three in most samples, two in a minority. The count is exact
+because a character is four entries and the live-entry total steps up by four when it arrives.
+
+This matters to anything that hands a character over between two ways of drawing it: the gap is real,
+it is not a single frame, and it varies, so a fixed number of frames chosen by reasoning will be
+wrong some of the time.
+
+## OAM entry order is not stable
+
+The player's four sprites are commonly the first four OAM entries, and **that is a coincidence of
+how many characters are on screen, not a rule.** Observed on this game (2026-08-23): with a second
+character nearby, the player's own entries appeared in a different order within their group, and
+another character occupied entries 0-3 while the player sat further down the table.
+
+**Anything that identifies a character by its OAM slot is reading whichever character happens to be
+there.** The reliable route is to derive the relationship between an object's `OBJECT_SPRITE_X`/`Y`
+and its OAM position each frame, and to CHECK that derivation against a character whose position is
+already known before trusting it for another — a check which, when it fails, should produce no
+reading rather than a wrong one.

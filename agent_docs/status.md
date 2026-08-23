@@ -14,13 +14,13 @@ work more on emerald right now."*
 - **Crystal is where the gap is.** Both tiers move properly and the drawn tier now ANIMATES, all
   user-confirmed at the dev rig's settings 2026-08-22. What remains is the shipped-settings
   smoothing and the per-mechanic animation class Emerald finished. See the Crystal items below.
-- **Rig SHUT DOWN at the end of the second 2026-08-23 session** (relay and core stopped and verified
-  gone; BizHawk left to the user, ROM is **V1.0**, the only Crystal build ever run — 1.1 and
-  speedchoice remain untried). Rebuild with `run-relay-loopback-shipped.bat` + `run-core-crystal-shipped.bat`
-  — **shipped settings, 250ms/20Hz**, and the core logs its own `smoothing:` line, so read that
-  before trusting any reading. Savestates: slot 1 the user's, slot 7 their Route 39 spot, slot 8
-  goto_map's undo, **slot 9 the 9x9 square start**. The dev flag file drives `square_drive` in a
-  walk/stop cycle, which is what makes stop-time faults reproducible at all.
+- **Rig SHUT DOWN at the end of the THIRD 2026-08-23 session** (relay and core stopped and verified
+  gone; BizHawk left to the user, ROM **V1.0**). Rebuild with `run-relay-loopback-shipped.bat` +
+  `run-core-crystal-shipped.bat` — **shipped settings, 250ms/20Hz**, and the core logs its own
+  `smoothing:` line, so read that before trusting a reading. Savestates: slot 1 the user's, 7 their
+  Route 39 spot, 8 goto_map's undo, **9 the 9x9 square start**.
+- **`git config core.hooksPath .githooks` is now required per clone** — the pre-commit leak check.
+  `preflight.ps1` fails if it is unset; CI re-scans the tree. Added after a leak was committed.
 
 ## Genuinely open items
 
@@ -81,8 +81,10 @@ that a peer's state genuinely differs from the local player's, which loopback co
   Archipelago build's pair is assumed, never measured. `unverified.md`.
 - **Crystal's drawn tier motion/animation: CONFIRMED at the dev rig, 2026-08-23.** Nine defects
   across model, paint and walk cycle. `verified.md`, `pitfalls.md`, `_template/probes.md`.
-- **Crystal: the promotion blink is fixed but not watched** — the drawn copy was released one frame
-  before the engine renders the new object, into a hole. `unverified.md` (2026-08-23).
+- **Crystal: four promotion fixes, none watched** — the frame hole, the 2px hop, the donor's facing
+  at spawn, and the drawn tier's bump. `unverified.md` (2026-08-23).
+- **Crystal: the spawned ghost drifts a WHOLE TILE, periodically** — engine put it in `step_type=5`
+  with a live duration while STANDING; suspect inherited donor movement. `unverified.md`.
 - **Crystal: the spawned ghost's step trigger moved off the lerped tile onto the peer's progress** —
   jitter 6 frames -> 2, measured A/B, NOT watched. `STEP_TRIGGER_PROG=0` reverts. `unverified.md`.
 - **Crystal's drawn tier is untested on bike/surf/ledges/warps and with a real peer** — the camera
