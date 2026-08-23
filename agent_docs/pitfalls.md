@@ -4390,3 +4390,115 @@ here too.
 
 **Worth knowing:** `.gitattributes` already pinned `*.cs`, `*.cpp`/`*.hpp`, `*.sh`, `go.mod` and
 `go.sum`. `.go` was simply missed, and it is the extension this repo has most of.
+
+## Crystal: the end-of-walk snap was TWO faults sharing one trigger (2026-08-23)
+
+**Symptom.** At shipped settings only, the drawn ghost snapped onto its last tile whenever the
+player stopped. Clean at `-interp=0ms` the same date, which is why every earlier confirmation had
+missed it: the lag being repaid is the model trailing its own INTERPOLATED target, so with no wire
+delay there is no debt and the fault cannot occur. **A dev rig that removes the delay cannot find a
+delay-dependent fault.**
+
+**Cause 1 — the model was allowed to move at double the engine's walk, but only at rest.** The
+model's budget copies the camera's delta while the camera moves; parked, it falls back to its own
+beat, and that fallback granted 4px where a walker moves 2px. The camera only parks once the PLAYER
+has stopped, so the branch could never fire mid-walk — it fired once per walk, at the end.
+
+**Cause 2 — the paint had two formulas and switched between them at that same moment.** It
+CALIBRATED `K` from the player-tile formula while parked and PAINTED from the camera formula while
+moving — an `if`/`elseif`. The frame the camera parks is the frame the source changes, and the two
+formulas disagree by accumulated drift: **worst measured 14px, paid in one frame.**
+
+**Fix.** Cap the parked fallback at 2px; paint from one formula on every frame and let only `K`
+move. Also fixed on the way, by algebra: **the X camera rebase was absorbed with the wrong sign** —
+painted position is `model + camA + K` on both axes, so a rebase added to `camA` cancels only if
+SUBTRACTED from `K`. Y did that; X added, doubling every X rebase into the paint.
+
+### Why "sometimes" was the most useful word in the report
+
+Fixing cause 1 turned *"snapping ... whenever the player stop"* into *"still doing the weird ending
+snap, but just sometimes"*. **A defect that becomes intermittent has not become smaller — it has
+become a second defect whose magnitude varies.** Both fired on the same trigger, so one fix could
+never have been judged as a partial success; "sometimes" was the signal that a magnitude was
+varying while the trigger was not, which is what pointed at accumulated drift.
+
+### "Before" and "after" are diagnostic words — ask which
+
+The residue was chased in the wrong place until the user said *"sometimes have the 'jitter' right
+before stopping on a tile"*. **Before**, not after. At 250ms the ghost is still walking its last
+tile while the camera is ALREADY parked, so a park-time correction runs during the ghost's final
+approach. That one word moved the cause from "what happens at rest" to "what happens during
+arrival", and no instrument had distinguished them.
+
+### Two repayment rules that sound better and are worse
+
+Recorded so they are not re-invented; both were tried against the user's eyes.
+
+| Rule | Result |
+| --- | --- |
+| Deadband — ignore drift under 4px, since a constant offset is invisible | Drift walked up to **16px** per park, at the snap threshold. The premise is right; the conclusion is not, because the drift is CONTINUOUS, so repayment must be too. |
+| Wait for arrival, then repay 2px on the engine's tick | *"now its overshooting, and then gliding back ... added a snap to every single stop"*. 2px is coarser than the drift it chases, and a post-arrival burst is a snap by construction — the original fault moved later in time. |
+
+**The rule that survived: repay continuously and finely, on a frame the model itself did not move.**
+
+### The engine's RHYTHM is as visible as its speed
+
+The first repayment moved `K` 1px per frame. Every frame stayed within the walk speed and it still
+looked wrong, because the model advances 2px on its beat and the correction filled the gaps —
+turning a clean `2-0-2-0` cadence into `2-1-2-1`. This file already carries the same lesson from the
+other direction (a 1px-per-frame ghost is *smoother than the game* and reads as shimmer). **A
+correction does not get its own units.** If the engine moves 0, 2 or 4 pixels and never 1, then
+neither does anything we add to it — including error repayment.
+
+## Crystal: a tier handover is a position handover, and a gap is a blink (2026-08-23)
+
+**Symptom.** *"the spawned ghost is 'teleporting' 1 tile whenever it starts to walk after being
+idle/respawned"*.
+
+**Cause.** Not stepping at all — a HANDOVER. The shipped idle rule demotes a ghost that has not
+changed tile to the drawn tier, which despawns its engine object; the moment the peer moves it is
+promoted back and a fresh object is placed. So "after being idle" is a re-spawn every time. The two
+tiers disagree about where the peer is at that instant, and an instrument at the promotion measured
+it as the same value on every occurrence:
+
+    promoted across a -1,+0 tile handover (drawn model at 15,20, peer at 16,20)
+
+**A full tile, always along the direction of travel — structural, not incidental.** The promotion is
+TRIGGERED by the peer moving, so it fires exactly as the peer leaves the tile the drawn ghost is
+still standing on.
+
+**Fix.** Promote onto the tile the drawn model is over, not the peer's current tile, and let the
+ordinary step logic walk the remainder. The sub-tile remainder is deliberately NOT carried across:
+an object parked between tiles is what the standing re-anchor exists to destroy, so it would be
+undone within a frame and the jump would return by another route.
+
+**Then a flicker was left** — *"its not teleporting now, but it 'flickers' real quick"*. Dropping the
+drawn copy on the frame the engine object is created leaves one frame in which NEITHER draws the
+peer: the adapter paints during its own tick, while a new object is not in the engine's sprite list
+until the engine next builds one. **A gap is visible; an exact overlap is not.** The two tiers now
+overlap by one frame, which is invisible only BECAUSE the tile handover was fixed first — they agree
+on the tile, so it is the same character in the same place. Overlapping before fixing the tile would
+have drawn the peer twice, a tile apart.
+
+**Generalise:** any renderer with two tiers has a handover, and the handover has a position. It is
+invisible only if both tiers agree on that position AND neither frame is left empty.
+
+## A scripted edit can land a thousand lines from where you meant it (2026-08-23)
+
+**Symptom.** A Python edit reported success. The file had a comment stub at the intended site and
+six lines of the new code pasted into an unrelated function far below — syntactically valid Lua,
+loaded without error, and wrong.
+
+**Cause.** Computed insert indices. The replacement targeted one line correctly, then `insert()`ed
+the remainder at hand-arithmetic offsets that were stale the moment the first edit shifted the file.
+
+**Fix, and the rule.** `CLAUDE.md` already says to re-read the FILE after any scripted edit — this is
+what it is protecting against, and "it printed `applied`" is not evidence. Prefer replacing a
+contiguous block in ONE operation over an anchor plus offsets; when line numbers must be used, assert
+on the CONTENT of every line before touching it. Recovery is `git diff --stat` plus a look at the
+hunk headers: four intended sites showed as four hunks, and the stray sixth hunk was the corruption.
+
+**Also, repeatedly, in the same session:** several `old in s` assertions failed because indentation
+in the heredoc did not match the file's tabs. Those failed LOUDLY and were harmless. The dangerous
+one is the edit that half-applies — **an assertion that fires is a good outcome; the one to fear is
+the edit that succeeds in the wrong place.**

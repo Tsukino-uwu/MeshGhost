@@ -14,11 +14,12 @@ work more on emerald right now."*
 - **Crystal is where the gap is.** Both tiers move properly and the drawn tier now ANIMATES, all
   user-confirmed at the dev rig's settings 2026-08-22. What remains is the shipped-settings
   smoothing and the per-mechanic animation class Emerald finished. See the Crystal items below.
-- **Rig, left RUNNING at the end of 2026-08-23**: `run-relay-loopback-shipped.bat` (20Hz) and
-  `run-core-crystal-shipped.bat` (**250ms interp — SHIPPED settings**, and the core now logs its own
-  `smoothing:` line, so check that before trusting any reading), BizHawk with the adapter and
-  `square_drive`. **Shut them down or knowingly reuse them.** Savestates: slot 1 the user's, slot 7
-  their Route 39 spot, slot 8 goto_map's undo, **slot 9 the 9x9 square start**.
+- **Rig SHUT DOWN at the end of 2026-08-23** (relay and core stopped and verified gone; BizHawk
+  left to the user). Rebuild it with `run-relay-loopback-shipped.bat` + `run-core-crystal-shipped.bat`
+  — **shipped settings, 250ms/20Hz**, and the core logs its own `smoothing:` line, so read that
+  before trusting any reading. Savestates: slot 1 the user's, slot 7 their Route 39 spot, slot 8
+  goto_map's undo, **slot 9 the 9x9 square start**. The dev flag file drives `square_drive` in a
+  walk/stop cycle, which is what makes stop-time faults reproducible at all.
 
 ## Genuinely open items
 
@@ -73,6 +74,8 @@ that a peer's state genuinely differs from the local player's, which loopback co
   all done and 1:1 (2026-08-19..21); Crystal has none of that class yet. `unverified.md`.
 - **Crystal's two tiers are CONFIRMED GOOD at the dev rig's settings — 2026-08-22.** Drawn tier
   animates and tracks 1:1; spawned tier free of drift, snap and teleport. `verified.md`.
+- **Crystal: the camera accumulator and the player tile+progress formula bleed apart** — 206px of
+  drift repaid against only 5 rebases. The cause of the surviving jitter. `unverified.md`.
 - **Crystal's drawn tier at SHIPPED 250ms: two snap causes fixed, a small jitter remains** on the
   ghost's final approach. Cause is an upstream bleed, not the repayment. `unverified.md`.
 - **Crystal's drawn tier motion/animation: CONFIRMED at the dev rig, 2026-08-23.** Nine defects

@@ -1669,3 +1669,48 @@ code changing at all. The order that works:
 3. **What reaches the screen?** Only then the painted result.
 
 Measuring (3) first is the natural instinct and it cannot distinguish any of the three.
+
+## Hard rule: never move a ghost faster than the game moves, and never in units the game does not use
+
+Two halves, and the second is the one that gets missed.
+
+**Speed.** Whatever compensation, catch-up or error-repayment a renderer performs, the visible
+result may never exceed the pace the engine itself uses for that action. A ghost covering ground
+faster than a player can walk is doing something no player can do, which fails the 1:1 bar on its
+own — and it is worse than the lag it repays, because **constant lag is invisible on screen and a
+change of SPEED is not.** Trading the first for the second is never a good trade.
+
+**Units.** The correction does not get its own units either. If the engine moves 0, 2 or 4 pixels
+per frame and never 1, then a 1px correction is *smoother than the game* and reads as shimmer rather
+than as motion. Crystal, 2026-08-23: a repayment of 1px per frame kept every frame within walking
+speed and still looked wrong, because the model advances 2px on its beat and the correction filled
+the gaps — a clean `2-0-2-0` cadence became `2-1-2-1`. **The engine's RHYTHM is as visible as its
+speed.** Find the quantum before writing anything that nudges a position.
+
+Corollary worth stating, because it is the fix that keeps getting reinvented and keeps being worse:
+**do not save up a correction and pay it in one go.** A debt paid at a boundary is a snap by
+construction, whatever the boundary is — the end of a walk, an arrival, a state change. Repay
+continuously and finely, or decide the error is a constant offset and leave it alone.
+
+## Hard rule: a tier handover is a POSITION handover, and it needs an overlap
+
+Any adapter with more than one way to render a peer — an engine object and a painted copy, a
+hardware sprite and a software one — will switch between them while the peer is on screen. Two
+things must both be true or the switch is visible, and Crystal got each wrong in turn on 2026-08-23:
+
+1. **Both tiers must agree where the peer is at that instant.** They will not by default: one
+   usually carries a smooth sub-tile position and the other snaps to a grid. Crystal's promotion
+   placed the engine object on the peer's CURRENT tile while the painted copy was still a full tile
+   behind — measured at exactly `-1,+0` every time, because the promotion is triggered by the peer
+   moving, so it fires precisely as the peer leaves the tile the painted copy stands on.
+2. **Neither frame may be left empty.** Dropping the old tier on the same frame the new one is
+   created leaves one frame with nothing drawn, because an adapter paints during its own tick while
+   a freshly created engine object is not in the sprite list until the engine next builds one. One
+   missing frame is a blink. **A gap is visible; an exact overlap is not** — so overlap the two by
+   one frame.
+
+**Order matters:** fix the position first. Overlapping two tiers that disagree about position draws
+the peer twice, a tile apart, which is worse than the blink.
+
+Finally, **do not "fix" a handover by removing the transition** — Crystal's is the idle rule that
+stops a stationary ghost blocking a doorway, and it is load-bearing. Make the seam invisible instead.

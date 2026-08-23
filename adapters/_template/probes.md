@@ -1584,3 +1584,61 @@ where the adapter's order is down/up/**l**eft/**r**ight silently swapped every l
 in three instruments at once, which inverted a measured axis convention and cost a fully wrong
 rendering deploy. **A label is data too**: when a measured conclusion is surprising, check the
 labelling before believing it.
+
+## An unreproducible fault deserves an INSTRUMENT, not a repro hunt (Crystal, 2026-08-23)
+
+A fault the user had seen *"from time to time, just very rarely"* with no idea how to trigger it had
+gone unexplained since it was first reported. It was not solved by trying to reproduce it. It was
+solved by adding **one read-only log line** to the code path suspected of carrying it — recording
+what that path had actually been handed — and then waiting.
+
+It caught the culprit on the very first occurrence after it went in, and named it outright.
+
+The shape generalises:
+
+- **Instrument the INPUT of the suspect path, not the symptom.** The symptom is rare; the path runs
+  constantly. Here the path cloned an NPC's 16 bytes into a ghost, and logging those bytes turned
+  "sometimes a ghost starts a trainer battle" into "this ghost was cloned from object 3, whose type
+  nibble is 2".
+- **Cost it honestly, then stop worrying.** A spawn is rare and the log is buffered, so the line is
+  free on the frame. That is what makes it shippable in a dev build rather than a special run.
+- **It survives the session.** A repro attempt helps once; the line keeps working every session
+  after, including for the faults nobody has thought of yet.
+
+## A COUNTER THAT VANISHES WITH ITS FIX PROVES NOTHING
+
+When a fix removes the code path a counter measured, the obvious tidy-up is to remove the counter
+with it. Don't. Keep counting **what the old path would have done**, and say so in the label.
+
+Two things this buys, both of which came up the same date:
+
+- **It confirms the mechanism was real.** Before the fix, a counter showed `85 frames` taking the
+  suspect branch with catch-up armed. That number is what turned "this is the only code that could
+  do it" from an argument into a measurement.
+- **It distinguishes "fixed" from "no longer reachable here".** If the symptom returns and the
+  counter is zero, the cause has moved and the old explanation is dead. A counter that vanished with
+  its fix cannot say that, and the next session re-derives the whole thing.
+
+The same applies to a fix that changes a magnitude rather than removing a path: log the magnitude it
+is correcting. A `K drift repaid 206px total, worst park 14px` line is what proved a 14px one-frame
+jump existed, and — once the total stayed high while rebases stayed at 5 — what proved the remaining
+cause was somewhere else entirely.
+
+## Measure a HANDOVER by logging both sides at the moment of the swap
+
+Any renderer with two tiers, two formulas, or two sources of truth has moments where it switches
+between them, and those moments are invisible to a sampling probe: they last one frame and the
+averages either side look healthy.
+
+Log **both values and their difference, at the switch**. Two faults on the same date were named
+this way in one reading each:
+
+- `promoted across a -1,+0 tile handover (drawn model at 15,20, peer at 16,20)` — the same value on
+  every occurrence, which is what showed the jump was structural rather than a race.
+- A paint that calibrated from one formula while parked and painted from another while moving:
+  logging the disagreement at the parking frame gave `14px`, in one frame, on a quantity that is
+  supposed to be constant.
+
+**The tell that you are looking at a handover** rather than a continuous fault: the symptom is
+attached to a TRANSITION the user can name — "when it starts", "when I stop", "after being idle" —
+and the behaviour either side of it is fine.
