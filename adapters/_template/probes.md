@@ -1709,3 +1709,29 @@ Three rules:
 
 Companion to "Check a counter's UNITS before reasoning from its value" above — the same
 investigation produced both, and in both the instrument was the thing that was wrong.
+
+## A probe guard must never contain state that SHIPPED behaviour reads (2026-08-23)
+
+Found while writing a fix, not after it shipped — which is the only reason it is a note and not an
+incident. A corrector was changed to act only when its target had settled:
+
+    local stable = (facingFrames.kWantX == wantKX)   -- shipped behaviour reads this
+    if COMPARE_TIERS then
+        facingFrames.kWantX = wantKX                 -- but only the PROBE updates it
+    end
+
+With probes on it behaves as designed. With probes off — i.e. **in the shipped build** — `kWantX`
+never advances, `stable` is false forever, and the correction never runs at all. The probe flag
+stopped being a probe flag the moment shipped logic depended on a value written inside it.
+
+**The rule: a probe guard may only contain counters, histograms and logging — things whose absence
+changes nothing.** The moment a line inside one is read by code that runs with the flag off, it is
+behaviour wearing a probe's clothes, and the two configurations are different programs.
+
+**How to check it in one pass**: for every assignment inside a probe guard, ask whether any reader
+outside the guard exists. If yes, the assignment moves out and only the counter stays in.
+
+This is the mirror image of the standing "a flag flip is not a revert" rule, which warns that a flag
+gating a *decision* but not the *work* makes an A/B meaningless. Same defect, opposite direction: here
+the flag gated work that the decision needed. Both come from the same question, which is worth asking
+of any flag: **exactly what does this switch turn off, and what still reads its results?**

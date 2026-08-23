@@ -76,6 +76,8 @@ that a peer's state genuinely differs from the local player's, which loopback co
   animates and tracks 1:1; spawned tier free of drift, snap and teleport. `verified.md`.
 - **Crystal's drawn tier jitter: three bugs fixed 2026-08-23, user says it looks fine — NOT settled.**
   Wrong camera register, unsettled K reference, sampler below early returns. `unverified.md`, `pitfalls.md`.
+- **Crystal: `hSCX`/`hSCY` are inline literals, not in the per-build `ADDRESSES` table** — and the
+  Archipelago build's pair is assumed, never measured. `unverified.md`.
 - **Crystal's drawn tier motion/animation: CONFIRMED at the dev rig, 2026-08-23.** Nine defects
   across model, paint and walk cycle. `verified.md`, `pitfalls.md`, `_template/probes.md`.
 - **Crystal: the spawned ghost trails ~4.3 frames** starting each step; 1.5 is the wire, the rest

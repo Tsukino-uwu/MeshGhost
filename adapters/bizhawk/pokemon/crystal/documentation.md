@@ -353,3 +353,37 @@ Measured 2026-08-22 by logging what the engine actually drew (`probes/stride_pro
 `MESHGHOST_CRYSTAL_FACING_TRACE`), against the player and an NPC walking each direction. Why it
 matters to an adapter, and the two faults it produced — the flip read as a direction, and the
 stepping views discarded as another character's tiles: `agent_docs/pitfalls.md`.
+
+## The camera: what scrolls the screen, and the register that only looks like it
+
+Two different quantities move when the player walks, and they are easy to mistake for each other.
+
+**`hSCX` / `hSCY` ($ffcf / $ffd0) are the camera.** `ScrollScreen` adds the frame's player step
+vector to them, and they are what the background is actually scrolled by. A walking player moves
+them 2px per engine tick on one axis; the bike moves 4px. They are 8-bit and wrap at 256, so any
+difference taken across frames has to be read the short way round.
+
+**`wPlayerBGMapOffsetX` / `wPlayerBGMapOffsetY` ($d14c / $d14d) are NOT the camera**, despite moving
+by the same amounts at the same times. They are a *per-frame delta*: `_HandlePlayerStep` subtracts
+the same step vector from them (note the opposite sign to `hSC`), and then `ApplyBGMapAnchorToObjects`
+— reached from `_UpdateSprites` every frame — reads them, adds them to every object's sprite X and Y
+as a correction, and **zeroes them**. Their value is "how far the camera has moved since the sprites
+were last positioned", and it returns to zero each frame. Integrating them as though they were an
+absolute scroll position produces something that tracks the camera most of the time and diverges
+without warning; measured against `hSC` on the same frame, the two disagreed on about 9% of frames.
+
+Consequences worth knowing before using either:
+
+- **The two run in opposite directions.** `hSC` gains what the offset pair loses, so a difference
+  taken on one is the negation of the same difference on the other.
+- **The player's sprite does not move when the player walks** — the camera does. The player's on-screen
+  position only changes where the camera is clamped, such as near a map edge, and that is why a
+  screen-space calculation needs the player's OAM position as well as the camera.
+- **A camera reading is only as good as how often you take it.** Both quantities are differences, and
+  a difference is only a per-frame difference if you sampled on every frame; miss eight frames of a
+  2px walk and the next reading is 16px, which is indistinguishable from the game having jumped.
+
+Sources: `wPlayerBGMapOffsetX/Y` and `ApplyBGMapAnchorToObjects` from `pret/pokecrystal`
+(`ram/wram.asm`, `engine/overworld/map_objects.asm`); `ScrollScreen` and the step-vector arithmetic
+from `engine/overworld/player_step.asm`; addresses from a hash-verified local build of V1.0.
+Confirmed against a running V1.0 by reading both registers on the same frame, 2026-08-23.

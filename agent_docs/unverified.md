@@ -1162,3 +1162,26 @@ ever reported, the answer is a 1px deadband, and that is NOT the 4px deadband re
 worse: that one was tried while drift was large and continuous, so suppressing repayment let it walk
 to 16px. With drift at ~1px there is nothing left to accumulate. Untried, and not to be added
 speculatively.
+
+## Crystal: the camera addresses bypass the adapter's own per-build table (2026-08-23)
+
+Opened by the camera fix above, deliberately not closed in the same pass — the fix had just been
+judged good on screen and a refactor at that moment would have made a regression impossible to
+attribute.
+
+`hSCX`/`hSCY` are read as **literals inline** (`u8(0xFFCF, "System Bus")`), where every other address
+in this adapter lives in the per-ROM-build `ADDRESSES` table. That table exists precisely so a build
+which rearranges memory gets its own measured entries rather than vanilla's "because they are close".
+
+**Why it matters more than tidiness, for the Archipelago build.** Vanilla V1.0's `$ffcf`/`$ffd0` come
+from a hash-verified local `pokecrystal` build. The Archipelago build's are **assumed, not measured** —
+the reasoning being that the patch moves WRAM data (its `wPlayerBGMapOffset` is vanilla+7) while HRAM
+is small and hardware-adjacent. That is a plausible argument, not a measurement, and this is exactly
+the case the adapter's "a wrong address returns a plausible number instead of crashing" rule was
+written for: HRAM always reads, so a wrong entry would produce a believable scroll value and the
+graceful fallback would never fire.
+
+**What to do**: measure `hSCX`/`hSCY` on the Archipelago build the way `W_BGMAPOFFSETX/Y` was measured
+there (correlation across real tile steps — sweeps 0,2,4..254 within a step, moves on one axis only),
+then move both pairs into the `ADDRESSES` tables. Until then, the drawn tier's camera clock on the
+Archipelago build rests on an assumption, and the AP build has not been run since the change.
