@@ -1,0 +1,61 @@
+#!/bin/sh
+# MeshGhost — refuse a commit that would put a machine-specific path into the repo.
+#
+# WHY THIS EXISTS, and why the rule in CLAUDE.md was not enough on its own.
+#
+# That rule is already as strong as prose gets: bold, with the exact grep command, a note that both
+# slash directions are load-bearing, and three dated live cases. It was read and broken anyway
+# (2026-08-23) -- a probe was drafted in a scratchpad with a placeholder, `sed` substituted the real
+# absolute path into that copy, and the SUBSTITUTED copy was the one committed.
+#
+# The failure was not ignorance of the rule; it was checking the WORKING TREE after committing
+# instead of the STAGED CONTENT before. So this hook checks exactly what is about to be recorded,
+# at the only moment where refusing still costs nothing.
+#
+# INSTALL (once per clone -- hooks are not carried by `git clone`):
+#     git config core.hooksPath .githooks
+# `dev-scripts/preflight.ps1` checks that this is set. CI re-runs the same scan over the whole tree,
+# so a commit made with --no-verify, or on a clone that never ran the line above, still gets caught
+# before it can be released -- it just gets caught later and more expensively.
+#
+# To commit a deliberate exception, add the file to KEEP below with a reason. Do not use
+# --no-verify: that leaves no record of the decision.
+
+# Files that legitimately contain these strings -- rules ABOUT paths, and the tooling that finds
+# them. Kept identical to the exclusion list in CLAUDE.md's own grep.
+KEEP='^(CLAUDE\.md|agent_docs/environment\.md|agent_docs/pitfalls\.md|dev-scripts/preflight\.ps1|\.githooks/|\.github/workflows/)'
+
+# Both slash directions and a literal match, for the reason CLAUDE.md gives: a pattern that only
+# covers one direction passes cleanly on a file that leaks in the other. /Users/ and /home/ cover
+# macOS and Linux clones. -I skips binaries.
+PATTERNS='-e C:\Users -e C:/Users -e /home/ -e /Users/'
+
+staged=$(git diff --cached --name-only --diff-filter=ACMR | grep -Ev "$KEEP")
+[ -z "$staged" ] && exit 0
+
+hits=''
+for f in $staged; do
+	# The STAGED blob, not the file on disk -- they can differ, and the staged one is what is
+	# about to become history.
+	if git show ":$f" 2>/dev/null | grep -qIF $PATTERNS 2>/dev/null; then
+		hits="$hits$f
+"
+	fi
+done
+
+[ -z "$hits" ] && exit 0
+
+echo "COMMIT REFUSED: a machine-specific path would be recorded in this repo." >&2
+echo >&2
+printf '%s' "$hits" | sed 's/^/    /' >&2
+echo >&2
+echo "This is a public repo. A user path is not removable once pushed -- it stays in every" >&2
+echo "clone and fork, so the cheap moment to fix it is now." >&2
+echo >&2
+echo "Fix: make the path relative, or let the script resolve its own directory --" >&2
+echo "    local dir = debug.getinfo(1, 'S').source:sub(2):match('^(.*)/[^/]*\$')" >&2
+echo "is what every probe in adapters/*/probes/ already does." >&2
+echo >&2
+echo "A placeholder is not a fix on its own: it makes a file safe to WRITE and unsafe to COPY," >&2
+echo "because the safety lives in the placeholder and a copy is taken after it is gone." >&2
+exit 1

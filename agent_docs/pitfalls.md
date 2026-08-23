@@ -4740,3 +4740,36 @@ taken after it is gone.
 **Note for cleanup:** a leak in an already-made commit is still in history after the file is fixed.
 Fixing forward removes it from the working tree only; removing it from history is a rebase, which is
 the user's call and not something to do unasked.
+
+### The fix for it was a hook, not a stricter rule (2026-08-23)
+
+The user asked the right question after this: *"whats the best way to fix this so it don't happen
+again ? stricter/more enforced rule about it ? or something else ?"*
+
+**A stricter rule would have bought nothing, because the rule was already as strong as prose gets.**
+CLAUDE.md stated it in bold, gave the exact `git grep`, warned that both slash directions and `-F`
+are load-bearing, and listed three dated live cases. It was read and broken anyway. Emphasis was not
+the missing ingredient, and adding more would have cost lines against the 300-line cap while making
+every other rule slightly weaker (`claude-md-cap.md`).
+
+**What was actually missing was a check at the moment of commit.** The rule was obeyed as "scan the
+working tree", and the scan was run AFTER committing — so the finding was true and one commit late.
+
+Three layers now, cheapest first:
+
+1. **`.githooks/pre-commit`** scans the STAGED blobs and refuses the commit. Staged, not the working
+   tree: they can differ, and the staged content is what becomes history. Install once per clone,
+   `git config core.hooksPath .githooks` — hooks are not carried by `git clone`.
+2. **`dev-scripts/preflight.ps1`** fails if `core.hooksPath` is not set, so a clone with the hook
+   switched off says so instead of looking clean. A fresh clone is exactly that state.
+3. **A `paths` job in CI** re-scans the whole tree, catching `--no-verify` and any clone that never
+   ran step 1. Late and expensive, but before a release.
+
+**The general shape, worth reusing: when a rule is broken despite being read, do not restate it —
+find the moment the mistake becomes expensive and put a machine there.** For anything irreversible,
+that moment is always earlier than it feels: here, one commit earlier.
+
+**And verify the guard against the actual failure, not a synthetic one.** The hook was tested by
+reconstructing the exact commit that caused this — the same file, with the same substituted absolute
+path, staged the same way — and confirming both that it was refused and that `HEAD` did not move.
+A guard that has only ever been tested on a case someone invented is a guard of unknown value.

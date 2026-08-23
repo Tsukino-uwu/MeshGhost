@@ -123,11 +123,10 @@ stays here, its reasoning goes to `agent_docs/`, with a one-line pointer. Full e
   machine-identifying detail in any tracked file. Prose counts, not just code.** Genericize it
   (a placeholder a new user edits, an environment variable) or make it relative (scripts under
   `adapters/` resolve their own directory). Cite files outside the repo by filename only. Suspect
-  pasted tool output above all. Never assume a clean run means clean —
-  `git grep -inIF -e 'C:\Users' -e 'C:/Users' -e '/home/' -- . ':!CLAUDE.md'
-  ':!agent_docs/environment.md' ':!agent_docs/pitfalls.md' ':!dev-scripts/preflight.ps1'` must
-  print nothing; **both slash directions and `-F` are load-bearing** (why, and all three live
-  cases: `agent_docs/pitfalls.md`). `agent_docs/environment.md` — prefer a version to a path.
+  pasted tool output above all. **`.githooks/pre-commit` refuses such a commit and CI re-scans the
+  tree — `git config core.hooksPath .githooks` once per clone, and never `--no-verify` past it.**
+  A placeholder makes a file safe to WRITE and unsafe to COPY. Why this rule alone was not enough,
+  and all four live cases: `agent_docs/pitfalls.md`. `environment.md` — prefer a version to a path.
 - **Never let a scripted edit write CRLF into the LF-pinned adapter sources.** `.gitattributes`
   pins TEVI's `*.cs`/`*.csproj` and Pseudoregalia's `Mod/src/*.cpp|hpp`/`CMakeLists.txt` to
   `eol=lf`, because the release staleness gate hashes them on a Windows runner that defaults to

@@ -44,6 +44,40 @@ permissions:
   contents: read
 
 jobs:
+  paths:
+    name: No machine-specific paths
+    # THE BACKSTOP, not the primary defence. .githooks/pre-commit refuses such a commit
+    # locally and is the thing that actually keeps these out of history -- but hooks are
+    # not carried by `git clone`, need `git config core.hooksPath .githooks` once per
+    # clone, and can be skipped with --no-verify. This catches all three cases before a
+    # release, which is late and expensive but far better than never.
+    #
+    # A user path in a PUBLIC repo cannot be taken back once pushed: it stays in every
+    # clone and fork, and rewriting published history does not reach them. That asymmetry
+    # is why this is a hard failure and not a warning. Added 2026-08-23, the day one was
+    # committed for the fourth time.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Scan the tree for user paths
+        run: |
+          # Both slash directions AND -F, all three load-bearing: a pattern covering one
+          # direction passes cleanly on a file that leaks in the other, and without -F the
+          # backslashes are read as escapes. /Users/ and /home/ cover macOS and Linux.
+          # The exclusions are files that are ABOUT paths, plus the tooling that finds them.
+          if git grep -nIF \
+               -e 'C:\Users' -e 'C:/Users' -e '/home/' -e '/Users/' \
+               -- . \
+               ':!CLAUDE.md' ':!agent_docs/environment.md' \
+               ':!agent_docs/pitfalls.md' ':!dev-scripts/preflight.ps1' \
+               ':!.githooks/' ':!.github/workflows/'; then
+            echo
+            echo "A machine-specific path is present in a tracked file (listed above)."
+            echo "Make it relative, or let the script resolve its own directory."
+            exit 1
+          fi
+          echo "No machine-specific paths in tracked files."
+
   test:
     name: Build, vet, test (race)
     # Linux, not Windows, specifically for the race detector: on Windows it

@@ -40,6 +40,18 @@ if ($unformatted) {
 # ---------------------------------------------------------------------------
 Section "Public-repo leak check"
 
+# IS THE HOOK EVEN ON? The scan below finds a leak that is already in the working tree; the hook
+# is what stops one entering HISTORY, where it cannot be taken back. Hooks are not carried by
+# `git clone`, so a fresh clone has this switched off and nothing says so -- which is exactly the
+# state in which the 2026-08-23 leak was committed.
+$hooksPath = (& git config core.hooksPath) 2>$null
+if ($hooksPath -eq ".githooks") {
+    Report-Pass "core.hooksPath is .githooks -- the pre-commit leak check is armed"
+} else {
+    Report-Fail "core.hooksPath is not set to .githooks, so commits are NOT being checked for machine-specific paths -- run: git config core.hooksPath .githooks"
+}
+
+
 # Both slash directions. A backslash-only check ran clean for days while a forward-slash path sat
 # leaking in master -- see agent_docs/pitfalls.md, "A verification rule that reports clean while
 # the thing it checks is broken".
@@ -47,7 +59,7 @@ Section "Public-repo leak check"
 # patterns are written out literally on this line, so git grep finds them here every time. Without
 # the exclusion the check reported FAIL on a perfectly clean tree -- a checker that always fails is
 # as useless as one that never can, and gets ignored just as fast.
-$leaks = & git grep -inIF -e 'C:\Users' -e 'C:/Users' -e '/home/' -- . ':!CLAUDE.md' ':!agent_docs/environment.md' ':!agent_docs/pitfalls.md' ':!dev-scripts/preflight.ps1'
+$leaks = & git grep -inIF -e 'C:\Users' -e 'C:/Users' -e '/home/' -e '/Users/' -- . ':!CLAUDE.md' ':!agent_docs/environment.md' ':!agent_docs/pitfalls.md' ':!dev-scripts/preflight.ps1' ':!.githooks/' ':!.github/workflows/'
 if ($LASTEXITCODE -eq 0 -and $leaks) {
     Report-Fail "machine-identifying path in a tracked file:"
     $leaks | ForEach-Object { Write-Host "          $_" }
