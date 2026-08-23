@@ -5205,9 +5205,26 @@ local function renderRemote(id, state)
 	end
 
 	local g = ghosts[id]
-	-- The one-frame handover overlap set at the promotion below: release it once a frame has
-	-- actually been drawn with both, so the drawn tier stops painting a peer the engine now owns.
-	if g and overflow[id] and (overflow[id].handover or -1) < drawFrames then
+	-- TWO FRAMES, NOT ONE, AND IT IS NOT AN OVERLAP -- IT IS A GAP BEING CLOSED.
+	--
+	-- Measured 2026-08-23, dumping hardware OAM every frame across four promotions: an object this
+	-- adapter creates has NO OAM entries on the frame it is created OR on the next one, and first
+	-- appears on the SECOND frame after. The drawn copy was being released after one, so there was
+	-- exactly one frame on which neither tier drew the peer. The user, on a ghost that had been
+	-- standing still and then took a step: *"the spawned ghost still 'flicker' whenever it has been
+	-- idle/despawned, and then moves 1 tile"*, and *"at the start of moving from idle to another
+	-- tile"* -- a promotion happens every time a peer starts walking, so it fires constantly.
+	--
+	-- The old comment here described this as releasing "once a frame has actually been drawn with
+	-- both", which was the intention and never what happened: the measurement says the two are
+	-- never on screen together at all, so what was called an overlap was a one-frame hole. Keeping
+	-- the drawn copy for the second frame makes the handover exact rather than overlapping -- drawn
+	-- on the promotion frame and the one after, engine-owned from the frame it can actually draw.
+	--
+	-- Safe to hold: the promotion places the object on the drawn model's own tile, and the model's
+	-- sub-tile remainder measures 0.0px at that instant (logged under MESHGHOST_CRYSTAL_STEP_LAG),
+	-- so the two agree on the pixel for as long as this lasts.
+	if g and overflow[id] and (overflow[id].handover or -1) + 1 < drawFrames then
 		overflow[id] = nil
 	end
 	if not g then
@@ -5242,6 +5259,24 @@ local function renderRemote(id, state)
 					.. "(drawn model at %d,%d, peer at %d,%d) -- placed on the model's tile",
 					id, mtx - x, mty - y, mtx, mty, x, y))
 				px, py = mtx, mty
+			end
+			-- THE SUB-TILE REMAINDER THAT IS DROPPED, in pixels, which the tile-level line above
+			-- cannot show. The promotion places a real object on a TILE, while the drawn model it
+			-- takes over from is somewhere between two -- so the peer jumps by whatever that
+			-- remainder was, every single promotion, even when both agree on the tile and the line
+			-- above stays silent. A promotion happens every time a peer starts walking after
+			-- standing still, which is what the user is describing: *"the spawned ghost still
+			-- 'flicker' whenever it has been idle/despawned, and then moves 1 tile"*, *"at the
+			-- start of moving from idle to another tile"*. Measured before it is called the cause.
+			local remX = ov.modelX - math.floor(ov.modelX / 16) * 16
+			local remY = ov.modelY - math.floor(ov.modelY / 16) * 16
+			if stepLag.on then
+				stepLag.rem = stepLag.rem or {}
+				local k = math.floor(math.max(remX, remY))
+				stepLag.rem[k] = (stepLag.rem[k] or 0) + 1
+				logFile(string.format("MeshGhost: %s promoted -- drawn model was %.1f,%.1f px into "
+					.. "its tile, and that remainder is discarded (the object lands tile-aligned)",
+					id, remX, remY))
 			end
 		end
 		-- Try the good tier first, every frame: a slot may have freed up since last time.
@@ -5296,7 +5331,13 @@ local function renderRemote(id, state)
 		end
 		return
 	end
-	overflow[id] = nil
+	-- ...and this unconditional clear is why the handover above had never done anything. It runs on
+	-- every frame for a spawned peer, so the entry the promotion had deliberately kept was wiped
+	-- one frame later whatever `handover` said. Both release points have to honour it or neither
+	-- does. Found 2026-08-23 while measuring why the blink survived a fix aimed straight at it.
+	if not (overflow[id] and (overflow[id].handover or -1) + 1 >= drawFrames) then
+		overflow[id] = nil
+	end
 	if g and not stillOurs(g) then
 		-- A map load or a battle rebuilt the array under us. Drop the entry and spawn again
 		-- below; the alternative is writing steps into whatever the game put in that slot.

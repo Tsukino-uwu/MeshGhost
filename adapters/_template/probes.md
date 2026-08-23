@@ -1769,3 +1769,25 @@ glance (`CLAUDE.md`).
 **Instrument the REFUSAL, not just the result.** A tier, a branch or a filter that declines to act
 reports zero, and zero is compatible with every theory about why. Print which condition was false and
 what its inputs were. One line named a cause that three guesses off a zero counter had missed.
+
+## Make a probe verify its own assumption, and print the evidence behind any match (2026-08-23)
+
+Two rules from three iterations of one probe, where the first two produced confident numbers that
+were entirely artefacts of the probe.
+
+**A probe that returns a boolean cannot be sanity-checked.** "Is the ghost drawn this frame?" is a
+match computed from a prediction, and if the prediction is wrong the answer is wrong in a way that
+looks exactly like data. Print the raw evidence the match was made from -- the whole OAM table, the
+whole struct, the actual candidate list -- beside the verdict. The version that did this made the
+answer readable without trusting the prediction at all: two rows were missing on two frames, visibly.
+
+**Gate every reading on something already known, and stay SILENT when the gate fails.** The second
+version predicted where a ghost's sprite should land, and checked the same arithmetic against the
+PLAYER, whose position is not in doubt. When the assumption broke, it recorded nothing instead of a
+number. That gate is the only reason a wrong answer did not enter `unverified.md` as a measurement.
+A probe that cannot tell "absent" from "I am looking in the wrong place" is reporting on itself.
+
+**And distrust an implausible magnitude before distrusting the system.** The first version reported
+21-24 frames for something that could only take one or two. A third of a second is not a rendering
+delay, and that should have ended the reading on its face rather than being carried into a theory.
+

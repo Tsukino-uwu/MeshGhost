@@ -81,6 +81,8 @@ that a peer's state genuinely differs from the local player's, which loopback co
   Archipelago build's pair is assumed, never measured. `unverified.md`.
 - **Crystal's drawn tier motion/animation: CONFIRMED at the dev rig, 2026-08-23.** Nine defects
   across model, paint and walk cycle. `verified.md`, `pitfalls.md`, `_template/probes.md`.
+- **Crystal: the promotion blink is fixed but not watched** — the drawn copy was released one frame
+  before the engine renders the new object, into a hole. `unverified.md` (2026-08-23).
 - **Crystal: the spawned ghost's step trigger moved off the lerped tile onto the peer's progress** —
   jitter 6 frames -> 2, measured A/B, NOT watched. `STEP_TRIGGER_PROG=0` reverts. `unverified.md`.
 - **Crystal's drawn tier is untested on bike/surf/ledges/warps and with a real peer** — the camera

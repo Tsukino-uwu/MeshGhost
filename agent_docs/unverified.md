@@ -1321,3 +1321,63 @@ tile, which a walking peer still cannot reach — that half of the item stands.
 **NOT confirmed.** What to watch: walk into a MOVING ghost and keep holding the d-pad into it; after
 about half a second you should pass through. `MESHGHOST_CRYSTAL_GHOSTS_PASSABLE` must be UNSET for
 this to mean anything — it short-circuits the whole rule.
+
+## Crystal: the promotion blink was a one-frame hole, not an overlap — fixed, NOT confirmed (2026-08-23)
+
+**The user, on the rig:** *"the spawned ghost still 'flicker' whenever it has been idle/despawned, and
+then moves 1 tile"*, and, asked to place it, *"at the start of moving from idle to another tile"*.
+That is the PROMOTION — a peer that stands still is demoted to the drawn tier and its engine object
+despawned, so every time a peer starts walking a fresh object is created.
+
+**Measured by dumping hardware OAM every frame across four promotions.** An object this adapter
+creates has **no OAM entries at all on the frame it is created**, and first appears one or two frames
+later. The adapter released the drawn copy after one frame, so on at least one frame **neither tier
+drew the peer**.
+
+| frame after promotion | drawn copy (before the fix) | engine object in OAM |
+|---|---|---|
+| +0 (the promotion frame) | painted | absent |
+| +1 | **released** | absent, or first appears |
+| +2 | gone | present |
+
+**The comment was describing an intention, not the behaviour.** It read *"OVERLAP THE TWO TIERS BY
+ONE FRAME... that costs a single frame where both draw the peer"*. The measurement says the two were
+never on screen together at all — what was called an overlap was a hole.
+
+**And the handover had never been doing anything anyway.** A second, UNCONDITIONAL `overflow[id] = nil`
+runs further down `renderRemote` on every frame for a spawned peer, so the entry the promotion
+deliberately kept was wiped one frame later whatever `handover` said. Both release points now honour
+it; fixing only the first would have changed nothing and looked like the theory being wrong.
+
+**Safe to hold the extra frame:** the promotion places the object on the drawn model's own tile, and
+the model's discarded sub-tile remainder measures **0.0px** at that instant (logged under
+`MESHGHOST_CRYSTAL_STEP_LAG`). The two agree on the pixel for as long as the handover lasts, so a
+frame where both draw is invisible — which is what the original comment assumed and never got.
+
+**A theory killed on the way, worth not re-deriving.** The promotion was suspected of jumping the
+peer by up to 15px, because it places a tile-aligned object where a sub-pixel drawn model was. It
+does not: the remainder is 0.0 every time, because promotion is triggered by the peer STARTING to
+move, at which point the model is still parked on its tile.
+
+**NOT confirmed on screen.**
+
+### Probe note: three iterations, and only the last one could have been right
+
+The first two versions of the OAM probe produced confident numbers that were artefacts.
+
+1. **Calibrating off OAM entry 0 as "the player".** The adapter's own `readPlayerOamFrame` warns that
+   entries 0-3 are the player's only while nothing else is on screen, and a spawned ghost takes them.
+   Reported "21-24 frames to visible", a third of a second, which is not a rendering delay and should
+   have been disbelieved on its face.
+2. **Assuming a fixed sprite-coord-to-OAM offset of +8,+16.** Object coords are map-relative, not
+   screen-relative: measured, the offset was +64,+44 and moves with the camera. This version at least
+   **failed loudly** — it gated every reading on finding the PLAYER at its own predicted position, so
+   when the assumption broke it recorded nothing instead of inventing a number. **That gate is the
+   only reason the wrong answer did not get written down as a measurement.**
+3. **Dumping the whole window** — the ghost's coords, the predicted OAM position, and every live OAM
+   entry, frame by frame. The answer was visible directly in the entry list without trusting the
+   prediction at all.
+
+**The lesson: a probe that computes a match should also print the raw evidence the match was made
+from.** Both wrong versions returned a boolean, and a boolean cannot be sanity-checked. The third
+printed the OAM table, and the two missing rows were simply there to see.

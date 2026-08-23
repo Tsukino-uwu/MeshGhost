@@ -4639,3 +4639,42 @@ was 4. That was the adapter's own ghost, exactly where it belonged, misread as e
 When a rig deliberately displaces a ghost, subtract the offset before calling a position suspicious.
 `orphan_sweep.lua` said "nothing to clear" eleven times and was correct each time; a probe that keeps
 reporting nothing is answering, not failing.
+
+## "It still flickers" after a fix aimed straight at the flicker (Crystal, 2026-08-23)
+
+**Symptom.** A spawned ghost blinks at the instant it starts moving after standing still. A one-frame
+tier handover had been added for exactly this and the blink survived it.
+
+**Cause, two layers deep.** The handover kept the drawn copy for one frame; measured, the engine does
+not render a newly created object for one to two frames, so the copy was released into a hole rather
+than overlapping anything. AND a second, unconditional `overflow[id] = nil` further down the same
+function wiped the entry regardless of what `handover` said — so the mechanism had never had any
+effect at all. **Fixing only the first would have changed nothing and read as the theory being wrong.**
+
+**The general form: when a fix aimed correctly produces no change, check that the value it sets is
+still set by the time anything reads it.** Search for every other write to the same field before
+concluding the diagnosis was wrong. A second unconditional assignment is invisible in a diff of the
+first one.
+
+**Second general form: a comment describing an intended mechanism is not evidence the mechanism runs.**
+This one said the two tiers overlap for one frame and cost one doubled frame; they were never on
+screen together, and the "overlap" was a gap. It had been read as a description of behaviour by two
+sessions.
+
+## A probe that returns a boolean cannot be sanity-checked (Crystal, 2026-08-23)
+
+Three versions of one OAM probe, and only the third could have been right.
+
+1. Calibrated off OAM entry 0 assuming it was the player — the adapter's own code warns that is false
+   once a ghost is on screen. Reported 21-24 frames, a third of a second, for something that should
+   take one or two. **A number that implausible is the probe reporting on itself.**
+2. Assumed a fixed sprite-coord-to-OAM offset. Object coords are map-relative and the real offset
+   moves with the camera. This one **gated every reading on finding the player at its own predicted
+   position**, so when the assumption broke it produced nothing rather than a wrong number. That gate
+   is the only reason the error did not enter the record as a measurement.
+3. Printed the ghost's coords, the predicted position, AND every live OAM entry, per frame. The
+   answer — two rows missing on two frames — was readable without trusting the prediction at all.
+
+**Both rules are cheap: make a probe state the raw evidence behind any match it claims, and make it
+verify its own assumption against something already known (here, the player) and stay silent when
+that fails.** `_template/probes.md`.
