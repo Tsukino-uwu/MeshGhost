@@ -14,8 +14,9 @@ work more on emerald right now."*
 - **Crystal is where the gap is.** Both tiers move properly and the drawn tier now ANIMATES, all
   user-confirmed at the dev rig's settings 2026-08-22. What remains is the shipped-settings
   smoothing and the per-mechanic animation class Emerald finished. See the Crystal items below.
-- **Rig SHUT DOWN at the end of 2026-08-23** (relay and core stopped and verified gone; BizHawk
-  left to the user). Rebuild it with `run-relay-loopback-shipped.bat` + `run-core-crystal-shipped.bat`
+- **Rig SHUT DOWN at the end of the second 2026-08-23 session** (relay and core stopped and verified
+  gone; BizHawk left to the user, ROM is **V1.0**, the only Crystal build ever run — 1.1 and
+  speedchoice remain untried). Rebuild with `run-relay-loopback-shipped.bat` + `run-core-crystal-shipped.bat`
   — **shipped settings, 250ms/20Hz**, and the core logs its own `smoothing:` line, so read that
   before trusting any reading. Savestates: slot 1 the user's, slot 7 their Route 39 spot, slot 8
   goto_map's undo, **slot 9 the 9x9 square start**. The dev flag file drives `square_drive` in a
