@@ -660,8 +660,9 @@ lines are unread until the next one. Entries 5 and 6 in `adapters/_template/prob
 2. **The spawned tier trails ~4.3 frames** starting each step. 1.5 frames is the wire, the rest the
    adapter's pipeline. Structural for an engine-driven ghost, which cannot be told "you are part-way
    through a step".
-3. **A respawn teleports on the first tile** — the ghost is placed at a tile the peer has already
-   left, so the next update snaps instead of walking.
+3. **A respawn teleports on the first tile** — FIXED 2026-08-23, and this description was
+   BACKWARDS: measured, the object is placed on the peer's CURRENT tile while the drawn model is
+   one tile behind it, not on a tile the peer has left. `verified.md`.
 
 ## 2026-08-23 — the drawn tier's motion, and a full session spent inside instruments
 

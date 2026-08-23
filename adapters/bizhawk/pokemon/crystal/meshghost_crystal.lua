@@ -4700,13 +4700,66 @@ local function renderRemote(id, state)
 	end
 
 	local g = ghosts[id]
+	-- The one-frame handover overlap set at the promotion below: release it once a frame has
+	-- actually been drawn with both, so the drawn tier stops painting a peer the engine now owns.
+	if g and overflow[id] and (overflow[id].handover or -1) < drawFrames then
+		overflow[id] = nil
+	end
 	if not g then
+		-- PROMOTE ONTO THE TILE THE DRAWN GHOST IS ACTUALLY OVER, not the peer's current tile.
+		--
+		-- A ghost that stands still is demoted to the drawn tier by the idle rule and its engine
+		-- object is DESPAWNED; the moment the peer moves again it is promoted back and a fresh
+		-- object is placed. So "starts to walk after being idle" is a re-spawn, every time -- the
+		-- live log shows the demote/despawn/respawn cycle repeating for as long as a session runs.
+		--
+		-- The two tiers do not agree about where the peer is at that instant. The drawn tier paints
+		-- a smooth model position; the spawned tier puts a real object on a tile. The promotion is
+		-- TRIGGERED by the peer moving, so it always fires just as the model has begun sliding off
+		-- the tile -- and placing the object on the peer's current tile pays that whole
+		-- disagreement in one frame. The user: *"the spawned ghost is teleporting 1 tile whenever
+		-- it starts to walk after being idle/respawned"*.
+		--
+		-- Placing it on the MODEL's tile instead hands over where the ghost visibly was, and lets
+		-- the ordinary step logic below walk it the rest of the way -- animated, grid-aligned, at
+		-- the engine's own pace. The sub-tile remainder is deliberately NOT carried across: an
+		-- object parked between tiles is exactly what the standing re-anchor exists to destroy, so
+		-- it would be undone within a frame and the ghost would jump anyway.
+		local px, py = x, y
+		local ov = overflow[id]
+		if ov and ov.modelX then
+			local mtx, mty = math.floor(ov.modelX / 16), math.floor(ov.modelY / 16)
+			if mtx ~= x or mty ~= y then
+				-- The size of the handover, in tiles, logged whether or not it is acted on: if this
+				-- stops appearing the cause has moved, and if it appears with the jump gone it was
+				-- never the cause. A counter that vanishes with its fix proves nothing.
+				logFile(string.format("MeshGhost: %s promoted across a %+d,%+d tile handover "
+					.. "(drawn model at %d,%d, peer at %d,%d) -- placed on the model's tile",
+					id, mtx - x, mty - y, mtx, mty, x, y))
+				px, py = mtx, mty
+			end
+		end
 		-- Try the good tier first, every frame: a slot may have freed up since last time.
-		if spawnGhost(id, x, y, peerSprite) then
+		if spawnGhost(id, px, py, peerSprite) then
 			if overflow[id] then
 				logFile(string.format("tier: %s painted -> spawned", id))
+				-- OVERLAP THE TWO TIERS BY ONE FRAME, do not butt them together.
+				--
+				-- Dropping the drawn copy on the same frame the engine object is created leaves a
+				-- single frame in which NEITHER draws the peer: this adapter paints during its own
+				-- tick, while a freshly created object is not in the engine's sprite list until the
+				-- engine next builds one. One missing frame is a blink, and that is what was left
+				-- after the tile handover was fixed -- the user: *"its not teleporting now, but it
+				-- 'flickers' real quick"*.
+				--
+				-- Keeping the entry one extra frame costs a single frame where both draw the peer,
+				-- and that is invisible for the reason the fix above exists: they now agree on the
+				-- tile, so the two are the same character in the same place. A gap is visible; an
+				-- exact overlap is not.
+				overflow[id].handover = drawFrames
+			else
+				overflow[id] = nil
 			end
-			overflow[id] = nil
 		else
 			local prev = overflow[id]
 			overflow[id] = { prog = peerProg, walking = peerWalking, face = peerFace,

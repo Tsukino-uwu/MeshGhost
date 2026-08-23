@@ -10074,3 +10074,48 @@ axis of travel.
   it differs (64 / 32 pooled).
 - **The scroll registers are rebased**, not only scrolled: an 8px diagonal jump appears on the first
   frame of each walk, which is not motion and must not be painted as such.
+
+## 2026-08-23 — Crystal's spawned tier: the idle/respawn 1-tile jump, and the flicker after it
+
+**User-judged good on screen**, at shipped settings (250ms/20Hz loopback): *"its not teleporting
+now"*, then after the follow-up fix *"I think it looks fine now ?"*. Recorded with the hedge intact
+— it is one session, on loopback, with one peer.
+
+**Symptom**: *"the spawned ghost is 'teleporting' 1 tile whenever it starts to walk after being
+idle/respawned"*.
+
+**It was a tier handover, not a stepping fault.** The shipped idle rule demotes a ghost that has not
+changed tile to the drawn tier, which DESPAWNS its engine object; the moment the peer moves it is
+promoted back and a fresh object is placed. So "starts to walk after being idle" is a re-spawn every
+time — the live log shows the demote/despawn/respawn cycle repeating for as long as a session runs.
+
+**Measured, not inferred.** An instrument at the promotion logged the disagreement between the two
+tiers, and it was the same on every occurrence:
+
+    p20-ghost promoted across a -1,+0 tile handover (drawn model at 15,20, peer at 16,20)
+
+**A full tile, always in the direction of travel** — which is structural, not incidental: the
+promotion is TRIGGERED by the peer moving, so it fires exactly as the peer leaves the tile the drawn
+ghost is still standing on. The drawn tier paints a smooth model position, the spawned tier puts a
+real object on a tile, and placing that object on the peer's CURRENT tile paid the whole
+disagreement in one frame.
+
+**Fix**: promote onto the tile the drawn model is actually over, and let the ordinary step logic
+walk the remainder at the engine's pace. The sub-tile remainder is deliberately not carried across —
+an object parked between tiles is what the standing re-anchor exists to destroy, so it would be
+undone within a frame and the jump would return by another route.
+
+**Then a flicker was left**: *"its not teleporting now, but it 'flickers' real quick"*. Dropping the
+drawn copy on the same frame the engine object is created leaves one frame in which NEITHER draws
+the peer — this adapter paints during its own tick, while a new object is not in the engine's sprite
+list until the engine next builds one. The two tiers now overlap by one frame. That costs one frame
+where both draw the peer, which is invisible only because the tile handover above is fixed: they
+agree on the tile, so it is the same character in the same place. **A gap is visible; an exact
+overlap is not.**
+
+### A record corrected
+
+`phases/phase9.md` had this as *"the ghost is placed at a tile the peer has already left, so the
+next update snaps instead of walking"*. The measurement says the reverse: it is placed on the peer's
+CURRENT tile while the drawn model is one tile behind. Same discontinuity, opposite description —
+and the wrong description points at the wrong half of the handover.
