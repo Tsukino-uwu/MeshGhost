@@ -4718,3 +4718,25 @@ work **on the exact rig used to judge it**.
 declaration and the use are inside `renderRemote`. When adding a field to a table built early in a
 long function, check where its value is declared -- the compile check passes either way, because a
 nil global is valid Lua.
+
+## A probe committed with a developer's absolute path in it (2026-08-23)
+
+**What happened.** A probe was drafted in the scratchpad with a `SPDIR` placeholder, `sed` substituted
+the real absolute path into that copy, and the SUBSTITUTED copy was then copied into `probes/` and
+committed. The repo's own leak check (`git grep -inIF -e 'C:\Users' ...`) caught it on the next run --
+one commit too late.
+
+**The rule this breaks** is CLAUDE.md's: no personal username, home-directory path or machine-identifying
+detail in any tracked file. **And the sequence is the trap, not the carelessness:** a placeholder makes
+a file safe to write and unsafe to COPY, because the safety lives in the placeholder and the copy is
+taken after it is gone.
+
+**Two habits that would each have prevented it:**
+- **A probe resolves its own directory** (`debug.getinfo(1, "S").source`), the way every other probe in
+  that folder already does. Then there is no absolute path to leak, in any copy of the file.
+- **Run the leak check BEFORE `git add`, not after the commit.** It was run after -- which is how the
+  path is now in history rather than only in the working tree.
+
+**Note for cleanup:** a leak in an already-made commit is still in history after the file is fixed.
+Fixing forward removes it from the working tree only; removing it from history is a rebase, which is
+the user's call and not something to do unasked.
