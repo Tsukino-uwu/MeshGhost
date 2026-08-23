@@ -71,8 +71,8 @@ that a peer's state genuinely differs from the local player's, which loopback co
   box; the row-12 test sees only the bottom one. Detection unwritten. `unverified.md`.
 - **Crystal's drawn tier WALK CYCLE is confirmed; its text-box clipping is not.** The animation
   closed 2026-08-22 (`verified.md`); clipping still rests on the 2026-08-19 fill-the-screen test.
-- **Crystal: ghost animation completeness** — Emerald's fishing, both bikes, surf/dive and ice are
-  all done and 1:1 (2026-08-19..21); Crystal has none of that class yet. `unverified.md`.
+- **Crystal: the drawn tier cannot show an animation that does not MOVE the character** — it derives
+  pose from position. Bump fixed 2026-08-23; spin, fishing, emote, Fly landing are the same cause.
 - **Crystal's two tiers are CONFIRMED GOOD at the dev rig's settings — 2026-08-22.** Drawn tier
   animates and tracks 1:1; spawned tier free of drift, snap and teleport. `verified.md`.
 - **Crystal's drawn tier jitter: three bugs fixed 2026-08-23, user says it looks fine — NOT settled.**
@@ -97,8 +97,8 @@ that a peer's state genuinely differs from the local player's, which loopback co
   crossing** — measured, fix built and reverted as worse. `unverified.md`, `phases/phase9.md`.
 - **Crystal's hardware (OAM) tier: built, reaches the screen, shipped OFF, never judged on screen.**
   Adds 0-1 characters and does NOT get free occlusion. `FLAGS.md`, `unverified.md`.
-- **`extras.act` (fishing, bump, spin, emote, Fly landing) is on the wire and never tested** — and
-  rests on an unchecked assumption `probes/action_watch.lua` settles. `unverified.md`.
+- **`extras.act` — BUMP (3) is now read by both tiers and measured; the rest are still untested**
+  (fishing, spin, emote, Fly landing). `probes/bump_probe.lua` is the pattern. `unverified.md`.
 - **Emerald CROSSED Lua's 200-local ceiling and did not compile at all** — fixed 2026-08-22 by
   consolidating seven constants onto two tables; now 197. Not yet loaded in a real session.
 - **Crystal: a peer's own sprite is used when its tiles are resident, not otherwise** — but the
