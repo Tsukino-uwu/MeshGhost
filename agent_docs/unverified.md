@@ -943,6 +943,14 @@ passable rule — but no user has watched it.
 **The cheap standing check.** The spawn line reports the type nibble re-read from memory. Any `type
 2,` in an adapter log is this bug, live, and the same line names the donor to blame.
 
+**2026-08-23, after the fix: no recurrence seen.** The user, on the same rig and the same route that
+had produced it twice that day — *"haven't seen it again so far i think, so probly fixed"*. Recorded
+as a data point and NOT as a confirmation, deliberately. The fault needs a map whose first eligible
+object is a trainer AND a ghost that walks into a sightline, so not seeing it is the expected
+outcome of almost any session, fixed or not — it is exactly what the two sightings were surrounded
+by before. What WOULD confirm it is the standing check above going quiet on a route known to offer
+a trainer donor, which is a thing to watch for rather than a thing to conclude.
+
 ## Crystal: what the source says about ghost collision, unused as of 2026-08-23
 
 Read from `pret/pokecrystal`, not measured, and nothing has been built on it yet:
