@@ -4678,3 +4678,43 @@ Three versions of one OAM probe, and only the third could have been right.
 **Both rules are cheap: make a probe state the raw evidence behind any match it claims, and make it
 verify its own assumption against something already known (here, the player) and stay silent when
 that fails.** `_template/probes.md`.
+
+## An animation that plays without moving the character (Crystal, 2026-08-23)
+
+**Symptom.** The spawned ghost bumps into walls like the player; the drawn ghost stands there.
+
+**Cause, and it is structural rather than specific.** The spawned tier hands the engine the peer's
+`OBJECT_ACTION` and the engine animates. The drawn tier DERIVES its pose from position and sub-tile
+progress, so **any animation that does not move the character cannot reach it**. Bump, spin, fishing,
+the emote and the Fly landing are one gap. All already ride on `extras.act`; the tier ignored it.
+
+**The general rule: a renderer that infers a pose from motion can only ever show motion.** When one
+renderer copies the source's animation state and another reconstructs it from position, they are not
+two implementations of the same thing and they will disagree exactly on the animations that stand
+still. Emerald sends `sanim`/`sidx` -- the peer's own animation number and frame index -- and never
+has this class of bug at all.
+
+**The wrong fix, and how it announced itself.** Forcing `walking = true` for the duration of the bump
+makes the picker return a stepping frame every time and cycle the stride images. The user: *"now the
+drawn is doing it but it looks slow/weird"*. **A pose built from the correct data can still be the
+wrong animation.** What settled it was measuring the frames the engine actually draws, run-length
+encoded so the cadence was visible: a bump alternates STANDING art and STEPPING art in 16-frame runs
+while the facing walks 0,1,2,3. It is a two-pose shuffle, not a stride cycle -- and no amount of
+reasoning about `facing` values would have produced that, because the first 100-frame sample caught
+only part of the cycle and looked like a plain 1<->2 alternation.
+
+**Method note: run-length encode a per-frame probe.** One line per frame hides a cadence inside a
+hundred identical rows; `value x13 frames` states it. The 3/13 split -- the drawn block changing three
+frames before the facing does -- is only visible in that form.
+
+## A local declared below its use, inside one function (Crystal, 2026-08-23)
+
+Fourth time in this file. `peerAct` was declared ~130 lines below the drawn tier's `overflow`
+constructors, which now read it. Lua resolves that to a nil GLOBAL, silently -- so `act` reached the
+`MESHGHOST_COMPARE_TIERS` copy as nil, and the new bump animation would have appeared simply not to
+work **on the exact rig used to judge it**.
+
+**`dev-scripts/lua-forward-refs.py` cannot catch this one**: it checks FILE-SCOPE locals, and both the
+declaration and the use are inside `renderRemote`. When adding a field to a table built early in a
+long function, check where its value is declared -- the compile check passes either way, because a
+nil global is valid Lua.

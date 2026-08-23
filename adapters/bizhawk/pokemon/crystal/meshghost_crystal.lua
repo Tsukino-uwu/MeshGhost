@@ -4333,8 +4333,69 @@ function drawOverflow()
 						nDrawn = nDrawn + 1
 						-- the palette the local player's own sprite is drawn with, which is the one
 						-- these tiles were coloured for
+						-- A BUMPING PEER IS ANIMATING WITHOUT MOVING, and `moving` cannot see it.
+						--
+						-- The user, 2026-08-23: *"when standing idle, and walking into a wall. the
+						-- drawn ghost is not doing the 'walking' animation like the player & spawned
+						-- ghost does"*. The spawned tier gets this for free -- it hands the engine
+						-- the peer's OBJECT_ACTION and the engine animates -- while this tier DERIVES
+						-- its pose from position and sub-tile progress, so anything that animates on
+						-- the spot is invisible to it by construction. Bump is simply the first one
+						-- noticed; spin, fishing, the emote and the Fly landing are all the same gap.
+						--
+						-- Measured before it was written (probes/bump_probe.lua, 2026-08-23): while
+						-- the player holds a direction into a wall, OBJECT_WALKING stays STANDING --
+						-- which is why this peer arrives as `anim="idle"` and `moving` is false --
+						-- OBJECT_ACTION reads 3 (BUMP), and OBJECT_FACING alternates 1,2 about every
+						-- twelve frames. That alternation IS the walk-in-place; it is already on the
+						-- wire as `extras.face` and was being thrown away here.
+						--
+						-- `peerProg` needs no special case: with no step running, OBJECT_STEP_DURATION
+						-- is 0 and `stepProgress` is therefore 16, which already sits inside the
+						-- stepping-view band `pick` tests for. Only the `moving` flag and the stride
+						-- source have to change.
+						--
+						-- 3 as a literal, and the stride masked to two bits, for the reason the rest
+						-- of this file gives: it sits at Lua's 200-local ceiling and a name here
+						-- would cost one. OBJECT_ACTION_BUMP is 3 in
+						-- `constants/map_object_constants.asm`; `documentation.md` lists the set.
+						-- A BUMP ALTERNATES STANDING AND STEPPING; it does not cycle stride images.
+						--
+						-- First attempt passed `walking = true` for the whole bump, which makes
+						-- `pick` return a STEPPING frame every time and cycle through the strides.
+						-- The user: *"now the drawn is doing it but it looks slow/weird"*. It was
+						-- doing something the player never does.
+						--
+						-- Measured instead of reasoned (probes/bump_probe.lua, run-length encoded so
+						-- the cadence is readable). Holding into a wall, the tile the engine actually
+						-- draws for the player alternates between the character's own art at
+						-- `base + 0x00` -- the STANDING view -- and `base + 0x80`, the STEPPING view,
+						-- in 16-frame runs, while OBJECT_FACING walks 0,1,2,3:
+						--
+						--   facing 2: 0x80 x3, 0x00 x13    facing 3: 0x00 x3, 0x80 x13
+						--   facing 0: 0x80 x3, 0x00 x13    facing 1: 0x00 x3, 0x80 x13
+						--
+						-- So the image is STEPPING on odd strides and STANDING on even ones, each
+						-- for 16 frames, and the 3/13 split is the block changing three frames
+						-- before the facing does. Matching the 13-frame majority reproduces the
+						-- cadence; the 3-frame lead-in is left alone rather than special-cased.
+						--
+						-- `stride & 1` rather than `face & 1` so it holds in every direction:
+						-- OBJECT_FACING is `dir * 4 + stride` (setGhostStanding writes `dir * 4`),
+						-- so masking to two bits removes the direction and leaves the stride, which
+						-- is what the alternation is actually keyed on. Only the DOWN wall was
+						-- measured -- the other three are this arithmetic, not an observation.
+						--
+						-- Written as an if rather than `bumping and X or Y`: X is a BOOLEAN here and
+						-- `false or Y` silently yields Y, which is the classic Lua and/or trap.
+						local poseWalking = moving
+						local poseStride = (o.stepLatch and (o.stepLatch - 1) or 0)
+						if o.act == 3 then -- OBJECT_ACTION_BUMP; documentation.md lists the set
+							poseStride = (o.face or 0) & 3
+							poseWalking = (poseStride & 1) == 1
+						end
 						drawCharacter(source, sx, sy, palette, o.facing,
-							moving, peerProg, o.stepLatch and (o.stepLatch - 1) or 0)
+							poseWalking, peerProg, poseStride)
 					end
 				end
 			end
@@ -4981,6 +5042,18 @@ local function renderRemote(id, state)
 	-- Only the low two bits are used, but the whole byte is carried so a log shows the direction
 	-- the sender was in as well as the stride -- the pair is what makes a facing trace readable.
 	local peerFace = state.extras and tonumber(state.extras.face) or nil
+	-- What the peer's own object is DOING, in the engine's own terms. Floored before it can reach
+	-- a write, and checked against ACTIONS.peer there; a peer on an older build sends no `act` at
+	-- all, which reads as nil and leaves the ghost animating exactly as it did before.
+	--
+	-- DECLARED HERE, ABOVE EVERY USE, and that is the whole reason it moved. It used to sit ~130
+	-- lines below this point, which was fine while only the spawned tier read it -- but the drawn
+	-- tier's entries are built ABOVE that, including the MESHGHOST_COMPARE_TIERS copy, and a local
+	-- referenced above its declaration is a nil GLOBAL in Lua, silently. So `act` reached the
+	-- comparison copy as nil and the bump animation would have looked simply not to work, on the
+	-- exact rig used to judge it. Fourth time this file has hit that trap (`pitfalls.md`).
+	local peerActRaw = state.extras and tonumber(state.extras.act) or nil
+	local peerAct = peerActRaw and math.floor(peerActRaw) or nil
 
 	local isLoopback = id:match("%-ghost$") ~= nil
 	local baseX = math.floor(pos[1])
@@ -5060,7 +5133,7 @@ local function renderRemote(id, state)
 		-- copy renders nothing and still counts as a peer waiting -- a phantom in every tier total.
 		local hk = COMPARE.hwKey(id)
 		local hprev = overflow[hk]
-		overflow[hk] = OAM_TIER and { prog = peerProg, walking = peerWalking, face = peerFace,
+		overflow[hk] = OAM_TIER and { prog = peerProg, walking = peerWalking, face = peerFace, act = peerAct,
 			-- The pixel position is ABSOLUTE, so a copy placed elsewhere needs it moved by the same
 			-- whole tiles or it paints at the peer's real location instead of this copy's.
 			pixX = peerPixX and (peerPixX + COMPARE.hw * 16), pixY = peerPixY, compare = true, only = "hw", x = baseX + COMPARE.hw, y = y,
@@ -5075,7 +5148,7 @@ local function renderRemote(id, state)
 			lastFacing = hprev and hprev.lastFacing,
 			rearm = hprev and hprev.rearm } or nil
 
-		overflow[ck] = { prog = peerProg, walking = peerWalking, face = peerFace,
+		overflow[ck] = { prog = peerProg, walking = peerWalking, face = peerFace, act = peerAct,
 			pixX = peerPixX and (peerPixX + COMPARE.drawn * 16), pixY = peerPixY,
 			compare = true, only = "drawn", x = baseX + COMPARE.drawn, y = y,
 			sprite = FORCE_PEER_SPRITE or (state.extras and tonumber(state.extras.sprite)) or nil,
@@ -5107,12 +5180,6 @@ local function renderRemote(id, state)
 	-- flag reaches BOTH tiers. It claimed to substitute "every peer" and did not touch the drawn
 	-- one, which made a test of the cartridge path silently measure nothing (2026-08-19).
 	local peerSprite = FORCE_PEER_SPRITE or (state.extras and tonumber(state.extras.sprite)) or nil
-
-	-- What the peer's own object is DOING, in the engine's own terms. Floored before it can reach
-	-- a write, and checked against ACTIONS.peer there; a peer on an older build sends no `act` at
-	-- all, which reads as nil and leaves the ghost animating exactly as it did before.
-	local peerActRaw = state.extras and tonumber(state.extras.act) or nil
-	local peerAct = peerActRaw and math.floor(peerActRaw) or nil
 
 	-- A peer that should not be blocking is DRAWN rather than spawned: no tile, no collision,
 	-- and its engine slot freed for a peer who is actually moving.
@@ -5176,7 +5243,7 @@ local function renderRemote(id, state)
 			despawnGhost(id)
 		end
 		local prev = overflow[id]
-		overflow[id] = { prog = peerProg, walking = peerWalking, face = peerFace,
+		overflow[id] = { prog = peerProg, walking = peerWalking, face = peerFace, act = peerAct,
 			pixX = peerPixX and (peerPixX + offsetX * 16), pixY = peerPixY,
 			x = x, y = y, sprite = peerSprite,
 			facing = ORIENTATION_TO_DIR[state.orientation],
@@ -5302,7 +5369,7 @@ local function renderRemote(id, state)
 			end
 		else
 			local prev = overflow[id]
-			overflow[id] = { prog = peerProg, walking = peerWalking, face = peerFace,
+			overflow[id] = { prog = peerProg, walking = peerWalking, face = peerFace, act = peerAct,
 			pixX = peerPixX and (peerPixX + offsetX * 16), pixY = peerPixY,
 			x = x, y = y, sprite = peerSprite,
 				facing = ORIENTATION_TO_DIR[state.orientation],
@@ -5424,8 +5491,20 @@ local function renderRemote(id, state)
 			snaps.driftPx = math.max(snaps.driftPx or 0, math.abs(ddx) + math.abs(ddy))
 			snaps.driftDir = string.format("%+d,%+d", ddx, ddy)
 			if math.abs(ddx) + math.abs(ddy) > 2 then
+				-- NAME THE STATE, do not just report the size. A 16px correction is a WHOLE TILE,
+				-- and the difference between "a step advanced MAP_X and the sprite never followed"
+				-- and "the sprite was moved by something else" is entirely in the step machinery --
+				-- which this line used to leave to be guessed at from timestamps. Four of these
+				-- appeared in the 2026-08-23 square run, all +16,+0, evenly spaced, and correlating
+				-- them from outside the adapter ruled out promotions and got no further.
 				logFile(string.format("MeshGhost: re-anchored %s to its tile by %+d,%+d px "
-					.. "(a drift bigger than one step's compensation)", id, ddx, ddy))
+					.. "(a drift bigger than one step's compensation) -- tile %d,%d last %d,%d "
+					.. "walking=%s step_type=%s duration=%s action=%s facing=%s",
+					id, ddx, ddy, cx, cy,
+					u8(g.st_base + F_LAST_MAP_X) or 0, u8(g.st_base + F_LAST_MAP_Y) or 0,
+					tostring(u8(g.st_base + F_WALKING)), tostring(u8(g.st_base + F_STEP_TYPE)),
+					tostring(u8(g.st_base + F_STEP_DURATION)),
+					tostring(u8(g.st_base + F_ACTION)), tostring(u8(g.st_base + F_FACING))))
 			end
 		end
 	end

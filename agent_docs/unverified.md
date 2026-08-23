@@ -1381,3 +1381,66 @@ The first two versions of the OAM probe produced confident numbers that were art
 **The lesson: a probe that computes a match should also print the raw evidence the match was made
 from.** Both wrong versions returned a boolean, and a boolean cannot be sanity-checked. The third
 printed the OAM table, and the two missing rows were simply there to see.
+
+## Crystal: the drawn tier renders a BUMP — measured, user says it looks good (2026-08-23)
+
+**The user, watching the compare rig:** *"when standing idle, and walking into a wall. the drawn
+ghost is not doing the 'walking' animation like the player & spawned ghost does"*. After a first
+wrong attempt, *"now the drawn is doing it but it looks slow/weird"*; after the fix below, *"think it
+looks good"* — **their hedge kept, so this is not a confirmation.**
+
+**Why the drawn tier misses it, and why this is not a bump-specific bug.** The spawned tier hands the
+engine the peer's `OBJECT_ACTION` and the engine animates for free. The drawn tier DERIVES its pose
+from position and sub-tile progress, so **anything that animates without moving is invisible to it by
+construction**: bump, spin, fishing, the `!` emote and the Fly landing are one gap with one cause.
+All of them already ride on `extras.act`, which the drawn tier was not reading at all.
+
+**How Emerald avoids the whole problem.** It puts the peer's own animation state on the wire —
+`extras.sanim` (sprite animation number) and `extras.sidx` (frame index) — and resolves the actual
+ROM frame from them, so its drawn tier renders whatever the peer is genuinely playing. It never has
+to know a bump happened. (Its spawned tier also infers one — peer "walking" but not moving for
+`BUMP_AFTER_FRAMES = 20` — and requests `BUMP_ACTION[dir]`.) Crystal derives instead of copying,
+which is the design difference behind this whole class.
+
+### What a bump actually is, measured
+
+`probes/bump_probe.lua`, holding a direction into a wall, run-length encoded so the cadence reads:
+
+```
+facing 2: 0x80 x3, 0x00 x13     facing 3: 0x00 x3, 0x80 x13
+facing 0: 0x80 x3, 0x00 x13     facing 1: 0x00 x3, 0x80 x13
+```
+
+- `OBJECT_WALKING` stays **STANDING**, which is why a bumping peer goes out as `anim="idle"` and the
+  tier's `moving` flag can never see it.
+- `OBJECT_ACTION` reads **3** (BUMP) throughout.
+- The tile actually drawn alternates between the character's **standing** art (`base + 0x00`) and its
+  **stepping** art (`base + 0x80`) in **16-frame runs**, while `OBJECT_FACING` walks 0,1,2,3.
+- `OBJECT_STEP_DURATION` is 0, so `stepProgress` is 16 — already inside the stepping-view band the
+  frame picker tests, which is why no special case was needed for `prog`.
+
+**So a bump is a two-pose shuffle, not a stride cycle**, and that distinction is the entire fix.
+
+### The wrong version, and what it looked like
+
+The first attempt passed `walking = true` for the whole bump. `pick` then returns a STEPPING frame
+every time and cycles the stride images — the ghost performing something the player never does.
+*"slow/weird"* was exactly right. **A pose derived from the correct data can still be the wrong
+animation; only the frame sequence the engine actually draws settles it.**
+
+### Two caveats on the fix
+
+- **Only the DOWN wall was measured.** The other three directions rest on `OBJECT_FACING = dir * 4 +
+  stride` (which `setGhostStanding` writes), so masking to two bits strips the direction and leaves
+  the stride the alternation is keyed on. That is arithmetic, not an observation.
+- **The 3-frame lead-in is ignored.** The image block changes three frames before the facing does;
+  the fix matches the 13-frame majority and does not special-case the transition.
+
+### `peerAct` was declared below two of the four places that now read it
+
+The drawn tier's `overflow` entries — including the `MESHGHOST_COMPARE_TIERS` copy, which is the one
+on screen while judging this — are built ~130 lines ABOVE where `peerAct` was declared. A local
+referenced above its declaration is a nil GLOBAL in Lua, silently, so `act` would have arrived as nil
+and the bump would have looked simply not to work **on the exact rig used to judge it**. Hoisted to
+sit above every use. Fourth time this file has hit that trap; `dev-scripts/lua-forward-refs.py` does
+not catch it because both the use and the declaration are inside one function.
