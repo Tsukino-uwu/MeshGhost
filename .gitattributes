@@ -36,3 +36,9 @@ go.sum text eol=lf
 # both `cmd/*/main.go`, three of them byte-identical to HEAD. The pin is what `go.mod`/`go.sum`
 # above already had; `.go` was simply missed.
 *.go text eol=lf
+
+# The pre-commit hook is a shell script with no .sh extension, so the rule above does not reach it.
+# Same reasoning, and the same failure: a CRLF hook on a Linux or macOS clone dies with the classic
+# `$'\r': command not found` and the leak check it performs silently stops running -- which is worse
+# than the hook not existing, because preflight would report core.hooksPath as correctly set.
+.githooks/* text eol=lf
