@@ -160,7 +160,7 @@ end
 --
 -- The hardware copy sits furthest out, so the three renderers read left-to-right as
 -- hardware, drawn, player, spawned. The user's layout, 2026-08-21.
-local COMPARE = { drawn = -2, spawned = 2, hw = -4 }
+local COMPARE = { drawn = -2, spawned = 3, hw = -4 }
 -- The drawn copy lives in `overflow` under a key of its own, so it animates frame to frame like
 -- any other drawn peer while never colliding with the spawned copy's entry under the real id.
 function COMPARE.key(id) return id .. " (drawn copy)" end
