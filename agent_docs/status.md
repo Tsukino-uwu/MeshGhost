@@ -73,8 +73,8 @@ that a peer's state genuinely differs from the local player's, which loopback co
   all done and 1:1 (2026-08-19..21); Crystal has none of that class yet. `unverified.md`.
 - **Crystal's two tiers are CONFIRMED GOOD at the dev rig's settings — 2026-08-22.** Drawn tier
   animates and tracks 1:1; spawned tier free of drift, snap and teleport. `verified.md`.
-- **Crystal's drawn tier at the SHIPPED 250ms IS THE NEXT THING TO DO.** Confirmed clean at
-  `-interp=0ms` 2026-08-23; the shipped case was never re-judged after any of it. `unverified.md`.
+- **Crystal's drawn tier at SHIPPED 250ms: two snap causes fixed, a small jitter remains** on the
+  ghost's final approach. Cause is an upstream bleed, not the repayment. `unverified.md`.
 - **Crystal's drawn tier motion/animation: CONFIRMED at the dev rig, 2026-08-23.** Nine defects
   across model, paint and walk cycle. `verified.md`, `pitfalls.md`, `_template/probes.md`.
 - **Crystal: the spawned ghost trails ~4.3 frames** starting each step; 1.5 is the wire, the rest

@@ -2931,7 +2931,13 @@ function drawOverflow()
 								facingFrames.camAX = (facingFrames.camAX or 0) + pdx
 								facingFrames.camAY = (facingFrames.camAY or 0) + pdy
 								if facingFrames.camKX then
-									facingFrames.camKX = facingFrames.camKX + pdx
+									-- MINUS, not plus. The paint is `model + camA + K` on BOTH axes, so a
+									-- rebase absorbed into camA is cancelled only by the OPPOSITE change in
+									-- K. Y already did that; X ADDED, so every X rebase moved the painted
+									-- ghost by twice the rebase instead of leaving it still -- the one thing
+									-- "absorbed invisibly" is supposed to mean. Found 2026-08-23 by algebra,
+									-- not by a probe: the two axes disagreed in a way no convention justifies.
+									facingFrames.camKX = facingFrames.camKX - pdx
 									facingFrames.camKY = facingFrames.camKY - pdy
 								end
 								facingFrames.camMoved = false
@@ -3120,8 +3126,33 @@ function drawOverflow()
 							if budget > 4 then budget = 4 end
 							if budget < 2 then budget = 2 end
 						elseif mgap >= 2 then
+							-- NEVER FASTER THAN THE GAME'S OWN WALK. (2026-08-23, the shipped-250ms
+							-- case.) This is the camera-parked fallback, and the camera only parks
+							-- for eight frames once the PLAYER has stopped -- so this 4px catch-up
+							-- could never fire mid-walk, and fired every time the player came to
+							-- rest. It was not a repayment spread over a walk; it was a debt dumped
+							-- at the end of one, at exactly double the walker's 2px. The user, at
+							-- shipped settings: *"the drawn ghost is snapping towards its last
+							-- target tile whenever the player stop"* -- with the same rig clean at
+							-- `-interp=0ms`, because with no wire delay there is no debt to repay.
+							--
+							-- A ghost a quarter second behind SHOULD still be walking a quarter
+							-- second after the player stops. Doing that at the engine's own pace is
+							-- 1:1; covering the same ground at double pace is a ghost doing what no
+							-- player can. Constant lag is invisible on screen and a change of SPEED
+							-- is not, so trading the first for the second was never a good trade.
+							--
+							-- Measured before it was changed: 85 frames in one run took this branch
+							-- with catch-up armed, and `0 resyncs` ruled out both snap-to-tile
+							-- paths, leaving this as the only code that can move the model faster
+							-- than a walk. `catchup` still arms and still counts, so the walk-side
+							-- bleed it was built to repay stays visible on the MODEL walk line; if
+							-- the backward glide returns, the fix belongs on the walking side (the
+							-- 12/6 arming band), not in a burst at the end.
 							budget = 2
-							if o.catchup then budget = 4 end
+							if o.catchup and COMPARE_TIERS then
+								facingFrames.freeCatchup = (facingFrames.freeCatchup or 0) + 1
+							end
 						end
 						o.dbgState = string.format("cam=%d gap=%d bud=%d step=%d dist=%d,%d cu=%s",
 							facingFrames.camDelta or 0, mgap, budget, o.stepLeft or 0,
@@ -3310,10 +3341,110 @@ function drawOverflow()
 				-- the X conclusion inverted with it. The numeric dump settled it beyond labels:
 				-- walking left, modelX + camAX held constant (196,196,196,196) while
 				-- modelX - camAX raced. One character of a debug string cost one full wrong paint.
+				-- ONE FORMULA, ALWAYS. K MOVES; THE PAINT DOES NOT SWITCH SOURCE.
+				--
+				-- This used to CALIBRATE while the camera was parked and PAINT from the camera only
+				-- while it moved -- an `if`/`elseif`, so the painted position changed which formula
+				-- produced it on the exact frame the camera went still. That frame is the one the
+				-- player is looking at when they stop, and the two formulas do not agree: the tile
+				-- one is anchored to the player's tile and step progress, the camera one to the
+				-- scroll accumulator, and between two parks they drift apart by the walk-side
+				-- bleed. Whatever they had drifted apart by was paid in a single frame, as a jump.
+				--
+				-- That is the SECOND cause of the end-of-walk snap, and the reason capping the
+				-- catch-up (above) only made it intermittent instead of curing it: the two are
+				-- independent, both fire when the camera parks, and the survivor's size depends on
+				-- accumulated drift, so it shows on some walks and not others. The user, after the
+				-- first fix: *"the drawn ghost is still doing the weird ending snap, but just
+				-- sometimes"* -- and "sometimes" is the tell that a magnitude, not a trigger, is
+				-- what varies.
+				--
+				-- So the paint is now the camera formula on every frame, and the park only nudges K
+				-- toward what the tile formula says -- one pixel per frame. K is meant to be a
+				-- CONSTANT; a correction to it is an admission of accumulated error, and paying
+				-- that back a pixel at a time while the player stands still is invisible, where
+				-- paying it in one frame is exactly the artefact being chased.
+				--
+				-- A big disagreement is not drift and must not be crawled: a map change or a warp
+				-- moves the camera's origin wholesale, K is meaningless across it, and a jump there
+				-- is correct. Sixteen pixels -- one tile -- separates the two cases.
 				if (facingFrames.camStillFor or 0) >= 8 then
-					facingFrames.camKX = sx - o.modelX - (facingFrames.camAX or 0)
-					facingFrames.camKY = sy - o.modelY - (facingFrames.camAY or 0)
-				elseif facingFrames.camKX then
+					local wantKX = sx - o.modelX - (facingFrames.camAX or 0)
+					local wantKY = sy - o.modelY - (facingFrames.camAY or 0)
+					if not facingFrames.camKX then
+						facingFrames.camKX, facingFrames.camKY = wantKX, wantKY
+					else
+						local ddx = wantKX - facingFrames.camKX
+						local ddy = wantKY - facingFrames.camKY
+						-- A DEADBAND, AND 2px STEPS, BECAUSE 1px DOES NOT EXIST IN THIS GAME.
+						--
+						-- The first version of this repaid drift a pixel at a time and the user saw
+						-- it: *"it made a small jitter at some stops now"*. That is the trap this
+						-- file already documents from the other direction -- the background scroll
+						-- moves 0, 2 or 4 pixels and NEVER 1, so a ghost that moves 1px is SMOOTHER
+						-- THAN THE GAME and reads as shimmer rather than as motion. A correction is
+						-- still motion; it does not get its own units.
+						--
+						-- The deadband matters more than the step size. K being slightly wrong is a
+						-- CONSTANT offset in the painted position, and a constant offset is
+						-- invisible -- the ghost simply sits a pixel or two off, forever, and
+						-- nobody can see it against a moving world. Correcting it is a CHANGE, and
+						-- changes are what the eye catches. So small disagreements are now left
+						-- alone entirely: after the handover fix above, the worst park measured 2px,
+						-- which is inside the band and costs nothing to ignore.
+						--
+						-- Four pixels is the threshold because 2px is one engine tick and would
+						-- re-trigger forever on the ordinary jitter of the two formulas; 4px is
+						-- real drift, and is repaid in 2px units that look like an ordinary step.
+						if math.abs(ddx) > 16 or math.abs(ddy) > 16 then
+							facingFrames.camKX, facingFrames.camKY = wantKX, wantKY
+						elseif o.modelMovedAt ~= drawFrames then
+							-- ON THE MODEL'S OFF-FRAMES, ONE PIXEL AT A TIME. Two better-sounding rules
+							-- were tried against the user's eyes and both were worse; the trail is kept
+							-- because each is the obvious next idea.
+							--
+							-- A DEADBAND (ignore drift under 4px, on the theory that a constant offset is
+							-- invisible and only CHANGES are seen). The theory is right and the rule is
+							-- not: with repayment switched off below the band, drift simply walked up to
+							-- 16px per park -- the snap threshold -- instead of staying at the 2px this
+							-- rule holds it to. The drift is continuous, so the repayment has to be too.
+							--
+							-- WAITING FOR ARRIVAL, then repaying 2px on the engine's tick (so the ghost's
+							-- final approach is untouched and the correction is an engine-sized step).
+							-- The user: *"now its overshooting, and then gliding back ... added a snap to
+							-- every single stop"*. Two pixels is coarser than the drift it chases, so it
+							-- overshoots and is dragged back, and paying a whole park's debt in a burst
+							-- after arrival is a snap by construction -- the same fault as the original,
+							-- moved later in time. Repaying continuously and finely is what makes it
+							-- invisible; the size of each correction is the thing that must stay small.
+							--
+							-- What survives: the paint never switches formula (that was the 14px snap),
+							-- and K is nudged 1px only on a frame the model itself did not move, so the
+							-- painted position can never advance faster than the engine's walk. The
+							-- residue is the user's *"jitter right before stopping"* -- real, small, and
+							-- NOT to be chased with a bigger correction. Its cause is upstream: the
+							-- camera accumulator and the player tile+progress formula disagree by a
+							-- continuous bleed (206px repaid against only 5 rebases), and that bleed is
+							-- the thing to find. `unverified.md`.
+							if ddx ~= 0 then
+								facingFrames.camKX = facingFrames.camKX + (ddx > 0 and 1 or -1)
+							end
+							if ddy ~= 0 then
+								facingFrames.camKY = facingFrames.camKY + (ddy > 0 and 1 or -1)
+							end
+							if COMPARE_TIERS and (ddx ~= 0 or ddy ~= 0) then
+								-- The drift this is repaying, in pixels, per park. If this climbs
+								-- with the length of a walk the bleed is on the WALKING side and
+								-- belongs there -- this only stops it being paid in one frame.
+								facingFrames.kFix = (facingFrames.kFix or 0)
+									+ math.abs(ddx) + math.abs(ddy)
+								local w = math.abs(ddx) + math.abs(ddy)
+								if w > (facingFrames.kFixMax or 0) then facingFrames.kFixMax = w end
+							end
+						end
+					end
+				end
+				if facingFrames.camKX then
 					sx = math.floor(o.modelX + (facingFrames.camAX or 0) + facingFrames.camKX + 0.5)
 					sy = math.floor(o.modelY + (facingFrames.camAY or 0) + facingFrames.camKY + 0.5)
 					-- RAW NUMBERS, because the symbol-pushing has been wrong twice: every value in
@@ -3937,10 +4068,13 @@ function drawOverflow()
 			-- distinction that "the ghost stands there" cannot make on screen.
 			logFile(string.format("  MODEL walk: furthest behind its destination %.0fpx (a step is "
 				.. "16px), %d resyncs, %d backward steps refused, "
-				.. "%d beat corrections, %d catch-up frames",
+				.. "%d beat corrections, %d catch-up frames, %d of them free-running at rest"
+				.. " | K drift repaid %dpx total, worst park %dpx | %d camera rebases",
 				facingFrames.modelMax or 0, facingFrames.modelSnaps or 0,
 				facingFrames.backwards or 0, facingFrames.phaseFollow or 0,
-				facingFrames.catchupFrames or 0))
+				facingFrames.catchupFrames or 0, facingFrames.freeCatchup or 0,
+				facingFrames.kFix or 0, facingFrames.kFixMax or 0,
+				facingFrames.camRebase or 0))
 			-- The camera's own per-frame movement, histogrammed: the clock the model mirrors.
 			if facingFrames.camD then
 				local cds = {}

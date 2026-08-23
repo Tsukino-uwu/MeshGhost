@@ -967,3 +967,46 @@ Read from `pret/pokecrystal`, not measured, and nothing has been built on it yet
   than a standing one, which the open collision item describes from the player's chair.
 
 Whether the trade is worth taking is undecided; it is written down so the option is not rediscovered.
+
+## Crystal's drawn tier at the SHIPPED 250ms: one snap fixed, a small one left (2026-08-23)
+
+**Fixed and judged better by the user.** Two independent causes of the end-of-walk snap, both of
+which only fire when the camera parks — which is only when the player stops:
+
+1. **The model was allowed to move at double the engine's walk while the player stood still.** The
+   camera-parked fallback granted a 4px catch-up where a walker moves 2px. Measured before changing
+   it: 85 frames took that branch with catch-up armed, `0 resyncs` ruling out both snap-to-tile
+   paths. Capped at 2px.
+2. **The paint switched formula on the frame the camera parked.** It calibrated `K` from the
+   player-tile formula while parked and painted from the camera formula while moving — an
+   `if`/`elseif`, so the frame the player stops on is the frame the source changes. The two
+   disagree by accumulated drift: **worst park measured 14px**, paid in one frame. Now there is one
+   formula on every frame and only `K` moves.
+
+Also fixed on the way, by algebra rather than measurement: **the X camera rebase was absorbed with
+the wrong sign.** Painted position is `model + camA + K` on both axes, so a rebase added to `camA`
+cancels only if subtracted from `K`. Y did that; X added, doubling every X rebase into the painted
+position instead of cancelling it.
+
+### What is NOT fixed, and must not be chased with a bigger correction
+
+The user, on the surviving residue: *"works/looks fine most of the time, and then sometimes have
+the 'jitter' right before stopping on a tile"*. **Before** stopping — the ghost's final approach,
+while the camera is already parked.
+
+**The cause is upstream of the repayment.** `K` needs continuous correction at all because the
+camera accumulator and the player tile+progress formula disagree by a continuous bleed: **206px
+repaid against only 5 camera rebases** in one run, so rebases are not it. Find that bleed; the
+`K` nudge is a symptom-level patch holding it at ~2px.
+
+**Two repayment rules were tried and are worse — do not re-try them:**
+
+| Rule | Result |
+| --- | --- |
+| Deadband: ignore drift under 4px | Drift walked up to **16px** per park, at the snap threshold. The theory (a constant offset is invisible) is right; the drift is continuous, so repayment must be too. |
+| Wait for arrival, then repay 2px on the engine tick | User: *"now its overshooting, and then gliding back ... added a snap to every single stop"*. 2px is coarser than the drift it chases, and a post-arrival burst is a snap by construction. |
+
+**The suspect worth measuring next**: the tile formula reads an *aged* player position (`aged.oamX`,
+paired with OAM timing) while `camA` is current. If the aging is ever absent or inconsistent, the
+two references differ by however far the player moved in that window — which would present exactly
+as a walk-proportional bleed. Checkable from the existing log; no new probe needed.
