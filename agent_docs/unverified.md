@@ -1444,3 +1444,70 @@ referenced above its declaration is a nil GLOBAL in Lua, silently, so `act` woul
 and the bump would have looked simply not to work **on the exact rig used to judge it**. Hoisted to
 sit above every use. Fourth time this file has hit that trap; `dev-scripts/lua-forward-refs.py` does
 not catch it because both the use and the declaration are inside one function.
+
+## Crystal: the residual promotion flicker was a 2px backward hop, not a missing frame (2026-08-23)
+
+**The user, after the frame-gap fix:** *"lets fix the spawned ghost 'flickering' slightly whenever it
+moves 1 tile after having being despawned/respawned"*, and, placing it exactly, *"it only happens
+after the spawned ghost has been idle for a bit and despawned, and then respawn and move a tile. not
+anywhere else"*.
+
+**It was NOT another gap.** The frame-count fix earlier the same day was correct and complete: traced
+with the paint position and the live OAM count on one line, the drawn copy covers both frames before
+the engine's copy exists, and nothing is ever undrawn. What was left:
+
+```
+f=1093  drawn copy PAINTED at 112,76   oam=16   (engine object not rendered)
+f=1094  drawn copy PAINTED at 112,78   oam=16   (engine object not rendered)
+f=1095  released                                (object appears, tile-aligned, at 76)
+```
+
+**The drawn copy keeps tracking the peer during the handover.** The peer has by definition just
+started moving -- that is what triggers the promotion -- so the painted model walks on while the
+engine object sits on its tile until it takes its own step. The engine's copy therefore appears 2px
+BEHIND where the painted one just was. Two pixels, once per promotion, and a promotion happens every
+time a peer starts walking after standing still.
+
+**Fix:** latch the paint position on the first handover frame and hold it until release. That frame is
+the one where the two tiers provably agree -- the model's discarded sub-tile remainder measures 0.0px
+there. Verified in the same trace: both handover frames now paint at 112,76. **NOT confirmed on screen.**
+
+### `client.screenshot` does not capture the Lua overlay — so no screenshot can see the drawn tier
+
+Found while chasing this, and it invalidates a whole class of evidence. Six consecutive frames were
+captured across a promotion and decoded column by column: the only extra character in ANY frame was
+the spawned object at +3 tiles. The `MESHGHOST_COMPARE_TIERS` drawn copy at -2 tiles appears in none
+of them, while the adapter's own log says it was painted on every one.
+
+**So BizHawk's `client.screenshot` captures the emulated framebuffer, not the composited window.**
+The drawn tier is invisible to it, permanently. A screenshot showing "no ghost there" says nothing
+about the drawn tier, and the first reading of those six frames -- *"the peer vanishes on the
+promotion frame"* -- was exactly that mistake, from an instrument that cannot see the thing.
+
+**What to use instead:** the tier's own paint trace (position, and whether it painted at all), with
+the live OAM count on the SAME line so the paint clock and the engine clock can be compared without
+aligning two logs. That pairing is what produced the answer above in one run.
+
+## Crystal: a fresh ghost wore the DONOR's facing, and a later change made it visible (2026-08-23)
+
+**The user, immediately after the handover hop was fixed:** *"the facing direction is a bit weird when
+its happening now, but i think the flicker is gone"*.
+
+`spawnGhost` pins the new object's standing facing to whatever direction the TEMPLATE it was cloned
+from happened to be facing, and leans on `stepGhost` re-pinning it on the first step. That cost one
+frame while the first step went out on the very next frame. It stopped being cheap when
+`STEP_TRIGGER_PROG` began holding that first step until the peer is four pixels into its own, so the
+donor's facing now sits on screen for several frames.
+
+**A latent fault a later change exposed, not a new one** — and the third of its family: it is the same
+inherited-donor-identity class as the trainer clone (`pitfalls.md`, "a spawned ghost was a TRAINER").
+**A ghost must describe the PEER, never the character whose struct it was copied from**, and every
+field copied from a template is a place that rule can be broken quietly.
+
+Fixed by writing the peer's own direction — the movement byte plus DIRECTION and FACING, the same
+three `stepGhost` writes — immediately after a successful spawn. **NOT confirmed on screen.**
+
+**Worth noting for the next change of this kind:** the fault was invisible for as long as the window
+was one frame wide, and no test would have caught it. Widening a window is a way of REVEALING bugs,
+not only of causing them — when a timing change produces a new visual report, check what is now on
+screen for longer before assuming the change itself is wrong.

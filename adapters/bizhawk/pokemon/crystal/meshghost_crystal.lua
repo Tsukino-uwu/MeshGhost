@@ -4388,6 +4388,50 @@ function drawOverflow()
 						--
 						-- Written as an if rather than `bumping and X or Y`: X is a BOOLEAN here and
 						-- `false or Y` silently yields Y, which is the classic Lua and/or trap.
+						-- HOLD THE DRAWN COPY STILL FOR THE HANDOVER FRAMES.
+						--
+						-- The blink at promotion is not a missing frame -- that was measured and
+						-- closed. What is left is a 2px hop BACKWARD, and this is where it comes
+						-- from: the drawn copy goes on tracking the peer, which by definition has
+						-- just started moving (that is what triggers the promotion), while the
+						-- engine object is parked on its tile until it takes its own step. So the
+						-- two disagree by however far the model walked during the handover, and the
+						-- engine's copy appears behind where the painted one just was.
+						--
+						-- Traced 2026-08-23 with the paint position and the live OAM count on one
+						-- line: `f=1093 PAINTED at 112,76 oam=16` then `f=1094 PAINTED at 112,78
+						-- oam=16`, and the object arrives tile-aligned at 76. Two pixels, once per
+						-- promotion, and a promotion happens every time a peer starts walking after
+						-- standing still -- the user: *"flickering slightly whenever it moves 1 tile
+						-- after having being despawned/respawned"*, and *"only... not anywhere else"*.
+						--
+						-- Latched rather than recomputed, because the first handover frame is the
+						-- one where the two tiers provably agree (the model's discarded sub-tile
+						-- remainder measures 0.0px there). Safe to store on `o`: during a handover
+						-- renderRemote returns before rebuilding the entry, so this table persists.
+						if o.handover then
+							if not o.handoverSX then
+								o.handoverSX, o.handoverSY = sx, sy
+							end
+							sx, sy = o.handoverSX, o.handoverSY
+						end
+						if stepLag.on and stepLag.traceUntil and drawFrames <= stepLag.traceUntil then
+							-- THE LIVE OAM COUNT ON THE SAME LINE, so the paint clock and the engine
+							-- clock can be compared without lining up two logs. A character is four
+							-- entries, so the count stepping up by four is the engine's copy
+							-- arriving; that is what decides whether the handover overlaps or leaves
+							-- a hole, and it is the only pair of numbers that answers it.
+							local live = 0
+							for e = 0, 39 do
+								local ey = memory.read_u8(e * 4, "OAM") or 0
+								if ey ~= 0 and ey < 160 then
+									live = live + 1
+								end
+							end
+							logFile(string.format("handover trace f=%d %s PAINTED at %d,%d "
+								.. "(handover=%s, spawned=%s, oam=%d)", drawFrames, id, sx, sy,
+								tostring(o.handover), tostring(ghosts[id] ~= nil), live))
+						end
 						local poseWalking = moving
 						local poseStride = (o.stepLatch and (o.stepLatch - 1) or 0)
 						if o.act == 3 then -- OBJECT_ACTION_BUMP; documentation.md lists the set
@@ -5348,6 +5392,28 @@ local function renderRemote(id, state)
 		end
 		-- Try the good tier first, every frame: a slot may have freed up since last time.
 		if spawnGhost(id, px, py, peerSprite) then
+			-- FACE THE WAY THE PEER IS FACING, IMMEDIATELY.
+			--
+			-- `spawnGhost` pins the new object's standing facing to whatever direction the TEMPLATE
+			-- it was cloned from happened to be facing, and leans on `stepGhost` re-pinning it on
+			-- the first step. That was nearly free while the first step was issued on the very next
+			-- frame; it stopped being free when STEP_TRIGGER_PROG started holding that step back
+			-- until the peer is four pixels into its own, so a wrong facing now sits on screen for
+			-- several frames instead of one. The user, after the handover hop was fixed: *"the
+			-- facing direction is a bit weird when its happening now"*.
+			--
+			-- A latent fault that a later change made visible, not a new one -- and it is the same
+			-- inherited-donor-identity family as the trainer clone (`pitfalls.md`): a ghost must
+			-- describe the PEER, never the character whose struct it was copied from.
+			--
+			-- All three writes, the same set `stepGhost` makes: the movement byte decides what the
+			-- engine restores when a step ends, and DIRECTION/FACING are what is drawn until then.
+			local g2, want2 = ghosts[id], ORIENTATION_TO_DIR[state.orientation]
+			if g2 and want2 then
+				setGhostStanding(g2.st_base, g2.mo_base, want2)
+				w8(g2.st_base + F_DIRECTION, want2 * 4)
+				w8(g2.st_base + F_FACING, want2 * 4)
+			end
 			if overflow[id] then
 				logFile(string.format("tier: %s painted -> spawned", id))
 				-- OVERLAP THE TWO TIERS BY ONE FRAME, do not butt them together.
@@ -5364,6 +5430,15 @@ local function renderRemote(id, state)
 				-- tile, so the two are the same character in the same place. A gap is visible; an
 				-- exact overlap is not.
 				overflow[id].handover = drawFrames
+				-- STEP_LAG: watch the next few frames of the handover from the PAINT side. The
+				-- counting probes say the drawn copy covers the frames before the engine draws the
+				-- object, and the user still sees a blink -- so the question is no longer "how many
+				-- frames" but "was it actually painted on them". Screenshots cannot answer it:
+				-- client.screenshot captures the emulated framebuffer WITHOUT BizHawk's Lua overlay,
+				-- so the drawn tier is invisible to every screenshot ever taken of it (2026-08-23).
+				if stepLag.on then
+					stepLag.traceUntil = drawFrames + 4
+				end
 			else
 				overflow[id] = nil
 			end
