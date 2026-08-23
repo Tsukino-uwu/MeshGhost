@@ -10119,3 +10119,56 @@ overlap is not.**
 next update snaps instead of walking"*. The measurement says the reverse: it is placed on the peer's
 CURRENT tile while the drawn model is one tile behind. Same discontinuity, opposite description —
 and the wrong description points at the wrong half of the handover.
+
+## CONFIRMED ON SCREEN 2026-08-23 — Crystal: a drawn ghost survived the server being shut down
+
+**The user, having proposed the reproduction themselves:** *"load in the drawn & spawned ghost, then
+disconnect the client and server. and it should reproduce ?"* It did, first try — *"the spawned ghost
+went away, but the drawn one is 'stuck/static' and still on the screen"*, and, decisively, *"its stuck
+in a static pose, but still following the player around"*. After the fix, on the same repro:
+**"both the drawn & spawned ghost goes away properly now"**.
+
+This is also the answer to something they had been seeing before this session started: *"i still saw
+both the drawn & spawned ghosts in game even after the server/client was shutdown at the end of the
+last chat"*. It was never a leftover from a previous run — it was the current run's last painted
+frame, never wiped.
+
+**The cause.** `disconnect()` despawns every spawned ghost and empties `overflow`, and that is enough
+for the spawned tier because those ghosts are real engine objects. A drawn peer is pixels on BizHawk's
+overlay, and forgetting the peer does not un-draw them. Nothing repaints or clears after that point:
+`drawOverflow()` is the LAST call in `tick()`, and `tick()` returns early at `if not connected then
+return end`. So the final painted frame stays on screen for the rest of the session.
+
+**Why it looked like it was following the player.** The overlay is painted in SCREEN pixels. With the
+paint frozen, walking scrolls the world underneath while the sprite holds the same spot on the
+display — which from the player's chair is a ghost that follows you, in one pose. That description is
+what identified it: a leftover OBJECT would have stayed on its tile and slid off the screen.
+
+**The fix.** `disconnect()` now clears the canvas as well as the bookkeeping. `drawOverflow`'s own
+`stopDrawing()` is the identical one line, added 2026-08-21 for door transitions, where every gate
+returns early and nothing repaints — the same failure, on a different early return.
+
+### How it was found, because two confident diagnoses were both wrong first
+
+Both wrong answers came from looking in memory, and the artefact was never in memory.
+
+1. **"An orphaned engine object from a reload."** The object array did show an extra character
+   wearing the player's sprite. It was the adapter's own tracked ghost, sitting exactly at the
+   loopback offset — 13,20 with the player at 9,20 and `MESHGHOST_LOOPBACK_OFFSET_X=4`. `9 + 4 = 13`
+   was on the screen the whole time and went unread. `orphan_sweep.lua` said *"nothing to clear"*
+   eleven times running and was right; that was treated as the probe underperforming rather than as
+   an answer.
+2. **"A contaminated savestate."** Plausible — a state saved with ghosts present would restore them
+   on every load, and slot 9 is loaded on every reload. Tested directly by loading slot 9 with the
+   adapter unloaded and dumping the array: clean, player plus four NPCs, nothing else.
+
+**The lesson, and it generalises past Crystal: a memory dump cannot see a rendering artefact.** This
+adapter has two renderers, and only one of them leaves a trace in the game's state. Anything the
+DRAWN tier does is invisible to every probe in `probes/` — they all read WRAM. Before reaching for a
+memory probe, settle which tier is showing the fault; *"static, but follows the player"* answers that
+in five words, because it is a statement about the coordinate system the thing is painted in.
+
+**And the reproduction came from the user, not from the instrument.** Two sessions had recorded
+ghosts persisting after a shutdown without either one turning it into a test. *"disconnect the client
+and server. and it should reproduce ?"* took under a minute and was exact. A symptom that has been
+noticed twice and never reproduced is a test nobody has written yet.

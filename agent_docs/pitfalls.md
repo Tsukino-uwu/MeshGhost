@@ -4608,3 +4608,34 @@ no reference to be seen against; varying lag is the whole of what is visible.
 continuous. Anything that jumps — a tile index, a facing, a state id, an animation number — must be
 carried across, never blended, and if a renderer needs the TIME of the jump it has to recover it from
 a continuous quantity beside it, not from the jump's own arrival.
+
+## A ghost that is "static, but follows the player around" (Crystal, 2026-08-23)
+
+**Symptom.** A character stays on screen after the core and relay are gone, frozen in one pose, and
+appears to travel with the player instead of staying where it was.
+
+**Diagnosis, from the wording alone.** "Follows the player" is a statement about a COORDINATE SYSTEM,
+not about behaviour. An engine object lives on a tile: it would stay put and slide off the edge as
+the camera moved. Something that holds its place on the display is painted in SCREEN pixels, so it is
+the drawn tier's overlay, frozen — not an object at all.
+
+**Cause.** `disconnect()` cleaned up the bookkeeping but not the canvas. Forgetting a peer does not
+un-draw it, and nothing repaints afterwards because `drawOverflow()` is the last call in `tick()`
+while `tick()` returns early on `not connected`. The last painted frame simply stays.
+
+**Fix.** Clear the overlay wherever the tier can stop being called, not only where it decides not to
+paint. `drawOverflow` already had `stopDrawing()` for door transitions; `disconnect()` needed the same.
+**The general form: every early return that skips a renderer is a place a stale frame can survive.**
+
+**A memory dump cannot see a rendering artefact, and that cost two wrong answers.** Every probe in
+`probes/` reads WRAM, so the drawn tier is invisible to all of them: an orphaned-object theory and a
+contaminated-savestate theory were both investigated and disproved before the tier was even
+established. **Settle WHICH RENDERER is showing a fault before choosing an instrument** — with two
+renderers, half of what can go wrong leaves no trace in the game's state.
+
+**A worked corollary on reading your own numbers.** The object array did hold an extra character
+wearing the player's sprite, at tile 13,20 with the player at 9,20 — and `MESHGHOST_LOOPBACK_OFFSET_X`
+was 4. That was the adapter's own ghost, exactly where it belonged, misread as evidence of a leak.
+When a rig deliberately displaces a ghost, subtract the offset before calling a position suspicious.
+`orphan_sweep.lua` said "nothing to clear" eleven times and was correct each time; a probe that keeps
+reporting nothing is answering, not failing.

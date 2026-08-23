@@ -1265,3 +1265,59 @@ Three cohesive groups were folded onto tables in the same pass — `JOY` (5 name
 on this machine that can answer "does this file even parse?"; it can be run without a ROM by launching
 `EmuHawk.exe --lua=<it>` and reading `bizhawk-syntax-check.log`. **Run it after any edit to an adapter,
 not just before shipping** — one added `local` is enough.
+
+## Crystal: the spawned ghost now steps off the peer's PROGRESS, not its tile — measured, NOT confirmed (2026-08-23)
+
+Built on the measurement above. `STEP_TRIGGER_PROG = 4`: the ghost waits until the peer is four
+pixels of sixteen into its step before taking one, instead of stepping the moment the peer's
+(interpolated, and therefore ramped) tile index crosses an integer.
+
+**The A/B, same session, same rig, same sample size** — shipped settings, relay 20Hz, core 250ms,
+`square_drive` lapping a 3-tile square:
+
+| `STEP_TRIGGER_PROG` | step-start spread, p5-p95 | full range | mean | shape |
+|---|---|---|---|---|
+| **0** (the tile trigger, i.e. what ships today) | **6 frames** (14-20) | 13-21 | 16.87 | flat across nine buckets |
+| **4** (the progress trigger) | **2 frames** (18-20) | 17-21 | 18.98 | 73 of 119 steps at exactly 19 |
+
+n=119 each. Arrival jitter was 12-19 frames in BOTH runs — the wire did not change, only what the
+adapter does with it.
+
+**What was bought, and what was paid.** Step-start jitter down from six frames to two; mean lag up by
+2.1 frames. That is the trade on purpose: a lag that is the same every step is a constant offset with
+nothing to see it against, and a lag that wanders is the walk/hesitate/walk the user reported. Two
+frames is the once-per-frame sampling floor — the adapter can only look at the peer once a frame — so
+this is close to as far as the idea goes.
+
+**Set `STEP_TRIGGER_PROG = 0` to revert exactly.** It gates the work, not a decision: at zero the
+progress is never computed and the trigger is the old tile comparison, byte for byte.
+
+**It cannot help at `-interp=0ms`, and that is not a fault in it.** With interpolation off the pixel
+position is the newest 20Hz sample and jumps in threes like the tile does, so there is no smooth
+quantity to lean on. **Judge this at shipped settings only** — `run-relay-loopback-shipped.bat` +
+`run-core-crystal-shipped.bat`, and read the core's own `smoothing:` line before believing anything.
+
+**NOT confirmed on screen.** Every number here is mine, from loopback. Whether two frames of residual
+spread is invisible and six frames was the stutter is a question only a real session answers, and the
+honest possibility is that the user was looking at something else entirely.
+
+## Crystal: shoving a MOVING ghost aside could never work — fixed, NOT confirmed (2026-08-23)
+
+The open item said a walking peer reaches neither shipped passable rule. Half of that turns out to be
+a plain bug rather than a missing feature.
+
+`shouldBlock`'s shove rule releases a peer after half a second of the player standing still and
+pressing into its tile — the rule that makes doorways and route exits work without the adapter
+knowing where they are. It compared the player's intended destination against the peer's CURRENT tile
+only. But `MAP_X`/`MAP_Y` name the DESTINATION from the instant a step begins, and the engine's own
+`IsNPCAtCoord` blocks on both the current coords and `LAST_MAP_X`/`LAST_MAP_Y` — so a character
+mid-step is a two-tile obstacle, and the tile actually stopping the player is very often the one the
+rule was not looking at. Pressing into it therefore never accumulated, and the ghost never released.
+
+Fixed by remembering the tile a peer steps out of and accepting either, while the peer is actually
+mid-step (20 frames, a step being ~16). The idle rule is untouched and still needs five seconds on one
+tile, which a walking peer still cannot reach — that half of the item stands.
+
+**NOT confirmed.** What to watch: walk into a MOVING ghost and keep holding the d-pad into it; after
+about half a second you should pass through. `MESHGHOST_CRYSTAL_GHOSTS_PASSABLE` must be UNSET for
+this to mean anything — it short-circuits the whole rule.

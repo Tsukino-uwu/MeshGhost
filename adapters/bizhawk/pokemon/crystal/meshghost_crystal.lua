@@ -960,6 +960,40 @@ local IDLE_FRAMES_BEFORE_PASSABLE = 300 -- 5 seconds
 local PUSH_FRAMES_BEFORE_PASSABLE = 30 -- half a second of shoving
 local PASSABLE_HOLD_FRAMES = 180 -- and it stays passable for a few seconds afterwards
 
+-- HOW FAR INTO ITS STEP THE PEER MUST BE BEFORE THE GHOST TAKES ONE, in pixels of 16.
+--
+-- The spawned tier used to start a step the moment the peer's TILE changed, and that is the wrong
+-- clock. `position` carries the peer's tile in [1],[2] and its map pixels in [3],[4]; the core lerps
+-- all four the same way, because nothing in `core/` may know which is which (ADR 2026-08-20). But a
+-- tile index only ever moves in WHOLE STEPS -- MAP_X/Y jump to the destination the instant a step
+-- begins -- so lerping it turns an exact instant into a ramp as long as the gap between samples, and
+-- `math.floor` crosses that ramp at a moment that depends on where the jump fell between them.
+--
+-- Measured 2026-08-23 across three rigs: the spread of the ghost's step-start lag was 3 frames at the
+-- shipped 20Hz, 0 frames at 100Hz, and 3 frames again at 20Hz with the shipped 250ms interpolation --
+-- i.e. exactly the relay's sample interval, every time. Interpolation delay changes WHEN a sample is
+-- rendered, never how far apart samples are, so it could not help and did not.
+--
+-- The pixel position has no such problem: a walking character's pixels really are continuous, so
+-- lerping them is correct and the value can be trusted between samples. This reads the peer's
+-- progress from THEM instead, and starts the ghost's step at a fixed progress rather than at a
+-- floor() crossing. The lag becomes a constant, and a constant lag has nothing to be judged against
+-- -- what a player can see is the lag CHANGING from step to step, which is the walk/hesitate/walk the
+-- user reported as *"slightly behind/slow/late"* (2026-08-22).
+--
+-- 4 of 16 pixels: comfortably past the ~2 frames of pipeline the same measurement showed to be
+-- irreducible (flat 2 at 100Hz, every step), and a quarter of a step of standing lag, which is less
+-- than the tile-change trigger was already paying on average.
+--
+-- SET IT TO 0 TO REVERT EXACTLY. Zero means "step as soon as the tile says so", which is the old
+-- behaviour, and it gates the work rather than the decision -- a flag that only moved the choice
+-- would leave this cost running while claiming to be off (`CLAUDE.md`).
+--
+-- It cannot help at `-interp=0ms`, and that is not a defect in it: with interpolation off the pixel
+-- position is the newest 20Hz sample and jumps in threes like everything else. The dev rig removes
+-- the very mechanism this leans on, so judge it at shipped settings.
+local STEP_TRIGGER_PROG = 4
+
 -- hJoypadDown and its four direction bits. ONE TABLE, not five names: see the local-limit note
 -- beside COMPARE_TIERS -- this file compiles at 200 and these five were four of the last ones.
 local JOY = { addr = 0xFFA4, right = 0x01, left = 0x02, up = 0x04, down = 0x08 }
@@ -1034,6 +1068,12 @@ local function shouldBlock(id, x, y, act)
 		activity[id] = a
 	end
 	if a.x ~= x or a.y ~= y then
+		-- REMEMBER THE TILE IT IS STEPPING OUT OF, because the engine blocks on both. The player's
+		-- own step tests its destination with `IsNPCAtCoord`, which compares each object's current
+		-- coords AND its `LAST_MAP_X`/`LAST_MAP_Y` (`engine/overworld/npc_movement.asm`), so a
+		-- character part-way through a step is a two-tile obstacle. The shove rule below only ever
+		-- compared the current one, which is why shoving a MOVING ghost never released it.
+		a.lastX, a.lastY = a.x, a.y
 		a.x, a.y, a.movedAt = x, y, policyFrames
 	end
 	-- A peer who is FISHING has not changed tile for a while and is emphatically not idle. The
@@ -1047,9 +1087,16 @@ local function shouldBlock(id, x, y, act)
 	-- Is the player pressing INTO this peer's tile without getting anywhere? Facing alone is not
 	-- enough: a player can stand facing a friend all day. The d-pad has to be held, and the
 	-- player has to still be standing (a successful step means nothing was blocking).
+	-- BOTH TILES, for the reason recorded where `lastX` is set: a walking peer occupies the tile it
+	-- is leaving as well as the one it is entering, so a player shoving into a moving ghost is very
+	-- often pressing into the tile this rule was not looking at. The old tile only counts while the
+	-- peer is actually mid-step -- a step is ~16 frames, and past that it has plainly left, so
+	-- honouring it forever would make a standing ghost passable from a tile it is nowhere near.
 	local fs = frameState
-	if fs.standing and (fs.wantX ~= fs.px or fs.wantY ~= fs.py)
-		and fs.wantX == x and fs.wantY == y then
+	local into = (fs.wantX == x and fs.wantY == y)
+		or (a.lastX ~= nil and policyFrames - a.movedAt <= 20
+			and fs.wantX == a.lastX and fs.wantY == a.lastY)
+	if fs.standing and (fs.wantX ~= fs.px or fs.wantY ~= fs.py) and into then
 		a.pushedFor = (a.pushedFor or 0) + 1
 		if a.pushedFor >= PUSH_FRAMES_BEFORE_PASSABLE then
 			a.passableUntil = policyFrames + PASSABLE_HOLD_FRAMES
@@ -5366,6 +5413,31 @@ local function renderRemote(id, state)
 	end
 	local dx, dy = x - cx, y - cy
 	local dir = DELTA_TO_DIR[string.format("%d,%d", dx, dy)]
+
+	-- WAIT FOR THE PEER TO BE `STEP_TRIGGER_PROG` PIXELS INTO ITS STEP, rather than for its tile
+	-- index to change. See that constant for why the tile is the wrong clock.
+	--
+	-- Only for the ONE-TILE case. A ghost that is already behind (the catch-up walk below) or a peer
+	-- that has warped (the teleport) is not in phase with anything, so making either wait would add
+	-- delay to the two paths that exist because the ghost is late already.
+	--
+	-- The peer's map pixels are absolute and carry no loopback offset, so the destination is compared
+	-- in the peer's own frame (`baseX`), not in the shifted one the ghost lives in. Mixing those puts
+	-- the offset into the progress and the ghost never steps at all.
+	if dir and STEP_TRIGGER_PROG > 0 and peerPixX and peerPixY then
+		-- The peer is `16 - prog` pixels short of its destination, along the way it came -- the same
+		-- relation the drawn tier's `offsetFromDest` rests on, read backwards.
+		local short = math.abs(peerPixX - baseX * 16) + math.abs(peerPixY - y * 16)
+		local prog = 16 - short
+		-- A peer more than a tile from its own destination is not mid-step in any useful sense (a
+		-- warp, a map load, a sample from the world we just left). Let it through rather than
+		-- stalling the ghost on a number that means nothing.
+		if short >= 0 and short <= 16 and prog < STEP_TRIGGER_PROG then
+			stepLag.waits = (stepLag.waits or 0) + 1
+			return
+		end
+	end
+
 	if dir then
 		if stepLag.on then
 			stepLag.close(id)
@@ -5414,6 +5486,27 @@ local function disconnect(why)
 		despawnGhost(id)
 	end
 	overflow = {} -- drawn peers leave with the connection, the same as spawned ones
+	-- AND WIPE WHAT WAS ALREADY PAINTED, because forgetting a peer does not un-draw it.
+	--
+	-- The spawned tier's ghosts are real engine objects, so despawning them above genuinely removes
+	-- them. A drawn peer is pixels on BizHawk's overlay, and those persist until something clears
+	-- the canvas or paints over it. Nothing does either after this point: `drawOverflow()` is the
+	-- LAST call in tick(), and tick() returns early at `if not connected then return end` -- so the
+	-- final frame painted before the bridge dropped stays on screen for the rest of the session.
+	--
+	-- What that looks like is not "a leftover sprite", which is why it was mis-diagnosed twice. It
+	-- is painted in SCREEN pixels, so as the player walks and the camera scrolls it holds the same
+	-- spot on the display and appears to FOLLOW them, frozen in one pose. The user, 2026-08-23,
+	-- reproducing it deliberately by killing the core and relay with both tiers up: *"the spawned
+	-- ghost went away, but the drawn one is 'stuck/static' and still on the screen"*, and then
+	-- *"its stuck in a static pose, but still following the player around"*. It is also why ghosts
+	-- were still on screen after the previous session's server was shut down.
+	--
+	-- `drawOverflow`'s own `stopDrawing()` is the same one line and exists for the same reason (a
+	-- door transition, where every gate returns early and nothing repaints). It is a local inside
+	-- that function and cannot be reached from here, so the call is repeated rather than hoisted --
+	-- hoisting it would put a drawing primitive in the bridge's scope for one caller.
+	pcall(function() gui.clearGraphics() end)
 	if why then
 		log("MeshGhost: bridge lost (" .. why .. ")")
 	end
@@ -5909,9 +6002,11 @@ local function tick()
 				.. "total %s | %d frames blocked mid-step, %d arrivals with no player frame. "
 				.. "The engine acts the frame AFTER our write, so what is seen is total + 1.",
 				stepLag.n, hist(stepLag.wire), hist(stepLag.apply), hist(stepLag.total),
-				stepLag.blocked, stepLag.unknown))
+				stepLag.blocked, stepLag.unknown)
+				.. string.format(" %d frames held for STEP_TRIGGER_PROG=%d.",
+					stepLag.waits or 0, STEP_TRIGGER_PROG))
 			stepLag.wire, stepLag.apply, stepLag.total = {}, {}, {}
-			stepLag.n, stepLag.blocked, stepLag.unknown = 0, 0, 0
+			stepLag.n, stepLag.blocked, stepLag.unknown, stepLag.waits = 0, 0, 0, 0
 			stepLag.at = bridgeFrames
 		end
 	end
