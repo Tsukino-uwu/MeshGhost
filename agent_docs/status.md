@@ -24,6 +24,9 @@ work more on emerald right now."*
 
 ## Genuinely open items
 
+- **A whole-repo doc fact/stale audit is DONE and the repair is NOT** — every finding, with
+  file:line and a commit-by-commit repair order, is in `tempfileforrestructure.md` (untracked).
+
 Fixed-and-confirmed work is not listed here — see `verified.md` and the phase files.
 
 ### Deferred by the 2026-08-18 audit-and-refactor pass
@@ -127,6 +130,8 @@ that a peer's state genuinely differs from the local player's, which loopback co
   started. `ideas.md`, `environment.md`.
 - **Receive rate cap** — `max_receive_hz_per_player` never watched live; needs two clients at
   different caps. (The send side was confirmed on screen 2026-08-15.) `architecture.md` ADR.
+- **Client/server safety: scoped into three layers, none built** — core shape caps, adapter range
+  checks, deployment fixes. `ideas.md`, "What safe to play with random people means" (2026-08-24).
 - **Encrypted everywhere except udp, authenticated nowhere** — tcp gained TLS 2026-08-19, so both
   default transports encrypt; nothing proves a relay is who it says. `docs/security.md`.
 - **Relay-safety follow-ups**: TEVI's `game_version` isn't real; adapters' parsing never audited;

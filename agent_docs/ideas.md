@@ -28,9 +28,15 @@ own sections.
    not a hypothetical.
 
 3. **Nameplates.** Genuinely blocked, not just unbuilt. `Hello.DisplayName` reaches the relay
-   (`protocol/protocol.go:101`, sourced from `config.json`'s `"name"`) and is only
-   *logged* there (`relay/relay.go:479`, `:782`) — never redistributed. `Welcome.Roster`
-   is `[]string` of ids (`protocol.go:170`); `Join` carries only `player_id` (+ optional,
+   (`protocol/protocol.go:126`, sourced from `config.json`'s `"name"`) and is only
+   *logged* there (`relay/relay.go:846`, `:1295`) — never redistributed. **Whenever this is
+   built, the display name becomes the project's FIRST peer-controlled string rendered on
+   another player's screen, and it must be sanitised at that point, not merely length-bounded** —
+   reject control characters outright, the way Archipelago's `Say` handler requires
+   `.isprintable()` and not just `str` (`MultiServer.py:2141`, read for facts 2026-08-24,
+   `licensing.md`). Today `area_id`/`anim` are UTF-8-validated but not control-character-filtered,
+   which is harmless only because nothing displays them. See the security umbrella entry below.
+   `Welcome.Roster` is `[]string` of ids (`protocol.go:224`); `Join` carries only `player_id` (+ optional,
    never-populated `State`). **No adapter can learn any peer's display name today.** Two routes:
    a roster/`join` shape revision to actually carry `display_name` (correct, needs an ADR per
    `contract.md:3-5`), or smuggling it through `extras` (cheap, but the wrong layer — `extras`
@@ -906,6 +912,55 @@ room-code auth could not do (`risks.md:101-110`).
   getting the split wrong would create a downgrade hole where none exists. The plan's answer is a
   test asserting that a TLS connection sending a *raw* room code is refused, not accepted.
 
+### Was mTLS considered? Yes — it is the certificate route point 3 already rejected (asked 2026-08-24)
+
+**Not worth building, and not because it is weak.** Mutual TLS authenticates the *client* to the
+relay. That job is already done by the room code, and the room code's remaining weakness is not
+that it is a weak secret — it is that it **crosses the wire**, so it is replayable by anyone who
+can read it (plain `udp` always; `quic` or unpinned `tcp` against an active man-in-the-middle).
+Channel binding fixes exactly that weakness with no new artefact for the player to hold. mTLS
+fixes it by replacing the shared secret with a per-player keypair, which costs a great deal more.
+
+**What mTLS would genuinely add over channel binding — three things, all real:**
+
+- **Per-player revocation.** Today the only way to remove one player is to change the room code,
+  which evicts everyone. A client certificate can be dropped individually.
+- **Rejection before the relay allocates anything.** An unauthorised client fails in the TLS
+  handshake, before `handleConn`, before the hello timeout holds a goroutine and a socket — which
+  is the per-IP-cap concern in the section below, answered at a different layer.
+- **A durable identity a room code cannot express**, which is the shape any future
+  reputation/ban-list or non-cosmetic authority plane would want (`beyond-cosmetic.md`).
+
+**Why it still loses, for what this project actually ships:**
+
+- **It breaks the distribution model.** A room code is a string you paste into a chat window. A
+  client certificate is a *file per player*, issued by the host, that has to reach each of them
+  and be kept. `packaging/release/README.txt`'s host-for-friends flow does not survive that, and
+  point 2 above already refused to put a private key next to the exe in a zip people re-share.
+- **The host becomes a CA.** Issuing, storing, expiring and revoking certificates is persistent
+  state the relay has never had — today's certificate is in-memory and regenerated every restart
+  (which is already why a pinned fingerprint has to be re-copied, `docs/security.md`). mTLS
+  cannot be in-memory: the CA has to outlive the process, so this adds key material on disk, a
+  lifetime policy, and a recovery story for losing it.
+- **It fixes the leg that is already fine and misses the two that are not.** The unauthenticated
+  legs are `udp` (no DTLS in Go at all, so mTLS cannot reach it) and `quic`'s *server*
+  certificate, which is unverified — an active man-in-the-middle presenting their own cert is
+  accepted. **That is a server-authentication hole; mTLS is client authentication and does not
+  close it.** Extending the fingerprint pin to the quic path closes it, and channel binding
+  closes it without anyone comparing a hex string.
+
+**So the order that actually buys security here**, cheapest and highest-value first: (1) extend
+the `tls_fingerprint` pin to the quic path, so the pin stops covering only the tcp leg; (2) the
+channel binding in point 3, which retires the room-code-on-the-wire problem on both TLS
+transports at once; (3) the per-IP cap below. mTLS sits behind all three.
+
+**When to revisit:** if MeshGhost ever grows a **long-lived public relay** — one where the host
+does not personally know every player, wants to ban one without evicting the rest, and is already
+running persistent state — the distribution cost stops being the objection, because such a host
+has an account system to hang certificates off anyway. Nothing on `plans.md` heads there today.
+The same trigger applies to anything past Tier 2 that needs a peer's identity to *mean* something
+rather than merely be distinct.
+
 ### Two smaller, cheaper items found alongside it
 
 Both are independent of TLS and could land first.
@@ -965,6 +1020,446 @@ existing (browsers cannot open raw sockets) does not apply to a native client. T
 would change this is hosting: some PaaS providers and restrictive networks route only HTTP(S), so
 a relay behind such a proxy is reachable over WSS on 443 and nothing else. If that ever comes up,
 `netx` makes it a fourth `Kind` with no change to `relay` or `core`.
+
+## What "safe to play with random people" means — the three layers, and where each one has to live
+
+**Unscheduled umbrella entry. Read this before the two entries below it; they are layers 1 and 3.**
+Written 2026-08-24 at the end of a measured security pass, so a future session starts from a
+definition instead of an open-ended audit. **Nothing here is queued** — the user's call the same
+day was to brainstorm and plan before building anything.
+
+**The finding that makes this tractable: the client-to-client surface is finite and small.** The
+relay never passes bytes through — it re-encodes every forwarded message from the parsed,
+validated struct — so the only thing that reaches another player is a struct the relay itself
+wrote. That reduces "what can a hostile peer do to me" to "what are the fields that struct
+carries", which is a list, not a search. See the enumerated table in the bridge entry below.
+
+**Three layers, each closing something the other two structurally cannot:**
+
+| Layer | Closes | Where it MUST live | Cost |
+|---|---|---|---|
+| 1. Shape caps on `extras` + `orientation` | structure (nesting, key count, value types) | **core** — game-agnostic, so it can be done once for every adapter that will ever exist, third-party included | one contract narrowing + ADR |
+| 2. Range checks on peer-derived numbers | meaning (`act = 4294967295`, `sprite = 200` where 40 exist) | **adapter** — the only component permitted to know what those mean | small: Crystal has 4 extras fields, Pseudoregalia 26 and already clamps the dangerous ones |
+| 3. Deployment: bridge bind, per-IP pre-auth cap, open-relay default | exposure and resource abuse | **`cmd/`** — not client-to-client at all | each independent and small |
+
+> **Before building layer 1 or layer 2, read "Should the Go side stay game-blind?" below.** It
+> describes a third option — adapter-declared constraints the core enforces without interpreting —
+> that would change WHERE layers 1 and 2 live and could merge them. Deciding that first is cheaper
+> than building layer 2 per adapter and then discovering it belonged in one negotiated place.
+
+**Layer 1 cannot do layer 2's job, and that is the architecture working, not a shortfall.** The
+core may never be game-aware (`CLAUDE.md`, ADR 08-20), so it can bound SHAPE but never MEANING.
+The adapter is the only trust boundary for meaning. Pseudoregalia already models this correctly —
+`clamp_to_uint8` (`Plugin.cpp:1573`) exists because `static_cast<uint8_t>(double)` on NaN or an
+out-of-range value is *undefined behaviour*, and its comment states plainly that extras "reach
+here unchecked". The two Lua adapters do not do this yet. **Back-port the rule to `_template/`
+when layer 2 happens**, so the next adapter starts with it.
+
+**`area_id` and `anim` are already finished and must not be "hardened" again** — bounded to 256
+and UTF-8-validated by `ValidOpaqueString`. The core compares them by equality only, so there is
+nothing further it could check without breaking the opacity rule.
+
+### The honest residual — what stays true even with all three layers done
+
+**A peer can still make their ghost look wrong or move oddly in your game.** They legitimately
+control their own character's appearance; that is the feature, not a vulnerability. Do not chase
+it as one.
+
+**The line the three layers actually draw, and the thing to test against:** a peer cannot crash
+you, cannot write outside their own ghost's fields, and cannot reach another player except
+through a struct your own relay parsed, validated and re-serialized. That is a defensible
+definition of safe for a cosmetic ghost layer — and unlike "no vulnerabilities", it is a claim
+that can be checked.
+
+**What is NOT in scope of any of the three, and needs its own decision:** relay authentication.
+Nothing proves a relay is who it says it is — the `tls_fingerprint` pin is opt-in, covers the tcp
+leg only, and must be re-copied after every relay restart. Joining a stranger's relay is a
+different threat model from hosting for strangers, and only the channel-binding work above
+addresses it. Do not let the three layers above create a false sense that this one is covered.
+
+### How authoritative online games / MMOs handle this, and why most of it cannot transfer
+
+**General architecture, not a claim about any specific title.** The rule everything follows from is
+that clients send **inputs, not state**: the server accepts "I pressed forward this tick", simulates,
+and emits its own state. Position is computed, never received. That single inversion removes whole
+vulnerability classes by construction — speedhacks, teleports and duplication are not attacks the
+server blocks, they are facts the client was never the source of. Layered on top: plausibility
+checks even *with* authority (movement delta vs max speed), schema-first binary protocols
+(unparseable fails at the codec, "extra fields" does not exist), interest management (you receive
+only what you may see), and per-connection/per-account rate limits against a revocable identity.
+
+**MeshGhost cannot adopt the main one, and that is an ADR rather than an oversight.** The core may
+never be game-aware, so the relay can never simulate, so it can never be authoritative. This is
+structurally a state-forwarding architecture — the model authoritative games explicitly reject.
+**The question that resolves it is what there is to steal:** an MMO holds items, currency and
+progression, where a successful attack is permanent and profitable. MeshGhost holds what a ghost
+looks like this frame. **Cosmetic-only is itself the largest security decision this project has
+made**, and it is what makes a forwarding architecture defensible here.
+
+**What does transfer — two already present:**
+
+- **Schema-first**, by a different route: a binary schema rejects unmodelled data at the codec;
+  the relay re-encoding from a validated struct makes unmodelled fields evaporate the same way.
+  Same guarantee, different mechanism.
+- **Rate limiting**, partially: `send_hz`, the per-peer receive cap and the per-connection flood
+  cap exist. The gap is *pre-auth*, which is the per-IP cap already listed above.
+- **Plausibility checking — the one genuinely missing idea, and a NEW layer-2 candidate.**
+  `ValidateState` checks that a position is finite and within `MaxPositionComponent`, but never
+  that a peer moved a plausible distance *since their last update*. A peer teleporting thousands of
+  tiles per frame passes every check that exists. **It cannot live in the core** — a plausible
+  delta depends on the game's units and speeds — so it is layer 2, alongside the `extras` range
+  checks, and belongs in the same per-adapter pass.
+
+**The gap authority would have closed and nothing here does: an authenticated, revocable
+identity.** A room code is shared and cannot be revoked per person. That is the same gap the mTLS
+discussion circled and that channel binding only partly addresses — see the transport-security
+entry.
+
+### How worried to actually be — calibration, so this is neither panicked nor dismissed
+
+**Player-to-player code execution essentially does not happen in authoritative online games, and
+the reason is exactly the property the relay already has.** An attack of that kind needs the
+victim's client to parse bytes the attacker controls; under server authority it never does,
+because the bytes were written by the server. On the wire, MeshGhost is in the good category.
+
+**When the exceptions do happen they cluster in three shapes**: peer-hosted / host-migration games
+where the "server" is another player's machine; user-generated-content paths where clients parse
+peer-supplied *content* the server forwards unexamined; and mod layers with hand-rolled parsers
+running inside the game process. **MeshGhost sits in all three at once** — the relay is hosted by
+whoever is hosting, `extras` is structurally a UGC channel (opaque by contract, forwarded
+unexamined), and the final consumer is a hand-rolled recursive-descent parser inside BizHawk or
+UE4SS. The Go side compensates well for the first shape. **Nothing currently compensates for the
+third**, which is why the adapter-parser items keep recurring in this entry.
+
+**Keep the severity honest — ACE is the LEAST likely outcome here, and this entry should not be
+read as claiming otherwise.** Everything actually measured points at hangs and wedged game state,
+not code execution: Lua is memory-safe, and peer values reach memory as VALUES written into
+addresses derived from our own ghost slot. The one place undefined behaviour is genuinely
+reachable — `static_cast<uint8_t>(double)` on a NaN or out-of-range peer value — **is already
+defended** (`clamp_to_uint8`, `Plugin.cpp:1573`). The realistic worst case is a frozen emulator or
+an absurd-looking ghost: a bug, not a breach.
+
+**So the reason to do this work is COST, not fear.** Bounding two fields in `ValidateState`,
+adding a `pos > #s` guard to two loops and range-checking three numbers in Crystal is a few hours
+with tests, against a Go side that already carries 11 fuzz targets and validators shared by both
+ends. It is cheap enough not to be worth carrying as an unknown — which is a better and more
+durable reason than a threat estimate. **If a future pass finds one of these items has become
+expensive or invasive, that is a reason to drop it, not to escalate it.**
+
+### How Archipelago handles the same problem — read 2026-08-24, facts only
+
+**Why it is worth comparing at all:** Archipelago is the one adjacent project MeshGhost already
+has to coexist with (the emulator adapters are designed to run on top of an AP seed), it is
+cleared MIT and read directly (`licensing.md`), and it solves the same client -> server -> client
+shape. `MultiServer.py` read for facts; no code copied, and nothing below is a recommendation to
+imitate it.
+
+**The headline: Archipelago DOES forward client-controlled structure verbatim, deliberately.**
+`Bounce` (`MultiServer.py:2149`) takes the client's own `args` dict, overwrites `cmd` with
+`"Bounced"`, serializes that same dict and broadcasts it to matching clients — no schema on the
+payload. `Set` (`:2176`) is a shared mutable key-value store any client can write, on which the
+server applies a client-chosen operation, then broadcasts the result to every subscribed client.
+Both are advertised features, with responsibility pushed to the receiving client. **MeshGhost's
+re-encode-from-a-validated-struct is the more conservative choice, and this is the clearest
+evidence that it is a choice rather than an accident.**
+
+**But the comparison flatters MeshGhost on the axis AP actually cares about.** AP is a game-state
+authority — it holds item and location state, so its real adversary is a client that *cheats*
+(claiming a location it never checked). That threat class does not exist here, because cosmetic-only
+is itself a security decision. Do not read "MeshGhost validates more" as "MeshGhost is more secure
+than Archipelago"; they are defending different things.
+
+| | Archipelago | MeshGhost |
+|---|---|---|
+| message size cap | no `max_size` passed to `websockets.serve` (`:2728`), so the library default (1MB) applies | 4096, deliberately chosen |
+| compression on untrusted data | permessage-deflate enabled (`:2731`) | none |
+| validation style | ad-hoc per command (`type(args["keys"]) != list`) | shared `Validate*` per type, used by relay AND core, 11 fuzz targets |
+| forwarding | re-serializes the client's own dict | re-encodes from a validated struct |
+| TLS | real certificates via `--cert` (`:2678`) | self-signed, bare IP, no CA possible |
+| web surface | a Flask host — uploads, generation, accounts | **none at all** |
+
+**The TLS row is the instructive one and explains a design decision here.** AP can use real
+certificates because it is a *hosted service* on a public domain. MeshGhost is peer-hosted against
+bare IPs, where there is no hostname to verify and no CA to verify it against — which is exactly
+*why* the fingerprint pin exists rather than being a weaker substitute for something better.
+Different deployment models, not one being lax.
+
+**The one concrete thing worth taking:** AP's `Say` handler (`:2141`) requires
+`type(args["text"]) is str` **and** `.isprintable()` before text reaches other players — it
+rejects control characters, not just oversized ones. MeshGhost has no equivalent because nothing
+peer-controlled is displayed yet. **Nameplates would change that**, which is why the requirement is
+now written into the nameplates entry above rather than left to be rediscovered.
+
+## Structural validation of `extras` AND `orientation` — bounding SHAPE without ever reading MEANING
+
+**Unscheduled. Not on the depth ladder — Go side, so it is confirmable with the tools rather than
+by watching a game (`CLAUDE.md`'s split). Raised 2026-08-24** while answering "is it actually safe
+to play with random people", and **the finding below is measured, not reasoned**.
+
+> **DO NOT START BUILDING THIS. The user's call, 2026-08-24:** *"i will def want to
+> brainstorm/plan it out even more before we actually do anything extra for server/client
+> security anyway."* This entry is research, not a queued task. The measurements and the
+> reasoning below are here so the design pass starts from facts instead of re-deriving them —
+> the design pass itself has not happened.
+
+**The gap.** `State.Extras` is `map[string]any` (`protocol/protocol.go:47`) and `ValidateState`
+checks exactly one thing about it: total serialized size <= `MaxExtrasBytes` (1024). Nothing bounds
+its *structure*. Measured 2026-08-24 with a throwaway test against the real `ValidateState`:
+
+```
+depth   10: extras wire bytes=  26  ValidateState=true
+depth  100: extras wire bytes= 206  ValidateState=true
+depth  400: extras wire bytes= 806  ValidateState=true
+depth  490: extras wire bytes= 986  ValidateState=true
+```
+
+A 490-level-deep nested value passes every check in under 1KB. The relay forwards it
+(`relay/relay.go:1364`), the receiving core re-serializes it faithfully, and it arrives at every
+other player's adapter — where each Lua adapter's hand-rolled recursive-descent decoder
+(`meshghost_crystal.lua:528`, *"not a general JSON library"*) tries to descend 490 levels. The
+`pcall` at the bottom of that decoder should turn a Lua stack overflow into a dropped message
+rather than a hang, **but that is an assumption and has not been run in BizHawk's own Lua.**
+
+**`orientation` has the identical bug — measured 2026-08-24, after this entry was first written
+against `extras` alone.** It is `json.RawMessage` (`protocol/protocol.go:42`) and `ValidateState`
+bounds only its wire length (`MaxOrientationBytes`, 256), never its structure:
+
+```
+depth    5: orientation wire bytes=  10  ValidateState=true
+depth   50: orientation wire bytes= 100  ValidateState=true
+depth  120: orientation wire bytes= 240  ValidateState=true
+depth  127: orientation wire bytes= 254  ValidateState=true
+```
+
+**So the fix must cover both fields, not just `extras`.** Same cause (a size bound standing in for
+a shape bound), same fix, same commit.
+
+**`area_id` and `anim` need nothing further, and this is worth writing down so nobody "hardens"
+them again.** Both are already bounded to 256 bytes AND validated as UTF-8 by `ValidOpaqueString`
+inside `ValidateState`. The core is permitted to compare them by equality and nothing else, so
+there is no further check it could perform without becoming game-aware. Confirmed 2026-08-24 that
+a max-length arbitrary-byte `area_id`/`anim` passes — which is correct behaviour, not a gap. Any
+remaining risk from those two lives entirely in what an ADAPTER does with the string.
+
+**Why this is NOT a violation of the opacity rule, which is the whole point of the entry.**
+`CLAUDE.md` says `area_id`, `anim` and `extras` are opaque to the core and that no config or
+feature may make the core game-aware. That rule means **do not interpret the contents** — it does
+not mean **accept any structure**. No legitimate game state is 490 objects deep; that is a
+structural fact about JSON, not a semantic fact about any game. So the core can reject it while
+staying exactly as blind to meaning as it is today.
+
+**The shape it would take.** Three caps in `ValidateState`, alongside the existing byte bound: a
+nesting-depth cap, a key-count cap, and a restriction on value types. Applies on both existing
+enforcement points at once, since relay and core already share the function.
+
+**Size the caps from what shipped adapters actually send — measured 2026-08-24, not assumed:**
+
+| Adapter | extras keys | max depth | value shapes |
+|---|---|---|---|
+| Crystal | 4 (`sprite`, `act`, `prog`, `face`) | 1 | numbers |
+| Pseudoregalia | 26 | **2** | numbers, short strings, **arrays of floats** |
+
+**Pseudoregalia sends arrays** — `weapon_pos`, `weapon_rot` and `afterimage_color` are
+`[float, ...]` (`Plugin.cpp:8560-8600`). So "flat map of scalars" is NOT a safe restriction: it
+would refuse a shipped adapter. The workable rule is **scalars and arrays of scalars, depth <= 4,
+<= 64 keys** — roughly 2x the observed depth and 2.5x the observed key count. At those numbers the
+contract-narrowing risk is close to theoretical: a third-party adapter would have to exceed twice
+the depth the most complex shipped adapter uses before it noticed.
+
+**Why it is worth doing at this layer rather than per adapter.** It fixes the problem once for
+every adapter that exists or is ever written, including third-party ones
+(`docs/integrating.md`) that will not have read this file. It also *shrinks* the adapter-side
+work: once the core guarantees a flat map of scalars, an adapter only has to range-check the
+numbers it already reads, instead of defending against arbitrary structure.
+
+**What it does NOT cover, and where that work belongs.** Semantic bounds — "`sprite` is 1-255",
+"`act` is 0-7" — can only live in the adapter, which is the one component permitted to know what
+those mean. That is the architecture working, not a workaround: the core is the trust boundary for
+*shape*, the adapter is the trust boundary for *meaning*. Crystal already does this correctly for
+`sprite` (`meshghost_crystal.lua:1359`, bounds 1-255 and refuses an implausible ROM pointer) and
+**not at all for `act`, `prog` and `face`, which are `tonumber`'d with no range check**
+(`:5084-5099`). The rule belongs in `_template/` so the next adapter starts with it.
+
+**Costs and risks.**
+
+- **It is a contract narrowing, so it needs an ADR, not a quiet edit.** `contract.md` currently
+  promises free-form `extras`. At the caps above nothing shipped breaks — but a third-party
+  adapter written against the current contract legitimately could, and would start being refused.
+  Decide the caps generously, and from the measured table, not from a guess: the first version of
+  this entry proposed "flat scalars only" on the strength of reading Crystal alone, which would
+  have refused Pseudoregalia's float arrays.
+- **Refuse or truncate?** `ValidateState` refuses the whole state today. Refusing means one bad
+  field makes a peer vanish rather than look wrong; that is the existing posture
+  (`ValidateState` "drops rather than truncates") and should stay, but it is worth saying out loud.
+- Needs a fuzz target in the `protocol` package's existing set and a regression test that fails
+  without the fix.
+
+### Should third-party adapter support be dropped, to let our own adapters be locked down harder?
+
+**Asked by the user 2026-08-24, alongside: "i still don't really want to bake server/client things
+into the adapters themself, just so things stay modular/split and its easy to add more
+adapter/games etc." Answer: the trade buys nothing, and the two instincts are the same instinct.**
+
+- **Dropping third-party support would not make our adapters more secure.** The security comes
+  from the CORE enforcing the caps, and that enforcement is identical whether third-party adapters
+  exist or not. The only thing third-party support costs here is that the cap has to be chosen
+  generously rather than tightly — and the measured table above shows generous is cheap.
+- **"Third-party adapter support" and "easy to add more adapters/games" are one property, not
+  two.** What makes both true is the bridge contract being documented and stable
+  (`docs/integrating.md`, `_template/PROTOCOL.md`). Damaging one damages the other; the second is
+  the thing the project actually depends on.
+- **"Don't bake server/client things into the adapters" is the argument FOR putting this in the
+  core, not against it.** If the core does not bound shape, then every adapter must defend itself
+  against arbitrary JSON — that IS the baking-in, repeated per game forever. The core bounding
+  shape once is what lets an adapter stay dumb about networking and range-check only the handful
+  of numbers it already reads.
+
+**So the design question is not "third-party or not". It is only "how generous are the caps", and
+that is answerable by measurement** — see the table above.
+
+**Worth carrying into the design pass:** Pseudoregalia already documents this exact gap and
+defends against it. `clamp_to_uint8` (`Plugin.cpp:1573`) exists because
+`static_cast<uint8_t>(double)` on NaN or an out-of-range value is *undefined behaviour*, not
+merely wrapping, and its comment states plainly that extras "reach here unchecked". So the one
+adapter where memory safety is genuinely at stake already does the adapter-side half correctly;
+the two Lua adapters do not. Whatever the core ends up enforcing, that asymmetry is the model to
+back-port, and the rule belongs in `_template/`.
+
+**Related, found in the same 2026-08-24 pass and NOT this entry:** the two `while true` loops in
+each Lua decoder have no end-of-input guard and run away on unbalanced input (local-only
+reachability — the core always emits well-formed JSON); the relay has no per-IP pre-auth cap;
+the shipped relay config is an open relay. The first is adapter work; the last two are already
+above in the transport-security entry.
+
+## Should the Go side stay game-blind? — and the middle path the rule already permits
+
+**Unscheduled. Raised by the user 2026-08-24**: *"would breaking the 'don't have game knowledge'
+thing in the server/client be a good or bad thing?"* **Recommendation: do not break it — but there
+is a third option that is not 'blind' or 'aware', and it should be what layers 1 and 2 above are
+evaluated against before either is built.**
+
+**What the rule actually forbids, which is narrower than it sounds.** The user's own words
+(2026-08-20, quoted in `internal/gameblind/gameblind_test.go`): *"its fine to have the `game_id`
+etc, know what game it is. but specifically for 'game knowledge' on what the games do/how they
+work."* **Identity is permitted; mechanics are not.** A label may be carried, compared and logged;
+it may never be the thing a behaviour is chosen by. That distinction is what leaves the door open
+below.
+
+**Real pros of breaking it — not strawmen:**
+
+- Layer 2 collapses into layer 1: semantic validation lives in one place instead of per adapter,
+  and is enforced before anything reaches a game process.
+- Plausibility checks (position delta per tick) become possible server-side, where today they can
+  only exist in an adapter.
+- Server authority becomes conceivable at all — the only real path to anti-cheat if the deeper
+  planes ever gain a live consumer.
+
+**Real cons, and they land precisely on the properties the project is built for:**
+
+- **"Easy to add a game" dies.** Every new game becomes a core change AND a relay change, a
+  release of both, and every player updating before anyone can play it. Today an adapter is
+  self-contained.
+- **Third-party adapters die outright** — they cannot ship core changes, so the ceiling becomes
+  "games the maintainer personally implements".
+- **A relay operator must run a relay that knows about games they do not play**, and relay updates
+  become gated on game support.
+- **Version skew triples.** Adapter and core today agree on wire SHAPE; they would have to agree
+  on game SEMANTICS, so a stale relay would be wrong about a game rather than merely older.
+- **`TestWireFieldsAreFrozen` would have to be deleted**, and that is the check that catches the
+  realistic failure. Per its own comment: nobody writes `if game == "emerald"` after reading the
+  rule — the real drift is CONTRACT CREEP, a field one game needs "just passed through".
+- **The property the user named as the upside — that the networking "just works" when separated
+  from games — exists BECAUSE of this constraint, not alongside it.** The Go side is fuzzable and
+  unit-testable precisely because it cannot be game-shaped.
+
+### The middle path: adapter-declared constraints, enforced but never interpreted
+
+**Neither blind nor aware.** At join, an adapter declares its own bounds **as data** — "this
+extras key is an integer 0-255", "max position delta per tick is 16", "depth <= 2". The relay and
+core enforce them and **never learn what `sprite` means**: they see a numeric range, not a
+mechanic. That is squarely the *"dumb/generic things in the server/client... if it allows us to
+reuse things for other games"* the same 2026-08-20 quote already permits.
+
+**It fits an existing tested pattern rather than inventing one.** Room-scoped feature stickiness
+already works exactly this way — the first joiner sets it, later joiners must match
+(`relay/relay.go:897`), the same shape as `Room.GameID`. A constraint set would ride the same
+mechanism, which also closes the obvious hole: **a hostile late joiner cannot widen the bounds,
+because the room's set is already fixed.**
+
+**What it buys:** semantic validation enforced centrally, plausibility checks made possible,
+third-party adapters still working (they declare their own bounds), and no core change per game.
+
+**Honest risks:**
+
+- **Self-attested.** Sticky-on-first-join covers the late joiner, but the FIRST joiner defines the
+  room's limits — fine when hosting friends, weaker when joining strangers.
+- **A protocol addition**, so it needs an ADR and a deliberate `TestWireFieldsAreFrozen` edit —
+  which is exactly where that test intends the burden of proof to be stated.
+- **Schema creep is the failure mode.** Grown into a mini-language it becomes game knowledge with
+  extra steps. Keep it to numeric ranges plus the depth/key caps and nothing more.
+
+**Why the recommendation is "do not break it":** every pro above is downstream of server
+authority, which would have to be actually BUILT to collect, while every con lands on the two
+properties that are the point of the project. The middle path gets most of the security benefit
+for a fraction of the cost, and it does not require deciding today.
+
+## The bridge is unauthenticated and loopback only by DEFAULT, not by enforcement
+
+**Unscheduled. Not on the depth ladder — Go side, confirmable with the tools rather than by
+watching a game. Found 2026-08-24** in the same "is it safe to play with random people" pass as
+the `extras` entry above. **Parked at the user's request, not queued** — offered as a same-day fix
+and deliberately filed here instead.
+
+**The gap.** `core/core.go:263` states as a fact that *"the adapter bridge is always loopback
+TCP"*, and `contract.md` says the same. Nothing enforces it. The bind address is a flag
+(`cmd/meshghost/main.go:517`, default `127.0.0.1:7778`) **and** a config key `local_game_bridge`
+(`:111`), and it reaches `net.Listen("tcp", *bridgeAddr)` (`:766`) with no loopback check and no
+warning line.
+
+**Why this is worse than an ordinary misconfiguration.** The bridge has **no authentication at
+all** — no room code, no hello check, nothing — and correctly needs none *given* the loopback
+assumption. Break the assumption and there is nothing underneath it: a non-loopback bind turns the
+machine into an open "drive my game and read my whole session" service for anyone on the LAN.
+
+**The realistic path is config sharing, not a typo.** `config.json` is exactly the file a host
+sends friends so they can join, and `local_game_bridge` sits in it beside the settings they are
+meant to edit. One host with `0.0.0.0` in theirs propagates it to everyone they play with.
+
+**The shape it would take.** Parse the bridge address, and if the host part is not loopback,
+either refuse to start or warn loudly and require an explicit `-bridge-allow-remote`. Refusing is
+probably right — there is no legitimate use for a remote bridge today, and `_template/PROTOCOL.md`
+tells every adapter author to connect to `127.0.0.1`. Small, self-contained, needs no contract
+change and no game session.
+
+**Not to be bundled with the `extras` design pass above.** That one is a contract narrowing that
+wants deliberate thought; this one is an unenforced invariant the docs already claim is enforced.
+Different risk, different review, separate commits.
+
+### Why the rest of the client -> relay -> client path is already sound (enumerated 2026-08-24)
+
+Recorded so a future pass does not re-audit what is fine. **Every payload-carrying message type a
+client can send is validated before the relay acts on it**, one-to-one:
+
+| Client sends | Validator |
+|---|---|
+| `state` | `ValidateState` (`relay/relay.go:1356`) |
+| `event` | `ValidateEvent` |
+| `lease` | `ValidateLease` |
+| `escrow` | `ValidateEscrow` |
+| `world` | `ValidateWorld` |
+| `leave`, `ping` | no payload |
+| anything else | **ignored, never forwarded** (`relay.go:1514` default case) |
+
+**The load-bearing property is that the relay never passes bytes through.** It re-encodes each
+forwarded message from the parsed, validated struct (`envelope(protocol.TypeState, st)`), so a
+client cannot smuggle extra JSON fields, malformed bytes, or anything the struct does not model —
+the bytes another client receives were written by the relay, not by the sender. With the receiver
+re-running the same validator (`core/core.go:1203`), dropping states from any `player_id` not in
+the roster (`:1215`), `player_id` being server-stamped, and `display_name` never being
+redistributed at all, **the entire client-to-client surface is the set of fields that struct
+legitimately carries.** Of those, only `extras`, `area_id`, `anim` and `orientation` have contents
+the core is contractually forbidden from interpreting — which is precisely what the `extras`
+entry above is about.
 
 ## Code signing the Windows binaries (SignPath OSS)
 
