@@ -105,13 +105,15 @@ Section "Invented durations"
 # only on lines being added. `pitfalls.md` is no longer excluded from the first: it was, and that is
 # where 2026-08-23's "for days" landed unchallenged.
 #
-# verified.md is excluded because it is APPEND-ONLY: correcting a phrase inside an entry there is a
+# verified.md AND the per-adapter VERIFIED.md files (split out of it 2026-08-25) are excluded
+# because they are APPEND-ONLY: correcting a phrase inside an entry there is a
 # rewrite of the record, which is the one thing that file forbids. It holds one known bad duration
-# ("long-standing 1-2 image density gap", 2026-08-21) and one legitimate external reference. A
+# ("long-standing 1-2 image density gap", 2026-08-21, now in adapters/pseudoregalia/VERIFIED.md)
+# and one legitimate external reference. A
 # future entry that invents a duration will therefore NOT be caught here -- so watch it by hand.
 # `licensing.md` and `access-models.md` are excluded for the opposite reason: both are ABOUT the
 # outside world (licences, emulator projects, hardware), so external dates are their subject matter.
-$durations = & git grep -inIE -e 'for (a |an |the last |the past )?(hour|day|week|month|year|decade)s?' -e '(hour|day|week|month|year|decade)s? (ago|later|earlier|old|behind)' -e 'long-?standing' -e 'long time' -e 'decades' -e 'over the years' -- . ':!CLAUDE.md' ':!dev-scripts/preflight.ps1' ':!agent_docs/verified.md'
+$durations = & git grep -inIE -e 'for (a |an |the last |the past )?(hour|day|week|month|year|decade)s?' -e '(hour|day|week|month|year|decade)s? (ago|later|earlier|old|behind)' -e 'long-?standing' -e 'long time' -e 'decades' -e 'over the years' -- . ':!CLAUDE.md' ':!dev-scripts/preflight.ps1' ':!agent_docs/verified.md' ':!adapters/**/VERIFIED.md'
 if ($LASTEXITCODE -eq 0 -and $durations) {
     Report-Fail "vague duration in a tracked file -- cite a date, or a measured figure with a number:"
     $durations | ForEach-Object { Write-Host "          $_" }

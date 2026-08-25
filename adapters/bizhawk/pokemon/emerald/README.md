@@ -8,7 +8,7 @@ targeted, shipped, and live-tested with real two-player sessions.
 **This adapter is parked.** Phase 8 stays open, but nothing here is scheduled — what is left is a
 different kind of thing: polish, custom features beyond matching the game, and two states assumed
 to work rather than known to be missing (the ferry and rail movement, recorded as assumptions in
-[agent_docs/unverified.md](../../../../agent_docs/unverified.md)). See
+[UNVERIFIED.md](UNVERIFIED.md)). See
 [agent_docs/phases/phase8.md](../../../../agent_docs/phases/phase8.md) for the full record.
 
 - Platform: GBA, played via BizHawk.
@@ -287,7 +287,7 @@ order:
     after this is minor polish or custom features that go beyond matching the game, not gaps —
     so a new item here needs a reason it is not one of those. **Two states were never tested and
     are assumed to work: the ferry, and rail movement.** Assumed rather than open, and recorded as
-    an assumption in `agent_docs/unverified.md` so it cannot quietly become a memory of having
+    an assumption in `UNVERIFIED.md` so it cannot quietly become a memory of having
     checked. Emerald was parked here; the attention moved to Crystal.
 
 **~3 hours for the hardware tier**, most of it spent discovering that the comparison harness, not

@@ -9,13 +9,13 @@ same day: *"i will move on to crystal and not work more on emerald right now."* 
 - **Emerald work is not scheduled.** A new animation/effect item for it needs a reason it is not
   polish or a custom feature; a real fault is a defect against a finished adapter. `phase8.md`.
 - **Ferry and rails: assumed to work, never tested, deliberately NOT open items.** The user dropped
-  them from here on purpose; the assumption is recorded so it cannot decay. `unverified.md`.
+  them from here on purpose; the assumption is recorded so it cannot decay. `emerald/UNVERIFIED.md`.
 - **Crystal is where the gap is.** Both tiers were confirmed good at the dev rig's own settings
   2026-08-22/23; most of what is open below is a fix built since and never watched. `verified.md`.
 - **Rig SHUT DOWN, still — no rig ran on 2026-08-25 either**; ROM **V1.0**. Rebuild with
   `run-relay-loopback-shipped.bat` + `run-core-crystal-shipped.bat` — shipped 250ms/20Hz.
 - **NEXT SESSION STARTS HERE: Crystal's in-place animations are built and need ONE live run.**
-  Five things to watch, with what correct looks like, are in `unverified.md` (2026-08-25).
+  Five things to watch, with what correct looks like, are in `crystal/UNVERIFIED.md` (2026-08-25).
 - **Savestate slots on that rig:** 1 the user's, 7 their Route 39 spot, 8 `goto_map`'s undo, **9 the
   9x9 square start**. The mechanism, and the savestate-is-not-a-save trap: `environment.md`.
 
@@ -53,37 +53,37 @@ that a peer's state genuinely differs from the local player's, which loopback co
 - **Crystal's drawn tier has no visual parity yet** — no reflection, no wake, no grass, no cave
   clip. (Emerald's equivalent closed 2026-08-21.) `verified.md`.
 - **A vanilla battle with a crowd was never reached** — our own spawned ghosts boxed the player in
-  on the way to grass, which `crowd-limits.md` predicts. `unverified.md`, `pitfalls.md`.
+  on the way to grass, which `crowd-limits.md` predicts. `crystal/UNVERIFIED.md`, `pitfalls.md`.
 - **Emerald's real-panel clip count was REACHED, not played to** — the position was written, so it
   says nothing about whether ordinary play produces that overlap. `verified.md` 2026-08-19.
 - **Crystal's phone-call panel is two panels** — full-width at the top plus the ordinary bottom
-  box; the row-12 test sees only the bottom one. Detection unwritten. `unverified.md`.
+  box; the row-12 test sees only the bottom one. Detection unwritten. `crystal/UNVERIFIED.md`.
 - **Crystal's drawn-tier text-box clipping is unconfirmed** — it still rests on the 2026-08-19
   fill-the-screen test. (The walk cycle itself closed 2026-08-22.) `verified.md`.
 - **Crystal: in-place animations are BUILT and UNWATCHED (2026-08-25)** — one rule replaced the bump
-  special case: read the peer's facing byte. Turn, spin, fishing, Dig/Teleport, Fly. `unverified.md`.
+  special case: read the peer's facing byte. Turn, spin, fishing, Dig/Teleport, Fly. `crystal/UNVERIFIED.md`.
 - **Crystal's drawn tier jitter: three bugs fixed 2026-08-23, user says it looks fine — NOT settled.**
-  Wrong camera register, unsettled K reference, sampler below early returns. `unverified.md`, `pitfalls.md`.
+  Wrong camera register, unsettled K reference, sampler below early returns. `crystal/UNVERIFIED.md`, `pitfalls.md`.
 - **Crystal: `hSCX`/`hSCY` are inline literals, not in the per-build `ADDRESSES` table** — and the
-  Archipelago build's pair is assumed, never measured. `unverified.md`.
+  Archipelago build's pair is assumed, never measured. `crystal/UNVERIFIED.md`.
 - **Crystal: four promotion fixes, none watched** — the frame hole, the 2px hop, the donor's facing
-  at spawn, and the drawn tier's bump. `unverified.md` (2026-08-23).
+  at spawn, and the drawn tier's bump. `crystal/UNVERIFIED.md` (2026-08-23).
 - **Crystal: the spawned ghost drifts a WHOLE TILE, periodically** — engine put it in `step_type=5`
-  with a live duration while STANDING; suspect inherited donor movement. `unverified.md`.
+  with a live duration while STANDING; suspect inherited donor movement. `crystal/UNVERIFIED.md`.
 - **Crystal: the spawned ghost's step trigger moved off the lerped tile onto the peer's progress** —
-  jitter 6 frames -> 2, measured A/B, NOT watched. `STEP_TRIGGER_PROG=0` reverts. `unverified.md`.
+  jitter 6 frames -> 2, measured A/B, NOT watched. `STEP_TRIGGER_PROG=0` reverts. `crystal/UNVERIFIED.md`.
 - **Crystal's drawn tier is untested on bike/surf/ledges/warps and with a real peer** — the camera
-  model clamps to 2-4px gaits and has only met walking on loopback. `unverified.md`.
+  model clamps to 2-4px gaits and has only met walking on loopback. `crystal/UNVERIFIED.md`.
 - **Crystal: shoving a MOVING ghost aside is fixed but not watched** — it compared one tile where the
-  engine blocks on two. The idle rule is still unreachable for a walker. `unverified.md` (2026-08-23).
+  engine blocks on two. The idle rule is still unreachable for a walker. `crystal/UNVERIFIED.md` (2026-08-23).
 - **Crystal: a ghost cloned a TRAINER and hung the game — fixed 2026-08-23, NOT confirmed.** Third
-  bug of one root cause (inherited donor identity). `pitfalls.md`, `unverified.md`.
+  bug of one root cause (inherited donor identity). `pitfalls.md`, `crystal/UNVERIFIED.md`.
 - **Crystal's transition hold spends its 30 frames after the world is ready, not during the
-  crossing** — measured, fix built and reverted as worse. `unverified.md`, `phases/phase9.md`.
+  crossing** — measured, fix built and reverted as worse. `crystal/UNVERIFIED.md`, `phases/phase9.md`.
 - **Crystal's hardware (OAM) tier: built, reaches the screen, shipped OFF, never judged on screen.**
-  Adds 0-1 characters and does NOT get free occlusion. `FLAGS.md`, `unverified.md`.
+  Adds 0-1 characters and does NOT get free occlusion. `FLAGS.md`, `crystal/UNVERIFIED.md`.
 - **Crystal: a peer sending action 8 would have had its ghost's BODY replaced by the `!` box** —
-  the emote is a separate map object, never a player action. Removed 2026-08-25. `unverified.md`.
+  the emote is a separate map object, never a player action. Removed 2026-08-25. `crystal/UNVERIFIED.md`.
 - **Crystal: no fall for Fly/Teleport/Dig, and no emote above a peer at all** — the sprite Y offset
   is not on the wire, and the `!` needs its own object. Known gaps, not faults. `phases/phase9.md`.
 - **18 Emerald probes and dev-scripts were rewritten to resolve their own directory (2026-08-25)** —
@@ -93,7 +93,7 @@ that a peer's state genuinely differs from the local player's, which loopback co
 - **Crystal: a peer's own sprite is used when its tiles are resident, not otherwise** — but the
   DRAWN tier could read any sprite from ROM, which would close it. `phases/phase9.md`.
 - **Crystal: a ghost does NOT survive a battle** — answered from the code 2026-08-19 and fixed
-  (it used to hijack an NPC); a real battle still needs watching. `phase9.md`, `unverified.md`.
+  (it used to hijack an NPC); a real battle still needs watching. `phase9.md`, `crystal/UNVERIFIED.md`.
 - **The core dropped its relay connection twice on quic** — `use of closed network connection`,
   ~40s apart; moving to tcp stopped it. Go side. `verified.md` 2026-08-18.
 - **Duplicate ghost spawn on every level load** — two ghosts per peer, the `remotes` entry going
@@ -143,7 +143,7 @@ that a peer's state genuinely differs from the local player's, which loopback co
 
 ## Links
 
-`unverified.md` (**what the user has not confirmed yet** — read before claiming anything works) ·
+`unverified.md` (**index to the per-game queues — what the user has not confirmed yet**) ·
 `plans.md` (roadmap) · `phases/phase6.md`|`phase7.md`|`phase8.md`|`phase9.md` (per-phase log) · `risks.md`
 (assumptions) · `verified.md` (Go-side and cross-game confirmed facts, plus the index to each
 adapter's own `VERIFIED.md`) · `pitfalls.md` (symptom → cause → fix, and the

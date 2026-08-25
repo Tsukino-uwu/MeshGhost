@@ -69,7 +69,7 @@ stays here, its reasoning goes to `agent_docs/`, with a one-line pointer. Full e
 - **`VERIFIED.md` is append-only, and NOTHING adapter/game-side on the BASE/VANILLA
   game goes in it — or gets called "verified"/"confirmed" — until the USER confirms it on screen.
   Tightened 2026-08-21: no probe log, console read, or screenshot of yours substitutes there;
-  your measurements go to `unverified.md`, as measurements. **A patched ROM (Archipelago etc.)
+  your measurements go to that adapter's `UNVERIFIED.md`. **A patched ROM (Archipelago etc.)
   stays yours to confirm visually — say so.** Go-side facts too. **Why: `testing.md`'s top.**
   **Split per game 2026-08-25** — each adapter carries its own; `agent_docs/verified.md` keeps the
   Go side, cross-game entries and the index.

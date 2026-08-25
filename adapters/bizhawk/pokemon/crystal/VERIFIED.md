@@ -8,7 +8,7 @@ frequently touched file in the repo.
 **The gate is unchanged, and it is the strict one.** Nothing adapter- or game-side on the
 BASE/VANILLA game goes in here until **the user has confirmed it on screen** — no probe log,
 console read or screenshot substitutes. Measurements that are not yet confirmed live in
-`../../../../agent_docs/unverified.md`. A patched ROM (Archipelago and similar) is the agent's to confirm
+[`UNVERIFIED.md`](UNVERIFIED.md). A patched ROM (Archipelago and similar) is the agent's to confirm
 visually; say so in the entry. The full rule is in [../../../../agent_docs/../CLAUDE.md](../../../../agent_docs/../CLAUDE.md).
 
 **Append-only.** Do not rewrite or delete an entry's original observation. Adding later
@@ -1527,31 +1527,6 @@ Also observed on the way, unprompted, and untested states worth knowing the adap
 Prof. Elm's **phone call** panel (a full-width UI panel at the very TOP of the screen — see the
 open drawn-tier item), two wild battles with successful escapes, a Pokemon Center heal, a bag
 screen, a map transition Route 30 -> Cherrygrove City, and a **lost** battle ending in a whiteout.
-
-## A peer's own STATE renders on the spawned tier — fishing confirmed, 2026-08-19
-
-**User-confirmed on screen:** with `MESHGHOST_GHOST_PEER_GFX` set, *"the spawned ghost is fishing"*.
-
-This closes an item that had been open since Phase 8 (*"a peer's own state (surf/bike/fishing) is
-not rendered yet"*) and the interesting part is that **no new code was needed**. The peer's
-`graphicsId` — which is what the game changes when you mount a bike, surf, or cast a rod — has been
-travelling in `extras.gfx` all along, and `spawnGhost` already rebuilds a ghost's sprite when it
-changes (*"the peer changed what they are... a graphic swap means different images, animations, OAM
-shape and tile count, so the sprite is rebuilt rather than patched"*). The adapter simply refused to
-adopt it, behind a flag whose comment said so: *"changes nothing visually but keeps the wire format
-and the plumbing live and exercised. Set MESHGHOST_GHOST_PEER_GFX to opt in and continue the
-investigation."*
-
-The investigation was continued by a save that could finally fish — `probes/grant_test_kit.lua`.
-
-**The other half is confirmed NOT working, and expected:** *"not the drawn one"*. The painted tier
-decodes its pixels from the walk and run pic tables for the local player's gender, so it can draw a
-character walking and nothing else. A peer on a bike, surfing, or fishing is painted as if walking.
-The route to fixing it is the one the spawned tier already uses — `graphicsInfo(graphicsId)` yields
-that graphic's own images pointer and palette tag, and Crystal's drawn tier already reads a
-non-resident character out of the cartridge this way — but the frame SIZE also varies by graphic
-(a bike is wider than a walker), so the decode cache has to key on the graphic rather than assume
-one shape.
 
 ## Crystal: the two tiers' collision, confirmed by walking into them (2026-08-22)
 

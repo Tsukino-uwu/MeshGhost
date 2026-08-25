@@ -14,7 +14,7 @@ for any peer the first two have no room for).
 **Last live confirmation 2026-08-23**: the drawn tier's motion and walk cycle, at the dev rig's
 settings. Earlier: a character on every visible tile at 60fps (2026-08-19), and a loopback ghost
 walking on both vanilla and an Archipelago-patched ROM the day before that. **What is confirmed
-and what is not is `agent_docs/status.md` and `unverified.md`** — several fixes since 2026-08-22
+and what is not is `agent_docs/status.md` and `UNVERIFIED.md`** — several fixes since 2026-08-22
 are built but unwatched, and the hardware tier has never been judged on screen at all.
 
 - Platform: Game Boy Color, played via BizHawk.
@@ -165,7 +165,7 @@ Only steps that actually happened and were confirmed are listed here.
     rather than one of the game's own characters. It buys **zero to one** extra character, not
     capacity, and does **not** get occlusion free — a text box is background tiles with the
     BG-to-OAM priority bit clear, so a sprite draws in front of it. Shipped OFF: nothing about how
-    it looks has been confirmed on screen. [FLAGS.md](FLAGS.md), `unverified.md`.
+    it looks has been confirmed on screen. [FLAGS.md](FLAGS.md), `UNVERIFIED.md`.
 
 ### Further work past "good enough"
 

@@ -128,7 +128,7 @@ one of the three with no ceiling, and *"every peer visible all the time"* needs 
 Everything below is still true of it; it is simply reached less often. **One cost has also moved
 the other way**: the shared movement filter both non-engine tiers use was found to have a real bug
 on 2026-08-21 (it could not follow a running player), which means this tier had been shipping with
-it -- see `pitfalls.md`, and `unverified.md` for the re-judgement that owes.
+it -- see `pitfalls.md`, and `UNVERIFIED.md` for the re-judgement that owes.
 
 
 **What it is.** Peers past the engine's object-event cap are painted with `gui.*` primitives

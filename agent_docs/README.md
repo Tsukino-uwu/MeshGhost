@@ -28,9 +28,10 @@ Internal documentation for MeshGhost: architecture, planning, licensing, and ver
 - [verified.md](verified.md) — append-only, human-gated log of confirmed runtime facts. **Split per
   game 2026-08-25**: each adapter carries its own `VERIFIED.md` beside its `README.md`, and this
   file keeps the Go side, cross-game entries, and the index to all four.
-- [unverified.md](unverified.md) — the waiting room for it: things the agent believes work and the
+- [unverified.md](unverified.md) — **the index to the per-game queues** (split 2026-08-25; Crystal
+  and Emerald each carry their own `UNVERIFIED.md`). A queue holds things the agent believes work and the
   user has not seen yet, with what to look at and what correct looks like. A checklist to work
-  down; confirmed items move to `verified.md`, declined ones go back to being work.
+  down; confirmed items move to that adapter's `VERIFIED.md`, declined ones go back to being work.
 - [testing.md](testing.md) — **how to run every automated check** for the Go client/server: the
   one local command, the local `-race` recipe (working since 2026-08-18), what CI adds on top
   (fuzzing, cross-compiles, gofmt), how to run a real fuzz campaign, and the traps that otherwise get rediscovered. Read before adding a
