@@ -24,11 +24,11 @@ same day: *"i will move on to crystal and not work more on emerald right now."* 
 - **46 commits are UNPUSHED as of 2026-08-25, seven of them `.go`** — so CI has seen none of it,
   including the bridge-bind guard. Last run 2026-08-23, green. `gh run list` once pushed; the user pushes.
 - **One doc item left open on purpose** — incident narrative still inside several ADRs and one
-  `risks.md` bullet. (`status.md`'s own length was the other; drained 2026-08-25.) `ideas.md` §5.
+  `risks.md` bullet. (`status.md`'s own length was the other; drained 2026-08-25.) `doc-history.md` §5.
 - **Four refactors deferred by the 2026-08-18 audit** — `game_thread_tick()`, the two Lua adapters'
   duplication, Crystal's probe boilerplate, TEVI's send gate. (`internal/cfg` shipped.) `ideas.md`.
 - **The append-only ledgers are indexed, not split** — every entry is dated 2026-08, so the period
-  axis does not exist yet; all five carry an index and a check. `ideas.md`, "The third pass".
+  axis does not exist yet; all five carry an index and a check. `doc-history.md`, "The third pass".
 - **Both Lua adapters are near the 200-local wall** — Emerald 197, Crystal 188 (re-counted
   2026-08-25; the old figure of 157 for Crystal is two measurements stale). `emulator/CLAUDE.md`.
 

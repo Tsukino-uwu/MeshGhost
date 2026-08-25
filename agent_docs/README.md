@@ -26,6 +26,10 @@ Internal documentation for MeshGhost: architecture, planning, licensing, and ver
 - [plans.md](plans.md) — live roadmap, phase status, non-goals.
 - [ideas.md](ideas.md) — unscheduled feature backlog. Not the roadmap — researched enough to
   act on when picked, but nothing here is committed until it moves into [plans.md](plans.md).
+- [doc-history.md](doc-history.md) — the dated record of every doc-restructuring pass: what
+  changed, what was deliberately left alone and why, and the measurements not to re-derive. Split
+  out of `ideas.md` 2026-08-25, taking with it the one `preflight.ps1` exemption from the
+  canonical-source check — it quotes rules in their wording at the time, on purpose.
 - [status.md](status.md) — one-screen summary of the active phase and current focus.
 - [risks.md](risks.md) — assumptions and risk register.
 - [licensing.md](licensing.md) — third-party license audit. Check before referencing any

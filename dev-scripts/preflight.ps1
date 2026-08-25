@@ -418,7 +418,7 @@ foreach ($rule in $canon) {
     $strays = @()
     foreach ($md in $trackedMd) {
         if ($md -eq $rule.Home) { continue }
-        if ($md -eq 'agent_docs/ideas.md') { continue }   # the restructuring record QUOTES these rules
+        if ($md -eq 'agent_docs/doc-history.md') { continue }  # the restructuring record QUOTES these rules
         $lines = @(Get-Content -LiteralPath $md)
         for ($i = 0; $i -lt $lines.Count; $i++) {
             if ($lines[$i] -notmatch $rule.Pattern) { continue }
