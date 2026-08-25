@@ -6,7 +6,6 @@ package main
 import (
 	"bytes"
 	"encoding/json"
-	"errors"
 	"flag"
 	"io"
 	"log"
@@ -19,6 +18,7 @@ import (
 	"time"
 
 	"github.com/Tsukino-uwu/MeshGhost/core"
+	"github.com/Tsukino-uwu/MeshGhost/internal/cfg"
 	"github.com/Tsukino-uwu/MeshGhost/netx"
 	"github.com/Tsukino-uwu/MeshGhost/netx/tlsx"
 	"github.com/Tsukino-uwu/MeshGhost/protocol"
@@ -211,88 +211,6 @@ type configTargets struct {
 	features       *string
 }
 
-// applyFileConfig loads path (leaving every flag alone if it doesn't exist, so
-// existing flag-only usage is unaffected -- but SAYING SO in the log, which it
-// did not do before autostart made this file a player's only feedback channel)
-// and overwrites any flag that was NOT explicitly passed on the command line
-// with the file's "client" section. CLI flags always win over the file, matching normal
-// config-layering convention (most-specific/most-explicit source wins).
-// stripBOM removes a leading UTF-8 byte-order mark from a config file's
-// contents, and refuses a UTF-16 one outright (returning nil) with a message
-// naming the actual fix. Both cases exist because config.json is a file a
-// non-developer edits by hand on Windows: a BOM is three bytes some editors
-// (Notepad's "UTF-8 with BOM" save option, PowerShell 5.1's `Out-File
-// -Encoding utf8`) put before the opening brace, and encoding/json refuses
-// them -- so a file that looks completely correct to whoever edited it gets
-// discarded whole, silently taking every setting in it along with it,
-// room_code included. Found while testing the only_game setting. The BOM is
-// stripped rather than warned about (the file is valid UTF-8 either way, and
-// the offending bytes are invisible in an editor); UTF-16 can't be salvaged
-// this cheaply, so it gets an actionable warning instead of the cryptic JSON
-// error it would otherwise produce. Mirrored in cmd/meshghost-relay/main.go,
-// the same way applyFileConfig itself is.
-func stripBOM(data []byte, path, prog string) []byte {
-	data = bytes.TrimPrefix(data, []byte{0xEF, 0xBB, 0xBF})
-	if bytes.HasPrefix(data, []byte{0xFF, 0xFE}) || bytes.HasPrefix(data, []byte{0xFE, 0xFF}) {
-		log.Printf("%s: warning: config file %s looks like it was saved as UTF-16 (\"Unicode\" in "+
-			"Notepad's save-as list) -- re-save it as UTF-8. Every setting in it is being IGNORED "+
-			"and built-in defaults used instead.", prog, path)
-		return nil
-	}
-	return data
-}
-
-// applyDespiteBadValue decides whether a json.Unmarshal error is survivable, and
-// logs the right thing either way. It returns true when the caller should carry
-// on applying the config it just decoded.
-//
-// This exists because a single mistyped value used to cost a user their ENTIRE
-// config. Found live 2026-08-16: a Proton tester wrote `"show_console": "true"`
-// — quoted, so a JSON string where a bool belongs — and got every other setting
-// silently reverted to defaults, including their name (they joined as "player")
-// and, worse for a host, room_code.
-//
-// The cruel part is that Go had already done the right thing. encoding/json does
-// not abort on a type mismatch: it records the first UnmarshalTypeError, skips
-// that one value, and keeps decoding every other field. So the struct handed back
-// is fully populated apart from the offending key — and the old code threw it away
-// on `err != nil`.
-//
-// A SyntaxError is different and still fatal to the file: a missing comma or
-// stray brace means the rest genuinely cannot be trusted to be what the user
-// meant. That is the case the whole-file warning was written for, and it keeps it.
-//
-// prog is the binary's own name, since this is mirrored in cmd/meshghost-relay
-// the same way stripBOM is.
-func applyDespiteBadValue(err error, path, prog string) bool {
-	var typeErr *json.UnmarshalTypeError
-	if !errors.As(err, &typeErr) {
-		log.Printf("%s: warning: could not parse config file %s: %v -- every setting in it "+
-			"is being IGNORED and built-in defaults used instead", prog, path, err)
-		return false
-	}
-
-	// Field arrives as "client.show_console"; a player knows it as the key they
-	// typed. The Go type name would mean nothing to them either, so say what a
-	// bool actually looks like in the file.
-	key := typeErr.Field
-	if i := strings.LastIndex(key, "."); i >= 0 {
-		key = key[i+1:]
-	}
-	wanted := typeErr.Type.String()
-	switch wanted {
-	case "bool":
-		wanted = "true or false, without quotes"
-	case "int":
-		wanted = "a plain number, without quotes"
-	}
-	log.Printf("%s: warning: config file %s: \"%s\" was given a %s, but it needs %s. That ONE "+
-		"setting is being ignored -- everything else in the file still applies. (Quotes make a "+
-		"value text: \"%s\": true, not \"%s\": \"true\".)",
-		prog, path, key, typeErr.Value, wanted, key, key)
-	return true
-}
-
 func applyFileConfig(path string, explicit map[string]bool, t configTargets) {
 	// Absolute, always: with the client autostarted there is no console showing
 	// which folder it was launched from, and "I edited config.json and nothing
@@ -318,7 +236,7 @@ func applyFileConfig(path string, explicit map[string]bool, t configTargets) {
 		return
 	}
 	log.Printf("meshghost: config loaded from %s", shown)
-	data = stripBOM(data, shown, "meshghost")
+	data = cfg.StripBOM(data, shown, "meshghost")
 	if data == nil {
 		return
 	}
@@ -334,7 +252,7 @@ func applyFileConfig(path string, explicit map[string]bool, t configTargets) {
 	}
 	var rc rootConfig
 	if err := json.Unmarshal(data, &rc); err != nil {
-		if !applyDespiteBadValue(err, shown, "meshghost") {
+		if !cfg.ApplyDespiteBadValue(err, shown, "meshghost") {
 			return
 		}
 	}

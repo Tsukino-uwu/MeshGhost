@@ -7,7 +7,6 @@ package main
 import (
 	"bytes"
 	"encoding/json"
-	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -19,6 +18,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Tsukino-uwu/MeshGhost/internal/cfg"
 	"github.com/Tsukino-uwu/MeshGhost/netx"
 	"github.com/Tsukino-uwu/MeshGhost/netx/tlsx"
 	"github.com/Tsukino-uwu/MeshGhost/protocol"
@@ -139,67 +139,6 @@ type configTargets struct {
 	tlsMode        *string
 }
 
-// stripBOM removes a leading UTF-8 byte-order mark from a config file's
-// contents, and refuses a UTF-16 one outright (returning nil) with a message
-// naming the actual fix. Both cases exist because config.json is a file a
-// non-developer edits by hand on Windows: a BOM is three bytes some editors
-// (Notepad's "UTF-8 with BOM" save option, PowerShell 5.1's `Out-File
-// -Encoding utf8`) put before the opening brace, and encoding/json refuses
-// them -- so a file that looks completely correct to whoever edited it gets
-// discarded whole, silently taking every setting in it along with it,
-// room_code included. Found while testing the only_game setting. The BOM is
-// stripped rather than warned about (the file is valid UTF-8 either way, and
-// the offending bytes are invisible in an editor); UTF-16 can't be salvaged
-// this cheaply, so it gets an actionable warning instead of the cryptic JSON
-// error it would otherwise produce. Mirrored in cmd/meshghost/main.go, the
-// same way applyFileConfig itself is.
-func stripBOM(data []byte, path, prog string) []byte {
-	data = bytes.TrimPrefix(data, []byte{0xEF, 0xBB, 0xBF})
-	if bytes.HasPrefix(data, []byte{0xFF, 0xFE}) || bytes.HasPrefix(data, []byte{0xFE, 0xFF}) {
-		log.Printf("%s: warning: config file %s looks like it was saved as UTF-16 (\"Unicode\" in "+
-			"Notepad's save-as list) -- re-save it as UTF-8. Every setting in it is being IGNORED "+
-			"and built-in defaults used instead.", prog, path)
-		return nil
-	}
-	return data
-}
-
-// applyDespiteBadValue decides whether a json.Unmarshal error is survivable, and
-// logs the right thing either way. Mirrored from cmd/meshghost/main.go, the same
-// way stripBOM and applyFileConfig are -- see that copy for the full story.
-//
-// The short version: encoding/json does not abort on a type mismatch, it skips
-// that one value and keeps decoding, so throwing the result away over `err != nil`
-// cost a user every OTHER setting in their file. Found live 2026-08-16 on the
-// client. The relay has no bool settings, but "max_clients": "8" is the same
-// mistake, and it would silently take room_code and only_game with it -- a host
-// who believes they set a room code, running wide open.
-func applyDespiteBadValue(err error, path, prog string) bool {
-	var typeErr *json.UnmarshalTypeError
-	if !errors.As(err, &typeErr) {
-		log.Printf("%s: warning: could not parse config file %s: %v -- every setting in it "+
-			"is being IGNORED and built-in defaults used instead", prog, path, err)
-		return false
-	}
-
-	key := typeErr.Field
-	if i := strings.LastIndex(key, "."); i >= 0 {
-		key = key[i+1:]
-	}
-	wanted := typeErr.Type.String()
-	switch wanted {
-	case "bool":
-		wanted = "true or false, without quotes"
-	case "int":
-		wanted = "a plain number, without quotes"
-	}
-	log.Printf("%s: warning: config file %s: \"%s\" was given a %s, but it needs %s. That ONE "+
-		"setting is being ignored -- everything else in the file still applies. (Quotes make a "+
-		"value text: \"%s\": 8, not \"%s\": \"8\".)",
-		prog, path, key, typeErr.Value, wanted, key, key)
-	return true
-}
-
 func applyFileConfig(path string, explicit map[string]bool, t configTargets) {
 	// Absolute, mirroring the client (cmd/meshghost/main.go): "I edited config.json
 	// and nothing changed" is nearly always a different config.json than the one
@@ -215,7 +154,7 @@ func applyFileConfig(path string, explicit map[string]bool, t configTargets) {
 		}
 		return
 	}
-	data = stripBOM(data, shown, "meshghost-relay")
+	data = cfg.StripBOM(data, shown, "meshghost-relay")
 	if data == nil {
 		return
 	}
@@ -231,7 +170,7 @@ func applyFileConfig(path string, explicit map[string]bool, t configTargets) {
 	}
 	var rc rootConfig
 	if err := json.Unmarshal(data, &rc); err != nil {
-		if !applyDespiteBadValue(err, shown, "meshghost-relay") {
+		if !cfg.ApplyDespiteBadValue(err, shown, "meshghost-relay") {
 			return
 		}
 	}
