@@ -12,13 +12,17 @@ same day: *"i will move on to crystal and not work more on emerald right now."* 
   them from here on purpose; the assumption is recorded so it cannot decay. `unverified.md`.
 - **Crystal is where the gap is.** Both tiers were confirmed good at the dev rig's own settings
   2026-08-22/23; most of what is open below is a fix built since and never watched. `verified.md`.
-- **Rig SHUT DOWN after the THIRD 2026-08-23 session**; ROM **V1.0**. Rebuild with
+- **Rig SHUT DOWN, still — no rig ran on 2026-08-25 either**; ROM **V1.0**. Rebuild with
   `run-relay-loopback-shipped.bat` + `run-core-crystal-shipped.bat` — shipped 250ms/20Hz.
+- **NEXT SESSION STARTS HERE: Crystal's in-place animations are built and need ONE live run.**
+  Five things to watch, with what correct looks like, are in `unverified.md` (2026-08-25).
 - **Savestate slots on that rig:** 1 the user's, 7 their Route 39 spot, 8 `goto_map`'s undo, **9 the
   9x9 square start**. The mechanism, and the savestate-is-not-a-save trap: `environment.md`.
 
 ## Genuinely open items
 
+- **Everything after `7f95e8b` is UNPUSHED as of 2026-08-25, and two commits are `.go`** — so CI
+  has never seen the bridge-bind guard or its test. `gh run list` once pushed; the user pushes.
 - **The 2026-08-25 doc repair is DONE; three findings were deliberately left.** `pitfalls.md`'s
   taxonomy, `architecture.md`'s narrative ADRs, and `verified.md` itself. `ideas.md`.
 - **Five refactors deferred by the 2026-08-18 audit** — `game_thread_tick()`, the two Lua
@@ -80,6 +84,8 @@ that a peer's state genuinely differs from the local player's, which loopback co
   the emote is a separate map object, never a player action. Removed 2026-08-25. `unverified.md`.
 - **Crystal: no fall for Fly/Teleport/Dig, and no emote above a peer at all** — the sprite Y offset
   is not on the wire, and the `!` needs its own object. Known gaps, not faults. `phases/phase9.md`.
+- **18 Emerald probes and dev-scripts were rewritten to resolve their own directory (2026-08-25)** —
+  no Lua on this machine to parse them, so none has been run since. `pitfalls.md`.
 - **Emerald CROSSED Lua's 200-local ceiling and did not compile at all** — fixed 2026-08-22 by
   consolidating seven constants onto two tables; now 197. Not yet loaded in a real session.
 - **Crystal: a peer's own sprite is used when its tiles are resident, not otherwise** — but the

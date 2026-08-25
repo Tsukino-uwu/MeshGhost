@@ -4863,3 +4863,34 @@ needs a local process on the bridge port — which is what the 2026-08-25 loopba
 `cmd/meshghost` keeps local. Fixed anyway; that assumption is the kind that stops holding.
 
 **Still unconfirmed in BizHawk's own Lua** (`unverified.md`).
+
+## A parked audit rots faster than the thing it audited (2026-08-25)
+
+**Symptom.** A whole-repo doc audit was completed 2026-08-23 and parked unexecuted. Two days
+later, working it top-down, its `file:line` coordinates no longer pointed at the right lines and
+three of its findings were simply wrong.
+
+**Cause.** An audit is a set of measurements against a tree, and the tree kept moving — one commit
+touching `status.md` shifted every line number below it. Worse, an audit reads as *authoritative*
+precisely because it is specific: `status.md:40` feels checked in a way "somewhere in status.md"
+does not, so the temptation is to act on the coordinate rather than re-derive it.
+
+**The three that were wrong, and they are the useful part** — each was wrong in a different way:
+
+- **A count taken from a list rather than a grep.** It said nine probes carry the Crystal ROM
+  guard; the real answer is **ten** — it had enumerated the obvious `spawn_test*` family and missed
+  `grant_test_kit.lua`. The file it was correcting said eight. Three numbers, no two alike.
+- **A claim about a file that was already right.** It flagged `docs/security.md` for naming the
+  relay binary wrongly; that file distinguishes the release name from the built-from-source name
+  precisely and needed nothing. Only its neighbour did.
+- **A defect generalised past its evidence.** It reported the `jsonDecode` freeze as affecting
+  "all Lua adapters". Six of the seven copies in the repo raise on end-of-input; only Crystal's
+  does not. Acting on the audit as written would have meant editing six healthy files.
+
+**Fix, and it is a rule rather than a patch: re-grep every claim before writing a correction, and
+treat the audit as a list of *questions*, not findings.** Its real value is knowing where to look
+— that survives; the specifics do not. Budget for the re-check rather than treating it as
+paranoia, because it is what caught all three above.
+
+**Corollary for writing one:** state what was grepped for, not just the conclusion. A finding that
+carries its own query can be re-run; one that carries only a line number cannot.
