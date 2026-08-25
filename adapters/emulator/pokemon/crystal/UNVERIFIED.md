@@ -1565,3 +1565,23 @@ the change, one bike lap: 0 resyncs, 0 catch-up, K drift 0 — the motion work i
 **What to watch:** ride beside the spawned ghost — both should pedal at the player's own cadence
 (one pedal alternation per tile on the bike, NOT two). Walk a few tiles too: the walking
 animation should look exactly as it did before this change.
+
+## 2026-08-25 — Crystal: the 9x9 square, both gaits, after the day's five fixes — agent-measured
+
+**The user asked for the 9x9 test** — the long-side square that historically exposed what short
+walks hide (*"moving 1 tile looks good/perfect... 4-5+ tiles and it starts to look really
+jittery"*, 2026-08-23). Driven from savestate slot 9, compare rig, light stack; both gaits.
+
+**Walk, 8 laps (~36 nine-tile sides):** K drift 0.0px worst 0 in ALL four directions over 35
+parks; 0 resyncs, 0 catch-up frames, 0 re-anchor corrections, 0 runaways; ghost rhythm 2:2121
+against the player's 2:1969. Relative movement 2-4% of frames per direction, every event
+single-stride and corner-localised — **no growth over the long sides**, which is the specific
+failure this test exists to catch.
+
+**Bike, ~6 laps:** the same shape — K drift 0.0px worst 0 in all four directions over 23 parks;
+0 resyncns is a typo the record keeps honest: 0 resyncs, 0 catch-up, catch-up never armed, 0
+re-anchors; relative movement 2-4%, single-stride, corners only, one lone 8px frame in ~1300.
+
+Nothing user-confirmed here; what this closes is the INSTRUMENT side of the 9x9 question at both
+gaits, on the build carrying today's five fixes (tile-cache invalidation, gait on the wire, the
+stop-transient guard, step chaining, the stride-scaled band, the face-byte walk cycle).
