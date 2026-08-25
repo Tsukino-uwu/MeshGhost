@@ -3,48 +3,28 @@
 ## Active status
 
 **Active phase: 9 — Crystal.** Emerald is PARKED, feature complete as of 2026-08-21 on the user's
-call (*"i consider the game to be fully synced up animation and effect wise now"*, `verified.md`,
-step 37 of its build story). The user's own handoff, same day: *"i will move on to crystal and not
-work more on emerald right now."*
+call (*"i consider the game to be fully synced up animation and effect wise now"*), handed off the
+same day: *"i will move on to crystal and not work more on emerald right now."* `verified.md`.
 
 - **Emerald work is not scheduled.** A new animation/effect item for it needs a reason it is not
   polish or a custom feature; a real fault is a defect against a finished adapter. `phase8.md`.
 - **Ferry and rails: assumed to work, never tested, deliberately NOT open items.** The user dropped
   them from here on purpose; the assumption is recorded so it cannot decay. `unverified.md`.
-- **Crystal is where the gap is.** Both tiers move properly and the drawn tier now ANIMATES, all
-  user-confirmed at the dev rig's settings 2026-08-22. What remains is the shipped-settings
-  smoothing and the per-mechanic animation class Emerald finished. See the Crystal items below.
-- **Rig SHUT DOWN at the end of the THIRD 2026-08-23 session** (relay and core stopped and verified
-  gone; BizHawk left to the user, ROM **V1.0**). Rebuild with `run-relay-loopback-shipped.bat` +
-  `run-core-crystal-shipped.bat` — **shipped settings, 250ms/20Hz**, and the core logs its own
-  `smoothing:` line, so read that before trusting a reading. Savestates: slot 1 the user's, 7 their
-  Route 39 spot, 8 goto_map's undo, **9 the 9x9 square start**.
-- **`git config core.hooksPath .githooks` is now required per clone** — the pre-commit leak check.
-  `preflight.ps1` fails if it is unset; CI re-scans the tree. Added after a leak was committed.
+- **Crystal is where the gap is.** Both tiers were confirmed good at the dev rig's own settings
+  2026-08-22/23; most of what is open below is a fix built since and never watched. `verified.md`.
+- **Rig SHUT DOWN after the THIRD 2026-08-23 session**; ROM **V1.0**. Rebuild with
+  `run-relay-loopback-shipped.bat` + `run-core-crystal-shipped.bat` — shipped 250ms/20Hz.
+- **Savestate slots on that rig:** 1 the user's, 7 their Route 39 spot, 8 `goto_map`'s undo, **9 the
+  9x9 square start**. The mechanism, and the savestate-is-not-a-save trap: `environment.md`.
 
 ## Genuinely open items
 
 - **A whole-repo doc fact/stale audit is DONE and the repair is NOT** — every finding, with
   file:line and a commit-by-commit repair order, is in `tempfileforrestructure.md` (untracked).
+- **Five refactors deferred by the 2026-08-18 audit** — `game_thread_tick()`, the two Lua
+  adapters' duplication, Crystal's probe boilerplate, `internal/cfg`, TEVI's send gate. `ideas.md`.
 
 Fixed-and-confirmed work is not listed here — see `verified.md` and the phase files.
-
-### Deferred by the 2026-08-18 audit-and-refactor pass
-
-The pass fixed two real relay bugs, four adapter defects and ~60 stale doc claims; these were
-identified, scoped and deliberately NOT done, because each needs a live game to judge or is large
-enough that bundling it would make one confirmation pass unable to isolate a regression.
-
-- **`Plugin.cpp`'s `game_thread_tick()` is ~4,000 lines in a 10,347-line file.** Per-remote blocks
-  are the next extraction; on the adapter's hot path, so it needs a live session.
-- **The two BizHawk Lua adapters duplicate ~400-500 lines each** (JSON codec, socket loader, port
-  walk, framing). Shared `adapters/bizhawk/lib/` would need a matching `release.yml` staging change.
-- **Probe boilerplate: an identical 47-line block across 8 Crystal probes**, including the ROM
-  guard. Do the guard and `detect_rom_variant()` first — divergence is the risk, not the lines.
-- **`cmd/meshghost` and `cmd/meshghost-relay` duplicate ~120 lines of config/log plumbing**
-  (`stripBOM` is byte-identical) — an `internal/cfg` package; both mains already say "mirrored in".
-- **TEVI: the `bridge_ready` send gate, and the port walk.** The message is RECOGNISED as of
-  2026-08-18 but not yet waited on before sending. Entry 5 in `adapters/tevi/BANDAGES.md`.
 
 ### Was blocked on a two-player session — now unblocked (7.7 confirmed 2026-08-16)
 
@@ -64,26 +44,22 @@ that a peer's state genuinely differs from the local player's, which loopback co
 
 - **Ghost collision policy: Go side DONE, adapters not wired.** Config, wire and bridge all ship
   and are tested; no adapter reads `session_policy` yet, so nothing changes on screen. ADR 2026-08-19.
-- **Drawn-tier visual parity: Emerald's is CLOSED (feature complete, 2026-08-21)** — Crystal's tier
-  still has none of it: no reflection, no wake, no grass, no cave clip. `verified.md`.
+- **Crystal's drawn tier has no visual parity yet** — no reflection, no wake, no grass, no cave
+  clip. (Emerald's equivalent closed 2026-08-21.) `verified.md`.
 - **A vanilla battle with a crowd was never reached** — our own spawned ghosts boxed the player in
   on the way to grass, which `crowd-limits.md` predicts. `unverified.md`, `pitfalls.md`.
 - **Emerald's real-panel clip count was REACHED, not played to** — the position was written, so it
   says nothing about whether ordinary play produces that overlap. `verified.md` 2026-08-19.
 - **Crystal's phone-call panel is two panels** — full-width at the top plus the ordinary bottom
   box; the row-12 test sees only the bottom one. Detection unwritten. `unverified.md`.
-- **Crystal's drawn tier WALK CYCLE is confirmed; its text-box clipping is not.** The animation
-  closed 2026-08-22 (`verified.md`); clipping still rests on the 2026-08-19 fill-the-screen test.
+- **Crystal's drawn-tier text-box clipping is unconfirmed** — it still rests on the 2026-08-19
+  fill-the-screen test. (The walk cycle itself closed 2026-08-22.) `verified.md`.
 - **Crystal: the drawn tier cannot show an animation that does not MOVE the character** — it derives
   pose from position. Bump fixed 2026-08-23; spin, fishing, emote, Fly landing are the same cause.
-- **Crystal's two tiers are CONFIRMED GOOD at the dev rig's settings — 2026-08-22.** Drawn tier
-  animates and tracks 1:1; spawned tier free of drift, snap and teleport. `verified.md`.
 - **Crystal's drawn tier jitter: three bugs fixed 2026-08-23, user says it looks fine — NOT settled.**
   Wrong camera register, unsettled K reference, sampler below early returns. `unverified.md`, `pitfalls.md`.
 - **Crystal: `hSCX`/`hSCY` are inline literals, not in the per-build `ADDRESSES` table** — and the
   Archipelago build's pair is assumed, never measured. `unverified.md`.
-- **Crystal's drawn tier motion/animation: CONFIRMED at the dev rig, 2026-08-23.** Nine defects
-  across model, paint and walk cycle. `verified.md`, `pitfalls.md`, `_template/probes.md`.
 - **Crystal: four promotion fixes, none watched** — the frame hole, the 2px hop, the donor's facing
   at spawn, and the drawn tier's bump. `unverified.md` (2026-08-23).
 - **Crystal: the spawned ghost drifts a WHOLE TILE, periodically** — engine put it in `step_type=5`
