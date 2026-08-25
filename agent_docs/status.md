@@ -27,8 +27,14 @@ same day: *"i will move on to crystal and not work more on emerald right now."* 
   has never seen the bridge-bind guard or its test. `gh run list` once pushed; the user pushes.
 - **Two doc items left open on purpose** — incident narrative still inside several ADRs and one
   `risks.md` bullet; `status.md` still three screens. Both are judgement calls. `ideas.md` §5.
-- **Five refactors deferred by the 2026-08-18 audit** — `game_thread_tick()`, the two Lua
-  adapters' duplication, Crystal's probe boilerplate, `internal/cfg`, TEVI's send gate. `ideas.md`.
+- **Four refactors deferred by the 2026-08-18 audit** — `game_thread_tick()`, the two Lua
+  adapters' duplication, Crystal's probe boilerplate, TEVI's send gate. (`internal/cfg` shipped
+  2026-08-25.) `ideas.md`.
+- **The append-only ledgers still need splitting, and the agreed axis does not exist yet** —
+  `pseudoregalia/VERIFIED.md` 3,536 lines, `emerald/VERIFIED.md` 3,525, every entry dated 2026-08.
+  Three options, none obviously right. **Needs a decision.** `ideas.md`, "The third pass".
+- **Both Lua adapters are near the 200-local wall** — Emerald 197, Crystal 188 (re-counted
+  2026-08-25; the old figure of 157 for Crystal is two measurements stale). `emulator/CLAUDE.md`.
 
 Fixed-and-confirmed work is not listed here — see `verified.md` and the phase files.
 

@@ -162,10 +162,12 @@ within a day of being started, at which point its four `.md` files were genuinel
 the listing. **The probes themselves are committed and kept** — they are the record of how each
 fact was established, and several written for a vanilla ROM were re-run later against a
 patched one to chase the same class of bug (Emerald's four `avatar_*` probes, 2026-08-14). **Their logs are not**: `.gitignore` covers
-`/adapters/emulator/pokemon/**/*.log`, because once a run has been read its conclusions belong in
+`/adapters/**/*.log`, because once a run has been read its conclusions belong in
 `verified.md`, not in a megabyte of raw text. Convention adopted 2026-08-18, on the user's ask, and
-applied to Emerald and Crystal together — **the ignore rule is still scoped to those two**, so a new
-adapter outside `emulator/pokemon/` must widen it or its logs will be committed.
+applied to Emerald and Crystal together. **A new adapter needs no `.gitignore` change** — the rule
+was widened from `emulator/pokemon/**` to all of `adapters/**` on 2026-08-25, precisely because
+this paragraph used to end by telling you to widen it yourself, which is a rule enforced by whoever
+gets 168 lines into this file before creating their first probe.
 
 **This replaces an earlier carve-out, overturned by the user 2026-08-18**, which said
 `documentation.md` was needed only for games with no readable source — on the reasoning that

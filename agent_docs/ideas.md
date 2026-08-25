@@ -3045,6 +3045,56 @@ a shipped decision is worth having, it just does not belong in the queue of thin
 **One of them was hiding an open item.** "Driving the game itself" was filed as done because
 the BizHawk half is; the Pseudoregalia half has never been built, and the entry's scope had
 widened to "and beyond" without anyone restatusing it. That half is now an open entry above.
+
+### The third pass (2026-08-25) — the structural half, and two things it deliberately did NOT do
+
+The first two passes fixed facts and built the delivery mechanism. This one went after shape.
+Done, each its own commit:
+
+- **`adapters/bizhawk/` -> `adapters/emulator/`**, with `tevi/CLAUDE.md` and
+  `pseudoregalia/CLAUDE.md` added so Unity and Unreal host rules have an auto-loading home. The
+  rule that replaced a taxonomy: **create a level only when two things actually share it.**
+- **The ADR log left `architecture.md`** — 2,332 of its 2,501 lines — for one file per decision
+  under `adr/`, with the index staying behind at the address every citation already points to.
+- **Every doc declares a cap or declares why it has none**, and silence is now a preflight FAIL.
+  48 capped, 69 exempt. The exemption is the other half of the rule, not a loophole.
+- **`_template` ships the three files it had always mandated** (`VERIFIED.md`, `UNVERIFIED.md`,
+  `probes-README.md`), and preflight checks the adapter file set.
+- **`internal/cfg`** for the config plumbing both mains were copying.
+
+**NOT done, and this is the part worth reading.**
+
+**1. `pitfalls.md` was NOT split per game, and should not be.** The plan called for moving the 78
+game-named entries out to each adapter, the way `verified.md` was. That contradicts a decision this
+repo made on 2026-08-25 and wrote into `preflight.ps1`: *"Nothing can mechanically verify 'is this
+filed under the right theme', which is why the taxonomy was not finished."* Trying it confirmed the
+prediction — classifying by game-mentions-in-body gave `AMBIGUOUS` or a one-mention guess for most
+entries, because a heading like "Inferring what a game is MEANT to do (2026-08-18, TEVI)" names the
+game as *provenance*, not as scope, and that entry's lesson is cited in the root `CLAUDE.md`. **The
+file's value is that a lesson found in Emerald is findable while working on Crystal**, which is the
+exact property a per-game split destroys. Its index plus the coverage check is the right control.
+
+**2. The append-only ledgers were NOT split, because the axis chosen for them does not exist yet.**
+The agreed shape was a directory plus a capped index, partitioned along the axis you append —
+period — so that appending never rewrites. That is right in principle and unusable today: **every
+entry in every one of these files is dated 2026-08**, because the repo began 2026-08-11. Month
+partitioning yields one file. Phase partitioning is no better, since each adapter's record is one
+game in one phase: all of `pseudoregalia/VERIFIED.md` is Phase 7. The only axis that would actually
+divide them is per-week, which is arbitrary and would read as such.
+
+**So this is a real open question, not a skipped chore.** `pseudoregalia/VERIFIED.md` is 3,536
+lines and `emerald/VERIFIED.md` 3,525, and both only grow. Three options, none obviously right:
+split per-week and accept the arbitrariness; wait until there is a second month to partition on;
+or give each an index at the top and a coverage check, and split later when the dates spread out.
+The third is cheapest and loses nothing, since an index is needed under every option.
+
+**3. Left alone deliberately, each for a stated reason:** renaming the local `meshghost-relay.exe`
+to match the shipped `meshghost-server.exe` (25 files name the old one, several of them append-only
+records, and the mismatch is already documented — churn for cosmetics); moving root build output
+and logs into `bin/` and `logs/` (touches every `dev-scripts` launcher, and breaking the user's
+test scaffolding unsupervised is a bad trade for a tidier `ls`); collapsing the copy-paste
+`run-core-*.bat` family (same reason); and `ideas.md`'s own split. All still worth doing.
+
 ## ~~Slide: replace the render-Z bandage with the game's own crouch handling~~ — DONE 2026-08-17
 
 **DONE, and the bandage is deleted.** The ghost is now posed by the game itself — user-confirmed

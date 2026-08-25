@@ -28,12 +28,19 @@
 # committed: they are the record of how each fact was established, and several have been reused
 # to chase the same class of bug on a later ROM. 72 such logs (1.1MB) were untracked on
 # 2026-08-18 when this rule replaced the two narrower ones it supersedes.
-/adapters/emulator/pokemon/**/*.log
+#
+# WIDENED 2026-08-25 from /adapters/emulator/pokemon/** to all of /adapters/**. The narrow path was
+# a trap adapters/_template/README.md had been warning about in prose since it was written -- "an
+# adapter outside emulator/pokemon/ must widen it or its logs will be committed" -- which is a rule
+# enforced by whoever remembers reading a line 154 lines into a 1,450-line file. TEVI and
+# Pseudoregalia were never covered; they simply have not written a .log beside their source yet.
+# A prose warning about a gitignore gap belongs in the gitignore, closed.
+/adapters/**/*.log
 # Probe control files: a session writes a verb into one to drive a probe. Transient, like the logs.
-/adapters/emulator/pokemon/**/*.cmd
+/adapters/**/*.cmd
 # The cross-map scan cache the Emerald adapter writes beside its logs -- a per-machine runtime
 # artifact (a ROM-keyed address), never repo content.
-/adapters/emulator/pokemon/**/xmap_cache.txt
+/adapters/**/xmap_cache.txt
 
 # The adapter script + lib/ under packaging/release/games/pokemon/emerald/ are assembled by
 # .github/workflows/release.yml (copied fresh from adapters/emulator/pokemon/emerald/ each run) or by a
