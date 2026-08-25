@@ -11,7 +11,7 @@ frequently touched file in the repo.
 BASE/VANILLA game goes in here until **the user has confirmed it on screen** — no probe log,
 console read or screenshot substitutes. Measurements that are not yet confirmed live in
 [`../../agent_docs/unverified.md`](../../agent_docs/unverified.md) (this adapter has no queue file yet). A patched ROM (Archipelago and similar) is the agent's to confirm
-visually; say so in the entry. The full rule is in [../../agent_docs/../CLAUDE.md](../../agent_docs/../CLAUDE.md).
+visually; say so in the entry. The full rule is in [../../CLAUDE.md](../../CLAUDE.md).
 
 **Append-only.** Do not rewrite or delete an entry's original observation. Adding later
 live-confirmed detail to an existing entry is fine; superseding one is a NEW entry plus an

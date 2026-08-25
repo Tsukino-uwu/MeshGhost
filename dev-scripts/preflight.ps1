@@ -39,6 +39,20 @@ if ($trackedMd.Count -lt 40) {
     Report-Fail "only $($trackedMd.Count) tracked .md file(s) found -- the listing is broken, so the doc checks below would pass vacuously. Not a clean result."
 }
 
+# A file git tracks but the working tree does not have kills every loop below, because
+# $ErrorActionPreference = "Stop" turns Get-Content's "path not found" into a terminating error --
+# so the script dies mid-run with a raw .NET stack and no section summary, and deleting one doc
+# made preflight LESS informative than leaving it broken. Found 2026-08-25 while testing that the
+# adapter-file-set check could actually fail; it crashed in three separate loops in turn.
+# Reported once here and filtered out, rather than guarded at each of the three call sites --
+# one home, like every other rule in this repo.
+$missingTracked = @($trackedMd | Where-Object { -not (Test-Path -LiteralPath $_) })
+if ($missingTracked.Count -gt 0) {
+    Report-Fail "$($missingTracked.Count) file(s) tracked by git but missing from the working tree:"
+    $missingTracked | Select-Object -First 12 | ForEach-Object { Write-Host "          $_" }
+    $trackedMd = @($trackedMd | Where-Object { Test-Path -LiteralPath $_ })
+}
+
 
 # ---------------------------------------------------------------------------
 Section "Go source hygiene"
@@ -502,6 +516,74 @@ if (-not $idxStart) {
         $missing | Select-Object -First 12 | ForEach-Object { Write-Host "          $_" }
     } else {
         Report-Pass "every pitfalls.md heading ($($indexed.Count) indexed) appears in its index"
+    }
+}
+
+# ---------------------------------------------------------------------------
+Section "Adapter file set"
+
+# _template/README.md's folder-convention table has mandated a file set per adapter since it was
+# written, and nothing checked it. That is a rule enforced by whoever remembers it, which is the
+# same as unenforced: TEVI and Pseudoregalia had no UNVERIFIED.md and nobody noticed, and
+# Pseudoregalia's three probe directories went unindexed from the day they were created.
+#
+# An adapter is any directory holding a documentation.md (the one file every adapter must have
+# from the moment its folder exists), excluding _template itself.
+$mandated = @('README.md', 'documentation.md', 'BANDAGES.md', 'FLAGS.md', 'VERIFIED.md')
+$adapterDirs = @(& git ls-files | Where-Object { $_ -like '*/documentation.md' } |
+                 ForEach-Object { Split-Path $_ -Parent } |
+                 ForEach-Object { $_ -replace '\\', '/' } |
+                 Where-Object { $_ -ne 'adapters/_template' })
+if ($adapterDirs.Count -eq 0) {
+    Report-Fail "no adapter directories found -- the file-set check has nothing to enforce, which is not a clean result"
+} else {
+    $missingFiles = @()
+    foreach ($d in $adapterDirs) {
+        foreach ($m in $mandated) {
+            if (-not (Test-Path -LiteralPath "$d/$m")) { $missingFiles += "$d/$m" }
+        }
+    }
+
+    # UNVERIFIED.md is deliberately NOT mandated: it is a queue, and an adapter with nothing
+    # pending should not carry an empty one. Pseudoregalia and TEVI have none for that reason.
+    #
+    # Probe indexes ARE checked, because an unindexed probe folder hides writing tools -- see
+    # _template/probes-README.md. A probe directory is one whose name starts with "probe"; it
+    # needs an index once it holds more than two scripts, and that index may be its own README.md
+    # or a PROBES.md at the adapter root (Pseudoregalia's case: UE4SS forces one mod directory per
+    # probe, so there is no single probes/ folder to index from the inside).
+    $unindexed = @()
+    foreach ($d in $adapterDirs) {
+        $probeScripts = @{}
+        foreach ($f in @(& git ls-files -- "$d")) {
+            # Extension test FIRST, and $pd captured immediately: every -match writes $Matches, so
+            # testing the extension after the directory match overwrites the captured group with
+            # the file extension. It did, and the check reported ".../lua (46 scripts)".
+            if ($f -notmatch '\.(lua|py|cs|cpp)$') { continue }
+            $rel = ($f -replace '\\', '/').Substring($d.Length + 1)
+            if ($rel -notmatch '^(probe[^/]*)/') { continue }
+            $pd = $Matches[1]
+            if (-not $probeScripts.ContainsKey($pd)) { $probeScripts[$pd] = 0 }
+            $probeScripts[$pd]++
+        }
+        $rootIndex = (Test-Path -LiteralPath "$d/PROBES.md")
+        foreach ($pd in $probeScripts.Keys) {
+            if ($probeScripts[$pd] -le 2) { continue }
+            if ($rootIndex -or (Test-Path -LiteralPath "$d/$pd/README.md")) { continue }
+            $unindexed += "$d/$pd ($($probeScripts[$pd]) scripts)"
+        }
+    }
+
+    if ($missingFiles.Count -gt 0) {
+        Report-Fail "$($missingFiles.Count) mandated adapter file(s) missing -- _template has a template for each:"
+        $missingFiles | ForEach-Object { Write-Host "          $_" }
+    }
+    if ($unindexed.Count -gt 0) {
+        Report-Fail "probe director(ies) with no index -- an unindexed probe folder hides what writes memory:"
+        $unindexed | ForEach-Object { Write-Host "          $_" }
+    }
+    if ($missingFiles.Count -eq 0 -and $unindexed.Count -eq 0) {
+        Report-Pass "all $($adapterDirs.Count) adapters carry the mandated file set, and every probe folder is indexed"
     }
 }
 

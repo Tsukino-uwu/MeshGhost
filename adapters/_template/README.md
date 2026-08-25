@@ -141,12 +141,18 @@ same as any two unrelated games — grouping by franchise just keeps the top lev
 | `documentation.md` | **Immediately** — start it with the first mechanic you learn | [documentation.md](documentation.md) |
 | `BANDAGES.md` | **Immediately, empty** — an empty register is the goal, an absent one is a gap | [BANDAGES.md](BANDAGES.md) |
 | `FLAGS.md` | Once you pass a handful of compile-time switches — sooner than feels necessary | [FLAGS.md](FLAGS.md) |
-| `VERIFIED.md` | **Immediately, empty** — this game's dated, user-confirmed facts. Split per game 2026-08-25; `agent_docs/verified.md` keeps only Go-side and cross-game entries | see any shipped adapter's |
-| `UNVERIFIED.md` | Once the first thing is built but unwatched — this game's queue waiting on the user. Split per game 2026-08-25 | see Crystal's and Emerald's |
-| `probes/README.md` | Once `probes/` holds more than a couple of scripts — an index of what each one answered | no template; see Emerald's and Crystal's |
+| `VERIFIED.md` | **Immediately, empty** — this game's dated, user-confirmed facts. Split per game 2026-08-25; `agent_docs/verified.md` keeps only Go-side and cross-game entries | [VERIFIED.md](VERIFIED.md) |
+| `UNVERIFIED.md` | Once the first thing is built but unwatched — this game's queue waiting on the user. Split per game 2026-08-25 | [UNVERIFIED.md](UNVERIFIED.md) |
+| `probes/README.md` | Once `probes/` holds more than a couple of scripts — an index of what each one answered | [probes-README.md](probes-README.md) |
 
 **`README.md`, `BANDAGES.md` and `documentation.md` are expected of EVERY adapter, with no
 exceptions.** Create all three when the folder is created.
+
+**All three of those templates were written on 2026-08-25.** The table had mandated the files and
+pointed at "any shipped adapter's" since it was written, which is exactly how four copies of the
+same ~30-line `VERIFIED.md` preamble came to exist and start drifting apart. A mandated file with
+no template is a mandated file that gets copied from whichever sibling was opened first.
+
 
 **Probes and their logs go in a `probes/` subfolder, not at the top level.** Only what ships
 lives beside the `.md` files — the adapter script itself and anything a release copies. A mature
