@@ -65,18 +65,31 @@ full note.
   `-min-send` (below) back down to 50ms. 100Hz keeps this relay out of the way entirely, so
   each core's own `-min-send` is what actually governs local test timing, same as before this
   feature existed.
-- `run-core-emerald.bat` / `run-core-emerald2.bat` — two Emerald core clients on distinct
-  bridge ports (7778 / 7779), for real two-player testing (see
-  [agent_docs/phases/phase4.md](../agent_docs/phases/phase4.md)). `run-core-emerald.bat` alone
-  also doubles as the solo/self-test core — pair it with `run-relay-loopback.bat` below instead
-  of `run-relay.bat` to see your own ghost trail yourself with only one BizHawk instance
-  running. Defaults to `-interp=0ms -min-send=10ms` (changed 2026-08-14, was `200ms`) — as
-  close to instant/unsmoothed as the relay's per-client flood cap allows (paired with
-  `-send-hz=100` above), since local dev testing has no real network jitter to smooth over and
-  artificial delay only makes it harder to tell whether a remote ghost's animation genuinely
-  matches the real player frame-for-frame. The same TEVI/Pseudoregalia core launchers below
-  share this default. **Exception:** `run-core-emerald-trail.bat` below intentionally keeps a
-  real delay for pairing with the loopback-trail BizHawk launcher.
+- `run-core.bat <game> [transport] [instance]` — **the dev core launcher for every game.**
+  `game` is `emerald`/`crystal`/`tevi`/`pseudoregalia`; `transport` is `auto` (default),
+  `tcp`, `udp` or `quic`; `instance` is `1` (default) or `2`. Instance 2 is the second client
+  on one machine — bridge port 7779 and `-name=player2` instead of 7778/`player1` — which is
+  what real two-player testing needs (see
+  [agent_docs/phases/phase4.md](../agent_docs/phases/phase4.md)). With `instance` left at 1 it
+  is also the solo/self-test core: pair it with `run-relay-loopback.bat` below instead of
+  `run-relay.bat` to see your own ghost with only one game instance running.
+
+  Always `-interp=0ms -min-send=10ms` (changed 2026-08-14, was `200ms`) — as close to
+  instant/unsmoothed as the relay's per-client flood cap allows (paired with `-send-hz=100`
+  above), since local dev testing has no real network jitter to smooth over and artificial
+  delay only makes it harder to tell whether a remote ghost's animation genuinely matches the
+  real player frame-for-frame. **Two exceptions keep their own files**, because the filename is
+  what records which rig produced a reading: `run-core-emerald-trail.bat` (a real
+  `-interp=200ms`, for the loopback-trail launcher) and `run-core-crystal-shipped.bat` (shipped
+  250ms, judging what a real player receives).
+
+  **Replaces nine near-identical scripts, collapsed 2026-08-25** — `run-core-emerald.bat`,
+  `run-core-emerald2.bat`, `run-core-crystal.bat`, `run-core-tevi.bat`, `run-core-tevi2.bat`,
+  `run-core-pseudoregalia.bat` and its `-tcp`/`-udp`/`-quic` trio. The transport trio differed
+  from each other by exactly four lines, three of them comments. **A phase file or a `VERIFIED.md`
+  entry naming one of the old scripts is a dated record and is left as written** — it says what
+  genuinely ran that day; read `run-core-<game>.bat` as `run-core.bat <game>`, `…2.bat` as
+  `… 2`, and `…-quic.bat` as `… quic`.
 - `run-bizhawk-emerald.local.bat` / `run-bizhawk-emerald2.local.bat` — **not tracked** (see
   `.gitignore`; EmuHawk/ROM paths are personal and this repo is public). Per-machine BizHawk
   launchers, real paths from `agent_docs/environment.md`, pairing with the two cores above
@@ -99,7 +112,7 @@ full note.
 - `run-bizhawk-emerald-loopback-trail.local.bat` — **not tracked**, same shape as
   `run-bizhawk-emerald.local.bat` above but also sets `MESHGHOST_LOOPBACK_TRAIL=1`. Pair with
   `run-relay-loopback.bat` below AND `run-core-emerald-trail.bat` specifically, not the plain
-  `run-core-emerald.bat` — see that launcher's own entry for why. By default (the plain
+  `run-core.bat emerald` — see that launcher's own entry for why. By default (the plain
   BizHawk launcher above), a loopback session's ghost renders a couple tiles to the side of the
   real player, for visually comparing rendering/animation quality side by side without the two
   overlapping — found live 2026-08-14 that an exact overlap made this hard to judge. This
@@ -122,7 +135,7 @@ full note.
   2026-08-19 — see each adapter's `FLAGS.md` row.
 - `run-core-emerald-trail.bat` — pairs specifically with
   `run-bizhawk-emerald-loopback-trail.local.bat` above. Unlike the instant-by-default
-  `run-core-emerald.bat`, this keeps a real `-interp=200ms` (the same value Phase 3 confirmed
+  `run-core.bat emerald`, this keeps a real `-interp=200ms` (the same value Phase 3 confirmed
   live — see `agent_docs/phases/phase3.md`) because the trail launcher's zero render offset
   means a ghost with no interpolation delay sits exactly on top of you with nothing visible at
   all — the delay is what makes it a visible trailing ghost instead of an invisible overlap.
@@ -247,8 +260,8 @@ default silently drags every dev client back down, and a ghost updating at 20Hz 
   no udp ports mirrored (an earlier version made *any* tcp mirroring fatal, which made `-loss`
   unusable in exactly the case it exists for).
 - `run-relay-loopback.bat` — a relay that echoes a lone client's own state back as
-  `<id>-ghost`. Pair with any single core (`run-core-emerald.bat`, `run-core-tevi.bat`,
-  `run-core-pseudoregalia.bat`) to see a real network round trip and your own ghost with only
+  `<id>-ghost`. Pair with any single core (`run-core.bat emerald`, `run-core.bat tevi`,
+  `run-core.bat pseudoregalia`) to see a real network round trip and your own ghost with only
   one game instance running — see
   [agent_docs/phases/phase3.md](../agent_docs/phases/phase3.md) and
   [agent_docs/phases/phase6.md](../agent_docs/phases/phase6.md).
@@ -256,7 +269,7 @@ default silently drags every dev client back down, and a ghost updating at 20Hz 
   is its only departure from a released relay, so the receive rate is the default 20Hz rather
   than `run-relay-loopback.bat`'s `-send-hz=100`. That override is exactly what would invalidate
   a test asking how the renderer looks at the rate a real player receives. **Pair it with
-  `run-core-crystal-shipped.bat`, never with `run-core-crystal.bat`** — see the interp/offset
+  `run-core-crystal-shipped.bat`, never with `run-core.bat crystal`** — see the interp/offset
   pairing rule above; the two rigs answer opposite questions and mixing them produces a reading
   that belongs to neither.
 - `run-loopback-in-release-folder.bat` — **the only script here meant to leave this folder.**
@@ -304,9 +317,9 @@ default silently drags every dev client back down, and a ghost updating at 20Hz 
   `meshghost_emerald.lua` (2 tiles), `LOOPBACK_GHOST_OFFSET_X` in Pseudoregalia's `Plugin.cpp`
   (150), and in TEVI an inline `160f` literal in `Plugin.cs`'s `UpsertRemoteGhost` rather than a
   named constant.
-- `run-core-tevi.bat` / `run-core-tevi2.bat` — two TEVI core clients on distinct bridge ports
-  (7778 / 7779), for real two-TEVI testing with a normal (non-loopback) `run-relay.bat` — same
-  shape as the Emerald pair above, but for `-game=tevi`. Pair each with its own TEVI install
+- `run-core.bat tevi` / `run-core.bat tevi auto 2` — two TEVI core clients on distinct bridge
+  ports (7778 / 7779), for real two-TEVI testing with a normal (non-loopback) `run-relay.bat`.
+  Pair each with its own TEVI install
   (e.g. the Steam copy on 7778, a standalone build like a separate standalone TEVI build on 7779 — see
   [agent_docs/environment.md](../agent_docs/environment.md)); the standalone install's own
   `BepInEx/config/dev.meshghost.tevi.cfg` needs its `BridgePort` set to match (7779), since
@@ -317,25 +330,19 @@ default silently drags every dev client back down, and a ghost updating at 20Hz 
   result whenever `adapters/tevi/MeshGhostTevi/{Plugin.cs,BridgeClient.cs,*.csproj}` change —
   see [packaging/README.md](../packaging/README.md)'s TEVI section for why this one output is
   committed at all.
-- `run-core-crystal.bat` — a single core client for Crystal at **dev** settings (`-interp=0ms
-  -min-send=10ms`), mirroring `run-core-emerald.bat`. Crystal had no launcher at all until
-  2026-08-22 and its adapter simply autostarted a core on shipped defaults; with the loopback
-  ghost offset to the side, a quarter-second of interpolation means you are watching the wire
-  rather than the renderer.
-- `run-core-crystal-shipped.bat` — the **complement**: no flags beyond game and bridge, so
+- `run-core-crystal-shipped.bat` — the **complement** of `run-core.bat crystal`: no flags beyond game and bridge, so
   interpolation is `core.DefaultInterpolationDelay` (250ms) and the send rate is the default.
   Here the 250ms is the subject of the test rather than a nuisance in it. Launch it explicitly
   rather than leaning on adapter autostart — relying on autostart is what made two sessions of
   stutter work ambiguous ([phase9.md](../agent_docs/phases/phase9.md)): the settings were right
   by accident and unlogged, so nothing recorded which rig produced which reading.
-- `run-core-pseudoregalia.bat` — a single core client wired for Pseudoregalia
+- `run-core.bat pseudoregalia` — a single core client wired for Pseudoregalia
   (`-game=pseudoregalia`, bridge port 7778) — see
   [agent_docs/phases/phase7.md](../agent_docs/phases/phase7.md).
-- `run-core-pseudoregalia-tcp.bat` / `run-core-pseudoregalia-udp.bat` /
-  `run-core-pseudoregalia-quic.bat` — the same client pinned to one
+- `run-core.bat pseudoregalia tcp` / `… udp` / `… quic` — the same client pinned to one
   transport each, for live-testing the 2026-08-16 selectable-transport work. Pair any of them
-  with `run-relay-loopback.bat`, which now serves all three at once, so switching protocol means
-  running a different one of these rather than restarting the relay.
+  with `run-relay-loopback.bat`, which serves all three at once, so switching protocol means
+  passing a different argument rather than restarting the relay.
   **Confirm which transport was actually used** — every connection handshakes over tcp and only
   then upgrades, and a preference the relay does not serve degrades quietly to a working tcp
   session, so a run that "works" proves nothing on its own. `meshghost.log` carries

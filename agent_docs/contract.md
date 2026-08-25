@@ -767,7 +767,7 @@ forwarded verbatim into the relay's own `hello.game_id` (the packet-schema table
 is what lets the core defer connecting to the relay until an adapter actually shows up and
 says which game it is, instead of requiring the user to also type `"game"` into a config file
 (`core.Core.ConnectRelayOnAdapterHello`). A caller that already knows the game
-upfront (dev/testing scripts with no adapter attached, e.g. `dev-scripts/run-core-emerald.bat`'s
+upfront (dev/testing scripts with no adapter attached, e.g. `dev-scripts/run-core.bat`'s
 `-game` flag) can still connect immediately at startup instead — both paths are supported,
 and are mutually exclusive per process: once a Core is connected to the relay for one
 `game_id`, a bridge `hello` for a *different* `game_id` on the same process is refused.
