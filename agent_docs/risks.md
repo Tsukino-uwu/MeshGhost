@@ -35,6 +35,20 @@
   correct Brendan/May sprite for a remote on both a male-save and a female-save client. See
   `agent_docs/phases/phase5_5.md` and `agent_docs/verified.md`.
 
+- **Emerald's ferry and rails are assumed to work and have never been tested** (moved here from
+  `status.md` 2026-08-25). The user dropped them from the open list on purpose — they are not
+  work anybody is scheduled to do — but an untested assumption that lives nowhere decays into a
+  fact, which is what this register exists to prevent. What was assumed and what watching it
+  would settle: `adapters/emulator/pokemon/emerald/UNVERIFIED.md`. Emerald is parked
+  (2026-08-21), so this reopens only if someone reports a fault there.
+- **A loopback rig's ghost offset can place a peer inside or above geometry the game would never
+  put a player in** (moved here from `status.md` 2026-08-25). Not a defect: the rig offsets a
+  ghost a couple of tiles sideways from the local player, and a real peer's position is always
+  somewhere that peer could legitimately stand. It is recorded because it changes how evidence is
+  read — an artefact seen ONLY under loopback offset is the rig's, and `adapters/CLAUDE.md` says
+  to say so plainly rather than build a rule around it. Pseudoregalia's sloped geometry is where
+  it showed up; `verified.md` has the sighting.
+
 ## Known risks
 
 - **A maximal `event`, and a committed `escrow_state`, are silently undeliverable to any udp peer
