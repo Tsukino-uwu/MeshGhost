@@ -208,3 +208,4 @@ on Crystal. `dev-scripts/preflight.ps1` checks that every heading in every body 
 - The player does not own OAM entries 0-3, and a priority object silently moves every painted peer (2026-08-26, Crystal)
 - A ghost that VANISHES is usually an adapter that was unloaded, and the loader log says so in one line (2026-08-26, Crystal)
 - Splitting a file moved its content out of three exclusion lists, and CI went red on its own documentation (2026-08-26)
+- A repo-wide fix covers the files that exist that day, and a file added later brings the problem back (2026-08-26)

@@ -856,6 +856,48 @@ if (-not (Test-Path -LiteralPath $devIndex)) {
 }
 
 # ---------------------------------------------------------------------------
+Section "GitHub Action versions agree across workflows"
+
+# WHY THIS EXISTS. On 2026-08-17 every workflow was moved off the Node 20 runtime, because GitHub
+# removes it from the runners "later in the fall of 2026" -- a warning with a deadline. On
+# 2026-08-25 a NEW workflow (lua.yml) was added carrying actions/checkout@v4, and the deprecation
+# warning came back on 2026-08-26. Nothing had regressed; a new file was simply written with the
+# old pattern, and no check existed to notice.
+#
+# The rule is SELF-MAINTAINING on purpose: no version is hardcoded here, because a hardcoded one
+# goes stale and this file would then be the thing that is wrong. Instead, every workflow must use
+# the same major version of a given action as every other workflow. Bump one and this demands the
+# rest -- which is exactly the failure mode above, caught at the commit rather than at the run.
+$wfDir = Join-Path $root ".github\workflows"
+if (Test-Path $wfDir) {
+    $uses = @{}
+    foreach ($wf in Get-ChildItem -LiteralPath $wfDir -Filter *.yml) {
+        foreach ($m in [regex]::Matches((Get-Content -Raw -LiteralPath $wf.FullName),
+                'uses:\s*([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)@(v[0-9]+)')) {
+            $name, $ver = $m.Groups[1].Value, $m.Groups[2].Value
+            if (-not $uses.ContainsKey($name)) { $uses[$name] = @{} }
+            if (-not $uses[$name].ContainsKey($ver)) { $uses[$name][$ver] = @() }
+            $uses[$name][$ver] += $wf.Name
+        }
+    }
+    $split = @()
+    foreach ($name in $uses.Keys) {
+        if ($uses[$name].Keys.Count -gt 1) {
+            $detail = ($uses[$name].Keys | Sort-Object | ForEach-Object {
+                "$_ in $(($uses[$name][$_] | Sort-Object -Unique) -join ', ')" }) -join "; "
+            $split += "$name -- $detail"
+        }
+    }
+    if ($split.Count -gt 0) {
+        Report-Fail "$($split.Count) action(s) pinned to different versions across workflows:"
+        $split | Sort-Object | ForEach-Object { Write-Host "          $_" }
+        Write-Host "          Raise the older ones. A workflow added later is how this happens."
+    } else {
+        Report-Pass "every action used in $((Get-ChildItem -LiteralPath $wfDir -Filter *.yml).Count) workflow(s) is at one version"
+    }
+}
+
+# ---------------------------------------------------------------------------
 Section "Leftover scaffolding"
 
 # Leaving a relay alive is how a later run silently binds the wrong port.

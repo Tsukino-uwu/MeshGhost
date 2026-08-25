@@ -3849,3 +3849,29 @@ the "verification rule that reports clean while the thing it checks is broken" e
 one reported broken while nothing was wrong, which is cheaper only if somebody reads it. **Nobody
 did — it was red for a day**, which is exactly what `CLAUDE.md` says to look for at session start
 (`gh run list -L 5`) and exactly what did not happen.
+
+## A repo-wide fix covers the files that exist that day, and a file added later brings the problem back (2026-08-26)
+
+**Symptom:** the Node 20 deprecation warning reappeared on a CI job, on a repo where it had been
+fixed. The user, reasonably: *"didn't we fix this node.js thing before? why do we have it again?"*
+
+**It had not regressed.** On 2026-08-17 every workflow was moved off Node 20 — `checkout` v4→v7,
+`setup-go` v5→v7, `upload-artifact` v4→v7 — and that commit was correct and stayed correct. On
+2026-08-25 a NEW workflow, `lua.yml`, was added, written with `actions/checkout@v4`. Nothing
+undid the fix; a new file simply arrived carrying the old pattern, eight days later, and nothing
+in the repo could notice.
+
+**This is the second case in one day.** The other is the entry above: splitting `pitfalls.md` moved
+prose out from behind an exclusion that three separate lists carried. Same family — *a fix applied
+to "all the files" is a fix applied to the files that existed that day* — and both were invisible
+to every local check.
+
+**The fix that lasts is a check that compares the copies to EACH OTHER, with no version written
+down.** `dev-scripts/preflight.ps1` now fails when two workflows pin different major versions of
+the same action. Nothing in it goes stale, because it asserts agreement rather than a value: bump
+one workflow and it demands the rest. A check that hardcodes "v7" becomes the wrong thing itself at
+the next bump, and then gets edited to match rather than believed.
+
+**Reach for this shape whenever a rule spans copies you cannot enumerate in advance** — workflow
+action versions, bridge constants across adapters, a shared exclusion list. Assert that the copies
+agree; let the value float.

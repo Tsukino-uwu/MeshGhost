@@ -47,7 +47,7 @@ jobs:
     name: Every tracked .lua file compiles
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # Lua 5.4 specifically, because that is what BizHawk embeds (confirmed by print(_VERSION)
       # in its own console -- agent_docs/environment.md). A 5.1 or LuaJIT build would accept and
