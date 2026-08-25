@@ -4,7 +4,7 @@
 
 This is the durable artifact of the project. Everything else — phases, adapters, the relay
 implementation — is disposable and gets rewritten. This file is not. If a change here breaks
-an adapter, that is a contract revision with an ADR in `architecture.md`, not a quiet edit.
+an adapter, that is a contract revision with an ADR in `adr/`, indexed in `architecture.md`.
 
 Source of the design: `agent_docs/brief.md`. This file is the brief's contract section made
 precise enough to implement, plus the gaps closed during the pre-code audit (2026-08-11).

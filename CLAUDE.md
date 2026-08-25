@@ -267,7 +267,8 @@ loaded and that index is not, so a trigger kept here still fires and a descripti
   not after it goes wrong.
 - `agent_docs/testing.md` — read before adding a test or chasing a flake.
 - `agent_docs/playing.md` — read before driving a running game yourself.
-- A change to `contract.md` is a contract revision: record it as an ADR in `architecture.md`.
+- A change to `contract.md` is a contract revision: record it as a new file in `agent_docs/adr/`,
+  indexed in `architecture.md` (the ADRs moved out of that file 2026-08-25).
 - **Invoke `/new-adapter` before a new game's adapter exists — before you create its first file —
   and `/write-a-probe` before writing any probe.** Each sequences the required reading in the
   order the work needs it. **Then read `adapters/_template/README.md` END TO END; `wc -l` it, and

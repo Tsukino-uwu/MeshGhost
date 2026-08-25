@@ -12,6 +12,20 @@ Windows release asset. It does **not** stage a copy of the client beside those m
 copy of the client, copied in by hand" below. Two more assets go
 out beside it — the Linux and macOS client+server tarballs; see "…and then two more, for Linux and macOS" below.
 
+## The relay binary has two names, and this is the one place that says so
+
+**`cmd/meshghost-relay` builds `meshghost-relay.exe` locally and ships as `meshghost-server.exe`.**
+One program, renamed by `release.yml` on the way into the zip. Both names are correct, and which
+one a file uses tells you which side of that line it is on: every `dev-scripts/*.bat` invokes
+`..\meshghost-relay.exe` because that is what `go build` leaves at the repo root, while
+`internal/e2e`, the shipped `README.txt`s, `docs/`, `plans.md` and `testing.md` say
+`meshghost-server.exe` because that is what a player actually has.
+
+The rename is deliberate — "relay" is this project's internal vocabulary, and a downloader
+choosing between files should not have to learn it (the reason the whole release is one zip,
+below). It is worth stating plainly because ~20 tracked files use each name, and a session that
+meets both without this paragraph reads it as a mistake in one of them.
+
 ## Why one zip
 
 Earlier releases (`v0.1.0`) shipped two zips — one named after the relay, one after the

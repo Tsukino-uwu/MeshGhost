@@ -4,7 +4,7 @@
 
 **Nothing here is scheduled, and nothing here is approval.** This is the concept layer for one
 problem, sitting under `beyond-cosmetic.md` the way that file sits under `plans.md`'s depth ladder.
-Anything past Tier 2 still needs its own per-game ADR in `architecture.md` and the memory-write
+Anything past Tier 2 still needs its own per-game ADR in `adr/` and the memory-write
 gate in `plans.md`. A later session reading a worked-out design as a decision to build it is
 misreading it exactly as badly as `beyond-cosmetic.md`'s last section warns.
 

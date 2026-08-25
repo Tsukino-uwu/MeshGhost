@@ -11,10 +11,14 @@ Internal documentation for MeshGhost: architecture, planning, licensing, and ver
   adapter existed. Per-adapter build stories live in each game's own `README.md` instead.
 - [contract.md](contract.md) — **the durable artifact.** Packet schema, message types, adapter
   interface, transport, tick model, limits. Changes here are contract revisions, not routine
-  edits — record the "why" in [architecture.md](architecture.md)'s decision log.
+  edits — record the "why" as **a new file in `adr/`**, then add its line to
+  [architecture.md](architecture.md)'s index. (This said "in architecture.md's decision log"
+  until 2026-08-25 and was left behind by the split three lines below; following it literally
+  produced the wrong artifact.)
 - [architecture.md](architecture.md) — system shape, package boundaries, and **the index to the
-  decision log**. 178 lines, capped at 250.
-- `adr/` — **one file per ADR**, 38 of them, plus the CelesteNet prior-art notes several were
+  decision log**. (No line count here on purpose: the header's own `line-cap` is the budget, and
+  a count restated in a second file is a number nothing updates — this one had already drifted.)
+- `adr/` — **one file per ADR**, plus the CelesteNet prior-art notes several were
   researched against. Split out of `architecture.md` 2026-08-25, where they had grown to 2,332 of
   its 2,501 lines. The index stayed behind in `architecture.md` because every citation in this repo
   points there; each filename carries its own date, so "the 2026-08-19 ADR" resolves without
@@ -42,7 +46,7 @@ Internal documentation for MeshGhost: architecture, planning, licensing, and ver
   (fuzzing, cross-compiles, gofmt), how to run a real fuzz campaign, and the traps that otherwise get rediscovered. Read before adding a
   test or diagnosing an intermittent failure. Covers the Go side only — adapters are watched, not
   tested, per CLAUDE.md.
-- [pitfalls.md](pitfalls.md) — **the index of every lesson**, 201 lines. Adapter-specific issues
+- [pitfalls.md](pitfalls.md) — **the index of every lesson**. Adapter-specific issues
   across all games: symptom, how it was diagnosed, root cause, fix. Not design decisions
   ([risks.md](risks.md)) or confirmed facts ([verified.md](verified.md)). **The titles are the
   lessons**, so this page is what a new adapter reads; it is also what to skim before starting

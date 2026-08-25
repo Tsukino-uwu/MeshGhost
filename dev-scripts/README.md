@@ -13,6 +13,11 @@ work from any working directory, `"%~dp0..\<name>.exe"`. The one exception is
 `run-loopback-in-release-folder.bat` below, which is written to be copied *out* of here into a
 downloaded release folder and run against its `meshghost-server.exe` instead.
 
+**`meshghost-relay.exe` and `meshghost-server.exe` are the same program under two names** — the
+local build name and the released one. Everything in this folder uses the first; a release, and
+anything describing one, uses the second. [packaging/README.md](../packaging/README.md) has the
+full note.
+
 - `run-gotests.bat` — **the one command to run before calling any change to the Go client/server or
   `cmd/` done**: `go build`, `go vet`, then the whole suite twice. Needs no game, no emulator,
   and nobody watching — `internal/e2e` builds and launches the real `meshghost-server.exe` and
