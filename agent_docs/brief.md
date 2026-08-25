@@ -1,5 +1,7 @@
 # GhostSync — project brief
 
+<!-- line-cap: 300 -- enforced by dev-scripts/preflight.ps1. Over it? Something comes out first. -->
+
 (renamed to MeshGhost, after a lot of back/forth thinking to be something more unique)
 
 Hand this file to Claude Code at the start of a session. It defines what is being built,

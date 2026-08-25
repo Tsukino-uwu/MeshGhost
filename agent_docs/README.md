@@ -1,5 +1,7 @@
 # agent_docs — internal project documentation
 
+<!-- line-cap: 200 -- enforced by dev-scripts/preflight.ps1. Over it? Something comes out first. -->
+
 Internal documentation for MeshGhost: architecture, planning, licensing, and verification.
 
 ## Files

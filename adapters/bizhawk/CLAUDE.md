@@ -1,5 +1,7 @@
 # BizHawk adapters — host rules
 
+<!-- line-cap: 175 -- enforced by dev-scripts/preflight.ps1. Over it? Something comes out first. -->
+
 **Loaded automatically** the first time this session reads or edits anything under
 `adapters/bizhawk/`. You do not have to go and find it. Everything here applies to *both*
 BizHawk adapters (Crystal, Emerald) and to any future one on this host; per-game facts live in

@@ -1,5 +1,7 @@
 # Adapters — the rules that apply to every one
 
+<!-- line-cap: 250 -- enforced by dev-scripts/preflight.ps1. Over it? Something comes out first. -->
+
 **Loaded automatically** the first time this session reads or edits anything under `adapters/`.
 You do not have to go and find it, and it costs nothing on a session that never touches an
 adapter. Host-specific rules live one level down (`bizhawk/CLAUDE.md`); per-game facts live in

@@ -1,5 +1,7 @@
 # Adapter template
 
+<!-- line-cap: 1500 -- enforced by dev-scripts/preflight.ps1. Over it? Something comes out first. -->
+
 **First written 2026-08-11**, at the end of Phase 5, and kept current since with what the four
 shipped adapters learned the hard way (last swept 2026-08-17, against `agent_docs/contract.md`,
 `bridge`, and the four shipped adapters' own docs; last recount 2026-08-18, when Crystal

@@ -1,5 +1,7 @@
 # Working notes for Claude
 
+<!-- line-cap: 300 -- enforced by dev-scripts/preflight.ps1. Over it? Something comes out first. -->
+
 MeshGhost is an online multiplayer layer for singleplayer games; its shipped default is
 cosmetic ghosts, and deeper planes exist but are opt-in and unused — see `agent_docs/brief.md`
 for the design vision and `agent_docs/contract.md` for the implemented contract. Read both
@@ -25,6 +27,10 @@ in the same edit. If nothing can come out, the new rule is not important enough 
 something already went wrong once. So an over-cap file does not enforce more, it enforces
 everything less. **A 400-line CLAUDE.md is a weaker CLAUDE.md.** Adding a rule past the cap does
 not add a rule; it silently damages all the others.
+
+**This is no longer the only capped file.** Every file the project mandates as required reading now
+declares its own budget in its header (`<!-- line-cap: N -->`), and `dev-scripts/preflight.ps1`
+enforces the whole set. Same rule, same question: what comes out to make room?
 
 Adding a rule is nearly always right; adding an *explanation* of a rule usually isn't — the rule
 stays here, its reasoning goes to `agent_docs/`, with a one-line pointer. Full evidence:

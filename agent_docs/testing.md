@@ -1,5 +1,7 @@
 # Testing the Go client/server
 
+<!-- line-cap: 650 -- enforced by dev-scripts/preflight.ps1. Over it? Something comes out first. -->
+
 How to run every automated check this project has, what each one actually proves, and the traps
 that will otherwise be rediscovered. **This file is only about the Go packages and `cmd/`** — the
 deterministic Go code. Adapters are a different standard entirely (see the bottom of this file).

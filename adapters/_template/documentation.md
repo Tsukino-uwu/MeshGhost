@@ -1,5 +1,7 @@
 # How `<game>` works
 
+<!-- line-cap: 200 -- enforced by dev-scripts/preflight.ps1. Over it? Something comes out first. -->
+
 ## Before adding anything to this file
 
 **KEEP THIS SECTION when you copy this file.** It is repeated verbatim at the top of every

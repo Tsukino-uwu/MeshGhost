@@ -1,5 +1,7 @@
 # Probes: how to build one that answers something
 
+<!-- line-cap: 1850 -- enforced by dev-scripts/preflight.ps1. Over it? Something comes out first. -->
+
 **A probe is a question asked of a running game, and most of them fail as questions rather than as
 code.** This file is the method: how to search for something you cannot name, how to instrument a
 running game without changing what it does, and how to make a probe a human can actually run.

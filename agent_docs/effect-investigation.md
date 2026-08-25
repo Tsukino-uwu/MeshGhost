@@ -1,5 +1,7 @@
 # How to investigate a game effect
 
+<!-- line-cap: 575 -- enforced by dev-scripts/preflight.ps1. Over it? Something comes out first. -->
+
 **Purpose: how to go looking.** This is the procedure — the loop you actually run to find, mirror
 and confirm a visual effect in a new game — told through the one investigation that exercised every
 part of it. It is deliberately separate from its neighbours:

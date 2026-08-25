@@ -27,6 +27,19 @@ function Report-Fail($msg) { Write-Host "  FAIL  $msg" -ForegroundColor Red; $sc
 function Report-Warn($msg) { Write-Host "  WARN  $msg" -ForegroundColor Yellow; $script:warnings++ }
 function Section($name)    { Write-Host ""; Write-Host "== $name ==" }
 
+# Tracked markdown, listed WITHOUT a git pathspec glob. `git ls-files '*.md'` cannot be trusted
+# here: PowerShell resolves `git` to the devkitPro/MSYS2 copy on this machine, whose runtime
+# glob-expands `*.md` against the top-level directory BEFORE git sees it -- so it returned the 2
+# root-level files instead of all 70, and both doc checks below "passed" while a deliberately
+# broken link sat in the tree. (`*.lua` escapes this only by luck: nothing matches at top level,
+# so the pattern reaches git intact.) Fourth appearance of the wrong-install-on-PATH trap --
+# CLAUDE.md and pitfalls.md carry the other three.
+$trackedMd = @(& git ls-files | Where-Object { $_ -like '*.md' })
+if ($trackedMd.Count -lt 40) {
+    Report-Fail "only $($trackedMd.Count) tracked .md file(s) found -- the listing is broken, so the doc checks below would pass vacuously. Not a clean result."
+}
+
+
 # ---------------------------------------------------------------------------
 Section "Go source hygiene"
 
@@ -107,16 +120,42 @@ if ($LASTEXITCODE -eq 0 -and $durations) {
 }
 
 # ---------------------------------------------------------------------------
-Section "CLAUDE.md line cap"
+Section "Reading budgets"
 
+# RULE 0's 300-line cap on CLAUDE.md holds BECAUSE this script checks it. Every other file the
+# project mandates as required reading had no such backstop, and the inventory on 2026-08-25 was
+# ~1,701 lines before an ordinary session and ~14,500-18,500 before a new adapter's first file.
+# Prose alone does not hold a budget -- status.md went from 50 to 628 lines with a cap nominally
+# in force.
+#
+# A file declares its own cap in its header, so adding a mandated file does not mean editing this
+# script:   <!-- line-cap: N -->
+#
 # (Get-Content).Count, NOT Measure-Object -Line: the latter counts only NON-EMPTY lines, so it
 # reported 288 for a 300-line file and would have passed a CLAUDE.md sitting 12+ lines over the
-# cap. RULE 0 is stated in terms of `wc -l`, and this must measure the same thing it does.
-$claudeLines = @(Get-Content CLAUDE.md).Count
-if ($claudeLines -gt 300) {
-    Report-Fail "CLAUDE.md is $claudeLines lines, over its 300-line cap (RULE 0). Something must come out."
+# cap. The rules are stated in terms of `wc -l`, and this must measure the same thing they do.
+$capped = 0
+$withinCap = 0
+foreach ($md in $trackedMd) {
+    $head = @(Get-Content -LiteralPath $md -TotalCount 15)
+    $decl = $head | Select-String -Pattern '<!--\s*line-cap:\s*(\d+)' | Select-Object -First 1
+    if (-not $decl) { continue }
+    $cap = [int]$decl.Matches[0].Groups[1].Value
+    $n = @(Get-Content -LiteralPath $md).Count
+    $capped++
+    if ($n -gt $cap) {
+        $over = $n - $cap
+        Report-Fail "$md is $n lines, $over over its declared $cap-line cap. Something must come out first."
+    } else {
+        $withinCap++
+    }
+}
+if ($capped -eq 0) {
+    Report-Fail "no file declared a line-cap -- the budget check found nothing to enforce, which is not a clean result"
+} elseif ($withinCap -eq $capped) {
+    Report-Pass "$capped file(s) within their declared reading budgets"
 } else {
-    Report-Pass "CLAUDE.md is $claudeLines/300 lines"
+    Report-Pass "$withinCap of $capped capped file(s) within budget"
 }
 
 # ---------------------------------------------------------------------------
@@ -270,17 +309,6 @@ Check-Deployed "Pseudoregalia" "packaging\release\games\pseudoregalia\pseudorega
 # ---------------------------------------------------------------------------
 Section "Markdown link integrity"
 
-# Tracked markdown, listed WITHOUT a git pathspec glob. `git ls-files '*.md'` cannot be trusted
-# here: PowerShell resolves `git` to the devkitPro/MSYS2 copy on this machine, whose runtime
-# glob-expands `*.md` against the top-level directory BEFORE git sees it -- so it returned the 2
-# root-level files instead of all 70, and both doc checks below "passed" while a deliberately
-# broken link sat in the tree. (`*.lua` escapes this only by luck: nothing matches at top level,
-# so the pattern reaches git intact.) Fourth appearance of the wrong-install-on-PATH trap --
-# CLAUDE.md and pitfalls.md carry the other three.
-$trackedMd = @(& git ls-files | Where-Object { $_ -like '*.md' })
-if ($trackedMd.Count -lt 40) {
-    Report-Fail "only $($trackedMd.Count) tracked .md file(s) found -- the listing is broken, so the doc checks below would pass vacuously. Not a clean result."
-}
 
 # Every relative .md link must resolve. Four broken ones sat in the tree unnoticed until
 # 2026-08-25: the staged-context pass copied rule text between files without adjusting the link

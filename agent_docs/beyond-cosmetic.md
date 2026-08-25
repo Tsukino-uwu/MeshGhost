@@ -1,5 +1,7 @@
 # Beyond cosmetic — what a deeper online mode would actually take
 
+<!-- line-cap: 575 -- enforced by dev-scripts/preflight.ps1. Over it? Something comes out first. -->
+
 **MeshGhost is visual-only, and that is not changing here.** It exists because the architecture
 must never *trap* the project at cosmetic, and the way to guarantee that is to know — before
 anyone needs it — which doors are already open, which need building, and which are welded shut.
