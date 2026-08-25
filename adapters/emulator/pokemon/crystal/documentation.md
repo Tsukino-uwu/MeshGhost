@@ -1,5 +1,7 @@
 # How Pokémon Crystal works
 
+<!-- line-cap: 700 -- enforced by dev-scripts/preflight.ps1. Over it? Something comes out first. -->
+
 ## Before adding anything to this file
 
 **Explain facts; never reproduce expression.** Measured numbers, timings, field/function/type

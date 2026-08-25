@@ -1,5 +1,7 @@
 # Pseudoregalia
 
+<!-- line-cap: 400 -- enforced by dev-scripts/preflight.ps1. Over it? Something comes out first. -->
+
 **Status: Phase 7, 7.0–7.8 done. 7.7 (real two-player test) confirmed 2026-08-16** — two players
 on two machines. First release package cut 2026-08-13, still marked experimental/pre-release
 because that is one session on one pair of machines, not broad testing. See

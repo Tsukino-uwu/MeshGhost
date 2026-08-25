@@ -1,5 +1,7 @@
 # Phase 6 — Second game (TEVI)
 
+<!-- line-cap: none -- dated record of one phase; closed files do not grow and open ones grow with the work. Why: agent_docs/claude-md-cap.md. -->
+
 > **A dated record. Package paths here predate the 2026-08-17 module move** — read any
 > `internal/X` as `X/`. Why, and what became of `internal/README.md`: [../README.md](../README.md).
 

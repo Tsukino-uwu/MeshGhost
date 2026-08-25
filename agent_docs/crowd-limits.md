@@ -1,5 +1,7 @@
 # How many ghosts can a game actually hold?
 
+<!-- line-cap: 350 -- enforced by dev-scripts/preflight.ps1. Over it? Something comes out first. -->
+
 **This is a first-class question for any adapter, and especially for an emulated one.** A modern
 engine spawns actors until memory runs out; a 1998 handheld game has a fixed array of character
 slots and a fixed hardware sprite budget, both decided long before anyone thought about

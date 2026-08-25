@@ -1,5 +1,7 @@
 # How TEVI works
 
+<!-- line-cap: 300 -- enforced by dev-scripts/preflight.ps1. Over it? Something comes out first. -->
+
 ## Before adding anything to this file
 
 **Explain facts; never reproduce expression.** Measured numbers, timings, field/function/type

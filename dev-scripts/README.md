@@ -1,5 +1,7 @@
 # Dev scripts
 
+<!-- line-cap: 600 -- enforced by dev-scripts/preflight.ps1. Over it? Something comes out first. -->
+
 Developer/testing launchers used while building MeshGhost itself — not what an end user
 wanting to play needs. If you just want to play with friends, use the pre-built release
 instead: see [packaging/README.md](../packaging/README.md) and the repo's Releases page.

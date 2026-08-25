@@ -1,4 +1,7 @@
 ---
+
+<!-- line-cap: 120 -- enforced by dev-scripts/preflight.ps1. Over it? Something comes out first. -->
+
 name: new-adapter
 description: Read before building a MeshGhost adapter for a new game — before creating its first file. Sequences the required reading (access model, contract, template, licensing) into the order the work actually needs it, instead of one 1,500-line pass. Use when starting a new game's adapter, evaluating whether a game is adaptable, or picking up adapter work on a game with no adapter yet.
 ---

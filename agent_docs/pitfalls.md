@@ -1,5 +1,7 @@
 # Adapter pitfalls
 
+<!-- line-cap: none -- incident log; its control is the index plus preflight's coverage check, not a line count. Why: agent_docs/claude-md-cap.md. -->
+
 This file is the durable record of **adapter-specific** issues: things that went wrong while
 building a game adapter, how they were tracked down, and what fixed them. It exists so the
 next game adapter starts from the lessons already paid for instead of re-learning them.

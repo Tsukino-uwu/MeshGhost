@@ -1,5 +1,7 @@
 # Phase 5.5 — Real Emerald ghost sprite (gender-correct, no more magenta box)
 
+<!-- line-cap: none -- dated record of one phase; closed files do not grow and open ones grow with the work. Why: agent_docs/claude-md-cap.md. -->
+
 > **A dated record. Adapter paths here predate the 2026-08-25 folder rename** — read any
 > `adapters/bizhawk/` as `adapters/emulator/`. Left as written because a phase file records what
 > was true while the phase ran; the convention is in [../README.md](../README.md).

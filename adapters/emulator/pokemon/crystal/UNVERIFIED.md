@@ -1,5 +1,7 @@
 # Unverified — Pokémon Crystal's queue waiting on the user
 
+<!-- line-cap: none -- queue that drains; size is how much the user has not seen yet. Why: agent_docs/claude-md-cap.md. -->
+
 **What this is.** [`VERIFIED.md`](VERIFIED.md) is the append-only record of what is *confirmed*.
 This is its waiting room: things the agent believes work, has self-tested as far as it can, and
 **the user has not seen yet**. It exists so work can continue while the user is away without either

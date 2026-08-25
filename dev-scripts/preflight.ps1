@@ -136,12 +136,34 @@ Section "Reading budgets"
 # (Get-Content).Count, NOT Measure-Object -Line: the latter counts only NON-EMPTY lines, so it
 # reported 288 for a 300-line file and would have passed a CLAUDE.md sitting 12+ lines over the
 # cap. The rules are stated in terms of `wc -l`, and this must measure the same thing they do.
+# SINCE 2026-08-25 A FILE MUST DECLARE ONE OR THE OTHER, and silence is a FAIL. Checking only the
+# files that happened to declare a cap made an unbudgeted file invisible to this check, which is
+# how ~21,000 lines across the nine largest documents came to have no backstop at all while the
+# 15 that did sat at 92-97% full. "It has no cap" and "nobody gave it one" looked identical.
+#
+#   <!-- line-cap: N -->     bounded content: rules, reference, a guide, an index
+#   <!-- line-cap: none -- reason -->    a record, register or queue
+#
+# The exemption is not a loophole, it is the other half of the rule. claude-md-cap.md's argument
+# is "cap the thing that actually grows" -- and for a LOG the thing that grows is the number of
+# entries, which is real signal about the project. Capping VERIFIED.md would mean deleting
+# evidence in order to add evidence; capping a BANDAGES.md would hide the exact smell it exists to
+# show. A record is bounded by SPLITTING it, the way the ADR log was, never by refusing entries.
 $capped = 0
 $withinCap = 0
+$exempt = 0
+$undeclared = @()
 foreach ($md in $trackedMd) {
+    # agent_docs/adr/ is exempt as a directory rather than 39 near-identical marker lines: one ADR
+    # is one decision, immutable once written, and its own index check above already governs it.
+    if ($md -like 'agent_docs/adr/*') { $exempt++; continue }
+
     $head = @(Get-Content -LiteralPath $md -TotalCount 15)
     $decl = $head | Select-String -Pattern '<!--\s*line-cap:\s*(\d+)' | Select-Object -First 1
-    if (-not $decl) { continue }
+    $none = $head | Select-String -Pattern '<!--\s*line-cap:\s*none' | Select-Object -First 1
+    if ($none) { $exempt++; continue }
+    if (-not $decl) { $undeclared += $md; continue }
+
     $cap = [int]$decl.Matches[0].Groups[1].Value
     $n = @(Get-Content -LiteralPath $md).Count
     $capped++
@@ -152,12 +174,16 @@ foreach ($md in $trackedMd) {
         $withinCap++
     }
 }
+if ($undeclared.Count -gt 0) {
+    Report-Fail "$($undeclared.Count) tracked .md file(s) declare neither a line-cap nor an exemption -- an unbudgeted file is invisible to this check:"
+    $undeclared | Select-Object -First 15 | ForEach-Object { Write-Host "          $_" }
+}
 if ($capped -eq 0) {
     Report-Fail "no file declared a line-cap -- the budget check found nothing to enforce, which is not a clean result"
-} elseif ($withinCap -eq $capped) {
-    Report-Pass "$capped file(s) within their declared reading budgets"
+} elseif ($withinCap -eq $capped -and $undeclared.Count -eq 0) {
+    Report-Pass "$capped file(s) within their declared reading budgets, $exempt declared exempt"
 } else {
-    Report-Pass "$withinCap of $capped capped file(s) within budget"
+    Report-Pass "$withinCap of $capped capped file(s) within budget, $exempt declared exempt"
 }
 
 # ---------------------------------------------------------------------------

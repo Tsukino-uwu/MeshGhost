@@ -1,5 +1,7 @@
 # Packaging
 
+<!-- line-cap: 400 -- enforced by dev-scripts/preflight.ps1. Over it? Something comes out first. -->
+
 What actually goes in a release, and why it's laid out the way it is. Consumed by
 `.github/workflows/release.yml` — this folder holds the hand-written parts (the config
 template, player-facing READMEs, and the committed TEVI/Pseudoregalia plugins); the workflow

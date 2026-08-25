@@ -1,5 +1,7 @@
 # Licensing and third-party audit
 
+<!-- line-cap: 400 -- enforced by dev-scripts/preflight.ps1. Over it? Something comes out first. -->
+
 The brief is explicit and loud about this: everything in MeshGhost is our own code. Nothing
 here is copied from the prior-art projects the brief points at. This file exists so that
 claim stays checkable instead of resting on memory.

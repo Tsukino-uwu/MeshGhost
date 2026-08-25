@@ -1,5 +1,7 @@
 # Pokémon Crystal
 
+<!-- line-cap: 300 -- enforced by dev-scripts/preflight.ps1. Over it? Something comes out first. -->
+
 **Status: shipping.** `meshghost_crystal.lua` is a working adapter — it dials the bridge, spawns a
 real in-game object event for each peer, walks it with the game's own step mechanism, and ships in
 the release (`.github/workflows/release.yml` stages it into `games/pokemon/crystal/`). It **writes

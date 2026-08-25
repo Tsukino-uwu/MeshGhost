@@ -1,5 +1,7 @@
 # TEVI
 
+<!-- line-cap: 300 -- enforced by dev-scripts/preflight.ps1. Over it? Something comes out first. -->
+
 **Status: second target game (chosen 2026-08-11, replacing Ori: Will of the Wisps), shipped —
 Phase 6 fully done 2026-08-13.**
 

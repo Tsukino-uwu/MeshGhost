@@ -1,5 +1,7 @@
 # Verified facts
 
+<!-- line-cap: none -- append-only human-gated record -- a cap would mean deleting evidence to add evidence. Why: agent_docs/claude-md-cap.md. -->
+
 This file records facts that have been confirmed by observing actual behavior in a running
 game. See `CLAUDE.md` for the full rule; summary:
 

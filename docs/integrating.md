@@ -1,5 +1,7 @@
 # Adding MeshGhost to your own game
 
+<!-- line-cap: 500 -- enforced by dev-scripts/preflight.ps1. Over it? Something comes out first. -->
+
 Every other integration document here assumes you are writing an **adapter**: a mod that reads a
 game's memory from the outside and talks to a separate `meshghost.exe` over a loopback socket. That
 is the right shape when you do not own the game.

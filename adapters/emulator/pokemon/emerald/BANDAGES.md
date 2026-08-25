@@ -1,5 +1,7 @@
 # Bandages — Pokémon Emerald
 
+<!-- line-cap: none -- register; growth is a smell you must be able to SEE, never one to hide by trimming. Why: agent_docs/claude-md-cap.md. -->
+
 Shipped compensations in this adapter: **a fix that restores, forces, compensates for, or
 remembers a value rather than preventing whatever changed it.** The rule, its one narrow
 exception, and what it is *not*: `adapters/_template/README.md` ("a bandage fix is not a finished

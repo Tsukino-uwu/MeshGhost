@@ -1,5 +1,7 @@
 # Why CLAUDE.md is capped at 300 lines
 
+<!-- line-cap: 100 -- enforced by dev-scripts/preflight.ps1. Over it? Something comes out first. -->
+
 The cap is the highest-priority rule in `CLAUDE.md` — it outranks every rule below it. This file
 holds the reasoning, which is exactly what the cap requires: the rule stays there, its explanation
 lives here.
@@ -46,3 +48,33 @@ project, instead of how much context each item drags along.
 The general lesson, and the reason this is recorded next to the `CLAUDE.md` cap: **cap the thing
 that actually grows.** A total-size limit on a document whose entries can each expand is a limit on
 the wrong variable, and it will be defeated quietly rather than loudly.
+
+## The third case: files that must NOT be capped (2026-08-25)
+
+Applying "cap the thing that actually grows" across the whole repo turned up a category the rule
+had not been stated for. **For a record, the thing that grows is the number of entries — and that
+is real signal about the project, not bloat.**
+
+Capping one is actively harmful, in a way a line count cannot see:
+
+- **`VERIFIED.md`** — capping an append-only, human-gated record means deleting evidence in order
+  to add evidence. The cap would be satisfied by destroying exactly what the file exists for.
+- **`BANDAGES.md`** — a register whose growth is a *smell*. A cap would answer that smell by
+  hiding it, which is the opposite of the register's job.
+- **`FLAGS.md`**, `risks.md`, `pitfalls.md`, `ideas.md` — same shape. Size tracks how many
+  switches, risks, incidents or unscheduled ideas exist. That number is worth seeing.
+- **`UNVERIFIED.md`** and `status.md` — queues. Size tracks what is open, and the way to shrink
+  one is to do the work, never to trim the file.
+
+**So a file declares one of two things, and silence is a failure.** `<!-- line-cap: N -->` for
+bounded content — rules, reference, a guide, an index — and `<!-- line-cap: none -- reason -->`
+for a record. `dev-scripts/preflight.ps1` fails a tracked `.md` that declares neither.
+
+**Why silence had to become a failure:** the check used to look only at files that declared a cap,
+so an unbudgeted file was invisible to it. On 2026-08-25 that meant the 15 declaring files sat at
+92–97% full while the nine largest documents — about 21,000 lines — had no backstop at all, and
+nothing distinguished "deliberately uncapped" from "nobody ever gave it one".
+
+**A record is bounded by SPLITTING it, never by refusing entries.** That is what happened to the
+ADR log: 2,332 lines out of `architecture.md` into one file per decision, with the index left
+behind. The cap then belongs on the index, which is bounded, and not on the record, which is not.

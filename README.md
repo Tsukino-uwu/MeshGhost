@@ -1,5 +1,7 @@
 # MeshGhost
 
+<!-- line-cap: 300 -- enforced by dev-scripts/preflight.ps1. Over it? Something comes out first. -->
+
 MeshGhost is an online multiplayer layer for single-player games. Everyone runs their own fully
 independent copy of the game; friends show up as "ghosts" — live position, facing and animation —
 while the worlds themselves stay separate. Nothing is shared unless a game's mod asks for it: by

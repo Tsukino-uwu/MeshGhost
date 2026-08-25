@@ -1,5 +1,7 @@
 # Access models: how each adapter reads its game
 
+<!-- line-cap: 550 -- enforced by dev-scripts/preflight.ps1. Over it? Something comes out first. -->
+
 **What this is for.** Before writing an adapter you have to answer one question: *what can I actually
 read about this game?* The answer sets how the work will go more than the engine, the language or
 the modding framework does — and the four shipped adapters differ enormously because they sit in

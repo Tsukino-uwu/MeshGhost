@@ -1,5 +1,7 @@
 # Pokémon Crystal — flag register
 
+<!-- line-cap: none -- register; size is the number of switches that exist. Why: agent_docs/claude-md-cap.md. -->
+
 **A Lua adapter has no compile step**, so this adapter has no compile-time bools at all. Every
 switch it has is a **runtime** one — an environment variable, a global set before the script is
 `dofile()`'d, or a file sitting beside the script — and that makes the register more important

@@ -1,5 +1,7 @@
 # Pseudoregalia — compile-time flag register
 
+<!-- line-cap: none -- register; size is the number of switches that exist. Why: agent_docs/claude-md-cap.md. -->
+
 `Plugin.cpp` carries 58 `constexpr bool` switches. They look alike and they are not alike, and
 mistaking one class for another has already cost this adapter real time — most recently 2026-08-17,
 when three load-bearing pose flags were read as leftover debug switches because their comments

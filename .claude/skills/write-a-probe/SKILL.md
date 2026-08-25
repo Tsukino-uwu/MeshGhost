@@ -1,4 +1,7 @@
 ---
+
+<!-- line-cap: 120 -- enforced by dev-scripts/preflight.ps1. Over it? Something comes out first. -->
+
 name: write-a-probe
 description: Read before writing a probe for a MeshGhost adapter — a script that asks a running game a question. Sequences the probe method by what you are trying to find out, and front-loads the three lessons that cost this repo the most. Use when instrumenting a running game, hunting an unknown memory address or field, diagnosing something visual that the numbers say is fine, or measuring an adapter's cost.
 ---

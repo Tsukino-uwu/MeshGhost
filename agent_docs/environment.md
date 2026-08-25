@@ -1,5 +1,7 @@
 # Environment
 
+<!-- line-cap: 1100 -- enforced by dev-scripts/preflight.ps1. Over it? Something comes out first. -->
+
 Exact tools, versions, and configuration known to work for this project. Filled in as each
 phase actually sets up its own tooling — never pre-fill a version number from memory.
 

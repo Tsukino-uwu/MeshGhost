@@ -1,5 +1,7 @@
 # Security and privacy posture
 
+<!-- line-cap: 550 -- enforced by dev-scripts/preflight.ps1. Over it? Something comes out first. -->
+
 ## The whole shape, in one picture
 
 ```text

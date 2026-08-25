@@ -1,5 +1,7 @@
 # Pseudoregalia player fields — currently synced, and the wider schema map
 
+<!-- line-cap: 350 -- enforced by dev-scripts/preflight.ps1. Over it? Something comes out first. -->
+
 Reference doc, not narrative — see [agent_docs/phases/phase7.md](../../agent_docs/phases/phase7.md)
 for the build story and [VERIFIED.md](VERIFIED.md) for the dated,
 evidence-cited entries this file summarizes. Two purposes: (1) a single place that says what

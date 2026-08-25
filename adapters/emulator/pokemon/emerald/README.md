@@ -1,5 +1,7 @@
 # Pokémon Emerald
 
+<!-- line-cap: 400 -- enforced by dev-scripts/preflight.ps1. Over it? Something comes out first. -->
+
 **Status: FEATURE COMPLETE as of 2026-08-21 — the user's call**, in their words: *"i consider the
 game to be fully synced up animation and effect wise now."* Every way this game moves a character
 and every field effect it hangs off one is mirrored, on all three rendering tiers. First game

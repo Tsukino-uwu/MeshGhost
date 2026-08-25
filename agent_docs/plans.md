@@ -1,5 +1,7 @@
 # MeshGhost roadmap
 
+<!-- line-cap: 850 -- enforced by dev-scripts/preflight.ps1. Over it? Something comes out first. -->
+
 ## Overview
 
 MeshGhost is an online multiplayer layer for single-player games. Each player runs an

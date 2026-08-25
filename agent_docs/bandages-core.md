@@ -1,5 +1,7 @@
 # Bandages — core, relay, transport (the Go side)
 
+<!-- line-cap: 200 -- enforced by dev-scripts/preflight.ps1. Over it? Something comes out first. -->
+
 Shipped compensations outside any adapter: **a fix that restores, forces, compensates for, or
 remembers a value rather than preventing whatever changed it.** The rule, its one narrow exception,
 and what it is *not*: `adapters/_template/README.md` ("a bandage fix is not a finished feature").
