@@ -32,13 +32,17 @@ was reassuring and wrong at the same time.
 on frames where the engine's own layout pass has declared them unused, and parks them back at
 `y=160` — the engine's own "not in use" value — when it is done.
 
-**Player state, deliberately** — these three cheat on purpose, which `CLAUDE.md` permits for a
+**Player state, deliberately** — these cheat on purpose, which `CLAUDE.md` permits for a
 probe and never for an adapter: `goto_map.lua` warps the player (six writes, exactly what the
 game's own `warp` command does; **it savestates to slot 8 first, always**, which is this
-project's undo convention), `grant_test_kit.lua` writes badges/HMs into the party and inventory,
-and `noclip.lua` redirects `wTilesetCollisionAddress` into a WRAM zero region.
-**None writes the `.sav`** — but an in-game save afterwards makes `grant_test_kit`'s changes
+project's undo convention), `grant_test_kit.lua` writes badges/HMs into the party,
+`grant_items.lua` writes the bag, `set_level.lua` writes a party Pokémon's level, experience and
+stats, and `noclip.lua` redirects `wTilesetCollisionAddress` into a WRAM zero region.
+**None writes the `.sav`** — but an in-game save afterwards makes their changes
 permanent, so savestate first and reload after. `noclip_off.lua` restores the collision pointer.
+
+**The three grant probes are kept SEPARATE on purpose** — badges/moves, bag, and levels — so that
+what each one changed stays obvious when something later looks wrong.
 
 **Three hold the d-pad**: `door_loop.lua`, `square_drive.lua`, and anything loaded with them.
 Unload them before handing the game back — in a loopback session the ghost IS the local player
@@ -113,6 +117,8 @@ the user nothing, which is the point.
 | `noclip.lua` | **Writes.** Walk through anything, by redirecting `wTilesetCollisionAddress` into a WRAM zero region — *not* Emerald's approach, because Game Boy keeps the collision table in ROM, which this project never writes. |
 | `noclip_off.lua` | **Writes.** Turns noclip off and proves it, restoring the pointer if an unclean unload left it redirected. |
 | `grant_test_kit.lua` | **Writes.** Grants the badges, HMs and field moves a test session needs to reach water, ledges, dark caves and the sky without playing through the game. |
+| `grant_items.lua` | **Writes the bag.** Super Rod (the drawn tier's fishing class cannot be watched without one), Master Balls, Max Repels, Rare Candies. Idempotent. The key-item pocket has no quantity byte where the other two do — cited from `ram/wram.asm`, because assuming otherwise corrupts the bag. |
+| `set_level.lua` | **Writes a party Pokémon.** Level, experience AND the six stats, because writing the level byte alone leaves stale stats and stale EXP that the next battle uses to drop the level back. Base stats are read from the CARTRIDGE at run time, not from a table; the entry stride is re-verified against the dex numbers every run. |
 | `compare_layout.lua` | Config only: a plain loopback ghost 2 tiles right, with the three-way compare rig and the hardware tier both explicitly OFF. Every switch is set explicitly, including the ones being turned off — the loader replaces files, never globals. |
 
 ## The drawn tier
