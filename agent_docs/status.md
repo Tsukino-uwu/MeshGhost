@@ -54,8 +54,8 @@ that a peer's state genuinely differs from the local player's, which loopback co
   box; the row-12 test sees only the bottom one. Detection unwritten. `unverified.md`.
 - **Crystal's drawn-tier text-box clipping is unconfirmed** — it still rests on the 2026-08-19
   fill-the-screen test. (The walk cycle itself closed 2026-08-22.) `verified.md`.
-- **Crystal: the drawn tier cannot show an animation that does not MOVE the character** — it derives
-  pose from position. Bump fixed 2026-08-23; spin, fishing, emote, Fly landing are the same cause.
+- **Crystal: in-place animations are BUILT and UNWATCHED (2026-08-25)** — one rule replaced the bump
+  special case: read the peer's facing byte. Turn, spin, fishing, Dig/Teleport, Fly. `unverified.md`.
 - **Crystal's drawn tier jitter: three bugs fixed 2026-08-23, user says it looks fine — NOT settled.**
   Wrong camera register, unsettled K reference, sampler below early returns. `unverified.md`, `pitfalls.md`.
 - **Crystal: `hSCX`/`hSCY` are inline literals, not in the per-build `ADDRESSES` table** — and the
@@ -76,8 +76,10 @@ that a peer's state genuinely differs from the local player's, which loopback co
   crossing** — measured, fix built and reverted as worse. `unverified.md`, `phases/phase9.md`.
 - **Crystal's hardware (OAM) tier: built, reaches the screen, shipped OFF, never judged on screen.**
   Adds 0-1 characters and does NOT get free occlusion. `FLAGS.md`, `unverified.md`.
-- **`extras.act` — BUMP (3) is now read by both tiers and measured; the rest are still untested**
-  (fishing, spin, emote, Fly landing). `probes/bump_probe.lua` is the pattern. `unverified.md`.
+- **Crystal: a peer sending action 8 would have had its ghost's BODY replaced by the `!` box** —
+  the emote is a separate map object, never a player action. Removed 2026-08-25. `unverified.md`.
+- **Crystal: no fall for Fly/Teleport/Dig, and no emote above a peer at all** — the sprite Y offset
+  is not on the wire, and the `!` needs its own object. Known gaps, not faults. `phases/phase9.md`.
 - **Emerald CROSSED Lua's 200-local ceiling and did not compile at all** — fixed 2026-08-22 by
   consolidating seven constants onto two tables; now 197. Not yet loaded in a real session.
 - **Crystal: a peer's own sprite is used when its tiles are resident, not otherwise** — but the

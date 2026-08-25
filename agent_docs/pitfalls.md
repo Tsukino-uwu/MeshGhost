@@ -4823,3 +4823,43 @@ that moment is always earlier than it feels: here, one commit earlier.
 reconstructing the exact commit that caused this — the same file, with the same substituted absolute
 path, staged the same way — and confirming both that it was refused and that `HEAD` did not move.
 A guard that has only ever been tested on a case someone invented is a guard of unknown value.
+
+## `pcall` catches errors, not loops — a malformed line froze the emulator (Crystal, 2026-08-25)
+
+**Symptom.** A truncated or malformed line arriving on the bridge freezes BizHawk outright. No Lua
+error, no log line, no red script in the console — the emulator simply stops advancing frames.
+
+**Cause.** `jsonDecode`'s object and array loops were `while true` with **no end-of-input check**,
+and the fallthrough at the bottom of `parseValue` did `pos = pos + 1; return nil` rather than
+raising. So on `{`, `[`, `{"a":1` or `{"type":"state"` the position walks past the end of the
+string forever and never matches a closing brace.
+
+**The part worth keeping: the `pcall` wrapper looked like it covered this, and could not.**
+`pcall` turns an *error* into a return value; an infinite loop raises nothing, so there is nothing
+to catch. A defensive wrapper around a parser is only as good as the parser's willingness to fail
+— **a parser that never errors cannot be made safe by the caller.**
+
+**Why only this adapter.** All seven copies of this decoder in the repo were compared: the other
+six — Emerald's, and five probes — raise `json: unterminated string` from `decodeString` and carry
+an explicit `else error("json: expected ',' or '}'")` in both loops. Crystal's was written fresh
+rather than copied, and lost the guards. **Duplicated code does not drift only by being edited; a
+fresh reimplementation of the same thing drifts on day one**, and the copy everyone trusts is the
+oldest one, not the newest.
+
+**How it was found.** Not by fuzzing and not in a game: by transliterating the function into
+another language and running it against a list of truncated inputs with a step cap, so a runaway
+shows up as hitting the cap instead of hanging the shell. Valid inputs were run as a control in
+the same pass — without that, "everything returned nil" would have looked like the same bug.
+**This is a cheap technique for any interpreted adapter code that is awkward to exercise in situ.**
+
+**Fix.** A `pos > #s` guard at the top of both container loops, explicit errors matching the other
+six copies' wording, a depth cap (64) so deep nesting cannot exhaust the stack either, and the
+silent fallthrough replaced by an error. Confirmed by re-running the harness against the fixed
+version: valid input still parses, every malformed input returns `nil`.
+
+**Not remotely reachable**, and worth stating so the severity is not overstated: the core emits
+well-formed JSON via `encoding/json` and the framing only dispatches on `\n`, so reaching this
+needs a local process on the bridge port — which is what the 2026-08-25 loopback-bind refusal in
+`cmd/meshghost` keeps local. Fixed anyway; that assumption is the kind that stops holding.
+
+**Still unconfirmed in BizHawk's own Lua** (`unverified.md`).
