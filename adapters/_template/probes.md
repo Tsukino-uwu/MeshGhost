@@ -19,6 +19,28 @@ Every lesson here is dated and came from a real run in this repo, most of them e
 3. **A filter applied before you look is a guess about the answer**, and a wrong guess still
    produces a complete-looking result.
 
+**Where to look, by what you are trying to do.** The file is chronological within each area, so
+scan the group, not the whole thing:
+
+- **Designing the probe** — a probe asks for endurance, not timing · dump everything, a filter is a
+  guess · log a window, not an event · drive the input one way then reverse it · reverse the STATE
+  too · test it in motion · two parameters that trade off · delay your own change.
+- **What it costs, and whether it is lying** — the cost warning · a probe's read budget · performance
+  is a CORRECTNESS property · identical results across conditions are a probe bug until proven
+  otherwise · one sample cannot see a blinking thing · two more probe traps.
+- **Finding something you cannot name** — how to find things, the general form · ways of finding
+  things that worked · when the data is in ROM, look for the POINTER · check what tools you actually
+  have · a state is a multi-step process, not a flag · check what a thing IS and DOES.
+- **Reaching the state at all** — play to it · edit the world instead of travelling to it · look
+  first, then write the script · a scripted interaction must return the game to a known state · a
+  scripted ride must be able to see.
+- **When the numbers say fine and the screen does not** — measure what is DRAWN, not the fields that
+  feed it · diff what you BUILT against what the game BUILT · check a computed grid against the
+  SCREEN · compare the PIXELS · diff two screenshots · compare your OAM entries against the engine's.
+- **Attribution** — trace the producer and consumer on the SAME LINE · read BOTH characters on ONE
+  line · price a suspicion before fixing it · "it is the network" is a hypothesis, not an explanation
+  · when one renderer of several is already right, that IS the bisection.
+
 ---
 
 ## Hard rule: a probe asks for endurance, not timing — the user's standing preference
@@ -829,13 +851,11 @@ that is no longer the game the user plays**, and every number it produces is abo
 system. That makes cost a correctness question, and it gets designed in from the first line rather
 than tuned afterwards:
 
-- **The file is the record; the console is a glance.** Open the log buffered (`setvbuf("full", …)`),
-  write every line to it, and send only the opening lines and the occasional one to `console.log`.
-- **Never flush per line.** Flush on a timer and on close.
-- **Both halves cost, and they were measured separately on 2026-08-21**: removing the per-line disk
-  flush alone still left **87–175 ms** hitches, because `console.log` appends to BizHawk's GUI
-  window and is the expensive half on its own. Fixing one and declaring victory is a wasted cycle —
-  and it was, twice in the same evening.
+- **The file is the record; the console is a glance.** Open the log buffered, never flush per line,
+  flush on a timer and on close, and send only the opening lines to the console. **Both halves cost
+  independently** — fixing one and declaring victory is a wasted cycle, and it was, twice in one
+  evening. The host-specific form and its measured numbers are in
+  [../bizhawk/CLAUDE.md](../bizhawk/CLAUDE.md); the rule itself is not host-specific.
 - **Per-frame work is the other half.** Enumerate once per frame, not once per peer; compare by
   pointer or index rather than by name; and never re-scan an array you already scanned this frame.
 - **Measure it, do not assume it.** `dev-scripts/bizhawk-hitch-meter.lua` is standing rig: attach it

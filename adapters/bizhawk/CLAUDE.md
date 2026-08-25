@@ -100,3 +100,33 @@ ever holds the current line's.
 **Check a register's read/write status before building an argument on a dump**, and prefer the
 engine's own state to a hardware read whenever both exist.
 
+
+## Lua's 200-local ceiling will stop your adapter loading, silently
+
+**A Lua chunk may declare at most 200 locals in its main body.** Past that the file does not load at
+all: BizHawk reports `too many local variables (limit is 200) in main function`, the dev loader
+prints one `LOAD FAILED` line, and the adapter is simply absent. Nothing else says so — the game
+runs normally with no ghosts, which reads as a networking fault or a dead relay.
+
+**Measured 2026-08-21, and it is not theoretical**: Crystal hit it four times in a single session,
+and each time cost a reload cycle to identify. The counts that matter:
+
+| adapter | lines | top-level locals |
+|---|---|---|
+| Crystal | 3,219 | 157 |
+| Emerald | 10,496 | **198 of 200** |
+
+**Emerald is two names from the same wall in a file three times the size**, so this is not something
+the bigger adapter has solved — it is further along the same road. Crystal is *denser* in top-level
+names per line, which is why it hits the ceiling first.
+
+**So group by default, from the first file.** Related constants and state go on one table
+(`local oam = {...}`, `local COMPARE = {...}`), not one name each. Field offsets, addresses, tier
+state and per-frame scratch are all natural groups. Retrofitting this under pressure — which is how
+both existing adapters got their tables — means doing it while chasing a bug, which is the worst
+time.
+
+**And when a change to a big adapter mysteriously does nothing, check the loader log for
+`LOAD FAILED` before anything else.** It is one line, it scrolls away, and it looks nothing like a
+bug in the change you just made.
+

@@ -13,6 +13,36 @@ with no game attached and no import of anything under `adapters/`. This folder i
 phase promised to leave behind: a reusable starting point for the next game's adapter, not code
 to run as-is.
 
+## What is in this file, and what you can safely read later
+
+**This file is long because it is the accumulated cost of four adapters. It is not all urgent.**
+Nothing below is optional once you are building, but the ORDER matters and the whole thing does not
+have to be read in one pass. Read the hard rules first — they are the ones written because
+something already went wrong.
+
+**The hard rules** (read before writing anything): a bandage fix is not a finished feature ·
+find out how the GAME does it before you work around it · never let a ghost exist before the player
+is in the game · ship the bare minimum · never write a save or game state · this folder is the gold
+standard. Six more hard rules load themselves from [../CLAUDE.md](../CLAUDE.md) on first contact
+with `adapters/`, and the BizHawk host rules from [../bizhawk/CLAUDE.md](../bizhawk/CLAUDE.md).
+
+**Starting out**: what's here · folder convention · starting a new game's adapter · first, work out
+what you will be able to READ · a new game gets its own `phaseN.md`.
+
+**Finding out how the game works**: where does this already happen normally · ask the game what it
+has · when a mirrored effect's timing is slightly off · the tier ladder (inside "find out how the
+GAME does it"). Probe method is a separate file — [probes.md](probes.md).
+
+**Building it**: a movement that does not animate is still a movement · do as much as the game can
+handle, then fake it above that cap · find out how many ghosts this game can hold · read the working
+adapter for the same host first · every adapter starts the client, and stops it again · "the map
+changed" vs "the world was rebuilt".
+
+**Getting the rendering right**: anything drawn SMOOTHLY rides in `position` · judge a renderer at
+the SHIPPED settings · when a renderer looks wrong, measure THE WIRE first.
+
+**Testing and writing it up**: testing it · writing the new adapter's own README.
+
 ## Hard rule: this folder is the gold standard, and it is never allowed to go stale
 
 **Anything a shipped adapter learns belongs here too.** A new rule, a new file convention, a hard-won
@@ -478,58 +508,23 @@ is real"* and *"this mechanism explains my bug"* are separate claims and need se
 
 ### Before you instrument any of this, read the probe cost warning
 
-The most expensive lesson in this repo is that **a probe can break the effect it is measuring**,
-and that four metrics agreeing with each other proves only that they share a blind spot. It applies
-directly to the enumeration and spawn-detection work above, which is exactly the shape that got
-costly. It lives in [probes.md](probes.md) with the rest of the probe method, and the full incident
-is in [../../agent_docs/pitfalls.md](../../agent_docs/pitfalls.md), "The diagnostics were the bug".
+Three rules that are one rule, and every adapter has paid for at least one of them:
 
-### A per-second log line is a per-second stall — moved (BizHawk)
-
-The measured costs and the buffered-logging rule are in [../bizhawk/CLAUDE.md](../bizhawk/CLAUDE.md).
-The part that is NOT host-specific, and that both Lua adapters got wrong: **this is about anything
-that runs every frame, shipped code first — not about probes.** And when anyone says "choppy",
-measure PACING, not rate: an average cannot see a hitch.
-
-### Lua's 200-local ceiling will stop your adapter loading, silently
-
-**A Lua chunk may declare at most 200 locals in its main body.** Past that the file does not load at
-all: BizHawk reports `too many local variables (limit is 200) in main function`, the dev loader
-prints one `LOAD FAILED` line, and the adapter is simply absent. Nothing else says so — the game
-runs normally with no ghosts, which reads as a networking fault or a dead relay.
-
-**Measured 2026-08-21, and it is not theoretical**: Crystal hit it four times in a single session,
-and each time cost a reload cycle to identify. The counts that matter:
-
-| adapter | lines | top-level locals |
-|---|---|---|
-| Crystal | 3,219 | 157 |
-| Emerald | 10,496 | **198 of 200** |
-
-**Emerald is two names from the same wall in a file three times the size**, so this is not something
-the bigger adapter has solved — it is further along the same road. Crystal is *denser* in top-level
-names per line, which is why it hits the ceiling first.
-
-**So group by default, from the first file.** Related constants and state go on one table
-(`local oam = {...}`, `local COMPARE = {...}`), not one name each. Field offsets, addresses, tier
-state and per-frame scratch are all natural groups. Retrofitting this under pressure — which is how
-both existing adapters got their tables — means doing it while chasing a bug, which is the worst
-time.
-
-**And when a change to a big adapter mysteriously does nothing, check the loader log for
-`LOAD FAILED` before anything else.** It is one line, it scrolls away, and it looks nothing like a
-bug in the change you just made.
-
-### A probe that costs frame time is reporting on a different game
-
-**Default position for every probe and every diagnostic this adapter grows**, on the user's call,
-2026-08-21: *"non laggy/good performance should be the default for things like this"*.
-
-Buffered log file, console throttled to a glance, flush on a timer, per-frame work done once rather
-than once per peer — designed in, not tuned in after somebody complains. Both halves of the logging
-cost were measured separately that day and **each one alone was enough to stutter the game**, so
-fixing one and stopping is a wasted cycle. [probes.md](probes.md) has the full form and the numbers;
-`dev-scripts/bizhawk-hitch-meter.lua` is how you check rather than assume.
+- **A probe can break the effect it is measuring**, and four metrics agreeing with each other
+  proves only that they share a blind spot. This is the most expensive lesson in the repo, and it
+  applies directly to the enumeration and spawn-detection work above — exactly the shape that got
+  costly. [probes.md](probes.md) has the method; [../../agent_docs/pitfalls.md](../../agent_docs/pitfalls.md),
+  "The diagnostics were the bug", has the incident.
+- **A probe that costs frame time is reporting on a different game.** The user's standing position,
+  2026-08-21: *"non laggy/good performance should be the default for things like this"*. Buffered
+  log, console throttled to a glance, flush on a timer, per-frame work done once rather than once
+  per peer — designed in, not tuned in after somebody complains. **Both halves of the logging cost
+  were measured separately and each alone was enough to stutter the game**, so fixing one and
+  stopping is a wasted cycle. `dev-scripts/bizhawk-hitch-meter.lua` is how you check rather than
+  assume.
+- **It is not only about probes.** The same cost applies to anything that runs every frame, shipped
+  code first — and both Lua adapters got that wrong. When anyone says "choppy", measure PACING, not
+  rate: an average cannot see a hitch. Host-specific numbers: [../bizhawk/CLAUDE.md](../bizhawk/CLAUDE.md).
 
 ### If you are about to start effect work, read the playbook first
 
@@ -743,19 +738,14 @@ reasoning**; they are usually the moment the real mechanism stopped being invest
 thing, or *correct* it afterwards? Correcting afterwards means the cause is still running, and
 something else will eventually read the state you patched.
 
-**Why this is a hard rule and not a preference — two worked examples, one day apart:**
-
-- **The camera fight-back outlived its cause and became the bug.** A ghost spawn made the game
-  re-pick its camera, so the mod forced the view target back. It worked for that case and blocked
-  every legitimate camera change forever after; players saw it as the ghost stealing the camera.
-  The real fix, once measured, was one line: refuse a switch to a rig whose `OwningActor` is a
-  ghost. Deleted 2026-08-16 — `verified.md`.
-- **Bandages spread.** The slide floor-sinking fix moved the ghost's render Z by +43 because the
-  ghost never ran the player's crouch logic, and `Plugin.cpp` went on to describe a *second* bug,
-  the thrown weapon, as "structurally the same bug as the slide floor-sinking fix". One
-  compensation taught the next one to exist. Replaced 2026-08-17 by driving the game's own crouch
-  path on the ghost, which is what the ending makes this worth reading: the proper fix existed the
-  whole time and the bandage is what stopped anyone looking for it.
+**Why this is a hard rule and not a preference — two worked examples, one day apart.** The
+Pseudoregalia **camera fight-back outlived its cause and became the bug**, blocking every
+legitimate camera change until players saw it as the ghost stealing the camera; the measured fix
+was one line ([pitfalls.md](../../agent_docs/pitfalls.md), "Camera / view-target ownership").
+And **bandages spread**: the slide floor-sinking fix taught a second bug to be described as
+"structurally the same bug as" it, and the proper fix — driving the game's own crouch path — had
+existed the whole time. The bandage is what stopped anyone looking for it
+([pitfalls.md](../../agent_docs/pitfalls.md), "Case study: the slide pose").
 
 **The narrow exception, and its price.** A temporary fix is allowed when it unblocks something else
 that must be tested now — early bring-up, or getting a camera usable so a different feature can be
@@ -763,150 +753,81 @@ watched at all. When you take it:
 
 1. **Say it is temporary in the code**, in the comment, where the next person reads it. Not in a
    commit message.
-2. **Record the measurement that would replace it.** The slide entry in `ideas.md` is worth copying
-   as a shape: it survived scrutiny because the comment already recorded what a slide does to the
-   capsule, so the real fix starts from evidence instead of a fresh investigation. A bandage with
-   *no* measurement behind it is the expensive kind — there is nothing to build the real fix on.
-3. **Log it as an open item**, not as a finished one. A feature resting on a compensation is not
-   done. It goes in this adapter's own `BANDAGES.md` (copy this folder's), and `status.md` should
-   say so.
+2. **Record the measurement that would replace it.** A bandage with *no* measurement behind it is
+   the expensive kind — there is nothing to build the real fix on.
+3. **Log it as an open item**, not a finished one, in this adapter's own
+   [BANDAGES.md](BANDAGES.md), with `status.md` saying so.
 
-**You will not always know at the time**, which is why the register is a living file rather than a
-thing you fill in once. `BANDAGES.md` in this folder lists the tells that only surface afterwards —
-a fix whose cause got fixed elsewhere, a second bug described as "structurally the same bug as X",
-a compensation that outlived its purpose and became the bug. Read it when auditing, not just when
-writing.
+**You will not always know at the time**, which is why the register is a living file.
+[BANDAGES.md](BANDAGES.md) carries the eight tells that only surface afterwards, the 1:1 bar, and
+the one legitimate kind. Read it when auditing, not just when writing.
 
 **What this rule is not.** It does not mean every constant is suspect. A number measured from the
-game and documented (the loopback ghost's deliberate sideways offset; a reconnect interval chosen
-to match an observed cadence) is a design decision with evidence behind it. The difference is
-whether the number came from *measuring the mechanism* or from *trying values until it looked
-right*.
+game and documented (the loopback ghost's deliberate sideways offset; a reconnect interval matching
+an observed cadence) is a design decision with evidence behind it. The difference is whether the
+number came from *measuring the mechanism* or from *trying values until it looked right*.
 
 ## Hard rule: find out how the GAME does it before you work around it
 
 **Before writing anything that overrides, forces, corrects, or fights the game, observe what the
-game itself does — read-only — and prefer using its own mechanism.** A workaround written without
-that observation is a guess about a system you have not looked at, and in this project those have
-consistently held up in the one case they were written for and broken everything adjacent.
+game itself does — read-only — and prefer using its own mechanism.** The rule is not "never work
+around anything". It is: **the observation comes first, and the workaround has to be aimed at what
+you actually saw.** Sometimes the answer really is a targeted override — but you cannot target what
+you have not measured.
 
-The rule is not "never work around anything". It is: **the observation comes first, and the
-workaround has to be aimed at what you actually saw.** Sometimes the answer really is a targeted
-override — but you cannot target what you have not measured.
+**Three times this was paid for here**, each written up where its detail belongs:
 
-**Three times this was paid for here, all recoverable from `agent_docs/`:**
+- **The Pseudoregalia camera** — a "force the view target back" fix worked for its one case and
+  fought every legitimate camera change the game made thereafter.
+  [pitfalls.md](../../agent_docs/pitfalls.md), "Camera / view-target ownership".
+- **The ultra-hop trail** — five rounds of predicting when the game would trail; what worked was
+  letting the game's own spawns drive it ([adapters/pseudoregalia/README.md](../pseudoregalia/README.md), steps 38-41).
+- **`landed?` / `jumped?` vs `moveState`** — names told you nothing about whether a field was a
+  one-shot pulse or continuous state; only watching the values did.
+  [verified.md](../../agent_docs/verified.md) has the full trail, including a later correction.
 
-- **The Pseudoregalia camera.** Spawning a ghost made the game re-pick its camera. The fix forced
-  the view target back to a remembered "known good" one. It worked for the case it was written for
-  and nothing else: the game switches camera rigs *routinely* (three within milliseconds of
-  entering an area — `phase7.md`), so once a ghost exists the mod fights every legitimate change
-  the game makes, forever. Cutscenes and in-game resets were where it finally showed. The probe
-  that broke the ORIGINAL bug open was read-only — a hook that logged what the game chose without
-  overriding it — and that is the step that should have shaped the fix too.
-- **The ultra-hop trail.** Predicting when the game would trail, and spawning our own, produced
-  five rounds of nearly-right behaviour. What worked was giving up on predicting and letting the
-  game's own spawns drive it — see the adapter README's steps 38-41.
-- **`landed?` / `jumped?` vs `moveState`.** Mirroring these as if they were continuous state
-  produced a ghost stuck in an airborne pose. They are one-shot pulses; the continuous fields are
-  something else entirely. Nothing about the names said so — only watching the values did.
+**If the game has a cleared decompilation, READ IT FIRST — watching is the slower half.** A probe
+shows the flag *this* donor on *this* map happened to carry; the source lists every bit in the byte,
+every path that reads it, and the cost attached to each — and no probe can tell you what a byte
+MEANS. Measurement is for CONFIRMING what the source says, not for discovering it. Paid for
+2026-08-23: a Crystal ghost cloned a live NPC understanding 4 of the 16 bytes it copied, and three
+faults came out of the other twelve — ending in a ghost that *was a trainer* and hung the game. All
+three were named constants in an already-cleared, already-built decomp.
+[pitfalls.md](../../agent_docs/pitfalls.md), and `agent_docs/licensing.md` for what is cleared.
+**It does not lower the confirmation bar** — a fact about the game is not evidence our adapter does
+the right thing with it, and the user still confirms on screen.
 
-### If the game has a cleared decompilation, READ IT — watching is the slower half
-
-Observing the running game tells you what a value **does** on the one path you watched. The source
-tells you what it is **called**, every path that reads it, and in what order — and no probe can tell
-you what a byte MEANS. Where a decompilation exists and `agent_docs/licensing.md` has cleared it,
-**reading comes first and measurement confirms it**, not the other way round.
-
-Paid for on 2026-08-23, in Crystal. A spawned ghost is cloned from a live NPC, and the adapter
-understood four of the sixteen bytes it was copying. Three separate faults came out of the other
-twelve — a ghost that would not animate, a ghost whose facing snapped at the end of each step, and
-finally a ghost that **was a trainer**, raised the `!` and hung the game. The first two were chased
-by probe across multiple sessions and patched one field at a time. Every one of those fields is a
-named constant in `pret/pokecrystal`, which this repo had cleared for facts-with-a-citation and had
-already **built locally** since 2026-08-17. Reading named all three, plus the
-shared cause nobody had spotted: a ghost inherits its donor's identity.
-
-Two things reading gives you that watching structurally cannot:
-
-- **The full set, not the instance.** A probe shows the flag the donor on *this* map happened to
-  carry. The source lists all eight bits in the byte — including the ones that would have explained
-  the next three bugs.
-- **The cost attached to a mechanism.** Crystal has a real "the player walks through me" bit, which
-  a probe could plausibly have found. The same bit also causes the engine to **erase that object's
-  struct wholesale** whenever an emote despawns. A measurement finds the capability and gets
-  ambushed by the cost; the source shows both in the two places the bit is read.
-
-**It does not lower the confirmation bar.** A fact read from a decompilation is a fact about the
-game, not evidence that our adapter does the right thing with it — `CLAUDE.md`'s rule stands, and
-the user still confirms on screen before anything is called verified. Reading changes what you
-build, not who signs it off.
-
-### Watch it before you PLAN against it, not just before you work around it
-
-The rule above is usually stated as "observe before you override". It applies just as much to
-**designing**, and that is easier to miss, because planning does not feel like changing anything.
-
-**If a plan rests on a model of how the game behaves, capture the behaviour first — it is almost
-always cheaper than the plan.** A read-only frame-by-frame capture of the game doing the thing
-costs one live run. Building on a wrong model costs the implementation, the debugging, and the
-correction of everything reasoned from it.
-
-**The live case, 2026-08-18 (Crystal).** Moving a ghost was planned around an assumed model: that a
-character's map coordinate updates when a step *completes*, so a ghost would be moved by writing
-coordinates and letting animation follow. One read-only capture of an NPC taking a real step showed
-the opposite — **the map coordinate is the destination and is set at the START**, in the same frame
-as everything else, and the sprite then slides to catch up over the following ~16 frames. Every
-frame after the first is the engine's own work. The plan built on the wrong model would have
-produced a character that teleported while looking like it was walking, and the bug would have been
-blamed on smoothing.
-
-**The tell that you are planning on an assumption**: you can describe what the game does, but you
-cannot point at the run where you watched it. That is the moment to spend one capture.
-
-And when the capture contradicts you, **say so plainly in the write-up** rather than quietly
-adopting the new model — the wrong assumption is worth recording, because the next person will
-arrive with the same intuition.
+**Watch it before you PLAN against it, not just before you work around it.** If a plan rests on a
+model of how the game behaves, capture the behaviour first — one read-only run is almost always
+cheaper than the plan. **The tell:** you can describe what the game does, but you cannot point at
+the run where you watched it. Worked example, and why a wrong model aims the debugging at the wrong
+subsystem: [pitfalls.md](../../agent_docs/pitfalls.md), "Planning on a model of the game you never
+watched".
 
 **What "observe first" looks like in practice**, cheapest first:
 
 1. **Log what the game does, changing nothing.** A read-only hook on the function you were about
    to override, printing what it was called with and what it chose.
-2. **Ask whether the game already has a mechanism** that does what you want (`README.md`'s "Ask the
+2. **Ask whether the game already has a mechanism** that does what you want (this file's "Ask the
    game what it has, before you guess at what it might have").
 3. **Only then decide** whether to use its mechanism, or to override — and if you override, aim at
    the specific condition you observed rather than at the symptom.
 
-**The tell that you are about to write a bandage:** the fix restores, forces, or remembers a value
-rather than preventing the thing that changed it. That is not automatically wrong, but it means you
-are treating a symptom, and it should be a deliberate choice you can defend — with the observation
-that justifies it — rather than the first thing that made the screen look right.
-
 ### Did the game make this, or did you take it? — the question that decides what you may do to it
 
-The same object can arrive two ways, and which one it was determines what is safe to do with it
-later. This is worth deciding **explicitly and writing down**, because the answer silently becomes
-a constraint on every operation you perform on that object afterwards.
+The same object can arrive two ways, and which one it was silently becomes a constraint on every
+operation you perform on it afterwards. Decide it **explicitly and write it down**.
 
-- **You asked the engine for it** — the game's own creation call, with the game's own class
-  (in Unreal, `world->SpawnActor(pawn_class, …)`; the equivalent elsewhere is whatever the game
-  itself calls to make one). It exists because you asked. It is a real instance of a real class,
-  so **the game's own systems drive it for free** — animation, physics, state machines — which is
-  usually the whole reason to want it.
+- **You asked the engine for it** — the game's own creation call, with the game's own class (in
+  Unreal, `world->SpawnActor(pawn_class, …)`). It is a real instance of a real class, so **the
+  game's own systems drive it for free** — animation, physics, state machines.
 - **You took something that already existed** and repurposed it. Nothing was created; a thing the
   level placed for its own reasons is now doing your job.
 
-**Repurposing is the bandage, and its cost is not where people look for it.** The obvious cost is
-appearance — a scenery object cannot animate and does not look like a character. The one that
-bites is that **the object is still the game's**, so destroying it destroys part of the level,
-hiding it leaves a hole where it used to be, and moving it may break whatever referenced it. You
-inherit a permanent "never do X to this" rule, and the reason for that rule lives far away from
-the code that eventually wants to do X.
-
-That is exactly how this project acquired one. Pseudoregalia's ghost was first a hijacked
-`StaticMeshActor`; the resulting "never destroy the ghost" rule long outlived the design, and when
-the adapter later switched to spawning a real pawn clone, **nobody re-tested the constraint** — a
-workaround was still running against a premise that had stopped being true. See
-`agent_docs/pitfalls.md`.
+**Repurposing is a bandage, and the highest-cost shape this project has found.** The full argument —
+why the real cost is not the appearance but the permanent "never do X to this" rule you inherit,
+and how Pseudoregalia kept one running against a premise that had stopped being true — is in
+[BANDAGES.md](BANDAGES.md), "The bandage to avoid entirely".
 
 **There is a third option, and an emulator adapter usually starts there: draw over the top.** You
 never touch the game's world at all — you paint on the frame from outside, and the game does not
@@ -1053,67 +974,48 @@ category, and far cheaper to build in than to retrofit after a ghost has been se
 title screen.
 
 **There is one absolute case and a pile of judgment calls, and they should not be written as one
-rule** — an over-broad first draft of this section said "menus, intros, warps, cutscenes and
-battles", and the user's correction (2026-08-18) is the version that is actually true:
+rule** — an over-broad first draft said "menus, intros, warps, cutscenes and battles", and the
+user's correction (2026-08-18) is the version that is true:
 
 - **ALWAYS blocked, no exceptions: anything before the player is in the world at all.** Title
   screen, main menu, file select, intro, the loading step itself. Here the world does not exist yet
   or is mid-construction — the object tables an adapter writes into are being built, and the data
-  it reads is stale from before. **This is the case that is guaranteed for every game, and the one
-  the gate exists for.**
-- **Everything else is per-state judgment, and "hide it" is often the wrong answer.** In-game but
-  not free-roaming covers a wide range: a pause menu, dialogue, a shop, a cutscene, a battle. The
-  useful questions are *does the game still render the overworld in this state* and *is the object
-  table stable*. A pause menu drawn over a still-visible overworld is a state where leaving the
-  ghost alone looks right and removing it looks like a bug. A battle that replaces the screen
-  entirely makes the question moot. **Decide per state, with a reason you can state**, rather than
-  blanket-hiding because it feels safer.
+  it reads is stale from before. **This is the case guaranteed for every game, and the one the gate
+  exists for.**
+- **Everything else is per-state judgment, and "hide it" is often the wrong answer.** Ask *does the
+  game still render the overworld in this state* and *is the object table stable*. A pause menu
+  drawn over a still-visible overworld is a state where leaving the ghost alone looks right and
+  removing it looks like a bug; a battle that replaces the screen makes the question moot.
+  **Decide per state, with a reason you can state.**
 
-> **Two different questions, and this section only answers the first.** They are easy to conflate
-> and the wording above did until it was caught, 2026-08-18:
+> **Two different questions, and this section only answers the first** — easy to conflate, and the
+> wording above did until it was caught (2026-08-18):
 >
 > 1. **"*I* am not in the overworld"** — a menu, battle or cutscene on **this** machine. Then no
 >    peer's ghost may be drawn or spawned here, full stop. That is this section.
-> 2. **"*a peer* is not in the overworld"** — they entered a battle or a menu in **their** game.
->    That is a **design decision, not a safety rule**, and it belongs with the adapter's presence
->    semantics rather than here. Their ghost is not dangerous; the question is what it should
->    honestly represent.
+> 2. **"*a peer* is not in the overworld"** — a **design decision, not a safety rule**, belonging
+>    with the adapter's presence semantics. Their ghost is not dangerous; the question is what it
+>    should honestly represent.
 >
-> **Question 2 has a known failure mode already shipped in this repo**, so decide it deliberately:
-> if a peer simply stops sending while unavailable, the last thing you drew stays exactly where it
-> was, forever, looking like a player standing still. That is `status.md`'s TEVI FullMap entry —
-> the marker only refreshes on a `render_remote`, so a peer who stops sending leaves it frozen.
-> **A frozen ghost is a lie about where someone is**, and in a game with frequent multi-minute
-> battles it is a lie told often.
->
-> Options, none of which is automatically right: keep the ghost where it was (simple, and honest
-> enough if peers stay in the same area), hide it while they are away (truthful, but ghosts
-> flickering in and out is its own annoyance), or keep it and mark it as away — which needs the
-> peer to *say* they are unavailable rather than merely going quiet. **Whichever you choose,
-> "stopped sending" must be distinguishable from "standing still"**, because the two look
-> identical to the receiver and only one of them is true.
+> **Question 2 has a known failure mode already shipped here**, so decide it deliberately: a peer
+> that simply stops sending leaves the last thing you drew standing there forever, looking like a
+> player standing still (`status.md`'s TEVI FullMap entry). **A frozen ghost is a lie about where
+> someone is**, told often in a game with multi-minute battles. Keep it, hide it, or mark it away —
+> none is automatically right, but **"stopped sending" must be distinguishable from "standing
+> still"**, because the two look identical to the receiver and only one is true.
 
 **It is not only cosmetic, which is the part that gets underestimated.** In those states the game
-is frequently *rebuilding* the very structures an adapter touches — object tables, sprite slots,
-the map. Writing into them mid-rebuild corrupts rather than merely embarrasses, and an adapter that
+is frequently *rebuilding* the structures an adapter touches — object tables, sprite slots, the
+map. Writing into them mid-rebuild corrupts rather than merely embarrasses, and an adapter that
 only draws can still read half-initialised data and render nonsense from it.
 
 **Ask the game what state it is in. Do not infer it from whether the data looks plausible.** This
 is [CLAUDE.md](../../CLAUDE.md)'s "a wrong read returns a plausible number" applied to program
-state: on a menu, the position and object data are usually just *stale*, so they look perfectly
-reasonable and a data-shape check sails through. The signal you want is the game's own state
-machine or mode variable.
-
-Worked examples, both real:
-
-- **Emerald** reads the current callback pointer (`gMain.callback2`) and compares it against
-  `CB2_Overworld` — literally "which state machine is the game running right now". Its
-  `inOverworld()` gate exists because reading save-block pointers outside the overworld returned
-  plausible garbage.
-- **Crystal** has `wMapStatus` (`START`/`ENTER`/`HANDLE`/`DONE`), plus `wMapEventStatus`,
-  `wScriptRunning` and `wGameLogicPaused` — a map state machine and separate "is the player free to
-  act" flags. Characterised with a dedicated probe rather than assumed
-  (`adapters/bizhawk/pokemon/crystal/probes/ingame_gate_probe.lua`).
+state: on a menu the data is usually just *stale*, so it looks reasonable and a data-shape check
+sails through. The signal you want is the game's own state machine or mode variable. **Emerald**
+compares `gMain.callback2` against `CB2_Overworld`; **Crystal** uses `wMapStatus` plus
+`wMapEventStatus`, `wScriptRunning` and `wGameLogicPaused`, characterised with a dedicated probe
+rather than assumed.
 
 **How to establish it for a new game:**
 
@@ -1125,11 +1027,10 @@ Worked examples, both real:
 3. **Log what the proposed gate WOULD have decided at each moment**, alongside the raw values. That
    turns "does my gate work?" into something readable rather than something argued about.
 4. **Prefer several cheap signals combined** over one clever one, and state what each is for.
-5. Note this is *related to but distinct from* `get_local_state()` returning "don't send this
-   frame" (see [PROTOCOL.md](PROTOCOL.md)). That one suppresses your own outbound state; this one
-   governs whether a peer's ghost may exist locally at all. **You need both**, and they can differ:
-   it is reasonable to stop sending the moment a menu opens while leaving an already-spawned ghost
-   alone until something more disruptive happens.
+5. Distinct from `get_local_state()` returning "don't send this frame" ([PROTOCOL.md](PROTOCOL.md)):
+   that suppresses your own outbound state, this governs whether a peer's ghost may exist locally.
+   **You need both**, and they can differ — it is reasonable to stop sending the moment a menu
+   opens while leaving an already-spawned ghost alone until something more disruptive happens.
 
 ## "The map changed" and "the world was rebuilt" are different events
 
@@ -1355,20 +1256,13 @@ This is not tidiness or download size. Anything bundled is something **installed
 game by someone who only asked for a visual ghost overlay**, and it is your responsibility whether
 or not you wrote it.
 
-Found live 2026-08-17, in Pseudoregalia. Its packaging staged RE-UE4SS's whole stock `Mods` folder
-with a blanket `xcopy`, which shipped — **enabled** — a cheat manager, a console, console commands,
-keybind hooks, an actor dumper, a line-trace tool. None were used by the adapter, which is a C++
-mod loaded from its own folder and listed in neither loader file. Three costs, in increasing order
-of seriousness:
-
-1. The user believed those mods came with the game. They did not; the game ships no modding
-   framework at all. **Our package was the source, and nobody could tell** — including, for a
-   while, the person who packaged it.
-2. Two of them hook keyboard input and one enumerates actors, so when a hard crash was investigated
-   they were live suspects that had to be ruled out. **Bundled extras become confounders in every
-   later bug hunt**, and you pay that cost repeatedly.
-3. A cheat manager and a console went into a speedrunner's game uninvited. For some users that is
-   worse than a bug.
+**Found live 2026-08-17, in Pseudoregalia**: a blanket `xcopy` of RE-UE4SS's stock `Mods` folder
+shipped a cheat manager, a console, keybind hooks and an actor dumper — **enabled**, and used by
+nothing. Three costs worth knowing in advance: players believed the extras came with the game and
+**our package was the source with nobody able to tell**; the input hooks and the actor enumerator
+became **live suspects in a later crash hunt**, a cost paid repeatedly; and a cheat manager landed
+in a speedrunner's game uninvited, which for some users is worse than a bug.
+[packaging/README.md](../../packaging/README.md) and `agent_docs/verified.md` have the full account.
 
 **The same rule has a second half: install ADDITIVELY.** A package should go on top of whatever
 the player already has, never through it. Two failure modes, and the first is easy to miss:
@@ -1413,7 +1307,6 @@ Practical checks when packaging a new game:
   their audience is mod developers; your audience is players.
 - **State what you did NOT stage, in the staging script**, so the next person does not "fix" the
   omission by restoring a blanket copy.
-
 ## Hard rule: never write a save, and never write game state
 
 **Read the game; do not change it.** No save writes, no save-state editing, no writing values back
@@ -1471,10 +1364,10 @@ file move.
 
 ## Hard rules, restated (unchanged from [agent_docs/contract.md](../../agent_docs/contract.md))
 
-- The adapter may hold a socket to its own local core process (the bridge) and nothing else —
-  never a relay address, never the relay protocol, never bytes off-machine directly.
-- `area_id` and `anim` are opaque outside the adapter that produced them — compare by equality
-  only, never build a cross-game vocabulary.
+Root `CLAUDE.md` is always loaded and already carries the bridge-only rule and the
+`area_id`/`anim` opacity rule, so they are not restated here. The one that lives only in the
+contract:
+
 - Coordinate systems (Y-up vs Z-up, tile vs world units, pixel origins) are normalized inside
   the adapter, never in the core.
 

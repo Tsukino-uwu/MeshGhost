@@ -4970,3 +4970,35 @@ it, then try to fool it. It cost about two minutes and caught two false-clean ch
 **Fourth appearance of the wrong-install-on-PATH trap**, after `cmake` (2026-08-13), `git` itself
 (2026-08-15), and `cmd` (2026-08-17). It no longer costs a build — it now costs *a check that
 claims the tree is clean*, which is worse, because a failed build announces itself.
+
+## Planning on a model of the game you never watched (2026-08-18, Crystal)
+
+**"Observe before you override" is usually stated about fixes. It applies just as hard to
+DESIGNING**, and that is the easier half to miss, because planning does not feel like changing
+anything — nothing is written, so nothing seems risky yet.
+
+**Symptom.** A plan for moving a ghost rested on an assumed model: that a character's map
+coordinate updates when a step *completes*, so a ghost could be moved by writing coordinates and
+letting the animation follow. Nothing about the model was flagged as an assumption; it was simply
+how stepping obviously worked.
+
+**What one capture showed.** A single read-only capture of an NPC taking a real step showed the
+opposite — the map coordinate **is the destination, and is set at the START**, in the same frame as
+everything else, with the sprite sliding to catch up over the following ~16 frames. Every frame
+after the first is the engine's own work. The mechanism now lives where a game fact belongs, in
+`adapters/bizhawk/pokemon/crystal/documentation.md`.
+
+**What the wrong model would have cost.** A character that teleports while looking like it is
+walking — and a bug that presents as a *smoothing* fault, so the search starts in the interpolation
+code and never reaches the assumption underneath it. That is the real expense: a wrong model does
+not just cost the implementation and the debugging, it aims both of them at the wrong subsystem.
+
+**The tell, and it is a precise one:** *you can describe what the game does, but you cannot point
+at the run where you watched it do that.* Not "am I confident?" — confidence is exactly what the
+assumption feels like. The question is whether a capture exists. If it does not, that is the moment
+to spend one, and a read-only frame-by-frame capture costs a single live run.
+
+**When the capture contradicts you, say so plainly in the write-up** instead of quietly adopting
+the new model. The wrong assumption is worth recording precisely because it was intuitive — the
+next person arrives carrying the same one, and a write-up that shows only the correct model gives
+them nothing to catch themselves on.

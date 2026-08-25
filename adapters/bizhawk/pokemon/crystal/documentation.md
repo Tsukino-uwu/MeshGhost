@@ -137,6 +137,16 @@ is what the engine's own step logic writes.
 drive collision, screen coordinates drive where the sprite is drawn. The engine keeps them
 consistent for objects it owns.
 
+**A step sets the map coordinate to its DESTINATION, on the first frame** — measured from a
+read-only capture of an NPC taking a real step (2026-08-18). The map coordinate is not updated when
+a step completes; it is set at the start, in the same frame as everything else, and the sprite then
+slides to catch up over the following ~16 frames. Every frame after the first is the engine's own
+work.
+
+**Why it matters for a ghost:** the intuitive model — write coordinates when a step finishes and
+let animation follow — is backwards, and produces a character that teleports while appearing to
+walk. The bug then looks like a smoothing fault, which is where the search would go.
+
 ## Map identity
 
 `wMapGroup` (`01:dcb5`) and `wMapNumber` (`01:dcb6`) are consecutive bytes, followed immediately by
