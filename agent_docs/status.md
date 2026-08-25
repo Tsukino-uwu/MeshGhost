@@ -74,8 +74,8 @@ stale in two places at once; these six say which SUBSYSTEM is unsettled and send
   two-panel phone call, inline `hSCX`/`hSCY`, and bike/surf/ledges/warps. `crystal/UNVERIFIED.md`.
 - **Crystal, spawned tier — six fixes built, none watched.** Promotion, whole-tile drift, step
   trigger, shoving, the trainer-clone hang, battle survival. `crystal/UNVERIFIED.md`.
-- **Crystal: the drawn ghost wears the SURF sprite on land, walking DOWN only (2026-08-25)** — a
-  live user report. Two code theories refuted; `MESHGHOST_CRYSTAL_SPRITE_TRACE` is built, unrun. `crystal/UNVERIFIED.md`.
+- **Crystal: a biking peer's two ghosts move at different speeds (2026-08-25)** — user-seen, open;
+  the surf half of the same session is fixed and confirmed. `crystal/UNVERIFIED.md`.
 - **Crystal: in-place animations are BUILT and UNWATCHED (2026-08-25)** — one rule replaced the bump
   special case: read the peer's facing byte. **This is what the next live run is for.** `crystal/UNVERIFIED.md`.
 - **Crystal's drawn tier has no visual parity yet** — no reflection, wake, grass or cave clip, and a

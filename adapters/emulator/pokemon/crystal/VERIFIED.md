@@ -115,6 +115,7 @@ filed under the right theme, but anything can check that it is listed.
 - CONFIRMED ON SCREEN 2026-08-21/22 — Crystal's two tiers move properly
 - Pending — Crystal, after the 2026-08-21/22 session
 - CONFIRMED ON SCREEN 2026-08-22 — Crystal: the drawn tier's exit position and its facing
+- CONFIRMED ON SCREEN 2026-08-25 — Crystal: the drawn ghost surfs
 
 ## Confirmed facts
 
@@ -1922,3 +1923,21 @@ confirmed by the user watching a loopback session in New Bark Town, in their own
   indistinguishable from the player's". Verified in the log as well as on screen: four facings,
   each holding only its own view, zero invariant violations.
 
+## CONFIRMED ON SCREEN 2026-08-25 — Crystal: the drawn ghost surfs
+
+Vanilla V1.0, compare rig (spawned ghost 2 tiles right, painted 2 tiles left, interp 0), loopback.
+
+- **A surfing peer is drawn as the surf blob, not as a walking character standing on the sea** —
+  the user, asked to describe both ghosts while surfing, answered the drawn one as *"blob like the
+  spawned one"*, and that the walk/surf swapping on land was gone with it. Before the fix the same
+  question answered *"walking character on the water"* for the drawn ghost and *"correct surf
+  blob"* for the spawned one — the same peer in the same frame, which is what localised it.
+- **Cause: the drawn tier's decoded-tile cache was never invalidated at all.** Its own comment
+  claimed a map load cleared it; nothing in the file did. A surf mount rewrites the player's sprite
+  tiles in place — same VRAM base, no map load — so the cache kept serving the walking character's
+  pixels while the PPU-drawn ghost followed the game. It now drops its VRAM entries when
+  `wUsedSprites` moves, or the map changes; cartridge decodes are kept. Method and the two refuted
+  theories: `pitfalls.md`, "A cache whose comment claims it is invalidated".
+- **NOT covered by this confirmation**: the BIKE. The user, the same session: *"the bike was still
+  weird, the ghost moving at really different speeds from each other"* — a separate fault, the two
+  tiers disagreeing on the gait rather than on the graphics, and open. `UNVERIFIED.md`.

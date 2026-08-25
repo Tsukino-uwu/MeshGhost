@@ -1781,3 +1781,26 @@ A probe that cannot tell "absent" from "I am looking in the wrong place" is repo
 21-24 frames for something that could only take one or two. A third of a second is not a rendering
 delay, and that should have ended the reading on its face rather than being carried into a theory.
 
+## Two renderers of the SAME state disagreeing is the cheapest localiser you will get (2026-08-25)
+
+Crystal draws a peer two ways — the engine spawns a real object, and a painted tier decodes tiles
+itself — and a dev flag renders **one** peer through **both, in the same frame, from the same
+state**, side by side. A surfing peer came out as the correct blob on one and a walking character
+standing on the sea on the other.
+
+**That single observation did more than any probe.** Everything the two renderers share is
+excluded by construction: the wire, the sprite id, the state, the frame. Only what differs can be
+the fault. No measurement, no reproduction hunt, no theory — the rig hands you the bisection.
+
+- **Build the comparison BEFORE you need it.** Flipping a renderer between two runs cannot do this:
+  the game has moved, the place has changed, and you are comparing two moments as well as two
+  renderers. The whole value is *same frame, same state*.
+- **Then trace what each side is POINTED AT, at the one seam between them.** Here that was one log
+  line per ghost naming the graphics it resolved to. `peerSprite=83 -> vram 0`, with the local
+  player also at base 0, killed every theory about the id at once and left only the pixel path.
+- **Prefer this to deepening a measurement.** Two prior theories had been reasoned carefully from
+  the source and both were wrong; the disagreement between renderers needed neither.
+
+**It generalises past rendering.** Any two independent paths that should agree — two decoders, a
+cache and its source, a fast path and its fallback — can be run against one input and diffed. If
+your adapter has such a pair, wire the comparison up early and leave it behind a flag.

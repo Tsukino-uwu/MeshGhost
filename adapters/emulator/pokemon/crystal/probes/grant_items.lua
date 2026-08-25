@@ -14,8 +14,10 @@
 -- never touches the .sav and never writes a savestate.
 --
 -- WHAT IT GIVES, and nothing else:
---   * SUPER_ROD in the key-item pocket -- the reason this file exists. Fishing is one of the
---     drawn tier's action classes (`documentation.md`), and it cannot be watched without a rod.
+--   * SUPER_ROD and BICYCLE in the key-item pocket -- the reason this file exists. Fishing and
+--     riding are two of the drawn tier's action classes (`documentation.md`), and neither can be
+--     watched without the item. The bike is also the game's other GAIT: the adapter's own model
+--     carries a 4px-per-beat bike stride beside the 2px walk, and nothing has ever exercised it.
 --   * MASTER_BALL x10 in the ball pocket
 --   * MAX_REPEL x10 and RARE_CANDY x10 in the item pocket -- repels because wild encounters
 --     interrupt a movement test, candies because a level is sometimes the cheapest way to reach
@@ -70,6 +72,9 @@ local MAX_ITEMS, MAX_BALLS, MAX_KEY_ITEMS = 20, 12, 25
 
 -- constants/item_constants.asm
 local MASTER_BALL, RARE_CANDY, MAX_REPEL, SUPER_ROD = 0x01, 0x20, 0x2B, 0x3D
+-- BICYCLE is 07 and is a KEY_ITEM (`data/items/attributes.asm`, the entry commented `; BICYCLE`),
+-- so it goes in the key-item pocket -- which has no quantity byte -- and not beside the balls.
+local BICYCLE = 0x07
 
 -- WHAT PERMANENT REPEL ACTUALLY DOES, read off the decompilation rather than assumed, because the
 -- assumption ("no wild battles") is wrong in a way that wastes a whole test session:
@@ -242,6 +247,7 @@ local function tick()
 	log("  BEFORE key items:" .. dump(W_NUM_KEY_ITEMS, W_KEY_ITEMS, false, MAX_KEY_ITEMS))
 
 	log("  SUPER_ROD (key item): " .. giveKeyItem(SUPER_ROD))
+	log("  BICYCLE (key item):   " .. giveKeyItem(BICYCLE))
 	log("  MASTER_BALL x10:      " .. givePaired(W_NUM_BALLS, W_BALLS, MAX_BALLS, MASTER_BALL, 10))
 	log("  MAX_REPEL x10:        " .. givePaired(W_NUM_ITEMS, W_ITEMS, MAX_ITEMS, MAX_REPEL, 10))
 	log("  RARE_CANDY x10:       " .. givePaired(W_NUM_ITEMS, W_ITEMS, MAX_ITEMS, RARE_CANDY, 10))

@@ -125,7 +125,7 @@ moved, verbatim and in their original order, to a `VERIFIED.md` beside each adap
 
 | Game | File | Entries |
 | --- | --- | --- |
-| Pokémon Crystal | [../adapters/emulator/pokemon/crystal/VERIFIED.md](../adapters/emulator/pokemon/crystal/VERIFIED.md) | 63 |
+| Pokémon Crystal | [../adapters/emulator/pokemon/crystal/VERIFIED.md](../adapters/emulator/pokemon/crystal/VERIFIED.md) | 64 |
 | Pokémon Emerald | [../adapters/emulator/pokemon/emerald/VERIFIED.md](../adapters/emulator/pokemon/emerald/VERIFIED.md) | 120 |
 | Pseudoregalia | [../adapters/pseudoregalia/VERIFIED.md](../adapters/pseudoregalia/VERIFIED.md) | 104 |
 | TEVI | [../adapters/tevi/VERIFIED.md](../adapters/tevi/VERIFIED.md) | 18 |

@@ -1394,10 +1394,62 @@ end
 -- emulator (60fps -> 3fps, 2026-08-19). A run of same-coloured pixels is one drawLine instead of
 -- up to eight drawPixels, and a tile's decode is reused by every character wearing that sprite.
 --
--- The cache is cleared on every map load, because VRAM is rebuilt then and a stale decode would
--- draw the previous map's graphics.
+-- THE CACHE MUST BE INVALIDATED WHEN THE TILES BEHIND AN INDEX CHANGE, and until 2026-08-25 the
+-- comment here claimed a map load did that while NOTHING IN THIS FILE EVER CLEARED IT. See
+-- invalidateTileCache below -- the fault this hid is worth reading before touching either.
 local VRAM_BANK1 = 0x2000
 local tileCache = {}
+
+-- WHAT WENT WRONG, measured on screen 2026-08-25, and the shape is worth keeping.
+--
+-- The user surfed on the compare rig and reported the SPAWNED ghost as a correct surf blob and the
+-- DRAWN one as the walking character standing on the sea -- the same peer, the same frame, two
+-- renderers disagreeing. MESHGHOST_CRYSTAL_SPRITE_TRACE had already shown both being pointed at
+-- the same place: `peerSprite=83 -> vram 0`, with the local player also at base 0. So the source
+-- was right and the pixels were wrong, which leaves exactly one thing between them.
+--
+-- Mounting the surf blob rewrites the player's sprite tiles IN PLACE -- same VRAM base, new
+-- graphics, and NO map load. The spawned ghost is drawn by the PPU straight from live VRAM, so it
+-- followed. The drawn tier decodes VRAM itself and cached that decode by tile index forever, so it
+-- kept painting the walking character's pixels at indices the game had since overwritten.
+--
+-- IT ALSO EXPLAINS THE REPORT THAT CAME FIRST, which two earlier theories could not: after coming
+-- ashore, *"swapping between walking [and] surf sprite only when walking downwards"*. Only the
+-- indices already IN the cache were stale; the ones first decoded while surfing came back with
+-- blob pixels and stayed. So a direction whose stepping tiles happened to be decoded on the water
+-- kept them on land, and the ghost mixed the two per frame -- per DIRECTION, which is what made it
+-- look like a facing bug. UNVERIFIED.md carries the two refuted theories; the arrangement cache
+-- really cannot produce surf art, and this one can, because it caches PIXELS rather than offsets.
+--
+-- `wUsedSprites` is the record of which sprite sits at which VRAM base, so it moves exactly when
+-- the graphics behind an index do -- including the surf mount, which no map/coordinate signal
+-- sees. The map is folded in as well because that is what the old comment promised and a map load
+-- rebuilds VRAM wholesale. Cartridge decodes are KEPT: ROM does not change, they are keyed by a
+-- string, and they are the expensive ones.
+local tileCacheSig = nil
+local function invalidateTileCache()
+	local sig = (u8(W_MAPGROUP) or 0) * 256 + (u8(W_MAPNUMBER) or 0)
+	if W_USEDSPRITES then
+		for i = 0, USED_SPRITES_CAPACITY - 1 do
+			local id = u8(W_USEDSPRITES + i * 2)
+			if not id or id == 0 then
+				break
+			end
+			sig = (sig * 31 + id * 256 + (u8(W_USEDSPRITES + i * 2 + 1) or 0)) % 0x3FFFFFFF
+		end
+	end
+	if sig == tileCacheSig then
+		return
+	end
+	tileCacheSig = sig
+	local kept = {}
+	for k, v in pairs(tileCache) do
+		if type(k) == "string" then -- "rom:<offset>": the cartridge cannot have moved
+			kept[k] = v
+		end
+	end
+	tileCache = kept
+end
 
 -- SPRITE GRAPHICS STRAIGHT FROM THE CARTRIDGE, for a peer whose sprite this map never loaded.
 --
@@ -2702,6 +2754,10 @@ end
 
 function drawOverflow()
 	drawFrames = drawFrames + 1
+	-- BEFORE EVERY GATE BELOW, for the same reason the camera sampler is: a frame where the game
+	-- reloaded sprite graphics and this did not run is a frame painted from tiles that no longer
+	-- exist, and the tier has early returns.
+	invalidateTileCache()
 	-- BEFORE EVERY GATE BELOW. The camera accumulator must not miss a frame; see the note on
 	-- meshghostSampleCamera above for what missing them cost.
 	meshghostSampleCamera()

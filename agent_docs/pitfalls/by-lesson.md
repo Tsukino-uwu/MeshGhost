@@ -3653,3 +3653,50 @@ scoped to the old path too.
 **The good news is that this is what the hook is for.** It refused a commit that a human review
 would have waved through, on a change whose whole point was that nothing moved but the line
 numbers.
+
+## A cache whose comment claims it is invalidated, and nothing ever clears it (Crystal, 2026-08-25)
+
+**Symptom.** On the compare rig the SPAWNED ghost surfed correctly and the DRAWN one stood on the
+water wearing the walking sprite — the same peer, the same frame, two renderers disagreeing. The
+report before it was stranger: after coming ashore the drawn ghost swapped between the walking and
+surf sprites, *"only when walking downwards"*.
+
+**Two theories reasoned from the code, both wrong, both plausible.** The peer's sprite id was
+oscillating (refuted by measurement: it held 1 on land and 83 on water across four clean
+transitions, 5,490 frames, no flicker). Or the facing cache was contaminated with surf frames
+(refuted by reading: a learned frame stores an OFFSET inside its own sprite's graphics, and
+`SurfSpriteGFX` is a 12-tile `WALKING_SPRITE` shaped exactly like `ChrisSpriteGFX` — so a
+blob-learned offset applied to the walking base still draws walking tiles).
+
+**Cause.** The drawn tier decodes VRAM tiles itself and caches the decoded PIXELS by tile index.
+The comment above the cache said it was cleared on every map load. **Nothing in the file cleared it
+at any point** — the cache had three references: declare, read, write. Mounting the surf blob
+rewrites the player's sprite tiles IN PLACE: same VRAM base, new graphics, and no map load. The
+spawned ghost is drawn by the PPU from live VRAM so it followed; the drawn one kept painting
+pixels the game had overwritten.
+
+**Why "only walking downwards" was the tell, not noise.** Only indices already IN the cache were
+stale. Ones first decoded while surfing came back as blob pixels and stayed that way on land. So
+whether a given direction was wrong depended on whether its stepping tiles had happened to be
+decoded on the water — which reads exactly like a facing bug and is not one.
+
+**Fix.** Invalidate on `wUsedSprites` changing (the record of which sprite sits at which VRAM base,
+so it moves precisely when the graphics behind an index do — including a surf or bike mount, which
+no map or coordinate signal sees), folding the map in as well. Cartridge decodes are kept: ROM
+cannot move. Confirmed on screen by the user the same session.
+
+**The transferable lessons, in the order they cost time:**
+
+1. **Two renderers disagreeing on the same frame is a gift** — it localises the fault to what
+   differs between them and nothing else. Here both were pointed at the same VRAM base, so the
+   source was excluded outright and only the pixel path was left. **Build the comparison rig
+   before you need it**; `MESHGHOST_COMPARE_TIERS` existed for exactly this and paid for itself.
+2. **A comment describing an invalidation is not an invalidation.** `git grep -n '<cacheName>'`
+   and count the references: declare, read, write, and nothing else means the cache is permanent
+   whatever the prose says. Cheap enough to do on sight.
+3. **Ask what writes the thing you cached, not just what reads it.** A tile index is a hardware
+   address, not an identity — the game rewrites what lives there without telling anyone.
+4. **The instrument to reach for separates "wrong input" from "wrong output" at the seam**, and
+   there is usually exactly one seam. `MESHGHOST_CRYSTAL_SPRITE_TRACE` printed which graphics each
+   ghost resolved to; once it said `peerSprite=83 -> vram 0` with the local player also at base 0,
+   every theory about the id was dead in one line.
