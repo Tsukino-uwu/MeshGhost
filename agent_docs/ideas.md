@@ -3286,9 +3286,32 @@ Go-side fuzz/test entry nested inside a Pseudoregalia `##`, which it would file 
 The rule that holds: let `C` be `^## Confirmed facts$` (line 49); ignore everything at or before
 it. A heading starts an entry iff it is not inside a fence **and** either it matches `^## `
 (unconditionally — 13 entries in the 3051-3467 run carry their date only in prose), **or** it
-matches `^### ` and a `^- Date:` line falls within the next 4 lines with no heading between.
-Yield: **332 entries, 65 sub-headings**; first entry at 51, sum of lengths = 10,124, no gap or
-overlap.
+matches `^### ` and a `^- Date:` line falls within the next 4 lines with no heading between,
+**or it matches `^### 20\d\d-\d\d-\d\d` — a LEADING date.**
+
+> **CORRECTED 2026-08-25, while implementing it. The rule as first written was wrong, and its
+> stated yield of "332 entries, 65 sub-headings" was wrong with it** — the numbers were derived
+> from the same defective rule, so reproducing them exactly proved nothing. **The conservation
+> arithmetic passed and the result was still incorrect**, which is the precise failure this section
+> warns about two paragraphs above, reproduced by the rule it recommends instead.
+>
+> **What it missed.** 12 dated `###` headings carry their date in the heading and have no `- Date:`
+> line, so the `- Date:`-within-4 test filed them as sub-headings. Ten of them sat inside ONE
+> Go-side entry (`### CORRECTION: MaxEventBytes'…`, lines 7491-7754, 264 lines) and cover Go-side
+> release facts, Emerald AND Crystal — all of which would have been swallowed into whatever single
+> destination that one entry was classified as, with nothing flagging it.
+>
+> **The discriminator, and it is clean.** A LEADING date (`### 2026-08-18 — v0.9.5 released…`)
+> starts a real entry. A TRAILING date (`### Following it: the ghost fights back — 2026-08-16, same
+> session`) is a genuine sub-heading continuing the entry above it. Anchoring on `^### 20\d\d` and
+> not on "contains a date anywhere" separates the 10 from the 2 exactly.
+>
+> **Corrected yield: 342 entries**, sum of lengths still exactly 10,124, no gap or overlap. Verify
+> against 342, not 332.
+>
+> **The transferable half:** a conservation check confirms nothing when the thing it checks and the
+> number it checks against were produced by the same rule. Line counts still summed to 10,124 while
+> ten entries were in the wrong file. Conservation catches LOSS; it cannot catch MISFILING.
 
 **Classify on entry BODY, not heading** — that collapses the residual needing human review from
 ~119 to ~35-42. Known false friend: Pseudoregalia's *save crystal* matches "crystal". The
