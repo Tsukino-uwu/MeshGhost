@@ -50,6 +50,15 @@ Internal documentation for MeshGhost: architecture, planning, licensing, and ver
   `adapters/_template/`. Each adapter also carries a **`FLAGS.md`** (its compile-time flag
   register — shipped behaviour / probe / dormant) and a **`documentation.md`** (how that GAME
   works, never our compensations). All four shipped adapters have all three, as of 2026-08-18.
+- **`adapters/CLAUDE.md` and `adapters/bizhawk/CLAUDE.md` — rules that load themselves.** A nested
+  `CLAUDE.md` is read automatically the first time a session touches a file in that folder, and
+  costs nothing on a session that never does. The first holds the hard rules common to every
+  adapter; the second holds the BizHawk/Lua host rules Crystal and Emerald share. Both are capped
+  at 300 lines for the same reason the root file is, and neither restates it. Added 2026-08-25,
+  moving content out of `_template/` that was only reachable by reading it end to end.
+- **`.claude/skills/new-adapter/` and `.claude/skills/write-a-probe/` — required reading, sequenced.**
+  A skill's body loads only when invoked, so these carry the order to read things in without
+  spending context until the moment they apply. They are maps, not copies: every rule keeps one home.
 
 **The one-line map, if you are new here** (user's framing, 2026-08-19, corrected on one point):
 
