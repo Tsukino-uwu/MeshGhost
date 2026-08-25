@@ -248,8 +248,12 @@ UE4SS entry below for that last one specifically, which is currently unresolved)
   an emulator relaunch, the user saved a *state* — and the relaunch still lost their place,
   because the two are separate mechanisms. Anything a test kit writes into RAM (badges, items,
   repel) is captured by a savestate but only reaches the `.sav` file when the game itself saves.
-  Say which one is meant. Recovery, when it happens: the state FILES survive a relaunch
-  (`Bizhawk/GBA/State/<rom>.mGBA.QuickSaveN.State`), so `loadslot` puts it back.
+  Say which one is meant. Recovery, when it happens: the state FILES survive a relaunch, so
+  `loadslot` puts it back — **but the path is per emulator core, not one rule**. Emerald is
+  `Bizhawk/GBA/State/<name>.mGBA.QuickSaveN.State`; Crystal is
+  `Bizhawk/Gameboy/State/<name>.Gambatte.QuickSaveN.State`. `<name>` is BizHawk's game-database
+  name, not the ROM's filename — see the 2026-08-23 entry above, which is why looking one up by
+  the ROM you actually loaded finds nothing.
 - **A whole test cycle can now run without the user touching anything — 2026-08-18.** The pieces
   were assembled separately today and only add up when listed together, which is the user's own
   observation: *"this also allows you to start bizhawk, get in game without me doing anything"*

@@ -74,8 +74,13 @@ netx       — transport selection (tcp|udp|quic) as net.Listener/net.Conn. Adde
 NOT PUBLIC — internal/ still means what it always did:
 internal/e2e        — test-only. Launches the real binaries and drives a real adapter over
                        the bridge; imports bridge, netx, protocol, transport. Ships no
-                       production code, so nothing imports it. The one thing left under
-                       internal/, deliberately: keeping it non-empty is what makes the six
+                       production code, so nothing imports it.
+internal/gameblind  — test-only, added 2026-08-20. Five tests over the source tree that make
+                       the game-blindness rules mechanical instead of manual: game names in
+                       library code, generic imports, frozen wire fields, the
+                       server/client/adapter split, and adapters never speaking the relay
+                       protocol (testing.md). Imports nothing of ours at build time.
+                       Keeping internal/ non-empty is deliberate: it is what makes the six
                        above a chosen set rather than the residue of deleting a directory.
 
 cmd/* are package main and were never importable:

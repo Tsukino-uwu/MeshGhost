@@ -392,7 +392,7 @@
   ADR in `agent_docs/architecture.md`. **The limit**: each shipped adapter reports its own
   adapter/mod version (e.g. Emerald's `"phase5.5"`, TEVI's BepInEx `PluginVersion`), not the
   actual game/DLC build — there's no cited memory address to read a real game version from in
-  any of the three games, and `CLAUDE.md`'s rule against guessing addresses from memory means
+  any of the four shipped adapters' games, and `CLAUDE.md`'s rule against guessing addresses from memory means
   one wasn't invented for this. So this catches two peers on different *adapter* revisions, not
   a real game-version/DLC mismatch.
   - **User feedback, 2026-08-14, real usage evidence**: TEVI has actually been played across

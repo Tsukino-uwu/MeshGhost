@@ -337,7 +337,7 @@ the two open contract questions — those stay exactly as already documented, de
 
 ### Phase 6 — Second game (TEVI)
 
-Visible outcome: repeat phases 1–4 for TEVI using the frozen template, and find out whether
+Visible outcome: repeat phases 1–4 for TEVI using the template's protocol stub, and find out whether
 the contract holds up outside Emerald. **Status: fully done, including 6.6 (two real players),
 confirmed 2026-08-13** — see `agent_docs/phases/phase6.md` for the full record. Confirmed live:
 Mono (not IL2CPP), real player position/facing/anim/area reading, a real bridge→relay→core
@@ -374,7 +374,7 @@ the "Status" line at the top of this section.
 
 ### Phase 7 — Third game (Pseudoregalia)
 
-Visible outcome: repeat phases 1–4 for Pseudoregalia (UE5) using the frozen template. **Status:
+Visible outcome: repeat phases 1–4 for Pseudoregalia (UE5) using the template's protocol stub. **Status:
 7.0–7.8 done — 7.7 confirmed 2026-08-16, two real players on two machines with the Linux
 tester; 7.8 (slide pose via the game's own crouch path) landed 2026-08-17** — see
 `agent_docs/phases/phase7.md` for
@@ -660,8 +660,11 @@ plan that was never implemented). Full record: the ADR in `agent_docs/architectu
 pass `-min-send=10ms` — faster than the (now fallback-only) 20Hz default — which under "slower
 wins" against an unconfigured relay would have silently capped every one of them back down to
 50ms, undoing the exact fast-local-timing setup Phase 8 chose deliberately
-(`agent_docs/phases/phase8.md`). Every relay dev script now passes `-send-hz=100`
-(`run-relay.bat`, `run-relay-loopback.bat`, `run-relay-online.bat`).
+(`agent_docs/phases/phase8.md`). The relay dev scripts pass `-send-hz=100`
+(`run-relay.bat`, `run-relay-loopback.bat`, `run-relay-online.bat`) — but **not all of them**:
+`run-relay-loopback-shipped.bat` deliberately omits it, because the whole point of that launcher
+is to reproduce the shipped rate, and its own header calls `-send-hz` *"the exact knob that would
+invalidate this test"*. It is the launcher the Crystal rig currently uses (`status.md`).
 
 **Not done, deliberately**: advertising a recipient's cap back to the sender (no way for a
 sender to know a given peer is receiving it throttled); auto-deriving `-interp` from the
@@ -672,7 +675,8 @@ documented in the flag help and README instead of engineered around). Both are r
 ### Release packaging (not a phase, tooling)
 
 Added 2026-08-11 (`v0.1.0`, two zips: `meshghost-relay-...` / `meshghost-emerald-player-...`).
-Reworked 2026-08-12: **one zip**, not two. The two-zip split's naming (`relay`/`player`) was
+Reworked 2026-08-12: **one Windows zip**, not two (plus, since then, a Linux and a macOS
+tarball of just the client and server — `release.yml` builds all three; see `environment.md`). The two-zip split's naming (`relay`/`player`) was
 flagged right after `v0.1.0` shipped as not reading as "server, host this" / "client, join
 with this" to a non-technical downloader. Rather than just rename the two zips, the fix went
 further — `packaging/release/` now holds everything (client + server exes, one `config.json`
@@ -694,7 +698,10 @@ not a claim that 6.6 is still open.
 TEVI's packaging is unusual: `MeshGhostTevi.dll` is committed to the repo (CI cannot build it —
 see `packaging/README.md`'s TEVI section for why) via `dev-scripts/build-tevi.bat`, guarded by
 a staleness check in `release.yml` that fails the build if the committed DLL predates its
-source. The release is cut with `prerelease` ticked and both `README.txt`s mark TEVI
+source. **Pseudoregalia's `MeshGhostPseudo.dll` is committed for the same reason** (a private
+UE4SS dependency CI cannot build), and `release.yml` now runs **three** such gates, not one:
+the TEVI plugin sources, the Pseudoregalia plugin sources, and the committed UE4SS runtime plus
+its submodule pin (`testing.md`). The release is cut with `prerelease` ticked and both `README.txt`s mark TEVI
 experimental.
 
 **Follow-up, same day (2026-08-12): `"game"` dropped from the shipped `config.json`.** While
