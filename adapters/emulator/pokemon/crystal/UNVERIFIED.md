@@ -1184,3 +1184,32 @@ full `remote_state` message and backslash escapes; all ten bad ones return `nil`
 milliseconds instead of hanging. **That was a desktop Lua, not BizHawk's** — the file compiles
 there too, but the check that matters is that the adapter still loads and connects in a real
 session, which is part of the live test below.
+
+## 2026-08-25 — Crystal: the loopback ghost now stands 2 tiles to the side, like Emerald's
+
+**The user asked for this after watching both games back to back**, in the smoke test that confirmed
+all four adapters (`../../../../agent_docs/verified.md`): *"i would prefer the ghost offset to the
+right similar to emerald instead of 0offset/trailing me."* Crystal ran at shipped settings, so its
+ghost sat on the player's own tile a quarter second behind — which hides the thing being judged
+behind the character doing it, the same finding Emerald already had on 2026-08-14.
+
+**What changed.** `LOOPBACK_OFFSET_X` defaults to `2` instead of `0`, and honours
+`MESHGHOST_LOOPBACK_TRAIL` (set to anything) to force `0` for the exact-trail mode — the same
+env-var name and meaning Emerald's `LOOPBACK_GHOST_OFFSET_TILES_X` uses, so one variable now
+switches either game between the two ways of looking at a loopback ghost.
+
+**The gate is the part worth checking.** Crystal applied that offset to *every* peer, which is why
+0 was the only safe default: a nonzero value would have moved a real peer off their own position in
+a two-machine session. It is now applied only where `id` ends in `-ghost`, at its single use site,
+matching what Emerald has always done in `syncGhost`. So the new default is safe for a real session
+in a way the old code could not have been.
+
+**What to look at:** start Crystal on the loopback rig and walk around. **Correct looks like** one
+ghost two tiles to your right, mirroring your steps and facing — not on top of you, and not
+doubled. If `MESHGHOST_COMPARE_TIERS` is on you should still get exactly two copies (drawn left at
+-2, spawned right at +2), not three and not a stack.
+
+**Self-tested only as far as `luac -p`.** It parses, and it is a two-line change in a file that
+loaded and connected in a real session minutes earlier. It has **not** been seen running: the
+hot-swap through the dev loader did not take, because the loader polls on a frame tick and the
+emulator was paused at the time. First Crystal launch settles it.

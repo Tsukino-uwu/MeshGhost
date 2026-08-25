@@ -103,6 +103,7 @@ filed under the right theme, but anything can check that it is listed.
 - The spawned ghost's own chop was ARRIVAL CADENCE, and `-interp` fixes it
 - 2026-08-21 — HBlank multiplexing is closed by decision, not left open
 - RULE CHANGE — the gate on this file tightened (2026-08-21)
+- All four adapters still run end to end after the doc/refactor pass — 2026-08-25
 
 ### <short claim, e.g. "Emerald local player X position">
 
@@ -1137,4 +1138,37 @@ invites someone to schedule it, and this one is attractive enough to come back o
   the user's screen later contradicted the same day — the correction is in `pitfalls.md` ("THE
   PAIR was wrong — and fixing it did NOT clear the symptoms"). Appended rather than deleted,
   because this file is append-only; treat `unverified.md` as its current home.
+
+## All four adapters still run end to end after the doc/refactor pass — 2026-08-25
+
+**Cross-game, so it lives here rather than in any one adapter's file.** Human-gated track: the user
+watched each game and said so.
+
+- Date: 2026-08-25.
+- Observed: each adapter in turn against a loopback relay on one machine, one at a time on the
+  same bridge port (7778), every other rig torn down between games. The user's words, per game:
+  *"Emerald works"*, *"crystal works"*, *"TEVI works"*, *"pseudoregalia works"*.
+  - **Emerald** — vanilla `(USA, Europe)`, dev settings (`-interp=0ms`, `-min-send=10ms`,
+    relay `-send-hz=100`), ghost offset 2 tiles to the side.
+  - **Crystal** — V1.0, **shipped** settings (250ms interpolation, 20Hz), ghost at offset 0 and
+    therefore trailing. The user confirmed it works and asked for Emerald's side offset instead;
+    that change is in the adapter and unwatched — `crystal/UNVERIFIED.md`.
+  - **TEVI** — Steam install. The mod started its own core, found 7778 already taken, and attached
+    to the running one instead: the port-collision behaviour working as designed, seen in
+    `BepInEx/LogOutput.log`.
+  - **Pseudoregalia** — Steam install, Zone_Tower. `UE4SS.log` reported
+    `send_ok=7908 send_fail=0 lines_received=7907 lines_malformed=0`, and every
+    `remote p1-ghost redraw` line had `intended` exactly equal to `actual`.
+- Source: `dev-scripts/meshghost.log` and `meshghost-server.log` per game for the relay/core side;
+  `dev-scripts/bizhawk-dev-loader-{emerald,crystal}.log` for the two Lua attaches;
+  the two mods' own logs above.
+- Notes: **what this was worth testing for.** Sixty commits sat unpushed, including a `core.go`
+  split into six files, a `relay/online.go` split into four, `internal/cfg`, the bridge's first
+  tests, and Emerald's fix for crossing Lua's 200-local ceiling — which had never once been loaded
+  in a running game, and would have failed to compile at all if it were still over. It loaded.
+  Agent-confirmed alongside it, per the Go-side track: `dev-scripts/run-gotests.bat` green (build,
+  vet, whole suite ×2 including `internal/e2e` at 158s), preflight clean, and both mod DLLs
+  hash-matched to their sources and to the copies deployed in the live installs.
+- Scope: **one machine, loopback, one client per game.** This says every adapter still reaches the
+  screen; it says nothing about two real peers, which is where the open items in `status.md` live.
 

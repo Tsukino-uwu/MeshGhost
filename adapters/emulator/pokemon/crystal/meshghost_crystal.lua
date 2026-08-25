@@ -64,12 +64,20 @@ local BUSY_PORT_COOLDOWN_FRAMES = 600
 -- event with real collision, so that means standing inside something solid.
 --
 -- Offset to the SIDE rather than trailing behind, so the ghost can be compared against the real
--- character rather than hidden by it (user's standing preference for test ghosts). Set to 0 for a
--- real two-machine session, where a peer's position is already their own.
+-- character rather than hidden by it (user's standing preference for test ghosts). Default 2, the
+-- same as Emerald's LOOPBACK_GHOST_OFFSET_TILES_X -- the user asked for Crystal to match it after
+-- a side-by-side run of both on 2026-08-25: an exact trail hides the ghost behind the character,
+-- which is the thing being judged. MESHGHOST_LOOPBACK_TRAIL (set to anything) forces 0 for the
+-- exact-trail mode, same env-var name and meaning Emerald uses.
+--
+-- Applied ONLY to the "<id>-ghost" loopback echo, at its one use site -- a real peer's position is
+-- already their own and must never be moved. That gate is why this can carry a nonzero default at
+-- all; before it, 0 was the only value safe for a two-machine session.
 -- Each of these can also be set as a GLOBAL before this file is dofile()'d, which is how a second
 -- instance gets a different bridge port without restarting an already-open emulator to change an
 -- environment variable. See run_second_client.lua.
-local LOOPBACK_OFFSET_X = tonumber(MESHGHOST_LOOPBACK_OFFSET_X or os.getenv("MESHGHOST_LOOPBACK_OFFSET_X") or "") or 0
+local LOOPBACK_OFFSET_X = (os.getenv("MESHGHOST_LOOPBACK_TRAIL") and 0)
+	or tonumber(MESHGHOST_LOOPBACK_OFFSET_X or os.getenv("MESHGHOST_LOOPBACK_OFFSET_X") or "") or 2
 
 -- SIDE-BY-SIDE TIER COMPARISON (dev only, off by default) -- MESHGHOST_COMPARE_TIERS.
 --
@@ -5260,7 +5268,9 @@ local function renderRemote(id, state)
 
 	local isLoopback = id:match("%-ghost$") ~= nil
 	local baseX = math.floor(pos[1])
-	local offsetX = LOOPBACK_OFFSET_X
+	-- Loopback only. A real peer already stands where they stand, and the offset exists solely so
+	-- an echo of yourself is not hidden underneath you.
+	local offsetX = isLoopback and LOOPBACK_OFFSET_X or 0
 	if COMPARE_TIERS and isLoopback and offsetX == 0 then offsetX = COMPARE.spawned end
 	local x, y = baseX + offsetX, math.floor(pos[2])
 	if x < 0 or x > 255 or y < 0 or y > 255 then

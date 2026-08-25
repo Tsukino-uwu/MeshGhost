@@ -12,16 +12,16 @@ same day: *"i will move on to crystal and not work more on emerald right now."* 
   polish or a custom feature; a real fault is a defect against a finished adapter. `phase8.md`.
 - **Crystal is where the gap is.** Both tiers were confirmed good at the dev rig's own settings
   2026-08-22/23; most of what is open below is a fix built since and never watched. `verified.md`.
-- **Rig SHUT DOWN, still — no rig ran on 2026-08-25 either**; ROM **V1.0**. Rebuild with
-  `run-relay-loopback-shipped.bat` + `run-core-crystal-shipped.bat` — shipped 250ms/20Hz.
+- **Rig SHUT DOWN.** It DID run 2026-08-25 for the four-adapter smoke test (`verified.md`), on ROM
+  **V1.0**. Rebuild with `run-relay-loopback-shipped.bat` + `run-core-crystal-shipped.bat`.
 - **NEXT SESSION STARTS HERE: Crystal's in-place animations are built and need ONE live run.**
-  Five things to watch, with what correct looks like, are in `crystal/UNVERIFIED.md` (2026-08-25).
+  Six things to watch, with what correct looks like, are in `crystal/UNVERIFIED.md` (2026-08-25).
 - **Savestate slots on that rig:** 1 the user's, 7 their Route 39 spot, 8 `goto_map`'s undo, **9 the
   9x9 square start**. The mechanism, and the savestate-is-not-a-save trap: `environment.md`.
 
 ## Genuinely open items
 
-- **46 commits are UNPUSHED as of 2026-08-25, seven of them `.go`** — so CI has seen none of it,
+- **60 commits are UNPUSHED as of 2026-08-25, eight of them `.go`** — so CI has seen none of it,
   including the bridge-bind guard. Last run 2026-08-23, green. `gh run list` once pushed; the user pushes.
 - **One doc item left open on purpose** — incident narrative still inside several ADRs and one
   `risks.md` bullet. (`status.md`'s own length was the other; drained 2026-08-25.) `doc-history.md` §5.
@@ -56,8 +56,8 @@ that a peer's state genuinely differs from the local player's, which loopback co
   says nothing about whether ordinary play produces that overlap. `verified.md` 2026-08-19.
 - **18 Emerald probes and dev-scripts were rewritten to resolve their own directory (2026-08-25)** —
   they PARSE (preflight runs `luac -p` on all of them); none has been RUN in a game. `pitfalls.md`.
-- **Emerald CROSSED Lua's 200-local ceiling and did not compile at all** — fixed 2026-08-22 by
-  consolidating seven constants onto two tables; now 197. Not yet loaded in a real session.
+- **Crystal's loopback ghost moved to Emerald's 2-tile side offset (2026-08-25)** — user's request;
+  parses, never watched, and the gate to `-ghost` ids is the part to check. `crystal/UNVERIFIED.md`.
 
 **Crystal's open work is grouped, not listed one fix per line** (2026-08-25). Sixteen entries here
 were each a two-line restatement of a heading in `crystal/UNVERIFIED.md`, which is a 1,186-line
