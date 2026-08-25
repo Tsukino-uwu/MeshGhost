@@ -4,7 +4,18 @@
 -- properly"*. The side-on frames of the Acro Bike hide the difference between standing still on it
 -- and rolling along on it; the front and back views do not. So the ride is driven to face each of
 -- them, held still long enough to settle, and shot.
-local shots = "C:/dev/MeshGhost/dev-scripts/shots/emerald/"
+-- Resolve this script's own directory instead of hardcoding one developer's
+-- checkout. A tracked absolute path is unusable on anyone else's machine and is
+-- the class of leak .githooks/pre-commit now refuses (pitfalls.md).
+local MESHGHOST_DIR = (function()
+	local info = debug.getinfo(1, "S")
+	if info and info.source and info.source:sub(1, 1) == "@" then
+		return info.source:sub(2):match("^(.*)[/\\][^/\\]*$") or "."
+	end
+	return "."
+end)()
+
+local shots = MESHGHOST_DIR .. "/../../../../../dev-scripts/shots/emerald/"
 local GMAIN_CALLBACK2_ADDR = 0x030022c4
 local CB2_OVERWORLD_ADDR = 0x08085e5c
 local GPLAYERAVATAR_ADDR = 0x02037590

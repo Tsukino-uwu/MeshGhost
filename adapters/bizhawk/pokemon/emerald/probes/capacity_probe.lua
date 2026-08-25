@@ -20,6 +20,17 @@
 --
 -- Addresses are the ones the adapter itself uses (see meshghost_emerald.lua's header for their
 -- provenance) -- vanilla Emerald only, so on an Archipelago ROM the numbers here are meaningless.
+-- Resolve this script's own directory instead of hardcoding one developer's
+-- checkout. A tracked absolute path is unusable on anyone else's machine and is
+-- the class of leak .githooks/pre-commit now refuses (pitfalls.md).
+local MESHGHOST_DIR = (function()
+	local info = debug.getinfo(1, "S")
+	if info and info.source and info.source:sub(1, 1) == "@" then
+		return info.source:sub(2):match("^(.*)[/\\][^/\\]*$") or "."
+	end
+	return "."
+end)()
+
 local GSAVEBLOCK1PTR_ADDR = 0x03005d8c
 local GOBJECTEVENTS_ADDR = 0x02037350
 local OBJECTEVENT_SIZE = 0x24
@@ -33,7 +44,7 @@ local OAM_ENTRIES = 128
 local REPORT_SECONDS = 10 -- wall clock, from os.time (1s resolution), so a longer window than
                           -- feels necessary: 10s keeps the fps figure inside a few percent.
 
-local LOG_PATH = "C:/dev/MeshGhost/adapters/bizhawk/pokemon/emerald/probes/capacity_probe.log"
+local LOG_PATH = MESHGHOST_DIR .. "/capacity_probe.log"
 local logfile = io.open(LOG_PATH, "a")
 local function say(m)
     console.log("CAPACITY: " .. m)

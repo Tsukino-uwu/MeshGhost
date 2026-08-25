@@ -11,8 +11,19 @@
 -- script, or the environment) to pick the folder. Default is the vanilla Emerald one.
 --
 -- Costs one client.screenshot every INTERVAL_FRAMES and nothing in between.
+-- Resolve this script's own directory instead of hardcoding one developer's
+-- checkout. A tracked absolute path is unusable on anyone else's machine and is
+-- the class of leak .githooks/pre-commit now refuses (pitfalls.md).
+local MESHGHOST_DIR = (function()
+	local info = debug.getinfo(1, "S")
+	if info and info.source and info.source:sub(1, 1) == "@" then
+		return info.source:sub(2):match("^(.*)[/\\][^/\\]*$") or "."
+	end
+	return "."
+end)()
+
 local DIR = MESHGHOST_SHOT_DIR or os.getenv("MESHGHOST_SHOT_DIR")
-    or "C:/dev/MeshGhost/dev-scripts/shots/emerald"
+    or MESHGHOST_DIR .. "/shots/emerald"
 local PREFIX = MESHGHOST_SHOT_PREFIX or os.getenv("MESHGHOST_SHOT_PREFIX") or "loop"
 local INTERVAL_FRAMES = tonumber(MESHGHOST_SHOT_INTERVAL or os.getenv("MESHGHOST_SHOT_INTERVAL") or "")
     or 120 -- 2s at 60fps

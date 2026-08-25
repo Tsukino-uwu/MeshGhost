@@ -23,6 +23,17 @@
 -- nothing is written. Vanilla only (avatarAddrOffset 0); on a patched ROM the adapter's own
 -- detection is what shifts these, and this probe would need the same treatment.
 
+-- Resolve this script's own directory instead of hardcoding one developer's
+-- checkout. A tracked absolute path is unusable on anyone else's machine and is
+-- the class of leak .githooks/pre-commit now refuses (pitfalls.md).
+local MESHGHOST_DIR = (function()
+	local info = debug.getinfo(1, "S")
+	if info and info.source and info.source:sub(1, 1) == "@" then
+		return info.source:sub(2):match("^(.*)[/\\][^/\\]*$") or "."
+	end
+	return "."
+end)()
+
 local GSAVEBLOCK1PTR_ADDR = 0x03005d8c
 local GPLAYERAVATAR_ADDR = 0x02037590
 local GOBJECTEVENTS_ADDR = 0x02037350
@@ -30,7 +41,7 @@ local OBJECTEVENT_SIZE = 0x24
 local GSPRITES_ADDR = 0x02020630
 local SPRITE_SIZE = 0x44
 
-local LOG_PATH = "C:/dev/MeshGhost/adapters/bizhawk/pokemon/emerald/probes/turn_and_door_probe.log"
+local LOG_PATH = MESHGHOST_DIR .. "/turn_and_door_probe.log"
 local logfile = io.open(LOG_PATH, "a")
 local pending, frames, last = {}, 0, nil
 

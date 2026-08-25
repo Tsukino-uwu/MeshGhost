@@ -7,6 +7,17 @@
 --
 -- Checkpoints to slot 4 first and restores it at the end, so the session is left untouched.
 
+-- Resolve this script's own directory instead of hardcoding one developer's
+-- checkout. A tracked absolute path is unusable on anyone else's machine and is
+-- the class of leak .githooks/pre-commit now refuses (pitfalls.md).
+local MESHGHOST_DIR = (function()
+	local info = debug.getinfo(1, "S")
+	if info and info.source and info.source:sub(1, 1) == "@" then
+		return info.source:sub(2):match("^(.*)[/\\][^/\\]*$") or "."
+	end
+	return "."
+end)()
+
 local GSAVEBLOCK1PTR_ADDR = 0x03005d8c
 local SLOT = 4
 local HOLD = 48 -- 3 tiles at 16 frames per walked tile
@@ -18,7 +29,7 @@ local function pos()
     return memory.read_s16_le(sb1 + 0x00), memory.read_s16_le(sb1 + 0x02)
 end
 
-local logfile = io.open("C:/dev/MeshGhost/dev-scripts/input-demo.log", "w")
+local logfile = io.open(MESHGHOST_DIR .. "/input-demo.log", "w")
 local function log(m)
     console.log(m)
     if logfile then logfile:write(m, "\n") logfile:flush() end
@@ -33,7 +44,7 @@ MESHGHOST_DEV_TICK = function()
         sx, sy = pos()
         if not sx then return end -- wait for a save to be loaded
         pcall(function() savestate.saveslot(SLOT) end)
-        pcall(function() client.screenshot("C:/dev/MeshGhost/dev-scripts/shots/emerald/shot-before.png") end)
+        pcall(function() client.screenshot(MESHGHOST_DIR .. "/shots/emerald/shot-before.png") end)
         log(string.format("start: player at (%d,%d); checkpointed to slot %d", sx, sy, SLOT))
         phase, frames = "hold", 0
         return
@@ -47,7 +58,7 @@ MESHGHOST_DEV_TICK = function()
         pcall(function() joypad.set({ [DIR] = true }) end)
         if frames >= HOLD then
             local ex, ey = pos()
-            pcall(function() client.screenshot("C:/dev/MeshGhost/dev-scripts/shots/emerald/shot-after.png") end)
+            pcall(function() client.screenshot(MESHGHOST_DIR .. "/shots/emerald/shot-after.png") end)
             log(string.format("held %s for %d frames: (%d,%d) -> (%s,%s), delta=(%s,%s)",
                 DIR, HOLD, sx, sy, tostring(ex), tostring(ey),
                 tostring((ex or sx) - sx), tostring((ey or sy) - sy)))

@@ -2,6 +2,17 @@
 -- The rod was refused with "not usable here", so either the edited tile is not where the player
 -- faces, or its behaviour is not water. This reads the tile the same way the game does and says
 -- which.
+-- Resolve this script's own directory instead of hardcoding one developer's
+-- checkout. A tracked absolute path is unusable on anyone else's machine and is
+-- the class of leak .githooks/pre-commit now refuses (pitfalls.md).
+local MESHGHOST_DIR = (function()
+	local info = debug.getinfo(1, "S")
+	if info and info.source and info.source:sub(1, 1) == "@" then
+		return info.source:sub(2):match("^(.*)[/\\][^/\\]*$") or "."
+	end
+	return "."
+end)()
+
 local GBACKUPMAPLAYOUT, GMAPHEADER = 0x03005dc0, 0x02037318
 local GPLAYERAVATAR_ADDR, GOBJECTEVENTS_ADDR, OBJECTEVENT_SIZE = 0x02037590, 0x02037350, 0x24
 local NUM_PRIMARY, ID_MASK, BEH_MASK, COL_MASK = 512, 0x03ff, 0x00ff, 0x0c00
@@ -14,7 +25,7 @@ local function s16(a) return memory.read_s16_le(a) end
 local function u32(a) return memory.read_u32_le(a) end
 local function s32(a) return memory.read_s32_le(a) end
 
-local f = io.open("C:/dev/MeshGhost/dev-scripts/tile-inspect.log", "w")
+local f = io.open(MESHGHOST_DIR .. "/tile-inspect.log", "w")
 local function log(m) console.log(m) if f then f:write(m, "\n") f:flush() end end
 
 local function behaviourOf(id)

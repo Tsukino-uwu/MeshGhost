@@ -26,13 +26,24 @@
 -- (rate-limited), so each row can be matched to what was actually on screen at that moment. Play
 -- normally: walk, open a text box, open the START menu, enter a building.
 
+-- Resolve this script's own directory instead of hardcoding one developer's
+-- checkout. A tracked absolute path is unusable on anyone else's machine and is
+-- the class of leak .githooks/pre-commit now refuses (pitfalls.md).
+local MESHGHOST_DIR = (function()
+	local info = debug.getinfo(1, "S")
+	if info and info.source and info.source:sub(1, 1) == "@" then
+		return info.source:sub(2):match("^(.*)[/\\][^/\\]*$") or "."
+	end
+	return "."
+end)()
+
 local IO = 0x04000000
 local SHOT_MIN_GAP_FRAMES = 45 -- ~0.75s: enough to catch a panel opening without a shot per frame
 -- Screenshots go to the scratch directory of whoever is running this, NOT into the repo: they are
 -- evidence for one session, and a probe that fills a tracked folder with PNGs is a mess the next
 -- session inherits. Set MESHGHOST_PROBE_SHOT_DIR (with a trailing slash) to collect them.
 local SHOT_DIR = os.getenv("MESHGHOST_PROBE_SHOT_DIR")
-local LOG_PATH = "C:/dev/MeshGhost/adapters/bizhawk/pokemon/emerald/probes/uiregion_probe.log"
+local LOG_PATH = MESHGHOST_DIR .. "/uiregion_probe.log"
 
 local logfile = io.open(LOG_PATH, "a")
 local function say(m)

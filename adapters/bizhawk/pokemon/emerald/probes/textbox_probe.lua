@@ -25,6 +25,17 @@
 -- distinct bottom-of-screen tile pattern is logged once with the row and the ids in it. The pattern
 -- that appears exactly when a box is open, and only then, is the detector.
 
+-- Resolve this script's own directory instead of hardcoding one developer's
+-- checkout. A tracked absolute path is unusable on anyone else's machine and is
+-- the class of leak .githooks/pre-commit now refuses (pitfalls.md).
+local MESHGHOST_DIR = (function()
+	local info = debug.getinfo(1, "S")
+	if info and info.source and info.source:sub(1, 1) == "@" then
+		return info.source:sub(2):match("^(.*)[/\\][^/\\]*$") or "."
+	end
+	return "."
+end)()
+
 local IO = 0x04000000
 local VRAM = 0x06000000
 local SCREEN_ROWS, SCREEN_COLS = 20, 30
@@ -38,7 +49,7 @@ local SAMPLE_EVERY_FRAMES = 12 -- ~5Hz. Cheap enough to leave running, often eno
 local LOG_MIN_GAP_FRAMES = 30
 local SHOT_DIR = os.getenv("MESHGHOST_PROBE_SHOT_DIR") -- optional; never inside the repo
 
-local LOG_PATH = "C:/dev/MeshGhost/adapters/bizhawk/pokemon/emerald/probes/textbox_probe.log"
+local LOG_PATH = MESHGHOST_DIR .. "/textbox_probe.log"
 local logfile = io.open(LOG_PATH, "a")
 local function say(m)
     console.log("TEXTBOX: " .. m)

@@ -7,6 +7,17 @@
 --
 -- Fishing is a PROCESS with branches (probes.md), so this only drives the SETUP -- getting the rod
 -- in hand and cast. What happens after is what we are watching for, not something to script.
+-- Resolve this script's own directory instead of hardcoding one developer's
+-- checkout. A tracked absolute path is unusable on anyone else's machine and is
+-- the class of leak .githooks/pre-commit now refuses (pitfalls.md).
+local MESHGHOST_DIR = (function()
+	local info = debug.getinfo(1, "S")
+	if info and info.source and info.source:sub(1, 1) == "@" then
+		return info.source:sub(2):match("^(.*)[/\\][^/\\]*$") or "."
+	end
+	return "."
+end)()
+
 local STEPS = {
     -- PREAMBLE: reach a neutral overworld state before assuming anything. A previous run of this
     -- very script left the bag open, and the run after it pressed Start into a menu -- so this is
@@ -57,7 +68,7 @@ MESHGHOST_DEV_TICK = function()
     end
     if held < 14 then held = held + 1 return end -- release, and let the UI settle
     pcall(function()
-        client.screenshot("C:/dev/MeshGhost/dev-scripts/shots/emerald/step-" .. step.shot .. ".png")
+        client.screenshot(MESHGHOST_DIR .. "/shots/emerald/step-" .. step.shot .. ".png")
     end)
     console.log("MeshGhost: step " .. step.shot)
     i, frames, held = i + 1, 0, 0

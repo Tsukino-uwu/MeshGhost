@@ -1,6 +1,17 @@
 -- DEV: does the game treat the edited tile as water? Walk into it and see.
 -- Grass is walkable, water is not (without surfing), so "blocked" is the answer we are looking
 -- for -- a behavioural test that needs no redraw and no menus.
+-- Resolve this script's own directory instead of hardcoding one developer's
+-- checkout. A tracked absolute path is unusable on anyone else's machine and is
+-- the class of leak .githooks/pre-commit now refuses (pitfalls.md).
+local MESHGHOST_DIR = (function()
+	local info = debug.getinfo(1, "S")
+	if info and info.source and info.source:sub(1, 1) == "@" then
+		return info.source:sub(2):match("^(.*)[/\\][^/\\]*$") or "."
+	end
+	return "."
+end)()
+
 local GSAVEBLOCK1PTR_ADDR = 0x03005d8c
 local GPLAYERAVATAR_ADDR = 0x02037590
 local GOBJECTEVENTS_ADDR = 0x02037350
@@ -13,7 +24,7 @@ local function pos()
     return memory.read_s16_le(sb1 + 0x00), memory.read_s16_le(sb1 + 0x02)
 end
 
-local f = io.open("C:/dev/MeshGhost/dev-scripts/walk-into-tile.log", "w")
+local f = io.open(MESHGHOST_DIR .. "/walk-into-tile.log", "w")
 local function log(m) console.log(m) if f then f:write(m, "\n") f:flush() end end
 
 local frames, phase, sx, sy, dir = 0, "wait", nil, nil, nil
@@ -39,7 +50,7 @@ MESHGHOST_DEV_TICK = function()
             else
                 log("MOVED -- the tile is still walkable, so the edit did not take behaviourally.")
             end
-            pcall(function() client.screenshot("C:/dev/MeshGhost/dev-scripts/shots/emerald/shot.png") end)
+            pcall(function() client.screenshot(MESHGHOST_DIR .. "/shots/emerald/shot.png") end)
             phase = "done"
             if f then f:close() f = nil end
         end

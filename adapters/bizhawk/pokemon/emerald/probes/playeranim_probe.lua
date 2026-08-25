@@ -11,13 +11,24 @@
 -- ADDRESSES: gPlayerAvatar 02037590 {spriteId 0x04, objectEventId 0x05}, gObjectEvents 02037350
 -- stride 0x24 (graphicsId 0x05, movementActionId 0x1C), gSprites 02020630 stride 0x44
 -- (animNum 0x2A, animCmdIndex 0x2B, animPaused = bit 0x40 of 0x2C, animDelayCounter 0x2D).
+-- Resolve this script's own directory instead of hardcoding one developer's
+-- checkout. A tracked absolute path is unusable on anyone else's machine and is
+-- the class of leak .githooks/pre-commit now refuses (pitfalls.md).
+local MESHGHOST_DIR = (function()
+	local info = debug.getinfo(1, "S")
+	if info and info.source and info.source:sub(1, 1) == "@" then
+		return info.source:sub(2):match("^(.*)[/\\][^/\\]*$") or "."
+	end
+	return "."
+end)()
+
 local GPLAYERAVATAR_ADDR = 0x02037590
 local GOBJECTEVENTS_ADDR = 0x02037350
 local GSPRITES_ADDR = 0x02020630
 
 local function r8(a) return memory.read_u8(a) end
 local last = nil
-local logPath = "C:/dev/MeshGhost/adapters/bizhawk/pokemon/emerald/probes/playeranim.log"
+local logPath = MESHGHOST_DIR .. "/playeranim.log"
 local f = io.open(logPath, "w")
 
 local function tick()

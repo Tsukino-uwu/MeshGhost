@@ -4,7 +4,18 @@
 -- and pressed SELECT twice, and the player stayed on foot with no menu on screen. That leaves two
 -- candidates -- the press is not landing at all, or the game is refusing the bike here -- and a
 -- press of START tells them apart: START opens the menu anywhere the overworld accepts input.
-local shots = "C:/dev/MeshGhost/dev-scripts/shots/emerald/"
+-- Resolve this script's own directory instead of hardcoding one developer's
+-- checkout. A tracked absolute path is unusable on anyone else's machine and is
+-- the class of leak .githooks/pre-commit now refuses (pitfalls.md).
+local MESHGHOST_DIR = (function()
+	local info = debug.getinfo(1, "S")
+	if info and info.source and info.source:sub(1, 1) == "@" then
+		return info.source:sub(2):match("^(.*)[/\\][^/\\]*$") or "."
+	end
+	return "."
+end)()
+
+local shots = MESHGHOST_DIR .. "/../../../../../dev-scripts/shots/emerald/"
 local n = 0
 local function tick()
     n = n + 1

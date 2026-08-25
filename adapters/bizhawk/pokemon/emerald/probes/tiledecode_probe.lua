@@ -8,6 +8,17 @@
 -- Prints, for the metatile under a given grid coordinate: its attributes, its eight tilemap
 -- entries, and an 8x8 opacity map of every tile they name -- read straight from VRAM at the BG
 -- char base, which probes/bgread_probe.lua confirmed is readable.
+-- Resolve this script's own directory instead of hardcoding one developer's
+-- checkout. A tracked absolute path is unusable on anyone else's machine and is
+-- the class of leak .githooks/pre-commit now refuses (pitfalls.md).
+local MESHGHOST_DIR = (function()
+	local info = debug.getinfo(1, "S")
+	if info and info.source and info.source:sub(1, 1) == "@" then
+		return info.source:sub(2):match("^(.*)[/\\][^/\\]*$") or "."
+	end
+	return "."
+end)()
+
 local GBACKUPMAPLAYOUT = 0x03005dc0
 local GMAPHEADER = 0x02037318
 local GPLAYERAVATAR_ADDR = 0x02037590
@@ -83,8 +94,8 @@ local function tick()
     -- The metatiles the shore is actually made of, decoded pixel by pixel.
     for _, id in ipairs({ 161, 184, 2, 1 }) do dumpMetatile(id) end
     -- And the frame they were read from, so the two can be laid over each other.
-    client.screenshot("C:/dev/MeshGhost/adapters/bizhawk/pokemon/emerald/probes/tiledecode.png")
-    local f = io.open("C:/dev/MeshGhost/adapters/bizhawk/pokemon/emerald/probes/tiledecode.log", "w")
+    client.screenshot(MESHGHOST_DIR .. "/tiledecode.png")
+    local f = io.open(MESHGHOST_DIR .. "/tiledecode.log", "w")
     if f then f:write(table.concat(out, string.char(10))) f:close() end
     console.log("tiledecode: wrote tiledecode.log")
 end
