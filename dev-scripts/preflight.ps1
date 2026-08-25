@@ -86,7 +86,7 @@ if ($hooksPath -eq ".githooks") {
 # patterns are written out literally on this line, so git grep finds them here every time. Without
 # the exclusion the check reported FAIL on a perfectly clean tree -- a checker that always fails is
 # as useless as one that never can, and gets ignored just as fast.
-$leaks = & git grep -inIF -e 'C:\Users' -e 'C:/Users' -e '/home/' -e '/Users/' -- . ':!CLAUDE.md' ':!agent_docs/environment.md' ':!agent_docs/pitfalls.md' ':!dev-scripts/preflight.ps1' ':!.githooks/' ':!.github/workflows/'
+$leaks = & git grep -inIF -e 'C:\Users' -e 'C:/Users' -e '/home/' -e '/Users/' -- . ':!CLAUDE.md' ':!agent_docs/environment.md' ':!agent_docs/pitfalls.md' ':!agent_docs/pitfalls/' ':!dev-scripts/preflight.ps1' ':!.githooks/' ':!.github/workflows/'
 if ($LASTEXITCODE -eq 0 -and $leaks) {
     Report-Fail "machine-identifying path in a tracked file:"
     $leaks | ForEach-Object { Write-Host "          $_" }
@@ -387,7 +387,7 @@ Section "Canonical source for multiply-stated rules"
 $canon = @(
     @{ Name = "a flag flip is not a revert"
        Pattern = 'flag flip is not a revert'
-       Home = 'agent_docs/pitfalls.md'
+       Home = 'agent_docs/pitfalls/method.md'
        LinkTo = 'pitfalls.md' }
     @{ Name = "the eight after-the-fact bandage tells"
        Pattern = 'tells that only show up later'
@@ -479,43 +479,54 @@ if ($lagging.Count -gt 0) {
 
 # ---------------------------------------------------------------------------
 # ---------------------------------------------------------------------------
-Section "pitfalls.md index coverage"
+Section "pitfalls index coverage"
 
 # pitfalls.md carries two structures on purpose -- host/subsystem groups for part of it, and
 # lesson-shaped chronological entries for the rest -- with one index over both. An index survives
 # where the half-finished taxonomy did not, because adding an entry costs ONE line, and because a
 # check can verify it. Nothing can mechanically verify "is this filed under the right theme",
 # which is why the taxonomy was not finished (decided 2026-08-25).
+#
+# SPLIT 2026-08-25: the index stayed in pitfalls.md and the entries moved to pitfalls/, so reading
+# the lessons costs 200 lines instead of 5,180. The index did not move, because ~17 files link to
+# agent_docs/pitfalls.md and every one of them still resolves. Same shape as architecture.md and
+# its adr/ directory. This check therefore scans the DIRECTORY and looks the headings up in the
+# index file -- an entry added to a body file without an index line is one nobody will find.
 $pit = "agent_docs/pitfalls.md"
+$pitBodies = @(Get-ChildItem -LiteralPath "agent_docs/pitfalls" -Filter '*.md' | Sort-Object Name)
 $pitLines = @(Get-Content -LiteralPath $pit)
 $idxStart = ($pitLines | Select-String -Pattern '^## Index — every entry in this file$').LineNumber
 if (-not $idxStart) {
     Report-Fail "$pit has no index section -- every heading is supposed to be listed in one"
+} elseif ($pitBodies.Count -eq 0) {
+    Report-Fail "agent_docs/pitfalls/ holds no .md files -- the entries are supposed to live there"
 } else {
-    # the index runs to the first heading after it that is not one of its own ### sub-groups
-    $idxEnd = $pitLines.Count
-    for ($i = $idxStart; $i -lt $pitLines.Count; $i++) {
-        if ($pitLines[$i] -match '^## ' ) { $idxEnd = $i; break }
-    }
     $indexed = @{}
-    for ($i = $idxStart; $i -lt $idxEnd; $i++) {
-        if ($pitLines[$i] -match '^- (.+)$') { $indexed[$Matches[1].Trim()] = $true }
+    for ($i = $idxStart; $i -lt $pitLines.Count; $i++) {
+        if ($pitLines[$i] -match '^- (.+)$') {
+            # Index lines may be a bare title or a [title](link); take the title either way.
+            $entry = $Matches[1].Trim()
+            if ($entry -match '^\[([^\]]+)\]\(') { $entry = $Matches[1].Trim() }
+            $indexed[$entry] = $true
+        }
     }
     $missing = @()
-    for ($i = $idxEnd; $i -lt $pitLines.Count; $i++) {
-        $l = $pitLines[$i]
-        # Entry-level only: a '### ' under a '## ' entry is part of that entry, not an entry of
-        # its own, and indexing those would make the index longer than useful. The themed '### '
-        # sections are listed in the index too, but are not required by this check.
-        if ($l -notmatch '^## ') { continue }
-        $title = ($l -replace '^## ', '').Trim()
-        if (-not $indexed.ContainsKey($title)) { $missing += "line $($i+1): $title" }
+    foreach ($b in $pitBodies) {
+        $lines = @(Get-Content -LiteralPath $b.FullName)
+        for ($i = 0; $i -lt $lines.Count; $i++) {
+            $l = $lines[$i]
+            # Entry-level only: a '### ' under a '## ' entry is part of that entry, not an entry of
+            # its own, and indexing those would make the index longer than useful.
+            if ($l -notmatch '^## ') { continue }
+            $title = ($l -replace '^## ', '').Trim()
+            if (-not $indexed.ContainsKey($title)) { $missing += "$($b.Name):$($i+1): $title" }
+        }
     }
     if ($missing.Count -gt 0) {
-        Report-Fail "$($missing.Count) pitfalls.md heading(s) missing from its index -- add one line each:"
+        Report-Fail "$($missing.Count) pitfalls heading(s) missing from $pit -- add one line each:"
         $missing | Select-Object -First 12 | ForEach-Object { Write-Host "          $_" }
     } else {
-        Report-Pass "every pitfalls.md heading ($($indexed.Count) indexed) appears in its index"
+        Report-Pass "every pitfalls heading across $($pitBodies.Count) file(s) ($($indexed.Count) indexed) appears in $pit"
     }
 }
 

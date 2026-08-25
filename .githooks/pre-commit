@@ -23,7 +23,7 @@
 
 # Files that legitimately contain these strings -- rules ABOUT paths, and the tooling that finds
 # them. Kept identical to the exclusion list in CLAUDE.md's own grep.
-KEEP='^(CLAUDE\.md|agent_docs/environment\.md|agent_docs/pitfalls\.md|dev-scripts/preflight\.ps1|\.githooks/|\.github/workflows/)'
+KEEP='^(CLAUDE\.md|agent_docs/environment\.md|agent_docs/pitfalls\.md|agent_docs/pitfalls/|dev-scripts/preflight\.ps1|\.githooks/|\.github/workflows/)'
 
 # Both slash directions and a literal match, for the reason CLAUDE.md gives: a pattern that only
 # covers one direction passes cleanly on a file that leaks in the other. /Users/ and /home/ cover
