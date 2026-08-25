@@ -301,3 +301,60 @@ records, and the mismatch is already documented — churn for cosmetics); moving
 and logs into `bin/` and `logs/` (touches every `dev-scripts` launcher, and breaking the user's
 test scaffolding unsupervised is a bad trade for a tidier `ls`); collapsing the copy-paste
 `run-core-*.bat` family (same reason); and `ideas.md`'s own split. All still worth doing.
+
+## The full-project refactor pass (2026-08-25) — 15 commits
+
+Asked for as "a full project refactor", scoped by the user to code structure/dedup plus docs
+cleanup, across everything, with redesign welcome. Three recon passes (Go, adapters,
+docs/scripts/packaging) mapped it first; a fourth designed the phases.
+
+**What shipped**
+
+- **Probe folders stopped being artifact dumps.** Screenshots got the rule the logs already had
+  (`.gitignore`), five hand-committed PNGs were untracked, and ~580MB of read artifacts left the
+  disk with the user's approval. Crystal's probe index named 29 of 46 scripts while announcing
+  "Ten of these WRITE game RAM" above a list of nine; all 46 are indexed and the writers are
+  sorted by what they actually touch.
+- **Three docs corrected** that sent a fresh session somewhere wrong: the ADR instruction that
+  outlived the `adr/` split, two hardcoded line counts nothing updated, and the
+  `meshghost-relay.exe`/`meshghost-server.exe` split-brain, now stated once in `packaging/README.md`.
+- **`status.md` 167 → 140 lines**, every item back inside its two-line rule. Sixteen Crystal
+  entries were each restating a heading from a 1,186-line queue — an index of an index — and are
+  now six subsystem pointers. Two items were assumptions, not open work, and moved to `risks.md`.
+- **`ideas.md` lost the third of its three jobs** to this file, taking with it the single
+  `preflight.ps1` exemption from the canonical-source check. The largest uncapped doc had been the
+  one file exempt from the only check that would notice a rule going stale inside it.
+- **Two new indexes with checks behind them**: `phases/README.md` (phase files were the one
+  required-reading class with neither) and a `dev-scripts/README.md` coverage check that found
+  exactly the six undocumented scripts the recon had listed, having been written first.
+- **Nine `run-core-*.bat` collapsed into `run-core.bat <game> [transport] [instance]`**, verified
+  by running it. Three launchers deliberately survive, because the filename is what records which
+  rig produced a reading.
+- **Go**: `internal/cfg` finished the job it was named for (log rotation, the `flag.Visit` idiom,
+  and 25 hand-written override blocks, with the precedence rule finally tested);
+  `internal/textfmt` for a formatter written twice byte-for-byte; `MaxHelloFieldLen` moved to the
+  side of the protocol/policy line `relay/limits.go`'s own header draws; `relay/online.go`
+  1,115 → 191 and `core/core.go` 2,048 → 636, both pure moves verified by diffing the declaration
+  sets; the one relay startup rule with a refusal in it made testable and negative-tested.
+- **`bridge` went from `[no test files]` to seven tests and two fuzz targets**, registered in
+  `ci.yml` — it is the wire contract four adapters implement by hand in three languages, and a
+  JSON boundary fed by a script the user edits.
+- **The cross-language bridge constants** stopped being kept in step by a comment: `preflight.ps1`
+  now compares them in real units across Lua, C++ and the template, and was negative-tested.
+
+**Three recon findings deliberately NOT acted on, because the evidence did not support them**
+
+- The three vendored LuaSocket LICENSE files are not duplication. A license sits beside the binary
+  it covers; deleting two would be a licensing error. Only Emerald's `.dll` pair is tracked.
+- `probe_ghost`'s superseded bridge copy stays: referenced from ten files including LF-pinned
+  `Plugin.cpp`, so removing it would force a DLL rebuild to delete an artifact doing a documented job.
+- The three envelope-send helpers stay separate. `relay.sendEnvelope` and `core.sendBridgeEnvelope`
+  are structurally identical, and merging them would couple the two protocols `contract.md`
+  deliberately keeps apart, to save fourteen lines. That duplication is the boundary doing its job.
+
+**What remains: the Lua module extraction.** Deferred with its design rather than rushed. The
+ceiling is real and was re-measured (Emerald exactly 197 of 200, Crystal 188), and the trap that
+would otherwise be paid for a third time is now written into `adapters/emulator/CLAUDE.md`: a
+shared module must never resolve its own directory, because `dofile` makes `debug.getinfo` relative
+and `package.loadlib` then resolves against BizHawk's process directory. It is also the one phase
+that cannot be finished without a live run.
