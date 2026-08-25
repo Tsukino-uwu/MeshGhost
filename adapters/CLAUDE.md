@@ -234,11 +234,13 @@ things must both be true or the switch is visible, and Crystal got each wrong in
    placed the engine object on the peer's CURRENT tile while the painted copy was still a full tile
    behind — measured at exactly `-1,+0` every time, because the promotion is triggered by the peer
    moving, so it fires precisely as the peer leaves the tile the painted copy stands on.
-2. **Neither frame may be left empty.** Dropping the old tier on the same frame the new one is
-   created leaves one frame with nothing drawn, because an adapter paints during its own tick while
-   a freshly created engine object is not in the sprite list until the engine next builds one. One
-   missing frame is a blink. **A gap is visible; an exact overlap is not** — so overlap the two by
-   one frame.
+2. **Neither frame may be left empty — and hold the old tier until the new one is SEEN drawing,
+   never for a counted number of frames.** An adapter paints during its own tick while a freshly
+   created engine object is not in the sprite list until the engine next builds one — measured at
+   FOUR frames in Crystal, twice what the one-frame overlap first written here assumed, so the
+   blink survived its own fix (2026-08-25). Release on evidence (the object's entries in the
+   sprite table), bounded so a peer whose object never appears cannot pin the old tier on screen.
+   **A gap is visible; an exact overlap is not.**
 
 **Order matters:** fix the position first. Overlapping two tiers that disagree about position draws
 the peer twice, a tile apart, which is worse than the blink.

@@ -164,7 +164,17 @@ UE4SS entry below for that last one specifically, which is currently unresolved)
       file in the scratchpad and run it with `-File`** — one quoting layer instead of three, and
       the `$rom = '"C:\...gbc"'` line is then literally the documented form. The modal is also the
       only symptom: the process exits, so a `Get-Process EmuHawk` check a moment later reports
-      nothing and reads as "still starting up" rather than as a failure.
+      nothing and reads as "still starting up" rather than as a failure. (In 2026-08-25's case it
+      exited slowly enough to be caught with the title `Exception` instead — which reads as a
+      BizHawk crash and sends you looking for a crash log that does not exist.)
+      **Third recurrence 2026-08-25, with both notes above already written.** So stop re-deriving
+      the quoting: **there is an untracked per-game launcher for exactly this**,
+      `dev-scripts/run-bizhawk-<game>.local.bat` (gitignored, so the machine paths are allowed in
+      it). `cmd` quotes its own arguments correctly and the file also carries the env vars the rig
+      needs — `MESHGHOST_DEV_LOADER_TARGET` for the per-emulator control file, and whichever
+      `MESHGHOST_*` flags the run is about. Launch that with `$env:ComSpec /c` per the
+      dev-scripts bullet below. If a game has no `.local.bat` yet, WRITE IT rather than launching
+      EmuHawk directly — Crystal had none, which is why this happened a third time.
     - **`--lua=` also opens BizHawk's Lua Console window**, one per instance, and it takes
       focus as it appears. Expected, not a fault — but it is a real window over the user's
       screen, so a two-emulator session puts two of them there. Unrelated to the core's own

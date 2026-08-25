@@ -90,6 +90,8 @@ Internal documentation for MeshGhost: architecture, planning, licensing, and ver
 - **`.claude/skills/new-adapter/` and `.claude/skills/write-a-probe/` — required reading, sequenced.**
   A skill's body loads only when invoked, so these carry the order to read things in without
   spending context until the moment they apply. They are maps, not copies: every rule keeps one home.
+  **Confirmed working 2026-08-25** — `write-a-probe` invoked and loaded in a live session, the
+  first proof either fires since they were added; before that the mechanism itself was untested.
 
 **The one-line map, if you are new here** (user's framing, 2026-08-19, corrected on one point):
 

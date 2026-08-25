@@ -1160,6 +1160,93 @@ against the player frame for frame.
 Teleport or Dig (the sprite Y offset is not on the wire); no emote over a peer's head at all; the
 spawned tier's spin runs on the engine's own clock rather than the peer's phase.
 
+## 2026-08-25 — Crystal: the whole promotion seam, refound and fixed in three layers
+
+**Fixed and traced clean end to end; NOT confirmed on screen.** The user, on the compare rig:
+*"the idle thing is still causing some 'flicker' whenever you move afterwards"*, then after the
+first fix *"no flicker, but the spawned ghost 'snaps' a bit when moving the first tile after
+respawning"*, then *"still snaps... like 2-3 tiles instead of at the first tile"*. Each report was
+a different layer of the same seam — the idle demotion's return trip — and both 08-23 fixes for it
+had shipped unwatched. All measured with the 9x9 square drive (stop-and-go, crossing the idle
+release every lap) plus the STEP_LAG handover trace, extended twice: a raw OAM window dump
+(entries printed, never a match boolean — the 08-23 probe lesson), and one line per commanded
+spawned-tier step with branch and deficit.
+
+**Layer 1 — the hole.** The 08-23 one-extra-frame hold assumed the engine object reaches OAM at
+handover+2; measured, it arrives at **handover+4**, every time — so the painted copy was released
+two frames early and one frame drew nobody. Fix: `holdHandover()` — release only when the
+object's four OAM entries actually exist at the latched paint position (+8,+16 GB offsets), capped
+at 8 frames. A frame count was the wrong instrument for a question about another clock.
+
+**Layer 2 — the discarded remainder.** The 08-23 "remainder is 0.0 at promotion" stopped being
+true the same day it was written, when the model began stepping off the peer's PROGRESS: the
+peer's tile change arrives as their step COMPLETES, so the model is ~10px into its tile when
+promotion fires, and the object lands tile-aligned — a 10px backward snap per respawn. Fix: defer
+the spawn to the model's tile boundary, detected as a TILE CROSSING (floor(model/16) changing),
+not as remainder==0 — the 4px catch-up gait goes 14→18→2 and never touches 0, which is how the
+first deferral rode its 24-frame cap and moved the snap 1.5 tiles downstream (the user's
+"2-3 tiles in").
+
+**Layer 3 — the real culprit under both: `cameraSettled()` gated every spawn.** During continuous
+walking the camera scrolls almost every frame, so a spawn could only land in the camera's 1-2
+frame boundary breath — a clock the model's boundary is a constant phase away from. That is why
+spawns took ~7 attempts and why the deferral kept expiring mid-step. Fix: `liveScreenCoords()` —
+anchor on the player's OWN object (struct 0 sprite coords + map pixels derived exactly as the send
+path derives them), coherent on every frame including mid-scroll, so the gate is gone from
+`spawnGhost` AND `teleportGhost` (whose gate was the documented freeze-then-jump during walking).
+
+**Traced after all three, four promotions:** every landing `0.0,0.0px after 0 deferred frames`,
+one spawn attempt each, paint held to the frame the OAM entries appear, step cadence resumes at
+16 frames/step, deficit constant 1, in phase. Zero teleports, zero re-anchors, zero snap reports.
+
+**The steady-state walk was measured healthy the whole time** — in-phase steps every 16-17
+frames at constant one-tile deficit — so nothing was touched there; constant lag is the invisible
+kind. **What to look at:** compare rig, idle the ghost past 5s, then walk long sides. **Correct
+looks like** the ghost stepping off with no blink, no backward hop at any tile, and the same walk
+rhythm as the player throughout. The residual known difference: the fresh object stands 1-3 extra
+frames at its landing tile while the engine first draws it (the OAM hold) — a boundary-breath
+sized pause, not a snap. If that still reads on screen, the next rung is spawning the object
+already mid-step via the engine's own step fields, measured from the decomp first.
+
+## 2026-08-25 — Crystal: the 1:1 double-check, and the drawn stop's 7-frame freeze
+
+**The user, after confirming the promotion seam** (*"no snap anymore, drawn & spawned look
+identical i think?"* — a hedged confirm, so the seam entry above stays here): *"maybe drawn
+stopping a bit fast whenever pausing/stopping at the end?"*, and asked for a full double-check of
+drawn & spawned against the player. Done with a new three-way trace inside the adapter
+(STEP_LAG-gated): player, spawned ghost and drawn model in map pixels on one line per frame that
+anything moved — plus both sprite-coordinate screen positions, whose difference is camera-free —
+analysed offline over two 9x9 laps, 22 stops, ~1400 steps per entity.
+
+**Confirmed healthy, measured:** every move by all three is the engine's own 2px unit; move counts
+and total distance match the player's exactly; the spawned ghost walks at constant 6-frame lag, in
+phase; 22 stops each, none missed; zero teleports, re-anchors or snap reports. The 1px paint moves
+the trace surfaced (76 of ~310) are the K repayment's off-frame pixel — the deliberate,
+user-vetted policy (two "better" rules were tried against the user's eyes on 2026-08-23 and were
+both worse); left alone.
+
+**The user's stop suspicion was real and had a mechanism.** All 22 stops, identically:
+`2.2.2.2.2.2.2.......2.2.2` — the drawn model froze mid-step for 7 frames, then finished its last
+6px. Cause: the camera is the model's clock, and the 8-still-frames guard (which exists so the
+camera's 1-2 frame boundary breath cannot trigger a free step mid-walk) also held the REMAINDER OF
+A COMMITTED STEP hostage when the player genuinely stopped. A committed step's 16px is owed
+whatever the clock says — finishing it cannot create the free-step debt that rule prevents. **Fix:
+the committed remainder now free-runs after 3 still frames (clearing the breath with margin); new
+steps still wait 8.** Re-measured: `2.2.2.2.2.2.2.2.2...2.2.2` at all 22 stops — freeze 7 → 3
+frames, drawn stop lag +15 → +11 frames, and the per-park K drift and beat-correction rates are
+unchanged (no corner regression).
+
+**Known remaining differences after this, stated so they are not reported as faults:** the drawn
+ghost still holds 3 frames mid-final-step at a stop (the floor the breath ambiguity imposes on a
+camera-clocked model); the spawned ghost has an occasional 1-frame parity slip (~1 per 3 steps,
+2px for one frame — the camera-free sprite trace shows it; the per-boundary `..22` the field
+derivation showed was the instrument, not the sprite); and the fresh object's 1-3 frame stand at
+its landing tile after a promotion (the engine's own draw delay).
+
+**What to look at:** walk long sides and stop; watch the drawn ghost's finish. **Correct looks
+like** it walking through to its stop with at most a blink-length hesitation before the last
+half-step — against the 7-frame freeze it replaced. NOT confirmed on screen.
+
 ## 2026-08-25 — Crystal: `jsonDecode` could loop forever on truncated input
 
 **Fixed, and unconfirmed in BizHawk's own Lua.** Crystal's decoder was the only one of the repo's

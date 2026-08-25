@@ -168,7 +168,14 @@ end
 --
 -- The hardware copy sits furthest out, so the three renderers read left-to-right as
 -- hardware, drawn, player, spawned. The user's layout, 2026-08-21.
-local COMPARE = { drawn = -2, spawned = 3, hw = -4 }
+-- The hardware copy sits furthest out, so the three renderers read left-to-right as
+-- hardware, drawn, player, spawned. The user's layout, 2026-08-21.
+--
+-- `dy` shifts every copy vertically (negative is up; map Y grows downward), for a layout that puts
+-- the renderers side by side rather than either side of the player -- tried 2026-08-25 as
+-- { drawn = -3, spawned = -2, hw = -5, dy = -1 } and reverted to this on the user's call. Read the
+-- trap at peerPixY before changing it: the shift belongs at the source, applied once.
+local COMPARE = { drawn = -2, spawned = 3, hw = -4, dy = 0 }
 -- The drawn copy lives in `overflow` under a key of its own, so it animates frame to frame like
 -- any other drawn peer while never colliding with the spawned copy's entry under the real id.
 function COMPARE.key(id) return id .. " (drawn copy)" end
@@ -2139,6 +2146,41 @@ local function screenCoords(mx, my)
 	return (((mx - wx) & 0x0F) * 16 - bx) & 0xFF, (((my - wy) & 0x0F) * 16 - by) & 0xFF
 end
 
+-- Screen coordinates that are correct on EVERY frame, mid-scroll included -- the reason
+-- `screenCoords` above cannot be is that `wXCoord` and `wBGMapOffset*` update at different moments
+-- within a step, so the pair is only coherent at tile boundaries; placement done mid-scroll from
+-- them bakes in a one-off error, which is what the `cameraSettled()` gates existed to avoid.
+--
+-- This one anchors on the PLAYER'S OWN OBJECT instead: the engine maintains struct 0's sprite
+-- coords and step countdown coherently on every frame (they are how the player is drawn), and the
+-- camera is centred on the player, so for any world position
+--     screen = playerSpriteXY + (worldPx - playerWorldPx)
+-- with the player's world pixels derived exactly as the send path derives them (MAP_X names the
+-- step's DESTINATION from its first frame; the character is 16-prog short of it, back along the
+-- facing). Every term is the engine's own, read in one frame -- nothing here is our arithmetic
+-- disagreeing with the engine's.
+--
+-- Written 2026-08-25 for the promotion path: the settled-camera gate meant a ghost could only
+-- spawn during the camera's 1-2 frame boundary breath, and the model's own tile boundary -- which
+-- the promotion must land on -- runs on a clock a constant phase away from it. Waiting for both
+-- rode the 24-frame cap and landed mid-step, which was the user's snap.
+local function liveScreenCoords(mx, my)
+	local base = OBJECT_STRUCTS -- struct 0: the player
+	local psx = u8(base + F_SPRITE_X) or 0
+	local psy = u8(base + F_SPRITE_Y) or 0
+	local pmx = (u8(base + F_MAP_X) or 0) * 16
+	local pmy = (u8(base + F_MAP_Y) or 0) * 16
+	if (u8(base + F_WALKING) or STANDING) ~= STANDING then
+		local back = stepProgress(base) - 16
+		local d = ((u8(base + F_DIRECTION) or 0) // 4) & 3
+		if d == 0 then pmy = pmy + back
+		elseif d == 1 then pmy = pmy - back
+		elseif d == 2 then pmx = pmx - back
+		else pmx = pmx + back end
+	end
+	return (psx + mx * 16 - pmx) & 0xFF, (psy + my * 16 - pmy) & 0xFF
+end
+
 -- Is the object we recorded still the object we made?
 --
 -- Everything the adapter writes goes through a slot number it wrote down earlier, and the game
@@ -2194,11 +2236,9 @@ local function setGhostStanding(stBase, moBase, dir)
 end
 
 local function spawnGhost(id, x, y, peerSprite)
-	-- Placing a ghost mid-scroll bakes in an offset that never corrects itself; a frame or two
-	-- later the camera is on a tile boundary and the same arithmetic is exact.
-	if not cameraSettled() then
-		return nil
-	end
+	-- No settled-camera gate any more: liveScreenCoords is exact mid-scroll (see it), and the gate
+	-- was costing far more than the error it prevented -- it pinned every promotion to the
+	-- camera's 1-2 frame boundary breath, a clock the model's own boundary is out of phase with.
 	local srcMo, srcSt = findTemplateNpc()
 	if not srcMo then
 		return nil -- no template on this map; try again next frame
@@ -2255,7 +2295,7 @@ local function spawnGhost(id, x, y, peerSprite)
 	w8(stBase + F_PALETTE, u8(OBJECT_STRUCTS + F_PALETTE) or 0)
 	w8(moBase + M_SPRITE, u8(OBJECT_STRUCTS + F_SPRITE) or 0)
 
-	local sx, sy = screenCoords(x, y)
+	local sx, sy = liveScreenCoords(x, y)
 	w8(stBase + F_SPRITE_X, sx)
 	w8(stBase + F_SPRITE_Y, sy)
 
@@ -3374,8 +3414,19 @@ function drawOverflow()
 					-- frames tells them apart, and the peer-still-walking case merely starts its
 					-- free-run a few frames later, where there is nothing on screen to slip
 					-- against anyway.
+					-- THREE still frames, not eight, for the REMAINDER OF A COMMITTED STEP.
+					-- The eight-frame rule above is about not STARTING work on a breath, and it
+					-- stays for that. But a committed step's 16px is already owed whatever the
+					-- clock says -- finishing it early can never create the free-step debt the
+					-- eight-frame rule exists to prevent -- and holding it hostage to the full
+					-- eight is exactly what the 2026-08-25 three-way trace measured at every one
+					-- of 22 stops: `2.2.2.2.2.2.2.......2.2.2` -- a 7-frame freeze mid-step, then
+					-- the last 6px, at every stop, identically (the user: *"drawn stopping a bit
+					-- fast whenever pausing/stopping at the end"* -- the freeze-then-finish read
+					-- as an abrupt tail). Three clears the camera's 1-2 frame boundary breath
+					-- with one frame of margin, so a mid-walk breath still never triggers it.
 					local due = facingFrames.camMoved
-						or ((facingFrames.camStillFor or 99) >= 8
+						or ((facingFrames.camStillFor or 99) >= (((o.stepLeft or 0) > 0) and 3 or 8)
 							and (emu.framecount() % 2) == o.modelPhase)
 					if due then
 						-- The boundary decision, as a function the frame can take TWICE: the
@@ -4577,6 +4628,22 @@ function drawOverflow()
 							logFile(string.format("handover trace f=%d %s PAINTED at %d,%d "
 								.. "(handover=%s, spawned=%s, oam=%d)", drawFrames, id, sx, sy,
 								tostring(o.handover), tostring(ghosts[id] ~= nil), live))
+							-- TEMP (2026-08-25): the raw OAM window, not a match verdict. The
+							-- release condition is being rewritten to wait for the engine's copy
+							-- to actually appear, and picking what to test for off a computed
+							-- boolean is how the 08-23 probe produced two confident wrong answers
+							-- (UNVERIFIED.md, "only the last one could have been right"). Print
+							-- the entries and read the mapping off them.
+							local near = {}
+							for e = 0, 39 do
+								local ey = memory.read_u8(e * 4, "OAM") or 0
+								local ex = memory.read_u8(e * 4 + 1, "OAM") or 0
+								if ey ~= 0 and ey < 160 then
+									near[#near + 1] = string.format("%d:%d,%d", e, ex, ey)
+								end
+							end
+							logFile(string.format("  OAM f=%d expect x=%d y=%d | %s",
+								drawFrames, sx + 8, sy + 16, table.concat(near, " ")))
 						end
 						-- The pose was computed above, once, for both tiers. What used to be here
 						-- was the BUMP special case alone; it is now the general rule, which
@@ -5091,10 +5158,9 @@ end
 local snaps = { n = 0, at = 0, runaways = 0 }
 
 local function teleportGhost(g, x, y)
-	-- Same reason as the spawn: this writes screen coordinates too.
-	if not cameraSettled() then
-		return
-	end
+	-- Ungated 2026-08-25 along with spawnGhost: liveScreenCoords is exact mid-scroll, and this
+	-- gate was the documented cause of a ghost FREEZING through continuous walking and then
+	-- visibly jumping when the player paused (the step-decision comment below).
 	snaps.n = snaps.n + 1
 	w8(g.st_base + F_WALKING, STANDING)
 	w8(g.st_base + F_STEP_DURATION, 0)
@@ -5106,12 +5172,57 @@ local function teleportGhost(g, x, y)
 	end
 	w8(g.mo_base + M_X, x)
 	w8(g.mo_base + M_Y, y)
-	local sx, sy = screenCoords(x, y)
+	local sx, sy = liveScreenCoords(x, y)
 	w8(g.st_base + F_SPRITE_X, sx)
 	w8(g.st_base + F_SPRITE_Y, sy)
 end
 
 -- Inbound state is peer-controlled: bound every number before it reaches a memory write.
+-- HOLD THE PAINTED COPY UNTIL THE ENGINE'S COPY IS ACTUALLY ON SCREEN, not for a fixed number of
+-- frames. ONE local, because this file sits near Lua's 200-name ceiling.
+--
+-- The 2026-08-23 fix held the drawn copy for exactly one extra frame, on a measurement that said
+-- the engine object reaches OAM at handover+2. Re-measured 2026-08-25 across five promotions of
+-- the 9x9 square drive, it reaches OAM at handover+4 every time -- so the copy was released two
+-- frames early and the one-frame hole the fix was aimed at was still there:
+--
+--   f=1093  painted at 112,68   oam=16   (engine object absent)
+--   f=1094  painted at 112,68   oam=16   (engine object absent)
+--   f=1095  released                     oam=16   <- NOBODY DRAWS THE PEER
+--   f=1096  --                           oam=20   <- entries 16-19 appear at 120,76/128,76/120,84/128,84
+--
+-- A frame count was the wrong instrument for a question about another clock. This asks the engine
+-- directly: the object's own four OAM entries, at the LATCHED paint position plus the Game Boy's
+-- sprite offsets (x+8, y+16 -- confirmed against the raw entry list above, not a computed match).
+-- The object is parked on its tile for the whole handover, so the latched position is where it
+-- lands.
+--
+-- Returns true while the drawn copy must be KEPT. Bounded at 8 frames so a peer whose object never
+-- appears -- hidden behind UI, off screen, a slot lost to the game -- cannot pin the painted copy
+-- on screen forever. Costs a 40-entry OAM scan per frame only while a handover is pending, which
+-- is at most those 8 frames per promotion.
+local function holdHandover(o)
+	if not (o and o.handover) then
+		return false
+	end
+	if drawFrames - o.handover > 8 then
+		return false
+	end
+	if not o.handoverSX then
+		-- The latch is taken by the draw loop, which may not have run yet this frame. No position
+		-- to test against means the handover has certainly not completed.
+		return true
+	end
+	local wx, wy = o.handoverSX + 8, o.handoverSY + 16
+	for e = 0, 39 do
+		if (memory.read_u8(e * 4 + 1, "OAM") or 0) == wx
+			and (memory.read_u8(e * 4, "OAM") or 0) == wy then
+			return false
+		end
+	end
+	return true
+end
+
 local function renderRemote(id, state)
 	if not inPlay() or type(state) ~= "table" then
 		return
@@ -5248,6 +5359,15 @@ local function renderRemote(id, state)
 	-- interpolation off.
 	local peerPixX = (type(pos[3]) == "number") and pos[3] or nil
 	local peerPixY = (type(pos[4]) == "number") and pos[4] or nil
+	-- COMPARE.dy, applied ONCE at the source rather than at each place a position is written.
+	-- Every tier reads this pixel position -- the spawned object, the drawn copy, and the
+	-- drawn-overflow entry a peer falls back to while it has no engine slot -- and shifting it per
+	-- site is how the first attempt broke: the overflow sites kept the unshifted pixY, so the ghost
+	-- dropped a tile the moment it despawned and snapped back on respawn (user, 2026-08-25). The
+	-- tile-level `y` below is shifted to match, once, for the same reason. Inert while dy is 0.
+	if COMPARE_TIERS and peerPixY and id:match("%-ghost$") then
+		peerPixY = peerPixY + COMPARE.dy * 16
+	end
 	local peerProg = state.extras and tonumber(state.extras.prog) or nil
 	local peerWalking = (state.anim == "walk")
 	-- Only the low two bits are used, but the whole byte is carried so a log shows the direction
@@ -5271,8 +5391,12 @@ local function renderRemote(id, state)
 	-- Loopback only. A real peer already stands where they stand, and the offset exists solely so
 	-- an echo of yourself is not hidden underneath you.
 	local offsetX = isLoopback and LOOPBACK_OFFSET_X or 0
-	if COMPARE_TIERS and isLoopback and offsetX == 0 then offsetX = COMPARE.spawned end
+	-- Compare mode OVERRIDES the loopback offset outright rather than only filling in for a 0:
+	-- the two copies' placement is the whole point of the mode, and LOOPBACK_OFFSET_X's own
+	-- default (2) would otherwise leave the spawned copy wherever that default happens to put it.
+	if COMPARE_TIERS and isLoopback then offsetX = COMPARE.spawned end
 	local x, y = baseX + offsetX, math.floor(pos[2])
+	if COMPARE_TIERS and isLoopback then y = y + COMPARE.dy end
 	if x < 0 or x > 255 or y < 0 or y > 255 then
 		return
 	end
@@ -5349,7 +5473,8 @@ local function renderRemote(id, state)
 		overflow[hk] = OAM_TIER and { prog = peerProg, walking = peerWalking, face = peerFace, act = peerAct,
 			-- The pixel position is ABSOLUTE, so a copy placed elsewhere needs it moved by the same
 			-- whole tiles or it paints at the peer's real location instead of this copy's.
-			pixX = peerPixX and (peerPixX + COMPARE.hw * 16), pixY = peerPixY, compare = true, only = "hw", x = baseX + COMPARE.hw, y = y,
+			pixX = peerPixX and (peerPixX + COMPARE.hw * 16), pixY = peerPixY,
+			compare = true, only = "hw", x = baseX + COMPARE.hw, y = y,
 			sprite = FORCE_PEER_SPRITE or (state.extras and tonumber(state.extras.sprite)) or nil,
 			facing = ORIENTATION_TO_DIR[state.orientation],
 			lastX = hprev and hprev.lastX, lastY = hprev and hprev.lastY,
@@ -5504,7 +5629,7 @@ local function renderRemote(id, state)
 	-- Safe to hold: the promotion places the object on the drawn model's own tile, and the model's
 	-- sub-tile remainder measures 0.0px at that instant (logged under MESHGHOST_CRYSTAL_STEP_LAG),
 	-- so the two agree on the pixel for as long as this lasts.
-	if g and overflow[id] and (overflow[id].handover or -1) + 1 < drawFrames then
+	if g and overflow[id] and not holdHandover(overflow[id]) then
 		overflow[id] = nil
 	end
 	if not g then
@@ -5550,17 +5675,51 @@ local function renderRemote(id, state)
 			-- start of moving from idle to another tile"*. Measured before it is called the cause.
 			local remX = ov.modelX - math.floor(ov.modelX / 16) * 16
 			local remY = ov.modelY - math.floor(ov.modelY / 16) * 16
-			if stepLag.on then
+			-- DO NOT PROMOTE MID-STEP. The 08-23 comment above assumed the remainder is 0.0 at
+			-- promotion because the model had only just started moving. Since the model began
+			-- stepping off the peer's PROGRESS (later that same day), it no longer is: measured
+			-- 2026-08-25 across three promotions of the 9x9 square drive, the model is 10px into
+			-- its tile every time -- the peer's tile change arrives when their step COMPLETES, so
+			-- the progress-driven model is most of a step in before the promotion can fire. The
+			-- object lands tile-aligned, so those 10px were paid as a visible backward snap on the
+			-- ghost's first tile after every respawn (user: *"'snaps' a bit when moving the first
+			-- tile after respawning"*).
+			--
+			-- The remainder cannot be carried onto the object (the standing re-anchor destroys a
+			-- between-tiles object within a frame -- above). So WAIT for it to drain instead: the
+			-- model reaches its tile boundary within a step (16px at 2px per engine tick), the
+			-- paint keeps tracking it the whole way, and the object then lands exactly where the
+			-- painted copy is standing. Bounded at 24 frames -- past that (a model wedged
+			-- mid-tile, which a parked model never is) the old snap is the lesser evil versus a
+			-- peer stuck on the painted tier.
+			-- The boundary is detected as a TILE CROSSING, not as remainder == 0. The first
+			-- version tested `rem < 1` and the trace showed later promotions riding the 24-frame
+			-- cap and landing 2-14px mid-step: a model in its 4px catch-up gait goes 14 -> 18 -> 2
+			-- and never touches 0, so an equality-shaped test misses the boundary it is waiting
+			-- for. The crossing itself cannot be missed -- floor(model/16) changes on exactly one
+			-- frame -- and the landing error is bounded by half the model's own quantum.
+			local mtile = math.floor(ov.modelX / 16) * 256 + math.floor(ov.modelY / 16)
+			local crossed = ov.promoteTile ~= nil and ov.promoteTile ~= mtile
+			ov.promoteTile = mtile
+			if (remX >= 1 or remY >= 1) and not crossed and (ov.promoteWait or 0) < 24 then
+				ov.promoteWait = (ov.promoteWait or 0) + 1
+				if stepLag.on then
+					logFile(string.format("  defer f=%d %s rem %.1f,%.1f wait %d",
+						drawFrames, id, remX, remY, ov.promoteWait))
+				end
+				px = nil
+			elseif stepLag.on then
 				stepLag.rem = stepLag.rem or {}
 				local k = math.floor(math.max(remX, remY))
 				stepLag.rem[k] = (stepLag.rem[k] or 0) + 1
 				logFile(string.format("MeshGhost: %s promoted -- drawn model was %.1f,%.1f px into "
-					.. "its tile, and that remainder is discarded (the object lands tile-aligned)",
-					id, remX, remY))
+					.. "its tile after %d deferred frames (the object lands tile-aligned)",
+					id, remX, remY, ov.promoteWait or 0))
 			end
 		end
 		-- Try the good tier first, every frame: a slot may have freed up since last time.
-		if spawnGhost(id, px, py, peerSprite) then
+		-- (px == nil is the mid-step deferral above -- stay painted this frame.)
+		if px and spawnGhost(id, px, py, peerSprite) then
 			-- FACE THE WAY THE PEER IS FACING, IMMEDIATELY.
 			--
 			-- `spawnGhost` pins the new object's standing facing to whatever direction the TEMPLATE
@@ -5606,7 +5765,9 @@ local function renderRemote(id, state)
 				-- client.screenshot captures the emulated framebuffer WITHOUT BizHawk's Lua overlay,
 				-- so the drawn tier is invisible to every screenshot ever taken of it (2026-08-23).
 				if stepLag.on then
-					stepLag.traceUntil = drawFrames + 4
+					-- +8, matching holdHandover's own cap: the window has to outlast the hold or
+					-- the trace stops before the frame that decides whether it worked.
+					stepLag.traceUntil = drawFrames + 8
 				end
 			else
 				overflow[id] = nil
@@ -5634,6 +5795,11 @@ local function renderRemote(id, state)
 			lagBeats = prev and prev.lagBeats, catchup = prev and prev.catchup,
 			stepDX = prev and prev.stepDX, stepDY = prev and prev.stepDY, stepLeft = prev and prev.stepLeft, dbgState = prev and prev.dbgState,
 			progAxis = prev and prev.progAxis,
+			-- The mid-step promotion deferral's own counter. Carried ONLY here (this rebuild runs on
+			-- every deferred frame); the demotion-path rebuilds deliberately drop it, so each idle
+			-- period starts its wait from zero.
+			promoteWait = prev and prev.promoteWait,
+			promoteTile = prev and prev.promoteTile,
 			facingSeen = prev and prev.facingSeen,
 			stepLatch = prev and prev.stepLatch,
 			idleFor = prev and prev.idleFor,
@@ -5646,7 +5812,7 @@ local function renderRemote(id, state)
 	-- every frame for a spawned peer, so the entry the promotion had deliberately kept was wiped
 	-- one frame later whatever `handover` said. Both release points have to honour it or neither
 	-- does. Found 2026-08-23 while measuring why the blink survived a fix aimed straight at it.
-	if not (overflow[id] and (overflow[id].handover or -1) + 1 >= drawFrames) then
+	if not holdHandover(overflow[id]) then
 		overflow[id] = nil
 	end
 	if g and not stillOurs(g) then
@@ -5802,6 +5968,16 @@ local function renderRemote(id, state)
 		end
 	end
 
+	-- STEP_LAG: EVERY STEP THE SPAWNED GHOST TAKES, with which branch issued it and how far
+	-- behind it was. The user sees a snap 2-3 tiles into a walk after a respawn, and every
+	-- positional instrument reads clean (0 teleports, 0 re-anchors, 0 snap reports) -- so the
+	-- question is the RHYTHM: the gap in frames between successive steps, against the peer's own.
+	-- One line per commanded step, so bounded at walk rate.
+	if stepLag.on then
+		logFile(string.format("ghost step f=%d %s %s ghost %d,%d -> peer %d,%d deficit %d",
+			drawFrames, id, dir and "inphase" or "catchup", cx, cy, x, y,
+			math.abs(dx) + math.abs(dy)))
+	end
 	if dir then
 		if stepLag.on then
 			stepLag.close(id)
@@ -6334,6 +6510,68 @@ local function tick()
 			.. "player can see -- it means a ghost could not walk to where its peer already was)",
 			snaps.n, (snaps.n == 1) and "" or "s"))
 		snaps.n, snaps.at = 0, bridgeFrames
+	end
+
+	-- STEP_LAG: THE THREE-WAY MOVEMENT TRACE -- player, spawned ghost, drawn model, one line, one
+	-- frame, whenever any of them moved. Exists for the user's 1:1 double-check (2026-08-25):
+	-- *"see if the drawn & spawned ghosts actually match up exactly/identical to the player"*, with
+	-- one named suspect -- *"maybe drawn stopping a bit fast whenever pausing/stopping at the end?"*.
+	--
+	-- Raw values, not verdicts (a boolean cannot be sanity-checked): map-space pixels for all
+	-- three, derived for the player and the spawned ghost EXACTLY as the send path derives them
+	-- (destination tile minus 16-prog back along the facing), and the drawn tier reported twice --
+	-- the model that feeds the paint AND the screen position actually painted last frame, because
+	-- what is DRAWN is the evidence and the model is merely what feeds it. Frames where nothing
+	-- moved are omitted; the frame number makes stillness exact anyway. Analysis is offline: shift
+	-- each ghost series by its best-fit constant lag and diff against the player's, stop shapes
+	-- included. Coverage is printed at each summary tick so the trace says what it could not see.
+	if stepLag.on then
+		local mt = stepLag.mv
+		if not mt then
+			mt = { last = "" }
+			stepLag.mv = mt
+		end
+		local parts = {}
+		local base = OBJECT_STRUCTS
+		local function mappx(sb)
+			local mx, my = (u8(sb + F_MAP_X) or 0) * 16, (u8(sb + F_MAP_Y) or 0) * 16
+			if (u8(sb + F_WALKING) or STANDING) ~= STANDING then
+				local back = stepProgress(sb) - 16
+				local d = ((u8(sb + F_DIRECTION) or 0) // 4) & 3
+				if d == 0 then my = my + back
+				elseif d == 1 then my = my - back
+				elseif d == 2 then mx = mx - back
+				else mx = mx + back end
+			end
+			return mx, my
+		end
+		local px, py = mappx(base)
+		-- The struct's own screen coords too (engine-maintained): field-derived map px can carry a
+		-- one-frame skew at step boundaries that the drawn sprite does not, and the DIFFERENCE
+		-- between the ghost's and the player's screen coords is camera-free, so it is the drawn
+		-- truth the map-px derivation must be checked against.
+		parts[#parts + 1] = string.format("P=%d,%d Ps=%d,%d", px, py,
+			u8(base + F_SPRITE_X) or 0, u8(base + F_SPRITE_Y) or 0)
+		for id, g in pairs(ghosts) do
+			if stillOurs(g) then
+				local gx, gy = mappx(g.st_base)
+				parts[#parts + 1] = string.format("S[%s]=%d,%d Ss=%d,%d", id, gx, gy,
+					u8(g.st_base + F_SPRITE_X) or 0, u8(g.st_base + F_SPRITE_Y) or 0)
+			end
+		end
+		for key, o in pairs(overflow) do
+			if o.modelX then
+				parts[#parts + 1] = string.format("M[%s]=%d,%d paint=%s,%s", key,
+					math.floor(o.modelX), math.floor(o.modelY),
+					tostring(o.paintedX), tostring(o.paintedY))
+			end
+		end
+		local line = table.concat(parts, " ")
+		if line ~= mt.last then
+			mt.last = line
+			mt.lines = (mt.lines or 0) + 1
+			logFile(string.format("mv f=%d %s", bridgeFrames, line))
+		end
 	end
 
 	-- STEP_LAG: COMMIT. The frame the player's own object took a tile, recorded before receive() so
