@@ -1,15 +1,24 @@
 # Pokémon Crystal
 
 **Status: shipping.** `meshghost_crystal.lua` is a working adapter — it dials the bridge, spawns a
-real in-game object event for each peer, walks it with the game's own step mechanism, **paints any
-peer the engine has no room for over the emulator instead of dropping it**, and ships in
+real in-game object event for each peer, walks it with the game's own step mechanism, and ships in
 the release (`.github/workflows/release.yml` stages it into `games/pokemon/crystal/`). It **writes
-game RAM** — object RAM only, never a save. Last live confirmation 2026-08-19: a character on every
-visible tile at 60fps, user-confirmed (a loopback ghost had walked on both vanilla and an
-Archipelago-patched ROM the day before).
+game RAM** — object RAM only, never a save.
+
+**Three tiers, which is this adapter's headline structure.** A peer is rendered by the best one
+that will take it, and never dropped: **spawned** (a real object event the engine walks, animates
+and occludes for us), then **hardware** (written straight into the game's own sprite buffer so the
+PPU draws it — shipped OFF, see [FLAGS.md](FLAGS.md)), then **drawn** (painted over the emulator
+for any peer the first two have no room for).
+
+**Last live confirmation 2026-08-23**: the drawn tier's motion and walk cycle, at the dev rig's
+settings. Earlier: a character on every visible tile at 60fps (2026-08-19), and a loopback ghost
+walking on both vanilla and an Archipelago-patched ROM the day before that. **What is confirmed
+and what is not is `agent_docs/status.md` and `unverified.md`** — several fixes since 2026-08-22
+are built but unwatched, and the hardware tier has never been judged on screen at all.
 
 - Platform: Game Boy Color, played via BizHawk.
-- Confirmed working ROMs, on screen: **Vanilla V1.0**, **Archipelago 6.0.0-beta.11**.
+- Confirmed working roms: "Vanilla V1.0", "Archipelago 6.0.0-beta.11".
 - Intended, not yet tested: **Vanilla V1.1**, **speedchoice v8.1**. Each needs its own address
   table before it is more than a fallback — today an unrecognised build runs on vanilla's table
   with a one-line "untested" log. The two are not equal work: `pokecrystal` lists V1.1 as one of
@@ -147,7 +156,16 @@ Only steps that actually happened and were confirmed are listed here.
     its delta; it is painted in the camera's own coordinate frame, so the seam that a tile-plus-
     progress origin opens at every step boundary is gone. Full chain in
     [pitfalls.md](../../../../agent_docs/pitfalls.md); the instruments, which outlast the fix, in
-    [probes.md](../../_template/probes.md).
+    [probes.md](../../../_template/probes.md).
+
+11. Added the hardware (OAM) tier between the other two, on the user's request. A peer whose tiles
+    are already resident in VRAM is written into the game's own sprite buffer, so it gets the
+    engine's live palettes, day/night and fades for no per-pixel Lua. It allocates downward from
+    the tail the engine leaves free, so the Game Boy's per-scanline sprite limit drops a ghost
+    rather than one of the game's own characters. It buys **zero to one** extra character, not
+    capacity, and does **not** get occlusion free — a text box is background tiles with the
+    BG-to-OAM priority bit clear, so a sprite draws in front of it. Shipped OFF: nothing about how
+    it looks has been confirmed on screen. [FLAGS.md](FLAGS.md), `unverified.md`.
 
 ### Further work past "good enough"
 

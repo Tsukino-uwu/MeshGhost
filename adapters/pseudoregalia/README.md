@@ -33,7 +33,7 @@ because that is one session on one pair of machines, not broad testing. See
   happened (7.5):** Lua sockets turned out to be possible after all (`package.loadlib` +
   vendored LuaSocket), and worked under light testing — the real reason C++ became mandatory
   was a receive-side memory corruption bug in that combo that only surfaced under sustained
-  real traffic, not "Lua can't do sockets" as first assumed. See build-log step 5 below and
+  real traffic, not "Lua can't do sockets" as first assumed. See build-log step 6 below and
   `agent_docs/pitfalls.md`'s "Host-embedded scripting runtimes" section for the full
   diagnostic trail.
 - The Archipelago randomizer for this game
