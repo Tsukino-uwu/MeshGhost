@@ -19,8 +19,8 @@ same day: *"i will move on to crystal and not work more on emerald right now."* 
 
 ## Genuinely open items
 
-- **A whole-repo doc fact/stale audit is DONE and the repair is NOT** — every finding, with
-  file:line and a commit-by-commit repair order, is in `tempfileforrestructure.md` (untracked).
+- **The 2026-08-25 doc repair is DONE; three findings were deliberately left.** `pitfalls.md`'s
+  taxonomy, `architecture.md`'s narrative ADRs, and `verified.md` itself. `ideas.md`.
 - **Five refactors deferred by the 2026-08-18 audit** — `game_thread_tick()`, the two Lua
   adapters' duplication, Crystal's probe boilerplate, `internal/cfg`, TEVI's send gate. `ideas.md`.
 

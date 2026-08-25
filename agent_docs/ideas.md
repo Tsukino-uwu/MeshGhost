@@ -3175,3 +3175,28 @@ order `adapters/_template/README.md` gives them — the access model first (`acc
 then whether the build is IL2CPP or Mono, which is what decides how much of the TEVI adapter's
 approach transfers. Nothing about Ori's runtime has been checked; the Unity-ness is an assumption
 from its genre and vintage, not a measurement.
+
+## Doc restructuring the 2026-08-25 repair pass deliberately left
+
+That pass fixed facts and collapsed duplication; these three are structural and each is its own
+job. Recorded here so they are not rediscovered by a future audit.
+
+1. **`pitfalls.md`'s taxonomy stops about three tenths in and never resumes** — the rest is a flat
+   chronological append, so "look under the theme" finds a fraction of what is there. The file now
+   says so at the top, which is the cheap half. The real fix is either finishing the taxonomy or
+   dropping it and committing to chronological-plus-index. ~4,800 lines.
+   Its two methodology clusters — six entries on instruments that lie, five on probe hygiene, all
+   stating one rule — are a candidate extraction to `agent_docs/probe-discipline.md`.
+2. **`architecture.md` is ~2,450 lines and several ADRs read as incident narratives** rather than
+   decisions — a LuaSocket/PE-import debugging trail, and one that is a bug list. That content
+   belongs in `pitfalls.md` with the ADR reduced to the decision it records. `risks.md` has the
+   same shape in one ~170-line Archipelago bullet with three nested closures.
+3. **`verified.md` (~10,200 lines) was left untouched by the user's call, and has one real
+   defect**: a ~215-line block was appended twice in rewritten form and **the two copies
+   contradict each other** — the earlier says a glow is attached to the ghost's root, the later
+   that it attaches to `WeaponMesh` at zero offset, and only the later is right. Nothing links
+   them. Also: heading levels flip (`##` vs `###` for the same kind of object), the entry template
+   is abandoned partway, and dates appear leading, trailing and body-only.
+   **It is append-only, so the fix is an appended `### CORRECTION:` entry naming the superseded
+   copy** — the file already uses `Superseded by`, `### CORRECTION:` and `### RETRACTION:` — not
+   an edit in place. Do not start this without asking: the user has twice scoped it out.
