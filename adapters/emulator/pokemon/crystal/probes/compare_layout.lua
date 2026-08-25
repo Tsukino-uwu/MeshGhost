@@ -1,6 +1,12 @@
--- MeshGhost — Pokémon Crystal: a plain loopback ghost, 2 tiles right (DEV TOOL)
+-- MeshGhost — Pokémon Crystal: the loopback ghost rendered TWICE (DEV TOOL)
 --
--- The three-way compare rig and the hardware tier are BOTH OFF here, deliberately, 2026-08-21.
+-- The compare rig is ON and the hardware tier is OFF. One peer, two renderers in the same frame
+-- from the same state: SPAWNED 2 tiles right, PAINTED 2 tiles left. Confirmed from the adapter's
+-- own startup line on 2026-08-25 (`PROBE FLAG IN USE: MESHGHOST_COMPARE_TIERS`); the header used
+-- to say the rig was off, which is what it was when the file was written on 2026-08-21 and had
+-- stopped being true. FLAGS.md's rule settles that kind of disagreement: the value wins.
+--
+-- THE HARDWARE TIER STAYS OFF, and that half of the 2026-08-21 reasoning is unchanged.
 --
 -- Why: with the hardware tier on it claims a peer BEFORE the drawn tier sees it, and the user's
 -- report was that a peer then *"goes invisible when standing idle for a tiny bit"* -- which is

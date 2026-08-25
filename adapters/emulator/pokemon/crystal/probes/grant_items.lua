@@ -20,6 +20,11 @@
 --   * MAX_REPEL x10 and RARE_CANDY x10 in the item pocket -- repels because wild encounters
 --     interrupt a movement test, candies because a level is sometimes the cheapest way to reach
 --     a state.
+--   * PERMANENT REPEL, maintained every frame -- the one thing here that is not a one-shot write.
+--     The user's request, 2026-08-25, "similar to how emerald does it": Emerald's testkit.lua
+--     keeps VAR_REPEL_STEP_COUNT topped up for exactly the same reason, and this is Crystal's
+--     equivalent counter. See "WHAT PERMANENT REPEL ACTUALLY DOES" below -- it is NOT
+--     "no wild encounters", and the difference decides whether a test session gets interrupted.
 --
 -- IT IS IDEMPOTENT: an item already in a pocket has its quantity SET, not added, and the key item
 -- is not duplicated. Running it twice does the same thing as running it once.
@@ -65,6 +70,27 @@ local MAX_ITEMS, MAX_BALLS, MAX_KEY_ITEMS = 20, 12, 25
 
 -- constants/item_constants.asm
 local MASTER_BALL, RARE_CANDY, MAX_REPEL, SUPER_ROD = 0x01, 0x20, 0x2B, 0x3D
+
+-- WHAT PERMANENT REPEL ACTUALLY DOES, read off the decompilation rather than assumed, because the
+-- assumption ("no wild battles") is wrong in a way that wastes a whole test session:
+--
+--   * `wRepelEffect` (01:dca1) is a STEP COUNTER, not a flag. `DoRepelStep`
+--     (engine/overworld/events.asm:937) decrements it once per step and, on reaching zero, runs
+--     RepelWoreOffScript. Keeping it topped up is therefore what "permanent" means -- and it also
+--     means the "wore off" prompt can never fire, since that fires exactly at zero.
+--   * `CheckRepelEffect` (engine/overworld/wildmons.asm:349) then compares the WILD level against
+--     the level of the first party Pokemon that is not fainted, and lets the encounter through
+--     when the wild one is GREATER OR EQUAL. So a repel suppresses what is BENEATH your lead, not
+--     everything. On a low-level lead this probe will look like it is doing nothing; pair it with
+--     probes/set_level.lua and the encounters stop.
+--
+-- Topped up only when it drops below the threshold rather than written every frame -- one byte
+-- either way, but there is no reason to write over the engine's own decrement 60 times a second.
+local W_REPEL_EFFECT = flat(0xDCA1)
+local REPEL_TOPUP, REPEL_FLOOR = 0xFF, 0x80
+
+-- Set false to leave the counter alone -- e.g. to test what a wild encounter does to a ghost.
+local PERMANENT_REPEL = true
 
 local TERMINATOR = 0xFF
 
@@ -168,11 +194,33 @@ end
 open_log()
 log("=== MeshGhost Crystal item kit (THIS ONE WRITES THE BAG) ===")
 
-local applied, waited = false, 0
+local applied, waited, refused = false, 0, false
+local repelSaid = false
+
+-- The only per-frame part of this file. Everything else is written once and goes quiet; this has
+-- to keep running, because the engine is decrementing the counter underneath it.
+local function holdRepel()
+	if not PERMANENT_REPEL or refused or not inOverworld() then return end
+	local now = u8(W_REPEL_EFFECT)
+	if not now or now >= REPEL_FLOOR then return end
+	w8(W_REPEL_EFFECT, REPEL_TOPUP)
+	if not repelSaid then
+		repelSaid = true
+		-- READ BACK, never the value just written -- CLAUDE.md's rule, and it costs one read here.
+		log(string.format("  PERMANENT REPEL: topping wRepelEffect up to %d whenever it drops "
+			.. "below %d (read back: %s). Remember it only suppresses wild Pokemon BELOW your "
+			.. "lead's level -- probes/set_level.lua if they are still appearing.",
+			REPEL_TOPUP, REPEL_FLOOR, tostring(u8(W_REPEL_EFFECT))))
+	end
+end
 
 local function tick()
-	if applied then return end
+	if applied then
+		holdRepel()
+		return
+	end
 	if not isVanillaV10() then
+		refused = true
 		applied = true
 		log("REFUSED: this is not vanilla Crystal V1.0, and these addresses describe only that build.")
 		return
@@ -203,6 +251,11 @@ local function tick()
 	log("  AFTER balls:     " .. dump(W_NUM_BALLS, W_BALLS, true, MAX_BALLS))
 	log("  AFTER key items: " .. dump(W_NUM_KEY_ITEMS, W_KEY_ITEMS, false, MAX_KEY_ITEMS))
 	log("  Done. Open the bag to see them. None of this reaches the .sav unless you save in-game.")
+	if PERMANENT_REPEL then
+		holdRepel()
+	else
+		log("  PERMANENT REPEL is off in this copy of the probe -- wild encounters are normal.")
+	end
 end
 
 MESHGHOST_DEV_TICK = tick
