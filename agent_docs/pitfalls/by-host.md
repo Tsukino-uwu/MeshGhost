@@ -1005,3 +1005,35 @@ Recurring adapter tasks, and how differently each engine/game has answered them 
   masked this rather than fixed it, and broken every case where the count was legitimately right —
   but the observation that something systematically over-produced is what pointed at the detector.
 
+## BizHawk's Lua console charges by BUFFER SIZE, and a day-long session pays it on every append (2026-08-25)
+
+**Symptom.** Late in a long Crystal session: *"its still lagging like crazy"* — heavy, visible
+stutter while playing, on a rig that had been smooth all week. Every instrument said otherwise:
+BizHawk reported a flat 60fps, the adapter's own per-frame cost measured 25ms of each second with
+a worst frame of 1.0ms, and cutting the drawn tier's overlay primitives from ~116 a frame to
+exactly 1 (a diagnostic that drew each ghost as a single block) changed nothing the user could
+feel. Two rendering optimisations were built and reverted on that dead theory.
+
+**The discriminating observations, in the order they landed:**
+1. Every script detached → smooth. So running Lua was necessary for the lag.
+2. Scripts running, primitives cut to ~2/frame → still laggy. So it was not the overlay.
+3. The same scripts, after `console.clear()` and with every console-printing probe stripped →
+   smooth, riding the full 9x9 at 60fps, *"smooth to play/control as well now"*.
+
+**Cause.** The console's append cost scales with what the buffer already holds. `pitfalls.md` had
+already measured ONE console line a second costing 7.4fps — what was new is that a day of
+probe announcements, lap counters and reload banners leaves a buffer large enough that even the
+occasional line (a throttled driver printing 1-in-20) stalls the UI thread hard. The stall is
+outside the emulation core, which is why the fps counter and every timer running inside Lua
+swore nothing was wrong: the frames were on time, the WINDOW was not.
+
+**Rules this adds on top of "file only, never console.log":**
+- `console.clear()` at the start of a measuring or judging session costs nothing and removes the
+  whole accumulated liability. A session config script is the natural place for it.
+- A day-long dev session drifts into this even when every individual script is disciplined —
+  the rate stays low while the buffer grows. The symptom signature is exactly "everything says
+  60fps and the user says lag": when those disagree, suspect the UI thread, not the core, and
+  test by subtraction (detach everything), never by adding another timer — a timer inside Lua
+  CANNOT see this cost.
+- The user called the class from memory (*"probes have lagged things before"*) before any
+  instrument did. The person watching the screen is upstream of every probe.

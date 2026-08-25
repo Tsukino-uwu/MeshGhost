@@ -1646,3 +1646,27 @@ it compares.
 **What to watch:** up/down on the bike, both ghosts side by side — they should now hold the SAME
 constant beat behind the player, level with each other, through runs and reversals both, with the
 emulator at full speed.
+
+## 2026-08-25 — Crystal: the lag was the CONSOLE, and two rendering fixes died to the block test
+
+**Resolved on screen the same night** — the user: *"yee its smooth to play/control as well now.
+and looks smooth visually"*, riding the 9x9 on the bike at a flat 60fps with the day's whole fix
+stack live. Kept here because the resolution REFRAMES two entries above:
+
+- The `MESHGHOST_CRYSTAL_COMPARE_STATS` split (previous entry) was right to exist but was NOT the
+  main cost. Nor was the overlay: primitives were cut ~116/frame -> ~2 (a rectangle decomposition,
+  then a one-block diagnostic) and the user watched the stutter not move — both rendering changes
+  were REVERTED, and `drawCharacter` carries the note so nobody optimises that path on this
+  evidence again.
+- The cost was BizHawk's Lua console: append cost scales with the buffer, and a day-long session
+  had grown one big enough that a few throttled lines a minute stalled the UI thread — while the
+  emulation core, the fps counter and every timer inside Lua read a perfect 60. The full method
+  chain, the three discriminating observations, and the new rules (console.clear() at session
+  start; "60fps + user says lag" means the UI thread; a Lua timer cannot see this) are in
+  `pitfalls/by-host.md`. The user named the class from memory before any instrument did, and
+  called for the subtraction that settled it.
+
+The motion state as the session closed, on the 9x9 at bike: furthest behind 0px, K drift 0 over
+7 parks, 0 catch-up, 0 resyncs. Every fix from this day is now watched-smooth in aggregate; the
+individual confirmations (surf art, bike pace, stop drift, tier sync, pedal cadence, the turn
+retrace) each still carry their own entry above and their own gate.

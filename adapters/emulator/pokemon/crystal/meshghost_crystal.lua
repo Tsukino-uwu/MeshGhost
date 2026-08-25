@@ -2118,8 +2118,29 @@ local function drawCharacter(source, sx, sy, palIndex, facing, walking, prog, st
 	end
 
 	if frame then
+		-- COMPOSE THE WHOLE CHARACTER, THEN DECOMPOSE IT INTO MAXIMAL RECTANGLES (2026-08-25).
+		--
+		-- Drawing tile-by-tile, row-by-row issued ~76 overlay primitives per character and the
+		-- compare rig draws a peer twice: ~152 a frame, ~9,100 a second. BizHawk composites every
+		-- one, and that cost is invisible from inside Lua -- the adapter measured 25ms of each
+		-- second with a flat 60fps while the user was watching it stutter. Merging runs
+		-- vertically first gained ~5%: character art is dithered, so identical runs rarely repeat
+		-- straight down, and per-tile rows can never merge ACROSS the 8px tile seam either.
+		--
+		-- A 16x16 colour matrix has neither limit. Filling it costs 256 table writes -- nothing --
+		-- and a greedy maximal-rectangle pass over it merges freely in both axes and across all
+		-- four tiles, which is where the real reduction is. Exactly the same pixels: every cell is
+		-- covered once, by the largest uniform rectangle whose top-left it is.
 		-- The engine's own arrangement for this facing: which tile of the sprite goes where, and
 		-- which way round.
+		--
+		-- DRAWING IS NOT THE COST, measured 2026-08-25 and worth keeping because it looks like an
+		-- obvious suspect. The tier issues ~58 overlay primitives per character (~116 a frame with
+		-- the compare rig), which reads as a lot -- so it was cut to ~2 with a whole-character
+		-- rectangle decomposition, and then to exactly 1 with a diagnostic that drew each ghost as
+		-- a single block. The user watched all three and the stutter never moved. Both changes
+		-- were reverted: they were bought with an unverified change to what reaches the screen and
+		-- paid for nothing. Look elsewhere before touching this again.
 		for _, part in ipairs(frame) do
 			drawRows(partRows(part.offset), sx + part.dx, sy + part.dy, colors, part.xflip)
 		end
@@ -2674,7 +2695,7 @@ function meshghostSampleCamera()
 		-- 8-12 frames of ordinary 2px scrolling, which is the prediction this
 		-- histogram tests. If gaps > 1 are common, the camera accumulator is
 		-- missing real motion and the drift K repays is manufactured right here.
-		if COMPARE_TIERS and facingFrames.camFrame then
+		if facingFrames.stats() and facingFrames.camFrame then
 			local g = drawFrames - facingFrames.camFrame
 			if g > 24 then g = 25 end
 			facingFrames.camGap = facingFrames.camGap or {}
@@ -3411,7 +3432,7 @@ function drawOverflow()
 			-- So: the gap in frames between successive 2px moves, for the ghost and for the player,
 			-- from the same log line. If the player's gaps cluster and the ghost's do not, the
 			-- remaining half of the jitter is the pacing and not the placement.
-			if COMPARE_TIERS and o.only == "drawn" then
+			if facingFrames.stats() and o.only == "drawn" then
 				local now = emu.framecount()
 				if o.modelX ~= facingFrames.gapLastX or o.modelY ~= facingFrames.gapLastY then
 					if facingFrames.gapLastAt then
@@ -3435,7 +3456,7 @@ function drawOverflow()
 			-- from, which makes it exactly the reference to check against. SIGNED, because "ahead"
 			-- and "behind" are different faults with different fixes and an absolute value erases
 			-- the distinction.
-			if COMPARE_TIERS and o.only == "drawn" and o.pixX and o.pixY then
+			if facingFrames.stats() and o.only == "drawn" and o.pixX and o.pixY then
 				local lead = (o.facing == 0 or o.facing == 1)
 					and (o.modelY - o.pixY) or (o.modelX - o.pixX)
 				if o.facing == 1 or o.facing == 2 then lead = -lead end -- toward travel
@@ -3448,7 +3469,7 @@ function drawOverflow()
 			-- HOW FAR BEHIND THE MODEL EVER GETS, and how often it gives up and snaps. A model that
 			-- tracks and a model that resyncs every other step both paint a ghost in about the
 			-- right place; only these two numbers tell them apart, and "it looked fine" would not.
-			if COMPARE_TIERS then
+			if facingFrames.stats() then
 				local behind = math.abs(o.modelX - tX) + math.abs(o.modelY - tY)
 				facingFrames.modelMax = math.max(facingFrames.modelMax or 0, behind)
 			end
@@ -4105,7 +4126,7 @@ function drawOverflow()
 						-- all. That is the "a flag that gates the decision but not the work" trap
 						-- this project has already been bitten by, arriving from the other side.
 						facingFrames.kWantX, facingFrames.kWantY = wantKX, wantKY
-						if COMPARE_TIERS then
+						if facingFrames.stats() then
 							if facingFrames.kWantPrev and not stable then
 								facingFrames.kWantMoves = (facingFrames.kWantMoves or 0) + 1
 							end
@@ -4328,7 +4349,7 @@ function drawOverflow()
 					-- EVENT-TRIGGERED: whenever the painted position jumps 2px or more against
 					-- the previous frame, dump the model state OF THAT FRAME -- the sampling probe
 					-- averaged over 15 frames and could not see the mechanism of a 1-frame event.
-					if COMPARE_TIERS and o.only == "drawn" then
+					if facingFrames.stats() and o.only == "drawn" then
 						local jump = facingFrames.kLastSX
 							and (math.abs(sx - facingFrames.kLastSX) >= 2
 								or math.abs(sy - facingFrames.kLastSY) >= 2)
@@ -4589,7 +4610,20 @@ function drawOverflow()
 					-- ghost's pattern matches the player's, the walk cycle is the engine's own; if
 					-- it has more bursts, or shorter ones, the difference is visible in the log
 					-- instead of being characterised by eye a fourth time.
-					if COMPARE_TIERS and o.only == "drawn" then
+					-- BEHIND THE STATS GATE, not COMPARE_TIERS (2026-08-25). This block builds six
+					-- trace strings ONE CHARACTER A FRAME, and Lua has no mutable strings: every
+					-- append allocates a new string and discards the old, six times a frame, plus
+					-- the per-frame arithmetic feeding them. It ran for anyone using the compare
+					-- rig -- which is anyone comparing the two tiers, i.e. exactly the sessions
+					-- where the game has to be at full speed to judge anything. The user, after
+					-- five separate probes were found live at once: *"remove/disable all the
+					-- probes that are active anywhere in the lua. probes have lagged things
+					-- before"*. They have, and this file is where that lesson was written down.
+					--
+					-- The rig now RENDERS by default and MEASURES only when asked. The traces are
+					-- worth keeping -- they are what read the walk cadence in the first place --
+					-- so they live behind MESHGHOST_CRYSTAL_COMPARE_STATS with the rest.
+					if facingFrames.stats() and o.only == "drawn" then
 						-- The DIRECTION is encoded into the character, upper case for a stepping
 						-- view and lower case for a standing one, so a single direction can be read
 						-- out of a mixed walk. "Right feels fast and the others do not" is a claim
@@ -5635,7 +5669,7 @@ local function renderRemote(id, state)
 	-- evidence. A whole change was reverted on it. So: no per-second snapshots, no gating on a
 	-- `walking` flag that can be stale, and the count of UNCHANGED messages is reported beside the
 	-- changed ones, because "nothing moved" and "nothing was sampled" have to be distinguishable.
-	if COMPARE_TIERS then
+	if facingFrames.stats() then
 		local w = facingFrames.wire
 		if not w then
 			w = { msgs = 0, same = 0, moved = 0, dist = {} }

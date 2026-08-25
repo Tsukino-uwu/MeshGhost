@@ -70,6 +70,7 @@ on Crystal. `dev-scripts/preflight.ps1` checks that every heading in every body 
 - Two `git.exe` installs on one machine disagree about whether the tree is dirty (2026-08-15)
 - `cmd` itself resolves to a devkitPro document, not an interpreter (2026-08-17)
 - The diagnostics were the bug: probes that broke the effect they measured (2026-08-16)
+- BizHawk's Lua console charges by BUFFER SIZE, and a day-long session pays it on every append (2026-08-25)
 - Pooled objects: detecting "spawned" by object identity silently undercounts (2026-08-16)
 - Latch event payloads to the event; don't republish them as per-tick state (2026-08-16)
 - Sampling a multi-tick spawn once attributes its stragglers to the NEXT event (2026-08-16)
