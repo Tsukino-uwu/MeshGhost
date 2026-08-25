@@ -1109,7 +1109,7 @@ func TestTryAddAndSnapshotRosterIsAtomic(t *testing.T) {
 }
 
 // TestOversizedHelloFieldRejected confirms a Hello with a field over
-// MaxHelloFieldLen is refused with ReasonHelloFieldTooLong. The
+// protocol.MaxHelloFieldLen is refused with ReasonHelloFieldTooLong. The
 // DisplayName here is also paired with a bad ProtocolVersion, to confirm
 // the length check runs *first* (a review-pass fix — previously the
 // version check ran first and its rejectAndClose logged the full,
@@ -1122,7 +1122,7 @@ func TestOversizedHelloFieldRejected(t *testing.T) {
 		ProtocolVersion: protocol.Version + 1,
 		GameID:          "emerald",
 		Room:            "room1",
-		DisplayName:     strings.Repeat("a", MaxHelloFieldLen+1),
+		DisplayName:     strings.Repeat("a", protocol.MaxHelloFieldLen+1),
 	})
 	defer c1.conn.Close()
 

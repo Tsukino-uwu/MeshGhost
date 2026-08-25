@@ -1146,19 +1146,15 @@ func (s *Server) handleConn(conn net.Conn) {
 			// contents) would defeat the point of bounding, writing
 			// unbounded attacker-controlled bytes into the relay's own log
 			// on every attempt. Found in a review pass.
-			if len(hello.GameID) > MaxHelloFieldLen || len(hello.Room) > MaxHelloFieldLen ||
-				len(hello.DisplayName) > MaxHelloFieldLen || len(hello.RoomCode) > MaxHelloFieldLen ||
-				len(hello.GameVersion) > MaxHelloFieldLen ||
-				len(hello.ResumeToken) > protocol.MaxResumeTokenLen ||
-				!protocol.ValidateFeatures(hello.Features) {
-				log.Printf("relay: refused hello (%s): a field exceeded %d bytes", protocol.ReasonHelloFieldTooLong, MaxHelloFieldLen)
+			if !protocol.ValidateHelloFields(hello) {
+				log.Printf("relay: refused hello (%s): a field exceeded %d bytes", protocol.ReasonHelloFieldTooLong, protocol.MaxHelloFieldLen)
 				sendEnvelope(nd, protocol.TypeReject, protocol.Reject{Reason: protocol.ReasonHelloFieldTooLong})
 				_ = nd.Close()
 				return
 			}
 			// Versioning rule (agent_docs/contract.md): a mismatched major
 			// version is refused outright, not guessed at. Every hello
-			// field is now known to be <= MaxHelloFieldLen (checked
+			// field is now known to be <= protocol.MaxHelloFieldLen (checked
 			// above), so rejectAndClose's logging below is bounded too.
 			if hello.ProtocolVersion != protocol.Version {
 				rejectAndClose(nd, hello, protocol.ReasonProtocolVersionMismatch)
@@ -1195,7 +1191,7 @@ func (s *Server) handleConn(conn net.Conn) {
 
 			// Single-game relay (agent_docs/architecture.md's ADR): checked
 			// here, after the field-length bound (so the game_id
-			// rejectAndClose logs is <= MaxHelloFieldLen) and before the
+			// rejectAndClose logs is <= protocol.MaxHelloFieldLen) and before the
 			// room table is touched or a slot reserved, same "reject at
 			// handshake, before any state flows" shape as the checks above.
 			// An empty s.OnlyGame means the relay hosts any game, the

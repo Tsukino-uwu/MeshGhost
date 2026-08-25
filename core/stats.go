@@ -24,6 +24,8 @@ import (
 	"fmt"
 	"sync/atomic"
 	"time"
+
+	"github.com/Tsukino-uwu/MeshGhost/internal/textfmt"
 )
 
 // coreStats is the raw counter block. Read through Core.Stats, never directly.
@@ -136,34 +138,11 @@ func (s Stats) String() string {
 		}
 	}
 	out := fmt.Sprintf("meshghost stats: %s | %d peers known, %d rendered", link, s.PeersKnown, s.PeersRendered)
-	out += fmt.Sprintf(" | sent %d states (%s, %s)", s.StatesSent, humanBytes(s.BytesSent), perHour(s.BytesSent, s.Uptime))
-	out += fmt.Sprintf(" | received %d msgs (%s, %s)", s.MessagesReceived, humanBytes(s.BytesReceived), perHour(s.BytesReceived, s.Uptime))
+	out += fmt.Sprintf(" | sent %d states (%s, %s)", s.StatesSent, textfmt.Bytes(s.BytesSent), textfmt.PerHour(s.BytesSent, s.Uptime))
+	out += fmt.Sprintf(" | received %d msgs (%s, %s)", s.MessagesReceived, textfmt.Bytes(s.BytesReceived), textfmt.PerHour(s.BytesReceived, s.Uptime))
 	if s.StatesReceived > 0 {
 		out += fmt.Sprintf(" | %.0f%% of remote states discarded as cross-area",
 			s.CrossAreaShare()*100)
 	}
 	return out
-}
-
-// humanBytes and perHour keep the log line in units a person can act on --
-// "41 MB/hour" is a number someone can compare against their connection, where
-// "11.7 KB/s" is one they have to convert first.
-func humanBytes(n uint64) string {
-	switch {
-	case n >= 1<<30:
-		return fmt.Sprintf("%.1f GB", float64(n)/float64(1<<30))
-	case n >= 1<<20:
-		return fmt.Sprintf("%.1f MB", float64(n)/float64(1<<20))
-	case n >= 1<<10:
-		return fmt.Sprintf("%.1f KB", float64(n)/float64(1<<10))
-	default:
-		return fmt.Sprintf("%d B", n)
-	}
-}
-
-func perHour(n uint64, uptime time.Duration) string {
-	if uptime <= 0 {
-		return "rate unknown"
-	}
-	return humanBytes(uint64(float64(n)/uptime.Hours())) + "/hour"
 }

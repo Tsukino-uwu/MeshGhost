@@ -31,6 +31,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Tsukino-uwu/MeshGhost/internal/textfmt"
 	"github.com/Tsukino-uwu/MeshGhost/protocol"
 )
 
@@ -319,21 +320,6 @@ func (r *Room) snapshot(now time.Time) RoomSnapshot {
 // A room with nothing beyond members collapses to one line, so the common case
 // — a purely cosmetic room, which is every room today — does not bury the one
 // room that has something going on.
-// humanBytes renders a byte total the way a host reads it. Deliberately coarse:
-// this is a number someone eyeballs in a terminal to decide whether a
-// difference is worth caring about, not one anything computes with.
-func humanBytes(n uint64) string {
-	switch {
-	case n >= 1<<30:
-		return fmt.Sprintf("%.1f GB", float64(n)/float64(1<<30))
-	case n >= 1<<20:
-		return fmt.Sprintf("%.1f MB", float64(n)/float64(1<<20))
-	case n >= 1<<10:
-		return fmt.Sprintf("%.1f KB", float64(n)/float64(1<<10))
-	default:
-		return fmt.Sprintf("%d B", n)
-	}
-}
 
 func (s Snapshot) String() string {
 	var b strings.Builder
@@ -353,9 +339,9 @@ func (s Snapshot) String() string {
 		// looks like a measurement.
 		if f := r.StateFanout; f.StatesIn > 0 {
 			fmt.Fprintf(&b, "\n    state fan-out: %d states to %d recipients (%s), %d area(s)",
-				f.StatesIn, f.Recipients, humanBytes(f.PayloadBytes), f.DistinctAreas)
+				f.StatesIn, f.Recipients, textfmt.Bytes(f.PayloadBytes), f.DistinctAreas)
 			fmt.Fprintf(&b, "\n      cross-area: %d recipients, %s -- %.0f%% of forwarded bytes go to a peer whose core will discard them",
-				f.CrossAreaRecipients, humanBytes(f.CrossAreaPayloadBytes), f.SuppressibleShare()*100)
+				f.CrossAreaRecipients, textfmt.Bytes(f.CrossAreaPayloadBytes), f.SuppressibleShare()*100)
 		}
 		for _, m := range r.Members {
 			fmt.Fprintf(&b, "\n    %s over %s", m.PlayerID, m.Transport)

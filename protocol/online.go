@@ -167,6 +167,24 @@ const (
 	// exhaustion reasoning as MaxLeasesPerRoom.
 	MaxEscrowsPerRoom = 64
 
+	// MaxHelloFieldLen bounds every string field of Hello (GameID, Room,
+	// DisplayName, RoomCode, GameVersion) — previously unbounded, found while
+	// auditing for malicious-peer hardening alongside room-code auth. One shared
+	// constant rather than five, since none of these fields has any real reason
+	// to differ from the others: a room name, a display name, and a version
+	// string are all short human-facing text. Checked before any of them are
+	// used to create or look up a room, so an oversized field is refused at the
+	// same handshake stage as a bad protocol version or room code.
+	//
+	// Lives here rather than in relay/limits.go, where it was until 2026-08-25,
+	// because that file's own header draws the line: field and size limits on
+	// wire messages belong in protocol/, and relay/ keeps the POLICY limits
+	// (client counts, timeouts, flood caps). This is a field limit on Hello,
+	// which is a protocol message, so it was on the wrong side of a rule the
+	// file states in its first paragraph. agent_docs/contract.md lists it under
+	// Limits with the rest of the field bounds, which is the other tell.
+	MaxHelloFieldLen = 128
+
 	// MaxResumeTokenLen bounds Hello.ResumeToken. The relay's own tokens are
 	// ResumeTokenBytes of hex; this is generous headroom so a future longer
 	// token needs no contract change, while still bounding what an attacker
@@ -334,6 +352,35 @@ func ValidateFeatures(features []string) bool {
 		}
 	}
 	return true
+}
+
+// ValidateHelloFields reports whether every client-supplied field of a Hello is
+// within its bound: the five string fields against MaxHelloFieldLen, the resume
+// token against MaxResumeTokenLen, and the feature list against ValidateFeatures.
+//
+// It lives here, beside the constants it enforces, rather than as five inline
+// len() comparisons at the relay's one call site — which is where it was until
+// 2026-08-25, and which is why it is easy to add a field to Hello and forget to
+// bound it. A Hello field is attacker-controlled and arrives BEFORE any
+// authentication has happened, so an unbounded one is the cheapest thing there
+// is to get wrong.
+//
+// Deliberately returns a plain bool and never the offending value. The caller
+// must not log field contents on failure: an oversized field is exactly the case
+// where logging it writes unbounded attacker-controlled bytes into the relay's
+// own log on every attempt, which defeats the point of bounding it at all.
+func ValidateHelloFields(h Hello) bool {
+	if len(h.GameID) > MaxHelloFieldLen ||
+		len(h.Room) > MaxHelloFieldLen ||
+		len(h.DisplayName) > MaxHelloFieldLen ||
+		len(h.RoomCode) > MaxHelloFieldLen ||
+		len(h.GameVersion) > MaxHelloFieldLen {
+		return false
+	}
+	if len(h.ResumeToken) > MaxResumeTokenLen {
+		return false
+	}
+	return ValidateFeatures(h.Features)
 }
 
 // LeaseOp is what a client is asking the relay to do with a key.
@@ -533,10 +580,15 @@ func ValidateEscrow(e Escrow) bool {
 // MaxHelloFieldLenForID bounds a player_id appearing in a client-supplied
 // field (Event.To, Escrow.With). Relay-assigned ids are tiny ("p12"), so
 // this is only about refusing an unbounded string before it is used as a map
-// key — relay has its own MaxHelloFieldLen for Hello's fields, and
-// this exists in protocol/ because core needs the same bound on the
-// values it sends.
-const MaxHelloFieldLenForID = 128
+// key.
+//
+// It is deliberately the same bound as MaxHelloFieldLen and now says so by
+// deriving from it rather than repeating the number. Both are "a short
+// identifier a client supplied"; there were three separate 128s across two
+// packages, each documented by pointing at another (MaxLeaseKeyLen's comment
+// still cites this one), which is how a set of numbers meant to agree drifts
+// apart one edit at a time.
+const MaxHelloFieldLenForID = MaxHelloFieldLen
 
 // ValidateEvent reports whether an Event is within bounds. Checked at the
 // relay on receive and at the core before send, the same two-enforcement-

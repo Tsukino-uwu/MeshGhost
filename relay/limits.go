@@ -71,17 +71,6 @@ const (
 	// ever actually joining — is held open indefinitely, one live goroutine
 	// and socket per attempt. See Server.HelloTimeout.
 	DefaultHelloTimeout = 10 * time.Second
-
-	// MaxHelloFieldLen bounds every string field of Hello (GameID, Room,
-	// DisplayName, RoomCode, GameVersion) — previously unbounded, found
-	// while auditing for malicious-peer hardening alongside room-code auth.
-	// One shared constant rather than five, since none of these fields has
-	// any real reason to differ from the others: a room name, a display
-	// name, and a version string are all short human-facing text. Checked
-	// before any of them are used to create or look up a room, so an
-	// oversized field is refused at the same handshake stage as a bad
-	// protocol version or room code, not after doing any work with it.
-	MaxHelloFieldLen = 128
 )
 
 // MaxMessagesPerSecondFor returns the per-client flood cap for a room running
