@@ -1541,3 +1541,27 @@ rig, interp 0, light probe stack. Agent-measured throughout — nothing here is 
 loopback delay -- same speed, same rhythm, same quantum, no accumulation, at both gaits. The
 delay itself is the rig's echo, is smaller than any real peer's, and shows only at corners and
 reversals as a beat of trailing motion, identically in kind on both tiers.
+
+## 2026-08-25 — Crystal: the drawn ghost pedalled at double speed, and the walk cycle was never prog's to derive
+
+**Fixed, NOT confirmed on screen.** The user, after the 1:1 position audit came back clean:
+*"the drawn ghost is doing the 'biking' animation way faster."* The decomp settles it in ten
+lines: `SetFacingStepAction` advances `OBJECT_STEP_FRAME` once per action tick and takes the
+stride from bits 2-3 — a FIXED clock, one stride per 8 video frames, the same speed at every
+gait — and `data/sprites/facings.asm` binds strides 0/2 to the STANDING view, 1 to the stepping
+view, 3 to its mirror. So the engine's walk cycle is a function of TIME, not of step progress.
+
+The drawn tier derived its stand/step alternation from `extras.prog` — a partition measured EXACT
+at the walk on 2026-08-22, because at 16 frames a tile the fixed clock and prog happen to align.
+At 8 frames a tile they do not: prog laps the clock and the ghost pedalled per-tile — exactly 2x.
+
+Fix: ordinary walking now reads the pose off the peer's `face` byte — stride = face & 3, stepping
+view on the odd strides — the same rule the bump/spin/fish branches already used, and the byte IS
+the peer's own step-frame clock, engine-paced at every gait. The prog band inside the frame
+picker is gone; both rendering tiers take the same pose. At the walk the two rules agree by
+construction, so nothing the user confirmed there should look different. Position numbers after
+the change, one bike lap: 0 resyncs, 0 catch-up, K drift 0 — the motion work is untouched.
+
+**What to watch:** ride beside the spawned ghost — both should pedal at the player's own cadence
+(one pedal alternation per tile on the bike, NOT two). Walk a few tiles too: the walking
+animation should look exactly as it did before this change.

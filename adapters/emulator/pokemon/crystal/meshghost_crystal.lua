@@ -1968,7 +1968,12 @@ function facingFrames.pick(facing, walking, prog, stride)
 	if not entry then
 		return nil -- nothing learned for this facing yet; each caller has its own fallback
 	end
-	if walking and (prog <= 4 or prog >= 14) then
+	-- No prog band here any more (2026-08-25): the caller's `walking` now encodes the engine's
+	-- own stand/step alternation, read off the peer's face byte (see facingFrames.pose). The band
+	-- was this function re-deriving that alternation from step progress, which is only correct at
+	-- the walk -- at the bike it alternated per tile instead of per stride and the pedalling ran
+	-- at double speed.
+	if walking then
 		local f = entry.step[(stride or 0) & 3]
 		-- ANY STEPPING VIEW BEATS THE STANDING ONE. A slot is only filled once the local player has
 		-- walked that way on that stride, so a direction can stay short one indefinitely -- and
@@ -2028,6 +2033,27 @@ end
 -- On `facingFrames` rather than a new top-level name: this file sits at Lua's 200-local ceiling.
 function facingFrames.pose(act, face, facing, moving, stride)
 	if act == nil or ACTIONS.idle[act] then
+		-- ORDINARY WALKING READS THE FACE BYTE TOO (2026-08-25). This branch used to fall through
+		-- to the position-derived pose on the reasoning that prog is "phase-locked to the peer's
+		-- own sub-tile progress" -- and the partition it fed was measured EXACT at the walk
+		-- (2026-08-22). Both true, and still wrong at any other gait: the engine's walk cycle is
+		-- NOT a function of step progress. `SetFacingStepAction` advances OBJECT_STEP_FRAME once
+		-- per action tick and takes the stride from bits 2-3 -- a FIXED clock, one stride per 8
+		-- video frames, the same speed walking or biking -- and `data/sprites/facings.asm` says
+		-- strides 0/2 are the STANDING view, 1 the stepping view, 3 the stepping view mirrored.
+		-- At the walk (16 frames a tile) the fixed clock and prog happen to align, which is why
+		-- the prog partition measured exact and nobody noticed the assumption. On the bike (8
+		-- frames a tile) prog laps the clock and the drawn ghost pedalled at double speed -- the
+		-- user: *"the drawn ghost is doing the 'biking' animation way faster"*.
+		--
+		-- The wire's `face` byte IS the peer's own step-frame clock, already engine-paced at every
+		-- gait, so the pose is read off it exactly as the bump/spin/fish branches below have
+		-- always done. `moving` still gates the stepping view: a peer that stops mid-packet holds
+		-- its last stride byte, and the engine itself stands a stopped character.
+		if face and face < 0x10 then
+			local fs = face & 3
+			return facing, moving and ((fs & 1) == 1), fs, false, nil
+		end
 		return facing, moving, stride, false, nil
 	end
 	-- OBJECT_ACTION_SPIN_FLICKER (5) calls SetFacingCounterclockwiseSpin2, which spins the
