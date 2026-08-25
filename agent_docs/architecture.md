@@ -185,8 +185,10 @@ Format: Date / Decision / Status / Context / Options considered / Resolution / C
 - **Resolution:** TEVI. It's owned and fits the same "movement-focused, genre where ghost
   co-op shines" reasoning the brief used for Ori and for Pseudoregalia.
 - **Consequences:** `agent_docs/brief.md` section 4 keeps the original Ori reasoning as
-  historical context; `adapters/tevi/` is the live second-game folder; `adapters/oribf/` is
-  kept as a candidate, not deleted, in case Ori is picked up later. TEVI's own IL2CPP/Mono
+  historical context; `adapters/tevi/` is the live second-game folder; `adapters/oribf/` was
+  kept as a candidate, not deleted, in case Ori is picked up later. **Amended 2026-08-25:** that
+  folder is now deleted and the candidate lives in `ideas.md` instead — it never held anything but
+  a README, and an empty directory under `adapters/` reads as an adapter in progress. TEVI's own IL2CPP/Mono
   status is unverified and must be checked at Phase 6, not assumed by analogy to Ori.
 
 ---

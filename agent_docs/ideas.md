@@ -3124,3 +3124,27 @@ isolate a regression.
   (`stripBOM` is byte-identical) — an `internal/cfg` package; both mains already say "mirrored in".
 - **TEVI: the `bridge_ready` send gate, and the port walk.** The message is RECOGNISED as of
   2026-08-18 but not yet waited on before sending. Entry 5 in `adapters/tevi/BANDAGES.md`.
+
+## Ori (Blind Forest / Will of the Wisps) — candidate adapter, neither title owned
+
+Filed 2026-08-25, moving `adapters/oribf/` here and deleting the folder. It held a README and
+nothing else since 2026-08-11 — an empty adapter directory reads as work in progress to anyone
+scanning `adapters/`, and the 2026-08-11 ADR that created it (`architecture.md`) had already
+picked TEVI as the actual second game.
+
+**Status: candidate, not owned, not scheduled — and not expected soon.** The user, 2026-08-25:
+Ori was one of the first games they planned to build for, they then realised they did not own it
+and made TEVI instead, and it *"will probly be a while before i get around to any Ori game."*
+Treat this as a someday entry, not a next-game shortlist one.
+
+The brief originally named *Ori: Will of the Wisps* as the second target game; the folder was for
+*Blind Forest*, the earlier title. The two should not be conflated, and neither is owned. TEVI
+was picked instead because it is owned and Unity-based (`adapters/tevi/README.md`), on the same
+"movement-focused platformer, the genre where ghost co-op shines" reasoning the brief used for
+Ori and Pseudoregalia.
+
+**If Ori is ever acquired**, the first questions are the ordinary ones for a new adapter, in the
+order `adapters/_template/README.md` gives them — the access model first (`access-models.md`),
+then whether the build is IL2CPP or Mono, which is what decides how much of the TEVI adapter's
+approach transfers. Nothing about Ori's runtime has been checked; the Unity-ness is an assumption
+from its genre and vintage, not a measurement.
