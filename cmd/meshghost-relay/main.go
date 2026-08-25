@@ -188,6 +188,55 @@ const FallbackQuicAddr = "127.0.0.1:7780"
 // for quic, and the startup error says so.
 const quicSharesAddrPort = ""
 
+// servesKind reports whether k is in the resolved transport list.
+func servesKind(kinds []netx.Kind, k netx.Kind) bool {
+	for _, got := range kinds {
+		if got == k {
+			return true
+		}
+	}
+	return false
+}
+
+// resolveQuicAddr decides where quic listens, given the transports actually
+// selected, the main -addr, and whatever -listen-quic was set to.
+//
+// Sharing -addr's port is the default because it keeps hosting to ONE forwarded
+// port number, which is the difference between a friend being able to host and
+// not. The only thing that can take that udp port away is the plain udp
+// transport, since quic is itself carried over udp and the two would collide.
+//
+// That collision is REFUSED rather than silently relocated. A relay that quietly
+// moved quic somewhere else would advertise a port the host never forwarded, and
+// the failure surfaces much later as "quic clients cannot connect" with nothing
+// pointing back here.
+//
+// Extracted from main() on 2026-08-25 so the rule can be tested. It was five
+// nested conditions and a log.Fatalf inside a 300-line main, which meant the only
+// thing that could exercise it was internal/e2e spawning a real process — and
+// e2e cannot easily assert on a refusal, because the refusal is the process
+// exiting. As a pure function returning an error it is nine test cases.
+func resolveQuicAddr(kinds []netx.Kind, addr, quicAddr string) (string, error) {
+	if !servesKind(kinds, netx.QUIC) {
+		// Not serving quic: whatever -listen-quic says is irrelevant and is
+		// passed through untouched rather than validated. The flag's own help
+		// text already says it is ignored unless quic is served.
+		return quicAddr, nil
+	}
+	if quicAddr != quicSharesAddrPort {
+		// Explicitly placed by the operator. Believed without further checking:
+		// naming a port is the act of taking responsibility for forwarding it.
+		return quicAddr, nil
+	}
+	if servesKind(kinds, netx.UDP) {
+		return "", fmt.Errorf("serving both udp and quic needs a port for quic: udp has "+
+			"already taken %s's udp port, and quic runs over udp too. Pass -listen-quic "+
+			"(e.g. %s), or drop udp from -transport -- it cannot be encrypted and nothing "+
+			"picks it automatically.", addr, FallbackQuicAddr)
+	}
+	return addr, nil
+}
+
 func main() {
 	addr := flag.String("addr", "127.0.0.1:7777", "address to listen on (tcp and udp; quic uses -listen-quic)")
 	loopback := flag.Bool("loopback", false, "dev-only Phase 3 flag: echo each client's own "+
@@ -325,24 +374,11 @@ func main() {
 	// relay that quietly moved quic somewhere else would advertise a port the
 	// host never forwarded, and the failure would surface much later as
 	// "quic clients can't connect" with nothing pointing here.
-	servesUDP, servesQUIC := false, false
-	for _, k := range kinds {
-		switch k {
-		case netx.UDP:
-			servesUDP = true
-		case netx.QUIC:
-			servesQUIC = true
-		}
+	resolvedQuic, err := resolveQuicAddr(kinds, *addr, *quicAddr)
+	if err != nil {
+		log.Fatalf("meshghost-relay: %v", err)
 	}
-	if servesQUIC && *quicAddr == quicSharesAddrPort {
-		if servesUDP {
-			log.Fatalf("meshghost-relay: serving both udp and quic needs a port for quic: udp has "+
-				"already taken %s's udp port, and quic runs over udp too. Pass -listen-quic "+
-				"(e.g. %s), or drop udp from -transport -- it cannot be encrypted and nothing "+
-				"picks it automatically.", *addr, FallbackQuicAddr)
-		}
-		*quicAddr = *addr
-	}
+	*quicAddr = resolvedQuic
 
 	// One listener per selected transport, all feeding the same Server.
 	// relay.Serve takes any net.Listener and handleConn any net.Conn, so
@@ -406,7 +442,7 @@ func main() {
 			"impersonating this relay. To close that too, send players the fingerprint above " +
 			"by some other means (not through this relay) and have them set \"tls_fingerprint\" " +
 			"in their config.json -- they will need the new one after every restart.")
-		if servesUDP {
+		if servesKind(kinds, netx.UDP) {
 			log.Printf("meshghost-relay: WARNING: the plain udp transport is being served and " +
 				"CANNOT be encrypted (Go has no DTLS). A client that chooses udp is unencrypted " +
 				"no matter what tls says. Drop udp from -transport if that matters.")

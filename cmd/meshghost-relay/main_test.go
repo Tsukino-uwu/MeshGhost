@@ -3,7 +3,10 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+
+	"github.com/Tsukino-uwu/MeshGhost/netx"
 )
 
 // writeConfig writes body to a temp config.json and returns its path, with
@@ -209,4 +212,88 @@ func TestAnExplicitTLSFlagBeatsTheConfigFile(t *testing.T) {
 	if tlsMode != "required" {
 		t.Fatalf("tls = %q, want the explicit flag to win over the file", tlsMode)
 	}
+}
+
+// TestResolveQuicAddr covers where quic listens, which is the one startup
+// decision with a refusal in it.
+//
+// It was five nested conditions and a log.Fatalf inside main() until 2026-08-25,
+// so nothing could reach it except internal/e2e spawning a real process -- and
+// e2e cannot easily assert the refusal, because the refusal IS the process
+// exiting. The rule matters because getting it wrong is silent in the worst
+// direction: a relay that quietly relocated quic would advertise a port the host
+// never forwarded, and that surfaces much later as "quic clients cannot connect"
+// with nothing pointing back at startup.
+func TestResolveQuicAddr(t *testing.T) {
+	const addr = "0.0.0.0:7777"
+
+	t.Run("quic shares addr's port by default", func(t *testing.T) {
+		// The whole point: hosting means forwarding ONE port number.
+		got, err := resolveQuicAddr([]netx.Kind{netx.TCP, netx.QUIC}, addr, quicSharesAddrPort)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if got != addr {
+			t.Fatalf("got %q, want %q -- quic should share -addr's port", got, addr)
+		}
+	})
+
+	t.Run("udp and quic together is refused, not relocated", func(t *testing.T) {
+		_, err := resolveQuicAddr([]netx.Kind{netx.TCP, netx.UDP, netx.QUIC}, addr, quicSharesAddrPort)
+		if err == nil {
+			t.Fatal("want an error: udp has taken the udp port and quic runs over udp too")
+		}
+		// The message has to name the way out, since the operator has two.
+		if !strings.Contains(err.Error(), "-listen-quic") || !strings.Contains(err.Error(), FallbackQuicAddr) {
+			t.Fatalf("error does not name the fix: %v", err)
+		}
+	})
+
+	t.Run("an explicit listen-quic settles it, even alongside udp", func(t *testing.T) {
+		// Naming a port is the operator taking responsibility for forwarding it.
+		const explicit = "0.0.0.0:7780"
+		got, err := resolveQuicAddr([]netx.Kind{netx.TCP, netx.UDP, netx.QUIC}, addr, explicit)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if got != explicit {
+			t.Fatalf("got %q, want %q", got, explicit)
+		}
+	})
+
+	t.Run("udp without quic is fine and shares nothing", func(t *testing.T) {
+		got, err := resolveQuicAddr([]netx.Kind{netx.TCP, netx.UDP}, addr, quicSharesAddrPort)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if got != quicSharesAddrPort {
+			t.Fatalf("got %q, want it untouched -- quic is not being served", got)
+		}
+	})
+
+	t.Run("tcp only leaves listen-quic alone", func(t *testing.T) {
+		got, err := resolveQuicAddr([]netx.Kind{netx.TCP}, addr, "0.0.0.0:9999")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if got != "0.0.0.0:9999" {
+			t.Fatalf("got %q, want it passed through unvalidated", got)
+		}
+	})
+
+	t.Run("the shipped default (tcp,quic) lands on a shared port", func(t *testing.T) {
+		// Guards the out-of-the-box case specifically: the relay ships serving
+		// tcp,quic, so this is the path almost every real host takes.
+		kinds, err := netx.ParseKinds("tcp,quic")
+		if err != nil {
+			t.Fatalf("ParseKinds: %v", err)
+		}
+		got, err := resolveQuicAddr(kinds, addr, quicSharesAddrPort)
+		if err != nil {
+			t.Fatalf("the shipped default must not refuse to start: %v", err)
+		}
+		if got != addr {
+			t.Fatalf("got %q, want %q", got, addr)
+		}
+	})
 }
