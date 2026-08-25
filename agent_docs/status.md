@@ -12,9 +12,9 @@ same day: *"i will move on to crystal and not work more on emerald right now."* 
   polish or a custom feature; a real fault is a defect against a finished adapter. `phase8.md`.
 - **Crystal's MOVEMENT is done and confirmed** (2026-08-25 evening, both gaits, both tiers). What
   is left is the action classes and the UI/battle cases — visual, never watched. `verified.md`.
-- **Rig RUNNING as of 2026-08-26 00:4x** — relay (`run-relay-loopback.bat`) + core
-  (`run-core.bat crystal`, quic, interp 0) and BizHawk on V1.0, adapter plus an all-probes-off
-  config. Shut it down or reuse it; `console.clear()` at session start.
+- **Nothing is running.** The 2026-08-26 rig was relay (`run-relay-loopback.bat`) + core
+  (`run-core.bat crystal`, quic, interp 0) + BizHawk on V1.0, with `MESHGHOST_COMPARE_TIERS`; all
+  shut down. Start it yourself and `console.clear()` at session start.
 - **NEXT SESSION STARTS HERE: the rest of Crystal's action classes.** Fishing is DONE and confirmed
   (2026-08-26); what is left is the Fly landing, Dig/Teleport and spin tiles. `crystal/UNVERIFIED.md`.
 - **Savestate slots on that rig:** 1 the user's, **7 the FISHING spot (rod on SELECT)**, 8
