@@ -1490,3 +1490,24 @@ facing trace) after the user reported the game *"laggy when the scripts are runn
 remaining *"slightly off from each other when reversing/turning"* on the bike is to be re-judged
 on the lighter stack before any further work, because probe-induced frame drops desync the two
 tiers differently and can BE that symptom.
+
+## 2026-08-25 — Crystal: the two tiers' bike speed difference was the catch-up band cycling hot
+
+**Fixed, instrument-verified, NOT confirmed on screen.** On the light probe stack (so not the lag
+artefact) the user still saw *"both ghosts moving at different speeds on the bike"*. The RHYTHM
+line cleared the spawned tier (matched to the player, 2:513 vs 2:474); the MODEL line convicted
+the drawn one: **412 catch-up frames** in one short session, KJUMP showing `cu=true` continuously
+with dist oscillating ±12px.
+
+The catch-up band (arm at 12px over two boundaries, disarm under 6) and the commit cushions (6px
+walking, 2px chaining) were all measured at the WALK and written as pixels. The hover they were
+sized against — echo plus cushion, per-frame terms — scales with the gait, so on the bike the
+ordinary hover reached the arming line and catch-up cycled: arm, repay on frames the camera did
+not move (the drawn ghost visibly faster than the player), disarm, rebuild, re-arm. Stated in
+STRIDES (6/3 arming, 3/1 cushions — exactly what 12/6/6/2px are at the walk's 2px) the same
+tuning holds at every gait. Verified over a bike lap: catch-up frames 412 -> 0, `cu=true` events
+continuous -> 0, K drift still 0px, no resyncs.
+
+**What remains at a reversal, measured:** ~10 relative-movement frames per lap side, the 2-3 frame
+echo rendered as the drawn copy starting its new direction late. Same class as the spawned tier's
+3-frame floor; not a speed difference.

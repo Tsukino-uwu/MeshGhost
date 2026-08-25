@@ -3626,9 +3626,20 @@ function drawOverflow()
 							-- the catch-up cycled hot, visible as `<-.+.+` clusters. Twelve is
 							-- outside the hover; six keeps the repayment from overshooting into
 							-- another stall.
-							if adx + ady >= 12 then
+							--
+							-- IN STRIDES, NOT PIXELS (2026-08-25). 12/6 was measured at the walk,
+							-- and the hover it sits outside of is built from per-frame echo and
+							-- cushion terms that all scale with the gait -- so on the bike the
+							-- ordinary hover reached the 12px line and catch-up cycled hot through
+							-- plain riding, repaying on frames the camera did not move. The user,
+							-- with both tiers side by side: *"both ghosts are moving at different
+							-- speeds on the bike"* -- the drawn one was in repayment most of the
+							-- time. 12/6 at the walk's 2px stride is 6/3 strides; stated that way
+							-- it holds at every gait instead of only the one it was tuned on.
+							local st = GAIT_PX[o.gait or 1] or 2
+							if adx + ady >= 6 * st then
 								o.lagBeats = (o.lagBeats or 0) + 1
-							elseif adx + ady < 6 then
+							elseif adx + ady < 3 * st then
 								o.lagBeats, o.catchup = 0, nil
 							end
 							if (o.lagBeats or 0) >= 2 then
@@ -3647,7 +3658,7 @@ function drawOverflow()
 							elseif ady > adx and ady >= 8 then
 								o.stepDX, o.stepDY = 0, (dy > 0 and 1 or -1)
 								o.stepLeft = 16
-							elseif o.walking and adx + ady >= 6 then
+							elseif o.walking and adx + ady >= 3 * st then
 								-- COMMIT EARLY WHEN THE PEER SAYS IT IS WALKING -- but not
 								-- INSTANTLY, because the commit threshold is also the CUSHION.
 								--
@@ -3672,7 +3683,7 @@ function drawOverflow()
 									o.stepDX, o.stepDY = 0, (dy > 0 and 1 or -1)
 								end
 								o.stepLeft = 16
-							elseif o.walking and adx + ady >= 2
+							elseif o.walking and adx + ady >= st
 								and drawFrames - (o.modelMovedAt or -99) <= 2 then
 								-- CHAINING: a model that finished a tile within the last two
 								-- frames and whose peer is still walking is mid-gait, not at
