@@ -1357,3 +1357,58 @@ gait is DERIVED from, not what constant would make it look closer.
 it in seconds. Compare rig, interp 0, ride in a straight line and read the adapter's own
 `RHYTHM`/`MODEL walk` lines — they already report frames-between-moves for the player and the ghost
 separately, which is the measurement, and no new instrument is needed to take it.
+
+## 2026-08-25 — Crystal: the bike, measured on a vertical lap; the pace fixed, a residue named
+
+**The spawned tier's bike pace is FIXED and looks right by the numbers; the user has not yet
+confirmed it as done.** The drawn tier is gait-aware now too, and what remains on it is measured,
+bounded, and deliberately NOT chased tonight.
+
+### What was wrong, and what the wire carries now
+
+The engine's own `StepVectors` table has three gaits -- slow 1px/16 ticks, normal 2px/8, fast
+4px/4 -- indexed by `OBJECT_WALKING & $0F`. Measured on the running game while biking: the
+player's own byte holds 08/09, the FAST group. The adapter hard-coded the normal group into
+`stepGhost` (`4 + dir`, duration 8), so a biking peer's spawned ghost walked at half pace and the
+catch-up path snapped it forward -- the user: *"the spawned ghost is really slow, and sometimes
+teleports to keep up"*.
+
+`extras.gait` now carries the group (one byte, changes only on mount/dismount, remembered across
+the standing frames between steps so it is present the frame a peer starts moving). `stepGhost`
+writes that group's own row -- group and duration, the engine's two numbers, nothing tuned. A
+gait the receiver does not recognise falls back to a walk. The drawn model's two stride bounds
+(camera-frame clamp, camera-parked fallback) read the same byte instead of hard-coding 4 and 2.
+
+### The before/after, same rig
+
+| | before (bike, mixed riding) | after (vertical 3-tile bike lap) |
+|---|---|---|
+| catch-up frames | 540 | **0** |
+| resyncs / beat corr. | 0 / 21 | 0 / ~1.3 per reversal |
+| wire moves >=9px (snaps) | 135 | **0** (all 4px/8px) |
+| ghost rhythm vs player | drifting | 2:275 vs 2:266, matched |
+| K drift per park | 4.6px avg, worst 10px | 2.9px avg, **worst 3px, every park** |
+
+### The residue, measured and NOT fixed
+
+Mid-run the paint is exact -- zero KJUMP events between boundary clusters. Everything visible
+sits at a REVERSAL: a `+4/+5` pair while the camera breathes (the ghost legitimately finishing
+its step late; the +1 is a K nudge landing in the same frame), then up to `-8` in the single
+frame where the camera resumes and the model commits its next step together. At parks: 2-3px
+off-tile in the direction of travel, repaid at 1px/frame -- which is what the user reports as
+*"drift from their current tile when moving/turning on the bike"*.
+
+**Why it was not chased tonight:** the K-nudge block carries two rules already tried against the
+user's eyes and REVERTED (a deadband; waiting for arrival) -- both are the obvious next ideas
+here too. The file's own conclusion stands: the cause is upstream, in the ~one-engine-tick
+disagreement between the camera accumulator and the tile+progress formula, which the bike scales
+from ~2px to ~3-4px per run. "K target moved on exactly 2 parked frames per park" (the handover
+frames) is the standing measurement of it. The next work is on that disagreement, not on a third
+repayment rule.
+
+### What to watch, when the user next rides
+
+Up/down on the bike, compare rig: mid-run both ghosts should hold formation exactly. At each
+turn, the drawn (left) copy shows a brief hiccup of at most 8px and settles within a few frames;
+at a stop it may sit up to 3px off and slide back. If mid-run is NOT rock solid, that is new
+information and contradicts this lap's numbers -- say so.

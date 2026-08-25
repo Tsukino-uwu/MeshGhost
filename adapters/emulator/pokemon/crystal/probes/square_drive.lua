@@ -36,8 +36,26 @@ local DIRECTIONS = MESHGHOST_SQUARE_DIRS or { "Up", "Left", "Down", "Right" }
 -- Optionally start from a known savestate, so a long walk begins from the same tile every run
 -- rather than from wherever the last one finished -- a drift fault measured from a different
 -- starting point is measured on different ground.
+--
+-- IT MUST SAY SO, LOUDLY. A silent `pcall` here cost a live session on 2026-08-25: this global was
+-- left set by an earlier run, the dev loader replaces FILES and never globals, and so every
+-- re-attach of this script teleported the player and rolled back everything written since the
+-- state was made. What it looked like from outside was a probe's grants "not sticking" -- the
+-- frame counter going BACKWARDS was the only tell, and nothing was reading it. The agent then
+-- blamed the user for loading savestates they had not touched.
+--
+-- `pitfalls.md` has carried "a probe global outlives the probe, and then looks exactly like a real
+-- bug" since 2026-08-19; the new part is that the consequence can be an ACTION rather than a
+-- setting. An action taken on the strength of a stale global has to announce itself.
 if MESHGHOST_SQUARE_LOAD_STATE then
-	pcall(function() savestate.loadslot(tonumber(MESHGHOST_SQUARE_LOAD_STATE)) end)
+	local slot = tonumber(MESHGHOST_SQUARE_LOAD_STATE)
+	console.log(string.format("square_drive: LOADING SAVESTATE SLOT %s before starting -- "
+		.. "MESHGHOST_SQUARE_LOAD_STATE is set. Set it to nil if you did not mean this; it "
+		.. "survives a loader reload and fires on EVERY re-attach.", tostring(slot)))
+	local ok, err = pcall(function() savestate.loadslot(slot) end)
+	if not ok then
+		console.log("square_drive: the savestate load FAILED: " .. tostring(err))
+	end
 end
 
 local logfile

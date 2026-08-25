@@ -76,6 +76,23 @@ local MASTER_BALL, RARE_CANDY, MAX_REPEL, SUPER_ROD = 0x01, 0x20, 0x2B, 0x3D
 -- so it goes in the key-item pocket -- which has no quantity byte -- and not beside the balls.
 local BICYCLE = 0x07
 
+-- REGISTERING IT TO SELECT, because owning the bike and being able to GET ON it are two different
+-- things and only the second one is testable. `SelectMenu` (engine/overworld/select_menu.asm)
+-- reads two bytes:
+--   * wWhichRegisteredItem (01:d95b) -- pocket in bits 7-6 (REGISTERED_POCKET %11000000, then
+--     `rlca rlca` into a jump-table index, so KEY_ITEM_POCKET = 2 sits as %10 = 0x80), and the
+--     1-based slot number in bits 5-0. **Zero here means "nothing registered" and is checked
+--     first**, which is why the byte cannot simply be left alone.
+--   * wRegisteredItem (01:d95c) -- the item id, which .CheckKeyItem then looks up in wKeyItems
+--     with IsInArray. The key-item branch never reads the slot number, but it is written
+--     correctly anyway rather than relying on a branch that could change.
+--
+-- ONLY WHEN NOTHING IS REGISTERED. Overwriting a registration is a change to how the player's own
+-- controller behaves, and a probe that silently rebinds Select is worse than one that says it did
+-- not. Idempotent by construction: run it twice and the second run finds the bike already there.
+local W_WHICH_REGISTERED, W_REGISTERED_ITEM = flat(0xD95B), flat(0xD95C)
+local KEY_ITEM_POCKET_BITS = 0x80
+
 -- WHAT PERMANENT REPEL ACTUALLY DOES, read off the decompilation rather than assumed, because the
 -- assumption ("no wild battles") is wrong in a way that wastes a whole test session:
 --
@@ -196,6 +213,34 @@ local function giveKeyItem(id)
 	return "appended"
 end
 
+-- Bind the bike to SELECT, if and only if nothing is bound. Returns a word for the log.
+local function registerBike()
+	local which = u8(W_WHICH_REGISTERED) or 0
+	if which ~= 0 then
+		if u8(W_REGISTERED_ITEM) == BICYCLE then
+			return "already registered"
+		end
+		return string.format("LEFT ALONE (item %s is already on Select -- not rebinding it)",
+			tostring(u8(W_REGISTERED_ITEM)))
+	end
+	local n = u8(W_NUM_KEY_ITEMS) or 0
+	local slot = nil
+	for i = 0, n - 1 do
+		if u8(W_KEY_ITEMS + i) == BICYCLE then
+			slot = i + 1 -- the field holds a 1-based slot number
+			break
+		end
+	end
+	if not slot then
+		return "REFUSED (the bike is not in the key-item pocket)"
+	end
+	w8(W_WHICH_REGISTERED, KEY_ITEM_POCKET_BITS | (slot & 0x3F))
+	w8(W_REGISTERED_ITEM, BICYCLE)
+	-- READ BACK, from memory, not from what was just written -- CLAUDE.md's rule.
+	return string.format("registered (which=%02X item=%02X, read back)",
+		u8(W_WHICH_REGISTERED) or 0, u8(W_REGISTERED_ITEM) or 0)
+end
+
 open_log()
 log("=== MeshGhost Crystal item kit (THIS ONE WRITES THE BAG) ===")
 
@@ -219,9 +264,39 @@ local function holdRepel()
 	end
 end
 
+-- A SAVESTATE LOAD UNDOES EVERY WRITE HERE, and "applied once, now quiet" is the wrong shape for
+-- a workflow built on savestates -- which this one is (`environment.md`: slot 1 is the user's,
+-- higher slots are the agent's, and loading them is standing practice). Found live 2026-08-25:
+-- the bag was granted, the user reloaded a state to get back to the test spot, and the next probe
+-- along reported the bike missing -- correctly, because it WAS missing again.
+--
+-- So the kit re-arms itself. Checked twice a second rather than every frame, on the cheapest
+-- possible witness -- is the bike still in the key-item pocket -- and a miss simply puts the file
+-- back in its "apply on the next overworld frame" state, which then logs the whole grant again.
+-- That repeated block IS the record of a reload, so it is deliberately not suppressed.
+local recheck = 0
+local function undone()
+	local n = u8(W_NUM_KEY_ITEMS) or 0
+	if n > MAX_KEY_ITEMS then return false end -- mid-load garbage; say nothing, look again shortly
+	for i = 0, n - 1 do
+		if u8(W_KEY_ITEMS + i) == BICYCLE then return false end
+	end
+	return true
+end
+
 local function tick()
 	if applied then
 		holdRepel()
+		if refused then return end
+		recheck = recheck + 1
+		if recheck >= 30 and inOverworld() then
+			recheck = 0
+			if undone() then
+				applied, repelSaid = false, false
+				log("  -- the bag no longer holds what this probe wrote (a savestate load, most "
+					.. "likely). Granting it again:")
+			end
+		end
 		return
 	end
 	if not isVanillaV10() then
@@ -248,6 +323,7 @@ local function tick()
 
 	log("  SUPER_ROD (key item): " .. giveKeyItem(SUPER_ROD))
 	log("  BICYCLE (key item):   " .. giveKeyItem(BICYCLE))
+	log("  BICYCLE on SELECT:    " .. registerBike())
 	log("  MASTER_BALL x10:      " .. givePaired(W_NUM_BALLS, W_BALLS, MAX_BALLS, MASTER_BALL, 10))
 	log("  MAX_REPEL x10:        " .. givePaired(W_NUM_ITEMS, W_ITEMS, MAX_ITEMS, MAX_REPEL, 10))
 	log("  RARE_CANDY x10:       " .. givePaired(W_NUM_ITEMS, W_ITEMS, MAX_ITEMS, RARE_CANDY, 10))

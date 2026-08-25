@@ -819,13 +819,59 @@ end
 assert(table.concat(DIR_NAMES.letter, "", 0, 3) == "dulr",
 	"DIR_NAMES.letter disagrees with DIR_NAMES -- a direction table changed without its labels")
 
--- Pixels travelled into the current step, 0-16. See extras.prog below.
+-- THE ENGINE'S THREE GAITS, from its own table rather than from this file's assumptions.
+--
+-- `GetStepVector` (engine/overworld/map_objects.asm) indexes `StepVectors` with
+-- `OBJECT_WALKING & $0F`, and the table is three groups of four directions:
+--   0-3  slow    1px per tick, 16 ticks
+--   4-7  normal  2px per tick,  8 ticks
+--   8-11 fast    4px per tick,  4 ticks
+-- Every group crosses one 16px tile; what differs is how long it takes. Indexed here by group
+-- number (0/1/2) so a gait is one small integer everywhere -- on the wire, in the progress
+-- calculation, and in the write that starts a ghost's step.
+--
+-- MEASURED, not assumed (2026-08-25, on the running game while biking a lap): the player's own
+-- OBJECT_WALKING held 08 and 09 -- group 2, fast -- with OBJECT_STEP_DURATION counting 3, 2, 1.
+-- Walking holds 4-7. So the byte carries the gait and nothing else has to be inferred.
+local GAIT_PX = { [0] = 1, [1] = 2, [2] = 4 }
+local GAIT_TICKS = { [0] = 16, [1] = 8, [2] = 4 }
+
+-- Which gait an object is walking at, or nil while it is standing (the byte is $FF then and says
+-- nothing). The caller decides what a standing object should be reported as.
+local function stepGait(base)
+	local w = u8(base + F_WALKING) or STANDING
+	if w == STANDING then
+		return nil
+	end
+	local group = (w & 0x0F) // 4
+	if not GAIT_PX[group] then
+		return nil
+	end
+	return group
+end
+
+-- Held across the standing frames between steps. A gait read only while mid-step would be missing
+-- at exactly the moment a receiver needs it -- the frame a peer STARTS moving -- so the last one
+-- actually observed is what gets sent, defaulting to a normal walk before anything has been seen.
+local lastGait = 1
+
+-- The gait to SEND: this object's own if it is mid-step, otherwise the last one it was seen at.
+local function rememberGait(base)
+	local group = stepGait(base)
+	if group then
+		lastGait = group
+	end
+	return lastGait
+end
+
+-- Pixels travelled into the current step, 0-16, at whatever gait the object is walking.
 local function stepProgress(base)
-	if (u8(base + F_WALKING) or STANDING) == STANDING then
+	local group = stepGait(base)
+	if not group then
 		return 0
 	end
 	local dur = u8(base + F_STEP_DURATION) or 0
-	local px = (8 - dur) * 2
+	local px = (GAIT_TICKS[group] - dur) * GAIT_PX[group]
 	if px < 0 then px = 0 end
 	if px > 16 then px = 16 end
 	return px
@@ -914,8 +960,12 @@ local function getLocalState()
 		--
 		-- One byte, and per STEP rather than per frame, so it is nothing like the smoothness-
 		-- critical values `pitfalls.md` warns must not ride in `extras`.
+		-- `gait` is the group number above, so a receiver steps a ghost at the pace the peer is
+		-- actually moving instead of assuming a walk. One byte, changing only when the player
+		-- mounts or dismounts.
 		extras = { sprite = u8(base + F_SPRITE) or 0, act = u8(base + F_ACTION) or 0,
-			prog = stepProgress(base), face = u8(base + F_FACING) or 0 },
+			prog = stepProgress(base), face = u8(base + F_FACING) or 0,
+			gait = rememberGait(base) },
 	}
 end
 
@@ -3666,10 +3716,17 @@ function drawOverflow()
 						-- only in the camera-parked fallback, where the model is on its own clock.
 						local mgap = drawFrames - (o.modelMovedAt or -99)
 						local budget = 0
+						-- THE PEER'S GAIT, not a pair of constants covering both cases. `4` was the
+						-- bike's stride and `2` the walk's, applied to every peer whatever it was
+						-- doing -- so a walking peer could be handed a 4px frame and a biking one
+						-- was floored at a walker's 2px. `extras.gait` now carries the engine's own
+						-- group (StepVectors: 1/2/4 px), so both bounds are the same number and
+						-- that number is the peer's.
+						local stride = GAIT_PX[o.gait or 1] or 2
 						if facingFrames.camMoved then
-							budget = facingFrames.camDelta or 2
-							if budget > 4 then budget = 4 end
-							if budget < 2 then budget = 2 end
+							budget = facingFrames.camDelta or stride
+							if budget > stride then budget = stride end
+							if budget < stride then budget = stride end
 						elseif mgap >= 2 then
 							-- NEVER FASTER THAN THE GAME'S OWN WALK. (2026-08-23, the shipped-250ms
 							-- case.) This is the camera-parked fallback, and the camera only parks
@@ -3694,7 +3751,15 @@ function drawOverflow()
 							-- bleed it was built to repay stays visible on the MODEL walk line; if
 							-- the backward glide returns, the fix belongs on the walking side (the
 							-- 12/6 arming band), not in a burst at the end.
-							budget = 2
+							-- The engine's own pace FOR THIS GAIT. The reasoning above -- that
+							-- covering ground faster than the game's own walk is a ghost doing what
+							-- no player can -- is about the WALK's 2px, and on a bike the engine's
+							-- own pace is 4px. Hard-coding the walker's number made the model fall
+							-- behind on every bike step the camera did not clock, which is what a
+							-- turn on the spot is: the user, 2026-08-25, on the two copies drifting
+							-- apart *"while moving around on the bike... like turning around on
+							-- it"*.
+							budget = stride
 							if o.catchup and COMPARE_TIERS then
 								facingFrames.freeCatchup = (facingFrames.freeCatchup or 0) + 1
 							end
@@ -5176,7 +5241,7 @@ local function applyPeerAction(g, act)
 	end
 end
 
-local function stepGhost(g, dir)
+local function stepGhost(g, dir, gait)
 	local x = (u8(g.st_base + F_MAP_X) or 0) + ((dir == 3) and 1 or (dir == 2) and -1 or 0)
 	local y = (u8(g.st_base + F_MAP_Y) or 0) + ((dir == 0) and 1 or (dir == 1) and -1 or 0)
 
@@ -5184,7 +5249,18 @@ local function stepGhost(g, dir)
 	-- to follow the direction being walked rather than stay at whatever the spawn chose.
 	setGhostStanding(g.st_base, g.mo_base, dir)
 
-	w8(g.st_base + F_WALKING, 4 + dir)
+	-- THE PEER'S GAIT, NOT A CONSTANT. `4 + dir` is the NORMAL row of StepVectors, and writing it
+	-- unconditionally stepped a biking peer's ghost at walking pace: it fell a tile behind per
+	-- step and the catch-up path then snapped it forward. The user, watching a bike lap on the
+	-- compare rig 2026-08-25: *"the spawned ghost is really slow, and sometimes teleports to keep
+	-- up"*, having said first that the two ghosts *"moved at really different speeds from each
+	-- other"* -- the painted tier already carried the 4px stride and only this one did not.
+	--
+	-- Note what is NOT happening here: no rate was tuned. The group and its duration are the
+	-- engine's own two numbers for the gait the peer reported, and a gait this file does not know
+	-- cannot be invented -- an unknown value falls back to a normal walk.
+	local group = GAIT_PX[gait] and gait or 1
+	w8(g.st_base + F_WALKING, group * 4 + dir)
 	w8(g.st_base + F_DIRECTION, dir * 4)
 	w8(g.st_base + F_FACING, dir * 4)
 	-- STEP TYPE 2, AND NOT THE PLAYER'S 6 -- TRIED, AND IT MOVES THE CAMERA.
@@ -5215,7 +5291,7 @@ local function stepGhost(g, dir)
 	-- 8 x 2 = 16 is not a tuned value, it is the tile. `stepProgress` elsewhere in this file
 	-- already derives progress as `(8 - duration) * 2`, i.e. it has assumed a duration of 8 all
 	-- along -- so the sender and the mover disagreed by one tick.
-	w8(g.st_base + F_STEP_DURATION, 8)
+	w8(g.st_base + F_STEP_DURATION, GAIT_TICKS[group])
 	w8(g.st_base + F_ACTION, 2)
 	w8(g.st_base + F_MAP_X, x)
 	w8(g.st_base + F_MAP_Y, y)
@@ -5491,6 +5567,9 @@ local function renderRemote(id, state)
 	if COMPARE_TIERS and peerPixY and id:match("%-ghost$") then
 		peerPixY = peerPixY + COMPARE.dy * 16
 	end
+	-- The peer's gait group (0 slow / 1 normal / 2 fast), defaulting to a normal walk for a peer
+	-- that does not send one -- an older client, or one whose adapter predates the field.
+	local peerGait = state.extras and tonumber(state.extras.gait) or 1
 	local peerProg = state.extras and tonumber(state.extras.prog) or nil
 	local peerWalking = (state.anim == "walk")
 	-- Only the low two bits are used, but the whole byte is carried so a log shows the direction
@@ -5593,7 +5672,7 @@ local function renderRemote(id, state)
 		-- copy renders nothing and still counts as a peer waiting -- a phantom in every tier total.
 		local hk = COMPARE.hwKey(id)
 		local hprev = overflow[hk]
-		overflow[hk] = OAM_TIER and { prog = peerProg, walking = peerWalking, face = peerFace, act = peerAct,
+		overflow[hk] = OAM_TIER and { prog = peerProg, walking = peerWalking, face = peerFace, act = peerAct, gait = peerGait,
 			-- The pixel position is ABSOLUTE, so a copy placed elsewhere needs it moved by the same
 			-- whole tiles or it paints at the peer's real location instead of this copy's.
 			pixX = peerPixX and (peerPixX + COMPARE.hw * 16), pixY = peerPixY,
@@ -5609,7 +5688,7 @@ local function renderRemote(id, state)
 			lastFacing = hprev and hprev.lastFacing,
 			rearm = hprev and hprev.rearm } or nil
 
-		overflow[ck] = { prog = peerProg, walking = peerWalking, face = peerFace, act = peerAct,
+		overflow[ck] = { prog = peerProg, walking = peerWalking, face = peerFace, act = peerAct, gait = peerGait,
 			pixX = peerPixX and (peerPixX + COMPARE.drawn * 16), pixY = peerPixY,
 			compare = true, only = "drawn", x = baseX + COMPARE.drawn, y = y,
 			sprite = FORCE_PEER_SPRITE or (state.extras and tonumber(state.extras.sprite)) or nil,
@@ -5704,7 +5783,7 @@ local function renderRemote(id, state)
 			despawnGhost(id)
 		end
 		local prev = overflow[id]
-		overflow[id] = { prog = peerProg, walking = peerWalking, face = peerFace, act = peerAct,
+		overflow[id] = { prog = peerProg, walking = peerWalking, face = peerFace, act = peerAct, gait = peerGait,
 			pixX = peerPixX and (peerPixX + offsetX * 16), pixY = peerPixY,
 			x = x, y = y, sprite = peerSprite,
 			facing = ORIENTATION_TO_DIR[state.orientation],
@@ -5897,7 +5976,7 @@ local function renderRemote(id, state)
 			end
 		else
 			local prev = overflow[id]
-			overflow[id] = { prog = peerProg, walking = peerWalking, face = peerFace, act = peerAct,
+			overflow[id] = { prog = peerProg, walking = peerWalking, face = peerFace, act = peerAct, gait = peerGait,
 			pixX = peerPixX and (peerPixX + offsetX * 16), pixY = peerPixY,
 			x = x, y = y, sprite = peerSprite,
 				facing = ORIENTATION_TO_DIR[state.orientation],
@@ -6113,7 +6192,7 @@ local function renderRemote(id, state)
 		if stepLag.on then
 			stepLag.close(id)
 		end
-		stepGhost(g, dir) -- one tile: walk it, so the game animates the step
+		stepGhost(g, dir, peerGait) -- one tile: walk it, so the game animates the step
 	elseif math.abs(dx) + math.abs(dy) <= 3 then
 		-- A SHORT deficit is walked, not snapped. The old rule teleported for anything past one
 		-- tile, and a ghost falls two tiles behind in perfectly ordinary play -- a missed idle
@@ -6132,7 +6211,7 @@ local function renderRemote(id, state)
 		if stepLag.on then
 			stepLag.close(id)
 		end
-		stepGhost(g, stepDir)
+		stepGhost(g, stepDir, peerGait)
 	else
 		teleportGhost(g, x, y) -- genuinely far (a warp, a long silence): snap, don't fake a walk
 	end
