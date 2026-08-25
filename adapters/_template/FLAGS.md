@@ -4,17 +4,34 @@ Every adapter accumulates switches. They look alike and they are not alike, and 
 class for another costs real time. This file is the index: which switch is which kind, what the
 shipped value is, and which ones must not be touched alone.
 
-**Four kinds of switch live here, not one.** Compile-time bools are the first and the easiest to
-spot; the other three each got missed once. `constexpr` **numbers** decide as much behaviour as any
+**FIVE kinds of switch live here, not one.** Compile-time bools are the first and the easiest to
+spot; the rest each got missed once. `constexpr` **numbers** decide as much behaviour as any
 bool ("Tunable constants"). **Runtime** switches — environment variables, flag files, globals set
-by a loader — are the only kind an interpreted adapter has at all ("Runtime switches"). And a
+by a loader — are the only kind an interpreted adapter has at all ("Runtime switches"). A
 **derived** flag, set from other flags rather than by hand, belongs in whichever section its
 sources do, marked as derived.
 
-**Write this file once you have more than a handful of flags.** Pseudoregalia reached 56 before it
-had one, and the cost was concrete: on 2026-08-17 three load-bearing pose flags were read as
-leftover debug switches, because their comments still said "OFF" from a sweep that had been
-reverted. The register is what you trust when a comment and a value disagree.
+**And the fifth, which is the one that hides: a runtime *condition* that is not switch-shaped.**
+A bare comparison on the per-frame path can withdraw capabilities exactly as a flag would, and it
+has no name to grep for, so nothing points at it. Emerald registers its ROM-patch branch
+(`avatarAddrOffset == 0`) for precisely this reason — that one comparison silently takes away
+three capabilities on a patched ROM. **Register a condition when its two sides give the player
+different features**, and say which features each side loses. If you can only find your switches
+by grepping for `MESHGHOST_`, you have not found this kind.
+
+**Storage globals count too**, where a language has no other way to survive a script reload: a
+bare global holding a captured state or a live hook id looks exactly like a switch to the next
+reader, so register it and say it is storage, not a switch.
+
+**Write this file once you have more than a handful of flags — but a short register beats none.**
+Pseudoregalia reached 56 flags before it had one, and the cost was concrete: on 2026-08-17 three
+load-bearing pose flags were read as leftover debug switches, because their comments still said
+"OFF" from a sweep that had been reverted. The register is what you trust when a comment and a
+value disagree. **The "handful" trigger has since been overtaken by practice and is kept only as a
+floor**: TEVI wrote a register with exactly ONE compile-time switch and argues the better case for
+it — *"an absent register says nothing at all, where a short one says 'audited, this is
+everything'"* — and both Lua adapters have zero compile-time switches and carry full registers.
+Write one.
 
 It is not a description of how the game works — that is `documentation.md` — and not a list of
 compensations, which is `BANDAGES.md`. A flag can appear in both this file and `BANDAGES.md`; this
@@ -146,6 +163,32 @@ bools — which is precisely the drift `README.md`'s gold-standard rule is about
 2. **It can ship.** A compile-time probe is compiled out; a flag file just needs someone to
    forget. If a switch must never reach a player, the packaging step should **fail the build** on
    finding it, not merely avoid copying it.
+
+**Five more rules the shipped adapters paid for, back-ported 2026-08-25:**
+
+3. **Read a global FIRST, then the environment** — and say so in the register, because the order
+   is load-bearing rather than stylistic. An environment variable is fixed when the emulator
+   launches; a global can be set into an emulator that is *already running*, and already in the
+   state worth measuring. Emerald read only the environment until 2026-08-19, so a session that
+   pinned its bridge port by global was silently port-walked into another instance's core.
+4. **An environment variable outlives every script reload, so give it an explicit retire value.**
+   It lives in the emulator's process environment, and `global or os.getenv(...)` means a global
+   cannot clear one — so "unset it" means relaunching the emulator, i.e. closing the user's game.
+   Before 2026-08-21 removing Emerald's synthetic peer cost exactly that.
+5. **A game-specific environment name must come before the plain one** (`MESHGHOST_SCRIPT_DIR_<GAME>`
+   before `MESHGHOST_SCRIPT_DIR`). One emulator process runs every script, so a plain name set for
+   one adapter is inherited by the next adapter loaded. Found live 2026-08-18.
+6. **A probe flag-file must set every flag it owns explicitly, `false` included.** A dev loader
+   typically shares ONE interpreter environment across reloads, so "not mentioned" is not "off" —
+   an unset flag keeps its value from the previous load.
+7. **A mod framework's own config file is a legitimate switch channel, often the best one.** TEVI
+   exposes its bridge port through BepInEx's config rather than an environment variable, on the
+   argument that the player already knows that file and already edits it. Worth preferring
+   wherever the host framework has one.
+
+**Announce a probe or bar-lowering switch with the exact string `PROBE FLAG IN USE`**, followed by
+the flag's name and what it changes. The behaviour was already required below; naming the string
+here is what stops each adapter inventing its own and makes one grep find every such session.
 
 **And the rule that outranks both:** a runtime switch may lower the bar to *unconfirmed*, never to
 *invented*. Substituting a named, logged candidate for a measured value is a deliberate

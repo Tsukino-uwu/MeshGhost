@@ -654,8 +654,10 @@ caveats belongs there with a one-line pointer left behind. See [CLAUDE.md](../..
 hard rule on this.
 
 **Any time figure is time to reach a named milestone, not total time spent** — "~10 hours from
-nothing to good enough", never "~10 hours in". All four adapter READMEs read that way, and it is
-the number a reader is actually asking for.
+nothing to good enough", never "~10 hours in". It is the number a reader is actually asking for.
+**A time figure is optional, though**: three of the four adapter READMEs carry one and Crystal's
+carries none, which is fine. What is not fine is an ambiguous one. (Corrected 2026-08-25: this
+said "all four read that way".)
 
 **Why the length rule is a rule.** Found live 2026-08-15: Pseudoregalia's steps 19-22 had each
 grown to 15-20 dense lines while steps 1-18 stayed at 2-4, which made the file hard to read for
@@ -738,8 +740,11 @@ Region variants, exact file names and hashes are a separate question and belong 
 - **"Custom features"** — anything this adapter does that isn't required of an adapter (TEVI and
   Pseudoregalia both have one). Keeps game-specific extras out of the build story.
 - **"Dev tools"** — an index of the probe scripts the adapter accumulated. Emerald's dozen-plus
-  probes are only findable because its README lists them; write this the moment you have more
-  than two.
+  probes are only findable because its README lists them; write an index the moment you have more
+  than two. **Past roughly a dozen, move the index out to `probes/README.md` instead of growing a
+  README section** — Crystal has 45 probes and indexes them there, which is the better shape at
+  that size and is why it has no "Dev tools" section at all. Either location satisfies this; no
+  index does not.
 
 ## Hard rule: anything the player can do, anything else should be able to do
 
@@ -1006,11 +1011,24 @@ know anything is there. Ranked by how much the game does for you:
 |---|---|---|---|
 | **Create** | ask the game to make one, with a class it already ships | animation, collision, layering, occlusion, lifetime | you own the lifetime and must not leak it |
 | **Borrow** | repurpose an object the level already placed | it exists and is valid | it is still the game's: no animation, cannot destroy, cannot hide |
-| **Hardware sprite** (emulators) | write extra entries into the game's own sprite table, in a range its per-frame path does not touch | the emulated GPU draws it: palettes, layering, occlusion, fades | no engine state at all — you drive position and animation, and you must release the entry |
+| **Hardware sprite** (emulators) | write extra entries into the game's own sprite table, in a range its per-frame path does not touch | the emulated GPU draws it: palettes, layering, fades — **occlusion only where the hardware gives it, see below** | no engine state at all — you drive position and animation, and you must release the entry |
 | **Draw over** | paint on the frame from outside | nothing | you reimplement everything, permanently |
 
-**For a BizHawk game the ladder is `spawn -> OAM -> drawn`, in that order, and that is the default
-to start from** (settled 2026-08-21; ADR in `agent_docs/architecture.md`, numbers in `verified.md`).
+**For a BizHawk game the ladder is `spawn -> OAM -> drawn`, in that order** (settled 2026-08-21;
+ADR in `agent_docs/architecture.md`, numbers in `verified.md`). **That is the ORDER to start from,
+not a set of defaults to ship** — the two shipped adapters deliberately differ from each other and
+from "all on": Crystal ships drawn ON and OAM OFF, Emerald ships both OFF. The reason is per-game
+and is the useful lesson: Crystal's UI regions are locatable (a text box is the game's own frame
+tiles in the tilemap, a menu publishes its border fields) so a drawn ghost can be clipped out of
+them, and Emerald's are not, so its drawn tier would paint over text.
+
+**The hardware tier does NOT buy occlusion for free — that was a GBA result stated as a property
+of the tier, and the Game Boy refutes it** (corrected 2026-08-25). On the GB a text box is
+background tiles with the BG-to-OAM priority bit clear, so a hardware sprite draws **in front of**
+it, and Crystal's OAM tier has to reuse the drawn tier's clipping rather than inheriting anything.
+Setting the priority bit is not the fix: it would put the peer behind every non-zero background
+colour, i.e. behind the scenery it is standing on. **Ask what the hardware's priority rules
+actually are on your console before budgeting occlusion as free.**
 Each peer takes the best tier with room. **A rung may decline for a place, not only for lack of
 room**: Emerald's OAM tier stands down under a screen-covering semi-transparent sheet — weather fog,
 underwater — where the ladder becomes `spawn -> drawn` (its `FLAGS.md`, 2026-08-21). Expect one such
@@ -1032,9 +1050,19 @@ each other and from a bare emulator, so the tier choice buys nothing and a new a
 agonise over it. The ladder only matters under crowd load — and there the middle tier is free to its
 ceiling while painting costs a third of the frame rate at the same count.
 
+**The ceiling itself is per-console, and "56 extra characters" is Emerald's number, not the
+tier's.** Crystal's OAM tier adds **zero to one** character: the engine already uses 34-36 of the
+Game Boy's 40 sprite entries outdoors and all 40 indoors, so there is almost no tail to allocate
+into. A middle tier can therefore be worth building for its *fidelity* — live palettes, day/night,
+fades — while buying essentially no capacity. Measure your own console's headroom before promising
+a number.
+
 **Do not reach for per-scanline OAM multiplexing to raise the middle tier's ceiling.** It needs code
-inside the ROM, which is closed to us; the front end has no scanline callback to substitute; and on
-a GBA there is no sprite-count limit to beat in the first place. The full reasoning is the
+inside the ROM, which is closed to us, and the front end has no scanline callback to substitute.
+(The original third reason — "there is no sprite-count limit to beat in the first place" — is
+GBA-only and was corrected 2026-08-25: the Game Boy has a hard per-scanline sprite limit, which is
+exactly why Crystal's tier allocates *downward* from the last entry, so that when the limit bites
+it drops a ghost rather than one of the game's own characters.) The full reasoning is the
 2026-08-21 ADR — check it before re-proposing the idea, because it is an attractive one.
 
 **"Draw over" is not automatically the wrong answer** — and this is the part worth getting right,
