@@ -109,9 +109,17 @@ two would wrongly suggest Lua adapters need Go bindings.
 
 ## Decision log (ADRs)
 
-Format: Date / Decision / Status / Context / Options considered / Resolution / Consequences.
+**Every ADR carries a `### <date> — <decision>` heading, then the fields:** Date / Decision /
+Status / Context / Options considered / Resolution / Consequences.
+
+**The first 20 had no heading at all until 2026-08-25** — they were bullet blocks separated by
+`---`, so they could not be linked to, indexed, or found by heading search, while the 18 written
+after 2026-08-16 could. Headings were added from each block's own Date and Decision fields; no
+ADR text was changed. **Give a new one a heading.**
 
 ---
+
+### 2026-08-08 — Keep the adapter contract minimal and game-specific
 
 - **Date:** 2026-08-08
 - **Decision:** Keep the adapter contract minimal and game-specific.
@@ -127,6 +135,8 @@ Format: Date / Decision / Status / Context / Options considered / Resolution / C
 
 ---
 
+### 2026-08-08 — Use JSON as the default wire format for Phase 0 and Phase 1
+
 - **Date:** 2026-08-08
 - **Decision:** Use JSON as the default wire format for Phase 0 and Phase 1.
 - **Status:** accepted
@@ -138,6 +148,8 @@ Format: Date / Decision / Status / Context / Options considered / Resolution / C
   performance pass.
 
 ---
+
+### 2026-08-08 — Treat `area_id` and `anim` as opaque values in the core
 
 - **Date:** 2026-08-08
 - **Decision:** Treat `area_id` and `anim` as opaque values in the core.
@@ -152,6 +164,8 @@ Format: Date / Decision / Status / Context / Options considered / Resolution / C
   more portable.
 
 ---
+
+### 2026-08-11 — Core and relay are written in Go, shipped as a single static binary per OS
 
 - **Date:** 2026-08-11
 - **Decision:** Core and relay are written in Go, shipped as a single static binary per OS.
@@ -171,6 +185,8 @@ Format: Date / Decision / Status / Context / Options considered / Resolution / C
   core directly into a C# host later without keeping the bridge as a compatibility path.
 
 ---
+
+### 2026-08-11 — Second target game is TEVI, not Ori: Will of the Wisps
 
 - **Date:** 2026-08-11
 - **Decision:** Second target game is TEVI, not Ori: Will of the Wisps.
@@ -192,6 +208,8 @@ Format: Date / Decision / Status / Context / Options considered / Resolution / C
   status is unverified and must be checked at Phase 6, not assumed by analogy to Ori.
 
 ---
+
+### 2026-08-11 — Relay runs unauthenticated through Phases 3-4; room code is the recorded end goal
 
 - **Date:** 2026-08-11
 - **Decision:** Relay runs without authentication through Phases 3–4; room code + shared
@@ -215,6 +233,8 @@ Format: Date / Decision / Status / Context / Options considered / Resolution / C
   address to.
 
 ---
+
+### 2026-08-11 — Reserve an opaque event plane and a `features` list, and implement neither now
 
 - **Date:** 2026-08-11
 - **Decision:** Reserve an opaque event plane and a `features` capability list in the
@@ -264,6 +284,8 @@ Format: Date / Decision / Status / Context / Options considered / Resolution / C
   reasoning.
 
 ---
+
+### 2026-08-11 — Emerald uses a vendored LuaSocket, not BizHawk's own `comm.*`
 
 - **Date:** 2026-08-11
 - **Decision:** The Emerald BizHawk adapter uses a vendored LuaSocket binary for its bridge
@@ -329,6 +351,8 @@ Format: Date / Decision / Status / Context / Options considered / Resolution / C
 
 ---
 
+### 2026-08-12 — Cap `core.Core`'s actual send rate to the relay
+
 - **Date:** 2026-08-12
 - **Decision:** Cap `core.Core`'s actual send rate to the relay
   (`Core.MinSendInterval`, default 50ms / 20Hz) independent of how often an adapter calls in,
@@ -371,6 +395,8 @@ Format: Date / Decision / Status / Context / Options considered / Resolution / C
 
 ---
 
+### 2026-08-12 — The adapter declares `game_id` over the bridge, not the user in `config.json`
+
 - **Date:** 2026-08-12
 - **Decision:** The adapter declares `game_id` to the core over the bridge (a new `hello`
   message, sent first on every connection), instead of the user supplying `"game"` in
@@ -409,6 +435,8 @@ Format: Date / Decision / Status / Context / Options considered / Resolution / C
   `adapters/tevi/MeshGhostTevi/BridgeClient.cs`).
 
 ---
+
+### 2026-08-13 — A bridge disconnect closes the relay connection, and a relay drop clears identity
 
 - **Date:** 2026-08-13
 - **Decision:** A bridge (adapter↔core) disconnect now closes the Core's relay connection too,
@@ -454,6 +482,8 @@ Format: Date / Decision / Status / Context / Options considered / Resolution / C
 
 ---
 
+### 2026-08-13 — `Core.remoteStatesAt` filters remotes by `area_id`, unless our own area is unknown
+
 - **Date:** 2026-08-13
 - **Decision:** `Core.remoteStatesAt` now excludes any remote whose `area_id` doesn't match
   this Core's own most recently known `area_id`, unless the Core's own area is still unknown
@@ -498,6 +528,8 @@ Format: Date / Decision / Status / Context / Options considered / Resolution / C
   filtering confirmed live" entry.
 
 ---
+
+### 2026-08-14 — Add room-code auth and a peer game-version check to `hello`
 
 - **Date:** 2026-08-14
 - **Decision:** Add room-code auth and a peer game-version check to `hello`
@@ -596,6 +628,8 @@ Format: Date / Decision / Status / Context / Options considered / Resolution / C
 
 ---
 
+### 2026-08-14 (same-day follow-up) — Relay lifecycle logging, and permanent vs transient rejects
+
 - **Date:** 2026-08-14 (same-day follow-up to the ADR above)
 - **Decision:** Add lifecycle logging (join/leave/reject) at the relay; classify a relay
   `Reject` as permanent or transient (`core.RejectError`/`core.IsPermanentRejectErr`,
@@ -683,6 +717,8 @@ Format: Date / Decision / Status / Context / Options considered / Resolution / C
 
 ---
 
+### 2026-08-14 (same-day sweep) — Two review passes across the Go layer and all three adapters
+
 - **Date:** 2026-08-14 (same-day review/refactor sweep)
 - **Decision:** Two review passes (one Go-layer, one adapter) across `internal/`, `cmd/`, and
   all three adapters surfaced roughly a dozen real bugs, dead code, and stale comments; fix
@@ -759,6 +795,8 @@ Format: Date / Decision / Status / Context / Options considered / Resolution / C
   has been watched on screen.
 
 ---
+
+### 2026-08-14 (found in live testing) — `Core` auto-retries a dropped relay connection
 
 - **Date:** 2026-08-14 (found during live testing of the sweep above)
 - **Decision:** `Core` now auto-retries a dropped relay connection in the background after any
@@ -843,6 +881,8 @@ Format: Date / Decision / Status / Context / Options considered / Resolution / C
   "Core-relay heartbeat, found live and fixed" entry for the live confirmation.
 
 ---
+
+### 2026-08-15 — Make the room's state send rate operator-configurable at the relay
 
 - **Date:** 2026-08-15
 - **Decision:** Make the room's state send rate operator-configurable at the relay
@@ -1009,6 +1049,8 @@ Format: Date / Decision / Status / Context / Options considered / Resolution / C
 
 ---
 
+### 2026-08-15 — A relay may be restricted to a single game (`server.only_game`), off by default
+
 - **Date:** 2026-08-15
 - **Decision:** A relay may be restricted to a single game (`server.only_game`), off by
   default.
@@ -1055,6 +1097,8 @@ Format: Date / Decision / Status / Context / Options considered / Resolution / C
 
 ---
 
+### 2026-08-16 — Build `UE4SS.dll` from our pinned submodule, not upstream's release zip
+
 - **Date:** 2026-08-16
 - **Decision:** Keep building `UE4SS.dll` from our own pinned RE-UE4SS submodule rather than
   shipping upstream's published release zip; ship third-party notices alongside it.
@@ -1090,6 +1134,8 @@ Format: Date / Decision / Status / Context / Options considered / Resolution / C
   copyright line.
 
 ---
+
+### 2026-08-16 — `transport.NDJSONConn` loses no message before `OnReceive` is registered
 
 - **Date:** 2026-08-16
 - **Decision:** `transport.NDJSONConn` guarantees no message is lost between construction and
@@ -2277,54 +2323,6 @@ Format: Date / Decision / Status / Context / Options considered / Resolution / C
   game name in library code, a non-generic import, a changed wire field list, or any import that
   merges server, client and adapter into fewer than three things. `testing.md` describes it.
 
-## Prior art: how CelesteNet handles this (researched 2026-08-13)
-
-Moved here from `docs/security.md` on 2026-08-19: it is research history behind several
-ADRs above (room-code auth, the game-version check, the udp per-connection token), not
-part of a user-facing security posture. Cited from this file's own ADRs and from
-`contract.md`. Findings below were read from real files in the MIT-licensed
-`0x0ade/CelesteNet` source, an approved read-only reference per `licensing.md` — facts
-and citations only, never its code.
-- **Self-hosted CelesteNet is open by default too.**
-  `CelesteNetServerSettings.AuthOnly` defaults to `false`
-  (`CelesteNet.Server/CelesteNetServerSettings.cs`) — a self-hosted server accepts any client
-  with just a display name, no key required
-  (`CelesteNet.Server/ConPlus/HandshakerRole.cs`'s `AuthenticatePlayerNameKey`, the
-  `else if (!Server.Settings.AuthOnly)` branch). Their baseline posture is the same as ours
-  today — no-auth isn't a MeshGhost-specific shortcut, it's the normal default for a
-  friend-hosted relay in this genre.
-- **Key-based auth exists, but it's scoped to their one large public server, not the
-  baseline.** A `#<key>` prefix on the player name maps to a persistent account UID
-  (`Server.UserData.GetUID`), checked against a stored ban list on connect. This solves a
-  different problem than ours: an always-on server open to the whole internet needs a
-  persistent identity for a ban to mean anything. A friend-hosted session with a shared
-  address/room code doesn't have that problem — mirroring their full account+ban system would
-  be over-engineering for MeshGhost's actual model, unless an always-on public relay ever
-  becomes a real goal (it isn't one today).
-- **Version check at connection time, before any data flows**: a
-  `CelesteNet-TeapotVersion` header, server responds `409 Version Mismatch` on anything but an
-  exact match (`HandshakerRole.cs`'s `TeapotHandshake`). We already do the direct equivalent
-  for our own wire protocol (`protocol.Version`, checked in `hello` at
-  `relay.go`'s `handleConn`) — and, since 2026-08-14, the same reject-at-handshake
-  shape for each adapter's own `game_version` too — the room-code/version ADR above.
-- **Unpredictable per-connection tokens** (`CelesteNet.Shared/TokenGenerator.cs`, a Galois
-  LFSR) specifically prevent a third party from hijacking someone else's *UDP* connection by
-  guessing or spamming its token. This defends against a UDP-specific weakness (UDP is
-  connectionless and trivially spoofable) that didn't apply to us while `transport` was
-  TCP-only. **Update 2026-08-16: it applies now.** We added a udp transport and had to solve
-  exactly this — `netx/udpconn` carries an 8-byte per-connection token, checked on every
-  datagram, for the same reason CelesteNet does. Ported after all, independently.
-- **Deliberately not a model to copy**: `CelesteNet.Server/ConPlus/ExtendedHandshake.cs`
-  collects machine GUID / registry paths / MAC-derived identifiers as a hardware-fingerprint
-  anti-ban-evasion check for their public server. That's real, invasive identity collection,
-  and it directly conflicts with this project's own privacy posture
-  (`docs/security.md`). Explicitly out of scope here regardless of what CelesteNet does.
-
-**Takeaway for our own design**: aim for the *shape* of their version-check pattern (a shared
-secret checked once at handshake, reject outright on mismatch, before any state is exchanged)
-for room codes — not their full public-server account/ban/fingerprinting stack, which solves a
-problem MeshGhost doesn't have. **Implemented 2026-08-14** — the room-code/version ADR above.
-
 ### 2026-08-20 — An adapter may take area visibility away from the core: `render_all_areas`
 
 - **Date:** 2026-08-20
@@ -2450,3 +2448,54 @@ problem MeshGhost doesn't have. **Implemented 2026-08-14** — the room-code/ver
     of OAM entries (Crystal has 40 and spends most) can revisit it — with the one probe named in
     `ideas.md` answering the only question that matters: what a mid-frame Lua wakeup costs on that
     core.
+
+---
+
+## Prior art: how CelesteNet handles this (researched 2026-08-13)
+
+Moved here from `docs/security.md` on 2026-08-19: it is research history behind several
+ADRs above (room-code auth, the game-version check, the udp per-connection token), not
+part of a user-facing security posture. Cited from this file's own ADRs and from
+`contract.md`. Findings below were read from real files in the MIT-licensed
+`0x0ade/CelesteNet` source, an approved read-only reference per `licensing.md` — facts
+and citations only, never its code.
+- **Self-hosted CelesteNet is open by default too.**
+  `CelesteNetServerSettings.AuthOnly` defaults to `false`
+  (`CelesteNet.Server/CelesteNetServerSettings.cs`) — a self-hosted server accepts any client
+  with just a display name, no key required
+  (`CelesteNet.Server/ConPlus/HandshakerRole.cs`'s `AuthenticatePlayerNameKey`, the
+  `else if (!Server.Settings.AuthOnly)` branch). Their baseline posture is the same as ours
+  today — no-auth isn't a MeshGhost-specific shortcut, it's the normal default for a
+  friend-hosted relay in this genre.
+- **Key-based auth exists, but it's scoped to their one large public server, not the
+  baseline.** A `#<key>` prefix on the player name maps to a persistent account UID
+  (`Server.UserData.GetUID`), checked against a stored ban list on connect. This solves a
+  different problem than ours: an always-on server open to the whole internet needs a
+  persistent identity for a ban to mean anything. A friend-hosted session with a shared
+  address/room code doesn't have that problem — mirroring their full account+ban system would
+  be over-engineering for MeshGhost's actual model, unless an always-on public relay ever
+  becomes a real goal (it isn't one today).
+- **Version check at connection time, before any data flows**: a
+  `CelesteNet-TeapotVersion` header, server responds `409 Version Mismatch` on anything but an
+  exact match (`HandshakerRole.cs`'s `TeapotHandshake`). We already do the direct equivalent
+  for our own wire protocol (`protocol.Version`, checked in `hello` at
+  `relay.go`'s `handleConn`) — and, since 2026-08-14, the same reject-at-handshake
+  shape for each adapter's own `game_version` too — the room-code/version ADR above.
+- **Unpredictable per-connection tokens** (`CelesteNet.Shared/TokenGenerator.cs`, a Galois
+  LFSR) specifically prevent a third party from hijacking someone else's *UDP* connection by
+  guessing or spamming its token. This defends against a UDP-specific weakness (UDP is
+  connectionless and trivially spoofable) that didn't apply to us while `transport` was
+  TCP-only. **Update 2026-08-16: it applies now.** We added a udp transport and had to solve
+  exactly this — `netx/udpconn` carries an 8-byte per-connection token, checked on every
+  datagram, for the same reason CelesteNet does. Ported after all, independently.
+- **Deliberately not a model to copy**: `CelesteNet.Server/ConPlus/ExtendedHandshake.cs`
+  collects machine GUID / registry paths / MAC-derived identifiers as a hardware-fingerprint
+  anti-ban-evasion check for their public server. That's real, invasive identity collection,
+  and it directly conflicts with this project's own privacy posture
+  (`docs/security.md`). Explicitly out of scope here regardless of what CelesteNet does.
+
+**Takeaway for our own design**: aim for the *shape* of their version-check pattern (a shared
+secret checked once at handshake, reject outright on mismatch, before any state is exchanged)
+for room codes — not their full public-server account/ban/fingerprinting stack, which solves a
+problem MeshGhost doesn't have. **Implemented 2026-08-14** — the room-code/version ADR above.
+
