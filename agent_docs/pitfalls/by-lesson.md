@@ -3822,3 +3822,30 @@ the new function was placed by what it read *about* (sprites) rather than by wha
 Place a new function below every helper it uses, and let the comment explain the position. And
 **an error that needs a rare game state will not appear in any amount of ordinary running**: the
 scan ran every frame and was clean; only the identification branch inside it was broken.
+
+## Splitting a file moved its content out of three exclusion lists, and CI went red on its own documentation (2026-08-26)
+
+**Symptom:** the `No machine-specific paths` CI job failed and stayed failed, naming two lines in
+`agent_docs/pitfalls/` — both of which are *prose quoting the very grep the job runs*. No real path
+leaked. Local `preflight.ps1` and the pre-commit hook were both green throughout, which made the
+failure look like a CI-only quirk.
+
+**Cause.** The privacy scan excludes files that are ABOUT paths. `agent_docs/pitfalls.md` was one
+of them, and on 2026-08-25 it was split into `agent_docs/pitfalls/*.md`. The hook and
+`preflight.ps1` had their exclusion lists updated at the split; **the workflow was the third copy
+and was missed**, so the excluded prose walked out from behind its exclusion.
+
+**Fix:** add `':!agent_docs/pitfalls/'` to the workflow's list, and a comment there saying all
+three copies exist.
+
+**Two lessons, and the second is the bigger one.**
+
+*A file split relocates every path-based rule that mentions it* — exclusion lists, coverage checks,
+hook globs, CI filters. Grep the old path across the whole repo as part of the split, not after
+something breaks; the split itself is the moment those references are all findable.
+
+*A check that fails on its own documentation trains people to ignore it.* This one is the mirror of
+the "verification rule that reports clean while the thing it checks is broken" entry above: this
+one reported broken while nothing was wrong, which is cheaper only if somebody reads it. **Nobody
+did — it was red for a day**, which is exactly what `CLAUDE.md` says to look for at session start
+(`gh run list -L 5`) and exactly what did not happen.

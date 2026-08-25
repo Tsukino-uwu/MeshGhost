@@ -65,11 +65,17 @@ jobs:
           # direction passes cleanly on a file that leaks in the other, and without -F the
           # backslashes are read as escapes. /Users/ and /home/ cover macOS and Linux.
           # The exclusions are files that are ABOUT paths, plus the tooling that finds them.
+          # `agent_docs/pitfalls/` as well as `pitfalls.md`: that file was SPLIT on 2026-08-25
+          # and the prose quoting this very grep moved into the new directory, which this list
+          # did not follow -- so CI failed on its own documentation and stayed red until
+          # 2026-08-26. The hook and preflight.ps1 carry the same list and were both updated at
+          # the split; this was the third copy. Change one, change all three.
           if git grep -nIF \
                -e 'C:\Users' -e 'C:/Users' -e '/home/' -e '/Users/' \
                -- . \
                ':!CLAUDE.md' ':!agent_docs/environment.md' \
-               ':!agent_docs/pitfalls.md' ':!dev-scripts/preflight.ps1' \
+               ':!agent_docs/pitfalls.md' ':!agent_docs/pitfalls/' \
+               ':!dev-scripts/preflight.ps1' \
                ':!.githooks/' ':!.github/workflows/'; then
             echo
             echo "A machine-specific path is present in a tracked file (listed above)."

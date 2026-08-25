@@ -25,8 +25,8 @@ same day: *"i will move on to crystal and not work more on emerald right now."* 
 
 - **Both Lua adapters are THREE names from Lua's 200-local ceiling** (re-measured 2026-08-26;
   Crystal's entry said 188 and was already stale when it broke the build). `emulator/CLAUDE.md`.
-- **60 commits are UNPUSHED as of 2026-08-25, eight of them `.go`** — so CI has seen none of it,
-  including the bridge-bind guard. Last run 2026-08-23, green. `gh run list` once pushed; the user pushes.
+- **Everything is PUSHED as of 2026-08-26** (26 commits, none of them `.go`). The privacy job had
+  been red since 2026-08-25 on a false positive; fixed the same day. `gh run list` at session start.
 - **One doc item left open on purpose** — incident narrative still inside several ADRs and one
   `risks.md` bullet. (`status.md`'s own length was the other; drained 2026-08-25.) `doc-history.md` §5.
 - **Four refactors deferred by the 2026-08-18 audit** — `game_thread_tick()`, the two Lua adapters'
