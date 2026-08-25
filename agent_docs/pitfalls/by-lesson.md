@@ -235,6 +235,18 @@ something: run it against a known-bad string before trusting a clean result. **T
 never been shown to fail.** Two of the three found-live cases arrived via pasted tool output;
 this third arrived by being typed in a form the rule did not model.
 
+**Fourth case, same shape, 2026-08-25 — preflight's "Leftover scaffolding" check.** It reported
+*"no MeshGhost processes left running"* while two launcher shells from a session an hour earlier
+were still open. Both were real: `cmd.exe /c run-core.bat pseudoregalia tcp` and
+`… run-core.bat emerald auto 2`. The check looked for `meshghost*.exe` by name, and every
+`run-*.bat` ends at a `pause` — so killing the binary leaves its shell parked forever, holding no
+port and matching no name. Eight more accumulated during one four-adapter test pass. The modelling
+error is the same one as the slash: the check knew what the failure looked like *the way it had
+seen it*, and leftover scaffolding had only ever been met as a live process. Fixed by also
+listing `cmd.exe` processes whose command line mentions `dev-scripts`. The reason to catch them is
+not the handful of idle shells — it is that an idle shell is indistinguishable from a rig somebody
+is still using, so the next session cannot tell what it is allowed to kill.
+
 ## Third time for the wrong-install-on-PATH trap — and it cost a capability, not just a build (2026-08-18)
 
 **Symptom.** `agent_docs/testing.md` recorded that local `-race` **"does not work on this machine

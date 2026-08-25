@@ -867,6 +867,22 @@ if ($strays) {
     Report-Pass "no MeshGhost processes left running"
 }
 
+# The launcher SHELL outlives the binary it started. Every run-*.bat ends at a `pause`, so killing
+# meshghost.exe/meshghost-relay.exe leaves its cmd.exe sitting there forever -- holding no port, so
+# the check above passes and reports the tree clean. Found 2026-08-25: this said "no MeshGhost
+# processes left running" while two shells from an hour-old session were still open, and eight more
+# accumulated over one four-adapter test pass. Harmless individually; the reason to catch them is
+# that they are indistinguishable from a rig someone is still USING, so the next session cannot tell
+# what it is allowed to kill.
+$shells = Get-CimInstance Win32_Process -Filter "Name='cmd.exe'" -ErrorAction SilentlyContinue |
+    Where-Object { $_.CommandLine -like "*dev-scripts*" }
+if ($shells) {
+    Report-Warn "launcher shells left over from an earlier run (their binaries are already gone) -- close them:"
+    $shells | ForEach-Object { Write-Host "          cmd.exe (pid $($_.ProcessId)) $($_.CommandLine.Trim())" }
+} else {
+    Report-Pass "no leftover dev-script launcher shells"
+}
+
 # ---------------------------------------------------------------------------
 Write-Host ""
 if ($script:failures -gt 0) {
