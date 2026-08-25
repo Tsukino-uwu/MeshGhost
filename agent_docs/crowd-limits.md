@@ -155,14 +155,31 @@ OFF, `-max-clients=80`, player parked, 60s per run, `-area-id=1/13 -center=14,20
 | **Drawn cap** | 12 | 2 spawned + 10 painted | 60.0 | 0/s | 17-18ms |
 | **Max pressure** | 36 | 2 spawned + 34 painted | 60.0 | **1/s** | 20-28ms |
 | Max pressure | 60 | 2 spawned + 58 painted | 60.0 | **1-2/s** | 22-31ms |
+| Max pressure | 100 | 2 spawned + 98 painted | 60.0 | 3-6/s | 32-43ms |
+| **Past the wall** | 160 | 2 spawned + **158 painted** | **29-33** | **19-24/s** | **82ms** |
+| Attribution: same flood, tier OFF | 160 | 2 spawned, 158 refused | **60.0** | 5-17/s | 42-57ms |
 
-**What it says.** The emulator never leaves 60fps, and no frame ever exceeded 33ms. The drawn tier
-is free up to a dozen peers — indistinguishable from the control — and past ~34 painted characters
-it costs about **one 20-28ms frame per second**, which is pacing, not rate: the instrument that
-reports "60fps" throughout is the one that cannot see it. Going from 34 to 58 painted barely moved
-the number, so the cost is not linear in the crowd at these sizes. **The spawn-refusal path is
-free**: 10 and then 34 peers being re-attempted every frame cost nothing measurable, which is the
-Emerald allocate/cull trap (`pitfalls/`) not being present here.
+**What it says.** Up to **98 painted characters the emulator holds a full 60fps**, and the cost
+appears only as pacing: free to a dozen peers (indistinguishable from the control), about one
+20-28ms frame per second past ~34, and 3-6 hitches per second at 98. Rate alone reports "60fps"
+across that entire range and can see none of it.
+
+**The wall is between 100 and 160 painted, and it is a cliff rather than a slope.** At 158 the
+frame rate HALVES — 29-33fps, 19-24 hitches a second, 10-12 frames over 33ms, worst gap 82ms.
+
+**That halving is the painting, not this machine.** The same 160-peer flood with only
+`DRAW_OVERFLOW` turned off — identical relay, core, network traffic and load-generator CPU, the
+adapter still tracking all 158 peers and re-attempting their spawns every frame — runs at a **full
+60fps**. Subtraction, not inference: the one removed variable is the paint. (Its residual 5-17
+hitches a second are the load generator competing for this machine, and they are present in both
+sides of the pair, which is what makes the rate comparison sound.)
+
+**The spawn-refusal path is free** at every size tried: 10, then 34, then 158 peers re-attempted
+every frame cost nothing measurable. Emerald's allocate/cull trap (`pitfalls/`) is not present here.
+
+**None of this is a shipping limit.** The adapter's own ceiling is ~10 characters on screen, and
+Route 39 offers 2 engine slots — so 98 painted is already an order of magnitude past any real
+session, and the wall past it is a stress-test fact, not a player-facing one.
 
 **What this rig CANNOT see, and it matters.** The synthetic peers never exercise the drawn tier's
 STEPPING render path: `stepping view drawn on 0 of 646854 peer-frames` across every run, because
