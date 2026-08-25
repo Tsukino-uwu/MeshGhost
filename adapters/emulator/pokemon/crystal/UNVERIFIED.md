@@ -1579,8 +1579,7 @@ single-stride and corner-localised — **no growth over the long sides**, which 
 failure this test exists to catch.
 
 **Bike, ~6 laps:** the same shape — K drift 0.0px worst 0 in all four directions over 23 parks;
-0 resyncns is a typo the record keeps honest: 0 resyncs, 0 catch-up, catch-up never armed, 0
-re-anchors; relative movement 2-4%, single-stride, corners only, one lone 8px frame in ~1300.
+0 resyncs, 0 catch-up, catch-up never armed, 0 re-anchors; relative movement 2-4%, single-stride, corners only, one lone 8px frame in ~1300.
 
 Nothing user-confirmed here; what this closes is the INSTRUMENT side of the 9x9 question at both
 gaits, on the build carrying today's five fixes (tile-cache invalidation, gait on the wire, the
