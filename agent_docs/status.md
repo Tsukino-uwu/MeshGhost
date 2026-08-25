@@ -23,8 +23,10 @@ same day: *"i will move on to crystal and not work more on emerald right now."* 
 
 - **Everything after `7f95e8b` is UNPUSHED as of 2026-08-25, and two commits are `.go`** — so CI
   has never seen the bridge-bind guard or its test. `gh run list` once pushed; the user pushes.
-- **The 2026-08-25 doc repair is DONE; three findings were deliberately left.** `pitfalls.md`'s
-  taxonomy, `architecture.md`'s narrative ADRs, and `verified.md` itself. `ideas.md`.
+- **Staged-context pass DONE 2026-08-25** (`64c3162`..`47d4537`): nested `adapters/CLAUDE.md` +
+  `bizhawk/CLAUDE.md`, two skills, `CLAUDE.md` 299->278. Volume problem NOT solved. `ideas.md`.
+- **Doc restructuring still open: the rule/evidence condense, four duplications, three preflight
+  checks, the `verified.md` per-game split.** All designed and measured in `ideas.md` (2026-08-25).
 - **Five refactors deferred by the 2026-08-18 audit** — `game_thread_tick()`, the two Lua
   adapters' duplication, Crystal's probe boilerplate, `internal/cfg`, TEVI's send gate. `ideas.md`.
 

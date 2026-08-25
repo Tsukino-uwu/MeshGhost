@@ -3176,27 +3176,170 @@ then whether the build is IL2CPP or Mono, which is what decides how much of the 
 approach transfers. Nothing about Ori's runtime has been checked; the Unity-ness is an assumption
 from its genre and vintage, not a measurement.
 
-## Doc restructuring the 2026-08-25 repair pass deliberately left
+## Doc restructuring: what is left, and the measurements not to re-derive (2026-08-25)
 
-That pass fixed facts and collapsed duplication; these three are structural and each is its own
-job. Recorded here so they are not rediscovered by a future audit.
+Two passes have now touched this. The 2026-08-25 **repair** pass fixed facts and collapsed
+duplication. The 2026-08-25 **staged-context** pass (commits `64c3162`..`47d4537`) built the
+delivery mechanism: `adapters/CLAUDE.md` and `adapters/bizhawk/CLAUDE.md` (nested files that load
+themselves on contact), `.claude/skills/new-adapter/` and `.claude/skills/write-a-probe/`, and the
+`CLAUDE.md` cap reclaimed from 299 to 278 by deleting an index that duplicated
+`agent_docs/README.md`.
 
-1. **`pitfalls.md`'s taxonomy stops about three tenths in and never resumes** — the rest is a flat
-   chronological append, so "look under the theme" finds a fraction of what is there. The file now
-   says so at the top, which is the cheap half. The real fix is either finishing the taxonomy or
-   dropping it and committing to chronological-plus-index. ~4,800 lines.
-   Its two methodology clusters — six entries on instruments that lie, five on probe hygiene, all
-   stating one rule — are a candidate extraction to `agent_docs/probe-discipline.md`.
-2. **`architecture.md` is ~2,450 lines and several ADRs read as incident narratives** rather than
-   decisions — a LuaSocket/PE-import debugging trail, and one that is a bug list. That content
-   belongs in `pitfalls.md` with the ADR reduced to the decision it records. `risks.md` has the
-   same shape in one ~170-line Archipelago bullet with three nested closures.
-3. **`verified.md` (~10,200 lines) was left untouched by the user's call, and has one real
-   defect**: a ~215-line block was appended twice in rewritten form and **the two copies
-   contradict each other** — the earlier says a glow is attached to the ghost's root, the later
-   that it attaches to `WeaponMesh` at zero offset, and only the later is right. Nothing links
-   them. Also: heading levels flip (`##` vs `###` for the same kind of object), the entry template
-   is abandoned partway, and dates appear leading, trailing and body-only.
-   **It is append-only, so the fix is an appended `### CORRECTION:` entry naming the superseded
-   copy** — the file already uses `Superseded by`, `### CORRECTION:` and `### RETRACTION:` — not
-   an edit in place. Do not start this without asking: the user has twice scoped it out.
+**That second pass built the machinery and deliberately did not solve the volume problem.** The
+end-to-end mandated read fell only ~7% (3,537 -> 3,302 lines across the two `_template` files);
+327 lines moved to load-on-contact or load-on-demand. Everything below is what remains, with the
+measurements behind it, so none of this is worked out twice.
+
+### 1. Condense the rules, relocate their evidence — the pass that actually shrinks things
+
+`_template/README.md`'s 13 `## Hard rule:` sections total **734 lines**, so they cannot all fit a
+300-line cap. Six were moved verbatim to `adapters/CLAUDE.md`. The rest cannot be *relocated*,
+only *condensed*: each rule reduced to its imperative plus a one-line dated stub, with the
+narrative going to `pitfalls.md`. **That is a rewrite of rule text and the highest-risk item in
+any of this.**
+
+Still to condense: the bandage rule (51 lines), find-out-how-the-GAME-does-it (237), ghost-liveness
+gating (86), ship-the-bare-minimum (69). Left in `_template/` on purpose: "this folder is the gold
+standard" (it is about `_template` itself) and "Hard rules, restated" (a third copy of rules
+already in the root `CLAUDE.md`).
+
+**Bucket split, measured across both template files (3,537 lines at the time):** RULE ~1,185
+(34%), RATIONALE/dated evidence ~945 (27%), PROCEDURE ~740 (21%), REFERENCE ~515 (15%), EXAMPLE
+~90 (3%). **The evidence needs no new file — `pitfalls.md` already is "symptom -> diagnosis ->
+fix".**
+
+**Two sections resist a host split** and were left for this pass: the tier ladder and "Measure
+what is DRAWN, not the fields that feed it" alternate a general rule with GBA/Game Boy mechanics
+paragraph by paragraph, so splitting them by host means splitting rule from evidence.
+
+**Also here:** `probes.md:827-894` holds a third copy of the logging-cost rule (the other two were
+at `README.md:496-514` and `544-554`); the read-budget rule and the probe cost warning are each
+stated twice across the two files. Neither file has a table of contents, section numbering or any
+priority marker — **that is the retrieval failure the end-to-end mandate was written to paper
+over**, and `probes.md` has been compensating in-band with its "the three that cost the most, if
+you read nothing else" triage block.
+
+### 2. The four multiply-stated rules, with verdicts
+
+- **Publishability header, 5 copies — KEEP.** Byte-identical modulo relative-link depth, mandated
+  on purpose at `_template/README.md`, and it propagates by copying `_template/documentation.md`
+  forward, which is why it never drifted. **One defect: `adapters/pseudoregalia/documentation.md`
+  is missing the provenance sentence `licensing.md`'s audit greps for.**
+- **Bandage block, 6 copies — ALREADY DRIFTED, live in the tree.**
+  `emerald/BANDAGES.md:17` and `bandages-core.md:20` say "all **seven** after-the-fact tells";
+  `pseudoregalia:18`, `tevi:21` and the template stub `:298` say "**eight**" — and the three
+  saying eight list seven, because the stub's final clause was dropped in transit. Also
+  `_template/BANDAGES.md:300` points at `../_template/BANDAGES.md`, which from inside `_template/`
+  resolves to itself. **`crystal/BANDAGES.md` links instead of copying, in 3 lines, and is the only
+  one that could not drift — adopt its shape everywhere.**
+- **"A flag flip is not a revert", 10 copies — the worst, and decaying directionally.** Five
+  different lengths (3-10 lines), byte-identical only across the three Lua/C# `FLAGS.md` files.
+  **It is homeless:** four copies cite `CLAUDE.md` as the authority, but that file is capped and
+  holds the second-*shortest* version. The copies lost the *actionable* half first — "verify the
+  flag disables the cost, or revert the commit" is gone from three of ten. **Home it at
+  `pitfalls.md:285`**, which already holds the long form with its evidence.
+- **Phase disclaimer, 6 copies — DELETE.** 7 lines, 614 bytes, **100% byte-identical, zero
+  adaptation**, in `phases/phase3.md`-`phase8.md`. `agent_docs/README.md:89-95` already states the
+  same fact as canonical. Replace with one line each, or a single note on the `phases/` index.
+
+**The predictor, worth keeping:** duplication survives when it has a documented reason *and* a
+propagation mechanism. The two that had both stayed clean; the two that had neither decayed.
+
+### 3. Three checks for `dev-scripts/preflight.ps1` — what stops all of it re-growing
+
+Prose alone does not hold here and the repo has recorded that three times: `.githooks/pre-commit`
+("as strong as prose gets... read and broken anyway"), `preflight.ps1`'s duration check ("a grep
+does not need anyone to notice"), and `status.md` going 50 -> 628 lines with a flat cap nominally
+in force. The `CLAUDE.md` cap holds *because* `preflight.ps1:116` checks it.
+
+1. **A reading-budget check** — every file named as mandatory-read declares a cap in its header
+   and the check enforces it. Extends the existing single-file cap check to a set: same code, a
+   loop instead of a constant. **Without this the template is back over 1,000 lines.**
+2. **A canonical-source check** — a register mapping each multiply-stated rule to its home and its
+   canonical one-liner, failing when a copy drifts. Nothing does this today, which is why the
+   seven/eight drift is sitting unnoticed. Seed it with the four above.
+3. **A back-port staleness check** — `CLAUDE.md` requires `_template/` never to lag a shipped
+   adapter; that is prose only, and `_template/documentation.md` sat untouched from 2026-08-18
+   through the Crystal work. Same shape as the existing DLL-vs-source gate.
+
+Of 22 mandated reads inventoried, **exactly one carries a completion test** (the `wc -l`
+self-check) and it is attached to the heaviest file. Once the core is capped and small that check
+becomes credible and can be stated once for the set. The inventoried load: ~1,701 lines before an
+ordinary session, ~5,258 to touch the core, **~14,500-18,500 before a new adapter's first file**
+(~7,956 of prose plus a 6,495-10,503-line reference adapter).
+
+### 4. The per-game split of `verified.md` — designed, approved in principle, not started
+
+`verified.md` is 10,174 lines and touched by **207 of the repo's 794 commits (26%)**, the hottest
+file in the tree, with four games and the Go side interleaved chronologically. Target: per-adapter
+`VERIFIED.md` beside each `README.md`/`BANDAGES.md`/`FLAGS.md`/`documentation.md`, with
+`agent_docs/verified.md` keeping Go-side and cross-game entries plus an index.
+
+**The segmentation rule, and the trap that looks correct.** Do not split on every heading (290
+`###` vs 236 `- Date:`; the excess are sub-headings *inside* entries). Do not split on `- Date:`
+(44 top-level entries carry the date in the heading instead). **And do not split on depth by
+position** — "`###` before line 3051, `##` after" passes conservation arithmetic and is wrong: the
+entry at 3520 runs to the next `##` at 4378 and swallows **27 dated sub-entries**, including a
+Go-side fuzz/test entry nested inside a Pseudoregalia `##`, which it would file into
+`adapters/pseudoregalia/VERIFIED.md` with nothing flagging it.
+
+The rule that holds: let `C` be `^## Confirmed facts$` (line 49); ignore everything at or before
+it. A heading starts an entry iff it is not inside a fence **and** either it matches `^## `
+(unconditionally — 13 entries in the 3051-3467 run carry their date only in prose), **or** it
+matches `^### ` and a `^- Date:` line falls within the next 4 lines with no heading between.
+Yield: **332 entries, 65 sub-headings**; first entry at 51, sum of lengths = 10,124, no gap or
+overlap.
+
+**Classify on entry BODY, not heading** — that collapses the residual needing human review from
+~119 to ~35-42. Known false friend: Pseudoregalia's *save crystal* matches "crystal". The
+access-model groundwork entries describe games with no adapter folder and stay in `agent_docs/`.
+
+**Move verbatim, in original order.** 69 entries say "the entry above/below", so relative order
+inside each destination is load-bearing; and heading depth is inconsistent for historical reasons,
+which is itself a record of when things were written.
+
+**The known defect:** a ~215-line Pseudoregalia block was appended twice in rewritten form and the
+copies contradict each other (~4007 vs ~4099, glow on the ghost's root vs `WeaponMesh` at zero
+offset; only the later is right; paired crash entries at ~4038 and ~4127). **Move both, append one
+`### CORRECTION:` linking them** — deleting one would be the only actual append-only violation in
+the operation, and that pair is the only duplicate heading pair in the file, so a
+`sort | uniq -d` expecting exactly 2 lines is a live check.
+
+**The real cost is the pointers, not the split.** `verified.md` is mentioned **449 times across 56
+files**, only 23 are markdown links and **none are anchored**. ~426 bare mentions will not break a
+link checker and will silently point at the wrong half. Leave `phases/*.md` alone — they are dated
+records and rewriting their pointers falsifies what they recorded.
+
+**Conservation checks:** line count (body = 10,124 exactly); a sorted body diff before vs after,
+budgeting the deliberate additions; the heading multiset with `sort`, never `sort -u`; `- Date:`
+count = 236; and each of the 13 `Superseded by`/`CORRECTION:`/`RETRACTION:`/`NOTE:` annotations
+resolving inside its new file. The `internal/X` NOTE is file-scoped and must be replicated into
+every destination. One genuine cross-file break: the `RULE CHANGE` entry is governance (stays in
+`agent_docs/`) but its target is an Emerald entry.
+
+`unverified.md` splits the same way and is far easier — it is 100% per-game already, with no
+Go-side entries by design.
+
+### 5. The rest, still open from the earlier repair pass
+
+- **`pitfalls.md`'s taxonomy stops about three tenths in** and the rest is a flat chronological
+  append, so "look under the theme" finds a fraction of what is there. Either finish it or drop it
+  and commit to chronological-plus-index — an index is maintained by adding one line, which is why
+  the taxonomy stopped being maintained. Its two methodology clusters (six entries on instruments
+  that lie, five on probe hygiene) are a candidate extraction to `agent_docs/probe-discipline.md`.
+- **`architecture.md` is ~2,450 lines** and several ADRs read as incident narratives rather than
+  decisions; that content belongs in `pitfalls.md` with the ADR reduced to what it decides.
+  `risks.md` has the same shape in one ~170-line Archipelago bullet. Two structural bugs there:
+  the ADR log uses **two incompatible formats** (21 early bullet blocks with no heading at all,
+  so they cannot be linked or indexed; 18 later `### date — title`), and **`## Prior art:
+  CelesteNet` at line 2280 has three ADRs appended after it**, so those three are structurally
+  nested inside "Prior art".
+- **`unverified.md` does not drain.** It is specified as a queue whose confirmed items move to
+  `verified.md`, but still carries `CLOSED`/`CONFIRMED ON SCREEN` entries edited in place. ~70%
+  Crystal, ~15 Emerald, zero TEVI or Pseudoregalia.
+- **`status.md` is three screens, not one.** ~50 open items, most of them per-game queue entries
+  that belong in an adapter's `UNVERIFIED.md`. Its two-line rule is stated in three places —
+  `CLAUDE.md`, `status.md` itself and `claude-md-cap.md`. One copy, not three.
+- **`ideas.md` still carries struck-through DONE sections inline** (slide, spawn-to-cap, the third
+  tier, scripted input, the moved bandage register).
+
