@@ -100,7 +100,9 @@ in agent memory is invisible to all three and goes stale with nothing to catch i
   current-state summary. **Read them as dated records, not as current fact.** Notably, every
   `internal/protocol|transport|bridge|core|relay|netx` path written before 2026-08-17 is now at
   the repo root (`protocol/`, `core/`, …) — see the module-rename ADR in
-  [architecture.md](architecture.md). Those paths are left as written rather than rewritten,
+  [architecture.md](architecture.md). Citations of `internal/README.md` are to a file that no
+  longer exists; its content became [../docs/networking.md](../docs/networking.md) and
+  [../docs/security.md](../docs/security.md). Those paths are left as written rather than rewritten,
   because a phase file records what was true while the phase ran.
 - [claude-md-cap.md](claude-md-cap.md) — why `CLAUDE.md` holds a hard 300-line cap, and why
   `status.md`'s cap is per-item rather than a flat line count. The evidence behind two rules

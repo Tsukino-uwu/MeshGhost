@@ -97,12 +97,15 @@ rule is restated at the top of that file and in `adapters/_template/documentatio
 # An adapter's documentation.md must carry a provenance line, the facts-not-expression guard,
 # and no dump-shaped content. Scoped to adapters/ deliberately: docs/networking.md is the Go
 # side's own doc, describes code we wrote, and none of this applies to it.
-git ls-files 'adapters/**/documentation.md' | xargs grep -LiE 'measured from a running game'
+# The '^> ' anchor is load-bearing: an unanchored phrase match was satisfied by the INSTRUCTION
+# sentence copied from the template ('Keep the provenance line...'), so the check passed on a file
+# that had no provenance line at all (adapters/pseudoregalia, found and fixed 2026-08-25).
+git ls-files 'adapters/**/documentation.md' | xargs grep -LiE '^> .*measured from a running game'
 git ls-files 'adapters/**/documentation.md' | xargs grep -LF 'Explain facts; never reproduce expression'
 git ls-files 'adapters/**/documentation.md' | xargs grep -nE '[0-9A-F]{16,}|\.uasset|Assembly-CSharp'
 ```
 
-Both must print nothing. The second is a heuristic, not a proof: long hex runs catch pasted GUIDs
+All three must print nothing. The third is a heuristic, not a proof: long hex runs catch pasted GUIDs
 and dumped identifiers, and the two filenames catch asset/assembly content pasted in. A clean run
 means nothing obviously dump-shaped got in; reading the file is still what confirms it.
 

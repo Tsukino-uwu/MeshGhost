@@ -116,10 +116,9 @@ accumulate in layers — an "OFF, job done" line from one session can sit direct
 and switching it off is what broke it" line from the next, with only the constant telling you which
 one won. That is precisely how the 2026-08-17 confusion happened.
 
-`CLAUDE.md` states the harder version of this: **a flag flip is not a revert.** A `constexpr bool`
-only reverts behaviour if it gates the *work*, not merely the decision the work feeds — otherwise an
-A/B "proves" a change innocent while its cost is still running. Verify the flag disables the cost,
-or revert the commit.
+**A flag flip is not a revert** — verify the flag disables the *work*, not merely the decision the
+work feeds, or revert the commit instead.
+[`agent_docs/pitfalls.md`](../../agent_docs/pitfalls.md#diagnostic-methodology) has the case behind it.
 
 ## Tunable constants — the `constexpr` NUMBERS
 

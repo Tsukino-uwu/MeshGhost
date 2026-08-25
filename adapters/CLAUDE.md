@@ -25,7 +25,7 @@ game is doing it on the player itself after all"*.
 the same way the player is, so the game already contains a working implementation of whatever is
 being asked for — reflections, bobbing, animation, shadows, occlusion. If it looks impossible, the
 mechanism has not been found yet; that is a statement about the search, not about the game.
-[effect-investigation.md](../../agent_docs/effect-investigation.md) is the how-to-search playbook,
+[effect-investigation.md](../agent_docs/effect-investigation.md) is the how-to-search playbook,
 and the surf blob is the worked example: `UpdateSurfBlobFieldEffect` looked hardcoded to the player
 and turned out to read an object id out of its own sprite data, so pointing it at a ghost drives the
 whole effect for free.
@@ -45,7 +45,7 @@ legitimate case — the console runs out of something and the game has no mechan
 it hits the same wall (Crystal's object cap, and the painted overflow tier that answers it). A
 mechanism we have simply not found yet is not, and it is the common case: **if the player has this,
 an implementation exists and is reachable.** Full sorting rule, and the cost a legitimate ceiling
-bandage still owes: [BANDAGES.md](BANDAGES.md).
+bandage still owes: [BANDAGES.md](_template/BANDAGES.md).
 
 The 1:1 test is what a bandage must still pass if one is ever justified — the same user, on the
 same day: *"its probly a bandage then, but think thats fine if we can get it to look identical to
@@ -77,7 +77,7 @@ half a player notices first.
 **So, when mirroring any state:**
 
 - **Perform it in the real game and count what appears** — objects, sprites, field effects — before
-  deciding what to copy ([effect-investigation.md](../../agent_docs/effect-investigation.md) has
+  deciding what to copy ([effect-investigation.md](../agent_docs/effect-investigation.md) has
   the diffing method). The graphics table describes one sprite and says nothing about companions.
 - **Ask what else the state owns**: a trail, a splash, a shadow, a dust puff, a held item, a
   mount. TEVI's charged-attack VFX and Pseudoregalia's ultra-hop trail are the same question in
@@ -93,7 +93,7 @@ half a player notices first.
   one left behind swims along under a peer walking down a road.
 - **Build the extra by DIFFING it against a live one the game made**, never from the template
   alone — a constructor computes fields no description contains, and the same blob spent a day
-  drawn a tile out of place because of one of them. Method: [probes.md](probes.md), "Diff what you
+  drawn a tile out of place because of one of them. Method: [probes.md](_template/probes.md), "Diff what you
   BUILT against what the game BUILT".
 
 
@@ -138,7 +138,7 @@ the game is stuttering is worth less than no ghost at all.
 a scripted ride with the adapter, and the identical ride with nothing loaded. The machine running
 the emulator has its own floor -- Emerald's control dipped to 37fps on seam crossings with zero
 scripts loaded -- and without that run, the game's own map loading gets attributed to whatever was
-loaded at the time. The harness and the two instruments are in [probes.md](probes.md), "Price a
+loaded at the time. The harness and the two instruments are in [probes.md](_template/probes.md), "Price a
 suspicion before fixing it".
 
 **The four costs that actually showed up, in the order they bit** (all Emerald 2026-08-20,

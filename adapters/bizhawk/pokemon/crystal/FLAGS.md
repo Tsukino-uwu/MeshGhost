@@ -66,9 +66,10 @@ arrived and were not drawn" (2026-08-19).
 
 ## When a comment and a value disagree
 
-Believe the value, then find out why the comment drifted before changing either. `CLAUDE.md`
-states the harder version: **a flag flip is not a revert** — a switch only reverts behaviour if it
-gates the *work*, not merely the decision the work feeds.
+Believe the value, then find out why the comment drifted before changing either.
+And the harder version: **a flag flip is not a revert** — verify the switch disables the
+*work*, not merely the decision the work feeds, or revert the commit instead.
+[`agent_docs/pitfalls.md`](../../../../agent_docs/pitfalls.md#diagnostic-methodology) has the case that established it.
 
 ## Probe flags — off by default, and each announces itself when on
 

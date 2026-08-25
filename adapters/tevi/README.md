@@ -24,7 +24,7 @@ Phase 6 fully done 2026-08-13.**
   look something up is not the same as having looked
   ([adapters/_template/README.md](../_template/README.md)'s folder convention).
 - Owned by the project author, unlike the Ori titles (see
-  [adapters/oribf/README.md](../oribf/README.md)), which was the deciding factor.
+  [agent_docs/ideas.md](../../agent_docs/ideas.md)), which was the deciding factor.
 - IL2CPP vs Mono build status: **confirmed Mono** (2026-08-11) — see
   [agent_docs/environment.md](../../agent_docs/environment.md)'s Unity/TEVI section for the
   file evidence (`Assembly-CSharp.dll` present, no `GameAssembly.dll`, `doorstop_config.ini`

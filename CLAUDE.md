@@ -192,10 +192,9 @@ stays here, its reasoning goes to `agent_docs/`, with a one-line pointer. Full e
   the wrong PLACE or the right place doing the wrong THING. Live 2026-08-16, and all of 08-23.
 - **A flag flip is not a revert.** A `constexpr bool` only reverts behaviour if it gates the *work*,
   not merely the decision the work feeds — otherwise an A/B "proves" a change innocent while its
-  cost is still running, which is exactly what misdirected the 2026-08-16 investigation. Verify the
-  flag disables the cost, or revert the commit. **When a regression appears, bisect real commits
-  early**: build the last-known-good commit, confirm it is good, then halve. It is mechanical,
-  needs no theory, and can't be fooled by a partial revert.
+  cost still runs. Verify the flag disables the cost, or revert the commit. **When a regression
+  appears, bisect real commits early**: last-known-good, confirm, halve — mechanical, needs no
+  theory, and cannot be fooled by a partial revert. Both cases, dated: `pitfalls.md`.
 - **Cite dates, not durations — INCLUDING a duration used only for emphasis** ("for months",
   "long-standing"). Repo born 2026-08-11, so these are false on arrival and worse with age. Live
   2026-08-16 ×3; 2026-08-21, "for months" about a two-day-old rule; 2026-08-23, "for days".

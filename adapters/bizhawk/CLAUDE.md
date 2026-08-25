@@ -39,7 +39,7 @@ second whenever peers were present, so a shipped session lost that every second,
 wrapped the global `console.log` so every console line flushed to disk too.
 
 So: **open the log buffered (`setvbuf("full", …)`), never flush per line, flush on a timer, and keep
-`console.log` for the rare line somebody actually needs to see.** [probes.md](probes.md) has said
+`console.log` for the rare line somebody actually needs to see.** [probes.md](../_template/probes.md) has said
 "buffer, and flush in batches" since the drawn tier was built — what failed was reading it as advice
 about *probes*. It is not. It is about anything that runs every frame, shipped code first.
 

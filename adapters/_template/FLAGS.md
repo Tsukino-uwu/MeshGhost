@@ -202,8 +202,6 @@ accumulate in layers — an "OFF, job done" line from one session can sit direct
 and switching it off is what broke it" line from the next, with only the constant telling you which
 one won.
 
-`CLAUDE.md` states the harder version: **a flag flip is not a revert.** A compile-time bool only
-reverts behaviour if it gates the *work*, not merely the decision the work feeds — otherwise an A/B
-"proves" a change innocent while its cost is still running. Verify the flag disables the cost, or
-revert the commit. When a regression appears, bisect real commits early: it is mechanical, needs no
-theory, and can't be fooled by a partial revert.
+**A flag flip is not a revert** — verify the flag disables the *work*, not merely the decision the
+work feeds, or revert the commit instead. When a regression appears, bisect real commits early.
+[`agent_docs/pitfalls.md`](../../agent_docs/pitfalls.md#diagnostic-methodology) has both cases.

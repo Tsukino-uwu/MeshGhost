@@ -452,7 +452,8 @@ Before building any spawn detector on identity, check whether the objects ever a
 ### 5. Every probe and every fix needs a real off-switch
 
 A flag must gate the **work**, not merely the decision the work feeds. If you cannot point at the
-work it disables, revert the commit instead. **A flag flip is not a revert.**
+work it disables, revert the commit instead. **A flag flip is not a revert** —
+[pitfalls.md](pitfalls.md#diagnostic-methodology).
 
 ### 6. One variable per run; never guess twice at the same symptom
 

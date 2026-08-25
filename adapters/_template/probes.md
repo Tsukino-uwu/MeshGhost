@@ -1698,7 +1698,8 @@ behaviour wearing a probe's clothes, and the two configurations are different pr
 **How to check it in one pass**: for every assignment inside a probe guard, ask whether any reader
 outside the guard exists. If yes, the assignment moves out and only the counter stays in.
 
-This is the mirror image of the standing "a flag flip is not a revert" rule, which warns that a flag
+This is the mirror image of the standing "a flag flip is not a revert" rule
+([`pitfalls.md`](../../agent_docs/pitfalls.md#diagnostic-methodology)), which warns that a flag
 gating a *decision* but not the *work* makes an A/B meaningless. Same defect, opposite direction: here
 the flag gated work that the decision needed. Both come from the same question, which is worth asking
 of any flag: **exactly what does this switch turn off, and what still reads its results?**

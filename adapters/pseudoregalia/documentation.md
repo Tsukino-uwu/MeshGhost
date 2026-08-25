@@ -15,6 +15,12 @@ This is [CLAUDE.md](../../CLAUDE.md)'s standing rule — *is this fine sitting i
 forever?* — applied to prose. No, or merely unclear, means out. Full guidance and the two edge cases
 worth knowing: [adapters/_template/README.md](../_template/README.md).
 
+> Everything here is **measured from a running game** during Phases 2, 5 and 7 (2026-08-11 onward),
+> using engine reflection against a running instance to learn real type and member *names*. This
+> game has **no public source**, and no decompiled or disassembled material was used in producing
+> it. **No asset content or verbatim dump is reproduced here** — only facts, per
+> `agent_docs/licensing.md` (assessed 2026-08-17).
+
 **What this file is: how *the game* does things.** Slide, crouch, wall ride, the trail — what each
 move actually does to the character, which fields carry it, and which components it moves. Written
 down so the next person can read "oh, *that's* how a slide works" instead of rediscovering it by

@@ -15,28 +15,16 @@ Per-adapter registers: `adapters/pseudoregalia/BANDAGES.md`, `adapters/tevi/BAND
 Unlike the adapter registers, everything here is confirmable with the tools — `run-gotests.bat`, a
 regression test — without watching a running game.
 
-## Is this a bandage? — the short form
+## Is this a bandage?
 
-Full version, including all seven after-the-fact tells: `../adapters/_template/BANDAGES.md`.
-
-**The one mechanical test:** does the fix **prevent** the wrong thing, or **correct** it
-afterwards? Correcting afterwards means the cause is still running. Then: *"what would make this
-unnecessary?"* (a proper fix has no answer) and *"where did this number come from?"* — measuring
-the mechanism, or trying values until it looked right?
+The canonical guide — the one mechanical test, the tells while you are writing it, the eight
+tells that only show up later, and the one bandage shape to avoid outright — lives in
+[`adapters/_template/BANDAGES.md`](../adapters/_template/BANDAGES.md). Read it before adding an entry.
 
 **The Go side has its own dominant shape**, visible in the open items below: a constant in one
 package hand-picked as a "margin" against a constant in another, rather than *derived* from it.
 Prose asserting the relationship is not the relationship. If the two can drift apart without a test
 failing, it belongs here.
-
-**Discovering it later — you will not always know at the time.** Add an entry if any of these
-happen: its cause got fixed somewhere else and the fix is still there; a second bug gets described
-as *"structurally the same bug as X"*; it outlived its purpose and became the bug itself; a
-constant needs re-tuning when something unrelated changes; removing it breaks something it was
-never about; you can't explain it without describing a sequence; it needs a companion fix elsewhere
-to stay correct.
-
-**When in doubt, log it.** A false positive costs one line under "Deliberate".
 
 ## Open compensations
 

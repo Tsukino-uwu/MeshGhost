@@ -293,26 +293,11 @@ Ranked by how likely each is to cause a real bug.
 
 Other registers: `../<other-game>/BANDAGES.md`, `../../agent_docs/bandages-core.md`.
 
-## Is this a bandage? — the short form
+## Is this a bandage?
 
-Full version, including all eight after-the-fact tells: `../_template/BANDAGES.md`.
-
-**The one mechanical test:** does the fix **prevent** the wrong thing, or **correct** it
-afterwards? Correcting afterwards means the cause is still running. Then: *"what would make this
-unnecessary?"* (a proper fix has no answer) and *"where did this number come from?"* — measuring
-the mechanism, or trying values until it looked right?
-
-**Writing it:** watch for *almost*, *good enough*, *for now* in your own reasoning, and for code
-that *restores*, *forces*, *remembers*, *re-applies*, or *offsets* a value.
-
-**Discovering it later — you will not always know at the time.** Add an entry if any of these
-happen: its cause got fixed somewhere else and the fix is still there; a second bug gets described
-as *"structurally the same bug as X"*; it outlived its purpose and became the bug itself; a
-constant needs re-tuning when something unrelated changes; removing it breaks something it was
-never about; you can't explain it without describing a sequence; it needs a companion fix elsewhere
-to stay correct; it works on an object the game made that you took rather than created.
-
-**When in doubt, log it.** A false positive costs one line under "Deliberate".
+The canonical guide — the one mechanical test, the tells while you are writing it, the eight
+tells that only show up later, and the one bandage shape to avoid outright — lives in
+[`adapters/_template/BANDAGES.md`](../_template/BANDAGES.md). Read it before adding an entry.
 
 ## Open compensations
 

@@ -101,9 +101,10 @@ global-then-environment shape when a switch needs to be flipped without restarti
 
 ## When a comment and a value disagree
 
-Believe the value, then find out why the comment drifted before changing either. `CLAUDE.md`
-states the harder version: **a flag flip is not a revert** — a switch only reverts behaviour if it
-gates the *work*, not merely the decision the work feeds.
+Believe the value, then find out why the comment drifted before changing either.
+And the harder version: **a flag flip is not a revert** — verify the switch disables the
+*work*, not merely the decision the work feeds, or revert the commit instead.
+[`agent_docs/pitfalls.md`](../../../../agent_docs/pitfalls.md#diagnostic-methodology) has the case that established it.
 
 ## Added 2026-08-21 (water/warp session)
 
