@@ -247,6 +247,11 @@ local ADDRESSES = {
 		-- is there.
 		FISHING_GFX_ROM = 0xB84F2,
 		FISHING_GFX_ROM_KRIS = 0xB8582,
+		-- Emotes, 05:444d -> 0x5 * 0x4000 + (0x444d - 0x4000). Twelve six-byte entries --
+		-- `dw graphics, db length, db bank, dw vtile` (`data/sprites/emotes.asm`) -- so this
+		-- table is how a receiver turns "emote number N" back into pixels. The "!" over a
+		-- character's head is one of these, and it is a SEPARATE map object, not a pose.
+		EMOTES_ROM = 0x1444D,
 	},
 
 	-- Archipelago's Crystal patch. MEASURED, never derived -- three separate vanilla relationships
@@ -353,10 +358,42 @@ local F_LAST_MAP_X, F_LAST_MAP_Y = 0x12, 0x13
 local F_INIT_X, F_INIT_Y = 0x14, 0x15
 local F_SPRITE_X, F_SPRITE_Y = 0x17, 0x18
 
-local FLAG1_WONT_DELETE = 0x02
+-- THREE ENGINE CONSTANTS ON ONE NAME. Each was a plain local and each is used once or twice;
+-- together they cost three of Lua's 200 for a main chunk, which this file is AT -- adding two
+-- names for the emote work below stopped it loading outright (2026-08-26, the fourth time this
+-- has bitten; `adapters/emulator/CLAUDE.md`). Grouping is the standing answer.
+local ENGINE = {
+	WONT_DELETE = 0x02, -- OBJECT_FLAGS1 bit: the engine's own culler leaves this object alone
+	UNASSIGNED = 0xFF, -- OBJECT_MAP_OBJECT_INDEX for an object with no map-object entry
+	MAPSTATUS_HANDLE = 2, -- wMapStatus while the overworld is the thing on screen
+	-- The emote work hangs here for the same reason. `playerEmote` is a FIELD rather than a local
+	-- because it must be visible to getLocalState (which is defined above the VRAM and cartridge
+	-- readers it needs) while being DEFINED below them -- the file's own "a local declared BELOW a
+	-- function is a nil global inside it" trap, avoided by going through this table.
+	emoteIds = {}, -- the 16 bytes at VRAM $f8 -> which Emotes entry they are (-1 for none)
+}
+
+-- THE "!" OVER A CHARACTER'S HEAD, and everything this file needs to carry one across the wire.
+--
+-- ONE TABLE, ONE NAME. This file is at Lua's 200-local ceiling for a main chunk -- adding two
+-- plain locals for the two constants below was enough to stop it loading at all (2026-08-26,
+-- which is the fourth time; `adapters/emulator/CLAUDE.md`). Everything for this feature therefore
+-- hangs here.
+--
+-- An emote is NOT a pose the character adopts: `SpawnEmote` creates a separate map object at the
+-- character's own tile, flagged EMOTE_OBJECT, sitting 16px above it, whose facing is FACING_EMOTE
+-- -- four ABSOLUTE tiles $f8-$fb. So nothing about it reaches a peer through the character's own
+-- action or facing byte, which is why a ghost has never had one.
+local emote = {
+	F_YOFF = 0x1A, -- OBJECT_SPRITE_Y_OFFSET
+	FLAG1 = 0x80, -- EMOTE_OBJECT, bit 7 of OBJECT_FLAGS1
+	PAL = 5, -- PAL_OW_EMOTE
+	VTILE = 0xF8, -- where the 4-tile emotes are loaded, and what FacingEmote names
+	LIFT = 16, -- how far above the character's own tile the box sits
+	rom = nil, -- the Emotes table, resolved at startup from the address block
+	gfx = {}, -- emote index -> flat ROM offset of its graphics, memoised
+}
 local STANDING = 255
-local MAPSTATUS_HANDLE = 2
-local UNASSIGNED = 0xFF
 
 ----------------------------------------------------------------------------
 -- Logging
@@ -793,7 +830,7 @@ local function inPlay()
 	if status == nil or battle == nil or group == nil or number == nil or playerSprite == nil then
 		return false -- an unmeasured address, or a read that failed: refuse rather than guess
 	end
-	return status == MAPSTATUS_HANDLE
+	return status == ENGINE.MAPSTATUS_HANDLE
 		and battle == 0
 		and not (group == 0 and number == 0)
 		and playerSprite ~= 0
@@ -974,9 +1011,20 @@ local function getLocalState()
 		-- `gait` is the group number above, so a receiver steps a ghost at the pace the peer is
 		-- actually moving instead of assuming a walk. One byte, changing only when the player
 		-- mounts or dismounts.
+		-- `yoff` is OBJECT_SPRITE_Y_OFFSET (0x1a), the engine's own vertical nudge on top of the
+		-- character's tile position -- the ONE field that carries every up-and-down a character
+		-- does without changing tile. The bite wiggle is this alternating 0/1 for eight ticks
+		-- (`StepFunction_GotBite`), and the Fly, Dig and Teleport falls are the same byte over a
+		-- longer arc. Without it a ghost stands perfectly still through all of them; the user,
+		-- 2026-08-26: *"they are supposed to shake/wiggle a bit & get a !, above their head"*.
+		-- Signed, two's complement in one byte, exactly as the engine stores it.
+		--
+		-- `emote` is the "!" and its family -- see playerEmote() for why it is a scan and a tile
+		-- match rather than a field. nil for no emote, which is nearly always.
 		extras = { sprite = u8(base + F_SPRITE) or 0, act = u8(base + F_ACTION) or 0,
 			prog = stepProgress(base), face = u8(base + F_FACING) or 0,
-			gait = rememberGait(base) },
+			gait = rememberGait(base), yoff = u8(base + 0x1A) or 0,
+			emote = ENGINE.playerEmote() },
 	}
 end
 
@@ -1040,7 +1088,7 @@ end
 -- Structs the engine must always be able to get, no matter how many peers turn up.
 --
 -- THIS IS NOT TUNING, IT IS A BUG FIX. The engine hands a struct to each of its own characters as
--- they come into range and takes it back when they leave; a ghost carries FLAG1_WONT_DELETE, so
+-- they come into range and takes it back when they leave; a ghost carries ENGINE.WONT_DELETE, so
 -- it holds one FOREVER, anywhere on the map. With a crowd of peers standing around, ghosts held
 -- 11 of the 13 structs and the game had none left for itself -- measured 2026-08-19 with an NPC
 -- standing ONE TILE from the player and simply not drawn, plus its own cast flickering in and out
@@ -1305,7 +1353,7 @@ local function findTemplateNpc()
 		local base = MAP_OBJECTS + i * MAPOBJECT_LENGTH
 		local sprite = u8(base + M_SPRITE) or 0
 		local id = u8(base + M_STRUCT_ID)
-		if sprite ~= 0 and sprite ~= playerSprite and id and id ~= UNASSIGNED
+		if sprite ~= 0 and sprite ~= playerSprite and id and id ~= ENGINE.UNASSIGNED
 			and id < NUM_OBJECT_STRUCTS then
 			return i, id
 		end
@@ -1526,11 +1574,80 @@ end
 -- six bytes per entry, indexed by SPRITE_* - 1 (the table's own comment: "entries correspond to
 -- SPRITE_* constants", which start at 1).
 -- Assigned from the selected address table, and NIL on any build where nobody has measured it.
-local OVERWORLD_SPRITES_ROM
+local OVERWORLD_SPRITES_ROM, EMOTES_ROM
 local SPRITEDATA_STRIDE = 6
 
 local function romByte(offset)
 	return memory.read_u8(offset, ROM_DOMAIN) or 0
+end
+
+-- IS THERE AN EMOTE OVER THE PLAYER'S HEAD, AND WHICH ONE?
+--
+-- `SpawnEmote` builds a separate map object at the character's own tile, flagged EMOTE_OBJECT
+-- (`OBJECT_FLAGS1` bit 7), so this is a scan and not a field. Nothing in WRAM records WHICH emote
+-- was loaded -- `LoadEmote` takes it in a register and copies the tiles -- so the identity is
+-- recovered the only way it can be: by matching the tiles the game actually loaded against the
+-- `Emotes` table in the cartridge. That is the engine's own answer read back, rather than a guess
+-- from context, and it means a peer gets the RIGHT emote (the "!", a heart, a sleep bubble) and
+-- not whichever one this code was written for.
+--
+-- Returns the emote's index into `Emotes`, or nil. Cheap in the common case: the scan stops at
+-- the first emote object, and the tile match runs only when the loaded tiles have changed.
+function ENGINE.playerEmote()
+	if not EMOTES_ROM then
+		return nil -- no address for this build; a peer simply gets no emote
+	end
+	local px, py = u8(OBJECT_STRUCTS + F_MAP_X), u8(OBJECT_STRUCTS + F_MAP_Y)
+	local found = false
+	for i = 1, NUM_OBJECT_STRUCTS - 1 do
+		local b = OBJECT_STRUCTS + i * OBJECT_LENGTH
+		if (u8(b + F_SPRITE) or 0) ~= 0
+			and ((u8(b + F_FLAGS1) or 0) & 0x80) ~= 0 -- EMOTE_OBJECT
+			and u8(b + F_MAP_X) == px and u8(b + F_MAP_Y) == py then
+			found = true
+			break
+		end
+	end
+	if not found then
+		return nil
+	end
+	-- WHICH ONE. The four-tile emotes all load at $f8, in VRAM bank 1 alongside the characters, so
+	-- the first tile there identifies the set. Sixteen bytes, and the answer is memoised against
+	-- them, so a bite that holds for a second costs one comparison rather than sixty.
+	local key = {}
+	for i = 0, 15 do
+		-- Read straight through `memory` rather than via this file's own `readVram`, which is
+		-- declared BELOW this function and would therefore be a nil global here -- the trap this
+		-- file already carries twice. VRAM_BANK1 is visible; the helper is not.
+		key[#key + 1] = string.char(memory.read_u8(VRAM_BANK1 + 0xF8 * 16 + i, "VRAM") or 0)
+	end
+	key = table.concat(key)
+	if ENGINE.emoteIds[key] ~= nil then
+		local v = ENGINE.emoteIds[key]
+		return (v >= 0) and v or nil
+	end
+	local answer = -1
+	for idx = 0, 11 do
+		local e = EMOTES_ROM + idx * 6
+		-- dw graphics, db length, db bank, dw vtile -- and only the ones that load at $f8 can be
+		-- what is sitting there.
+		if (romByte(e + 4) | (romByte(e + 5) << 8)) == 0x8F80 then
+			local gfx = romByte(e + 3) * 0x4000 + ((romByte(e) | (romByte(e + 1) << 8)) - 0x4000)
+			local same = true
+			for i = 0, 15 do
+				if romByte(gfx + i) ~= string.byte(key, i + 1) then
+					same = false
+					break
+				end
+			end
+			if same then
+				answer = idx
+				break
+			end
+		end
+	end
+	ENGINE.emoteIds[key] = answer
+	return (answer >= 0) and answer or nil
 end
 
 -- Returns the ROM offset of a sprite's graphics, its size in bytes, and the palette the game
@@ -2103,6 +2220,36 @@ facingFrames.ROD = {
 	[3] = { dx = 16, dy = 5, t = 7 }, -- right
 }
 
+-- WHERE ONE EMOTE'S FOUR TILES LIVE IN THE CARTRIDGE, memoised.
+--
+-- `Emotes` is twelve six-byte entries -- `dw graphics, db length, db bank, dw vtile` -- so this is
+-- the same banked-pointer arithmetic the sprite table needs. Read from ROM rather than from VRAM
+-- $f8 for the reason the fishing rod is: those tiles hold whatever the LOCAL game last loaded
+-- there, which on a receiving machine has nothing to do with what the peer is doing.
+facingFrames.emoteGfx = function(idx)
+	if not EMOTES_ROM or not idx or idx < 0 or idx > 11 then
+		return nil
+	end
+	local cached = facingFrames.emoteRom[idx]
+	if cached ~= nil then
+		return (cached ~= false) and cached or nil
+	end
+	local e = EMOTES_ROM + idx * 6
+	local addr, bank = romByte(e) | (romByte(e + 1) << 8), romByte(e + 3)
+	local at = (bank ~= 0 and addr >= 0x4000) and (bank * 0x4000 + (addr - 0x4000)) or false
+	facingFrames.emoteRom[idx] = at
+	return at or nil
+end
+facingFrames.emoteRom = {}
+
+-- The four tiles of an emote box, in FacingEmote's own arrangement: $f8 $f9 over $fa $fb, which
+-- are graphics tiles 0..3. The box sits one tile ABOVE the character (the emote object's own
+-- OBJECT_SPRITE_Y_OFFSET is -16), and in PAL_OW_EMOTE (5) rather than the character's palette.
+facingFrames.EMOTE_BOX = {
+	{ dx = 0, dy = 0, t = 0 }, { dx = 8, dy = 0, t = 1 },
+	{ dx = 0, dy = 8, t = 2 }, { dx = 8, dy = 8, t = 3 },
+}
+
 -- WHICH FISHING SHEET A PEER GETS, from the peer's own sprite id rather than from wPlayerGender.
 -- A receiving machine's local gender says nothing about the peer, and in a two-player session the
 -- two are routinely different. nil means "not a player sprite, or not a build we have this
@@ -2516,7 +2663,7 @@ local function spawnGhost(id, x, y, peerSprite)
 	-- This is why the fault looked intermittent -- it depended entirely on which NPC the map
 	-- offered. A ghost's flags must describe a GHOST, not its donor. Found only because the user
 	-- chose the busiest map in the game to test on; a quiet room would have passed.
-	local flags1 = (u8(stBase + F_FLAGS1) or 0) | FLAG1_WONT_DELETE
+	local flags1 = (u8(stBase + F_FLAGS1) or 0) | ENGINE.WONT_DELETE
 	flags1 = flags1 & ~0x08 -- SLIDING: suppresses the walk animation
 	flags1 = flags1 & ~0x04 -- FIXED_FACING: suppresses turning
 	w8(stBase + F_FLAGS1, flags1)
@@ -5091,6 +5238,24 @@ function drawOverflow()
 						-- for action 3: facing byte 0x00-0x0F, stride = byte & 3, stepping on the
 						-- odd strides.
 						local fishRom = poseRod and facingFrames.fishRom(o.sprite) or nil
+						-- THE EMOTE BOX FIRST, and at the UNBOBBED position. It is a separate
+						-- object in the engine and it does not share the character's own vertical
+						-- nudge -- a character bobbing under a "!" is exactly what the game draws.
+						local emoteRom = o.emote and facingFrames.emoteGfx(o.emote) or nil
+						if emoteRom then
+							local ec = paletteColors(5) -- PAL_OW_EMOTE, the box's own palette
+							for _, part in ipairs(facingFrames.EMOTE_BOX) do
+								drawRows(decodeRomTile(emoteRom, part.t),
+									sx + part.dx, sy - 16 + part.dy, ec)
+							end
+						end
+						-- OBJECT_SPRITE_Y_OFFSET is ADDED to the character's screen position by
+						-- the engine, and screen y grows downward, so it is added here too. This
+						-- is the bite wiggle, the Fly fall and the Dig/Teleport drop, all of them,
+						-- because the engine expresses all of them in this one byte.
+						if o.yoff and o.yoff ~= 0 then
+							sy = sy + o.yoff
+						end
 						drawCharacter(source, sx, sy, palette, poseFacing,
 							poseWalking, peerProg, poseStride, fishRom)
 						if poseRod and fishRom then
@@ -5885,6 +6050,11 @@ local function renderRemote(id, state)
 	-- Only the low two bits are used, but the whole byte is carried so a log shows the direction
 	-- the sender was in as well as the stride -- the pair is what makes a facing trace readable.
 	local peerFace = state.extras and tonumber(state.extras.face) or nil
+	-- The engine's own vertical nudge, signed. A peer on an older build sends nothing, which reads
+	-- as nil and leaves the ghost exactly where it was drawn before.
+	local peerYoff = state.extras and tonumber(state.extras.yoff) or nil
+	if peerYoff and peerYoff > 127 then peerYoff = peerYoff - 256 end
+	local peerEmote = state.extras and tonumber(state.extras.emote) or nil
 	-- What the peer's own object is DOING, in the engine's own terms. Floored before it can reach
 	-- a write, and checked against ACTIONS.peer there; a peer on an older build sends no `act` at
 	-- all, which reads as nil and leaves the ghost animating exactly as it did before.
@@ -5953,7 +6123,7 @@ local function renderRemote(id, state)
 	-- characters do. This is not an optimisation, it is the fix for two symptoms the user saw
 	-- within a minute of each other on 2026-08-19:
 	--   * NPCs popping in and out. Crystal hands a struct to each of its characters as they come
-	--     into range and takes it back when they leave. A ghost carries FLAG1_WONT_DELETE, so it
+	--     into range and takes it back when they leave. A ghost carries ENGINE.WONT_DELETE, so it
 	--     held one FOREVER -- and a crowd of peers held nearly all 13, leaving the game none for
 	--     its own cast. Measured: an NPC standing ONE TILE from the player, simply not drawn.
 	--   * Invisible collisions. A ghost off the screen still occupied its tile, so the player
@@ -5983,6 +6153,7 @@ local function renderRemote(id, state)
 		local hk = COMPARE.hwKey(id)
 		local hprev = overflow[hk]
 		overflow[hk] = OAM_TIER and { prog = peerProg, walking = peerWalking, face = peerFace, act = peerAct, gait = peerGait,
+			yoff = peerYoff, emote = peerEmote,
 			-- The pixel position is ABSOLUTE, so a copy placed elsewhere needs it moved by the same
 			-- whole tiles or it paints at the peer's real location instead of this copy's.
 			pixX = peerPixX and (peerPixX + COMPARE.hw * 16), pixY = peerPixY,
@@ -6018,9 +6189,10 @@ local function renderRemote(id, state)
 		dv.n = dv.n + 1
 		dv[(dv.n % 4) + 1] = { baseX, y, peerProg, peerWalking, peerFace, peerAct, peerGait,
 			peerPixX, peerPixY, state.orientation,
-			state.extras and tonumber(state.extras.sprite) or nil }
+			state.extras and tonumber(state.extras.sprite) or nil, peerYoff, peerEmote }
 		local dO = (dv.n > 3) and dv[((dv.n - 3) % 4) + 1] or dv[(dv.n % 4) + 1]
 		overflow[ck] = { prog = dO[3], walking = dO[4], face = dO[5], act = dO[6], gait = dO[7],
+			yoff = dO[12], emote = dO[13],
 			pixX = dO[8] and (dO[8] + COMPARE.drawn * 16), pixY = dO[9],
 			compare = true, only = "drawn", x = dO[1] + COMPARE.drawn, y = dO[2],
 			sprite = FORCE_PEER_SPRITE or dO[11],
@@ -6116,6 +6288,7 @@ local function renderRemote(id, state)
 		end
 		local prev = overflow[id]
 		overflow[id] = { prog = peerProg, walking = peerWalking, face = peerFace, act = peerAct, gait = peerGait,
+			yoff = peerYoff, emote = peerEmote,
 			pixX = peerPixX and (peerPixX + offsetX * 16), pixY = peerPixY,
 			x = x, y = y, sprite = peerSprite,
 			facing = ORIENTATION_TO_DIR[state.orientation],
@@ -6309,6 +6482,7 @@ local function renderRemote(id, state)
 		else
 			local prev = overflow[id]
 			overflow[id] = { prog = peerProg, walking = peerWalking, face = peerFace, act = peerAct, gait = peerGait,
+			yoff = peerYoff, emote = peerEmote,
 			pixX = peerPixX and (peerPixX + offsetX * 16), pixY = peerPixY,
 			x = x, y = y, sprite = peerSprite,
 				facing = ORIENTATION_TO_DIR[state.orientation],
@@ -6933,6 +7107,7 @@ OVERWORLD_SPRITES_ROM = A.OVERWORLD_SPRITES_ROM -- optional: nil means "no cartr
 -- art look like any other two tiles -- so the gate is the ROM identity rather than the contents.
 -- nil means a fishing peer's body is drawn and its rod is not, which is a missing detail rather
 -- than a wrong one. On `facingFrames` rather than a new top-level local: 200-local ceiling.
+EMOTES_ROM = (romClass == "known") and A.EMOTES_ROM or nil
 facingFrames.fishChris = (romClass == "known") and A.FISHING_GFX_ROM or nil
 facingFrames.fishKris = (romClass == "known") and A.FISHING_GFX_ROM_KRIS or nil
 
@@ -7064,7 +7239,7 @@ function diagnose(state)
 	else
 		logFile(string.format("gate: NOT SENDING — status(0x%04X)=%s wants %d, battle(0x%04X)=%s "
 			.. "wants 0, map=%s/%s [0FB1=%s 1439=%s]", W_MAPSTATUS, tostring(u8(W_MAPSTATUS)),
-			MAPSTATUS_HANDLE, W_BATTLEMODE, tostring(u8(W_BATTLEMODE)), tostring(u8(W_MAPGROUP)),
+			ENGINE.MAPSTATUS_HANDLE, W_BATTLEMODE, tostring(u8(W_BATTLEMODE)), tostring(u8(W_MAPGROUP)),
 			tostring(u8(W_MAPNUMBER)), tostring(u8(0x0FB1)), tostring(u8(0x1439))))
 	end
 end
@@ -7284,7 +7459,7 @@ local function tick()
 	-- writing zeroes into them would delete one of its NPCs.
 	--
 	-- A BATTLE IS NOT A MAP CHANGE, and treating it as one is a bug in its own right. The first
-	-- version of this also cleared the bookkeeping whenever wMapStatus left MAPSTATUS_HANDLE, on
+	-- version of this also cleared the bookkeeping whenever wMapStatus left ENGINE.MAPSTATUS_HANDLE, on
 	-- the theory that a battle rebuilds the array the way a map load does. The user watched it:
 	-- leaving a wild battle produced TWO ghosts (2026-08-19). The old object had survived the
 	-- battle perfectly well — so forgetting it only meant spawning a second one beside it, with

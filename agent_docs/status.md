@@ -12,16 +12,19 @@ same day: *"i will move on to crystal and not work more on emerald right now."* 
   polish or a custom feature; a real fault is a defect against a finished adapter. `phase8.md`.
 - **Crystal's MOVEMENT is done and confirmed** (2026-08-25 evening, both gaits, both tiers). What
   is left is the action classes and the UI/battle cases — visual, never watched. `verified.md`.
-- **Rig RUNNING as of 2026-08-25 23:xx** — relay + core (quic) and BizHawk on V1.0, adapter plus
-  one all-probes-off config. Shut it down or reuse it; `console.clear()` at session start.
-- **NEXT SESSION STARTS HERE: Crystal FISHING.** The user's call, 2026-08-25: **savestate slot 7**
-  is the fishing spot and **the rod is registered to SELECT**. What correct looks like: `crystal/UNVERIFIED.md`.
+- **Rig RUNNING as of 2026-08-26 00:4x** — relay (`run-relay-loopback.bat`) + core
+  (`run-core.bat crystal`, quic, interp 0) and BizHawk on V1.0, adapter plus an all-probes-off
+  config. Shut it down or reuse it; `console.clear()` at session start.
+- **NEXT SESSION STARTS HERE: the rest of Crystal's action classes.** Fishing is DONE and confirmed
+  (2026-08-26); what is left is the Fly landing, Dig/Teleport and spin tiles. `crystal/UNVERIFIED.md`.
 - **Savestate slots on that rig:** 1 the user's, **7 the FISHING spot (rod on SELECT)**, 8
   `goto_map`'s undo, **9 the 9x9 square start**. The savestate-is-not-a-save trap: `environment.md`.
   **`MESHGHOST_SQUARE_LOAD_STATE` loads a slot on EVERY re-attach of `square_drive` — clear it.**
 
 ## Genuinely open items
 
+- **Both Lua adapters are THREE names from Lua's 200-local ceiling** (re-measured 2026-08-26;
+  Crystal's entry said 188 and was already stale when it broke the build). `emulator/CLAUDE.md`.
 - **60 commits are UNPUSHED as of 2026-08-25, eight of them `.go`** — so CI has seen none of it,
   including the bridge-bind guard. Last run 2026-08-23, green. `gh run list` once pushed; the user pushes.
 - **One doc item left open on purpose** — incident narrative still inside several ADRs and one
@@ -30,8 +33,6 @@ same day: *"i will move on to crystal and not work more on emerald right now."* 
   duplication, Crystal's probe boilerplate, TEVI's send gate. (`internal/cfg` shipped.) `ideas.md`.
 - **The append-only ledgers are indexed, not split** — every entry is dated 2026-08, so the period
   axis does not exist yet; all five carry an index and a check. `doc-history.md`, "The third pass".
-- **Both Lua adapters are near the 200-local wall** — Emerald 197, Crystal 188, re-measured with
-  `luac` 2026-08-25 (not grepped). The modules fix is designed, not started. `emulator/CLAUDE.md`.
 
 Fixed-and-confirmed work is not listed here — see `verified.md` and the phase files.
 
@@ -77,16 +78,19 @@ stale in two places at once; these six say which SUBSYSTEM is unsettled and send
   trigger, shoving, the trainer-clone hang, battle survival. `crystal/UNVERIFIED.md`.
 - **Crystal movement, surf and the bike are CONFIRMED (2026-08-25 evening)** — eleven fixes, the
   user: *"moving perfect, surf working, bike working"*. What it does NOT cover: `crystal/VERIFIED.md`.
-- **Crystal's remaining action classes are the open visual work** — fishing first (slot 7, rod on
-  SELECT), then the Fly landing, Dig/Teleport and spin tiles. `crystal/UNVERIFIED.md`.
+- **Crystal's remaining action classes** — the Fly landing, Dig/Teleport and spin tiles. Fishing,
+  the bite wiggle and the "!" are confirmed (2026-08-26). `crystal/UNVERIFIED.md`.
+- **`extras.yoff` and peer emotes shipped with fishing and reach further than it** — that byte is
+  the Fly/Dig/Teleport fall too, and every emote now crosses the wire. Neither watched. `crystal/VERIFIED.md`.
 - **Crystal: in-place animations are BUILT and UNWATCHED (2026-08-25)** — one rule replaced the bump
   special case: read the peer's facing byte. **This is what the next live run is for.** `crystal/UNVERIFIED.md`.
 - **Crystal's drawn tier has no visual parity yet** — no reflection, wake, grass or cave clip, and a
   peer's own sprite only when its tiles are resident. (Emerald's closed 2026-08-21.) `phases/phase9.md`.
 - **Crystal's hardware (OAM) tier: built, reaches the screen, shipped OFF, never judged on screen.**
   Adds 0-1 characters and does NOT get free occlusion. `FLAGS.md`, `crystal/UNVERIFIED.md`.
-- **Crystal, known gaps rather than faults** — no fall for Fly/Teleport/Dig, no emote object, the
-  transition hold fires late, and a vanilla crowd battle was never reached. `phases/phase9.md`.
+- **Crystal, known gaps rather than faults** — the transition hold fires late, and a vanilla crowd
+  battle was never reached. (The Fly/Dig fall and the emote were closed 2026-08-26, unwatched.)
+  `phases/phase9.md`.
 - **The core dropped its relay connection twice on quic** — `use of closed network connection`,
   ~40s apart; moving to tcp stopped it. Go side. `verified.md` 2026-08-18.
 - **Duplicate ghost spawn on every level load** — two ghosts per peer, the `remotes` entry going

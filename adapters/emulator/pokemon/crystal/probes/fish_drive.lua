@@ -83,6 +83,12 @@ local MAPGROUP, MAPNUMBER, BATTLEMODE = flat(0xDCB5), flat(0xDCB6), flat(0xD22D)
 -- numbers that have to be in the same log as the player's.
 local BGMAPOFFX, BGMAPOFFY = flat(0xD14C), flat(0xD14D)
 local W_XCOORD, W_YCOORD = flat(0xDCB8), flat(0xDCB7)
+-- AND THE GATES THE ADAPTER ITSELF PAINTS THROUGH. A ghost that vanishes is not necessarily a
+-- ghost that stopped arriving: `inPlay()` reads wMapStatus and wBattleMode, the hardware tier
+-- reads wStateFlags' SPRITE_UPDATES_DISABLED bit, and the UI clip reads the window registers. The
+-- user, 2026-08-26: *"both ghosts disappeared before they could show the ! above their head"* --
+-- so the question is which of these flipped, and when, relative to the emote object appearing.
+local MAPSTATUS, STATEFLAGS = flat(0xD432), flat(0xD0ED)
 local F_SPRITE, F_WALKING, F_DIRECTION, F_STEP_TYPE = 0x00, 0x07, 0x08, 0x09
 local F_STEP_DURATION, F_ACTION, F_FACING = 0x0A, 0x0B, 0x0D
 local F_MAP_X, F_MAP_Y, F_LAST_X, F_LAST_Y = 0x10, 0x11, 0x12, 0x13
@@ -124,7 +130,9 @@ end
 
 local function sample()
   local parts = { objLine("P", ST),
-    string.format("batt=%d cam %d,%d win %d,%d oam0 %d,%d", u8(BATTLEMODE),
+    string.format("batt=%d ms=%d sf=%02X wy=%d wx=%d cam %d,%d win %d,%d oam0 %d,%d",
+      u8(BATTLEMODE), u8(MAPSTATUS), u8(STATEFLAGS),
+      memory.read_u8(0xFF4A, "System Bus") or -1, memory.read_u8(0xFF4B, "System Bus") or -1,
       u8(BGMAPOFFX), u8(BGMAPOFFY), u8(W_XCOORD), u8(W_YCOORD),
       memory.read_u8(1, "OAM") or -1, memory.read_u8(0, "OAM") or -1) }
   for i = 1, NSTRUCTS - 1 do

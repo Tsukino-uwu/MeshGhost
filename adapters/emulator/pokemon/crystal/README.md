@@ -169,6 +169,21 @@ Only steps that actually happened and were confirmed are listed here.
     BG-to-OAM priority bit clear, so a sprite draws in front of it. Shipped OFF: nothing about how
     it looks has been confirmed on screen. [FLAGS.md](FLAGS.md), `UNVERIFIED.md`.
 
+12. Made a peer fish, which needed three things the wire was not carrying and one it was carrying
+    wrongly. The pose was already there — `OBJECT_FACING` states it outright — but the ROD came
+    from `FishingRodGFX`, which the game loads and then immediately overwrites with the real
+    fishing sheet, so the drawn rod was somebody else's art. The bite's little shake is
+    `OBJECT_SPRITE_Y_OFFSET`, now on the wire and shared with the Fly and Dig falls; the "!" is a
+    separate map object, found by a scan and identified by matching the tiles the game loaded
+    against the cartridge's own table, so peers get every emote rather than that one.
+    Confirmed on screen 2026-08-26. `VERIFIED.md`, `documentation.md`.
+
+13. Fixed a fault fishing only happened to expose: the drawn tier calibrated screen space against
+    OAM entries 0-3 assuming they were the player's, but the engine emits by PRIORITY — so while
+    any high-priority object was up (the "!" is one), every painted ghost sat a tile too high. The
+    player's entries are now found by their tile block instead of by their position in the list.
+    `pitfalls/by-lesson.md`.
+
 ### Further work past "good enough"
 
 Open as of 2026-08-22 — [agent_docs/status.md](../../../../agent_docs/status.md) is the

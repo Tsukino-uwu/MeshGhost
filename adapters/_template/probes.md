@@ -1804,3 +1804,31 @@ the fault. No measurement, no reproduction hunt, no theory — the rig hands you
 **It generalises past rendering.** Any two independent paths that should agree — two decoders, a
 cache and its source, a fast path and its fallback — can be run against one input and diffed. If
 your adapter has such a pair, wire the comparison up early and leave it behind a flag.
+
+## Start from the ENGINE'S OWN OAM ENTRY and read backwards to the art (2026-08-26, Crystal)
+
+When a ghost's art is wrong but every number agrees, the decisive probe is four reads long, and it
+starts at the screen rather than at your source: **take the tile id out of the OAM entry the engine
+itself wrote, dump that VRAM tile, and print it beside the tile you were about to draw.** If they
+differ, everything downstream of your source is arbitrary and no amount of checking the pointer
+will show it.
+
+This found a rod drawn from an asset the game *loads and then immediately overwrites*: the address
+was right, the bank arithmetic was right, and the bytes matched the named asset exactly — the game
+simply draws something else there. `crystal/probes/rod_check.lua` is the whole shape, one shot,
+read-only, fired on the first frame the state is up.
+
+**The general rule: a NAME is a claim about intent; VRAM is a statement of fact.** Prefer the
+second whenever they can disagree — which is any time a script loads graphics on demand.
+
+## A screenshot does not contain your overlay (2026-08-26, Crystal)
+
+`client.screenshot` captures the emulator's video output. A painted ghost is a `gui.*` overlay
+composited on top of it, so it is **not in the file** — and a screenshot showing no ghost is not
+evidence that no ghost was painted. An agent spent several minutes concluding the drawn tier was
+dead while the user was watching two ghosts on screen.
+
+So for anything a probe draws itself: **screenshots answer questions about the GAME, and the
+adapter's own counters answer questions about the OVERLAY.** Log what the tier says it drew, and
+where, rather than trying to see it. If a picture is genuinely needed, the person watching is the
+instrument — say so in the probe's own header, as `crystal/probes/fish_drive.lua` does.

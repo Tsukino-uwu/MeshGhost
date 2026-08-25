@@ -3792,3 +3792,33 @@ first" assumption holds only until the engine sorts, and engines sort — by pri
 Y. Identify by something intrinsic (a tile block, an id) and the assumption cannot rot. Note also
 how narrow the symptom looked: this reads as a fishing bug and is nothing of the kind — **any**
 emote over **any** character's head moves every painted peer.
+
+## A ghost that VANISHES is usually an adapter that was unloaded, and the loader log says so in one line (2026-08-26, Crystal)
+
+**Symptom:** *"both ghosts disappeared before they could show the ! above their head"* — every peer
+gone at once, at a specific moment in the game, twice in a row. It reads as a gate: a state flag
+flipping, a UI clip, the send side going quiet.
+
+**Cause:** a Lua error in the adapter's per-frame tick. The dev loader unloads a target that throws
+rather than letting it kill the session, so ALL rendering stops instantly and nothing on screen
+distinguishes that from a deliberate hide. The error was a new function calling `readVram`, a local
+declared 80 lines BELOW it — a nil global at that point — and it only fired on the frame an emote
+object existed, so the adapter ran perfectly for hours before it.
+
+**Fix:** read through `memory.read_u8` directly, and check the declaration order of every helper a
+new function uses.
+
+**The lesson is the DIAGNOSTIC ORDER, and it costs one command.** `adapters/emulator/CLAUDE.md`
+already says to check the loader log for `LOAD FAILED` when a change does nothing; this is its
+runtime twin, and it is the more confusing of the two because the adapter *did* load. So:
+
+> **Every peer vanishing at once is an adapter fault until the loader log says otherwise.** Read
+> that log BEFORE reasoning about gates, flags or the wire. One peer vanishing is a gate; all of
+> them is a process.
+
+Two supporting notes, both live the same day. **The trap is dated twice already in this repo and
+still caught a third case** — a local declared below a function is a nil global inside it — because
+the new function was placed by what it read *about* (sprites) rather than by what it *called*.
+Place a new function below every helper it uses, and let the comment explain the position. And
+**an error that needs a rare game state will not appear in any amount of ordinary running**: the
+scan ran every frame and was clean; only the identification branch inside it was broken.

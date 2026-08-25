@@ -99,26 +99,27 @@ and each time cost a reload cycle to identify. Re-counted 2026-08-25:
 
 | adapter | lines | top-level locals |
 |---|---|---|
-| Crystal | 6,495 | 188 |
-| Emerald | 10,503 | **197 of 200** |
+| Crystal | 7,540 | **197 of 200** (re-measured 2026-08-26) |
+| Emerald | 10,503 | **197 of 200** (2026-08-25) |
 
-**Both adapters are now near the wall** — Emerald three names from it, Crystal twelve. The earlier
-version of this table read 3,219/157 and 10,496/198, which made Crystal look comfortable; it has
-since roughly doubled in size. Neither has solved this, and the constants-onto-tables consolidation
+**Both adapters are now three names from the wall.** Crystal's row read 188 for one day and was
+already stale when it was read: adding two plain constants for a feature stopped the file loading
+outright (2026-08-26, the fourth time). **A number nothing re-measures is a number that WAS true**
+— so re-measure before planning around the headroom, and expect the answer to be worse. Neither
+adapter has solved this, and the constants-onto-tables consolidation
 that bought Emerald its last few names is a bandage, not a fix. The fix is modules, each with its
 own 200-local budget — `agent_docs/ideas.md`'s deferred-refactor list.
 
 **Measure the headroom, do not count `local` lines.** Lua's limit is on NAMES, so
-`local a, b, c` spends three and `grep -c '^local '` undercounts — it reads 193/156 against the
-real 197/188. Append N throwaway locals to a copy and compile it, halving N until it flips:
+`local a, b, c` spends three and `grep -c '^local '` undercounts badly. Append N throwaway locals
+to a copy and compile it, halving N until it flips:
 
 ```sh
 C:/msys64/mingw64/bin/luac.exe -p <copy-with-N-extra-locals.lua>
 ```
 
-Both figures above were re-confirmed that way 2026-08-25 — Emerald compiles with 3 added and fails
-with 4, Crystal compiles with 12 and fails with 13. A number nothing re-measures is a number that
-was true once.
+Both figures above were confirmed that way — Emerald compiles with 3 added and fails with 4
+(2026-08-25), Crystal likewise with 3 and 4 (2026-08-26).
 
 **The modules fix has one trap already paid for twice, and it must be designed around.** A file
 loaded with `dofile` sees `debug.getinfo(1,"S").source` as a RELATIVE path, so a shared module that

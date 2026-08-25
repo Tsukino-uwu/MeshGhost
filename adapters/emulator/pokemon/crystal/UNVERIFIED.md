@@ -1139,123 +1139,37 @@ reads `FishingRodGFX` from ROM (`41:4560` on our own hash-verified `pokecrystal`
 the sprite table it has no cheap signature check, which is why the gate is ROM identity. On any
 other build the rod is simply absent.
 
-### THE ROD WAS THE WRONG ASSET ENTIRELY — `FishingRodGFX` is overwritten before it is drawn
+## DRAINED 2026-08-26 — fishing, the bite and the "!"
 
-**Found 2026-08-26, from the user's report** — *"the fishing rod sprite is glitchy/weird for both
-the drawn & spawned ghost. they both spawn a rod but it looks sideways/weird"*. Both copies were
-painted, so both rods came from our own table, and both were wrong the same way.
+**Everything this queue held about fishing left it in one pass**, on the user's confirmation:
+*"okay now it worked perfectly, Fishing is complete/verified."* Five entries: the offline
+decompilation audit, the wrong rod asset, the one-tile jump at a bite, the wiggle and the emote,
+and the session's plan for what to watch.
 
-**What the game actually does.** `Script_FishCastRod` runs `loademote EMOTE_ROD` and then
-`callasm LoadFishingGFX` — and the second overwrites what the first loaded.
-`engine/events/fishing_gfx.asm` copies four two-tile blocks out of `chris_fish.2bpp` (or
-`kris_fish.2bpp`, by `wPlayerGender`) into **VRAM bank 1**: sprite tiles `$02`, `$06` and `$0a` —
-the **bottom half** of the standing down, up and left views — and `$fc`, the rod. So fishing is a
-graphics swap done in place, not merely a pose, and `FishingRodGFX` is on screen for a few frames
-at most and never during the pose.
+They are not summarised here, because that would be an index of an index. Where each went:
 
-**How it was settled, and why nothing cheaper would have.** `probes/rod_check.lua` dumps the two
-tiles we read from the cartridge beside the ones the engine has in VRAM, while the player is
-fishing. ROM tile 0 is a **diagonal**; VRAM bank 1 `$fc` — the tile the engine's own OAM entry
-named — is a **vertical line**, and equals `chris_fish.2bpp` tile 6. That is the whole diagnosis in
-one screenful. **The offline audit above could not have caught it**: it checked that
-`FISHING_ROD_ROM` pointed at `FishingRodGFX`, which it did, exactly and byte for byte. The address
-was right and the *asset* was wrong — a class of error that survives every check that starts from
-the name.
+- **The confirmation, with what it does and does NOT cover** — [`VERIFIED.md`](VERIFIED.md),
+  "CONFIRMED ON SCREEN 2026-08-26 — Crystal: fishing, the bite wiggle and the '!'", and the
+  separate entry for the tile jump. **Read the *not covered* half**: the spawned and hardware tiers
+  were never exercised, only one fishing direction was, and in loopback the fishing BODY half was
+  right by accident.
+- **How each was found, and the three lessons** — `../../../../agent_docs/pitfalls/by-lesson.md`,
+  the 2026-08-26 entries: the right address pointing at the wrong asset, the player not owning OAM
+  entries 0-3, and a ghost that vanishes being an adapter that was unloaded.
+- **How the GAME does fishing** — [`documentation.md`](documentation.md), which now records the
+  graphics swap `LoadFishingGFX` performs.
+- **The instruments** — `probes/rod_check.lua` (diff the cartridge against VRAM) and
+  `probes/fish_drive.lua` (cast, clear with B, recast; reload only on a battle).
 
-**The fix.** `FISHING_ROD_ROM` is replaced by `FISHING_GFX_ROM` (`2e:44f2` → `0xB84F2`, Chris) and
-`FISHING_GFX_ROM_KRIS` (`2e:4582` → `0xB8582`). The rod is that sheet's tiles 6 and 7, and
-`drawCharacter` now takes the sheet and swaps the bottom-half tiles for it —
-`facingFrames.fishTile` maps sprite offsets 2,3 / 6,7 / 10,11 onto fishing tiles 0..5. **Which
-sheet a peer gets is the PEER's sprite id** (`SPRITE_CHRIS` 1, `SPRITE_KRIS` `$60`), never the
-local `wPlayerGender`: in a two-player session those routinely differ.
-
-**Built, live, and NOT confirmed.** In loopback the body half was already right by accident — the
-local player is fishing, so VRAM `$02`/`$03` already held the fishing art the peer was drawn from.
-The body half of this fix is therefore only exercised by a real second machine.
-
-**Still open on the spawned tier**: a spawned ghost's rod is drawn by the engine from those same
-shared tiles, which on a receiving machine hold the jump shadow unless the local player is also
-fishing. Loopback cannot show that, and nothing has been done about it.
-
-### A CATCH MOVES BOTH GHOSTS BACK A TILE — reported, not yet explained
-
-**User, 2026-08-26**: *"if i catch a fish, the 2 ghosts move back 1 tile (that is not supposed to
-happen)"*, with the method — *"you can't replicate this if you keep reloading the savestate7, need
-to press A and try to fish again"*. `probes/fish_drive.lua` was rewritten around that: it presses
-**B** to clear the text and recasts, and reloads the savestate only when a battle starts.
-
-**What the first catch showed, and what it ruled out.** Through the whole bite the player's
-`OBJECT_WALKING` stays `STANDING` and its map tile never changes, so the send side's mid-step
-correction — the obvious suspect, since it moves a peer backward along its facing by design —
-never runs. What the bite *does* produce is `STEP_TYPE_GOT_BITE` counting `sd` 7→0 while
-`OBJECT_SPRITE_Y_OFFSET` alternates 0/1 (`StepFunction_GotBite`, exactly as written), and **an
-emote object appearing in object struct 1** — action 8, facing `$14`, y offset 240 — which is
-`SpawnEmote` putting the "!" on the player's own tile.
-
-**FOUND, and it is not a fishing bug at all.** With the camera terms in the same log, the next
-catch named it in one line: the value the drawn tier reads as *"the player's OAM y"* went **76 → 60
-on the exact frame the emote object appeared** — sixteen pixels, one tile, while the player's tile,
-sprite position and offsets were all provably unchanged.
-
-`InitSprites` emits by PRIORITY — HIGH, then NORM, then LOW, and only within a class in struct
-order — so **the first four OAM entries belong to the highest-priority object that has a sprite**,
-not to the player. `SpawnEmote` makes the "!" a HIGH_PRIORITY object 16px above the tile, so while
-it is up the calibration is a tile too high and every painted peer moves with it.
-
-**Fixed** by finding the player's entries by their tile ids instead: a sprite's graphics are a
-12-tile block plus the same block `0x80` above it, and everything that displaces the player is
-drawn from ABSOLUTE tiles (`$f8`-`$fb` an emote, `$fc`-`$fd` a rod), outside any block by
-construction. The run is bounded to four entries so a ghost wearing the same sprite cannot join it,
-and there is a fallback to the old read for a frame where the player is not in the buffer at all.
-
-**Built, live, not confirmed.** And the scope is much wider than the report: **any emote over any
-character's head moved every painted peer**, in every map, since the drawn tier existed. Fishing is
-just where it was finally noticed.
-
-### The fishing path was audited against the decompilation offline, 2026-08-25
-
-**No fault found, and that is not a confirmation** — every check below is a source/ROM comparison
-with the game shut down. What it removes is the class of error a live run cannot see, which is why
-the fishing plan called this one out as *"most likely to be wrong in a way measuring cannot show"*.
-
-- **`FISHING_ROD_ROM = 0x104560` is byte-exact.** `pokecrystal.sym` puts `FishingRodGFX` at
-  `41:4560`, and the 32 bytes at that flat offset in our own hash-verified `pokecrystal.gbc` are
-  **identical to `gfx/overworld/fishing_rod.2bpp`** — two tiles, decoding as a diagonal rod and a
-  rod-plus-hand. So the offset, the bank arithmetic and the 2bpp decode all agree.
-- **`facingFrames.ROD` matches `FacingFishDown/Up/Left/Right` row for row** (`db y, x, attr, tile`):
-  `0,16` / `0,-8` / `5,-8` + XFLIP / `5,16`, tiles `$fc`/`$fd` = rod tiles 0/1.
-- **The rod really does take the character's palette.** `_UpdateSprites` ORs `d` — the object's
-  `OBJECT_PALETTE` — into *every* sprite's attributes, `RELATIVE_ATTRIBUTES` or not.
-- **The shared-tile problem is real**, so reading ROM is not an over-engineering: `data/sprites/
-  emotes.asm` gives `JumpShadowGFX` and `FishingRodGFX` the same starting tile `$fc`.
-- **Struct offsets and constants re-checked**: `OBJECT_ACTION` `$0b`, `OBJECT_FACING` `$0d`,
-  `OBJECT_ACTION_FISHING` 6, `FACING_FISH_DOWN..RIGHT` `$10`–`$13`.
-- **The direction cannot be confused by the fishing facing.** `getLocalState` reads
-  `OBJECT_DIRECTION`, not `OBJECT_FACING`, and `GetSpriteDirection` masks it to bits 2-3 — so
-  `orientation` stays correct while `OBJECT_FACING` is `$10`+dir, and the spawned tier's
-  `SetFacingFish` gets the direction it needs from the byte the idle-turn branch keeps in sync.
-
-**Where a live run still decides it**: whether the rod lands in the right *place* beside the body
-at the drawn tier's own coordinates, and whether action 6 survives on a spawned ghost frame to
-frame. Neither is answerable from source.
-
-**One thing loopback cannot separate.** While the local player fishes, the engine loads the rod
-into the shared `$fc`/`$fd` tiles anyway — so a spawned ghost's rod would look right even if the
-ROM read were wrong. The drawn tier is the one that proves it, because it reads the cartridge.
-
-### NEXT SESSION'S WORK: FISHING FIRST (the user's call, 2026-08-25)
-
-**Savestate slot 7 is the fishing spot and the rod is registered to SELECT** — so the state is one
-`loadslot` and one button press away, and no grant probe is needed to reach it. Fishing is the
-first of the classes below because it is the one with a ROM read behind it (`FishingRodGFX` at
-`41:4560`, gated on `classifyRom()`), i.e. the one most likely to be wrong in a way that measuring
-cannot show. Watch item 3 below against the spawned ghost, and remember the rod is a FIFTH sprite
-with an absolute tile id: a body with no rod is the ROM gate refusing, not a missing pose.
+**What fishing left behind, unwatched:** `extras.yoff` is the same byte the Fly landing's fall and
+the Dig/Teleport drop use, so those may have gained their fall for free — nobody has looked. And
+peers can now show every emote in the table, not just the "!".
 
 ### What to look at, and what correct looks like
 
-Loopback, ghost offset to the side with interpolation at 0, so the drawn ghost can be judged
-against the player frame for frame.
+**Item 3 (fishing) is DONE and confirmed** — 2026-08-26, see the drain note above. The other four
+are still the list, and the rig for them is unchanged: loopback, ghost offset to the side with
+interpolation at 0, so the drawn ghost can be judged against the player frame for frame.
 
 1. **Turn in place** — tap a direction the player is not facing, without walking. The drawn ghost
    should turn through the same intermediate direction the player does, not snap.

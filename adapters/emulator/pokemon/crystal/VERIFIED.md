@@ -119,6 +119,8 @@ filed under the right theme, but anything can check that it is listed.
 - CONFIRMED ON SCREEN 2026-08-25 (evening) — Crystal: surf, the bike, and movement at both gaits
 - What the 2026-08-25 evening confirmation covers
 - What the 2026-08-25 evening confirmation does NOT cover
+- CONFIRMED ON SCREEN 2026-08-26 — a priority object no longer drags every painted ghost a tile
+- CONFIRMED ON SCREEN 2026-08-26 — Crystal: fishing, the bite wiggle and the "!"
 
 ## Confirmed facts
 
@@ -1980,3 +1982,58 @@ clipping, battle survival, the trainer-clone hang, and the hardware (OAM) tier �
 exercised. The drawn tier's visual parity gaps (no reflection, wake, grass or cave clip) are
 unchanged. A real two-machine peer was not tested: every number here is loopback, whose echo is
 smaller than any network peer's.
+
+## CONFIRMED ON SCREEN 2026-08-26 — a priority object no longer drags every painted ghost a tile
+
+**The user, watching a fishing bite with the fix live:** *"yes they are not moving backwards
+anymore now when fishing"*.
+
+**What was wrong.** The drawn tier calibrated screen space against OAM **entries 0-3**, assuming
+they were the player's. `InitSprites` emits by PRIORITY — HIGH, then NORM, then LOW, and only
+within a class in struct order — so the first four entries belong to the highest-priority object
+that has a sprite. `SpawnEmote` makes the "!" a HIGH_PRIORITY object sitting 16px above the tile,
+so while it was up the calibration was a tile too high and every painted peer moved with it.
+Measured the same day: the value read as "the player's OAM y" went **76 → 60** on the exact frame
+the emote object appeared, with the player's tile, sprite position and offsets unchanged.
+
+**The fix** identifies the player's entries by their tile ids — a sprite's graphics are a 12-tile
+block plus the same block `0x80` above it, and everything that displaces the player is drawn from
+ABSOLUTE tiles (`$f8`-`$fb` an emote, `$fc`-`$fd` a rod), outside any block by construction.
+
+**What this confirmation covers, and what it does not.** It covers the one-tile jump, on the drawn
+tier, in loopback, for the emote case. It says nothing about the rod's appearance (a separate fix
+the same day, not commented on), nothing about the spawned or hardware tiers, and nothing about
+other HIGH_PRIORITY objects — though by construction the same fault applied to every one of them,
+in every map, for as long as the drawn tier has existed. `pitfalls/by-lesson.md` has the method.
+
+## CONFIRMED ON SCREEN 2026-08-26 — Crystal: fishing, the bite wiggle and the "!"
+
+**The user, after the last of four fixes went live:** *"okay now it worked perfectly, Fishing is
+complete/verified."* Watched on the compare rig — both copies painted, offset two tiles to the
+side, interpolation at 0 — driven by `probes/fish_drive.lua` casting and recasting until a bite.
+
+**What is confirmed:**
+
+- **The pose.** A peer holds the standing view for the direction it cast in, for as long as its rod
+  is out. The wire already carried it: `OBJECT_FACING` `$10`+dir, read the way `_UpdateSprites`
+  reads it.
+- **The rod, from the right asset.** It is **not** `FishingRodGFX` — `Script_FishCastRod` loads
+  that and `LoadFishingGFX` immediately overwrites it with four two-tile blocks of
+  `chris_fish.2bpp`, which also replace the bottom half of the standing view. The drawn tier reads
+  that sheet, chosen by the PEER's sprite id rather than the local `wPlayerGender`.
+- **The bite wiggle**, which is `OBJECT_SPRITE_Y_OFFSET` alternating 0/1 for eight ticks and is now
+  on the wire as `extras.yoff`.
+- **The "!"**, which is a separate `EMOTE_OBJECT` map object rather than a pose, detected by a scan
+  and identified by matching the tiles the game loaded against the cartridge's `Emotes` table.
+- **No tile jump at the bite** — the earlier confirmation the same day, from the same run.
+
+**What it does NOT cover.** The spawned and hardware tiers: nothing in this session exercised
+either, and the rig painted both copies throughout. Fishing in any direction but the one the water
+was on. A real second machine — in loopback the fishing body half was already correct by accident,
+because the local player's own tiles were the swapped ones, so only the ROD half of that fix was
+actually under test. And a peer's rod on the SPAWNED tier still comes from the shared VRAM tiles,
+which on a receiving machine hold the jump shadow unless the local player is also fishing.
+
+**By construction, three things came along that nobody has watched**: `yoff` is the same byte the
+Fly landing's fall and the Dig/Teleport drop use, and peers can now show every emote in the table,
+not just the "!".
