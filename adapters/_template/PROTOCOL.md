@@ -322,7 +322,7 @@ thing to debug:
 | `orientation` | 256 bytes | `protocol.MaxOrientationBytes` |
 | `area_id`, `anim` | 256 bytes each | `protocol.MaxAreaIDLen` / `MaxAnimLen` |
 | whole line | 4096 bytes | `protocol.MaxLineBytes` |
-| `game_id`, `game_version` | 128 bytes (refused at handshake) | `relay.MaxHelloFieldLen` |
+| `game_id`, `game_version` | 128 bytes (refused at handshake) | `protocol.MaxHelloFieldLen` |
 
 The whole-line limit is the one exception to "dropped silently": exceeding it kills the
 *connection*, not the message, because it trips `bufio.Scanner` at the read itself. In practice

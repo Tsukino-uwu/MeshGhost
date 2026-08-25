@@ -714,6 +714,89 @@ if (-not (Test-Path -LiteralPath $adrDir)) {
 }
 
 # ---------------------------------------------------------------------------
+Section "Bridge constants agree across the four adapters"
+
+# The bridge client is implemented FOUR times, in THREE languages that share no
+# code -- Lua (Emerald, Crystal), C++ (Pseudoregalia), C# (TEVI). Until now the
+# only thing keeping their constants in step was a comment: BridgeClient.hpp says
+# in as many words that its reconnect interval "matches the shape of TEVI's own
+# BridgeClient.cs ReconnectInterval (2s), a different language but the same
+# problem". A comment cannot fail a build, and four hand-maintained copies of one
+# number is the same shape as the four VERIFIED.md preambles that drifted.
+#
+# Compared in REAL UNITS, not literals, because each language states them its own
+# way: 600 frames at 60fps, 10000ms, and "10s" are the same cooldown. That is also
+# why this cannot be a plain grep for a shared string.
+#
+# A value found nowhere is reported rather than silently passing -- a renamed
+# constant would otherwise make its adapter drop out of the comparison and leave
+# the remaining ones agreeing with each other.
+$bridgeSources = @{
+    'Emerald (Lua)'         = 'adapters/emulator/pokemon/emerald/meshghost_emerald.lua'
+    'Crystal (Lua)'         = 'adapters/emulator/pokemon/crystal/meshghost_crystal.lua'
+    'Pseudoregalia (C++)'   = 'adapters/pseudoregalia/MeshGhostPseudo/Mod/src/BridgeClient.hpp'
+}
+$bridgeProblems = @()
+$basePorts = @{}
+$portCounts = @{}
+$cooldownSeconds = @{}
+
+foreach ($name in $bridgeSources.Keys) {
+    $path = $bridgeSources[$name]
+    if (-not (Test-Path -LiteralPath $path)) {
+        $bridgeProblems += "$name -- source not found at $path"
+        continue
+    }
+    $text = Get-Content -Raw -LiteralPath $path
+
+    if ($text -match 'BRIDGE_BASE_PORT\s*(?:=|\s)\s*(\d+)') { $basePorts[$name] = [int]$Matches[1] }
+    else { $bridgeProblems += "$name -- no BRIDGE_BASE_PORT found (renamed?)" }
+
+    if ($text -match 'BRIDGE_PORT_COUNT\s*(?:=|\s)\s*(\d+)') { $portCounts[$name] = [int]$Matches[1] }
+    else { $bridgeProblems += "$name -- no BRIDGE_PORT_COUNT found (renamed?)" }
+
+    # Frames at 60fps for the emulator adapters, milliseconds for C++.
+    if ($text -match 'BUSY_PORT_COOLDOWN_FRAMES\s*=\s*(\d+)') {
+        $cooldownSeconds[$name] = [int]$Matches[1] / 60
+    } elseif ($text -match 'BUSY_PORT_COOLDOWN\s*\{\s*(\d+)\s*\}') {
+        $cooldownSeconds[$name] = [int]$Matches[1] / 1000
+    } else {
+        $bridgeProblems += "$name -- no busy-port cooldown found (renamed?)"
+    }
+}
+
+function Assert-Agree($label, $table, $expected) {
+    $bad = @()
+    foreach ($k in $table.Keys) {
+        if ($table[$k] -ne $expected) { $bad += "$k = $($table[$k])" }
+    }
+    if ($bad.Count -gt 0) {
+        return "$label disagrees (want $expected): " + ($bad -join '; ')
+    }
+    return $null
+}
+
+# 7778 is what packaging/release/config.json ships and every README hands out.
+$p = Assert-Agree 'bridge base port' $basePorts 7778
+if ($p) { $bridgeProblems += $p }
+$p = Assert-Agree 'bridge port-walk count' $portCounts 8
+if ($p) { $bridgeProblems += $p }
+$p = Assert-Agree 'busy-port cooldown (seconds)' $cooldownSeconds 10
+if ($p) { $bridgeProblems += $p }
+
+# TEVI is deliberately absent from the port-walk comparison: it takes its bridge
+# port from BepInEx config and has no port walk at all. That is a KNOWN gap
+# (agent_docs/status.md, "TEVI lags the template's bridge shape"), not a drift --
+# so it is stated here rather than silently skipped, and this line is what should
+# be deleted when TEVI grows one.
+if ($bridgeProblems.Count -gt 0) {
+    Report-Fail "the four bridge clients have drifted apart:"
+    $bridgeProblems | ForEach-Object { Write-Host "          $_" }
+} else {
+    Report-Pass "bridge constants agree across $($basePorts.Count) adapters (port 7778, 8-port walk, 10s cooldown); TEVI has no port walk yet, by design"
+}
+
+# ---------------------------------------------------------------------------
 Section "Phase index coverage"
 
 # Phase files were the ONE required-reading class with no index and no check. ADRs, pitfalls
