@@ -480,6 +480,60 @@ if (-not $idxStart) {
 }
 
 # ---------------------------------------------------------------------------
+Section "ADR index coverage"
+
+# The decision log was split out of architecture.md on 2026-08-25 -- 2,332 of its 2,501 lines --
+# into one file per ADR under agent_docs/adr/. The index stayed in architecture.md, because every
+# citation in this repo says "the <date> ADR in architecture.md" and there are many; moving the
+# index would have broken all of them at once for no gain.
+#
+# That makes the index the single point of failure: an ADR file nobody links is an ADR nobody
+# finds, and it fails silently -- exactly the shape of the pitfalls index problem above. Two
+# things are checked: every file in adr/ is linked from the index, and no sequence number is used
+# twice (numbers are how a new ADR picks its next value, so a duplicate quietly overwrites the
+# ordering).
+$adrDir = "agent_docs/adr"
+$archFile = "agent_docs/architecture.md"
+if (-not (Test-Path -LiteralPath $adrDir)) {
+    Report-Fail "$adrDir does not exist -- the decision log is supposed to live there"
+} else {
+    $archText = Get-Content -LiteralPath $archFile -Raw
+    $adrFiles = @(Get-ChildItem -LiteralPath $adrDir -Filter '*.md' | Sort-Object Name)
+    if ($adrFiles.Count -eq 0) {
+        Report-Fail "$adrDir holds no .md files -- not a clean result, the log should be there"
+    } else {
+        $unlinked = @()
+        foreach ($f in $adrFiles) {
+            if ($archText -notmatch [regex]::Escape("adr/$($f.Name)")) { $unlinked += $f.Name }
+        }
+
+        # Sequence numbers: the NNNN- prefix. prior-art-celestenet.md carries none by design --
+        # it is research, not a decision -- so files without a numeric prefix are skipped here
+        # rather than failed. They still have to be linked, which the check above covers.
+        $seen = @{}
+        $dupes = @()
+        foreach ($f in $adrFiles) {
+            if ($f.Name -notmatch '^(\d{4})-') { continue }
+            $n = $Matches[1]
+            if ($seen.ContainsKey($n)) { $dupes += "$n used by $($seen[$n]) and $($f.Name)" }
+            else { $seen[$n] = $f.Name }
+        }
+
+        if ($unlinked.Count -gt 0) {
+            Report-Fail "$($unlinked.Count) ADR file(s) not linked from $archFile's index -- add one line each:"
+            $unlinked | Select-Object -First 12 | ForEach-Object { Write-Host "          $_" }
+        }
+        if ($dupes.Count -gt 0) {
+            Report-Fail "duplicate ADR sequence number(s):"
+            $dupes | ForEach-Object { Write-Host "          $_" }
+        }
+        if ($unlinked.Count -eq 0 -and $dupes.Count -eq 0) {
+            Report-Pass "every ADR ($($adrFiles.Count) files, $($seen.Count) numbered) is linked from architecture.md's index"
+        }
+    }
+}
+
+# ---------------------------------------------------------------------------
 Section "Leftover scaffolding"
 
 # Leaving a relay alive is how a later run silently binds the wrong port.
