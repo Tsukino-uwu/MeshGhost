@@ -30,9 +30,9 @@ same day: *"i will move on to crystal and not work more on emerald right now."* 
 - **Four refactors deferred by the 2026-08-18 audit** — `game_thread_tick()`, the two Lua
   adapters' duplication, Crystal's probe boilerplate, TEVI's send gate. (`internal/cfg` shipped
   2026-08-25.) `ideas.md`.
-- **The append-only ledgers still need splitting, and the agreed axis does not exist yet** —
-  `pseudoregalia/VERIFIED.md` 3,536 lines, `emerald/VERIFIED.md` 3,525, every entry dated 2026-08.
-  Three options, none obviously right. **Needs a decision.** `ideas.md`, "The third pass".
+- **The append-only ledgers are indexed, not split** — the period axis does not exist yet (every
+  entry is dated 2026-08), so all five carry an index and a preflight check. Revisit splitting when
+  the dates spread. `ideas.md`, "The third pass".
 - **Both Lua adapters are near the 200-local wall** — Emerald 197, Crystal 188 (re-counted
   2026-08-25; the old figure of 157 for Crystal is two measurements stale). `emulator/CLAUDE.md`.
 

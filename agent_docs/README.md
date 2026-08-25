@@ -42,9 +42,18 @@ Internal documentation for MeshGhost: architecture, planning, licensing, and ver
   (fuzzing, cross-compiles, gofmt), how to run a real fuzz campaign, and the traps that otherwise get rediscovered. Read before adding a
   test or diagnosing an intermittent failure. Covers the Go side only — adapters are watched, not
   tested, per CLAUDE.md.
-- [pitfalls.md](pitfalls.md) — adapter-specific issues across all games: symptom, how it was
-  diagnosed, root cause, fix. Not design decisions ([risks.md](risks.md)) or confirmed facts
-  ([verified.md](verified.md)).
+- [pitfalls.md](pitfalls.md) — **the index of every lesson**, 201 lines. Adapter-specific issues
+  across all games: symptom, how it was diagnosed, root cause, fix. Not design decisions
+  ([risks.md](risks.md)) or confirmed facts ([verified.md](verified.md)). **The titles are the
+  lessons**, so this page is what a new adapter reads; it is also what to skim before starting
+  anything, since the point of the file is not paying for the same mistake twice.
+- `pitfalls/` — the evidence behind those lessons, split out 2026-08-25 so reading the index no
+  longer costs the 5,000 lines under it. Three files, cut on the boundaries the index already
+  declared: `method.md` (diagnostics, failure signatures, instruments that lie), `by-host.md`
+  (BizHawk, UE4SS, Unity, memory probing, overlay rendering), `by-lesson.md` (chronological, and
+  the largest). **New entries go at the end of `by-lesson.md`**, plus one line in the index —
+  `preflight.ps1` fails an entry that is not listed. Nothing is filed per game, deliberately: a
+  lesson found in Emerald has to be findable while working on Crystal.
 - [beyond-cosmetic.md](beyond-cosmetic.md) — **the concept layer under the depth ladder**: sync
   models, the five authority models and which of them need game knowledge, the readiness gaps a
   fuller online mode would have to close, and the rule that keeps the door open (capability is

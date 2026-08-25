@@ -3064,7 +3064,15 @@ Done, each its own commit:
 
 **NOT done, and this is the part worth reading.**
 
-**1. `pitfalls.md` was NOT split per game, and should not be.** The plan called for moving the 78
+**1. `pitfalls.md` was not split per game, and should not be — but it WAS split.** The user's
+framing settled it: the file's job is stopping a repeat mistake on a future adapter, and the long
+write-ups can live elsewhere. That is what the file already said it was doing — *"the titles are
+the lessons"* — so `pitfalls.md` became the 201-line index and the evidence moved to `pitfalls/`,
+cut on the boundaries the index already declared. Reading the lessons costs 201 lines, not 5,180.
+Nothing was re-filed and no judgement was needed, which is what separates it from the per-game
+split below.
+
+**Why the per-game split stays rejected.** The plan called for moving the 78
 game-named entries out to each adapter, the way `verified.md` was. That contradicts a decision this
 repo made on 2026-08-25 and wrote into `preflight.ps1`: *"Nothing can mechanically verify 'is this
 filed under the right theme', which is why the taxonomy was not finished."* Trying it confirmed the
@@ -3074,7 +3082,8 @@ game as *provenance*, not as scope, and that entry's lesson is cited in the root
 file's value is that a lesson found in Emerald is findable while working on Crystal**, which is the
 exact property a per-game split destroys. Its index plus the coverage check is the right control.
 
-**2. The append-only ledgers were NOT split, because the axis chosen for them does not exist yet.**
+**2. The append-only ledgers were indexed rather than split, because the axis chosen for them does
+not exist yet.**
 The agreed shape was a directory plus a capped index, partitioned along the axis you append —
 period — so that appending never rewrites. That is right in principle and unusable today: **every
 entry in every one of these files is dated 2026-08**, because the repo began 2026-08-11. Month
@@ -3082,11 +3091,12 @@ partitioning yields one file. Phase partitioning is no better, since each adapte
 game in one phase: all of `pseudoregalia/VERIFIED.md` is Phase 7. The only axis that would actually
 divide them is per-week, which is arbitrary and would read as such.
 
-**So this is a real open question, not a skipped chore.** `pseudoregalia/VERIFIED.md` is 3,536
-lines and `emerald/VERIFIED.md` 3,525, and both only grow. Three options, none obviously right:
-split per-week and accept the arbitrariness; wait until there is a second month to partition on;
-or give each an index at the top and a coverage check, and split later when the dates spread out.
-The third is cheapest and loses nothing, since an index is needed under every option.
+**Answered by taking the third of three options, 2026-08-25.** Splitting per-week would have been
+arbitrary and would have read as such; waiting for a second month leaves the files unusable
+meanwhile. So all five got an index and a preflight coverage check instead — 407 entries — which is
+what every option needed anyway, and loses nothing. **Revisit splitting when the dates actually
+spread across more than one month**; the index is then the thing that survives the split, exactly
+as `pitfalls.md`'s did.
 
 **3. Left alone deliberately, each for a stated reason:** renaming the local `meshghost-relay.exe`
 to match the shipped `meshghost-server.exe` (25 files name the old one, several of them append-only
