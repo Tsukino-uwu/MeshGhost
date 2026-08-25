@@ -6110,6 +6110,53 @@ local function renderRemote(id, state)
 	-- Only act while the ghost is idle; interrupting a step is what makes a character teleport
 	-- while animating.
 	if walking ~= STANDING then
+		-- CHAIN A CONSECUTIVE STEP THE WAY THE ENGINE CHAINS ITS OWN (2026-08-25).
+		--
+		-- Waiting for STANDING costs ~2 frames per boundary that the engine's own walkers never
+		-- pay: the engine lands the ghost, this tick only SEES it standing a frame later, writes,
+		-- and the engine acts the frame after that -- while a real walking character's movement
+		-- function rolls straight into its next step (StepFunction_FromMovement). Measured with
+		-- MESHGHOST_CRYSTAL_STEP_LAG on a bike lap: apply 1-2 frames of every step's lag was this
+		-- handoff, and the user, with the drawn twin alongside: *"the spawned one is lagging
+		-- after the drawn ghost a bit"*.
+		--
+		-- The engine itself makes the chain safe: `GetStepVector` re-reads OBJECT_WALKING every
+		-- tick, and `StepFunction_NPCWalk` ends a step purely on OBJECT_STEP_DURATION reaching
+		-- zero (engine/overworld/map_objects.asm:1550) -- the same mechanism as its own
+		-- STEP_TYPE_CONTINUE_WALK. So on the step's LAST tick, when the peer is already exactly
+		-- one tile further IN THE SAME DIRECTION at the SAME GAIT, the duration is topped back up
+		-- and the map coords moved on -- and the engine never sees a boundary. Nothing else needs
+		-- writing: direction, facing (whose low bits are the walk-cycle subframe, which a rewrite
+		-- would reset), the walking byte and the movement byte are all already correct, which is
+		-- why this is not a call to stepGhost.
+		--
+		-- PLUS ONE, because the ending step is still OWED its final tick. Each engine pass moves
+		-- the sprite and THEN decrements, so a step chained at duration 1 has only received 3 of
+		-- its 4 AddStepVector calls -- the first version wrote a plain full duration and every
+		-- chained step landed one stride short, which the re-anchor reported as +-4px per chain,
+		-- sign following travel (47 corrections in the first verification lap). The +1 makes the
+		-- next step's passes 1 owed + a full step: measured back to zero corrections.
+		--
+		-- `CopyCoordsTileToLastCoordsTile` is what the skipped landing would have done, so its
+		-- write happens here instead; without it the collision system keeps the tile before last
+		-- occupied. A turn, a gait change, a multi-tile deficit or a drawn-tier peer all fall
+		-- through to the landing path below, unchanged -- the engine cannot turn mid-step and
+		-- neither can this.
+		local chx, chy = u8(g.st_base + F_MAP_X) or 0, u8(g.st_base + F_MAP_Y) or 0
+		local chDir = DELTA_TO_DIR[string.format("%d,%d", x - chx, y - chy)]
+		local chGroup = GAIT_PX[peerGait] and peerGait or 1
+		if chDir and stepType == 2 and (u8(g.st_base + F_STEP_DURATION) or 0) == 1
+			and (walking & 0x0F) == chGroup * 4 + chDir then
+			w8(g.st_base + F_LAST_MAP_X, chx)
+			w8(g.st_base + F_LAST_MAP_Y, chy)
+			w8(g.st_base + F_STEP_DURATION, GAIT_TICKS[chGroup] + 1)
+			w8(g.st_base + F_MAP_X, x)
+			w8(g.st_base + F_MAP_Y, y)
+			if stepLag.on then
+				stepLag.close(id)
+			end
+			return
+		end
 		-- STEP_LAG: the one nameable reason a step waits after arriving. A tile that lands while the
 		-- ghost is still walking the previous one cannot be acted on, and every frame of that wait
 		-- is a frame the ghost is behind its peer.

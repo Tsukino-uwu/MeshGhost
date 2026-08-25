@@ -1431,3 +1431,38 @@ now be completely still -- no slide, no return. What REMAINS at each reversal is
 visibly finishing its last step a beat after the player turns -- that is the echo's real lag
 rendered at the engine's own pace, the spawned copy does the same thing, and it is not the drift.
 If a stop still slides, KSETTLE will have spoken in the log -- read it before theorising.
+
+## 2026-08-25 — Crystal: the spawned ghost's boundary handoff removed by chaining steps engine-style
+
+**Built, instrument-verified, NOT confirmed on screen.** The user, with both tiers side by side on
+the bike: *"still looks like the spawned one is lagging after the drawn ghost a bit, make sure
+both ghosts are identical to the player."*
+
+**Measured first, and the measurement killed the obvious theory:** `STEP_TRIGGER_PROG=4` was
+holding NOTHING (`0 frames held`, every report). The spawned ghost's seen lag decomposed as wire 2
+frames (the loopback echo) + apply 1-2 (arrivals blocked while the ghost finished its previous
+step, issued only after it was SEEN standing) + the engine acting the frame after our write. Seen
+lag ~4-5 frames, ~8-10px at bike speed. The drawn twin paces off the live camera in loopback and
+sits at ~0, which is why the difference is visible there and nowhere else.
+
+**The fix is the engine's own chaining.** `GetStepVector` re-reads `OBJECT_WALKING` every tick and
+`StepFunction_NPCWalk` ends a step purely on the duration reaching zero — so on a step's last
+tick, when the peer is exactly one tile further in the same direction at the same gait, the
+duration is topped back up and the map coords moved on, and the engine never sees a boundary
+(the same mechanism as its own `STEP_TYPE_CONTINUE_WALK`). Two details that were each half the
+work: the ending step is still OWED its final tick, so the chained duration is a full step **+1**
+(without it every chained step landed one stride short — 47 re-anchor corrections in one lap,
+±4px, sign following travel); and the landing's `CopyCoordsTileToLastCoordsTile` is written by
+hand, or collision keeps the tile before last occupied.
+
+**Verified over bike laps: total step lag mean 2.0-2.4 frames (was 3-4.6), apply ~0.2 (was
+0.9-1.5), blocked frames ~1 per lap (was 10-17), re-anchor corrections 0, K drift still 0px.**
+
+**The floor, stated so it is not chased:** ~3 seen frames = 2 of loopback echo + 1 of
+engine-acts-after-write. Nothing closes those without predicting the peer. A real network peer
+carries more wire than that on both tiers equally; the drawn twin's ~0 is a loopback artefact of
+its camera clock, not a standard the spawned tier can meet.
+
+**What to watch:** bike and walk, both ghosts. The spawned one should now hold a constant ~3-frame
+trail (~6px on the bike) with no per-step hesitation and no snap at stops. If a stop shows a snap,
+the re-anchor line in the log names the size and direction — read it before theorising.

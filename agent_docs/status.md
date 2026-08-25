@@ -74,8 +74,8 @@ stale in two places at once; these six say which SUBSYSTEM is unsettled and send
   two-panel phone call, inline `hSCX`/`hSCY`, and bike/surf/ledges/warps. `crystal/UNVERIFIED.md`.
 - **Crystal, spawned tier — six fixes built, none watched.** Promotion, whole-tile drift, step
   trigger, shoving, the trainer-clone hang, battle survival. `crystal/UNVERIFIED.md`.
-- **Crystal: bike pace fixed via a gait byte; the 3px stop-drift root-caused (an 8-frame settling
-  transient K chased) and fixed, 0px over 12 parks by instrument** — user unconfirmed. `crystal/UNVERIFIED.md`.
+- **Crystal: bike gait, stop-drift and the spawned boundary handoff all fixed 2026-08-25, each
+  instrument-verified (lag 4-5 -> 2-2.4 frames; K drift 0)** — none user-confirmed. `crystal/UNVERIFIED.md`.
 - **Crystal: in-place animations are BUILT and UNWATCHED (2026-08-25)** — one rule replaced the bump
   special case: read the peer's facing byte. **This is what the next live run is for.** `crystal/UNVERIFIED.md`.
 - **Crystal's drawn tier has no visual parity yet** — no reflection, wake, grass or cave clip, and a
