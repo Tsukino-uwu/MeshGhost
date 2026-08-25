@@ -260,8 +260,11 @@ type Core struct {
 	// (netx.TCP) is the original and only pre-2026-08-16 behaviour, so a
 	// Core built without setting this is unchanged — which is what keeps
 	// every existing test on the exact same code path. Note this concerns
-	// only the relay connection: the adapter bridge is always loopback TCP
-	// and no adapter can observe this field. See the transport ADR in
+	// only the relay connection: the adapter bridge is loopback TCP and no
+	// adapter can observe this field. ("Always" until 2026-08-25, when that
+	// turned out to be an assumption rather than a guarantee -- nothing
+	// enforced it. cmd/meshghost now refuses a non-loopback -bridge bind
+	// without an explicit override, because the bridge is unauthenticated.) See the transport ADR in
 	// agent_docs/architecture.md.
 	Transport netx.Kind
 	// TLS turns on encryption for this Core's tcp legs — both the

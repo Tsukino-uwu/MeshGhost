@@ -347,3 +347,42 @@ func TestAnExplicitTLSFlagBeatsTheConfigFile(t *testing.T) {
 		t.Fatalf("tls = %q, want the file ignored because the flag was passed explicitly", tlsMode)
 	}
 }
+
+// TestBridgeIsLoopback covers the guard on the adapter bridge's bind address.
+//
+// The bridge has no authentication at all, and core.Core's doc comment states
+// as a fact that it "is always loopback TCP" -- nothing enforced that until
+// 2026-08-25. The case that matters is not a typo but config.json's
+// "local_game_bridge" being shared between friends, so the false cases here are
+// the ones this test exists for.
+func TestBridgeIsLoopback(t *testing.T) {
+	loopback := []string{
+		"127.0.0.1:7778",
+		"127.0.0.1:0",
+		"127.5.6.7:7778",
+		"[::1]:7778",
+		"localhost:7778",
+		"LocalHost:7778",
+		"not-a-host-port", // unparseable: let net.Listen report the real error
+	}
+	for _, addr := range loopback {
+		if !bridgeIsLoopback(addr) {
+			t.Errorf("bridgeIsLoopback(%q) = false, want true", addr)
+		}
+	}
+
+	remote := []string{
+		"0.0.0.0:7778",
+		":7778", // empty host binds every interface
+		"[::]:7778",
+		"192.168.1.10:7778",
+		"10.0.0.5:7778",
+		"example.com:7778",
+	}
+	for _, addr := range remote {
+		if bridgeIsLoopback(addr) {
+			t.Errorf("bridgeIsLoopback(%q) = true, want false -- this address is reachable "+
+				"from off the machine and the bridge is unauthenticated", addr)
+		}
+	}
+}

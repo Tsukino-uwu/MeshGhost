@@ -508,6 +508,36 @@ func watchParentPID(pid int, gone func(int) bool, poll time.Duration, onGone fun
 // reaps the client across the Wine boundary anyway (six sessions, every one
 // ending in "pid N is gone -- exiting"). So the valve guarded a door that was
 // already shut, with a lock that did not work.
+// bridgeIsLoopback reports whether addr binds the adapter bridge to loopback
+// only. An empty host ("" from ":7778") and "0.0.0.0"/"::" all bind every
+// interface, which is the case this exists to catch.
+//
+// Why this is a refusal and not a warning: the bridge has NO authentication at
+// all -- no room code, no hello check -- and needs none GIVEN that it is
+// loopback, which core.Core's doc comment states as a fact. Bound to a routable
+// address it becomes an open "drive my game and read my whole session" service
+// for anyone on the LAN. The realistic path there is not a typo but config
+// sharing: config.json is the file a host sends friends, and
+// "local_game_bridge" sits in it beside the settings they are meant to edit.
+func bridgeIsLoopback(addr string) bool {
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		// Not parseable as host:port -- let net.Listen produce the real error
+		// rather than refusing for a reason we would be guessing at.
+		return true
+	}
+	if host == "" {
+		return false
+	}
+	if ip := net.ParseIP(host); ip != nil {
+		return ip.IsLoopback()
+	}
+	// A hostname. "localhost" is the only one worth special-casing; anything
+	// else would need a DNS lookup to judge, and a bridge address that has to
+	// be resolved is already outside what this flag is for.
+	return strings.EqualFold(host, "localhost")
+}
+
 func wineHasNoUsableConsole(requested, underWine bool) bool {
 	return requested && underWine
 }
@@ -515,6 +545,10 @@ func wineHasNoUsableConsole(requested, underWine bool) bool {
 func main() {
 	relayAddr := flag.String("relay", "127.0.0.1:7777", "relay address to connect to")
 	bridgeAddr := flag.String("bridge", "127.0.0.1:7778", "address to listen on for the adapter bridge")
+	bridgeAllowRemote := flag.Bool("bridge-allow-remote", false,
+		"allow -bridge to bind a non-loopback address. The bridge has NO authentication, so this "+
+			"exposes driving your game and reading your session to anyone who can reach it. "+
+			"Refused without this flag.")
 	gameID := flag.String("game", "", "game_id to advertise to the relay -- optional now that a "+
 		"real adapter's own Hello declares it (bridge.Hello); set this to connect at "+
 		"startup instead of waiting for one, e.g. for dev/testing scripts with no adapter attached")
@@ -761,6 +795,21 @@ func main() {
 		go connectRelayWithRetry(c, *gameID)
 	} else {
 		log.Printf("meshghost: no game set -- waiting for a game to connect and say hello...")
+	}
+
+	if !bridgeIsLoopback(*bridgeAddr) && !*bridgeAllowRemote {
+		log.Fatalf(`meshghost: REFUSING to bind the adapter bridge to %s.
+  The bridge has no authentication of any kind -- it does not need any while it is
+  loopback-only, which is what this check enforces. On a routable address it lets
+  anyone who can reach this machine drive your game and read your whole session.
+  If you set this in config.json's "local_game_bridge", change it back to
+  127.0.0.1:7778 -- that field is local by design and is not how you reach a relay;
+  "connect_to" is. If you genuinely meant it, pass -bridge-allow-remote.`, *bridgeAddr)
+	}
+	if *bridgeAllowRemote && !bridgeIsLoopback(*bridgeAddr) {
+		log.Printf("meshghost: WARNING -- the adapter bridge is bound to %s, which is NOT loopback, "+
+			"and it has no authentication. Anyone who can reach this address can drive your game "+
+			"and read your session.", *bridgeAddr)
 	}
 
 	ln, err := net.Listen("tcp", *bridgeAddr)
