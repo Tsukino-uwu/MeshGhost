@@ -4,12 +4,18 @@
 -- restores the pointer, but an unload only runs if the loader dropped the file while it was
 -- healthy -- so this checks the pointer itself and restores the recorded original if it still
 -- points into WRAM. Original for this session's tileset, from noclip's own log: bank 6, $640E.
-local logfile = io.open(r"C:\dev\MeshGhostdaptersizhawk\pokemon\crystal\probes
-oclip_off.log", "w")
+local logfile
+do
+	local dir = "."
+	local info = debug.getinfo(1, "S")
+	if info and info.source and info.source:sub(1, 1) == "@" then
+		dir = info.source:sub(2):match("^(.*)[/\\][^/\\]*$") or "."
+	end
+	logfile = io.open(dir .. "/noclip_off.log", "w")
+end
 local function say(m)
 	console.log(m)
-	if logfile then logfile:write(m, "
-") logfile:flush() end
+	if logfile then logfile:write(m, "\n") logfile:flush() end
 end
 local function u8(a) return memory.read_u8(a, "WRAM") end
 local function w8(a, v) memory.write_u8(a, v, "WRAM") end

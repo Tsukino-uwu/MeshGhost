@@ -61,6 +61,17 @@ UE4SS entry below for that last one specifically, which is currently unresolved)
 ## BizHawk / Emerald
 
 - BizHawk version: **confirmed**, 2.11 (Help → About, 2026-08-11).
+- **A standalone Lua 5.4 IS installed now — 2026-08-25.** `C:/msys64/mingw64/bin/luac.exe`
+  (5.4.7), from the same mingw64 the race detector uses:
+  `C:/msys64/usr/bin/pacman.exe -S mingw-w64-x86_64-lua`. **Not on `PATH`** — call it by absolute
+  path, per `CLAUDE.md`'s PATH-shadowing rule. `luac -p` compiles without running, so it touches
+  no game: it answers "does this parse?" and catches the 200-local ceiling, which is a
+  compile-time error. `preflight.ps1` and `.github/workflows/lua.yml` both gate on it.
+  **The first run found two tracked probes that had never parsed.** It cannot run an adapter —
+  `memory.*`, `emu.*`, `client.*` are BizHawk's, so this proves form and nothing about behaviour.
+  This supersedes the "the machine has no standalone Lua binary" note in
+  `dev-scripts/bizhawk-syntax-check.lua`, which still has its own use: it runs inside the real
+  host, so it is the one that proves BizHawk itself accepts a file.
 - Lua version used by BizHawk: **confirmed**, Lua 5.4 (`print(_VERSION)` in the Lua Console,
   2026-08-11).
 - Emerald ROM version/revision: file named "Pokemon - Emerald Version (USA, Europe).gba",

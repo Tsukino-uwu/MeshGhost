@@ -1,0 +1,81 @@
+name: Lua
+
+# Every adapter and probe in this repo is Lua, and until 2026-08-25 nothing checked that any of
+# it COMPILES. That is a worse gap than it sounds: BizHawk embeds Lua 5.4 and loads a script at
+# runtime, so a syntax error does not fail loudly. The script simply never loads, which from the
+# outside is indistinguishable from "the ghost did not appear" -- and diagnosing it costs the user
+# a real game launch, which is the expense this whole project's tooling exists to avoid.
+#
+# It was not hypothetical. The first run of this check found TWO tracked probes that had never
+# parsed at all, both mangled by a scripted edit that wrote Windows backslashes into Lua source
+# (one had Python's r"..." raw-string syntax in it, and \a \b \n inside a path had been eaten as
+# escapes). Nothing had noticed, because nobody had loaded those particular probes since.
+#
+# luac -p compiles and discards. It never runs a line, so no game, no emulator and no host API
+# are involved -- which is exactly why this can live in CI where a real BizHawk session cannot.
+#
+# It also catches Lua's 200-local-per-chunk ceiling, which is a COMPILE-time error rather than a
+# runtime one. That has bitten this project three separate times, and every time it was found by
+# an adapter silently failing to load during a live session (see agent_docs/pitfalls.md).
+#
+# What it does NOT do, so nobody reads a green tick as more than it is: it cannot run an adapter.
+# memory.*, emu.*, client.*, joypad.* and gui.* are BizHawk's host APIs and do not exist here, so
+# this proves the file is well-formed Lua and nothing whatever about its behaviour. The visual
+# gate in CLAUDE.md is untouched by it.
+#
+# Separate workflow rather than a job in ci.yml because triggers are per-workflow: ci.yml filters
+# on '**.go' deliberately, so that a docs-only push produces no run at all. Adding '**.lua' there
+# would run the whole Go suite -- race detector, fuzzers, cross-compiles -- every time a probe
+# changed. This way each language's gate fires only for its own files.
+
+on:
+  push:
+    paths:
+      - '**.lua'
+      - '.github/workflows/lua.yml'
+  pull_request:
+    paths:
+      - '**.lua'
+      - '.github/workflows/lua.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  parse:
+    name: Every tracked .lua file compiles
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Lua 5.4 specifically, because that is what BizHawk embeds (confirmed by print(_VERSION)
+      # in its own console -- agent_docs/environment.md). A 5.1 or LuaJIT build would accept and
+      # reject different programs: 5.3 added the integer/float distinction, integer division and
+      # bitwise operators, and 5.4 changed goto and to-be-closed variables. Checking 5.4 code
+      # with an older parser would be worse than not checking it, because it would look like
+      # verification while answering a different question.
+      - name: Install Lua 5.4
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y lua5.4
+          luac5.4 -v
+
+      - name: Compile every tracked .lua file
+        run: |
+          # git ls-files, not a find: only TRACKED files matter, and it keeps the count honest
+          # if a stray .lua is ever left lying in the working tree.
+          fail=0
+          count=0
+          while IFS= read -r f; do
+            count=$((count + 1))
+            if ! out=$(luac5.4 -p "$f" 2>&1); then
+              fail=$((fail + 1))
+              echo "::error file=$f::does not parse: $out"
+            fi
+          done < <(git ls-files '*.lua')
+          echo "checked $count tracked .lua files, $fail failed"
+          if [ "$fail" -ne 0 ]; then
+            echo "A file that does not parse can never load in BizHawk, and fails silently there."
+            exit 1
+          fi

@@ -4894,3 +4894,37 @@ paranoia, because it is what caught all three above.
 
 **Corollary for writing one:** state what was grepped for, not just the conclusion. A finding that
 carries its own query can be re-run; one that carries only a line number cannot.
+
+## Two probes had never parsed, and nothing in the repo could have told us (2026-08-25)
+
+**Symptom.** None — that is the entry. `adapters/bizhawk/pokemon/crystal/probes/noclip_off.lua`
+and `adapters/bizhawk/pokemon/emerald/probes/framedump.lua` were committed, reviewed and sitting
+in the tree as ordinary tools. Neither had ever been a valid Lua file.
+
+**Cause, and it is one this file already warns about twice: a scripted edit wrote Windows
+backslashes into Lua source.** `noclip_off.lua` had a hardcoded `"C:\dev\MeshGhost\adapters\..."`
+in which Lua had eaten `\a` as a bell, `\b` as a backspace and `\n` as a real newline — so
+"adapters" became `<BEL>dapters`, "bizhawk" became `<BS>izhawk`, and the string ran off the end of
+the line. It was also prefixed `r"..."`, **Python's raw-string syntax, which Lua does not have**.
+`framedump.lua` had an unterminated pattern string from the same class of mangling.
+
+**Why nothing caught them.** A syntax error in Lua is not a loud failure here. BizHawk loads a
+script at runtime; a file that does not compile simply never loads, and from outside the emulator
+that is indistinguishable from "the ghost did not appear". Neither probe had been loaded since it
+was written, so neither had ever announced anything. `dev-scripts/bizhawk-syntax-check.lua` would
+have caught both — but it runs *inside* BizHawk, needs a human to point the dev loader at it, and
+checks a hand-maintained list of files rather than all of them.
+
+**Fix.** A standalone Lua 5.4 is now installed and `luac -p` gates the whole tree in
+`preflight.ps1` and in `.github/workflows/lua.yml` (`environment.md`). It compiles and discards,
+so it runs no game code. **All 162 tracked files parse as of 2026-08-25.**
+
+**The general lesson, which is bigger than Lua: a check that requires a human and a running game
+is not a gate.** The syntax checker existed for months of project time and had never been pointed
+at these two files, because pointing it at anything costs an emulator session. The same check
+moved into CI runs on every push and needs nobody. **When a tool exists but keeps not being run,
+the problem is usually its trigger, not the tool.**
+
+**And the narrower one:** never let a scripted edit put a Windows path into a language with
+backslash escapes. Prefer resolving the script's own directory (`debug.getinfo`), which is what
+both files do now, and which removes the reason to write an absolute path at all.

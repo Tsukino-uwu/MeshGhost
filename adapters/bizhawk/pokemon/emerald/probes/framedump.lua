@@ -32,7 +32,7 @@ local function tick()
     -- them in a scratchpad instead.
     local BSLASH = string.char(92)
     local dir = (MESHGHOST_FRAMEDUMP_DIR or os.getenv("MESHGHOST_FRAMEDUMP_DIR")
-        or (debug.getinfo(1, "S").source:sub(2):match("^(.*)[/" .. BSLASH .. "][^/" .. BSLASH .. "]* ) or ".")) .. "/"
+        or (debug.getinfo(1, "S").source:sub(2):match("^(.*)[/" .. BSLASH .. "][^/" .. BSLASH .. "]*$") or ".")) .. "/"
     for _, animNum in ipairs(ANIMS) do
         local animPtr = r32(anims + animNum * 4)
         for idx = 0, 3 do

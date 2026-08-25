@@ -189,6 +189,38 @@ if ((Test-Path $cmake) -and (Test-Path $pseudoBuiltFrom)) {
 }
 
 # ---------------------------------------------------------------------------
+Section "Lua parses"
+
+# Every adapter and probe is Lua, and nothing else in this repo checks that it COMPILES.
+# BizHawk embeds Lua 5.4, so a syntax error does not fail loudly -- the script simply never
+# loads, which from the outside looks like "the ghost did not appear" and costs a live cycle
+# to diagnose. Two tracked probes were found on 2026-08-25 that had NEVER parsed.
+#
+# luac -p compiles without running, so nothing here touches a game. It also catches Lua's
+# 200-local-per-chunk ceiling, which is a compile-time error and has bitten this project
+# three times, each time discovered by an adapter silently failing to load in a live session.
+#
+# Absolute path on purpose: `lua` is not on PATH, and CLAUDE.md's rule about PATH shadowing
+# (cmake, cmd, gcc) applies to interpreters most of all. Install with:
+#   C:/msys64/usr/bin/pacman.exe -S mingw-w64-x86_64-lua
+$luac = "C:/msys64/mingw64/bin/luac.exe"
+if (-not (Test-Path $luac)) {
+    Report-Warn "luac not found at $luac -- skipping the Lua parse check (see environment.md)"
+} else {
+    $luaFiles = @(& git ls-files '*.lua')
+    $broken = @()
+    foreach ($f in $luaFiles) {
+        $out = & $luac -p $f 2>&1
+        if ($LASTEXITCODE -ne 0) { $broken += "$f -- $out" }
+    }
+    if ($broken.Count -gt 0) {
+        foreach ($b in $broken) { Report-Fail "does not parse: $b" }
+    } else {
+        Report-Pass "all $($luaFiles.Count) tracked .lua files parse under Lua 5.4"
+    }
+}
+
+# ---------------------------------------------------------------------------
 Section "LF-pinned sources"
 
 # .gitattributes pins these to eol=lf because the release gate hashes them on a Windows runner.
