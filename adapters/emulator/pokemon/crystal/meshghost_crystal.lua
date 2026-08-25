@@ -3414,20 +3414,50 @@ function drawOverflow()
 					-- frames tells them apart, and the peer-still-walking case merely starts its
 					-- free-run a few frames later, where there is nothing on screen to slip
 					-- against anyway.
-					-- THREE still frames, not eight, for the REMAINDER OF A COMMITTED STEP.
-					-- The eight-frame rule above is about not STARTING work on a breath, and it
-					-- stays for that. But a committed step's 16px is already owed whatever the
-					-- clock says -- finishing it early can never create the free-step debt the
-					-- eight-frame rule exists to prevent -- and holding it hostage to the full
-					-- eight is exactly what the 2026-08-25 three-way trace measured at every one
-					-- of 22 stops: `2.2.2.2.2.2.2.......2.2.2` -- a 7-frame freeze mid-step, then
-					-- the last 6px, at every stop, identically (the user: *"drawn stopping a bit
-					-- fast whenever pausing/stopping at the end"* -- the freeze-then-finish read
-					-- as an abrupt tail). Three clears the camera's 1-2 frame boundary breath
-					-- with one frame of margin, so a mid-walk breath still never triggers it.
+					-- THE PEER'S OWN STATE ENDS A STEP, not a count of still camera frames.
+					--
+					-- The eight-frame rule is about not STARTING work on the camera's boundary
+					-- breath, and it stays for that. It was also holding the REMAINDER OF A
+					-- COMMITTED STEP hostage, which the 2026-08-25 three-way trace caught at every
+					-- one of 22 stops: `2.2.2.2.2.2.2.......2.2.2` -- a 7-frame freeze mid-step,
+					-- then the last 6px. The user: *"drawn stopping a bit fast whenever
+					-- pausing/stopping at the end"*.
+					--
+					-- The first fix shortened the wait to three frames for a committed remainder.
+					-- That was a tuned constant standing in for the real question, which is not
+					-- "how long has the camera been still" but "HAS THE PEER STOPPED" -- and that
+					-- is on the wire, in `o.walking` (the peer's own anim), not something to infer
+					-- from our screen. This file has made the same correction twice before (K's
+					-- `stable` guard, the camera-as-clock): when the invariant itself is available,
+					-- a proxy is what leaves a residue.
+					--
+					-- So: a committed step whose PEER has already finished walking is owed
+					-- outright, and the model finishes it on its own beat with no camera consent.
+					-- The mid-walk breath is untouched, because there the peer IS still walking --
+					-- which is exactly the case the eight-frame rule was written to protect, and
+					-- it keeps it.
 					local due = facingFrames.camMoved
-						or ((facingFrames.camStillFor or 99) >= (((o.stepLeft or 0) > 0) and 3 or 8)
+						or (((((o.stepLeft or 0) > 0 and not o.walking)
+								or (facingFrames.camStillFor or 99) >= 8))
 							and (emu.framecount() % 2) == o.modelPhase)
+					-- THE DRAWN MODEL'S BEAT WAS TRIED ON THE PLAYER'S OWN SPRITE AND REVERTED,
+					-- 2026-08-25 -- kept as a note because it is the obvious next idea and it is
+					-- WRONG in a way only the raw frames show. The observation that prompted it is
+					-- real: the player advances at 649, 651, 652, 654 (gaps 2, 1, 2) while this
+					-- camera-clocked model advances at 647, 649, 651, 653 -- a perfect 2 every
+					-- time, i.e. smoother than the game. Two attempts:
+					--   * ORing `pSprMoved` in. By construction that can only fire EARLIER, so the
+					--     trace came back byte-identical -- which is what said the theory had not
+					--     actually been tested yet.
+					--   * REPLACING the camera beat while the local player walks. The model's beat
+					--     did not change and the PAINT started wobbling (25 -> 23 -> 25), because
+					--     the painted position is the camera formula: moving the model on frames
+					--     the camera did not move puts the disagreement straight on screen.
+					-- So the model's beat and the paint's origin are one decision, not two, and
+					-- the camera owns both. Matching the engine's irregular rhythm needs the paint
+					-- moved off the camera formula first; that is a bigger change than a trigger.
+					-- The remaining difference is a constant one-frame phase, which is the
+					-- invisible kind -- unlike everything that has been fixed above it.
 					if due then
 						-- The boundary decision, as a function the frame can take TWICE: the
 						-- camera's occasional 4px frame lands wherever it likes, including with
@@ -5974,11 +6004,19 @@ local function renderRemote(id, state)
 	-- question is the RHYTHM: the gap in frames between successive steps, against the peer's own.
 	-- One line per commanded step, so bounded at walk rate.
 	if stepLag.on then
-		logFile(string.format("ghost step f=%d %s %s ghost %d,%d -> peer %d,%d deficit %d",
+		logFile(string.format("ghost step f=%d %s %s ghost %d,%d -> peer %d,%d deficit %d prog=%s",
 			drawFrames, id, dir and "inphase" or "catchup", cx, cy, x, y,
-			math.abs(dx) + math.abs(dy)))
+			math.abs(dx) + math.abs(dy), tostring(peerProg)))
 	end
 	if dir then
+		-- NO CLOCK GATE HERE, and that is a measured decision (2026-08-25). A gate issuing
+		-- this on camera-move frames was added to chase a 1-frame parity slip and then removed:
+		-- the raw three-way trace shows the spawned ghost already advancing on EXACTLY the
+		-- player's frames, constant separation, because the engine moves both. The "slip" was an
+		-- artefact of the aggregate the analysis started from -- a per-frame delta histogram over
+		-- a series that also contains starts and stops -- and it did not survive printing the
+		-- frames themselves. The gate did suppress a duplicate issue on the following frame, which
+		-- `stepGhost`'s own standing check already makes harmless.
 		if stepLag.on then
 			stepLag.close(id)
 		end

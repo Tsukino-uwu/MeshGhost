@@ -43,6 +43,7 @@ on Crystal. `dev-scripts/preflight.ps1` checks that every heading in every body 
 - A symptom word can name more than one subsystem — confirm which before probing (2026-08-16)
 - Gating a handshake on its own result (deadlock, twice in one day) (2026-08-16)
 - Diagnostic methodology
+- An aggregate over a mixed series invents a defect that is not there (2026-08-25)
 - Failure signatures
 - Pitfalls by theme
 - Cross-game comparison

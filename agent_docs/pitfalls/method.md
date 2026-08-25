@@ -393,6 +393,35 @@ being searched, not to what was being searched for:
 The shared shape: when a search stalls, suspect the *shape of the search* before adding another
 candidate to it.
 
+## An aggregate over a mixed series invents a defect that is not there (2026-08-25)
+
+**Crystal, judging a ghost's motion against the player's.** A per-frame delta histogram of the
+camera-free difference between ghost and player said the two disagreed on ~18% of moves, which was
+written up as a "1-frame parity slip" and then FIXED -- a clock gate added to the spawned tier to
+chase it. Printing the frames themselves killed both:
+
+```
+f=652  P=118  S=160     <- player and spawned ghost advance on the same frame
+f=654  P=120  S=162        constant separation, no slip anywhere
+```
+
+**The series contained starts, stops and steady walking, and the aggregate averaged across all
+three.** A constant-lag follower genuinely disagrees with its target at every start and every stop
+-- that is what lag IS -- so those transitions produced the 18%, and steady walking, the thing
+being judged, was already perfect. The gate was reverted.
+
+**The rule: an aggregate is only meaningful over a segment where the thing being measured is in
+ONE regime.** Segment first (walking / starting / stopping), or print the raw frames and look. A
+histogram cannot tell you which regime its outliers came from, and it reads as authoritative
+precisely because it is quantitative -- this is the same family as `probes.md`'s "a probe that
+returns a boolean cannot be sanity-checked", one level up: a probe that returns a DISTRIBUTION
+cannot be sanity-checked either, unless it also says what went into it.
+
+**Corollary, from the same session:** the fix that follows a phantom defect can look like it
+worked. The gate suppressed a duplicate step issue on the following frame, so it had a visible
+effect and a plausible story -- and changed nothing about the symptom, because there was no
+symptom. Before/after on the RAW evidence is what separated them.
+
 ## Failure signatures
 
 Misleading symptoms that mean something other than their surface reading:

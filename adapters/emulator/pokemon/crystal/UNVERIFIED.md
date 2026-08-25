@@ -1208,44 +1208,74 @@ frames at its landing tile while the engine first draws it (the OAM hold) — a 
 sized pause, not a snap. If that still reads on screen, the next rung is spawning the object
 already mid-step via the engine's own step fields, measured from the decomp first.
 
-## 2026-08-25 — Crystal: the 1:1 double-check, and the drawn stop's 7-frame freeze
+## 2026-08-25 — Crystal: the 1:1 double-check, the drawn stop, and two reverted attempts
 
-**The user, after confirming the promotion seam** (*"no snap anymore, drawn & spawned look
-identical i think?"* — a hedged confirm, so the seam entry above stays here): *"maybe drawn
-stopping a bit fast whenever pausing/stopping at the end?"*, and asked for a full double-check of
-drawn & spawned against the player. Done with a new three-way trace inside the adapter
-(STEP_LAG-gated): player, spawned ghost and drawn model in map pixels on one line per frame that
-anything moved — plus both sprite-coordinate screen positions, whose difference is camera-free —
-analysed offline over two 9x9 laps, 22 stops, ~1400 steps per entity.
+**Fixed and traced clean; NOT confirmed on screen.** The user, after the promotion seam: *"no snap
+anymore, drawn & spawned look identical i think?"* (hedged, so nothing above is promoted either),
+*"maybe drawn stopping a bit fast whenever pausing/stopping at the end?"*, and then, asked for a
+full check: *"its basically perfect now, but still not fully 1:1?"*.
 
-**Confirmed healthy, measured:** every move by all three is the engine's own 2px unit; move counts
-and total distance match the player's exactly; the spawned ghost walks at constant 6-frame lag, in
-phase; 22 stops each, none missed; zero teleports, re-anchors or snap reports. The 1px paint moves
-the trace surfaced (76 of ~310) are the K repayment's off-frame pixel — the deliberate,
-user-vetted policy (two "better" rules were tried against the user's eyes on 2026-08-23 and were
-both worse); left alone.
+**The instrument.** A three-way trace inside the adapter (STEP_LAG-gated): player, spawned ghost
+and drawn model, in map pixels AND in engine-maintained sprite screen coordinates, one line per
+frame anything moved. The sprite pair matters — its DIFFERENCE is camera-free, so it is the drawn
+truth the field-derived map pixels get checked against.
 
-**The user's stop suspicion was real and had a mechanism.** All 22 stops, identically:
-`2.2.2.2.2.2.2.......2.2.2` — the drawn model froze mid-step for 7 frames, then finished its last
-6px. Cause: the camera is the model's clock, and the 8-still-frames guard (which exists so the
-camera's 1-2 frame boundary breath cannot trigger a free step mid-walk) also held the REMAINDER OF
-A COMMITTED STEP hostage when the player genuinely stopped. A committed step's 16px is owed
-whatever the clock says — finishing it cannot create the free-step debt that rule prevents. **Fix:
-the committed remainder now free-runs after 3 still frames (clearing the breath with margin); new
-steps still wait 8.** Re-measured: `2.2.2.2.2.2.2.2.2...2.2.2` at all 22 stops — freeze 7 → 3
-frames, drawn stop lag +15 → +11 frames, and the per-park K drift and beat-correction rates are
-unchanged (no corner regression).
+### The stop was real, and the fix is the peer's own state
 
-**Known remaining differences after this, stated so they are not reported as faults:** the drawn
-ghost still holds 3 frames mid-final-step at a stop (the floor the breath ambiguity imposes on a
-camera-clocked model); the spawned ghost has an occasional 1-frame parity slip (~1 per 3 steps,
-2px for one frame — the camera-free sprite trace shows it; the per-boundary `..22` the field
-derivation showed was the instrument, not the sprite); and the fresh object's 1-3 frame stand at
-its landing tile after a promotion (the engine's own draw delay).
+All 22 stops, identically: `2.2.2.2.2.2.2.......2.2.2` — the drawn model froze mid-step for 7
+frames, then finished its last 6px. Cause: the 8-still-camera-frames guard (which exists so the
+camera's 1-2 frame boundary breath cannot trigger a free step mid-walk) was also holding the
+REMAINDER OF A COMMITTED STEP hostage. A committed 16px is owed whatever the clock says.
 
-**What to look at:** walk long sides and stop; watch the drawn ghost's finish. **Correct looks
-like** it walking through to its stop with at most a blink-length hesitation before the last
-half-step — against the 7-frame freeze it replaced. NOT confirmed on screen.
+**First fix was a tuned constant** (3 frames instead of 8) and it improved the number without
+answering the question. **The shipped fix asks the peer**: a committed step whose peer has already
+stopped walking (`o.walking`, straight off the wire) finishes on the model's own beat with no
+camera consent; new steps still wait 8. Mid-walk is untouched, because there the peer IS still
+walking. Re-measured: `2.2.2.2.2.2.2.2.2.2.2.2.2` at every stop — the player's own shape, no gap
+at all — and stop lag +15 → +9 frames. This file has now made the same correction three times
+(K's `stable` guard, camera-as-clock, this): when the invariant itself is on hand, a proxy is what
+leaves a residue.
+
+### What the raw frames say about 1:1, and what the aggregates got wrong
+
+```
+f=652  P=118  S=160  M=76     <- player and SPAWNED ghost advance together
+f=653  P=118  S=160  M=78     <- drawn model advances, one frame later
+f=654  P=120  S=162  M=78
+```
+
+- **The spawned ghost is exactly 1:1 with the player** — same frames, constant separation, no slip.
+  The engine moves both, so it inherits the player's timing for free.
+- **A "1-frame parity slip" reported here earlier was an artefact of my own aggregate** (a
+  per-frame delta histogram over a series containing starts and stops). It did not survive
+  printing the frames. **A camera-tick gate added to the spawned tier to chase it has been
+  reverted**; the tier was already correct.
+- **The drawn model runs a metronomic 2-frame beat where the engine's is irregular** (player: gaps
+  2, 1, 2, 2; model: 2, 2, 2, 2). It is smoother than the game — the defect
+  `adapters/CLAUDE.md` names in its own words. This is the last measured difference, and it is a
+  CONSTANT one-frame phase, which is the invisible kind.
+
+### Two attempts at that beat, both reverted — kept because each is the obvious next idea
+
+1. **OR the player's sprite movement into the model's trigger.** By construction that can only make
+   it fire earlier, so the trace came back byte-identical — which is what proved the idea had not
+   actually been tested rather than that it was wrong.
+2. **Replace the camera beat with the player's sprite beat while the local player walks.** The
+   model's beat did not change AND the paint began wobbling (`25 → 23 → 25`), because the painted
+   position IS the camera formula: moving the model on frames the camera did not move puts the
+   disagreement straight on screen.
+
+**So the model's beat and the paint's origin are one decision, not two, and the camera owns both.**
+Matching the engine's irregular rhythm means moving the paint off the camera formula first — a
+real change, not a trigger tweak, and not one to start while the current state is unwatched. The
+reverted build was re-measured and reproduces the good state exactly (paint constant, stops clean,
+spawned in lockstep).
+
+**What to look at:** walk long sides and stop; watch the drawn ghost's finish, and the two ghosts
+against each other. **Correct looks like** the drawn ghost walking through to its stop with no
+freeze before the last half-step. **Known remaining differences:** the drawn ghost's constant
+one-frame phase and metronomic beat (above), and a fresh object's 1-3 frame stand at its landing
+tile after a promotion (the engine's own draw delay).
 
 ## 2026-08-25 — Crystal: `jsonDecode` could loop forever on truncated input
 
