@@ -6,11 +6,16 @@ while the worlds themselves stay separate. Nothing is shared unless a game's mod
 default there are no synced items, enemies, health or progression, and desync is expected and
 fine. If a friend kills a boss, it stays alive in your world, and that's okay.
 
-**Your save is never touched.** MeshGhost reads the game's memory and draws ghosts over the top;
-it does not write game state and does not modify save files — not your own, and not the save of
-anyone you play with. That is a rule the project holds itself to rather than a happy accident of
-the current features, and it stays true of anything added later. Uninstalling is deleting the
+**Your save is never touched, and neither is your ROM.** That is a rule the project holds itself
+to rather than a happy accident of the current features, and it stays true of anything added
+later — not your own save, and not the save of anyone you play with. Uninstalling is deleting the
 mod's folder.
+
+Some adapters do write to the game's *live* memory to put a ghost there — on the Pokémon games a
+ghost is a real character standing on a real tile, which is what makes it look right rather than
+like a sticker on the screen. Those writes go only to the object memory that exists while the game
+is running and is gone the moment you close it. Nothing is written to a save file, and no ROM is
+ever patched.
 
 **Download:** the [Releases page](../../releases). `MeshGhost-full-<version>.zip` is the one nearly
 everyone wants — client, server, and every game's mod, for Windows. Native Linux and macOS builds
