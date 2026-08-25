@@ -21,8 +21,9 @@ Archipelago-patched ROM the day before).
   its patch rearranges WRAM non-uniformly and no constant offset recovers vanilla's addresses
   ([verified.md](../../../../agent_docs/verified.md), 2026-08-17). An entry nobody has measured stays
   `nil`, and a `nil` makes the adapter **refuse to run** rather than write somewhere plausible —
-  `W_USEDSPRITES` on the Archipelago table is still `nil` — the last unmeasured entry, which
-  switches a peer's own appearance off on that build rather than reading a plausible address. An unrecognised build runs on vanilla's table with a one-line "untested" log, or refuses
+  **two** entries on the Archipelago table are still `nil` — `W_USEDSPRITES`, which switches a
+  peer's own appearance off on that build, and `W_STATEFLAGS`, which turns the hardware tier off
+  there — rather than reading a plausible address. An unrecognised build runs on vanilla's table with a one-line "untested" log, or refuses
   outright under `MESHGHOST_CRYSTAL_STRICT=1`. Every switch: [FLAGS.md](FLAGS.md).
 - Adapter language: Lua (BizHawk's scripting host), as Emerald.
 - **How the game is read: an external source decompilation** —
@@ -165,7 +166,8 @@ the tier ladder intends.
   looks like you. **The drawn tier could close it**: it reads pixels rather than borrowing the
   engine's, so it is not limited to what the map loaded.
 - `W_USEDSPRITES` is still unmeasured on the Archipelago table, so a peer's own sprite is off
-  there. (`W_BATTLEMODE` was settled 2026-08-19 by one trainer battle: `0x1234`.)
+  there — and so is `W_STATEFLAGS`, which means the hardware (OAM) tier does not run on that
+  build at all. (`W_BATTLEMODE` was settled 2026-08-19 by one trainer battle: `0x1234`.)
 - A ghost does **not** survive a battle — answered from the code 2026-08-19, and the stale
   bookkeeping it used to leave behind would drive one of the game's own NPCs around. Fixed; a
   real battle still needs watching.
