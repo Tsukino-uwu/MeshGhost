@@ -65,7 +65,7 @@ worked as soon as they were wired up, with no equivalent of Emerald's memory-pro
 Roughly in order (mostly [agent_docs/phases/phase6.md](../../agent_docs/phases/phase6.md) —
 item 8 below was found later, during a cross-adapter review pass, and lives in
 [agent_docs/pitfalls.md](../../agent_docs/pitfalls.md) and
-[agent_docs/verified.md](../../agent_docs/verified.md) instead):
+[VERIFIED.md](VERIFIED.md) instead):
 
 1. Purple box as proof of concept (same first step as Emerald).
 2. Cyan box following the player.

@@ -304,5 +304,5 @@ taking a flag — copy the stage over `main.lua` to run it, and put the original
 header still describes a `SetViewTargetWithBlend` hook that forces the view target back whenever a
 ghost spawn makes the game re-target. That approach was deleted 2026-08-16 for blocking every
 legitimate camera change forever after, and replaced by refusing only a switch to a rig whose
-`OwningActor` is a ghost — see [BANDAGES.md](BANDAGES.md) and `agent_docs/verified.md`. The file is
+`OwningActor` is a ghost — see [BANDAGES.md](BANDAGES.md) and `VERIFIED.md`. The file is
 history, and history includes the parts that were wrong.

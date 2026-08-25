@@ -24,7 +24,7 @@ worth knowing: [adapters/_template/README.md](../../../_template/README.md).
 describes an adapter workaround** — those belong in [BANDAGES.md](BANDAGES.md).
 
 Dated evidence for every claim, with addresses cited to the decomp build:
-[`agent_docs/verified.md`](../../../../agent_docs/verified.md).
+[`VERIFIED.md`](VERIFIED.md).
 
 **Written 2026-08-18**, after this adapter had already shipped. It was previously argued
 that a `documentation.md` was unnecessary for a game with a decompilation. That was overturned by
@@ -280,7 +280,7 @@ The stages:
 | 4-7 | `ANIM_PUT_AWAY_ROD_*` — same order |
 | 8-11 | `ANIM_HOOKED_POKEMON_*` — same order |
 
-Observed live on a May save (`verified.md`, 2026-08-18): `gfx 89 -> 138`, then `anim 3` (take out
+Observed live on a May save (`VERIFIED.md`, 2026-08-18): `gfx 89 -> 138`, then `anim 3` (take out
 rod, east), `anim 7` (put away — a bite that got away), `anim 3` again, `anim 11` (hooked), and
 finally back to `gfx 89`. `PLAYER_AVATAR_FLAG_ON_FOOT | PLAYER_AVATAR_FLAG_CONTROLLABLE` stayed set
 throughout.
@@ -311,7 +311,7 @@ the type. This is why the player never appears to shift while fishing even thoug
 changes several times per cast: the image and its offset are chosen together, inside the same frame
 update, so they can never be seen disagreeing.
 
-**Observed again on a Brendan save, vanilla, 2026-08-19** (`verified.md`): `gfx 0 -> 137`, then
+**Observed again on a Brendan save, vanilla, 2026-08-19** (`VERIFIED.md`): `gfx 0 -> 137`, then
 `anim 3` (take out rod, east) → `anim 11` (hooked, east) → `anim 7` (put away, east) → `gfx 0`,
 with the per-frame offset moving between `0,0` and `8,0` throughout — matching the table above.
 

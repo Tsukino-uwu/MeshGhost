@@ -1,7 +1,7 @@
 # Pseudoregalia player fields — currently synced, and the wider schema map
 
 Reference doc, not narrative — see [agent_docs/phases/phase7.md](../../agent_docs/phases/phase7.md)
-for the build story and [agent_docs/verified.md](../../agent_docs/verified.md) for the dated,
+for the build story and [VERIFIED.md](VERIFIED.md) for the dated,
 evidence-cited entries this file summarizes. Two purposes: (1) a single place that says what
 MeshGhost actually reads/writes on `BP_PlayerGoatMain_C` today, which didn't exist as a standalone
 list before this file, and (2) a map from every ability the game exposes (per its own
@@ -25,7 +25,7 @@ pawn instance/AnimBP every redraw tick:
 | `actionState` | pawn | uint8 enum, secondary action state |
 | `horizontalSpeed` / `verticalSpeed` | pawn | doubles, feed blend spaces |
 | `animJumpType` | pawn | uint8 |
-| `MovementMode` | pawn → `CharacterMovement` | uint8, stock engine `CharacterMovementComponent` field. Needed to fix the ghost getting stuck in a falling pose (see `verified.md`) |
+| `MovementMode` | pawn → `CharacterMovement` | uint8, stock engine `CharacterMovementComponent` field. Needed to fix the ghost getting stuck in a falling pose (see `VERIFIED.md`) |
 | `landed?` / `jumped?` | pawn → `animBPref` | bool, **not** on the pawn itself. One-shot pulses, not continuous state — mirrored as a monotonic counter + hold window (`PULSE_HOLD_TICKS`) since a single-tick flag doesn't survive the ~20Hz send-rate/network round trip. Writing `jumped?`/`landed?` alone didn't fix the ledge-hang-stuck-forever bug — that needed an explicit `Montage_Stop` call on the ghost's AnimBP instance too. |
 | `weaponEquipped?` / `animEquippedWeapon` | pawn / pawn → `animBPref` | bool, mirrored continuously (`RemoteGhost::target_weapon_equipped`). **FIXED and confirmed live, 2026-08-15** — see the Dream Breaker section below. The property write alone never drove the visual; the real fix was calling `changeEquippedWeapon`/`updateWeaponEquip` *before* the raw property overwrite, not after, so those functions see the value actually change. This row is now "done" the same as the others above. |
 | `SkeletalMesh` / `SkinnedAsset` (on `VisualMesh`) | pawn → `VisualMesh` | object reference to a `USkeletalMesh` asset, one per outfit. **FIXED and confirmed live, 2026-08-15** — see the Outfit section below. Sent as the asset's real object path (`RemoteGhost::target_outfit_mesh`); ghost resolves it via `StaticFindObject` and calls `SetSkeletalMeshAsset` (found via a live function-name dump) before the direct property write. |
@@ -53,11 +53,11 @@ now copies the real effect rather than re-deriving the rule (`RECALL_GLOW_ENABLE
 
 Found via a real reflection dump (`Plugin.cpp`'s `dump_object_reflection`, gated behind
 `OBJECT_REFLECTION_DUMP`) against a live play session, 2026-08-15 — full citation and caveats in
-`verified.md`'s "Pseudoregalia ability field schema" entry. **This section documents field
+`VERIFIED.md`'s "Pseudoregalia ability field schema" entry. **This section documents field
 existence and spelling only.** No value has been watched changing, no field has been wired into
 the sync path, and several entries below only reached their current mapping after correcting an
 initial name-based guess against actual gameplay knowledge — a plausible-sounding name was wrong
-more than once (see `verified.md` for the specific corrections). Treat every row as "confirmed to
+more than once (see `VERIFIED.md` for the specific corrections). Treat every row as "confirmed to
 exist," not "confirmed to do what the name suggests."
 
 | Ability (in-game name) | Internal fields |
@@ -102,7 +102,7 @@ evidence instead of a guess.
 
 ## Dream Breaker (weapon) visibility: FIXED, 2026-08-15 — worked example of why this was genuinely hard
 
-Full history in `verified.md`'s five "Dream Breaker weapon-visibility" entries — summarized here as
+Full history in `VERIFIED.md`'s five "Dream Breaker weapon-visibility" entries — summarized here as
 a worked example for whoever picks up the next field. (The three that were open when this was
 written — cling-gem VFX, empty-hand glow, outfit sync — have all shipped since.) Bucket 3 above
 ("needs real new sync code") turned out to undersell it:
@@ -125,7 +125,7 @@ written — cling-gem VFX, empty-hand glow, outfit sync — have all shipped sin
    ghost the *opposite* of the real player's `weaponEquipped?` — showed zero visible effect across
    a real multi-throw/pickup session, with an independent readback proving the inverted value
    genuinely wrote and stuck on the ghost's own properties the whole time. The property is real,
-   the write works, and it drives nothing. See `verified.md`'s "inversion test run" entry.
+   the write works, and it drives nothing. See `VERIFIED.md`'s "inversion test run" entry.
 6. **Root cause found and FIXED, same day.** A genuine 0%-completion vs. 100%-completion save
    comparison (a new reusable technique — dump every reflected property's real value at ghost
    spawn on two maximally-different saves, diff the results; see the general-purpose
@@ -174,7 +174,7 @@ Two negative results and one real lead that session (all via
    wrapper exposing only internal compiler temporaries — no real caller-facing parameter).
    Prototyped calling `Spawn After Image` on the ghost (`call_spawn_after_image`, gated behind
    `AFTERIMAGE_CALL_TEST`, fixed ~3s test cadence, decoupled from any real trigger) — user watched
-   the afterimage/trail effect actually appear on the ghost. See `verified.md`'s "Pseudoregalia
+   the afterimage/trail effect actually appear on the ghost. See `VERIFIED.md`'s "Pseudoregalia
    ghost trail (afterimage) VFX" entry. **Now production code**: a real trigger replaced the fixed
    test cadence (see point 4 below) and `AFTERIMAGE_CALL_TEST` is back to `false`.
 4. **TRIGGER — three wrong answers before the right one. Read this before touching it again.**
@@ -228,7 +228,7 @@ Two negative results and one real lead that session (all via
 ## Thrown Dream Breaker (the loose weapon actor): DONE, confirmed live 2026-08-15
 
 The first thing this adapter mirrors that is a **separate world object** rather than a state of the
-character. Full measurements and the two wrong turns are in `agent_docs/verified.md`'s
+character. Full measurements and the two wrong turns are in `VERIFIED.md`'s
 "thrown Dream Breaker" entry; this is the field map.
 
 | Field | Lives on | Notes |

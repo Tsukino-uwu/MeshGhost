@@ -7,7 +7,7 @@ they were written to chase one address shift on an Archipelago ROM and are the f
 reach for when a ROM moves something again.
 
 **Logs are not kept** — each probe writes a timestamped `.log` beside itself and `.gitignore`
-covers them. Conclusions belong in `agent_docs/verified.md`.
+covers them. Conclusions belong in `VERIFIED.md`.
 
 **How to run one**: point `dev-scripts/bizhawk-dev-loader.target` at it — the loader swaps scripts
 live, with no emulator relaunch (`agent_docs/environment.md`). Probes written before the loader

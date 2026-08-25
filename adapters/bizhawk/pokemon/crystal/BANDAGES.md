@@ -24,7 +24,7 @@ the user's standing position that a bandage is a state to leave rather than rest
 the emulator's output when the engine cannot give it a slot. `MESHGHOST_CRYSTAL_DRAW_OVERFLOW`
 (FLAGS.md) turns it off; it is **ON by default**, which is the opposite polarity to Emerald's
 equivalent and is deliberate — Emerald's is off because its UI regions are not yet locatable, and
-Crystal's are (`verified.md`, 2026-08-19).
+Crystal's are (`VERIFIED.md`, 2026-08-19).
 
 **What it compensates for.** A hard ceiling that is genuinely the game's: 13 object structs, 16 map
 objects, 40 hardware sprites at 4 per character, so 10 characters on screen. Past that a peer
@@ -106,7 +106,7 @@ of them stops being measured, the entry is already here to be corrected.
   precisely so a candidate that ordinary code can read does not quietly get treated as measured;
   it logs `UNCONFIRMED ADDRESS IN USE` on **every** startup, so a session run this way can be told
   apart afterwards; and it announces that nothing seen in that session may be written to
-  `verified.md` as a fact. **It lowers the bar to *unconfirmed*, never to *invented*** — a missing
+  `VERIFIED.md` as a fact. **It lowers the bar to *unconfirmed*, never to *invented*** — a missing
   candidate still refuses. `release.yml` fails the build if `ap_try.flag` reaches the package.
   **It is currently INERT, and that is the interesting part.** Every address the startup check
   requires has now been measured (`W_BATTLEMODE`, the last holdout, on 2026-08-19 with

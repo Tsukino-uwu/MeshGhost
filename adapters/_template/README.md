@@ -133,6 +133,7 @@ same as any two unrelated games — grouping by franchise just keeps the top lev
 | `documentation.md` | **Immediately** — start it with the first mechanic you learn | [documentation.md](documentation.md) |
 | `BANDAGES.md` | **Immediately, empty** — an empty register is the goal, an absent one is a gap | [BANDAGES.md](BANDAGES.md) |
 | `FLAGS.md` | Once you pass a handful of compile-time switches — sooner than feels necessary | [FLAGS.md](FLAGS.md) |
+| `VERIFIED.md` | **Immediately, empty** — this game's dated, user-confirmed facts. Split per game 2026-08-25; `agent_docs/verified.md` keeps only Go-side and cross-game entries | see any shipped adapter's |
 | `probes/README.md` | Once `probes/` holds more than a couple of scripts — an index of what each one answered | no template; see Emerald's and Crystal's |
 
 **`README.md`, `BANDAGES.md` and `documentation.md` are expected of EVERY adapter, with no

@@ -272,7 +272,7 @@ order:
     so a ghost performs the game's own jump and every tier parks its blob in the water instead of
     dragging it ashore. Diving works once our copy of the engine's underwater bobber was gone: it
     held another sprite's index, so a reused slot let it corrupt whatever landed there and hang the
-    game. A diver's bob rides the peer's own offset. Evidence: `agent_docs/verified.md`.
+    game. A diver's bob rides the peer's own offset. Evidence: `VERIFIED.md`.
 36. Ice and fog, and the distinction between them worth carrying forward. **An ice slide is a
     movement that does not animate** — the game's forced slide is a fast walk plus two bits on the
     object, `disableAnim` and a facing lock, and we were sending neither; `disableAnim` outranks a

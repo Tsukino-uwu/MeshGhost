@@ -8,7 +8,7 @@ re-run against an Archipelago ROM to answer the same question a second time.
 
 **Logs are not kept.** Each probe writes a timestamped `.log` beside itself (a verdict that lives
 only in the Lua Console has to be copied back by hand), and `.gitignore` covers them. Once a run
-has been read, its conclusion belongs in `agent_docs/verified.md`.
+has been read, its conclusion belongs in `VERIFIED.md`.
 
 **How to run one**: point `dev-scripts/bizhawk-dev-loader.target` at it — the loader swaps scripts
 live, with no emulator relaunch. See `agent_docs/environment.md`. Older probes here predate the
@@ -63,7 +63,7 @@ Each one exists because the previous one failed in a specific way; `phase9.md` h
 ## Archipelago address measurement
 
 One probe per address, because a probe that measures several at once cannot say which one is
-wrong. Results and what is still unmeasured: `phase9.md` and `agent_docs/verified.md`.
+wrong. Results and what is still unmeasured: `phase9.md` and `VERIFIED.md`.
 
 | Probe | Address it measured |
 | --- | --- |

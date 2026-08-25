@@ -24,7 +24,7 @@ worth knowing: [adapters/_template/README.md](../../../_template/README.md).
 adapter workaround** — those belong in [BANDAGES.md](BANDAGES.md). It should read as a description
 of Crystal to someone who has never seen our code.
 
-Dated evidence for every claim: [`agent_docs/verified.md`](../../../../agent_docs/verified.md).
+Dated evidence for every claim: [`VERIFIED.md`](VERIFIED.md).
 The narrative of how it was discovered: [`phases/phase9.md`](../../../../agent_docs/phases/phase9.md).
 
 ## Overworld characters: two arrays, not one
@@ -471,7 +471,7 @@ of two shows up in an ordinary walking step, which counts down eight units of
 **Two video frames is the average, not a guarantee.** The tick does not sit on a fixed frame
 parity: within one bout of walking the parity holds, across bouts it differs, and two ticks do
 sometimes land on consecutive frames (measured 2026-08-23 against the scroll registers,
-`agent_docs/verified.md`). So the tick counts below are exact in ticks and approximate in frames.
+`VERIFIED.md`). So the tick counts below are exact in ticks and approximate in frames.
 
 ### The classes, one by one
 

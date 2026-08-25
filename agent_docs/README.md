@@ -25,7 +25,9 @@ Internal documentation for MeshGhost: architecture, planning, licensing, and ver
   actually run.
 - [playing.md](playing.md) — everything about driving a running game: what an agent may change,
   how to steer input, how to navigate, how to use screenshots. **Read before driving any game.**
-- [verified.md](verified.md) — append-only, human-gated log of confirmed runtime facts.
+- [verified.md](verified.md) — append-only, human-gated log of confirmed runtime facts. **Split per
+  game 2026-08-25**: each adapter carries its own `VERIFIED.md` beside its `README.md`, and this
+  file keeps the Go side, cross-game entries, and the index to all four.
 - [unverified.md](unverified.md) — the waiting room for it: things the agent believes work and the
   user has not seen yet, with what to look at and what correct looks like. A checklist to work
   down; confirmed items move to `verified.md`, declined ones go back to being work.

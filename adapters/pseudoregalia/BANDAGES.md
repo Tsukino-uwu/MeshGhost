@@ -49,7 +49,7 @@ despawning *mid-area* with no level transition behind it, finally ran: a `cmd/me
 peer circling the player was stopped cleanly, the relay forwarded the leave, and 60 ms later
 `release_ghost` called `K2_DestroyActor`. **The ghost disappeared on screen and the game kept
 running** — user-confirmed. An earlier attempt that killed the *relay* did not count, because that
-removes the very thing that would deliver the peer's leave. `verified.md`.
+removes the very thing that would deliver the peer's leave. `VERIFIED.md`.
 
 **Status: the park is now a fallback, not the mechanism.** `call_destroy_actor` returns false when
 the function is not reflected, and parking is what happens then — so it still earns its place, and
@@ -75,7 +75,7 @@ explain why it went — retiring it fully is a tidy-up, not an open compensation
 **Kept as a struck-through entry, not deleted**, because the register's job is to show that entries
 here are expected to leave — see the standing position in `../_template/BANDAGES.md`. The full
 mechanism, the two findings that cracked it, and the nine dead ends are in
-`../../agent_docs/verified.md` (2026-08-17); how the game does it is in `documentation.md`.
+`VERIFIED.md` (2026-08-17); how the game does it is in `documentation.md`.
 
 **The durable lesson**: every one of the five mechanisms tested NEGATIVE on its own, and the
 working configuration is their union. "A alone does nothing" never meant "A is useless" — this
@@ -145,7 +145,7 @@ such a call. Route any new transform write through a helper modelled on
 in place through the `GetValuePtrByPropertyNameInChain<FVector>` pointer — never a bare SDK
 `K2_SetRelative*`.
 
-Detail: `../../agent_docs/pitfalls.md`, `../../agent_docs/verified.md`. A separate sign error found
+Detail: `../../agent_docs/pitfalls.md`, `VERIFIED.md`. A separate sign error found
 in the same investigation (`FRotator::Quaternion()` missing a negation on `Y`) is harmless for this
 pawn — pitch and roll are confirmed always zero — and was left unfixed deliberately.
 
@@ -182,7 +182,7 @@ Recorded so a future audit does not churn them.
   comes up on its own merits — a sideways offset shifts a valid position without re-grounding it,
   so over sloped geometry the ghost ends up buried or floating, and since the ghost is a real pawn
   with collision and the game's own movement running on it, that is a genuine source of oddities
-  (`verified.md`, 2026-08-17). Offsetting up would remove that entirely. **It is still refused**,
+  (`VERIFIED.md`, 2026-08-17). Offsetting up would remove that entirely. **It is still refused**,
   by the user, for a better reason than the one it solves: side by side **at the same ground
   level** is what makes pose and timing directly comparable, and vertical separation puts the two
   at different heights and hides exactly the 1:1 differences the loopback rig exists to reveal.
@@ -192,4 +192,4 @@ Recorded so a future audit does not churn them.
   deliberate, and both are now **dormant**: `AFTERIMAGE_TRIGGER_FROM_OBSERVATION` is on, so the
   ghost trails when the game is *seen* to spawn afterimages, and the reconstructed triggers those
   two belong to are switched off to avoid double-counting a burst. Left in place as a real revert
-  path — the flag gates the enumeration, not just the decision it feeds. `verified.md`.
+  path — the flag gates the enumeration, not just the decision it feeds. `VERIFIED.md`.

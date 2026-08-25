@@ -145,7 +145,8 @@ that a peer's state genuinely differs from the local player's, which loopback co
 
 `unverified.md` (**what the user has not confirmed yet** — read before claiming anything works) ·
 `plans.md` (roadmap) · `phases/phase6.md`|`phase7.md`|`phase8.md`|`phase9.md` (per-phase log) · `risks.md`
-(assumptions) · `verified.md` (confirmed facts) · `pitfalls.md` (symptom → cause → fix, and the
+(assumptions) · `verified.md` (Go-side and cross-game confirmed facts, plus the index to each
+adapter's own `VERIFIED.md`) · `pitfalls.md` (symptom → cause → fix, and the
 diagnostic methodology rules).
 
 ## Update guidance

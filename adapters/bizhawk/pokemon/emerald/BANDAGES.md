@@ -68,7 +68,7 @@ bottom of the file.
 **What the shipped compensation is.** A fishing sprite's offset is recomputed by the game every
 frame from the frame being displayed, *inside* the frame update. To match that, the adapter hooks
 `BuildOamBuffer` (`0x08006A0C`) with `event.onmemoryexecute` — animations final, OAM not yet built
-— and recomputes the ghost's offset there. That is what makes it 1:1 (`verified.md`, 2026-08-19).
+— and recomputes the ghost's offset there. That is what makes it 1:1 (`VERIFIED.md`, 2026-08-19).
 
 **The hook is registered only when `avatarAddrOffset == 0`, i.e. on the vanilla ROM.** An
 Archipelago build relocates code, so `0x08006A0C` is not `BuildOamBuffer` there, and hooking it
@@ -103,7 +103,7 @@ where a wrong *write* corrupts whatever now occupies the address. Two paths for 
 shape a compensation takes, and the spawn ADR had named this exact risk going in.
 
 **How it closed.** `probes/gsprites_scan_probe.lua` measured `gSprites` on a patched build
-(`agent_docs/verified.md`, 2026-08-19): `gObjectEvents` shifts by `0x284` on the Archipelago
+(`VERIFIED.md`, 2026-08-19): `gObjectEvents` shifts by `0x284` on the Archipelago
 build and **`gSprites` does not shift at all**. The split is gone — `meshghost_emerald.lua` runs
 one render path on both builds. Nothing rests on that measurement holding for some future patched
 build either: `spawnGhost()` refuses to write a byte unless the player's own object/sprite

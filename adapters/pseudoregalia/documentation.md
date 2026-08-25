@@ -39,7 +39,7 @@ listings; the code is one click away and stays the source of truth.
 | **`documentation.md`** (this) | How does the game do X? |
 | `PLAYER_FIELDS.md` | Which fields exist, which we sync, how to promote one |
 | `BANDAGES.md` | Where we compensate instead of reproducing the mechanism |
-| `agent_docs/verified.md` | Dated evidence behind every claim here |
+| `VERIFIED.md` | Dated evidence behind every claim here |
 
 ## Standing rule: everything in here must be fine on a public repo, forever
 
@@ -215,7 +215,7 @@ nothing here even when they write successfully: they are outputs or dead inputs,
 is the live one.
 
 *How MeshGhost reproduces this on a ghost is deliberately not described here — see `BANDAGES.md`
-and `agent_docs/verified.md`. This file is what the game does.*
+and `VERIFIED.md`. This file is what the game does.*
 
 ## Standing and walking
 
@@ -304,7 +304,7 @@ Recorded so nobody re-runs a search that already came up empty:
 
 One section per mechanic, in the game's own vocabulary, with the same three-line header: the
 **fields** it sets, the **components** it moves, and **where we read it**. Then say what the game
-does and how confident you are, and link the evidence in `verified.md` instead of pasting it.
+does and how confident you are, and link the evidence in `VERIFIED.md` instead of pasting it.
 
 If you catch yourself writing "so we…", stop — that sentence belongs in `BANDAGES.md` or the
 `README.md`.

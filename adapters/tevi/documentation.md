@@ -23,7 +23,7 @@ worth knowing: [adapters/_template/README.md](../_template/README.md).
 **What this file is: how *the game* does things**, per mechanic, in our own words. **Nothing here
 describes an adapter workaround** — those belong in [BANDAGES.md](BANDAGES.md).
 
-Dated evidence: [`agent_docs/verified.md`](../../agent_docs/verified.md) ·
+Dated evidence: [`VERIFIED.md`](VERIFIED.md) ·
 [`phases/phase6.md`](../../agent_docs/phases/phase6.md).
 
 **Written 2026-08-18**, after this adapter shipped. Previously it was argued that a game with a

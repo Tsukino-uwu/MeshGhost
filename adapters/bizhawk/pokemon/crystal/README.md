@@ -28,7 +28,7 @@ are built but unwatched, and the hardware tier has never been judged on screen a
 - **One address table per ROM build, chosen at startup from the header title.** Vanilla's entries
   come from our own hash-verified `pokecrystal` build; Archipelago's were each *measured*, because
   its patch rearranges WRAM non-uniformly and no constant offset recovers vanilla's addresses
-  ([verified.md](../../../../agent_docs/verified.md), 2026-08-17). An entry nobody has measured stays
+  ([VERIFIED.md](VERIFIED.md), 2026-08-17). An entry nobody has measured stays
   `nil`, and a `nil` makes the adapter **refuse to run** rather than write somewhere plausible —
   **two** entries on the Archipelago table are still `nil` — `W_USEDSPRITES`, which switches a
   peer's own appearance off on that build, and `W_STATEFLAGS`, which turns the hardware tier off
@@ -90,7 +90,7 @@ touching any of this**, including its open question about whether the engine's o
 
 > **Warning — why an unrecognised ROM must never be written to.** Archipelago's Crystal patch
 > rearranges WRAM **non-uniformly**; no constant offset recovers the vanilla addresses
-> ([agent_docs/verified.md](../../../../agent_docs/verified.md), 2026-08-17). A write aimed at a
+> ([VERIFIED.md](VERIFIED.md), 2026-08-17). A write aimed at a
 > vanilla address on a patched ROM does not fail cleanly — it lands on whatever now occupies that
 > address. So the adapter identifies the ROM from its header title first and picks a *measured*
 > table for it; a build it recognises but has not fully measured refuses to run, and one it does
@@ -107,7 +107,7 @@ Only steps that actually happened and were confirmed are listed here.
 2. Built `pokecrystal` locally and confirmed the result is byte-identical both to the ROM being
    played and to the hash the decomp documents, which is what makes every address below
    authoritative rather than merely plausible.
-   ([agent_docs/verified.md](../../../../agent_docs/verified.md))
+   ([VERIFIED.md](VERIFIED.md))
 3. Pulled the player and map addresses out of the resulting `pokecrystal.sym`, including the four
    consecutive bytes `wMapGroup`/`wMapNumber`/`wYCoord`/`wXCoord` that later served as a
    fingerprint for identifying them in a live game.
@@ -208,4 +208,4 @@ overflow tier added 2026-08-19 does any of those, and only because the game cann
 - `logs/` — where the adapter's own runs land, one timestamped `.log` per script load (probes write
   theirs beside themselves in `probes/`). A run therefore leaves a record without anyone copying
   text out of the Lua Console; `.gitignore` covers every `.log`, because once a run has been read
-  its conclusion belongs in `verified.md`.
+  its conclusion belongs in `VERIFIED.md`.

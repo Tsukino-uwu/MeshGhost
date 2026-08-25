@@ -47,7 +47,7 @@ confirmed broken, not everything that plausibly could be"* — learned from the 
 `Plugin.cs`, `UpdateRemoteMapMarker()`. The fog-of-war check calls the game's own discovery-state
 query with **five** arguments, and only three of them are explained. The last two are literal
 zeroes, and **nothing in this repo says what they mean** — not the call site, not
-`documentation.md`, not `verified.md`.
+`documentation.md`, not `VERIFIED.md`.
 
 **This is a `CLAUDE.md` gap, not merely an untidy line:** *no addresses or APIs from memory —
 every third-party API call must be traceable to a specific file or documentation page.* The
