@@ -104,9 +104,16 @@ character into** — there is no third mechanism:
 
 Two consequences worth stating plainly, because they are what makes a peer's animation tractable:
 
-- **Fishing and the "!" emote are not sprite changes**, so they do not appear in the
-  `wPlayerState` table above at all. They are an action plus a facing on the ordinary character —
-  which is why a character reading "fishing" still wears its normal sprite.
+- **Fishing is not a sprite change**, so it does not appear in the `wPlayerState` table above at
+  all. It is an action plus a facing on the ordinary character — which is why a character reading
+  "fishing" still wears its normal sprite.
+- **The "!" emote is not on the character at all.** `SpawnEmote`
+  (`engine/overworld/map_objects.asm`) creates a **separate map object**, flagged `EMOTE_OBJECT_F`
+  and given the `EMOTE` movement data, which parks itself two tiles above the character it belongs
+  to; `DespawnEmote` deletes whichever object carries that flag. So a character's own
+  `OBJECT_ACTION` never becomes `EMOTE` — that value belongs to the little object holding the box,
+  and it is the reason the emote survives the character underneath it walking, turning or being
+  frozen.
 - **The four walking frames per direction are in the facing list itself.** A direction is not a
   separate field from an animation frame: `STEP_DOWN_0` through `STEP_DOWN_3` are four entries of
   one list, so a single byte says both which way a character faces and which stride it is on.
@@ -417,9 +424,86 @@ facing 0: stepping x3, standing x13     facing 1: standing x3, stepping x13
 **So a bump is a two-pose shuffle at about four poses a second, not a stride cycle.** It looks
 slower and heavier than walking because it is: a walk changes pose roughly twice as often.
 
-The same shape covers every animation the game plays *without moving the character* — spin tiles,
-fishing, the `!` emote, the Fly landing. All are selected by `OBJECT_ACTION` while the position
-fields sit still, so `OBJECT_ACTION` is the only field that can distinguish them.
+The same shape covers every animation the game plays *without moving the character* — turning in
+place, spin tiles, fishing, Teleport, Dig, the Fly landing. All are selected by `OBJECT_ACTION`
+while the position fields sit still, so `OBJECT_ACTION` is the only field that can distinguish
+them. Each one is enumerated below. (The `!` emote is **not** in this family: it is a separate
+object, not a pose the character adopts.)
+
+## Every animation that does not move the character, and what each one is made of
+
+The bump above is one of a family. Every one of them keeps the character on its tile and changes
+only `OBJECT_ACTION`, and each action handler's whole job is to write `OBJECT_FACING` — so **the
+facing byte is the pose**, and the action byte only says which rule is producing it. This is worth
+stating in that order, because it is not obvious from the outside: the engine looks the facing byte
+up in the facing list (`data/sprites/facings.asm`) and emits the sprite parts it finds there, so
+two characters with the same facing byte are drawn identically no matter what they are doing.
+
+Reading the facing byte the way the engine does:
+
+| facing byte | what it names | drawn as |
+| --- | --- | --- |
+| `0x00`–`0x0f` | `STEP_<dir>_<0..3>`: direction is the byte over four, stride is the low two bits | strides 0 and 2 are the **standing** view, 1 and 3 the two **stepping** ones |
+| `0x10`–`0x13` | `FISH_DOWN` / `UP` / `LEFT` / `RIGHT` | the character's own **standing** view for that direction, **plus a fifth sprite** for the rod |
+| `0x14` | `EMOTE` | four tiles of the emote box **instead of** the character — and it is a separate object, never a player |
+| `0x15` and up | `SHADOW`, the dolls, the tree, boulder dust, shaking grass | scenery; a player object never holds one |
+| `0xff` | `STANDING` | **nothing is drawn.** The engine skips the object entirely |
+
+### The engine's object clock runs at half the video rate
+
+Everything below counts in **engine ticks**, not video frames, because that is what the action
+handlers count. A tick is **two video frames**: the decomp has a bump advancing its facing once
+every eight increments of `OBJECT_STEP_FRAME`, and the same bump measured on screen advances its
+facing once every **sixteen** video frames (`probes/bump_probe.lua`, 2026-08-23). The same factor
+of two shows up in an ordinary walking step, which counts down eight units of
+`OBJECT_STEP_DURATION` across roughly sixteen video frames.
+
+**Two video frames is the average, not a guarantee.** The tick does not sit on a fixed frame
+parity: within one bout of walking the parity holds, across bouts it differs, and two ticks do
+sometimes land on consecutive frames (measured 2026-08-23 against the scroll registers,
+`agent_docs/verified.md`). So the tick counts below are exact in ticks and approximate in frames.
+
+### The classes, one by one
+
+All of these are from `engine/overworld/map_object_action.asm` unless another file is named.
+
+- **`BUMP` (3)** — `OBJECT_STEP_FRAME` counts up by one a tick, and the facing's stride is **bits 3
+  and 4** of it, so the stride advances every **8 ticks**. Full detail and the measured cadence
+  under *Walking into a wall* above. Entered by the movement engine (`engine/overworld/movement.asm`)
+  and re-issued for as long as the direction is held.
+- **`SPIN` (4)** — the action that turns a character **counterclockwise**: `OBJECT_STEP_FRAME` is
+  used as two separate two-bit fields, a timer in the low bits and a facing index in bits 4 and 5,
+  and the direction advances **down → right → up → left** every **4 ticks**. The facing byte is
+  simply the direction with stride 0, so a spinning character always shows a **standing** view.
+  It is used for four different things: **turning in place** (which is why this is by far the most
+  common of the family — see below), the **spin tiles**, and the rise and descent of **Teleport**
+  and **Dig**, each of those phases running for 16 ticks.
+- **`SPIN_FLICKER` (5)** — spins the direction exactly as above and then sets `OBJECT_FACING` to
+  `STANDING`, so **the character is not drawn on that tick**. `Dig` alternates it with `SPIN` on
+  odd and even ticks, and that alternation *is* the flicker: the character is visibly present half
+  the time while it spins.
+- **`FISHING` (6)** — the facing becomes `FISH_` plus the direction. The body is the character's
+  ordinary standing art; the **rod is one extra sprite**, and it is not part of the character's
+  graphics — its tile id is absolute rather than relative to the character's tile base, so it comes
+  from a pair of shared tiles the game loads on demand (`data/sprites/emotes.asm` lists the rod as
+  two tiles, sharing its slot with the jump shadow). The rod sits below the character facing down,
+  above it facing up, and to the side facing left or right. **It has no fixed length** — the action
+  is set when the rod is cast and stays until the fishing script ends it, so this is the one class
+  that can hold for many seconds.
+- **`SKYFALL` (16)** — the Fly landing. Identical arithmetic to a walking step except that
+  `OBJECT_STEP_FRAME` goes up by **two** a tick instead of one, so the stride advances every **2
+  ticks**: the character runs its walk cycle at **double speed** while it falls. The fall itself is
+  a sprite Y offset that starts high above the tile and comes down; the top phase is 16 ticks.
+
+### Turning in place is a spin, and it happens constantly
+
+The single most common member of this family is not an exotic one. Tapping a direction the
+character is not already facing turns it without moving it, and the engine animates that turn with
+`OBJECT_ACTION_SPIN` — the same counterclockwise spin the spin tiles use, run for **4 ticks** (two
+at the old direction, two at the new one, from `engine/overworld/map_objects.asm`'s turning step).
+So a character that turns around passes visibly through an intermediate direction rather than
+snapping, and anything that reconstructs a character's pose from its position alone will miss it
+every time a player looks around.
 
 ## A newly created object is not drawn for one to two frames
 

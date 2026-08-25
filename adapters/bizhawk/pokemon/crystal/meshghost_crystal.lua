@@ -213,6 +213,14 @@ local ADDRESSES = {
 		-- (address, size, bank, type, palette), indexed by SPRITE_* - 1. Used by the drawn tier to
 		-- read a peer's graphics straight from the cartridge.
 		OVERWORLD_SPRITES_ROM = 0x14736,
+		-- FishingRodGFX, 41:4560 -> 0x41 * 0x4000 + (0x4560 - 0x4000). Two tiles, which the game
+		-- loads into VRAM $fc/$fd on demand (the `emote` table in `data/sprites/emotes.asm` --
+		-- FishingRodGFX shares those two tiles with the jump shadow, so the local VRAM copy is
+		-- only the rod while the LOCAL player is fishing). A peer fishing is exactly the case
+		-- where it is not, so the drawn tier reads the cartridge instead. VANILLA V1.0 ONLY --
+		-- gated on classifyRom() saying "known" below, because unlike the sprite table this one
+		-- has no cheap signature to check and an unknown build would paint whatever is there.
+		FISHING_ROD_ROM = 0x104560,
 	},
 
 	-- Archipelago's Crystal patch. MEASURED, never derived -- three separate vanilla relationships
@@ -526,8 +534,22 @@ local function jsonEncode(v)
 end
 
 -- Small recursive-descent decoder. Enough for the bridge's messages; not a general JSON library.
+--
+-- IT MUST NOT LOOP ON TRUNCATED INPUT, and until 2026-08-25 it did. Both container loops below are
+-- `while true`, and neither checked for the end of the string: on `{"a":1` with no closing brace,
+-- the fallthrough at the bottom of `parseValue` advanced `pos` by one and returned nil, so the
+-- loop went on asking for the next key forever. **The `pcall` at the bottom is no protection** --
+-- an infinite loop raises nothing to catch, and in BizHawk it freezes the emulator rather than
+-- dropping a message. The other six copies of this decoder in the repo were written from a
+-- guarded shape and error out instead; this one was written fresh and had neither guard. Not
+-- reachable from a relay -- the core emits well-formed JSON and the framing only splits on
+-- newlines -- but "the sender is well behaved" is exactly the assumption worth not resting on.
 local function jsonDecode(s)
 	local pos = 1
+	-- Depth is function-scope on purpose: this file sits at Lua's 200-local ceiling, and a
+	-- file-scope name here would be spent for a counter. The cap is far above anything the bridge
+	-- sends (a state message nests three deep) and far below what would exhaust the Lua stack.
+	local depth = 0
 	local function skip()
 		while pos <= #s and s:sub(pos, pos):match("[ \t\r\n]") do
 			pos = pos + 1
@@ -560,9 +582,17 @@ local function jsonDecode(s)
 		return table.concat(out)
 	end
 	parseValue = function()
+		depth = depth + 1
+		if depth > 64 then
+			error("json: too deeply nested")
+		end
 		skip()
 		local c = s:sub(pos, pos)
+		if pos > #s then
+			error("json: unexpected end of input")
+		end
 		if c == '"' then
+			depth = depth - 1
 			return parseString()
 		elseif c == "{" then
 			pos = pos + 1
@@ -570,10 +600,14 @@ local function jsonDecode(s)
 			skip()
 			if s:sub(pos, pos) == "}" then
 				pos = pos + 1
+				depth = depth - 1
 				return obj
 			end
 			while true do
 				skip()
+				if pos > #s then
+					error("json: unterminated object")
+				end
 				local k = parseString()
 				skip()
 				pos = pos + 1 -- ':'
@@ -582,7 +616,10 @@ local function jsonDecode(s)
 				local d = s:sub(pos, pos)
 				pos = pos + 1
 				if d == "}" then
+					depth = depth - 1
 					return obj
+				elseif d ~= "," then
+					error("json: expected ',' or '}'")
 				end
 			end
 		elseif c == "[" then
@@ -591,34 +628,48 @@ local function jsonDecode(s)
 			skip()
 			if s:sub(pos, pos) == "]" then
 				pos = pos + 1
+				depth = depth - 1
 				return arr
 			end
 			while true do
+				if pos > #s then
+					error("json: unterminated array")
+				end
 				arr[#arr + 1] = parseValue()
 				skip()
 				local d = s:sub(pos, pos)
 				pos = pos + 1
 				if d == "]" then
+					depth = depth - 1
 					return arr
+				elseif d ~= "," then
+					error("json: expected ',' or ']'")
 				end
 			end
 		elseif s:sub(pos, pos + 3) == "true" then
 			pos = pos + 4
+			depth = depth - 1
 			return true
 		elseif s:sub(pos, pos + 4) == "false" then
 			pos = pos + 5
+			depth = depth - 1
 			return false
 		elseif s:sub(pos, pos + 3) == "null" then
 			pos = pos + 4
+			depth = depth - 1
 			return nil
 		else
 			local num = s:match("^-?%d+%.?%d*[eE]?[-+]?%d*", pos)
 			if num then
 				pos = pos + #num
+				depth = depth - 1
 				return tonumber(num)
 			end
-			pos = pos + 1
-			return nil
+			-- NO SILENT ADVANCE. This used to be `pos = pos + 1; return nil`, which is what let a
+			-- truncated container loop forever: the caller saw a value, asked for the next one,
+			-- and got the same nothing again. A byte that begins no value is a malformed message,
+			-- and the pcall below turns that into a dropped line -- which is the correct outcome.
+			error("json: unexpected character")
 		end
 	end
 	local ok, result = pcall(parseValue)
@@ -1823,6 +1874,80 @@ function facingFrames.pick(facing, walking, prog, stride)
 	end
 	return entry.stand or entry.step[0] or entry.step[1] or entry.step[2] or entry.step[3]
 end
+
+-- THE POSE FOR AN ANIMATION THAT DOES NOT MOVE THE CHARACTER.
+--
+-- The drawn tier derives its pose from POSITION -- which direction the peer walked and how far
+-- through the step it is -- so by construction it cannot show anything the character does while
+-- standing on one tile. Bump was fixed as a special case on 2026-08-23; spin, the turn in place,
+-- fishing, the Dig/Teleport flicker and the Fly landing were left, and they are the same gap.
+--
+-- ONE RULE INSTEAD OF FIVE, and it is the engine's own. `OBJECT_FACING` is not a direction: it is
+-- literally the index into `Facings` (`data/sprites/facings.asm`), the table the engine looks up
+-- to decide which tiles to emit for a character this frame. So a peer's facing byte -- already on
+-- the wire as `extras.face` -- states the pose outright, and the whole job here is to read it the
+-- way `_UpdateSprites` does rather than to reconstruct it from where the peer is standing.
+--
+-- What the table says, all of it from the decomp (`constants/map_object_constants.asm` for the
+-- values, `data/sprites/facings.asm` for the art, `engine/overworld/map_object_action.asm` for
+-- which action produces which facing) -- `documentation.md` has the full enumeration:
+--
+--   0x00-0x0F  FACING_STEP_<DIR>_<0..3>: direction = byte // 4, stride = byte & 3. Strides 0 and 2
+--              are the STANDING view, 1 and 3 the two STEPPING ones -- which is the same
+--              "stepping on odd strides" the bump fix measured, stated by the table.
+--   0x10-0x13  FACING_FISH_DOWN/UP/LEFT/RIGHT: the character's own STANDING view for that
+--              direction, plus one extra sprite for the rod (see facingFrames.ROD).
+--   0x14       FACING_EMOTE. NOT REACHABLE FOR A PLAYER -- the "!" is a SEPARATE map object
+--              (SpawnEmote, flagged EMOTE_OBJECT_F), so the player's own action byte never
+--              becomes OBJECT_ACTION_EMOTE. phase9.md's 2026-08-19 enumeration had this wrong.
+--   0xFF       STANDING (-1): the engine skips the object entirely, drawing nothing.
+--
+-- So `act` only decides WHETHER to trust the facing byte over the position-derived pose. While a
+-- peer is walking normally (actions 0/1/2) the position-derived pose is strictly better, because
+-- it is phase-locked to the peer's own sub-tile progress rather than to a byte sampled at the send
+-- rate -- that is the measured duty cycle in facingFrames.pick, and it is not thrown away here.
+--
+-- Returns facing, walking, stride, hide, rod.
+-- On `facingFrames` rather than a new top-level name: this file sits at Lua's 200-local ceiling.
+function facingFrames.pose(act, face, facing, moving, stride)
+	if act == nil or ACTIONS.idle[act] then
+		return facing, moving, stride, false, nil
+	end
+	-- OBJECT_ACTION_SPIN_FLICKER (5) calls SetFacingCounterclockwiseSpin2, which spins the
+	-- direction and then sets OBJECT_FACING to STANDING -- so the character is INVISIBLE on that
+	-- frame. StepFunction_DigTo alternates it with OBJECT_ACTION_SPIN every other engine tick,
+	-- and that alternation IS the Dig/Teleport flicker. Checked as an action as well as a facing
+	-- because a peer's `face` and `act` are sampled from the same packet but the action is the
+	-- thing the engine keys on.
+	if act == 5 or face == 0xFF then
+		return facing, false, 0, true, nil
+	end
+	if face and face >= 0x10 and face <= 0x13 then
+		-- FACING_FISH_* are in the same DOWN/UP/LEFT/RIGHT order as this adapter's dir index.
+		return face - 0x10, false, 0, false, face - 0x10
+	end
+	if face and face < 0x10 then
+		local s = face & 3
+		return (face // 4) & 3, (s & 1) == 1, s, false, nil
+	end
+	-- 0x14 and above are scenery facings (the emote box, a shadow, the Copycat dolls, boulder
+	-- dust, shaking grass). A player object never holds one; show the peer standing rather than
+	-- guess at art we have not learned.
+	return facing, false, 0, false, nil
+end
+
+-- THE FISHING ROD, which is the one part of a fishing pose that is not the character's own art.
+-- FacingFishDown/Up/Left/Right each add a fifth sprite with ABSOLUTE_TILE_ID set, meaning the
+-- tile id is used as-is rather than added to the character's tile base: $fc for the vertical rod
+-- and $fd for the horizontal one, which are FishingRodGFX tiles 0 and 1. Positions and the flip
+-- are the engine's own, read off `data/sprites/facings.asm` (the rows are `db y, x, attr, tile`).
+-- Keyed by this adapter's dir index; `t` is the tile within FishingRodGFX.
+facingFrames.ROD = {
+	[0] = { dx = 0, dy = 16, t = 0 }, -- down: below the character
+	[1] = { dx = 0, dy = -8, t = 0 }, -- up: above it
+	[2] = { dx = -8, dy = 5, t = 1, flip = true }, -- left
+	[3] = { dx = 16, dy = 5, t = 1 }, -- right
+}
 
 -- source is { vram = <tile base> } for a sprite the map has loaded, or { rom = <gfx offset> } for
 -- one read straight from the cartridge. Everything else is identical, which is the point: the
@@ -4319,16 +4444,26 @@ function drawOverflow()
 					end
 					o.paintedX, o.paintedY = sx, sy
 
+					-- WHAT THE PEER IS DOING, not just where it is -- see facingFrames.pose. One
+					-- call, used by both rendering tiers, so the hardware tier cannot drift back
+					-- into showing an animation the drawn one shows and vice versa.
+					local poseFacing, poseWalking, poseStride, poseHide, poseRod =
+						facingFrames.pose(o.act, o.face, o.facing, moving,
+							o.stepLatch and (o.stepLatch - 1) or 0)
 					local onHardware = false
-					if source.vram and o.only ~= "drawn" then
-						onHardware = oam.place(sx, sy, source.vram, palette, o.facing,
-							moving, peerProg, o.stepLatch and (o.stepLatch - 1) or 0)
+					if source.vram and o.only ~= "drawn" and not poseHide then
+						onHardware = oam.place(sx, sy, source.vram, palette, poseFacing,
+							poseWalking, peerProg, poseStride)
 					end
 					if onHardware then
 						nOam = nOam + 1
 					elseif o.only == "hw" then
 						nOam = nOam -- pinned to a rung that had no room: show nothing rather than
 						-- quietly painting it, which would make the comparison a lie
+					elseif poseHide then
+						nDrawn = nDrawn -- the engine itself draws nothing for this peer on this
+						-- frame (OBJECT_FACING is STANDING), so neither do we. Not counted as
+						-- painted, because it was not.
 					else
 						nDrawn = nDrawn + 1
 						-- the palette the local player's own sprite is drawn with, which is the one
@@ -4386,8 +4521,11 @@ function drawOverflow()
 						-- is what the alternation is actually keyed on. Only the DOWN wall was
 						-- measured -- the other three are this arithmetic, not an observation.
 						--
-						-- Written as an if rather than `bumping and X or Y`: X is a BOOLEAN here and
-						-- `false or Y` silently yields Y, which is the classic Lua and/or trap.
+						-- THE CODE THIS DESCRIBES MOVED, 2026-08-25: it is now the general rule in
+						-- `facingFrames.pose`, which reads the facing byte the way the engine's
+						-- own facing table does and so covers spin, fishing and the Fly landing
+						-- too. The measurement above is unchanged and is what that rule returns
+						-- for action 3; it is kept here because it is the evidence.
 						-- HOLD THE DRAWN COPY STILL FOR THE HANDOVER FRAMES.
 						--
 						-- The blink at promotion is not a missing frame -- that was measured and
@@ -4432,14 +4570,27 @@ function drawOverflow()
 								.. "(handover=%s, spawned=%s, oam=%d)", drawFrames, id, sx, sy,
 								tostring(o.handover), tostring(ghosts[id] ~= nil), live))
 						end
-						local poseWalking = moving
-						local poseStride = (o.stepLatch and (o.stepLatch - 1) or 0)
-						if o.act == 3 then -- OBJECT_ACTION_BUMP; documentation.md lists the set
-							poseStride = (o.face or 0) & 3
-							poseWalking = (poseStride & 1) == 1
-						end
-						drawCharacter(source, sx, sy, palette, o.facing,
+						-- The pose was computed above, once, for both tiers. What used to be here
+						-- was the BUMP special case alone; it is now the general rule, which
+						-- covers spin, the turn in place, fishing and the Fly landing without a
+						-- branch each. The two lines it replaced are still exactly what happens
+						-- for action 3: facing byte 0x00-0x0F, stride = byte & 3, stepping on the
+						-- odd strides.
+						drawCharacter(source, sx, sy, palette, poseFacing,
 							poseWalking, peerProg, poseStride)
+						if poseRod and facingFrames.rodRom then
+							-- The fifth sprite of a fishing pose. Drawn AFTER the character so it
+							-- overlaps the same way the engine's OAM order does (the rod entry is
+							-- appended last in FacingFish*), and in the character's own palette,
+							-- which is what the engine gives it: the rod's row has
+							-- ABSOLUTE_TILE_ID but not RELATIVE_ATTRIBUTES, and the palette comes
+							-- from the object either way.
+							local r = facingFrames.ROD[poseRod]
+							if r then
+								drawRows(decodeRomTile(facingFrames.rodRom, r.t),
+									sx + r.dx, sy + r.dy, paletteColors(palette or 0), r.flip)
+							end
+						end
 					end
 				end
 			end
@@ -4793,9 +4944,17 @@ ACTIONS.peer = {
 	[4] = true, -- OBJECT_ACTION_SPIN          (spin tiles)
 	[5] = true, -- OBJECT_ACTION_SPIN_FLICKER  (the teleport/dig spin)
 	[6] = true, -- OBJECT_ACTION_FISHING
-	[8] = true, -- OBJECT_ACTION_EMOTE         (the "!" over the head)
 	[16] = true, -- OBJECT_ACTION_SKYFALL      (the Fly landing)
 }
+-- OBJECT_ACTION_EMOTE (8) IS DELIBERATELY ABSENT, and used to be here. The "!" over a character's
+-- head is not a pose that character adopts: `SpawnEmote` (engine/overworld/map_objects.asm)
+-- creates a SEPARATE map object flagged EMOTE_OBJECT_F, so a player's own action byte never
+-- becomes 8 and a peer sending it is not a peer who is emoting. Writing it would have been
+-- actively wrong rather than merely useless -- FacingEmote replaces all four of the character's
+-- parts with the emote box's absolute tiles, so the ghost's BODY would vanish and be replaced by
+-- a box drawn on its own tile instead of above it (the -2 tile Y offset is set by
+-- MovementFunction_Emote, which our write does not go through). phase9.md's 2026-08-19
+-- enumeration listed the emote alongside spin as one action byte; that row was wrong.
 
 -- Give the ghost the peer's action byte and let Crystal animate it.
 --
@@ -5962,6 +6121,12 @@ W_BGMAPOFFSETX, W_BGMAPOFFSETY = A.W_BGMAPOFFSETX, A.W_BGMAPOFFSETY
 W_USEDSPRITES = A.W_USEDSPRITES -- optional: nil means "peer appearance off on this build"
 W_STATEFLAGS = A.W_STATEFLAGS -- optional: nil turns the hardware tier off on that build
 OVERWORLD_SPRITES_ROM = A.OVERWORLD_SPRITES_ROM -- optional: nil means "no cartridge graphics here"
+-- The fishing rod's cartridge graphics, and ONLY on the ROM whose hash we built ourselves.
+-- Unlike the sprite table above this one has no six-byte signature worth checking -- two tiles of
+-- art look like any other two tiles -- so the gate is the ROM identity rather than the contents.
+-- nil means a fishing peer's body is drawn and its rod is not, which is a missing detail rather
+-- than a wrong one. On `facingFrames` rather than a new top-level local: 200-local ceiling.
+facingFrames.rodRom = (romClass == "known") and A.FISHING_ROD_ROM or nil
 
 -- CHECK THE TABLE IS WHERE WE THINK IT IS, before anything reads a graphics pointer out of it.
 -- An address is measured per ROM build, but a build nobody has seen still gets vanilla's table by

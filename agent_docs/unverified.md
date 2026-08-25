@@ -1578,3 +1578,93 @@ log `OBJECT_MOVEMENT_TYPE` and `MAPOBJECT_MOVEMENT` on the same line as the drif
 `setGhostStanding`'s movement byte is one the engine will resume from. The re-anchor bounds the
 damage to one tile, so this is visible as an occasional snap rather than a runaway — which is why it
 survived a session that was otherwise clean.
+
+## 2026-08-25 — Crystal: the rest of the action classes on the drawn tier
+
+**Built and not watched. Nothing below is confirmed.** The bump case (2026-08-23) was the first row
+of `phase9.md`'s 2026-08-19 animation enumeration; this is the rest of it — spin (which includes
+turning in place, spin tiles, Teleport and Dig), the Dig/Teleport flicker, fishing, and the Fly
+landing. Written from the decompilation, cited per class in
+`adapters/bizhawk/pokemon/crystal/documentation.md`; the narrative is in `phases/phase9.md`.
+
+**Where it lives:** `facingFrames.pose` in `meshghost_crystal.lua`, called once per peer per frame
+and shared by the drawn and hardware tiers. It replaces the bump special case and returns exactly
+what that special case returned for action 3.
+
+### What is a derivation from the source, not a measurement
+
+- **The engine's action handlers tick roughly every two video frames.** Derived: the decomp has a
+  bump advancing its facing once per 8 increments of `OBJECT_STEP_FRAME`, and `bump_probe.lua`
+  measured that facing advancing once per 16 video frames on screen. Consistent with the
+  2026-08-23 scroll measurements, which put a tile at 8 ticks across ~16 frames, and with those
+  measurements' own finding that the parity is not fixed. **Not separately measured for spin,
+  fishing or skyfall.**
+- **The per-class cadences** — spin advances its direction every 4 ticks, a turn in place is 2 + 2
+  ticks, skyfall advances its stride every 2 ticks (double a walk), the Teleport/Dig spin phases
+  are 16 ticks each. All read off `engine/overworld/map_object_action.asm` and
+  `engine/overworld/map_objects.asm`. **None seen on screen.**
+- **`probes/action_probe.lua` exists to confirm all of the above** and has never been run. It
+  drives the turn and the bump itself, then opens a long free phase for fishing, Fly, spin tiles,
+  Dig and Teleport, run-length encoded with the engine-tick count inside each run.
+
+### What was removed, and why it matters
+
+**`OBJECT_ACTION_EMOTE` (8) is no longer accepted from a peer.** A player's object never holds it:
+the `!` is a separate map object (`SpawnEmote`, flagged `EMOTE_OBJECT_F`). Writing 8 onto a spawned
+ghost would have replaced its **body** with the emote box, on its own tile rather than above it.
+Nothing observed — this is a fault removed from the code by reading, not a symptom that was seen.
+
+### The fishing rod is read from the cartridge, and only on V1.0
+
+The rod is an absolute tile id, i.e. one of two shared tiles the game loads on demand — which on a
+receiving machine hold the jump shadow unless the local player is also fishing. So the drawn tier
+reads `FishingRodGFX` from ROM (`41:4560` on our own hash-verified `pokecrystal` build), gated on
+`classifyRom()` returning `known`. **The offset has never been read on a running ROM**, and unlike
+the sprite table it has no cheap signature check, which is why the gate is ROM identity. On any
+other build the rod is simply absent.
+
+### What to look at, and what correct looks like
+
+Loopback, ghost offset to the side with interpolation at 0, so the drawn ghost can be judged
+against the player frame for frame.
+
+1. **Turn in place** — tap a direction the player is not facing, without walking. The drawn ghost
+   should turn through the same intermediate direction the player does, not snap.
+2. **Walk into a wall** — the 2026-08-23 case, re-checked because the code that produced it moved.
+   Should look exactly as it did then.
+3. **Fish** — the ghost should hold the standing pose for the direction it cast in, with a rod, for
+   as long as the player's rod is out. A ghost that faces down while the player fishes to the left
+   is the facing byte not being read; a body with no rod is the ROM gate refusing.
+4. **Fly into a town** — during the landing the ghost should run its walk cycle at about double
+   speed. It will **not** fall from the sky; that is a known gap, not a fault.
+5. **Dig or Teleport** — the ghost should spin and flicker. Because the flicker alternates faster
+   than the send rate, expect it to look coarser than the player's, not identical.
+
+**Known remaining differences, stated so they are not reported as faults:** no fall for Fly,
+Teleport or Dig (the sprite Y offset is not on the wire); no emote over a peer's head at all; the
+spawned tier's spin runs on the engine's own clock rather than the peer's phase.
+
+## 2026-08-25 — Crystal: `jsonDecode` could loop forever on truncated input
+
+**Fixed, and unconfirmed in BizHawk's own Lua.** Crystal's decoder was the only one of the repo's
+seven copies written fresh rather than from the guarded shape the other six use, and it had neither
+guard: both container loops were `while true` with no end-of-input test, and the fallthrough at the
+bottom of `parseValue` advanced the position by one and returned `nil` instead of erroring. On
+`{"a":1` with no closing brace the loop asked for the next key forever. **The surrounding `pcall`
+is no protection — an infinite loop raises nothing**, so in BizHawk this is a frozen emulator
+rather than a dropped message.
+
+**Not reachable from a relay**: the core emits well-formed JSON and the framing only splits on
+newlines, so it needs a local process on the bridge port. Fixed anyway.
+
+**What changed**: an end-of-input check at the top of each container loop, an explicit
+`expected ',' or '}'` / `']'` on a bad separator (matching the other six copies' wording), a
+function-scope depth counter capped at 64 so deep nesting cannot exhaust the Lua stack either, and
+the silent fallthrough replaced by an error.
+
+**Self-test, and what it is worth**: the function was extracted and run against eight valid inputs
+and ten truncated or malformed ones. All eight valid ones parse to the right values, including a
+full `remote_state` message and backslash escapes; all ten bad ones return `nil` within
+milliseconds instead of hanging. **That was a desktop Lua, not BizHawk's** — the file compiles
+there too, but the check that matters is that the adapter still loads and connects in a real
+session, which is part of the live test below.

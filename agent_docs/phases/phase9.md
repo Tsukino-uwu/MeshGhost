@@ -330,6 +330,10 @@ DOING"), against what the adapter puts on the wire today: `area_id`, `position`,
 | **Bumping a wall** | `OBJECT_ACTION_BUMP` | no | no | no |
 | **Spin tiles / the "!" emote** | `OBJECT_ACTION_SPIN` / `_EMOTE` | no | no | no |
 | **Fly (landing)** | `OBJECT_ACTION_SKYFALL`, `STEP_TYPE_SKYFALL_TOP` | no | no | no |
+
+> **Two rows of this table were later corrected** — see *Closing the rest of the action classes*
+> at the end of this file (2026-08-25). The emote is not an action on the player at all, and
+> turning in place, Teleport and Dig belong in the list and were missing from it.
 | Door / warp / Fly (leaving) | the map is rebuilt | `area_id` changes | despawn + respawn | same |
 | Battle | the player leaves the overworld | **nothing is sent** (the in-play gate) | ghost freezes where it was | same |
 
@@ -709,3 +713,66 @@ rebase must not be painted as motion.
 rig); the core logs its own smoothing settings; `square_drive` takes `MESHGHOST_SQUARE_SIDE`,
 `_DIRS`, `_LOAD_STATE` and `_FLOW`; `MESHGHOST_CRYSTAL_GHOSTS_PASSABLE` removes the collision
 confound; and `square_drive` is in the syntax checker's list, which it should always have been.
+
+## Closing the rest of the action classes — 2026-08-25
+
+The 2026-08-19 enumeration above scoped this as "one change rather than eight" and the 2026-08-23
+bump fix was the first row of it. This is the rest, and the enumeration turned out to need two
+corrections before it could be implemented.
+
+### What the decomp said that the enumeration had wrong
+
+**Read before measuring**, per CLAUDE.md, and both of these would have been expensive to discover
+on screen:
+
+1. **The `!` emote is not an action on the player.** `SpawnEmote` (`engine/overworld/map_objects.asm`)
+   creates a **separate map object**, flagged `EMOTE_OBJECT_F`, that parks itself two tiles above
+   the character; `DespawnEmote` deletes whichever object carries that flag. A player's own
+   `OBJECT_ACTION` therefore never reads `EMOTE` (8) — and the adapter had 8 in its
+   `ACTIONS.peer` allow-list, meaning a peer that sent it would have had its ghost's **body
+   replaced** by the emote box (`FacingEmote` substitutes four absolute tiles for all four of the
+   character's parts) and drawn on its own tile rather than above it, because the two-tile Y offset
+   is set by the emote object's movement function, which a written action byte does not go
+   through. Removed, with the citation, rather than left as a harmless-looking entry.
+2. **Turning in place is `OBJECT_ACTION_SPIN`**, and it is by far the most common member of the
+   family. `TurningStep` (`engine/overworld/map_objects.asm`) sets it for a 2 + 2 tick turn, so a
+   character that merely looks around is animating without moving. The enumeration listed `SPIN`
+   as "spin tiles" only, which made it look rare and low-value; it is neither. **Teleport and Dig
+   are also `SPIN`**, and Dig alternates it with `SPIN_FLICKER` — which sets `OBJECT_FACING` to
+   `STANDING`, i.e. the engine draws nothing at all that tick.
+
+### The implementation is one rule, not five branches
+
+`OBJECT_FACING` is literally the index into `Facings` (`data/sprites/facings.asm`) — the table the
+engine looks up to decide which sprite parts to emit. So the drawn tier does not need a case per
+animation: it needs to read the peer's facing byte the way `_UpdateSprites` does. That is
+`facingFrames.pose` in `meshghost_crystal.lua`, and the bump special case it replaced is exactly
+what it still returns for action 3.
+
+- `0x00`–`0x0f` → direction is the byte over four, stride the low two bits, stepping on odd
+  strides. Covers `BUMP`, `SPIN` and `SKYFALL` without naming any of them.
+- `0x10`–`0x13` → fishing: the standing view for that direction, plus the rod.
+- `0xff`, or action `SPIN_FLICKER` → the engine draws nothing; neither do we.
+- actions 0/1/2 → unchanged. The position-derived pose is **better** there, because it is
+  phase-locked to the peer's own sub-tile progress rather than to a byte sampled at the send rate.
+
+The **fishing rod** is the one part that is not the character's own art: its tile id is absolute,
+so it comes from the two shared tiles the game loads on demand — which on a receiving machine hold
+the jump shadow, not the rod, unless the local player happens to be fishing too. The drawn tier
+reads `FishingRodGFX` from the cartridge instead (`41:4560`, from our own hash-verified build),
+gated on the ROM classifier saying V1.0: unlike the sprite table this address has no cheap
+signature to check, and two tiles of art look like any other two tiles. On any other build the
+body is drawn and the rod is not, which is a missing detail rather than a wrong one.
+
+### What is NOT closed by this
+
+- **Nothing here has been watched on screen.** Measurements and derivations only —
+  `agent_docs/unverified.md`, 2026-08-25.
+- **The Fly landing's fall is not rendered**, only its double-speed walk cycle. The drop itself is
+  `OBJECT_SPRITE_Y_OFFSET` sweeping down from high above the tile, and that offset is not on the
+  wire. Same for Teleport's and Dig's rise and descent.
+- **The spawned tier's spin is free-running**, not phase-locked: it is handed the action byte and
+  the engine spins it on its own clock, so a spawned ghost spins the right way at the right speed
+  starting from wherever its own step frame was.
+- **A peer's emote is not rendered at all**, and cannot be by sending the player's action byte —
+  it would need the separate object to be noticed and sent as its own thing.
