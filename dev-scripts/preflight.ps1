@@ -714,6 +714,65 @@ if (-not (Test-Path -LiteralPath $adrDir)) {
 }
 
 # ---------------------------------------------------------------------------
+Section "Phase index coverage"
+
+# Phase files were the ONE required-reading class with no index and no check. ADRs, pitfalls
+# entries and VERIFIED entries all have both; CLAUDE.md routes evidence into phases/phaseN.md by
+# name, and agent_docs/README.md links the phases/ DIRECTORY but no file inside it. So a phase
+# file could be added and referenced from nowhere -- including the 1,904-line phase7.md and the
+# in-progress phase9.md, neither of which was reachable from the doc index. Index added
+# 2026-08-25 with this check, on the same reasoning as the three above it.
+$phaseDir = "agent_docs/phases"
+$phaseIndex = "agent_docs/phases/README.md"
+if (-not (Test-Path -LiteralPath $phaseIndex)) {
+    Report-Fail "$phaseIndex does not exist -- the phase index is supposed to live there"
+} else {
+    $phaseText = Get-Content -LiteralPath $phaseIndex -Raw
+    $phaseFiles = @(Get-ChildItem -LiteralPath $phaseDir -Filter '*.md' |
+        Where-Object { $_.Name -ne 'README.md' } | Sort-Object Name)
+    $unlinkedPhases = @()
+    foreach ($f in $phaseFiles) {
+        if ($phaseText -notmatch [regex]::Escape("($($f.Name))")) { $unlinkedPhases += $f.Name }
+    }
+    if ($unlinkedPhases.Count -gt 0) {
+        Report-Fail "$($unlinkedPhases.Count) phase file(s) not linked from $phaseIndex -- add one row each:"
+        $unlinkedPhases | ForEach-Object { Write-Host "          $_" }
+    } else {
+        Report-Pass "every phase file ($($phaseFiles.Count)) is linked from the phase index"
+    }
+}
+
+# ---------------------------------------------------------------------------
+Section "dev-scripts README coverage"
+
+# Same failure shape one folder over: dev-scripts/README.md documents the launchers, and six
+# tracked scripts were missing from it on 2026-08-25 (bizhawk-hitch-meter.lua, the two Crystal
+# launchers, the pseudoregalia udp/quic launchers, run-relay-loopback-shipped.bat). An undocumented
+# launcher is one nobody reaches for, which is how a rig gets rebuilt by hand instead.
+#
+# Only tracked .bat/.ps1/.lua/.sh in dev-scripts/ itself are checked -- not subfolders, and not
+# the per-machine *.local.bat, which are gitignored and therefore never tracked anyway.
+$devIndex = "dev-scripts/README.md"
+if (-not (Test-Path -LiteralPath $devIndex)) {
+    Report-Fail "$devIndex does not exist"
+} else {
+    $devText = Get-Content -LiteralPath $devIndex -Raw
+    $devScripts = @(& git ls-files 'dev-scripts/*.bat' 'dev-scripts/*.ps1' 'dev-scripts/*.lua' 'dev-scripts/*.sh')
+    $undocumented = @()
+    foreach ($s in $devScripts) {
+        $name = Split-Path -Leaf $s
+        if ($name -eq 'preflight.ps1') { continue }   # this file; it documents itself by running
+        if ($devText -notmatch [regex]::Escape($name)) { $undocumented += $name }
+    }
+    if ($undocumented.Count -gt 0) {
+        Report-Fail "$($undocumented.Count) dev-script(s) not mentioned in $devIndex :"
+        $undocumented | ForEach-Object { Write-Host "          $_" }
+    } else {
+        Report-Pass "every tracked dev-script ($($devScripts.Count)) is named in dev-scripts/README.md"
+    }
+}
+
+# ---------------------------------------------------------------------------
 Section "Leftover scaffolding"
 
 # Leaving a relay alive is how a later run silently binds the wrong port.

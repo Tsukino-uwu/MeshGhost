@@ -252,6 +252,13 @@ default silently drags every dev client back down, and a ghost updating at 20Hz 
   one game instance running — see
   [agent_docs/phases/phase3.md](../agent_docs/phases/phase3.md) and
   [agent_docs/phases/phase6.md](../agent_docs/phases/phase6.md).
+- `run-relay-loopback-shipped.bat` — the same loopback echo at **shipped** settings: `-loopback`
+  is its only departure from a released relay, so the receive rate is the default 20Hz rather
+  than `run-relay-loopback.bat`'s `-send-hz=100`. That override is exactly what would invalidate
+  a test asking how the renderer looks at the rate a real player receives. **Pair it with
+  `run-core-crystal-shipped.bat`, never with `run-core-crystal.bat`** — see the interp/offset
+  pairing rule above; the two rigs answer opposite questions and mixing them produces a reading
+  that belongs to neither.
 - `run-loopback-in-release-folder.bat` — **the only script here meant to leave this folder.**
   Same loopback idea as above, but for someone who downloaded a release zip rather than built
   the repo: they copy this one file next to `meshghost.exe`/`meshghost-server.exe` and run it
@@ -310,10 +317,22 @@ default silently drags every dev client back down, and a ghost updating at 20Hz 
   result whenever `adapters/tevi/MeshGhostTevi/{Plugin.cs,BridgeClient.cs,*.csproj}` change —
   see [packaging/README.md](../packaging/README.md)'s TEVI section for why this one output is
   committed at all.
+- `run-core-crystal.bat` — a single core client for Crystal at **dev** settings (`-interp=0ms
+  -min-send=10ms`), mirroring `run-core-emerald.bat`. Crystal had no launcher at all until
+  2026-08-22 and its adapter simply autostarted a core on shipped defaults; with the loopback
+  ghost offset to the side, a quarter-second of interpolation means you are watching the wire
+  rather than the renderer.
+- `run-core-crystal-shipped.bat` — the **complement**: no flags beyond game and bridge, so
+  interpolation is `core.DefaultInterpolationDelay` (250ms) and the send rate is the default.
+  Here the 250ms is the subject of the test rather than a nuisance in it. Launch it explicitly
+  rather than leaning on adapter autostart — relying on autostart is what made two sessions of
+  stutter work ambiguous ([phase9.md](../agent_docs/phases/phase9.md)): the settings were right
+  by accident and unlogged, so nothing recorded which rig produced which reading.
 - `run-core-pseudoregalia.bat` — a single core client wired for Pseudoregalia
   (`-game=pseudoregalia`, bridge port 7778) — see
   [agent_docs/phases/phase7.md](../agent_docs/phases/phase7.md).
-- `run-core-pseudoregalia-tcp.bat` / `-udp.bat` / `-quic.bat` — the same client pinned to one
+- `run-core-pseudoregalia-tcp.bat` / `run-core-pseudoregalia-udp.bat` /
+  `run-core-pseudoregalia-quic.bat` — the same client pinned to one
   transport each, for live-testing the 2026-08-16 selectable-transport work. Pair any of them
   with `run-relay-loopback.bat`, which now serves all three at once, so switching protocol means
   running a different one of these rather than restarting the relay.
@@ -381,10 +400,18 @@ ALREADY-RUNNING instance is a Lua Console GUI action nothing outside the emulato
   `SLOT` and point the loader at it. Slot 1 is the user's own, 2-10 are agent checkpoints. Use it
   to make a repeated or risky test cheap instead of re-walking to the state by hand. A savestate
   is not an in-game save.
+- `bizhawk-hitch-meter.lua` — **standing rig for any "it feels choppy" question**, game-agnostic
+  and read-only. Reports frames over 20ms, frames over 33ms, and the worst gap, because **frame
+  RATE is an average and an average cannot see a hitch**: ten frames lost inside one second still
+  reads as 58fps. That disagreement cost most of an hour on 2026-08-21, when every measurement
+  said 59.7fps while the user saw chop. Measuring the frame-to-frame *gap* found the cause in
+  minutes — and found it in the instrumentation, which is why this one buffers its own log.
 - `bizhawk-syntax-check.lua` — `loadfile()`s each named Lua file and reports whether it *compiles*,
   running none of them, so no adapter socket or frame loop starts and nothing touches the game.
-  Exists because the machine has no standalone Lua binary and BizHawk embeds Lua 5.4; use it to
-  catch a missing `end` without a live session.
+  Use it to catch a missing `end` from inside a live session. (It was written when this machine
+  had no standalone Lua; it does now, and `preflight.ps1` runs `luac -p` over every tracked `.lua`
+  on each invocation. This is still the quicker check while BizHawk is already open, and the only
+  one that answers "does it compile under *this* build's embedded 5.4".)
 - `zoom.ps1` — crops and nearest-neighbour upscales a region of the last screenshot so a sprite in
   a 240x160 GBA frame is legible (`-X -Y -W -H -Scale -Game -In -Out`). Nearest-neighbour on
   purpose: no smoothing inventing detail that is not there.
