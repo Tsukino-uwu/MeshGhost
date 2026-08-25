@@ -218,6 +218,8 @@ is the internal working record of how it got built.
 - [pitfalls.md](agent_docs/pitfalls.md) — adapter-specific issues, and how they were diagnosed.
 - [risks.md](agent_docs/risks.md) — known risks and open assumptions.
 - [verified.md](agent_docs/verified.md) — append-only log of facts actually confirmed running.
+  Go-side and cross-game entries plus the index; each adapter carries its own `VERIFIED.md`
+  (and `UNVERIFIED.md`, the queue waiting on the user) beside its `README.md`.
 - [licensing.md](agent_docs/licensing.md) — what prior-art projects were checked and how they may
   be used, including the [`pokeemerald`](https://github.com/pret/pokeemerald) decompilation
   consulted for Emerald memory facts only, never for source or assets.
