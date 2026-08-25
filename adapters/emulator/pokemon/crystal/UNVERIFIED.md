@@ -1466,3 +1466,27 @@ its camera clock, not a standard the spawned tier can meet.
 **What to watch:** bike and walk, both ghosts. The spawned one should now hold a constant ~3-frame
 trail (~6px on the bike) with no per-step hesitation and no snap at stops. If a stop shows a snap,
 the re-anchor line in the log names the size and direction — read it before theorising.
+
+## 2026-08-25 — Crystal: the "2nd ghost" after a respawn was the handover hold never matching a moving body
+
+**Fixed, NOT confirmed on screen.** The user, on the compare rig: *"the spawned ghost is getting a
+2nd ghost when moving again now (after the despawn)"*. Ruled out first, by instrument:
+`orphan_probe.lua` found exactly one object carrying our fingerprint, being driven — no orphaned
+engine object. The handover trace then showed the real mechanism: after a promotion the drawn tier
+deliberately keeps painting until the spawned body reaches OAM (`holdHandover`, the anti-blink
+from the promotion-seam fix), and its OAM check matched EXACT coordinates. A peer promoted while
+MOVING — every bike promotion — has its body stepping away from the latch from its first engine
+tick, so the match never hit and the hold ran its full 8 frames every time: the painted copy and
+the moving body visibly apart, at every re-promotion. Invisible at walking pace, half a tile at
+bike pace. The match is now within one fast-gait stride (±8px per axis) — "the body has arrived",
+not "the body is exactly where it was latched".
+
+**Open risk, stated:** in a crowd, another sprite within 8px of the latch could end the hold a
+frame early — a 1-frame blink, the original fault, in a rarer shape. Not observed; noted so a
+blink report in a crowd finds this paragraph.
+
+Also this session: heavy diagnostics all switched off (sprite trace, step lag, orphan probe,
+facing trace) after the user reported the game *"laggy when the scripts are running"* — and the
+remaining *"slightly off from each other when reversing/turning"* on the bike is to be re-judged
+on the lighter stack before any further work, because probe-induced frame drops desync the two
+tiers differently and can BE that symptom.

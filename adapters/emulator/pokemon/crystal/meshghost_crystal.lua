@@ -5468,10 +5468,19 @@ local function holdHandover(o)
 		-- to test against means the handover has certainly not completed.
 		return true
 	end
+	-- WITHIN A STRIDE, not exact (2026-08-25). The exact match was written for a promotion out of
+	-- IDLE, where the body arrives standing on the latched tile. A peer promoted WHILE MOVING --
+	-- every bike promotion -- has its body stepping away from the latch from its first engine
+	-- tick, so the exact match never hit, the hold always ran its full 8 frames, and the user saw
+	-- the painted copy and the moving body as *"a 2nd ghost when moving again (after the
+	-- despawn)"* -- two bodies drawing half a tile apart at bike pace. The hold's job is only to
+	-- cover the frames before the body reaches OAM at all; one engine tick of tolerance per axis
+	-- (the fast gait's 4px) recognises a body that has arrived and already moved.
 	local wx, wy = o.handoverSX + 8, o.handoverSY + 16
 	for e = 0, 39 do
-		if (memory.read_u8(e * 4 + 1, "OAM") or 0) == wx
-			and (memory.read_u8(e * 4, "OAM") or 0) == wy then
+		local ex = memory.read_u8(e * 4 + 1, "OAM") or 0
+		local ey = memory.read_u8(e * 4, "OAM") or 0
+		if math.abs(ex - wx) <= 8 and math.abs(ey - wy) <= 8 then
 			return false
 		end
 	end
