@@ -271,16 +271,10 @@ different questions.
   log the observation and conclude outside it, because a wrong conclusion in a log file outlives
   the run and gets believed later.
 
-## Don't pay a relaunch per probe revision (BizHawk)
+## Don't pay a relaunch per probe revision (BizHawk) — moved
 
-`EmuHawk.exe --lua=<script> "<rom>"` attaches a script at launch, but swapping one on a *running*
-emulator is a Lua Console GUI action nothing outside the process can drive — so every edit
-otherwise costs a full relaunch, and each relaunch interrupts whoever is holding the controller.
-`dev-scripts/bizhawk-dev-loader.lua` is attached once and then loads, swaps or drops whatever
-script a one-line control file names. Write a probe to its contract — set `MESHGHOST_DEV_TICK`,
-no `while true ... emu.frameadvance()` loop of your own, and gate that loop on
-`MESHGHOST_DEV_LOADER` if the file should still work opened directly. Details and the confirmed
-live behaviour: `agent_docs/environment.md`.
+The dev-loader contract now lives in [../bizhawk/CLAUDE.md](../bizhawk/CLAUDE.md), which loads
+itself the moment you touch a BizHawk adapter.
 
 ## A probe's read budget is real — an emulator's script host is slow
 
@@ -1256,29 +1250,12 @@ This retired a whole class of "it looks slightly off" in one line — ours came 
 the engine's own reflection entry — and it is the fastest way to split "we are drawing it wrong"
 from "we are drawing the wrong thing".
 
-## Write breakpoints: the only instrument that sees BETWEEN frames (Emerald, 2026-08-21)
+## Seeing BETWEEN frames — moved (BizHawk write breakpoints)
 
-A defect that exists at RENDER time but never at the Lua tick is invisible to every per-frame
-probe by construction -- struct dumps, OAM scans, VRAM-vs-ROM checks and allocation-bitmap dumps
-all read clean while the screen shows garbage. The instrument for that gap is
-`event.onmemorywrite` on the affected range: each write event carries the address and value, and
-`emu.getregister` the CPU state.
-
-What a day of using it taught:
-
-- **Register one address per tile (stride 32), not every byte** -- a breakpoint can push the
-  emulator core onto a slow path, and sampling catches any multi-byte copy anyway.
-- **PC inside the BIOS (0x2A0) means a CpuSet/LZ77 call; LR is ALSO banked to the BIOS there**,
-  so registers cannot name the game-side caller. Name the writer by its DATA instead: search the
-  ROM for the written values at the observed stride. No ROM match means a RAM source
-  (decompressed graphics, heap frame buffers).
-- **Budget the event count and stamp `emu.framecount()` into every line** -- the interesting
-  window is a handful of frames, and correlating with screenshots requires one shared clock
-  across probe lines, log lines and screenshot filenames.
-- **The engine's sprite-copy queue executes at VBlank, one frame AFTER the request** -- so a
-  sprite despawned this tick can still write its tiles next frame. Tiles freed at despawn and
-  re-claimed in the same tick get the dead sprite's frame stamped over the new owner's load.
-  If a despawn frees tile ranges, defer the free by a few frames.
+The instrument is BizHawk-specific and lives in [../bizhawk/CLAUDE.md](../bizhawk/CLAUDE.md). The
+general point holds on any host: **a defect that exists at RENDER time is invisible to every
+per-frame probe by construction**, so reach for an instrument that fires on the write, not on the
+tick.
 
 ## When one renderer of several is already right, that IS the bisection (Emerald, 2026-08-21)
 
@@ -1316,21 +1293,11 @@ different places and can quietly stop exercising the thing being measured — on
 its frames pressed against a wall. Log a state the phase depends on (here the tile behaviour under
 the player) and check it before reading the result.
 
-## Read the engine's own copy when the register is write-only (Emerald, 2026-08-21)
+## Write-only registers read back as convincing noise — moved (GBA)
 
-Several GBA display registers are write-only and return garbage when read — `WIN0H`, `WIN0V`,
-`BLDY` among them — while their neighbours (`DISPCNT`, `BLDCNT`, `BLDALPHA`, `WININ`, `WINOUT`)
-read fine. A register dump therefore mixes real values with convincing noise, and nothing marks
-which is which.
-
-The live value usually exists in RAM anyway, because the engine has to keep its own copy to write
-each frame: a per-scanline effect keeps a buffer plus a small descriptor saying which register it
-targets and whether it is running. Read those instead. It is also strictly better than the
-register would have been — a per-scanline effect has 160 different values and the register only
-ever holds the current line's.
-
-**Check a register's read/write status before building an argument on a dump**, and prefer the
-engine's own state to a hardware read whenever both exist.
+The register list is GBA-specific and lives in [../bizhawk/CLAUDE.md](../bizhawk/CLAUDE.md).
+Generally: **check a register's read/write status before building an argument on a dump**, and
+prefer the engine's own copy to a hardware read wherever both exist.
 
 ## Your own ghost is indistinguishable from the player in any buffer that records APPEARANCE
 

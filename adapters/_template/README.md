@@ -242,21 +242,12 @@ deliberately no template, since a stub with no content would go stale immediatel
    only the big file is manual. An adapter loaded from the release folder itself (both BizHawk
    adapters) reaches the root exe and config with no copy of anything.
 
-## An emulator adapter is Lua-only — never patch the ROM
+## An emulator adapter is Lua-only — never patch the ROM (moved)
 
-**Start from this, before the first file exists.** A BizHawk adapter reads and writes the running
-machine's RAM from the emulator's own Lua front end, and it never ships, generates or requires a
-patched ROM. The reason is compatibility, not purity: MeshGhost works on Archipelago seeds and
-randomizers **because it never touches the ROM** — whatever patch the player is already running
-stays intact underneath, and MeshGhost layers on top. Our own patch would have to be reconciled
-with theirs, which is not something a player can do, so a patch trades a feature that works on
-every ROM for one that works on one ROM.
-
-What this rules out is real and worth knowing up front: any technique needing code *inside* the
-game — a custom interrupt handler, new code at a ROM address, a hooked routine that must return a
-value. The way around it is nearly always the front end reaching the same place from outside: an
-execute hook on an engine routine is a mid-frame wakeup with no patch at all. Full reasoning and
-what it costs: the 2026-08-21 ADR in `agent_docs/architecture.md`.
+The rule and its full reasoning are in [../bizhawk/CLAUDE.md](../bizhawk/CLAUDE.md), which loads
+itself when you touch a BizHawk adapter. The one-line version, which is also in the root
+`CLAUDE.md`: an emulator adapter never ships, generates or requires a patched ROM — that is what
+lets MeshGhost run on top of an Archipelago seed instead of fighting it.
 
 ## First, work out what you will be able to READ
 
@@ -493,24 +484,12 @@ directly to the enumeration and spawn-detection work above, which is exactly the
 costly. It lives in [probes.md](probes.md) with the rest of the probe method, and the full incident
 is in [../../agent_docs/pitfalls.md](../../agent_docs/pitfalls.md), "The diagnostics were the bug".
 
-### A per-second log line is a per-second stall — and it ships
+### A per-second log line is a per-second stall — moved (BizHawk)
 
-**A rule the new adapter starts with, because both existing Lua adapters got it wrong.** Writing to
-the log is not free: one `console.log` plus one `flush` was measured at **63–83ms** on 2026-08-21 —
-four to five frames — on the emulator's own thread. Crystal's drawn tier wrote one summary line a
-second whenever peers were present, so a shipped session lost that every second, and Emerald
-wrapped the global `console.log` so every console line flushed to disk too.
-
-So: **open the log buffered (`setvbuf("full", …)`), never flush per line, flush on a timer, and keep
-`console.log` for the rare line somebody actually needs to see.** [probes.md](probes.md) has said
-"buffer, and flush in batches" since the drawn tier was built — what failed was reading it as advice
-about *probes*. It is not. It is about anything that runs every frame, shipped code first.
-
-**And when anyone says "choppy", measure PACING, not rate.** An average cannot see a hitch: ten
-frames lost inside one second still reads as 58fps, which is why this cost a whole session before it
-was found. `dev-scripts/bizhawk-hitch-meter.lua` is standing rig for exactly that — game-agnostic,
-attach it to any performance question, and it reports frames over 20ms, frames over 33ms and the
-worst gap rather than an average that hides all three.
+The measured costs and the buffered-logging rule are in [../bizhawk/CLAUDE.md](../bizhawk/CLAUDE.md).
+The part that is NOT host-specific, and that both Lua adapters got wrong: **this is about anything
+that runs every frame, shipped code first — not about probes.** And when anyone says "choppy",
+measure PACING, not rate: an average cannot see a hitch.
 
 ### Lua's 200-local ceiling will stop your adapter loading, silently
 
