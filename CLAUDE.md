@@ -261,16 +261,17 @@ loaded and that index is not, so a trigger kept here still fires and a descripti
 - `agent_docs/testing.md` — read before adding a test or chasing a flake.
 - `agent_docs/playing.md` — read before driving a running game yourself.
 - A change to `contract.md` is a contract revision: record it as an ADR in `architecture.md`.
-- **Read `adapters/_template/README.md` END TO END before a new game's adapter exists — every
-  line, before you create its first file. `wc -l` it; if you have not reached the last line, you
-  have not read it, and saying "I read the template" is then false.** Reading the top and starting
-  work is THE failure mode, not a shortcut — it happened twice on 2026-08-17, the day this rule
-  was written, both times with the answer already sitting further down the file. **Answers are at
-  the bottom as often as the top.** It holds the folder convention, the access-model question and
-  enumerate-before-guessing; its companion `adapters/_template/probes.md` is the probe method —
-  read that one before writing any probe. **`_template/` is also the gold standard and may never
-  lag**: a rule, file or trap added to a shipped adapter is back-ported in the same pass, and a
-  decision that invalidates a premise stated there updates it.
+- **Invoke `/new-adapter` before a new game's adapter exists — before you create its first file —
+  and `/write-a-probe` before writing any probe.** Each sequences the required reading in the
+  order the work needs it. **Then read `adapters/_template/README.md` END TO END; `wc -l` it, and
+  if you have not reached the last line you have not read it.** Reading the top and starting work
+  is THE failure mode — it happened twice on 2026-08-17, both times with the answer sitting
+  further down the file. **Answers are at the bottom as often as the top.**
+- **`adapters/CLAUDE.md` and `adapters/bizhawk/CLAUDE.md` load themselves** on first contact with
+  those folders — the every-adapter hard rules and the BizHawk host rules. Do not restate either
+  here, or in `_template/`: a rule with two homes drifts, and this repo can show that twice.
+- **`_template/` is the gold standard and may never lag**: a rule, file or trap added to a shipped
+  adapter is back-ported in the same pass, and a decision that invalidates a premise there updates it.
 
 Use this file only for working notes and rules that must be immediately visible to the
 agent. Put longer design rationale, contract definitions, and phase planning into
