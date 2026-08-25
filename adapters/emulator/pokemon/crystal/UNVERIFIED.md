@@ -1139,6 +1139,37 @@ reads `FishingRodGFX` from ROM (`41:4560` on our own hash-verified `pokecrystal`
 the sprite table it has no cheap signature check, which is why the gate is ROM identity. On any
 other build the rod is simply absent.
 
+### The fishing path was audited against the decompilation offline, 2026-08-25
+
+**No fault found, and that is not a confirmation** — every check below is a source/ROM comparison
+with the game shut down. What it removes is the class of error a live run cannot see, which is why
+the fishing plan called this one out as *"most likely to be wrong in a way measuring cannot show"*.
+
+- **`FISHING_ROD_ROM = 0x104560` is byte-exact.** `pokecrystal.sym` puts `FishingRodGFX` at
+  `41:4560`, and the 32 bytes at that flat offset in our own hash-verified `pokecrystal.gbc` are
+  **identical to `gfx/overworld/fishing_rod.2bpp`** — two tiles, decoding as a diagonal rod and a
+  rod-plus-hand. So the offset, the bank arithmetic and the 2bpp decode all agree.
+- **`facingFrames.ROD` matches `FacingFishDown/Up/Left/Right` row for row** (`db y, x, attr, tile`):
+  `0,16` / `0,-8` / `5,-8` + XFLIP / `5,16`, tiles `$fc`/`$fd` = rod tiles 0/1.
+- **The rod really does take the character's palette.** `_UpdateSprites` ORs `d` — the object's
+  `OBJECT_PALETTE` — into *every* sprite's attributes, `RELATIVE_ATTRIBUTES` or not.
+- **The shared-tile problem is real**, so reading ROM is not an over-engineering: `data/sprites/
+  emotes.asm` gives `JumpShadowGFX` and `FishingRodGFX` the same starting tile `$fc`.
+- **Struct offsets and constants re-checked**: `OBJECT_ACTION` `$0b`, `OBJECT_FACING` `$0d`,
+  `OBJECT_ACTION_FISHING` 6, `FACING_FISH_DOWN..RIGHT` `$10`–`$13`.
+- **The direction cannot be confused by the fishing facing.** `getLocalState` reads
+  `OBJECT_DIRECTION`, not `OBJECT_FACING`, and `GetSpriteDirection` masks it to bits 2-3 — so
+  `orientation` stays correct while `OBJECT_FACING` is `$10`+dir, and the spawned tier's
+  `SetFacingFish` gets the direction it needs from the byte the idle-turn branch keeps in sync.
+
+**Where a live run still decides it**: whether the rod lands in the right *place* beside the body
+at the drawn tier's own coordinates, and whether action 6 survives on a spawned ghost frame to
+frame. Neither is answerable from source.
+
+**One thing loopback cannot separate.** While the local player fishes, the engine loads the rod
+into the shared `$fc`/`$fd` tiles anyway — so a spawned ghost's rod would look right even if the
+ROM read were wrong. The drawn tier is the one that proves it, because it reads the cartridge.
+
 ### NEXT SESSION'S WORK: FISHING FIRST (the user's call, 2026-08-25)
 
 **Savestate slot 7 is the fishing spot and the rod is registered to SELECT** — so the state is one

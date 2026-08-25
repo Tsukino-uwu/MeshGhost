@@ -798,6 +798,30 @@ proves it either way; the window never did.
 Live case: two visible consoles appeared over a Crystal session on 2026-08-18, which is what
 prompted the preference.
 
+### Launching a `dev-scripts` `.bat` from an agent shell — 2026-08-25
+
+**`NoDefaultCurrentDirectoryInExePath=1` is set in the agent's shell**, so `cmd` will not run a
+batch file named without a path even when its own `%CD%` is the folder holding it — `dir /b
+run-relay-loopback.bat` finds the file on the very next line while `cmd /c run-relay-loopback.bat`
+answers *"is not recognized as an internal or external command"*. **Always give the launcher its
+absolute path**, and note the error names the file, which reads like a missing file rather than a
+refused lookup. Three launches were lost to reading it that way.
+
+Two more shapes that failed silently in the same attempt, both worth not repeating:
+
+- **`Start-Process cmd.exe -WorkingDirectory <dir> -ArgumentList "/c","<bat> > log 2> err"`** — the
+  redirection is part of the argument string, so when the bat is not found the error goes to a log
+  written *before* the failure and the next read shows the PREVIOUS attempt's text. Two runs looked
+  identical because nothing had been rewritten at all. **Check the log's mtime, not its contents**,
+  before believing a repeated error.
+- **`start /min cmd /c <bat> > log`** — `start` detaches immediately and the redirection binds to
+  `start` rather than to the bat, so both logs come back empty and no process exists. Nothing
+  reports an error anywhere.
+
+**What worked**: the Bash tool with `run_in_background`, `cmd //c "<absolute path to bat>" > log
+2> err`. That keeps the launcher's filename in the record, which is the whole reason `run-core.bat`
+and the `-shipped` pair are separate files (see `run-core.bat`'s own header).
+
 ## Launching BizHawk from PowerShell — quote the ROM path yourself, 2026-08-19
 
 `Start-Process -FilePath EmuHawk.exe -ArgumentList '--lua=...', 'C:\...\bizhawk roms\...gba'`
