@@ -434,6 +434,48 @@ if ($lagging.Count -gt 0) {
 }
 
 # ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+Section "pitfalls.md index coverage"
+
+# pitfalls.md carries two structures on purpose -- host/subsystem groups for part of it, and
+# lesson-shaped chronological entries for the rest -- with one index over both. An index survives
+# where the half-finished taxonomy did not, because adding an entry costs ONE line, and because a
+# check can verify it. Nothing can mechanically verify "is this filed under the right theme",
+# which is why the taxonomy was not finished (decided 2026-08-25).
+$pit = "agent_docs/pitfalls.md"
+$pitLines = @(Get-Content -LiteralPath $pit)
+$idxStart = ($pitLines | Select-String -Pattern '^## Index — every entry in this file$').LineNumber
+if (-not $idxStart) {
+    Report-Fail "$pit has no index section -- every heading is supposed to be listed in one"
+} else {
+    # the index runs to the first heading after it that is not one of its own ### sub-groups
+    $idxEnd = $pitLines.Count
+    for ($i = $idxStart; $i -lt $pitLines.Count; $i++) {
+        if ($pitLines[$i] -match '^## ' ) { $idxEnd = $i; break }
+    }
+    $indexed = @{}
+    for ($i = $idxStart; $i -lt $idxEnd; $i++) {
+        if ($pitLines[$i] -match '^- (.+)$') { $indexed[$Matches[1].Trim()] = $true }
+    }
+    $missing = @()
+    for ($i = $idxEnd; $i -lt $pitLines.Count; $i++) {
+        $l = $pitLines[$i]
+        # Entry-level only: a '### ' under a '## ' entry is part of that entry, not an entry of
+        # its own, and indexing those would make the index longer than useful. The themed '### '
+        # sections are listed in the index too, but are not required by this check.
+        if ($l -notmatch '^## ') { continue }
+        $title = ($l -replace '^## ', '').Trim()
+        if (-not $indexed.ContainsKey($title)) { $missing += "line $($i+1): $title" }
+    }
+    if ($missing.Count -gt 0) {
+        Report-Fail "$($missing.Count) pitfalls.md heading(s) missing from its index -- add one line each:"
+        $missing | Select-Object -First 12 | ForEach-Object { Write-Host "          $_" }
+    } else {
+        Report-Pass "every pitfalls.md heading ($($indexed.Count) indexed) appears in its index"
+    }
+}
+
+# ---------------------------------------------------------------------------
 Section "Leftover scaffolding"
 
 # Leaving a relay alive is how a later run silently binds the wrong port.
