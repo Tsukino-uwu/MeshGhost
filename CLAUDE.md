@@ -244,37 +244,23 @@ stays here, its reasoning goes to `agent_docs/`, with a one-line pointer. Full e
 
 ## Internal docs conventions
 
-- `README.md` is the public repo landing page; `agent_docs/README.md` is the internal doc index.
-- `agent_docs/brief.md` is the original design brief — vision and rationale.
-  `agent_docs/project-history.md` is the retrospective on the pre-planning phase, before any
-  adapter existed — per-adapter build stories live in each game's own `README.md` instead.
-- `agent_docs/contract.md` is the implemented packet schema, adapter interface, and transport
-  contract. This is the most durable file in the repo; changes to it are contract revisions,
-  recorded as ADRs in `architecture.md`.
-- `agent_docs/architecture.md` is for system shape and the architecture decision log;
-  `agent_docs/plans.md` is for the live roadmap, phase status, and non-goals.
-- `agent_docs/ideas.md` is the unscheduled backlog — nothing there is committed until it moves
-  into `plans.md`.
-- `agent_docs/status.md` is the one-screen summary of the active phase and current focus — the
-  file a session actually needs first to know where work stands.
-- `agent_docs/licensing.md` is the third-party license audit — check before referencing a project.
-- `agent_docs/risks.md` is the assumptions and risk register; `agent_docs/pitfalls.md` is the
-  adapter-specific issues log — symptom, diagnosis, fix.
-- `agent_docs/beyond-cosmetic.md` is the concept layer under `plans.md`'s depth ladder — sync
-  models, the authority taxonomy, and what a deeper-than-cosmetic mode would need. Nothing in it
-  is scheduled or approved; read it before proposing anything past Tier 2.
-- `agent_docs/bandages-core.md` is the Go side's shipped-compensation register. Each adapter has
-  its own `BANDAGES.md` next to its `README.md`; `adapters/_template/BANDAGES.md` holds the
-  how-to-tell-a-bandage guide, including the tells that only appear after the fact.
-- Each adapter's `FLAGS.md` is its compile-time flag register — every switch sorted into shipped
-  **behaviour**, **probe** (off, and a probe can break what it measures), or **dormant** negative.
-  **When a flag's comment and its value disagree, the register and the value win.** Flags that
-  only work as a set are marked there; do not switch one off alone.
-- Each adapter's `documentation.md` records **how that GAME works** — per mechanic: the fields,
-  the components, what it actually does. **Hard rule: no bandages in it, ever** — only behaviour
-  the game itself properly handles, so it reads as a description of the game to someone who has
-  never seen our code. Everything in it must also be publishable: facts observed from a running
-  copy, never source, decompiled output, asset content or verbatim dumps (`licensing.md`).
+`agent_docs/README.md` is the index: every internal doc, what it holds, and when to read it.
+Start there, not here. Below are only the pointers that carry a RULE — this file is always
+loaded and that index is not, so a trigger kept here still fires and a description does not.
+
+- Each adapter's `FLAGS.md` is its compile-time flag register. **When a flag's comment and its
+  value disagree, the register and the value win.** Flags that only work as a set are marked
+  there; do not switch one off alone.
+- Each adapter's `documentation.md` records **how that GAME works**. **Hard rule: no bandages in
+  it, ever** — only what the game itself properly handles. Everything in it must be publishable:
+  facts observed from a running copy, never source, decompiled output, asset content or verbatim
+  dumps (`licensing.md`).
+- `agent_docs/beyond-cosmetic.md` — read before proposing anything past Tier 2.
+- `agent_docs/effect-investigation.md` — read before starting effect/VFX work on a new adapter,
+  not after it goes wrong.
+- `agent_docs/testing.md` — read before adding a test or chasing a flake.
+- `agent_docs/playing.md` — read before driving a running game yourself.
+- A change to `contract.md` is a contract revision: record it as an ADR in `architecture.md`.
 - **Read `adapters/_template/README.md` END TO END before a new game's adapter exists — every
   line, before you create its first file. `wc -l` it; if you have not reached the last line, you
   have not read it, and saying "I read the template" is then false.** Reading the top and starting
@@ -285,14 +271,6 @@ stays here, its reasoning goes to `agent_docs/`, with a one-line pointer. Full e
   read that one before writing any probe. **`_template/` is also the gold standard and may never
   lag**: a rule, file or trap added to a shipped adapter is back-ported in the same pass, and a
   decision that invalidates a premise stated there updates it.
-- `agent_docs/effect-investigation.md` is the how-to-search playbook for a game's visual effects —
-  read before starting effect/VFX work on a new adapter, not after it goes wrong.
-- `agent_docs/access-models.md`: what can be read about each game, and why it predicts difficulty.
-- `agent_docs/phases/` archives a file per phase; `agent_docs/environment.md` is the toolchain and
-  tool/mod version record; `agent_docs/playing.md` is what an agent may do to a RUNNING game.
-- `agent_docs/verified.md` is the append-only log for confirmed runtime facts.
-- `agent_docs/testing.md` is how to run every automated Go-side check, what CI adds, and the
-  testing traps worth not rediscovering. Read it before adding a test or chasing a flake.
 
 Use this file only for working notes and rules that must be immediately visible to the
 agent. Put longer design rationale, contract definitions, and phase planning into
