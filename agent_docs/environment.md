@@ -29,15 +29,12 @@ UE4SS entry below for that last one specifically, which is currently unresolved)
   `GOTOOLCHAIN=auto` is what let CI pass while it was still pinned to 1.22. Which of these
   actually *link* into the shipped binaries is a separate (smaller) list — see
   `packaging/release/THIRD-PARTY-NOTICES.txt`.
-- **cgo / the race detector: works, as of 2026-08-18.** `go test -race` needs a real C toolchain,
-  and the one that works here is the **standalone MSYS2 mingw64** at `C:/msys64/mingw64/bin`
-  (not devkitPro's MSYS2, whose `gcc` cgo cannot use — `stddef.h: No such file or directory`).
-  **Setting `CC` alone is not enough**: the compiler's own `bin` must be *ahead of devkitPro on
-  `PATH`* so `as`/`ld`/headers resolve, or it fails with `runtime/cgo: cgo.exe: exit status 2`.
-  This was recorded as "does not work on this machine" from 2026-08-16 until 2026-08-18, which
-  was wrong about the reason. The exact recipe is in `testing.md`'s Race detector section, and
-  `dev-scripts/run-gotests-race.bat` runs it. Same `PATH`-shadowing trap as `cmake` and `cmd`
-  (`pitfalls.md`).
+- **cgo / the race detector: works, as of 2026-08-18.** The C toolchain that works here is the
+  **standalone MSYS2 mingw64** at `C:/msys64/mingw64/bin`, not devkitPro's. It was recorded as
+  "does not work on this machine" from 2026-08-16 until 2026-08-18, which was wrong about the
+  reason — the same `PATH`-shadowing trap as `cmake` and `cmd` (`pitfalls.md`). **The recipe
+  lives in `testing.md`'s Race detector section and is not repeated here**;
+  `dev-scripts/run-gotests-race.bat` runs it.
 - Python: **confirmed installed**, 3.12.10 (`python --version`, 2026-08-11), at the standard
   per-user install location (`%LOCALAPPDATA%\Programs\Python\Python312\python.exe`). Invoke as
   `python`, not `python3` — only `python` is on `PATH` (both in a normal shell and in the
@@ -271,22 +268,15 @@ UE4SS entry below for that last one specifically, which is currently unresolved)
   **What this changes:** a test that needs the game in a particular place no longer costs the user
   the walk to get there. Checkpoint the state once, and every later run starts from it.
 
-  **What it does NOT change, and this is the part to keep hold of:** `CLAUDE.md`'s rule that an
-  adapter claim needs *"the expected thing seen happening on screen"* stands exactly as before.
-  Every one of the six real bugs found in the 2026-08-18 Emerald session — the ghost wearing the
-  player's animation frames, the slot-machine script, the frozen ghost, the fast-walk instead of a
-  run, the off-grid placement, the leaked ghosts across route boundaries — was caught by a person
-  looking at the screen, and in every case the logs looked healthy. **Automating the mechanical
-  half of the loop is what this buys; the judging half is not automatable and should not be
-  presented as if it were.**
+  **What it does NOT change:** the visual gate. **Automating the mechanical half of the loop is
+  what this buys; the judging half is not automatable and should not be presented as if it were.**
+  The doctrine, the user's own wording for it, and the six-bug 2026-08-18 case that grounds it are
+  in `testing.md` — this file does not restate them.
 - **The agent can SEE the screen — `client.screenshot`, confirmed working 2026-08-18.**
   `dev-scripts/bizhawk-screenshot.lua` writes a PNG; the agent then reads that PNG directly. First
   run showed the town, the player, and the spawned ghost beside them, all legible.
-  **A SCREENSHOT IS NEVER PROOF, AND THIS CHANGES NO RULE.** The user's instruction on the day the
-  capability was found, having been asked directly whether the gate should move: *"Keep the rule
-  exactly as it is"* and *"even with a picture, I still have to verify/confirm visually as well.
-  never take pictures as proof"*. `verified.md`'s human gate on anything visual stands **exactly**
-  as written — a screenshot does not satisfy it, not for motion, and not for a static fact either.
+  **A SCREENSHOT IS NEVER PROOF, AND THIS CHANGES NO RULE** — `testing.md` owns why, and quotes
+  the user's answer when asked directly whether the gate should move.
   **What it is for:** the agent debugging faster on its own time — checking a hypothesis before
   spending the user's attention, seeing which of two guesses is worth pursuing, attaching the
   failing frame to a question instead of describing it in words. It shortens the loop *before* a
@@ -387,17 +377,11 @@ UE4SS entry below for that last one specifically, which is currently unresolved)
   stop growing, which reads as a broken loader rather than a paused emulator. Check whether the
   adapter's log is still growing before debugging anything else.
 - **How to actually use all of the above: iterate freely, then hand over ONE confirmation.**
-  Stated by the user 2026-08-18, after the automation above was assembled:
-
-  > *"you are fine to test/try things, and fix them. but i have to confirm the end result. it does
-  > not stop you from trying to find/fix more things. it just means i will have to confirm
-  > personally at the end that EVERYTHING works as intended after you have done so."*
-
   **The gate is on the CLAIM, not on the activity.** Restoring savestates, driving input, taking
   screenshots, spawning things, breaking them and fixing them again — all of that is the agent's
   own business and needs no permission and no supervision. What needs the user is the *end
   result*: a personal confirmation that everything works as intended, before anything is called
-  done or written into `verified.md`.
+  done or written into `verified.md`. The user's own statement of this is quoted in `testing.md`.
 
   **The practical shape this asks for**, which is the opposite of what the agent was doing before
   it was said: do **not** stop after every change to ask "does this look right?". Run the loop —

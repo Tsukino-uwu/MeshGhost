@@ -38,6 +38,43 @@ TEVI replaced the brief's original Ori: Will of the Wisps pick.
   that survives is the *sequencing* one — do not churn the wire format while the contract is
   still moving — not the idea that small savings are beneath bothering with.
 - No second-game adapter until Phase 5 validates the template.
+- ~~No relay authentication work before Phase 4 ships on no-auth~~ — **superseded 2026-08-13,
+  done 2026-08-14**: Phase 4 shipped 2026-08-11; relay/core safety became the explicit next
+  priority and room-code auth is now built, see "Room codes / relay safety" below. Kept struck
+  through, not deleted, so the original reasoning (don't build room codes early just because
+  they're the eventual goal) stays legible as a past decision, not silently erased.
+- ~~No emulator memory *writes* or save-state editing~~ — **the writes half was superseded
+  twice, in 2026-08-17 and 2026-08-18 ADRs; see below.** Save-state editing still holds without
+  exception. This was always the current posture, not a permanent philosophical stance:
+  whether it ever changes (see "Depth beyond the cosmetic ghost" below) is pending an actual
+  Archipelago-coexistence test, not decided in the abstract. Until that test happens and a
+  specific feature is deliberately approved via an ADR in `architecture.md`, this rule holds
+  without exception.
+  **First exception granted 2026-08-17, by exactly that route** — the Crystal adapter spawns a
+  real object event rather than drawing an overlay, approved by the user and recorded as an ADR in
+  `architecture.md`. **Extended to Emerald 2026-08-18**, by the same route and with its own ADR:
+  Emerald's shipped adapter now spawns a real object event too, on a vanilla ROM, and keeps the
+  overlay for a patched one. So the exception covers **both BizHawk Pokémon adapters**, not
+  Crystal alone. It is still **narrow**: those two games only, live RAM only, cosmetic
+  only, and the adapter must positively identify the ROM before writing — because Archipelago's
+  Crystal patch rearranges WRAM non-uniformly, so a write to a moved address corrupts rather than
+  fails (`verified.md`). **Amended 2026-08-18 on the user's call: identification is a *warn*, not
+  a *refuse*.** No ROM is refused by default; the adapter always says which build it found, and
+  `MESHGHOST_CRYSTAL_STRICT=1` restores refusal for anyone who wants it (`verified.md`).
+  **Archipelago's standing is settled, 2026-08-18, on the user's call: it is a real goal, but it
+  comes after the original game, always.** Vanilla is what the project promises and what gets
+  fixed first; a patched ROM is worked toward and treated as best-effort until it is not. So the
+  coexistence test is neither waived nor a blocker on shipping vanilla work — it gates calling
+  the *patched-ROM* version of a feature done, and nothing else. This resolves the tension
+  between this paragraph and `phases/phase9.md` marking Archipelago in-scope: in-scope and
+  second in line are not in conflict. Every other
+  adapter remains read-only, and "never write a save" is untouched and absolute **for anything that
+  ships**. Clarified 2026-08-18, on the user's call: a **dev-only probe may cheat**, save data
+  included, because reaching a test state (surfing, a bike, eight badges) otherwise costs an hour
+  of play per attempt and the tester's own save is expendable during development. The carve-out is
+  a probe in `probes/`, never an adapter and never in a release; the full statement and its three
+  conditions are in `adapters/_template/README.md`, and the worked example is
+  `adapters/bizhawk/pokemon/emerald/probes/testkit.lua`.
 
 ### Efficiency is a standing goal — and the size of the win is not the test
 
@@ -100,42 +137,6 @@ What this does NOT license: breaking the contract silently, optimizing on a gues
 measurement (measure first — that is why the cross-area counters in `relay/introspect.go` exist),
 or trading debuggability away wholesale. `contract.md`'s "JSON until it hurts" still stands as the
 *default format* decision; it is no longer a reason to decline a cheap saving elsewhere.
-- ~~No relay authentication work before Phase 4 ships on no-auth~~ — **superseded 2026-08-13,
-  done 2026-08-14**: Phase 4 shipped 2026-08-11; relay/core safety became the explicit next
-  priority and room-code auth is now built, see "Room codes / relay safety" below. Kept struck
-  through, not deleted, so the original reasoning (don't build room codes early just because
-  they're the eventual goal) stays legible as a past decision, not silently erased.
-- No emulator memory *writes* or save-state editing — MeshGhost reads game memory and does
-  not write it, today. This is the current posture, not a permanent philosophical stance:
-  whether it ever changes (see "Depth beyond the cosmetic ghost" below) is pending an actual
-  Archipelago-coexistence test, not decided in the abstract. Until that test happens and a
-  specific feature is deliberately approved via an ADR in `architecture.md`, this rule holds
-  without exception.
-  **First exception granted 2026-08-17, by exactly that route** — the Crystal adapter spawns a
-  real object event rather than drawing an overlay, approved by the user and recorded as an ADR in
-  `architecture.md`. **Extended to Emerald 2026-08-18**, by the same route and with its own ADR:
-  Emerald's shipped adapter now spawns a real object event too, on a vanilla ROM, and keeps the
-  overlay for a patched one. So the exception covers **both BizHawk Pokémon adapters**, not
-  Crystal alone. It is still **narrow**: those two games only, live RAM only, cosmetic
-  only, and the adapter must positively identify the ROM before writing — because Archipelago's
-  Crystal patch rearranges WRAM non-uniformly, so a write to a moved address corrupts rather than
-  fails (`verified.md`). **Amended 2026-08-18 on the user's call: identification is a *warn*, not
-  a *refuse*.** No ROM is refused by default; the adapter always says which build it found, and
-  `MESHGHOST_CRYSTAL_STRICT=1` restores refusal for anyone who wants it (`verified.md`).
-  **Archipelago's standing is settled, 2026-08-18, on the user's call: it is a real goal, but it
-  comes after the original game, always.** Vanilla is what the project promises and what gets
-  fixed first; a patched ROM is worked toward and treated as best-effort until it is not. So the
-  coexistence test is neither waived nor a blocker on shipping vanilla work — it gates calling
-  the *patched-ROM* version of a feature done, and nothing else. This resolves the tension
-  between this paragraph and `phases/phase9.md` marking Archipelago in-scope: in-scope and
-  second in line are not in conflict. Every other
-  adapter remains read-only, and "never write a save" is untouched and absolute **for anything that
-  ships**. Clarified 2026-08-18, on the user's call: a **dev-only probe may cheat**, save data
-  included, because reaching a test state (surfing, a bike, eight badges) otherwise costs an hour
-  of play per attempt and the tester's own save is expendable during development. The carve-out is
-  a probe in `probes/`, never an adapter and never in a release; the full statement and its three
-  conditions are in `adapters/_template/README.md`, and the worked example is
-  `adapters/bizhawk/pokemon/emerald/probes/testkit.lua`.
 
 ## Depth beyond the cosmetic ghost (reserved, not scheduled)
 
@@ -637,24 +638,13 @@ per-IP connection cap. Full detail in the ADR,
 but that had never actually landed in the code (checked via full git history/reflog/dangling-
 commit search — no trace found; either a prior conversation that didn't leave a commit, or a
 plan that was never implemented). Full record: the ADR in `agent_docs/architecture.md` (search
-"2026-08-15", the send/receive rate-control ADR) and `agent_docs/contract.md`'s new
-"`send_hz` and `max_receive_hz_per_player`" subsection. Short version:
+"2026-08-15", the send/receive rate-control ADR).
 
-- **`server.send_hz`** (relay, default 20, valid 10–100) — the room-wide state send rate,
-  advertised to every client via `Welcome.SendHz`. A client adopts it as its own send rate
-  unless it deliberately configured a slower one (`-min-send`/`min_send`), which always wins —
-  prescriptive but with a per-client floor, never a way to force a client to send faster than
-  it wants to.
-- **`client.max_receive_hz_per_player`** (client, default 0/uncapped, valid 10–100 if set) — how
-  fast a client wants *other players'* state forwarded to it, per peer. Enforced at the relay by
-  dropping the excess before it goes out on the wire (client-side discarding would save no
-  bandwidth). Two recipients can receive the same sender at two different effective rates
-  simultaneously.
-- The per-client flood cap (`relay.MaxMessagesPerSecond`) now scales with the configured
-  `send_hz` (`max(120, send_hz × 6)`), **only ever up**, never down — turning a room's rate down
-  must never start disconnecting older clients still sending at their own built-in 20Hz.
-- An over-limit client now gets a `Reject` (`ReasonRateLimited`, classified retryable) before the
-  relay closes the connection, instead of the previous anonymous hangup.
+**The spec is `contract.md`'s "`send_hz` and `max_receive_hz_per_player`" section and is not
+restated here** — this file used to repeat all four bullets field for field, which is how two
+descriptions of one mechanism start drifting. In one line: the relay advertises a room-wide
+`send_hz`, a client's own slower `min_send` always wins, `max_receive_hz_per_player` is enforced
+relay-side per recipient, and the flood cap scales with `send_hz` only ever upward.
 
 **Real regression caught and fixed in the same change**: every `dev-scripts/run-core-*.bat`
 pass `-min-send=10ms` — faster than the (now fallback-only) 20Hz default — which under "slower
