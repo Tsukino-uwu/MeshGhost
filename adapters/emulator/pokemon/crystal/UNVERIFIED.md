@@ -1584,3 +1584,32 @@ failure this test exists to catch.
 Nothing user-confirmed here; what this closes is the INSTRUMENT side of the 9x9 question at both
 gaits, on the build carrying today's five fixes (tile-cache invalidation, gait on the wire, the
 stop-transient guard, step chaining, the stride-scaled band, the face-byte walk cycle).
+
+## 2026-08-25 — Crystal: quick reversals cut the corner, and the spawned ghost now walks the PATH
+
+**Fixed, NOT confirmed on screen.** The user, on a bike up/down drill: the spawned ghost
+*"trailing after... like reversing instead of hitting the walls/stopping. mid movement reverse"*
+— and then gave the repro themselves: 3-5 tiles, flip, repeat, short of any wall.
+
+**What it was.** The spawned tier stepped toward the peer's LATEST tile. Trailing by the echo,
+every quick reversal truncated: by the time the ghost closed the distance, the target was already
+back past the tile the peer turned on — so the ghost reversed 1-2 tiles short, in open ground,
+and the turn tile was never visited. The chain-overshoot counter proved the shape before the fix:
+faithful retraces of the turn tile logged at ONE end of the drill only — the other end was being
+cut. (The first theory — the step chain overshooting past the turn — was wrong and the instrument
+killed it: a chain's target is always a tile the peer actually stood on.)
+
+**The fix:** each new peer tile is queued (`facingFrames.pathGoal`, capped at 3 — beyond that is
+the catch-up/teleport regime, which sees the live target exactly as before), and the ghost walks
+the queue in order, reaching every tile the peer stood on — the turn tile included — before
+following it back. A teleport clears the queue. The chain also gained a continuation guard in the
+same session: it commits from an arrival that must still say walking-in-that-direction, so the
+stale beat around a reversal falls to the ordinary landing path.
+
+**Measured on the drill (3-tile flips, ~50 reversals):** rhythm still matched (2:430 vs the
+player's 2:424), 0 re-anchors, 0 runaways, 0 resyncs, spawned-side clean. Hit Lua's 200-local
+ceiling adding the helper and moved it onto `facingFrames`, per this file's own convention.
+
+**What to watch:** the user's own drill — a few tiles up/down on the bike, flipping mid-motion.
+The spawned ghost should ride THROUGH to the tile the player turned on and reverse there, trailing
+by its constant beat — never turning early in open ground.

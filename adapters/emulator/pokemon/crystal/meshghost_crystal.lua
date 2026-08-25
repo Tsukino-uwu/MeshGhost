@@ -5450,6 +5450,9 @@ end
 local snaps = { n = 0, at = 0, runaways = 0 }
 
 local function teleportGhost(g, x, y)
+	-- A warp's path is not walkable; the queue would make the ghost walk toward where the peer
+	-- USED to be after a teleport placed it where the peer IS.
+	g.path, g.pathX, g.pathY = nil, nil, nil
 	-- Ungated 2026-08-25 along with spawnGhost: liveScreenCoords is exact mid-scroll, and this
 	-- gate was the documented cause of a ghost FREEZING through continuous walking and then
 	-- visibly jumping when the player paused (the step-decision comment below).
@@ -5493,6 +5496,52 @@ end
 -- appears -- hidden behind UI, off screen, a slot lost to the game -- cannot pin the painted copy
 -- on screen forever. Costs a 40-entry OAM scan per frame only while a handover is pending, which
 -- is at most those 8 frames per promotion.
+-- THE PEER'S PATH, NOT ITS LATEST TILE (2026-08-25).
+--
+-- The spawned ghost used to step toward wherever the peer IS. Trailing by the echo, that
+-- truncates every quick reversal: the peer rides to a tile, turns on it, and by the time the
+-- ghost has closed the distance the target is already back PAST it -- so the ghost turned
+-- 1-2 tiles short, in open ground, and the tile the peer actually turned on was never visited.
+-- The user, on a 3-tile up/down bike drill: *"like reversing instead of hitting the
+-- walls/stopping. mid movement reverse"*. The chain-overshoot counter proved the shape: full
+-- retraces of the turn tile logged at ONE end only -- the other end was being cut.
+--
+-- So each NEW peer tile is queued, and the ghost walks the queue in order, reaching every tile
+-- the peer stood on -- including the one it turned on -- before following it back. The queue is
+-- tiny and self-limiting: at 3 entries the ghost is a full step-chain behind, which is the
+-- catch-up/teleport regime, and the queue is dropped so those paths see the live target exactly
+-- as before. A teleport also clears it (a warp's path is not walkable).
+-- On `facingFrames` and with the cap as a literal, because this file sits AT Lua's 200-local
+-- ceiling: two new top-level locals here pushed it to 201 and the adapter refused to compile --
+-- the wall emulator/CLAUDE.md warns about, hit live while adding this very function.
+function facingFrames.pathGoal(g, x, y, cx, cy)
+	local q = g.path
+	if g.pathX ~= x or g.pathY ~= y then
+		-- A new target. Queue the PREVIOUS one if the ghost has not reached it yet -- it is a
+		-- tile the peer stood on that the ghost still owes a visit.
+		if g.pathX ~= nil and (g.pathX ~= cx or g.pathY ~= cy)
+			and math.abs(g.pathX - x) + math.abs(g.pathY - y) == 1 then
+			q = q or {}
+			q[#q + 1] = { g.pathX, g.pathY }
+			g.path = q
+		end
+		g.pathX, g.pathY = x, y
+	end
+	if q then
+		-- Drop reached and stale entries from the front.
+		while q[1] and ((q[1][1] == cx and q[1][2] == cy)
+			or (q[1][1] == x and q[1][2] == y)) do
+			table.remove(q, 1)
+		end
+		if #q > 3 then
+			g.path = nil -- too far behind: the deficit paths below want the live target
+		elseif q[1] then
+			return q[1][1], q[1][2]
+		end
+	end
+	return x, y
+end
+
 local function holdHandover(o)
 	if not (o and o.handover) then
 		return false
@@ -6189,15 +6238,35 @@ local function renderRemote(id, state)
 		-- through to the landing path below, unchanged -- the engine cannot turn mid-step and
 		-- neither can this.
 		local chx, chy = u8(g.st_base + F_MAP_X) or 0, u8(g.st_base + F_MAP_Y) or 0
-		local chDir = DELTA_TO_DIR[string.format("%d,%d", x - chx, y - chy)]
+		local pgx, pgy = facingFrames.pathGoal(g, x, y, chx, chy)
+		local chDir = DELTA_TO_DIR[string.format("%d,%d", pgx - chx, pgy - chy)]
 		local chGroup = GAIT_PX[peerGait] and peerGait or 1
+		-- ONLY ON EVIDENCE OF CONTINUATION (2026-08-25, same day as the chain itself). The chain
+		-- commits on the step's LAST tick from an arrival that is 2-3 frames stale, and a
+		-- mid-motion reversal lives in exactly that window: the ghost chained one tile PAST the
+		-- tile the peer turned on and then had to walk back -- an overshoot-and-return the player
+		-- never made, which at bike speed the user read as the ghost *"reversing instead of
+		-- hitting the walls/stopping. mid movement reverse"*. The landing path this replaced had
+		-- absorbed reversal news by accident, in the 3-4 frames it wasted.
+		--
+		-- So the stale position alone is no longer enough: the same arrival must also say the
+		-- peer is still WALKING, FACING the chain's direction. An instant reversal turns the
+		-- direction byte the moment its new step starts and reads as standing for the beat
+		-- between steps, so the bait packets fail one guard or the other; a genuine continuation
+		-- passes both. A refused chain costs nothing -- the landing path below still takes the
+		-- step, at its old pace.
 		if chDir and stepType == 2 and (u8(g.st_base + F_STEP_DURATION) or 0) == 1
-			and (walking & 0x0F) == chGroup * 4 + chDir then
+			and (walking & 0x0F) == chGroup * 4 + chDir
+			and peerWalking and ORIENTATION_TO_DIR[state.orientation] == chDir then
+			-- The residual, counted: a chain whose very next step reverses within a step's worth
+			-- of frames is an overshoot the guard did not catch (a packet sent before the peer
+			-- itself knew). Read by the overshoot check in stepGhost's caller below.
+			g.chainAt, g.chainDir = drawFrames, chDir
 			w8(g.st_base + F_LAST_MAP_X, chx)
 			w8(g.st_base + F_LAST_MAP_Y, chy)
 			w8(g.st_base + F_STEP_DURATION, GAIT_TICKS[chGroup] + 1)
-			w8(g.st_base + F_MAP_X, x)
-			w8(g.st_base + F_MAP_Y, y)
+			w8(g.st_base + F_MAP_X, pgx)
+			w8(g.st_base + F_MAP_Y, pgy)
 			if stepLag.on then
 				stepLag.close(id)
 			end
@@ -6292,7 +6361,8 @@ local function renderRemote(id, state)
 		applyPeerAction(g, peerAct)
 		return
 	end
-	local dx, dy = x - cx, y - cy
+	local gx, gy = facingFrames.pathGoal(g, x, y, cx, cy)
+	local dx, dy = gx - cx, gy - cy
 	local dir = DELTA_TO_DIR[string.format("%d,%d", dx, dy)]
 
 	-- WAIT FOR THE PEER TO BE `STEP_TRIGGER_PROG` PIXELS INTO ITS STEP, rather than for its tile
@@ -6340,6 +6410,17 @@ local function renderRemote(id, state)
 		-- `stepGhost`'s own standing check already makes harmless.
 		if stepLag.on then
 			stepLag.close(id)
+		end
+		-- REVERSAL RETRACE, counted. A step opposite a recent chain is the ghost turning on the
+		-- same tile the peer turned on -- with the path queue this is the CORRECT shape at every
+		-- quick reversal, so the line exists to show reversals reaching the turn tile rather
+		-- than to flag a fault. Before the queue it fired at only ONE end of an up/down drill,
+		-- which is what proved the other end was being cut short.
+		if g.chainDir and dir == (g.chainDir ~ 1)
+			and drawFrames - (g.chainAt or -999) <= 16 then
+			logFile(string.format("reversal retrace: %s chained %s at f=%d, reversing %s at f=%d",
+				id, DIR_NAMES.letter[g.chainDir] or "?", g.chainAt or -1,
+				DIR_NAMES.letter[dir] or "?", drawFrames))
 		end
 		stepGhost(g, dir, peerGait) -- one tile: walk it, so the game animates the step
 	elseif math.abs(dx) + math.abs(dy) <= 3 then
