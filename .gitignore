@@ -38,6 +38,19 @@
 /adapters/**/*.log
 # Probe control files: a session writes a verb into one to drive a probe. Transient, like the logs.
 /adapters/**/*.cmd
+# Probe screenshots, for exactly the reason the logs above are ignored: `client.screenshot()`
+# output is personal diagnostic output that grows without bound (3,726 PNGs / 176MB under
+# emerald/probes/ on 2026-08-25), and a picture that has been read belongs in a VERIFIED.md
+# entry describing what it showed, not in the repo. Five had been committed by hand; they were
+# untracked on 2026-08-25 and none was referenced by any tracked file -- the only mention was
+# tiledecode_probe.lua WRITING tiledecode.png, which regenerates it on the next run.
+# The narrower /adapters/emulator/pokemon/emerald/probes/.gitignore ("shots/") predates this
+# and is left in place; it covers a subfolder convention this pattern does not replace.
+/adapters/**/*.png
+# Exception: an adapter's own shipped art is content, not diagnostic output. Emerald's ghost
+# placeholder is a .bmp today and so is not caught above, but a later adapter shipping a .png
+# would be -- named here so it fails visibly rather than silently vanishing from a release.
+!/adapters/**/assets/*.png
 # The cross-map scan cache the Emerald adapter writes beside its logs -- a per-machine runtime
 # artifact (a ROM-keyed address), never repo content.
 /adapters/**/xmap_cache.txt

@@ -16,15 +16,35 @@ has been read, its conclusion belongs in `VERIFIED.md`.
 live, with no emulator relaunch. See `agent_docs/environment.md`. Older probes here predate the
 loader and run their own frame loop, so they still work opened directly in the Lua Console.
 
-## Ten of these WRITE game RAM. Read this before running one.
+## Fifteen of these WRITE, and three hold the controller. Read this before running one.
 
 Called out here rather than only in their own headers, because a folder index that hides a
 memory-writing tool is the worst kind of gap — nobody reads a header they did not know existed.
-Nine write **object RAM only, never a save**, and a reset or a map load rebuilds what they
-touched: `spawn_test.lua` through `spawn_test7.lua`, `struct_diff_probe.lua`, `walk_test.lua`.
-The tenth, `oam_probe.lua`, writes **four hardware sprite entries** (shadow OAM 36..39, and the
-`OAM` domain), only on frames where the engine's own layout pass has declared them unused, and
-parks them back at `y=160` — the engine's own "not in use" value — when it is done.
+**This section said "ten" and named nine until 2026-08-25, while eighteen scripts were missing
+from the index entirely — five of them writers.** That is the gap in its purest form: the index
+was reassuring and wrong at the same time.
+
+**Object RAM only, never a save** — a reset or a map load rebuilds what they touched:
+`spawn_test.lua` through `spawn_test7.lua`, `struct_diff_probe.lua`, `walk_test.lua`,
+`orphan_sweep.lua`.
+
+**Hardware sprite entries:** `oam_probe.lua` writes shadow OAM 36..39 and the `OAM` domain, only
+on frames where the engine's own layout pass has declared them unused, and parks them back at
+`y=160` — the engine's own "not in use" value — when it is done.
+
+**Player state, deliberately** — these three cheat on purpose, which `CLAUDE.md` permits for a
+probe and never for an adapter: `goto_map.lua` warps the player (six writes, exactly what the
+game's own `warp` command does; **it savestates to slot 8 first, always**, which is this
+project's undo convention), `grant_test_kit.lua` writes badges/HMs into the party and inventory,
+and `noclip.lua` redirects `wTilesetCollisionAddress` into a WRAM zero region.
+**None writes the `.sav`** — but an in-game save afterwards makes `grant_test_kit`'s changes
+permanent, so savestate first and reload after. `noclip_off.lua` restores the collision pointer.
+
+**Three hold the d-pad**: `door_loop.lua`, `square_drive.lua`, and anything loaded with them.
+Unload them before handing the game back — in a loopback session the ghost IS the local player
+echoed, so a probe jittering the player jitters the ghost, and that reads as a rendering fault.
+One left loaded on 2026-08-22 became a suspect for a ghost wiggle and cost a round of diagnosis.
+
 Everything else in this folder is read-only — `object_slot_probe.lua` included, whose own header
 says it deliberately performs no writes.
 
@@ -54,6 +74,46 @@ Each one exists because the previous one failed in a specific way; `phase9.md` h
 | `spawn_test6.lua` | NPC template *plus* computed screen coordinates — copying them drew the ghost off-screen. |
 | `spawn_test7.lua` | NPC behaviour wearing the player's face: the combination that shipped. |
 | `walk_test.lua` | Making a spawned ghost walk using the game's own step mechanism. |
+
+## Movement, pose and cadence
+
+The 1:1 bar is judged on screen, so these measure what the engine DRAWS and how fast, not what
+its structs say. `../CLAUDE.md`'s "never move a ghost in units the game does not use" came out
+of this group.
+
+| Probe | What it answered |
+| --- | --- |
+| `action_watch.lua` | Read-only. Whether the PLAYER's own object actually carries the `OBJECT_ACTION` values the decomp says drive fishing, bumping, spinning and emotes — reading the source is not watching it happen. |
+| `action_probe.lua` | The generalisation of `bump_probe.lua`: every non-walking animation class in the engine's own terms, how long each facing holds in video frames, and how fast the engine's object clock actually ticks. The **cadence** a still frame cannot show. |
+| `bump_probe.lua` | What a bump looks like in the struct AND in the tiles drawn — walking stays `STANDING`, action reads 3, facing alternates, and the drawn tile follows the facing byte. |
+| `stride_probe.lua` | Read-only. What the engine draws across one step, per direction — measuring the drawn tier's two guesses (two mid-step arrangements per facing, an 8-frame `WALK_FRAME_HOLD`), neither of which had ever been seen running. Pair with `square_drive.lua` and it needs nobody. |
+| `posediff_probe.lua` | Read-only. Which of lag / speed / phase / rounding is behind *"walking left/right feels a bit off... not 1:1"* — four causes needing four different fixes, so it measures instead of guessing. |
+| `handover_probe.lua` | Read-only. How many frames a freshly promoted ghost takes to reach hardware OAM — i.e. whether the adapter's one-frame tier overlap is actually enough, or whether the peer is drawn by nobody for a frame. |
+| `transition_probe.lua` | Read-only. What is true while a door transition is on screen, after the painted tier's three positive gates all let one through. Watches every candidate across a transition rather than reasoning about which ought to work. |
+
+## Orphans — a character we left behind
+
+| Probe | What it does |
+| --- | --- |
+| `orphan_probe.lua` | Read-only. Names whether a *"weird static ghost"* is ours, by the fingerprint no map-placed NPC carries: the local player's sprite id plus `FLAG1_WONT_DELETE`. |
+| `orphan_sweep.lua` | **Writes.** Clears the objects `orphan_probe` identified — the same bytes the adapter clears on despawn. The adapter deliberately forgets an unverifiable ghost rather than zeroing a slot the game may have reused, which is why the cleanup is a separate opt-in tool. |
+
+## Driving the game, so a person does not have to
+
+`agent_docs/playing.md` allows driving a running game to reach a state. Every one of these costs
+the user nothing, which is the point.
+
+| Tool | What it does |
+| --- | --- |
+| `square_drive.lua` | **Holds the d-pad.** Walks a 3x3 square forever — the user's own test case for an intermittent fault that needs the same movement many times. |
+| `door_loop.lua` | **Holds the d-pad.** In and out of a door forever, waiting between presses so each transition completes — how the painted tier's map-transition behaviour gets watched often enough to measure. |
+| `goto_map.lua` | **Writes + savestates slot 8.** Warps the player to a named map, doing exactly what the game's own `warp` script command does, in the same order. |
+| `goto_route39.lua` | One line of config pointing `goto_map` at Route 39 — the user's designated worst case (*"a big route, and fills up things due to having a lot of npc's"*). List it ABOVE `goto_map.lua` in the loader's control file. |
+| `load_undo.lua` | Loads savestate slot 8 — the undo for a `goto_map` warp. One action, then quiet. |
+| `noclip.lua` | **Writes.** Walk through anything, by redirecting `wTilesetCollisionAddress` into a WRAM zero region — *not* Emerald's approach, because Game Boy keeps the collision table in ROM, which this project never writes. |
+| `noclip_off.lua` | **Writes.** Turns noclip off and proves it, restoring the pointer if an unclean unload left it redirected. |
+| `grant_test_kit.lua` | **Writes.** Grants the badges, HMs and field moves a test session needs to reach water, ledges, dark caves and the sky without playing through the game. |
+| `compare_layout.lua` | Config only: a plain loopback ghost 2 tiles right, with the three-way compare rig and the hardware tier both explicitly OFF. Every switch is set explicitly, including the ones being turned off — the loader replaces files, never globals. |
 
 ## The drawn tier
 
